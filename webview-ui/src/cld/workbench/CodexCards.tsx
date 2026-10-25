@@ -11,7 +11,7 @@ import { Chevron } from '../Chevron.js';
 import { useCldStore } from '../officeStore.js';
 import { codexStatus, codexWord, timesText } from '../panels/jobs.js';
 import { FOCUSED, section, tapButton } from './JobsTab.js';
-import { codexCards } from './workbench.js';
+import { codexCards } from './workbenchState.js';
 import { useNow } from './workbenchStore.js';
 
 const muted = 'text-text-muted text-xs';

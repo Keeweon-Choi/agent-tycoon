@@ -4,7 +4,7 @@ import { employeeFatigue, employeeOf } from '../../cld/employees.js';
 import { describeActivity } from '../../cld/ez/activity.js';
 import { CharacterLabel } from '../../cld/ez/CharacterLabel.js';
 import { FatigueBar, RestBubble } from '../../cld/ez/Fatigue.js';
-import { fatigueRules } from '../../cld/ez/fatigue.js';
+import { fatigueRules } from '../../cld/ez/fatigueState.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
 import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';

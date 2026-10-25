@@ -9,7 +9,7 @@ import {
   fatigueRules,
   fatigueText,
   nextContextSample,
-} from './fatigue.js';
+} from './fatigueState.js';
 import { FATIGUE } from './rules.js';
 
 beforeEach(() => setLanguage('ko'));

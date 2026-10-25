@@ -14,7 +14,7 @@ import { rankSprite } from './ez/rankSprites.js';
 import { nameplatesOn, setNameplates } from './ez/useNameplates.js';
 import { setStackedView, useFloors } from './floors.js';
 import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
-import { setTitleAtStart, useTitleScene } from './gfx/titleScene.js';
+import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
 import { applyLayoutPreset, resetLayout } from './hud/hudStore.js';
 import { type Preset, PRESETS } from './hud/layout.js';
 import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHours.js';

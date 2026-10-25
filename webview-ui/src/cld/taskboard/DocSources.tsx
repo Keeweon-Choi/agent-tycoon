@@ -10,7 +10,7 @@ import type { TrackingProjectSettings } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { Chevron } from '../Chevron.js';
-import { useDocSources } from './taskBoard.js';
+import { useDocSources } from './taskBoardState.js';
 
 const muted = 'text-text-muted text-xs';
 const button = 'border border-border px-8 py-4 text-xs pointer-coarse:min-h-44';

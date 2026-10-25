@@ -16,7 +16,7 @@ import {
   toggleGoalFilter,
   trackedColumn,
   trackedCount,
-} from './taskBoard.js';
+} from './taskBoardState.js';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 14, min)).toISOString();
 const task = (o: Partial<BoardTask> & { id: string }): BoardTask => ({

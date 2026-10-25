@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import type { BoardTask } from '../../../../core/src/messages.js';
 import { setLanguage } from '../../i18n/index.js';
 import type { CldScope as CldScopeType } from '../officeStore.js';
-import { scopeToProject } from './workbench.js';
+import { scopeToProject } from './workbenchState.js';
 
 // The board's modules read `window` when they load (the transport, the mock switch).
 let CldScope: typeof CldScopeType;

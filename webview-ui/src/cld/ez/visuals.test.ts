@@ -14,7 +14,7 @@ import type { Character } from '../../office/types.js';
 import { CharacterState } from '../../office/types.js';
 import { type ActivityInput, describeActivity } from './activity.js';
 import { cldDrawSpeechLinks, EFFECT_SPRITES, thinkingFrame, yawnFrame } from './drawVisuals.js';
-import { fatigueLook } from './fatigue.js';
+import { fatigueLook } from './fatigueState.js';
 import propData from './props.json';
 import { COMMAND_RULES, PHRASES, TOOL_RULES } from './rules.js';
 

@@ -36,7 +36,7 @@ import { transport } from '../../transport/index.js';
 import { CHAT_SEND_MAX, chatTarget, readOnlyNote, requestChat } from '../chat.js';
 import { useEngineStore } from '../engineStore.js';
 import { FatigueBar } from '../ez/Fatigue.js';
-import { contextPct } from '../ez/fatigue.js';
+import { contextPct } from '../ez/fatigueState.js';
 import { rootFileTicket } from '../files/filesStore.js';
 import { TerminalGlyph } from '../hud/glyphs.js';
 import { usePageStyle } from '../hud/hudStore.js';

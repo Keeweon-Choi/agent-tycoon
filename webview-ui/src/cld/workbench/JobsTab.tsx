@@ -23,7 +23,7 @@ import {
 } from '../panels/jobs.js';
 import { serverLine } from '../serverText.js';
 import { TaskBoardView } from '../taskboard/TaskBoard.js';
-import { setJobsView, useJobsView } from '../taskboard/taskBoard.js';
+import { setJobsView, useJobsView } from '../taskboard/taskBoardState.js';
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now());

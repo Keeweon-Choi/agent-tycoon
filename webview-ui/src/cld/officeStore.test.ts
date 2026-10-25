@@ -4,7 +4,7 @@ import type { OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messa
 import { setLanguage } from '../i18n/index.js';
 import { engineHandleMessage, engineResetForTests } from './engineStore.js';
 import { describeActivity } from './ez/activity.js';
-import { fatigueText } from './ez/fatigue.js';
+import { fatigueText } from './ez/fatigueState.js';
 import {
   actionToastDuration,
   cldConnectionLost,

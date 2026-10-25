@@ -43,7 +43,7 @@ import {
   WORKBENCH_TABS,
   workbenchProjects,
   type WorkbenchTab,
-} from './workbench.js';
+} from './workbenchState.js';
 import { setWorkbenchProject, setWorkbenchTab, useCanAct, useNow, useWorkbench } from './workbenchStore.js';
 
 const muted = 'text-text-muted text-xs';

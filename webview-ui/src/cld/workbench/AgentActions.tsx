@@ -18,7 +18,7 @@ import {
   type WorkerForm,
   workerFormError,
   workerProviders,
-} from './workbench.js';
+} from './workbenchState.js';
 
 const button =
   'border border-border px-8 py-4 text-xs hover:bg-border disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-44';

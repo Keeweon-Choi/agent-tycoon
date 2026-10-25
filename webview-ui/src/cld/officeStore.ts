@@ -35,7 +35,7 @@ import {
   fatigueLook,
   fatigueRules,
   nextContextSample,
-} from './ez/fatigue.js';
+} from './ez/fatigueState.js';
 import { floorsHandleMessage } from './floors.js';
 import { isOff, type OfficePanel } from './format.js';
 import { jobHandleMessage } from './jobStore.js';
@@ -44,7 +44,7 @@ import { cldNoticeEvent, cldNoticeReplay, cldPushState } from './notify/notices.
 import { repoHandleMessage } from './repo/repoStore.js';
 import { restWatch } from './rest.js';
 import { serverLine, serverText } from './serverText.js';
-import { docSourcesHandleMessage } from './taskboard/taskBoard.js';
+import { docSourcesHandleMessage } from './taskboard/taskBoardState.js';
 import { workHandleMessage } from './work/workStore.js';
 import { approvalsHandleMessage } from './workbench/approvals.js';
 

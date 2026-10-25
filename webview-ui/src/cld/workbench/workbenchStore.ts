@@ -8,7 +8,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { engineGetSnapshot } from '../engineStore.js';
 import { useCldStore } from '../officeStore.js';
-import { parseSaved, projectOfAgent, type WorkbenchSaved, type WorkbenchTab } from './workbench.js';
+import { parseSaved, projectOfAgent, type WorkbenchSaved, type WorkbenchTab } from './workbenchState.js';
 
 export const WORKBENCH_KEY = 'cld.workbench.v1';
 export const OPEN_WORKBENCH_EVENT = 'cld-open-workbench';

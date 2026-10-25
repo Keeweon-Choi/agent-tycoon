@@ -8,7 +8,7 @@ import { t, type TranslationKey } from '../../i18n/index.js';
 import type { Character } from '../../office/types.js';
 import { CharacterState } from '../../office/types.js';
 import type { ActivityDescription } from './activity.js';
-import type { FatigueLook } from './fatigue.js';
+import type { FatigueLook } from './fatigueState.js';
 import { PHRASES } from './rules.js';
 
 /** The ring's state, coloured by ACTIVITY_RING_COLORS (constants.ts). */

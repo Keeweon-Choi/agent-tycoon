@@ -11,7 +11,7 @@ import { ModelBadge } from '../TempList.js';
 import { THEME } from '../theme.js';
 import { EFFECT_SPRITES, propFrame, ringSprite, statusIconFrame } from './drawVisuals.js';
 import { FatigueBar, LevelBar, RestBubble } from './Fatigue.js';
-import { fatigueLook, fatigueRules } from './fatigue.js';
+import { fatigueLook, fatigueRules } from './fatigueState.js';
 import { PixelSprite } from './PixelSprite.js';
 import { ACTIVITY_VISUALS, type RingState,ringWord } from './visuals.js';
 

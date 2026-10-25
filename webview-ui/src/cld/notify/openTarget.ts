@@ -8,8 +8,8 @@ import { openSecurity } from '../auth/securityOpen.js';
 import { engineGetSnapshot } from '../engineStore.js';
 import { openMessenger, showRoomById } from '../messenger/messengerStore.js';
 import { cldGetSnapshot, virtualAgentId } from '../officeStore.js';
-import { setJobsView } from '../taskboard/taskBoard.js';
-import { pickerEntryOf, workbenchProjects } from '../workbench/workbench.js';
+import { setJobsView } from '../taskboard/taskBoardState.js';
+import { pickerEntryOf, workbenchProjects } from '../workbench/workbenchState.js';
 import { openWorkbench, setWorkbenchTab } from '../workbench/workbenchStore.js';
 
 export const FOCUS_MS = 4_000;

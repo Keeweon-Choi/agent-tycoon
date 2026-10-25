@@ -11,7 +11,7 @@ import {
   showMessengerList,
   useMessenger,
 } from '../cld/messenger/messengerStore.js';
-import { WORKBENCH_TABS } from '../cld/workbench/workbench.js';
+import { WORKBENCH_TABS } from '../cld/workbench/workbenchState.js';
 import {
   setWorkbenchTab,
   useWorkbench,

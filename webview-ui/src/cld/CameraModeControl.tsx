@@ -2,7 +2,7 @@
 import { Button } from '../components/ui/Button.js';
 import { t } from '../i18n/index.js';
 import { askFraming, CAMERA_MODES, setCameraMode, useCameraMode } from './cameraMode.js';
-import { showTitleScene } from './gfx/titleScene.js';
+import { showTitleScene } from './gfx/titleSceneState.js';
 
 export function CameraModeControl({ phone }: { phone: boolean }) {
   const mode = useCameraMode(phone);

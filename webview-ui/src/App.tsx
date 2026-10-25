@@ -16,7 +16,7 @@ import { engineOpenForm } from './cld/engineStore.js';
 import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
-import { closeTitleScene } from './cld/gfx/titleScene.js';
+import { closeTitleScene } from './cld/gfx/titleSceneState.js';
 import { HudIcons, HudLayer } from './cld/hud/HudIcons.js';
 import {
   closePages,

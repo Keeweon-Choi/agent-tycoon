@@ -15,7 +15,7 @@ import {
   showRoom,
 } from '../messenger/messengerStore.js';
 import { cldHandleMessage, cldResetForTests } from '../officeStore.js';
-import { NO_PROJECT } from '../workbench/workbench.js';
+import { NO_PROJECT } from '../workbench/workbenchState.js';
 import { workbenchGetSnapshot } from '../workbench/workbenchStore.js';
 import { mergeNews } from './newsList.js';
 import {

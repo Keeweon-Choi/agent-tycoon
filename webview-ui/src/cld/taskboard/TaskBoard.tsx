@@ -47,7 +47,7 @@ import {
   STATUS_ORDER,
   toggleGoalFilter,
   trackedCount,
-} from './taskBoard.js';
+} from './taskBoardState.js';
 
 const OWNER_KINDS: BoardTaskOwnerKind[] = ['lead', 'worker', 'subagent', 'codex', 'user', 'unassigned'];
 const PRIORITIES = ['P0', 'P1', 'P2', 'later'];

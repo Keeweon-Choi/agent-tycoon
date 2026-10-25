@@ -13,7 +13,7 @@ import {
 import { t } from '../../i18n/index.js';
 import type { NameplateSizes } from '../uiScale.js';
 import { EFFECT_SPRITES } from './drawVisuals.js';
-import { compactionText, type FatigueLook, fatigueText } from './fatigue.js';
+import { compactionText, type FatigueLook, fatigueText } from './fatigueState.js';
 import { levelLook, levelText } from './level.js';
 import { type Ring, ringDash } from './nameplate.js';
 import { PixelSprite } from './PixelSprite.js';

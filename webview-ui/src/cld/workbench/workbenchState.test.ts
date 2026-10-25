@@ -29,7 +29,7 @@ import {
   workerFields,
   workerFormError,
   workerProviders,
-} from './workbench.js';
+} from './workbenchState.js';
 
 const orch = (name: string, over: Partial<OfficeOrchestrator> = {}): OfficeOrchestrator =>
   ({

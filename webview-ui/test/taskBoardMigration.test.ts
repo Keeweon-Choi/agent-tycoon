@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import type { BoardTask, CodexTask, OfficeJob } from '../../core/src/messages.js';
-import { boardItems, groupItems } from '../src/cld/taskboard/taskBoard.js';
+import { boardItems, groupItems } from '../src/cld/taskboard/taskBoardState.js';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 14, min)).toISOString();
 const fixture = (name: string): BoardTask[] =>

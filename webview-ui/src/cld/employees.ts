@@ -7,7 +7,7 @@
 import { staffName } from '../../../core/src/cld/staffNames.js';
 import type { CodexTasks, TempEmployee } from '../../../core/src/messages.js';
 import { getLanguage, type Language } from '../i18n/index.js';
-import { contextPct, type FatigueLook, fatigueLook, type FatigueRules } from './ez/fatigue.js';
+import { contextPct, type FatigueLook, fatigueLook, type FatigueRules } from './ez/fatigueState.js';
 import { cldGetSnapshot, type CldSnapshot, virtualAgentId } from './officeStore.js';
 
 /** A sub-agent character's spawn tool id (staff.ts knows the office). */

@@ -44,7 +44,7 @@ import {
   statusIconFrame,
 } from './drawVisuals.js';
 import { FatigueBar, LevelRing, RestBubble, UnknownFatigue } from './Fatigue.js';
-import type { FatigueLook } from './fatigue.js';
+import type { FatigueLook } from './fatigueState.js';
 import { levelText } from './level.js';
 import { clampPlate, nameMaxPx, offAlpha, rankIcon, ringOf } from './nameplate.js';
 import { PixelSprite } from './PixelSprite.js';

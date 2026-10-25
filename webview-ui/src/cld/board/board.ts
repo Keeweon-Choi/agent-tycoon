@@ -13,7 +13,7 @@ import {
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { ToolActivity } from '../../office/types.js';
-import { contextPct } from '../ez/fatigue.js';
+import { contextPct } from '../ez/fatigueState.js';
 import type { RingState } from '../ez/visuals.js';
 import { timeAgo } from '../format.js';
 import { isFeedNoise } from '../notify/newsList.js';

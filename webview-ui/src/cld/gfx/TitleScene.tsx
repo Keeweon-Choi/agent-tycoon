@@ -25,7 +25,7 @@ import { openSettings } from '../settingsOpen.js';
 import logo from './art/logo-sign.png';
 import tall from './art/title-tall.webp';
 import wide from './art/title-wide.webp';
-import { closeTitleScene, useTitleScene } from './titleScene.js';
+import { closeTitleScene, useTitleScene } from './titleSceneState.js';
 
 function useTransportState(): TransportState {
   const [s, setS] = useState<TransportState>(transport.state);
