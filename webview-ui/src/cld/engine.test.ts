@@ -106,7 +106,8 @@ describe('engine card and texts', () => {
     const win = { os: 'win32' as const, home: 'C:\\Users\\me', caseInsensitive: true };
     expect(formError({ ...f, folder: 'C:\\work\\CON' }, true, win)).toMatch(/\uc7a5\uce58 \uc774\ub984/);
     expect(formError({ ...f, folder: '~\\p\\alpha' }, true, win)).toBeNull();
-    expect(formFields(f, null)).toEqual({ folder: '~/p/alpha', model: 'm-1' });
+    // An add always says its model and effort: '' is Claude's own default, chosen on purpose.
+    expect(formFields(f, null)).toEqual({ folder: '~/p/alpha', model: 'm-1', effort: '' });
     const p = project({ room: 'Lab', model: 'm-1', remoteControl: true, alwaysOn: true });
     const edit = formFor(p);
     expect(edit).toMatchObject({

@@ -259,6 +259,11 @@ export const ko = {
   'engine.retry': '켜기를 누르면 다시 시도해요',
   'engine.terminalOpen': '터미널에서 열려 있어요',
   'engine.working': '처리 중…',
+  'autoTrust.addHelp': '추가하면 Claude 가 이 폴더를 신뢰하도록 대신 답합니다 · 폴더의 .claude 설정·훅·MCP 가 실행될 수 있어요',
+  'autoTrust.cardHelp': '켜기를 누르면 Claude 가 이 폴더를 신뢰하도록 대신 답합니다 · 폴더의 .claude 설정·훅·MCP 가 실행될 수 있어요',
+  'autoTrust.running': '폴더 신뢰 중…',
+  'leadDefault.claudeDefault': 'Claude 기본값: {value}',
+  'leadDefault.unknown': 'Claude Code 설정',
   'engine.section': '엔진',
   'engine.addOrchestrator': '오케스트레이터 추가',
   'engine.import': '폴더에서 가져오기',
@@ -2059,6 +2064,9 @@ export const ko = {
   'gfx.camera.classicHint': '예전 카메라 (화면 밀도로 정한 배율)',
   'gfx.backdrop.title': '도시 야경 배경',
   'gfx.backdrop.help': '사무실 둘레의 빈 곳에 밤 도시를 그려요. 끄면 예전의 단색 배경이에요.',
+  'office25d.title': '2.5D 스타일 (시험)',
+  'office25d.help':
+    '벽에 높이와 앞면을 주고 가구를 새 그림으로 바꿔, 사무실을 비스듬히 내려다본 모습으로 그려요. 배치와 걷기는 그대로예요.',
   'gfx.parallax.title': '배경 움직임',
   'gfx.parallax.help':
     '화면을 끌면 먼 건물이 조금 느리게 따라와요. 움직임 줄이기를 켠 기기에서는 움직이지 않아요.',

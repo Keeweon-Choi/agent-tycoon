@@ -121,6 +121,27 @@ export const LIGHT_WARM_POOL = {
     { at: 0.4, color: '#FFE3A44D' },
   ],
 } as const;
+/** 2.5D PILOT walls: the navy of the owner's converted wall pieces (wall-dark-panel,
+ *  wall-top-thin), the face heights (world px above the tile's bottom: an outside wall, nothing
+ *  behind it to hide, stands twice as tall and holds windows), and every how many columns an
+ *  inside wall carries a lit wood panel with a lamp. */
+export const WALL_25D = {
+  // The top a shade lighter than the faces: lit from above, it reads apart from the void.
+  cap: '#233755',
+  capEdge: '#3B4C6C',
+  lip: '#3B4C6C',
+  lip2: '#233755',
+  face: '#1A273E',
+  seam: '#233755',
+  shadow: '#0C1426',
+  frame: '#0C1426',
+  capPx: 16,
+  insideFacePx: 16,
+  outsideFacePx: 32,
+  lampEvery: 4,
+} as const;
+/** 2.5D PILOT: how far below a wall lamp its light pool lies on the floor (world px). */
+export const WALL_LAMP_POOL_DY = 5;
 /** GFX e2e: the one-sprite-px marker of the synthetic HD character (testHooks makeHdCharacter). */
 export const HD_TEST_MARKER_COLOR = '#FFFFFF';
 /** GFX title scene: over the HUD (48-49), under the dialogs (50+) its menu opens. */
@@ -418,8 +439,9 @@ export const ACTIVITY_RING_BLINK_SEC = { waiting: 1.6, permission: 0.6 } as cons
 export const ACTIVITY_RING_BLINK_DIM_ALPHA = 0.3;
 /** Seconds per frame of an animated prop (flask bubbles, hammer swing...). */
 export const ACTIVITY_PROP_FRAME_SEC = 0.35;
-/** An idle character dims slightly: colorize.adjustSprite's HSL shift. */
-export const ACTIVITY_IDLE_DIM = { h: 0, s: -20, b: -24, c: 0 } as const;
+/** An idle character dims slightly: colorize.adjustSprite's HSL shift. Darker only: the shift
+ *  subtracts saturation, so any cut turns soft colours (sheer brown stockings, S 0.17) grey. */
+export const ACTIVITY_IDLE_DIM = { h: 0, s: 0, b: -24, c: 0 } as const;
 /** 🤝 speech link to the sub-agent: dot and its drop shadow, every N world px. */
 export const ACTIVITY_LINK_DOT_COLOR = '#f4f4f8';
 export const ACTIVITY_LINK_SHADOW_COLOR = '#2a2131';

@@ -17,6 +17,7 @@ import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
 import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
 import { applyLayoutPreset, resetLayout } from './hud/hudStore.js';
 import { type Preset, PRESETS } from './hud/layout.js';
+import { Office25dOption } from './office25d/Office25dOption.js';
 import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHours.js';
 import { panelAvailable, useCldStore } from './officeStore.js';
 import { OwnerPictureOption } from './OwnerPictureOption.js';
@@ -616,6 +617,7 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
             </div>
           </SettingRow>
           <BackdropOptions />
+          <Office25dOption />
           <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
             <Button
               size="sm"

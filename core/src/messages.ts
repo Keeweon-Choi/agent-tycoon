@@ -1505,6 +1505,7 @@ export interface EngineProject {
   bgId?: string;
   sessionId?: string;
   needsTrust?: boolean;
+  trusting?: boolean;
   downNote?: string;
   provider?: string;
 }
@@ -1573,13 +1574,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_869;
+  status: AnonymousSchema_870;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_869 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_870 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1610,10 +1611,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_883;
+  state: AnonymousSchema_884;
 }
 
-export type AnonymousSchema_883 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_884 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2227,14 +2228,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1194;
+  action: AnonymousSchema_1195;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1194 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1195 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2367,12 +2368,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1270;
+  lang?: AnonymousSchema_1271;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1270 = 'en' | 'ko';
+export type AnonymousSchema_1271 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2411,19 +2412,19 @@ export interface CodexUsageCheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1286;
+  language: AnonymousSchema_1287;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1286 = 'ko' | 'en';
+export type AnonymousSchema_1287 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1290;
+  mode: AnonymousSchema_1291;
 }
 
-export type AnonymousSchema_1290 = 'ask' | 'bypass';
+export type AnonymousSchema_1291 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

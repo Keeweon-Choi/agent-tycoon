@@ -616,6 +616,7 @@ describe('cld-gui CLI', () => {
       'hw',
       'task',
       'worker', // D3
+      'trust', // AUTO-TRUST
       'worktree', // W2
       'install',
       'update',
@@ -779,5 +780,112 @@ describe('S7: who is speaking over the socket', () => {
     const q = parseQueued(fs.readFileSync(path.join(cfg, 'queue', file), 'utf-8'))!;
     expect(q.source).toBe('cli');
     expect(header(q)).not.toMatch(/사장/);
+  });
+});
+
+describe('AUTO-TRUST: agty trust', () => {
+  it('the socket: an agent token is refused, a name or an absolute folder (one of them) is required', async () => {
+    const calls: unknown[] = [];
+    const deps = {
+      names: () => ['alpha'],
+      projectAt: () => null,
+      agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      trust: (target: unknown, start: boolean) => {
+        calls.push([target, start]);
+        return Promise.resolve({ ok: true });
+      },
+    } as unknown as ControlDeps;
+    const ask = (args: Record<string, unknown>, token?: string) =>
+      answerControl(
+        { cmd: 'trust', cwd: '/tmp', source: 'cli', ...(token && { token }), args },
+        deps,
+      );
+    expect(await ask({ name: 'alpha' }, 'agent-token')).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+    });
+    for (const args of [
+      {},
+      { name: 'alpha', folder: '/w/alpha' },
+      { folder: 'w/alpha' },
+      { name: '../x' },
+    ])
+      expect(await ask(args), JSON.stringify(args)).toMatchObject({ ok: false, code: 'usage' });
+    expect(calls).toEqual([]);
+    await ask({ name: 'alpha', start: true });
+    await ask({ folder: '/w/alpha' });
+    expect(calls).toEqual([
+      [{ name: 'alpha' }, true],
+      [{ folder: '/w/alpha' }, false],
+    ]);
+  });
+
+  it('the CLI: argument checks, an unregistered folder refused, each step and the manual way on failure', async () => {
+    const h = home();
+    const alpha = path.join(h, 'alpha');
+    fs.mkdirSync(alpha);
+    const real = fs.realpathSync(alpha);
+    const { seen } = await daemon(h, {
+      agentOf: (t) => (t === 'agent-token' ? 'alpha' : null),
+      // What Engine.trustProject answers: only the registered folder (or name) is known.
+      trust: (target, start) => {
+        if (target.name !== 'alpha' && target.folder !== alpha && target.folder !== real)
+          return Promise.resolve({
+            ok: false,
+            code: 'unknown_project',
+            error: '그런 프로젝트가 없어요',
+          });
+        if (fs.existsSync(path.join(h, 'unknown-screen')))
+          return Promise.resolve({
+            ok: true,
+            name: 'alpha',
+            folder: alpha,
+            worker: false,
+            outcome: 'unknownScreen',
+            steps: ['started', 'closed'],
+          });
+        return Promise.resolve({
+          ok: true,
+          name: 'alpha',
+          folder: alpha,
+          worker: false,
+          outcome: 'trusted',
+          steps: ['started', 'dialog', 'chose', 'past', 'closed'],
+          ...(start && { started: true }),
+        });
+      },
+    });
+    for (const args of [['trust'], ['trust', 'a', 'b'], ['trust', '--frob', 'alpha']]) {
+      const r = await cli(h, args);
+      expect(r.code, args.join(' ')).toBe(2);
+      expect(r.err).toContain('trust [--start]');
+    }
+    expect(seen).toEqual([]);
+    const nope = await cli(h, ['trust', './nope']);
+    expect(nope.code).toBe(1);
+    expect(nope.err).toBe('그런 프로젝트가 없어요\n');
+    expect(seen.at(-1)!.args).toEqual({ folder: path.join(h, 'nope'), start: false });
+    const ok = await cli(h, ['trust', 'alpha']);
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain('"Yes, I trust this folder" 를 골랐어요');
+    expect(ok.out).toContain('이제 켤 수 있어요');
+    const started = await cli(h, ['trust', '--start', '.'], { cwd: alpha });
+    expect(started.code).toBe(0);
+    expect(started.out).toContain("'alpha' 을(를) 켰어요");
+    expect(seen.at(-1)!.args).toEqual({ folder: real, start: true });
+    fs.writeFileSync(path.join(h, 'unknown-screen'), '');
+    const failed = await cli(h, ['trust', 'alpha']);
+    expect(failed.code).toBe(1);
+    expect(failed.err).toContain(`직접 하려면: cd ${JSON.stringify(alpha)} && claude`);
+    const agent = await cli(h, ['trust', 'alpha'], { env: { CLD_AGENT_TOKEN: 'agent-token' } });
+    expect(agent.code).toBe(1);
+    expect(agent.err).toContain('에이전트는 폴더 신뢰에 답할 수 없어요');
+  });
+
+  it('the CLI with the daemon off: nothing done, the manual way for a folder', async () => {
+    const h = home();
+    const r = await cli(h, ['trust', path.join(h, 'alpha')]);
+    expect(r.code).toBe(3);
+    expect(r.err).toContain('직접 하려면: cd');
   });
 });

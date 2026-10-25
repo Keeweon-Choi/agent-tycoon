@@ -36,6 +36,12 @@ const ROOTS = [
   '.claude/skills',
 ];
 
+/** The public export omits private agent skills, but its export tool is omitted too. */
+const scanRoots = (root: string) =>
+  fs.existsSync(path.join(root, 'cld/release/export.mjs'))
+    ? ROOTS
+    : ROOTS.filter((r) => r !== '.claude/skills');
+
 interface Marker {
   id: string;
   why: string;
@@ -171,11 +177,11 @@ const show = (findings: Finding[]) =>
 
 describe('no policy in the product code (NFR-CMP-009, TC-168)', () => {
   it('finds no marker in our code', () => {
-    expect(show(scan(REPO_ROOT))).toEqual([]);
+    expect(show(scan(REPO_ROOT, scanRoots(REPO_ROOT)))).toEqual([]);
   });
 
   it('scans files that exist: a renamed folder cannot quietly shrink the scan', () => {
-    for (const r of ROOTS) expect(fs.existsSync(path.join(REPO_ROOT, r)), r).toBe(true);
+    for (const r of scanRoots(REPO_ROOT)) expect(fs.existsSync(path.join(REPO_ROOT, r)), r).toBe(true);
   });
 
   it('explains every marker and allows it only with a reason', () => {

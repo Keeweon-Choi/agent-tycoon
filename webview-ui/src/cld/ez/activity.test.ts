@@ -199,7 +199,7 @@ describe('describeActivity', () => {
   const secrets: Array<[string, string]> = [
     ['curl https://example.test/path?key=super-secret --token abc123', 'super-secret'],
     ['export API_KEY=sk-live-9f8e7d && npm test', 'sk-live-9f8e7d'],
-    ['git push https://user:ghp_s3cr3t@github/o/r.git', 'ghp_s3cr3t'],
+    ['git push https://user:ghp_s3cr3t@github.com/o/r.git', 'ghp_s3cr3t'],
     ["python3 - <<'EOF'\npassword = 'hunter2'\nEOF", 'hunter2'],
     ['mysql -u root -pS3cretPw -e "select 1"', 'S3cretPw'],
     ['cld-gui send lead --token abc123 "deploy now"', 'abc123'],

@@ -173,7 +173,7 @@ function inputRow(term: HeadlessTerminal, whileWorking = false): number {
 
 /** The screen's last non-blank rows, masked: the log line when a message could not go in shows
  *  what Claude Code was showing (10-22 20:28: messages held while agents ran, cause unseen). */
-function screenTail(term: HeadlessTerminal, rows = 6): string {
+export function screenTail(term: HeadlessTerminal, rows = 6): string {
   const b = term.buffer.active;
   const out: string[] = [];
   for (let i = term.rows - 1; i >= 0 && out.length < rows; i--) {
@@ -190,7 +190,7 @@ function screenTail(term: HeadlessTerminal, rows = 6): string {
 /** `phrase` is on the screen, also when it wraps onto the next row: a narrow viewer (a phone
  *  attached to the same session) folds Claude Code's "… (esc to interrupt)" line in two, and a
  *  row-by-row look missed the running turn, so 즉시 보내기 pressed Enter (10-22 20:57). */
-function onScreen(term: HeadlessTerminal, phrase: string): boolean {
+export function onScreen(term: HeadlessTerminal, phrase: string): boolean {
   const b = term.buffer.active;
   const row = (i: number) => b.getLine(b.viewportY + i)?.translateToString() ?? '';
   for (let i = 0; i < term.rows; i++)
@@ -981,7 +981,7 @@ function validAttaches(n: unknown): n is number {
 
 /** node-pty, required at runtime: a native module esbuild must leave alone (see
  *  terminal/ptyModule.ts). No probe spawn: the daemon runs only `claude` here. */
-function loadPty(): PtyModule {
+export function loadPty(): PtyModule {
   const req: NodeRequire = require;
   return req(PTY_MODULE_CANDIDATES[0]) as PtyModule;
 }

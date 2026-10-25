@@ -131,6 +131,8 @@ declare global {
       } | null;
       /** Pixel position for rAF-sampled keyboard-walk checks (T-0061). */
       getCharacterPosition?: (id: number) => { x: number; y: number } | null;
+      /** 2.5D PILOT: walk a character to a tile, as the right-click command does. */
+      walkAgentTo?: (id: number, col: number, row: number) => boolean;
       /** Whether pathfinding may stand on a tile (walls, furniture, seats, edges say no). */
       isTileWalkable?: (col: number, row: number) => boolean;
       /** The selected agent's id (null = none). */
@@ -222,6 +224,8 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     const ch = officeStateRef.current?.characters.get(id);
     return ch ? { x: ch.x, y: ch.y } : null;
   };
+
+  hooks.walkAgentTo = (id, col, row) => !!officeStateRef.current?.walkToTile(id, col, row);
 
   hooks.isTileWalkable = (col, row) => {
     const os = officeStateRef.current;

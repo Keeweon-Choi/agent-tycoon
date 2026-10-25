@@ -1,3 +1,4 @@
+import { skin25d } from '../../cld/office25d/skins.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import { FOREGROUND_Z } from '../../constants.js';
 import { getColorizedSprite } from '../colorize.js';
@@ -56,23 +57,37 @@ export function visualPlacement(
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
   // Pre-compute desk zY per tile so surface items can sort in front of desks
   const deskZByTile = new Map<string, number>();
+  // 2.5D PILOT: the tiles of desks wearing a 2.5D picture (a PC on one is drawn by the desk).
+  const desks25d = new Set<string>();
   for (const item of furniture) {
     const entry = getCatalogEntry(item.type);
     if (!entry || !entry.isDesk) continue;
-    const deskZY = item.row * TILE_SIZE + entry.sprite.length;
+    const skin = skin25d(item.type);
+    const deskZY = skin
+      ? (item.row + entry.footprintH) * TILE_SIZE + (skin.visual.depthOffset ?? 0)
+      : item.row * TILE_SIZE + entry.sprite.length;
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const key = `${item.col + dc},${item.row + dr}`;
         const prev = deskZByTile.get(key);
         if (prev === undefined || deskZY > prev) deskZByTile.set(key, deskZY);
+        if (skin) desks25d.add(key);
       }
     }
   }
 
   const instances: FurnitureInstance[] = [];
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
-    if (!entry) continue;
+    const catalogEntry = getCatalogEntry(item.type);
+    if (!catalogEntry) continue;
+    // 2.5D PILOT: the type's converted picture and its placement, when the switch is on (the
+    // footprint, and so walking and collision, stay the catalog's).
+    let skin = skin25d(item.type);
+    if (skin?.onDesk && !desks25d.has(`${item.col},${item.row}`)) skin = undefined;
+    if (skin && !skin.sprite) continue;
+    const entry = skin?.sprite
+      ? { ...catalogEntry, sprite: skin.sprite, visual: skin.visual }
+      : catalogEntry;
     const placed = visualPlacement(entry, item.col, item.row);
     const x = placed?.x ?? item.col * TILE_SIZE;
     const y = placed?.y ?? item.row * TILE_SIZE;
@@ -80,7 +95,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     let zY = placed?.zY ?? y + spriteH;
 
     // Chair z-sorting: ensure characters sitting on chairs render correctly
-    if (entry.category === 'chairs' && !placed) {
+    if (entry.category === 'chairs' && (!placed || skin)) {
       if (entry.orientation === 'back') {
         // Back-facing chairs render IN FRONT of the seated character
         // (the chair back visually occludes the character behind it).
@@ -106,7 +121,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
     // Colorize sprite if this furniture has a color override
     let sprite = entry.sprite;
-    if (item.color) {
+    if (item.color && !skin) {
       const { h, s, b: bv, c: cv } = item.color;
       sprite = getColorizedSprite(
         `furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`,
@@ -127,15 +142,24 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     // GFX: a shadow or light pool on the floor under it (a preset; drawn before anything stands).
     const decal = placed && (entry.visual?.shadowPreset ?? entry.visual?.lightingPreset);
     const ground: GroundDecal | undefined =
-      placed && decal
+      placed && skin?.light
         ? {
-            kind: entry.visual?.shadowPreset ? 'shadow' : 'light',
-            preset: decal,
+            kind: 'light',
+            preset: 'sprite',
+            sprite: skin.light,
             x: placed.foot.x,
             y: placed.foot.y,
             w: entry.footprintW * TILE_SIZE,
           }
-        : undefined;
+        : placed && decal
+          ? {
+              kind: entry.visual?.shadowPreset ? 'shadow' : 'light',
+              preset: decal,
+              x: placed.foot.x,
+              y: placed.foot.y,
+              w: entry.footprintW * TILE_SIZE,
+            }
+          : undefined;
 
     instances.push({
       sprite,

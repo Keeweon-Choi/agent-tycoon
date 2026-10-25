@@ -966,6 +966,14 @@ export const SERVER_TEXT = {
     ko: '폴더 신뢰 확인 필요: 터미널에서 이 폴더로 가서 claude를 한 번 실행하고 신뢰를 허락한 뒤 다시 켜 주세요',
     en: 'This folder needs your trust first: run claude once in it from a terminal, allow it, then start again.',
   },
+  trust_answered: {
+    ko: '폴더 신뢰 질문에 대신 답하고 켰어요',
+    en: 'Answered the folder trust question for you and started it.',
+  },
+  trust_claude_only: {
+    ko: '폴더 신뢰는 Claude 에이전트에만 있어요',
+    en: 'Folder trust applies to Claude agents only.',
+  },
   claude_missing: {
     ko: 'claude 실행 파일을 찾지 못했어요',
     en: 'The claude program was not found.',

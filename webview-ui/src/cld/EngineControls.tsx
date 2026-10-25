@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { leadDefaults } from '../../../core/src/cld/leadDefaults.js';
 import { defaultProjectFolder, normalizeProjectPath } from '../../../core/src/cld/projectPath.js';
 import type { EngineProject } from '../../../core/src/messages.js';
 import { Button } from '../components/ui/Button.js';
@@ -60,6 +61,9 @@ export function EngineCardButtons({ project: p }: { project: EngineProject }) {
           {t('engine.trust.after')} <code className="text-text">claude</code>{t('engine.trust.end')}
         </p>
       )}
+      {p.needsTrust && canAct && (
+        <p className="basis-full text-xs text-text-muted break-words">{t('autoTrust.cardHelp')}</p>
+      )}
       {p.downNote && (
         <p className="basis-full text-xs text-yellow-300 break-words">
           {serverLine(p.downNote)} · {t('engine.retry')}
@@ -97,7 +101,11 @@ export function EngineCardButtons({ project: p }: { project: EngineProject }) {
       {p.live && !p.bgId && (
         <span className="self-center text-xs text-text-muted">{t('engine.terminalOpen')}</span>
       )}
-      {running && <span className="self-center text-xs text-accent-text pixel-pulse">{t('engine.working')}</span>}
+      {(running || p.trusting) && (
+        <span className="self-center text-xs text-accent-text pixel-pulse">
+          {p.trusting ? t('autoTrust.running') : t('engine.working')}
+        </span>
+      )}
     </>
   );
 }
@@ -148,10 +156,21 @@ function EngineFormModal({
 }) {
   const { hostInfo, officeSnapshot } = useCldStore();
   const { state } = useEngineStore();
-  const [f, setF] = useState<EngineForm>(() => ({
-    ...formFor(project),
-    ...(adding && { folder: defaultProjectFolder(hostInfo) }),
-  }));
+  const [f, setF] = useState<EngineForm>(() => {
+    const form = formFor(project);
+    if (!adding) return form;
+    // A new Lead starts with the Leads' model and effort (or the CLI's top ones), never empty.
+    const d = leadDefaults(
+      (state?.projects ?? []).filter((p) => !p.role),
+      state?.agentChoices?.claude,
+    );
+    return {
+      ...form,
+      folder: defaultProjectFolder(hostInfo),
+      model: d.model ?? '',
+      effort: d.effort ?? '',
+    };
+  });
   const [picking, setPicking] = useState(false);
   /** A picker child folder is created by the add request, without another prompt. */
   const [newFolder, setNewFolder] = useState(false);
@@ -253,6 +272,15 @@ function EngineFormModal({
           ))}
           <option value={CUSTOM}>{t('engine.custom')}</option>
         </select>
+        {!f[key] && !custom[key] && (
+          <span className="block text-xs text-text-muted">
+            {t('leadDefault.claudeDefault', {
+              value:
+                (key === 'model' ? claudeChoices?.defaultModel : claudeChoices?.defaultEffort) ??
+                t('leadDefault.unknown'),
+            })}
+          </span>
+        )}
         {selected === CUSTOM && (
           <input
             className={`${input} mt-4`}
@@ -335,6 +363,7 @@ function EngineFormModal({
           </p>
         ))}
         {newFolder && <p className="text-xs text-text-muted">{t('engine.newFolderHelp')}</p>}
+        {adding && <p className="text-xs text-text-muted">{t('autoTrust.addHelp')}</p>}
         {typed &&
           !('error' in typed) &&
           typed.warnings.map((w) => (

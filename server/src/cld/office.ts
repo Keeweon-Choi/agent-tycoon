@@ -1693,6 +1693,22 @@ export class Office {
           agentOf: (token) => engine.tokens.agentOf(token),
           projectOf: (name) => engine.projectOf(name),
           engineAction: (req) => engine.run(req, true, 'cli'),
+          // AUTO-TRUST: `agty trust`, the owner's command (control.ts refuses an agent's token).
+          trust: async (target, start) => {
+            const r = await engine.trustProject(target, start);
+            if (!r.ok) return r;
+            const { trust, start: started, ...rest } = r;
+            return {
+              ...rest,
+              outcome: trust.outcome,
+              steps: trust.steps,
+              ...(started && {
+                started: started.ok,
+                ...(started.note && { note: started.note }),
+                ...(started.error && { startError: started.error }),
+              }),
+            };
+          },
           workers: () => engine.state().projects.filter((p) => p.role),
           projectAt: (cwd) => engine.projectAt(cwd),
           send: (r) => messenger.send(r),

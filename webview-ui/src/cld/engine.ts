@@ -121,7 +121,9 @@ export function formFields(
   if (!was || f.folder.trim() !== before.folder) out.folder = f.folder.trim();
   for (const k of TEXT) {
     const v = f[k].trim();
-    if (was ? v !== before[k] : v) out[k] = v;
+    // An add sends model and effort even when emptied: '' keeps Claude's own default, while a
+    // missing one gets the Leads' default on the server (leadDefaults.ts).
+    if (was ? v !== before[k] : v || k === 'model' || k === 'effort') out[k] = v;
   }
   for (const key of ['remoteControl', 'alwaysOn'] as const)
     if (was ? f[key] !== before[key] : f[key]) out[key] = f[key];

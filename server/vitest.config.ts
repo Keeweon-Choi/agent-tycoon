@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+// Fixture timestamps are product-local Seoul time, independent of the runner's zone.
+process.env.TZ = 'Asia/Seoul';
 process.env['ALLURE_LABEL_epic'] ??= 'server';
 
 export default defineConfig({

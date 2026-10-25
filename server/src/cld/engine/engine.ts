@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { leadDefaults } from '../../../../core/src/cld/leadDefaults.js';
 import type { PathHost } from '../../../../core/src/cld/projectPath.js';
 import { normalizeProjectPath } from '../../../../core/src/cld/projectPath.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
@@ -41,7 +42,7 @@ import { ENTRY_DEFAULTS } from '../providers/types.js';
 import { STEPUP_REQUIRED } from '../shell/gate.js';
 import type { SpawnFn } from '../spawnJson.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
-import { ClaudeAgent } from './agents/claude/claude.js';
+import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
 import type { AgentProvider, LiveSession } from './agents/types.js';
 import { AgentTokens } from './agentTokens.js';
 import { CODEX_EFFORTS, isCodexEffort } from './codex.js';
@@ -81,6 +82,8 @@ import {
   WORKER_ROLES,
 } from './registry.js';
 import { appendMissing } from './sessionPath.js';
+import type { TrustResult } from './trust.js';
+import { TRUST_ARGS, TRUST_TIMING, trustFolder } from './trust.js';
 
 /** A live session and the provider that listed it. */
 type Live = LiveSession & { agent: AgentProvider };
@@ -418,6 +421,8 @@ export interface EngineOptions {
   tick?: () => void;
   /** D3b: a Lead swap committed: forget in-memory state kept for these names (the messenger). */
   swapped?: (names: string[]) => void;
+  /** AUTO-TRUST: the trust step's waits (tests shorten them). */
+  trustTiming?: Partial<typeof TRUST_TIMING>;
 }
 
 /** What the office shows for an agent whose provider this build does not have. */
@@ -441,6 +446,12 @@ export class Engine {
   private daemonWarnings: string[] = [];
   /** Projects whose last start Claude refused: their folder is not trusted yet. */
   private readonly untrusted = new Set<string>();
+  /** AUTO-TRUST: Leads a person added in the office: their first 켜기 may answer the trust question.
+   *  ponytail: in memory, so after a daemon restart the first 켜기 shows the manual way and marks
+   *  the project (needsTrust), and the next 켜기 answers it; persist it if that ever matters. */
+  private readonly consented = new Set<string>();
+  /** AUTO-TRUST: projects whose folder's trust question is being answered right now. */
+  private readonly trusting = new Set<string>();
   private readonly running = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
   private unwatch: Array<() => void> = [];
@@ -787,6 +798,16 @@ export class Engine {
 
   private leads(): ProjectRecord[] {
     return this.projects.filter((p) => !p.role);
+  }
+
+  /** A new Lead's model and effort where the request names none (leadDefaults.ts): the Leads'
+   *  common pair, else the installed Claude Code's top model and effort. An empty one is kept. */
+  private leadLaunch(req: Pick<EngineAction, 'model' | 'effort'> = {}): Partial<ProjectRecord> {
+    const d = leadDefaults(this.leads(), this.agentChoices.discover().claude);
+    return {
+      ...(req.model === undefined && d.model && { model: d.model }),
+      ...(req.effort === undefined && d.effort && { effort: d.effort }),
+    };
   }
 
   /** The project whose folder holds `cwd` (the longest folder wins), or null. "Which project"
@@ -1309,6 +1330,7 @@ export class Engine {
           ...(provider && provider !== DEFAULT_PROVIDER && { provider }),
           ...(sessionId && { sessionId }),
           ...(!h && this.untrusted.has(name) && { needsTrust: true }),
+          ...(this.trusting.has(name) && { trusting: true }),
           ...(cannot
             ? { downNote: cannot }
             : !h && wantRunning && idleRetired
@@ -1364,6 +1386,8 @@ export class Engine {
       return result;
     }
     const added: string[] = [];
+    // Imported Leads start with the same model and effort as one added in the form.
+    const launch = this.leadLaunch();
     for (const row of rows.slice(0, 100)) {
       const candidate = candidates.find((c) => samePath(c.folder, row.folder, this.host));
       let reason: string | null = null;
@@ -1404,6 +1428,7 @@ export class Engine {
             projectId: createProjectId(),
             leadAssignmentId: createAssignmentId(),
             ...seededPermission(this.home), // O4: the owner's default for new agents
+            ...launch,
             name: row.name,
             folder: candidate.folder,
             room: row.room.trim(),
@@ -1580,7 +1605,8 @@ export class Engine {
       send({ type: 'engineActionResult', requestId, action, name, ok: false, error: STEPUP_REQUIRED });
       return;
     }
-    void this.run(req, privileged, device).then((r) => send({ ...r }));
+    // A person in the office (the /ws path): their 켜기 may answer the folder trust question.
+    void this.run(req, privileged, device, true).then((r) => send({ ...r }));
   }
 
   /**
@@ -1606,8 +1632,15 @@ export class Engine {
     return !!p && !!folder && !samePath(folder, p.folder, this.host);
   }
 
-  /** Never rejects: refusals and failures are `ok: false` results. */
-  async run(req: EngineAction, privileged: boolean, device = 'web'): Promise<EngineActionResult> {
+  /** Never rejects: refusals and failures are `ok: false` results. `person` (AUTO-TRUST): a
+   *  person pressed it in the office, so a start may answer Claude's folder trust question; the
+   *  CLI, MCP tools, revive and the watch never pass it. */
+  async run(
+    req: EngineAction,
+    privileged: boolean,
+    device = 'web',
+    person = false,
+  ): Promise<EngineActionResult> {
     const { requestId, action, name } = req;
     const what = `${action} ${JSON.stringify(name).slice(0, 66)} gui:${device}`;
     const reply = ({ detail, ...o }: Outcome): EngineActionResult => ({
@@ -1634,7 +1667,7 @@ export class Engine {
     const started = Date.now();
     let out: Outcome;
     try {
-      out = await this.enqueue(() => this.exec(req, `gui:${device}`));
+      out = await this.enqueue(() => this.exec(req, `gui:${device}`, person));
     } catch (err) {
       this.log(`action ${what}: ${err instanceof Error ? err.message : String(err)}`);
       out = fail(koText('engine_error'));
@@ -1772,8 +1805,13 @@ export class Engine {
     return run;
   }
 
-  private exec(req: EngineAction, source: string): Promise<Outcome> | Outcome {
-    if (req.action === 'add') return req.role || req.project ? this.addWorker(req) : this.add(req);
+  private exec(req: EngineAction, source: string, person = false): Promise<Outcome> | Outcome {
+    if (req.action === 'add' && (req.role || req.project)) return this.addWorker(req);
+    if (req.action === 'add') {
+      const out = this.add(req);
+      if (out.ok && person) this.consented.add(req.name);
+      return out;
+    }
     const p = this.find(req.name);
     if (!p) return fail(koText('project_unknown_short'));
     if (req.action === 'edit') return this.edit(p, req);
@@ -1781,7 +1819,7 @@ export class Engine {
     if (req.action === 'promote') return this.promote(p, req.oldLead ?? 'worker', source);
     if (req.action === 'stop') return this.stopProject(p);
     if (req.action === 'restart') return this.restartProject(p, source);
-    return this.startProject(p, source);
+    return this.startProject(p, source, false, false, person);
   }
 
   // ── Registry actions ────────────────────────────────────────
@@ -1841,6 +1879,7 @@ export class Engine {
         folder: f.path,
         // O4: the owner's default for new agents, unless the request names a mode (even an empty one).
         ...(req.permissionMode === undefined && seededPermission(this.home)),
+        ...this.leadLaunch(req),
         ...fields.set,
         wantRunning: false,
       },
@@ -2261,12 +2300,14 @@ export class Engine {
   // ── Session actions ─────────────────────────────────────────
 
   /** `newConversation`: not the project's old conversation (renew). `flags` (D3b's promote):
-   *  resume under the record's own name, flags and a fresh token, never a bare wake. */
+   *  resume under the record's own name, flags and a fresh token, never a bare wake. `trust`
+   *  (AUTO-TRUST): a person's 켜기, which may answer the folder trust question once. */
   private async startProject(
     p: ProjectRecord,
     source = 'engine',
     newConversation = false,
     flags = false,
+    trust = false,
   ): Promise<Outcome> {
     this.refresh();
     const agent = this.agentOf(p);
@@ -2305,7 +2346,23 @@ export class Engine {
     const before = new Set(this.live.map((s) => s.sessionId));
     // D3b: a conversation started under another name is continued only as a copy of its own.
     const copy = flags || p.resumeAsCopy === true;
-    const r = await agent.start(p, { resume, token: () => this.tokens.issue(p.name), flags: copy });
+    const startOnce = () => agent.start(p, { resume, token: () => this.tokens.issue(p.name), flags: copy });
+    let r = await startOnce();
+    // AUTO-TRUST: only for a project the person added here or saw marked (needsTrust), one try.
+    if (
+      !r.ok &&
+      r.needsTrust &&
+      trust &&
+      agent.protocol === 'claude' &&
+      (this.untrusted.has(p.name) || this.consented.has(p.name))
+    ) {
+      this.consented.delete(p.name);
+      if ((await this.trustStep(p)).outcome === 'trusted') {
+        this.log(`"${p.name}": folder trust answered; starting again`);
+        r = await startOnce();
+        if (r.ok) note = note ? `${note} · ${koText('trust_answered')}` : koText('trust_answered');
+      }
+    }
     if (!r.ok) {
       // A folder the CLI does not trust yet: only a person answers that question.
       if (r.needsTrust) this.untrusted.add(p.name);
@@ -2348,6 +2405,72 @@ export class Engine {
     });
     this.opts.started?.(p.name);
     return { ok: true, bgId: s.id ?? printed ?? undefined, ...(note && { note }) };
+  }
+
+  /** AUTO-TRUST: Claude's folder trust question for `p`'s folder, answered in our own PTY
+   *  (trust.ts) with the same command and environment as its `claude --bg`. Claude never keeps
+   *  the answer for the home folder, so that one is not tried. */
+  private async trustStep(p: ProjectRecord): Promise<TrustResult> {
+    if (samePath(p.folder, this.home, this.host)) {
+      this.log(`"${p.name}": trust: the home folder (Claude keeps no answer for it); not tried`);
+      return { outcome: 'homeDir', steps: [] };
+    }
+    this.trusting.add(p.name);
+    this.refresh();
+    try {
+      const { file, args } = claudeCommand(this.opts.claudePath, TRUST_ARGS, this.scope);
+      return await trustFolder({
+        file,
+        args,
+        cwd: p.folder,
+        env: this.env,
+        log: (l) => this.log(`"${p.name}": ${l}`),
+        timing: this.opts.trustTiming,
+      });
+    } finally {
+      this.trusting.delete(p.name);
+      this.refresh();
+    }
+  }
+
+  /**
+   * AUTO-TRUST, `agty trust [--start] <project or folder>`: the owner's command (control.ts refuses
+   * an agent's token). A folder must be a registered project's (its Lead first); then, with
+   * `start`, the project starts as with 켜기.
+   */
+  async trustProject(
+    target: { name?: string; folder?: string },
+    start: boolean,
+  ): Promise<
+    | { ok: false; code: string; error: string }
+    | { ok: true; name: string; folder: string; worker: boolean; trust: TrustResult; start?: Outcome }
+  > {
+    const no = (code: string, error: string) => ({ ok: false as const, code, error });
+    if (this.opts.readOnly) return no('refused', koText('read_only_mode'));
+    if (this.broken) return no('refused', koText('registry_unreadable'));
+    const p = target.name
+      ? this.find(target.name)
+      : this.projects
+          .filter((x) => !!target.folder && samePath(x.folder, target.folder, this.host))
+          .sort((a, b) => Number(!!a.role) - Number(!!b.role))[0];
+    if (!p) return no('unknown_project', koText('project_unknown_short'));
+    if (this.agentOf(p)?.protocol !== 'claude') return no('refused', koText('trust_claude_only'));
+    if (this.running.has(p.name)) return no('refused', koText('project_busy', { name: p.name }));
+    this.running.add(p.name);
+    try {
+      return await this.enqueue(async () => {
+        const trust = await this.trustStep(p);
+        const fine = trust.outcome === 'trusted' || trust.outcome === 'alreadyTrusted';
+        if (fine) this.untrusted.delete(p.name);
+        const ok = { ok: true as const, name: p.name, folder: p.folder, worker: !!p.role, trust };
+        if (!start || !fine) return ok;
+        this.forgive(p.name);
+        return { ...ok, start: await this.startProject(this.find(p.name) ?? p, 'gui:cli') };
+      });
+    } finally {
+      this.running.delete(p.name);
+      this.refresh();
+    }
   }
 
   /**

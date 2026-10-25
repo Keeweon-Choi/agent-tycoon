@@ -115,7 +115,7 @@ describe('job pieces', () => {
     expect(maskSecrets('run --token tkn-1 --password=hunter2')).toBe(
       'run --token *** --password=***',
     );
-    expect(maskSecrets('git clone https://me:pw@github/x')).toBe(
+    expect(maskSecrets('git clone https://me:pw@github.com/x')).toBe(
       'git clone https://me:***@github.com/x',
     );
     expect(

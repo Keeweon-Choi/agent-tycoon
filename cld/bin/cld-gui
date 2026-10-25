@@ -12,6 +12,7 @@
 //   cld-gui gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
 //   cld-gui hw [--json]
 //   cld-gui task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
+//   cld-gui trust [--start] <project or folder>  (AUTO-TRUST: Claude's folder trust question)
 //   cld-gui worktree new --task <id> [--assign <name>] [--base <branch>] | worktree list [--task <id>]  (W2)
 //   cld-gui version | login […] | help
 //
@@ -31,7 +32,7 @@ const maintenance = require('./cld-gui-maintenance');
 
 const HOME = os.homedir();
 const CONFIG = path.join(HOME, '.config', 'cld-gui');
-const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
+const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
 /** The manager (cld/install/manager.mjs, H §2): install, update, open, and the install part of status. */
 const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
 /** The GPU wrapper and Codex worker of this checkout (built with the daemon). */
@@ -68,6 +69,7 @@ const USAGE = `사용법:
   ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E]
   ${CLI} worker edit <이름> [--folder F] [--model M] [--permission-mode P] [--effort E] | worker remove|start|stop|restart <이름>
   ${CLI} worker promote <이름> [--old stop]   그 Worker 를 프로젝트의 Lead 로(이름을 맞바꿈, 이전 Lead 는 그 Worker 이름으로)
+  ${CLI} trust [--start] <프로젝트 이름 또는 폴더>   그 프로젝트 폴더에서 claude 를 켜 폴더 신뢰 질문에 대신 답함(--start: 답한 뒤 켜기)
   ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>]   그 작업의 worktree(브랜치 task/<id>-…)
   ${CLI} worktree list [--task <작업 id>] [--json]
   ${CLI} status [--json]
@@ -716,6 +718,8 @@ async function main(argv) {
       return task(rest);
     case 'worker':
       return worker(rest);
+    case 'trust':
+      return trust(rest);
     case 'worktree':
       return worktree(rest);
     case 'help':
@@ -961,6 +965,80 @@ async function worker(rest) {
   }
   const said = op === 'promote' ? `'${r.name}' 이(가) 이제 프로젝트의 Lead 입니다(이름을 맞바꿈)` : `'${r.name}' Worker: ${op} 했습니다`;
   return finish(r, r.ok && `${said}${r.note ? ` (${r.note})` : ''}`);
+}
+
+// ── AUTO-TRUST: Claude's folder trust question, answered by the daemon (Engine.trustProject) ──
+
+const TRUST_USAGE = `사용법: ${CLI} trust [--start] <프로젝트 이름 또는 폴더>`;
+const TRUST_STEPS = {
+  started: '그 폴더에서 claude 를 켰어요',
+  dialog: '폴더 신뢰 질문이 떴어요',
+  chose: '"Yes, I trust this folder" 를 골랐어요',
+  past: 'Claude 가 질문을 넘어갔어요',
+  closed: 'claude 를 닫았어요',
+  killed: '대답 없는 claude 를 끝냈어요',
+};
+const TRUST_OUTCOMES = {
+  trusted: '폴더 신뢰에 답했어요',
+  alreadyTrusted: '이미 신뢰한 폴더예요',
+  warnings: '이 폴더 설정이 미리 허락하는 것(도구 규칙·폴더·헤더 도우미)이 있어 직접 읽고 답해야 해요',
+  unknownScreen: '신뢰 질문이 아닌 화면이라 아무것도 누르지 않았어요',
+  notMoved: '답했지만 질문이 그대로여서 멈췄어요',
+  exited: 'claude 가 질문을 넘기기 전에 끝났어요',
+  timeout: '정해진 시간 안에 알아볼 화면이 나오지 않았어요',
+  noPty: '데몬에서 터미널(PTY)을 열 수 없어요',
+  homeDir: '홈 폴더는 Claude 가 신뢰를 저장하지 않아요: 프로젝트 폴더를 쓰세요',
+};
+/** The way a person does it by hand (today's message). */
+const manualTrust = (folder) =>
+  `직접 하려면: cd ${JSON.stringify(folder)} && claude 를 실행해 "Yes, I trust this folder" 를 고른 뒤 다시 켜세요`;
+
+/** A word is a folder when it looks like a path (or is no project name); else a project name. */
+function trustTarget(word) {
+  const isPath = /[\\/~]/.test(word) || word === '.' || word === '..' || !NAME_RE.test(word);
+  if (!isPath) return { name: word };
+  return { folder: path.resolve(word === '~' || word.startsWith('~/') ? path.join(HOME, word.slice(1)) : word) };
+}
+
+async function trust(rest) {
+  let start = false;
+  const words = [];
+  for (const a of rest) {
+    if (a === '--start') start = true;
+    else if (a.startsWith('-')) return failWith('usage', TRUST_USAGE);
+    else words.push(a);
+  }
+  if (words.length !== 1) return failWith('usage', TRUST_USAGE);
+  const target = trustTarget(words[0]);
+  if (!json) console.log(`${target.folder ?? `'${target.name}'`}: claude 를 켜 폴더 신뢰 질문에 대신 답해 볼게요…`);
+  // The trust step and a start take up to about a minute and a half (TRUST_TIMING + the start).
+  const r = await request('trust', { ...target, start }, 115_000);
+  if (r === null) {
+    if (!json && target.folder) console.error(manualTrust(target.folder));
+    return off();
+  }
+  if (!r.ok) return finish(r);
+  const fine = r.outcome === 'trusted' || r.outcome === 'alreadyTrusted';
+  const ok = fine && (!start || r.started === true);
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ v: 1, ...r, ok })}\n`);
+    return exitAfterFlush(ok ? 0 : 1);
+  }
+  for (const step of r.steps ?? []) console.log(`· ${TRUST_STEPS[step] ?? step}`);
+  (fine ? console.log : console.error)(TRUST_OUTCOMES[r.outcome] ?? r.outcome);
+  if (!fine) {
+    console.error(manualTrust(r.folder));
+    return exitAfterFlush(1);
+  }
+  if (start && r.started) console.log(`'${r.name}' 을(를) 켰어요${r.note ? ` (${r.note})` : ''}`);
+  else if (start) {
+    console.error(`켜지 못했어요: ${r.startError ?? ''}`);
+    return exitAfterFlush(1);
+  } else
+    console.log(
+      `이제 켤 수 있어요: 현황판의 켜기${r.worker ? ` 또는 ${CLI} worker start ${r.name}` : ''} (답하고 바로 켜기: ${CLI} trust --start ${r.name})`,
+    );
+  return exitAfterFlush(0);
 }
 
 // ── W2: a Task's worktree, over the control socket (taskWorktree.ts) ──

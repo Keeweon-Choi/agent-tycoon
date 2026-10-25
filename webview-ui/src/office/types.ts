@@ -79,6 +79,8 @@ export interface GroundDecal {
   y: number;
   /** The footprint's width, world px (a shadow is as wide as what casts it). */
   w: number;
+  /** 2.5D PILOT: a picture of its own (a light pool from the owner's art), in place of the preset. */
+  sprite?: SpriteData;
 }
 
 export interface ToolActivity {

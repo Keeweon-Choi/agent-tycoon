@@ -15,7 +15,7 @@ const SHAPES: Array<[string, string, string]> = [
   ['password=', 'mysql --password=s3cr3tPass -u root', 's3cr3tPass'],
   ['--token flag', 'tool --token tok_live_12345 run', 'tok_live_12345'],
   ['json password', '{"password": "hunter2hunter2", "user": "a"}', 'hunter2hunter2'],
-  ['url credentials', 'git clone https://bob:p4ssw0rdX@github/r.git', 'p4ssw0rdX'],
+  ['url credentials', 'git clone https://bob:p4ssw0rdX@github.example/r.git', 'p4ssw0rdX'],
   ['anthropic key', 'key is sk-ant-api03-AbCdEf123456789', 'sk-ant-api03-AbCdEf123456789'],
   ['openai-style key', 'OPENAI sk-proj1234567890abcdefgh', 'sk-proj1234567890abcdefgh'],
   [

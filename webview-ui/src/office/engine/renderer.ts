@@ -4,6 +4,7 @@ import {
   cldDrawSpeechLinks,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
+import { office25dWalls } from '../../cld/office25d/skins.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
 import { serverLine } from '../../cld/serverText.js';
 import type { ColorValue } from '../../components/ui/types.js';
@@ -956,8 +957,15 @@ export function renderFrame(
   // GFX 2.5D: shadows and light pools on the floor, under everything that stands.
   renderGroundDecals(ctx, furniture, offsetX, offsetY, zoom);
 
-  // Build wall instances for z-sorting with furniture and characters
-  const wallInstances = hasWallSprites() ? getWallInstances(tileMap, tileColors, layoutCols) : [];
+  // Build wall instances for z-sorting with furniture and characters (2.5D PILOT: taller
+  // pictures on the same tiles and depth keys when its switch is on, and their lamps' pools).
+  const walls25d = office25dWalls(tileMap);
+  if (walls25d) renderGroundDecals(ctx, walls25d.pools, offsetX, offsetY, zoom);
+  const wallInstances = walls25d
+    ? walls25d.walls
+    : hasWallSprites()
+      ? getWallInstances(tileMap, tileColors, layoutCols)
+      : [];
   const allFurniture = wallInstances.length > 0 ? [...wallInstances, ...furniture] : furniture;
 
   // Draw walls + furniture + characters (z-sorted)

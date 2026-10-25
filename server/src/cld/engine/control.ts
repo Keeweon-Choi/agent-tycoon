@@ -33,6 +33,8 @@ const WORKER_FIELDS = ['project', 'role', 'folder', 'model', 'permissionMode', '
 const WORKER_USAGE =
   `사용법: ${CLI_NAME} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] | worker edit <이름> [같은 옵션] | worker remove|start|stop|restart <이름> | worker promote <이름> [--old stop]`;
 
+const TRUST_USAGE = `사용법: ${CLI_NAME} trust [--start] <프로젝트 이름 또는 폴더>`;
+
 const REQUEST_MAX = 1024 * 1024;
 const SOURCE_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** Sources only the app's authenticated routes inside the daemon may use (the owner's headers). */
@@ -154,6 +156,9 @@ export interface ControlDeps {
     args: Record<string, unknown>,
     who: { by: string; project: string | null; agent: string | null },
   ): Promise<Reply>;
+  /** AUTO-TRUST: `agty trust [--start]`, Claude's folder trust question answered for a registered
+   *  project (by name or folder), then optionally started (Engine.trustProject). */
+  trust?(target: { name?: string; folder?: string }, start: boolean): Promise<Reply>;
   /** `cld-gui task …` (DEV-BOARD): `by` is the caller (its token's project, else its source). */
   task?(
     args: Record<string, unknown>,
@@ -331,6 +336,22 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       return d.worktree
         ? d.worktree(a, { by: agent ?? req.source, project: projectOf(here), agent })
         : refuse('daemon_error', 'worktree 를 다룰 수 없어요');
+    case 'trust': {
+      // A person typed it: an agent (its token) never answers a trust question, as at the MCP tools.
+      if (agent) return refuse('forbidden', '에이전트는 폴더 신뢰에 답할 수 없어요');
+      if (!d.trust) return refuse('daemon_error', '폴더 신뢰를 다룰 수 없어요');
+      // Exactly one of them: a project name, or an absolute folder (the CLI resolves it).
+      const name = projectName(a.name);
+      const folder = str(a.folder);
+      const target =
+        a.folder === undefined && name
+          ? { name }
+          : a.name === undefined && folder && path.isAbsolute(folder)
+            ? { folder }
+            : null;
+      if (!target) return refuse('usage', TRUST_USAGE);
+      return d.trust(target, a.start === true);
+    }
     case 'worker': {
       // The owner's command: an agent (its token) does not make or change agents (C5/C6 will).
       if (agent) return refuse('forbidden', '에이전트는 Worker 를 만들거나 바꿀 수 없어요');

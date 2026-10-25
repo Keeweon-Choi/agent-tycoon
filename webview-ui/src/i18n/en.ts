@@ -266,6 +266,13 @@ export const en = {
   'engine.retry': 'Press Start to try again.',
   'engine.terminalOpen': 'Open in a terminal',
   'engine.working': 'Working…',
+  'autoTrust.addHelp':
+    "Adding it lets Claude trust this folder: we answer its question for you · the folder's .claude settings, hooks and MCP servers may run.",
+  'autoTrust.cardHelp':
+    "Start answers Claude's trust question for this folder for you · the folder's .claude settings, hooks and MCP servers may run.",
+  'autoTrust.running': 'Trusting the folder…',
+  'leadDefault.claudeDefault': 'Claude default: {value}',
+  'leadDefault.unknown': 'Claude Code setting',
   'engine.section': 'Engine',
   'engine.addOrchestrator': 'Add orchestrator',
   'engine.import': 'Import from folder',
@@ -2088,6 +2095,9 @@ export const en = {
   'gfx.backdrop.title': 'City at night',
   'gfx.backdrop.help':
     'Draws a night city in the empty space around the office. Off: the plain background as before.',
+  'office25d.title': '2.5D style (trial)',
+  'office25d.help':
+    'Draws the office seen at an angle: walls with height and a front face, furniture in the new art. The layout and walking stay the same.',
   'gfx.parallax.title': 'Backdrop motion',
   'gfx.parallax.help':
     'Far buildings follow a drag a little slower. Never moves on a device set to reduce motion.',

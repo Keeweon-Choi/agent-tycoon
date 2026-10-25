@@ -4837,9 +4837,13 @@ components:
         The launch options (`rulesFile`, `model`, `permissionMode`, `effort`,
         `remoteControl`, `title` = the conversation's name) are only set when
         the user chose them; unset means Claude Code's own default (ADR-0014).
+        A new Lead whose add names no `model`/`effort` gets the Leads' common
+        pair, else the installed CLI's top ones (core/src/cld/leadDefaults.ts).
         `wantRunning` is set by start and cleared by stop; the engine revives
         such projects when the daemon starts. `needsTrust`: the session waits
         on Claude's folder trust question, which only a person answers.
+        `trusting` (AUTO-TRUST): the engine is answering that question in
+        Claude's own dialog right now, because a person pressed 켜기.
         `downNote` (T-0091): the engine's watch gave up reviving the session
         after it died again and again (a crash loop); it stays down until a
         person starts it. The text is the mark with the last error.
@@ -4891,6 +4895,8 @@ components:
         sessionId:
           type: string
         needsTrust:
+          type: boolean
+        trusting:
           type: boolean
         downNote:
           type: string

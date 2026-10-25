@@ -20,6 +20,8 @@
  *   attach <id>     resumes a stopped job, like Claude; then ./session-tui.cjs (T-0019:
  *                   the input line cld-gui send types into)
  *   rm <id>         removes a job
+ *   (no arguments, or the trust run's --settings … --strict-mcp-config)
+ *                   interactive: ./trust-tui.cjs, the folder-trust dialog (AUTO-TRUST)
  * A "reboot" is killing the sleeps (testHome.killFakeSessions): files stay.
  */
 const crypto = require('crypto');
@@ -275,7 +277,10 @@ function statusLine(rest) {
 }
 
 const [cmd, id] = args;
-if (cmd === '--bg') {
+if (cmd === undefined || (cmd === '--settings' && args.includes('--strict-mcp-config'))) {
+  // AUTO-TRUST: an interactive `claude` in a folder (./trust-tui.cjs, its own process).
+  process.exit(spawnSync(process.execPath, [path.join(__dirname, 'trust-tui.cjs')], { stdio: 'inherit' }).status ?? 0);
+} else if (cmd === '--bg') {
   bg(args.slice(1));
   statusLine(args.slice(1));
 } else if (cmd === 'agents' && id === '--json') {
