@@ -1,5 +1,6 @@
 import { perfCache } from '../../cld/perf.js';
 import type { SpriteData } from '../types.js';
+import { isSmooth, smoothPicture } from './smoothSprite.js';
 
 const zoomCaches = new Map<number, WeakMap<SpriteData, HTMLCanvasElement>>();
 
@@ -51,6 +52,8 @@ export function getOutlineSprite(sprite: SpriteData): SpriteData {
  *  device px between its rounded edges, so the pixels are 2 or 3 wide at 2.5, never blended.
  *  A whole zoom draws exactly as before. */
 export function getCachedSprite(sprite: SpriteData, zoom: number): HTMLCanvasElement {
+  // SHEET-IMPORT: a detailed character frame draws its one master at this size (smoothSprite.ts)
+  if (isSmooth(sprite)) return smoothPicture(sprite, zoom);
   let cache = zoomCaches.get(zoom);
   if (!cache) {
     cache = new WeakMap();

@@ -109,6 +109,9 @@ export interface CharacterLabelProps {
   plateSize: { w: number; h: number } | undefined;
   /** The office's size on screen (CSS px). */
   bounds: { width: number; height: number };
+  /** SHEET-IMPORT: how much taller than a classic figure it stands (world px): what sits over
+   *  its head rises by it; what sits at its feet stays. */
+  lift?: number;
 }
 
 export function CharacterLabel({
@@ -128,6 +131,7 @@ export function CharacterLabel({
   project,
   plateSize,
   bounds,
+  lift = 0,
 }: CharacterLabelProps) {
   // UI-SCALE: the plate's sizes are the 화면 크기 step's, never the screen width's.
   const sizes = nameplateSizes(useUiScale());
@@ -173,7 +177,7 @@ export function CharacterLabel({
       className="absolute pointer-events-none"
       style={{
         left: project.toScreenX(ch.x + STATUS_ICON_OFFSET_X),
-        top: project.toScreenY(ch.y + sit - STATUS_ICON_RISE_PX),
+        top: project.toScreenY(ch.y + sit - STATUS_ICON_RISE_PX - lift),
       }}
       data-testid="status-icon-anchor"
       data-agent-id={ch.id}
@@ -226,7 +230,9 @@ export function CharacterLabel({
   // Bottom centre of the whole overlay, kept on screen (its size from the last overlap pass).
   const at = clampPlate(
     project.toScreenX(ch.x),
-    project.toScreenY(ch.y + sit - (named ? TOOL_OVERLAY_VERTICAL_OFFSET : STATUS_DETAILS_RISE_PX)),
+    project.toScreenY(
+      ch.y + sit - lift - (named ? TOOL_OVERLAY_VERTICAL_OFFSET : STATUS_DETAILS_RISE_PX),
+    ),
     plateSize,
     bounds,
     NAMEPLATE_EDGE_MARGIN_PX,

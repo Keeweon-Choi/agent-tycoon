@@ -66,3 +66,6 @@ ref/
 
 # Expansion packs (characters, themes) are sold/distributed separately, never pushed (owner 10-25 20:59)
 packs-private/
+
+# The sheet importer runner photographs the owner's expansion-pack characters: keep them on this PC only (owner 10-25 20:59).
+cld/artifacts/sheet-import/*.png

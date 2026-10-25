@@ -1,0 +1,942 @@
+{
+  "memory": {
+    "density": 12,
+    "pieces": 44,
+    "decodedMB": 49.81,
+    "inUse": {
+      "pieces": 31,
+      "decodedMB": 20.97
+    },
+    "biggest": "o-wall-window-wide",
+    "biggestMB": 7.81,
+    "perPieceMB": {
+      "o-rug-round": 0.66,
+      "o-cactus": 0.11,
+      "o-wall-lift-retro": 1.01,
+      "o-floor-marble": 0.07,
+      "o-wall-entrance-a": 4.87,
+      "o-bookshelf-moss": 0.38,
+      "o-whiteboard-a": 0.33,
+      "o-monstera": 0.31,
+      "o-cabinet-a": 0.19,
+      "o-sofa-a": 0.25,
+      "o-bin": 0.06,
+      "o-chair-up": 0.22,
+      "o-chair-left": 0.22,
+      "o-palm": 0.45,
+      "o-desk": 0.55,
+      "o-floor-carpet-blue": 0.07,
+      "o-coffee-table-b": 0.21,
+      "o-armchair-a": 0.15,
+      "o-wall-lift-b": 1.02,
+      "o-wall-window-single": 3.1,
+      "o-armchair-b": 0.14,
+      "o-floor-carpet-pink": 0.07,
+      "o-wall-door-tall": 1.56,
+      "o-wall-window-wide": 7.81,
+      "o-wall-corner": 0.59,
+      "o-wall-lift": 1.07,
+      "o-bookshelf-cozy": 0.41,
+      "o-wall-plain": 3.11,
+      "o-wall-window": 6.91,
+      "o-wall-plain-b": 3.14,
+      "o-floor-wood-dark": 0.07,
+      "o-wall-door": 3.14,
+      "o-chair-right": 0.19,
+      "o-floor-wood-light": 0.07,
+      "o-cabinet-b": 0.19,
+      "o-whiteboard-b": 0.32,
+      "o-wall-entrance-b": 4.19,
+      "o-chair-down": 0.19,
+      "o-desk-b": 0.57,
+      "o-coffee-table": 0.2,
+      "o-floor-stone": 0.07,
+      "o-sofa-b": 0.26,
+      "o-wall-low": 0.18,
+      "o-lift-doors-open": 1.07
+    }
+  },
+  "report": {
+    "rug-round": {
+      "kind": "flat",
+      "scale": [
+        0.5,
+        0.4
+      ],
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2296
+      },
+      "size": [
+        576,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "cactus": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.236,
+      "baseWidthPx": 88,
+      "footprintWidthPx": 192,
+      "overhangPx": -104.1,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 748
+      },
+      "size": [
+        126,
+        216
+      ],
+      "sourceBorder": 0
+    },
+    "wall-lift-retro": {
+      "kind": "wall",
+      "role": "lift",
+      "tiles": 3,
+      "scale": [
+        0.5697000000000001,
+        1.2478
+      ],
+      "alignErrorPx": 4,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2025
+      },
+      "size": [
+        288,
+        876
+      ],
+      "sourceBorder": 0
+    },
+    "floor-marble": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 0.8,
+        "skew": 1.1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "wall-entrance-a": {
+      "kind": "wall",
+      "role": "entrance",
+      "tiles": 10,
+      "scale": [
+        1.2834,
+        1.2834
+      ],
+      "alignErrorPx": 4.7,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 3512
+      },
+      "size": [
+        1050,
+        1159
+      ],
+      "sourceBorder": 0
+    },
+    "bookshelf-moss": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.393,
+      "baseWidthPx": 153,
+      "footprintWidthPx": 192,
+      "overhangPx": -39.3,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1217
+      },
+      "size": [
+        211,
+        456
+      ],
+      "sourceBorder": 0
+    },
+    "whiteboard-a": {
+      "kind": "object",
+      "footprint": [
+        2,
+        1
+      ],
+      "scale": 0.302,
+      "baseWidthPx": 79,
+      "footprintWidthPx": 288,
+      "overhangPx": -209.1,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1272
+      },
+      "size": [
+        288,
+        290
+      ],
+      "sourceBorder": 0
+    },
+    "monstera": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.31,
+      "baseWidthPx": 98,
+      "footprintWidthPx": 192,
+      "overhangPx": -93.6,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2608
+      },
+      "size": [
+        250,
+        312
+      ],
+      "sourceBorder": 0
+    },
+    "cabinet-a": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.287,
+      "baseWidthPx": 133,
+      "footprintWidthPx": 192,
+      "overhangPx": -59.5,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 740
+      },
+      "size": [
+        163,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "sofa-a": {
+      "kind": "object",
+      "footprint": [
+        2,
+        1
+      ],
+      "scale": 0.234,
+      "baseWidthPx": 281,
+      "footprintWidthPx": 288,
+      "overhangPx": -7.5,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 789
+      },
+      "size": [
+        288,
+        217
+      ],
+      "sourceBorder": 0
+    },
+    "bin": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.15,
+      "baseWidthPx": 81,
+      "footprintWidthPx": 192,
+      "overhangPx": -110.6,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 377
+      },
+      "size": [
+        109,
+        144
+      ],
+      "sourceBorder": 0
+    },
+    "chair-up": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.277,
+      "baseWidthPx": 154,
+      "footprintWidthPx": 192,
+      "overhangPx": -37.6,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1252
+      },
+      "size": [
+        190,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "chair-left": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.279,
+      "baseWidthPx": 157,
+      "footprintWidthPx": 192,
+      "overhangPx": -34.8,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1264
+      },
+      "size": [
+        194,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "palm": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.351,
+      "baseWidthPx": 107,
+      "footprintWidthPx": 192,
+      "overhangPx": -84.7,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 5070
+      },
+      "size": [
+        277,
+        408
+      ],
+      "sourceBorder": 0
+    },
+    "desk": {
+      "kind": "object",
+      "footprint": [
+        3,
+        1
+      ],
+      "scale": 0.413,
+      "baseWidthPx": 167,
+      "footprintWidthPx": 384,
+      "overhangPx": -216.6,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1781
+      },
+      "size": [
+        373,
+        369
+      ],
+      "sourceBorder": 0
+    },
+    "floor-carpet-blue": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 1.1,
+        "skew": 1.1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "coffee-table-b": {
+      "kind": "object",
+      "footprint": [
+        2,
+        1
+      ],
+      "scale": 0.248,
+      "baseWidthPx": 145,
+      "footprintWidthPx": 288,
+      "overhangPx": -143.4,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 985
+      },
+      "size": [
+        279,
+        188
+      ],
+      "sourceBorder": 0
+    },
+    "armchair-a": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.205,
+      "baseWidthPx": 152,
+      "footprintWidthPx": 192,
+      "overhangPx": -39.5,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 586
+      },
+      "size": [
+        182,
+        201
+      ],
+      "sourceBorder": 0
+    },
+    "wall-lift-b": {
+      "kind": "wall",
+      "role": "lift",
+      "tiles": 3,
+      "scale": [
+        0.6174,
+        1.2632
+      ],
+      "alignErrorPx": 3.7,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2031
+      },
+      "size": [
+        288,
+        886
+      ],
+      "sourceBorder": 0
+    },
+    "wall-window-single": {
+      "kind": "wall",
+      "role": "window",
+      "tiles": 7,
+      "scale": [
+        1.3023,
+        1.2245
+      ],
+      "alignErrorPx": 0.9,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 3,
+        "rim": 2910
+      },
+      "size": [
+        763,
+        1017
+      ],
+      "sourceBorder": 0
+    },
+    "armchair-b": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.189,
+      "baseWidthPx": 156,
+      "footprintWidthPx": 192,
+      "overhangPx": -35.9,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 603
+      },
+      "size": [
+        183,
+        190
+      ],
+      "sourceBorder": 0
+    },
+    "floor-carpet-pink": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 1.1,
+        "skew": 1.1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "wall-door-tall": {
+      "kind": "wall",
+      "role": "door",
+      "tiles": 4,
+      "scale": [
+        0.7885,
+        0.8717
+      ],
+      "alignErrorPx": 6.6,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2290
+      },
+      "size": [
+        442,
+        883
+      ],
+      "sourceBorder": 0
+    },
+    "wall-window-wide": {
+      "kind": "wall",
+      "role": "window",
+      "tiles": 14,
+      "scale": [
+        1.2455999999999998,
+        1.2632
+      ],
+      "alignErrorPx": 7.2,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 4389
+      },
+      "size": [
+        1424,
+        1371
+      ],
+      "sourceBorder": 0
+    },
+    "wall-corner": {
+      "kind": "wall",
+      "role": "corner",
+      "scale": [
+        0.83,
+        0.8159
+      ],
+      "alignErrorPx": 1,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1838
+      },
+      "size": [
+        192,
+        767
+      ],
+      "sourceBorder": 0
+    },
+    "wall-lift": {
+      "kind": "wall",
+      "role": "lift",
+      "tiles": 3,
+      "scale": [
+        0.6597999999999999,
+        1.1374000000000002
+      ],
+      "alignErrorPx": 4.9,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2034
+      },
+      "size": [
+        288,
+        932
+      ],
+      "sourceBorder": 0
+    },
+    "bookshelf-cozy": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.395,
+      "baseWidthPx": 155,
+      "footprintWidthPx": 192,
+      "overhangPx": -36.7,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1243
+      },
+      "size": [
+        226,
+        456
+      ],
+      "sourceBorder": 0
+    },
+    "wall-plain": {
+      "kind": "wall",
+      "role": "plain",
+      "tiles": 7,
+      "scale": [
+        1.3023,
+        1.2287000000000001
+      ],
+      "alignErrorPx": 1.4,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2971
+      },
+      "size": [
+        765,
+        1016
+      ],
+      "sourceBorder": 0
+    },
+    "wall-window": {
+      "kind": "wall",
+      "role": "window",
+      "tiles": 13,
+      "scale": [
+        1.4647999999999999,
+        1.409
+      ],
+      "alignErrorPx": 0.8,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 4149
+      },
+      "size": [
+        1342,
+        1288
+      ],
+      "sourceBorder": 0
+    },
+    "wall-plain-b": {
+      "kind": "wall",
+      "role": "plain",
+      "tiles": 7,
+      "scale": [
+        1.2679,
+        1.2414
+      ],
+      "alignErrorPx": 1.7,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 2,
+        "rim": 3073
+      },
+      "size": [
+        767,
+        1023
+      ],
+      "sourceBorder": 0
+    },
+    "floor-wood-dark": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 1,
+        "skew": 1.1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "wall-door": {
+      "kind": "wall",
+      "role": "door",
+      "tiles": 7,
+      "scale": [
+        1.2679,
+        1.2392
+      ],
+      "alignErrorPx": 5.2,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 3006
+      },
+      "size": [
+        766,
+        1024
+      ],
+      "sourceBorder": 0
+    },
+    "chair-right": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.267,
+      "baseWidthPx": 141,
+      "footprintWidthPx": 192,
+      "overhangPx": -50.5,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1285
+      },
+      "size": [
+        164,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "floor-wood-light": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 0.8,
+        "skew": 1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "cabinet-b": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.295,
+      "baseWidthPx": 155,
+      "footprintWidthPx": 192,
+      "overhangPx": -37.1,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 758
+      },
+      "size": [
+        164,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "whiteboard-b": {
+      "kind": "object",
+      "footprint": [
+        1,
+        2
+      ],
+      "scale": 0.29,
+      "baseWidthPx": 82,
+      "footprintWidthPx": 288,
+      "overhangPx": -206.3,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1357
+      },
+      "size": [
+        288,
+        277
+      ],
+      "sourceBorder": 0
+    },
+    "wall-entrance-b": {
+      "kind": "wall",
+      "role": "entrance",
+      "tiles": 9,
+      "scale": [
+        1.2186,
+        1.2457
+      ],
+      "alignErrorPx": 6.7,
+      "heightPx": 720,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 3286
+      },
+      "size": [
+        946,
+        1108
+      ],
+      "sourceBorder": 0
+    },
+    "chair-down": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.266,
+      "baseWidthPx": 141,
+      "footprintWidthPx": 192,
+      "overhangPx": -50.9,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1298
+      },
+      "size": [
+        168,
+        288
+      ],
+      "sourceBorder": 0
+    },
+    "desk-b": {
+      "kind": "object",
+      "footprint": [
+        3,
+        1
+      ],
+      "scale": 0.436,
+      "baseWidthPx": 169,
+      "footprintWidthPx": 384,
+      "overhangPx": -215,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 1863
+      },
+      "size": [
+        373,
+        381
+      ],
+      "sourceBorder": 0
+    },
+    "coffee-table": {
+      "kind": "object",
+      "footprint": [
+        2,
+        1
+      ],
+      "scale": 0.236,
+      "baseWidthPx": 161,
+      "footprintWidthPx": 288,
+      "overhangPx": -127.4,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 890
+      },
+      "size": [
+        279,
+        181
+      ],
+      "sourceBorder": 0
+    },
+    "floor-stone": {
+      "kind": "floor",
+      "alignErrorPx": {
+        "ratio": 0.8,
+        "skew": 1.1
+      },
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 380
+      },
+      "size": [
+        192,
+        96
+      ],
+      "sourceBorder": 0
+    },
+    "sofa-b": {
+      "kind": "object",
+      "footprint": [
+        1,
+        2
+      ],
+      "scale": 0.258,
+      "baseWidthPx": 222,
+      "footprintWidthPx": 288,
+      "overhangPx": -65.5,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 765
+      },
+      "size": [
+        288,
+        230
+      ],
+      "sourceBorder": 0
+    },
+    "wall-low": {
+      "kind": "derived",
+      "capBandRows": 44,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 668
+      },
+      "size": [
+        192,
+        240
+      ]
+    },
+    "lift-doors-open": {
+      "kind": "derived",
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 2034
+      },
+      "size": [
+        288,
+        932
+      ]
+    }
+  },
+  "flags": [
+    "wall-window-wide: wall base off the 1:2 line by 7.2 px"
+  ]
+}

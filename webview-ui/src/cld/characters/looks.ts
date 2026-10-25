@@ -11,15 +11,18 @@ import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
 import { paletteOfLook } from '../../../../core/src/cld/looks.js';
 import type {
   CharacterChoice,
+  CharacterPreset,
   CharacterPresets,
   OfficeSnapshot,
 } from '../../../../core/src/messages.js';
+import { IMPORT_DENSITY, IMPORT_WORLD_W } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
 import {
   getCharacterTemplates,
   getCustomCharacter,
   setCustomCharacter,
+  setIsoPalette,
 } from '../../office/sprites/spriteData.js';
 import type { Character, SpriteData } from '../../office/types.js';
 import { employeeName, employeeOf } from '../employees.js';
@@ -27,6 +30,7 @@ import { closeWindow, openWindow } from '../hud/hudStore.js';
 import { cldGetSnapshot, useCldStore, virtualAgentId } from '../officeStore.js';
 import { setSipAnchor } from '../rest.js';
 import { compose, type DenseSheet, lookKey, portraitOf } from './compose.js';
+import { importedSheet } from './importedSheet.js';
 import type { PartData } from './parts.js';
 
 /** Preset sheets take palette numbers from here up (the built-ins are 0-5). */
@@ -103,9 +107,16 @@ export function looksTitle(name: string): string {
 export function presetSheet(id: string, presets: CharacterPresets) {
   const preset = presets.presets.find((p) => p.id === id);
   if (!preset) return null;
-  load(preset.url, preset.mugshotUrl);
+  load(preset);
   const palette = sheets.get(preset.url);
   return typeof palette === 'number' ? getCustomCharacter(palette) : null;
+}
+
+/** SHEET-IMPORT: the palette a preset draws under once loaded (it starts loading), else null. */
+export function presetPalette(preset: CharacterPreset): number | null {
+  load(preset);
+  const palette = sheets.get(preset.url);
+  return typeof palette === 'number' ? palette : null;
 }
 
 async function pixelsOf(url: string): Promise<ImageData> {
@@ -147,13 +158,45 @@ function sheetOf(img: ImageData, density: 1 | 2): DenseSheet {
 const sheets = new Map<string, number | 'loading' | 'failed'>();
 let nextPalette = PRESET_PALETTE_BASE;
 
-function load(url: string, mugshotUrl: string | null): void {
+/** Top-view sheet url -> the isometric sheet's url beside it. */
+const isoUrls = new Map<string, string>();
+
+function load(preset: CharacterPreset): void {
+  if (preset.isoUrl) isoUrls.set(preset.url, preset.isoUrl);
+  loadSheet(preset.url, preset.mugshotUrl, preset);
+  // SHEET-IMPORT: an isometric sheet beside the top view, for the isometric view
+  if (preset.isoUrl) loadSheet(preset.isoUrl, null, { ...preset, format: 'iso' }, preset.url);
+}
+
+function loadSheet(
+  url: string,
+  mugshotUrl: string | null,
+  preset: Pick<CharacterPreset, 'format' | 'columns' | 'walk'>,
+  /** This is the isometric sheet beside the top view at this url. */
+  isoOf?: string,
+): void {
   if (!url || sheets.has(url)) return;
   sheets.set(url, 'loading');
   const palette = nextPalette++;
   void (async () => {
     try {
       const img = await pixelsOf(url);
+      if (img.width === IMPORT_WORLD_W * IMPORT_DENSITY * FRAMES) {
+        const sheet = importedSheet(img, {
+          iso: preset.format === 'iso',
+          standFirst: preset.columns === 'standFirst',
+          twoStep: preset.walk === 'two',
+        });
+        setCustomCharacter(palette, sheet, null);
+        sheets.set(url, palette);
+        const top = isoOf ? sheets.get(isoOf) : undefined;
+        if (typeof top === 'number') setIsoPalette(top, palette);
+        const iso = !isoOf && isoUrls.get(url);
+        const isoPalette = iso ? sheets.get(iso) : undefined;
+        if (typeof isoPalette === 'number') setIsoPalette(palette, isoPalette);
+        update({ version: ui.version + 1 });
+        return;
+      }
       const density = img.width === SHEET_W * 2 ? 2 : 1;
       if (img.width !== SHEET_W * density || img.height !== SHEET_H * density)
         throw new Error(`${img.width}×${img.height}, not ${SHEET_W}×${SHEET_H} (or twice that)`);
@@ -227,7 +270,7 @@ function lookOf(
   // v1 palettes (and plain v2 humanoids on their base) are the built-in sheets, drawn as before.
   if (choice.preset === undefined) return paletteOfLook(choice);
   const preset = presets.presets.find((p) => p.id === choice.preset);
-  load(preset?.url ?? '', preset?.mugshotUrl ?? null);
+  if (preset) load(preset);
   const palette = preset ? sheets.get(preset.url) : 'failed';
   if (typeof palette === 'number') return { palette, hueShift: 0 };
   if (palette === 'loading') return null;
@@ -282,7 +325,12 @@ export function useCharacterLooks(
   agents: readonly number[],
   layoutReady: boolean,
 ): void {
-  const { officeSnapshot: officeState, characterPresets, characterParts, tempStaff } = useCldStore();
+  const {
+    officeSnapshot: officeState,
+    characterPresets,
+    characterParts,
+    tempStaff,
+  } = useCldStore();
   const { version } = useLooksUi();
   useEffect(() => {
     if (characterParts !== customParts) setCustomParts(characterParts);

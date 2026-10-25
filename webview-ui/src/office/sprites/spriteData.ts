@@ -1,11 +1,12 @@
 import type { ColorValue } from '../../components/ui/types.js';
-import { PALETTE_COUNT, THINKING_DOT_COLOR } from '../../constants.js';
+import { CLASSIC_FIGURE_RISE, PALETTE_COUNT, THINKING_DOT_COLOR } from '../../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubblePetData from './bubble-pet.json';
 import bubbleWaitingData from './bubble-waiting.json';
+import { copyFor, deriveSmooth, markSmooth } from './smoothSprite.js';
 
 // ── Speech Bubble Sprites ───────────────────────────────────────
 
@@ -60,12 +61,32 @@ export interface LoadedCharacterData {
   /** HD (owner 10-25): sprite px per world px. Absent = 1 (16x32 frames); 2 = 32x64 frames
    *  drawn in the same 16x32 world rect at twice the detail; 4 = 64x128 (HD64, the master). */
   density?: 1 | 2 | 4;
-  /** HD64: the same character at lower densities (32x64, 16x32), for zooms the master's
-   *  density does not divide (drawn whole-pixel, never a fractional fill). */
+  /** HD64: the same character at lower densities (32x64, 16x32), for what cannot draw it (the
+   *  office draws the master itself at every zoom, SHEET-IMPORT). */
   lods?: LoadedCharacterData[];
+  /** SHEET-IMPORT: the walk's four frames (indexes into a row; absent = 0, 1, 2, 1) and the
+   *  standing frame (absent = the walk's second): an imported sheet stands on column 1. */
+  walk?: readonly [number, number, number, number];
+  stand?: number;
+  /** SHEET-IMPORT: the density it draws at, when not `density` (a 64×128 person draws at 3:
+   *  1.33 times its world size, owner 10-26 03:10). */
+  drawDensity?: number;
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
+
+/** SHEET-IMPORT: from this density a character draws one master at every zoom; a classic frame's
+ *  world height. */
+const CLASSIC_FRAME_H = 32;
+const SMOOTH_DENSITY = 4;
+
+/** SHEET-IMPORT: a preset's isometric sheet (palette) beside its top-view one, which the
+ *  isometric view draws instead. */
+const isoPalettes = new Map<number, number>();
+export function setIsoPalette(topPalette: number, isoPalette: number): void {
+  isoPalettes.set(topPalette, isoPalette);
+}
+export const isoPaletteOf = (palette: number): number => isoPalettes.get(palette) ?? palette;
 
 // cld-gui (T-0017): preset sheets, drawn through the same cache as char_N under
 // palette numbers above the built-ins, with an optional card portrait.
@@ -125,6 +146,8 @@ export interface CharacterSprites {
   density: number;
   /** HD64: the same sprites at lower densities (LoadedCharacterData.lods). */
   lods?: CharacterSprites[];
+  /** SHEET-IMPORT: the standing frame per direction, when it is not the walk's second. */
+  stand?: Record<Direction, SpriteData>;
 }
 
 /** The sprites to draw at `zoom`: the finest of the character's densities that divides the zoom
@@ -132,7 +155,9 @@ export interface CharacterSprites {
  *  zoom no density divides (a fractional one) takes the coarsest. A sheet without copies is
  *  itself, as before. */
 export function spritesAtZoom(sprites: CharacterSprites, zoom: number): CharacterSprites {
-  if (!sprites.lods?.length) return sprites;
+  // SHEET-IMPORT (owner 10-26): a detailed character (density 4 and up) draws its one master at
+  // every zoom (smoothSprite.ts), never a copy picked by the zoom
+  if (!sprites.lods?.length || sprites.density >= SMOOTH_DENSITY) return sprites;
   const all = [sprites, ...sprites.lods].sort((a, b) => b.density - a.density);
   return all.find((s) => Number.isInteger(zoom / s.density)) ?? all[all.length - 1];
 }
@@ -142,7 +167,11 @@ const spriteCache = new Map<string, CharacterSprites>();
 /** Apply hue shift to every sprite in a CharacterSprites set */
 function hueShiftSprites(sprites: CharacterSprites, hueShift: number): CharacterSprites {
   const color: ColorValue = { h: hueShift, s: 0, b: 0, c: 0 };
-  const shift = (s: SpriteData) => adjustSprite(s, color);
+  const shift = (s: SpriteData) => {
+    const out = copyFor(s) ?? adjustSprite(s, color);
+    deriveSmooth(s, out, { adjust: color });
+    return out;
+  };
   const shiftWalk = (
     arr: [SpriteData, SpriteData, SpriteData, SpriteData],
   ): [SpriteData, SpriteData, SpriteData, SpriteData] => [
@@ -176,6 +205,11 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
     } as Record<Direction, [SpriteData, SpriteData]>,
     density: sprites.density,
     ...(sprites.lods && { lods: sprites.lods.map((l) => hueShiftSprites(l, hueShift)) }),
+    ...(sprites.stand && {
+      stand: Object.fromEntries(
+        Object.entries(sprites.stand).map(([d, f]) => [d, shift(f)]),
+      ) as Record<Direction, SpriteData>,
+    }),
   };
 }
 
@@ -194,14 +228,35 @@ function spritesOf(char: LoadedCharacterData): CharacterSprites {
   const d = char.down;
   const u = char.up;
   const rt = char.right;
-  const flip = flipSpriteHorizontal;
+  // SHEET-IMPORT: detailed frames draw their one master (smoothSprite.ts); a mirror keeps it
+  if ((char.density ?? 1) >= SMOOTH_DENSITY) for (const f of [...d, ...u, ...rt]) markSmooth(f);
+  const flips = new Map<SpriteData, SpriteData>();
+  const flip = (f: SpriteData) => {
+    let m = flips.get(f);
+    if (!m) {
+      m = flipSpriteHorizontal(f);
+      deriveSmooth(f, m, { mirror: true });
+      flips.set(f, m);
+    }
+    return m;
+  };
+  const [a, b, c, e] = char.walk ?? [0, 1, 2, 1];
+  const stand = char.stand;
   return {
     walk: {
-      [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
-      [Dir.UP]: [u[0], u[1], u[2], u[1]],
-      [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
-      [Dir.LEFT]: [flip(rt[0]), flip(rt[1]), flip(rt[2]), flip(rt[1])],
+      [Dir.DOWN]: [d[a], d[b], d[c], d[e]],
+      [Dir.UP]: [u[a], u[b], u[c], u[e]],
+      [Dir.RIGHT]: [rt[a], rt[b], rt[c], rt[e]],
+      [Dir.LEFT]: [flip(rt[a]), flip(rt[b]), flip(rt[c]), flip(rt[e])],
     },
+    ...(stand !== undefined && {
+      stand: {
+        [Dir.DOWN]: d[stand],
+        [Dir.UP]: u[stand],
+        [Dir.RIGHT]: rt[stand],
+        [Dir.LEFT]: flip(rt[stand]),
+      } as Record<Direction, SpriteData>,
+    }),
     typing: {
       [Dir.DOWN]: [d[3], d[4]],
       [Dir.UP]: [u[3], u[4]],
@@ -214,9 +269,28 @@ function spritesOf(char: LoadedCharacterData): CharacterSprites {
       [Dir.RIGHT]: [rt[5], rt[6]],
       [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
     },
-    density: char.density ?? 1,
+    density: char.drawDensity ?? char.density ?? 1,
     ...(char.lods?.length ? { lods: char.lods.map(spritesOf) } : {}),
   };
+}
+
+/** SHEET-IMPORT: how many world px a character's figure stands taller than a classic one (its
+ *  standing front frame's head over its feet; 0 for classic and HD 32×64 characters): its
+ *  labels, bubbles, head icons and hit box rise by it. */
+const lifts = new WeakMap<CharacterSprites, number>();
+export function characterLift(paletteIndex: number, hueShift = 0): number {
+  const s = getCharacterSprites(paletteIndex, hueShift);
+  let lift = lifts.get(s);
+  if (lift === undefined) {
+    const f = s.stand?.[Dir.DOWN] ?? s.walk[Dir.DOWN][1];
+    const top = f.findIndex((row) => row.some(Boolean));
+    // classic and HD (32×64) frames are 32 world px tall: they never lift
+    const tall = f.length / s.density > CLASSIC_FRAME_H;
+    lift =
+      top < 0 || !tall ? 0 : Math.max(0, (f.length - top) / s.density - CLASSIC_FIGURE_RISE - 1);
+    lifts.set(s, lift);
+  }
+  return lift;
 }
 
 export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {

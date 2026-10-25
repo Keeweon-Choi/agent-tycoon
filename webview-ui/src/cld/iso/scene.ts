@@ -107,7 +107,7 @@ export function buildScene(
       lift: onWall ? 1 : 0,
       // On a cut-away wall it rests on the wall's top instead of hanging at eye height.
       drop:
-        onWall && lowWall(scenes[floor.level], f.col, bottom - floor.row)
+        onWall && !found?.piece.stands && lowWall(scenes[floor.level], f.col, bottom - floor.row)
           ? ISO_LOW_WALL_ITEM_DROP
           : 0,
       piece: found?.piece ?? null,

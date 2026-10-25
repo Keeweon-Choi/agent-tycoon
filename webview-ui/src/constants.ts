@@ -800,6 +800,30 @@ export const MUGSHOT_RENDER_ZOOM = 2;
 /** The zoom step HD characters ask the camera for (32×64: even zooms); an HD64 character draws
  *  its 32×64 copy at those, so it asks no more. */
 export const HD_ZOOM_STEP = 2;
+/** SHEET-IMPORT: detailed characters (density 4 and up) draw one master at any zoom; the zooms'
+ *  pictures are kept up to this many bytes (least recently used zoom dropped first). */
+export const SMOOTH_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+/** SHEET-IMPORT: a drawn frame and the queued pictures built after it (warm-up) take at most
+ *  this long together; an idle callback leaves this much of its time unused. */
+export const WARM_SLICE_MS = 6;
+export const WARM_IDLE_SPARE_MS = 4;
+/** SHEET-IMPORT: frames that leave no time over still run one queued build every this many. */
+export const WARM_FORCE_EVERY = 4;
+/** SHEET-IMPORT: an imported sheet (density 12) and the proxy its frames carry for hit tests,
+ *  outlines and the spawn effect (density 4: 64×128). */
+export const IMPORT_DENSITY = 12;
+export const IMPORT_PROXY_DENSITY = 4;
+/** SHEET-IMPORT (owner 10-26 03:10): an imported character's world frame (24×44 px, its standing
+ *  figure 1.3 classic ones tall), and the density the 64×128 pack characters draw at (3: 1.33
+ *  times their 16×32 world size, as tall as an imported one). */
+export const IMPORT_WORLD_W = 24;
+export const IMPORT_WORLD_H = 44;
+export const HD64_DRAW_DENSITY = 3;
+/** A classic figure's head is this many world px over its feet: a taller character's labels,
+ *  bubbles, icons and hit box rise by what its own figure stands over it. */
+export const CLASSIC_FIGURE_RISE = 30;
+/** SHEET-IMPORT: the figures' boxes over the source sheet in the import window. */
+export const SHEET_BOX_COLOR = '#00e5ff';
 /** The performance readout (Settings): frames averaged, refresh interval. */
 export const PERF_FRAMES = 60;
 export const PERF_REFRESH_MS = 500;
@@ -1039,12 +1063,17 @@ export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
  *  character stands about four tiles tall, the proportions the top-down office has. */
 export const ISO_HALF_W = 8;
 export const ISO_HALF_H = 4;
-/** A tall back wall (iso px above its floor), a cut-away wall, a floor slab, and the gap left
- *  between a floor's wall tops and the slab of the floor above. */
-export const ISO_WALL_H = 40;
+/** A tall back wall (iso px above its floor at the building's back corner: the owner 10-26 01:48
+ *  asked for taller storeys), a cut-away wall, a floor slab, and the gap left between a floor's
+ *  wall tops and the slab of the floor above (none: the floors sit flush, one structure). The
+ *  wall pieces (gen-iso-objects.ts) are made this tall: regenerate them when it changes. */
+export const ISO_WALL_H = 52;
 export const ISO_LOW_WALL_H = 5;
 export const ISO_SLAB_H = 6;
-export const ISO_FLOOR_GAP = 6;
+export const ISO_FLOOR_GAP = 0;
+/** The art's master density: picture px per world px of the owner's pieces (a 16 px tile is a
+ *  192×96 diamond), each drawn at every zoom from its one master. */
+export const ISO_MASTER_DENSITY = 12;
 /** Margin (iso px) around the building in the whole-building framing. */
 export const ISO_FRAME_MARGIN = 12;
 /** A floor not in focus: drawn from its cache darkened by this wash, at this opacity. */
@@ -1056,6 +1085,12 @@ export const ISO_DIM_REFRESH_MS = 1000;
 export const ISO_CHARACTER_BOX = 0.3;
 /** World px a seated character's feet move towards its desk. */
 export const ISO_SIT_FORWARD_PX = 3;
+/** The elevator shaft between the floors' doors: its glass, its frame posts (iso px wide), and
+ *  how near a floor (in levels) the car counts as standing at its doors. */
+export const ISO_SHAFT_GLASS = 'rgba(120, 170, 220, 0.14)';
+export const ISO_SHAFT_FRAME = 'rgba(92, 97, 112, 0.55)';
+export const ISO_SHAFT_POST = 1.5;
+export const ISO_CAR_AT_FLOOR = 0.04;
 /** The isometric elevator car's speed, floors a second. */
 export const ISO_LIFT_LEVELS_PER_S = 2.5;
 /** World px a picture hung on a wall drops when that wall is cut away (it rests on its top). */

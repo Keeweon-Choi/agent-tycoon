@@ -3,7 +3,9 @@ import {
   OFFICE_IDLE_FPS,
   OFFICE_INPUT_GRACE_MS,
   OFFICE_VISIBLE_RATIO,
+  WARM_SLICE_MS,
 } from '../../constants.js';
+import { pumpWarm, warmPending } from '../sprites/smoothSprite.js';
 import { createFramePacer, FRAME_RATE } from './framePacer.js';
 
 /** @internal */
@@ -78,10 +80,16 @@ export function startGameLoop(canvas: HTMLCanvasElement, callbacks: GameLoopCall
     const dt = lastTime === 0 ? 0 : Math.min((time - lastTime) / 1000, MAX_DELTA_TIME_SEC);
     lastTime = time;
     callbacks.update(dt);
-    setBusy(callbacks.busy?.() ?? true);
+    // Warming is deliberately outside the drawing that needs the pictures: it may use the full
+    // cadence briefly, then this becomes false and the office returns to its normal idle rate.
+    setBusy((callbacks.busy?.() ?? true) || warmPending() > 0);
     if (frameDue(time)) {
       ctx.imageSmoothingEnabled = false;
+      const drawn = performance.now();
       callbacks.render(ctx);
+      // SHEET-IMPORT: build queued character pictures for this zoom (never mid-stride), in what
+      // the frame's drawing left of its slice
+      pumpWarm(WARM_SLICE_MS - (performance.now() - drawn));
     }
     rafId = requestAnimationFrame(frame);
   };

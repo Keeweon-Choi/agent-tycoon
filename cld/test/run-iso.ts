@@ -11,7 +11,8 @@
  * dragged onto another floor's button riding the elevator (the car seen between floors), a
  * character walking, a click on the HD bunny that follows it in its sharpest drawing. Measured: idle
  * frames with the view on and off, the dimmed floors' redraws while idle, frame time with 20
- * more characters (and with the CPU 4× slower). Screenshots: cld/artifacts/iso-pilot/.
+ * more characters (and with the CPU 4× slower). ISO-2: the owner's objects, flush storeys, one
+ * elevator column. Screenshots: cld/artifacts/iso-2/.
  *
  *   npx tsx cld/test/run-iso.ts <port 18256-18259>
  */
@@ -30,7 +31,7 @@ import {
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/iso-pilot');
+const OUT = path.join(REPO_ROOT, 'cld/artifacts/iso-2');
 const DESK: BrowserContextOptions = {
   viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 1,
@@ -83,6 +84,7 @@ type Iso = {
 type Hooks = {
   getIso: () => Iso;
   isoPoint: (x: number, y: number) => { x: number; y: number } | null;
+  getElevators: () => Array<{ floor: string; col: number; row: number; open: number }>;
   getAgentSeats: () => Array<{ id: number }>;
   getCharacterTile: (
     id: number,
@@ -261,6 +263,21 @@ async function main() {
       `switch on: the building is drawn, 2F in focus (${iso.floors.length} floors)`,
     );
     check(iso.floors.length === 3, 'three floors stacked');
+    // ISO-2: one elevator column: the same tile on every floor, the doors on one screen column.
+    const els = await h((x) => x.getElevators(), null);
+    check(
+      els.length === 3 &&
+        new Set(els.map((e) => e.col)).size === 1 &&
+        new Set(els.map((e, k) => e.row - iso.floors[k].row)).size === 1,
+      `one elevator tile on every floor (${JSON.stringify(els.map((e) => [e.col, e.row]))})`,
+    );
+    const doorsAt = await Promise.all(
+      els.map((e) => h((x, d) => x.isoPoint(d.col * 16 + 16, d.row * 16 + 16), e)),
+    );
+    check(
+      doorsAt.every((p) => p) && new Set(doorsAt.map((p) => Math.round(p!.x))).size === 1,
+      `the doors line up on one screen column (x ${doorsAt.map((p) => Math.round(p!.x)).join(', ')})`,
+    );
     const counter = await placeCounter(page, iso.floors[1]);
     await page.waitForTimeout(1500);
     const before = await h((x) => x.getIso(), null);
@@ -344,7 +361,10 @@ async function main() {
     );
     const rider = onF2[onF2.length - 1];
     check(rider, 'someone on 2F to ride');
-    const rp = (await h((x, a) => x.isoPoint(a.x, a.y), rider.p))!;
+    // SEAT-WIRE: press where the frame drew the rider (a seated one sits on its chair's seat point,
+    // off its tile), at the body's middle.
+    const riderBox = (await h((x, id) => x.isoCharacterBox(id), rider.id))!;
+    const rp = { x: riderBox.x + riderBox.w / 2, y: riderBox.y + riderBox.h * 0.6 + 8 };
     const rb = await canvasBox(page);
     await page.mouse.move(rb.x + rp.x, rb.y + rp.y - 8);
     await page.mouse.down();
@@ -433,12 +453,10 @@ async function main() {
 
     // ── A click on the HD bunny selects and follows it, in its sharpest drawing ──
     const alpha = people.find((p) => p.id !== walker!.id) ?? people[0];
-    const ap = await h((x, id) => {
-      const p = x.getCharacterPosition(id);
-      return p && x.isoPoint(p.x, p.y);
-    }, alpha.id);
+    // SEAT-WIRE: click where the frame drew it (seated, it sits on its chair's seat point).
+    const abox = await h((x, id) => x.isoCharacterBox(id), alpha.id);
     const b2 = await canvasBox(page);
-    if (ap) await page.mouse.click(b2.x + ap.x, b2.y + ap.y - 12);
+    if (abox) await page.mouse.click(b2.x + abox.x + abox.w / 2, b2.y + abox.y + abox.h * 0.6);
     await page.waitForTimeout(1500);
     const sel = await h((x) => ({ s: x.getSelectedAgentId(), f: x.getCameraFollowId() }), null);
     check(

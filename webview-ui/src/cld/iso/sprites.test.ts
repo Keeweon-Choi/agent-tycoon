@@ -1,30 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CharacterSprites } from '../../office/sprites/spriteData.js';
 import { Direction } from '../../office/types.js';
-import { isoFacing, isoSheetFrame, isoSprites, rowDirection, sheetRows } from './sprites.js';
-
-const at = (density: number, lods?: CharacterSprites[]) =>
-  ({ walk: {}, typing: {}, reading: {}, density, lods }) as unknown as CharacterSprites;
-
-describe('iso character drawing', () => {
-  const d1 = at(1);
-  const d2 = at(2);
-  const hd = at(4, [d2, d1]);
-
-  it('draws the density that divides the zoom, as the top-down office does', () => {
-    expect(isoSprites(hd, 4, false)).toBe(hd);
-    expect(isoSprites(hd, 2, false)).toBe(d2);
-    expect(isoSprites(hd, 3, false)).toBe(d1);
-    expect(isoSprites(d1, 3, true)).toBe(d1); // a classic sheet has one drawing
-  });
-
-  it('shows a character looked at in its sharpest drawing that is not shrunk', () => {
-    expect(isoSprites(hd, 3, true)).toBe(d2); // 32×64 at 1.5, not 16×32 at 3
-    expect(isoSprites(hd, 5, true)).toBe(hd);
-    expect(isoSprites(hd, 1, true)).toBe(d1);
-  });
-});
+import { isoFacing, isoSheetFrame, rowDirection, sheetRows } from './sprites.js';
 
 describe('iso facing', () => {
   // A tiny synthetic sheet: every frame one pixel wide-and-two, its colour says row and column,

@@ -8,9 +8,11 @@
  * from floor 1. Nothing here knows a camera: the renderer adds the zoom and pan
  * (`isoOrigin`), so the characters' world never hardcodes a view.
  *
- * Levels are `spacing` iso px apart: the deepest floor's diamond, its back walls, a slab and
- * a gap, so the floors never cover each other and every one stays readable (the owner
- * 10-26: the other floors are dimmed, never hidden).
+ * Each level is raised (`lifts`) so its slab sits directly on the wall tops of the level below
+ * (owner 10-26 01:48: taller storeys, stacked flush): the upper floor's front-left edge runs
+ * parallel above the lower floor's back walls and touches them, so the building reads as one
+ * structure and the floors never cover each other (the other floors are dimmed, never hidden).
+ * A floor's plate is as deep as its own rows, so a shallower floor above sits closer.
  */
 import { ISO_FLOOR_GAP, ISO_HALF_H, ISO_HALF_W, ISO_SLAB_H, ISO_WALL_H } from '../../constants.js';
 import { TileType } from '../../office/types.js';
@@ -28,24 +30,31 @@ export interface IsoFloor {
   rows: number;
   /** 0 = floor 1, at the bottom. */
   level: number;
+  /** First local row with anything in it: its back walls (the void rows above are no building). */
+  top: number;
 }
 
 export interface IsoStack {
   floors: IsoFloor[];
   cols: number;
-  /** The deepest floor's rows: every floor is drawn on a plate this deep. */
+  /** The deepest floor's rows (the building's extent to the left). */
   depth: number;
-  /** Iso px from one level to the next. */
-  spacing: number;
+  /** Iso px each level is raised above floor 1 (floor 1: 0). */
+  lifts: number[];
   /** The building's bounds, iso px (walls and slabs included). */
   box: { x0: number; y0: number; x1: number; y1: number };
 }
 
+/** How a level is raised: `lifts[level]`, or `level × step` for a uniform step. */
+export type Lift = number | readonly number[];
+const liftOf = (lift: Lift, level: number) =>
+  typeof lift === 'number' ? level * lift : (lift[level] ?? 0);
+
 /** Iso px of the floor-plane point (col, row) (tiles, local to the floor) on `level`. */
-export function isoAt(col: number, row: number, level: number, spacing: number): Pt {
+export function isoAt(col: number, row: number, level: number, lift: Lift): Pt {
   return {
     x: (col - row) * ISO_HALF_W,
-    y: (col + row) * ISO_HALF_H - level * spacing,
+    y: (col + row) * ISO_HALF_H - liftOf(lift, level),
   };
 }
 
@@ -54,54 +63,73 @@ export function isoInverse(
   x: number,
   y: number,
   level: number,
-  spacing: number,
+  lift: Lift,
 ): { col: number; row: number } {
   const a = x / ISO_HALF_W;
-  const b = (y + level * spacing) / ISO_HALF_H;
+  const b = (y + liftOf(lift, level)) / ISO_HALF_H;
   return { col: (a + b) / 2, row: (b - a) / 2 };
 }
 
-/** Iso px between levels for floors `depth` rows deep: the floor above clears this floor's
- *  back walls (its front edge runs parallel above them, at the gap). */
-export function floorSpacing(depth: number): number {
-  return depth * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP;
+/**
+ * How far a floor of `rows` rows is raised above the floor below, whose back walls stand on
+ * row `lowerTop` (its first row with anything): the upper floor's front-left edge (row `rows`,
+ * and its slab) and the lower floor's back wall tops (a wall's base is two half diamonds down
+ * from its row's back edge, its top ISO_WALL_H above the row line) run parallel; this puts them
+ * together, `ISO_FLOOR_GAP` apart (none).
+ */
+export function levelRise(lowerTop: number, rows: number): number {
+  return (rows - lowerTop) * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP;
 }
 
-/** The building for a layout: its floors as levels (one level for an office of one floor). */
-export function isoStack(layout: { cols: number; rows: number; cldFloors?: unknown }): IsoStack {
+/** The building for a layout: its floors as levels (one level for an office of one floor).
+ *  `tileMap` (the layout's tile grid) tells each floor's first row with anything in it. */
+export function isoStack(
+  layout: { cols: number; rows: number; cldFloors?: unknown },
+  tileMap?: ReadonlyArray<ReadonlyArray<number>>,
+): IsoStack {
   const rects = Array.isArray(layout.cldFloors)
     ? (layout.cldFloors as Array<{ id: string; row: number; rows: number }>)
     : [];
-  const floors: IsoFloor[] =
-    rects.length > 1
-      ? rects.map((r, level) => ({ id: r.id, row: r.row, rows: r.rows, level }))
-      : [{ id: rects[0]?.id ?? '1', row: 0, rows: layout.rows, level: 0 }];
+  const rows: Array<{ id: string; row: number; rows: number }> =
+    rects.length > 1 ? rects : [{ id: rects[0]?.id ?? '1', row: 0, rows: layout.rows }];
+  const floors: IsoFloor[] = rows.map((r, level) => {
+    let top = 0;
+    if (tileMap)
+      while (top < r.rows - 1 && !(tileMap[r.row + top] ?? []).some((t) => t !== TileType.VOID))
+        top++;
+    return { id: r.id, row: r.row, rows: r.rows, level, top };
+  });
   const depth = Math.max(...floors.map((f) => f.rows));
-  const spacing = floorSpacing(depth);
+  const lifts = [0];
+  for (let k = 1; k < floors.length; k++)
+    lifts.push(lifts[k - 1] + levelRise(floors[k - 1].top, floors[k].rows));
   const cols = layout.cols;
-  const top = (floors.length - 1) * spacing;
-  return {
+  const stack: IsoStack = {
     floors,
     cols,
     depth,
-    spacing,
-    box: {
-      x0: -depth * ISO_HALF_W,
-      y0: -top - ISO_WALL_H,
-      x1: cols * ISO_HALF_W,
-      y1: (cols + depth) * ISO_HALF_H + ISO_SLAB_H,
-    },
+    lifts,
+    box: { x0: 0, y0: 0, x1: 0, y1: 0 },
   };
+  const boxes = floors.map((f) => floorBox(stack, f.level));
+  stack.box = {
+    x0: -depth * ISO_HALF_W,
+    y0: Math.min(...boxes.map((b) => b.y0)),
+    x1: cols * ISO_HALF_W,
+    y1: Math.max(...boxes.map((b) => b.y1)),
+  };
+  return stack;
 }
 
 /** A floor's own bounds (iso px): its plate, its back walls and its slab. */
 export function floorBox(stack: IsoStack, level: number): IsoStack['box'] {
-  const lift = level * stack.spacing;
+  const lift = stack.lifts[level] ?? 0;
+  const rows = stack.floors[level]?.rows ?? stack.depth;
   return {
-    x0: stack.box.x0,
-    x1: stack.box.x1,
+    x0: -rows * ISO_HALF_W,
+    x1: stack.cols * ISO_HALF_W,
     y0: -lift - ISO_WALL_H,
-    y1: (stack.cols + stack.depth) * ISO_HALF_H + ISO_SLAB_H - lift,
+    y1: (stack.cols + rows) * ISO_HALF_H + ISO_SLAB_H - lift,
   };
 }
 

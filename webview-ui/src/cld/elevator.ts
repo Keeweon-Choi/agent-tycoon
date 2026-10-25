@@ -125,8 +125,10 @@ export function elevatorFrames(): SpriteData[] {
 
 // ── Where ────────────────────────────────────────────────────
 
-/** Each floor's elevator, or null in an office of one floor. A floor with no two free wall
- *  tiles over free floor has none (and no way in or out). */
+/** Each floor's elevator, or null in an office of one floor. The elevators are all at the same
+ *  tile of their floors (the building's core: the isometric view's doors line up in one shaft);
+ *  when no tile suits every floor, each floor takes its own best (and its doors do not line up).
+ *  A floor with no two free wall tiles over free floor has none (and no way in or out). */
 export function findElevators(
   layout: { cols: number; areaTiles?: Array<string | null> },
   tileMap: TileTypeVal[][],
@@ -140,35 +142,70 @@ export function findElevators(
   const free = (c: number, r: number) => isWalkable(c, r, tileMap, blocked);
   const lounge = (c: number, r: number) =>
     !!layout.areaTiles?.[r * layout.cols + c]?.endsWith(LOUNGE_SUFFIX);
+  /** Per floor: the tiles (local row, left col) two free wall tiles over free floor allow. */
+  const spots = rects.map((rect) => {
+    const out: Tile[] = [];
+    for (let r = rect.row; r < rect.row + rect.rows - 1; r++)
+      for (let c = 0; c + 1 < cols; c++)
+        if (wall(c, r) && wall(c + 1, r) && free(c, r + 1) && free(c + 1, r + 1))
+          out.push({ col: c, row: r - rect.row });
+    return out;
+  });
+  // The tile that suits the most floors, then the highest (the back wall), then a lounge in
+  // front of it on the most floors, then the leftmost.
+  const count = new Map<string, number>();
+  const loungeFloors = new Map<string, number>();
+  for (const [k, list] of spots.entries())
+    for (const t of list) {
+      const key = tileKey(t);
+      count.set(key, (count.get(key) ?? 0) + 1);
+      if (lounge(t.col, rects[k].row + t.row + 1))
+        loungeFloors.set(key, (loungeFloors.get(key) ?? 0) + 1);
+    }
+  let core: Tile | null = null;
+  let coreScore = -Infinity;
+  for (const list of spots)
+    for (const t of list) {
+      const key = tileKey(t);
+      const score =
+        (count.get(key) ?? 0) * 1e9 - t.row * 1e5 + (loungeFloors.get(key) ?? 0) * 1e3 - t.col;
+      if (score > coreScore) [core, coreScore] = [t, score];
+    }
   const out: Elevator[] = [];
   for (const [k, rect] of rects.entries()) {
-    const end = rect.row + rect.rows;
-    let sum = 0;
-    let n = 0;
-    for (let r = rect.row; r < end; r++)
-      for (let c = 0; c < cols; c++) if (lounge(c, r)) [sum, n] = [sum + c, n + 1];
-    const mid = n ? sum / n : cols / 2;
-    let best: Tile | null = null;
-    let bestScore = Infinity;
-    for (let r = rect.row; r < end - 1; r++)
-      for (let c = 0; c + 1 < cols; c++) {
-        if (!wall(c, r) || !wall(c + 1, r) || !free(c, r + 1) || !free(c + 1, r + 1)) continue;
-        const score = (lounge(c, r + 1) ? 0 : 1e6) + (r - rect.row) * 1e3 + Math.abs(c + 1 - mid);
-        if (score < bestScore) [best, bestScore] = [{ col: c, row: r }, score];
+    const own = (): Tile | null => {
+      // This floor's own best: its lounge's top wall, else the highest free wall tiles.
+      const mid = (() => {
+        let sum = 0;
+        let n = 0;
+        for (let r = rect.row; r < rect.row + rect.rows; r++)
+          for (let c = 0; c < cols; c++) if (lounge(c, r)) [sum, n] = [sum + c, n + 1];
+        return n ? sum / n : cols / 2;
+      })();
+      let best: Tile | null = null;
+      let bestScore = Infinity;
+      for (const t of spots[k]) {
+        const score =
+          (lounge(t.col, rect.row + t.row + 1) ? 0 : 1e6) + t.row * 1e3 + Math.abs(t.col + 1 - mid);
+        if (score < bestScore) [best, bestScore] = [t, score];
       }
-    if (!best) continue;
+      return best;
+    };
+    const at = core && spots[k].some((t) => same(t, core!)) ? core : own();
+    if (!at) continue;
+    const row = rect.row + at.row;
     out.push({
       floor: rect.id ?? String(k + 1),
-      col: best.col,
-      row: best.row,
-      front: { col: best.col, row: best.row + 1 },
+      col: at.col,
+      row,
+      front: { col: at.col, row: row + 1 },
       open: 0,
       instance: {
         sprite: elevatorFrames()[0],
-        x: best.col * TILE_SIZE,
-        y: (best.row + 1) * TILE_SIZE - SPRITE_H,
+        x: at.col * TILE_SIZE,
+        y: (row + 1) * TILE_SIZE - SPRITE_H,
         // Over its wall, under whoever stands in front of it.
-        zY: (best.row + 1) * TILE_SIZE + 0.5,
+        zY: (row + 1) * TILE_SIZE + 0.5,
       },
     });
   }

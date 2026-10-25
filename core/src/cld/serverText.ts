@@ -1419,6 +1419,32 @@ export const SERVER_TEXT = {
     ko: '{name} 커스텀',
     en: '{name} custom',
   },
+  // -- SHEET-IMPORT (characterPresets.ts, sheetImport.ts) --
+  sheet_label: { ko: '가져온 캐릭터', en: 'Imported character' },
+  sheet_import_png: {
+    ko: 'PNG 그림을 읽지 못했어요 ({why})',
+    en: 'Could not read the PNG ({why}).',
+  },
+  sheet_import_background: {
+    ko: '배경이 마젠타 단색이 아니에요 (마젠타로 보이는 곳이 {share}%뿐이에요)',
+    en: 'The background is not flat magenta (only {share}% of it looks magenta).',
+  },
+  sheet_import_rows: {
+    ko: '인물 {found}명을 {rows}줄에서 찾았어요. 2줄 × 7칸(아이소메트릭)이나 3줄 × 7칸(탑뷰) 시트여야 해요',
+    en: 'Found {found} figures in {rows} rows. The sheet needs 2 rows × 7 (isometric) or 3 rows × 7 (top view).',
+  },
+  sheet_import_missing: {
+    ko: '인물 {found}명을 찾았어요. {row}줄 {col}번째 칸이 비어 있어요 (그 줄에 {count}명, 7명이어야 해요)',
+    en: 'Found {found} figures. Row {row}, cell {col} is empty ({count} in that row, it needs 7).',
+  },
+  sheet_import_extra: {
+    ko: '인물 {found}명을 찾았어요. {row}줄에 {count}명이 있어요 (7명이어야 해요). 떨어진 얼룩이나 글자가 없는지 봐 주세요',
+    en: 'Found {found} figures. Row {row} has {count} (it needs 7): look for a stray blot or text.',
+  },
+  sheet_import_attach: {
+    ko: '붙일 프리셋 {id}가 없거나 가져온 캐릭터가 아니에요',
+    en: 'There is no imported preset {id} to attach to.',
+  },
   push_not_allowed: {
     ko: '이 접속에서는 알림을 받을 수 없어요',
     en: 'This connection cannot receive notifications.',

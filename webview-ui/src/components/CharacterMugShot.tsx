@@ -1,14 +1,20 @@
 import { useEffect, useRef } from 'react';
 
 import {
+  CLASSIC_FIGURE_RISE,
   MUGSHOT_CROP_LEFT_COL,
   MUGSHOT_CROP_SIDE_PX,
   MUGSHOT_CROP_TOP_ROW,
   MUGSHOT_DISPLAY_PX,
   MUGSHOT_RENDER_ZOOM,
 } from '../constants.js';
+
+/** A classic frame's half width, and the world px a taller figure's crop leaves over its head. */
+const FRAME_HALF_W = 8;
+const MUGSHOT_HEAD_MARGIN = 1;
 import { getCachedSprite } from '../office/sprites/spriteCache.js';
 import {
+  characterLift,
   getCharacterSprites,
   getCustomMugshot,
   spritesAtZoom,
@@ -60,12 +66,25 @@ export function CharacterMugShot({
       ctx.drawImage(face, (side - face.width) / 2, (side - face.height) / 2);
       return;
     }
+    // SHEET-IMPORT: a taller figure (a wider, taller frame) is cropped in proportion, round its
+    // head and the frame's middle, and fills the same square
+    const lift = characterLift(palette, hueShift);
+    const k = 1 + lift / CLASSIC_FIGURE_RISE;
+    const frameW = front[0].length / sprites.density;
+    const frameH = front.length / sprites.density;
+    const [cropX, cropY] = lift
+      ? [
+          frameW / 2 - (FRAME_HALF_W - MUGSHOT_CROP_LEFT_COL) * k,
+          Math.max(0, frameH - 1 - CLASSIC_FIGURE_RISE - lift - MUGSHOT_HEAD_MARGIN * k),
+        ]
+      : [MUGSHOT_CROP_LEFT_COL, MUGSHOT_CROP_TOP_ROW];
+    if (lift) ctx.imageSmoothingEnabled = true;
     ctx.drawImage(
       full,
-      MUGSHOT_CROP_LEFT_COL * MUGSHOT_RENDER_ZOOM,
-      MUGSHOT_CROP_TOP_ROW * MUGSHOT_RENDER_ZOOM,
-      side,
-      side,
+      cropX * MUGSHOT_RENDER_ZOOM,
+      cropY * MUGSHOT_RENDER_ZOOM,
+      side * k,
+      side * k,
       0,
       0,
       side,

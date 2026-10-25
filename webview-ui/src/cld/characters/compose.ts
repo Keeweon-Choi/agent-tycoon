@@ -21,6 +21,9 @@ import type {
   MascotSpecies,
 } from '../../../../core/src/messages.js';
 import {
+  HD64_DRAW_DENSITY,
+  IMPORT_WORLD_H,
+  IMPORT_WORLD_W,
   MUGSHOT_CROP_LEFT_COL,
   MUGSHOT_CROP_SIDE_PX,
   MUGSHOT_CROP_TOP_ROW,
@@ -253,7 +256,12 @@ function composeExact(look: CharacterChoice, ctx: ComposeContext): ComposedLook 
     const sheet = composePerson(look, ctx.parts).sheet;
     const classic =
       densityOf(sheet) === 4 ? composePerson(look, ctx.parts, { classic: true }).sheet : undefined;
-    return finish(withLods(sheet, classic), null, HUMAN_SIP, 0);
+    // SHEET-IMPORT (owner 10-26 03:10): a 64×128 person draws 1.33 times its classic size
+    const sized =
+      densityOf(sheet) === 4
+        ? { ...withLods(sheet, classic), drawDensity: HD64_DRAW_DENSITY }
+        : sheet;
+    return finish(sized, null, HUMAN_SIP, 0);
   }
   if (isMascot(look)) {
     const m = normalizeMascot(look, ctx.provider);
@@ -438,8 +446,13 @@ export function sheetProblem(sheet: DenseSheet): string | null {
     if (frames?.length !== FRAMES) return `${view}: ${frames?.length ?? 0} frames, not ${FRAMES}`;
     for (let i = 0; i < FRAMES; i++) {
       const f = frames[i];
-      if (f.length !== FRAME_H * d || f.some((row) => row.length !== FRAME_W * d))
-        return `${view} ${i + 1}: not ${FRAME_W * d}×${FRAME_H * d}`;
+      // SHEET-IMPORT: an imported sheet's frames are 24×44 world px
+      const [w, h] =
+        d === 4 && f.length === IMPORT_WORLD_H * d
+          ? [IMPORT_WORLD_W * d, IMPORT_WORLD_H * d]
+          : [FRAME_W * d, FRAME_H * d];
+      if (f.length !== h || f.some((row) => row.length !== w))
+        return `${view} ${i + 1}: not ${w}×${h}`;
       if (f.flat().filter(Boolean).length < MIN_FRAME_PIXELS) return `${view} ${i + 1}: empty`;
     }
   }

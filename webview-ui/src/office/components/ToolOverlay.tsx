@@ -45,7 +45,11 @@ import type { OfficeState } from '../engine/officeState.js';
 import type { OverlayProjection } from '../projection.js';
 import { overlayProjection } from '../projection.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
-import { BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spriteData.js';
+import {
+  BUBBLE_PERMISSION_SPRITE,
+  BUBBLE_WAITING_SPRITE,
+  characterLift,
+} from '../sprites/spriteData.js';
 import type { Character, ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
 
@@ -197,7 +201,9 @@ export function ToolOverlay({
         style={{
           left: at.toScreenX(ch.x),
           top:
-            at.toScreenY(ch.y + bubbleSittingOff - BUBBLE_VERTICAL_OFFSET_PX) -
+            at.toScreenY(
+              ch.y + bubbleSittingOff - BUBBLE_VERTICAL_OFFSET_PX - characterLift(ch.palette, ch.hueShift),
+            ) -
             (cachedBubble.height + zoom) / dpr,
           opacity: alpha,
           zIndex: OVERLAY_BUBBLE_Z_INDEX,
@@ -328,6 +334,7 @@ export function ToolOverlay({
               onClose={() => onCloseAgent(id)}
               project={project}
               plateSize={plateSizes.get(id)}
+              lift={characterLift(ch.palette, ch.hueShift)}
               bounds={bounds}
             />
           );
@@ -344,7 +351,8 @@ export function ToolOverlay({
               top: project.toScreenY(
                 ch.y +
                   (ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0) -
-                  EZ_MOOD_ICON_OFFSET_Y,
+                  EZ_MOOD_ICON_OFFSET_Y -
+                  characterLift(ch.palette, ch.hueShift),
               ),
               zIndex: OVERLAY_LABEL_Z_INDEX,
             }}
@@ -375,7 +383,9 @@ export function ToolOverlay({
         // Position above character
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
         const screenX = project.toScreenX(ch.x);
-        const screenY = project.toScreenY(ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET);
+        const screenY = project.toScreenY(
+          ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET - characterLift(ch.palette, ch.hueShift),
+        );
 
         // A "Done" agent (finished turn: waiting bubble without awaitingInput)
         // shows ONLY its floating green checkmark bubble, never the label panel

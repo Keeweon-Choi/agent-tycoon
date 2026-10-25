@@ -33,8 +33,9 @@ import {
   THINKING_DOT_FRAME_SEC,
 } from '../../constants.js';
 import { adjustSprite } from '../../office/colorize.js';
+import { copyFor, deriveSmooth } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
-import { BUBBLE_THINKING_SPRITES } from '../../office/sprites/spriteData.js';
+import { BUBBLE_THINKING_SPRITES, characterLift } from '../../office/sprites/spriteData.js';
 import type { Character, SpriteData } from '../../office/types.js';
 import { CharacterState, Direction } from '../../office/types.js';
 import { isE2E } from '../../runtime.js';
@@ -89,7 +90,9 @@ let motionQuery: MediaQueryList | null | undefined;
 function reducedMotion(): boolean {
   if (motionQuery === undefined)
     motionQuery =
-      typeof window === 'undefined' ? null : (window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null);
+      typeof window === 'undefined'
+        ? null
+        : (window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null);
   return motionQuery?.matches === true;
 }
 
@@ -175,10 +178,15 @@ export function yawnFrame(t: number): SpriteData | null {
 const dimmed = new WeakMap<SpriteData, SpriteData>();
 /** The character's sprite, slightly dimmer while it idles. */
 export function cldCharacterSprite(id: number, sprite: SpriteData): SpriteData {
-  if (characterVisualOf(id)?.ring !== 'idle') return sprite;
+  return characterVisualOf(id)?.ring === 'idle' ? dimmedSprite(sprite) : sprite;
+}
+
+/** `sprite` as an idle character draws it (cached; the warm queue builds both). */
+export function dimmedSprite(sprite: SpriteData): SpriteData {
   let dim = dimmed.get(sprite);
   if (!dim) {
-    dim = adjustSprite(sprite, ACTIVITY_IDLE_DIM);
+    dim = copyFor(sprite) ?? adjustSprite(sprite, ACTIVITY_IDLE_DIM);
+    deriveSmooth(sprite, dim, { adjust: ACTIVITY_IDLE_DIM });
     dimmed.set(sprite, dim);
   }
   return dim;
@@ -259,17 +267,23 @@ export function cldCharacterDrawables(
         alpha,
       ),
     });
-  if (visual.prop && resting === null) add(propFrame(visual.prop, own), PROP_SPRITES[visual.prop].at);
+  if (visual.prop && resting === null)
+    add(propFrame(visual.prop, own), PROP_SPRITES[visual.prop].at);
+  // SHEET-IMPORT: over the head of a taller figure, higher by what it stands over a classic one
+  const lift = characterLift(ch.palette, ch.hueShift);
   if (visual.thinkingDots && !reducedMotion()) {
     const frame = BUBBLE_THINKING_SPRITES[thinkingFrame(t)];
-    add(frame, [-Math.floor(frame[0].length / 2), -BUBBLE_VERTICAL_OFFSET_PX]);
+    add(frame, [-Math.floor(frame[0].length / 2), -BUBBLE_VERTICAL_OFFSET_PX - lift]);
   }
   const { sweat, yawn } = EFFECT_SPRITES;
   if (visual.fatigue?.sweat) {
-    add(sweat.frames[Math.floor(own / ACTIVITY_PROP_FRAME_SEC) % sweat.frames.length], sweat.at);
+    add(sweat.frames[Math.floor(own / ACTIVITY_PROP_FRAME_SEC) % sweat.frames.length], [
+      sweat.at[0],
+      sweat.at[1] - lift,
+    ]);
   }
   const yawning = visual.fatigue?.yawn ? yawnFrame(own) : null;
-  if (yawning) add(yawning, yawn.at);
+  if (yawning) add(yawning, [yawn.at[0], yawn.at[1] - lift]);
   const icon = visual.headIcon ? statusIcon(visual.ring) : null;
   if (icon) {
     out.push({
@@ -278,7 +292,7 @@ export function cldCharacterDrawables(
         icon,
         visual.icon,
         feetX + STATUS_ICON_OFFSET_X * zoom,
-        feetY - STATUS_ICON_RISE_PX * zoom,
+        feetY - (STATUS_ICON_RISE_PX + lift) * zoom,
         zoom,
         alpha * statusIconAlpha(icon, t),
         own,

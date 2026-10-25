@@ -35,7 +35,9 @@ import {
   isoPick,
   isoScene,
   renderIso,
+  setSeatPoint,
 } from '../../cld/iso/render.js';
+import { isoSeatPoint } from '../../cld/iso/seatPoint.js';
 import { drawOtherFloors } from '../../cld/otherFloors.js';
 import { useGameControls } from '../../cld/useGameControls.js';
 import {
@@ -58,6 +60,7 @@ import type {
   SelectionRenderState,
 } from '../engine/renderer.js';
 import { renderFrame } from '../engine/renderer.js';
+import { getCatalogEntry } from '../layout/furnitureCatalog.js';
 import { EditTool, TILE_SIZE, TileType } from '../types.js';
 import { computeNormalModeCursor } from './officeCanvasCursor.js';
 import { useCanvasTouchGestures } from './useCanvasTouchGestures.js';
@@ -123,6 +126,13 @@ export function OfficeCanvas({
   backdrop: backdropAllowed = false,
 }: OfficeCanvasProps) {
   const backdrop = useBackdrop();
+  useEffect(() => {
+    setSeatPoint((ch) => {
+      const seat = ch.seatId ? officeState.seats.get(ch.seatId) : undefined;
+      return isoSeatPoint(ch, seat, officeState.getLayout().furniture, getCatalogEntry);
+    });
+    return () => setSeatPoint(null);
+  }, [officeState]);
   // ISO-PILOT: the isometric building replaces the top-down drawing (never in the editor).
   const iso = useIsoView() && !isEditMode;
   const isoCamRef = useRef(newIsoCam());

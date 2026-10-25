@@ -28,11 +28,13 @@ import type {
 } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
 import {
+  IMPORT_DENSITY,
   MUGSHOT_CROP_SIDE_PX,
   MUGSHOT_RENDER_ZOOM,
   WALK_FRAME_DURATION_SEC,
 } from '../../constants.js';
 import { getLanguage, t, useLanguage } from '../../i18n/index.js';
+import { isSmooth } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
 import { getCharacterTemplates } from '../../office/sprites/spriteData.js';
 import type { SpriteData } from '../../office/types.js';
@@ -56,6 +58,7 @@ import {
 } from './parts.js';
 import { PhotoMaker } from './PhotoMaker.js';
 import { EditorEntry, PixelEditor } from './PixelEditor.js';
+import { SheetImport } from './SheetImport.js';
 
 /** World pixels to CSS pixels; even, so an HD sheet (density 2) draws at half of it, crisp. */
 const PREVIEW_ZOOM = 4;
@@ -83,27 +86,30 @@ const chip = (on: boolean) =>
 
 /** One sprite frame on a canvas, crisp at an integer zoom (world pixels; an HD frame, twice as
  *  tall in sprite pixels, is drawn at half the zoom: the same size, twice the detail). */
-function Frame({ sprite, zoom }: { sprite: SpriteData; zoom: number }) {
+function Frame({ sprite, zoom, density: d }: { sprite: SpriteData; zoom: number; density?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // SHEET-IMPORT: a sheet's own density (an imported 24×44 frame, a 64×128 person drawn at 3)
+  const density = d ?? Math.max(1, Math.round(sprite.length / FRAME_H));
+  const w = Math.round(((sprite[0]?.length ?? 0) / density) * zoom);
+  const h = Math.round((sprite.length / density) * zoom);
   useEffect(() => {
     const ctx = ref.current?.getContext('2d');
     if (!ctx) return;
-    const density = Math.max(1, Math.round(sprite.length / FRAME_H));
-    ctx.clearRect(0, 0, FRAME_W * zoom, FRAME_H * zoom);
+    ctx.clearRect(0, 0, w, h);
     const scale = zoom / density;
-    if (Number.isInteger(scale)) ctx.drawImage(getCachedSprite(sprite, scale), 0, 0);
+    if (Number.isInteger(scale) || isSmooth(sprite)) ctx.drawImage(getCachedSprite(sprite, scale), 0, 0);
     else {
       // an HD64 frame in a small thumbnail: its pixels drawn at the thumbnail's size, nearest
       // (ponytail: every other pixel at ×2; its 32×64 copy if thumbnails ever look rough)
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(getCachedSprite(sprite, 1), 0, 0, FRAME_W * zoom, FRAME_H * zoom);
+      ctx.drawImage(getCachedSprite(sprite, 1), 0, 0, w, h);
     }
-  }, [sprite, zoom]);
+  }, [sprite, zoom, density, w, h]);
   return (
     <canvas
       ref={ref}
-      width={FRAME_W * zoom}
-      height={FRAME_H * zoom}
+      width={w}
+      height={h}
       className="block"
       style={{ imageRendering: 'pixelated' }}
     />
@@ -130,6 +136,9 @@ function Preview({ look }: { look: ComposedLook }) {
     ctx.drawImage(face, (side - face.width) / 2, (side - face.height) / 2);
   }, [look]);
   const { down, right, up } = look.sheet;
+  // SHEET-IMPORT: an imported sheet walks in its own order (the owner's columns)
+  const walk = look.sheet.walk ?? WALK;
+  const density = look.sheet.drawDensity ?? look.sheet.density ?? 1;
   return (
     <div
       className="pixel-panel p-8 flex items-end justify-center shrink-0"
@@ -137,9 +146,13 @@ function Preview({ look }: { look: ComposedLook }) {
       aria-label={t('character.preview')}
       data-testid="looks-preview"
     >
-      <Frame sprite={down[WALK[tick % WALK.length]]} zoom={PREVIEW_ZOOM} />
-      <Frame sprite={right[WALK[tick % WALK.length]]} zoom={PREVIEW_ZOOM} />
-      <Frame sprite={up[TYPE[Math.floor(tick / 2) % TYPE.length]]} zoom={PREVIEW_ZOOM} />
+      <Frame sprite={down[walk[tick % walk.length]]} zoom={PREVIEW_ZOOM} density={density} />
+      <Frame sprite={right[walk[tick % walk.length]]} zoom={PREVIEW_ZOOM} density={density} />
+      <Frame
+        sprite={up[TYPE[Math.floor(tick / 2) % TYPE.length]]}
+        zoom={PREVIEW_ZOOM}
+        density={density}
+      />
       <canvas
         ref={mug}
         width={MUGSHOT_CROP_SIDE_PX * MUGSHOT_RENDER_ZOOM}
@@ -792,15 +805,37 @@ function CustomOptions({
   canSave,
   onChange,
   onPhoto,
+  onImport,
 }: {
   look: CharacterChoice;
   presets: CharacterPresets['presets'];
   canSave: boolean;
   onChange: (look: CharacterChoice) => void;
   onPhoto: () => void;
+  onImport: () => void;
 }) {
+  // SHEET-IMPORT: the packs' presets too (the 64×128 bunny lived only under 사람 꾸미기 > 프리셋)
+  const { characterPacks } = useCldStore();
+  const packPresets = characterPacks.flatMap((p) => p.presets);
+  const lang = getLanguage();
   return (
     <>
+      {packPresets.length > 0 && (
+        <Row label={t('sheetImport.packs')}>
+          {packPresets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={chip(lookKey(p.look) === lookKey(look))}
+              aria-pressed={lookKey(p.look) === lookKey(look)}
+              data-testid={`looks-custom-pack-${p.id}`}
+              onClick={() => onChange(p.look)}
+            >
+              {p.name[lang]}
+            </button>
+          ))}
+        </Row>
+      )}
       <Row label={t('character.presets')}>
         {presets.length === 0 ? (
           <p className="text-xs text-text-muted">{t('character.presetHelp')}</p>
@@ -812,6 +847,7 @@ function CustomOptions({
               className={`${chip(look.preset === p.id)} flex flex-col items-center gap-2`}
               aria-label={t('character.presetName', { name: serverLine(p.label) })}
               aria-pressed={look.preset === p.id}
+              data-testid={`looks-custom-preset-${p.id}`}
               onClick={() => onChange({ preset: p.id })}
             >
               <span
@@ -820,8 +856,9 @@ function CustomOptions({
                   width: FRAME_W * THUMB_ZOOM,
                   height: FRAME_H * THUMB_ZOOM,
                   backgroundImage: `url(${p.url})`,
-                  backgroundSize: `${FRAME_W * 7 * THUMB_ZOOM}px ${FRAME_H * 3 * THUMB_ZOOM}px`,
-                  imageRendering: 'pixelated',
+                  backgroundSize: `${FRAME_W * 7 * THUMB_ZOOM}px ${FRAME_H * (p.format === 'iso' ? 2 : 3) * THUMB_ZOOM}px`,
+                  // an imported sheet (192×384 frames) shrinks smoothly; pixel art stays crisp
+                  imageRendering: p.density === IMPORT_DENSITY ? 'auto' : 'pixelated',
                 }}
               />
               <span className="text-2xs max-w-64 truncate">{serverLine(p.label)}</span>
@@ -830,9 +867,12 @@ function CustomOptions({
         )}
       </Row>
       {canSave && (
-        <div>
+        <div className="flex flex-wrap gap-6">
           <Button size="sm" variant="ghost" onClick={onPhoto}>
             {t('character.makeFromPhoto')}
+          </Button>
+          <Button size="sm" variant="ghost" data-testid="looks-sheet-import" onClick={onImport}>
+            {t('sheetImport.open')}
           </Button>
         </div>
       )}
@@ -850,6 +890,7 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
   const [draft, setDraft] = useState<CharacterChoice | null>(null);
   const [tab, setTab] = useState<Tab>(() => kindOf(saved));
   const [photo, setPhoto] = useState(false);
+  const [sheetImport, setSheetImport] = useState(false);
   const [editing, setEditing] = useState<Uint8ClampedArray<ArrayBuffer> | null>(null);
   // No saved look yet: the automatic one is the provider's mascot (the daemon pins it).
   const look: CharacterChoice = draft ?? saved ?? { v: 2, kind: 'mascot' };
@@ -915,6 +956,22 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
         />
       </div>
     );
+  if (sheetImport)
+    return (
+      <div className="overflow-y-auto min-h-0 flex-1">
+        <SheetImport
+          presets={characterPresets?.presets ?? []}
+          canSave={canSave}
+          onBack={() => setSheetImport(false)}
+          onSaved={(id) => {
+            // the new preset is picked; 저장 puts it on this character
+            setSheetImport(false);
+            setTab('custom');
+            setDraft({ preset: id });
+          }}
+        />
+      </div>
+    );
   if (photo)
     return (
       <div className="overflow-y-auto min-h-0 flex-1">
@@ -970,6 +1027,7 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
             canSave={canSave}
             onChange={setDraft}
             onPhoto={() => setPhoto(true)}
+            onImport={() => setSheetImport(true)}
           />
         )}
         {tab === 'custom' && <EditorEntry sheet={composed.sheet} onOpen={setEditing} />}

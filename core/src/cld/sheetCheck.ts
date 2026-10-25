@@ -50,11 +50,12 @@ export function pngHeaderIssue(
   w: number,
   h: number,
   opaqueOk = false,
+  maxBytes = MAX_SHEET_BYTES,
 ): SheetIssue | null {
-  if (bytes.length > MAX_SHEET_BYTES)
-    return issue('tooBig', `too big (${bytes.length} bytes, max ${MAX_SHEET_BYTES})`, {
+  if (bytes.length > maxBytes)
+    return issue('tooBig', `too big (${bytes.length} bytes, max ${maxBytes})`, {
       kb: Math.ceil(bytes.length / 1024),
-      max: MAX_SHEET_BYTES / 1024,
+      max: maxBytes / 1024,
     });
   if (bytes.length < 33 || SIGNATURE.some((v, i) => bytes[i] !== v))
     return issue('notPng', 'bad PNG signature');
@@ -145,6 +146,8 @@ export function artIssue(rgba: ArrayLike<number>): SheetIssue | null {
 
 /** CHAR-HUMAN: an image to import as a part (any size, big-block or 1:1) is at most this big. */
 export const MAX_IMPORT_BYTES = 6 * 1024 * 1024;
+/** SHEET-IMPORT: an imported sheet as stored (192×384 frames, smooth art) is at most this big. */
+export const MAX_HD_SHEET_BYTES = MAX_IMPORT_BYTES;
 export const MAX_IMPORT_SIDE = 4096;
 export const MAX_IMPORT_PIXELS = 4_200_000;
 

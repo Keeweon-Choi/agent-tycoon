@@ -1738,14 +1738,49 @@ components:
           type: [string, 'null']
         density:
           $ref: '#/components/schemas/CharacterDensity'
+        format:
+          $ref: '#/components/schemas/CharacterSheetFormat'
+        isoUrl:
+          description: |
+            SHEET-IMPORT: an isometric sheet beside the top-view `url` (the
+            isometric view draws it; the top-down view draws `url`).
+          type: string
+        columns:
+          $ref: '#/components/schemas/CharacterColumns'
+        walk:
+          $ref: '#/components/schemas/CharacterWalk'
+
+    CharacterSheetFormat:
+      description: |
+        SHEET-IMPORT: `url` is an isometric sheet (2 rows: three-quarter
+        front facing the lower right, three-quarter back facing the upper
+        right); absent = top view (front, back, right side).
+      type: string
+      enum: [iso]
+
+    CharacterColumns:
+      description: |
+        SHEET-IMPORT: the columns are the owner's prompt order (standing,
+        left foot forward, right foot forward, typing A, B, reading A, B);
+        absent = char_N's (step, standing, step, ...).
+      type: string
+      enum: [standFirst]
+
+    CharacterWalk:
+      description: |
+        SHEET-IMPORT: `two` walks on the two steps alone (columns 2, 3);
+        absent = left, together, right, together (2, 1, 3, 1).
+      type: string
+      enum: [two]
 
     CharacterDensity:
       description: |
         CHAR-FACTORY: sprite pixels per world pixel. 2 = an HD sheet (224×192,
-        frames 32×64, the same frame order, rows and world anchors); absent =
-        1, the classic 112×96.
+        frames 32×64, the same frame order, rows and world anchors); 12 =
+        SHEET-IMPORT, an imported sheet (frames 192×384: 1344×1152 top view,
+        1344×768 isometric); absent = 1, the classic 112×96.
       type: integer
-      enum: [1, 2]
+      enum: [1, 2, 12]
 
     CharacterChoice:
       description: |

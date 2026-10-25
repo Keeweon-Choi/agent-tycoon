@@ -112,7 +112,8 @@ async function fetchNode(work) {
       `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${work}' -Force`,
     ]);
   } else {
-    run('tar', ['-xf', archive, '-C', work]);
+    // Relative paths only, as when packing: GNU tar on Windows reads "D:" as a host name.
+    run('tar', ['-xf', path.relative(work, archive).split(path.sep).join('/')], { cwd: work });
   }
   return path.join(work, file.replace(/\.(tar\.xz|tar\.gz|zip)$/, ''));
 }

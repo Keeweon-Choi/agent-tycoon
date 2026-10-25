@@ -93,9 +93,15 @@ export function isoCameraStep(
 ): { pan: Pt; zoom?: number } {
   const { stack, view, building } = input;
   const centre = stackCentre(stack);
-  const frameKey = [building, view.w, view.h, stack.floors.length, stack.cols, stack.depth].join(
-    '|',
-  );
+  const frameKey = [
+    building,
+    view.w,
+    view.h,
+    stack.floors.length,
+    stack.cols,
+    stack.depth,
+    stack.lifts.join(','),
+  ].join('|');
   if (frameKey !== st.frameKey) {
     st.frameKey = frameKey;
     st.focusKey = input.focusId;

@@ -29,6 +29,7 @@ import {
   CHARACTER_HIT_HALF_WIDTH,
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
+  CLASSIC_FIGURE_RISE,
   DISMISS_BUBBLE_FAST_FADE_SEC,
   FURNITURE_ANIM_INTERVAL_SEC,
   GREETER_ID,
@@ -50,7 +51,7 @@ import {
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
 import { getPetCount, getPetName } from '../sprites/petSpriteData.js';
-import { getLoadedCharacterCount } from '../sprites/spriteData.js';
+import { characterLift, getLoadedCharacterCount } from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
@@ -1502,9 +1503,12 @@ export class OfficeState {
       // Apply sitting offset to match visual position
       const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       const anchorY = ch.y + sittingOffset;
-      const left = ch.x - CHARACTER_HIT_HALF_WIDTH;
-      const right = ch.x + CHARACTER_HIT_HALF_WIDTH;
-      const top = anchorY - CHARACTER_HIT_HEIGHT;
+      // SHEET-IMPORT: a taller figure's box is as much taller, and wider in proportion
+      const lift = characterLift(ch.palette, ch.hueShift);
+      const half = CHARACTER_HIT_HALF_WIDTH * (1 + lift / CLASSIC_FIGURE_RISE);
+      const left = ch.x - half;
+      const right = ch.x + half;
+      const top = anchorY - CHARACTER_HIT_HEIGHT - lift;
       const bottom = anchorY;
       if (worldX >= left && worldX <= right && worldY >= top && worldY <= bottom) {
         return ch.id;

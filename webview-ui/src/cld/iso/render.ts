@@ -17,7 +17,11 @@
  * their opaque pixels, then the floor tile under the point, then another floor's plate.
  */
 import { elevatorState } from '../../cld/elevator.js';
-import { cldCharacterDrawables, cldCharacterSprite } from '../../cld/ez/drawVisuals.js';
+import {
+  cldCharacterDrawables,
+  cldCharacterSprite,
+  dimmedSprite,
+} from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { reducedMotion } from '../../cld/floors.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
@@ -27,12 +31,16 @@ import {
   ELEVATOR_RIDE_SEC,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
+  ISO_CAR_AT_FLOOR,
   ISO_CHARACTER_BOX,
   ISO_DIM_ALPHA,
   ISO_DIM_REFRESH_MS,
   ISO_HALF_H,
   ISO_HALF_W,
   ISO_LIFT_LEVELS_PER_S,
+  ISO_SHAFT_FRAME,
+  ISO_SHAFT_GLASS,
+  ISO_SHAFT_POST,
   ISO_SLAB_H,
   ISO_WALL_H,
   SELECTED_OUTLINE_ALPHA,
@@ -43,11 +51,25 @@ import type { OfficeState } from '../../office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from '../../office/engine/renderer.js';
 import { getCatalogEntry } from '../../office/layout/furnitureCatalog.js';
 import type { OverlayProjection } from '../../office/projection.js';
+import { drawSmooth, isSmooth, smoothSize } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite, getOutlineSprite } from '../../office/sprites/spriteCache.js';
-import { getCharacterSprites } from '../../office/sprites/spriteData.js';
+import {
+  getCharacterSprites,
+  isoPaletteOf,
+  spritesAtZoom,
+} from '../../office/sprites/spriteData.js';
+import { warmCharacter } from '../../office/sprites/warm.js';
 import type { Character, SpriteData } from '../../office/types.js';
-import { CharacterState, Direction, TILE_SIZE } from '../../office/types.js';
-import { artDensity, ISO_MANIFEST, type IsoArt, isoArt, type IsoImage, isoImages } from './art.js';
+import { CharacterState, TILE_SIZE } from '../../office/types.js';
+import {
+  artDensity,
+  ISO_MANIFEST,
+  type IsoArt,
+  isoArt,
+  type IsoImage,
+  isoImages,
+  type WallUse,
+} from './art.js';
 import {
   type DepthBox,
   depthOrder,
@@ -61,7 +83,9 @@ import {
   type Pt,
 } from './projection.js';
 import { buildScene, type IsoFloorScene, type IsoItem } from './scene.js';
-import { isoFacing, isoSprites, mirrorSprite, rowDirection } from './sprites.js';
+import { facingOf, seatPieceFor } from './seats.js';
+import { doorFronts, frontAt, LIFT_TILES, shaftBands } from './shaft.js';
+import { isoFacing, mirrorSprite, rowDirection } from './sprites.js';
 
 /** Read-only counters for the runner: cache redraws, frames and the time they took. */
 export const isoStats = { groundRenders: 0, dimRenders: 0, frames: 0, ms: 0 };
@@ -79,7 +103,7 @@ let built: {
 export function isoScene(os: OfficeState): { stack: IsoStack; scenes: IsoFloorScene[] } {
   const layout = os.getLayout();
   if (built?.layout !== layout || built.tileMap !== os.tileMap) {
-    const stack = isoStack(layout as typeof layout & { cldFloors?: unknown });
+    const stack = isoStack(layout as typeof layout & { cldFloors?: unknown }, os.tileMap);
     const scenes = buildScene(stack, os.tileMap, layout.furniture, getCatalogEntry, ISO_MANIFEST);
     built = { layout, tileMap: os.tileMap, stack, scenes };
     ground.clear();
@@ -97,7 +121,7 @@ function floorOf(stack: IsoStack, ch: Character): IsoFloor | null {
 export function isoFeet(stack: IsoStack, ch: Character): Pt | null {
   const f = floorOf(stack, ch);
   if (!f) return null;
-  return isoAt(ch.x / TILE_SIZE, ch.y / TILE_SIZE - f.row, f.level, stack.spacing);
+  return isoAt(ch.x / TILE_SIZE, ch.y / TILE_SIZE - f.row, f.level, stack.lifts);
 }
 
 // ── Drawing helpers ──────────────────────────────────────────
@@ -123,7 +147,15 @@ function artAt(a: IsoArt, front: Pt, lift: number, mirror: boolean): Pt {
   return { x: front.x - ax / a.d, y: front.y - a.ay / a.d - lift };
 }
 
+/** A master piece drawn smaller than its own pixels is averaged down (smooth); anything else
+ *  keeps its pixels (nearest). */
+function smooth(ctx: CanvasRenderingContext2D, on: boolean): void {
+  ctx.imageSmoothingEnabled = on;
+  if (on) ctx.imageSmoothingQuality = 'high';
+}
+
 function drawArt(t: Target, a: IsoArt, at: Pt, mirror: boolean): void {
+  smooth(t.ctx, t.s < a.d);
   t.ctx.drawImage(
     mirror ? a.img.flipped : a.img.plain,
     Math.round(t.o.x + at.x * t.s),
@@ -131,6 +163,44 @@ function drawArt(t: Target, a: IsoArt, at: Pt, mirror: boolean): void {
     (a.img.w * t.s) / a.d,
     (a.img.h * t.s) / a.d,
   );
+  smooth(t.ctx, false);
+}
+
+/**
+ * Strip `j` (one tile along the wall) of a wall piece, its base's front end on `front`. The piece
+ * is stored running down to the right; `use.mirror` draws it for the wall running the other way
+ * (strip 0 is then at the back, on the right of the picture), the strip as wide as a tile.
+ */
+function putStrip(
+  t: Target,
+  imgs: Map<string, IsoImage>,
+  use: WallUse,
+  j: number,
+  front: Pt,
+): void {
+  const a = isoArt(imgs, use.piece, t.d);
+  const wall = ISO_MANIFEST.pieces[use.piece]?.wall;
+  if (!a || !wall) return;
+  const tile = ISO_HALF_W * a.d;
+  const drop = ISO_HALF_H * a.d;
+  const w = a.img.w;
+  // In the (possibly flipped) picture: where the strip's columns start and its base's front end.
+  const sx = use.mirror ? w - wall.start[0] - (j + 1) * tile : wall.start[0] + j * tile;
+  const ax = use.mirror ? sx : sx + tile;
+  const ay = wall.start[1] + (j + 1) * drop;
+  smooth(t.ctx, t.s < a.d);
+  t.ctx.drawImage(
+    use.mirror ? a.img.flipped : a.img.plain,
+    sx,
+    0,
+    tile,
+    a.img.h,
+    Math.round(t.o.x + (front.x - (ax - sx) / a.d) * t.s),
+    Math.round(t.o.y + (front.y - ay / a.d) * t.s),
+    Math.round((tile * t.s) / a.d),
+    Math.round((a.img.h * t.s) / a.d),
+  );
+  smooth(t.ctx, false);
 }
 
 /** Piece `name` with its footprint's front corner at iso `front`. */
@@ -148,39 +218,45 @@ function put(
 
 /** Pavement tiles around floor 1. */
 const PAVE = 3;
-/** The tall back walls' window rhythm: a window panel's strips, then plain wall. */
-const WINDOW_PERIOD = 5;
-
-/** The glass shaft's length along the rows, in tiles. */
-const liftTiles = () => ISO_MANIFEST.pieces[ISO_MANIFEST.lift.shaft]?.footprint[1] ?? 2;
 
 /** The pavement, slab, floor and tall walls of a floor: what nothing on it stands behind. */
 function drawGround(t: Target, stack: IsoStack, scene: IsoFloorScene, imgs: Map<string, IsoImage>) {
   const { level } = scene.floor;
-  const front = (c: number, r: number) => isoAt(c + 1, r + 1, level, stack.spacing);
+  const front = (c: number, r: number) => isoAt(c + 1, r + 1, level, stack.lifts);
+  const rows = scene.floor.rows;
   if (level === 0)
-    for (let r = -PAVE; r < stack.depth + PAVE + liftTiles(); r++)
+    for (let r = -PAVE; r < rows + PAVE; r++)
       for (let c = -PAVE; c < stack.cols + PAVE; c++)
-        if (c < 0 || r < 0 || c >= stack.cols || r >= stack.depth)
+        if (c < 0 || r < 0 || c >= stack.cols || r >= rows)
           put(t, imgs, 'pavement', front(c, r), -ISO_SLAB_H);
   // The plate: concrete where no room is, the slab's two outer faces under its front edges.
   const covered = new Set(scene.tiles.map((x) => `${x.col},${x.row}`));
   for (const w of scene.walls) if (!w.tall) covered.add(`${w.col},${w.row}`);
-  for (let r = 0; r < stack.depth; r++)
+  for (let r = 0; r < rows; r++)
     for (let c = 0; c < stack.cols; c++)
       if (!covered.has(`${c},${r}`)) put(t, imgs, 'plate', front(c, r));
-  for (let c = 0; c < stack.cols; c++) put(t, imgs, 'slab-row', front(c, stack.depth - 1));
-  for (let r = 0; r < stack.depth; r++) put(t, imgs, 'slab-col', front(stack.cols - 1, r));
+  for (let c = 0; c < stack.cols; c++) put(t, imgs, 'slab-row', front(c, rows - 1));
+  for (let r = 0; r < rows; r++) put(t, imgs, 'slab-col', front(stack.cols - 1, r));
   for (const x of scene.tiles) put(t, imgs, x.piece, front(x.col, x.row));
-  // The back walls stand on their tiles' room-side edges: a window panel's strips in turn
-  // with plain wall, the corner where two meet.
+  // The back walls stand on their tiles' room-side edges: the owner's wall pieces one tile at
+  // a time, a window piece's strips in turn with plain wall, the corner where two meet.
   const w = ISO_MANIFEST.walls;
+  const windows = ISO_MANIFEST.pieces[w.window.piece]?.wall?.n ?? 0;
+  const period = windows + w.window.gap;
+  const middle = (use: WallUse) => Math.floor((ISO_MANIFEST.pieces[use.piece]?.wall?.n ?? 1) / 2);
   for (const wall of scene.walls) {
     if (!wall.tall) continue;
     const at = front(wall.col, wall.row);
     if (wall.faceRow && wall.faceCol) put(t, imgs, w.corner, at);
-    else if (wall.faceRow) put(t, imgs, w.rowWindows[wall.col % WINDOW_PERIOD] ?? w.row, at);
-    else put(t, imgs, w.colWindows[wall.row % WINDOW_PERIOD] ?? w.col, at);
+    else if (wall.faceRow) {
+      const k = wall.col % period;
+      if (k < windows) putStrip(t, imgs, { piece: w.window.piece }, k, at);
+      else putStrip(t, imgs, w.row, middle(w.row), at);
+    } else {
+      const k = wall.row % period;
+      if (k < windows) putStrip(t, imgs, { piece: w.window.piece, mirror: true }, k, at);
+      else putStrip(t, imgs, w.col, middle(w.col), at);
+    }
   }
 }
 
@@ -215,7 +291,7 @@ function wallDrawns(scene: IsoFloorScene, stack: IsoStack, imgs: Map<string, Iso
           t,
           imgs,
           ISO_MANIFEST.walls.low,
-          isoAt(w.col + 1, w.row + 1, scene.floor.level, stack.spacing),
+          isoAt(w.col + 1, w.row + 1, scene.floor.level, stack.lifts),
         ),
     }));
 }
@@ -233,7 +309,8 @@ function doorDrawns(
     .floors.filter((e) => e.floor === floor.id)
     .map((e) => {
       const r = e.row - floor.row;
-      const front = isoAt(e.col + 2, r + 1, floor.level, stack.spacing);
+      // A three-tile piece: the two tiles of the elevator and half a tile of wall each side.
+      const front = isoAt(e.col + 2.5, r + 1, floor.level, stack.lifts);
       const name = e.open >= 0.5 ? ISO_MANIFEST.lift.doorsOpen : ISO_MANIFEST.lift.doors;
       return {
         c0: e.col,
@@ -255,16 +332,15 @@ function itemDrawns(
   const out: Drawn[] = doorDrawns(scene, stack, imgs, os);
   const { floor } = scene;
   for (const it of scene.items) {
-    const front = isoAt(it.c1, it.r1, floor.level, stack.spacing);
+    const front = isoAt(it.c1, it.r1, floor.level, stack.lifts);
     let name = ISO_MANIFEST.types[it.type]?.piece;
-    const mirror = it.mirror;
-    // A chair turns with its seat (the pack has it facing the lower left and the lower right).
+    let mirror = it.mirror;
+    // A chair turns with its seat: the piece drawn for the way its sitter faces.
     const seat = os.seats.get(it.uid);
-    if (it.piece && seat && name?.startsWith('chair'))
-      name =
-        seat.facingDir === Direction.LEFT || seat.facingDir === Direction.RIGHT
-          ? 'chair-side'
-          : 'chair';
+    if (it.piece && seat && name?.startsWith('o-chair')) {
+      const turned = seatPieceFor(ISO_MANIFEST, 'chair', facingOf(seat.facingDir));
+      if (turned) [name, mirror] = [turned.name, turned.mirror];
+    }
     const lift = (it.lift ?? 0) - it.drop;
     if (it.piece && name) {
       const piece = name;
@@ -318,6 +394,14 @@ function itemDrawns(
   return out;
 }
 
+/** SHEET-IMPORT, for ISO-2: where a seated character sits on its chair (iso px from its tile's
+ *  feet point), or null for the default sink onto the seat. */
+type SeatPoint = (ch: Character) => { x: number; y: number } | null;
+let seatPointOf: SeatPoint | null = null;
+export function setSeatPoint(fn: SeatPoint | null): void {
+  seatPointOf = fn;
+}
+
 function characterDrawns(
   chars: Character[],
   stack: IsoStack,
@@ -333,10 +417,22 @@ function characterDrawns(
     const col = ch.x / TILE_SIZE;
     const row = ch.y / TILE_SIZE - floor.row;
     // Seated, it sinks a little onto the chair, as in the top-down office.
-    const feet = isoAt(col, row, floor.level, stack.spacing);
-    if (ch.state === CharacterState.TYPE) feet.y += CHARACTER_SITTING_OFFSET_PX / 2;
-    const looked = ch.id === sel.selected || ch.id === sel.follow;
-    const sprites = isoSprites(getCharacterSprites(ch.palette, ch.hueShift), s, looked);
+    const feet = isoAt(col, row, floor.level, stack.lifts);
+    if (ch.state === CharacterState.TYPE) {
+      // ISO-2: the chair's own seat point when it gives one (iso px from the tile's feet point)
+      const seat = seatPointOf?.(ch);
+      if (seat) [feet.x, feet.y] = [feet.x + seat.x, feet.y + seat.y];
+      else feet.y += CHARACTER_SITTING_OFFSET_PX / 2;
+    }
+    // SHEET-IMPORT: a preset's own isometric sheet when it has one beside its top view
+    const all = getCharacterSprites(isoPaletteOf(ch.palette), ch.hueShift);
+    const sprites = spritesAtZoom(all, s);
+    warmCharacter(
+      sprites,
+      s / sprites.density,
+      (f) => [f, mirrorSprite(f), dimmedSprite(f), dimmedSprite(mirrorSprite(f))],
+      ch.id,
+    );
     // The front or back row as the facing asks, mirrored for the other diagonal (sprites.ts).
     const facing = isoFacing(ch.dir);
     const frame = getCharacterSprite({ ...ch, dir: rowDirection(facing.row) }, sprites);
@@ -362,9 +458,11 @@ function characterDrawns(
       r1: row + ISO_CHARACTER_BOX,
       lift: 1,
       draw: (t) => {
-        const cached = getCachedSprite(sprite, scale);
-        const dx = Math.round(t.o.x + feet.x * t.s - cached.width / 2);
-        const dy = Math.round(t.o.y + feet.y * t.s - cached.height);
+        // a detailed frame not built for this zoom yet draws from its master, never built here
+        const cached = isSmooth(sprite) ? null : getCachedSprite(sprite, scale);
+        const [cw, chh] = cached ? [cached.width, cached.height] : smoothSize(sprite, scale);
+        const dx = Math.round(t.o.x + feet.x * t.s - cw / 2);
+        const dy = Math.round(t.o.y + feet.y * t.s - chh);
         const ctx = t.ctx;
         if (ch.matrixEffect) {
           ctx.save();
@@ -374,14 +472,7 @@ function characterDrawns(
           return;
         }
         // The status ring and activity props the top-down office draws, at these feet.
-        const extras = cldCharacterDrawables(
-          ch,
-          dx + cached.width / 2,
-          dy + cached.height,
-          t.s,
-          0,
-          alpha,
-        );
+        const extras = cldCharacterDrawables(ch, dx + cw / 2, dy + chh, t.s, 0, alpha);
         for (const e of extras) if (e.zY < 0) e.draw(ctx);
         if (focused) {
           const ol = getCachedSprite(getOutlineSprite(sprite), scale);
@@ -390,12 +481,14 @@ function characterDrawns(
           ctx.drawImage(ol, dx - Math.round(scale), dy - Math.round(scale));
           ctx.restore();
         }
+        const put = () =>
+          cached ? ctx.drawImage(cached, dx, dy) : drawSmooth(ctx, sprite, scale, dx, dy);
         if (alpha !== 1) {
           ctx.save();
           ctx.globalAlpha = alpha;
-          ctx.drawImage(cached, dx, dy);
+          put();
           ctx.restore();
-        } else ctx.drawImage(cached, dx, dy);
+        } else put();
         for (const e of extras) if (e.zY >= 0) e.draw(ctx);
       },
       hit: {
@@ -414,15 +507,6 @@ function characterDrawns(
 }
 
 // ── The elevator ─────────────────────────────────────────────
-
-/** The shaft's footprint (local tiles): a glass column at the building's left front corner,
- *  the same place on every floor, its doors on the face towards the viewer's right. */
-export const shaftBox = (stack: IsoStack): DepthBox => ({
-  c0: 0,
-  r0: stack.depth,
-  c1: 2,
-  r1: stack.depth + liftTiles(),
-});
 
 /** Where the car is (a level, fractional while it moves) and where it goes. */
 const car = { level: -1, target: 0, at: 0 };
@@ -459,6 +543,32 @@ function carTarget(
   return { level: focus.level, exact: false };
 }
 
+/** The elevator's doors as the car: the middle two tiles of the three-tile doors piece. */
+function drawCar(t: Target, imgs: Map<string, IsoImage>, front: Pt): void {
+  const name = ISO_MANIFEST.lift.doors;
+  const a = isoArt(imgs, name, t.d);
+  if (!a) return;
+  const tile = ISO_HALF_W * a.d;
+  // In the picture: the doors' columns, and the base under their right end (the piece's right
+  // end is half a tile on, where the base is half a drop lower).
+  const sx = tile / 2;
+  const baseY = a.ay - (ISO_HALF_H * a.d) / 2;
+  smooth(t.ctx, t.s < a.d);
+  t.ctx.drawImage(
+    a.img.plain,
+    sx,
+    0,
+    LIFT_TILES * tile,
+    a.img.h,
+    Math.round(t.o.x + (front.x - LIFT_TILES * ISO_HALF_W) * t.s),
+    Math.round(t.o.y + (front.y - baseY / a.d) * t.s),
+    Math.round((LIFT_TILES * tile * t.s) / a.d),
+    Math.round((a.img.h * t.s) / a.d),
+  );
+  smooth(t.ctx, false);
+}
+
+/** The glass of the shaft between the floors' doors, over everything, and the car riding in it. */
 function drawShaft(
   t: Target,
   stack: IsoStack,
@@ -467,14 +577,7 @@ function drawShaft(
   os: OfficeState,
   now: number,
 ): void {
-  const lift = ISO_MANIFEST.lift;
-  const shaft = ISO_MANIFEST.pieces[lift.shaft];
-  const art = isoArt(imgs, lift.shaft, t.d);
-  if (!shaft || !art) return;
-  // One segment's height (iso px): the picture less its footprint's diamond.
-  const seg = art.img.h / art.d - (shaft.footprint[0] + shaft.footprint[1]) * ISO_HALF_H;
-  const b = shaftBox(stack);
-  const top = stack.floors.length - 1;
+  const fronts = doorFronts(stack, elevatorState(os).floors);
   // The car moves a few floors a second (at once with reduced motion).
   const goal = carTarget(os, stack, focus);
   car.target = goal.level;
@@ -486,13 +589,33 @@ function drawShaft(
     Math.abs(car.target - car.level) <= step
       ? car.target
       : car.level + Math.sign(car.target - car.level) * step;
-  for (const f of stack.floors) {
-    const front = isoAt(b.c1, b.r1, f.level, stack.spacing);
-    const height = f.level < top ? stack.spacing : ISO_WALL_H * 2;
-    for (let z = -ISO_SLAB_H; z < height - ISO_SLAB_H; z += seg) put(t, imgs, lift.shaft, front, z);
-    if (f.level === Math.round(car.level))
-      put(t, imgs, lift.car, isoAt(b.c1, b.r1, car.level, stack.spacing));
+  const ctx = t.ctx;
+  const at = (p: Pt) => [t.o.x + p.x * t.s, t.o.y + p.y * t.s] as const;
+  // The car first (the glass is in front of it); at a floor its doors are the wall's own.
+  const between = Math.abs(car.level - Math.round(car.level)) > ISO_CAR_AT_FLOOR;
+  const spot = between ? frontAt(fronts, car.level) : null;
+  if (spot) drawCar(t, imgs, spot);
+  ctx.save();
+  for (const band of shaftBands(fronts)) {
+    ctx.beginPath();
+    band.forEach((p, i) => (i ? ctx.lineTo(...at(p)) : ctx.moveTo(...at(p))));
+    ctx.closePath();
+    ctx.fillStyle = ISO_SHAFT_GLASS;
+    ctx.fill();
+    // The frame: a post up each side.
+    ctx.strokeStyle = ISO_SHAFT_FRAME;
+    ctx.lineWidth = Math.max(1, ISO_SHAFT_POST * t.s);
+    for (const [from, to] of [
+      [band[0], band[3]],
+      [band[1], band[2]],
+    ]) {
+      ctx.beginPath();
+      ctx.moveTo(...at(from));
+      ctx.lineTo(...at(to));
+      ctx.stroke();
+    }
   }
+  ctx.restore();
 }
 
 // ── Caches ───────────────────────────────────────────────────
@@ -507,13 +630,12 @@ const dim = new Map<string, FloorCache>();
 
 /** A floor's cache bounds (iso px): its plate and walls, the pavement for floor 1. */
 function cacheBox(stack: IsoStack, level: number): IsoStack['box'] {
-  const lift = level * stack.spacing;
+  const lift = stack.lifts[level] ?? 0;
   return {
-    x0: -(stack.depth + PAVE + liftTiles()) * ISO_HALF_W,
+    x0: -(stack.depth + PAVE) * ISO_HALF_W,
     x1: (stack.cols + PAVE + 1) * ISO_HALF_W,
     y0: -lift - ISO_WALL_H - 2 * ISO_HALF_H,
-    y1:
-      (stack.cols + stack.depth + 2 * PAVE + liftTiles() + 2) * ISO_HALF_H + ISO_SLAB_H * 2 - lift,
+    y1: (stack.cols + stack.depth + 2 * PAVE + 2) * ISO_HALF_H + ISO_SLAB_H * 2 - lift,
   };
 }
 
@@ -682,6 +804,15 @@ export function renderIso(
   return true;
 }
 
+/** Device px box of a character as the last frame drew it (a test aims a press at it). */
+export function isoCharacterBox(id: number): { x: number; y: number; w: number; h: number } | null {
+  if (!frame) return null;
+  const h = hits.find((x) => x.kind === 'character' && x.id === id);
+  return h
+    ? { x: frame.o.x + h.x * frame.s, y: frame.o.y + h.y * frame.s, w: h.w * frame.s, h: h.h * frame.s }
+    : null;
+}
+
 export type IsoPick =
   | { kind: 'character'; id: number }
   | { kind: 'item'; item: IsoItem; col: number; row: number }
@@ -701,7 +832,7 @@ export function isoPick(x: number, y: number): IsoPick {
     if (hits[i].kind === 'character' && under(hits[i]))
       return { kind: 'character', id: hits[i].id! };
   const tile = () => {
-    const p = isoInverse(ix, iy, f.focus.level, f.stack.spacing);
+    const p = isoInverse(ix, iy, f.focus.level, f.stack.lifts);
     const col = Math.floor(p.col);
     const row = Math.floor(p.row);
     return col >= 0 && row >= 0 && col < f.stack.cols && row < f.focus.rows
@@ -734,14 +865,14 @@ export function isoPick(x: number, y: number): IsoPick {
     if (fl === f.focus) continue;
     const b = floorBox(f.stack, fl.level);
     if (ix < b.x0 || ix >= b.x1 || iy < b.y0 || iy >= b.y1) continue;
-    const p = isoInverse(ix, iy, fl.level, f.stack.spacing);
-    const onPlate = p.col >= 0 && p.row >= 0 && p.col < f.stack.cols && p.row < f.stack.depth;
-    const up = isoInverse(ix, iy + ISO_WALL_H, fl.level, f.stack.spacing);
+    const p = isoInverse(ix, iy, fl.level, f.stack.lifts);
+    const onPlate = p.col >= 0 && p.row >= 0 && p.col < f.stack.cols && p.row < fl.rows;
+    const up = isoInverse(ix, iy + ISO_WALL_H, fl.level, f.stack.lifts);
     const onWalls =
       up.col >= 0 &&
       up.row >= 0 &&
       up.col < f.stack.cols &&
-      up.row < f.stack.depth &&
+      up.row < fl.rows &&
       (up.col < 1 || up.row < 1);
     if (onPlate || onWalls) return { kind: 'floor', id: fl.id };
   }
@@ -791,7 +922,7 @@ export function isoScreenAt(worldX: number, worldY: number): Pt | null {
   const row = Math.floor(worldY / TILE_SIZE);
   const f = frame.stack.floors.find((fl) => row >= fl.row && row < fl.row + fl.rows);
   if (!f) return null;
-  const p = isoAt(worldX / TILE_SIZE, worldY / TILE_SIZE - f.row, f.level, frame.stack.spacing);
+  const p = isoAt(worldX / TILE_SIZE, worldY / TILE_SIZE - f.row, f.level, frame.stack.lifts);
   return { x: frame.o.x + p.x * frame.s, y: frame.o.y + p.y * frame.s };
 }
 

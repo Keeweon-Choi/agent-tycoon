@@ -17,6 +17,7 @@ import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
 import { closeTitleScene } from './cld/gfx/titleSceneState.js';
+import { useOfficeWarmUp } from './cld/gfx/warmUp.js';
 import { HudIcons, HudLayer } from './cld/hud/HudIcons.js';
 import {
   closePages,
@@ -359,6 +360,8 @@ function App() {
   );
   // cld-gui (T-0017): characters wear the look chosen for their name.
   useCharacterLooks(getOfficeState, agents, layoutReady);
+  // SHEET-IMPORT: the office's pictures built while the lobby shows (or in idle time)
+  useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady);
   // cld-gui (T-0036): cards grouped by kind and named, sub-agents included.
   const cldCards = useCldCards(getOfficeState, agents, subagentCharacters);
 

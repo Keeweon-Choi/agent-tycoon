@@ -2,7 +2,8 @@
  * ISO-PILOT art: the isometric pieces the pilot building is drawn with, into
  * webview-ui/src/cld/iso/art/ (one PNG per piece and density) and its manifest.json.
  *
- * Pilot assets, not finished art. The furniture, walls and floors are cut from the owner's
+ * Pilot assets, not finished art (ISO-2: only the pieces in KEEP are still written; the owner's
+ * individual objects, gen-iso-objects.ts, replaced the rest). The furniture, walls and floors were cut from the owner's
  * isometric starter pack (owner 10-26: `starter-furniture.png`, `starter-structure.png`, solid
  * magenta backgrounds), one object per file:
  *  - the magenta and its pink halo removed (a real transparent background);
@@ -18,7 +19,7 @@
  *    its PNGs (and the entry, if the size changes), no code.
  * Each cut is checked (report.json): alignment error against the tile diamond in px, magenta
  * or halo pixels left, opaque pixels touching the cut's edge. A review sheet is assembled from
- * the individual files (cld/artifacts/iso-pilot/review-sheet.png).
+ * the individual files (cld/artifacts/iso-2/review-sheet-starter.png).
  *
  * The pack has no floor plate, slab, pavement, glass shaft or elevator car, and no cut-away
  * wall: those few structural pieces are drawn here, in the pack's own colours.
@@ -28,11 +29,12 @@
 /* eslint-disable pixel-agents/no-inline-colors -- an asset generator: its palette is pixel data, not UI styling */
 import * as fs from 'fs';
 import * as path from 'path';
-import { PNG } from 'pngjs';
+
+import { hex, Img, mix, type Rgba } from './lib/img.js';
 
 const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, 'webview-ui/src/cld/iso/art');
-const SHEET_OUT = path.join(ROOT, 'cld/artifacts/iso-pilot');
+const SHEET_OUT = path.join(ROOT, 'cld/artifacts/iso-2');
 const srcArg = process.argv.indexOf('--src');
 const SRC =
   srcArg > 0 ? process.argv[srcArg + 1] : path.resolve(ROOT, '../specs/owner-ref-1026-iso');
@@ -43,80 +45,7 @@ const D = 4;
 const HW = 8 * D;
 const HH = 4 * D;
 
-type Rgba = [number, number, number, number];
-const hex = (h: string): Rgba => [
-  parseInt(h.slice(1, 3), 16),
-  parseInt(h.slice(3, 5), 16),
-  parseInt(h.slice(5, 7), 16),
-  255,
-];
-const mix = (a: Rgba, b: Rgba, t: number): Rgba => [
-  Math.round(a[0] + (b[0] - a[0]) * t),
-  Math.round(a[1] + (b[1] - a[1]) * t),
-  Math.round(a[2] + (b[2] - a[2]) * t),
-  255,
-];
 const INK = hex('#1b1824');
-
-// ── Images ───────────────────────────────────────────────────
-
-class Img {
-  readonly data: Uint8Array;
-  constructor(
-    readonly w: number,
-    readonly h: number,
-  ) {
-    this.data = new Uint8Array(w * h * 4);
-  }
-  static read(file: string): Img {
-    const p = PNG.sync.read(fs.readFileSync(file));
-    const img = new Img(p.width, p.height);
-    img.data.set(p.data);
-    return img;
-  }
-  set(x: number, y: number, c: Rgba): void {
-    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return;
-    this.data.set(c, (y * this.w + x) * 4);
-  }
-  get(x: number, y: number): Rgba | null {
-    if (x < 0 || y < 0 || x >= this.w || y >= this.h) return null;
-    const i = (y * this.w + x) * 4;
-    return this.data[i + 3] ? [this.data[i], this.data[i + 1], this.data[i + 2], 255] : null;
-  }
-  write(file: string): void {
-    const png = new PNG({ width: this.w, height: this.h });
-    png.data.set(this.data);
-    fs.writeFileSync(file, PNG.sync.write(png));
-  }
-  /** Columns x0..x1-1, rows y0..y1-1. */
-  crop(x0: number, y0: number, x1: number, y1: number): Img {
-    const out = new Img(x1 - x0, y1 - y0);
-    for (let y = y0; y < y1; y++)
-      for (let x = x0; x < x1; x++) {
-        const c = this.get(x, y);
-        if (c) out.set(x - x0, y - y0, c);
-      }
-    return out;
-  }
-  /** The bounds of the opaque pixels. */
-  bounds(): { x0: number; y0: number; x1: number; y1: number } {
-    let [x0, y0, x1, y1] = [this.w, this.h, 0, 0];
-    for (let y = 0; y < this.h; y++)
-      for (let x = 0; x < this.w; x++)
-        if (this.get(x, y))
-          [x0, y0, x1, y1] = [
-            Math.min(x0, x),
-            Math.min(y0, y),
-            Math.max(x1, x + 1),
-            Math.max(y1, y + 1),
-          ];
-    return { x0, y0, x1, y1 };
-  }
-  trim(): Img {
-    const b = this.bounds();
-    return this.crop(b.x0, b.y0, b.x1, b.y1);
-  }
-}
 
 /** How magenta a colour is (the background is about #FF00FF, its halo a pink blend). */
 const magenta = (r: number, g: number, b: number) => Math.min(r, b) - g;
@@ -420,7 +349,22 @@ const pieces: Record<string, PieceEntry> = {};
 const report: Record<string, Record<string, unknown>> = {};
 const review: Array<{ name: string; img: Img; entry: PieceEntry }> = [];
 
+/** What the isometric view still draws from the starter pack or from this script (ISO-2: the
+ *  owner's own objects, gen-iso-objects.ts, replaced the rest): the rest is computed as before
+ *  (the structural pieces borrow the pack's wall colours) but not written. */
+const KEEP = new Set([
+  'plate',
+  'slab-row',
+  'slab-col',
+  'pavement',
+  'board',
+  'bench',
+  'counter',
+  'coffee-machine',
+]);
+
 function save(name: string, img: Img, entry: Omit<PieceEntry, 'file' | 'density'>): void {
+  if (!KEEP.has(name)) return;
   img.write(path.join(OUT, `${name}.png`));
   for (const k of [2, 4])
     lod(img, k, entry.anchor).img.write(path.join(OUT, `${name}@${D / k}.png`));
@@ -469,7 +413,9 @@ if (!fs.existsSync(path.join(SRC, 'starter-furniture.png'))) {
   process.exit(1);
 }
 fs.mkdirSync(OUT, { recursive: true });
-for (const f of fs.readdirSync(OUT)) if (f.endsWith('.png')) fs.unlinkSync(path.join(OUT, f));
+// The owner's objects (o-*, gen-iso-objects.ts) stay.
+for (const f of fs.readdirSync(OUT))
+  if (f.endsWith('.png') && !f.startsWith('o-')) fs.unlinkSync(path.join(OUT, f));
 const FURN = Img.read(path.join(SRC, 'starter-furniture.png'));
 const STRUCT = Img.read(path.join(SRC, 'starter-structure.png'));
 
@@ -709,7 +655,13 @@ let liftTiles = 2;
   let [x0, y0, x1, y1] = [img.w, img.h, 0, 0];
   for (let y = 0; y < img.h; y++)
     for (let x = 0; x < Math.round(img.w * 0.8); x++)
-      if (grey(img.get(x, y))) [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x + 1), Math.max(y1, y + 1)];
+      if (grey(img.get(x, y)))
+        [x0, y0, x1, y1] = [
+          Math.min(x0, x),
+          Math.min(y0, y),
+          Math.max(x1, x + 1),
+          Math.max(y1, y + 1),
+        ];
   // The doors' columns only, every pixel in their bounds (the frame's dark edges included).
   const door = img.crop(x0, y0, x1, y1);
   const run = liftTiles * HW;
@@ -718,7 +670,12 @@ let liftTiles = 2;
   const bot = bottoms(scaled);
   const inset = (run - w) / 2;
   const anchor: [number, number] = [Math.round(w + inset), Math.round(bot[w - 1] + 1 + inset / 2)];
-  save('lift-doors', scaled, { footprint: [liftTiles, 1], anchor, faces: '+row', from: 'starter-structure elevator wall (doors)' });
+  save('lift-doors', scaled, {
+    footprint: [liftTiles, 1],
+    anchor,
+    faces: '+row',
+    from: 'starter-structure elevator wall (doors)',
+  });
   // Open: the light grey of the leaves becomes the car's dark inside, the frame kept.
   const open = new Img(scaled.w, scaled.h);
   open.data.set(scaled.data);
@@ -729,7 +686,12 @@ let liftTiles = 2;
       if (c && grey(c) && c[0] > 110 && y > scaled.h * 0.12 && y < bot[x] - 2)
         open.set(x, y, mix(hex('#2f3446'), hex('#454c63'), y / scaled.h));
     }
-  save('lift-doors-open', open, { footprint: [liftTiles, 1], anchor, faces: '+row', from: 'starter-structure elevator wall (doors, opened)' });
+  save('lift-doors-open', open, {
+    footprint: [liftTiles, 1],
+    anchor,
+    faces: '+row',
+    from: 'starter-structure elevator wall (doors, opened)',
+  });
   report['lift-doors'] = { tiles: liftTiles, leftover: leftover(scaled) };
 }
 
@@ -1000,23 +962,8 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
 
 const manifest = {
   note: 'ISO-PILOT pilot assets (cld/scripts/gen-iso-art.ts), cut from the owner starter pack: not finished art. density: source px per world px (a 16 px tile is a 64x32 diamond at 4). anchor: the pixel at the footprint front corner on the floor, at that density. faces: +row lower left, +col lower right, -row upper right, -col upper left. name@2.png and name@1.png: the same piece at densities 2 and 1.',
-  floors: {
-    default: 'floor-wood-light',
-    '1': 'floor-carpet',
-    '7': 'floor-wood-dark',
-    '9': 'floor-stone',
-  },
-  walls: {
-    row: 'wall-row',
-    col: 'wall-col',
-    rowWindows: Array.from({ length: WINDOW_TILES }, (_, k) => `wall-row-win-${k}`),
-    colWindows: Array.from({ length: WINDOW_TILES }, (_, k) => `wall-col-win-${k}`),
-    corner: 'wall-corner',
-    low: 'wall-low',
-  },
-  lift: { doors: 'lift-doors', doorsOpen: 'lift-doors-open', shaft: 'lift-shaft', car: 'lift-car' },
   pieces,
-  types,
+  types: Object.fromEntries(Object.entries(types).filter(([, t]) => KEEP.has(t.piece))),
 };
 fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2) + '\n');
@@ -1082,9 +1029,9 @@ fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 2) 
     y += heights[k];
   });
   fs.mkdirSync(SHEET_OUT, { recursive: true });
-  sheet.write(path.join(SHEET_OUT, 'review-sheet.png'));
+  sheet.write(path.join(SHEET_OUT, 'review-sheet-starter.png'));
   fs.writeFileSync(
-    path.join(SHEET_OUT, 'review-sheet-order.txt'),
+    path.join(SHEET_OUT, 'review-sheet-starter-order.txt'),
     rows.map((rr) => rr.map((r) => r.name).join('  ')).join('\n') + '\n',
   );
 }

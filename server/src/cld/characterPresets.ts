@@ -41,6 +41,9 @@ import {
 import { koText, refused } from '../../../core/src/cld/serverText.js';
 import {
   checkSheetPng,
+  importHeaderIssue,
+  MAX_HD_SHEET_BYTES,
+  MAX_IMPORT_BYTES,
   MAX_SHEET_BYTES,
   pngHeaderIssue,
 } from '../../../core/src/cld/sheetCheck.js';
@@ -52,6 +55,15 @@ import type {
 import { pickDiversePalette } from '../../../core/src/paletteUtils.js';
 import { HUE_SHIFT_MAX_DEG, PALETTE_COUNT } from '../constants.js';
 import { sameOriginRequest } from './authRoutes.js';
+import {
+  convertSheet,
+  cutSheet,
+  FRAMES as SHEET_FRAMES,
+  IMPORT_DENSITY,
+  IMPORT_FRAME_H,
+  IMPORT_FRAME_W,
+  type SheetFormat,
+} from './sheetImport.js';
 
 export const PRESET_ID = /^[a-z0-9][a-z0-9_-]{0,40}$/;
 export const MAX_PRESET_BYTES = MAX_SHEET_BYTES;
@@ -76,6 +88,18 @@ const MAX_KEY_LENGTH = 200;
 const MAX_LABEL_LENGTH = 60;
 /** Two base64 PNGs at the cap plus the JSON around them. */
 const UPLOAD_BODY_LIMIT = 2 * Math.ceil(MAX_PRESET_BYTES / 3) * 4 + 4096;
+/** SHEET-IMPORT: one generated sheet (base64) plus the JSON around it. */
+const IMPORT_BODY_LIMIT = Math.ceil(MAX_IMPORT_BYTES / 3) * 4 + 4096;
+/** An imported sheet: 7 frames of 192×384 in 3 rows (top view) or 2 (isometric). */
+const HD_SHEET_W = IMPORT_FRAME_W * SHEET_FRAMES;
+const HD_SHEET_H: Record<SheetFormat, number> = {
+  top: IMPORT_FRAME_H * 3,
+  iso: IMPORT_FRAME_H * 2,
+};
+/** How an imported sheet walks: 'steps' left, together, right, together (its columns 2, 1, 3, 1);
+ *  'two' its two steps alone (2, 3). The owner picks by eye in the import preview. */
+const WALKS = ['steps', 'two'] as const;
+type Walk = (typeof WALKS)[number];
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 const README = `# 캐릭터 프리셋
@@ -108,8 +132,14 @@ cld-gui 사무실 캐릭터 그림을 두는 폴더입니다. 데몬이 이 폴�
 /** Why `buf` is not a `w`×`h` 8-bit RGBA PNG (RGB too when `opaqueOk`), or
  *  null when it is. The header is checked before pngjs inflates anything (core's
  *  pngHeaderIssue, the browser's rule too). */
-export function pngProblem(buf: Buffer, w: number, h: number, opaqueOk = false): string | null {
-  const header = pngHeaderIssue(buf, w, h, opaqueOk);
+export function pngProblem(
+  buf: Buffer,
+  w: number,
+  h: number,
+  opaqueOk = false,
+  maxBytes = MAX_SHEET_BYTES,
+): string | null {
+  const header = pngHeaderIssue(buf, w, h, opaqueOk, maxBytes);
   if (header) return header.text;
   try {
     PNG.sync.read(buf);
@@ -119,17 +149,25 @@ export function pngProblem(buf: Buffer, w: number, h: number, opaqueOk = false):
   return null;
 }
 
-/** The IHDR width of a PNG file (its first 24 bytes), or 0. */
-function pngWidth(file: string): number {
+/** The IHDR width and height of a PNG file (its first 24 bytes), or 0s. */
+function pngSize(file: string): { w: number; h: number } {
   try {
     const fd = fs.openSync(file, 'r');
     const head = Buffer.alloc(24);
     fs.readSync(fd, head, 0, 24, 0);
     fs.closeSync(fd);
-    return head.readUInt32BE(16);
+    return { w: head.readUInt32BE(16), h: head.readUInt32BE(20) };
   } catch {
-    return 0;
+    return { w: 0, h: 0 };
   }
+}
+
+/** A preset sheet's kind by its size: classic 112×96, HD 224×192 (CHAR-FACTORY), or an imported
+ *  sheet at density 12 (top view 1344×1152, isometric 1344×768). */
+function sheetKind({ w, h }: { w: number; h: number }): { density: Density; format: SheetFormat } {
+  if (w === HD_SHEET_W)
+    return { density: IMPORT_DENSITY, format: h === HD_SHEET_H.iso ? 'iso' : 'top' };
+  return { density: w === SHEET_W * 2 ? 2 : 1, format: 'top' };
 }
 
 /** A v1 look (\`{palette, hueShift}\` or \`{preset}\`), or null: what a daemon before v2 reads. */
@@ -380,14 +418,24 @@ function faceOf(rgba: Buffer): Buffer {
   return PNG.sync.write(face, { colorType: 6 });
 }
 
+type Density = 1 | 2 | typeof IMPORT_DENSITY;
+
 interface Preset {
   id: string;
   label: string;
   png: Buffer;
   mug: Buffer | null;
   version: string;
-  /** CHAR-FACTORY: 2 for an HD sheet (224×192). */
-  density: 1 | 2;
+  /** CHAR-FACTORY: 2 for an HD sheet (224×192); SHEET-IMPORT: 12 for an imported one. */
+  density: Density;
+  /** SHEET-IMPORT: what `png` shows (an isometric sheet: front and back three-quarter rows). */
+  format: SheetFormat;
+  /** SHEET-IMPORT: an isometric sheet beside a top-view one (`<id>.iso.png`). */
+  iso: Buffer | null;
+  /** SHEET-IMPORT (from `<id>.json`): the columns are the owner's prompt order (standing, left
+   *  foot, right foot, ...), and how it walks. */
+  standFirst: boolean;
+  walk: Walk;
 }
 
 export interface CharacterPresetOptions {
@@ -475,17 +523,23 @@ export class CharacterPresets {
         label: p.label,
         url: `cld/characters/${p.id}.png?v=${p.version}`,
         mugshotUrl: p.mug ? `cld/characters/${p.id}.mug.png?v=${p.version}` : null,
-        ...(p.density === 2 && { density: 2 as const }),
+        ...(p.density !== 1 && { density: p.density }),
+        ...(p.format === 'iso' && { format: 'iso' as const }),
+        ...(p.iso && { isoUrl: `cld/characters/${p.id}.iso.png?v=${p.version}` }),
+        ...(p.standFirst && { columns: 'standFirst' as const }),
+        ...(p.walk !== 'steps' && { walk: p.walk }),
       })),
       assignments: { ...this.assignments },
     };
   }
 
-  /** `<id>.png` or `<id>.mug.png` as checked by the last scan, else null. */
+  /** `<id>.png`, `<id>.mug.png` or `<id>.iso.png` as checked by the last scan, else null. */
   file(name: string): Buffer | null {
-    const m = /^([a-z0-9][a-z0-9_-]{0,40})(\.mug)?\.png$/.exec(name);
+    const m = /^([a-z0-9][a-z0-9_-]{0,40})(\.mug|\.iso)?\.png$/.exec(name);
     const preset = m ? this.presets.get(m[1]) : undefined;
-    return (m?.[2] ? preset?.mug : preset?.png) ?? null;
+    return (
+      (m?.[2] === '.mug' ? preset?.mug : m?.[2] === '.iso' ? preset?.iso : preset?.png) ?? null
+    );
   }
 
   /** Re-read the folder when anything in it changed (names, sizes, mtimes). */
@@ -507,16 +561,22 @@ export class CharacterPresets {
     const signature = [...stats].map(([n, s]) => `${n}:${s.size}:${s.mtimeMs}`).join('|');
     if (signature === this.signature) return;
     this.signature = signature;
-    const read = (name: string, w: number, h: number, opaqueOk = false): Buffer | null => {
+    const read = (
+      name: string,
+      w: number,
+      h: number,
+      opaqueOk = false,
+      maxBytes = MAX_PRESET_BYTES,
+    ): Buffer | null => {
       const st = stats.get(name)!;
       let problem: string | null = null;
       let buf: Buffer | null = null;
       if (!st.isFile()) problem = 'not a regular file';
-      else if (st.size > MAX_PRESET_BYTES) problem = `too big (${st.size} bytes)`;
+      else if (st.size > maxBytes) problem = `too big (${st.size} bytes)`;
       else {
         try {
           buf = fs.readFileSync(path.join(this.dir, name));
-          problem = pngProblem(buf, w, h, opaqueOk);
+          problem = pngProblem(buf, w, h, opaqueOk, maxBytes);
         } catch (err) {
           problem = err instanceof Error ? err.message : String(err);
         }
@@ -527,9 +587,13 @@ export class CharacterPresets {
     const next = new Map<string, Preset>();
     for (const [name, st] of stats) {
       if (name === 'README.md' || name.startsWith('.')) continue;
-      const m = /^(.+?)(\.mug\.png|\.png|\.json)$/.exec(name);
+      const m = /^(.+?)(\.mug\.png|\.iso\.png|\.png|\.json)$/.exec(name);
       if (!m || !PRESET_ID.test(m[1])) {
-        this.ignore(name, st, 'not <id>.png, <id>.json or <id>.mug.png (id: a-z 0-9 - _)');
+        this.ignore(
+          name,
+          st,
+          'not <id>.png, <id>.json, <id>.mug.png or <id>.iso.png (id: a-z 0-9 - _)',
+        );
         continue;
       }
       const id = m[1];
@@ -537,20 +601,45 @@ export class CharacterPresets {
         if (!stats.has(`${id}.png`)) this.ignore(name, st, `no ${id}.png beside it`);
         continue;
       }
-      // CHAR-FACTORY: an HD sheet (twice the detail, the same layout) is 224×192, its portrait 32×32
-      const density = st.isFile() && pngWidth(path.join(this.dir, name)) === SHEET_W * 2 ? 2 : 1; // never open a non-file
-      const png = read(name, SHEET_W * density, SHEET_H * density);
+      // CHAR-FACTORY: an HD sheet (twice the detail, the same layout) is 224×192, its portrait 32×32;
+      // SHEET-IMPORT: an imported one 1344 wide (no portrait: the screen crops its own)
+      const kind = st.isFile()
+        ? sheetKind(pngSize(path.join(this.dir, name)))
+        : sheetKind({ w: 0, h: 0 }); // never open a non-file
+      const { density, format } = kind;
+      const imported = density === IMPORT_DENSITY;
+      const png = imported
+        ? read(name, HD_SHEET_W, HD_SHEET_H[format], false, MAX_HD_SHEET_BYTES)
+        : read(name, SHEET_W * density, SHEET_H * density);
       if (!png) continue;
-      const mug = stats.has(`${id}.mug.png`)
-        ? read(`${id}.mug.png`, MUGSHOT_SIDE * density, MUGSHOT_SIDE * density, true)
-        : null;
+      const mug =
+        stats.has(`${id}.mug.png`) && !imported
+          ? read(`${id}.mug.png`, MUGSHOT_SIDE * density, MUGSHOT_SIDE * density, true)
+          : null;
+      const iso =
+        stats.has(`${id}.iso.png`) && format === 'top'
+          ? read(`${id}.iso.png`, HD_SHEET_W, HD_SHEET_H.iso, false, MAX_HD_SHEET_BYTES)
+          : null;
       const version = crypto
         .createHash('sha1')
         .update(png)
         .update(mug ?? '')
+        .update(iso ?? '')
         .digest('hex')
         .slice(0, 10);
-      next.set(id, { id, label: this.labelOf(id, stats), png, mug, version, density });
+      const meta = this.metaOf(id, stats);
+      next.set(id, {
+        id,
+        label: meta.label,
+        png,
+        mug,
+        version,
+        density,
+        format,
+        iso,
+        standFirst: imported && meta.standFirst,
+        walk: imported ? meta.walk : 'steps',
+      });
     }
     this.presets = next;
     this.publish();
@@ -622,6 +711,81 @@ export class CharacterPresets {
     const warning = check.warning?.text;
     if (warning) console.warn(`[cld] characters: ${id} saved with a warning: ${warning}`);
     return warning ? { id, warning } : { id };
+  }
+
+  /**
+   * SHEET-IMPORT: POST /cld/characters/import(/preview) {png, label?, attach?, walk?}: a generated
+   * sheet (untrusted: core importHeaderIssue's caps before decoding) cut and converted
+   * (sheetImport.ts). The preview answers the converted sheet (base64 PNG), where each frame came
+   * from and the report; the save writes it as a new preset `sheet-<time>` (`<id>.png`, `<id>.json`
+   * with its label, column order and walk) or, with `attach`, beside an imported preset's sheet of
+   * the other format (`<id>.iso.png`; a top view attached to an isometric one takes `<id>.png`
+   * and moves the isometric one beside it) or over its sheet of the same format.
+   */
+  importSheet(
+    body: unknown,
+    save: boolean,
+  ):
+    | { id: string; format: SheetFormat }
+    | { format: SheetFormat; sheet: string; places: unknown; report: unknown }
+    | Refused {
+    const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    const png = decode(b.png);
+    if (!png) return refused('sheet_import_png', { why: 'not base64' });
+    const header = importHeaderIssue(png);
+    if (header) return refused('sheet_import_png', { why: header.text });
+    let img: { width: number; height: number; data: Uint8Array };
+    try {
+      const decoded = PNG.sync.read(png);
+      img = { width: decoded.width, height: decoded.height, data: decoded.data };
+    } catch (err) {
+      return refused('sheet_import_png', { why: err instanceof Error ? err.message : String(err) });
+    }
+    const cut = cutSheet(img);
+    if ('code' in cut) return refused(cut.code, cut.vars);
+    const conv = convertSheet(img, cut);
+    const out = new PNG({ width: conv.width, height: conv.height });
+    out.data = Buffer.from(conv.data);
+    const sheet = PNG.sync.write(out, { colorType: 6 });
+    if (!save)
+      return {
+        format: cut.format,
+        sheet: sheet.toString('base64'),
+        places: conv.places,
+        report: conv.report,
+      };
+    const walk: Walk = WALKS.includes(b.walk as Walk) ? (b.walk as Walk) : 'steps';
+    const label =
+      typeof b.label === 'string' && b.label.trim()
+        ? b.label.trim().slice(0, MAX_LABEL_LENGTH)
+        : koText('sheet_label');
+    const attach = typeof b.attach === 'string' ? this.presets.get(b.attach) : undefined;
+    if (b.attach !== undefined && attach?.density !== IMPORT_DENSITY)
+      return refused('sheet_import_attach', { id: String(b.attach).slice(0, MAX_LABEL_LENGTH) });
+    let id = attach?.id ?? `sheet-${Date.now()}`;
+    for (let n = 1; !attach && fs.existsSync(path.join(this.dir, `${id}.png`)); n++)
+      id = `sheet-${Date.now()}-${n}`;
+    try {
+      this.writeAtomic(
+        `${id}.json`,
+        JSON.stringify({ label: attach ? attach.label : label, columns: 'standFirst', walk }) +
+          '\n',
+      );
+      if (!attach || attach.format === cut.format) this.writeAtomic(`${id}.png`, sheet);
+      else if (cut.format === 'iso') this.writeAtomic(`${id}.iso.png`, sheet);
+      else {
+        // the isometric sheet moves beside the new top view
+        this.writeAtomic(`${id}.iso.png`, attach.png);
+        this.writeAtomic(`${id}.png`, sheet);
+      }
+    } catch (err) {
+      return refused('sheet_import_png', {
+        why: `not saved (${err instanceof Error ? err.message : String(err)})`,
+      });
+    }
+    this.scan();
+    console.log(`[cld] characters: imported ${id} (${cut.format}, ${conv.report.ms} ms)`);
+    return { id, format: cut.format };
   }
 
   /**
@@ -833,20 +997,32 @@ export class CharacterPresets {
       if (!matchesAutoPin(raw[name], pin)) this.auto.delete(name);
   }
 
-  private labelOf(id: string, stats: Map<string, fs.Stats>): string {
+  /** `<id>.json`: its label (else the id) and, for an imported sheet, its column order and walk. */
+  private metaOf(
+    id: string,
+    stats: Map<string, fs.Stats>,
+  ): { label: string; standFirst: boolean; walk: Walk } {
     const name = `${id}.json`;
     const st = stats.get(name);
-    if (!st) return id;
+    const none = { label: id, standFirst: false, walk: 'steps' as Walk };
+    if (!st) return none;
     try {
       if (!st.isFile() || st.size > 4096) throw new Error('not a small file');
-      const label = (
-        JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf-8')) as { label?: unknown }
-      )?.label;
+      const json = JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf-8')) as {
+        label?: unknown;
+        columns?: unknown;
+        walk?: unknown;
+      };
+      const label = json?.label;
       if (typeof label !== 'string' || !label.trim()) throw new Error('no "label" text');
-      return label.trim().slice(0, MAX_LABEL_LENGTH);
+      return {
+        label: label.trim().slice(0, MAX_LABEL_LENGTH),
+        standFirst: json.columns === 'standFirst',
+        walk: WALKS.includes(json.walk as Walk) ? (json.walk as Walk) : 'steps',
+      };
     } catch (err) {
       this.ignore(name, st, err instanceof Error ? err.message : String(err));
-      return id;
+      return none;
     }
   }
 
@@ -870,8 +1046,10 @@ export class CharacterPresets {
 }
 
 type RouteAuth = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+type Refused = ReturnType<typeof refused>;
 
-/** GET /cld/characters/<id>.png|<id>.mug.png and POST /cld/characters, both
+/** GET /cld/characters/<id>.png|<id>.mug.png|<id>.iso.png, POST /cld/characters and (SHEET-IMPORT)
+ *  POST /cld/characters/import/preview and /cld/characters/import, all
  *  behind `auth` (static-looking paths skip the global session gate). */
 export function registerCharacterRoutes(
   app: FastifyInstance,
@@ -901,4 +1079,18 @@ export function registerCharacterRoutes(
       return result;
     },
   );
+  for (const [url, save] of [
+    ['/cld/characters/import/preview', false],
+    ['/cld/characters/import', true],
+  ] as const)
+    app.post(url, { preHandler: auth, bodyLimit: IMPORT_BODY_LIMIT }, async (request, reply) => {
+      if (!sameOriginRequest(request))
+        return reply.code(403).send({ ...refused('origin_mismatch') });
+      const result = presets.importSheet(request.body, save);
+      if ('error' in result) {
+        console.warn(`[cld] characters: sheet import refused: ${result.error}`);
+        return reply.code(400).send(result);
+      }
+      return result;
+    });
 }

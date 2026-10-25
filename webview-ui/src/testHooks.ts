@@ -1,11 +1,19 @@
 import type { CharacterChoice } from '../../core/src/messages.js';
 import type { Framing } from './cld/cameraMode.js';
 import { compose } from './cld/characters/compose.js';
-import { getCustomParts } from './cld/characters/looks.js';
+import { getCustomParts, presetPalette } from './cld/characters/looks.js';
 import { chatOpenFor } from './cld/chat.js';
 import { nameplateStats } from './cld/ez/useNameplates.js';
 import { floorsSnapshot } from './cld/floors.js';
-import { isoCarLevel, isoFloors, isoFrame, isoScreenAt, isoStats } from './cld/iso/render.js';
+import {
+  isoCarLevel,
+  isoCharacterBox,
+  isoFloors,
+  isoFrame,
+  isoScreenAt,
+  isoStats,
+} from './cld/iso/render.js';
+import { cldGetSnapshot } from './cld/officeStore.js';
 import { otherFloorStats } from './cld/otherFloors.js';
 import { perfSnapshot, setPerfOn } from './cld/perf.js';
 import type { ColorValue } from './components/ui/types.js';
@@ -13,6 +21,7 @@ import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { isWalkable } from './office/layout/tileMap.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
+import { smoothCacheBytes, warmPending } from './office/sprites/smoothSprite.js';
 import { getCachedSprite } from './office/sprites/spriteCache.js';
 import {
   getCharacterSprites,
@@ -173,6 +182,15 @@ declare global {
       /** HD64-SAMPLE: building the sprite cache of palette/hue at `zoom` (ms, 21 frames and the
        *  mirrored left ones), measured once (later calls hit the cache). */
       cacheBuildMs?: (palette: number, hue: number, zoom: number) => number;
+      /** SHEET-IMPORT: `n` characters (ids from `firstId`) wearing preset `id` (its palette once
+       *  loaded; -1 while it loads), every other one typing at a desk. */
+      spawnPreset?: (id: string, n: number, firstId: number) => number;
+      /** SHEET-IMPORT: select and follow character `id` (what a click on it does). */
+      follow?: (id: number) => void;
+      /** SHEET-IMPORT: character `id` at its desk (`tool`: what it works with, Read reads) or not. */
+      setActive?: (id: number, on: boolean, tool?: string | null) => void;
+      /** SHEET-IMPORT: pictures still queued to warm, and the bytes the zoom LRU holds. */
+      warmState?: () => { pending: number; bytes: number };
       /** HD64-SAMPLE: walk character `id` to a tile (false: no path). */
       walkTo?: (id: number, col: number, row: number) => boolean;
       /** HD64-SAMPLE: the density palette/hue draws at `zoom` (its LOD there). */
@@ -194,6 +212,8 @@ declare global {
       };
       /** ISO-PILOT: CSS px (in the canvas) where the building drew world point (x, y). */
       isoPoint?: (worldX: number, worldY: number) => { x: number; y: number } | null;
+      /** ISO-PILOT: a character's box as the last frame drew it, CSS px of the canvas. */
+      isoCharacterBox?: (id: number) => { x: number; y: number; w: number; h: number } | null;
       /** GFX: the camera now (zoom, pan) and the map it frames. */
       getCamera?: () => {
         zoom: number;
@@ -253,6 +273,11 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     drawn: isoFrame(),
     floors: isoFloors(),
   });
+  hooks.isoCharacterBox = (id) => {
+    const b = isoCharacterBox(id);
+    const dpr = window.devicePixelRatio || 1;
+    return b && { x: b.x / dpr, y: b.y / dpr, w: b.w / dpr, h: b.h / dpr };
+  };
   hooks.isoPoint = (wx, wy) => {
     const p = isoScreenAt(wx, wy);
     const dpr = window.devicePixelRatio || 1;
@@ -283,6 +308,27 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     }
     return palettes;
   };
+  hooks.spawnPreset = (id, n, firstId) => {
+    const preset = cldGetSnapshot().characterPresets?.presets.find((p) => p.id === id);
+    const palette = preset ? presetPalette(preset) : null;
+    if (palette === null) return -1;
+    for (let i = 0; i < n; i++) {
+      officeStateRef.current?.addAgent(firstId + i, palette, 0, undefined, true);
+      officeStateRef.current?.setAgentActive(firstId + i, i % 2 === 0);
+    }
+    return palette;
+  };
+  hooks.follow = (id) => {
+    const os = officeStateRef.current;
+    if (!os) return;
+    os.selectedAgentId = id;
+    os.cameraFollowId = id;
+  };
+  hooks.setActive = (id, on, tool = null) => {
+    officeStateRef.current?.setAgentActive(id, on);
+    officeStateRef.current?.setAgentTool(id, on ? tool : null);
+  };
+  hooks.warmState = () => ({ pending: warmPending(), bytes: smoothCacheBytes() });
   hooks.walkTo = (id, col, row) => officeStateRef.current?.walkToTile(id, col, row) ?? false;
   hooks.drawnDensity = (palette, hue, zoom) =>
     spritesAtZoom(getCharacterSprites(palette, hue), zoom).density;

@@ -1,0 +1,933 @@
+{
+  "note": "ISO-2: the owner's individual isometric objects (cld/scripts/gen-iso-objects.ts), one master PNG each at density 12 (source px per world px; a 16 px tile is a 192x96 diamond), area-averaged, drawn at every zoom from that master. anchor: the pixel at the footprint's (slot's) front corner on the floor. seats: iso px from the anchor to a sitting character's seat, for the picture as drawn (mirrored: x negated). A wall piece is stored running down to the right; wall.start is where its base starts, its strips of one tile are cut from there.",
+  "floors": {
+    "1": "o-floor-carpet-blue",
+    "2": "o-floor-carpet-pink",
+    "3": "o-floor-marble",
+    "7": "o-floor-wood-dark",
+    "9": "o-floor-stone",
+    "default": "o-floor-wood-light"
+  },
+  "walls": {
+    "row": {
+      "piece": "o-wall-plain"
+    },
+    "col": {
+      "piece": "o-wall-plain-b",
+      "mirror": true
+    },
+    "window": {
+      "piece": "o-wall-window",
+      "gap": 2
+    },
+    "corner": "o-wall-corner",
+    "low": "o-wall-low"
+  },
+  "lift": {
+    "doors": "o-wall-lift",
+    "doorsOpen": "o-lift-doors-open"
+  },
+  "pieces": {
+    "o-rug-round": {
+      "file": "o-rug-round.png",
+      "density": 12,
+      "footprint": [
+        3,
+        3
+      ],
+      "anchor": [
+        288,
+        288
+      ],
+      "faces": "none",
+      "from": "round rug"
+    },
+    "o-cactus": {
+      "file": "o-cactus.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        69,
+        242
+      ],
+      "faces": "none",
+      "from": "cactus pot"
+    },
+    "o-wall-lift-retro": {
+      "file": "o-wall-lift-retro.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        288,
+        849
+      ],
+      "faces": "+row",
+      "from": "retro elevator wall"
+    },
+    "o-floor-marble": {
+      "file": "o-floor-marble.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "marble floor"
+    },
+    "o-wall-entrance-a": {
+      "file": "o-wall-entrance-a.png",
+      "density": 12,
+      "footprint": [
+        10,
+        1
+      ],
+      "anchor": [
+        960,
+        1152
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 10,
+        "start": [
+          0,
+          672
+        ],
+        "role": "entrance"
+      },
+      "from": "glass entrance"
+    },
+    "o-bookshelf-moss": {
+      "file": "o-bookshelf-moss.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "slot": [
+        2,
+        1
+      ],
+      "anchor": [
+        125,
+        490
+      ],
+      "faces": "+row",
+      "from": "mossy bookshelf"
+    },
+    "o-whiteboard-a": {
+      "file": "o-whiteboard-a.png",
+      "density": 12,
+      "footprint": [
+        2,
+        1
+      ],
+      "slot": [
+        2,
+        2
+      ],
+      "anchor": [
+        87,
+        342
+      ],
+      "faces": "+row",
+      "stands": true,
+      "from": "mobile whiteboard"
+    },
+    "o-monstera": {
+      "file": "o-monstera.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        125,
+        335
+      ],
+      "faces": "none",
+      "from": "monstera pot"
+    },
+    "o-cabinet-a": {
+      "file": "o-cabinet-a.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        94,
+        303
+      ],
+      "faces": "+row",
+      "from": "filing cabinet"
+    },
+    "o-sofa-a": {
+      "file": "o-sofa-a.png",
+      "density": 12,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        190,
+        219
+      ],
+      "faces": "+row",
+      "seats": [
+        [
+          -8,
+          -11
+        ],
+        [
+          0,
+          -7
+        ]
+      ],
+      "from": "sofa"
+    },
+    "o-bin": {
+      "file": "o-bin.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        55,
+        172
+      ],
+      "faces": "none",
+      "from": "trash bin"
+    },
+    "o-chair-up": {
+      "file": "o-chair-up.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        88,
+        297
+      ],
+      "faces": "-row",
+      "seats": [
+        [
+          0,
+          -10.5
+        ]
+      ],
+      "from": "office chair seen from behind (faces the upper right)"
+    },
+    "o-chair-left": {
+      "file": "o-chair-left.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        95,
+        297
+      ],
+      "faces": "-col",
+      "seats": [
+        [
+          0,
+          -10.5
+        ]
+      ],
+      "from": "office chair seen from behind (faces the upper left)"
+    },
+    "o-palm": {
+      "file": "o-palm.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        146,
+        429
+      ],
+      "faces": "none",
+      "from": "palm in a square pot"
+    },
+    "o-desk": {
+      "file": "o-desk.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "slot": [
+        3,
+        2
+      ],
+      "anchor": [
+        184,
+        423
+      ],
+      "faces": "+row",
+      "surface": 144,
+      "from": "office desk"
+    },
+    "o-floor-carpet-blue": {
+      "file": "o-floor-carpet-blue.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "blue carpet tile"
+    },
+    "o-coffee-table-b": {
+      "file": "o-coffee-table-b.png",
+      "density": 12,
+      "footprint": [
+        2,
+        1
+      ],
+      "slot": [
+        2,
+        2
+      ],
+      "anchor": [
+        201,
+        248
+      ],
+      "faces": "none",
+      "from": "coffee table"
+    },
+    "o-armchair-a": {
+      "file": "o-armchair-a.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        93,
+        211
+      ],
+      "faces": "+row",
+      "seats": [
+        [
+          0,
+          -8.3
+        ]
+      ],
+      "from": "armchair"
+    },
+    "o-wall-lift-b": {
+      "file": "o-wall-lift-b.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        288,
+        861
+      ],
+      "faces": "+row",
+      "from": "elevator wall (call button on the left)"
+    },
+    "o-wall-window-single": {
+      "file": "o-wall-window-single.png",
+      "density": 12,
+      "footprint": [
+        7,
+        1
+      ],
+      "anchor": [
+        672,
+        1016
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 7,
+        "start": [
+          0,
+          680
+        ],
+        "role": "window"
+      },
+      "from": "night window wall, one window"
+    },
+    "o-armchair-b": {
+      "file": "o-armchair-b.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        92,
+        199
+      ],
+      "faces": "+col",
+      "seats": [
+        [
+          0,
+          -8.3
+        ]
+      ],
+      "from": "armchair with a cushion"
+    },
+    "o-floor-carpet-pink": {
+      "file": "o-floor-carpet-pink.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "pink carpet tile"
+    },
+    "o-wall-door-tall": {
+      "file": "o-wall-door-tall.png",
+      "density": 12,
+      "footprint": [
+        4,
+        1
+      ],
+      "anchor": [
+        384,
+        879
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 4,
+        "start": [
+          0,
+          687
+        ],
+        "role": "door"
+      },
+      "from": "modern door wall"
+    },
+    "o-wall-window-wide": {
+      "file": "o-wall-window-wide.png",
+      "density": 12,
+      "footprint": [
+        14,
+        1
+      ],
+      "anchor": [
+        1344,
+        1363
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "col",
+        "n": 14,
+        "start": [
+          0,
+          691
+        ],
+        "role": "window"
+      },
+      "from": "night city window wall, three windows (running down to the left) (mirrored to run down to the right; draw it flipped)"
+    },
+    "o-wall-corner": {
+      "file": "o-wall-corner.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        719
+      ],
+      "faces": "none",
+      "from": "cream wall corner"
+    },
+    "o-wall-lift": {
+      "file": "o-wall-lift.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        288,
+        869
+      ],
+      "faces": "+row",
+      "from": "elevator wall (mirrored to run down to the right; draw it flipped)"
+    },
+    "o-bookshelf-cozy": {
+      "file": "o-bookshelf-cozy.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "slot": [
+        2,
+        1
+      ],
+      "anchor": [
+        196,
+        489
+      ],
+      "faces": "+row",
+      "from": "cozy bookshelf"
+    },
+    "o-wall-plain": {
+      "file": "o-wall-plain.png",
+      "density": 12,
+      "footprint": [
+        7,
+        1
+      ],
+      "anchor": [
+        672,
+        1016
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 7,
+        "start": [
+          0,
+          680
+        ],
+        "role": "plain"
+      },
+      "from": "cream wall panel (running down to the right)"
+    },
+    "o-wall-window": {
+      "file": "o-wall-window.png",
+      "density": 12,
+      "footprint": [
+        13,
+        1
+      ],
+      "anchor": [
+        1248,
+        1287
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 13,
+        "start": [
+          0,
+          663
+        ],
+        "role": "window"
+      },
+      "from": "night window wall"
+    },
+    "o-wall-plain-b": {
+      "file": "o-wall-plain-b.png",
+      "density": 12,
+      "footprint": [
+        7,
+        1
+      ],
+      "anchor": [
+        672,
+        1021
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "col",
+        "n": 7,
+        "start": [
+          0,
+          685
+        ],
+        "role": "plain"
+      },
+      "from": "cream wall panel (running down to the left) (mirrored to run down to the right; draw it flipped)"
+    },
+    "o-floor-wood-dark": {
+      "file": "o-floor-wood-dark.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "dark wood floor"
+    },
+    "o-wall-door": {
+      "file": "o-wall-door.png",
+      "density": 12,
+      "footprint": [
+        7,
+        1
+      ],
+      "anchor": [
+        672,
+        1021
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "col",
+        "n": 7,
+        "start": [
+          0,
+          685
+        ],
+        "role": "door"
+      },
+      "from": "door wall (mirrored to run down to the right; draw it flipped)"
+    },
+    "o-chair-right": {
+      "file": "o-chair-right.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        76,
+        301
+      ],
+      "faces": "+col",
+      "seats": [
+        [
+          0,
+          -10.5
+        ]
+      ],
+      "from": "office chair seen from the front (faces the lower right)"
+    },
+    "o-floor-wood-light": {
+      "file": "o-floor-wood-light.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "light wood floor"
+    },
+    "o-cabinet-b": {
+      "file": "o-cabinet-b.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        81,
+        297
+      ],
+      "faces": "+col",
+      "from": "filing cabinet, other side"
+    },
+    "o-whiteboard-b": {
+      "file": "o-whiteboard-b.png",
+      "density": 12,
+      "footprint": [
+        1,
+        2
+      ],
+      "slot": [
+        2,
+        2
+      ],
+      "anchor": [
+        199,
+        329
+      ],
+      "faces": "+col",
+      "stands": true,
+      "from": "mobile whiteboard, other side"
+    },
+    "o-wall-entrance-b": {
+      "file": "o-wall-entrance-b.png",
+      "density": 12,
+      "footprint": [
+        9,
+        1
+      ],
+      "anchor": [
+        864,
+        1098
+      ],
+      "faces": "+row",
+      "wall": {
+        "along": "row",
+        "n": 9,
+        "start": [
+          0,
+          666
+        ],
+        "role": "entrance"
+      },
+      "from": "glass entrance"
+    },
+    "o-chair-down": {
+      "file": "o-chair-down.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        87,
+        301
+      ],
+      "faces": "+row",
+      "seats": [
+        [
+          0,
+          -10.5
+        ]
+      ],
+      "from": "office chair seen from the front (faces the lower left)"
+    },
+    "o-desk-b": {
+      "file": "o-desk-b.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "slot": [
+        3,
+        2
+      ],
+      "anchor": [
+        380,
+        435
+      ],
+      "faces": "+row",
+      "surface": 144,
+      "from": "office desk, other make"
+    },
+    "o-coffee-table": {
+      "file": "o-coffee-table.png",
+      "density": 12,
+      "footprint": [
+        2,
+        1
+      ],
+      "slot": [
+        2,
+        2
+      ],
+      "anchor": [
+        195,
+        237
+      ],
+      "faces": "none",
+      "from": "wooden coffee table"
+    },
+    "o-floor-stone": {
+      "file": "o-floor-stone.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        96
+      ],
+      "faces": "none",
+      "from": "grey stone tile platform"
+    },
+    "o-sofa-b": {
+      "file": "o-sofa-b.png",
+      "density": 12,
+      "footprint": [
+        1,
+        2
+      ],
+      "anchor": [
+        129,
+        246
+      ],
+      "faces": "+col",
+      "seats": [
+        [
+          8,
+          -12
+        ],
+        [
+          0,
+          -8
+        ]
+      ],
+      "from": "sofa, other side"
+    },
+    "o-wall-low": {
+      "file": "o-wall-low.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        96,
+        240
+      ],
+      "faces": "none",
+      "from": "derived from the owner's plain cream wall: its cap and baseboard columns (plaster between cut out) on two faces, the cap's top colour on the diamond"
+    },
+    "o-lift-doors-open": {
+      "file": "o-wall-lift.png",
+      "density": 12,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        288,
+        869
+      ],
+      "faces": "+row",
+      "from": "derived from the owner's elevator wall: the doors slid open on the car"
+    }
+  },
+  "types": {
+    "DESK_FRONT": {
+      "piece": "o-desk"
+    },
+    "PC_FRONT_OFF": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_1": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_2": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_3": {
+      "piece": "none"
+    },
+    "CUSHIONED_BENCH": {
+      "piece": "o-chair-down"
+    },
+    "CUSHIONED_CHAIR_FRONT": {
+      "piece": "o-chair-down"
+    },
+    "CUSHIONED_CHAIR_BACK": {
+      "piece": "o-chair-up"
+    },
+    "CUSHIONED_CHAIR_SIDE": {
+      "piece": "o-chair-right"
+    },
+    "WOODEN_CHAIR_FRONT": {
+      "piece": "o-chair-down"
+    },
+    "WOODEN_CHAIR_BACK": {
+      "piece": "o-chair-up"
+    },
+    "PLANT": {
+      "piece": "o-monstera"
+    },
+    "POT": {
+      "piece": "o-cactus"
+    },
+    "CACTUS": {
+      "piece": "o-cactus"
+    },
+    "PLANT_2": {
+      "piece": "o-palm"
+    },
+    "TALL_PLANT": {
+      "piece": "o-palm"
+    },
+    "LARGE_PLANT": {
+      "piece": "o-palm"
+    },
+    "BIN": {
+      "piece": "o-bin"
+    },
+    "BOOKSHELF": {
+      "piece": "o-bookshelf-moss"
+    },
+    "DOUBLE_BOOKSHELF": {
+      "piece": "o-bookshelf-cozy"
+    },
+    "SOFA_FRONT": {
+      "piece": "o-sofa-a"
+    },
+    "SOFA_BACK": {
+      "piece": "o-sofa-a"
+    },
+    "SOFA_SIDE": {
+      "piece": "o-sofa-b"
+    },
+    "SOFA_SIDE:left": {
+      "piece": "o-sofa-b"
+    },
+    "COFFEE_TABLE": {
+      "piece": "o-coffee-table"
+    },
+    "WHITEBOARD": {
+      "piece": "o-whiteboard-a"
+    }
+  },
+  "facings": {
+    "sofa": {
+      "+row": {
+        "piece": "o-sofa-a"
+      },
+      "+col": {
+        "piece": "o-sofa-b"
+      }
+    },
+    "chair": {
+      "-row": {
+        "piece": "o-chair-up"
+      },
+      "-col": {
+        "piece": "o-chair-left"
+      },
+      "+col": {
+        "piece": "o-chair-right"
+      },
+      "+row": {
+        "piece": "o-chair-down"
+      }
+    },
+    "armchair": {
+      "+row": {
+        "piece": "o-armchair-a"
+      },
+      "+col": {
+        "piece": "o-armchair-b"
+      }
+    }
+  }
+}

@@ -10,7 +10,7 @@ import {
   paletteOfLook,
   randomLook,
 } from '../../../core/src/cld/looks.js';
-import { checkSheetPng } from '../../../core/src/cld/sheetCheck.js';
+import { checkSheetPng, MAX_IMPORT_BYTES } from '../../../core/src/cld/sheetCheck.js';
 import type { CharacterPresets as PresetsMessage } from '../../../core/src/messages.js';
 import { AgentRuntime } from '../agentRuntime.js';
 import { AgentStateStore } from '../agentStateStore.js';
@@ -388,6 +388,160 @@ describe('routes', () => {
     expect(fs.existsSync(path.join(config, `characters/${id}.mug.png`))).toBe(true);
     expect(last().assignments).toEqual({ alpha: { preset: id } });
     expect(last().presets.find((p) => p.id === id)?.label).toBe('alpha 사진');
+  });
+});
+
+/** SHEET-IMPORT: a generated sheet of `rows` × 7 figures on magenta (`skip`: a cell left empty). */
+function generated(rows: number, skip?: [number, number]): Buffer {
+  const [CW, CH] = [240, 460];
+  const out = new PNG({ width: CW * 7, height: CH * rows });
+  const fill = (x0: number, y0: number, w: number, h: number, c: number[]) => {
+    for (let y = y0; y < y0 + h; y++)
+      for (let x = x0; x < x0 + w; x++) out.data.set(c, (y * out.width + x) * 4);
+  };
+  fill(0, 0, out.width, out.height, [248, 4, 246, 255]);
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < 7; c++) {
+      if (skip && skip[0] === r && skip[1] === c) continue;
+      const tall = c < 3 ? 400 : 330;
+      fill(c * CW + 90, r * CH + 440 - tall, 60, 60, [240, 200, 180, 255]);
+      fill(c * CW + 70, r * CH + 500 - tall, 100, tall - 60, [40, 60, 160, 255]);
+    }
+  return PNG.sync.write(out);
+}
+
+describe('SHEET-IMPORT routes', () => {
+  let server: HttpServerHandle | undefined;
+  afterEach(async () => {
+    await server?.app.close();
+    server = undefined;
+    delete cldHooks.registerRoutes;
+  });
+  const page = {
+    host: 'office.test',
+    origin: 'http://office.test',
+    authorization: 'Bearer test-server-token',
+  };
+  const send = async (
+    url: string,
+    payload: Record<string, unknown>,
+    headers: Record<string, string> = page,
+  ) => {
+    cldHooks.registerRoutes = (app, auth) => registerCharacterRoutes(app, auth, presets);
+    server ??= await createHttpServer({
+      embedded: false,
+      host: '127.0.0.1',
+      token: 'test-server-token',
+      store: new AgentStateStore(),
+      staticDir: process.cwd(),
+      listen: false,
+    });
+    return server.app.inject({ method: 'POST', url, headers, payload });
+  };
+  const b64 = (buf: Buffer) => buf.toString('base64');
+  const files = () => fs.readdirSync(path.join(config, 'characters')).sort();
+
+  it('previews a sheet (288×528 frames) and refuses what is not one, saving nothing', async () => {
+    const preview = await send('/cld/characters/import/preview', { png: b64(generated(2)) });
+    expect(preview.statusCode).toBe(200);
+    const body = preview.json<{ format: string; sheet: string; report: { density: number } }>();
+    expect(body.format).toBe('iso');
+    expect(body.report.density).toBe(12);
+    const sheet = PNG.sync.read(Buffer.from(body.sheet, 'base64'));
+    expect([sheet.width, sheet.height]).toEqual([2016, 1056]);
+    const missing = await send('/cld/characters/import/preview', {
+      png: b64(generated(2, [1, 3])),
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toMatchObject({
+      errorCode: 'sheet_import_missing',
+      errorParams: { found: 13, row: 2, col: 4 },
+    });
+    expect(missing.json().error).toContain('2줄 4번째 칸');
+    for (const png of ['!!', b64(Buffer.from('GIF89a, not a png at all, long enough'))])
+      expect((await send('/cld/characters/import/preview', { png })).json()).toMatchObject({
+        errorCode: 'sheet_import_png',
+      });
+    const foreign = await send(
+      '/cld/characters/import',
+      { png: b64(generated(2)) },
+      { ...page, origin: 'https://attacker.example' },
+    );
+    expect(foreign.statusCode).toBe(403);
+    expect(
+      (await send('/cld/characters/import/preview', { png: b64(generated(2)) }, {})).statusCode,
+    ).toBe(401);
+    const hugeIhdr = generated(2);
+    hugeIhdr.writeUInt32BE(100_000, 16); // Must be refused before pngjs can inflate it.
+    expect(
+      presets.importSheet({ png: b64(hugeIhdr) }, false),
+    ).toMatchObject({ errorCode: 'sheet_import_png' });
+    expect(
+      presets.importSheet({ png: b64(Buffer.alloc(MAX_IMPORT_BYTES + 1)) }, false),
+    ).toMatchObject({ errorCode: 'sheet_import_png' });
+    expect(files()).toEqual(['README.md']);
+  });
+
+  it('saves an isometric preset, attaches a top view to it, and old presets stay as they were', async () => {
+    put('ok.png', CHAR_0);
+    const saved = await send('/cld/characters/import', {
+      png: b64(generated(2)),
+      label: '  달빛  ',
+      walk: 'two',
+    });
+    expect(saved.statusCode).toBe(200);
+    const { id, format } = saved.json<{ id: string; format: string }>();
+    expect([id, format]).toEqual([expect.stringMatching(/^sheet-\d+$/), 'iso']);
+    expect(files()).toEqual(['README.md', 'ok.png', `${id}.json`, `${id}.png`]);
+    expect(last().presets.find((p) => p.id === id)).toEqual({
+      id,
+      label: '달빛',
+      url: expect.stringMatching(new RegExp(`^cld/characters/${id}\\.png\\?v=`)),
+      mugshotUrl: null,
+      density: 12,
+      format: 'iso',
+      columns: 'standFirst',
+      walk: 'two',
+    });
+    const iso = fs.readFileSync(path.join(config, `characters/${id}.png`));
+    // the top view takes <id>.png; the isometric sheet moves beside it
+    const top = await send('/cld/characters/import', { png: b64(generated(3)), attach: id });
+    expect(top.json()).toEqual({ id, format: 'top' });
+    expect(fs.readFileSync(path.join(config, `characters/${id}.iso.png`))).toEqual(iso);
+    expect(PNG.sync.read(fs.readFileSync(path.join(config, `characters/${id}.png`))).height).toBe(
+      1584,
+    );
+    const both = last().presets.find((p) => p.id === id)!;
+    expect(both).toMatchObject({ label: '달빛', density: 12, columns: 'standFirst' });
+    expect(both.format).toBeUndefined();
+    expect(both.isoUrl).toMatch(new RegExp(`^cld/characters/${id}\\.iso\\.png\\?v=`));
+    expect(presets.file(`${id}.iso.png`)).toEqual(iso);
+    // the classic preset beside it: unchanged
+    expect(last().presets.find((p) => p.id === 'ok')).toEqual({
+      id: 'ok',
+      label: 'ok',
+      url: expect.any(String),
+      mugshotUrl: null,
+    });
+    // attaching to a preset that is not an imported one is refused
+    expect(
+      (await send('/cld/characters/import', { png: b64(generated(2)), attach: 'ok' })).json(),
+    ).toMatchObject({ errorCode: 'sheet_import_attach' });
+    expect(
+      (await send('/cld/characters/import', { png: b64(generated(2)), attach: '../ok' })).json(),
+    ).toMatchObject({ errorCode: 'sheet_import_attach' });
+  });
+
+  it('generates the stored filename when a label has path-looking text', async () => {
+    const saved = await send('/cld/characters/import', {
+      png: b64(generated(2)),
+      label: '../../not-a-file-name',
+    });
+    expect(saved.statusCode).toBe(200);
+    const { id } = saved.json<{ id: string }>();
+    expect(id).toMatch(/^sheet-\d+$/);
+    expect(files()).toEqual(['README.md', `${id}.json`, `${id}.png`]);
+    expect(files().every((name) => !name.includes('..') && !name.includes('/'))).toBe(true);
   });
 });
 

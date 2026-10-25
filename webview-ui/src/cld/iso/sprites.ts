@@ -14,21 +14,13 @@
  *    apart by the sheet's height.
  * The character system keeps its four world directions: only this module knows the camera.
  *
- * Density: the finest drawing that divides the zoom into whole device px, as the top-down
- * office draws; the character selected or followed (looked at) uses its sharpest drawing that
- * is not drawn smaller than its own pixels (owner 10-26: a custom character clicked, zoomed
- * or followed shows its sharpest sprite first).
+ * Density: as the top-down office draws (spritesAtZoom): a detailed character (64×128 and up)
+ * draws its one master at every zoom, so clicked, zoomed or followed it is always at its
+ * sharpest (owner 10-26).
  */
-import type { CharacterSprites } from '../../office/sprites/spriteData.js';
-import { spritesAtZoom } from '../../office/sprites/spriteData.js';
+import { deriveSmooth } from '../../office/sprites/smoothSprite.js';
 import type { Direction as DirectionVal, SpriteData } from '../../office/types.js';
 import { Direction } from '../../office/types.js';
-
-export function isoSprites(all: CharacterSprites, s: number, lookedAt: boolean): CharacterSprites {
-  if (!lookedAt || !all.lods?.length) return spritesAtZoom(all, s);
-  const byDensity = [all, ...all.lods].sort((a, b) => b.density - a.density);
-  return byDensity.find((x) => x.density <= s) ?? byDensity[byDensity.length - 1];
-}
 
 /** The sheet row (0 front, 1 back) a world direction draws, and whether it is mirrored. */
 export function isoFacing(dir: DirectionVal): { row: 0 | 1; mirror: boolean } {
@@ -59,6 +51,7 @@ export function mirrorSprite(sprite: SpriteData): SpriteData {
   let m = flipped.get(sprite);
   if (!m) {
     m = sprite.map((r) => [...r].reverse());
+    deriveSmooth(sprite, m, { mirror: true });
     flipped.set(sprite, m);
   }
   return m;

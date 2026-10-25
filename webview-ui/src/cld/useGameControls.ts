@@ -70,6 +70,10 @@ import { loadSavedCamera, saveCamera } from './savedCamera.js';
 import { staffStep } from './staff.js';
 import { holdWalkKey, releaseWalkKey } from './walk.js';
 
+/** The zoom step a character's density asks the camera for: HD (32×64) even zooms; classic and
+ *  detailed ones (one master at every zoom) none. */
+const zoomStepOf = (density: number) => (density === HD_ZOOM_STEP ? HD_ZOOM_STEP : 1);
+
 const EDGE_SCROLL_KEY = 'cld.edge-scroll';
 let edgeScrollOn = (() => {
   try {
@@ -400,10 +404,11 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     let density = 1;
     for (const ch of officeState.characters.values())
       if (!ch.cldAway && onFloor(rect, ch.y))
-        // an HD64 character has its 32×64 copy for even zooms: it asks no more than HD does
+        // an HD (32×64) character asks for even zooms; a detailed one (64×128 and up) draws its one
+        // master at any zoom (smoothSprite.ts), so it asks nothing
         density = Math.max(
           density,
-          Math.min(HD_ZOOM_STEP, getCharacterSprites(ch.palette, ch.hueShift).density),
+          zoomStepOf(getCharacterSprites(ch.palette, ch.hueShift).density),
         );
     // A follow starts: zoom in on the character (the follow itself pans to it); it ends without a
     // manual pan or zoom (a click on the floor, Esc): back to the framed office.
@@ -479,7 +484,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     if (state.restore && state.floorLayout) {
       restoreManual(state.restoreManual);
       const canvas = canvasRef.current;
-      if (canvas && !latest.current.isoClamp) panRef.current = clampFor(state.restore, canvas, zoom);
+      if (canvas && !latest.current.isoClamp)
+        panRef.current = clampFor(state.restore, canvas, zoom);
       state.restore = null;
     }
     frameStep();
@@ -561,7 +567,11 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
         noteManualCamera();
       }
       const dpr = window.devicePixelRatio || 1;
-      panRef.current = clampFor({ x: press.pan.x + dx * dpr, y: press.pan.y + dy * dpr }, canvas, zoom);
+      panRef.current = clampFor(
+        { x: press.pan.x + dx * dpr, y: press.pan.y + dy * dpr },
+        canvas,
+        zoom,
+      );
       canvas.style.cursor = 'grabbing'; // after the canvas's own hover cursor
     };
     const onUp = (e: MouseEvent) => {

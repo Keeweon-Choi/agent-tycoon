@@ -82,6 +82,18 @@ describe('startGameLoop (T-0075)', () => {
     loop.stop();
   });
 
+  it('returns to the idle rate after warming finishes', async () => {
+    const loop = await start();
+    const { warmOnce, warmPending } = await import('../office/sprites/smoothSprite.js');
+    warmOnce({}, 1, () => [() => undefined]);
+    loop.browser.tick(2);
+    expect(warmPending()).toBe(0);
+    const before = loop.renders();
+    loop.browser.tick(60);
+    expect(loop.renders() - before).toBeLessThanOrEqual(11);
+    loop.stop();
+  });
+
   it('the first update after input covers one frame, not the idle interval', async () => {
     const loop = await start();
     loop.afterRender();

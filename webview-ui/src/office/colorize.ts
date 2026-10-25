@@ -206,7 +206,6 @@ export function flatColorizeSprite(sprite: SpriteData, color: ColorValue): Sprit
  * C slider (-100 to 100): adjusts contrast around midpoint
  */
 export function adjustSprite(sprite: SpriteData, color: ColorValue): SpriteData {
-  const { h: hShift, s: sShift, b, c } = color;
   const result: SpriteData = [];
 
   for (const row of sprite) {
@@ -221,33 +220,38 @@ export function adjustSprite(sprite: SpriteData, color: ColorValue): SpriteData 
       const g = parseInt(pixel.slice(3, 5), 16);
       const bv = parseInt(pixel.slice(5, 7), 16);
       const alpha = extractAlpha(pixel);
-      const [origH, origS, origL] = rgbToHsl(r, g, bv);
-
-      // Shift hue
-      const newH = (((origH + hShift) % 360) + 360) % 360;
-
-      // Shift saturation
-      const newS = Math.max(0, Math.min(1, origS + sShift / 100));
-
-      // Apply contrast: expand/compress around 0.5
-      let lightness = origL;
-      if (c !== 0) {
-        const factor = (100 + c) / 100;
-        lightness = 0.5 + (lightness - 0.5) * factor;
-      }
-
-      // Apply brightness
-      if (b !== 0) {
-        lightness = lightness + b / 200;
-      }
-
-      lightness = Math.max(0, Math.min(1, lightness));
-
-      const hex = hslToHex(newH, newS, lightness);
-      newRow.push(appendAlpha(hex, alpha));
+      newRow.push(appendAlpha(adjustHex(r, g, bv, color), alpha));
     }
     result.push(newRow);
   }
 
   return result;
+}
+
+/** One pixel as adjustSprite turns it (#RRGGBB): SHEET-IMPORT adjusts a master image with it. */
+export function adjustHex(r: number, g: number, bv: number, color: ColorValue): string {
+  const { h: hShift, s: sShift, b, c } = color;
+  const [origH, origS, origL] = rgbToHsl(r, g, bv);
+
+  // Shift hue
+  const newH = (((origH + hShift) % 360) + 360) % 360;
+
+  // Shift saturation
+  const newS = Math.max(0, Math.min(1, origS + sShift / 100));
+
+  // Apply contrast: expand/compress around 0.5
+  let lightness = origL;
+  if (c !== 0) {
+    const factor = (100 + c) / 100;
+    lightness = 0.5 + (lightness - 0.5) * factor;
+  }
+
+  // Apply brightness
+  if (b !== 0) {
+    lightness = lightness + b / 200;
+  }
+
+  lightness = Math.max(0, Math.min(1, lightness));
+
+  return hslToHex(newH, newS, lightness);
 }

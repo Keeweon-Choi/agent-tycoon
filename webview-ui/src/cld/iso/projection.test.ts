@@ -7,12 +7,12 @@ import {
   type DepthBox,
   depthOrder,
   floorOfRow,
-  floorSpacing,
   floorWalls,
   isoAt,
   isoInverse,
   isoOrigin,
   isoStack,
+  levelRise,
   panTo,
 } from './projection.js';
 
@@ -22,7 +22,7 @@ const V = TileType.VOID;
 
 describe('iso projection', () => {
   it('maps a tile to a 2:1 diamond and back, on every level', () => {
-    const s = floorSpacing(10);
+    const s = 70;
     expect(isoAt(0, 0, 0, s)).toEqual({ x: 0, y: 0 });
     expect(isoAt(1, 0, 0, s)).toEqual({ x: 8, y: 4 }); // +col: right and down, 2:1
     expect(isoAt(0, 1, 0, s)).toEqual({ x: -8, y: 4 }); // +row: left and down
@@ -40,17 +40,27 @@ describe('iso projection', () => {
     }
   });
 
-  it('keeps every floor clear of the one below: its front edge above the back wall tops', () => {
-    const depth = 24;
-    const s = floorSpacing(depth);
-    expect(s).toBe(depth * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP);
-    // The upper floor's front-left edge (row = depth) and the lower floor's back edge
-    // (row 0) run parallel; at the same screen x the upper one is a wall, a slab and a gap up.
-    for (const c of [0, 5, 17]) {
-      const lowerBack = isoAt(c, 0, 0, s);
-      const upperFront = isoAt(c + depth, depth, 1, s);
-      expect(upperFront.x).toBe(lowerBack.x);
-      expect(lowerBack.y - upperFront.y).toBe(ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP);
+  it('sits every floor flush on the wall tops of the one below, whatever its depth', () => {
+    // Floor 1's back walls stand on its row `top`; the floor above is `rows` deep. Its front-left
+    // edge (row = rows) and slab, and the lower back wall's top, meet at the same screen x.
+    for (const [top, rows] of [
+      [0, 24],
+      [1, 22],
+      [1, 30],
+    ]) {
+      const rise = levelRise(top, rows);
+      expect(rise).toBe((rows - top) * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP);
+      for (const c of [0, 5, 17]) {
+        // A back wall tile (c, top) stands on its front edge, `ISO_WALL_H + two half diamonds` tall.
+        const wallBase = isoAt(c + 1, top + 1, 0, [0, rise]);
+        const wallTop = { x: wallBase.x, y: wallBase.y - ISO_WALL_H - 2 * ISO_HALF_H };
+        // The upper floor's front-left edge at the same x: its slab's bottom is under it.
+        const upper = isoAt(c + 1 - top - 1 + rows, rows, 1, [0, rise]);
+        expect(upper.x).toBe(wallTop.x);
+        expect(upper.y + ISO_SLAB_H - wallTop.y, `top ${top} rows ${rows} col ${c}`).toBe(
+          ISO_FLOOR_GAP,
+        );
+      }
     }
   });
 
@@ -70,11 +80,22 @@ describe('iso projection', () => {
       ['3', 2],
     ]);
     expect(stack.depth).toBe(24);
+    // Each floor is raised by the rise over the one below, its own depth (a shallower floor
+    // sits closer); no tile map: the back walls are taken on row 0.
+    expect(stack.lifts).toEqual([0, levelRise(0, 22), levelRise(0, 22) * 2]);
     expect(floorOfRow(stack, 30)?.id).toBe('2');
     expect(floorOfRow(stack, 25)).toBeNull(); // the void rows between floors
-    expect(stack.box.y0).toBe(-2 * stack.spacing - ISO_WALL_H);
+    expect(stack.box.y0).toBe(-stack.lifts[2] - ISO_WALL_H);
     const one = isoStack({ cols: 20, rows: 11 });
-    expect(one.floors).toEqual([{ id: '1', row: 0, rows: 11, level: 0 }]);
+    expect(one.floors).toEqual([{ id: '1', row: 0, rows: 11, level: 0, top: 0 }]);
+    // With the tile grid, a floor's back walls are where its first non-void row is.
+    const t = isoStack({ cols: 3, rows: 4 }, [
+      [V, V, V],
+      [W, W, W],
+      [W, F, W],
+      [W, W, W],
+    ]);
+    expect(t.floors[0].top).toBe(1);
   });
 
   it('places the origin on whole device px and pans like the top-down camera', () => {
@@ -161,7 +182,7 @@ describe('iso walls', () => {
     [W, F, F, F, F, F, W],
     [W, W, W, W, W, W, W],
   ];
-  const walls = floorWalls(map, { id: '1', row: 0, rows: 5, level: 0 });
+  const walls = floorWalls(map, { id: '1', row: 0, rows: 5, level: 0, top: 1 });
   const at = (c: number, r: number) => walls.find((w) => w.col === c && w.row === r)!;
 
   it('stands the back walls tall and cuts every other wall low', () => {

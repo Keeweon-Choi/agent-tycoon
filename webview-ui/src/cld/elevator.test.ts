@@ -6,7 +6,15 @@ import type { LoadedAssetData } from '../office/layout/furnitureCatalog.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
 import { findPath } from '../office/layout/tileMap.js';
 import { type Character, type OfficeLayout, TILE_SIZE, TileType } from '../office/types.js';
-import { elevatorFrames, elevatorLinks, elevatorState, rideStep, visitFloor } from './elevator.js';
+import {
+  elevatorFrames,
+  elevatorLinks,
+  elevatorState,
+  findElevators,
+  LOUNGE_SUFFIX,
+  rideStep,
+  visitFloor,
+} from './elevator.js';
 import { floorIndexAt, floorRects } from './walk.js';
 
 beforeAll(() => {
@@ -313,5 +321,85 @@ describe('the elevator (ELEVATOR)', () => {
     run(os, 1, 15);
     expect([ch.seatId, ch.tileCol, ch.tileRow]).toEqual(['seat:a', 2, 4]);
     expect(os.seats.get('spare')!.assigned).toBe(false);
+  });
+});
+
+describe('the building core: one elevator tile on every floor', () => {
+  const W = TileType.WALL;
+  const F = TileType.FLOOR_1;
+  const V = TileType.VOID;
+  /** Three floors of 12x6 (a void row on top, walls at row 1, free floor under them), a void
+   *  row between. `lounge`: the columns of each floor's lounge (its own, as the generator
+   *  puts it after the work rooms); `shut`: wall tiles of floor k's back wall that furniture
+   *  blocks. */
+  function stacked(lounges: number[], shut: Array<[number, number]> = []) {
+    const cols = 12;
+    const rows = 6;
+    const gap = 1;
+    const tileMap: TileType[][] = [];
+    const areaTiles: Array<string | null> = [];
+    const blocked = new Set<string>();
+    const cldFloors = lounges.map((_, k) => ({
+      id: String(k + 1),
+      row: k * (rows + gap),
+      rows,
+      cols,
+    }));
+    lounges.forEach((l, k) => {
+      for (let r = 0; r < rows; r++) {
+        const row: TileType[] = [];
+        for (let c = 0; c < cols; c++) {
+          const edge = r === 1 || r === rows - 1 || c === 0 || c === cols - 1;
+          row.push(r === 0 ? V : edge ? W : F);
+          areaTiles.push(r > 1 && !edge && c >= l && c < l + 4 ? `${k}${LOUNGE_SUFFIX}` : null);
+        }
+        tileMap.push(row);
+      }
+      if (k < lounges.length - 1) {
+        tileMap.push(new Array(cols).fill(V));
+        for (let c = 0; c < cols; c++) areaTiles.push(null);
+      }
+    });
+    for (const [k, c] of shut) blocked.add(`${c},${cldFloors[k].row + 1}`);
+    return { layout: { cols, areaTiles, cldFloors }, tileMap, blocked, cldFloors };
+  }
+
+  it("puts every floor's elevator on the same column and local row, whatever its lounge", () => {
+    const s = stacked([1, 6, 3]);
+    const els = findElevators(s.layout, s.tileMap, s.blocked)!;
+    expect(els).toHaveLength(3);
+    expect(new Set(els.map((e) => e.col)).size).toBe(1);
+    expect(new Set(els.map((e, k) => e.row - s.cldFloors[k].row)).size).toBe(1);
+    // On the back wall (row 1 of the floor), its front a free tile below.
+    expect(els[0].row).toBe(1);
+    expect(els.map((e) => e.front.row - e.row)).toEqual([1, 1, 1]);
+  });
+
+  it("moves the core to a tile every floor has when one floor's wall is blocked there", () => {
+    const first = stacked([1, 1, 1]);
+    const col = findElevators(first.layout, first.tileMap, first.blocked)![0].col;
+    const s = stacked(
+      [1, 1, 1],
+      [
+        [1, col],
+        [1, col + 1],
+      ],
+    );
+    const els = findElevators(s.layout, s.tileMap, s.blocked)!;
+    expect(new Set(els.map((e) => e.col)).size).toBe(1);
+    // Not a pair that uses the blocked tiles of floor 2.
+    expect(Math.abs(els[1].col - col)).toBeGreaterThan(1);
+  });
+
+  it("falls back to each floor's own best when no tile suits them all", () => {
+    // Floor 2's whole back wall is blocked: it must use a row below; the others keep the back wall.
+    const s = stacked(
+      [1, 1],
+      Array.from({ length: 12 }, (_, c) => [1, c] as [number, number]),
+    );
+    const els = findElevators(s.layout, s.tileMap, s.blocked)!;
+    // Floor 2 has no wall pair free on row 1; the elevator is on its front wall row or none.
+    expect(els[0].row - s.cldFloors[0].row).toBe(1);
+    expect(els.length === 1 || els[1].row - s.cldFloors[1].row > 1).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import {
   cldCharacterDrawables,
   cldCharacterSprite,
   cldDrawSpeechLinks,
+  dimmedSprite,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { office25dWalls } from '../../cld/office25d/skins.js';
@@ -62,8 +63,10 @@ import {
   hasCarpetSprites,
 } from '../sprites/carpetTiles.js';
 import { getPetSprites } from '../sprites/petSpriteData.js';
+import { drawSmooth, isSmooth, smoothSize } from '../sprites/smoothSprite.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import { BUBBLE_HEART_SPRITE, getCharacterSprites, spritesAtZoom } from '../sprites/spriteData.js';
+import { warmCharacter } from '../sprites/warm.js';
 import type {
   AreaDefinition,
   CarpetTile,
@@ -306,6 +309,9 @@ export function renderAreaLabels(
 }
 
 /** @internal */
+/** A floor tile without a colour of its own (one object, not one per tile per frame). */
+const PLAIN_FLOOR: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
+
 export function renderTileGrid(
   ctx: CanvasRenderingContext2D,
   tileMap: TileTypeVal[][],
@@ -321,9 +327,16 @@ export function renderTileGrid(
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
   const layoutCols = cols ?? tmCols;
 
+  // SHEET-IMPORT (owner 10-26 03:10, FPS): only the tiles on the canvas (a big office at a close
+  // zoom drew every tile of every row each frame, a quarter of the frame on a slow CPU)
+  const r0 = Math.max(0, Math.floor(-offsetY / s));
+  const r1 = Math.min(tmRows, Math.ceil((ctx.canvas.height - offsetY) / s));
+  const c0 = Math.max(0, Math.floor(-offsetX / s));
+  const c1 = Math.min(tmCols, Math.ceil((ctx.canvas.width - offsetX) / s));
+
   // Floor tiles + wall base color
-  for (let r = 0; r < tmRows; r++) {
-    for (let c = 0; c < tmCols; c++) {
+  for (let r = r0; r < r1; r++) {
+    for (let c = c0; c < c1; c++) {
       const tile = tileMap[r][c];
 
       // Skip VOID tiles entirely (transparent)
@@ -344,7 +357,7 @@ export function renderTileGrid(
 
       // Floor tile: get colorized sprite
       const colorIdx = r * layoutCols + c;
-      const color = tileColors?.[colorIdx] ?? { h: 0, s: 0, b: 0, c: 0 };
+      const color = tileColors?.[colorIdx] ?? PLAIN_FLOOR;
       const sprite = getColorizedFloorSprite(tile, color);
       const cached = getCachedSprite(sprite, zoom);
       ctx.drawImage(cached, offsetX + c * s, offsetY + r * s);
@@ -405,20 +418,26 @@ export function renderScene(
 
   // Characters
   for (const ch of characters) {
-    // HD64: the character's density that divides this zoom (its 32×64 or 16×32 copy otherwise)
+    // HD: the character's density that divides this zoom; a detailed one (64×128 and up) draws
+    // its one master at every zoom (smoothSprite.ts)
     const all = getCharacterSprites(ch.palette, ch.hueShift);
     if (countHd64 && all.density === HD64_DENSITY) hd64Drawn++;
     const sprites = spritesAtZoom(all, zoom);
+    // its frames at this zoom are built between frames, before a stride needs them
+    warmCharacter(sprites, zoom / sprites.density, (f) => [f, dimmedSprite(f)], ch.id);
     // cld T-0026: an idle character dims slightly.
     const spriteData = cldCharacterSprite(ch.id, getCharacterSprite(ch, sprites));
     // HD: a density-2 sheet has twice the sprite px in the same world rect.
     const scale = zoom / sprites.density;
-    const cached = getCachedSprite(spriteData, scale);
+    // SHEET-IMPORT: a detailed frame not built for this zoom yet draws from its master (drawSmooth),
+    // never built in the frame
+    const cached = isSmooth(spriteData) ? null : getCachedSprite(spriteData, scale);
+    const [cw, chh] = cached ? [cached.width, cached.height] : smoothSize(spriteData, scale);
     // Sitting offset: shift character down when seated so they visually sit in the chair
     const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
     // Anchor at bottom-center of character — round to integer device pixels
-    const drawX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
-    const drawY = Math.round(offsetY + (ch.y + sittingOffset) * zoom - cached.height);
+    const drawX = Math.round(offsetX + ch.x * zoom - cw / 2);
+    const drawY = Math.round(offsetY + (ch.y + sittingOffset) * zoom - chh);
 
     // Sort characters by bottom of their tile (not center) so they render
     // in front of same-row furniture (e.g. chairs) but behind furniture
@@ -439,16 +458,7 @@ export function renderScene(
         ? HEADLESS_CHARACTER_ALPHA
         : offAlpha(officeOff, focused, HEADLESS_CHARACTER_ALPHA);
     // cld T-0026: status ring under the character, activity prop beside it.
-    drawables.push(
-      ...cldCharacterDrawables(
-        ch,
-        drawX + cached.width / 2,
-        drawY + cached.height,
-        zoom,
-        charZY,
-        alpha,
-      ),
-    );
+    drawables.push(...cldCharacterDrawables(ch, drawX + cw / 2, drawY + chh, zoom, charZY, alpha));
 
     // Matrix spawn/despawn effect — skip outline, use per-pixel rendering
     if (ch.matrixEffect) {
@@ -491,13 +501,17 @@ export function renderScene(
     drawables.push({
       zY: charZY,
       draw: (c) => {
+        const put = () =>
+          cached
+            ? c.drawImage(cached, drawX, drawY)
+            : drawSmooth(c, spriteData, scale, drawX, drawY);
         if (alpha === 1) {
-          c.drawImage(cached, drawX, drawY);
+          put();
           return;
         }
         c.save();
         c.globalAlpha = alpha;
-        c.drawImage(cached, drawX, drawY);
+        put();
         c.restore();
       },
     });

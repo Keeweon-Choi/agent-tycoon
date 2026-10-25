@@ -34,8 +34,14 @@ const piece = (fw: number, fh: number, surface?: number) => ({
 });
 const manifest: IsoManifest = {
   floors: { default: 'floor-a', '1': 'floor-b' },
-  walls: { row: '', col: '', rowWindows: [], colWindows: [], corner: '', low: '' },
-  lift: { doors: '', doorsOpen: '', shaft: '', car: '' },
+  walls: {
+    row: { piece: '' },
+    col: { piece: '' },
+    window: { piece: '', gap: 0 },
+    corner: '',
+    low: '',
+  },
+  lift: { doors: '', doorsOpen: '' },
   pieces: {
     desk: piece(3, 1, 48),
     counter: piece(2, 1, 52),
@@ -49,6 +55,7 @@ const manifest: IsoManifest = {
     COFFEE: { piece: 'machine' },
     WHITEBOARD: { piece: 'board' },
   },
+  facings: {},
 };
 
 // Two floors of a 7-column office, two void rows between them:
