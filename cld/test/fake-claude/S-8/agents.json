@@ -1,0 +1,55 @@
+[
+ {
+  "cwd": "/work/alpha",
+  "kind": "interactive",
+  "startedAt": 1792550001000,
+  "sessionId": "a0000001-0000-4000-8000-000000000001",
+  "pid": 1101,
+  "name": "alpha-orchestrator",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/beta",
+  "kind": "interactive",
+  "startedAt": 1792550002000,
+  "sessionId": "a0000002-0000-4000-8000-000000000002",
+  "pid": 1102,
+  "name": "beta-orchestrator",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/delta",
+  "kind": "background",
+  "startedAt": 1792550003000,
+  "sessionId": "a000000e-0000-4000-8000-000000000014",
+  "id": "a000000e",
+  "name": "delta-orchestrator",
+  "state": "blocked"
+ },
+ {
+  "cwd": "/work/eta",
+  "kind": "interactive",
+  "startedAt": 1792550004000,
+  "sessionId": "a0000007-0000-4000-8000-000000000007",
+  "pid": 1107,
+  "name": "eta-orchestrator",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/office",
+  "kind": "interactive",
+  "startedAt": 1792550005000,
+  "sessionId": "a0000009-0000-4000-8000-000000000009",
+  "pid": 1100,
+  "name": "ops",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/scratch",
+  "kind": "interactive",
+  "startedAt": 1792550006000,
+  "sessionId": "a0000014-0000-4000-8000-000000000020",
+  "pid": 1200,
+  "status": "idle"
+ }
+]

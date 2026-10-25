@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local",
+  "description": "The bundled settings/status pages (ui/). Only they may read or save the config, answer the host key and password questions, show or delete this device's key, and start the office on this computer (find, install, start).",
+  "windows": ["main"],
+  "permissions": [
+    "allow-ui-state",
+    "allow-save-config",
+    "allow-reconnect",
+    "allow-open-settings",
+    "allow-toggle-fullscreen",
+    "allow-toggle-on-top",
+    "allow-open-external",
+    "allow-ssh-password",
+    "allow-accept-host-key",
+    "allow-device-key",
+    "allow-register-again",
+    "allow-forget-key",
+    "allow-start-here",
+    "allow-local-options",
+    "allow-local-choose",
+    "allow-choose-local",
+    "allow-local-install",
+    "allow-local-start"
+  ]
+}

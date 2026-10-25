@@ -1,0 +1,25 @@
+{
+ "pid": 1119,
+ "sessionId": "c0000000-0000-4000-8000-000000000019",
+ "cwd": "/work/project-2",
+ "startedAt": 1800798923947,
+ "procStart": "300018",
+ "version": "2.1.306",
+ "peerProtocol": 1,
+ "peerFeatures": [
+  "notify_idle",
+  "reply_across_default_dirs",
+  "artifact_yield"
+ ],
+ "kind": "bg",
+ "entrypoint": "cli",
+ "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+ "messagingSocketPath": "/run/user/1000/cc-socks/1119.sock",
+ "name": "session-2-orchestrator",
+ "nameSince": 1800798923947,
+ "jobId": "a0000004",
+ "status": "idle",
+ "updatedAt": 1800810325904,
+ "statusUpdatedAt": 1800810325904,
+ "bridgeSessionId": "session_000000000000000000000019"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "office-keys",
+  "description": "The office page gets the window keys and open_external (http/https links to the default browser, what target=_blank does anyway) and nothing else: no config, fs, shell, keys or passwords. Covers localhost and 127.0.0.1 (the ssh tunnel); no remote host is listed, so an office reached by address needs its origin added here.",
+  "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ]
+  },
+  "permissions": [
+    "allow-toggle-fullscreen",
+    "allow-toggle-on-top",
+    "allow-open-settings",
+    "allow-open-external"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "PENDANT_LAMP",
+  "name": "Pendant Lamp (2.5D)",
+  "category": "decor",
+  "type": "asset",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 1,
+  "width": 10,
+  "height": 16,
+  "footprintW": 1,
+  "footprintH": 1,
+  "visual": {
+    "elevation": 32,
+    "occlusionMode": "foreground",
+    "lightingPreset": "warm-pool"
+  }
+}

@@ -1,0 +1,18 @@
+/* T-0054: Hangul in a pixel face. FS Pixel Sans has no Hangul, so every font
+   stack lists FS Pixel Sans, then Galmuri11, and this face answers only for the
+   ranges below (Hangul syllables, jamo, compatibility jamo, CJK symbols,
+   fullwidth forms); Latin stays FS Pixel Sans. Galmuri by quiple, SIL OFL 1.1
+   (public/fonts/galmuri/). Shared by the app (index.css) and the login page
+   (login/login.css, served under font-src 'self'). */
+@font-face {
+  font-family: 'Galmuri11';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/galmuri/Galmuri11.woff2') format('woff2');
+  /* Hangul beside FS Pixel Sans Latin (cap height 7/16 em): 66.667% makes one
+     font pixel exactly 1 CSS px at 18 px text, the common size, and the Hangul
+     about 1.4x the Latin cap height instead of 2x. */
+  size-adjust: 66.667%;
+  unicode-range: U+1100-11ff, U+3000-303f, U+3130-318f, U+ac00-d7a3, U+ff01-ff5e;
+}

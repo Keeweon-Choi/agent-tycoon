@@ -1,0 +1,28 @@
+{
+  "names": [
+    { "pattern": "(?:^|[/\\\\])install\\.mjs\\b", "name": "배포" },
+    { "pattern": "(?:^|[/\\\\])gate\\.sh\\b", "name": "병합 검사" },
+    { "pattern": "(?:^|[/\\\\])run-all\\.ts\\b", "name": "브라우저 시험 전체" },
+    { "pattern": "cld[/\\\\]test[/\\\\]run-([\\w-]+)\\.ts\\b", "name": "브라우저 시험($1)" },
+    { "pattern": "\\bnpm\\s+run\\s+test\\S*|\\bvitest\\b", "name": "시험" },
+    { "pattern": "\\besbuild\\b|\\bbuild\\b", "name": "빌드" },
+    { "pattern": "\\btrain\\b|[/\\\\][^\\s]*train[^\\s]*\\.py\\b", "name": "학습" },
+    { "pattern": "\\bffmpeg\\b", "name": "영상 변환" }
+  ],
+  "digests": [
+    { "command": "install\\.mjs", "steps": [
+      { "name": "프로토콜 생성", "start": "npm run asyncapi:generate" },
+      { "name": "빌드", "start": "node esbuild\\.js|… 빌드 중", "done": "✔ 빌드" },
+      { "name": "화면 빌드", "start": "npm run build:webview", "done": "✔ 빌드" },
+      { "name": "설정", "start": "DRY-RUN file .*config\\.json|설정" },
+      { "name": "서비스 다시 켜기", "start": "systemctl --user (?:enable|restart)|✔ systemd 사용자 서비스" },
+      { "name": "끝", "done": "cld-gui 준비 완료|첫 기기:" }
+    ] },
+    { "command": "gate\\.sh", "dynamic": "gate" },
+    { "command": "run-all\\.ts", "dynamic": "run-all" },
+    { "command": "vitest|npm run test", "steps": [
+      { "name": "시험 파일", "done": "Test Files\\s+.+" },
+      { "name": "시험", "done": "Tests\\s+.+" }
+    ] }
+  ]
+}

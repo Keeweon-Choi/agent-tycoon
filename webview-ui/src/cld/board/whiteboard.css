@@ -1,0 +1,17 @@
+/* A whiteboard's memo (T-0065): marker text on the board's face, in the tycoon
+   font. Size, line height, ink and the line count come inline from the camera's
+   zoom (constants.ts); the office below takes the pointer. */
+.wb-memo {
+  position: absolute;
+  box-sizing: border-box;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-pixel);
+  -webkit-font-smoothing: none;
+  pointer-events: none;
+  user-select: none;
+}

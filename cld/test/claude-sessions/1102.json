@@ -1,0 +1,27 @@
+{
+ "pid": 1102,
+ "sessionId": "c0000000-0000-4000-8000-000000000002",
+ "cwd": "/work/project-2",
+ "startedAt": 1800814224008,
+ "procStart": "300001",
+ "version": "2.1.306",
+ "peerProtocol": 1,
+ "peerFeatures": [
+  "notify_idle",
+  "reply_across_default_dirs",
+  "artifact_yield"
+ ],
+ "kind": "interactive",
+ "entrypoint": "cli",
+ "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+ "tmux": "office:@1.%2",
+ "messagingSocketPath": "/run/user/1000/cc-socks/1102.sock",
+ "name": "session-2-orchestrator",
+ "nameSource": "user",
+ "nameSince": 1800814224012,
+ "updatedAt": 1800818497662,
+ "status": "waiting",
+ "statusUpdatedAt": 1800818497662,
+ "bridgeSessionId": "session_000000000000000000000002",
+ "waitingFor": "redacted"
+}

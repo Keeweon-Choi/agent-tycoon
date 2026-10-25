@@ -1,0 +1,7 @@
+{
+  "members": ["alpha", "beta", "gamma"],
+  "replies": {
+    "alpha": "alpha: 배포 준비를 마쳤어요.",
+    "beta": "beta: GPU 대기열을 확인했어요."
+  }
+}

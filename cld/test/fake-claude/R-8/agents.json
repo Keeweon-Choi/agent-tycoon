@@ -1,0 +1,55 @@
+[
+ {
+  "cwd": "/work/orch-alpha",
+  "kind": "interactive",
+  "startedAt": 1792550001000,
+  "sessionId": "a0000001-0000-4000-8000-000000000001",
+  "pid": 1101,
+  "name": "alpha",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/orch-alpha",
+  "kind": "interactive",
+  "startedAt": 1792550002000,
+  "sessionId": "a0000002-0000-4000-8000-000000000002",
+  "pid": 1102,
+  "name": "beta",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/orch-beta",
+  "kind": "background",
+  "startedAt": 1792550003000,
+  "sessionId": "a000000e-0000-4000-8000-000000000014",
+  "id": "a000000e",
+  "name": "delta",
+  "state": "blocked"
+ },
+ {
+  "cwd": "/work/orch-gamma",
+  "kind": "interactive",
+  "startedAt": 1792550004000,
+  "sessionId": "a0000007-0000-4000-8000-000000000007",
+  "pid": 1107,
+  "name": "eta",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/orch-gamma",
+  "kind": "interactive",
+  "startedAt": 1792550005000,
+  "sessionId": "a0000008-0000-4000-8000-000000000008",
+  "pid": 1108,
+  "name": "theta",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/scratch",
+  "kind": "interactive",
+  "startedAt": 1792550006000,
+  "sessionId": "a0000014-0000-4000-8000-000000000020",
+  "pid": 1200,
+  "status": "idle"
+ }
+]

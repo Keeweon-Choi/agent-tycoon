@@ -1,0 +1,222 @@
+/* The login page (T-0022): the app's pixel look without the app. Colours are
+   the app's tokens (webview-ui/src/index.css); the safe-area vars keep the
+   page out of the iPhone's status bar and home indicator. */
+@font-face {
+  font-family: 'FS Pixel Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+}
+
+/* T-0054: Hangul in Galmuri; a copy of webview-ui/src/fonts.css (this file is
+   served as is, so it cannot @import it). */
+@font-face {
+  font-family: 'Galmuri11';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/galmuri/Galmuri11.woff2') format('woff2');
+  /* Hangul beside FS Pixel Sans Latin (cap height 7/16 em): 66.667% makes one
+     font pixel exactly 1 CSS px at 18 px text, the common size, and the Hangul
+     about 1.4x the Latin cap height instead of 2x. */
+  size-adjust: 66.667%;
+  unicode-range: U+1100-11ff, U+3000-303f, U+3130-318f, U+ac00-d7a3, U+ff01-ff5e;
+}
+
+:root {
+  --color-bg: #1e1e2e;
+  --color-bg-dark: #181828;
+  --color-border: #4a4a6a;
+  --color-accent: #6f42ff;
+  --color-accent-bright: #6b5cff;
+  --color-accent-text: #a98fff;
+  --color-text: rgba(255, 255, 255, 0.9);
+  --color-text-muted: rgba(255, 255, 255, 0.55);
+  --color-btn-bg: rgb(53, 52, 69);
+  --color-btn-hover: rgb(78, 75, 104);
+  --color-danger: #ff6b72;
+  --color-warning: #ffb454;
+  --shadow-pixel: 2px 2px 0px #0a0a14;
+  --cld-safe-top: env(safe-area-inset-top, 0px);
+  --cld-safe-right: env(safe-area-inset-right, 0px);
+  --cld-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cld-safe-left: env(safe-area-inset-left, 0px);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--color-bg-dark);
+  color: var(--color-text);
+  font-family: 'FS Pixel Sans', 'Galmuri11', system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  font-synthesis: none; /* no fake bold on a pixel face */
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--cld-safe-top) + 24px) calc(var(--cld-safe-right) + 16px)
+    calc(var(--cld-safe-bottom) + 24px) calc(var(--cld-safe-left) + 16px);
+}
+
+.login {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 34px;
+  font-weight: normal;
+  letter-spacing: 2px;
+  color: var(--color-accent-text);
+  text-shadow: var(--shadow-pixel);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
+}
+
+label {
+  font-size: 20px;
+}
+
+#code {
+  width: 100%;
+  padding: 12px 8px;
+  font: inherit;
+  font-size: 40px;
+  letter-spacing: 6px;
+  text-align: center;
+  color: var(--color-text);
+  background: var(--color-bg-dark);
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+  outline: none;
+}
+
+#code:focus {
+  border-color: var(--color-accent-bright);
+}
+
+#code::placeholder {
+  color: var(--color-text-muted);
+}
+
+button {
+  min-height: 44px;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 20px;
+  color: var(--color-text);
+  background: var(--color-btn-bg);
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+  box-shadow: var(--shadow-pixel);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--color-btn-hover);
+}
+
+button.primary {
+  color: #fff;
+  background: var(--color-accent);
+  border-color: var(--color-accent-bright);
+}
+
+button.primary:hover {
+  background: var(--color-accent-bright);
+}
+
+button.small {
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: 17px;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  font-size: 18px;
+  color: var(--color-danger);
+}
+
+.error:empty {
+  display: none;
+}
+
+.warning {
+  margin: 0;
+  font-size: 17px;
+  color: var(--color-warning);
+}
+
+.hint {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.hint code,
+.hint b {
+  color: var(--color-text);
+  font-weight: normal;
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.others:empty {
+  display: none;
+}
+
+.big-code {
+  margin: 0;
+  text-align: center;
+  font-size: 44px;
+  letter-spacing: 8px;
+  color: var(--color-accent-text);
+}
+
+input.label {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  font-size: 18px;
+  color: var(--color-text);
+  background: var(--color-bg-dark);
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+}
+
+[hidden] {
+  display: none !important;
+}

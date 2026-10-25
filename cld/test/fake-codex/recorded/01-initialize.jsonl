@@ -1,0 +1,8 @@
+{"scenario":"initialize, initialized, thread/loaded/list on an empty daemon","codexVersion":"0.156.1","transport":"WebSocket text frames over the Unix control socket"}
+{"t":5,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"<string>","version":"<string>"},"capabilities":{"experimentalApi":true}}}}
+{"t":6,"dir":"in","msg":{"id":1,"result":{"userAgent":"<string>","codexHome":"<path>","platformFamily":"unix","platformOs":"linux"}}}
+{"t":6,"dir":"in","msg":{"method":"configWarning","params":{"summary":"<string>","details":null},"emittedAtMs":1792631408530}}
+{"t":6,"dir":"in","msg":{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"<string>","installationId":"<uuid-1>","environmentId":null},"emittedAtMs":1792631408530}}
+{"t":1977,"dir":"out","msg":{"jsonrpc":"2.0","method":"initialized"}}
+{"t":2977,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/loaded/list","params":{}}}
+{"t":2978,"dir":"in","msg":{"id":2,"result":{"data":[],"nextCursor":null}}}

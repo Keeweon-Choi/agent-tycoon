@@ -1,0 +1,448 @@
+{
+ "v": 1,
+ "tasks": [
+  {
+   "id": "DEV-BOARD",
+   "project": "cld-gui",
+   "title": "작업 현황 화면(누가 무엇을 하는지, 백로그, 진행 상황)",
+   "status": "doing",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 A"
+   },
+   "goal": "UX & Onboarding",
+   "note": "사장님 23:37 '제일 먼저'",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "S1",
+   "project": "cld-gui",
+   "title": "위험 작업 한 번 더 인증(step-up) 확대",
+   "status": "review",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "Security",
+   "note": "러너 3개 회귀 조사 중",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/s1"
+  },
+  {
+   "id": "S2",
+   "project": "cld-gui",
+   "title": "새 설치 로컬 기본·LAN 경고·LAN 세션 12시간",
+   "status": "review",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "Security",
+   "note": "S1 과 함께 회귀 조사 중",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/s2"
+  },
+  {
+   "id": "S3",
+   "project": "cld-gui",
+   "title": "초대 하나 한 번만 + 아이폰 2분 이어받기 코드",
+   "status": "review",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "Security",
+   "note": "구현 끝, 합치기 대기",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/s35"
+  },
+  {
+   "id": "S4",
+   "project": "cld-gui",
+   "title": "Tailscale 헤더 로그인 폐지, 확인된 주소로만 옮기기",
+   "status": "doing",
+   "priority": "P0",
+   "owner": {
+    "kind": "codex",
+    "name": "Codex 워커"
+   },
+   "goal": "Security",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/s4"
+  },
+  {
+   "id": "S5",
+   "project": "cld-gui",
+   "title": "패스키를 기기에 묶기, 옛 패스키는 기기 키와 함께만",
+   "status": "review",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "Security",
+   "note": "구현 끝, 합치기 대기",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/s35"
+  },
+  {
+   "id": "S6",
+   "project": "cld-gui",
+   "title": "노출 기록 + 지금 연결 끊는 전환 확인",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 A"
+   },
+   "goal": "Security",
+   "note": "23:02 배포",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "S7",
+   "project": "cld-gui",
+   "title": "에이전트 신원 토큰, '사장' 사칭 금지",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 A"
+   },
+   "goal": "Security",
+   "note": "23:02 배포",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "S8",
+   "project": "cld-gui",
+   "title": "데스크톱 SSH 포트 확인",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "Security",
+   "note": "코드만, Windows 실기 필요",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "S9",
+   "project": "cld-gui",
+   "title": "헬스 체크 pid 숨김, 업로드 출처 확인",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "codex",
+    "name": "Codex 워커"
+   },
+   "goal": "Security",
+   "note": "23:02 배포",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-01",
+   "project": "cld-gui",
+   "title": "알림 누락: 구독 다시 켜기 안내·상태·로그·중복 방지",
+   "status": "review",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "UX & Onboarding",
+   "note": "러너 1개 회귀 수정 중",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/notify"
+  },
+  {
+   "id": "U-09",
+   "project": "cld-gui",
+   "title": "화면의 옛 경로 표기 정리",
+   "status": "done",
+   "priority": "P1",
+   "owner": {
+    "kind": "codex",
+    "name": "Codex 워커"
+   },
+   "goal": "UX & Onboarding",
+   "note": "main 합침(배포 대기)",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-31",
+   "project": "cld-gui",
+   "title": "즉시 보내기: ctrl+x ctrl+s 를 두 키로",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "lead",
+    "name": "cld-gui-orchestrator"
+   },
+   "goal": "UX & Onboarding",
+   "note": "main 합침(배포 대기), 배포 뒤 실사용 확인",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "UI-A",
+   "project": "cld-gui",
+   "title": "화면 묶음 A: 취소 숨김·대화 최신순·즐겨찾기·퇴근 점선·클릭 뚫림·고정 UI",
+   "status": "doing",
+   "priority": "P1",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 B"
+   },
+   "goal": "UX & Onboarding",
+   "note": "U-25·U-30·U-26·U-28·U-29",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/ui-a"
+  },
+  {
+   "id": "P1",
+   "project": "cld-gui",
+   "title": "데몬 설치 묶음 CI(전용 Node·서명)",
+   "status": "done",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 A"
+   },
+   "goal": "Desktop & Installer",
+   "note": "main 합침",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "P2a",
+   "project": "cld-gui",
+   "title": "설치 관리자 핵심(설치 기록·버전 폴더·서비스·open)",
+   "status": "doing",
+   "priority": "P0",
+   "owner": {
+    "kind": "worker",
+    "name": "워커 A"
+   },
+   "goal": "Desktop & Installer",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00",
+   "branch": "task/p2"
+  },
+  {
+   "id": "CHECKS",
+   "project": "cld-gui",
+   "title": "FAST·INTEGRATION·RELEASE 검사 명령",
+   "status": "done",
+   "priority": "P1",
+   "owner": {
+    "kind": "codex",
+    "name": "Codex 워커"
+   },
+   "goal": "Release Candidate",
+   "note": "main 합침",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-15",
+   "project": "cld-gui",
+   "title": "레벨·경험치·환생 스탯창",
+   "status": "todo",
+   "priority": "P1",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "UX & Onboarding",
+   "note": "묶음 B",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-27",
+   "project": "cld-gui",
+   "title": "퇴근 오케스트레이터 클릭 → 스탯·채팅, 메시지로 다시 출근",
+   "status": "todo",
+   "priority": "P1",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "UX & Onboarding",
+   "note": "묶음 B",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-32",
+   "project": "cld-gui",
+   "title": "폰 키 바 특수키",
+   "status": "todo",
+   "priority": "P1",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "UX & Onboarding",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-33",
+   "project": "cld-gui",
+   "title": "폰 터미널 한글 바로 입력",
+   "status": "todo",
+   "priority": "P1",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "UX & Onboarding",
+   "note": "조사 필요",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-03",
+   "project": "cld-gui",
+   "title": "GPU·한도 대기를 진행 중으로 잘못 보임",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Core Orchestration",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "U-04",
+   "project": "cld-gui",
+   "title": "현황판 '작업 중' 수치 안 바뀜",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Core Orchestration",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "D1",
+   "project": "cld-gui",
+   "title": "호스트·프로젝트 id",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Core Orchestration",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "D2",
+   "project": "cld-gui",
+   "title": "assignments.json 이전(참조만)",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Core Orchestration",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "P3",
+   "project": "cld-gui",
+   "title": "업데이트·롤백",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Desktop & Installer",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "P4",
+   "project": "cld-gui",
+   "title": "CLI 설치 스크립트 + 마법사",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Desktop & Installer",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "P5",
+   "project": "cld-gui",
+   "title": "Tauri 첫 실행 마법사(WSL 자동 설치)",
+   "status": "todo",
+   "priority": "P0",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "Desktop & Installer",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  },
+  {
+   "id": "SWEEP",
+   "project": "cld-gui",
+   "title": "이전 요청 255개 재점검",
+   "status": "todo",
+   "priority": "P1",
+   "owner": {
+    "kind": "unassigned",
+    "name": ""
+   },
+   "goal": "UX & Onboarding",
+   "note": "",
+   "source": "reported",
+   "updatedAt": "2026-10-23T23:45:00+09:00"
+  }
+ ]
+}

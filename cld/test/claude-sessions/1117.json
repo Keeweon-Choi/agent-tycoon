@@ -1,0 +1,24 @@
+{
+ "pid": 1117,
+ "sessionId": "c0000000-0000-4000-8000-000000000017",
+ "cwd": "/work/project-5",
+ "startedAt": 1800288340406,
+ "procStart": "300016",
+ "version": "2.1.300",
+ "peerProtocol": 1,
+ "peerFeatures": [
+  "notify_idle",
+  "reply_across_default_dirs",
+  "artifact_yield"
+ ],
+ "kind": "bg",
+ "entrypoint": "cli",
+ "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+ "messagingSocketPath": "/run/user/1000/cc-socks/1117.sock",
+ "name": "ops",
+ "nameSince": 1800288340406,
+ "jobId": "a0000003",
+ "status": "idle",
+ "updatedAt": 1800311228877,
+ "statusUpdatedAt": 1800311228877
+}

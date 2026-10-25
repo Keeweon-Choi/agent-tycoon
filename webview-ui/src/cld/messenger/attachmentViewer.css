@@ -1,0 +1,260 @@
+/* The attachment viewer: a dark full-screen stage, the image on it, bars over it. */
+.attach-viewer {
+  position: fixed;
+  inset: 0;
+  background: #000000eb;
+  color: #e8e8f4;
+  font-family: var(--font-pixel);
+  overflow: hidden;
+  /* The page behind never scrolls or pull-refreshes while the viewer is up. */
+  overscroll-behavior: none;
+}
+.attach-stage {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: zoom-in;
+}
+.attach-stage[data-zoomed='true'] {
+  cursor: grab;
+}
+.attach-img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
+  transform-origin: center;
+  /* Pixel-art and screenshots: no smoothing once enlarged past their own pixels. */
+  image-rendering: auto;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.attach-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 calc(var(--cld-safe-right) + 12px) 0 calc(var(--cld-safe-left) + 12px);
+  /* The bar is transparent to taps; only its controls take them. */
+  pointer-events: none;
+}
+.attach-bar > * {
+  pointer-events: auto;
+}
+.attach-top {
+  top: calc(var(--cld-safe-top) + 12px);
+}
+.attach-bottom {
+  justify-content: center;
+}
+.attach-actions-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--cld-safe-bottom) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.attach-actions-controls > * {
+  pointer-events: auto;
+}
+.attach-actions-controls .attach-bottom {
+  position: relative;
+  left: auto;
+  right: auto;
+}
+.attach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 calc(var(--cld-safe-right) + 12px) 0 calc(var(--cld-safe-left) + 12px);
+}
+.attach-actions .attach-btn {
+  font-size: 14px;
+}
+.attach-title {
+  flex: 1 1 auto;
+  margin-right: auto;
+  padding: 4px 8px;
+  background: #0a0a14cc;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  overflow: hidden;
+  font-size: 22px;
+  text-shadow: 1px 1px 0 #0a0a14;
+  pointer-events: none;
+}
+.attach-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-title-meta {
+  flex: 0 0 auto;
+  font-size: 14px;
+  white-space: nowrap;
+  color: #b8b8d0;
+}
+.attach-btn {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  color: #e8e8f4;
+  background: #2b2b45;
+  border: 2px solid #4d4d75;
+  box-shadow: 2px 2px 0px #0a0a14;
+  cursor: pointer;
+}
+.attach-btn:hover:not(:disabled) {
+  background: #3a3a5c;
+}
+.attach-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 600px) {
+  .attach-title {
+    font-size: 18px;
+    gap: 6px;
+  }
+  .attach-title-meta {
+    font-size: 13px;
+  }
+  .attach-close {
+    min-width: 48px;
+    height: 48px;
+  }
+  .attach-actions {
+    gap: 6px;
+    padding: 0 calc(var(--cld-safe-right) + 8px) 0 calc(var(--cld-safe-left) + 8px);
+  }
+  .attach-actions .attach-btn {
+    min-width: 40px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+}
+.attach-text {
+  font-size: 14px;
+  padding: 4px 8px;
+  background: #0a0a14cc;
+  min-width: 56px;
+  text-align: center;
+  text-shadow: 1px 1px 0 #0a0a14;
+  pointer-events: none;
+}
+.attach-side {
+  position: absolute;
+  top: 50%;
+  margin-top: -22px;
+}
+.attach-prev {
+  left: calc(var(--cld-safe-left) + 8px);
+}
+.attach-next {
+  right: calc(var(--cld-safe-right) + 8px);
+}
+/* A file with no picture: its card, centred. */
+.attach-file {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: calc(var(--cld-safe-bottom) + var(--attach-content-bottom));
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 72px 64px;
+  text-align: center;
+  pointer-events: none;
+}
+.attach-file > * {
+  pointer-events: auto;
+  max-width: 100%;
+}
+.attach-file-card {
+  border: 2px solid #4d4d75;
+  background: #1e1e2e;
+  box-shadow: 2px 2px 0px #0a0a14;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.attach-file-name {
+  font-size: 16px;
+  word-break: break-all;
+}
+.attach-file-meta,
+.attach-note {
+  font-size: 13px;
+  color: #b8b8d0;
+}
+.attach-text-preview {
+  /* opaque like the file card: the app behind must not show through the text */
+  background: #1e1e2e;
+  box-shadow: 2px 2px 0px #0a0a14;
+  max-width: min(900px, 100%);
+  max-height: min(70vh, 720px);
+  margin: 0;
+  padding: 16px 20px;
+  overflow: auto;
+  border: 2px solid currentColor;
+  font-family: monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.attach-text-line[data-current-line='true'] {
+  outline: 2px solid currentColor;
+}
+.attach-markdown-preview {
+  /* opaque like the file card: the app behind must not show through the text */
+  background: #1e1e2e;
+  box-shadow: 2px 2px 0px #0a0a14;
+  max-width: min(900px, 100%);
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  border: 2px solid currentColor;
+  padding: 16px 20px;
+  text-align: left;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.attach-markdown-toggle {
+  display: flex;
+  gap: 4px;
+}
+.attach-markdown-toggle .attach-btn[aria-pressed='true'] {
+  background: var(--color-btn-hover);
+}
+
+.attach-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #b8b8d0;
+  pointer-events: none;
+}

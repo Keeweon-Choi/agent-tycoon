@@ -1,0 +1,21 @@
+{"scenario":"engine connection resumes a named thread, two TUIs attach (resume --remote), engine unsubscribes (thread stays loaded while a TUI is subscribed), TUIs quit, notLoaded+thread/closed ~60 s later","codexVersion":"0.156.1","transport":"WebSocket text frames over the Unix control socket"}
+{"t":5,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"<string>","version":"<string>"},"capabilities":{"experimentalApi":true}}}}
+{"t":7,"dir":"in","msg":{"id":1,"result":{"userAgent":"<string>","codexHome":"<path>","platformFamily":"unix","platformOs":"linux"}}}
+{"t":8,"dir":"in","msg":{"method":"configWarning","params":{"summary":"<string>","details":null},"emittedAtMs":1792632071521}}
+{"t":8,"dir":"in","msg":{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"<string>","installationId":"<uuid-1>","environmentId":null},"emittedAtMs":1792632071521}}
+{"t":3128,"dir":"out","msg":{"jsonrpc":"2.0","method":"initialized"}}
+{"t":3128,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/resume","params":{"threadId":"<uuid-2>"}}}
+{"t":3131,"dir":"in","msg":{"method":"deprecationNotice","params":{"summary":"<string>","details":null},"emittedAtMs":1792632074645}}
+{"t":3199,"dir":"in","msg":{"method":"thread/status/changed","params":{"threadId":"<uuid-2>","status":{"type":"idle"}},"emittedAtMs":1792632074714}}
+{"t":3200,"dir":"in","msg":{"id":2,"result":{"thread":{"id":"<uuid-2>","environments":[{"environmentId":"local","cwd":"<path>","runtimeWorkspaceRoots":["<path>"]}],"extra":null,"sessionId":"<uuid-2>","forkedFromId":null,"parentThreadId":null,"preview":"<string>","ephemeral":false,"section":null,"sectionEnteredAt":null,"projectId":null,"historyMode":"paginated","modelProvider":"openai","model":"<string>","reasoningEffort":null,"createdAt":1792631983,"updatedAt":1792632074,"recencyAt":1792631983,"status":{"type":"idle"},"path":"<path>","cwd":"<path>","cliVersion":"<string>","originator":"<string>","source":"vscode","canAcceptDirectInput":true,"threadSource":null,"agentNickname":null,"agentRole":null,"gitInfo":null,"name":"<string>","daybreakEnabled":null,"turns":[]},"model":"<string>","modelProvider":"openai","serviceTier":null,"disabledPluginIds":[],"cwd":"<path>","runtimeWorkspaceRoots":["<path>"],"instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"readOnly","networkAccess":false},"activePermissionProfile":{"id":"<string>","extends":null},"reasoningEffort":null,"collaborationMode":{"mode":"default","settings":{"model":"<string>","reasoning_effort":null,"developer_instructions":null}},"multiAgentMode":"explicitRequestOnly","initialTurnsPage":null,"turnsBackwardsCursor":null,"itemsBackwardsCursor":null}}}
+{"t":3200,"dir":"in","msg":{"method":"thread/goal/cleared","params":{"threadId":"<uuid-2>"},"emittedAtMs":1792632074715}}
+{"t":10065,"dir":"in","msg":{"method":"thread/goal/cleared","params":{"threadId":"<uuid-2>"},"emittedAtMs":1792632081579}}
+{"t":27331,"dir":"in","msg":{"method":"thread/goal/cleared","params":{"threadId":"<uuid-2>"},"emittedAtMs":1792632098846}}
+{"t":208871,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"thread/unsubscribe","params":{"threadId":"<uuid-2>"}}}
+{"t":208872,"dir":"in","msg":{"id":3,"result":{"status":"unsubscribed"}}}
+{"t":280997,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"thread/loaded/list","params":{}}}
+{"t":280998,"dir":"in","msg":{"id":4,"result":{"data":["<uuid-2>"],"nextCursor":null}}}
+{"t":344219,"dir":"in","msg":{"method":"thread/status/changed","params":{"threadId":"<uuid-2>","status":{"type":"notLoaded"}},"emittedAtMs":1792632415733}}
+{"t":344219,"dir":"in","msg":{"method":"thread/closed","params":{"threadId":"<uuid-2>"},"emittedAtMs":1792632415733}}
+{"t":355718,"dir":"out","msg":{"jsonrpc":"2.0","id":5,"method":"thread/loaded/list","params":{}}}
+{"t":355718,"dir":"in","msg":{"id":5,"result":{"data":[],"nextCursor":null}}}

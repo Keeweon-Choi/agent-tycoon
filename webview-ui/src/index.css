@@ -1,0 +1,619 @@
+@import 'tailwindcss';
+/* Material Symbols Sharp, weight 700 (the single-weight package keeps the
+   FILL/GRAD/opsz axes variable). Imported into the base layer: the package's
+   own rules are unlayered and would otherwise outrank every Tailwind utility
+   (its font-size: 24px silently beat text-[...] sizing). */
+@import '@material-symbols/font-700/sharp.css' layer(base);
+@import './fonts.css';
+
+@font-face {
+  font-family: 'FS Pixel Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+}
+
+:root {
+  /* Core palette */
+  --color-bg: #1e1e2e;
+  --color-bg-dark: #181828;
+  --color-bg-thumb: #2a2a3a;
+  --color-border: #4a4a6a;
+  --color-accent: #6f42ff;
+  --color-accent-bright: #6b5cff;
+  --color-accent-text: #a98fff;
+
+  /* Text */
+  --color-text: rgba(255, 255, 255, 0.9);
+  --color-text-muted: rgba(255, 255, 255, 0.5);
+
+  /* Buttons */
+  --color-btn-bg: rgb(53, 52, 69);
+  --color-btn-hover: rgb(78, 75, 104);
+  --color-active-bg: rgb(44, 43, 109);
+
+  /* Messenger: a message from another orchestrator or operator (T-0087) */
+  --color-peer-bg: #14473a;
+  --color-peer-border: #3fb68b;
+  --color-peer-name: #7fe0bd;
+  /* MSG-UI3: one rail colour per room thread */
+  --color-thread-1: #3794ff;
+  --color-thread-2: #ff8d14;
+  --color-thread-3: #d65cb0;
+  --color-thread-4: #89d185;
+  /* Search matches work on both palette modes; current match is stronger. */
+  --color-search-match: #c59b16;
+  --color-search-current: #ffd83d;
+  --color-search-match-text: #181828;
+
+  /* Semantic */
+  --color-reset-text: #ecc;
+  --color-danger: #d14249;
+  --color-warning: #ff8d14;
+
+  /* Status */
+  --color-status-permission: #cca700;
+  --color-status-active: #3794ff;
+  --color-status-success: #89d185;
+  --color-status-error: var(--color-danger);
+
+  /* Shadow */
+  --shadow-pixel: 2px 2px 0px #0a0a14;
+
+  /* Non-utility values */
+  --vignette: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+  --btn-disabled-opacity: 0.35;
+
+  /* Safe-area insets (Home-Screen PWA, viewport-fit=cover: the page starts
+     under the iOS status bar / Dynamic Island and beside the notch in
+     landscape). Defined once so a test can override them; env() is 0 in
+     browser tabs and on desktop. */
+  --cld-safe-top: env(safe-area-inset-top, 0px);
+  --cld-safe-right: env(safe-area-inset-right, 0px);
+  --cld-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cld-toast-bottom: calc(var(--cld-safe-bottom) + 112px * var(--ui-scale));
+  /* UI-SCALE 화면 크기 (cld/uiScale.ts sets it on <html>): spacing and text sizes follow it. */
+  --ui-scale: 1;
+  --cld-safe-left: env(safe-area-inset-left, 0px);
+}
+
+@theme inline {
+  /* 1px base so Tailwind spacing maps directly to pixels (pixel-art project) */
+  --spacing: calc(1px * var(--ui-scale));
+
+  --font-pixel: 'FS Pixel Sans', 'Galmuri11', sans-serif;
+
+  /* Text sizes (pixel-art scale, base = 22px) */
+  --text-*: initial;
+  --text-2xs: calc(16px * var(--ui-scale));
+  --text-xs: calc(18px * var(--ui-scale));
+  --text-sm: calc(20px * var(--ui-scale));
+  --text-base: calc(22px * var(--ui-scale));
+  --text-lg: calc(26px * var(--ui-scale));
+  --text-xl: calc(30px * var(--ui-scale));
+  --text-2xl: calc(36px * var(--ui-scale));
+  --text-3xl: calc(44px * var(--ui-scale));
+  --text-4xl: calc(52px * var(--ui-scale));
+  --text-5xl: calc(64px * var(--ui-scale));
+
+  /* Colors — reference :root vars so VS Code shows swatches */
+  --color-bg: var(--color-bg);
+  --color-bg-dark: var(--color-bg-dark);
+  --color-bg-thumb: var(--color-bg-thumb);
+  --color-border: var(--color-border);
+  --color-accent: var(--color-accent);
+  --color-accent-text: var(--color-accent-text);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-btn-bg: var(--color-btn-bg);
+  --color-btn-hover: var(--color-btn-hover);
+  --color-active-bg: var(--color-active-bg);
+  --color-peer-bg: var(--color-peer-bg);
+  --color-peer-border: var(--color-peer-border);
+  --color-peer-name: var(--color-peer-name);
+  --color-thread-1: var(--color-thread-1);
+  --color-thread-2: var(--color-thread-2);
+  --color-thread-3: var(--color-thread-3);
+  --color-thread-4: var(--color-thread-4);
+  --color-search-match: var(--color-search-match);
+  --color-search-current: var(--color-search-current);
+  --color-search-match-text: var(--color-search-match-text);
+  --color-accent-bright: var(--color-accent-bright);
+  --color-reset-text: var(--color-reset-text);
+  --color-danger: var(--color-danger);
+  --color-warning: var(--color-warning);
+  --color-status-permission: var(--color-status-permission);
+  --color-status-active: var(--color-status-active);
+  --color-status-success: var(--color-status-success);
+  --color-status-error: var(--color-status-error);
+
+  /* Shadow */
+  --shadow-pixel: var(--shadow-pixel);
+}
+
+@layer base {
+  /* G1 input policy (cld/inputPolicy.ts keeps the same list for the browser menu): the page is a
+     game, so nothing selects and iOS shows no callout; text areas opt back in. data-selectable
+     only on a mouse: a long press there would select the page on a phone. */
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable='false']) {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+  @media (pointer: fine) {
+    [data-selectable] {
+      -webkit-user-select: text;
+      user-select: text;
+    }
+  }
+  /* Content people copy from on a phone too (file text, job logs): the selection stays inside. */
+  [data-selectable='always'] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+  /* No universal `overscroll-behavior: contain` (G2 had one): an inline scroller (a code block or a
+     table with overflow-x) is a y scroll container too, and `contain` stopped the wheel there from
+     reaching the conversation behind it (owner 10-25 01:09: scrolling worked, then did not). The
+     page itself is `none` below: no pull-to-refresh, no bounce. */
+  html,
+  body,
+  #root {
+    @apply m-0 w-full h-full overflow-hidden font-pixel text-base text-text;
+    /* Mobile Safari: 100% tracks the shifting URL-bar viewport; dvh follows
+       the *dynamic* viewport so the card bar hugs the real bottom edge. */
+    height: 100dvh;
+    /* No rubber-banding — the app owns all scrolling (canvas pan, xterm,
+       card bar). */
+    overscroll-behavior: none;
+    /* Whatever peeks out during keyboard show/hide or overscroll must be
+       office-dark, never browser-white. */
+    background: var(--color-bg-dark);
+    /* cld-gui (T-0025): no double-tap zoom on iOS (it ignores user-scalable=no)
+       and no grey tap flash — the app, not a page. Pinch zoom stays (small pixel text must stay
+       readable on a phone); the canvas is `none` and pinches itself, the terminal handles its own touches. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Owner 10-24 (iPhone screenshots): a Home-Screen app with the translucent status
+     bar starts drawing at the screen's top edge, but its 100dvh is the screen minus
+     the status bar, so the app ended ~47px above the bottom and left a dead band
+     under the cards. Pinned to the viewport's four edges it fills the screen in a
+     browser tab and as an app alike (the keyboard clamp sets App's own height). */
+  #root {
+    position: fixed;
+    inset: 0;
+    height: auto;
+  }
+
+  * {
+    @apply font-pixel;
+    /* T-0054: a synthesized bold smears a pixel face (FS Pixel Sans and
+       Galmuri have no bold); weight is carried by size and colour. */
+    font-synthesis: none;
+  }
+
+  /* cld-gui (T-0025): no browser scrollbar anywhere. Every scroll area gets
+     the thin square pixel bar; Chrome (and WebView2) and Safari draw it from
+     these pseudo-elements. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: var(--color-bg-dark);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent);
+  }
+  /* Firefox only: Chrome 121+ drops the pseudo-element look from any element
+     that sets either standard property, so they must not reach it. */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-border) var(--color-bg-dark);
+    }
+  }
+
+  /* Keyboard focus shows as a square pixel ring, not the browser's. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
+  }
+
+  /* No native text-field look (iOS draws an inner shadow); the classes on
+     each field give it the pixel frame. */
+  textarea,
+  input:not([type]),
+  input[type='text'] {
+    appearance: none;
+  }
+}
+
+@layer components {
+  /* Panel with standard pixel-art border + shadow */
+  .pixel-panel {
+    @apply bg-bg border-2 border-border rounded-none shadow-pixel;
+  }
+
+  /* Horizontal carousel for editor items */
+  .carousel {
+    @apply flex gap-8 overflow-x-auto flex-nowrap pb-2;
+  }
+
+  /* Pixel-art range slider (HSBC ColorPicker). The accent fill up to the thumb
+     is driven by the --range-fill custom property set inline per slider. */
+  .pixel-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    cursor: pointer;
+    border: 2px solid var(--color-border);
+    background: linear-gradient(
+      to right,
+      var(--color-accent) var(--range-fill, 50%),
+      var(--color-bg-dark) var(--range-fill, 50%)
+    );
+  }
+  .pixel-range::-webkit-slider-runnable-track {
+    -webkit-appearance: none;
+    height: 12px;
+    background: transparent;
+  }
+  .pixel-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 18px;
+    margin-top: -5px;
+    background: var(--color-text);
+    border: 2px solid var(--color-border);
+    border-radius: 0;
+    box-shadow: var(--shadow-pixel);
+  }
+  .pixel-range:hover::-webkit-slider-thumb {
+    background: var(--color-accent-bright);
+  }
+  .pixel-range::-moz-range-track {
+    height: 12px;
+    background: transparent;
+  }
+  .pixel-range::-moz-range-thumb {
+    width: 10px;
+    height: 18px;
+    background: var(--color-text);
+    border: 2px solid var(--color-border);
+    border-radius: 0;
+    box-shadow: var(--shadow-pixel);
+  }
+  .pixel-range:hover::-moz-range-thumb {
+    background: var(--color-accent-bright);
+  }
+
+  /* Terminal content must be monospace: Claude Code is a full-screen TUI, and a
+     proportional face breaks its column alignment. The base layer's
+     `* { font-pixel }` applies FS Pixel Sans to every element -- including the
+     span xterm renders each cell into -- which overrides what xterm sets on its
+     own container. Re-assert the mono stack here (components layer beats base,
+     and `.xterm *` outranks `*`).
+
+     --font-terminal is set inline by TerminalPane from TERMINAL_FONT_FAMILY, so
+     the font CSS paints with is the same one xterm measured its cell grid with;
+     hard-coding a second stack here would misalign the grid the moment the two
+     drifted. Only the terminal CONTENT is mono -- the drawer chrome around it
+     stays on the pixel font. */
+  .xterm,
+  .xterm * {
+    font-family: var(--font-terminal);
+    /* iOS: no long-press callout/loupe anywhere in the terminal — a touch
+       claimed for text interaction is cancelled mid-scroll. Touch handling
+       is fully synthesized in TerminalPane. */
+    -webkit-touch-callout: none;
+  }
+
+  /* xterm's viewport owns the terminal's native scrollbar. Same pixel
+     treatment as .pixel-scrollbar below, but with a transparent track: when
+     nothing overflows (a full-screen TUI like Claude Code) no strip paints at
+     all, and with scrollback only the slim square thumb shows. */
+  .xterm .xterm-viewport::-webkit-scrollbar {
+    width: 6px;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb {
+    background: var(--color-bg-thumb);
+    border-radius: 0;
+  }
+  .xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent);
+  }
+  /* Firefox fallback (only there: in Chrome 121+ it would replace the bar
+     above with the browser's own thin one). */
+  @supports not selector(::-webkit-scrollbar) {
+    .xterm .xterm-viewport {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-bg-thumb) transparent;
+    }
+  }
+
+  /* Touch text selection chrome over a terminal pane. selectionOverlay.ts
+     creates and positions these, and sets --cell-h, --sel-handle-w and
+     --sel-knob on each handle from constants.ts, so the geometry it computes
+     and the shapes drawn here can't drift. */
+  /* The pill is a row of buttons: Copy (verbatim) and Copy as text. */
+  .terminal-copy-pill {
+    position: absolute;
+    z-index: 10;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .terminal-copy-pill button {
+    padding: 8px 14px;
+    font-size: 17px;
+    background: var(--color-btn-bg);
+    color: var(--color-text);
+    border: 2px solid var(--color-border);
+    border-radius: 0;
+    box-shadow: var(--shadow-pixel);
+  }
+  /* The wrapper is the touch strip centered on the selection edge (the only
+     thing that hit-tests); the bar (::before, one cell tall) and the square
+     knob (::after) are drawn inside it — knob above the start bar, below the
+     end bar. */
+  .terminal-sel-handle {
+    position: absolute;
+    z-index: 10;
+    width: var(--sel-handle-w);
+    height: calc(var(--cell-h) + var(--sel-knob));
+  }
+  .terminal-sel-handle::before,
+  .terminal-sel-handle::after {
+    content: '';
+    position: absolute;
+    background: var(--color-accent-bright);
+    pointer-events: none;
+  }
+  .terminal-sel-handle::before {
+    left: calc((var(--sel-handle-w) - 2px) / 2);
+    width: 2px;
+    height: var(--cell-h);
+  }
+  .terminal-sel-handle::after {
+    left: calc((var(--sel-handle-w) - var(--sel-knob)) / 2);
+    width: var(--sel-knob);
+    height: var(--sel-knob);
+  }
+  .terminal-sel-handle[data-handle='start']::before {
+    top: var(--sel-knob);
+  }
+  .terminal-sel-handle[data-handle='start']::after {
+    top: 0;
+  }
+  .terminal-sel-handle[data-handle='end']::before {
+    top: 0;
+  }
+  .terminal-sel-handle[data-handle='end']::after {
+    top: var(--cell-h);
+  }
+
+  /* Pulsing dot animation (DebugView, ToolOverlay) */
+  .pixel-pulse {
+    animation: pixel-pulse 1.5s ease-in-out infinite;
+  }
+
+  /* Top-anchored floating chrome (Settings, view toggle, connection pill):
+     in a Home-Screen PWA with viewport-fit=cover the page starts under the
+     iOS status bar, so the usual 8px top offset lands beneath the clock.
+     env() is 0 in browser tabs and on desktop, where this equals top-8. */
+  .mobile-safe-top {
+    top: calc(var(--cld-safe-top) + 8px);
+  }
+
+  /* Same, for the mobile terminal pane wrappers (4px base, matches inset-4). */
+  .mobile-safe-pane-top {
+    top: calc(var(--cld-safe-top) + 4px);
+  }
+
+  /* Scroll containers whose overflow is obvious from clipped content (the
+     mobile card bar) — a scrollbar strip would just eat row height. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Pixel-style thin scrollbar utility — used by the Area card folder list
+     where the mapped-folder count can exceed the card height. */
+  .pixel-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .pixel-scrollbar::-webkit-scrollbar-track {
+    background: var(--color-bg-dark);
+  }
+  .pixel-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 0;
+  }
+  .pixel-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-accent);
+  }
+  /* Firefox fallback (only there, as for .xterm above) */
+  @supports not selector(::-webkit-scrollbar) {
+    .pixel-scrollbar {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-border) var(--color-bg-dark);
+    }
+  }
+
+  /* Material Symbols defaults for this project: Sharp style (imported in
+     main.tsx at weight 700), FILL 1, GRAD 0, opsz 24. The package CSS pins
+     font-size to 24px; 1em instead, so an icon tracks the text beside it. */
+  .material-symbols-sharp {
+    font-variation-settings:
+      'FILL' 1,
+      'GRAD' 0,
+      'opsz' 24;
+    font-size: 1em;
+    line-height: 1;
+  }
+}
+
+@keyframes pixel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* U-34: the box is always the width of three dots (a dot is narrower than 1ch in
+   this font, so growing the width jumped 0 -> 3); the dots are uncovered one at
+   a time from the left: 0, 1, 2, 3, then round again (THINKING_DOT_FRAME_SEC x 4). */
+@keyframes thinking-dots {
+  0% {
+    clip-path: inset(0 100% 0 0);
+  }
+  25% {
+    clip-path: inset(0 66.667% 0 0);
+  }
+  50% {
+    clip-path: inset(0 33.333% 0 0);
+  }
+  75% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.thinking-dots {
+  display: inline-block;
+  vertical-align: bottom;
+  white-space: nowrap;
+  animation: thinking-dots 1.6s steps(1, end) infinite;
+}
+@keyframes job-progress-step {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+.jump-newest-pop {
+  animation: jump-newest-pop 180ms steps(2, end);
+}
+@keyframes jump-newest-pop {
+  0% {
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    transform: translateX(-50%) scale(1.12);
+  }
+  100% {
+    transform: translateX(-50%) scale(1);
+  }
+}
+.job-progress-indeterminate {
+  animation: job-progress-step 1.5s steps(10, end) infinite alternate;
+}
+@keyframes floating-toast-shimmer {
+  0%,
+  65%,
+  100% {
+    transform: translateX(-120%);
+  }
+  25% {
+    transform: translateX(120%);
+  }
+}
+.floating-toast-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 14%) 50%, transparent 65%);
+  animation: floating-toast-shimmer 3.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots {
+    width: auto;
+    animation: none;
+    font-size: 0;
+  }
+
+  .thinking-dots::after {
+    content: '…';
+    font-size: 1rem;
+  }
+  .job-progress-indeterminate {
+    animation: none;
+  }
+  .jump-newest-pop {
+    animation: none;
+  }
+  .floating-toast-frame::after {
+    animation: none;
+  }
+}
+
+/* BUBBLE-TAIL + MSG-ALIGN: the bubble's body (its border) sits on the conversation's guide line, the same
+   line command lines, times and actions start on; a run's first bubble draws a stepped pixel tail out of
+   its top corner into the gap toward the face (the face's gap is wide enough, see FACE_GAP).
+   The tail is a sibling of the bubble (the bubble clips its overflow), 8x8 px (+1 px over the bubble's border;
+   the polygons below are in px, keep them in step with --bubble-tail) in two layers:
+   --tail-border (2 px steps) under --tail-fill (1 px steps, also covering the bubble's side border). */
+.bubble-box {
+  --bubble-tail: 8px;
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+}
+.bubble-tail {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 8px;
+  pointer-events: none;
+}
+.bubble-tail::before,
+.bubble-tail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.bubble-tail::before {
+  background: var(--tail-border);
+  clip-path: polygon(0 0, 9px 0, 9px 8px, 6px 8px, 6px 6px, 4px 6px, 4px 4px, 2px 4px, 2px 2px, 0 2px);
+}
+.bubble-tail::after {
+  background: var(--tail-fill);
+  clip-path: polygon(2px 1px, 9px 1px, 9px 8px, 8px 8px, 8px 7px, 7px 7px, 7px 6px, 6px 6px, 6px 5px, 5px 5px, 5px 4px, 4px 4px, 4px 3px, 3px 3px, 3px 2px, 2px 2px);
+}
+.bubble-tail-l {
+  left: calc(-1 * var(--bubble-tail));
+}
+.bubble-tail-r {
+  right: calc(-1 * var(--bubble-tail));
+  transform: scaleX(-1);
+}

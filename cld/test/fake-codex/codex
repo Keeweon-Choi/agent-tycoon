@@ -1,0 +1,131 @@
+#!/usr/bin/env node
+// Fake `codex` for the engine's Codex tests (T-0021). Never the real one.
+// FAKE_CODEX = success | limit | fail | hang | slow (default success; hang runs 30 s; slow is a
+// success after $HOME/fake-codex.json slowS seconds, default 4). Every call is logged
+// as one JSON line to $HOME/fake-codex.log ({argv, cwd, stdin}).
+// - `exec … -`: prints thread.started with a new id and writes a session file
+//   ($CODEX_HOME or ~/.codex)/sessions/…/rollout-<id>.jsonl;
+//   success: one empty commit in its folder, exit 0;
+//   limit: rate_limits at 100 % (reset in FAKE_CODEX_RESET_S, default 1 s) and the
+//   usage-limit error, exit 1; fail: exit 2.
+// - `exec resume … <id> <prompt>`: success, exit 0 (the limit was waited out).
+// - D5, a Worker's follow-up `exec resume … <id> -`: reads stdin, keeps thread <id>, runs the
+//   scenario as `exec … -` does.
+// - `-o <file>` (D5, Worker runs): the last agent message is written there.
+// $HOME/fake-codex.json may hold `scenarios` (one per call, in order; the last one repeats)
+// and `message` (the last agent message's text).
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
+const { spawnSync } = require('child_process');
+
+const argv = process.argv.slice(2);
+const home = process.env.HOME;
+// The daemon's agent choices ask `codex --version`: an answer, no call logged, nothing run.
+if (argv[0] === '--version') {
+  process.stdout.write('codex-cli 0.0.0-fake\n');
+  process.exit(0);
+}
+// The engine starts its jobs from a clean environment: a daemon-level run sets
+// the scenario in $HOME/fake-codex.json ({scenario, resetS}) instead.
+let file = {};
+try {
+  file = JSON.parse(fs.readFileSync(path.join(home, 'fake-codex.json'), 'utf8'));
+} catch {
+  /* env or defaults */
+}
+let calls = 0;
+try {
+  calls = fs.readFileSync(path.join(home, 'fake-codex.log'), 'utf8').split('\n').filter(Boolean).length;
+} catch {
+  /* the first call */
+}
+const list = Array.isArray(file.scenarios) && file.scenarios.length ? file.scenarios : null;
+const scenario =
+  process.env.FAKE_CODEX || (list && list[Math.min(calls, list.length - 1)]) || file.scenario || 'success';
+const message = process.env.FAKE_CODEX_MESSAGE || file.message || 'done';
+const oAt = argv.indexOf('-o');
+const lastFile = oAt >= 0 ? argv[oAt + 1] : null;
+const lastMessage = (text) => {
+  if (lastFile) fs.writeFileSync(lastFile, `${text}\n`);
+};
+const resetS = Number(process.env.FAKE_CODEX_RESET_S || file.resetS || 1);
+let stdin = '';
+const resumeAny = argv[0] === 'exec' && argv[1] === 'resume';
+// A Worker's follow-up resumes its thread with a new prompt on stdin (`… <id> -`).
+const followUp = resumeAny && argv[argv.length - 1] === '-';
+const resume = resumeAny && !followUp;
+if (!resume && argv.includes('-')) {
+  try {
+    stdin = fs.readFileSync(0, 'utf8');
+  } catch {
+    /* none */
+  }
+}
+fs.appendFileSync(
+  path.join(home, 'fake-codex.log'),
+  `${JSON.stringify({ argv, cwd: process.cwd(), stdin })}\n`,
+);
+const say = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
+const codexHome = process.env.CODEX_HOME || path.join(home, '.codex');
+
+if (resume) {
+  const sid = argv[argv.length - 2];
+  say({ type: 'thread.started', thread_id: sid });
+  say({ type: 'item.completed', item: { type: 'agent_message', text: 'resumed and done' } });
+  lastMessage('resumed and done');
+  say({ type: 'turn.completed' });
+  process.exit(0);
+}
+
+const sid = followUp ? argv[argv.length - 2] : crypto.randomUUID();
+say({ type: 'thread.started', thread_id: sid });
+const dir = path.join(codexHome, 'sessions', '2026', '10', '22');
+fs.mkdirSync(dir, { recursive: true });
+const session = path.join(dir, `rollout-2026-10-22T04-00-00-${sid}.jsonl`);
+if (scenario === 'limit') {
+  const resetsAt = Math.floor(Date.now() / 1000) + resetS;
+  fs.writeFileSync(
+    session,
+    `${JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        rate_limits: {
+          limit_id: 'codex',
+          primary: { used_percent: 100, resets_at: resetsAt },
+          secondary: { used_percent: 40, resets_at: resetsAt + 86400 },
+        },
+      },
+    })}\n`,
+  );
+  say({ type: 'error', message: "You've hit your usage limit. (usage_limit_exceeded)" });
+  process.exit(1);
+}
+fs.writeFileSync(session, `${JSON.stringify({ type: 'session_meta', id: sid })}\n`);
+if (scenario === 'fail') {
+  say({ type: 'error', message: 'something broke' });
+  process.exit(2);
+}
+if (scenario === 'hang') {
+  setTimeout(() => process.exit(0), 30_000);
+} else if (scenario === 'slow') {
+  setTimeout(() => finish(), Number(file.slowS || 4) * 1000);
+} else finish();
+
+function finish() {
+  // Only into a throwaway repository: run from a folder inside a real checkout, git would
+  // climb to it and commit there (10-23 an empty 'fake' commit landed on a trial branch).
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd(), encoding: 'utf-8' });
+  if (top.status === 0 && top.stdout.trim().startsWith(os.tmpdir()))
+    spawnSync('git', ['-c', 'user.name=fake', '-c', 'user.email=fake@x', 'commit', '-q', '--allow-empty', '-m', 'codex: step'], {
+      cwd: process.cwd(),
+      stdio: 'ignore',
+    });
+  say({ type: 'item.completed', item: { type: 'agent_message', text: message } });
+  lastMessage(message);
+  say({ type: 'turn.completed' });
+  process.exit(0);
+}

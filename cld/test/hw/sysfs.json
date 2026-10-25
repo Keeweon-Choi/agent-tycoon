@@ -1,0 +1,89 @@
+{
+  "wsl2-this-pc": {
+    "note": "recorded 2026-10-21 on 6.18.54.1-microsoft-standard-WSL2: 0 hwmon chips; /sys/class/thermal: 20 entries (Processor); /sys/class/drm: card0 -> vgem",
+    "files": {}
+  },
+  "intel-coretemp-amdgpu": {
+    "note": "synthesized from the kernel's hwmon docs (sysfs-interface, coretemp) and amdgpu docs (hwmon labels edge/junction/mem, gpu_busy_percent, mem_info_vram_*): an Intel desktop with a Radeon card",
+    "files": {
+      "class/hwmon/hwmon0/name": "acpitz\n",
+      "class/hwmon/hwmon0/temp1_input": "27800\n",
+      "class/hwmon/hwmon1/name": "nvme\n",
+      "class/hwmon/hwmon1/temp1_label": "Composite\n",
+      "class/hwmon/hwmon1/temp1_input": "38850\n",
+      "class/hwmon/hwmon2/name": "coretemp\n",
+      "class/hwmon/hwmon2/temp1_label": "Package id 0\n",
+      "class/hwmon/hwmon2/temp1_input": "54000\n",
+      "class/hwmon/hwmon2/temp2_label": "Core 0\n",
+      "class/hwmon/hwmon2/temp2_input": "51000\n",
+      "class/hwmon/hwmon2/temp6_label": "Core 4\n",
+      "class/hwmon/hwmon2/temp6_input": "49000\n",
+      "class/hwmon/hwmon3/name": "amdgpu\n",
+      "class/hwmon/hwmon3/temp1_label": "edge\n",
+      "class/hwmon/hwmon3/temp1_input": "45000\n",
+      "class/hwmon/hwmon3/temp2_label": "junction\n",
+      "class/hwmon/hwmon3/temp2_input": "52000\n",
+      "class/hwmon/hwmon3/temp3_label": "mem\n",
+      "class/hwmon/hwmon3/temp3_input": "50000\n",
+      "class/hwmon/hwmon3/power1_average": "34000000\n",
+      "class/hwmon/hwmon3/device/gpu_busy_percent": "17\n",
+      "class/hwmon/hwmon3/device/mem_info_vram_used": "1073741824\n",
+      "class/hwmon/hwmon3/device/mem_info_vram_total": "17163091968\n"
+    }
+  },
+  "zen-apu-and-radeon": {
+    "note": "synthesized: a Zen laptop (k10temp Tctl/Tccd1) whose APU and discrete Radeon both run amdgpu; the APU reports power1_input, the card power1_average",
+    "files": {
+      "class/hwmon/hwmon0/name": "k10temp\n",
+      "class/hwmon/hwmon0/temp1_label": "Tctl\n",
+      "class/hwmon/hwmon0/temp1_input": "61250\n",
+      "class/hwmon/hwmon0/temp3_label": "Tccd1\n",
+      "class/hwmon/hwmon0/temp3_input": "58500\n",
+      "class/hwmon/hwmon1/name": "amdgpu\n",
+      "class/hwmon/hwmon1/temp1_label": "edge\n",
+      "class/hwmon/hwmon1/temp1_input": "50000\n",
+      "class/hwmon/hwmon1/power1_input": "9000000\n",
+      "class/hwmon/hwmon1/device/gpu_busy_percent": "5\n",
+      "class/hwmon/hwmon1/device/mem_info_vram_used": "268435456\n",
+      "class/hwmon/hwmon1/device/mem_info_vram_total": "536870912\n",
+      "class/hwmon/hwmon2/name": "amdgpu\n",
+      "class/hwmon/hwmon2/temp1_label": "edge\n",
+      "class/hwmon/hwmon2/temp1_input": "41000\n",
+      "class/hwmon/hwmon2/temp2_label": "junction\n",
+      "class/hwmon/hwmon2/temp2_input": "44000\n",
+      "class/hwmon/hwmon2/power1_average": "12000000\n",
+      "class/hwmon/hwmon2/device/gpu_busy_percent": "0\n",
+      "class/hwmon/hwmon2/device/mem_info_vram_used": "402653184\n",
+      "class/hwmon/hwmon2/device/mem_info_vram_total": "8573157376\n"
+    }
+  },
+  "zen-tdie-offset": {
+    "note": "synthesized: an early Zen part whose Tctl carries an offset, so k10temp also reports the real die temperature as Tdie",
+    "files": {
+      "class/hwmon/hwmon0/name": "k10temp\n",
+      "class/hwmon/hwmon0/temp1_label": "Tctl\n",
+      "class/hwmon/hwmon0/temp1_input": "67125\n",
+      "class/hwmon/hwmon0/temp2_label": "Tdie\n",
+      "class/hwmon/hwmon0/temp2_input": "40125\n"
+    }
+  },
+  "intel-nvidia-proprietary": {
+    "note": "synthesized: NVIDIA's proprietary driver registers no hwmon chip, so only the CPU and the disk show up (the GPU is nvidia-smi's, opt-in)",
+    "files": {
+      "class/hwmon/hwmon0/name": "nvme\n",
+      "class/hwmon/hwmon0/temp1_label": "Composite\n",
+      "class/hwmon/hwmon0/temp1_input": "36850\n",
+      "class/hwmon/hwmon1/name": "coretemp\n",
+      "class/hwmon/hwmon1/temp1_label": "Package id 0\n",
+      "class/hwmon/hwmon1/temp1_input": "47000\n"
+    }
+  },
+  "raspberry-pi": {
+    "note": "synthesized: a Raspberry Pi, whose SoC thermal zone registers the hwmon chip cpu_thermal (no label)",
+    "files": {
+      "class/hwmon/hwmon0/name": "cpu_thermal\n",
+      "class/hwmon/hwmon0/temp1_input": "48312\n",
+      "class/hwmon/hwmon1/name": "rpi_volt\n"
+    }
+  }
+}

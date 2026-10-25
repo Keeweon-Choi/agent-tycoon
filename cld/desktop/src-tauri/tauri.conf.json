@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Agent Tycoon",
+  "identifier": "dev.cldgui.pixeloffice",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "url": "index.html",
+        "title": "Agent Tycoon",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 640,
+        "backgroundColor": "#1e1e2e"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "DeveloperTool",
+    "shortDescription": "Agent Tycoon desktop app (the cld-gui office)",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "daemon/": "daemon/"
+    }
+  }
+}

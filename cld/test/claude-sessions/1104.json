@@ -1,0 +1,26 @@
+{
+ "pid": 1104,
+ "sessionId": "c0000000-0000-4000-8000-000000000004",
+ "cwd": "/work/project-4",
+ "startedAt": 1800814224046,
+ "procStart": "300003",
+ "version": "2.1.306",
+ "peerProtocol": 1,
+ "peerFeatures": [
+  "notify_idle",
+  "reply_across_default_dirs",
+  "artifact_yield"
+ ],
+ "kind": "interactive",
+ "entrypoint": "cli",
+ "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+ "tmux": "office:@1.%4",
+ "messagingSocketPath": "/run/user/1000/cc-socks/1104.sock",
+ "name": "session-4-orchestrator",
+ "nameSource": "user",
+ "nameSince": 1800814224048,
+ "updatedAt": 1800817986584,
+ "status": "shell",
+ "statusUpdatedAt": 1800817986584,
+ "bridgeSessionId": "session_000000000000000000000004"
+}

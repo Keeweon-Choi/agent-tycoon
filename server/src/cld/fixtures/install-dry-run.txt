@@ -1,0 +1,137 @@
+Node 22.23.2 ✔
+DRY-RUN: command -v npm; command -v git; command -v claude (플랫폼 wsl)
+DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/cld-gui/config.json:
+{
+  "port": 18240,
+  "readOnly": true,
+  "chat": false,
+  "allowTerminal": false,
+  "funnel": false,
+  "engine": "auto",
+  "allowApprovalRequests": false,
+  "allowedHosts": [],
+  "tailscaleUsers": [],
+  "connector": "lan"
+}
+… 의존성 설치 중
+DRY-RUN: HUSKY=0 npm ci --no-audit --no-fund
+✔ 의존성 설치
+… 빌드 중
+DRY-RUN: npm run asyncapi:generate
+DRY-RUN: node esbuild.js
+DRY-RUN: npm run build:webview
+✔ 빌드
+… H/W 센서 도구를 설치합니다: LibreHardwareMonitor 0.9.6 (MPL-2.0)
+  - C:\Program Files\cld-gui\LibreHardwareMonitor 에 받아 SHA-256을 확인합니다.
+  - 온도 드라이버 PawnIO 2.2.0(서명된 드라이버)가 없으면 함께 설치합니다. 지울 때는 Windows 설정 → 앱.
+  - 웹 서버 :8085, 트레이로 시작, 로그인할 때 관리자 권한으로 켜는 예약 작업 cld-gui-lhm.
+  곧 Windows 관리자 확인 창(UAC)이 한 번 뜹니다. "예"를 누르세요. "아니요"면 센서 없이 계속합니다.
+  건너뛰려면 --no-hw-sensors.
+DRY-RUN: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <UTF-16LE base64 of>
+$ErrorActionPreference = 'Stop'
+$admin = @'
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$root = Join-Path $env:ProgramFiles 'cld-gui'
+$dir = Join-Path $root 'LibreHardwareMonitor'
+$exe = Join-Path $dir 'LibreHardwareMonitor.exe'
+$log = Join-Path $root 'setup.log'
+$user = '@USER@'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+function Get-Verified([string]$url, [string]$file, [string]$sha) {
+  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $file
+  if ((Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash -ne $sha) { Remove-Item -LiteralPath $file -Force; throw "checksum mismatch: $url" }
+}
+try {
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  Set-Content -LiteralPath $log -Value "cld-gui sensor setup $(Get-Date -Format s)"
+  Get-Process -Name LibreHardwareMonitor -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
+  $zip = Join-Path $root 'lhm.zip'
+  Get-Verified 'https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.6/LibreHardwareMonitor.zip' $zip '086D9F1B5A99E643EDC2CFAAAC16051685B551E4C5AC0B32A57C58C0E529C001'
+  Expand-Archive -LiteralPath $zip -DestinationPath $dir -Force
+  Remove-Item -LiteralPath $zip -Force
+  Add-Content -LiteralPath $log -Value 'LibreHardwareMonitor 0.9.6: SHA-256 ok, extracted'
+  $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue
+  $v = $null
+  if (-not ($key -and [version]::TryParse([string]$key.DisplayVersion, [ref]$v) -and $v -ge [version]'2.0')) {
+    $setup = Join-Path $root 'PawnIO_setup.exe'
+    Get-Verified 'https://github.com/namazso/PawnIO.Setup/releases/download/2.2.0/PawnIO_setup.exe' $setup '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032'
+    $p = Start-Process -FilePath $setup -ArgumentList '-install', '-silent' -Wait -PassThru
+    Remove-Item -LiteralPath $setup -Force
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "PawnIO setup exit code $($p.ExitCode)" }
+    Set-Content -LiteralPath (Join-Path $root 'pawnio-installed-by-cld-gui') -Value 'PawnIO 2.2.0'
+    Add-Content -LiteralPath $log -Value 'PawnIO 2.2.0: installed'
+  }
+  Set-Content -LiteralPath (Join-Path $dir 'LibreHardwareMonitor.config') -Encoding UTF8 -Value '<?xml version="1.0" encoding="utf-8"?><configuration><appSettings><add key="startMinMenuItem" value="true" /><add key="minTrayMenuItem" value="true" /><add key="minCloseMenuItem" value="true" /><add key="runWebServerMenuItem" value="true" /><add key="listenerPort" value="8085" /></appSettings></configuration>'
+  $action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory $dir
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+  $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+  Register-ScheduledTask -TaskName 'cld-gui-lhm' -Description 'cld-gui: LibreHardwareMonitor at logon, for the office HW panel' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+  Start-ScheduledTask -TaskName 'cld-gui-lhm'
+  Add-Content -LiteralPath $log -Value 'task cld-gui-lhm: registered and started'
+  # LHM's web server listens on every interface with no auth (fan control by GET); hosts with a public IP on the NIC would expose it to the internet.
+  # Windows Firewall does not filter loopback, so localhost readers keep working.
+  Get-NetFirewallRule -DisplayName 'cld-gui: LHM local only' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+  New-NetFirewallRule -DisplayName 'cld-gui: LHM local only' -Description 'cld-gui: block inbound to the LibreHardwareMonitor web server from the network; loopback stays allowed' -Direction Inbound -Action Block -Protocol TCP -LocalPort 8085 -Profile Any | Out-Null
+  Add-Content -LiteralPath $log -Value 'firewall: inbound TCP 8085 blocked (loopback still allowed)'
+} catch {
+  Add-Content -LiteralPath $log -Value "failed: $_"
+  exit 1
+}
+'@
+$admin = $admin.Replace('@USER@', [Security.Principal.WindowsIdentity]::GetCurrent().Name.Replace("'", "''"))
+$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($admin))
+$log = Join-Path $env:ProgramFiles 'cld-gui\setup.log'
+try {
+  $p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $enc
+} catch { exit 1223 }
+if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log }
+exit $p.ExitCode
+DRY-RUN: wait up to 60 s for http://127.0.0.1:8085/data.json, then the daemon gets --lhm-port 8085
+DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/cld-gui/config.json:
+{
+  "port": 18240,
+  "readOnly": true,
+  "chat": false,
+  "allowTerminal": false,
+  "funnel": false,
+  "engine": "auto",
+  "allowApprovalRequests": false,
+  "allowedHosts": [],
+  "tailscaleUsers": [],
+  "connector": "lan",
+  "lhmPort": 8085
+}
+DRY-RUN: ln -sf /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/cld/bin/cld-gui-login /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.local/bin/cld-gui-login
+DRY-RUN: ln -s /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/cld/bin/cld-gui /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.local/bin/cld-gui; ln -s /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/cld/bin/cld-gui /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.local/bin/cld (그 이름이 비어 있을 때만)
+DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/systemd/user/cld-gui.service:
+[Unit]
+Description=cld-gui host service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217
+Environment=PATH=/tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.local/bin:/tmp/example-home/.nvm/versions/node/v22.23.2/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/tmp/example-home/.nvm/versions/node/v22.23.2/bin/node --max-semi-space-size=1 /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/dist/cli.js --port 18240 --no-terminal --read-only --engine auto --lhm-port 8085
+Restart=always
+RestartSec=5
+Nice=5
+KillMode=process
+
+[Install]
+WantedBy=default.target
+
+DRY-RUN: systemctl --user daemon-reload
+DRY-RUN: systemctl --user enable --now cld-gui
+DRY-RUN fallback when systemctl user service is unavailable: nohup /tmp/example-home/.nvm/versions/node/v22.23.2/bin/node --max-semi-space-size=1 /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/dist/cli.js --port 18240 --no-terminal --read-only --engine auto --lhm-port 8085
+DRY-RUN: 최대 30초 동안 http://127.0.0.1:18240/api/health 대기
+DRY-RUN: WSL NAT 모드면 GET /api/cld/connector 의 Windows 쪽 단계(.wslconfig mirrored, 방화벽 규칙)를 보여 줍니다
+
+=== cld-gui 준비 완료 ===
+첫 기기: 휴대폰 카메라로 QR을 찍거나 이 주소를 여세요 (10분 동안 한 번)
+http://localhost:18240/login?code=DRY_RUN_CODE
+아이폰: 연 다음 공유 → "홈 화면에 추가", 그 앱 안에서 8자리 코드를 넣으세요. 한 번 붙은 기기는 다음부터 저절로 들어와요(기기 키).
+다른 기기: 로그인한 기기의 "기기 추가"(주소 + 8자리 코드 + QR, 어디서든), 또는 ~/.local/bin/cld-gui-login 이 주는 코드
+

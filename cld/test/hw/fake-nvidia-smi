@@ -1,0 +1,7 @@
+#!/bin/sh
+# Fake nvidia-smi for the HW sampler's gate and stall tests (T-0030). Logs each
+# run, optionally hangs for FAKE_NVIDIA_SLEEP seconds, then answers the query.
+echo "$*" >> "${FAKE_NVIDIA_LOG:-/dev/null}"
+[ -n "$FAKE_NVIDIA_SLEEP" ] && sleep "$FAKE_NVIDIA_SLEEP"
+case "$1" in --query-compute-apps=*) echo "4242, 1536"; exit 0;; esac
+echo "37, 1596, 8192, 48, 60.26"

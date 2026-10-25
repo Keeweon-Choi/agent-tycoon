@@ -1,0 +1,12 @@
+{"scenario":"an unnamed turnless thread that unloaded: thread/read -> -32600 thread not loaded, thread/resume -> -32600 no rollout found, thread/list empty","codexVersion":"0.156.1","transport":"WebSocket text frames over the Unix control socket"}
+{"t":6,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"<string>","version":"<string>"},"capabilities":{"experimentalApi":true}}}}
+{"t":7,"dir":"in","msg":{"id":1,"result":{"userAgent":"<string>","codexHome":"<path>","platformFamily":"unix","platformOs":"linux"}}}
+{"t":7,"dir":"in","msg":{"method":"configWarning","params":{"summary":"<string>","details":null},"emittedAtMs":1792631917585}}
+{"t":7,"dir":"in","msg":{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"<string>","installationId":"<uuid-1>","environmentId":null},"emittedAtMs":1792631917585}}
+{"t":473,"dir":"out","msg":{"jsonrpc":"2.0","method":"initialized"}}
+{"t":474,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/read","params":{"threadId":"<uuid-2>"}}}
+{"t":496,"dir":"in","msg":{"error":{"code":-32600,"message":"<string>"},"id":2}}
+{"t":1176,"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"thread/resume","params":{"threadId":"<uuid-2>"}}}
+{"t":1199,"dir":"in","msg":{"error":{"code":-32600,"message":"<string>"},"id":3}}
+{"t":1877,"dir":"out","msg":{"jsonrpc":"2.0","id":4,"method":"thread/list","params":{}}}
+{"t":1882,"dir":"in","msg":{"id":4,"result":{"data":[],"nextCursor":null,"backwardsCursor":null}}}

@@ -1,0 +1,337 @@
+# Everyday CI (F-28): one cheap Linux job that mirrors the local merge gate. The 3-OS VS Code
+# e2e matrix, the macOS/Windows server tests and the Node 20 npm smoke run only on a manual
+# dispatch and on version tags
+# (private-repo minutes are limited, and macOS/Windows minutes cost several times Linux).
+# No secrets are used anywhere in this file; the token is read-only. Never add
+# the target-event variant of pull_request or a deployment secret here: this workflow runs for outside PRs.
+
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'all, or server-tests (Linux gate + macOS/Windows server tests, no e2e)'
+        type: choice
+        default: all
+        options: [all, server-tests]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  HUSKY: '0'
+
+jobs:
+  # Same checks, same order as .worktrees/specs/gate.sh. Later steps still run after a failure
+  # (`!cancelled()`) so one run lists every broken check; the job is red if any step failed.
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: AsyncAPI drift (core/src/messages.ts)
+        if: ${{ !cancelled() }}
+        run: |
+          npm run asyncapi:generate
+          git diff --exit-code core/src/messages.ts
+
+      - name: E2E inventory drift (e2e/README.md)
+        if: ${{ !cancelled() }}
+        run: |
+          npm run e2e:inventory
+          git diff --exit-code e2e/README.md
+
+      - name: Type Check
+        if: ${{ !cancelled() }}
+        run: npm run check-types
+
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: npm run lint
+
+      - name: Webview tsc -b
+        if: ${{ !cancelled() }}
+        run: cd webview-ui && npx tsc -b
+
+      # The hook-script test skips itself when dist/hooks/claude-hook.js is missing.
+      - name: Build hook script
+        if: ${{ !cancelled() }}
+        run: npm run build:extension
+
+      - name: Server Tests
+        if: ${{ !cancelled() }}
+        run: npm run test:server
+
+      - name: Webview Tests
+        if: ${{ !cancelled() }}
+        run: npm run test:webview
+
+      - name: Installer Tests
+        if: ${{ !cancelled() }}
+        run: node --test cld/install/*.test.mjs
+
+      - name: Docs Check
+        if: ${{ !cancelled() }}
+        run: node cld/scripts/docs-check.mjs --root cld
+
+  # Manual runs and version tags only.
+  # R4: the server suite on macOS and Windows (Linux runs it in the gate). Same policy as the e2e matrix.
+  server-tests:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    name: ${{ matrix.label }} Server Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, label: macos }
+          - { os: windows-latest, label: windows }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build hook script
+        run: npm run build:extension
+
+      # Temp dirs without a link or a short name in their path: macOS's default sits behind
+      # the /var -> /private/var link and Windows's under C:\Users\RUNNER~1, and tests compare
+      # their temp paths with the real paths the code resolves.
+      - name: Server Tests
+        working-directory: server
+        env:
+          TMPDIR: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: npx vitest run --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
+
+      - name: Upload Results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: server-tests-${{ matrix.label }}
+          if-no-files-found: ignore
+          path: server-tests-${{ matrix.label }}.json
+
+  npm-package-node20:
+    name: npm Package Smoke (Node 20)
+    if: (github.event_name == 'workflow_dispatch' && inputs.only != 'server-tests') || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v7
+        with:
+          node-version: '20.x'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Verify npm Package Contract and Installed Artifact
+        run: npm run test:package-contract && npm run verify:npm-package
+
+  e2e:
+    if: (github.event_name == 'workflow_dispatch' && inputs.only != 'server-tests') || startsWith(github.ref, 'refs/tags/v')
+    name: ${{ matrix.target.label }} E2E (shard ${{ matrix.shard }}/3)
+    # One matrix replaces the former linux-e2e / macos-e2e / windows-e2e jobs:
+    # 3 OSes x 3 shards = 9 runs. Shard distribution is test-level (Playwright
+    # `fullyParallel` in playwright.config.ts), so each shard runs ~1/3 of the
+    # suite at --workers=1 (the safe ceiling; CI runners flake with more).
+    # Manual runs and version tags only: private-repo macOS/Windows minutes are not free. The Linux-only system-deps
+    # install is gated by `runner.os` inside the install step. Artifact names use
+    # matrix.target.label (linux/macos/windows) so downstream download patterns
+    # stay stable.
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu-latest, label: linux }
+          - { os: macos-latest, label: macos }
+          - { os: windows-latest, label: windows }
+        shard: [1, 2, 3]
+    runs-on: ${{ matrix.target.os }}
+    timeout-minutes: 60
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: .playwright-browsers
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Restore VS Code Cache
+        id: cache_vscode_restore
+        uses: actions/cache/restore@v5
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('e2e/global-setup.ts') }}-v3
+          restore-keys: |
+            vscode-test-${{ runner.os }}-
+
+      - name: Restore Playwright Cache
+        id: cache_playwright_restore
+        uses: actions/cache/restore@v5
+        with:
+          path: .playwright-browsers
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Extension
+        run: npm run build:extension
+
+      - name: Build Webview
+        run: npm run build:webview
+
+      # Skip the ~250 MB chromium download when the browser cache hit; only run
+      # `install-deps` on Linux (macOS/Windows ship the required system libs, so
+      # the old unconditional `--with-deps` just burned ~30 s for a no-op).
+      - name: Install Playwright Dependencies
+        id: install_playwright_deps
+        shell: bash
+        run: |
+          if [ "${{ steps.cache_playwright_restore.outputs.cache-hit }}" != "true" ]; then
+            echo "::group::Install Chromium browser"
+            npx playwright install chromium
+            echo "::endgroup::"
+          else
+            echo "Browser cache hit — skipping Chromium download"
+          fi
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            echo "::group::Install system deps"
+            npx playwright install-deps chromium
+            echo "::endgroup::"
+          fi
+        continue-on-error: true
+
+      - name: E2E Tests
+        id: e2e_test
+        if: steps.install_playwright_deps.outcome == 'success'
+        # --workers=1: CI runners flake with more. Videos are kept only for
+        # failing tests (Playwright default) to keep the artifacts small.
+        run: npm run e2e -- --run-id ${{ matrix.target.label }}-shard-${{ matrix.shard }} --shard=${{ matrix.shard }}/3 --workers=1
+        continue-on-error: true
+
+      - name: Upload E2E Artifacts
+        if: always() && steps.install_playwright_deps.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-artifacts-${{ matrix.target.label }}-shard-${{ matrix.shard }}
+          if-no-files-found: ignore
+          path: |
+            playwright-report/e2e
+            test-results/e2e
+
+      # Cache save gated on cache MISS + path existence only (NOT test outcome):
+      # the VS Code + Chromium binaries are external artifacts whose validity is
+      # independent of our tests. Gating on test success created a vicious cycle
+      # (flake -> skip save -> re-download -> slower -> more flake). Only shard 1
+      # writes (single-writer; the cache key is per-OS via runner.os).
+      - name: Save VS Code Cache
+        if: always() && matrix.shard == 1 && steps.cache_vscode_restore.outputs.cache-hit != 'true' && hashFiles('.vscode-test/vscode-executable.txt') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .vscode-test
+          key: ${{ steps.cache_vscode_restore.outputs.cache-primary-key }}
+
+      - name: Save Playwright Cache
+        if: always() && matrix.shard == 1 && steps.cache_playwright_restore.outputs.cache-hit != 'true' && hashFiles('.playwright-browsers/**') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: .playwright-browsers
+          key: ${{ steps.cache_playwright_restore.outputs.cache-primary-key }}
+
+      - name: Write Step Summary
+        if: always()
+        shell: bash
+        env:
+          LABEL: ${{ matrix.target.label }}
+          SHARD: ${{ matrix.shard }}
+          INSTALL_PLAYWRIGHT_DEPS: ${{ steps.install_playwright_deps.outcome }}
+          E2E_TEST: ${{ steps.e2e_test.outcome }}
+        run: |
+          status() {
+            if [ "$1" = "success" ]; then echo "✅ PASS"; else echo "❌ FAIL"; fi
+          }
+          {
+            echo "## $LABEL E2E Results (shard $SHARD/3)"
+            echo
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| Install Playwright deps | $(status "$INSTALL_PLAYWRIGHT_DEPS") |"
+            echo "| E2E tests | $(status "$E2E_TEST") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # shell: bash is required here — Windows runners default to PowerShell and
+      # this script is bash (for loop, printenv).
+      - name: Fail If E2E Failed
+        if: always()
+        shell: bash
+        env:
+          INSTALL_PLAYWRIGHT_DEPS: ${{ steps.install_playwright_deps.outcome }}
+          E2E_TEST: ${{ steps.e2e_test.outcome }}
+        run: |
+          failed=0
+          for step in INSTALL_PLAYWRIGHT_DEPS E2E_TEST; do
+            val=$(printenv "$step" 2>/dev/null || echo "skipped")
+            if [ "$val" != "success" ]; then
+              echo "::error::$step failed"
+              failed=1
+            fi
+          done
+          exit "$failed"

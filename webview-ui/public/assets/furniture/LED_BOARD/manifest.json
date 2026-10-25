@@ -1,0 +1,13 @@
+{
+  "id": "LED_BOARD",
+  "name": "LED Board",
+  "category": "decor",
+  "type": "asset",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 2,
+  "width": 448,
+  "height": 176,
+  "footprintW": 28,
+  "footprintH": 11
+}

@@ -1,0 +1,17 @@
+#!/bin/sh
+# NSIS older than 3.09 (Ubuntu 22.04 ships 3.08) lacks Win\RestartManager.nsh, which Tauri's installer template includes.
+# For those, add the vendored copy (../nsis/include) to the include path, then run the real makensis.
+# `npm run build:win` puts this directory first on PATH. Check: sh scripts/makensis.test.sh
+here=$(cd "$(dirname "$0")" && pwd -P)
+
+# The real makensis is the first one on PATH that is not this wrapper.
+real=$(IFS=:; for d in $PATH; do
+  [ -x "$d/makensis" ] && [ "$(cd "$d" && pwd -P)" != "$here" ] && { echo "$d/makensis"; break; }
+done)
+[ -n "$real" ] || { echo "makensis not found (sudo apt install nsis)" >&2; exit 127; }
+
+# `makensis -VERSION` prints e.g. v3.08-2 or v3.13.
+older=$("$real" -VERSION 2>/dev/null | awk '{ sub(/^[^0-9]+/, ""); split($0, v, /[^0-9]+/)
+  print (v[1] != "" && (v[1] + 0 < 3 || (v[1] + 0 == 3 && v[2] + 0 < 9))) }')
+[ "$older" = 1 ] && set -- "-X!addincludedir \"$(dirname "$here")/nsis/include\"" "$@"
+exec "$real" "$@"

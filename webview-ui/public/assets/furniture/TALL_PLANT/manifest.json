@@ -1,0 +1,16 @@
+{
+  "id": "TALL_PLANT",
+  "name": "Tall Plant (2.5D)",
+  "category": "decor",
+  "type": "asset",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 0,
+  "width": 11,
+  "height": 23,
+  "footprintW": 1,
+  "footprintH": 1,
+  "visual": {
+    "shadowPreset": "ground"
+  }
+}

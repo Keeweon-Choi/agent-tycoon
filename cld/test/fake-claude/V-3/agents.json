@@ -1,0 +1,28 @@
+[
+ {
+  "cwd": "/work/api",
+  "kind": "interactive",
+  "startedAt": 1792550001000,
+  "sessionId": "b0000001-0000-4000-8000-000000000001",
+  "pid": 2101,
+  "name": "api-refactor",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/docs",
+  "kind": "interactive",
+  "startedAt": 1792550002000,
+  "sessionId": "b0000002-0000-4000-8000-000000000002",
+  "pid": 2102,
+  "name": "docs-site",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/web",
+  "kind": "interactive",
+  "startedAt": 1792550003000,
+  "sessionId": "b0000003-0000-4000-8000-000000000003",
+  "pid": 2103,
+  "status": "idle"
+ }
+]

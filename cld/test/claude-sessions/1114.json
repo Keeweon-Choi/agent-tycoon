@@ -1,0 +1,25 @@
+{
+ "pid": 1114,
+ "sessionId": "c0000000-0000-4000-8000-000000000014",
+ "cwd": "/work/project-9",
+ "startedAt": 1798629889084,
+ "procStart": "300013",
+ "version": "2.1.283",
+ "peerProtocol": 1,
+ "peerFeatures": [
+  "notify_idle",
+  "reply_across_default_dirs",
+  "artifact_yield"
+ ],
+ "kind": "interactive",
+ "entrypoint": "cli",
+ "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+ "tmux": "office:@1.%14",
+ "messagingSocketPath": "/run/user/1000/cc-socks/1114.sock",
+ "name": "session-13",
+ "nameSource": "user",
+ "nameSince": 1798629889085,
+ "updatedAt": 1798800477797,
+ "status": "shell",
+ "statusUpdatedAt": 1798800477797
+}

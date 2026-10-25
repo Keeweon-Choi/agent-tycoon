@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Tycoon</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Agent Tycoon</h1>
+
+    <section id="welcome" hidden>
+      <h2>어디서 사무실을 열까요?</h2>
+      <div class="choices">
+        <button type="button" id="here" class="choice">
+          <strong>이 컴퓨터에서 시작</strong>
+          <span>에이전트가 이 컴퓨터에서 일합니다. 필요한 것은 앱이 설치해요.</span>
+        </button>
+        <button type="button" id="elsewhere" class="choice ghost">
+          <strong>다른 컴퓨터에 연결</strong>
+          <span>이미 사무실이 있는 컴퓨터(호스트)에 붙습니다.</span>
+        </button>
+      </div>
+    </section>
+
+    <form id="where" hidden>
+      <h2>에이전트가 어디서 일할까요?</h2>
+      <div id="where-list" class="choices"><p class="detail">이 컴퓨터를 살펴보는 중…</p></div>
+      <details>
+        <summary>자세히</summary>
+        <p id="where-detail" class="detail"></p>
+      </details>
+      <p id="where-error" class="detail error" role="alert"></p>
+      <div class="row">
+        <button type="submit">시작</button>
+        <button type="button" id="where-back" class="ghost">뒤로</button>
+      </div>
+    </form>
+
+    <section id="status" hidden>
+      <p id="where-line" class="where-line" hidden></p>
+      <p id="status-line">불러오는 중…</p>
+      <p id="status-detail" class="detail"></p>
+      <p id="tailscale-help" class="detail" hidden>
+        이 기기에 Tailscale이 설치·로그인돼 있는지 확인하세요.
+        <a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a>
+      </p>
+
+      <ol id="steps" class="steps" hidden></ol>
+
+      <div id="install" hidden>
+        <p id="install-adopt" class="detail" hidden>예전에 설치한 사무실이 있지만 지금 응답하지 않습니다. 다시 켜지는 중이면 잠시 뒤 <b>다시 연결</b>을 누르세요.
+          <b>설치</b>를 누르면 예전 사무실의 자동 시작을 끄고 Agent Tycoon이 이어받습니다. 데이터는 그대로 두고, 나중에 되돌릴 수 있어요.</p>
+        <fieldset id="policy" hidden>
+          <legend>Agent Tycoon을 언제 실행할까요?</legend>
+          <label><input type="radio" name="policy" value="on-demand" checked> 필요할 때만 — 사무실을 열면 시작 (추천)</label>
+          <label><input type="radio" name="policy" value="always"> 항상 — 컴퓨터를 켜면 시작, 휴대폰이 언제든 들어옴</label>
+          <label><input type="radio" name="policy" value="manual"> 수동 — 저절로 시작하지 않음</label>
+        </fieldset>
+        <details>
+          <summary>자세히</summary>
+          <p class="detail">이 앱에 들어 있는 사무실 프로그램(서명 확인)을 설치 관리자(agty install)에게 넘깁니다. 인터넷이 없어도 됩니다.
+WSL을 고르면 그 배포판 안 ~/.local/share/agent-tycoon 에, Windows는 %LOCALAPPDATA%\AgentTycoon 에, Linux는 ~/.local/share/agent-tycoon, macOS는 ~/Library/Application Support/AgentTycoon 에 설치하고 자동 시작(사용자 서비스 agent-tycoon)을 등록합니다.
+예전 소스 설치(cld-gui 서비스)는 데이터를 그대로 둔 채 이어받고, agty revert-adopt 로 되돌릴 수 있습니다. 지울 때는 agty uninstall --program 입니다.</p>
+        </details>
+        <div class="row">
+          <button type="button" id="install-go">설치</button>
+        </div>
+      </div>
+
+      <div id="start" hidden>
+        <p class="detail">직접 시작하도록 정해 두었어요.</p>
+        <div class="row">
+          <button type="button" id="start-go">시작</button>
+        </div>
+      </div>
+
+      <div id="leftover" hidden>
+        <p>이 컴퓨터에 남은 것</p>
+        <ul id="leftover-list" class="detail"></ul>
+      </div>
+
+      <details id="lines-box" hidden>
+        <summary>자세히</summary>
+        <pre id="lines"></pre>
+      </details>
+
+      <div id="hostkey" hidden>
+        <p class="detail">아래 지문이 호스트의 키와 같을 때만 수락하세요. 호스트에서
+          <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>로 볼 수 있습니다.</p>
+        <p><code id="hostkey-fp"></code></p>
+        <div class="row">
+          <button type="button" id="hostkey-accept">수락</button>
+        </div>
+      </div>
+
+      <form id="password" hidden>
+        <label>호스트 비밀번호(한 번만): 이 기기 키를 등록합니다
+          <input name="password" type="password" autocomplete="off" required>
+        </label>
+        <p class="detail">비밀번호는 저장하지 않습니다.</p>
+        <div class="row">
+          <button type="submit">등록</button>
+        </div>
+      </form>
+
+      <details id="other-box" hidden>
+        <summary>자세히</summary>
+        <p class="detail">이 컴퓨터를 보고 고른 곳입니다. 다른 WSL 배포판이나 Windows에서 바로 실행하려면:</p>
+        <button type="button" id="other" class="ghost">다른 방식으로 실행</button>
+      </details>
+
+      <div class="row">
+        <button type="button" id="retry">다시 연결</button>
+        <button type="button" id="to-settings" class="ghost">설정</button>
+      </div>
+    </section>
+
+    <form id="settings" hidden>
+      <h2>연결 설정</h2>
+      <div class="modes">
+        <label><input type="radio" name="mode" value="tailscale"> 주소 · 초대 링크</label>
+        <label><input type="radio" name="mode" value="ssh"> SSH 터널</label>
+        <label><input type="radio" name="mode" value="local"> 이 컴퓨터</label>
+      </div>
+
+      <fieldset data-mode="local">
+        <p id="local-now" class="detail"></p>
+        <p class="detail">다음을 누르면 이 컴퓨터에서 실행할 곳을 고릅니다. 이미 설치돼 있으면 그대로 씁니다.</p>
+      </fieldset>
+
+      <fieldset data-mode="tailscale">
+        <label>오피스 주소 또는 초대 링크
+          <input name="url" type="url" required spellcheck="false" placeholder="https://…/login?code=…">
+        </label>
+        <label>로그인 코드 (주소만 넣었을 때, 8자리)
+          <input name="code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="1234 5678">
+        </label>
+        <p class="detail">휴대폰의 "기기 추가"가 보여 주는 주소와 코드예요. 초대 링크를 붙여 넣으면 코드는 필요 없어요.</p>
+      </fieldset>
+
+      <fieldset data-mode="ssh">
+        <label>SSH 대상 (user@host)
+          <input name="sshTarget" required spellcheck="false" placeholder="user@myhost.example">
+        </label>
+        <label>SSH 포트
+          <input name="sshPort" type="number" min="1" max="65535" required>
+        </label>
+        <label>로컬 포트
+          <input name="localPort" type="number" min="1" max="65535" required>
+        </label>
+        <details>
+          <summary>고급</summary>
+          <label>원격 포트
+            <input name="remotePort" type="number" min="1" max="65535" required>
+          </label>
+          <label>로그인 명령
+            <input name="loginCommand" required spellcheck="false">
+          </label>
+        </details>
+        <div class="device-key">
+          <p>이 기기 키</p>
+          <p class="detail"><code id="key-fp">…</code></p>
+          <div class="row">
+            <button type="button" id="key-register" class="ghost">다시 등록</button>
+            <button type="button" id="key-forget" class="ghost">키 지우기</button>
+          </div>
+        </div>
+      </fieldset>
+
+      <p id="error" class="detail error" role="alert"></p>
+      <div class="row">
+        <button type="submit" id="save">저장하고 연결</button>
+        <button type="button" id="cancel" class="ghost">취소</button>
+      </div>
+    </form>
+
+    <p class="keys">F11 전체 화면 · Ctrl+Shift+T 항상 위 · Ctrl+, 설정 · Ctrl+R 새로고침</p>
+  </main>
+</body>
+</html>

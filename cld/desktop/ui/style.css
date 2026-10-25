@@ -1,0 +1,247 @@
+/* Pixel style: sharp corners, 2px borders, hard offset shadows (same look as the office). */
+:root {
+  color-scheme: dark;
+  --bg: #1e1e2e;
+  --panel: #282840;
+  --border: #5a5a80;
+  --accent: #8be9fd;
+  --text: #e6e6f0;
+  --muted: #a6a6c0;
+  --error: #ff8080;
+  --shadow: 2px 2px 0 #0a0a14;
+}
+
+* {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 'Malgun Gothic', 'Apple SD Gothic Neo', system-ui, sans-serif;
+}
+
+main {
+  width: min(460px, 100% - 32px);
+  margin: 24px 0;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 24px;
+  letter-spacing: 2px;
+  text-shadow: var(--shadow);
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+
+main > section,
+main > form {
+  padding: 16px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  box-shadow: 4px 4px 0 #0a0a14;
+}
+
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+label {
+  display: block;
+  margin: 10px 0;
+}
+
+.modes label {
+  display: inline-block;
+  margin-right: 16px;
+}
+
+input:not([type='radio']) {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid var(--border);
+  font: inherit;
+}
+
+input:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button {
+  padding: 6px 16px;
+  background: var(--accent);
+  color: #11111b;
+  border: 2px solid #0a0a14;
+  box-shadow: var(--shadow);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+summary {
+  margin: 10px 0 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+#status-line {
+  margin: 0;
+  font-size: 18px;
+}
+
+.detail {
+  white-space: pre-line;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+code {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.device-key {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 2px solid var(--border);
+}
+
+.device-key p {
+  margin: 4px 0;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+a {
+  color: var(--accent);
+}
+
+.keys {
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.choices {
+  display: grid;
+  gap: 10px;
+}
+
+button.choice {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+button.choice span {
+  font-size: 13px;
+}
+
+.choices label {
+  margin: 0;
+  padding: 8px 10px;
+  border: 2px solid var(--border);
+  cursor: pointer;
+}
+
+.choices label:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.choices label small {
+  display: block;
+  margin-left: 22px;
+  color: var(--muted);
+}
+
+legend {
+  padding: 0;
+  margin-top: 12px;
+}
+
+.steps {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  color: var(--muted);
+}
+
+.steps li.done {
+  color: var(--text);
+}
+
+.steps li.done::marker {
+  content: '✓  ';
+}
+
+.steps li.now {
+  color: var(--accent);
+}
+
+.steps li.failed {
+  color: var(--error);
+}
+
+pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  color: var(--muted);
+  font: 12px/1.4 Consolas, 'Cascadia Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.where-line {
+  margin: 0 0 8px;
+  color: var(--accent);
+}
+
+[hidden] {
+  display: none !important;
+}

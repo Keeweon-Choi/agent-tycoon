@@ -1,0 +1,263 @@
+{
+  "v": 2,
+  "tasks": [
+    {
+      "id": "F-1",
+      "project": "demo",
+      "title": "로그인 화면 다듬기",
+      "status": "done",
+      "source": "reported",
+      "createdAt": "2026-10-20T09:00:00+09:00",
+      "updatedAt": "2026-10-21T18:30:00+09:00",
+      "history": [
+        {
+          "at": "2026-10-20T09:00:00+09:00",
+          "by": "cli",
+          "change": "import"
+        },
+        {
+          "at": "2026-10-21T10:00:00.000Z",
+          "by": "demo",
+          "change": "status todo → doing"
+        },
+        {
+          "at": "2026-10-21T18:30:00+09:00",
+          "by": "cli",
+          "change": "import"
+        }
+      ],
+      "priority": "P0",
+      "note": "버튼 간격만 남았다가 끝남",
+      "owner": {
+        "kind": "worker",
+        "name": "디자인 워커"
+      },
+      "goal": "UX & Onboarding",
+      "branch": "task/f1",
+      "statusSource": "reported"
+    },
+    {
+      "id": "F-2",
+      "project": "demo",
+      "title": "백업 내보내기 초안",
+      "status": "review",
+      "source": "reported",
+      "createdAt": "2026-10-21T08:00:00+09:00",
+      "updatedAt": "2026-10-22T12:00:00+09:00",
+      "history": [
+        {
+          "at": "2026-10-21T08:00:00+09:00",
+          "by": "cli",
+          "change": "import"
+        },
+        {
+          "at": "2026-10-22T12:00:00+09:00",
+          "by": "demo",
+          "change": "status doing → review, links"
+        }
+      ],
+      "priority": "P1",
+      "note": "검토 대기",
+      "owner": {
+        "kind": "codex",
+        "name": "Codex 작업"
+      },
+      "goal": "Release Candidate",
+      "branch": "task/codex-1022-110000",
+      "links": [
+        {
+          "kind": "codex",
+          "ref": "1022-110000-demo"
+        }
+      ],
+      "statusSource": "reported",
+      "executions": [
+        {
+          "id": "codex:1022-110000-demo",
+          "kind": "codex",
+          "ref": "1022-110000-demo"
+        }
+      ]
+    },
+    {
+      "id": "F-3",
+      "project": "demo",
+      "title": "학습 스크립트 한 번 돌리기",
+      "status": "doing",
+      "source": "reported",
+      "createdAt": "2026-10-22T13:00:00+09:00",
+      "updatedAt": "2026-10-22T13:05:00.000Z",
+      "history": [
+        {
+          "at": "2026-10-22T13:00:00+09:00",
+          "by": "cli",
+          "change": "add"
+        },
+        {
+          "at": "2026-10-22T13:05:00.000Z",
+          "by": "cli",
+          "change": "status todo → doing, links"
+        }
+      ],
+      "priority": "P2",
+      "owner": {
+        "kind": "lead",
+        "name": "demo"
+      },
+      "links": [
+        {
+          "kind": "job",
+          "ref": "1022-130500-demo"
+        },
+        {
+          "kind": "url",
+          "ref": "https://example.invalid/run/3"
+        },
+        {
+          "kind": "codex",
+          "ref": "1022-131000-demo"
+        }
+      ],
+      "statusSource": "reported",
+      "executions": [
+        {
+          "id": "job:1022-130500-demo",
+          "kind": "job",
+          "ref": "1022-130500-demo"
+        },
+        {
+          "id": "codex:1022-131000-demo",
+          "kind": "codex",
+          "ref": "1022-131000-demo"
+        }
+      ]
+    },
+    {
+      "id": "F-4",
+      "project": "other",
+      "title": "설치 안내 문구",
+      "status": "todo",
+      "source": "reported",
+      "createdAt": "2026-10-22T15:00:00+09:00",
+      "updatedAt": "2026-10-22T15:00:00+09:00",
+      "history": [
+        {
+          "at": "2026-10-22T15:00:00+09:00",
+          "by": "cli",
+          "change": "import"
+        }
+      ],
+      "priority": "later",
+      "note": "",
+      "owner": {
+        "kind": "unassigned",
+        "name": ""
+      },
+      "goal": "Desktop & Installer",
+      "statusSource": "reported"
+    },
+    {
+      "id": "F-5",
+      "project": "other",
+      "title": "권한 오류 재현",
+      "status": "blocked",
+      "source": "reported",
+      "createdAt": "2026-10-22T16:00:00+09:00",
+      "updatedAt": "2026-10-23T09:00:00+09:00",
+      "history": [
+        {
+          "at": "2026-10-22T16:00:00+09:00",
+          "by": "cli",
+          "change": "import"
+        },
+        {
+          "at": "2026-10-23T09:00:00+09:00",
+          "by": "other",
+          "change": "status doing → blocked, note"
+        }
+      ],
+      "priority": "P0",
+      "note": "재현 환경이 없음\n두 줄 메모",
+      "owner": {
+        "kind": "subagent",
+        "name": "조사 서브에이전트"
+      },
+      "goal": "Security",
+      "detail": "로그를 먼저 모은다",
+      "worktree": "/tmp/demo/.worktrees/f5",
+      "statusSource": "reported"
+    },
+    {
+      "id": "T-7",
+      "project": "demo",
+      "title": "주인 없는 할 일",
+      "status": "todo",
+      "source": "reported",
+      "createdAt": "2026-10-23T10:00:00.000Z",
+      "updatedAt": "2026-10-23T10:00:00.000Z",
+      "history": [
+        {
+          "at": "2026-10-23T10:00:00.000Z",
+          "by": "gui:iPhone",
+          "change": "add"
+        }
+      ],
+      "statusSource": "reported"
+    },
+    {
+      "id": "F-6",
+      "project": "demo",
+      "title": "끝난 Codex 작업 두 개",
+      "status": "done",
+      "source": "reported",
+      "createdAt": "2026-10-19T09:00:00+09:00",
+      "updatedAt": "2026-10-19T20:00:00+09:00",
+      "history": [
+        {
+          "at": "2026-10-19T09:00:00+09:00",
+          "by": "cli",
+          "change": "import"
+        },
+        {
+          "at": "2026-10-19T20:00:00+09:00",
+          "by": "cli",
+          "change": "status review → done"
+        }
+      ],
+      "priority": "P1",
+      "note": "합침",
+      "owner": {
+        "kind": "user",
+        "name": "사장"
+      },
+      "goal": "Core Orchestration",
+      "links": [
+        {
+          "kind": "codex",
+          "ref": "1019-090000-demo"
+        },
+        {
+          "kind": "codex",
+          "ref": "1019-120000-demo"
+        }
+      ],
+      "externalRef": {
+        "system": "jira",
+        "key": "DEMO-6"
+      },
+      "statusSource": "reported",
+      "executions": [
+        {
+          "id": "codex:1019-090000-demo",
+          "kind": "codex",
+          "ref": "1019-090000-demo"
+        },
+        {
+          "id": "codex:1019-120000-demo",
+          "kind": "codex",
+          "ref": "1019-120000-demo"
+        }
+      ]
+    }
+  ]
+}

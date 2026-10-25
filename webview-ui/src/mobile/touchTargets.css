@@ -1,0 +1,26 @@
+/* UI-AUDIT-MOBILE: on the phone every button, tab, summary, select, text field and checkbox row is at least 44 px high, and a
+   button or tab 44 px wide (a drawn "×" or "+" included): the Apple/Material finger size. Real size, not a
+   hidden hit area: neighbours in a row or a list would steal each other's edges from an invisible ::after.
+   The base layer, so a utility that sets its own min-height or min-width (min-h-0, min-w-0) keeps it.
+   The query is MOBILE_MEDIA_QUERY (constants.ts), the one the phone shell itself switches on.
+   `data-touch-compact` opts a strip out on purpose (the terminal's tab strip while the software keyboard
+   leaves the terminal few rows, T-0078). */
+@layer base {
+  @media (max-width: 768px), ((pointer: coarse) and (max-width: 1024px)) {
+    :where(
+        button,
+        [role='tab'],
+        summary,
+        select,
+        label:has(> input:is([type='checkbox'], [type='radio'])),
+        input:is([type='text'], [type='number'], [type='search'], [type='password'], :not([type]))
+      ):not(
+        :where([data-touch-compact], [data-touch-compact] *)
+      ) {
+      min-height: 44px;
+    }
+    :where(button, [role='tab']):not(:where([data-touch-compact], [data-touch-compact] *)) {
+      min-width: 44px;
+    }
+  }
+}

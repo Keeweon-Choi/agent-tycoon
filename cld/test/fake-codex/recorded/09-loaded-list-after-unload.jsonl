@@ -1,0 +1,8 @@
+{"scenario":"thread/loaded/list after a disconnected client's threads unloaded","codexVersion":"0.156.1","transport":"WebSocket text frames over the Unix control socket"}
+{"t":6,"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"<string>","version":"<string>"},"capabilities":{"experimentalApi":true}}}}
+{"t":7,"dir":"in","msg":{"id":1,"result":{"userAgent":"<string>","codexHome":"<path>","platformFamily":"unix","platformOs":"linux"}}}
+{"t":7,"dir":"in","msg":{"method":"configWarning","params":{"summary":"<string>","details":null},"emittedAtMs":1792631908198}}
+{"t":7,"dir":"in","msg":{"method":"remoteControl/status/changed","params":{"status":"disabled","serverName":"<string>","installationId":"<uuid-1>","environmentId":null},"emittedAtMs":1792631908198}}
+{"t":476,"dir":"out","msg":{"jsonrpc":"2.0","method":"initialized"}}
+{"t":476,"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"thread/loaded/list","params":{}}}
+{"t":477,"dir":"in","msg":{"id":2,"result":{"data":[],"nextCursor":null}}}

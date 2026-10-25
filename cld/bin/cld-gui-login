@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Login codes from the host (T-0002, T-0022). Talks to the daemon over loopback
+# with the host token; the long-lived token never goes into a URL.
+#
+#   cld-gui-login            in a terminal: an 8-digit code (as --short);
+#                            piped or over ssh: the 60 s link code, bare (the
+#                            desktop app and connect scripts read this)
+#   cld-gui-login --short    8-digit code to type on the login page, 5 minutes
+#   cld-gui-login --link     a 60 s /login?code=… link
+#   cld-gui-login --qr       a QR code and its link, 10 minutes (first device)
+#   cld-gui-login --approve <123456>
+#                            approve another device's login request (only when
+#                            the daemon runs with --allow-approval-requests)
+set -euo pipefail
+
+here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+token_file=${CLD_GUI_TOKEN_FILE:-"$HOME/.pixel-agents/standalone-token"}
+config="$HOME/.config/cld-gui/config.json"
+port=${CLD_GUI_PORT:-$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["port"]))' "$config" 2>/dev/null || echo 18240)}
+# Where a new device opens the link, for a daemon too old to say (T-0024: the
+# daemon answers with its canonical address, the secret path included).
+public_host=$(python3 -c 'import json,sys; h=json.load(open(sys.argv[1])).get("allowedHosts") or []; print(h[0] if h and isinstance(h[0], str) else "")' "$config" 2>/dev/null || true)
+if [[ -n "$public_host" ]]; then base="https://$public_host"; else base="http://localhost:$port"; fi
+
+mode=${1:-}
+if [[ -z "$mode" ]]; then
+  if [[ -t 1 ]]; then mode=--short; else mode=--bare; fi
+fi
+case "$mode" in
+  --short) body='{"short":true}' ;;
+  --qr) body='{"qr":true}' ;;
+  --link | --bare) body='{}' ;;
+  --approve)
+    approve=${2:-}
+    if [[ ! "$approve" =~ ^[0-9]{6}$ ]]; then
+      printf '%s\n' '승인할 6자리 코드를 주세요: cld-gui-login --approve 123456' >&2
+      exit 2
+    fi
+    ;;
+  -h | --help)
+    sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+  *)
+    printf '알 수 없는 옵션: %s (--help)\n' "$mode" >&2
+    exit 2
+    ;;
+esac
+
+if [[ ! -f "$token_file" ]]; then
+  printf '%s\n' '토큰 파일을 찾을 수 없습니다.' >&2
+  exit 1
+fi
+
+post() { # path json
+  printf 'Authorization: Bearer %s\n' "$(<"$token_file")" |
+    curl --silent --show-error --connect-timeout 5 -H @- -H 'Content-Type: application/json' \
+      --data "$2" -w '\n%{http_code}' -X POST "http://127.0.0.1:${port}$1"
+}
+
+if [[ "$mode" == --approve ]]; then
+  if ! response=$(post /api/device-approval "{\"code\":\"$approve\"}"); then
+    printf '%s\n' '데몬에 연결할 수 없습니다.' >&2
+    exit 1
+  fi
+  status=${response##*$'\n'}
+  if [[ "$status" == 200 && "${response%$'\n'*}" != *'"ok":true'* ]]; then status=500; fi
+  case "$status" in
+    200) printf '%s\n' "승인했습니다: $approve" ;;
+    404) printf '%s\n' '승인 요청 기능이 꺼져 있습니다 (--allow-approval-requests).' >&2; exit 1 ;;
+    429) printf '%s\n' '시도가 너무 많습니다. 잠시 후 다시 하세요.' >&2; exit 1 ;;
+    *) printf '%s\n' '그 코드의 승인 요청이 없거나 만료됐습니다.' >&2; exit 1 ;;
+  esac
+  exit 0
+fi
+
+if ! response=$(post /api/login-code "$body") || [[ "${response##*$'\n'}" != 200 ]]; then
+  printf '%s\n' '데몬에 연결할 수 없습니다.' >&2
+  exit 1
+fi
+if ! parsed=$(printf '%s' "${response%$'\n'*}" | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d.get("code"); u=d.get("url"); assert isinstance(c,str) and c; print(c); print(u if isinstance(u,str) and u.startswith(("http://","https://")) else "")' 2>/dev/null); then
+  printf '%s\n' '응답이 올바른 JSON이 아닙니다.' >&2
+  exit 1
+fi
+code=${parsed%%$'\n'*}
+# The canonical address every invitation carries (direct: https://<ip>/<secret>);
+# an older daemon sends none, and $(…) has eaten the empty second line.
+canonical=''
+if [[ "$parsed" == *$'\n'* ]]; then canonical=${parsed#*$'\n'}; fi
+if [[ -n "$canonical" ]]; then base="$canonical"; fi
+
+case "$mode" in
+  --bare) printf '%s\n' "$code" ;;
+  --short)
+    shown="${code:0:4} ${code:4}"
+    if [[ -t 1 ]]; then
+      printf '로그인 코드: %s\n%s 의 로그인 화면에 입력하세요. 5분 동안 한 번만 쓸 수 있어요.\n' "$shown" "$base"
+    else
+      printf '%s\n' "$shown"
+    fi
+    ;;
+  --link) printf '%s\n' "$base/login?code=$code" ;;
+  --qr)
+    url="$base/login?code=$code"
+    node "$here/cld-gui-qr.mjs" "$url" 2>/dev/null || printf '%s\n' '(QR을 그리지 못했습니다: node와 npm 설치를 확인하세요)'
+    printf '%s\n%s\n' "$url" '휴대폰 카메라로 찍거나 링크를 여세요. 10분 동안 한 번만 쓸 수 있어요.'
+    ;;
+esac

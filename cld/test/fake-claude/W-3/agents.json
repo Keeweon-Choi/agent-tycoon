@@ -1,0 +1,29 @@
+[
+ {
+  "cwd": "/work/alpha",
+  "kind": "interactive",
+  "startedAt": 1792550001000,
+  "sessionId": "a0000001-0000-4000-8000-000000000001",
+  "pid": @PPID@,
+  "name": "alpha",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/beta",
+  "kind": "interactive",
+  "startedAt": 1792550002000,
+  "sessionId": "a0000002-0000-4000-8000-000000000002",
+  "pid": @PPID@,
+  "name": "beta",
+  "status": "idle"
+ },
+ {
+  "cwd": "/work/gamma",
+  "kind": "interactive",
+  "startedAt": 1792550003000,
+  "sessionId": "a0000003-0000-4000-8000-000000000003",
+  "pid": @PPID@,
+  "name": "gamma",
+  "status": "idle"
+ }
+]

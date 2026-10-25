@@ -1,0 +1,129 @@
+# Desktop installers (T1): the Agent Tycoon app (cld/desktop, Tauri v2) built natively on each OS
+# and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64), Windows NSIS setup.exe.
+# Same trigger policy as release-bundles.yml: manual dispatch and v* tags only (private-repo macOS
+# and Windows minutes cost several times Linux). No secrets, read-only token.
+# The version comes from one place, src-tauri/Cargo.toml (tauri.conf.json has no version field).
+#
+# UNSIGNED for now (code signing and notarization are P9). What the user sees:
+#   Windows: SmartScreen "Windows protected your PC": More info -> Run anyway.
+#   macOS:   "can't be opened because Apple cannot check it": right-click the app -> Open, or
+#            System Settings -> Privacy & Security -> Open Anyway. A downloaded dmg may also need
+#            `xattr -dr com.apple.quarantine "Agent Tycoon.app"`.
+#   Linux:   no warning; `chmod +x` the AppImage (it needs FUSE 2: libfuse2) or install the .deb.
+# Note: the app is Windows-first (its SSH flow uses Windows OpenSSH); Linux/macOS builds are checked
+# here for "it builds and bundles", not for behaviour.
+
+name: Desktop bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'all, or one OS (macOS minutes cost ten times Linux on a private repo)'
+        type: choice
+        default: all
+        options: [all, linux, macos, windows]
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-bundles-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The OS list, cut to one OS when a dispatch asks (tags build all three).
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - id: pick
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          # ubuntu-22.04, not 24.04: an AppImage built against newer glibc does not run on older distros.
+          # macos-15 is Apple Silicon only (ponytail: no Intel dmg; add macos-15-intel when asked).
+          all='[{"os":"linux","runner":"ubuntu-22.04","bundles":"appimage,deb","files":"appimage/*.AppImage deb/*.deb"},{"os":"macos","runner":"macos-15","bundles":"dmg,app","files":"dmg/*.dmg"},{"os":"windows","runner":"windows-2025","bundles":"nsis","files":"nsis/*-setup.exe"}]'
+          if [ -z "$ONLY" ] || [ "$ONLY" = all ]; then pick="$all"; else pick=$(jq -c --arg o "$ONLY" 'map(select(.os == $o))' <<< "$all"); fi
+          echo "include=$pick" >> "$GITHUB_OUTPUT"
+
+  bundle:
+    needs: plan
+    name: Desktop ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: cld/desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: cld/desktop/package-lock.json
+
+      - name: Linux build libraries
+        if: matrix.os == 'linux'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev \
+            patchelf pkg-config file
+
+      # The app carries the daemon bundle for its OS (T2+P5: build.rs reads <repo>/out/bundles/<target>/ and
+      # stops a release build without it). Test-signed here: no release key in CI, build.mjs makes a throwaway one.
+      - name: Daemon bundles for this OS
+        working-directory: .
+        env:
+          HUSKY: '0'
+        run: |
+          npm ci
+          case "${{ matrix.os }}" in
+            linux) node cld/release/bundle/build.mjs --out out/bundles/linux-x64 ;;
+            macos) node cld/release/bundle/build.mjs --out out/bundles/darwin-arm64 ;;
+            windows)
+              node cld/release/bundle/build.mjs --out out/bundles/win-x64
+              node cld/release/bundle/build.mjs --target linux-x64 --skip-build --out out/bundles/linux-x64 ;;
+          esac
+
+      - name: Install the Tauri CLI
+        run: npm ci
+
+      - name: Build
+        run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      - name: List installers
+        run: |
+          cd src-tauri/target/release/bundle
+          for f in ${{ matrix.files }}; do
+            ls -l "$f"
+            echo "- \`$f\`, $(wc -c < "$f" | tr -d ' ') bytes" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-tycoon-${{ matrix.os }}
+          path: |
+            cld/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            cld/desktop/src-tauri/target/release/bundle/deb/*.deb
+            cld/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            cld/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

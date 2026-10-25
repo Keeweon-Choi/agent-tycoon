@@ -1,0 +1,719 @@
+/* The lobby's LED board (T-0046). Everything is in em: on the wall the board's
+   font size follows the camera, full screen it is 18 px (Galmuri's crisp step).
+   Colours mirror BOARD_COLORS in constants.ts (the canvases use those). */
+:root {
+  --led-screen: #07080d;
+  --led-dot: #121826;
+  --led-grid: #1a2030;
+  --led-track: #1c2233;
+  --led-text: #e8eefc;
+  --led-muted: #8a93ab;
+  --led-cpu: #1a9cc4;
+  --led-ok: #58d46a;
+  --led-warn: #f0b43c;
+  --led-critical: #f0483c;
+  --led-amber: #ffb321;
+  --led-glow: rgba(150, 200, 255, 0.35);
+}
+
+.led-board {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  container-type: inline-size;
+  color: var(--led-text);
+  font-family: var(--font-pixel);
+  line-height: 1.2;
+  text-shadow: 0 0 0.25em var(--led-glow);
+  -webkit-font-smoothing: none;
+  user-select: none;
+}
+.led-board button {
+  font: inherit;
+  color: inherit;
+}
+
+/* On the wall: an opaque LED screen over the sprite's (the room's name the
+   canvas writes at its middle stays under it); the office below takes the
+   pointer, except for the tabs. */
+.led-mini,
+.led-full {
+  background-color: var(--led-screen);
+  background-image: radial-gradient(var(--led-dot) 0.08em, transparent 0.1em);
+  background-size: 0.33em 0.33em;
+}
+.led-mini {
+  pointer-events: none;
+}
+.led-mini .led-tab {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.led-frozen *,
+.led-frozen {
+  animation-play-state: paused !important;
+}
+
+/* Full screen: a framed screen on the dark, LED dots drawn by CSS. */
+.led-full-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #000000d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--cld-safe-top) + 12px) calc(var(--cld-safe-right) + 12px)
+    calc(var(--cld-safe-bottom) + 12px) calc(var(--cld-safe-left) + 12px);
+}
+.led-full {
+  position: relative;
+  width: 48em;
+  height: 16em;
+  max-width: 100%;
+  max-height: 100%;
+  border: 0.5em solid #2b2b45;
+  outline: 2px solid #0a0a14;
+  box-shadow: 2px 2px 0px #0a0a14;
+}
+.led-full .led-body {
+  overflow-y: auto;
+}
+/* A phone: the board as wide as the screen, as tall as it needs. */
+.led-full.led-full-narrow {
+  width: 100%;
+  height: auto;
+  overflow-y: auto;
+}
+.led-full-narrow .led-body {
+  flex: none;
+  overflow: visible;
+}
+.led-close {
+  position: absolute;
+  top: calc(var(--cld-safe-top) + 12px);
+  right: calc(var(--cld-safe-right) + 12px);
+  width: 44px;
+  height: 44px;
+  font-family: var(--font-pixel);
+  font-size: 22px;
+  color: var(--led-text);
+  background: #2b2b45;
+  border: 2px solid #4d4d75;
+  box-shadow: 2px 2px 0px #0a0a14;
+}
+
+/* ── Head: the page tabs and a clock ── */
+.led-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  flex: none;
+  height: 1.7em;
+  padding: 0 0.4em;
+  border-bottom: 0.1em solid var(--led-grid);
+}
+.led-tab {
+  padding: 0.05em 0.5em;
+  color: var(--led-muted);
+  background: none;
+  border: 0;
+}
+.led-tab[aria-selected='true'] {
+  color: var(--led-screen);
+  background: var(--led-amber);
+  text-shadow: none;
+}
+.led-amber {
+  color: var(--led-amber);
+}
+.led-clock {
+  margin-left: auto;
+  color: var(--led-amber);
+  letter-spacing: 0.1em;
+}
+
+/* The bottom line: news scrolling by in whole LED steps. */
+.led-ticker {
+  flex: none;
+  height: 1.4em;
+  line-height: 1.4em;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--led-amber);
+  border-top: 0.1em solid var(--led-grid);
+}
+.led-ticker-run {
+  display: inline-block;
+  padding-left: 100%;
+  animation: led-marquee 40s steps(400) infinite;
+}
+@keyframes led-marquee {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+.led-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0.35em 0.5em;
+  overflow: hidden;
+}
+.led-muted {
+  color: var(--led-muted);
+}
+.led-empty {
+  color: var(--led-muted);
+  padding: 1em 0.5em;
+}
+.led-warn {
+  color: var(--led-warn);
+}
+.led-more {
+  color: var(--led-muted);
+  padding-left: 1em;
+}
+
+/* ── 프로젝트 ── */
+.led-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.06em;
+}
+.led-row {
+  display: grid;
+  grid-template-columns: 8em 5em 4.2em minmax(7em, 11em) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.5em;
+  min-height: 1.25em;
+  white-space: nowrap;
+}
+.led-row-head {
+  color: var(--led-amber);
+  min-height: 1.1em;
+}
+.led-row > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.led-dot {
+  flex: none;
+  width: 0.55em;
+  height: 0.55em;
+}
+.led-blink-waiting {
+  animation: led-blink 1.6s steps(1) infinite;
+}
+.led-blink-permission {
+  animation: led-blink 0.6s steps(1) infinite;
+}
+@keyframes led-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.led-state {
+  color: var(--led-muted);
+}
+.led-row[data-ring='permission'] .led-state {
+  color: var(--led-text);
+}
+.led-fatigue {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.led-meter {
+  flex: none;
+  display: inline-block;
+  width: 1.8em;
+  height: 0.45em;
+  background: var(--led-track);
+}
+.led-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--led-cpu);
+}
+.led-tone-warn .led-meter > i {
+  background: var(--led-warn);
+}
+.led-tone-critical .led-meter > i {
+  background: var(--led-critical);
+}
+.led-tone-ok .led-meter > i,
+.led-tone-normal .led-meter > i {
+  background: var(--led-ok);
+}
+/* One line: "<work> · <outcome>", cut with an ellipsis (the full line is its title). */
+.led-counts {
+  display: block;
+}
+.led-last {
+  color: var(--led-muted);
+}
+
+/* ── H/W ── */
+.led-hw {
+  display: flex;
+  gap: 0.8em;
+  height: 100%;
+}
+.led-graphs {
+  flex: 1.25;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+.led-graph {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.led-graph figcaption > span {
+  color: var(--led-amber);
+}
+.led-graph figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+.led-graph canvas {
+  flex: 1;
+  min-height: 2em;
+  border: 0.1em solid var(--led-grid);
+}
+.led-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+.led-side {
+  flex: 1.1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+/* A detail needs the room: the graphs shrink to a strip. */
+.led-hw[data-detail='cpu'] .led-graphs {
+  flex: 0.55;
+}
+.led-hw[data-detail='cpu'] .led-side {
+  flex: 1.9;
+}
+/* Things a tap opens. */
+.led-pick {
+  cursor: pointer;
+}
+.led-pick:hover canvas {
+  border-color: var(--led-muted);
+}
+/* WSL <-> Windows: the side being shown lights up. */
+.led-hw-toggle {
+  align-self: flex-end;
+  padding: 0 0.4em;
+  background: none;
+  border: 0.1em solid var(--led-grid);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.led-hw-toggle b {
+  font-weight: normal;
+  color: var(--led-muted);
+}
+.led-hw-toggle b.led-on {
+  color: var(--led-screen);
+  background: var(--led-amber);
+  text-shadow: none;
+  padding: 0 0.2em;
+}
+.led-mini .led-hw-toggle {
+  cursor: default;
+}
+button.led-donut,
+button.led-temp,
+.led-hwpicked-head {
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button.led-donut:hover,
+button.led-temp:hover,
+.led-hwpicked-head:hover {
+  background: var(--led-track);
+}
+/* Usage rings: as many as fit a row, then the next row. */
+.led-donuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(3.3em, 1fr));
+  gap: 0.2em 0.2em;
+}
+.led-mini .led-donuts {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.led-donut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+.led-donut > * {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-donut-label {
+  color: var(--led-amber);
+}
+.led-donut-ring {
+  position: relative;
+  width: 2.9em;
+  height: 2.9em;
+  margin-bottom: 0.1em;
+}
+.led-donut-ring > b {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: normal;
+}
+.led-slot-more {
+  align-self: center;
+  justify-self: center;
+}
+/* Temperature bars: two columns where there is room. */
+.led-temps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10em, 1fr));
+  gap: 0.1em 0.8em;
+}
+.led-temp {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr) 3.6em;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+  white-space: nowrap;
+}
+.led-temp-label {
+  color: var(--led-amber);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-temp .led-meter {
+  width: 100%;
+}
+.led-temp-value {
+  text-align: right;
+}
+.led-temp.led-tone-ok .led-meter > i {
+  background: var(--led-cpu);
+}
+.led-temp.led-tone-warn .led-temp-value {
+  color: var(--led-warn);
+}
+.led-temp.led-tone-critical .led-temp-value {
+  color: var(--led-critical);
+}
+.led-hwline-name {
+  color: var(--led-amber);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The one detail open. */
+.led-hwpicked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  padding: 0.2em 0.3em;
+  border: 0.1em solid var(--led-grid);
+}
+.led-hwpicked-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  color: var(--led-amber);
+  white-space: nowrap;
+}
+.led-detail {
+  display: grid;
+  grid-template-columns: 5.2em minmax(0, 1fr) 6.2em;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+.led-detail .led-meter {
+  width: 100%;
+  height: 0.7em;
+}
+.led-detail .led-temp-value {
+  text-align: right;
+}
+.led-detail.led-tone-ok .led-meter > i {
+  background: var(--led-cpu);
+}
+/* The CPU's overall figures in a wrapping line, then its cores in columns of rows. */
+.led-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.9em;
+  white-space: nowrap;
+}
+.led-figure.led-tone-warn {
+  color: var(--led-warn);
+}
+.led-figure.led-tone-critical {
+  color: var(--led-critical);
+}
+.led-cores {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(var(--led-cols, 1), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--led-rows, 1), auto);
+  gap: 0 0.8em;
+}
+.led-core {
+  display: grid;
+  grid-template-columns: 4.6em 4.4em 2.4em minmax(2.4em, 1fr);
+  gap: 0 0.3em;
+  white-space: nowrap;
+  /* the core's load as a wash behind its row */
+  background: linear-gradient(90deg, var(--led-track) calc(var(--load, 0) * 1%), transparent 0);
+}
+.led-core > span {
+  overflow: hidden;
+}
+.led-core > :nth-child(n + 2) {
+  text-align: right;
+}
+.led-core .led-tone-warn {
+  color: var(--led-warn);
+}
+.led-core .led-tone-critical {
+  color: var(--led-critical);
+}
+/* ── GPU: the GPU box, who works at it, and the line waiting for it ── */
+.led-gpu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 0.3em;
+}
+.led-stage {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8em;
+  padding-bottom: 0.25em;
+  /* the rope the line stands along, in pixel dashes */
+  background: repeating-linear-gradient(90deg, var(--led-muted) 0 0.4em, transparent 0.4em 0.7em)
+    bottom / 100% 0.12em no-repeat;
+}
+.led-station {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2em;
+}
+.led-gpu-box {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.25em;
+  width: 4.4em;
+  height: 3em;
+  padding: 0.3em 0.3em 1.3em;
+  background: #141a2a;
+  border: 0.15em solid #4d4d75;
+  box-shadow: 0.15em 0.15em 0 #0a0a14;
+}
+.led-gpu-box > b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.15em;
+  text-align: center;
+  font-weight: normal;
+  color: var(--led-ok);
+}
+.led-fan {
+  width: 1.3em;
+  height: 1.3em;
+  border: 0.12em solid #4d4d75;
+  background:
+    linear-gradient(var(--led-muted), var(--led-muted)) center / 100% 0.2em no-repeat,
+    linear-gradient(var(--led-muted), var(--led-muted)) center / 0.2em 100% no-repeat;
+}
+.led-gpu-busy .led-fan {
+  animation: led-spin 0.5s steps(2) infinite;
+}
+@keyframes led-spin {
+  to {
+    transform: rotate(90deg);
+  }
+}
+.led-line {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 0.7em;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.led-nobody {
+  align-self: center;
+}
+.led-queuer {
+  flex: none;
+  width: 5.4em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  white-space: nowrap;
+  animation: led-bob 1.4s steps(2) infinite;
+}
+.led-queuer > * {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-queuer-name {
+  font-weight: normal;
+}
+@keyframes led-bob {
+  50% {
+    transform: translateY(-0.12em);
+  }
+}
+.led-tag {
+  display: flex;
+  gap: 0.2em;
+  margin-bottom: 0.1em;
+}
+.led-ticket {
+  padding: 0 0.3em;
+  color: var(--led-screen);
+  background: var(--led-amber);
+  text-shadow: none;
+}
+.led-badge {
+  margin-left: 0.3em;
+  padding: 0 0.25em;
+  color: var(--led-critical);
+  border: 0.1em solid var(--led-critical);
+  text-shadow: none;
+}
+.led-tag .led-badge {
+  margin-left: 0;
+}
+.led-tiny {
+  flex: none;
+  width: 1.75em;
+  height: 3.5em;
+  image-rendering: pixelated;
+}
+.led-gpu-info {
+  min-height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.led-gpu-info > p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-holder > b {
+  font-weight: normal;
+}
+.led-ends {
+  color: var(--led-muted);
+}
+.led-ends > li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A narrow full view (a phone): rows and pages stack. */
+@container (max-width: 32em) {
+  .led-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.1em;
+    padding-bottom: 0.3em;
+    border-bottom: 0.1em solid var(--led-grid);
+  }
+  .led-row-head {
+    display: none;
+  }
+  .led-state {
+    justify-self: end;
+  }
+  .led-fatigue::before {
+    content: attr(data-label);
+    color: var(--led-amber);
+    margin-right: 0.2em;
+  }
+  .led-counts {
+    justify-self: end;
+  }
+  .led-counts::before {
+    content: attr(data-label);
+    color: var(--led-amber);
+    margin-right: 0.4em;
+  }
+  .led-last {
+    grid-column: 1 / -1;
+  }
+  .led-hw {
+    flex-direction: column;
+    height: auto;
+  }
+  .led-hw[data-detail='cpu'] .led-graphs,
+  .led-hw[data-detail='cpu'] .led-side {
+    flex: none;
+  }
+  .led-hw[data-detail='cpu'] .led-graph {
+    height: 4em;
+  }
+  .led-temp-blank {
+    display: none;
+  }
+  .led-cores {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .led-gpu {
+    height: auto;
+  }
+  .led-stage {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .led-graph {
+    height: 7em;
+    flex: none;
+  }
+  .led-line {
+    flex-wrap: wrap;
+    row-gap: 0.6em;
+  }
+  .led-gpu-info {
+    white-space: normal;
+  }
+}

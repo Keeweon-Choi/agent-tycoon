@@ -1,0 +1,17 @@
+{
+  "$comment": "CH-3 mascot headgear colours (compose.ts draws the shapes on each frame's head anchor). o = the 1 px outline around every piece.",
+  "palette": {
+    "o": "#1a1a22",
+    "k": "#3a3f4b",
+    "r": "#e04848",
+    "p": "#e05a7a",
+    "q": "#d04a6a",
+    "P": "#a8304e",
+    "w": "#ffffff",
+    "g": "#4fbf5a",
+    "G": "#7fdc6a",
+    "s": "#2f8a3a",
+    "y": "#ffd23f",
+    "j": "#e04848"
+  }
+}

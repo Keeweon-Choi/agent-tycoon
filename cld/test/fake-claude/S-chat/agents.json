@@ -1,0 +1,42 @@
+[
+ {
+  "cwd": "/work/alpha",
+  "kind": "interactive",
+  "startedAt": 1792550001000,
+  "sessionId": "a0000001-0000-4000-8000-000000000001",
+  "pid": 1101,
+  "name": "alpha-orchestrator",
+  "status": "busy"
+ },
+ {
+  "cwd": "/work/beta",
+  "kind": "background",
+  "startedAt": 1792550003000,
+  "sessionId": "a0000016-0000-4000-8000-000000000022",
+  "id": "a0000016",
+  "pid": @PPID@,
+  "name": "beta-task",
+  "status": "busy",
+  "state": "working"
+ },
+ {
+  "cwd": "/work/gamma",
+  "kind": "background",
+  "startedAt": 1792550004000,
+  "sessionId": "a0000017-0000-4000-8000-000000000023",
+  "id": "a0000017",
+  "pid": @PPID@,
+  "name": "gamma-review",
+  "status": "idle",
+  "state": "blocked"
+ },
+ {
+  "cwd": "/work/delta",
+  "kind": "background",
+  "startedAt": 1792550005000,
+  "sessionId": "a0000018-0000-4000-8000-000000000024",
+  "id": "a0000018",
+  "name": "old-job",
+  "state": "blocked"
+ }
+]

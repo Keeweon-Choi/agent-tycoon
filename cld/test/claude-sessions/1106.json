@@ -1,0 +1,16 @@
+{
+ "pid": 1106,
+ "sessionId": "c0000000-0000-4000-8000-000000000006",
+ "cwd": "/work/project-6",
+ "startedAt": 1792550000000,
+ "procStart": "300005",
+ "version": "2.1.212",
+ "peerProtocol": 1,
+ "kind": "interactive",
+ "entrypoint": "cli",
+ "name": "session-5",
+ "nameSource": "derived",
+ "status": "busy",
+ "updatedAt": 1792550000156,
+ "statusUpdatedAt": 1792550000156
+}

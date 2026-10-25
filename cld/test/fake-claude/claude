@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+// Fake `claude` for tests (T-0003): `claude agents --json`, printed from
+// $FAKE_CLAUDE_SCENARIO/agents.json with @HOME@ replaced (and @PPID@: the
+// caller's pid, a live process for rows that must look alive), and (T-0014)
+// `claude attach <id>`, an echoing prompt (attach.cjs); argv to $FAKE_CLAUDE_LOG.
+// Node, so it runs on Windows too (claude.cmd beside it), where @PPID@ is the short-lived cmd.exe.
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const args = process.argv.slice(2);
+if (process.env.FAKE_CLAUDE_LOG) fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, `${args.join(' ')}\n`);
+if (args[0] === 'attach') {
+  // Its own process, as `exec node attach.cjs` was (tests look for it by its argv).
+  const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, 'attach.cjs'), args[1] ?? ''], { stdio: 'inherit' });
+  process.exit(r.status ?? 1);
+} else {
+  const dir = process.env.FAKE_CLAUDE_SCENARIO;
+  if (!dir) {
+    process.stderr.write('FAKE_CLAUDE_SCENARIO not set\n');
+    process.exit(1);
+  }
+  if (args.join(' ') !== 'agents --json') process.exit(2);
+  process.stdout.write(
+    fs
+      .readFileSync(path.join(dir, 'agents.json'), 'utf8')
+      .replaceAll('@HOME@', process.env.HOME ?? os.homedir())
+      .replaceAll('@PPID@', String(process.ppid)),
+  );
+}
