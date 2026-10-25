@@ -3,26 +3,35 @@
  * frame, three rows: front, back, side), as the owner's first HD example came: each figure
  * resampled to HD pixels (pixelResample.ts: its own grid when it has one, foreground-share
  * sampling, outline kept, holes and strays cleaned), stood on the frame's floor and centred in a
- * 32×64 frame, and laid out as the HD char_N sheet (224×192, density 2). Pure over decoded RGBA.
+ * 32×64 frame, and laid out as the HD char_N sheet (224×192, density 2; 3 and 4 give 48×96 and
+ * 64×128 frames for the resolution study). Pure over decoded RGBA.
  */
 import { mergePalette, type Rgba } from './assetSnap.js';
-import { cleanup, detectGrid, type Grid, phaseFor, resample } from './pixelResample.js';
+import {
+  cleanup,
+  detectGrid,
+  type Grid,
+  type IsBackground,
+  phaseFor,
+  resample,
+} from './pixelResample.js';
 
-const HD_FRAME_W = 32;
-const HD_FRAME_H = 64;
+/** The classic frame (16×32) and its floor: the feet end on row 30 (char_N; HD row 61). */
+const CLASSIC_W = 16;
+const CLASSIC_H = 32;
+const CLASSIC_FLOOR = 30;
 const FRAMES = 7;
 const ROWS = 3;
-/** The classic frames' feet end on row 30 (char_N): HD row 61. */
-const FLOOR_ROW = 61;
 const MAGENTA = [255, 0, 255];
 const BG_DISTANCE = 100;
 /** A frame box is a magenta region at least this large (the title and labels are smaller). */
 const MIN_BOX_PIXELS = 10_000;
 const ROW_SLACK = 40;
 const MAGENTA_LEAD = 40;
-/** A figure stands at most this many HD pixels tall (head on row 2, feet on the floor) and wide. */
-const FIGURE_ROWS = 59;
-const FIGURE_COLS = 30;
+/** A figure stands at most this many classic pixels tall (head on row 1, feet on the floor: 59 HD
+ *  rows) and wide (30 HD columns). */
+const FIGURE_CLASSIC_ROWS = 29.5;
+const FIGURE_CLASSIC_COLS = 15;
 /** The art's own grid is used when its comb stands this clear (else the fit size). */
 const GRID_CONFIDENCE = 0.6;
 const GRID_RANGE = { min: 3, max: 12 };
@@ -44,11 +53,13 @@ export interface HdSheetResult {
     frames: number[][];
     /** Frames the source has no drawing for (filled from the standing frame). */
     missing: string[];
+    /** Per row and frame: where its pixels came from in the source. */
+    places: FigurePlace[][];
   };
 }
 
 /** The magenta boxes, top to bottom then left to right. */
-function boxes(img: Rgba): number[][] {
+export function boxes(img: Rgba): number[][] {
   const { width: W, height: H, data } = img;
   const mag = (i: number) =>
     data[i * 4 + 3] >= 128 && dist(data.subarray(i * 4, i * 4 + 3), MAGENTA) < BG_DISTANCE;
@@ -96,23 +107,27 @@ function regular(found: number[][]): number[][] {
 }
 
 /** Magenta, or a colour the magenta bled into (red and blue both well above green). */
-const magentaish = (r: number, g: number, b: number, a: number) =>
+export const magentaish = (r: number, g: number, b: number, a: number) =>
   a < 128 ||
   dist([r, g, b], MAGENTA) < BG_DISTANCE ||
   (r - g > MAGENTA_LEAD && b - g > MAGENTA_LEAD);
 
 /** The figure's bounding box inside a box: its largest foreground piece (the box's border, a
  *  label or a stray speck are smaller), in source pixels [x0, y0, x1, y1). */
-function figureOf(img: Rgba, [x0, y0, x1, y1]: number[]): number[] | null {
+export function figureOf(
+  img: Rgba,
+  [x0, y0, x1, y1]: number[],
+  isBg: IsBackground = magentaish,
+  /** The box holds no border (it was cut inside one): a piece touching its edge still counts. */
+  borderless = false,
+): number[] | null {
   const w = x1 - x0 + 1;
   const h = y1 - y0 + 1;
   const fg = new Uint8Array(w * h);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const i = ((y0 + y) * img.width + x0 + x) * 4;
-      fg[y * w + x] = magentaish(img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3])
-        ? 0
-        : 1;
+      fg[y * w + x] = isBg(img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]) ? 0 : 1;
     }
   const seen = new Uint8Array(w * h);
   let best: number[] | null = null;
@@ -144,42 +159,134 @@ function figureOf(img: Rgba, [x0, y0, x1, y1]: number[]): number[] | null {
         }
     }
     // the border ring runs along the whole box: never the figure
-    const ring = bx0 === 0 || by0 === 0 || bx1 === w - 1 || by1 === h - 1;
+    const ring = !borderless && (bx0 === 0 || by0 === 0 || bx1 === w - 1 || by1 === h - 1);
     if (!ring && n > bestN) [best, bestN] = [[x0 + bx0, y0 + by0, x0 + bx1 + 1, y0 + by1 + 1], n];
   }
   return best;
 }
 
+/** Where a converted figure's pixels came from: its blocks of `grid.size` source pixels start at
+ *  `origin`; block (c, r) lands on frame pixel (c + dx, r + dy), mirrored when `mirror`. */
+export interface FigurePlace {
+  grid: Grid;
+  origin: { x: number; y: number };
+  cols: number;
+  rows: number;
+  clip: number[];
+  dx: number;
+  dy: number;
+  mirror: boolean;
+}
+
+/** Frame size, floor row and the figure's largest size at `density` pixels per classic pixel (the
+ *  world size stays 16×32; the classic feet end on row 30). */
+export const frameAt = (density: number) => ({
+  w: CLASSIC_W * density,
+  h: CLASSIC_H * density,
+  floor: (CLASSIC_FLOOR + 1) * density - 1,
+  figureRows: FIGURE_CLASSIC_ROWS * density,
+  figureCols: FIGURE_CLASSIC_COLS * density,
+});
+
+/** The pixel size that stands figure `fig` (source pixels) in a frame at `density`. */
+export const fitSize = (fig: number[], density: number) =>
+  Math.max(
+    (fig[3] - fig[1]) / frameAt(density).figureRows,
+    (fig[2] - fig[0]) / frameAt(density).figureCols,
+  );
+
+/** One figure (`fig`, source pixels) resampled at `size` source pixels per pixel, cleaned, and stood
+ *  on the floor of a frame at `density`, centred. */
+export function figureFrame(
+  img: Rgba,
+  fig: number[],
+  size: number,
+  opts: {
+    density?: number;
+    isBg?: IsBackground;
+    mirror?: boolean;
+    minCover?: number;
+    clean?: boolean;
+    interiorDarkShare?: number;
+  } = {},
+):
+  | { w: number; h: number; data: Uint8Array; place: FigurePlace; cleaned: Cleaned }
+  | { error: string } {
+  const isBg = opts.isBg ?? magentaish;
+  const { w, h, floor } = frameAt(opts.density ?? 2);
+  // the art's phase at that size; a ring of empty pixels around the figure
+  const g = phaseFor(img, fig, isBg, size);
+  const ox = fig[0] - ((((fig[0] - g.ox) % size) + size) % size) - size;
+  const oy = fig[1] - ((((fig[1] - g.oy) % size) + size) % size) - size;
+  const cols = Math.ceil((fig[2] - ox) / size) + 1;
+  const rows = Math.ceil((fig[3] - oy) / size) + 1;
+  const cells = resample(img, { ...g, size }, { x: ox, y: oy }, cols, rows, isBg, {
+    clip: fig,
+    ...(opts.minCover !== undefined && { minCover: opts.minCover }),
+    ...(opts.interiorDarkShare !== undefined && { interiorDarkShare: opts.interiorDarkShare }),
+  });
+  const cleaned = opts.clean === false ? { holes: 0, strays: 0, outline: 0 } : cleanup(cells);
+  let [fx0, fy0, fx1, fy1] = [cells.cols, cells.rows, -1, -1];
+  for (let y = 0; y < cells.rows; y++)
+    for (let x = 0; x < cells.cols; x++)
+      if (cells.data[(y * cells.cols + x) * 4 + 3])
+        [fx0, fy0, fx1, fy1] = [
+          Math.min(fx0, x),
+          Math.min(fy0, y),
+          Math.max(fx1, x),
+          Math.max(fy1, y),
+        ];
+  if (fx1 < 0) return { error: 'empty' };
+  if (fx1 - fx0 + 1 > w || fy1 - fy0 + 1 > floor + 1)
+    return { error: `the figure (${fx1 - fx0 + 1}×${fy1 - fy0 + 1}) does not fit ${w}×${h}` };
+  // feet on the floor row, centred
+  const dx = Math.round(w / 2 - (fx0 + fx1 + 1) / 2);
+  const dy = floor - fy1;
+  const data = new Uint8Array(w * h * 4);
+  for (let y = fy0; y <= fy1; y++)
+    for (let x = fx0; x <= fx1; x++) {
+      const o = (y * cells.cols + x) * 4;
+      if (!cells.data[o + 3]) continue;
+      const tx = opts.mirror ? w - 1 - (x + dx) : x + dx;
+      const ty = y + dy;
+      if (tx < 0 || tx >= w || ty < 0 || ty >= h) continue;
+      data.set([...cells.data.subarray(o, o + 3), 255], (ty * w + tx) * 4);
+    }
+  const place = { grid: { ...g, size }, origin: { x: ox, y: oy }, cols, rows, clip: fig, dx, dy };
+  return { w, h, data, place: { ...place, mirror: !!opts.mirror }, cleaned };
+}
+type Cleaned = { holes: number; strays: number; outline: number };
+
 /**
  * `pick[row]`: the source boxes (1-based in their row) for walk1, walk2, walk3; the seated frames
  * (type 1-2, read 1-2) repeat walk2, the standing frame, until they are drawn. `mirror[row]`: the
- * row is drawn facing the other way (the example's "우측면" looks left).
+ * row is drawn facing the other way (the example's "우측면" looks left). `density`: 2 (32×64
+ * frames, the default), 3 (48×96) or 4 (64×128).
  */
 export function hdSheetFromBoxes(
   img: Rgba,
   opts: {
     pick?: number[][];
     mirror?: boolean[];
+    density?: number;
     /** The share of a block the figure must cover, and whether to clean up (a reference mask: 0.5, no). */
     minCover?: number;
     clean?: boolean;
+    interiorDarkShare?: number;
   } = {},
 ): HdSheetResult | { error: string } {
+  const density = opts.density ?? 2;
   const found = boxes(img);
   if (found.length < ROWS * 3)
     return { error: `${found.length} frame boxes found, need 3 per row` };
   const perRow = Math.floor(found.length / ROWS);
   // one pixel size for the whole sheet (one generator, one scale): the art's own grid when it has
-  // a clear one, else the size that stands the tallest figure in FIGURE_ROWS and the widest in the
-  // frame (a generator's "pixel art" is often smooth, with no grid to find)
+  // a clear one, else the size that stands the tallest figure in the frame (a generator's "pixel
+  // art" is often smooth, with no grid to find)
   const figures = found.map((b) => figureOf(img, b));
   const grids = figures.map((f) => (f ? detectGrid(img, f, magentaish, GRID_RANGE) : null));
   const clear = grids.filter((g): g is Grid => !!g && g.confidence >= GRID_CONFIDENCE);
-  const fit = Math.max(
-    ...figures.map((f) =>
-      f ? Math.max((f[3] - f[1]) / FIGURE_ROWS, (f[2] - f[0]) / FIGURE_COLS) : 0,
-    ),
-  );
+  const fit = Math.max(...figures.map((f) => (f ? fitSize(f, density) : 0)));
   const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
   const grid = clear.length * 2 >= found.length ? median(clear.map((g) => g.size)) : fit;
   const size = Math.max(grid, fit); // never larger than the frame
@@ -188,64 +295,39 @@ export function hdSheetFromBoxes(
     [1, 2, 3],
     [1, 2, 3],
   ];
-  const width = HD_FRAME_W * FRAMES;
-  const height = HD_FRAME_H * ROWS;
+  const { w: fw, h: fh } = frameAt(density);
+  const width = fw * FRAMES;
+  const height = fh * ROWS;
   const data = new Uint8Array(width * height * 4);
   const frames: number[][] = [];
+  const places: FigurePlace[][] = [];
   const cleaned = { holes: 0, strays: 0, outline: 0 };
   for (let r = 0; r < ROWS; r++) {
     const src = [...pick[r], pick[r][1], pick[r][1], pick[r][1], pick[r][1]];
     frames.push(src);
+    places.push([]);
     for (let f = 0; f < FRAMES; f++) {
       const box = found[r * perRow + src[f] - 1];
       if (!box) return { error: `row ${r + 1} has no box ${src[f]}` };
       const fig = figures[r * perRow + src[f] - 1];
       if (!fig) return { error: `row ${r + 1} box ${src[f]} is empty` };
-      // the art's phase at that size; a ring of empty pixels around the figure
-      const g = phaseFor(img, fig, magentaish, size);
-      const ox = fig[0] - ((((fig[0] - g.ox) % size) + size) % size) - size;
-      const oy = fig[1] - ((((fig[1] - g.oy) % size) + size) % size) - size;
-      const cols = Math.ceil((fig[2] - ox) / size) + 1;
-      const rows = Math.ceil((fig[3] - oy) / size) + 1;
-      const cells = resample(img, { ...g, size }, { x: ox, y: oy }, cols, rows, magentaish, {
-        clip: fig,
+      const one = figureFrame(img, fig, size, {
+        density,
+        mirror: !!opts.mirror?.[r],
         ...(opts.minCover !== undefined && { minCover: opts.minCover }),
+        ...(opts.clean !== undefined && { clean: opts.clean }),
+        ...(opts.interiorDarkShare !== undefined && { interiorDarkShare: opts.interiorDarkShare }),
       });
-      const fixes = opts.clean === false ? { holes: 0, strays: 0, outline: 0 } : cleanup(cells);
-      cleaned.holes += fixes.holes;
-      cleaned.strays += fixes.strays;
-      cleaned.outline += fixes.outline;
-      let [fx0, fy0, fx1, fy1] = [cells.cols, cells.rows, -1, -1];
-      for (let y = 0; y < cells.rows; y++)
-        for (let x = 0; x < cells.cols; x++)
-          if (cells.data[(y * cells.cols + x) * 4 + 3])
-            [fx0, fy0, fx1, fy1] = [
-              Math.min(fx0, x),
-              Math.min(fy0, y),
-              Math.max(fx1, x),
-              Math.max(fy1, y),
-            ];
-      if (fx1 < 0) return { error: `row ${r + 1} box ${src[f]} is empty` };
-      if (fx1 - fx0 + 1 > HD_FRAME_W || fy1 - fy0 + 1 > FLOOR_ROW + 1)
-        return {
-          error: `row ${r + 1} box ${src[f]}: the figure (${fx1 - fx0 + 1}×${fy1 - fy0 + 1}) does not fit 32×64`,
-        };
-      // feet on the floor row, centred
-      const dx = Math.round(HD_FRAME_W / 2 - (fx0 + fx1 + 1) / 2);
-      const dy = FLOOR_ROW - fy1;
-      for (let y = fy0; y <= fy1; y++)
-        for (let x = fx0; x <= fx1; x++) {
-          const o = (y * cells.cols + x) * 4;
-          if (!cells.data[o + 3]) continue;
-          let tx = x + dx;
-          if (opts.mirror?.[r]) tx = HD_FRAME_W - 1 - tx;
-          const ty = y + dy;
-          if (tx < 0 || tx >= HD_FRAME_W || ty < 0 || ty >= HD_FRAME_H) continue;
-          data.set(
-            [...cells.data.subarray(o, o + 3), 255],
-            ((r * HD_FRAME_H + ty) * width + f * HD_FRAME_W + tx) * 4,
-          );
-        }
+      if ('error' in one) return { error: `row ${r + 1} box ${src[f]}: ${one.error}` };
+      cleaned.holes += one.cleaned.holes;
+      cleaned.strays += one.cleaned.strays;
+      cleaned.outline += one.cleaned.outline;
+      places[r].push(one.place);
+      for (let y = 0; y < fh; y++)
+        data.set(
+          one.data.subarray(y * fw * 4, (y + 1) * fw * 4),
+          ((r * fh + y) * width + f * fw) * 4,
+        );
     }
   }
   mergePalette({ cols: width, rows: height, data });
@@ -260,6 +342,7 @@ export function hdSheetFromBoxes(
       gridFound: clear.length * 2 >= found.length,
       cleaned,
       frames,
+      places,
       missing: views.flatMap((v) => [`${v} type1`, `${v} type2`, `${v} read1`, `${v} read2`]),
     },
   };

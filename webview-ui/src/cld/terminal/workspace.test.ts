@@ -9,6 +9,7 @@ import {
   emptyWorkspace,
   focusedKey,
   focusPane,
+  heldElsewhere,
   leastRecentAttached,
   openTab,
   paneCount,
@@ -182,6 +183,15 @@ describe('which agent tab to let go of', () => {
     expect(leastRecentAttached(ws, ['agent:c0000001'], 'agent:c0000001')).toBeNull();
     expect(leastRecentAttached(ws, [], 'agent:c0000001')).toBeNull();
     expect(leastRecentAttached(ws, ['agent:gone'], 'agent:c0000001')).toBeNull();
+  });
+});
+
+describe('a cap refusal after a swap', () => {
+  it("is another viewer's slot only when this window just let go of its own", () => {
+    expect(heldElsewhere(1_000, 4_000, 10_000)).toBe(true);
+    expect(heldElsewhere(1_000, 11_000, 10_000)).toBe(true); // the edge counts
+    expect(heldElsewhere(1_000, 11_001, 10_000)).toBe(false); // a later refusal is the plain cap
+    expect(heldElsewhere(undefined, 4_000, 10_000)).toBe(false); // never swapped
   });
 });
 

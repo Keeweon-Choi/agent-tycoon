@@ -33,6 +33,10 @@ export const HEAD_W = PARTS_META.headBox.w * PART_VIEWS.length;
 export const HEAD_H = PARTS_META.headBox.h;
 /** CHAR-FACTORY HD: twice the detail in the same world size (density 2). */
 export const HD = 2;
+/** HD64-SAMPLE: the master spec, four times the detail (64×128 frames). */
+export const HD64 = 4;
+/** The density of a part's detailed art (absent = HD). */
+export const hdDensity = (hd: { density?: number }): number => hd.density ?? HD;
 
 /** Colours (rrggbb, '' transparent) at twice the detail -> the classic copy: a pixel is drawn
  *  when at least two of its four are, in their most common colour; a tie (or four different
@@ -100,9 +104,17 @@ export function partProblem(p: PartData): string | null {
     return false;
   };
   if (bad(p)) return `${p.id}: bad pixel`;
-  if (p.hd) {
-    const hd = p.hd;
-    if (typeof hd.pixels !== 'string' || hd.pixels.length !== want * HD * HD)
+  // the detailed art of the part, of its expressions and of its other bodies
+  for (const art of [
+    p,
+    ...Object.values(p.expressions ?? {}),
+    ...Object.values(p.variants ?? {}),
+  ]) {
+    const hd = art.hd;
+    if (!hd) continue;
+    const d = hdDensity(hd);
+    if (d !== HD && d !== HD64) return `${p.id}: bad HD density`;
+    if (typeof hd.pixels !== 'string' || hd.pixels.length !== want * d * d)
       return `${p.id}: bad HD size`;
     if (
       !Array.isArray(hd.palette) ||

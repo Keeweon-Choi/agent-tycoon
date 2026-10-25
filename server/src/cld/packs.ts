@@ -15,6 +15,7 @@ import {
   downsampleHd,
   encodePixels,
   HD,
+  HD64,
   HEAD_H,
   HEAD_W,
   PART_ALPHABET,
@@ -66,17 +67,16 @@ const text = (v: unknown) =>
 
 type Art = { palette: string[]; pixels: string; hd?: CharacterPartArt['hd'] };
 
-/** One PNG of a pack as part art at `w`×`h` (classic) or twice that (HD, with its classic copy). */
-function readArt(
+/** One PNG of a pack (a regular file inside the folder, at most MAX_PACK_FILE, its header checked
+ *  before decoding) at `w`×`h` times a density it may have (1, 2 or 4): the decoded picture and its
+ *  density, or why not. */
+function readPng(
   dir: string,
-  entry: unknown,
+  file: unknown,
   w: number,
   h: number,
-  colorable: boolean,
-): Art | string {
-  // a file name (classic) or { file, density: 2 } (HD; the PNG's size says it too)
-  const file = isObj(entry) ? entry.file : entry;
-  const wantHd = isObj(entry) && entry.density === 2;
+  densities: readonly number[],
+): { png: PNG; d: number } | string {
   if (
     typeof file !== 'string' ||
     !/^[a-zA-Z0-9_./-]+\.png$/.test(file) ||
@@ -97,33 +97,63 @@ function readArt(
   } catch {
     return `${file}: missing`;
   }
-  const hd = buf.length > 24 && buf.readUInt32BE(16) === w * HD;
-  if (wantHd && !hd) return `${file}: density 2 but not ${w * HD}×${h * HD}`;
-  const issue = pngHeaderIssue(buf, hd ? w * HD : w, hd ? h * HD : h);
+  const pw = buf.length > 24 ? buf.readUInt32BE(16) : 0;
+  const d = densities.find((k) => pw === w * k) ?? densities[0];
+  const issue = pngHeaderIssue(buf, w * d, h * d);
   if (issue) return `${file}: ${issue.text}`;
-  let png: PNG;
   try {
-    png = PNG.sync.read(buf);
+    return { png: PNG.sync.read(buf), d };
   } catch (err) {
     return `${file}: broken PNG (${err instanceof Error ? err.message : String(err)})`;
   }
-  const hexAt = (pw: number) => (x: number, y: number) => {
-    const o = (y * pw + x) * 4;
-    return png.data[o + 3] >= 128
-      ? [0, 1, 2].map((k) => png.data[o + k].toString(16).padStart(2, '0')).join('')
+}
+
+/** One part drawing of a pack: a file name (classic, or HD by its size), `{ file, density: 2 }`
+ *  (HD, its classic copy derived 2×2) or `{ file, density: 4, classic }` (HD64: the 64×128 art
+ *  and its own 16×32 drawing; without `classic` the copy is derived 2×2 twice). */
+function readArt(
+  dir: string,
+  entry: unknown,
+  w: number,
+  h: number,
+  colorable: boolean,
+): Art | string {
+  const file = isObj(entry) ? entry.file : entry;
+  if (isObj(entry) && entry.density !== undefined && entry.density !== HD && entry.density !== HD64)
+    return `${file}: density must be 2 or 4`;
+  const want =
+    isObj(entry) && (entry.density === HD || entry.density === HD64) ? entry.density : null;
+  const read = readPng(dir, file, w, h, want ? [want] : [1, HD]);
+  if (typeof read === 'string') return read;
+  const { png, d } = read;
+  const hexAt = (p: PNG) => (x: number, y: number) => {
+    const o = (y * p.width + x) * 4;
+    return p.data[o + 3] >= 128
+      ? [0, 1, 2].map((k) => p.data[o + k].toString(16).padStart(2, '0')).join('')
       : '';
   };
   const rampFor = (e: { palette: string[]; pixels: string }) =>
     colorable ? rampOf(countsOf(e)) : [];
-  if (!hd) {
-    const e = encodePixels(w, h, hexAt(w));
+  if (d === 1) {
+    const e = encodePixels(w, h, hexAt(png));
     if (!e) return `${file}: more than 62 colours`;
     return e;
   }
-  const big = encodePixels(w * HD, h * HD, hexAt(w * HD));
+  const big = encodePixels(w * d, h * d, hexAt(png));
   if (!big) return `${file}: more than 62 colours`;
-  const classic = encodePixels(w, h, downsampleHd(hexAt(w * HD)))!;
-  return { ...classic, hd: { ...big, ramp: rampFor(big) } };
+  let classic: { palette: string[]; pixels: string } | null;
+  if (d === HD64 && isObj(entry) && entry.classic !== undefined) {
+    const own = readPng(dir, entry.classic, w, h, [1]);
+    if (typeof own === 'string') return own;
+    classic = encodePixels(w, h, hexAt(own.png));
+  } else
+    classic = encodePixels(
+      w,
+      h,
+      d === HD ? downsampleHd(hexAt(png)) : downsampleHd(downsampleHd(hexAt(png))),
+    );
+  if (!classic) return `${file}: its classic copy has more than 62 colours`;
+  return { ...classic, hd: { ...big, ramp: rampFor(big), ...(d === HD64 && { density: HD64 }) } };
 }
 
 /** pack.json and its files -> the pack, or why it is skipped. */

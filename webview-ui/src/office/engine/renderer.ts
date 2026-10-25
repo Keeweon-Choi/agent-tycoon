@@ -6,6 +6,7 @@ import {
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { office25dWalls } from '../../cld/office25d/skins.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
+import { perfFrame, perfOn } from '../../cld/perf.js';
 import { serverLine } from '../../cld/serverText.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
@@ -62,7 +63,7 @@ import {
 } from '../sprites/carpetTiles.js';
 import { getPetSprites } from '../sprites/petSpriteData.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
-import { BUBBLE_HEART_SPRITE, getCharacterSprites } from '../sprites/spriteData.js';
+import { BUBBLE_HEART_SPRITE, getCharacterSprites, spritesAtZoom } from '../sprites/spriteData.js';
 import type {
   AreaDefinition,
   CarpetTile,
@@ -356,6 +357,10 @@ interface ZDrawable {
   draw: (ctx: CanvasRenderingContext2D) => void;
 }
 
+/** HD64-SAMPLE (the performance readout): HD64 characters in the last scene. */
+let hd64Drawn = 0;
+const HD64_DENSITY = 4;
+
 /** @internal */
 export function renderScene(
   ctx: CanvasRenderingContext2D,
@@ -367,8 +372,10 @@ export function renderScene(
   selectedAgentId: number | null,
   hoveredAgentId: number | null,
   pets: Pet[] = [],
+  countHd64 = false,
 ): void {
   const drawables: ZDrawable[] = [];
+  if (countHd64) hd64Drawn = 0;
 
   // Furniture
   for (const f of furniture) {
@@ -398,7 +405,10 @@ export function renderScene(
 
   // Characters
   for (const ch of characters) {
-    const sprites = getCharacterSprites(ch.palette, ch.hueShift);
+    // HD64: the character's density that divides this zoom (its 32×64 or 16×32 copy otherwise)
+    const all = getCharacterSprites(ch.palette, ch.hueShift);
+    if (countHd64 && all.density === HD64_DENSITY) hd64Drawn++;
+    const sprites = spritesAtZoom(all, zoom);
     // cld T-0026: an idle character dims slightly.
     const spriteData = cldCharacterSprite(ch.id, getCharacterSprite(ch, sprites));
     // HD: a density-2 sheet has twice the sprite px in the same world rect.
@@ -916,6 +926,8 @@ export function renderFrame(
   activeAreaLabel?: string | null,
   pets?: Pet[],
 ): { offsetX: number; offsetY: number } {
+  const measurePerf = perfOn();
+  const started = measurePerf ? performance.now() : 0;
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
@@ -981,6 +993,7 @@ export function renderFrame(
     selectedId,
     hoveredId,
     pets ?? [],
+    measurePerf,
   );
 
   // cld T-0026: 🤝 speech links from a delegating character to its sub-agents.
@@ -1070,5 +1083,6 @@ export function renderFrame(
     }
   }
 
+  if (measurePerf) perfFrame(performance.now() - started, characters.length, hd64Drawn, zoom);
   return { offsetX, offsetY };
 }

@@ -9,7 +9,8 @@ import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
 import type { PartSlot } from '../../../../core/src/cld/looks.js';
 import { HUMANOID_SWATCHES, PART_SLOTS } from '../../../../core/src/cld/looks.js';
 import {
-  HD,
+  HD64,
+  hdDensity,
   HEAD_H,
   HEAD_W,
   PART_ALPHABET as ALPHABET,
@@ -222,10 +223,14 @@ export const isGlasses = (id: string) => /glass/i.test(id);
 export function composePerson(
   look: PersonLook,
   custom: readonly PartData[] = [],
+  opts: { classic?: boolean } = {},
 ): { sheet: DenseSheet; missing: string[]; unavailable: string[] } {
   const { layers, missing, unavailable } = resolveParts(look, partIndex(custom));
-  // HD when any part's shown drawing has HD art (the others drawn ×2); classic otherwise
-  const d = layers.some((l) => l.art.hd) ? HD : 1;
+  // the finest density a shown drawing has (the others drawn ×2 or ×4 nearest); classic when
+  // there is none, or when asked (HD64-SAMPLE: the 16×32 copy from each part's own classic art)
+  const d = opts.classic
+    ? 1
+    : (Math.max(1, ...layers.map((l) => (l.art.hd ? hdDensity(l.art.hd) : 1))) as 1 | 2 | 4);
   const flat: string[] = new Array(SHEET_W * SHEET_H * d * d).fill('');
   VIEWS.forEach((view, v) => {
     // each view's own order (the back slot is behind the body from the front, over it from behind)
@@ -235,13 +240,15 @@ export function composePerson(
         const slotColor = COLOR_OF_SLOT[part.slot];
         const target = slotColor ? look.colors?.[slotColor] : undefined;
         const ramp = art.ramp ?? part.ramp;
-        const draw =
-          d === HD && art.hd ? art.hd : { palette: art.palette, pixels: art.pixels, ramp };
-        paint(flat, draw, partColours(draw, target), part.kind, d, draw === art.hd ? HD : 1, v);
+        const draw = d > 1 && art.hd ? art.hd : { palette: art.palette, pixels: art.pixels, ramp };
+        const from = draw === art.hd ? hdDensity(art.hd) : 1;
+        paint(flat, draw, partColours(draw, target), part.kind, d, from, v);
       }
   });
   const fixed = (o: { palette: string[] }) => o.palette.map((c) => `#${c.toUpperCase()}`);
-  if (!layers.some((l) => l.part.slot === 'acc' && isGlasses(l.part.id)))
+  // the built-in reading glasses are classic art: ×4 they would be a black bar (HD64 waits for
+  // a pair drawn at 64×128; ponytail: none on density 4 until then)
+  if (d < HD64 && !layers.some((l) => l.part.slot === 'acc' && isGlasses(l.part.id)))
     paint(flat, PARTS_META.glasses, fixed(PARTS_META.glasses), 'sheet', d, 1);
   paint(flat, PARTS_META.paper, fixed(PARTS_META.paper), 'sheet', d, 1);
   const frame = (v: number, f: number) =>
@@ -253,7 +260,7 @@ export function composePerson(
     );
   const row = (v: number) => Array.from({ length: FRAMES }, (_, f) => frame(v, f));
   const sheet: DenseSheet = { down: row(0), up: row(1), right: row(2) };
-  if (d === HD) sheet.density = HD;
+  if (d > 1) sheet.density = d;
   return { sheet, missing, unavailable };
 }
 
@@ -293,9 +300,7 @@ export function randomPerson(
 ): CharacterChoice {
   const pick = <T>(list: readonly T[]): T =>
     list[Math.min(list.length - 1, Math.floor(rand() * list.length))];
-  const fits = (p: PartData) =>
-    (!gender || !p.gender || p.gender === gender) &&
-    !!artFor(p, keep);
+  const fits = (p: PartData) => (!gender || !p.gender || p.gender === gender) && !!artFor(p, keep);
   const parts: NonNullable<CharacterChoice['parts']> = {};
   for (const slot of PART_SLOTS) {
     if (parts.fullbody && SLOT_REGISTRY.fullbody.clears?.includes(slot)) continue;

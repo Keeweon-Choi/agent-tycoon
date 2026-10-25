@@ -83,22 +83,63 @@ export const MASCOTS: Readonly<Record<MascotSpecies, MascotData>> = {
 /** CHAR-FACTORY: a sheet with its density (sprite pixels per world pixel; absent = 1). An HD sheet
  *  (density 2) has 32×64 frames in the same order and rows, its anchors in world pixels. The
  *  office's LoadedCharacterData gains the same optional field on the renderer's side. */
-export type DenseSheet = LoadedCharacterData & { density?: 1 | 2 };
-export const densityOf = (sheet: DenseSheet): 1 | 2 => sheet.density ?? 1;
+export type DenseSheet = LoadedCharacterData & { density?: 1 | 2 | 4 };
+export const densityOf = (sheet: DenseSheet): 1 | 2 | 4 => sheet.density ?? 1;
 
-/** The classic copy of an HD sheet (2×2, a one-pixel HD outline kept) for what cannot draw HD. */
-export function classicOf(sheet: DenseSheet): LoadedCharacterData {
-  if (densityOf(sheet) === 1) return sheet;
+/** A sheet at half its density: each pixel the colour most of its four share (outline kept,
+ *  core downsampleHd); `clean` (HD64's 32×64 copy): then a one-pixel hole filled from its
+ *  neighbours and a pixel with no neighbour dropped (the halving's own specks). */
+export function halveSheet(sheet: DenseSheet, clean = densityOf(sheet) === 4): DenseSheet {
+  const d = densityOf(sheet);
+  const [w, h] = [(FRAME_W * d) / 2, (FRAME_H * d) / 2];
   const frame = (f: SpriteData): SpriteData => {
     const at = downsampleHd((x, y) => (f[y]?.[x] ? f[y][x].slice(1, 7).toLowerCase() : ''));
-    return Array.from({ length: FRAME_H }, (_, y) =>
-      Array.from({ length: FRAME_W }, (_, x) => {
+    const out = Array.from({ length: h }, (_, y) =>
+      Array.from({ length: w }, (_, x) => {
         const c = at(x, y);
         return c ? `#${c.toUpperCase()}` : '';
       }),
     );
+    const n4 = (x: number, y: number) =>
+      [out[y - 1]?.[x], out[y + 1]?.[x], out[y]?.[x - 1], out[y]?.[x + 1]].filter(
+        (c): c is string => !!c,
+      );
+    if (!clean) return out;
+    const fix = out.map((row) => [...row]);
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const around = n4(x, y);
+        if (!out[y][x] && around.length === 4) {
+          const counts = new Map<string, number>();
+          for (const c of around) counts.set(c, (counts.get(c) ?? 0) + 1);
+          fix[y][x] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+        } else if (out[y][x] && !around.length) fix[y][x] = '';
+      }
+    return fix;
   };
-  return { down: sheet.down.map(frame), up: sheet.up.map(frame), right: sheet.right.map(frame) };
+  const half = {
+    down: sheet.down.map(frame),
+    up: sheet.up.map(frame),
+    right: sheet.right.map(frame),
+  };
+  return d / 2 > 1 ? { ...half, density: (d / 2) as 2 } : half;
+}
+
+/** The classic copy of an HD sheet for what cannot draw HD: its own 16×32 copy when it carries one
+ *  (HD64: drawn for legibility), else halved (2×2, a one-pixel HD outline kept). */
+export function classicOf(sheet: DenseSheet): LoadedCharacterData {
+  let s: DenseSheet = sheet;
+  while (densityOf(s) > 1) s = s.lods?.find((l) => densityOf(l) === 1) ?? halveSheet(s);
+  return { down: s.down, up: s.up, right: s.right };
+}
+
+/** HD64: a density-4 sheet with its copies for zooms 4 does not divide: the 32×64 (the master
+ *  halved and cleaned) and the 16×32 (`classic`: the look composed from each part's own 16×32
+ *  drawing; else the 32×64 halved again). */
+export function withLods(sheet: DenseSheet, classic?: DenseSheet): DenseSheet {
+  if (densityOf(sheet) !== 4) return sheet;
+  const half = halveSheet(sheet);
+  return { ...sheet, lods: [half, classic ?? halveSheet(half)] };
 }
 
 /** The card portrait of a sheet: the classic crop (MUGSHOT_CROP_*) of the standing-front frame at
@@ -208,8 +249,12 @@ function composeExact(look: CharacterChoice, ctx: ComposeContext): ComposedLook 
   }
   if (look.palette !== undefined) return builtIn(look.palette, look.hueShift ?? 0, ctx);
   if (look.kind === 'humanoid') return composeHumanoid(look, ctx);
-  if (look.kind === 'person')
-    return finish(composePerson(look, ctx.parts).sheet, null, HUMAN_SIP, 0);
+  if (look.kind === 'person') {
+    const sheet = composePerson(look, ctx.parts).sheet;
+    const classic =
+      densityOf(sheet) === 4 ? composePerson(look, ctx.parts, { classic: true }).sheet : undefined;
+    return finish(withLods(sheet, classic), null, HUMAN_SIP, 0);
+  }
   if (isMascot(look)) {
     const m = normalizeMascot(look, ctx.provider);
     return composeMascot(m, (ctx.mascots ?? MASCOTS)[m.species]);
@@ -378,8 +423,10 @@ function finish(
     0,
     Math.floor(front.findIndex((row) => row.some(Boolean)) / densityOf(sheet)),
   );
-  // an HD look's card portrait keeps its detail (the office's crop is the classic one)
-  const portrait = mugshot ?? (densityOf(sheet) === 2 ? portraitOf(sheet) : null);
+  // an HD look's card portrait keeps its detail (the office's crop is the classic one); HD64's
+  // from its 32×64 copy, the card's size
+  const hd = densityOf(sheet) === 4 ? (sheet.lods?.[0] ?? halveSheet(sheet)) : sheet;
+  const portrait = mugshot ?? (densityOf(hd) === 2 ? portraitOf(hd) : null);
   return { sheet, mugshot: portrait, headTop, sip, clipped, fellBack: null };
 }
 

@@ -271,4 +271,54 @@ describe('content packs (CHAR-FACTORY)', () => {
     // with no packs in the repo, the built-in folder may be missing: no packs, no error
     expect(builtInPacksDir() === null || fs.existsSync(builtInPacksDir()!)).toBe(true);
   });
+
+  it('reads an HD64 part (density 4) with its own 16×32 drawing; the built-in bunny pack loads whole', () => {
+    // Invalid CRC on purpose: a huge IHDR must be rejected before pngjs can inflate/allocate it.
+    const hugeHeader = png(448, 384, 40, 80, 8);
+    hugeHeader.writeUInt32BE(0xffffffff, 16);
+    hugeHeader.writeUInt32BE(0xffffffff, 20);
+    const dir = pack(
+      'hd64',
+      {
+        parts: [
+          {
+            id: 'suit',
+            slot: 'fullbody',
+            bodies: {
+              curvy: { file: 'parts/suit-64.png', density: 4, classic: 'parts/suit-16.png' },
+            },
+          },
+          // a density-4 file of the wrong size is refused
+          { id: 'bad', slot: 'top', file: { file: 'parts/suit-16.png', density: 4 } },
+          // a declared density is never silently interpreted as the old auto-detect form
+          { id: 'bad-density', slot: 'top', file: { file: 'parts/suit-16.png', density: 3 } },
+          { id: 'huge-header', slot: 'top', file: { file: 'parts/huge-header.png', density: 4 } },
+        ],
+      },
+      {
+        'parts/suit-64.png': png(448, 384, 40, 80, 8),
+        'parts/suit-16.png': png(112, 96, 1, 2, 1),
+        'parts/huge-header.png': hugeHeader,
+      },
+    );
+    const loaded = loadPack(dir, false);
+    if ('error' in loaded) throw new Error(loaded.error);
+    expect(loaded.parts.map((p) => p.id)).toEqual(['hd64/suit']);
+    const suit = loaded.parts[0];
+    expect(suit.hd?.density).toBe(4);
+    expect(suit.hd?.pixels.length).toBe(448 * 384);
+    // the classic copy is the 16×32 file, not a downsample of the 64×128 art: one pixel at (1, 2)
+    expect(suit.pixels.indexOf('0')).toBe(2 * 112 + 1);
+    expect([...suit.pixels].filter((k) => k !== '.').length).toBe(1);
+    const repo = path.resolve(__dirname, '../../../cld/packs/hd-bunny');
+    const bunny = loadPack(repo, true);
+    if ('error' in bunny) throw new Error(bunny.error);
+    expect(bunny.parts).toHaveLength(9);
+    expect(bunny.parts.every((p) => p.hd?.density === 4)).toBe(true);
+    expect(bunny.summary.presets.map((p) => p.id)).toEqual(['hd-bunny/bunny']);
+    const skipped = warn.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(skipped).toMatch(/bad.*112×96, not 448×384/);
+    expect(skipped).toMatch(/bad-density.*density must be 2 or 4/);
+    expect(skipped).toMatch(/huge-header.*4294967295×4294967295, not 448×384/);
+  });
 });

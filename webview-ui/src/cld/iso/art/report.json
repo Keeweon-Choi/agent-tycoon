@@ -1,0 +1,445 @@
+{
+  "floor-wood-light": {
+    "from": "woodLight",
+    "pitch": 3.52,
+    "haloRemoved": 297,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    },
+    "alignErrorPx": {
+      "ratio": 1.3,
+      "skew": 0
+    }
+  },
+  "floor-wood-dark": {
+    "from": "woodDark",
+    "pitch": 3.88,
+    "haloRemoved": 321,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    },
+    "alignErrorPx": {
+      "ratio": 1.4,
+      "skew": 0.9
+    }
+  },
+  "floor-carpet": {
+    "from": "carpet",
+    "pitch": 4.08,
+    "haloRemoved": 345,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    },
+    "alignErrorPx": {
+      "ratio": 1,
+      "skew": 1.5
+    }
+  },
+  "floor-stone": {
+    "from": "stone",
+    "pitch": 3.72,
+    "haloRemoved": 311,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    },
+    "alignErrorPx": {
+      "ratio": 0,
+      "skew": 0.4
+    }
+  },
+  "panel-wallRow": {
+    "pitch": 4.08,
+    "haloRemoved": 354,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "panel-wallCol": {
+    "pitch": 4.24,
+    "haloRemoved": 451,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "panel-windowRow": {
+    "pitch": 4.06,
+    "haloRemoved": 194,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "panel-windowCol": {
+    "pitch": 3.8,
+    "haloRemoved": 212,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "panel-corner": {
+    "pitch": 3.6,
+    "haloRemoved": 211,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "panel-elevator": {
+    "pitch": 4.06,
+    "haloRemoved": 276,
+    "edgeTouching": 0,
+    "scale": 3.2
+  },
+  "wall-row": {
+    "from": "starter-structure plain wall (middle strip)",
+    "alignErrorPx": 3,
+    "heightPx": 138,
+    "stretched": 0.896,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-row-win-0": {
+    "from": "starter-structure window wall (strip 1/4)",
+    "alignErrorPx": 3,
+    "heightPx": 138,
+    "stretched": 0.92,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-row-win-1": {
+    "from": "starter-structure window wall (strip 2/4)",
+    "alignErrorPx": 3,
+    "heightPx": 138,
+    "stretched": 0.885,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-row-win-2": {
+    "from": "starter-structure window wall (strip 3/4)",
+    "alignErrorPx": 3,
+    "heightPx": 138,
+    "stretched": 0.885,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-row-win-3": {
+    "from": "starter-structure window wall (strip 4/4)",
+    "alignErrorPx": 11,
+    "heightPx": 138,
+    "stretched": 0.939,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-col": {
+    "from": "starter-structure plain wall (middle strip)",
+    "alignErrorPx": 2.5,
+    "heightPx": 138,
+    "stretched": 0.939,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-col-win-0": {
+    "from": "starter-structure window wall (strip 1/4)",
+    "alignErrorPx": 6,
+    "heightPx": 138,
+    "stretched": 0.863,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-col-win-1": {
+    "from": "starter-structure window wall (strip 2/4)",
+    "alignErrorPx": 4,
+    "heightPx": 138,
+    "stretched": 0.847,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-col-win-2": {
+    "from": "starter-structure window wall (strip 3/4)",
+    "alignErrorPx": 4,
+    "heightPx": 138,
+    "stretched": 0.847,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-col-win-3": {
+    "from": "starter-structure window wall (strip 4/4)",
+    "alignErrorPx": 4,
+    "heightPx": 138,
+    "stretched": 0.863,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "wall-corner": {
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "lift-doors": {
+    "tiles": 2,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "desk": {
+    "from": "deskA",
+    "pitch": 4.02,
+    "scale": 1.53,
+    "footprint": [
+      3,
+      1
+    ],
+    "fill": 1.05,
+    "alignErrorPx": 6,
+    "haloRemoved": 738,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 1
+    }
+  },
+  "desk-b": {
+    "from": "deskB",
+    "pitch": 3.68,
+    "scale": 1.39,
+    "footprint": [
+      3,
+      1
+    ],
+    "fill": 1.05,
+    "alignErrorPx": 6,
+    "haloRemoved": 741,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "chair": {
+    "from": "chairA",
+    "pitch": 3.98,
+    "scale": 1.48,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 0.95,
+    "alignErrorPx": 3,
+    "haloRemoved": 479,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "chair-side": {
+    "from": "chairB",
+    "pitch": 3.62,
+    "scale": 1.38,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 0.95,
+    "alignErrorPx": 3,
+    "haloRemoved": 495,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "sofa": {
+    "from": "sofaA",
+    "pitch": 3.54,
+    "scale": 1.07,
+    "footprint": [
+      2,
+      1
+    ],
+    "fill": 1.15,
+    "alignErrorPx": 14,
+    "haloRemoved": 475,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "sofa-side": {
+    "from": "sofaB",
+    "pitch": 4.08,
+    "scale": 1.24,
+    "footprint": [
+      1,
+      2
+    ],
+    "fill": 1.15,
+    "alignErrorPx": 14,
+    "haloRemoved": 499,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "coffee-table": {
+    "from": "coffeeTable",
+    "pitch": 4,
+    "scale": 1.46,
+    "footprint": [
+      2,
+      2
+    ],
+    "fill": 0.82,
+    "alignErrorPx": 23,
+    "haloRemoved": 458,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "plant": {
+    "from": "plantPothos",
+    "pitch": 3.86,
+    "scale": 1.02,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 0.8,
+    "alignErrorPx": 13,
+    "haloRemoved": 446,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "plant-tall": {
+    "from": "plantTall",
+    "pitch": 4.02,
+    "scale": 1.05,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 1,
+    "alignErrorPx": 0,
+    "haloRemoved": 662,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "bookshelf": {
+    "from": "bookshelf",
+    "pitch": 3.66,
+    "scale": 1.63,
+    "footprint": [
+      1,
+      2
+    ],
+    "fill": 1,
+    "alignErrorPx": 0,
+    "haloRemoved": 411,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "counter": {
+    "from": "counter",
+    "pitch": 3.9,
+    "scale": 1.29,
+    "footprint": [
+      2,
+      1
+    ],
+    "fill": 1.2,
+    "alignErrorPx": 19,
+    "haloRemoved": 563,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "coffee-machine": {
+    "from": "coffeeMachine",
+    "pitch": 4.44,
+    "scale": 1.6,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 0.7,
+    "alignErrorPx": 19,
+    "haloRemoved": 191,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "vending": {
+    "from": "vending",
+    "pitch": 4.18,
+    "scale": 1.99,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 1.15,
+    "alignErrorPx": 10,
+    "haloRemoved": 139,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  },
+  "water-cooler": {
+    "from": "waterCooler",
+    "pitch": 4.4,
+    "scale": 1.79,
+    "footprint": [
+      1,
+      1
+    ],
+    "fill": 0.7,
+    "alignErrorPx": 19,
+    "haloRemoved": 160,
+    "edgeTouching": 0,
+    "leftover": {
+      "magenta": 0,
+      "halo": 0
+    }
+  }
+}

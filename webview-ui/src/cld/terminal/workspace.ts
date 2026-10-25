@@ -239,6 +239,18 @@ export function leastRecentAttached(ws: Workspace, attached: string[], key: stri
   return live[0] ?? null;
 }
 
+/**
+ * A cap refusal that came back after this window already let go of its own attach (a swap at
+ * `swappedAt`, within `windowMs`) is a slot held by another browser or device: only they can free it.
+ */
+export function heldElsewhere(
+  swappedAt: number | undefined,
+  now: number,
+  windowMs: number,
+): boolean {
+  return swappedAt !== undefined && now - swappedAt <= windowMs;
+}
+
 // ── What is kept per device ─────────────────────────────────────────────────
 
 export function serialize(ws: Workspace): string {

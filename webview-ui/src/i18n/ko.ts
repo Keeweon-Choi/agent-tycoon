@@ -1737,6 +1737,9 @@ export const ko = {
   'terminal.capReached':
     '동시에 붙일 수 있는 에이전트 터미널 수에 닿았어요. 설정에서 늘릴 수 있어요(하나에 약 150MB).',
   'terminal.detached': '이 터미널은 연결을 풀어 두었어요.',
+  'terminal.heldElsewhere':
+    '다른 기기나 창(또는 메신저가 보내는 중인 대화)이 터미널 자리를 쓰고 있어서 여기서 비울 수 없어요. 그쪽 터미널을 닫거나 설정에서 개수를 늘린 뒤 다시 연결해 주세요.',
+  'terminal.switching': '바꾸는 중…',
   'terminal.switchHere': '이 터미널로 바꾸기',
   'terminal.verifyReconnect': '이 기기를 확인해야 다시 연결할 수 있어요',
   'terminal.reconnect': '다시 연결',
@@ -2053,23 +2056,16 @@ export const ko = {
     '누가 로그인해 있는지, 선택 사항인 패스키, 바깥 직접 연결 주소, 최근에 있었던 일을 봐요.',
   'settabs.passkeysOptional':
     '선택 사항이에요. 패스키 없이도 들어올 수 있고, 등록하면 이 기기를 더 안전하게 지킬 수 있어요.',
-  'gfx.camera.label': '화면 맞춤',
-  'gfx.camera.fit': '맞춤',
-  'gfx.camera.fitHint': '지금 층 전체가 화면에 들어오게 (빈 곳이 조금 남을 수 있어요)',
-  'gfx.camera.fill': '채움',
-  'gfx.camera.fillHint': '사무실이 화면을 꽉 채우게 (넘친 곳은 끌어서 봐요)',
-  'gfx.camera.focus': '집중',
-  'gfx.camera.focusHint': '고른 직원이나 일하는 직원을 가운데에',
-  'gfx.camera.classic': '기본',
-  'gfx.camera.classicHint': '예전 카메라 (화면 밀도로 정한 배율)',
-  'gfx.backdrop.title': '도시 야경 배경',
-  'gfx.backdrop.help': '사무실 둘레의 빈 곳에 밤 도시를 그려요. 끄면 예전의 단색 배경이에요.',
+  'gfx.camera.label': '시점',
+  'iso.title': '아이소메트릭 (시험)',
+  'iso.help':
+    '사무실을 비스듬히 내려다본 회사 건물로 그려요. 고른 층은 밝게, 다른 층은 어둡게 함께 보여요. 배치와 걷기는 그대로이고, 편집할 때는 위에서 본 모습으로 돌아가요.',
+  'iso.view.building': '건물 전체',
+  'iso.view.floor': '이 층',
+  'iso.view.label': '보기',
   'office25d.title': '2.5D 스타일 (시험)',
   'office25d.help':
     '벽에 높이와 앞면을 주고 가구를 새 그림으로 바꿔, 사무실을 비스듬히 내려다본 모습으로 그려요. 배치와 걷기는 그대로예요.',
-  'gfx.parallax.title': '배경 움직임',
-  'gfx.parallax.help':
-    '화면을 끌면 먼 건물이 조금 느리게 따라와요. 움직임 줄이기를 켠 기기에서는 움직이지 않아요.',
   'gfx.title.region': '시작 화면',
   'gfx.title.name': 'Agent Tycoon',
   'gfx.title.tagline': 'AI 에이전트와 함께 만드는 나만의 개발 회사',
@@ -2092,6 +2088,17 @@ export const ko = {
   'gfx.help.camera': '끌기, 휠, WASD·화살표로 사무실을 둘러봐요. 0은 고른 화면 맞춤으로 돌아가요.',
   'gfx.help.floors': '숫자 1~9로 층을 옮겨요.',
   'gfx.help.select': '직원을 누르면 따라가고, 한 번 더 누르면 대화창이 열려요.',
-  'gfx.help.modes': '오른쪽 아래 맞춤·채움·집중·기본으로 화면 맞춤을 바꿔요.',
   'gfx.help.legend': '캐릭터 위 아이콘의 뜻은 위 막대의 범례에서 봐요.',
+  'gfx.camera.auto': '자동',
+  'gfx.camera.autoHint':
+    '사무실을 화면에 맞춰 고정해요. 직원을 누르면 그 직원을 따라가 확대하고, 빈 바닥·Esc·0이면 사무실로 돌아와요. 누르면 자유 시점.',
+  'gfx.camera.free': '자유 시점',
+  'gfx.camera.freeHint': '끌기·휠·핀치로만 움직여요. 저절로 움직이지 않아요. 누르면 자동.',
+  'gfx.help.modes':
+    '오른쪽 아래 자동/자유 시점 단추로 시점 방식을 바꿔요. 자동에서는 직원을 누르면 그 직원을 따라가요.',
+  'gfx.backdrop.title': '도시 배경',
+  'gfx.backdrop.help':
+    '사무실 둘레에 위에서 내려다본 밤 도시(옥상, 거리, 나무, 가로등)를 그려요. 끄면 예전의 단색 배경이에요.',
+  'perf.toggle': '성능 표시 (그리기 시간·캐릭터·캐시)',
+  'perf.readout': '그리기 {ms} ms (최대 {max}) · 캐릭터 {n}명, 그중 64×128 {hd}명 · 배율 {zoom} · 캐시 {mb} MB',
 } as const satisfies Record<TranslationKey, string>;

@@ -30,6 +30,7 @@ import {
 } from './cld/hud/hudStore.js';
 import { MobileDock } from './cld/hud/MobileDock.js';
 import { showsAgentCards } from './cld/hud/windowModel.js';
+import { useIsoView } from './cld/iso/isoView.js';
 import { uploadsInFlight } from './cld/messenger/attachments.js';
 import { Messenger } from './cld/messenger/Messenger.js';
 import { messengerGetSnapshot } from './cld/messenger/messengerStore.js';
@@ -43,6 +44,7 @@ import { OffDutySheet } from './cld/OffDutySheet.js';
 import { DesktopWindows, MobileOfficePanel, MobilePage } from './cld/OfficeNavigation.js';
 import { useCldStore } from './cld/officeStore.js';
 import { MobileTopBar, type OfficePanel, UsageBar, UsageLine } from './cld/panels/OfficePanels.js';
+import { PerfReadout } from './cld/PerfReadout.js';
 import { RepoActionLayer } from './cld/repo/RepoActionLayer.js';
 import {
   busyForStaleBuild,
@@ -155,6 +157,7 @@ function getOfficeState(): OfficeState {
 
 function App() {
   useLanguage();
+  const isoView = useIsoView(); // ISO-PILOT: the board and memo overlays are top-down only
   const [showStaleBuildBanner, setShowStaleBuildBanner] = useState(false);
   const [staleBuildBusy, setStaleBuildBusy] = useState<ReturnType<typeof busyForStaleBuild>>(null);
   const editor = useEditorActions(getOfficeState, editorState);
@@ -621,6 +624,20 @@ function App() {
       os.rebuildFromLayout({ ...layout, furniture: [...layout.furniture, { uid, type, col, row }] });
       return true;
     };
+    hooks.setZoom = (z) => editor.handleZoomChange(z);
+    hooks.centerOn = (id) => {
+      const ch = getOfficeState().characters.get(id);
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="office-canvas"]');
+      if (!ch || !canvas) return false;
+      const { cols, rows } = getOfficeState().getLayout();
+      const z = editor.zoom;
+      // mapOffset: floor((canvas - map) / 2) + pan; the character to the canvas's middle
+      editor.panRef.current = {
+        x: canvas.width / 2 - ch.x * z - Math.floor((canvas.width - cols * TILE_SIZE * z) / 2),
+        y: canvas.height / 2 - ch.y * z - Math.floor((canvas.height - rows * TILE_SIZE * z) / 2),
+      };
+      return true;
+    };
     hooks.getCamera = () => {
       const { cols, rows } = getOfficeState().getLayout();
       return { zoom: editor.zoom, pan: { ...editor.panRef.current }, cols, rows, framing: lastFraming() };
@@ -924,7 +941,7 @@ function App() {
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
           />
-          {cldMode && <CameraModeControl phone={isMobile} />}
+          {cldMode && <CameraModeControl />}
           {cldMode && <TitleScene phone={isMobile} />}
         </>
       ) : (
@@ -1048,7 +1065,7 @@ function App() {
       )}
 
       {/* cld-gui (T-0046): the lobby's 전광판 on its board, and its full view. */}
-      {cldMode && !isDebugMode && !editor.isEditMode && (
+      {cldMode && !isDebugMode && !editor.isEditMode && !isoView && (
         <LobbyBoard
           officeState={officeState}
           containerRef={containerRef}
@@ -1058,7 +1075,7 @@ function App() {
         />
       )}
       {/* cld-gui (T-0065): the memos on the whiteboards; a tap opens one (not while decorating). */}
-      {cldMode && !isDebugMode && (
+      {cldMode && !isDebugMode && (!isoView || editor.isEditMode) && (
         <WhiteboardMemos
           officeState={officeState}
           containerRef={containerRef}
@@ -1265,6 +1282,7 @@ function App() {
       </div>
 
       {cldMode && <ActionLayer />}
+      <PerfReadout />
       {cldMode && <OffDutySheet />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}

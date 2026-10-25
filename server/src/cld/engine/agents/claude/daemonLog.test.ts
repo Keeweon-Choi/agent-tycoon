@@ -11,12 +11,12 @@ describe('parseIdleRetire', () => {
     expect(parseIdleRetire(log, ['377f7c98-aabb-ccdd-eeff-001122334455'])).toEqual({
       id: '377f7c98',
       reason: 'idle-prompt',
-      hours: 8,
+      minutes: 480,
     });
     expect(parseIdleRetire(log, ['29655fd9-background-agent'])).toEqual({
       id: '29655fd9',
       reason: 'settled',
-      hours: 8,
+      minutes: 480,
     });
   });
 
@@ -32,5 +32,19 @@ describe('parseIdleRetire', () => {
   it('does not accept a truncated final line', () => {
     const log = '[2026-10-23T03:05:10Z] bg retire 29655fd9: settled, idle 8';
     expect(parseIdleRetire(log, ['29655fd9-background-agent'])).toBeNull();
+  });
+
+  it('reads the minutes Claude 2.1.310 writes (cex retired after 61 idle minutes, 10-26)', () => {
+    const log = [
+      '[2026-10-25T15:08:58.660Z] [bg] bg retire b3985e0f: idle-prompt, idle 61m',
+      '[2026-10-25T15:08:58.786Z] [bg] bg settled b3985e0f (done)',
+      '[2026-10-25T16:10:58.457Z] [bg] bg retire b3985e0f: settled, idle 61m',
+    ].join('\n');
+    expect(parseIdleRetire(log, ['b3985e0f-3c05-4302-9cc2-cb5bd8f175f7'])).toEqual({
+      id: 'b3985e0f',
+      reason: 'settled',
+      minutes: 61,
+    });
+    expect(parseIdleRetire('[2026-10-25T16:10:58Z] bg retire b3985e0f: settled, idle 61', ['b3985e0f'])).toBeNull();
   });
 });

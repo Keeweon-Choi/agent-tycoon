@@ -19,7 +19,11 @@ import { submitTerminalLine } from '../../components/mobileSend.js';
 import type { TerminalInputHandle } from '../../components/TerminalPane.js';
 import { TerminalPane } from '../../components/TerminalPane.js';
 import { Button } from '../../components/ui/Button.js';
-import { MOBILE_TERMINAL_FONT_SIZE_PX } from '../../constants.js';
+import {
+  MOBILE_TERMINAL_FONT_SIZE_PX,
+  TERMINAL_SWAP_CAP_READ_TIMEOUT_MS,
+  TERMINAL_SWAP_REFUSAL_WINDOW_MS,
+} from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { TerminalConnectionStatus } from '../../terminal/terminalClient.js';
 import { transport } from '../../transport/index.js';
@@ -41,6 +45,7 @@ import {
   agentTab,
   canSplitDown,
   canSplitRight,
+  heldElsewhere,
   leastRecentAttached,
   paneCount,
   paneRects,
@@ -107,6 +112,12 @@ export function TerminalWorkspace({
   const [gens, setGens] = useState<Record<string, number>>({});
   /** Agent tabs the user swapped out ("이 터미널로 바꾸기"): not attached. */
   const [released, setReleased] = useState<ReadonlySet<string>>(new Set());
+  /** Tabs whose cap refusal outlived a swap: the slot belongs to another browser or device. */
+  const [elsewhere, setElsewhere] = useState<ReadonlySet<string>>(new Set());
+  /** When (performance.now clock) each tab last pressed "이 터미널로 바꾸기". */
+  const swappedAt = useRef(new Map<string, number>());
+  /** Tabs whose "이 터미널로 바꾸기" is running: the button shows it and cannot be pressed twice. */
+  const [swapping, setSwapping] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState(false);
   const [picking, setPicking] = useState(false);
   /** Waiting for a Face ID tap before `then` runs. */
@@ -214,6 +225,16 @@ export function TerminalWorkspace({
   const agents = (officeSnapshot?.chat ? officeSnapshot.orchestrators : []).filter((o) => o.bg?.id);
 
   const remount = (key: string) => {
+    setSwapping((w) => {
+      const next = new Set(w);
+      next.delete(key);
+      return next;
+    });
+    setElsewhere((e) => {
+      const next = new Set(e);
+      next.delete(key);
+      return next;
+    });
     setRefusal((r) => omit(r, key));
     setStatus((s) => omit(s, key));
     setGens((g) => ({ ...g, [key]: (g[key] ?? 0) + 1 }));
@@ -223,12 +244,20 @@ export function TerminalWorkspace({
    * "이 터미널로 바꾸기": attach this agent tab. When the daemon's cap (설정) has no room left,
    * the least recently focused attached agent tab lets go first.
    */
-  const swapIn = async (key: string) => {
+  const swapIn = async (key: string, at: number) => {
+    swappedAt.current.set(key, at);
+    setSwapping((w) => new Set(w).add(key));
     let cap: number | null = null;
+    // A slow or queued read must not leave the press doing nothing: past the timeout the cap is unknown.
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => abort.abort(), TERMINAL_SWAP_CAP_READ_TIMEOUT_MS);
     try {
-      cap = (await authFetch<{ attaches: number }>('/api/chat-attaches')).attaches;
+      cap = (await authFetch<{ attaches: number }>('/api/chat-attaches', { signal: abort.signal }))
+        .attaches;
     } catch {
       /* unknown: make room */
+    } finally {
+      window.clearTimeout(timer);
     }
     const attached = ws.tabs
       .filter(
@@ -539,7 +568,15 @@ export function TerminalWorkspace({
                   }}
                   onRefused={(n, reason) => {
                     const k = keysByNumber.get(n);
-                    if (k) setRefusal((prev) => ({ ...prev, [k]: reason }));
+                    if (!k) return;
+                    const at = swappedAt.current.get(k);
+                    swappedAt.current.delete(k);
+                    if (
+                      reason === 'cap' &&
+                      heldElsewhere(at, performance.now(), TERMINAL_SWAP_REFUSAL_WINDOW_MS)
+                    )
+                      setElsewhere((e) => new Set(e).add(k));
+                    setRefusal((prev) => ({ ...prev, [k]: reason }));
                   }}
                   onRegisterInput={(n, handle) => {
                     const k = keysByNumber.get(n);
@@ -555,14 +592,27 @@ export function TerminalWorkspace({
                   className="absolute inset-0 flex flex-col items-center justify-center gap-8 p-12 text-center text-xs bg-bg/90"
                   data-testid="terminal-overlay"
                 >
-                  {!mounted || why === 'cap' ? (
+                  {mounted && why === 'cap' && elsewhere.has(tab.key) ? (
+                    <>
+                      <strong className="text-sm">{names[tab.key]}</strong>
+                      <span className="text-text-muted">{t('terminal.heldElsewhere')}</span>
+                      <Button size="sm" onClick={() => remount(tab.key)}>
+                        {t('terminal.reconnect')}
+                      </Button>
+                    </>
+                  ) : !mounted || why === 'cap' ? (
                     <>
                       <strong className="text-sm">{names[tab.key]}</strong>
                       <span className="text-text-muted">
                         {mounted ? t('terminal.capReached') : t('terminal.detached')}
                       </span>
-                      <Button size="sm" variant="accent" onClick={() => void swapIn(tab.key)}>
-                        {t('terminal.switchHere')}
+                      <Button
+                        size="sm"
+                        variant="accent"
+                        disabled={swapping.has(tab.key)}
+                        onClick={(e) => void swapIn(tab.key, e.timeStamp)}
+                      >
+                        {swapping.has(tab.key) ? t('terminal.switching') : t('terminal.switchHere')}
                       </Button>
                     </>
                   ) : why === 'proof' ? (

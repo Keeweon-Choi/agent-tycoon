@@ -89,6 +89,8 @@ export const WALL_COLOR = '#3A3A5C';
 // ── Camera ───────────────────────────────────────────────────
 export const CAMERA_FOLLOW_LERP = 0.1;
 export const CAMERA_FOLLOW_SNAP_THRESHOLD = 0.5;
+/** GFX2 auto camera: a click on a character zooms this many whole steps past the framed office. */
+export const CAMERA_FOLLOW_ZOOM_STEPS = 2;
 
 // ── Zoom ─────────────────────────────────────────────────────
 export const ZOOM_MIN = 1;
@@ -101,11 +103,10 @@ export const ZOOM_SCROLL_THRESHOLD = 50;
 export const PAN_MARGIN_FRACTION = 0.25;
 /** GFX: a HUD panel or safe area takes at most this share of a canvas side from the framed view. */
 export const FRAME_MAX_INSET_FRACTION = 0.4;
-/** GFX backdrop: the night skyline's true size (art px; the owner's pack draws it in 2x2 blocks). */
-export const BACKDROP_ART_W = 800;
-export const BACKDROP_ART_H = 450;
-/** GFX backdrop parallax: share of the camera pan each layer moves, and the most any moves (CSS px). */
-export const BACKDROP_PARALLAX = { sky: 0, far: 0.05, mid: 0.1, facade: 0.15, capPx: 24 } as const;
+/** GFX2 backdrop: world px per picture px of the city seen from above. The owner's scene is a
+ *  miniature (a desk 11 px wide, ours 48), so its streets and roofs read as far below the office
+ *  at 2: whole device px at every whole zoom, half as fine as the office's own pixels. */
+export const TOPDOWN_WORLD_PX = 2;
 /** GFX 2.5D: the depth key of a 'foreground' item (drawn after every standing thing). */
 export const FOREGROUND_Z = 1_000_000;
 /** GFX 2.5D ground decals (world px, pixel-art ellipses baked like sprites). 'ground' shadow:
@@ -149,6 +150,30 @@ export const TITLE_SCENE_Z = 49;
 /** GFX title scene: the owner's logo sign (art px), drawn at whole device px per art px, as wide
  *  as the title box allows and at most this share of the window's height (a phone held sideways). */
 export const TITLE_LOGO = { w: 135, h: 62, maxHeightShare: 0.25 } as const;
+/** GFX lobby: the title box around the logo (CSS px; pixel-panel's border is 2 px), its widest
+ *  on a desktop (rem and a share of the window), and the phone's side gutter. */
+export const TITLE_BOX = {
+  padPx: 12,
+  borderPx: 2,
+  maxRem: 24,
+  maxWidthShare: 0.4,
+  leftShare: 0.06,
+  phoneGutterPx: 16,
+  /** Kept between the menu and the cast at the counter. */
+  castGapPx: 16,
+} as const;
+/** GFX2 lobby: the wide picture above this aspect (width / height), else the 4:3 one; the
+ *  cast drawn at about this many picture px per world px (the picture's own figures' size),
+ *  a seated figure's world rows above the counter, and how fast the idle frames change. */
+export const LOBBY_ART = {
+  wideMinAspect: 1.7,
+  castArtPxPerWorld: 3.5,
+  /** Half a figure's width in picture px (8 world px at castArtPxPerWorld). */
+  castHalfArtPx: 28,
+  seatedRows: 25,
+  typeFrameMs: 300,
+  idleFrameMs: 900,
+} as const;
 /** The browser lays boxes out in 1/64 CSS px (Blink's LayoutUnit). */
 export const LAYOUT_UNITS_PER_PX = 64;
 
@@ -576,6 +601,28 @@ export const STAFF_HOLD_MAX_SEC = 5;
 export const HOME_GRACE_MS = 30 * 60_000;
 /** A walk to the door that took longer than this (game s) ends where it is. */
 export const LEAVE_TIMEOUT_SEC = 60;
+// cld ELEVATOR (cld/elevator.ts): characters ride between floors.
+/** The doors open (or shut) in this long (game s). */
+export const ELEVATOR_DOOR_SEC = 0.45;
+/** A missing or interrupted door animation gives up after this long, never trapping a rider. */
+export const ELEVATOR_DOOR_WAIT_SEC = 2;
+/** A rider steps into (or out of) the car in this long. */
+export const ELEVATOR_STEP_SEC = 0.35;
+/** The ride itself, plus this much per floor passed. */
+export const ELEVATOR_RIDE_SEC = 0.8;
+export const ELEVATOR_RIDE_PER_FLOOR_SEC = 0.35;
+/** A character dropped on another floor stands this far (tiles) at most from its elevator there. */
+export const ELEVATOR_VISIT_NEAR_TILES = 4;
+/** The elevator's pixels (a steel frame, the car's dark inside, two sliding doors, the call lamp). */
+export const ELEVATOR_COLORS = {
+  frame: '#4f5566',
+  trim: '#8e97aa',
+  car: '#1c1e26',
+  door: '#c2c9d6',
+  seam: '#7f8798',
+  lampOn: '#ffd166',
+  lampOff: '#4a4636',
+} as const;
 /** A lingering temp with no lounge on its floor stays this close (tiles) to its desk. */
 export const NEAR_SEAT_TILES = 3;
 /** Temp rows shown before "외 N" (the 현황판 and the "+N" list). */
@@ -734,6 +781,10 @@ export const CARD_BAR_CARD_WIDTH_PX = 96;
 export const CARD_BAR_MAX_VISIBLE = 10;
 /** Grab width of the drag handle on the panel's left edge. */
 export const TERMINAL_DRAWER_RESIZE_HANDLE_PX = 6;
+/** "이 터미널로 바꾸기" reads the attach cap with this timeout; a slow answer counts as an unknown cap. */
+export const TERMINAL_SWAP_CAP_READ_TIMEOUT_MS = 2_000;
+/** A cap refusal this soon after "이 터미널로 바꾸기" means a viewer this window cannot release holds the slot. */
+export const TERMINAL_SWAP_REFUSAL_WINDOW_MS = 10_000;
 
 // Mug shot: a square crop of the agent's front-facing sprite, focused on the
 // face, shown in each terminal tab in place of an "Agent N" label. Sprites are
@@ -746,6 +797,12 @@ export const MUGSHOT_CROP_LEFT_COL = -1;
 export const MUGSHOT_CROP_SIDE_PX = 20;
 /** Integer sprite-pixel zoom. 2 = each sprite pixel is 2 px. */
 export const MUGSHOT_RENDER_ZOOM = 2;
+/** The zoom step HD characters ask the camera for (32×64: even zooms); an HD64 character draws
+ *  its 32×64 copy at those, so it asks no more. */
+export const HD_ZOOM_STEP = 2;
+/** The performance readout (Settings): frames averaged, refresh interval. */
+export const PERF_FRAMES = 60;
+export const PERF_REFRESH_MS = 500;
 /** On-screen size in CSS px. Equal to the backing canvas (crop × zoom) so there
  *  is no fractional scaling — the mug shot stays pixel-perfect. */
 export const MUGSHOT_DISPLAY_PX = MUGSHOT_CROP_SIDE_PX * MUGSHOT_RENDER_ZOOM;
@@ -976,3 +1033,30 @@ export const VISUAL_VIEWPORT_FULL_EPSILON_PX = 1;
 export const KEYBOARD_MIN_HEIGHT_PX = 150;
 /** A messenger history/search request the daemon never answers is given up after this. */
 export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
+
+// ── ISO-PILOT: the isometric building (cld/iso) ─────────────────
+/** Half a floor diamond (iso px at zoom 1): a 16 px world tile is a 16×8 diamond, so a 16×32
+ *  character stands about four tiles tall, the proportions the top-down office has. */
+export const ISO_HALF_W = 8;
+export const ISO_HALF_H = 4;
+/** A tall back wall (iso px above its floor), a cut-away wall, a floor slab, and the gap left
+ *  between a floor's wall tops and the slab of the floor above. */
+export const ISO_WALL_H = 40;
+export const ISO_LOW_WALL_H = 5;
+export const ISO_SLAB_H = 6;
+export const ISO_FLOOR_GAP = 6;
+/** Margin (iso px) around the building in the whole-building framing. */
+export const ISO_FRAME_MARGIN = 12;
+/** A floor not in focus: drawn from its cache darkened by this wash, at this opacity. */
+export const ISO_DIM_WASH = 'rgba(14, 18, 38, 0.5)';
+export const ISO_DIM_ALPHA = 0.82;
+/** How often a dimmed floor checks whether its characters moved (ms; redrawn only then). */
+export const ISO_DIM_REFRESH_MS = 1000;
+/** Half-extent (tiles) of the depth box a character stands in. */
+export const ISO_CHARACTER_BOX = 0.3;
+/** World px a seated character's feet move towards its desk. */
+export const ISO_SIT_FORWARD_PX = 3;
+/** The isometric elevator car's speed, floors a second. */
+export const ISO_LIFT_LEVELS_PER_S = 2.5;
+/** World px a picture hung on a wall drops when that wall is cut away (it rests on its top). */
+export const ISO_LOW_WALL_ITEM_DROP = 5;

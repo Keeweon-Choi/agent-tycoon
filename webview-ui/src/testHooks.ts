@@ -1,12 +1,25 @@
+import type { CharacterChoice } from '../../core/src/messages.js';
 import type { Framing } from './cld/cameraMode.js';
+import { compose } from './cld/characters/compose.js';
+import { getCustomParts } from './cld/characters/looks.js';
 import { chatOpenFor } from './cld/chat.js';
 import { nameplateStats } from './cld/ez/useNameplates.js';
+import { floorsSnapshot } from './cld/floors.js';
+import { isoCarLevel, isoFloors, isoFrame, isoScreenAt, isoStats } from './cld/iso/render.js';
 import { otherFloorStats } from './cld/otherFloors.js';
+import { perfSnapshot, setPerfOn } from './cld/perf.js';
 import type { ColorValue } from './components/ui/types.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { isWalkable } from './office/layout/tileMap.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
+import { getCachedSprite } from './office/sprites/spriteCache.js';
+import {
+  getCharacterSprites,
+  getCharacterTemplates,
+  setCustomCharacter,
+  spritesAtZoom,
+} from './office/sprites/spriteData.js';
 
 declare global {
   interface Window {
@@ -128,7 +141,15 @@ declare global {
         queued: number;
         active: boolean;
         away: boolean;
+        /** ELEVATOR: its ride's phase and whether the car hides it; the floor it visits. */
+        ride: string | null;
+        /** Seconds in that phase. */
+        rideT: number | null;
+        hidden: boolean;
+        visit: string | null;
       } | null;
+      /** ELEVATOR: each floor's elevator (its wall tiles' left one) and how open its doors are. */
+      getElevators?: () => Array<{ floor: string; col: number; row: number; open: number }>;
       /** Pixel position for rAF-sampled keyboard-walk checks (T-0061). */
       getCharacterPosition?: (id: number) => { x: number; y: number } | null;
       /** 2.5D PILOT: walk a character to a tile, as the right-click command does. */
@@ -142,6 +163,37 @@ declare global {
       makeHdCharacter?: (id: number) => boolean;
       /** GFX: draw one more item at (col,row), on this page only (not saved): a 2.5D test object. */
       placeFurniture?: (type: string, col: number, row: number) => boolean;
+      /** HD64-SAMPLE: set the zoom (Classic camera: it stays), and pan a character to the middle. */
+      setZoom?: (zoom: number) => void;
+      centerOn?: (id: number) => boolean;
+      /** HD64-SAMPLE: `n` characters (ids from `firstId`) wearing `look`, each its own look (a
+       *  person's suit in another colour, the next built-in body), so each composes and caches
+       *  its own sheet; returns their palettes. */
+      spawnLook?: (look: CharacterChoice, n: number, firstId: number) => number[];
+      /** HD64-SAMPLE: building the sprite cache of palette/hue at `zoom` (ms, 21 frames and the
+       *  mirrored left ones), measured once (later calls hit the cache). */
+      cacheBuildMs?: (palette: number, hue: number, zoom: number) => number;
+      /** HD64-SAMPLE: walk character `id` to a tile (false: no path). */
+      walkTo?: (id: number, col: number, row: number) => boolean;
+      /** HD64-SAMPLE: the density palette/hue draws at `zoom` (its LOD there). */
+      drawnDensity?: (palette: number, hue: number, zoom: number) => number;
+      /** HD64-SAMPLE: the performance readout's numbers (and turning it on). */
+      perf?: () => ReturnType<typeof perfSnapshot>;
+      setPerf?: (on: boolean) => void;
+      /** ISO-PILOT: the isometric view's counters, the floor in focus, the car's level. */
+      getIso?: () => {
+        groundRenders: number;
+        dimRenders: number;
+        frames: number;
+        ms: number;
+        focus: string;
+        building: boolean;
+        car: number;
+        drawn: boolean;
+        floors: Array<{ id: string; row: number; rows: number; level: number }>;
+      };
+      /** ISO-PILOT: CSS px (in the canvas) where the building drew world point (x, y). */
+      isoPoint?: (worldX: number, worldY: number) => { x: number; y: number } | null;
       /** GFX: the camera now (zoom, pan) and the map it frames. */
       getCamera?: () => {
         zoom: number;
@@ -173,12 +225,75 @@ declare global {
  *   (see closeAgentFromOverlay in e2e/helpers/office.ts). ToolOverlay reads
  *   selectedAgentId every rAF, so the × button surfaces on the next frame.
  */
+/** Palettes the spawned test looks take (past the presets'), the built-in bodies, and the colour
+ *  of the i-th spawned suit (round the wheel). */
+const SPAWN_PALETTE = 50_000;
+const BUILT_IN_BODIES = 6;
+const wheel = (i: number) => {
+  const h = (i * 47) % 360;
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (0.5 - 0.4 * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return `#${[f(0), f(8), f(4)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+};
+
 export function installTestHooks(officeStateRef: { current: OfficeState | null }): void {
   if (typeof window === 'undefined') return;
   if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
   const hooks = window.__pixelAgentsTestHooks;
   if (!hooks.addAgentLog) hooks.addAgentLog = [];
 
+  hooks.perf = () => perfSnapshot();
+  hooks.getIso = () => ({
+    ...isoStats,
+    focus: floorsSnapshot().current,
+    building: floorsSnapshot().stacked,
+    car: isoCarLevel(),
+    drawn: isoFrame(),
+    floors: isoFloors(),
+  });
+  hooks.isoPoint = (wx, wy) => {
+    const p = isoScreenAt(wx, wy);
+    const dpr = window.devicePixelRatio || 1;
+    return p && { x: p.x / dpr, y: p.y / dpr };
+  };
+  hooks.setPerf = (on) => setPerfOn(on);
+  hooks.spawnLook = (look, n, firstId) => {
+    const os = officeStateRef.current;
+    const palettes: number[] = [];
+    for (let i = 0; i < n; i++) {
+      // each its own look, as distinct staff are: a person's suit turned round the colour wheel,
+      // a built-in body by number
+      const own: CharacterChoice =
+        look.kind === 'person'
+          ? { ...look, colors: { ...look.colors, fullbody: wheel(i) } }
+          : { ...look, palette: ((look.palette ?? 0) + i) % BUILT_IN_BODIES };
+      const c = compose(own, {
+        templates: getCharacterTemplates(),
+        provider: null,
+        parts: getCustomParts(),
+      });
+      const palette = SPAWN_PALETTE + firstId + i;
+      setCustomCharacter(palette, c.sheet, c.mugshot);
+      palettes.push(palette);
+      os?.addAgent(firstId + i, palette, 0, undefined, true);
+      // every other one at a desk typing, the rest walking about
+      os?.setAgentActive(firstId + i, i % 2 === 0);
+    }
+    return palettes;
+  };
+  hooks.walkTo = (id, col, row) => officeStateRef.current?.walkToTile(id, col, row) ?? false;
+  hooks.drawnDensity = (palette, hue, zoom) =>
+    spritesAtZoom(getCharacterSprites(palette, hue), zoom).density;
+  hooks.cacheBuildMs = (palette, hue, zoom) => {
+    const s = spritesAtZoom(getCharacterSprites(palette, hue), zoom);
+    const t0 = performance.now();
+    for (const set of [s.walk, s.typing, s.reading])
+      for (const frames of Object.values(set))
+        for (const f of frames) getCachedSprite(f, zoom / s.density);
+    return performance.now() - t0;
+  };
   hooks.getCharacters = () => {
     const os = officeStateRef.current;
     if (!os) return [];
@@ -216,9 +331,21 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
           queued: ch.path.length,
           active: ch.isActive,
           away: !!ch.cldAway,
+          ride: ch.cldRide?.phase ?? null,
+          rideT: ch.cldRide?.t ?? null,
+          hidden: !!ch.cldRide?.hidden,
+          visit: ch.cldVisit?.floor ?? null,
         }
       : null;
   };
+
+  hooks.getElevators = () =>
+    (officeStateRef.current?.cldElevators ?? []).map(({ floor, col, row, open }) => ({
+      floor,
+      col,
+      row,
+      open,
+    }));
 
   hooks.getCharacterPosition = (id) => {
     const ch = officeStateRef.current?.characters.get(id);

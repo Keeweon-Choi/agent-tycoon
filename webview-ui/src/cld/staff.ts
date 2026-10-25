@@ -31,6 +31,7 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import { findPath, isWalkable } from '../office/layout/tileMap.js';
 import { type Character, CharacterState, TILE_SIZE, TileType } from '../office/types.js';
 import { isBrowserRuntime, isE2E } from '../runtime.js';
+import { LOUNGE_SUFFIX as LOUNGE } from './elevator.js';
 import { employeeBusyElsewhere, employeeName, employeeOf, setSpawnLookup } from './employees.js';
 import { characterRingOf, characterVisualOf } from './ez/visuals.js';
 import { floorIndexAt, floorRects } from './floors.js';
@@ -50,9 +51,6 @@ import {
   type TempRow,
   workRefOf,
 } from './temps.js';
-
-/** The generated lounge's label ends so on every floor (server/src/cld/layout.ts LOUNGE_ROOM). */
-const LOUNGE = '\uB77C\uC6B4\uC9C0';
 
 type Tile = { col: number; row: number };
 
@@ -82,6 +80,8 @@ interface Rec {
   idleSince?: number;
   /** Game time it set off for home. */
   walkingHome?: number;
+  /** The door its walk out (home, or a temp's leaving) was sent to: the only way out. */
+  door?: Tile;
   /** Placed by a step (held out of sight before, while loading). */
   decided?: boolean;
   held?: boolean;
@@ -519,20 +519,30 @@ function linger(os: OfficeState, ch: Character, t: NonNullable<Rec['temp']>): vo
 }
 
 /** Out of the door (a path to it), or false when there is none. */
-function walkOut(os: OfficeState, ch: Character): boolean {
+function walkOut(os: OfficeState, rec: Rec, ch: Character): boolean {
   const at = { col: ch.tileCol, row: ch.tileRow };
   const door = doorFor(os, at);
   if (!door) return false;
+  rec.door = door;
   const path = pathTo(os, at, door);
   if (path.length) walk(ch, path);
   return true;
 }
 
-const atDoor = (os: OfficeState, ch: Character) => {
-  if (ch.path.length) return false;
-  const { top, bottom } = floorOf(os, ch.tileRow);
-  return doorsOn(os, top, bottom).some((d) => d.col === ch.tileCol && d.row === ch.tileRow);
-};
+/**
+ * Out once it stands at the door its walk out was sent to (ELEVATOR step 4: any walkable
+ * tile on the office's edge used to count, so a character sent home that the user walked or
+ * dropped elsewhere left wherever it stopped by the entrance or another edge). Stopped
+ * anywhere else, it sets off for that door again.
+ */
+function atDoor(os: OfficeState, rec: Rec, ch: Character): boolean {
+  const door = rec.door;
+  if (!door || ch.path.length || ch.cldRide) return false;
+  if (ch.tileCol === door.col && ch.tileRow === door.row) return true;
+  const path = pathTo(os, { col: ch.tileCol, row: ch.tileRow }, door);
+  if (path.length) walk(ch, path);
+  return false;
+}
 
 function finishTemp(os: OfficeState, rec: Rec, ch: Character): void {
   const t = rec.temp!;
@@ -670,9 +680,9 @@ function stepTemp(
     t.leavingSince = clock;
     t.wander = [];
     releaseSeat(os, ch);
-    if (!walkOut(os, ch)) return finishTemp(os, rec, ch);
+    if (!walkOut(os, rec, ch)) return finishTemp(os, rec, ch);
   }
-  if (t.phase === 'leaving' && (atDoor(os, ch) || clock - t.leavingSince > LEAVE_TIMEOUT_SEC))
+  if (t.phase === 'leaving' && (atDoor(os, rec, ch) || clock - t.leavingSince > LEAVE_TIMEOUT_SEC))
     finishTemp(os, rec, ch);
 }
 
@@ -734,7 +744,7 @@ function stepStaff(
       os.sendToSeat(ch.id);
       return duty;
     }
-    if (atDoor(os, ch) || clock - rec.walkingHome > LEAVE_TIMEOUT_SEC) {
+    if (atDoor(os, rec, ch) || clock - rec.walkingHome > LEAVE_TIMEOUT_SEC) {
       rec.walkingHome = undefined;
       rec.away = true;
       ch.cldAway = true;
@@ -748,7 +758,7 @@ function stepStaff(
   rec.wasActive = ch.isActive;
   ch.isActive = false; // or the FSM walks it back to its desk
   ch.bubbleType = null;
-  if (!walkOut(os, ch)) {
+  if (!walkOut(os, rec, ch)) {
     // No door: gone where it stood.
     rec.away = true;
     ch.cldAway = true;

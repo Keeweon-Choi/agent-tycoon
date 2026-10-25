@@ -659,10 +659,13 @@ export type CharacterPartSlot =
 export type AnonymousSchema_286 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
+  density?: CharacterPartDensity;
   ramp: string[];
   palette: string[];
   pixels: string;
 }
+
+export type CharacterPartDensity = 2 | 4;
 
 export interface CharacterPartArt {
   palette: string[];

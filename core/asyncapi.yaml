@@ -1910,13 +1910,17 @@ components:
 
     CharacterPartHd:
       description: |
-        CHAR-FACTORY: the part at twice the detail (density 2: 224×192 for a
-        sheet, 96×48 for a head canvas), same encoding; `pixels` and `palette`
-        above are its classic copy, derived 2×2, for what cannot draw HD.
+        CHAR-FACTORY: the part at more detail (density 2: 224×192 for a
+        sheet, 96×48 for a head canvas; HD64-SAMPLE density 4: 448×384 and
+        192×96), same encoding; `pixels` and `palette` above are its classic
+        copy (derived 2×2, or drawn on its own for density 4), for what cannot
+        draw the detail.
       type: object
       additionalProperties: false
       required: [ramp, palette, pixels]
       properties:
+        density:
+          $ref: '#/components/schemas/CharacterPartDensity'
         ramp:
           type: array
           items:
@@ -1927,6 +1931,11 @@ components:
             type: string
         pixels:
           type: string
+
+    CharacterPartDensity:
+      description: Pixels per classic pixel of a part's detailed art (absent = 2).
+      type: integer
+      enum: [2, 4]
 
     CharacterPartSlot:
       type: string

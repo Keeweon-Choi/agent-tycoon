@@ -142,3 +142,32 @@ describe('pixel resampling (HD-CONVERT)', () => {
     expect(after.outlineBreaks).toBe(15);
   });
 });
+
+describe('interiorDarkShare', () => {
+  // a light square with a dark ring, crossed by a dark line two pixels wide (a lash line)
+  const W = 30;
+  const img: Rgba = { width: W, height: W, data: new Uint8Array(W * W * 4) };
+  for (let y = 0; y < W; y++)
+    for (let x = 0; x < W; x++) {
+      const inside = x >= 5 && x < 25 && y >= 5 && y < 25;
+      const ring = inside && (x === 5 || x === 24 || y === 5 || y === 24);
+      const line = inside && (x === 10 || x === 11);
+      img.data.set(
+        [...(!inside ? MAGENTA : ring || line ? [20, 20, 24] : [200, 200, 210]), 255],
+        (y * W + x) * 4,
+      );
+    }
+  const grid = { size: 5, ox: 0, oy: 0, confidence: 1 };
+  const at = (r: ReturnType<typeof resample>, c: number, row: number) => [
+    ...r.data.subarray((row * r.cols + c) * 4, (row * r.cols + c) * 4 + 3),
+  ];
+  it('keeps the light colour inside the silhouette where the dark is a minority', () => {
+    const now = resample(img, grid, { x: 5, y: 5 }, 4, 4, isBg);
+    const changed = resample(img, grid, { x: 5, y: 5 }, 4, 4, isBg, { interiorDarkShare: 0.5 });
+    // block (1, 1) is 40% line: dark today, light with the option
+    expect(at(now, 1, 1)).toEqual([20, 20, 24]);
+    expect(at(changed, 1, 1)).toEqual([200, 200, 210]);
+    // block (1, 0) is on the edge (nothing above): the edge rule stays
+    expect(at(changed, 1, 0)).toEqual(at(now, 1, 0));
+  });
+});

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 
+import { setPerfOn, usePerfOn } from '../cld/perf.js';
 import { t } from '../i18n/index.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { isBrowserRuntime } from '../runtime.js';
@@ -69,6 +70,7 @@ export function SettingsModal({
   onExportLayout,
   onImportLayout,
 }: SettingsModalProps) {
+  const perfOn = usePerfOn();
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [assetDirDraft, setAssetDirDraft] = useState('');
@@ -214,6 +216,8 @@ export function SettingsModal({
           onChange={onToggleGhostHeadlessAgents}
         />
       )}
+      {/* HD64-SAMPLE: the owner's own check of frame time on their phone */}
+      <Checkbox label={t('perf.toggle')} checked={perfOn} onChange={() => setPerfOn(!perfOn)} />
       {showAreasAvailable && (
         <Checkbox label={t('upstream.showAreas')} checked={showAreas} onChange={onToggleShowAreas} />
       )}

@@ -2,15 +2,15 @@ import { isWalkable } from '../office/layout/tileMap.js';
 import { TileType, type TileType as TileTypeValue } from '../office/types.js';
 import type { CameraKey } from './camera.js';
 
-// floors.ts's two pure helpers, kept here on purpose: upstream officeState.ts
+// floors.ts's two pure helpers, kept here on purpose (elevator.ts reuses them): upstream officeState.ts
 // imports this file, and floors.ts pulls in the store, notices and JSX, which
 // break the DOM-free Node build of webview-ui/test (tsc -b, tsconfig.node.json).
-type FloorRows = { row: number; rows: number };
-function floorRects(layout: object): FloorRows[] | null {
+export type FloorRows = { id?: string; row: number; rows: number };
+export function floorRects(layout: object): FloorRows[] | null {
   const rects = (layout as { cldFloors?: unknown }).cldFloors;
   return Array.isArray(rects) && rects.length > 1 ? (rects as FloorRows[]) : null;
 }
-const floorIndexAt = (rects: FloorRows[], row: number): number =>
+export const floorIndexAt = (rects: FloorRows[], row: number): number =>
   rects.findIndex((r) => row >= r.row && row < r.row + r.rows);
 
 /** Steps a character may have queued from separate key presses. */

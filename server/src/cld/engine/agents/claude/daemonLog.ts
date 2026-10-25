@@ -9,7 +9,8 @@ export interface IdleRetire {
   /** The short hexadecimal id Claude wrote after `bg retire`. */
   id: string;
   reason: string;
-  hours: number;
+  /** How long it sat idle: Claude 2.1.310 writes minutes (`idle 61m`), older builds hours (`idle 8h`). */
+  minutes: number;
 }
 
 /**
@@ -21,11 +22,11 @@ export function parseIdleRetire(text: string, ids: Array<string | undefined>): I
   const known = ids.filter((id): id is string => typeof id === 'string' && id.length > 0);
   if (!known.length) return null;
   for (const line of text.split('\n').reverse()) {
-    const match = /\bbg retire ([0-9a-f]+): ([^,\r\n]+), idle ([0-9]+)h\r?$/i.exec(line);
+    const match = /\bbg retire ([0-9a-f]+): ([^,\r\n]+), idle ([0-9]+)([mh])\r?$/i.exec(line);
     if (!match) continue;
-    const [, id, reason, hours] = match;
+    const [, id, reason, amount, unit] = match;
     if (!known.some((knownId) => knownId.toLowerCase().startsWith(id.toLowerCase()))) continue;
-    return { id, reason, hours: Number(hours) };
+    return { id, reason, minutes: Number(amount) * (unit.toLowerCase() === 'h' ? 60 : 1) };
   }
   return null;
 }

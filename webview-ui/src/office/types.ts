@@ -25,6 +25,7 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from '../components/ui/types.js';
 import type { FurnitureVisual } from '../../../core/src/assets/manifestUtils.js';
+import type { Ride, Visit } from '../cld/elevator.js';
 import type { ColorValue } from '../components/ui/types.js';
 
 export const CharacterState = {
@@ -265,6 +266,13 @@ export interface Character {
   cldAway?: boolean;
   /** cld-gui (T-0066): the seat the server gave it (its own chair's uid), looked up in `cldSeats`. */
   cldSeatId?: string;
+  /** cld-gui (ELEVATOR): the server's seat was not in the office yet when it came, so it sits
+   *  at another; it takes its own the moment an office has it. */
+  cldSeatMissing?: boolean;
+  /** cld-gui (ELEVATOR): riding between floors (cld/elevator.ts drives it; hidden in the car). */
+  cldRide?: Ride;
+  /** cld-gui (ELEVATOR): dropped on another floor and visiting it; its own seat is kept. */
+  cldVisit?: Visit;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */

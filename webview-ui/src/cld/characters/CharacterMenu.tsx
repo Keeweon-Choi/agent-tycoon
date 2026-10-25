@@ -7,6 +7,7 @@ import type { OfficeState } from '../../office/engine/officeState.js';
 import { overlayProjection } from '../../office/projection.js';
 import { CharacterState } from '../../office/types.js';
 import { ChatAction } from '../ChatAction.js';
+import { isoOverlayFor } from '../iso/render.js';
 import { useCldStore } from '../officeStore.js';
 import { lookNameOf, openLooks } from './looks.js';
 
@@ -50,13 +51,15 @@ export function CharacterMenu({
   const ch = agentId !== null ? officeState.characters.get(agentId) : undefined;
   const el = containerRef.current;
   if (name === undefined || !ch || !el) return null;
-  const project = overlayProjection(
+  const base = overlayProjection(
     officeState.getLayout(),
     el.getBoundingClientRect(),
     zoom,
     panRef.current,
     window.devicePixelRatio || 1,
   );
+  // ISO-PILOT: beside the character where the isometric building drew it.
+  const project = isoOverlayFor(ch, window.devicePixelRatio || 1, base)?.project ?? base;
   const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
   return (
     <div

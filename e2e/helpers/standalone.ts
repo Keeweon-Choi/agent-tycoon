@@ -352,8 +352,8 @@ export async function launchStandalone(
       try {
         // The specs read the terminal from xterm's DOM rows; a pane otherwise draws with WebGL.
         localStorage.setItem('cld.terminal-renderer', 'dom');
-        // The specs click where the classic camera puts things (not Fill / Focus framing).
-        localStorage.setItem('cld.camera-mode', 'classic');
+        // The specs click where the upstream camera puts things (no auto framing).
+        localStorage.setItem('cld.camera-mode', 'off');
         localStorage.setItem('cld.title-scene', 'off'); // no title scene over the office
       } catch {
         // No storage (about:blank): nothing to pin there.

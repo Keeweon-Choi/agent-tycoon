@@ -1,19 +1,22 @@
 /**
- * GFX verification (owner 10-25, Phase 4): dist/cli.js with an isolated HOME on a spare port,
+ * GFX2 verification (owner 10-25 22:27): dist/cli.js with an isolated HOME on a spare port,
  * headless Chromium without a GPU, desktop 1280x800 and phone 390x844. One fake Claude session
- * (a `sleep` with a transcript); no model is ever called.
+ * (a `sleep` with a transcript); no model is ever called. The HD sample preset is put in the
+ * temp HOME's presets, as the owner has it.
  *
- * With `--base <dir>` (a built checkout of the integration branch, e.g. `git archive` + esbuild
- * + vite in /tmp), the same office is first opened on that build: the canvas must come out
- * pixel-identical with the new modes off (Classic camera; the backdrop is CSS behind the canvas,
- * so the canvas never contains it) and the idle office must draw no more frames than before.
+ * With `--base <dir>` (a built checkout of the integration branch before GFX, e.g. `git archive`
+ * + esbuild + vite in /tmp), the same office is first opened on that build: the canvas must come
+ * out pixel-identical with the camera 'off' and the backdrop off (the backdrop is CSS behind the
+ * canvas, never in it) and the idle office must draw no more frames than before.
  *
- * Then on this build: Fit / Fill / Focus framing (whole zooms, the office inside or covering the
- * view left by the panels), a manual drag and wheel winning until 0, resize, refresh, the layout
- * editor and a floor switch; the backdrop (crisp, behind, off, parallax); the title scene (menu,
- * honest status, Enter, the panels it opens); a synthetic HD character (its half-world-px marker
- * survives at even and odd zooms, framing prefers even zooms); the 2.5D test objects (a
- * foreground lamp over a character, a plant in front). Screenshots: cld/artifacts/gfx/.
+ * Then on this build: the two camera modes (자동: the office framed, a click on a character zooms
+ * in and follows, the floor or Esc frames the office again, a manual drag or wheel wins until 0;
+ * 자유 시점: a click moves nothing), resize, refresh, the layout editor, a floor switch; the
+ * backdrop seen from above (crisp, repeating, moving with the world, nothing written while idle,
+ * off); the lobby (shown on a fresh launch, not on a reload nor over a deep link; the title box
+ * hugs the logo with equal margins and the menu and status line take its width; its lights
+ * animate and stop under reduced motion; Tori and the owner at the counter at a whole-number
+ * scale); a synthetic HD character; the 2.5D test objects. Screenshots: cld/artifacts/gfx2/.
  *
  *   npx tsx cld/test/run-gfx.ts <port 18256-18259> [--base /tmp/gfx-base]
  */
@@ -38,7 +41,7 @@ import {
 const port = sparePort();
 const baseArg = process.argv.indexOf('--base');
 const BASE = baseArg > 0 ? process.argv[baseArg + 1] : null;
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/gfx');
+const OUT = path.join(REPO_ROOT, 'cld/artifacts/gfx2');
 const DESK = { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 };
 const PHONE = {
   viewport: { width: 390, height: 844 },
@@ -212,6 +215,8 @@ async function open(
   url: string,
   opts: BrowserContextOptions,
   store: Record<string, string | null>,
+  /** false: the lobby may be over the office, so its info window is left alone. */
+  office = true,
 ) {
   const ctx = await browser.newContext(opts);
   await ctx.addInitScript(INIT);
@@ -233,7 +238,7 @@ async function open(
   await page.waitForURL(/\/$/);
   await page.locator('[data-testid="agent-overlay"]').first().waitFor({ timeout: 30_000 });
   const closeInfo = page.getByRole('button', { name: '정보 창 닫기' });
-  if (await closeInfo.count()) await closeInfo.first().click();
+  if (office && (await closeInfo.count())) await closeInfo.first().click();
   await page.waitForTimeout(1200);
   return { ctx, page, errors };
 }
@@ -259,7 +264,14 @@ async function idleFrames(page: Page): Promise<number> {
   return b - a;
 }
 
-const CLASSIC = { 'cld.camera-mode': 'classic', 'cld.backdrop': 'off', 'cld.title-scene': 'off' };
+/** The office as before: the integration build's Classic camera, this build's 'off'. */
+const CLASSIC_BASE = {
+  'cld.camera-mode': 'classic',
+  'cld.backdrop': 'off',
+  'cld.title-scene': 'off',
+};
+const CLASSIC = { 'cld.camera-mode': 'off', 'cld.backdrop': 'off', 'cld.title-scene': 'off' };
+const HD_SAMPLE = path.join(REPO_ROOT, 'cld/artifacts/char-factory/hd-sample');
 
 async function baseline(browser: Browser) {
   const { home, claudePath } = makeEngineHome();
@@ -281,7 +293,7 @@ async function baseline(browser: Browser) {
       ['desktop', DESK],
       ['phone', PHONE],
     ] as const) {
-      const { ctx, page } = await open(browser, await d.loginUrl(), opts, CLASSIC);
+      const { ctx, page } = await open(browser, await d.loginUrl(), opts, CLASSIC_BASE);
       out[name] = { hashes: await hashes(page), frames: await idleFrames(page) };
       await page.screenshot({ path: path.join(OUT, `${name}-integ.png`) });
       await ctx.close();
@@ -343,12 +355,99 @@ async function logoCrisp(page: Page, name: string) {
     `${name} title: the logo is drawn at ${k} device px per art px, every block flat (${bad} stray px; layout origin ${offGrid.toFixed(2)} device px off the grid, snapped by the browser)`,
   );
 }
-const modeButton = (page: Page, label: string) =>
-  page.getByTestId('camera-modes').getByRole('button', { name: label, exact: true });
+/** Where to click lead (CSS px of the page). */
+async function leadAt(p: Page) {
+  const t = await p.evaluate(() => {
+    const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+    const tile = h.getCharacterTile(h.getAgentSeats()[0].id)!;
+    return h.getTileCenter(tile.col, tile.row)!;
+  });
+  const cb = (await p.getByTestId('office-canvas').boundingBox())!;
+  return { x: cb.x + t.x, y: cb.y + t.y - 10 };
+}
+/** The title box hugs the logo with equal margins; the menu buttons and the status line take
+ *  exactly its width. */
+async function titleBox(page: Page, name: string) {
+  const r = await page.evaluate(() => {
+    const at = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+    const box = at('[data-testid="title-box"]');
+    const logo = at('[data-testid="title-logo"]');
+    return {
+      left: logo.left - box.left,
+      right: box.right - logo.right,
+      box: box.width,
+      menu: [...document.querySelectorAll('[data-testid="title-column"] nav button')].map(
+        (b) => b.getBoundingClientRect().width,
+      ),
+      status: at('[data-testid="title-status"]').width,
+    };
+  });
+  check(
+    Math.abs(r.left - r.right) < 0.5 &&
+      r.menu.every((w) => Math.abs(w - r.box) < 0.5) &&
+      Math.abs(r.status - r.box) < 0.5,
+    `${name} title: logo margins ${r.left.toFixed(1)} / ${r.right.toFixed(1)} px, the ${r.menu.length} buttons and the status line ${r.box.toFixed(1)} px wide like the box`,
+  );
+}
+/** The lobby's lights move (two frames differ inside the picture, outside the menu) and stop
+ *  under reduced motion; Tori and the owner sit at the counter at whole-number scales. */
+async function lobbyLife(page: Page, name: string) {
+  const cast = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLCanvasElement>('canvas.cld-lobby-cast')].map((c) => ({
+      id: c.dataset.testid,
+      scale: Number(c.dataset.scale),
+    })),
+  );
+  check(
+    cast.length === 2 && cast.every((c) => Number.isInteger(c.scale) && c.scale >= 1),
+    `${name} lobby: ${cast.map((c) => `${c.id} x${c.scale}`).join(', ')} at the counter, whole-number scales`,
+  );
+  const diff = async (tag: string) => {
+    const art = (await page.getByTestId('title-art').boundingBox())!;
+    const menu = (await page.getByTestId('title-column').boundingBox())!;
+    const a = PNG.sync.read(await page.screenshot());
+    await page.waitForTimeout(1300);
+    const shotB = await page.screenshot();
+    if (tag) fs.writeFileSync(path.join(OUT, `${name}-title-${tag}.png`), shotB);
+    const bimg = PNG.sync.read(shotB);
+    const dpr = a.width / page.viewportSize()!.width;
+    let n = 0;
+    for (let y = 0; y < a.height; y += 2)
+      for (let x = 0; x < a.width; x += 2) {
+        const cx = x / dpr;
+        const cy = y / dpr;
+        if (cx < art.x || cy < art.y || cx >= art.x + art.width || cy >= art.y + art.height)
+          continue;
+        if (cx >= menu.x && cx < menu.x + menu.width && cy >= menu.y && cy < menu.y + menu.height)
+          continue;
+        const i = (y * a.width + x) * 4;
+        if (
+          a.data[i] !== bimg.data[i] ||
+          a.data[i + 1] !== bimg.data[i + 1] ||
+          a.data[i + 2] !== bimg.data[i + 2]
+        )
+          n++;
+      }
+    return n;
+  };
+  const moving = await diff('frame2');
+  check(
+    moving > 0,
+    `${name} lobby: the lights and the cast change between two frames (${moving} sampled px)`,
+  );
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByTestId('title-enter').click();
+  await page.getByTestId('title-open').click();
+  await page.getByTestId('title-scene').waitFor();
+  await page.waitForTimeout(500);
+  const still = await diff('');
+  check(still === 0, `${name} lobby: under reduced motion nothing moves (${still} px)`);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+}
 
 async function main() {
   await assertPortFree(port);
-  fs.rmSync(path.join(REPO_ROOT, 'cld/artifacts/gfx'), { recursive: true, force: true });
+  fs.rmSync(path.join(REPO_ROOT, 'cld/artifacts/gfx2'), { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await launchBrowser();
   const shot = (page: Page, name: string) =>
@@ -363,6 +462,9 @@ async function main() {
     const fake = makeEngineHome();
     home = fake.home;
     lead = session(home);
+    fs.mkdirSync(path.join(home, '.config/cld-gui/characters'), { recursive: true });
+    for (const f of ['bunny-hd-sample.png', 'bunny-hd-sample.json'])
+      fs.copyFileSync(path.join(HD_SAMPLE, f), path.join(home, '.config/cld-gui/characters', f));
     daemon = startDaemon({ home, claudePath: fake.claudePath }, port, ['--no-terminal'], {});
 
     // ── Pixel identity with the new modes off, and idle frames ──
@@ -378,7 +480,7 @@ async function main() {
         const was = base[name].hashes;
         check(
           ours.rest.size === 1 && was.rest.size === 1 && [...ours.rest][0] === [...was.rest][0],
-          `${name}: Classic, backdrop off: the canvas outside the characters is pixel-identical to the integration build`,
+          `${name}: camera off, backdrop off: the canvas outside the characters is pixel-identical to the integration build`,
         );
         const poses = [...ours.chars].filter((h) => was.chars.has(h)).length;
         check(
@@ -395,7 +497,7 @@ async function main() {
       if (base) console.log(`  ${name} idle frames: integ ${base[name].frames}, classic ${frames}`);
     }
 
-    // ── Desktop: Fill (default), Fit, Focus ──
+    // ── Desktop: 자동 (default) and 자유 시점 ──
     const callsBefore = engineCalls(home).length;
     const requests: string[] = [];
     const {
@@ -407,44 +509,83 @@ async function main() {
     });
     pages.push(page);
     page.on('request', (r) => requests.push(new URL(r.url()).pathname));
-    let b = await boxOnScreen(page);
+    const b = await boxOnScreen(page);
     check(
-      b.f.mode === 'fill' && Number.isInteger(b.c.zoom),
-      `desktop: Fill by default, whole zoom ${b.c.zoom}`,
+      b.f.mode === 'auto' && Number.isInteger(b.c.zoom),
+      `desktop: 자동 by default, the office framed at whole zoom ${b.c.zoom}`,
     );
     check(
       b.left <= b.f.view.x + 1 || b.right >= b.f.view.x + b.f.view.w - 1 || b.top <= 1,
-      'desktop Fill: the office reaches the view edges on at least one axis',
+      'desktop 자동: the office reaches the view edges on at least one axis',
     );
     check(
       b.f.view.x > 0,
       `desktop: the elevator panel is left out of the view (view from x=${b.f.view.x})`,
     );
-    const fillFrames = await idleFrames(page);
+    const autoFrames = await idleFrames(page);
     if (base)
       check(
-        fillFrames <= base.desktop.frames + 2,
-        `desktop: Fill + backdrop, idle: ${fillFrames} frames (integration build: ${base.desktop.frames})`,
+        autoFrames <= base.desktop.frames + 2,
+        `desktop: 자동 + backdrop, idle: ${autoFrames} frames (integration build: ${base.desktop.frames})`,
       );
-    await shot(page, 'desktop-fill');
-    await modeButton(page, '맞춤').click();
-    await until('fit framed', async () => (await cam(page)).framing?.mode === 'fit');
-    await page.waitForTimeout(300);
-    b = await boxOnScreen(page);
+    await shot(page, 'desktop-auto');
+    const office = await cam(page);
+    let at = await leadAt(page);
+    await page.mouse.click(at.x, at.y);
+    await until('follow zooms in', async () => (await cam(page)).zoom > office.zoom);
+    await page.waitForTimeout(1200);
+    const following = await cam(page);
     check(
-      b.left >= b.f.view.x &&
-        b.right <= b.f.view.x + b.f.view.w &&
-        b.top >= b.f.view.y &&
-        b.bottom <= b.f.view.y + b.f.view.h,
-      `desktop Fit: all of the office inside the view at zoom ${b.c.zoom}`,
+      following.zoom === office.zoom + 2 && following.pan.x !== office.pan.x,
+      `desktop 자동: a click on lead zooms in (${office.zoom} -> ${following.zoom}) and follows it`,
     );
-    await shot(page, 'desktop-fit');
-    await modeButton(page, '집중').click();
-    await until('focus framed', async () => (await cam(page)).framing?.mode === 'focus');
-    await page.waitForTimeout(300);
-    await shot(page, 'desktop-focus');
-    await modeButton(page, '채움').click();
-    await until('fill again', async () => (await cam(page)).framing?.mode === 'fill');
+    await shot(page, 'desktop-auto-follow');
+    await page.mouse.move(0, 0);
+    await page.keyboard.press('Escape');
+    await until('Esc frames the office', async () => {
+      const c = await cam(page);
+      return c.zoom === office.zoom && c.pan.x === office.pan.x && c.pan.y === office.pan.y;
+    });
+    check(true, 'desktop 자동: Esc ends the follow and frames the office again');
+    at = await leadAt(page);
+    await page.mouse.click(at.x, at.y);
+    await until('follow again', async () => (await cam(page)).zoom > office.zoom);
+    const floorSpot = (await page.getByTestId('office-canvas').boundingBox())!;
+    await page.waitForTimeout(800);
+    await page.mouse.click(
+      floorSpot.x + floorSpot.width * 0.5,
+      floorSpot.y + floorSpot.height * 0.9,
+    );
+    await until('a click on the floor frames the office', async () => {
+      const c = await cam(page);
+      return c.zoom === office.zoom && c.pan.x === office.pan.x;
+    });
+    check(true, 'desktop 자동: a click on empty floor frames the office again');
+    await page.getByTestId('camera-toggle').click();
+    await until(
+      'free',
+      async () => (await page.getByTestId('camera-toggle').getAttribute('data-mode')) === 'free',
+    );
+    at = await leadAt(page);
+    const beforeFree = await cam(page);
+    await page.mouse.click(at.x, at.y);
+    await page.waitForTimeout(1200);
+    const afterFree = await cam(page);
+    check(
+      afterFree.zoom === beforeFree.zoom &&
+        afterFree.pan.x === beforeFree.pan.x &&
+        afterFree.pan.y === beforeFree.pan.y,
+      'desktop 자유 시점: a click on lead selects it and moves nothing',
+    );
+    await shot(page, 'desktop-free');
+    await page.mouse.move(0, 0);
+    await page.keyboard.press('Escape');
+    await page.getByTestId('camera-toggle').click();
+    await until('auto again', async () => (await cam(page)).zoom === office.zoom);
+    check(
+      (await page.getByTestId('camera-toggle').getAttribute('data-mode')) === 'auto',
+      'desktop: the toggle goes back to 자동, which frames the office',
+    );
     await page.waitForTimeout(300);
 
     // ── Manual wins until asked again ──
@@ -498,7 +639,7 @@ async function main() {
     );
     await page.mouse.move(0, 0);
     await page.keyboard.press('0');
-    await until('fill after 0', async () => (await cam(page)).zoom === z0);
+    await until('framed after 0', async () => (await cam(page)).zoom === z0);
     await page.waitForTimeout(400);
     const auto = await cam(page);
     await page.reload();
@@ -553,7 +694,7 @@ async function main() {
     );
     check(true, 'desktop: back on floor 1 it is framed as before');
 
-    // ── Backdrop ──
+    // ── Backdrop: the city seen from above, moving with the world ──
     const bg = () =>
       page.evaluate(() => {
         const el = document.querySelector('[data-testid="office-canvas"]')!.parentElement!;
@@ -561,53 +702,56 @@ async function main() {
         return {
           image: s.backgroundImage,
           rendering: s.imageRendering,
-          x: el.style.getPropertyValue('--cld-bd-x'),
+          repeat: s.backgroundRepeat,
+          position: el.style.backgroundPosition,
+          size: el.style.backgroundSize,
         };
       });
     let style = await bg();
     check(
-      style.image.includes('night-city') && style.rendering === 'pixelated',
-      'desktop: the skyline is the canvas container background, image-rendering pixelated',
+      style.image.includes('topdown-night') &&
+        style.rendering === 'pixelated' &&
+        style.repeat === 'repeat' &&
+        style.size !== '',
+      'desktop: the city seen from above is the canvas container background, pixelated, repeating',
     );
-    await page.evaluate(() => localStorage.setItem('cld.backdrop-parallax', 'on'));
-    await page.reload();
-    await page.locator('[data-testid="agent-overlay"]').first().waitFor();
-    await page.waitForTimeout(1200);
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(1500);
+    const idleStyle = await bg();
+    check(
+      idleStyle.position === style.position,
+      'desktop: idle, the backdrop is not written again',
+    );
+    const cb2 = (await page.getByTestId('office-canvas').boundingBox())!;
+    await page.mouse.move(cb2.x + cb2.width * 0.5, cb2.y + cb2.height * 0.92);
+    await page.mouse.down();
+    await page.mouse.move(cb2.x + cb2.width * 0.5 - 90, cb2.y + cb2.height * 0.92 - 40, {
+      steps: 5,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
     style = await bg();
-    check(
-      style.image.split('url(').length - 1 === 4 && style.x !== '',
-      'desktop: parallax: four layers, the pan in a CSS variable',
-    );
-    await shot(page, 'desktop-parallax');
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.reload();
-    await page.locator('[data-testid="agent-overlay"]').first().waitFor();
-    await page.waitForTimeout(1000);
-    check(
-      (await bg()).image.split('url(').length - 1 === 1,
-      'desktop: reduced motion: the static skyline',
-    );
+    check(style.position !== idleStyle.position, 'desktop: a drag moves the city with the office');
+    await shot(page, 'desktop-backdrop');
+    await page.mouse.move(0, 0);
+    await page.keyboard.press('0');
     await page.evaluate(() => localStorage.setItem('cld.backdrop', 'off'));
     await page.reload();
     await page.locator('[data-testid="agent-overlay"]').first().waitFor();
     await page.waitForTimeout(800);
     const plain = (await bg()).image;
     check(
-      !plain.includes('night-'),
+      !plain.includes('topdown'),
       `desktop: backdrop off: the plain background (${plain.slice(0, 40)})`,
     );
-    await page.evaluate(() => {
-      localStorage.removeItem('cld.backdrop');
-      localStorage.removeItem('cld.backdrop-parallax');
-    });
+    await page.evaluate(() => localStorage.removeItem('cld.backdrop'));
+    await page.reload();
+    await page.locator('[data-testid="agent-overlay"]').first().waitFor();
+    await page.waitForTimeout(800);
 
     // ── Title scene ──
-    await page.evaluate(() => {
-      localStorage.setItem('cld.title-scene', 'on');
-      sessionStorage.removeItem('cld.title-seen');
-    });
     requests.length = 0;
-    await page.reload();
+    await page.getByTestId('title-open').click();
     const title = page.getByTestId('title-scene');
     await title.waitFor();
     await until('status line', async () =>
@@ -621,6 +765,8 @@ async function main() {
     await page.waitForTimeout(600);
     await shot(page, 'desktop-title');
     await logoCrisp(page, 'desktop');
+    await titleBox(page, 'desktop');
+    await lobbyLife(page, 'desktop');
     const titleCalls = requests.filter((p) => p.startsWith('/api/') && p !== '/api/cld/connector');
     check(
       !requests.some((p) => /usage|engine|chat|claude/i.test(p) && p !== '/api/cld/connector'),
@@ -736,7 +882,7 @@ async function main() {
         await daemon.loginUrl(),
         { ...DESK, deviceScaleFactor: 2 },
         {
-          'cld.camera-mode': 'fill',
+          'cld.camera-mode': 'auto',
           'cld.title-scene': 'off',
         },
       );
@@ -846,7 +992,7 @@ async function main() {
       await ctx.close();
     }
 
-    // ── Phone: Focus by default, Fit, rotation, HD prefers even zooms, the title scene ──
+    // ── Phone: 자동, a tap follows, 자유 시점, rotation, HD prefers even zooms, the lobby ──
     {
       const {
         ctx,
@@ -858,11 +1004,11 @@ async function main() {
       pages.push(p);
       let c = await cam(p);
       check(
-        c.framing?.mode === 'focus' && Number.isInteger(c.zoom),
-        `phone: Focus by default, whole zoom ${c.zoom}`,
+        c.framing?.mode === 'auto' && Number.isInteger(c.zoom),
+        `phone: 자동 by default, whole zoom ${c.zoom}`,
       );
-      await shot(p, 'phone-focus');
-      const focusZoom = c.zoom;
+      await shot(p, 'phone-auto');
+      const framedZoom = c.zoom;
       const i = (await hooks(p)((x) => x.getAgentSeats()[0].id)) as number;
       await p.evaluate(
         (n) =>
@@ -877,12 +1023,39 @@ async function main() {
       c = await cam(p);
       check(
         c.zoom % 2 === 0,
-        `phone: with an HD character on the floor Focus takes an even zoom (${focusZoom} -> ${c.zoom})`,
+        `phone: with an HD character on the floor 자동 takes an even zoom (${framedZoom} -> ${c.zoom})`,
       );
-      await modeButton(p, '맞춤').tap();
-      await until('phone fit', async () => (await cam(p)).framing?.mode === 'fit');
+      const hdZoom = c.zoom;
+      // The framed office is wider than the phone: bring lead on screen first (a manual pan,
+      // which the tap's follow then overrides).
+      let t = await leadAt(p);
+      const pc = (await p.getByTestId('office-canvas').boundingBox())!;
+      const dx = pc.x + pc.width / 2 - t.x;
+      const dy = pc.y + pc.height / 2 - t.y;
+      await p.mouse.move(pc.x + pc.width / 2, pc.y + pc.height * 0.8);
+      await p.mouse.down();
+      await p.mouse.move(pc.x + pc.width / 2 + dx, pc.y + pc.height * 0.8 + dy, { steps: 6 });
+      await p.mouse.up();
+      await p.waitForTimeout(500);
+      t = await leadAt(p);
+      await p.touchscreen.tap(t.x, t.y);
+      await until('phone follow', async () => (await cam(p)).zoom > hdZoom);
+      await p.waitForTimeout(1200);
+      c = await cam(p);
+      check(
+        c.zoom % 2 === 0,
+        `phone 자동: a tap on lead zooms in and follows (${hdZoom} -> ${c.zoom}, even for HD)`,
+      );
+      await shot(p, 'phone-auto-follow');
+      await p.getByTestId('camera-toggle').tap();
+      await until(
+        'phone free',
+        async () => (await p.getByTestId('camera-toggle').getAttribute('data-mode')) === 'free',
+      );
       await p.waitForTimeout(400);
-      await shot(p, 'phone-fit');
+      await shot(p, 'phone-free');
+      await p.getByTestId('camera-toggle').tap();
+      await until('phone auto', async () => (await cam(p)).zoom === hdZoom);
       const portrait = (await cam(p)).framing!;
       await p.setViewportSize({ width: 844, height: 390 });
       await until('rotated', async () => (await cam(p)).framing!.view.w !== portrait.view.w);
@@ -891,15 +1064,13 @@ async function main() {
       await shot(p, 'phone-landscape');
       await p.setViewportSize({ width: 390, height: 844 });
       await p.waitForTimeout(600);
-      await p.evaluate(() => {
-        localStorage.setItem('cld.title-scene', 'on');
-        sessionStorage.removeItem('cld.title-seen');
-      });
-      await p.reload();
+      await p.getByTestId('title-open').tap();
       await p.getByTestId('title-scene').waitFor();
       await p.waitForTimeout(800);
       await shot(p, 'phone-title');
       await logoCrisp(p, 'phone');
+      await titleBox(p, 'phone');
+      await lobbyLife(p, 'phone');
       await p.getByTestId('title-enter').tap();
       await until(
         'phone title closes',
@@ -908,6 +1079,39 @@ async function main() {
       check(true, 'phone title: one tap on 사무실 입장 is the office');
       check(e.length === 0, `phone: no page errors (${e.join(' | ')})`);
       await ctx.close();
+    }
+
+    // ── The lobby on a fresh launch, not on a reload, not over a deep link ──
+    {
+      const fresh = await open(
+        browser,
+        await daemon.loginUrl(),
+        DESK,
+        { 'cld.title-scene': 'on' },
+        false,
+      );
+      pages.push(fresh.page);
+      await fresh.page.getByTestId('title-scene').waitFor({ timeout: 10_000 });
+      check(true, 'a fresh launch (a new session) opens on the lobby');
+      await fresh.page.reload();
+      await fresh.page.getByTestId('office-canvas').waitFor();
+      await fresh.page.waitForTimeout(1500);
+      check(
+        (await fresh.page.getByTestId('title-scene').count()) === 0,
+        'a reload within the session goes straight to the office',
+      );
+      const linked = await fresh.ctx.newPage();
+      pages.push(linked);
+      const url = new URL(fresh.page.url());
+      url.searchParams.set('agent', '1');
+      await linked.goto(url.href);
+      await linked.getByTestId('office-canvas').waitFor();
+      await linked.waitForTimeout(1500);
+      check(
+        (await linked.getByTestId('title-scene').count()) === 0,
+        'a notice link (?agent=) in a new tab opens the office, not the lobby',
+      );
+      await fresh.ctx.close();
     }
 
     check(

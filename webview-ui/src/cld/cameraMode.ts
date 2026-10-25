@@ -1,28 +1,39 @@
 /**
- * GFX camera modes (owner 10-25, Part A): how the office is framed.
- *   fit     the floor shown, all of it, at the largest whole zoom that fits
- *   fill    the floor shown covering the view, at the nearest whole zoom (the rest pans)
- *   focus   fill's zoom, centred on the selected or a working employee
- *   classic the camera as it was (zoom from the screen's pixel ratio, the floor centred)
- * Per browser (localStorage). Default: fill on a desktop, focus on a phone; only the cld office
- * frames (the upstream surfaces keep classic).
+ * GFX camera (owner 10-25 22:27: "사무실과 배경을 고정해두고 현재 클릭한 캐릭터에 따라 시점이 바뀌게
+ * 하는 게 낫지 않나? 그거랑 자유 시점만 있으면 될듯"). Two modes:
+ *   auto  the office (and backdrop) framed and fixed (the floor shown covering the view at the
+ *         nearest whole zoom, the panels left out); clicking a character zooms onto it and
+ *         follows it; clicking empty floor, Esc or 0 returns to the framed office
+ *   free  manual pan and zoom only: nothing moves the camera by itself, a click only selects
+ * Per browser (localStorage). The earlier fit / fill / focus / classic values read as auto.
+ * 'off' is not offered: the camera as upstream has it (no framing, a click follows), for the
+ * upstream surfaces and the browser runners that click where it puts things.
  *
- * A manual pan or zoom wins over the framing until the user asks again (picks a mode, or 0).
- * The view is re-framed when the canvas size, the floor, the layout or the panels change.
+ * In auto a manual pan or zoom wins until the user asks again (the toggle, 0, Esc, a click on
+ * the floor or on a character).
  */
 import { useSyncExternalStore } from 'react';
 
-export const CAMERA_MODES = ['fit', 'fill', 'focus', 'classic'] as const;
-export type CameraMode = (typeof CAMERA_MODES)[number];
+export const CAMERA_MODES = ['auto', 'free'] as const;
+export type CameraMode = (typeof CAMERA_MODES)[number] | 'off';
 export const CAMERA_MODE_KEY = 'cld.camera-mode';
+/** The modes of the first GFX round, now auto. */
+const LEGACY = ['fit', 'fill', 'focus', 'classic'];
 
 export const parseCameraMode = (raw: string | null): CameraMode | null =>
-  CAMERA_MODES.find((m) => m === raw) ?? null;
-export const defaultCameraMode = (phone: boolean): CameraMode => (phone ? 'focus' : 'fill');
+  raw === 'auto' || raw === 'free' || raw === 'off'
+    ? raw
+    : raw !== null && LEGACY.includes(raw)
+      ? 'auto'
+      : null;
+export const defaultCameraMode = (): CameraMode => 'auto';
 
 function read(): CameraMode | null {
   try {
-    return parseCameraMode(localStorage.getItem(CAMERA_MODE_KEY));
+    const raw = localStorage.getItem(CAMERA_MODE_KEY);
+    const mode = parseCameraMode(raw);
+    if (mode && mode !== raw) localStorage.setItem(CAMERA_MODE_KEY, mode); // migrated once
+    return mode;
   } catch {
     return null;
   }
@@ -40,7 +51,7 @@ const emit = () => {
   for (const l of listeners) l();
 };
 
-export const cameraMode = (phone: boolean): CameraMode => chosen ?? defaultCameraMode(phone);
+export const cameraMode = (): CameraMode => chosen ?? defaultCameraMode();
 export const cameraAsks = (): number => asks;
 export const isCameraManual = (): boolean => manual;
 
@@ -48,7 +59,7 @@ export const isCameraManual = (): boolean => manual;
 export function noteManualCamera(): void {
   manual = true;
 }
-/** Frame again in the current mode (the 0 key, a mode button pressed again). */
+/** Frame again (the 0 key, the toggle, the end of a follow in auto). */
 export function askFraming(): void {
   manual = false;
   asks++;
@@ -68,7 +79,7 @@ export function restoreManual(on: boolean): void {
   manual = on;
 }
 
-export const useCameraMode = (phone: boolean): CameraMode => {
+export const useCameraMode = (): CameraMode => {
   useSyncExternalStore(
     (l) => {
       listeners.add(l);
@@ -76,7 +87,7 @@ export const useCameraMode = (phone: boolean): CameraMode => {
     },
     () => version,
   );
-  return cameraMode(phone);
+  return cameraMode();
 };
 
 /** What the last framing saw (the e2e test hook reads it). */

@@ -8,7 +8,11 @@ import {
   MUGSHOT_RENDER_ZOOM,
 } from '../constants.js';
 import { getCachedSprite } from '../office/sprites/spriteCache.js';
-import { getCharacterSprites, getCustomMugshot } from '../office/sprites/spriteData.js';
+import {
+  getCharacterSprites,
+  getCustomMugshot,
+  spritesAtZoom,
+} from '../office/sprites/spriteData.js';
 import { Direction } from '../office/types.js';
 
 interface CharacterMugShotProps {
@@ -38,7 +42,8 @@ export function CharacterMugShot({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const sprites = getCharacterSprites(palette, hueShift);
+    // HD64: the copy the card's zoom divides (its 32×64), never a fractional fill
+    const sprites = spritesAtZoom(getCharacterSprites(palette, hueShift), MUGSHOT_RENDER_ZOOM);
     const front = sprites.walk[Direction.DOWN][0];
     const full = getCachedSprite(front, MUGSHOT_RENDER_ZOOM / sprites.density); // HD: same crop, more detail
 

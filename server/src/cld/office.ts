@@ -1203,10 +1203,12 @@ export class Office {
       if (changed) this.publishBuilding();
     }
     // After a restart the first clients get their floors before the world loads.
-    // A client got its floors before the world loaded (a restart): re-send the list and
-    // who sits in which room (not the office itself: it has its own path, the sizer).
+    // A client got its floors before the world loaded (a restart): re-send the list, who
+    // sits in which room and the office itself when it changed (ELEVATOR: it was left out, so a
+    // room drawn only once its characters came back stayed missing there, and they sat at
+    // whatever desk was free, on another floor).
     if (this.sentFloors && JSON.stringify(this.floorRows()) !== this.sentFloors) {
-      this.opts.store.broadcast({ ...this.buildingState() });
+      this.publishBuilding();
       this.opts.store.broadcast(this.mappingsMessage());
     }
   }

@@ -1,0 +1,133 @@
+/* GFX2 lobby life: the owner's lobby picture's lamps glow and flicker, the neon sign blinks,
+   fairy lights twinkle and a few city windows go off and on. Opacity animations only (the
+   compositor's work: nothing is laid out or painted again per frame), only while the title
+   scene is on screen (it is unmounted otherwise), none under reduced motion. Positions are %
+   of the picture, so they follow its cover scaling. */
+:root {
+  --cld-lobby-warm: rgba(255, 200, 120, 0.85);
+  --cld-lobby-neon: rgba(178, 102, 255, 0.7);
+  --cld-lobby-dark: rgba(10, 8, 26, 0.62);
+  --cld-lobby-fairy: #fff4c2;
+  --cld-lobby-window-off: #1c2148;
+}
+
+.cld-lobby-fx > * {
+  position: absolute;
+  pointer-events: none;
+  will-change: opacity;
+}
+.cld-lobby-glow {
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--cld-lobby-warm) 0%, transparent 68%);
+  mix-blend-mode: screen;
+  opacity: 0.6;
+  animation: cld-lobby-flicker var(--d, 5s) steps(1, end) var(--t, 0s) infinite;
+}
+.cld-lobby-neon {
+  border-radius: 50%;
+  background: radial-gradient(ellipse, var(--cld-lobby-neon) 0%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: cld-lobby-neon 7s steps(1, end) infinite;
+}
+.cld-lobby-neon-off {
+  background: var(--cld-lobby-dark);
+  opacity: 0;
+  animation: cld-lobby-neon-off 7s steps(1, end) infinite;
+}
+.cld-lobby-twinkle {
+  background: var(--cld-lobby-fairy);
+  opacity: 0.2;
+  animation: cld-lobby-twinkle var(--d, 2.4s) ease-in-out var(--t, 0s) infinite alternate;
+}
+.cld-lobby-window {
+  background: var(--cld-lobby-window-off);
+  opacity: 0;
+  animation: cld-lobby-window var(--d, 17s) steps(1, end) var(--t, 0s) infinite;
+}
+.cld-lobby-cast {
+  position: absolute;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+@keyframes cld-lobby-flicker {
+  0% { opacity: 0.6; }
+  6% { opacity: 0.8; }
+  8% { opacity: 0.35; }
+  10% { opacity: 0.75; }
+  45% { opacity: 0.62; }
+  70% { opacity: 0.5; }
+  72% { opacity: 0.8; }
+  100% { opacity: 0.6; }
+}
+@keyframes cld-lobby-neon {
+  0% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 1;
+  }
+  84% {
+    opacity: 0;
+  }
+  86% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.85;
+  }
+}
+@keyframes cld-lobby-neon-off {
+  0% {
+    opacity: 0;
+  }
+  84% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 0;
+  }
+  88% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes cld-lobby-twinkle {
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 0.95;
+  }
+}
+@keyframes cld-lobby-window {
+  0% {
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cld-lobby-fx > * {
+    animation: none !important;
+  }
+}

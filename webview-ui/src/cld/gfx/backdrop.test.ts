@@ -1,36 +1,38 @@
 import { describe, expect, it } from 'vitest';
 
-import { BACKDROP_ART_H, BACKDROP_ART_W, BACKDROP_PARALLAX } from '../../constants.js';
-import { backdropScale, backdropStyle } from './backdrop.js';
+import { TOPDOWN_WORLD_PX } from '../../constants.js';
+import META from './art/topdown-night.json';
+import { backdropPlacement, backdropStyle } from './backdrop.js';
 
-describe('GFX backdrop', () => {
-  it('covers the view at a whole number of device px per art px', () => {
-    for (const [w, h] of [
-      [1280, 744],
-      [1170, 1896],
-      [3840, 2160],
-      [400, 200],
-    ]) {
-      const k = backdropScale(w, h);
-      expect(Number.isInteger(k)).toBe(true);
-      expect(BACKDROP_ART_W * k).toBeGreaterThanOrEqual(w);
-      expect(BACKDROP_ART_H * k).toBeGreaterThanOrEqual(h);
-      // and no bigger than it needs to be
-      expect(k === 1 || BACKDROP_ART_W * (k - 1) < w || BACKDROP_ART_H * (k - 1) < h).toBe(true);
-    }
-    expect(backdropScale(1590, 440, 10)).toBe(3); // room for the parallax to move
+describe('GFX2 top-down backdrop', () => {
+  it('is one crisp picture with the roof colour around it, nothing when off', () => {
+    expect(backdropStyle(true)).toMatchObject({
+      imageRendering: 'pixelated',
+      backgroundRepeat: 'repeat',
+    });
+    expect(backdropStyle(false).backgroundImage).toBe('');
   });
 
-  it('is one crisp image when static, nothing when off, four capped layers with parallax', () => {
-    const off = backdropStyle(1280, 744, 1, { on: false, parallax: false });
-    expect(off.backgroundImage).toBe('');
-    const still = backdropStyle(1280, 744, 2, { on: true, parallax: false });
-    expect(still.imageRendering).toBe('pixelated');
-    expect(still.backgroundImage.split('url(').length - 1).toBe(1);
-    // dpr 2: 2560x1488 device px needs 4 device px per art px, 1600x900 CSS px.
-    expect(still.backgroundSize).toBe('1600px 900px');
-    const moving = backdropStyle(1280, 744, 1, { on: true, parallax: true });
-    expect(moving.backgroundImage.split('url(').length - 1).toBe(4);
-    expect(moving.backgroundPosition).toContain(`clamp(-${BACKDROP_PARALLAX.capPx}px`);
+  it('sits its roofed hole under the floor shown, a whole number of device px per picture px', () => {
+    for (const [zoom, dpr] of [
+      [2, 1],
+      [4, 2],
+      [5, 3],
+    ]) {
+      const offset = { x: 37, y: -11 };
+      const centre = { x: 280, y: 200 };
+      const at = backdropPlacement(offset, zoom, dpr, centre);
+      const [w, h] = at.size.split(' ').map((v) => parseFloat(v) * dpr);
+      const [left, top] = at.position.split(' ').map((v) => parseFloat(v) * dpr);
+      expect(w).toBeCloseTo(META.w * TOPDOWN_WORLD_PX * zoom);
+      expect(h).toBeCloseTo(META.h * TOPDOWN_WORLD_PX * zoom);
+      expect(Math.abs(left - Math.round(left))).toBeLessThan(1e-6);
+      // The hole's centre lands on the floor's centre (device px).
+      expect(left + META.holeX * TOPDOWN_WORLD_PX * zoom).toBeCloseTo(
+        offset.x + centre.x * zoom,
+        0,
+      );
+      expect(top + META.holeY * TOPDOWN_WORLD_PX * zoom).toBeCloseTo(offset.y + centre.y * zoom, 0);
+    }
   });
 });

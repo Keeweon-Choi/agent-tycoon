@@ -423,6 +423,58 @@ write(
   bigSheet(3, headBox.w * 2, headBox.h * 2, (v, x, y) => headHd(v, x, y), HD_BLOCK),
 );
 
+// RES-STUDY templates (48×96 and 64×128, densities 3 and 4): the same mannequin at D times the
+// pixels (a one-pixel outline, limb lines and eye dots one pixel wide), in the HD templates' layout
+// with blocks of about 20 / D px (so the sheet stays the classic template's size), and a page of
+// the three standing views with bigger blocks, the size a generator can hold.
+const STUDY_BLOCK: Record<number, number> = { 3: 7, 4: 5 };
+const STAND_BLOCK: Record<number, number> = { 3: 10, 4: 8 };
+function mannequinD(D: number, r: number, f: number, X: number, Y: number): Px | null {
+  const on = (x: number, y: number) =>
+    x >= 0 &&
+    y >= 0 &&
+    x < FW * D &&
+    y < FH * D &&
+    !!body[at(f * FW + Math.floor(x / D), r * FH + Math.floor(y / D))];
+  if (!on(X, Y)) return null;
+  const i = at(f * FW + Math.floor(X / D), r * FH + Math.floor(Y / D));
+  if (paper.has(i)) return rgba(templateColor(t, i));
+  if (!on(X - 1, Y) || !on(X + 1, Y) || !on(X, Y - 1) || !on(X, Y + 1)) return DARK_GREEN;
+  // the eye dots fill their classic pixel (as in HD); a limb line is one pixel wide, in the middle
+  if (hints.has(i)) return DARK_GREEN;
+  if (lines.has(i) && X % D === Math.floor(D / 2)) return DARK_GREEN;
+  return GREEN;
+}
+for (const D of [3, 4]) {
+  const [fw, fh] = [FW * D, FH * D];
+  const sheetD = (x: number, y: number) =>
+    mannequinD(D, Math.floor(y / fh), Math.floor(x / fw), x % fw, y % fh);
+  write(path.join(out, `body-d${D}-1x.png`), png(W * D, H * D, sheetD));
+  write(path.join(out, `body-d${D}-1x-magenta.png`), png(W * D, H * D, sheetD, MAGENTA));
+  (['down', 'up', 'right'] as const).forEach((name, r) =>
+    write(
+      path.join(out, `body-${name}-d${D}-x${STUDY_BLOCK[D]}.png`),
+      bigSheet(FRAMES, fw, fh, (f, x, y) => mannequinD(D, r, f, x, y), STUDY_BLOCK[D]),
+    ),
+  );
+  const headD = (v: number, x: number, y: number) =>
+    mannequinD(D, v, STANDING, headBox.x * D + x, headBox.y * D + y);
+  write(
+    path.join(out, `head-d${D}-1x.png`),
+    png(headBox.w * D * 3, headBox.h * D, (x, y) =>
+      headD(Math.floor(x / (headBox.w * D)), x % (headBox.w * D), y),
+    ),
+  );
+  write(
+    path.join(out, `head-d${D}-x${STUDY_BLOCK[D]}.png`),
+    bigSheet(3, headBox.w * D, headBox.h * D, (v, x, y) => headD(v, x, y), STUDY_BLOCK[D]),
+  );
+  write(
+    path.join(out, `stand-d${D}-x${STAND_BLOCK[D]}.png`),
+    bigSheet(3, fw, fh, (v, x, y) => mannequinD(D, v, STANDING, x, y), STAND_BLOCK[D]),
+  );
+}
+
 // 5. Built-in parts and what the compositor needs (parts.generated.json).
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 /** w x h pixels (rrggbb or '') as a palette and one character per pixel ('.' transparent). */

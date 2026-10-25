@@ -90,7 +90,14 @@ function Frame({ sprite, zoom }: { sprite: SpriteData; zoom: number }) {
     if (!ctx) return;
     const density = Math.max(1, Math.round(sprite.length / FRAME_H));
     ctx.clearRect(0, 0, FRAME_W * zoom, FRAME_H * zoom);
-    ctx.drawImage(getCachedSprite(sprite, Math.max(1, zoom / density)), 0, 0);
+    const scale = zoom / density;
+    if (Number.isInteger(scale)) ctx.drawImage(getCachedSprite(sprite, scale), 0, 0);
+    else {
+      // an HD64 frame in a small thumbnail: its pixels drawn at the thumbnail's size, nearest
+      // (ponytail: every other pixel at ×2; its 32×64 copy if thumbnails ever look rough)
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(getCachedSprite(sprite, 1), 0, 0, FRAME_W * zoom, FRAME_H * zoom);
+    }
   }, [sprite, zoom]);
   return (
     <canvas

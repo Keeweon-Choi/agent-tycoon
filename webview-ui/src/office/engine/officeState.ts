@@ -1,7 +1,21 @@
 import { pickDiversePalette } from '../../../../core/src/paletteUtils.js';
 import type { CameraKey } from '../../cld/camera.js';
+import {
+  carryAcrossFloors,
+  doorsStep,
+  drawElevators,
+  type Elevator,
+  elevatorLinks,
+  findElevators,
+  type FloorLinks,
+  nearestOnFloor,
+  rideStep,
+  seatOffFloor,
+  visitStep,
+} from '../../cld/elevator.js';
 import { cldWalkPace } from '../../cld/ez/visuals.js';
 import type { HeldWalkKeys } from '../../cld/walk.js';
+import { floorRects } from '../../cld/walk.js';
 import {
   canQueueWalkStep,
   heldKeyboardWalkTarget,
@@ -71,6 +85,11 @@ export class OfficeState {
   /** cld-gui (T-0027): where an idle character may wander (its own floor);
    *  every walkable tile when unset. */
   wanderTiles: ((ch: Character) => Array<{ col: number; row: number }>) | null = null;
+  /** cld-gui (ELEVATOR): each floor's elevator (null: one floor) and the links they give
+   *  the pathfinder between floors. */
+  cldElevators: Elevator[] | null = null;
+  private cldLinks: FloorLinks | null = null;
+  private cldDoorsMoving = false;
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */
@@ -151,10 +170,17 @@ export class OfficeState {
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
+    const before = this.layout;
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = getBlockedTiles(layout.furniture);
+    const elevators = this.cldElevators;
+    this.cldElevators = findElevators(layout, this.tileMap, this.blockedTiles);
+    this.cldLinks = elevatorLinks(this.cldElevators);
+    // cld-gui (ELEVATOR): floors whose rows moved carry their characters along.
+    if (!shift)
+      carryAcrossFloors(before, layout, this.characters.values(), elevators, this.cldElevators);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -190,7 +216,18 @@ export class OfficeState {
 
     // First pass: try to keep characters at their existing seats
     const seatless = new Set<Character>();
+    // cld-gui (ELEVATOR): a seat now on another floor (its room moved) is reached by elevator;
+    // the first office with floors (the page's default one before) seats everyone at once.
+    const riders: Character[] = [];
+    const moved = !!floorRects(before) && !!floorRects(layout);
+    const ownAtLast = new Set<Character>();
     for (const ch of this.characters.values()) {
+      if (ch.cldSeatMissing && ch.cldSeatId && this.seats.has(ch.cldSeatId)) {
+        // Its own seat arrived (the office drawn once the roster was back): there, at once.
+        ch.cldSeatMissing = undefined;
+        ch.seatId = ch.cldSeatId;
+        ownAtLast.add(ch);
+      }
       if (!ch.seatId || !this.seats.has(ch.seatId)) {
         const hinted = this.cldSeat(ch.cldSeatId);
         if (hinted === null) seatless.add(ch);
@@ -200,6 +237,15 @@ export class OfficeState {
         const seat = this.seats.get(ch.seatId)!;
         if (!seat.assigned) {
           seat.assigned = true;
+          // (One riding already goes on as it was.)
+          if (
+            !ch.cldAway &&
+            !ch.matrixEffect &&
+            (ch.cldRide || (moved && !ownAtLast.has(ch) && seatOffFloor(layout, ch, seat.seatRow)))
+          ) {
+            riders.push(ch);
+            continue;
+          }
           // Snap character to seat position
           ch.tileCol = seat.seatCol;
           ch.tileRow = seat.seatRow;
@@ -230,6 +276,29 @@ export class OfficeState {
       }
     }
 
+    for (const ch of riders) {
+      if (ch.cldRide) continue;
+      if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
+        const near = nearestOnFloor(layout, this.walkableTiles, ch);
+        if (near) Object.assign(ch, { tileCol: near.col, tileRow: near.row });
+      }
+      ch.x = ch.tileCol * TILE_SIZE + TILE_SIZE / 2;
+      ch.y = ch.tileRow * TILE_SIZE + TILE_SIZE / 2;
+      // A visitor stays where it visits; anyone else goes to its seat (by elevator), or is
+      // put there when no elevator leads to it.
+      if (ch.cldVisit) continue;
+      this.sendToSeat(ch.id);
+      const seat = this.seats.get(ch.seatId!)!;
+      if (ch.path.length === 0)
+        Object.assign(ch, {
+          tileCol: seat.seatCol,
+          tileRow: seat.seatRow,
+          x: seat.seatCol * TILE_SIZE + TILE_SIZE / 2,
+          y: seat.seatRow * TILE_SIZE + TILE_SIZE / 2,
+          dir: seat.facingDir,
+        });
+    }
+
     // Relocate any characters that ended up outside bounds or on non-walkable tiles
     for (const ch of this.characters.values()) {
       if (ch.seatId) continue; // seated characters are fine
@@ -240,6 +309,19 @@ export class OfficeState {
         ch.tileRow >= layout.rows
       ) {
         this.relocateCharacterToWalkable(ch);
+      } else if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
+        // cld-gui (ELEVATOR): on a tile the new office walled in: the nearest floor on its floor.
+        const near = nearestOnFloor(layout, this.walkableTiles, ch);
+        if (near) {
+          Object.assign(ch, {
+            tileCol: near.col,
+            tileRow: near.row,
+            x: near.col * TILE_SIZE + TILE_SIZE / 2,
+            y: near.row * TILE_SIZE + TILE_SIZE / 2,
+            path: [],
+            moveProgress: 0,
+          });
+        } else this.relocateCharacterToWalkable(ch);
       }
     }
 
@@ -539,6 +621,7 @@ export class OfficeState {
       ch.directoryName = directoryName;
     }
     if (serverSeat) ch.cldSeatId = serverSeat;
+    if (serverSeat && hinted === undefined && !this.seats.has(serverSeat)) ch.cldSeatMissing = true;
     if (!skipSpawnEffect) {
       startMatrixEffect(ch, 'spawn');
     }
@@ -665,7 +748,15 @@ export class OfficeState {
     ch.seatId = seatId;
     // Pathfind to new seat (unblock own seat tile for this query)
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+      findPath(
+        ch.tileCol,
+        ch.tileRow,
+        seat.seatCol,
+        seat.seatRow,
+        this.tileMap,
+        this.blockedTiles,
+        this.cldLinks,
+      ),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -720,7 +811,15 @@ export class OfficeState {
     const seat = this.seats.get(ch.seatId);
     if (!seat) return;
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+      findPath(
+        ch.tileCol,
+        ch.tileRow,
+        seat.seatCol,
+        seat.seatRow,
+        this.tileMap,
+        this.blockedTiles,
+        this.cldLinks,
+      ),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -750,7 +849,7 @@ export class OfficeState {
       if (!key || key !== `${col},${row}`) return false;
     }
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles),
+      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, this.cldLinks),
     );
     if (path.length === 0) return false;
     ch.path = path;
@@ -996,8 +1095,10 @@ export class OfficeState {
       }
     }
 
+    // cld-gui (ELEVATOR): the elevators are drawn with the furniture.
+    const elevators = this.cldElevators?.map((e) => e.instance) ?? [];
     if (autoOnTiles.size === 0) {
-      this.furniture = layoutToFurnitureInstances(this.layout.furniture);
+      this.furniture = [...layoutToFurnitureInstances(this.layout.furniture), ...elevators];
       return;
     }
 
@@ -1027,7 +1128,7 @@ export class OfficeState {
       return item;
     });
 
-    this.furniture = layoutToFurnitureInstances(modifiedFurniture);
+    this.furniture = [...layoutToFurnitureInstances(modifiedFurniture), ...elevators];
   }
 
   setAgentTool(id: number, tool: string | null): void {
@@ -1278,10 +1379,21 @@ export class OfficeState {
         else if (effect === 'despawned') toDelete.push(ch.id);
         continue; // skip normal FSM while the effect is (or just was) active
       }
-      if (ch.cldAway) continue;
+      if (ch.cldAway) {
+        ch.cldRide = undefined;
+        continue;
+      }
+      // cld-gui (ELEVATOR): a visit ends with the next work; a ride holds the character.
+      if (ch.cldVisit) visitStep(this, ch);
+      if (
+        (ch.cldRide || (ch.state === CharacterState.WALK && ch.path.length > 0)) &&
+        rideStep(ch, dt, this.cldElevators)
+      )
+        continue;
 
       // Temporarily unblock own seat so character can pathfind to it. cld
-      // T-0026: a tired character walks slower; T-0027: it wanders on its floor.
+      // T-0026: a tired character walks slower; T-0027: it wanders on its floor
+      // (an idle visitor never rides home for a rest: no links).
       const wander = this.wanderTiles?.(ch) ?? this.walkableTiles;
       this.withOwnSeatUnblocked(ch, () => {
         this.prepareHeldWalk(ch);
@@ -1292,6 +1404,7 @@ export class OfficeState {
           this.seats,
           this.tileMap,
           this.blockedTiles,
+          ch.cldVisit && !ch.isActive ? null : this.cldLinks,
         );
       });
 
@@ -1307,6 +1420,15 @@ export class OfficeState {
     // Remove characters that finished despawn
     for (const id of toDelete) {
       this.characters.delete(id);
+    }
+    // With no rider and every door already shut, elevators add no idle-frame work.
+    if (
+      this.cldDoorsMoving ||
+      [...this.characters.values()].some((ch) => ch.cldRide) ||
+      this.cldElevators?.some((e) => e.open > 0)
+    ) {
+      this.cldDoorsMoving = doorsStep(this.cldElevators, this.characters.values(), dt);
+      drawElevators(this.cldElevators);
     }
 
     // ── Pet FSM ────────────────────────────────────────────────
@@ -1332,6 +1454,7 @@ export class OfficeState {
       ch.matrixEffect !== null ||
       (!ch.cldAway && (ch.state === CharacterState.WALK || ch.bubbleType === 'waiting'));
     if (this.greeter && this.greeter.matrixEffect !== null) return true;
+    if (this.cldDoorsMoving) return true;
     for (const ch of this.characters.values()) if (moving(ch)) return true;
     return this.pets.some((p) => p.state !== PetState.IDLE || p.bubbleType !== null);
   }
@@ -1347,7 +1470,9 @@ export class OfficeState {
     const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
-      seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId: ch.seatId };
+      // cld-gui (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
+      const seatId = ch.cldVisit ? ch.cldVisit.homeSeat : ch.seatId;
+      seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId };
     }
     return seats;
   }
@@ -1357,7 +1482,10 @@ export class OfficeState {
    *  agents — every other consumer reads `characters` and gets agents only. */
   getCharacters(): Character[] {
     // cld-gui (T-0041): one who went home is not drawn (its despawn still is).
-    const chars = Array.from(this.characters.values()).filter((c) => !c.cldAway || c.matrixEffect);
+    // ELEVATOR: one inside the car is not drawn either.
+    const chars = Array.from(this.characters.values()).filter(
+      (c) => (!c.cldAway || c.matrixEffect) && !c.cldRide?.hidden,
+    );
     if (this.greeter) chars.push(this.greeter);
     return chars;
   }
@@ -1369,7 +1497,7 @@ export class OfficeState {
     const chars = Array.from(this.characters.values()).sort((a, b) => b.y - a.y);
     for (const ch of chars) {
       // Skip characters that are despawning
-      if (ch.matrixEffect === 'despawn' || ch.cldAway) continue;
+      if (ch.matrixEffect === 'despawn' || ch.cldAway || ch.cldRide?.hidden) continue;
       // Character sprite is 16x24, anchored bottom-center
       // Apply sitting offset to match visual position
       const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;

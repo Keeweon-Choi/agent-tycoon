@@ -414,3 +414,62 @@ describe('the load shows the steady state at once (T-0041 bug, 10-22)', () => {
     expect(drawn(os)).toEqual([1]);
   });
 });
+
+describe('the entrance is no way home by itself (ELEVATOR step 4)', () => {
+  const at = (hh: number, mm = 0) => Date.UTC(2026, 9, 21, hh, mm); // a Wednesday, host on UTC
+  /** room() with two doors in its bottom wall, cols 2 and 6. */
+  function twoDoors(): OfficeLayout {
+    const l = room();
+    const tiles = [...l.tiles];
+    const bottom = (l.rows - 1) * l.cols;
+    tiles[bottom + 4] = TileType.WALL;
+    tiles[bottom + 2] = TileType.FLOOR_1;
+    tiles[bottom + 6] = TileType.FLOOR_1;
+    return { ...l, tiles };
+  }
+  const place = (os: OfficeState, id: number, col: number, row: number) =>
+    Object.assign(os.characters.get(id)!, {
+      tileCol: col,
+      tileRow: row,
+      x: col * TILE_SIZE + TILE_SIZE / 2,
+      y: row * TILE_SIZE + TILE_SIZE / 2,
+      path: [],
+      state: 'idle',
+    });
+
+  it('walked to the entrance or another edge tile in office hours, it stays', () => {
+    cldHandleMessage({ type: 'hostInfo', utcOffsetMin: 0 } as never);
+    for (const col of [2, 6]) {
+      staffResetForTests();
+      const os = office([['idle', 2]], twoDoors());
+      os.setAgentActive(2, false);
+      run(os, at(10), 4);
+      place(os, 2, 4, 3);
+      expect(os.walkToTile(2, col, 6)).toBe(true);
+      run(os, at(10), 10);
+      expect(staffSnapshot().away).toEqual({});
+      expect(os.characters.get(2)!.cldAway).toBe(false);
+    }
+  });
+
+  it('on its way home and sent to another door, it leaves only by the door its walk home was for', () => {
+    cldHandleMessage({ type: 'hostInfo', utcOffsetMin: 0 } as never);
+    const os = office([['idle', 2]], twoDoors());
+    os.setAgentActive(2, false);
+    run(os, at(17, 59), 4);
+    run(os, at(18), 1); // the grace starts
+    place(os, 2, 6, 4);
+    staffStep(os, 0.3, at(18) + HOME_GRACE_MS + MIN); // past it: off home, by the door at col 6
+    const ch = os.characters.get(2)!;
+    expect(ch.path.at(-1)).toEqual({ col: 6, row: 6 });
+    expect(os.walkToTile(2, 2, 6)).toBe(true); // the user sends it to the other door
+    for (let t = 0; t < 3; t += 0.1) {
+      os.update(0.1);
+      staffStep(os, 0.1, at(18) + HOME_GRACE_MS + MIN);
+      if (ch.tileCol === 2 && ch.tileRow === 6) expect(ch.cldAway).toBe(false);
+    }
+    run(os, at(18) + HOME_GRACE_MS + MIN, 6);
+    expect(Object.keys(staffSnapshot().away)).toEqual(['2']);
+    expect([ch.tileCol, ch.tileRow]).toEqual([6, 6]);
+  });
+});

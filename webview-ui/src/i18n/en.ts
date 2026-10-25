@@ -1759,6 +1759,9 @@ export const en = {
   'terminal.capReached':
     'The concurrent agent terminal limit has been reached. Increase it in Settings (about 150 MB each).',
   'terminal.detached': 'This terminal is detached.',
+  'terminal.heldElsewhere':
+    'Another device or window (or a message being sent) is using the terminal slot, so this window cannot free it. Close the terminal there or raise the limit in Settings, then reconnect.',
+  'terminal.switching': 'Switching…',
   'terminal.switchHere': 'Switch to this terminal',
   'terminal.verifyReconnect': 'Verify this device to reconnect',
   'terminal.reconnect': 'Reconnect',
@@ -2083,24 +2086,16 @@ export const en = {
     'Who is signed in, optional passkeys, the address for direct access from outside, and what happened lately.',
   'settabs.passkeysOptional':
     'Optional. Signing in works without a passkey; add one to make this device harder to take over.',
-  'gfx.camera.label': 'Framing',
-  'gfx.camera.fit': 'Fit',
-  'gfx.camera.fitHint': 'The whole floor on screen (a little space may be left)',
-  'gfx.camera.fill': 'Fill',
-  'gfx.camera.fillHint': 'The office fills the screen (drag to see the rest)',
-  'gfx.camera.focus': 'Focus',
-  'gfx.camera.focusHint': 'The selected or a working employee in the middle',
-  'gfx.camera.classic': 'Classic',
-  'gfx.camera.classicHint': 'The camera as before (zoom from the screen density)',
-  'gfx.backdrop.title': 'City at night',
-  'gfx.backdrop.help':
-    'Draws a night city in the empty space around the office. Off: the plain background as before.',
+  'gfx.camera.label': 'Camera',
+  'iso.title': 'Isometric (trial)',
+  'iso.help':
+    'Draws the office as a company building seen at an angle: the floor you pick bright, the others darker beside it. The layout and walking stay the same; the editor stays top-down.',
+  'iso.view.building': 'Whole building',
+  'iso.view.floor': 'This floor',
+  'iso.view.label': 'View',
   'office25d.title': '2.5D style (trial)',
   'office25d.help':
     'Draws the office seen at an angle: walls with height and a front face, furniture in the new art. The layout and walking stay the same.',
-  'gfx.parallax.title': 'Backdrop motion',
-  'gfx.parallax.help':
-    'Far buildings follow a drag a little slower. Never moves on a device set to reduce motion.',
   'gfx.title.region': 'Title screen',
   'gfx.title.name': 'Agent Tycoon',
   'gfx.title.tagline': 'Your own dev company, built with AI agents',
@@ -2123,8 +2118,19 @@ export const en = {
   'gfx.help.camera': 'Drag, the wheel, WASD or the arrows look around. 0 frames the view again.',
   'gfx.help.floors': 'Digits 1-9 go to that floor.',
   'gfx.help.select': 'Click an employee to follow them; click again to open their chat.',
-  'gfx.help.modes': 'Fit, Fill, Focus and Classic in the bottom-right corner change the framing.',
   'gfx.help.legend': 'The legend in the top bar explains the icons over the characters.',
+  'gfx.camera.auto': 'Auto',
+  'gfx.camera.autoHint':
+    'The office framed and fixed. Click an employee to zoom in and follow; the floor, Esc or 0 brings the office back. Press for free camera.',
+  'gfx.camera.free': 'Free camera',
+  'gfx.camera.freeHint': 'Drag, wheel and pinch only; nothing moves by itself. Press for auto.',
+  'gfx.help.modes':
+    'Auto / Free camera in the bottom-right corner switches how the view moves. In Auto a click on an employee follows them.',
+  'gfx.backdrop.title': 'City around the office',
+  'gfx.backdrop.help':
+    'Draws the night city seen from above (rooftops, streets, trees, lamps) around the office. Off: the plain background as before.',
+  'perf.toggle': 'Performance readout (draw time, characters, cache)',
+  'perf.readout': 'Draw {ms} ms (max {max}) · {n} characters, {hd} of them 64×128 · zoom {zoom} · cache {mb} MB',
 } as const satisfies Record<string, string>;
 
 export type TranslationKey = keyof typeof en;

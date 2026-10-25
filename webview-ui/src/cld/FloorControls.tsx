@@ -26,6 +26,7 @@ import { getCachedSprite } from '../office/sprites/spriteCache.js';
 import { BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../office/sprites/spriteData.js';
 import { findTouch } from '../touch/touchPrimitives.js';
 import { transport } from '../transport/index.js';
+import { visitFloor } from './elevator.js';
 import type { FloorBadge } from './floors.js';
 import {
   DOOR_CLOSE_MS,
@@ -34,6 +35,7 @@ import {
   endFloorDrag,
   goToFloor,
   setFloorEditing,
+  setStackedView,
   stepFloor,
   swipeStep,
   useFloors,
@@ -41,6 +43,7 @@ import {
 } from './floors.js';
 import { HudPanel } from './hud/fixedPanels.js';
 import { Movable } from './hud/Movable.js';
+import { useIsoView } from './iso/isoView.js';
 import { useCldStore } from './officeStore.js';
 import { staffWander } from './staff.js';
 
@@ -149,7 +152,35 @@ interface Decorate {
   toggle: () => void;
 }
 
-function ElevatorPanel({ canEdit, decorate }: { canEdit: boolean; decorate?: Decorate }) {
+/** ISO-PILOT: the isometric building's one view toggle, the whole building or this floor
+ *  (the floors store's stacked view, which the setting 층 보기 also sets). */
+function IsoViewToggle({ className }: { className: string }) {
+  const iso = useIsoView();
+  const { stacked } = useFloors();
+  if (!iso) return null;
+  return (
+    <button
+      type="button"
+      className={className}
+      data-testid="iso-view-toggle"
+      aria-pressed={!stacked}
+      aria-label={`${t('iso.view.label')}: ${stacked ? t('iso.view.building') : t('iso.view.floor')}`}
+      onClick={() => setStackedView(!stacked)}
+    >
+      {stacked ? t('iso.view.building') : t('iso.view.floor')}
+    </button>
+  );
+}
+
+function ElevatorPanel({
+  canEdit,
+  decorate,
+  officeState,
+}: {
+  canEdit: boolean;
+  decorate?: Decorate;
+  officeState: OfficeState;
+}) {
   const { building, current, doors, badges, dragging, editing } = useFloors();
   const [over, setOver] = useState<string | null>(null);
   const [carrying, setCarrying] = useState(false);
@@ -189,12 +220,13 @@ function ElevatorPanel({ canEdit, decorate }: { canEdit: boolean; decorate?: Dec
                     aria-current={floor.id === current}
                     aria-label={label}
                     onClick={() => goToFloor(floor.id)}
-                    // A character carried off the canvas lands here.
+                    // A character carried off the canvas rides there and visits (ELEVATOR):
+                    // only the character moves, its room stays (the editor moves rooms).
                     onMouseEnter={() => setOver(floor.id)}
                     onMouseLeave={() => setOver(null)}
                     onMouseUp={() => {
                       if (!dragging || !canEdit) return;
-                      moveTo(floor.id, { character: dragging.name });
+                      visitFloor(officeState, dragging.id, floor.id);
                       endFloorDrag();
                     }}
                     // A room or character chip from the floor editor.
@@ -221,6 +253,7 @@ function ElevatorPanel({ canEdit, decorate }: { canEdit: boolean; decorate?: Dec
               );
             })}
           </ol>
+          {floors.length > 1 && <IsoViewToggle className="cld-elevator-edit" />}
           {canEdit && (
             <button
               type="button"
@@ -528,7 +561,9 @@ export function FloorLayer({
   return (
     <>
       <ElevatorDoors />
-      {!isMobile && <ElevatorPanel canEdit={!officeReadOnly} decorate={decorate} />}
+      {!isMobile && (
+        <ElevatorPanel canEdit={!officeReadOnly} decorate={decorate} officeState={officeState} />
+      )}
     </>
   );
 }
@@ -624,6 +659,9 @@ export function FloorPicker() {
               </li>
             );
           })}
+          <li>
+            <IsoViewToggle className="cld-iso-view" />
+          </li>
         </ul>
       )}
     </div>

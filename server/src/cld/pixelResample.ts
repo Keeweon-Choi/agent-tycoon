@@ -191,6 +191,14 @@ export function detectGrid(
   return best;
 }
 
+/** The comb score of each block size in `sizes` (the shape of the curve shows whether the art has
+ *  a grid at all: one sharp peak and its multiples, or a flat, noisy line). */
+export function gridSpectrum(img: Rgba, region: number[], isBg: IsBackground, sizes: number[]) {
+  const ex = edges(img, region, true, isBg);
+  const ey = edges(img, region, false, isBg);
+  return sizes.map((s) => (comb(ex, s).score + comb(ey, s).score) / 2);
+}
+
 /** The phases that fit a given size best (when the size comes from elsewhere). */
 export function phaseFor(img: Rgba, region: number[], isBg: IsBackground, size: number): Grid {
   const cx = comb(edges(img, region, true, isBg), size);
@@ -270,17 +278,25 @@ export function sampleBlock(
     !isBg(centre[0], centre[1], centre[2], img.data[ci + 3]) &&
     !(clip && (cx < clip[0] || cy < clip[1] || cx >= clip[2] || cy >= clip[3])) &&
     luma(centre[0], centre[1], centre[2]) >= DARK_LUMA;
+  const lightColour = !fg.length
+    ? null
+    : centreOk && light.length < CENTRE_BELOW
+      ? centre
+      : light.length
+        ? mode(light)
+        : null;
   const colour = !fg.length
     ? null
     : darkShare >= DARK_SHARE
       ? darkColour!
-      : centreOk && light.length < CENTRE_BELOW
-        ? centre
-        : mode(light.length ? light : pool);
-  return { cover, colour, darkShare, darkColour };
+      : (lightColour ?? mode(pool));
+  return { cover, colour, darkShare, darkColour, lightColour };
 }
 
-/** `cols × rows` art pixels of `grid` starting at block (c0, r0) of the region's origin. */
+/** `cols × rows` art pixels of `grid` starting at block (c0, r0) of the region's origin.
+ *  `interiorDarkShare`: inside the silhouette (all four neighbours drawn) a block takes its dark
+ *  colour only from this share up (an eye's lash line no longer paints the iris over); the
+ *  silhouette's edge keeps DARK_SHARE, so outlines stay. Off by default (RES-STUDY measures it). */
 export function resample(
   img: Rgba,
   grid: Grid,
@@ -288,21 +304,41 @@ export function resample(
   cols: number,
   rows: number,
   isBg: IsBackground,
-  opts: { minCover?: number; clip?: number[] } = {},
+  opts: { minCover?: number; clip?: number[]; interiorDarkShare?: number } = {},
 ): Resampled {
   const minCover = opts.minCover ?? MIN_COVER;
   const data = new Uint8Array(cols * rows * 4);
   const cover = new Float32Array(cols * rows);
   const dark: (number[] | null)[] = new Array(cols * rows).fill(null);
+  const samples: ReturnType<typeof sampleBlock>[] = [];
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {
       const x0 = origin.x + c * grid.size;
       const y0 = origin.y + r * grid.size;
       const s = sampleBlock(img, x0, y0, x0 + grid.size, y0 + grid.size, isBg, opts.clip);
       const i = r * cols + c;
+      samples.push(s);
       cover[i] = s.cover;
       dark[i] = s.darkShare >= EDGE_DARK_SHARE ? s.darkColour : null;
-      if (s.cover >= minCover && s.colour) data.set([...s.colour, 255], i * 4);
+    }
+  const drawn = (c: number, r: number) =>
+    c >= 0 && r >= 0 && c < cols && r < rows && cover[r * cols + c] >= minCover;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const s = samples[i];
+      if (!drawn(c, r) || !s.colour) continue;
+      const interior =
+        opts.interiorDarkShare !== undefined &&
+        drawn(c - 1, r) &&
+        drawn(c + 1, r) &&
+        drawn(c, r - 1) &&
+        drawn(c, r + 1);
+      const colour =
+        interior && s.darkShare < opts.interiorDarkShare! && s.lightColour
+          ? s.lightColour
+          : s.colour;
+      data.set([...colour, 255], i * 4);
     }
   return { cols, rows, data, cover, dark };
 }

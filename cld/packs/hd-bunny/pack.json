@@ -1,0 +1,201 @@
+{
+  "id": "hd-bunny",
+  "version": 1,
+  "title": {
+    "ko": "바니걸 64×128 견본",
+    "en": "Bunny girl 64×128 sample"
+  },
+  "parts": [
+    {
+      "id": "body",
+      "slot": "body",
+      "gender": "f",
+      "name": {
+        "ko": "바니 몸",
+        "en": "Bunny body"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/body-64.png",
+          "density": 4,
+          "classic": "parts/body-16.png"
+        }
+      }
+    },
+    {
+      "id": "face",
+      "slot": "face",
+      "gender": "f",
+      "name": {
+        "ko": "바니 얼굴",
+        "en": "Bunny face"
+      },
+      "expressions": {
+        "neutral": {
+          "file": "parts/face-neutral-64.png",
+          "density": 4,
+          "classic": "parts/face-neutral-16.png"
+        },
+        "smile": {
+          "file": "parts/face-smile-64.png",
+          "density": 4,
+          "classic": "parts/face-smile-16.png"
+        },
+        "wink": {
+          "file": "parts/face-wink-64.png",
+          "density": 4,
+          "classic": "parts/face-wink-16.png"
+        }
+      }
+    },
+    {
+      "id": "hair",
+      "slot": "hair",
+      "gender": "f",
+      "name": {
+        "ko": "은발 단발과 토끼 귀",
+        "en": "Silver bob, rabbit ears"
+      },
+      "colorable": true,
+      "file": {
+        "file": "parts/hair-64.png",
+        "density": 4,
+        "classic": "parts/hair-16.png"
+      }
+    },
+    {
+      "id": "suit",
+      "slot": "fullbody",
+      "gender": "f",
+      "name": {
+        "ko": "바니 수트",
+        "en": "Bunny suit"
+      },
+      "colorable": true,
+      "bodies": {
+        "curvy": {
+          "file": "parts/suit-64.png",
+          "density": 4,
+          "classic": "parts/suit-16.png"
+        }
+      }
+    },
+    {
+      "id": "tights",
+      "slot": "legwear",
+      "gender": "f",
+      "name": {
+        "ko": "스타킹",
+        "en": "Tights"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/tights-64.png",
+          "density": 4,
+          "classic": "parts/tights-16.png"
+        }
+      }
+    },
+    {
+      "id": "heels",
+      "slot": "shoes",
+      "gender": "f",
+      "name": {
+        "ko": "힐",
+        "en": "Heels"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/heels-64.png",
+          "density": 4,
+          "classic": "parts/heels-16.png"
+        }
+      }
+    },
+    {
+      "id": "cuffs",
+      "slot": "wrist",
+      "gender": "f",
+      "name": {
+        "ko": "소매 커프스",
+        "en": "Cuffs"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/cuffs-64.png",
+          "density": 4,
+          "classic": "parts/cuffs-16.png"
+        }
+      }
+    },
+    {
+      "id": "bowtie",
+      "slot": "neck",
+      "gender": "f",
+      "name": {
+        "ko": "나비넥타이",
+        "en": "Bow tie"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/bowtie-64.png",
+          "density": 4,
+          "classic": "parts/bowtie-16.png"
+        }
+      }
+    },
+    {
+      "id": "tail",
+      "slot": "back",
+      "gender": "f",
+      "name": {
+        "ko": "토끼 꼬리",
+        "en": "Bunny tail"
+      },
+      "bodies": {
+        "curvy": {
+          "file": "parts/tail-64.png",
+          "density": 4,
+          "classic": "parts/tail-16.png"
+        }
+      }
+    }
+  ],
+  "characters": [
+    {
+      "id": "bunny",
+      "name": {
+        "ko": "바니",
+        "en": "Bunny"
+      }
+    }
+  ],
+  "presets": [
+    {
+      "id": "bunny",
+      "character": "bunny",
+      "outfit": "bunny",
+      "name": {
+        "ko": "바니걸 (64×128)",
+        "en": "Bunny girl (64×128)"
+      },
+      "look": {
+        "v": 3,
+        "kind": "person",
+        "gender": "f",
+        "body": "curvy",
+        "parts": {
+          "body": "body",
+          "face": "face",
+          "hair": "hair",
+          "fullbody": "suit",
+          "legwear": "tights",
+          "shoes": "heels",
+          "wrist": "cuffs",
+          "neck": "bowtie",
+          "back": "tail"
+        }
+      }
+    }
+  ]
+}

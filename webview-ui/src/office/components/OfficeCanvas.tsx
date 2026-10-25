@@ -1,21 +1,41 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 
 import { clampPan as clampCameraPan } from '../../cld/camera.js';
 import { noteManualCamera } from '../../cld/cameraMode.js';
+import { visitFloor } from '../../cld/elevator.js';
 import {
   cameraRect,
   currentRect,
   endFloorDrag,
   floorClip,
   floorMovable,
+  floorsSnapshot,
   floorView,
   goToFloor,
   onFloor,
+  reducedMotion,
   stackedFloorAt,
   startFloorDrag,
 } from '../../cld/floors.js';
-import { backdropState, backdropStyle, useBackdrop } from '../../cld/gfx/backdrop.js';
+import {
+  backdropPlacement,
+  backdropState,
+  backdropStyle,
+  useBackdrop,
+} from '../../cld/gfx/backdrop.js';
 import { isContextHandled, openContextMenu, registerContextTarget } from '../../cld/inputPolicy.js';
+import { clampIsoPan, isoCameraStep, newIsoCam, stackCentre } from '../../cld/iso/camera.js';
+import { useIsoView } from '../../cld/iso/isoView.js';
+import {
+  isoBusy,
+  isoFeet,
+  isoFrameReset,
+  type IsoPick,
+  isoPick,
+  isoScene,
+  renderIso,
+} from '../../cld/iso/render.js';
 import { drawOtherFloors } from '../../cld/otherFloors.js';
 import { useGameControls } from '../../cld/useGameControls.js';
 import {
@@ -103,6 +123,11 @@ export function OfficeCanvas({
   backdrop: backdropAllowed = false,
 }: OfficeCanvasProps) {
   const backdrop = useBackdrop();
+  // ISO-PILOT: the isometric building replaces the top-down drawing (never in the editor).
+  const iso = useIsoView() && !isEditMode;
+  const isoCamRef = useRef(newIsoCam());
+  /** GFX2: the camera the backdrop was last placed for. */
+  const backdropKeyRef = useRef('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const offsetRef = useRef({ x: 0, y: 0 });
@@ -127,6 +152,7 @@ export function OfficeCanvas({
     (px: number, py: number): { x: number; y: number } => {
       const canvas = canvasRef.current;
       if (!canvas) return { x: px, y: py };
+      if (iso) return clampIsoPan({ x: px, y: py }, isoScene(officeState).stack, zoom);
       const layout = officeState.getLayout();
       return clampCameraPan(
         { x: px, y: py },
@@ -136,8 +162,16 @@ export function OfficeCanvas({
         cameraRect(layout), // the whole stack in the default view
       );
     },
-    [officeState, zoom],
+    [officeState, zoom, iso],
   );
+  /** ISO-PILOT: what the last isometric frame drew under a viewport point. */
+  const isoAt = useCallback((clientX: number, clientY: number): IsoPick => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    return isoPick((clientX - rect.left) * dpr, (clientY - rect.top) * dpr);
+  }, []);
   // cld-gui (T-0025): left-drag pan, wheel zoom about the cursor, the camera
   // keys and edge-scroll; stepCamera runs in the game loop's update. A press
   // on a character is not a pan: dragging one moves it (T-0015).
@@ -149,10 +183,10 @@ export function OfficeCanvas({
     onZoomChange,
     isEditMode,
     phone: tapSelectsFirst,
-    characterAt: (clientX, clientY) => {
-      const pos = screenToWorld(clientX, clientY);
-      return !!pos && officeState.getCharacterAt(pos.worldX, pos.worldY) !== null;
-    },
+    characterAt: (clientX, clientY) => characterAt(clientX, clientY) !== null,
+    isoClamp: iso
+      ? (pan, z) => clampIsoPan(pan, isoScene(officeState).stack, z)
+      : null,
   });
 
   // Resize canvas backing store to device pixels (no DPR transform on ctx)
@@ -167,12 +201,9 @@ export function OfficeCanvas({
     canvas.style.width = `${rect.width}px`;
     canvas.style.height = `${rect.height}px`;
     // No ctx.scale(dpr) — we render directly in device pixels
-    // GFX: the skyline behind the world, a whole number of device px per art px.
-    const bd = backdropState();
-    Object.assign(
-      container.style,
-      backdropStyle(rect.width, rect.height, dpr, { ...bd, on: bd.on && backdropAllowed }),
-    );
+    // GFX: the city around the office (its size and place follow the camera, in render).
+    Object.assign(container.style, backdropStyle(backdropState().on && backdropAllowed));
+    backdropKeyRef.current = '';
   }, [backdropAllowed]);
   // The setting changed: the same background, styled again.
   useEffect(() => resizeCanvas(), [resizeCanvas, backdrop]);
@@ -192,22 +223,73 @@ export function OfficeCanvas({
     // animating on the office, keeps the loop at the full rate.
     let lastPan = { ...panRef.current };
     const container = containerRef.current;
-    let backdropPan: { x: number; y: number } | null = null;
     const stop = startGameLoop(canvas, {
       busy: () => {
         const pan = panRef.current;
         const panned = pan.x !== lastPan.x || pan.y !== lastPan.y;
         lastPan = { x: pan.x, y: pan.y };
-        return panned || officeState.isAnimating();
+        return panned || officeState.isAnimating() || (iso && isoBusy());
       },
       update: (dt) => {
         officeState.update(dt);
         stepCamera(dt);
+        if (iso) {
+          // ISO-PILOT: frame the building or the floor in focus, glide to a new focus, follow.
+          const { stack } = isoScene(officeState);
+          const snap = floorsSnapshot();
+          const focus = stack.floors.find((f) => f.id === snap.current) ?? stack.floors[0];
+          const followCh =
+            officeState.cameraFollowId !== null
+              ? officeState.characters.get(officeState.cameraFollowId)
+              : undefined;
+          const feet = followCh ? isoFeet(stack, followCh) : null;
+          const step = isoCameraStep(isoCamRef.current, {
+            stack,
+            level: focus.level,
+            focusId: focus.id,
+            building: snap.stacked,
+            view: { w: canvas.width, h: canvas.height },
+            dpr: window.devicePixelRatio || 1,
+            zoom,
+            pan: panRef.current,
+            follow: feet && { x: feet.x, y: feet.y - TILE_SIZE },
+            reduced: reducedMotion(),
+            dt,
+          });
+          const next = step.zoom;
+          if (next !== undefined && next !== zoom)
+            queueMicrotask(() => {
+              flushSync(() => onZoomChange(next));
+              panRef.current = step.pan;
+            });
+          else panRef.current = step.pan;
+        }
       },
       render: (ctx) => {
         // Canvas dimensions are in device pixels
         const w = canvas.width;
         const h = canvas.height;
+        if (iso) {
+          const { stack } = isoScene(officeState);
+          renderIso(
+            ctx,
+            w,
+            h,
+            officeState,
+            zoom,
+            panRef.current,
+            stackCentre(stack),
+            floorsSnapshot().current,
+            {
+              selected: officeState.selectedAgentId,
+              hovered: officeState.hoveredAgentId,
+              follow: officeState.cameraFollowId,
+            },
+            performance.now(),
+          );
+          return;
+        }
+        isoFrameReset();
 
         const editorRender: EditorRenderState | undefined = isEditMode
           ? buildEditorRenderState(editorState, officeState.getLayout())
@@ -299,13 +381,24 @@ export function OfficeCanvas({
         );
         if (clip) ctx.restore();
         offsetRef.current = { x: offsetX, y: offsetY };
-        // GFX parallax: two CSS variables, written only when the pan moved.
-        const p = panRef.current;
-        if (container && (backdropPan?.x !== p.x || backdropPan?.y !== p.y)) {
-          backdropPan = { x: p.x, y: p.y };
-          const dpr = window.devicePixelRatio || 1;
-          container.style.setProperty('--cld-bd-x', `${Math.round(p.x / dpr)}px`);
-          container.style.setProperty('--cld-bd-y', `${Math.round(p.y / dpr)}px`);
+        // GFX2: the city around the office moves and scales with it; written only when the
+        // camera (or the floor) moved, so an idle office writes nothing.
+        if (container && backdropAllowed && backdropState().on) {
+          const centre = floor
+            ? { x: (floor.cols * TILE_SIZE) / 2, y: (floor.row + floor.rows / 2) * TILE_SIZE }
+            : { x: (layout.cols * TILE_SIZE) / 2, y: (layout.rows * TILE_SIZE) / 2 };
+          const key = `${offsetX},${offsetY},${zoom},${centre.x},${centre.y}`;
+          if (key !== backdropKeyRef.current) {
+            backdropKeyRef.current = key;
+            const at = backdropPlacement(
+              { x: offsetX, y: offsetY },
+              zoom,
+              window.devicePixelRatio || 1,
+              centre,
+            );
+            container.style.backgroundSize = at.size;
+            container.style.backgroundPosition = at.position;
+          }
         }
 
         // Store delete/rotate button bounds for hit-testing
@@ -321,6 +414,7 @@ export function OfficeCanvas({
   }, [
     officeState,
     resizeCanvas,
+    backdropAllowed,
     isEditMode,
     editorState,
     _editorTick,
@@ -329,6 +423,8 @@ export function OfficeCanvas({
     showAreas,
     activeAreaLabel,
     stepCamera,
+    iso,
+    onZoomChange,
   ]);
 
   // Convert CSS mouse coords to world (sprite pixel) coords
@@ -360,14 +456,40 @@ export function OfficeCanvas({
   );
   const otherFloorAt = useCallback(
     (clientX: number, clientY: number) => {
+      if (iso) {
+        const hit = isoAt(clientX, clientY);
+        return hit?.kind === 'floor' ? hit.id : null;
+      }
       const pos = pointToWorld(clientX, clientY);
       return pos ? stackedFloorAt(officeState.getLayout(), pos.worldX, pos.worldY) : null;
     },
-    [pointToWorld, officeState],
+    [pointToWorld, officeState, iso, isoAt],
+  );
+  /** The character under a viewport point (the isometric view: what it drew there). */
+  const characterAt = useCallback(
+    (clientX: number, clientY: number): number | null => {
+      if (iso) {
+        const hit = isoAt(clientX, clientY);
+        return hit?.kind === 'character' ? hit.id : null;
+      }
+      const pos = screenToWorld(clientX, clientY);
+      return pos ? officeState.getCharacterAt(pos.worldX, pos.worldY) : null;
+    },
+    [iso, isoAt, screenToWorld, officeState],
+  );
+  /** A point off the floor in focus (on another floor, or on nothing in the isometric view). */
+  const offFloor = useCallback(
+    (clientX: number, clientY: number): boolean =>
+      iso ? isoAt(clientX, clientY)?.kind === 'floor' : !screenToWorld(clientX, clientY),
+    [iso, isoAt, screenToWorld],
   );
 
   const screenToTile = useCallback(
     (clientX: number, clientY: number): { col: number; row: number } | null => {
+      if (iso) {
+        const hit = isoAt(clientX, clientY);
+        return hit?.kind === 'tile' || hit?.kind === 'item' ? { col: hit.col, row: hit.row } : null;
+      }
       const pos = screenToWorld(clientX, clientY);
       if (!pos) return null;
       const col = Math.floor(pos.worldX / TILE_SIZE);
@@ -386,7 +508,7 @@ export function OfficeCanvas({
       if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return null;
       return { col, row };
     },
-    [screenToWorld, officeState, isEditMode, editorState],
+    [screenToWorld, officeState, isEditMode, editorState, iso, isoAt],
   );
 
   // Check if device-pixel coords hit the delete button
@@ -529,8 +651,8 @@ export function OfficeCanvas({
         return;
       }
 
-      const pos = screenToWorld(e.clientX, e.clientY);
-      if (!pos) {
+      const pos = iso ? null : screenToWorld(e.clientX, e.clientY);
+      if (offFloor(e.clientX, e.clientY)) {
         const canvas = canvasRef.current;
         if (canvas)
           canvas.style.cursor = otherFloorAt(e.clientX, e.clientY) ? 'pointer' : 'default';
@@ -538,9 +660,10 @@ export function OfficeCanvas({
         officeState.hoveredTile = null;
         return;
       }
-      const hitId = officeState.getCharacterAt(pos.worldX, pos.worldY);
-      // Only run pet hit-test if no character was hit (avoids redundant work).
-      const petId = hitId === null ? officeState.getPetAt(pos.worldX, pos.worldY) : null;
+      const hitId = characterAt(e.clientX, e.clientY);
+      // Only run pet hit-test if no character was hit (avoids redundant work). The isometric
+      // pilot does not draw the pets.
+      const petId = hitId === null && pos ? officeState.getPetAt(pos.worldX, pos.worldY) : null;
       const tile = screenToTile(e.clientX, e.clientY);
       officeState.hoveredTile = tile;
       const canvas = canvasRef.current;
@@ -561,6 +684,9 @@ export function OfficeCanvas({
       officeState,
       screenToWorld,
       otherFloorAt,
+      characterAt,
+      offFloor,
+      iso,
       screenToTile,
       isEditMode,
       editorState,
@@ -617,8 +743,7 @@ export function OfficeCanvas({
 
       if (!isEditMode) {
         if (e.button === 0) {
-          const pos = screenToWorld(e.clientX, e.clientY);
-          const hitId = pos ? officeState.getCharacterAt(pos.worldX, pos.worldY) : null;
+          const hitId = characterAt(e.clientX, e.clientY);
           characterDragRef.current =
             hitId !== null && floorMovable(hitId)
               ? { id: hitId, x: e.clientX, y: e.clientY, moving: false }
@@ -685,6 +810,7 @@ export function OfficeCanvas({
       hitTestDeleteButton,
       hitTestRotateButton,
       panRef,
+      characterAt,
     ],
   );
 
@@ -699,7 +825,14 @@ export function OfficeCanvas({
       }
       const characterDrag = characterDragRef.current;
       characterDragRef.current = null;
-      if (characterDrag?.moving && e.button === 0 && !isEditMode) {
+      // cld-gui (ELEVATOR): let go over another floor (all floors shown), it rides there. The
+      // floors' store holds what is carried: the canvas's own drag ends when the pointer
+      // crosses a label or a bubble on the way.
+      const carried = floorsSnapshot().dragging;
+      if ((characterDrag?.moving || carried) && e.button === 0 && !isEditMode) {
+        const floorId = otherFloorAt(e.clientX, e.clientY);
+        const id = carried?.id ?? characterDrag?.id;
+        if (floorId && id !== undefined) visitFloor(officeState, id, floorId);
         endFloorDrag();
         suppressClickRef.current = true; // the click that ends a drag selects nothing
         if (canvasRef.current) canvasRef.current.style.cursor = 'default';
@@ -743,7 +876,7 @@ export function OfficeCanvas({
       // undo entry — one click-drag collapses to a single undo.
       editorState.endStroke();
     },
-    [editorState, isEditMode, onDrop, onEditorSelectionChange],
+    [editorState, isEditMode, onDrop, onEditorSelectionChange, officeState, otherFloorAt],
   );
 
   // Shared by mouse click and touch tap — both resolve a viewport point to a
@@ -751,14 +884,14 @@ export function OfficeCanvas({
   // double-click (cld-gui T-0025), which focuses and follows, never toggles off.
   const performTap = useCallback(
     (clientX: number, clientY: number, double = false) => {
-      const pos = screenToWorld(clientX, clientY);
-      if (!pos) {
+      if (offFloor(clientX, clientY)) {
         const id = otherFloorAt(clientX, clientY);
         if (id) goToFloor(id);
         return;
       }
+      const pos = iso ? null : screenToWorld(clientX, clientY);
 
-      const hitId = officeState.getCharacterAt(pos.worldX, pos.worldY);
+      const hitId = characterAt(clientX, clientY);
       if (hitId !== null) {
         // Dismiss any active bubble on click
         officeState.dismissBubble(hitId);
@@ -787,7 +920,7 @@ export function OfficeCanvas({
       }
 
       // Pet hit: toggle the heart bubble.
-      const petId = officeState.getPetAt(pos.worldX, pos.worldY);
+      const petId = pos ? officeState.getPetAt(pos.worldX, pos.worldY) : null;
       if (petId !== null) {
         const pet = officeState.pets.find((p) => p.id === petId);
         if (pet?.bubbleType) {
@@ -835,7 +968,17 @@ export function OfficeCanvas({
         officeState.cameraFollowId = null;
       }
     },
-    [officeState, onClick, screenToWorld, otherFloorAt, screenToTile, tapSelectsFirst],
+    [
+      officeState,
+      onClick,
+      screenToWorld,
+      otherFloorAt,
+      screenToTile,
+      tapSelectsFirst,
+      offFloor,
+      characterAt,
+      iso,
+    ],
   );
 
   const handleClick = useCallback(
@@ -915,15 +1058,14 @@ export function OfficeCanvas({
     return registerContextTarget('character', ({ target, x, y, keyboard }) => {
       if (isEditMode) return false;
       if (keyboard) return officeState.selectedAgentId !== null;
-      const pos = target === canvasRef.current ? screenToWorld(x, y) : null;
-      const hitId = pos ? officeState.getCharacterAt(pos.worldX, pos.worldY) : null;
+      const hitId = target === canvasRef.current ? characterAt(x, y) : null;
       if (hitId === null) return false;
       officeState.dismissBubble(hitId);
       officeState.selectedAgentId = hitId;
       officeState.cameraFollowId = hitId;
       return true;
     });
-  }, [officeState, isEditMode, screenToWorld]);
+  }, [officeState, isEditMode, characterAt]);
 
   // Touch: one-finger pan, two-finger pinch zoom, short tap = click, hold = menu.
   useCanvasTouchGestures({

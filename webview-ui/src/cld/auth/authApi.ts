@@ -47,11 +47,18 @@ export const stepUpFailedText = () => stepUpText(lastFailure);
  *  A 403 `stepup` runs the step-up prompt and retries once (S1), unless `noStepUp`. */
 export async function authFetch<T>(
   path: string,
-  init: { method?: string; body?: unknown; retried?: boolean; noStepUp?: boolean } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    retried?: boolean;
+    noStepUp?: boolean;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
   const res = await fetch(path, {
     method: init.method ?? 'GET',
     credentials: 'same-origin',
+    signal: init.signal,
     headers: init.body === undefined ? undefined : { 'content-type': 'application/json' },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   });

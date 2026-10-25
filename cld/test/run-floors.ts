@@ -14,7 +14,8 @@
  * (under 300 ms), drawing, labelling and hit-testing only the floor shown; a
  * turn that ends on another floor puts the waiting bubble on its button and
  * a permission the permission bubble; a character dragged off the canvas onto
- * a floor button moves alone (office is never asked); the building survives a
+ * a floor button rides there alone, a visit of this browser's (ELEVATOR: nothing
+ * is sent, office is never asked); the building survives a
  * daemon restart; 층 삭제 brings the rooms back to floor 1. Phone 393×852:
  * the floor picker in the top bar (list, swipe up and down, the badge dot),
  * inside the safe area. Screenshots go to cld/artifacts/t0027/.
@@ -335,9 +336,16 @@ async function main() {
       !building().floors[0].rooms.includes('orch-gamma'),
       'desktop: a room chip dragged onto the floor 2 button puts orch-gamma on floor 2',
     );
+    // ELEVATOR step 2: the room's characters walk to the elevator and ride up, so they leave
+    // floor 1's view after the ride, not at once.
+    await until(
+      'eta and theta ride up',
+      async () => !(await shows(page, 'eta')) && !(await shows(page, 'theta')),
+      30_000,
+    );
     check(
-      !(await shows(page, 'eta')) && !(await shows(page, 'theta')) && (await shows(page, 'alpha')),
-      'desktop: eta and theta left floor 1 (no labels drawn there); alpha stayed',
+      await shows(page, 'alpha'),
+      'desktop: eta and theta left floor 1 (no labels drawn there, after their ride); alpha stayed',
     );
 
     // 층 이름.
@@ -475,7 +483,8 @@ async function main() {
       'desktop: answered and seen, floor 2 has no badge any more',
     );
 
-    // A character dragged off the canvas onto a floor button moves alone.
+    // A character dragged off the canvas onto a floor button rides there alone (ELEVATOR: a
+    // visit of this browser's; the building does not change).
     // Its label's top is 34 CSS px above (feet - 32 world px); the hit box
     // is the 24 world px above the feet.
     const box = (await label(page, 'alpha').first().boundingBox())!;
@@ -492,11 +501,12 @@ async function main() {
     await page.waitForTimeout(100);
     await shot(page, 'desktop-drag-character');
     await page.mouse.up();
-    await until('alpha on floor 2', async () => building().floors[1].characters.includes('alpha'));
-    await page.waitForTimeout(400);
+    await until('alpha rode to floor 2', async () => !(await shows(page, 'alpha')), 20_000);
     check(
-      !(await shows(page, 'alpha')) && (await shows(page, 'beta')),
-      'desktop: alpha dragged onto the 2 button moved alone (beta, its roommate, stayed)',
+      !(await shows(page, 'alpha')) &&
+        (await shows(page, 'beta')) &&
+        !building().floors[1].characters.includes('alpha'),
+      'desktop: alpha dragged onto the 2 button rode up alone (beta, its roommate, stayed; the building is unchanged)',
     );
     check(
       loggedCommands(fake.officeLog).every((c) => c !== 'edit' && c !== 'tab'),
@@ -515,28 +525,34 @@ async function main() {
     await page.waitForTimeout(1500);
     const kept = building();
     check(
-      kept.floors[1].name === '연구동' &&
-        kept.floors[1].rooms.includes('orch-gamma') &&
-        kept.floors[1].characters.includes('alpha'),
-      'desktop: after a daemon restart floor 2 is still 연구동 with orch-gamma and alpha',
+      kept.floors[1].name === '연구동' && kept.floors[1].rooms.includes('orch-gamma'),
+      'desktop: after a daemon restart floor 2 is still 연구동 with orch-gamma',
     );
     // The characters come back a moment after the page does: this roster is read
     // through `claude agents --json`, at most every 30 s (a loaded machine took 45 s).
-    await until(
-      'alpha and eta are drawn again',
-      async () => (await shows(page, 'alpha')) && (await shows(page, 'eta')),
-      60_000,
-    ).catch(() => undefined);
+    await until('eta is drawn again', async () => await shows(page, 'eta'), 60_000).catch(
+      () => undefined,
+    );
+    const reloaded = {
+      floor: await current(page),
+      alpha: await shows(page, 'alpha'),
+      eta: await shows(page, 'eta'),
+    };
+    console.log(
+      `after the restart: ${JSON.stringify(reloaded)} (floor 2 is ${f2}); eta: ${JSON.stringify(
+        await page.evaluate(`window.__pixelAgentsTestHooks.getCharacterTile(${agentId('eta')})`),
+      )}; floors ${JSON.stringify(([...received].reverse().find((m) => m.type === 'layoutLoaded') as { layout: { cldFloors?: unknown } } | undefined)?.layout.cldFloors)}`,
+    );
     check(
-      (await current(page)) === f2 && (await shows(page, 'alpha')) && (await shows(page, 'eta')),
-      'desktop: a reload opens on the floor this browser was on (2), alpha and eta there',
+      reloaded.floor === f2 && !reloaded.alpha && reloaded.eta,
+      "desktop: a reload opens on the floor this browser was on (2), eta there (alpha's visit ended with the page)",
     );
     await shot(page, 'desktop-floor-2-after-restart');
 
     // ════ T-0049 stacked desktop, fresh browser setting ════
     const { ctx: stackCtx, page: stackPage } = await open(DESKTOP);
     await login(stackPage);
-    // Floor 2 has grown since r1/r2 were read (alpha's room moved there): use the latest layout.
+    // The office may have changed since r1/r2 were read: use the latest layout.
     [r1, r2] = (
       [...received].reverse().find((m) => m.type === 'layoutLoaded') as typeof layout
     ).layout.cldFloors;

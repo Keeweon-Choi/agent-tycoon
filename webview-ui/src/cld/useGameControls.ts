@@ -2,7 +2,14 @@ import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 
-import { BOARD_CLEAR_LEFT_PX, BOARD_SCREEN, BOARD_TYPE } from '../constants.js';
+import {
+  BOARD_CLEAR_LEFT_PX,
+  BOARD_SCREEN,
+  BOARD_TYPE,
+  CAMERA_FOLLOW_ZOOM_STEPS,
+  HD_ZOOM_STEP,
+  ZOOM_MAX,
+} from '../constants.js';
 import { defaultZoom } from '../hooks/useEditorActions.js';
 import { t } from '../i18n/index.js';
 import type { OfficeState } from '../office/engine/officeState.js';
@@ -20,7 +27,6 @@ import {
   easeVelocity,
   edgeDirection,
   fillZoom,
-  fitZoom,
   framePan,
   glidePan,
   isDrag,
@@ -36,8 +42,10 @@ import {
 import {
   askFraming,
   cameraAsks,
+  type CameraMode,
   cameraMode,
   isCameraManual,
+  lastFraming,
   noteFraming,
   noteManualCamera,
   restoreManual,
@@ -94,6 +102,9 @@ interface GameControlsOptions {
   characterAt?: (clientX: number, clientY: number) => boolean;
   /** The phone shell: its default camera mode is focus (GFX). */
   phone?: boolean;
+  /** ISO-PILOT: the isometric building is drawn, which frames itself (cld/iso/camera.ts):
+   *  pans are clamped by this, and the top-down framing and floor camera stand aside. */
+  isoClamp?: ((pan: Vec, zoom: number) => Vec) | null;
 }
 
 const PAN_KEYS: ReadonlySet<CameraKey> = new Set(['up', 'down', 'left', 'right']);
@@ -107,7 +118,7 @@ const isTyping = (t: EventTarget | null) =>
 
 /** The safe-area insets (CSS px of the viewport), read from a hidden probe. */
 let safeProbe: HTMLDivElement | null = null;
-function safeArea(): Insets {
+export function safeArea(): Insets {
   if (!safeProbe) {
     safeProbe = document.createElement('div');
     safeProbe.style.cssText =
@@ -160,8 +171,7 @@ function coveredInsets(canvas: HTMLCanvasElement): Insets {
 }
 
 /** GFX: the mode the office is framed in now (the upstream surfaces have no cld office). */
-const framingMode = (phone: boolean | undefined) =>
-  cldGetSnapshot().officeSnapshot ? cameraMode(!!phone) : 'classic';
+const framingMode = (): CameraMode => (cldGetSnapshot().officeSnapshot ? cameraMode() : 'off');
 
 /** The window fills the screen: the Fullscreen API, F11 in a browser, or the
  *  desktop app's own fullscreen (neither of the last two sets fullscreenElement). */
@@ -200,6 +210,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     /** The one-floor camera's default last applied. */
     dflt: { x: 0, y: 0 } as Vec,
     followSeen: null as number | null,
+    /** The floor the followed character was on (ELEVATOR: a ride takes the view along). */
+    followFloor: -1,
     activeWalkHintFor: null as number | null,
     /** G1: the pan a refresh saved, applied once the first floor has settled. */
     restore: loadSavedCamera()?.pan ?? null,
@@ -209,12 +221,17 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     frameKey: null as string | null,
     framePanels: null as readonly unknown[] | null,
     frameTiles: null as unknown,
-    /** Focus: the employee it centres (kept while it stays on the floor, so the view does not
-     *  hop between workers; a working one arriving after the first framing is then centred). */
-    focusId: null as number | null,
-    /** cameraAsks() last seen by the framing. */
-    asksSeen: 0,
+    /** The follow the auto camera last zoomed in for (null: none). */
+    followFramed: null as number | null,
   }).current;
+
+  /** The pan clamp for the view drawn (the isometric one when it is on). */
+  const clampFor = (pan: Vec, canvas: HTMLCanvasElement, zoom: number): Vec => {
+    const { isoClamp, officeState } = latest.current;
+    if (isoClamp) return isoClamp(pan, zoom);
+    const layout = officeState.getLayout();
+    return clampPan(pan, { w: canvas.width, h: canvas.height }, layout, zoom, cameraRect(layout));
+  };
 
   // One zoom path for wheel and keys. flushSync commits the new zoom (and the
   // game loop re-created for it) before the pan for that zoom is written, so
@@ -235,14 +252,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
             y: (at.y - rect.top) * dpr - canvas.height / 2,
           }
         : { x: 0, y: 0 };
-    const layout = officeState.getLayout();
-    const pan = clampPan(
-      zoomAround(panRef.current, anchor, zoom, next),
-      { w: canvas.width, h: canvas.height },
-      layout,
-      next,
-      cameraRect(layout),
-    );
+    const pan = clampFor(zoomAround(panRef.current, anchor, zoom, next), canvas, next);
     flushSync(() => onZoomChange(next));
     panRef.current = pan;
   }).current;
@@ -291,11 +301,17 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     const rects = floorRects(layout);
     const followId = officeState.cameraFollowId;
     const follow = followId !== null ? officeState.characters.get(followId) : undefined;
-    if (followId !== state.followSeen) {
+    const k = rects && follow ? floorIndexAt(rects, follow.tileRow) : -1;
+    if (followId !== state.followSeen || k !== state.followFloor) {
       state.followSeen = followId;
-      const k = rects && follow ? floorIndexAt(rects, follow.tileRow) : -1;
+      state.followFloor = k;
       const { current, doors } = floorsSnapshot();
       if (rects && k >= 0 && rects[k].id !== (doors?.target ?? current)) goToFloor(rects[k].id);
+    }
+    // ISO-PILOT: the isometric camera follows the floor itself; the floor store is the same.
+    if (latest.current.isoClamp) {
+      state.floorLayout = null;
+      return;
     }
     const rect = currentRect(layout);
     const stacked = floorsSnapshot().stacked;
@@ -366,53 +382,47 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     }
   }).current;
 
-  /** GFX, each frame: frame the view again (Fit / Fill / Focus) when what it was framed for
-   *  changed, unless the user moved the camera since, a follow holds it, or the editor is open. */
+  /** GFX, each frame. Auto: the office framed (the floor covering the view left by the panels,
+   *  at the nearest whole zoom, an even one while an HD employee is on it), again whenever what
+   *  it was framed for changes, unless the user moved the camera since or the editor is open; a
+   *  follow (a click on a character) zooms in on it, its end (a click on the floor, Esc, 0)
+   *  frames the office again. Free: nothing moves the camera, a click only selects. */
   const frameStep = useRef(() => {
     const { canvasRef, officeState, panRef, zoom, onZoomChange, isEditMode } = latest.current;
     const canvas = canvasRef.current;
-    const mode = framingMode(latest.current.phone);
-    if (!canvas || !state.floorLayout || isEditMode) return;
-    // A mode picked (or pressed again): the user asked for that view, so a follow ends (as the 0
-    // key does) and Classic takes its own default view (else it kept the last framing).
-    if (cameraAsks() !== state.asksSeen) {
-      state.asksSeen = cameraAsks();
-      officeState.breakCameraFollow();
-      if (mode === 'classic') {
-        state.glide = null;
-        const z = defaultZoom();
-        queueMicrotask(() => {
-          flushSync(() => onZoomChange(z));
-          const layout = officeState.getLayout();
-          panRef.current = state.dflt = defaultPan(layout, z, currentRect(layout));
-        });
-      }
-    }
-    if (mode === 'classic') return;
-    if (officeState.cameraFollowId !== null || officeState.greeterCameraTarget) return;
+    const mode = framingMode();
+    if (mode === 'free' && officeState.cameraFollowId !== null) officeState.cameraFollowId = null;
+    if (!canvas || !state.floorLayout || isEditMode || mode !== 'auto' || latest.current.isoClamp)
+      return;
     const layout = officeState.getLayout();
     const rect = currentRect(layout);
     // HD characters on this floor: prefer zooms they divide into whole device px (owner 10-25).
     let density = 1;
     for (const ch of officeState.characters.values())
       if (!ch.cldAway && onFloor(rect, ch.y))
-        density = Math.max(density, getCharacterSprites(ch.palette, ch.hueShift).density);
-    let focusCh: { id: number; x: number; y: number } | undefined;
-    if (mode === 'focus') {
-      const on = (ch: { y: number; cldAway?: boolean }) => !ch.cldAway && onFloor(rect, ch.y);
-      const pick = (id: number | null) => {
-        const ch = id !== null ? officeState.characters.get(id) : undefined;
-        return ch && on(ch) ? ch : undefined;
-      };
-      focusCh =
-        pick(officeState.selectedAgentId) ??
-        pick(state.focusId) ??
-        [...officeState.characters.values()].find((c) => c.isActive && on(c));
-      state.focusId = focusCh?.id ?? null;
+        // an HD64 character has its 32×64 copy for even zooms: it asks no more than HD does
+        density = Math.max(
+          density,
+          Math.min(HD_ZOOM_STEP, getCharacterSprites(ch.palette, ch.hueShift).density),
+        );
+    // A follow starts: zoom in on the character (the follow itself pans to it); it ends without a
+    // manual pan or zoom (a click on the floor, Esc): back to the framed office.
+    const follow = officeState.cameraFollowId;
+    if (follow !== state.followFramed) {
+      const was = state.followFramed;
+      state.followFramed = follow;
+      if (follow !== null) {
+        restoreManual(false);
+        const base = lastFraming()?.zoom ?? zoom;
+        const close = Math.min(
+          ZOOM_MAX,
+          Math.ceil((base + CAMERA_FOLLOW_ZOOM_STEPS) / density) * density,
+        );
+        if (close !== zoom) queueMicrotask(() => flushSync(() => onZoomChange(close)));
+      } else if (was !== null && !isCameraManual()) askFraming();
     }
+    if (follow !== null || officeState.greeterCameraTarget) return;
     const key = [
-      mode,
-      state.focusId,
       density,
       canvas.width,
       canvas.height,
@@ -440,9 +450,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     };
     const size = { w: canvas.width, h: canvas.height };
     const view = usableView(size, coveredInsets(canvas));
-    const z = mode === 'fit' ? fitZoom(view, box, density) : fillZoom(view, box, density);
-    const focus: Vec | null = focusCh ? { x: focusCh.x, y: focusCh.y } : null;
-    const pan = framePan(layout, z, size, view, box, focus);
+    const z = fillZoom(view, box, density);
+    const pan = framePan(layout, z, size, view, box);
     noteFraming({ mode, zoom: z, view, box });
     // A framed view is no classic default: floorStep must not move it as one when the layout
     // object changes under it (a framed pan can equal the old default by chance).
@@ -465,25 +474,12 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
   const step = useRef((dt: number) => {
     const { canvasRef, officeState, panRef, zoom } = latest.current;
     floorStep(dt);
-    if (
-      state.restore &&
-      state.floorLayout &&
-      framingMode(latest.current.phone) !== 'classic' &&
-      !state.restoreManual
-    )
+    if (state.restore && state.floorLayout && framingMode() === 'auto' && !state.restoreManual)
       state.restore = null; // a framed view is framed again for this screen
     if (state.restore && state.floorLayout) {
       restoreManual(state.restoreManual);
       const canvas = canvasRef.current;
-      const layout = officeState.getLayout();
-      if (canvas)
-        panRef.current = clampPan(
-          state.restore,
-          { w: canvas.width, h: canvas.height },
-          layout,
-          zoom,
-          cameraRect(layout),
-        );
+      if (canvas && !latest.current.isoClamp) panRef.current = clampFor(state.restore, canvas, zoom);
       state.restore = null;
     }
     frameStep();
@@ -513,13 +509,10 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       noteManualCamera();
     }
     // The view moves right, so the map moves left.
-    const layout = officeState.getLayout();
-    panRef.current = clampPan(
+    panRef.current = clampFor(
       { x: panRef.current.x - state.v.x * dt, y: panRef.current.y - state.v.y * dt },
-      { w: canvas.width, h: canvas.height },
-      layout,
+      canvas,
       zoom,
-      cameraRect(layout),
     );
   }).current;
 
@@ -568,14 +561,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
         noteManualCamera();
       }
       const dpr = window.devicePixelRatio || 1;
-      const layout = officeState.getLayout();
-      panRef.current = clampPan(
-        { x: press.pan.x + dx * dpr, y: press.pan.y + dy * dpr },
-        { w: canvas.width, h: canvas.height },
-        layout,
-        zoom,
-        cameraRect(layout),
-      );
+      panRef.current = clampFor({ x: press.pan.x + dx * dpr, y: press.pan.y + dy * dpr }, canvas, zoom);
       canvas.style.cursor = 'grabbing'; // after the canvas's own hover cursor
     };
     const onUp = (e: MouseEvent) => {
@@ -650,7 +636,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       if (e.repeat) return;
       if (action === 'zoomIn' || action === 'zoomOut') {
         zoomBy(action === 'zoomIn' ? 1 : -1, null);
-      } else if (action === 'reset' && framingMode(latest.current.phone) !== 'classic') {
+      } else if (action === 'reset' && framingMode() === 'auto') {
         officeState.breakCameraFollow(); // GFX: frame again in the mode chosen
         askFraming();
         state.v = { x: 0, y: 0 };

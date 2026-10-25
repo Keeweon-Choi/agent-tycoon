@@ -293,7 +293,7 @@ const notPart = (r: number, g: number, b: number, a: number) =>
 const isDark = (p: ArrayLike<number> | null) => !!p && dist(p, GREENS[1]) < dist(p, GREENS[0]);
 
 /** The grey frame lines' centres (thin grey runs across most of the image), or null. */
-function frameLines(img: Rgba, vertical: boolean): number[] {
+export function frameLines(img: Rgba, vertical: boolean): number[] {
   const [n, m] = vertical ? [img.width, img.height] : [img.height, img.width];
   const px = (x: number, y: number) =>
     x < 0 || y < 0 || x >= img.width || y >= img.height

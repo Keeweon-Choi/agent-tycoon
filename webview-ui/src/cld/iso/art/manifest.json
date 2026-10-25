@@ -1,0 +1,694 @@
+{
+  "note": "ISO-PILOT pilot assets (cld/scripts/gen-iso-art.ts), cut from the owner starter pack: not finished art. density: source px per world px (a 16 px tile is a 64x32 diamond at 4). anchor: the pixel at the footprint front corner on the floor, at that density. faces: +row lower left, +col lower right, -row upper right, -col upper left. name@2.png and name@1.png: the same piece at densities 2 and 1.",
+  "floors": {
+    "1": "floor-carpet",
+    "7": "floor-wood-dark",
+    "9": "floor-stone",
+    "default": "floor-wood-light"
+  },
+  "walls": {
+    "row": "wall-row",
+    "col": "wall-col",
+    "rowWindows": [
+      "wall-row-win-0",
+      "wall-row-win-1",
+      "wall-row-win-2",
+      "wall-row-win-3"
+    ],
+    "colWindows": [
+      "wall-col-win-0",
+      "wall-col-win-1",
+      "wall-col-win-2",
+      "wall-col-win-3"
+    ],
+    "corner": "wall-corner",
+    "low": "wall-low"
+  },
+  "lift": {
+    "doors": "lift-doors",
+    "doorsOpen": "lift-doors-open",
+    "shaft": "lift-shaft",
+    "car": "lift-car"
+  },
+  "pieces": {
+    "floor-wood-light": {
+      "file": "floor-wood-light.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "starter-structure woodLight"
+    },
+    "floor-wood-dark": {
+      "file": "floor-wood-dark.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "starter-structure woodDark"
+    },
+    "floor-carpet": {
+      "file": "floor-carpet.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "starter-structure carpet"
+    },
+    "floor-stone": {
+      "file": "floor-stone.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "starter-structure stone"
+    },
+    "wall-row": {
+      "file": "wall-row.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        138
+      ],
+      "faces": "+row",
+      "from": "starter-structure plain wall (middle strip)"
+    },
+    "wall-row-win-0": {
+      "file": "wall-row-win-0.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        138
+      ],
+      "faces": "+row",
+      "from": "starter-structure window wall (strip 1/4)"
+    },
+    "wall-row-win-1": {
+      "file": "wall-row-win-1.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        138
+      ],
+      "faces": "+row",
+      "from": "starter-structure window wall (strip 2/4)"
+    },
+    "wall-row-win-2": {
+      "file": "wall-row-win-2.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        138
+      ],
+      "faces": "+row",
+      "from": "starter-structure window wall (strip 3/4)"
+    },
+    "wall-row-win-3": {
+      "file": "wall-row-win-3.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        138
+      ],
+      "faces": "+row",
+      "from": "starter-structure window wall (strip 4/4)"
+    },
+    "wall-col": {
+      "file": "wall-col.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        0,
+        138
+      ],
+      "faces": "+col",
+      "from": "starter-structure plain wall (middle strip)"
+    },
+    "wall-col-win-0": {
+      "file": "wall-col-win-0.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        0,
+        138
+      ],
+      "faces": "+col",
+      "from": "starter-structure window wall (strip 1/4)"
+    },
+    "wall-col-win-1": {
+      "file": "wall-col-win-1.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        0,
+        138
+      ],
+      "faces": "+col",
+      "from": "starter-structure window wall (strip 2/4)"
+    },
+    "wall-col-win-2": {
+      "file": "wall-col-win-2.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        0,
+        138
+      ],
+      "faces": "+col",
+      "from": "starter-structure window wall (strip 3/4)"
+    },
+    "wall-col-win-3": {
+      "file": "wall-col-win-3.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        0,
+        138
+      ],
+      "faces": "+col",
+      "from": "starter-structure window wall (strip 4/4)"
+    },
+    "wall-corner": {
+      "file": "wall-corner.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        90,
+        160
+      ],
+      "faces": "none",
+      "from": "starter-structure corner"
+    },
+    "lift-doors": {
+      "file": "lift-doors.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        60,
+        92
+      ],
+      "faces": "+row",
+      "from": "starter-structure elevator wall (doors)"
+    },
+    "lift-doors-open": {
+      "file": "lift-doors-open.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        60,
+        92
+      ],
+      "faces": "+row",
+      "from": "starter-structure elevator wall (doors, opened)"
+    },
+    "desk": {
+      "file": "desk.png",
+      "density": 4,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        99,
+        122
+      ],
+      "faces": "+row",
+      "surface": 48,
+      "from": "starter deskA"
+    },
+    "desk-b": {
+      "file": "desk-b.png",
+      "density": 4,
+      "footprint": [
+        3,
+        1
+      ],
+      "anchor": [
+        99,
+        119
+      ],
+      "faces": "+row",
+      "surface": 48,
+      "from": "starter deskB"
+    },
+    "chair": {
+      "file": "chair.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        31,
+        102
+      ],
+      "faces": "+row",
+      "from": "starter chairA"
+    },
+    "chair-side": {
+      "file": "chair-side.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        31,
+        104
+      ],
+      "faces": "+col",
+      "from": "starter chairB"
+    },
+    "sofa": {
+      "file": "sofa.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        71,
+        95
+      ],
+      "faces": "+row",
+      "from": "starter sofaA"
+    },
+    "sofa-side": {
+      "file": "sofa-side.png",
+      "density": 4,
+      "footprint": [
+        1,
+        2
+      ],
+      "anchor": [
+        39,
+        94
+      ],
+      "faces": "+col",
+      "from": "starter sofaB"
+    },
+    "coffee-table": {
+      "file": "coffee-table.png",
+      "density": 4,
+      "footprint": [
+        2,
+        2
+      ],
+      "anchor": [
+        53,
+        80
+      ],
+      "faces": "none",
+      "from": "starter coffeeTable"
+    },
+    "plant": {
+      "file": "plant.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        26,
+        51
+      ],
+      "faces": "none",
+      "from": "starter plantPothos"
+    },
+    "plant-tall": {
+      "file": "plant-tall.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        74
+      ],
+      "faces": "none",
+      "from": "starter plantTall"
+    },
+    "bookshelf": {
+      "file": "bookshelf.png",
+      "density": 4,
+      "footprint": [
+        1,
+        2
+      ],
+      "anchor": [
+        32,
+        164
+      ],
+      "faces": "+col",
+      "from": "starter bookshelf"
+    },
+    "counter": {
+      "file": "counter.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        74,
+        94
+      ],
+      "faces": "+row",
+      "from": "starter counter"
+    },
+    "coffee-machine": {
+      "file": "coffee-machine.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        23,
+        83
+      ],
+      "faces": "+row",
+      "from": "starter coffeeMachine"
+    },
+    "vending": {
+      "file": "vending.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        37,
+        127
+      ],
+      "faces": "+row",
+      "from": "starter vending"
+    },
+    "water-cooler": {
+      "file": "water-cooler.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        23,
+        106
+      ],
+      "faces": "+row",
+      "from": "starter waterCooler"
+    },
+    "plate": {
+      "file": "plate.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "slab-row": {
+      "file": "slab-row.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "slab-col": {
+      "file": "slab-col.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "pavement": {
+      "file": "pavement.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "wall-low": {
+      "file": "wall-low.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        60
+      ],
+      "faces": "none",
+      "from": "drawn (pack colours)"
+    },
+    "lift-shaft": {
+      "file": "lift-shaft.png",
+      "density": 4,
+      "footprint": [
+        2,
+        2
+      ],
+      "anchor": [
+        64,
+        224
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "lift-car": {
+      "file": "lift-car.png",
+      "density": 4,
+      "footprint": [
+        2,
+        2
+      ],
+      "anchor": [
+        64,
+        200
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "board": {
+      "file": "board.png",
+      "density": 4,
+      "footprint": [
+        28,
+        9
+      ],
+      "anchor": [
+        896,
+        728
+      ],
+      "faces": "+row",
+      "from": "drawn"
+    },
+    "whiteboard": {
+      "file": "whiteboard.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        64,
+        176
+      ],
+      "faces": "+row",
+      "from": "drawn"
+    },
+    "bench": {
+      "file": "bench.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        64,
+        96
+      ],
+      "faces": "-row",
+      "from": "drawn"
+    }
+  },
+  "types": {
+    "DESK_FRONT": {
+      "piece": "desk"
+    },
+    "PC_FRONT_OFF": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_1": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_2": {
+      "piece": "none"
+    },
+    "PC_FRONT_ON_3": {
+      "piece": "none"
+    },
+    "CUSHIONED_BENCH": {
+      "piece": "chair"
+    },
+    "CUSHIONED_CHAIR_FRONT": {
+      "piece": "chair"
+    },
+    "CUSHIONED_CHAIR_BACK": {
+      "piece": "chair"
+    },
+    "CUSHIONED_CHAIR_SIDE": {
+      "piece": "chair-side"
+    },
+    "WOODEN_CHAIR_FRONT": {
+      "piece": "chair"
+    },
+    "WOODEN_CHAIR_BACK": {
+      "piece": "chair"
+    },
+    "PLANT": {
+      "piece": "plant"
+    },
+    "POT": {
+      "piece": "plant"
+    },
+    "CACTUS": {
+      "piece": "plant"
+    },
+    "PLANT_2": {
+      "piece": "plant-tall"
+    },
+    "TALL_PLANT": {
+      "piece": "plant-tall"
+    },
+    "LARGE_PLANT": {
+      "piece": "plant-tall"
+    },
+    "SOFA_FRONT": {
+      "piece": "sofa"
+    },
+    "SOFA_BACK": {
+      "piece": "sofa"
+    },
+    "SOFA_SIDE": {
+      "piece": "sofa-side"
+    },
+    "SOFA_SIDE:left": {
+      "piece": "sofa-side"
+    },
+    "COFFEE_TABLE": {
+      "piece": "coffee-table"
+    },
+    "SMALL_TABLE_FRONT": {
+      "piece": "counter"
+    },
+    "COFFEE": {
+      "piece": "coffee-machine"
+    },
+    "LED_BOARD": {
+      "piece": "board"
+    },
+    "WHITEBOARD": {
+      "piece": "whiteboard"
+    },
+    "LOBBY_BENCH": {
+      "piece": "bench"
+    }
+  }
+}

@@ -17,6 +17,7 @@ import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
 import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
 import { applyLayoutPreset, resetLayout } from './hud/hudStore.js';
 import { type Preset, PRESETS } from './hud/layout.js';
+import { IsoOption } from './iso/IsoOption.js';
 import { Office25dOption } from './office25d/Office25dOption.js';
 import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHours.js';
 import { panelAvailable, useCldStore } from './officeStore.js';
@@ -384,9 +385,9 @@ function LayoutPresets() {
   );
 }
 
-/** GFX: the night skyline behind the office, and its gentle parallax (off unless asked). */
+/** GFX2: the city seen from above around the office (off: the plain background). */
 function BackdropOptions() {
-  const { on, parallax } = useBackdrop();
+  const { on } = useBackdrop();
   const { atStart } = useTitleScene();
   return (
     <>
@@ -398,17 +399,6 @@ function BackdropOptions() {
       <SettingRow testId="backdrop-option" title={t('gfx.backdrop.title')} help={t('gfx.backdrop.help')}>
         <Button size="sm" variant={on ? 'active' : 'default'} aria-pressed={on} onClick={() => setBackdrop({ on: !on })}>
           {on ? t('settings.on') : t('settings.off')}
-        </Button>
-      </SettingRow>
-      <SettingRow testId="backdrop-parallax-option" title={t('gfx.parallax.title')} help={t('gfx.parallax.help')}>
-        <Button
-          size="sm"
-          variant={parallax ? 'active' : 'default'}
-          aria-pressed={parallax}
-          disabled={!on}
-          onClick={() => setBackdrop({ parallax: !parallax })}
-        >
-          {parallax ? t('settings.on') : t('settings.off')}
         </Button>
       </SettingRow>
     </>
@@ -618,6 +608,7 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
           </SettingRow>
           <BackdropOptions />
           <Office25dOption />
+          <IsoOption />
           <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
             <Button
               size="sm"

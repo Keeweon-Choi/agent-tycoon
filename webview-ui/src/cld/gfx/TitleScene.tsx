@@ -16,16 +16,22 @@ import { createPortal } from 'react-dom';
 import type { TransportState } from '../../../../core/src/transport.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
-import { LAYOUT_UNITS_PER_PX, TITLE_LOGO, TITLE_SCENE_Z } from '../../constants.js';
+import { LAYOUT_UNITS_PER_PX, TITLE_BOX, TITLE_LOGO, TITLE_SCENE_Z } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { authFetch } from '../auth/authApi.js';
 import type { ConnectorStatus } from '../auth/Remote.js';
 import { openSettings } from '../settingsOpen.js';
+import { safeArea } from '../useGameControls.js';
 import logo from './art/logo-sign.png';
-import tall from './art/title-tall.webp';
-import wide from './art/title-wide.webp';
-import { closeTitleScene, useTitleScene } from './titleSceneState.js';
+import { LobbyArt } from './LobbyLife.js';
+import {
+  closeTitleScene,
+  exactDevicePx,
+  lobbyCastLeft,
+  snapExact,
+  useTitleScene,
+} from './titleSceneState.js';
 
 function useTransportState(): TransportState {
   const [s, setS] = useState<TransportState>(transport.state);
@@ -54,61 +60,108 @@ function useConnector(): ConnectorStatus['connector'] | null {
 
 const MENU = ['remote', 'settings', 'help'] as const;
 
-/** The owner's logo sign at the largest whole number of device px per art px that fits the
- *  title box's width (and a share of the window's height), never smoothed. */
-function Logo() {
-  const ref = useRef<HTMLHeadingElement>(null);
-  const [css, setCss] = useState<number | null>(null); // CSS px per art px
+/** The menu stacked at the bottom (a phone held upright), else beside the picture's counter
+ *  (a desktop, a phone held sideways: stacked, it would run off the top). */
+const stacked = (phone: boolean) => phone && window.innerHeight >= window.innerWidth;
+
+/** The margin around the logo (CSS px): the box's own, or the next whole CSS px that is a whole
+ *  number of device px (dpr 1.25: 16), so the logo inside a box placed on an exact px is too. */
+function logoMargin(dpr: number): number {
+  const base = TITLE_BOX.padPx + TITLE_BOX.borderPx;
+  for (let m = base; m < base + LAYOUT_UNITS_PER_PX; m++)
+    if (Math.abs(m * dpr - Math.round(m * dpr)) < 1e-6) return m;
+  return base;
+}
+
+type TitleBox = { css: number; box: number; margin: number };
+
+/** The title box: the owner's logo sign at the largest whole number of device px per art px
+ *  that fits (a share of the window's width and height, clear of the cast at the counter),
+ *  never smoothed, and the box exactly the logo plus the same margin on both sides; the menu
+ *  and the status line take that width. */
+function useTitleBox(phone: boolean): TitleBox | null {
+  const [size, setSize] = useState<TitleBox | null>(null);
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
     const fit = () => {
       const dpr = window.devicePixelRatio || 1;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const left = safeArea().left + window.innerWidth * TITLE_BOX.leftShare;
+      const room = stacked(phone)
+        ? window.innerWidth - 2 * TITLE_BOX.phoneGutterPx
+        : Math.min(
+            TITLE_BOX.maxRem * rem,
+            window.innerWidth * TITLE_BOX.maxWidthShare,
+            lobbyCastLeft(window.innerWidth, window.innerHeight) - TITLE_BOX.castGapPx - left,
+          );
+      const margin = logoMargin(dpr);
+      const avail = room - 2 * margin;
       const most = Math.max(
         1,
         Math.floor(
           Math.min(
-            (el.clientWidth * dpr) / TITLE_LOGO.w,
+            (avail * dpr) / TITLE_LOGO.w,
             (window.innerHeight * TITLE_LOGO.maxHeightShare * dpr) / TITLE_LOGO.h,
           ),
         ),
       );
-      // The CSS size must be exact in the layout's 1/64 px units, or the browser resamples the
-      // picture by a hair and smears one row of every block (dpr 3: 62 x 7/3 px is not exact).
-      const exact = (k: number) =>
-        [TITLE_LOGO.w, TITLE_LOGO.h].every((n) => {
-          const v = ((n * k) / dpr) * LAYOUT_UNITS_PER_PX;
-          return Math.abs(v - Math.round(v)) < 1e-6;
-        });
-      let k = most;
-      while (k > 1 && !exact(k)) k--;
-      setCss((exact(k) ? k : most) / dpr);
+      // The logo's canvas is padded to a whole number of layout units (Logo), the box with it.
+      const css = most / dpr;
+      setSize({ css, box: exactDevicePx(TITLE_LOGO.w * most, dpr) / dpr + 2 * margin, margin });
     };
     fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(el);
     window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [phone]);
+  return size;
+}
+
+/** The logo sign drawn into a canvas of exactly its device px (an <img> of a size that is not
+ *  a whole layout unit, 62 x 3.2 px at dpr 1.25, is resampled even on an exact px). */
+function Logo({ css }: { css: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const dpr = window.devicePixelRatio || 1;
+  const k = Math.round(css * dpr);
+  // The canvas a whole number of layout units big (dpr 2.625: 810 device px is not; 819 is), the
+  // logo centred in it to a device px.
+  const w = exactDevicePx(TITLE_LOGO.w * k, dpr);
+  const h = exactDevicePx(TITLE_LOGO.h * k, dpr);
+  useLayoutEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    let live = true;
+    const img = new Image();
+    img.src = logo;
+    void img
+      .decode()
+      .then(() => {
+        if (!live) return;
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+          img,
+          Math.floor((w - TITLE_LOGO.w * k) / 2),
+          Math.floor((h - TITLE_LOGO.h * k) / 2),
+          TITLE_LOGO.w * k,
+          TITLE_LOGO.h * k,
+        );
+      })
+      .catch(() => undefined); // no logo: the box keeps its size, the name is its label
     return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', fit);
+      live = false;
     };
-  }, []);
+  }, [k, w, h]);
   return (
-    <h1 ref={ref} className="m-0 leading-none">
-      <img
-        src={logo}
-        alt={t('gfx.title.name')}
-        draggable={false}
-        data-testid="title-logo"
-        className="block"
-        style={{
-          imageRendering: 'pixelated',
-          width: css === null ? undefined : TITLE_LOGO.w * css,
-          height: css === null ? undefined : TITLE_LOGO.h * css,
-          visibility: css === null ? 'hidden' : undefined,
-        }}
-      />
-    </h1>
+    <canvas
+      ref={ref}
+      role="img"
+      aria-label={t('gfx.title.name')}
+      data-testid="title-logo"
+      className="block"
+      style={{ imageRendering: 'pixelated', width: w / dpr, height: h / dpr }}
+    />
   );
 }
 
@@ -119,8 +172,49 @@ export function TitleScene({ phone }: { phone: boolean }) {
 
 function Title({ phone }: { phone: boolean }) {
   const [help, setHelp] = useState(false);
+  const box = useTitleBox(phone);
+  const column = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = column.current;
+    if (!el || !box) return;
+    const place = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const snap = (v: number) => snapExact(v, dpr);
+      const safe = safeArea();
+      const { width, height } = el.getBoundingClientRect();
+      setPos(
+        stacked(phone)
+          ? {
+              left: snap((window.innerWidth - width) / 2),
+              top: snap(window.innerHeight - safe.bottom - TITLE_BOX.phoneGutterPx - height),
+            }
+          : {
+              left: snap(safe.left + window.innerWidth * TITLE_BOX.leftShare),
+              // Taller than the window (a phone held sideways): the logo stays on screen.
+              top: snap(Math.max(safe.top, (window.innerHeight - height) / 2)),
+            },
+      );
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(el);
+    window.addEventListener('resize', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+    };
+  }, [box, phone]);
   const socket = useTransportState();
   const connector = useConnector();
+  useEffect(() => {
+    // 사무실 입장 takes the focus also when the lobby opens from the 로비 button (that click's
+    // own focus lands after autoFocus), so Enter is always the office.
+    const id = requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>('[data-testid="title-enter"]')?.focus(),
+    );
+    return () => cancelAnimationFrame(id);
+  }, []);
   useEffect(() => {
     // Enter or Esc with nothing focused (a click on the picture) is the office too; a dialog
     // the menu opened keeps its own keys.
@@ -149,31 +243,33 @@ function Title({ phone }: { phone: boolean }) {
     connector === null ? null : connector === 'local' ? 'off' : connector === 'lan' ? 'lan' : 'on';
   return (
     <div
-      className="fixed inset-0 overflow-hidden bg-bg select-none"
+      // A phone held sideways may be shorter than the menu: the lobby scrolls, the picture does not.
+      className="fixed inset-0 overflow-x-hidden overflow-y-auto bg-bg select-none"
       style={{ zIndex: TITLE_SCENE_Z }}
       role="region"
       aria-label={t('gfx.title.region')}
       data-testid="title-scene"
     >
-      <picture>
-        <source media="(orientation: portrait)" srcSet={tall} />
-        <img
-          src={wide}
-          alt=""
-          draggable={false}
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ imageRendering: 'pixelated' }}
-        />
-      </picture>
+      <LobbyArt />
+      {/* Placed in whole device px (not translate(-50%) or a % padding): a fractional
+          position would resample the logo. */}
       <div
-        className={`absolute flex flex-col gap-8 ${
-          phone
-            ? 'left-0 right-0 bottom-0 items-stretch px-[calc(var(--cld-safe-left)+16px)] pb-[calc(var(--cld-safe-bottom)+16px)] pr-[calc(var(--cld-safe-right)+16px)]'
-            : 'top-1/2 -translate-y-1/2 left-[calc(var(--cld-safe-left)+6%)] w-[min(24rem,40vw)]'
-        }`}
+        ref={column}
+        className="absolute flex flex-col gap-8"
+        style={{
+          width: box?.box,
+          left: pos?.left,
+          top: pos?.top,
+          visibility: box && pos ? undefined : 'hidden',
+        }}
+        data-testid="title-column"
       >
-        <div className="pixel-panel px-12 py-8">
-          <Logo />
+        <div
+          className="pixel-panel"
+          style={{ padding: (box?.margin ?? TITLE_BOX.padPx + TITLE_BOX.borderPx) - TITLE_BOX.borderPx }}
+          data-testid="title-box"
+        >
+          <h1 className="m-0 leading-none">{box && <Logo css={box.css} />}</h1>
           <p className="m-0 mt-4 text-sm text-text-muted">{t('gfx.title.tagline')}</p>
         </div>
         <nav className="flex flex-col gap-4" aria-label={t('gfx.title.menu')}>

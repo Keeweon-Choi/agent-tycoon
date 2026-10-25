@@ -9,6 +9,7 @@ import { offAlpha } from '../../cld/ez/nameplate.js';
 import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
 import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';
 import { drawnShift } from '../../cld/floors.js';
+import { isoFrame, isoOverlayFor } from '../../cld/iso/render.js';
 import { characterKind, characterName, showsNameLabel } from '../../cld/kinds.js';
 import { OfficeBadges } from '../../cld/OfficeBadges.js';
 import { cldGetSnapshot, ezContext, fatigueFor, identityForAgent } from '../../cld/officeStore.js';
@@ -167,7 +168,7 @@ export function ToolOverlay({
   const dpr = window.devicePixelRatio || 1;
   const layout = officeState.getLayout();
   const bounds = el.getBoundingClientRect();
-  const project = overlayProjection(layout, bounds, zoom, panRef.current, dpr);
+  const baseProject = overlayProjection(layout, bounds, zoom, panRef.current, dpr);
 
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
@@ -216,7 +217,11 @@ export function ToolOverlay({
       {allIds.map((id) => {
         const ch = officeState.characters.get(id);
         if (!ch) return null;
-        const shift = drawnShift(layout, ch.y);
+        // ISO-PILOT: in the isometric building, everything is placed from where it drew the
+        // feet; a character off the floor in focus shows its bubble only.
+        const iso = isoOverlayFor(ch, dpr, baseProject);
+        const project = iso?.project ?? baseProject;
+        const shift = iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, ch.y);
         const isSelected = selectedId === id;
         const isHovered = hoveredId === id;
         const isSub = ch.isSubagent;
@@ -286,7 +291,9 @@ export function ToolOverlay({
         if (shift === null) return null;
         if (shift !== 0) {
           publishCharacterVisual(id, undefined);
-          const shifted = { ...project, toScreenY: (y: number) => project.toScreenY(y + shift) };
+          const shifted = iso
+            ? project
+            : { ...project, toScreenY: (y: number) => project.toScreenY(y + shift) };
           return bubbleFor(ch, id, shifted, true);
         }
         // TEMP-PLATES: a roster employee's 피로도 is its execution's own context (null: unknown).

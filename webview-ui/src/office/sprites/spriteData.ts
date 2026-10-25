@@ -58,8 +58,11 @@ export interface LoadedCharacterData {
   up: SpriteData[];
   right: SpriteData[];
   /** HD (owner 10-25): sprite px per world px. Absent = 1 (16x32 frames); 2 = 32x64 frames
-   *  drawn in the same 16x32 world rect at twice the detail. */
-  density?: 1 | 2;
+   *  drawn in the same 16x32 world rect at twice the detail; 4 = 64x128 (HD64, the master). */
+  density?: 1 | 2 | 4;
+  /** HD64: the same character at lower densities (32x64, 16x32), for zooms the master's
+   *  density does not divide (drawn whole-pixel, never a fractional fill). */
+  lods?: LoadedCharacterData[];
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
@@ -120,6 +123,18 @@ export interface CharacterSprites {
   reading: Record<Direction, [SpriteData, SpriteData]>;
   /** Sprite px per world px (LoadedCharacterData.density): draw at zoom / density. */
   density: number;
+  /** HD64: the same sprites at lower densities (LoadedCharacterData.lods). */
+  lods?: CharacterSprites[];
+}
+
+/** The sprites to draw at `zoom`: the finest of the character's densities that divides the zoom
+ *  into whole device pixels (HD64 at 4 and 8, its 32×64 at 2 and 6, its 16×32 at odd zooms); a
+ *  zoom no density divides (a fractional one) takes the coarsest. A sheet without copies is
+ *  itself, as before. */
+export function spritesAtZoom(sprites: CharacterSprites, zoom: number): CharacterSprites {
+  if (!sprites.lods?.length) return sprites;
+  const all = [sprites, ...sprites.lods].sort((a, b) => b.density - a.density);
+  return all.find((s) => Number.isInteger(zoom / s.density)) ?? all[all.length - 1];
 }
 
 const spriteCache = new Map<string, CharacterSprites>();
@@ -160,6 +175,7 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
       [Dir.LEFT]: shiftPair(sprites.reading[Dir.LEFT]),
     } as Record<Direction, [SpriteData, SpriteData]>,
     density: sprites.density,
+    ...(sprites.lods && { lods: sprites.lods.map((l) => hueShiftSprites(l, hueShift)) }),
   };
 }
 
@@ -172,6 +188,37 @@ function emptySprite(w: number, h: number): SpriteData {
   return rows;
 }
 
+/** A sheet's sprites (pre-coloured, no palette swap): walk 1-2-3-2, typing, reading, the left
+ *  view mirrored from the right; its copies (HD64) the same way. */
+function spritesOf(char: LoadedCharacterData): CharacterSprites {
+  const d = char.down;
+  const u = char.up;
+  const rt = char.right;
+  const flip = flipSpriteHorizontal;
+  return {
+    walk: {
+      [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
+      [Dir.UP]: [u[0], u[1], u[2], u[1]],
+      [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
+      [Dir.LEFT]: [flip(rt[0]), flip(rt[1]), flip(rt[2]), flip(rt[1])],
+    },
+    typing: {
+      [Dir.DOWN]: [d[3], d[4]],
+      [Dir.UP]: [u[3], u[4]],
+      [Dir.RIGHT]: [rt[3], rt[4]],
+      [Dir.LEFT]: [flip(rt[3]), flip(rt[4])],
+    },
+    reading: {
+      [Dir.DOWN]: [d[5], d[6]],
+      [Dir.UP]: [u[5], u[6]],
+      [Dir.RIGHT]: [rt[5], rt[6]],
+      [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
+    },
+    density: char.density ?? 1,
+    ...(char.lods?.length ? { lods: char.lods.map(spritesOf) } : {}),
+  };
+}
+
 export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {
   const cacheKey = `${paletteIndex}:${hueShift}`;
   const cached = spriteCache.get(cacheKey);
@@ -182,35 +229,8 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
     customCharacters.get(paletteIndex)?.sheet ??
     loadedCharacters?.[paletteIndex % loadedCharacters.length];
 
-  if (char) {
-    // Use pre-colored character sprites directly (no palette swapping)
-    const d = char.down;
-    const u = char.up;
-    const rt = char.right;
-    const flip = flipSpriteHorizontal;
-
-    sprites = {
-      walk: {
-        [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
-        [Dir.UP]: [u[0], u[1], u[2], u[1]],
-        [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
-        [Dir.LEFT]: [flip(rt[0]), flip(rt[1]), flip(rt[2]), flip(rt[1])],
-      },
-      typing: {
-        [Dir.DOWN]: [d[3], d[4]],
-        [Dir.UP]: [u[3], u[4]],
-        [Dir.RIGHT]: [rt[3], rt[4]],
-        [Dir.LEFT]: [flip(rt[3]), flip(rt[4])],
-      },
-      reading: {
-        [Dir.DOWN]: [d[5], d[6]],
-        [Dir.UP]: [u[5], u[6]],
-        [Dir.RIGHT]: [rt[5], rt[6]],
-        [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
-      },
-      density: char.density ?? 1,
-    };
-  } else {
+  if (char) sprites = spritesOf(char);
+  else {
     // Fallback: return transparent placeholder sprites (16×32)
     const e = emptySprite(16, 32);
     const walkSet: [SpriteData, SpriteData, SpriteData, SpriteData] = [e, e, e, e];

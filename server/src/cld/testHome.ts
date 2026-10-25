@@ -193,9 +193,9 @@ export async function launchBrowser(
     // The runners read the screen from xterm's DOM rows (.xterm-rows); a pane
     // otherwise draws with WebGL (webview-ui/src/terminal/webglRenderer.ts).
     [TERMINAL_RENDERER_KEY, 'dom'],
-    // GFX: the runners written before the camera modes click where the classic camera put
-    // things; a runner that tests the modes (run-gfx.ts) sets its own.
-    [CAMERA_MODE_KEY, 'classic'],
+    // GFX: the runners written before the camera modes click where the upstream camera puts
+    // things ('off': no auto framing, a click follows); run-gfx.ts sets its own mode.
+    [CAMERA_MODE_KEY, 'off'],
     // GFX: no title scene over the office the runners click on (run-gfx.ts opens it itself).
     [TITLE_SCENE_KEY, 'off'],
   ];

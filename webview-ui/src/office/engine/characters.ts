@@ -98,6 +98,8 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  /** cld-gui (ELEVATOR): the elevators between floors, for findPath. */
+  links?: Parameters<typeof findPath>[6],
 ): void {
   ch.frameTimer += dt;
 
@@ -146,6 +148,7 @@ export function updateCharacter(
             seat.seatRow,
             tileMap,
             blockedTiles,
+            links,
           );
           if (path.length > 0) {
             ch.path = path;
@@ -177,6 +180,7 @@ export function updateCharacter(
               seat.seatRow,
               tileMap,
               blockedTiles,
+              links,
             );
             if (path.length > 0) {
               ch.path = path;
@@ -197,6 +201,7 @@ export function updateCharacter(
             target.row,
             tileMap,
             blockedTiles,
+            links,
           );
           if (path.length > 0) {
             ch.path = path;
@@ -310,6 +315,7 @@ export function updateCharacter(
               seat.seatRow,
               tileMap,
               blockedTiles,
+              links,
             );
             if (newPath.length > 0) {
               ch.path = newPath;

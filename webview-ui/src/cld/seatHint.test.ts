@@ -53,4 +53,15 @@ describe('cldSeats', () => {
     office.rebuildFromLayout(back);
     expect(office.characters.get(3)!.seatId).toBe('seat:a3');
   });
+
+  it('a member whose chair was not in the office yet takes it once an office has it (ELEVATOR)', () => {
+    const office = new OfficeState(layout(4));
+    office.addAgent(9, 0, 0, 'seat:late', true);
+    expect(office.characters.get(9)!.seatId).not.toBe('seat:late'); // a free one meanwhile
+    const later = layout(4);
+    later.furniture.push({ uid: 'seat:late', type: 'CHAIR', col: 7, row: 2 });
+    office.rebuildFromLayout(later);
+    const ch = office.characters.get(9)!;
+    expect([ch.seatId, ch.tileCol, ch.tileRow]).toEqual(['seat:late', 7, 2]);
+  });
 });

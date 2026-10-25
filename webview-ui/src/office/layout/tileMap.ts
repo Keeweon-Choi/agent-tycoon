@@ -34,7 +34,9 @@ export function getWalkableTiles(
   return tiles;
 }
 
-/** BFS pathfinding on 4-connected grid (no diagonals). Returns path excluding start, including end. */
+/** BFS pathfinding on 4-connected grid (no diagonals). Returns path excluding start, including end.
+ *  cld-gui (ELEVATOR): `links` are extra one-step edges ("col,row" -> tiles), the elevator
+ *  between stacked floors; a path that rides has one step that is not to a neighbour. */
 export function findPath(
   startCol: number,
   startRow: number,
@@ -42,6 +44,7 @@ export function findPath(
   endRow: number,
   tileMap: TileType[][],
   blockedTiles: Set<string>,
+  links?: ReadonlyMap<string, ReadonlyArray<{ col: number; row: number }>> | null,
 ): Array<{ col: number; row: number }> {
   if (startCol === endCol && startRow === endRow) return [];
 
@@ -70,6 +73,15 @@ export function findPath(
     { dc: 1, dr: 0 }, // right
   ];
 
+  const visit = (nc: number, nr: number, from: string) => {
+    const nk = key(nc, nr);
+    if (visited.has(nk)) return;
+    if (!isWalkable(nc, nr, tileMap, blockedTiles)) return;
+    visited.add(nk);
+    parent.set(nk, from);
+    queue.push({ col: nc, row: nr });
+  };
+
   while (queue.length > 0) {
     const curr = queue.shift()!;
     const currKey = key(curr.col, curr.row);
@@ -86,18 +98,9 @@ export function findPath(
       return path;
     }
 
-    for (const d of dirs) {
-      const nc = curr.col + d.dc;
-      const nr = curr.row + d.dr;
-      const nk = key(nc, nr);
-
-      if (visited.has(nk)) continue;
-      if (!isWalkable(nc, nr, tileMap, blockedTiles)) continue;
-
-      visited.add(nk);
-      parent.set(nk, currKey);
-      queue.push({ col: nc, row: nr });
-    }
+    for (const d of dirs) visit(curr.col + d.dc, curr.row + d.dr, currKey);
+    const linked = links?.get(currKey);
+    if (linked) for (const t of linked) visit(t.col, t.row, currKey);
   }
 
   // No path found

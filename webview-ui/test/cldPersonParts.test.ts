@@ -331,6 +331,43 @@ describe('people made of parts (CHAR-HUMAN)', () => {
     expect(composePerson({}).sheet.density).toBeUndefined();
   });
 
+  it('HD64: a density-4 part makes a 64×128 look with its 32×64 and 16×32 copies; the 16×32 is the parts’ own drawings', () => {
+    // top-0 at four times the detail: each classic pixel a 4×4 block, one pixel of it a darker detail
+    const top = byId('top-0');
+    const W4 = SHEET_W * 4;
+    const px: string[] = [];
+    for (let y = 0; y < SHEET_H * 4; y++)
+      for (let x = 0; x < W4; x++) {
+        const k = top.pixels[(y >> 2) * SHEET_W + (x >> 2)];
+        px.push(k === '.' ? '.' : x % 4 === 1 && y % 4 === 1 ? ALPHA[top.palette.length] : k);
+      }
+    // its own 16×32 drawing differs from a downsample: here the classic art is top-1's
+    const top4: PartData = {
+      ...byId('top-1'),
+      id: 'top-64',
+      slot: 'top',
+      hd: { density: 4, ramp: top.ramp, palette: [...top.palette, '102030'], pixels: px.join('') },
+    };
+    const look = { v: 3, kind: 'person', parts: { top: 'top-64' } } as const;
+    const { sheet } = composePerson(look, [top4]);
+    expect(sheet.density).toBe(4);
+    expect(sheetProblem(sheet)).toBeNull();
+    expect([sheet.down[1].length, sheet.down[1][0].length]).toEqual([128, 64]);
+    expect(sheet.down.flat(2).filter((c) => c === '#102030').length).toBeGreaterThan(100);
+    const c = compose(look, { templates, parts: [top4] });
+    const [half, classic] = c.sheet.lods ?? [];
+    expect(half.density).toBe(2);
+    expect([half.down[1].length, half.down[1][0].length]).toEqual([64, 32]);
+    expect(classic.density ?? 1).toBe(1);
+    // the 16×32 copy is the look composed from each part's classic drawing (top-1's), not halved
+    expect(classic.down).toEqual(composePerson(look, [top4], { classic: true }).sheet.down);
+    expect(classicOf(c.sheet).down).toEqual(classic.down);
+    // the card portrait is the 32×64 copy's crop (the card's size)
+    expect(c.mugshot?.length).toBe(40);
+    // negative control: an HD (density 2) look gets no copies
+    expect(compose({ v: 3, kind: 'person' }, { templates }).sheet.lods).toBeUndefined();
+  });
+
   describe('the slot registry (CHAR-FACTORY)', () => {
     const [ax, ay] = PARTS_META.headAnchors[1];
     void ax;
