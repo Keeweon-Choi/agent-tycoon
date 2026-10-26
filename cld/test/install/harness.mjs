@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 
 import { writeSumsAndSign } from '../../release/bundle/sign.mjs';
+import { managerFiles } from '../../release/bundle/managerFiles.mjs';
 import { currentOs, sha256File } from '../../release/bundle/verify.mjs';
 import { snapshot, tree } from './invariants.mjs';
 
@@ -65,13 +66,6 @@ for (const t of TOOLS) {
 
 // ── Releases ─────────────────────────────────────────────────────────────────
 
-/** The manager files a bundle carries (build.mjs step 2, same list). */
-function managerFiles() {
-  const install = fs.readdirSync(path.join(REPO, 'cld', 'install')).filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs')).map((f) => `cld/install/${f}`);
-  const bin = fs.readdirSync(path.join(REPO, 'cld', 'bin')).filter((f) => !f.endsWith('.test.mjs')).map((f) => `cld/bin/${f}`);
-  return [...install, ...bin, 'cld/release/bundle/verify.mjs', 'core/src/exposureLedger.mjs', 'core/src/remoteSetupPlan.mjs', 'core/src/cld/configPath.cjs', 'package.json'];
-}
-
 /**
  * One release folder (as `gh release download` gives it): the bundle for this machine, SHA256SUMS, its signature.
  * o: dataSchema, protocol, manifestVersion (a manifest that disagrees with the file name), target (another os-arch),
@@ -81,7 +75,7 @@ export function release(version, o = {}) {
   const dir = fs.mkdtempSync(path.join(suite, `release-${version}-`));
   const stage = fs.mkdtempSync(path.join(suite, 'stage-'));
   const put = (rel, content, mode = 0o644) => { const f = path.join(stage, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, content, { mode }); };
-  for (const rel of managerFiles()) put(rel, fs.readFileSync(path.join(REPO, rel)), fs.statSync(path.join(REPO, rel)).mode & 0o777);
+  for (const rel of [...managerFiles(REPO), 'package.json']) put(rel, fs.readFileSync(path.join(REPO, rel)), fs.statSync(path.join(REPO, rel)).mode & 0o777);
   // The one production module the manager's own steps load (the QR of a headless `open`); the daemon's are not needed.
   fs.cpSync(path.join(REPO, 'node_modules', 'uqr'), path.join(stage, 'node_modules', 'uqr'), { recursive: true, dereference: true });
   put('node/bin/node', `#!/bin/sh\n# test bundle: the private Node is this run's Node\nexec '${process.execPath}' "$@"\n`, 0o755);

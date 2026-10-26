@@ -22,6 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 
+import { managerFiles } from './managerFiles.mjs';
 import { devSigningKey, loadSigningKey, PUB, SIG, SUMS, writeSumsAndSign } from './sign.mjs';
 import { currentOs, sha256File } from './verify.mjs';
 
@@ -197,16 +198,8 @@ async function main() {
   fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(stage, 'package.json'));
   // The manager (P2, H §2.1) runs from the installed version with the private Node: cld/install
   // plus the dependency-free core modules it and cld/bin import, and the bundle verifier for updates.
-  const manager = [
-    ...fs
-      .readdirSync(path.join(ROOT, 'cld', 'install'))
-      .filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs'))
-      .map((f) => `cld/install/${f}`),
-    'cld/release/bundle/verify.mjs',
-    'core/src/exposureLedger.mjs',
-    'core/src/remoteSetupPlan.mjs',
-    'core/src/cld/configPath.cjs',
-  ];
+  // cld/bin is still copied above as a directory; only its manager dependencies come through here.
+  const manager = managerFiles(ROOT).filter((rel) => !rel.startsWith('cld/bin/'));
   for (const rel of manager) {
     fs.mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });
     fs.copyFileSync(path.join(ROOT, rel), path.join(stage, rel));
