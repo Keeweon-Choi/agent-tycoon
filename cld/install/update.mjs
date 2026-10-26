@@ -431,7 +431,7 @@ export async function update(o, deps = realDeps()) {
 
     const fresh = !record.versions[verified.version];
     let manifest;
-    try { manifest = await unpack(root, src.bundle, verified, record); } finally { await drop(); }
+    try { manifest = await unpack(root, src.bundle, verified, record, deps.print); } finally { await drop(); }
     record.update = { kind: 'update', from: record.current, to: verified.version, step: 'unpacked', fresh, startedAt: new Date().toISOString() };
     await writeRecord(root, record);
     await deps.afterStep?.('unpacked');
