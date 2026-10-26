@@ -470,10 +470,16 @@ export function killFakeSessions(home: string): void {
 
 /**
  * Remove a test HOME. A fake session can still write one last file (a job, a session record) while
- * it exits, so rmdir hits ENOTEMPTY under load; retry instead of failing the afterEach.
+ * it exits, so rmdir hits ENOTEMPTY under load; retry instead of failing the afterEach. Public CI
+ * still hit it after 8 × 100 ms (10-26, workersOffice L1): a temp HOME left behind is no test failure.
  */
 export function removeTestHome(home: string): void {
-  fs.rmSync(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+  try {
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  } catch (err) {
+    // ponytail: a writer still busy after 5 s leaves its temp HOME to the OS temp cleanup
+    console.warn(`[test] ${home} not removed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export interface EngineCall {

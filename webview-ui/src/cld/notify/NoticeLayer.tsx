@@ -16,6 +16,7 @@ import { transport } from '../../transport/index.js';
 import { ago } from '../auth/authApi.js';
 import { FloatingToast } from '../FloatingToast.js';
 import { useCldStore } from '../officeStore.js';
+import { useNow } from '../workbench/workbenchStore.js';
 import { filterNews, mergeNews, NEWS_FILTERS, type NewsFilter, type NewsItem } from './newsList.js';
 import {
   bindNoticeOffice,
@@ -366,8 +367,8 @@ export function NoticePanel({
   const shown = filterNews(news, filter);
   const [view, setView] = useState<'list' | 'settings'>('list');
   const unread = unreadCount(items);
-  /** When the panel opened: the list's "3분 전". */
-  const [now] = useState(Date.now);
+  /** The list's "3분 전", ticking while the panel is open (it said 방금 for good, owner 10-26 12:53). */
+  const now = useNow();
   return (
     <div className="flex flex-col min-h-0 flex-1 overflow-y-auto" data-testid="notice-panel">
       <div className={`flex justify-between items-center gap-8 ${inWindow ? '' : 'px-10 py-4'}`}>
