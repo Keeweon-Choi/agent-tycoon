@@ -841,7 +841,8 @@ describe('HwSource: one sensor source per OS', () => {
       nvidia: { read: async () => 'stale' as const },
     }).sample();
     expect(stuck.warnings).toEqual([expect.stringMatching(/nvidia-smi/)]);
-  });
+    // the fake's first call may take up to 15 s under load, the patient reader up to 15 s more
+  }, 40_000);
 });
 
 describe('hasHwReadings (cld-gui hw)', () => {
