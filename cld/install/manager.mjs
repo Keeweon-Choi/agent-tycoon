@@ -41,6 +41,10 @@ export const SERVICE = 'agent-tycoon';
 export const OLD_SERVICE = 'cld-gui';
 export const RECORD_SCHEMA = 1;
 export const INSTALLED_BY = ['gui', 'cli', 'source'];
+/** A first install (no config.json yet) is a person's own computer: the whole office, actions, the
+ *  messenger and the terminal (owner's laptop 10-26: the read-only defaults hid both icons). The
+ *  daemon listens on this computer only and every action needs its login. */
+export const FIRST_INSTALL = Object.freeze({ readOnly: false, chat: true, allowTerminal: true });
 export const { installRoot, serviceFile, launchLabel } = maintenance;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -923,7 +927,8 @@ export async function install(o, deps = realDeps()) {
     else if (old) { await adoptOld(old, { root, record, kind, deps }); deps.print(`✔ adopted the ${old.name} service${old.repo ? ` (source install ${old.repo}; the repo is left as it is)` : ''}`); }
 
     try {
-      const config = mergeConfig(await readConfig(deps.home), { port: o.port });
+      const existing = await readConfig(deps.home); // a config.json already there keeps its choices
+      const config = mergeConfig(Object.keys(existing).length ? existing : FIRST_INSTALL, { port: o.port });
       if (o.port === undefined && !(await deps.tcpFree(config.port)) && config.port !== record.port) {
         let port = config.port + 1; while (port <= 18299 && !(await deps.tcpFree(port))) port += 1;
         if (port > 18299) throw new Error(`no free port in ${config.port}-18299`);

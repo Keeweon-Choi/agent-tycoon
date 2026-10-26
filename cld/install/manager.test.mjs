@@ -834,3 +834,21 @@ test('agty open finds the desktop app by its new name (Agent Tycoon) first, the 
   assert.deepEqual(desktopApp('linux', {}, '/home/u', has('/home/u/.local/bin/pixel-office')), ['/home/u/.local/bin/pixel-office']);
   assert.equal(desktopApp('linux', {}, '/home/u', has()), null);
 });
+
+test('a first install opens the whole office (actions, messenger, terminal); a config.json already there keeps its choices', async () => {
+  const conf = (home) => JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/config.json'), 'utf8'));
+  const fresh = tmp('home');
+  await install({ ...makeBundle('1.0.0'), root: path.join(fresh, 'root'), service: 'systemd' }, fakeDeps({ home: fresh, root: path.join(fresh, 'root') }).deps);
+  assert.deepEqual(
+    (({ readOnly, chat, allowTerminal }) => ({ readOnly, chat, allowTerminal }))(conf(fresh)),
+    { readOnly: false, chat: true, allowTerminal: true },
+  );
+  const kept = tmp('home');
+  fs.mkdirSync(path.join(kept, '.config/cld-gui'), { recursive: true });
+  fs.writeFileSync(path.join(kept, '.config/cld-gui/config.json'), JSON.stringify({ port: 18240, readOnly: true, chat: false, allowTerminal: false }));
+  await install({ ...makeBundle('1.0.0'), root: path.join(kept, 'root'), service: 'systemd' }, fakeDeps({ home: kept, root: path.join(kept, 'root') }).deps);
+  assert.deepEqual(
+    (({ readOnly, chat, allowTerminal }) => ({ readOnly, chat, allowTerminal }))(conf(kept)),
+    { readOnly: true, chat: false, allowTerminal: false },
+  );
+});
