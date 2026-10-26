@@ -29,6 +29,8 @@ function fakeTauri(scenario) {
   const STEPS = ['설치 파일 확인', '프로그램 설치', '사무실 시작', '로그인'];
   const LINES = [
     '✔ agent-tycoon-daemon-0.1.0-rc.1-linux-x64.tar.gz: signature, SHA-256 and linux-x64 match',
+    '… 풀기 124/5208 (2%)',
+    '… 확인 2500/5208 (48%)',
     '✔ self-test 0.1.0-rc.1',
     '✔ 시작 정책: 필요할 때만 (on-demand) · 실행 중인 데몬과 에이전트는 그대로예요',
     '✔ Agent Tycoon 0.1.0-rc.1 is running on port 18240',
@@ -42,6 +44,7 @@ function fakeTauri(scenario) {
     step: null,
     failed: false,
     lines: [],
+    installProgress: null,
     leftover: [],
   });
   const fresh = {
@@ -94,8 +97,13 @@ function fakeTauri(scenario) {
             '다시 시도하면 이어서 설치합니다. 지우려면 자세히의 명령을 쓰세요.',
           ];
         } else if (n < LINES.length) {
-          s.view.lines.push(LINES[n]);
-          s.view.step = [1, 2, 2, 3][n];
+          const line = LINES[n];
+          s.view.lines.push(line);
+          if (line.startsWith('… ')) {
+            const [, phase, percent] = /^… (풀기|확인) \d+\/\d+ \((\d+)%\)$/.exec(line);
+            s.view.installProgress = { phase, percent: Number(percent) };
+          }
+          s.view.step = [1, 1, 1, 2, 2, 3][n];
         } else {
           s.installing = 0;
           open();
@@ -224,7 +232,7 @@ const SCENARIOS = {
   },
   'install-failure': {
     platform: 'windows',
-    failAt: 1,
+    failAt: 3,
     expect: 'WSL Ubuntu 에서 사무실을 엽니다',
     distros: [{ name: 'Ubuntu', running: true, default: true, dev: true }],
   },
@@ -337,6 +345,11 @@ try {
         await shot('3-install-question');
         await page.click('#install-go');
         await visible('#steps');
+        await visible('#install-progress');
+        assert.equal(await page.locator('#install-progress').getAttribute('value'), '2');
+        assert.equal(await page.locator('#install-progress-label').innerText(), '풀기 2%');
+        await page.click('#lines-box summary');
+        assert.match(await page.locator('#lines').innerText(), /… 풀기 124\/5208 \(2%\)/);
         await shot('4-installing');
         if (scenario.failAt !== undefined) {
           await visible('#leftover');

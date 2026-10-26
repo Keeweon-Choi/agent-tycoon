@@ -2014,8 +2014,8 @@ export const ko = {
   'startPolicy.onDemand': '필요할 때만',
   'startPolicy.always': '항상 실행',
   'startPolicy.manual': '수동',
-  'startPolicy.onDemand.help': '로그온할 때는 켜지 않고, 사무실을 열면 켜져요.',
-  'startPolicy.always.help': 'Windows에 로그온하면 켜지고 계속 돌아요.',
+  'startPolicy.onDemand.help': '사무실을 열 때 켜져요.',
+  'startPolicy.always.help': 'Windows에 로그온하면 사무실을 켜서 휴대폰과 노트북에서도 접속할 수 있어요.',
   'startPolicy.manual.help': '저절로 켜지지 않아요: agty start 로 켜요.',
   'startPolicy.cannotChange':
     '이 접속은 보기만 할 수 있어요 (읽기 전용이거나 로그인한 브라우저가 아니에요).',

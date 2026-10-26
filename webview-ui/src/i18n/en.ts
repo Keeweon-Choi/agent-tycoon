@@ -2042,8 +2042,8 @@ export const en = {
   'startPolicy.onDemand': 'On demand',
   'startPolicy.always': 'Always',
   'startPolicy.manual': 'Manual',
-  'startPolicy.onDemand.help': 'Nothing starts at logon; opening the office starts it.',
-  'startPolicy.always.help': 'Starts when you log on to Windows and keeps running.',
+  'startPolicy.onDemand.help': 'Starts the office when you open it.',
+  'startPolicy.always.help': 'Starts the office at Windows logon so your phones and laptops can reach it.',
   'startPolicy.manual.help': 'Never starts by itself: run agty start.',
   'startPolicy.cannotChange':
     'This connection can only look (read-only, or not a logged-in browser).',

@@ -182,6 +182,8 @@ struct View {
     failed: bool,
     /// The manager's own lines, shown under 자세히 (never a code or token: it prints neither).
     lines: Vec<String>,
+    /// Bundle extraction or manifest verification currently running under 프로그램 설치.
+    install_progress: Option<local::InstallProgress>,
     /// After a failed install: what was left on this computer.
     leftover: Vec<String>,
 }
@@ -257,6 +259,10 @@ fn ui_state(app: AppHandle) -> serde_json::Value {
         "step": view.step,
         "steps": STEPS,
         "failed": view.failed,
+        "installProgress": view.install_progress.as_ref().map(|p| serde_json::json!({
+            "phase": p.phase,
+            "percent": p.percent,
+        })),
         "lines": view.lines,
         "leftover": view.leftover,
         "settings": screen == "settings",
@@ -998,6 +1004,7 @@ fn install_local(
         v.step = Some(0);
         v.failed = false;
         v.lines.clear();
+        v.install_progress = None;
         v.leftover.clear();
     });
     log(
@@ -1201,6 +1208,9 @@ fn stream_lines(
                     view(app, |v| {
                         if let Some(step) = local::step_after(&line) {
                             v.step = Some(step);
+                        }
+                        if let Some(progress) = local::install_progress(&line) {
+                            v.install_progress = Some(progress);
                         }
                         v.lines.push(line);
                         let extra = v.lines.len().saturating_sub(KEEP);

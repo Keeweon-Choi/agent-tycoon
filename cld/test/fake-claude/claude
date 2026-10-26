@@ -10,6 +10,11 @@ const os = require('os');
 const path = require('path');
 
 const args = process.argv.slice(2);
+// The daemon proves a found claude with `--version` (agentCli.findClaude); answer like Claude Code, unlogged.
+if (args[0] === '--version') {
+  process.stdout.write('2.1.308 (Claude Code)\n');
+  process.exit(0);
+}
 if (process.env.FAKE_CLAUDE_LOG) fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, `${args.join(' ')}\n`);
 if (args[0] === 'attach') {
   // Its own process, as `exec node attach.cjs` was (tests look for it by its argv).

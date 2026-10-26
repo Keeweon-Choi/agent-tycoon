@@ -450,6 +450,37 @@ pub fn plain_path(path: &str) -> &str {
 /// The install steps the main screen shows, and which one a manager line finishes.
 pub const STEPS: [&str; 4] = ["설치 파일 확인", "프로그램 설치", "사무실 시작", "로그인"];
 
+/// The manager's fixed bundle-progress line: `… 풀기 1234/5208 (23%)` or `… 확인 …`.
+/// Keep this parser strict so unrelated manager output cannot alter the install bar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstallProgress {
+    pub phase: &'static str,
+    pub percent: u8,
+}
+
+pub fn install_progress(line: &str) -> Option<InstallProgress> {
+    let line = line.strip_prefix("… ")?;
+    let (phase, counts) = line.split_once(' ')?;
+    let phase = match phase {
+        "풀기" => "풀기",
+        "확인" => "확인",
+        _ => return None,
+    };
+    let (done, rest) = counts.split_once('/')?;
+    let (total, percent) = rest.split_once(" (")?;
+    let done = done.parse::<u64>().ok()?;
+    let total = total.parse::<u64>().ok()?;
+    let percent = percent.strip_suffix("%)")?.parse::<u8>().ok()?;
+    if total == 0
+        || done > total
+        || percent > 100
+        || percent as u64 != done.saturating_mul(100) / total
+    {
+        return None;
+    }
+    Some(InstallProgress { phase, percent })
+}
+
 pub fn step_after(line: &str) -> Option<usize> {
     if line.contains("signature, SHA-256") {
         Some(1)
@@ -887,7 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn install_progress() {
+    fn bundle_install_progress() {
         assert_eq!(step_after("✔ agent-tycoon-daemon-0.1.0-linux-x64.tar.gz: signature, SHA-256 and linux-x64 match"), Some(1));
         assert_eq!(step_after("✔ self-test 0.1.0"), Some(2));
         assert_eq!(
@@ -895,6 +926,22 @@ mod tests {
             Some(3)
         );
         assert_eq!(step_after("✖ self-test of 0.1.0 failed:"), None);
+        assert_eq!(
+            install_progress("… 풀기 1234/5208 (23%)"),
+            Some(InstallProgress {
+                phase: "풀기",
+                percent: 23,
+            })
+        );
+        assert_eq!(
+            install_progress("… 확인 5208/5208 (100%)"),
+            Some(InstallProgress {
+                phase: "확인",
+                percent: 100,
+            })
+        );
+        assert_eq!(install_progress("… 풀기 12/20 (99%)"), None);
+        assert_eq!(install_progress("풀기 12/20 (60%)"), None);
         assert_eq!(leftovers(None), ["이 컴퓨터에는 설치된 것이 없습니다."]);
         let r = Record {
             versions: vec!["0.1.0".into()],

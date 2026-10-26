@@ -13,15 +13,19 @@
 // listed exactly once in SHA256SUMS, its SHA-256 matches, and the os/arch in its name
 // match this machine (or --os/--arch). --extract <dir> then unpacks it into an empty dir
 // and checks every file against the bundle's manifest.json.
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 export const BUNDLE_RE =
   /^agent-tycoon-daemon-(.+)-(linux|darwin|win)-(x64|arm64)\.(tar\.zst|tar\.gz)$/;
+
+// Stable manager-to-GUI progress protocol. Keep this Korean, line-oriented shape: the
+// desktop installer parses it while `tar -xvf` and manifest hashing are in progress.
+export const BUNDLE_PROGRESS_RE = /^… (풀기|확인) (\d+)\/(\d+) \((\d+)%\)$/;
 
 export const currentOs = () => (process.platform === 'win32' ? 'win' : process.platform);
 
@@ -75,8 +79,36 @@ export function verifyBundle({ bundle, sums, sig, pubkey, os = currentOs(), arch
   return { version: m[1], os: m[2], arch: m[3] };
 }
 
+/** The entries `tar -xvf` lists, counted directly from the uncompressed tar headers. */
+export function tarEntryCount(tar) {
+  let count = 0;
+  for (let offset = 0; offset + 512 <= tar.length; ) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const sizeText = header.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim();
+    const size = Number.parseInt(sizeText || '0', 8);
+    if (!Number.isFinite(size) || size < 0) throw new Error('malformed tar header');
+    // PAX and GNU metadata headers describe the following path but are not printed by -v.
+    if (!['g', 'x', 'L', 'K'].includes(header.subarray(156, 157).toString('ascii'))) count += 1;
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return count;
+}
+
+/** Prints a progress line at roughly 2% intervals and always once at completion. */
+export function bundleProgress(phase, total, print = console.log) {
+  let last = -2;
+  return (done) => {
+    const percent = total === 0 ? 100 : Math.floor((done * 100) / total);
+    if ((percent === 100 && last !== 100) || percent - last >= 2) {
+      print(`… ${phase} ${done}/${total} (${percent}%)`);
+      last = percent;
+    }
+  };
+}
+
 /** Unpack a VERIFIED bundle into an empty dir, then check it against its manifest.json. */
-export function extractBundle(bundle, dest, expect) {
+export async function extractBundle(bundle, dest, expect, { print = console.log } = {}) {
   fs.mkdirSync(dest, { recursive: true });
   if (fs.readdirSync(dest).length) throw new Error(`${dest} is not empty`);
   const packed = fs.readFileSync(bundle);
@@ -85,10 +117,48 @@ export function extractBundle(bundle, dest, expect) {
     : zlib.gunzipSync(packed);
   const tmp = path.join(dest, '.bundle.tar');
   fs.writeFileSync(tmp, tar);
-  // Relative paths only: GNU tar (Git Bash on Windows) reads "C:\..." as a remote host.
-  const r = spawnSync('tar', ['-xf', '.bundle.tar'], { cwd: dest, stdio: 'inherit' });
-  fs.rmSync(tmp);
-  if (r.status !== 0) throw new Error(`tar -xf failed (${r.error?.message ?? `exit ${r.status}`})`);
+  // Relative paths only: GNU tar (Git Bash on Windows) reads "C:\\..." as a remote host.
+  const entryCount = tarEntryCount(tar);
+  const extracted = bundleProgress('풀기', entryCount, print);
+  try {
+    await new Promise((resolve, reject) => {
+      // GNU tar lists -v names on stdout, bsdtar (Windows tar.exe, macOS) on stderr: count both
+      // (measured on Windows 11: stdout empty, stderr "x a/one.txt"), and keep stderr's tail for an error.
+      const child = spawn('tar', ['-xvf', '.bundle.tar'], { cwd: dest, stdio: ['ignore', 'pipe', 'pipe'] });
+      let extractedCount = 0;
+      const tail = [];
+      const counter = () => {
+        let pending = '';
+        return {
+          data: (chunk) => {
+            pending += chunk;
+            const lines = pending.split(/\r?\n/);
+            pending = lines.pop();
+            for (const line of lines) if (line) count(line);
+          },
+          end: () => { if (pending) count(pending); pending = ''; },
+        };
+      };
+      const count = (line) => {
+        tail.push(line);
+        if (tail.length > 20) tail.shift();
+        extracted(Math.min(++extractedCount, entryCount));
+      };
+      const out = counter();
+      const err = counter();
+      child.stdout.on('data', out.data);
+      child.stderr.on('data', err.data);
+      child.on('error', reject);
+      child.on('close', (status) => {
+        out.end();
+        err.end();
+        if (status === 0) { extracted(entryCount); resolve(); }
+        else reject(new Error(`tar -xf failed (exit ${status}): ${tail.slice(-5).join(' | ')}`));
+      });
+    });
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 
   const manifest = JSON.parse(fs.readFileSync(path.join(dest, 'manifest.json'), 'utf8'));
   if (
@@ -100,9 +170,12 @@ export function extractBundle(bundle, dest, expect) {
       `manifest.json says ${manifest.version} ${manifest.os}-${manifest.arch}, the file name does not`,
     );
   }
-  for (const [rel, hash] of Object.entries(manifest.files)) {
+  const files = Object.entries(manifest.files);
+  const checked = bundleProgress('확인', files.length, print);
+  for (const [index, [rel, hash]] of files.entries()) {
     if (sha256File(path.join(dest, rel)) !== hash)
       throw new Error(`${rel}: hash does not match manifest.json`);
+    checked(index + 1);
   }
   return manifest;
 }
@@ -129,7 +202,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       `OK ${path.basename(bundle)}: signature, SHA-256 and ${ok.os}-${ok.arch} match (version ${ok.version})`,
     );
     if (extract) {
-      const manifest = extractBundle(bundle, extract, ok);
+      const manifest = await extractBundle(bundle, extract, ok);
       console.log(
         `OK extracted to ${extract}: ${Object.keys(manifest.files).length} files match manifest.json`,
       );

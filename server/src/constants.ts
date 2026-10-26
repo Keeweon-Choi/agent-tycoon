@@ -232,6 +232,8 @@ export const TOOL_DESC_KEEP = 64;
 
 /** AGENT-CLI: a plain office (no Claude Code at start) looks again when a viewer connects, at most this often. */
 export const AGENT_CLI_RECHECK_MIN_GAP_MS = 5_000;
+/** AGENT-CLI: maximum time spent proving a discovered Claude Code candidate works. */
+export const AGENT_CLI_VERSION_TIMEOUT_MS = 10_000;
 /** AGENT-CLI: after ordering the restart, the plain daemon waits this long to be replaced before it says the restart failed. */
 export const AGENT_CLI_RESTART_WAIT_MS = 30_000;
 /** AGENT-CLI: the service manager command that restarts the daemon gives up after this long. */

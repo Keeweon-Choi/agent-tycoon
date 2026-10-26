@@ -3,7 +3,12 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { claudeInstallCommand, claudeInstallDirs, findClaude } from './agentCli.js';
+import {
+  claudeInstallCommand,
+  claudeInstallDirs,
+  type ClaudeVersionResult,
+  findClaude,
+} from './agentCli.js';
 
 const tmp: string[] = [];
 const mkdir = (...parts: string[]): string => {
@@ -16,9 +21,10 @@ const home = (): string => {
   tmp.push(h);
   return h;
 };
-const fakeClaude = (dir: string): string => {
+/** A file named claude that answers --version like Claude Code (or, with `body`, however a test says). */
+const fakeClaude = (dir: string, body = 'echo "2.1.310 (Claude Code)"'): string => {
   const file = path.join(dir, 'claude');
-  fs.writeFileSync(file, '#!/bin/sh\n', { mode: 0o755 });
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
   return file;
 };
 afterEach(() => {
@@ -30,7 +36,9 @@ describe('findClaude (linux/macOS, real fake dirs)', () => {
     const h = home();
     const onPath = fakeClaude(mkdir(h, 'bin'));
     fakeClaude(mkdir(h, '.local', 'bin'));
-    expect(findClaude({ platform: 'linux', home: h, env: { PATH: path.join(h, 'bin') } })).toBe(onPath);
+    expect(findClaude({ platform: 'linux', home: h, env: { PATH: path.join(h, 'bin') } })).toBe(
+      onPath,
+    );
   });
 
   it.each([
@@ -48,7 +56,85 @@ describe('findClaude (linux/macOS, real fake dirs)', () => {
 
   it('null when nowhere holds one (negative control)', () => {
     const h = home();
-    expect(findClaude({ platform: 'linux', home: h, env: { PATH: path.join(h, 'bin') } })).toBeNull();
+    expect(
+      findClaude({ platform: 'linux', home: h, env: { PATH: path.join(h, 'bin') } }),
+    ).toBeNull();
+  });
+
+  it('skips a file named claude that is not Claude Code and takes the next one, logging why', () => {
+    const h = home();
+    fakeClaude(mkdir(h, 'bin'), 'echo "hello"'); // exits 0 but is not Claude Code
+    const good = fakeClaude(mkdir(h, '.local', 'bin'));
+    const logs: string[] = [];
+    const env = { PATH: path.join(h, 'bin') };
+    expect(findClaude({ platform: 'linux', home: h, env, log: (l) => logs.push(l) })).toBe(good);
+    expect(logs).toEqual([
+      `[cld] agent CLI: ${path.join(h, 'bin', 'claude')} is not a working Claude Code (version output did not identify Claude Code), skipped`,
+    ]);
+  });
+
+  it('a candidate that exits non-zero is skipped, even when it printed the version line', () => {
+    const h = home();
+    fakeClaude(mkdir(h, 'bin'), 'echo "2.1.310 (Claude Code)"; exit 3');
+    const logs: string[] = [];
+    expect(
+      findClaude({
+        platform: 'linux',
+        home: h,
+        env: { PATH: path.join(h, 'bin') },
+        log: (l) => logs.push(l),
+      }),
+    ).toBeNull();
+    expect(logs[0]).toContain('exited 3');
+  });
+});
+
+describe('findClaude (version probe through an injected runner)', () => {
+  const dirs = ['/a', '/b', '/c'];
+  const candidates = () => dirs.map((d) => `${d}/claude`);
+  const ok = { exitCode: 0, stdout: '2.1.310 (Claude Code)\n' };
+  const run = (answers: Record<string, ClaudeVersionResult>) => {
+    const probed: { command: string; args: string[]; timeout: number }[] = [];
+    const logs: string[] = [];
+    const out = findClaude({
+      platform: 'linux',
+      home: '/h',
+      env: { PATH: '/a:/b:/c' },
+      candidates,
+      runVersion: (candidate, invocation) => {
+        probed.push(invocation);
+        return answers[candidate] ?? { exitCode: 1, stdout: '' };
+      },
+      log: (l) => logs.push(l),
+    });
+    return { out, probed, logs };
+  };
+
+  it('a working candidate is accepted and runs with --version within 10 s', () => {
+    const { out, probed } = run({ '/a/claude': ok });
+    expect(out).toBe('/a/claude');
+    expect(probed).toEqual([
+      { command: '/a/claude', args: ['--version'], timeout: 10_000, env: { PATH: '/a:/b:/c' } },
+    ]);
+  });
+
+  it('a non-zero exit, a timeout and other output are each skipped, the next candidate is taken', () => {
+    const { out, logs } = run({
+      '/a/claude': { exitCode: 1, stdout: '' },
+      '/b/claude': { exitCode: null, stdout: '', timedOut: true },
+      '/c/claude': ok,
+    });
+    expect(out).toBe('/c/claude');
+    expect(logs).toEqual([
+      '[cld] agent CLI: /a/claude is not a working Claude Code (exited 1), skipped',
+      '[cld] agent CLI: /b/claude is not a working Claude Code (timed out after 10000 ms), skipped',
+    ]);
+  });
+
+  it('every candidate bad: null', () => {
+    const { out, logs } = run({ '/a/claude': { exitCode: 0, stdout: 'something else\n' } });
+    expect(out).toBeNull();
+    expect(logs).toHaveLength(3);
   });
 });
 
@@ -63,10 +149,10 @@ describe('findClaude (Windows, search order with fakes)', () => {
       home: 'C:\\Users\\kim',
       env,
       userPath: () => (reads++, 'C:\\Users\\kim\\.local\\bin;C:\\Other'),
-      find: (_cmd, searchPath, platform) => {
-        seen.push((searchPath ?? '').split(';'));
+      candidates: (searchDirs, platform) => {
+        seen.push(searchDirs);
         expect(platform).toBe('win32');
-        return null;
+        return [];
       },
     });
     expect(out).toBeNull();
@@ -82,18 +168,69 @@ describe('findClaude (Windows, search order with fakes)', () => {
     ]);
   });
 
-  it('returns what findOnPath finds in the user PATH', () => {
+  const okVersion = { exitCode: 0, stdout: '2.1.310 (Claude Code)\r\n' };
+
+  it('returns what is found in the user PATH', () => {
     const out = findClaude({
       platform: 'win32',
       home: 'C:\\Users\\kim',
       env,
       userPath: () => 'C:\\Users\\kim\\.local\\bin',
-      find: (_c, searchPath) =>
-        (searchPath ?? '').split(';').includes('C:\\Users\\kim\\.local\\bin')
-          ? 'C:\\Users\\kim\\.local\\bin\\claude.exe'
-          : null,
+      candidates: (dirs) =>
+        dirs.filter((d) => d === 'C:\\Users\\kim\\.local\\bin').map((d) => `${d}\\claude.exe`),
+      runVersion: () => okVersion,
     });
     expect(out).toBe('C:\\Users\\kim\\.local\\bin\\claude.exe');
+  });
+
+  it('a .cmd candidate runs through ComSpec with the path quoted; an .exe runs directly', () => {
+    const calls: { command: string; args: string[]; verbatim?: boolean }[] = [];
+    const logs: string[] = [];
+    const cmd = 'C:\\Users\\kim\\AppData\\Roaming\\npm\\claude.cmd';
+    const exe = 'C:\\Users\\kim\\.local\\bin\\claude.exe';
+    const out = findClaude({
+      platform: 'win32',
+      home: 'C:\\Users\\kim',
+      env: { ...env, ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      userPath: () => '',
+      candidates: () => [cmd, exe],
+      runVersion: (candidate, inv) => {
+        calls.push({ command: inv.command, args: inv.args, ...(inv.verbatim && { verbatim: true }) });
+        return candidate === exe ? okVersion : { exitCode: 1, stdout: '' };
+      },
+      log: (l) => logs.push(l),
+    });
+    expect(out).toBe(exe);
+    expect(calls).toEqual([
+      {
+        command: 'C:\\Windows\\System32\\cmd.exe',
+        args: ['/d', '/s', '/c', `""${cmd}" --version"`],
+        verbatim: true,
+      },
+      { command: exe, args: ['--version'] },
+    ]);
+    expect(logs).toEqual([
+      `[cld] agent CLI: ${cmd} is not a working Claude Code (exited 1), skipped`,
+    ]);
+  });
+
+  it('a WindowsApps store alias is never run', () => {
+    const alias = 'C:\\Users\\kim\\AppData\\Local\\Microsoft\\WindowsApps\\claude.exe';
+    const ran: string[] = [];
+    const logs: string[] = [];
+    const out = findClaude({
+      platform: 'win32',
+      home: 'C:\\Users\\kim',
+      env,
+      userPath: () => '',
+      candidates: () => [alias],
+      runVersion: (candidate) => (ran.push(candidate), okVersion),
+      log: (l) => logs.push(l),
+    });
+    expect(out).toBeNull();
+    expect(ran).toEqual([]);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain('skipped');
   });
 
   it('lists the npm folder under %APPDATA% and no posix folders', () => {

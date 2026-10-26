@@ -38,6 +38,22 @@ function renderSteps(state) {
       li.textContent = name;
       if (i < state.step) li.className = 'done';
       else if (i === state.step) li.className = state.failed ? 'failed' : 'now';
+      if (i === 1 && state.installProgress) {
+        const progress = document.createElement('div');
+        progress.className = 'install-progress';
+        const label = Object.assign(document.createElement('span'), {
+          id: 'install-progress-label',
+          textContent: `${state.installProgress.phase} ${state.installProgress.percent}%`,
+        });
+        const bar = Object.assign(document.createElement('progress'), {
+          id: 'install-progress',
+          max: 100,
+          value: state.installProgress.percent,
+        });
+        bar.setAttribute('aria-labelledby', 'install-progress-label');
+        progress.append(label, bar);
+        li.append(progress);
+      }
       return li;
     }),
   );
@@ -73,7 +89,10 @@ async function poll() {
   );
   $('lines-box').hidden = !state.lines.length;
   const text = state.lines.join('\n');
-  if ($('lines').textContent !== text) $('lines').textContent = text;
+  if ($('lines').textContent !== text) {
+    $('lines').textContent = text;
+    $('lines').scrollTop = $('lines').scrollHeight;
+  }
 }
 
 async function showKey() {

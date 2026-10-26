@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
 
 import { PUB, SIG, SUMS, writeSumsAndSign } from '../release/bundle/sign.mjs';
 import { currentOs, sha256File } from '../release/bundle/verify.mjs';
-import { acquireLock, desktopApp, endDaemonCommand, install, launchers, newRecord, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
+import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, newRecord, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `manager-${name}-`));
 const key = crypto.generateKeyPairSync('ed25519').privateKey;
@@ -105,16 +105,21 @@ test('service and launchers run the private Node of current; PATH carries the us
   assert.match(s.content, /ExecStart=\/home\/u\/.local\/share\/agent-tycoon\/current\/node\/bin\/node --max-semi-space-size=1 \/home\/u\/.local\/share\/agent-tycoon\/current\/dist\/cli.js --port 18257/);
   assert.match(s.content, /Environment=PATH=\/home\/u\/.local\/bin:\/home\/u\/.nvm\/versions\/node\/v22\/bin:\/usr\/local\/bin/);
   assert.doesNotMatch(s.content, /current\/node\/bin:/);
-  const win = renderService({ platform: 'win32', home: 'C:\\Users\\u', root: 'C:\\AT', version: '1.0.0', manifest: { node: { path: 'node/node.exe' } }, config: { port: 1, readOnly: true, engine: 'off', allowedHosts: [], tailscaleUsers: [] } });
-  // R5: a per-user logon task (Register-ScheduledTask, no admin) runs our VBS, which runs the daemon hidden.
-  const script = Buffer.from(win.create.at(-1), 'base64').toString('utf16le');
-  assert.match(script, /New-ScheduledTaskAction -Execute 'wscript\.exe' -Argument '\/\/B \/\/Nologo "C:\\AT.bin.agent-tycoon-daemon\.vbs"'/);
-  assert.match(script, /-AtLogOn -User "\$env:USERDOMAIN\\\$env:USERNAME"/);
-  assert.match(script, /-RestartCount 3 .*-ExecutionTimeLimit \(\[TimeSpan\]::Zero\) -MultipleInstances IgnoreNew/);
+  const win = (startPolicy) => renderService({ platform: 'win32', home: 'C:\\Users\\u', root: 'C:\\AT', version: '1.0.0', manifest: { node: { path: 'node/node.exe' } }, config: { port: 1, readOnly: true, engine: 'off', allowedHosts: [], tailscaleUsers: [] }, startPolicy });
+  // R5: a per-user task (Register-ScheduledTask, no admin) runs our VBS hidden. Only always starts it at logon.
+  for (const [policy, triggered] of [['on-demand', false], ['always', true], ['manual', false]]) {
+    const script = Buffer.from(win(policy).create.at(-1), 'base64').toString('utf16le');
+    assert.match(script, /New-ScheduledTaskAction -Execute 'wscript\.exe' -Argument '\/\/B \/\/Nologo "C:\\AT.bin.agent-tycoon-daemon\.vbs"'/);
+    assert.equal(script.includes('-AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"'), triggered, policy);
+    assert.equal(script.includes('Register-ScheduledTask -TaskName \'agent-tycoon\' -Action $a -Trigger $t'), triggered, policy);
+    assert.match(script, /-RestartCount 3 .*-ExecutionTimeLimit \(\[TimeSpan\]::Zero\) -MultipleInstances IgnoreNew/);
+  }
+  const windowsService = win('on-demand');
+  const script = Buffer.from(windowsService.create.at(-1), 'base64').toString('utf16le');
   assert.match(script, /Register-ScheduledTask -TaskName 'agent-tycoon' .* -Force/);
-  assert.match(win.file, /agent-tycoon-daemon\.vbs$/);
-  assert.deepEqual([...win.content.subarray(0, 2)], [0xff, 0xfe]);
-  const vbs = win.content.subarray(2).toString('utf16le');
+  assert.match(windowsService.file, /agent-tycoon-daemon\.vbs$/);
+  assert.deepEqual([...windowsService.content.subarray(0, 2)], [0xff, 0xfe]);
+  const vbs = windowsService.content.subarray(2).toString('utf16le');
   assert.ok(vbs.includes('WScript.Quit sh.Run("%SystemRoot%\\System32\\cmd.exe /d /v:off /s /c """"C:\\AT'), vbs);
   assert.match(vbs, /versions.1\.0\.0.node.node\.exe"" ""--max-semi-space-size=1""/);
   assert.match(vbs, /daemon\.log"" 2>&1""", 0, True\)/);
@@ -570,6 +575,68 @@ test('uninstall reset removes only our data, never Claude/Codex or projects', as
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'servers', '222-18258.json')), true);
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'layout.json')), true);
   for (const dir of ['.claude', '.codex', 'project']) assert.equal(fs.existsSync(path.join(home, dir)), true);
+});
+
+test('uninstall continues reset and records a file Windows still holds', async () => {
+  const home = tmp('uninstall-held-file'); const { root, owned } = await managerRecord(home);
+  const resetData = path.join(home, '.config', 'cld-gui');
+  fs.mkdirSync(resetData, { recursive: true }); fs.writeFileSync(path.join(resetData, 'data'), 'ours');
+  const fake = uninstallDeps(home);
+  fake.rm = async (file) => {
+    if (file === owned) { const error = new Error('busy'); error.code = 'EPERM'; throw error; }
+    await fs.promises.rm(file, { force: true });
+  };
+  const result = await uninstall({ reset: true, yes: true }, fake);
+  assert.equal(result.code, 1);
+  assert.equal(fs.existsSync(resetData), false);
+  assert.equal(fs.existsSync(owned), true);
+  assert.ok(fake.calls.includes(`⚠ 삭제하지 못한 파일(${owned}: EPERM)은 실행 중이거나 권한이 없어 남았습니다`));
+  assert.equal((await readRecord(root)).files[owned], crypto.createHash('sha256').update('ours').digest('hex'));
+});
+
+test('Windows uninstall defers its version and cmd launchers until after reset', async () => {
+  const home = tmp('uninstall-windows-helper'); const { root, dir, rels } = await completeInstall(home, path.join(home, "install's"));
+  const node = path.join(dir, 'node', 'node.exe'); const manager = path.join(dir, 'cld', 'install', 'manager.mjs');
+  const launcher = path.join(root, 'bin', 'agty.cmd');
+  for (const [file, content] of [[node, 'node'], [manager, 'manager'], [launcher, '@echo off']]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
+  }
+  const manifestFile = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  for (const file of [node, manager]) manifest.files[path.relative(dir, file)] = sha256File(file);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile);
+  record.files[launcher] = sha256File(launcher); await writeRecord(root, record);
+  const resetData = path.join(home, '.config', 'cld-gui'); fs.mkdirSync(resetData, { recursive: true });
+  const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node; fake.managerPath = manager; fake.pid = 4455; fake.systemRoot = 'C:\\Windows';
+  fake.control = async () => ({ ok: true, projects: [], jobs: [], tasks: [], daemon: { pid: 1234, port: 18257, entry: path.join(dir, 'dist', 'cli.js') } });
+  const removed = []; const spawned = []; let unref = false;
+  fake.rm = async (file) => { removed.push(file); await fs.promises.rm(file, { force: true }); };
+  fake.spawn = (command, args, options) => {
+    assert.equal(fs.existsSync(resetData), false);
+    spawned.push({ command, args, options });
+    return { unref: () => { unref = true; } };
+  };
+  const result = await uninstall({ reset: true, yes: true, root }, fake);
+  assert.equal(result.code, 0);
+  assert.deepEqual(removed.filter((file) => inside(dir, file) || file === launcher), []);
+  assert.deepEqual(spawned, [{
+    command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    args: ['-NoProfile', '-Command', `Wait-Process -Id 4455 -Timeout 60 -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '${root.replaceAll("'", "''")}' -Recurse -Force -ErrorAction SilentlyContinue`],
+    options: { detached: true, stdio: 'ignore', windowsHide: true },
+  }]);
+  assert.equal(unref, true);
+  assert.ok(fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
+  assert.equal(fs.existsSync(resetData), false);
+  assert.equal(fs.existsSync(path.join(dir, rels[0])), true);
+});
+
+test('non-Windows uninstall does not start the Windows removal helper', async () => {
+  const home = tmp('uninstall-no-windows-helper'); await managerRecord(home);
+  const fake = uninstallDeps(home); let spawned = false;
+  fake.spawn = () => { spawned = true; return { unref: () => {} }; };
+  assert.equal((await uninstall({ program: true, yes: true }, fake)).code, 0);
+  assert.equal(spawned, false);
 });
 
 test('uninstall running agents require --stop-agents and poll until none remain', async () => {

@@ -30,6 +30,12 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
 const HOME = process.env.HOME;
+// A version probe (agentCli's findClaude, CLAUDE-VERIFY) reads and writes nothing: answered
+// before the HOME guard and the call log, so a plain office's probe and every test's call list stay as they were.
+if (process.argv[2] === '--version') {
+  process.stdout.write('2.1.308 (Claude Code)\n');
+  process.exit(0);
+}
 // Only in a test HOME (testHome.makeEngineHome): never read or write a real one.
 // $HOME/bin/claude is a link to this file, or (run-clean-env: no node on PATH) a
 // small wrapper that names it.
@@ -69,10 +75,6 @@ const fail = (s, code = 1) => {
   process.stderr.write(`${s}\n`);
   process.exit(code);
 };
-if (args[0] === '--version') {
-  out('2.1.308 (Claude Code)');
-  process.exit(0);
-}
 if (args[0] === '--help') {
   out("--model <model> aliases: 'opus', 'sonnet', 'haiku'; full: 'claude-opus-4-5'");
   out('--effort <level> (low, medium, high, xhigh, max)');

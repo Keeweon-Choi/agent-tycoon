@@ -233,6 +233,25 @@ test('always on WSL: task + consented linger recorded; applying it again is idem
   assert.deepEqual(record.logonTask, { name: 'agent-tycoon-wsl-Ubuntu-Test', distro: 'Ubuntu-Test' });
 });
 
+test('native Windows: changing the policy re-registers the daemon task without stopping it', async () => {
+  const { home, root } = await setup({ platform: 'win32', kind: 'schtasks' });
+  const record = await readRecord(root);
+  record.service.file = 'C:\\AgentTycoon\\bin\\agent-tycoon-daemon.vbs';
+  await writeRecord(root, record);
+  const f = fakeDeps(home, { platform: 'win32', up: true });
+
+  await startPolicy({ policy: 'always' }, f.deps);
+  assert.match(decoded(f.runs.at(-1)), /Register-ScheduledTask .* -Trigger \$t .* -Force/);
+  assert.match(decoded(f.runs.at(-1)), /New-ScheduledTaskTrigger -AtLogOn/);
+
+  await startPolicy({ policy: 'on-demand' }, f.deps);
+  assert.match(decoded(f.runs.at(-1)), /Register-ScheduledTask .* -Settings \$s -Force/);
+  assert.doesNotMatch(decoded(f.runs.at(-1)), /-AtLogOn|-Trigger \$t/);
+  assert.deepEqual(f.runs.filter((c) => /\b(stop|restart|kill|--now|\/End|terminate|shutdown)\b/i.test(c.join(' '))), []);
+  assert.equal(f.state.up, true);
+  assert.equal((await readRecord(root)).startPolicy, 'on-demand');
+});
+
 test('linger never without consent: no terminal answer, --no-linger, or already on', async () => {
   for (const [opts, o] of [[{ confirm: false }, {}], [{ confirm: true }, { linger: false }], [{ confirm: true, lingered: true }, {}]]) {
     const { home, root } = await setup({ platform: 'linux', extra: { wslDistro: null } });

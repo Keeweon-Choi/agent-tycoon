@@ -49,6 +49,7 @@ export const { installRoot, serviceFile, launchLabel } = maintenance;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 const posix = (platform) => platform !== 'win32';
+const RECOVERABLE_REMOVAL_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES']);
 export const rootPlatform = (platform) => (platform === 'wsl' ? 'linux' : platform);
 const terminalChoice = (question, yes = 'y') => new Promise((resolve) => {
   if (!process.stdin.isTTY) { resolve(false); return; }
@@ -169,7 +170,7 @@ export function runtime(root, version, platform, manifest) {
 }
 
 /** Verified bundle -> versions/<version> (via a temp folder; an existing one is reused only when its manifest is the bundle's). */
-export async function unpack(root, bundle, verified, record) {
+export async function unpack(root, bundle, verified, record, print = console.log) {
   const dest = versionDir(root, verified.version);
   if (fssync.existsSync(dest)) {
     const known = record.versions[verified.version];
@@ -180,7 +181,7 @@ export async function unpack(root, bundle, verified, record) {
   const tmp = `${dest}.tmp-${process.pid}`;
   await fs.rm(tmp, { recursive: true, force: true });
   let manifest;
-  try { manifest = extractBundle(bundle, tmp, verified); } catch (error) { await fs.rm(tmp, { recursive: true, force: true }); throw error; }
+  try { manifest = await extractBundle(bundle, tmp, verified, { print }); } catch (error) { await fs.rm(tmp, { recursive: true, force: true }); throw error; }
   await fs.rename(tmp, dest);
   record.versions[verified.version] = {
     dir: dest, bundle: path.basename(bundle), bundleSha256: sha256File(bundle),
@@ -261,12 +262,13 @@ export function daemonVbs({ argv, cwd, log }) {
 const TASK_TRIGGER = '$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"';
 const TASK_SETTINGS = '$s = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable';
 
-/** Registers (or replaces) the daemon's logon task for this user. */
-export function daemonTaskCommand({ name, vbs }) {
+/** Registers (or replaces) the daemon task; only `always` gives it a logon trigger. */
+export function daemonTaskCommand({ name, vbs, startPolicy = 'on-demand' }) {
+  const trigger = startPolicy === 'always' ? [TASK_TRIGGER] : [];
   return powershell([
     `$a = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ${psQuote(`//B //Nologo "${vbs}"`)}`,
-    TASK_TRIGGER, TASK_SETTINGS,
-    `Register-ScheduledTask -TaskName ${psQuote(name)} -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
+    ...trigger, TASK_SETTINGS,
+    `Register-ScheduledTask -TaskName ${psQuote(name)} -Action $a${startPolicy === 'always' ? ' -Trigger $t' : ''} -Settings $s -Force | Out-Null`,
   ]);
 }
 
@@ -293,14 +295,14 @@ export async function endWindowsDaemon(s, deps) {
 }
 
 /** What a service is: its file (none for a scheduled task), rendered content, and the daemon argv. */
-export function renderService({ platform, home, root, version, manifest, config, name = SERVICE, pathNodeDir = null }) {
+export function renderService({ platform, home, root, version, manifest, config, name = SERVICE, pathNodeDir = null, startPolicy = 'on-demand' }) {
   const run = runtime(root, version, platform, manifest);
   const argv = [run.node, ...NODE_FLAGS, run.entry, ...daemonArgs(config)];
   const common = { repo: run.dir, node: run.node, home, config, pathNodeDir };
   if (platform === 'darwin') return { name, label: launchLabel(name), file: serviceFile('darwin', home, name), content: renderLaunchAgent({ ...common, label: launchLabel(name) }), argv, cwd: run.dir };
   if (platform === 'win32') {
     const file = path.join(root, 'bin', DAEMON_VBS);
-    return { name, file, content: daemonVbs({ argv, cwd: run.dir, log: path.join(path.dirname(configPath(home)), 'daemon.log') }), create: daemonTaskCommand({ name, vbs: file }), argv, cwd: run.dir };
+    return { name, file, content: daemonVbs({ argv, cwd: run.dir, log: path.join(path.dirname(configPath(home)), 'daemon.log') }), create: daemonTaskCommand({ name, vbs: file, startPolicy }), argv, cwd: run.dir };
   }
   return { name, file: serviceFile('linux', home, name), content: renderSystemdUnit({ ...common, name }), argv, cwd: run.dir };
 }
@@ -628,8 +630,8 @@ export async function repairCliLinks(record, root, deps) {
 }
 
 // ── Start policy (R1 + P6, H §4.3, F-24) ─────────────────────────────────────
-// on-demand (default): nothing at logon; `agty open` starts the daemon. always: at Windows logon a per-user
-// task holds `agty start --hold` in the distro (WSL), linger with consent (systemd). manual: no auto start.
+// on-demand (default): nothing at logon; `agty open` starts the daemon. always: the native Windows daemon task
+// and the WSL holder task start at Windows logon; systemd uses linger with consent. manual: no auto start.
 // Nothing here stops, restarts or `--now`s anything, and `wsl --shutdown` is never run (startPolicy.test.mjs).
 
 export const START_POLICIES = ['on-demand', 'always', 'manual'];
@@ -686,6 +688,7 @@ export const lingerCommand = (platform, distro, user, on) => (platform === 'wsl'
 export function startPolicyPlan({ platform, policy, record, kind = record.service?.kind, user, linger = false, lingered = false }) {
   const steps = [];
   if (policy && kind === 'systemd') steps.push(req(['systemctl', '--user', policy === 'manual' ? 'disable' : 'enable', record.service.name]));
+  if (policy && platform === 'win32' && kind === 'schtasks') steps.push(req(daemonTaskCommand({ name: record.service.name, vbs: record.service.file, startPolicy: policy })));
   if (policy === 'always' && platform === 'wsl' && kind !== 'none') steps.push({ ...req(logonTaskCommand({ distro: record.wslDistro, root: record.root })), set: { logonTask: { name: logonTaskName(record.wslDistro), distro: record.wslDistro } } });
   else if (record.logonTask) steps.push({ ...opt(logonTaskRemoveCommand(record.logonTask)), set: { logonTask: null } });
   const wantLinger = policy === 'always' && kind === 'systemd';
@@ -712,7 +715,7 @@ const policyLabel = { 'on-demand': '필요할 때만', always: '항상 실행', 
 /** Applies `policy` to the record under an already held lock. Asks for linger consent only when it is needed and not given. */
 async function applyStartPolicy(policy, { root, record, linger, deps }) {
   if (!START_POLICIES.includes(policy)) throw new Error(`start policy must be one of ${START_POLICIES.join(', ')}`);
-  if (!['linux', 'wsl'].includes(deps.platform)) throw new Error('start policy: Linux and WSL only (Windows native: the logon task starts the daemon at every sign-in)');
+  if (!['linux', 'wsl', 'win32'].includes(deps.platform)) throw new Error('start policy: Linux, WSL and native Windows only');
   const dry = record.service?.kind === 'dry-run';
   const kind = dry ? 'systemd' : record.service?.kind;
   const user = deps.env.USER || os.userInfo().username;
@@ -912,7 +915,7 @@ export async function install(o, deps = realDeps()) {
     const verified = verifyBundle(b);
     deps.print(`✔ ${path.basename(b.bundle)}: signature, SHA-256 and ${verified.os}-${verified.arch} match`);
     if (b.pubkey !== pinnedKey(root)) await writeOwned(record, pinnedKey(root), await fs.readFile(b.pubkey, 'utf8'), 0o600);
-    const manifest = await unpack(root, b.bundle, verified, record);
+    const manifest = await unpack(root, b.bundle, verified, record, deps.print);
     await writeRecord(root, record);
     const test = await selfTest(versionDir(root, verified.version), manifest, deps);
     if (!test.ok) throw new Error(`self-test of ${verified.version} failed:\n${test.output}`);
@@ -945,11 +948,12 @@ export async function install(o, deps = realDeps()) {
       await linkCli(record, root, deps, o.addPath === true);
 
       const pathNodeDirs = serviceNodeDirs(record, deps, root);
-      const s = renderService({ platform: rootPlatform(deps.platform), home: deps.home, root, version: verified.version, manifest, config, pathNodeDir: pathNodeDirs });
+      const effectiveStartPolicy = o.startPolicy ?? startPolicyOf(record);
+      const s = renderService({ platform: rootPlatform(deps.platform), home: deps.home, root, version: verified.version, manifest, config, pathNodeDir: pathNodeDirs, startPolicy: effectiveStartPolicy });
       if (s.file && kind !== 'none') await writeOwned(record, s.file, s.content);
       record.service = { name: s.name, kind, file: s.file, label: s.label ?? null, sha256: sha256(s.content), argv: s.argv, cwd: s.cwd, create: s.create ?? null, pathNodeDirs };
       await writeRecord(root, record);
-      await serviceOp(kind, 'activate', { ...s, autostart: (o.startPolicy ?? startPolicyOf(record)) !== 'manual' }, deps);
+      await serviceOp(kind, 'activate', { ...s, autostart: effectiveStartPolicy !== 'manual' }, deps);
       if (o.startPolicy) await applyStartPolicy(o.startPolicy, { root, record, linger: o.linger, deps });
     } catch (error) {
       if (record.adopted && old && !old.foreign && kind !== 'dry-run') { deps.print(`✖ ${error.message}\n… putting the ${OLD_SERVICE} service back`); await revertAdoption({ root, record, deps }).catch((e) => deps.print(`! could not restore it: ${e.message}`)); await writeRecord(root, record); }
@@ -1208,7 +1212,33 @@ export async function pruneEmptyDirs(dir) {
   await removeEmpty(dir);
 }
 
-/** Program removal is deliberately fail-fast: each completed operation is logged before the next. */
+function windowsHeldFile(file, root, record, versionState, deps) {
+  if (deps.platform !== 'win32') return null;
+  const executable = deps.execPath ?? process.execPath;
+  const manager = deps.managerPath ?? path.join(here, 'manager.mjs');
+  const version = Object.keys(versionState).find((name) => {
+    const dir = record.versions?.[name]?.dir;
+    return dir && (inside(dir, executable) || inside(dir, manager));
+  });
+  if (version && inside(record.versions[version].dir, file)) return { version };
+  if (inside(path.dirname(executable), file)) return {};
+  if (path.dirname(file) === path.join(root, 'bin') && path.extname(file).toLowerCase() === '.cmd') return {};
+  return null;
+}
+
+function deferWindowsRootRemoval(root, deps) {
+  const systemRoot = deps.systemRoot ?? deps.env.SystemRoot ?? process.env.SystemRoot ?? 'C:\\Windows';
+  const powershell = path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const command = `Wait-Process -Id ${deps.pid ?? process.pid} -Timeout 60 -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ${psQuote(root)} -Recurse -Force -ErrorAction SilentlyContinue`;
+  const child = (deps.spawn ?? spawnChild)(powershell, ['-NoProfile', '-Command', command], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+/** Program removal finishes its independent cleanup even if Windows still holds one of our files. */
 export async function uninstall(o, deps = realDeps()) {
   if ((o.program ? 1 : 0) + (o.reset ? 1 : 0) !== 1) throw new Error('uninstall needs exactly one of --program or --reset');
   if (o.ifInstalledBy && !INSTALLED_BY.includes(o.ifInstalledBy)) throw new Error(`--if-installed-by must be one of ${INSTALLED_BY.join(', ')}`);
@@ -1302,8 +1332,20 @@ export async function uninstall(o, deps = realDeps()) {
       plan.record.cli.pathAdded = null;
     }
     const keptFiles = new Set(plan.kept.filter((file) => plan.record.files?.[file]));
+    const failedFiles = new Map();
+    const failedVersions = new Set();
+    const selfHeldFiles = new Map();
     // Version folders were verified completely by the plan (manifest.json is the last file of each): no re-hashing here.
     for (const file of plan.files) {
+      const version = Object.entries(plan.versionState).find(([, state]) => state.files.includes(file))?.[0];
+      if (version && failedVersions.has(version)) continue; // keep its manifest for a complete retry
+      const held = windowsHeldFile(file, root, plan.record, plan.versionState, deps);
+      if (held) {
+        selfHeldFiles.set(file, held);
+        if (held.version) failedVersions.add(held.version);
+        if (plan.record.files[file]) keptFiles.add(file);
+        continue;
+      }
       const expected = plan.record.files[file];
       const own = expected ? await ownedFile(file, expected, recordRoot(file, root, deps.home)) : { owned: true, outside: false };
       if (!own.owned) {
@@ -1311,7 +1353,16 @@ export async function uninstall(o, deps = realDeps()) {
         keptFiles.add(file);
         continue;
       }
-      await (deps.rm ?? ((target) => fs.rm(target, { force: true })))(file);
+      try {
+        await (deps.rm ?? ((target) => fs.rm(target, { force: true })))(file);
+      } catch (error) {
+        if (!RECOVERABLE_REMOVAL_ERRORS.has(error?.code)) throw error;
+        keptFiles.add(file);
+        failedFiles.set(file, error.code);
+        if (version) failedVersions.add(version);
+        deps.print(`⚠ 파일을 삭제하지 못했습니다 (${error.code}): ${file}`);
+        continue;
+      }
       if (expected) delete plan.record.files[file];
       deps.print(`✔ 파일 삭제 ${file}`);
     }
@@ -1330,7 +1381,7 @@ export async function uninstall(o, deps = realDeps()) {
     }
     const keptVersions = new Set();
     for (const [name, state] of Object.entries(plan.versionState)) {
-      if (state.kept.length) keptVersions.add(name); else delete plan.record.versions[name];
+      if (state.kept.length || failedVersions.has(name)) keptVersions.add(name); else delete plan.record.versions[name];
     }
     // The .replaced-* data copies a --program removal keeps stay listed, so a later --reset can find them.
     const keptCopies = !o.reset && plan.replaced.length;
@@ -1354,9 +1405,19 @@ export async function uninstall(o, deps = realDeps()) {
       const left = await remainingFiles(root);
       if (left.length) deps.print(`남은 파일(직접 만들어졌거나 목록에 없어서 지우지 않았어요): ${left.join(', ')}`);
     }
-    await removeRoot(root, deps.print);
+    let deferredSelfHeld = false;
+    if (selfHeldFiles.size) {
+      try {
+        deferWindowsRootRemoval(root, deps);
+        deferredSelfHeld = true;
+        deps.print('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다');
+      } catch (error) {
+        deps.print(`⚠ Windows 제거 도우미를 시작하지 못했습니다 (${error.message ?? error})`);
+      }
+    } else await removeRoot(root, deps.print);
+    if (failedFiles.size) deps.print(`⚠ 삭제하지 못한 파일(${[...failedFiles].map(([file, code]) => `${file}: ${code}`).join(', ')})은 실행 중이거나 권한이 없어 남았습니다`);
     deps.print(retained ? '✔ 프로그램의 삭제 가능한 항목을 제거했습니다' : '✔ 프로그램 제거 완료');
-    return { code: 0, plan };
+    return { code: failedFiles.size || (selfHeldFiles.size && !deferredSelfHeld) ? 1 : 0, plan };
   } finally { await unlock(); }
 }
 

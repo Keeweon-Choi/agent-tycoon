@@ -163,17 +163,24 @@ describe('changing it', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('macOS and native Windows are refused with the reason, before any step-up', async () => {
-    for (const platform of ['darwin', 'win32']) {
-      const a = await app({ kind: { host: false, remote: true }, deps: { platform } });
-      const r = await a.post({ policy: 'always' });
-      expect([r.statusCode, r.json().errorCode, r.json().errorParams]).toEqual([
-        409,
-        'start_policy_unsupported',
-        { platform },
-      ]);
-      expect((await a.get()).blocked.errorCode).toBe('start_policy_unsupported');
-    }
+  it('a native Windows install offers the policy and passes it to the manager', async () => {
+    const a = await app({ deps: { platform: 'win32' } });
+    const r = await a.post({ policy: 'always' });
+    expect(r.statusCode).toBe(200);
+    expect((await a.get()).blocked).toBeNull();
+    expect((await a.get()).canChange).toBe(true);
+    expect(calls).toEqual([['/v/cld/install/manager.mjs', 'start-policy', 'always', '--no-linger', '--root', ROOT]]);
+  });
+
+  it('macOS is refused with the reason, before any step-up', async () => {
+    const a = await app({ kind: { host: false, remote: true }, deps: { platform: 'darwin' } });
+    const r = await a.post({ policy: 'always' });
+    expect([r.statusCode, r.json().errorCode, r.json().errorParams]).toEqual([
+      409,
+      'start_policy_unsupported',
+      { platform: 'darwin' },
+    ]);
+    expect((await a.get()).blocked.errorCode).toBe('start_policy_unsupported');
     expect(calls).toHaveLength(0);
   });
 

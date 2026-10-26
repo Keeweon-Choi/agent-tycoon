@@ -24,8 +24,8 @@ import type { RequestKind } from './updateNotice.js';
 
 export const START_POLICIES = ['on-demand', 'always', 'manual'] as const;
 export type StartPolicyName = (typeof START_POLICIES)[number];
-/** Where R1/P6 can apply a policy (macOS and native Windows come with R5). */
-const SUPPORTED = ['linux', 'wsl'];
+/** Where R1/P6 can apply a policy (macOS is the only managed platform without it). */
+const SUPPORTED = ['linux', 'wsl', 'win32'];
 const MANAGER_TIMEOUT_MS = 120_000;
 const TASK_QUERY_TIMEOUT_MS = 10_000;
 
