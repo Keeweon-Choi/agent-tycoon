@@ -73,6 +73,18 @@ it('tracks a Codex usage check until its result arrives', () => {
   expect(cldGetSnapshot().codexUsageChecking).toBe(false);
 });
 
+it('keeps the agent CLI notice (and the answer to a button press that found nothing) until the next handshake', () => {
+  cldResetForTests();
+  const notice = { type: 'agentCliState' as const, state: 'missing' as const, command: 'curl x' };
+  cldHandleMessage(notice);
+  expect(cldGetSnapshot().agentCli).toEqual(notice);
+  cldHandleMessage({ ...notice, again: true });
+  expect(cldGetSnapshot().agentCli?.again).toBe(true);
+  // A full office sends none: the next connection's handshake clears the old notice.
+  cldHandleMessage({ type: 'officeAccess', readOnly: false });
+  expect(cldGetSnapshot().agentCli).toBeNull();
+});
+
 it("a reconnect's replayed feed adds no event twice (T-0025)", () => {
   cldResetForTests();
   const feed = [0, 1, 2].map((i) => ({

@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useSyncExternalStore } from 'react';
 
 import type {
+  AgentCliState,
   CharacterPack,
   CharacterPart,
   CharacterPresets,
@@ -76,6 +77,8 @@ export interface CldSnapshot {
   usageState: UsageState | null;
   /** An on-demand Codex usage probe is running for this client. */
   codexUsageChecking: boolean;
+  /** AGENT-CLI: the plain office's notice to install the agent CLI; null in a full office. */
+  agentCli: AgentCliState | null;
   /** T-0046: the GPU reservations (holders, the line, recent endings). */
   gpuBoard: GpuBoard | null;
   /** The user's EZ phrase rules; null until (unless) the daemon sends some. */
@@ -109,6 +112,7 @@ const empty: CldSnapshot = {
   hwSample: null,
   usageState: null,
   codexUsageChecking: false,
+  agentCli: null,
   gpuBoard: null,
   ezRules: null,
   events: [],
@@ -283,10 +287,14 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'statusOutput':
       snapshot = { ...snapshot, statusByName: { ...snapshot.statusByName, [msg.name]: msg } };
       break;
+    case 'agentCliState':
+      snapshot = { ...snapshot, agentCli: msg };
+      break;
     case 'officeAccess':
       restWatch.connected(performance.now()); // the handshake: what follows is replay (REST-ANIM)
       snapshot = {
         ...snapshot,
+        agentCli: null, // a full office never sends one; a plain one sends it again after this
         officeReadOnly: msg.readOnly,
         terminalEnabled: msg.terminal === true,
       };

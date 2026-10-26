@@ -163,6 +163,8 @@ components:
         - $ref: '#/components/schemas/HwSample'
         - $ref: '#/components/schemas/UsageState'
         - $ref: '#/components/schemas/CodexUsageCheckResult'
+        # cld-gui: the agent CLI notice (AGENT-CLI)
+        - $ref: '#/components/schemas/AgentCliState'
         # cld-gui: default agent rules + the user's global rules (RULES-DEFAULT)
         - $ref: '#/components/schemas/AgentRules'
         - $ref: '#/components/schemas/NewAgentPermission'
@@ -297,6 +299,8 @@ components:
         # cld-gui: 작업 현황 (DEV-BOARD)
         - $ref: '#/components/schemas/TaskEdit'
         - $ref: '#/components/schemas/CodexUsageCheck'
+        # cld-gui: the agent CLI notice (AGENT-CLI)
+        - $ref: '#/components/schemas/AgentCliRecheck'
         - $ref: '#/components/schemas/AgentRulesRequest'
         # cld-gui: the permission mode new agents start with (O4)
         - $ref: '#/components/schemas/NewAgentPermissionRequest'
@@ -3355,6 +3359,36 @@ components:
       properties:
         type:
           const: codexUsageCheck
+
+    AgentCliRecheck:
+      description: A privileged user presses 다시 찾기 on the plain office's agent-CLI notice, and the daemon looks for Claude Code again now. An unprivileged connection is ignored. Answered by `agentCliState`.
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: agentCliRecheck
+
+    AgentCliState:
+      description: |
+        Sent to a viewer of a plain office (the daemon found no Claude Code at start) and again whenever it
+        changes; never sent by a full office. `missing`: not installed, `command` is the one-line installer for
+        this daemon's OS. `restarting`: found, the daemon is restarting itself to bring the full office up.
+        `failed`: found, but the restart did not take effect (the plain office keeps running). `again`: this
+        is the answer to a 다시 찾기 press that found nothing.
+      type: object
+      additionalProperties: false
+      required: [type, state, command]
+      properties:
+        type:
+          const: agentCliState
+        state:
+          type: string
+          enum: [missing, restarting, failed]
+        command:
+          type: string
+        again:
+          type: boolean
 
     AgentRulesRequest:
       description: |

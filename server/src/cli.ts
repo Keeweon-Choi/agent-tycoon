@@ -19,19 +19,21 @@ import {
   loadAllFurniture,
   loadAllPets,
 } from './assetReload.js';
+import { findClaude } from './cld/agentCli.js';
 import { ChatManager } from './cld/chat.js';
 import { customFurnitureDir, registerFurnitureRoutes } from './cld/customFurniture.js';
-import type { EngineMode } from './cld/engine/engine.js';
+import { CLD_BIN_DIR, type EngineMode } from './cld/engine/engine.js';
 import { readGpuConfig } from './cld/engine/gpu.js';
 import { cldHooks } from './cld/hooks.js';
 import { findNvidiaSmi } from './cld/hw/nvidiaSmi.js';
 import { startOffice } from './cld/office.js';
-import { findOnPath } from './cld/providers/claudeProvider.js';
+import { PlainOffice, restartDaemon } from './cld/plainOffice.js';
 import { type Connector, isConnector, startRemote, testRemoteDeps } from './cld/remote/index.js';
 import { runSelfTest } from './cld/selfTest.js';
 import type { AssetCache, ReloadAssetsSideEffect } from './clientMessageHandler.js';
 import { readConfig } from './configPersistence.js';
 import {
+  AGENT_CLI_RESTART_EXIT_CODE,
   MAX_PORT,
   MIN_PORT,
   SHUTDOWN_DEADLINE_MS,
@@ -345,8 +347,8 @@ async function main(): Promise<void> {
 
     // cld-gui chat (T-0014): off unless asked for, and only with a claude to attach.
     // The same attach manager types cld-gui sends (T-0019); nothing runs until used.
-    const claudePath = findOnPath('claude');
-    if (args.chat && !claudePath) console.log('[cld] chat off: claude not found on PATH');
+    const claudePath = findClaude();
+    if (args.chat && !claudePath) console.log('[cld] chat off: claude not found');
     const attach = claudePath
       ? new ChatManager({
           claudePath,
@@ -379,6 +381,21 @@ async function main(): Promise<void> {
       pushFile: path.join(os.homedir(), '.config', 'cld-gui', 'push.json'),
       pushHost: args.allowedHosts[0],
     });
+
+    // AGENT-CLI: no Claude Code at start: the plain office tells its viewers to install it, and
+    // restarts the daemon once a look (a viewer connecting, the button) finds it.
+    if (!office) {
+      const exitForSupervisor = () => void shutdown(AGENT_CLI_RESTART_EXIT_CODE);
+      const plain = new PlainOffice({
+        find: () => findClaude(),
+        // Browser runners play the supervisor (cld/test/run-agent-cli.ts); unset in every install.
+        restart: async () =>
+          process.env.CLD_GUI_TEST_RESTART === 'exit'
+            ? (exitForSupervisor(), true)
+            : restartDaemon({ binDir: CLD_BIN_DIR, exitForSupervisor }),
+      });
+      Object.assign(cldHooks, plain.hooks());
+    }
 
     // Wire hook events: HTTP POST -> runtime -> hookEventHandler -> agents
     server.onHookEvent((providerId, event) => {
@@ -529,14 +546,14 @@ async function main(): Promise<void> {
 
     // ── Graceful shutdown ──
     let shuttingDown = false;
-    async function shutdown(): Promise<void> {
+    async function shutdown(exitCode = 0): Promise<void> {
       if (shuttingDown) return;
       shuttingDown = true;
       console.log('\nShutting down...');
       // A step that hangs must not hold a deploy until systemd's SIGKILL (10-22).
       setTimeout(() => {
         console.log('Shutdown took too long; exiting');
-        process.exit(0);
+        process.exit(exitCode);
       }, SHUTDOWN_DEADLINE_MS).unref();
       // Kill child terminals before the runtime tears their agents down, and
       // wait for them: exiting now would cancel the SIGKILL escalation and
@@ -547,7 +564,7 @@ async function main(): Promise<void> {
       office?.dispose();
       runtime.dispose();
       server.stop();
-      process.exit(0);
+      process.exit(exitCode);
     }
 
     process.on('SIGINT', () => void shutdown());

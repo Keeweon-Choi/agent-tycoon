@@ -65,6 +65,7 @@ export type ServerMessage =
   | HwSample
   | UsageState
   | CodexUsageCheckResult
+  | AgentCliState
   | AgentRules
   | NewAgentPermission
   | GpuBoard
@@ -171,6 +172,7 @@ export type ClientMessage =
   | SetConversationPin
   | TaskEdit
   | CodexUsageCheck
+  | AgentCliRecheck
   | AgentRulesRequest
   | NewAgentPermissionRequest
   | DelegationDecision
@@ -1114,9 +1116,18 @@ export interface CodexUsageCheckResult {
   errorParams?: Record<string, string | number>;
 }
 
+export interface AgentCliState {
+  type: 'agentCliState';
+  state: AnonymousSchema_586;
+  command: string;
+  again?: boolean;
+}
+
+export type AnonymousSchema_586 = 'missing' | 'restarting' | 'failed';
+
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_586;
+  language: AnonymousSchema_590;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1125,15 +1136,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_586 = 'ko' | 'en';
+export type AnonymousSchema_590 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_593;
+  mode: AnonymousSchema_597;
   error?: string;
 }
 
-export type AnonymousSchema_593 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_597 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1176,13 +1187,13 @@ export interface OfficeEvent {
   name?: string | null;
   summary: string;
   ref?: string | null;
-  provider?: AnonymousSchema_622;
-  period?: AnonymousSchema_623;
+  provider?: AnonymousSchema_626;
+  period?: AnonymousSchema_627;
 }
 
-export type AnonymousSchema_622 = 'claude' | 'codex' | 'null';
+export type AnonymousSchema_626 = 'claude' | 'codex' | 'null';
 
-export type AnonymousSchema_623 = 'fiveHour' | 'sevenDay' | 'null';
+export type AnonymousSchema_627 = 'fiveHour' | 'sevenDay' | 'null';
 
 export interface StatusOutput {
   type: 'statusOutput';
@@ -1588,13 +1599,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_872;
+  status: AnonymousSchema_876;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_872 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_876 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1625,10 +1636,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_886;
+  state: AnonymousSchema_890;
 }
 
-export type AnonymousSchema_886 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_890 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2242,14 +2253,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1197;
+  action: AnonymousSchema_1201;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1197 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1201 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2382,12 +2393,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1273;
+  lang?: AnonymousSchema_1277;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1273 = 'en' | 'ko';
+export type AnonymousSchema_1277 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2424,21 +2435,25 @@ export interface CodexUsageCheck {
   type: 'codexUsageCheck';
 }
 
+export interface AgentCliRecheck {
+  type: 'agentCliRecheck';
+}
+
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1289;
+  language: AnonymousSchema_1294;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1289 = 'ko' | 'en';
+export type AnonymousSchema_1294 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1293;
+  mode: AnonymousSchema_1298;
 }
 
-export type AnonymousSchema_1293 = 'ask' | 'bypass';
+export type AnonymousSchema_1298 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

@@ -58,6 +58,7 @@ import {
 import { PALETTE_COUNT } from '../constants.js';
 import { readLayoutFromFile } from '../layoutPersistence.js';
 import { hookProviders } from '../providers/index.js';
+import { findClaude } from './agentCli.js';
 import type { StandaloneAuth } from './auth.js';
 import type { BuildingData, Change } from './building.js';
 import {
@@ -3448,7 +3449,7 @@ export async function startOffice(opts: {
   pushFile?: string;
   pushHost?: string;
 }): Promise<Office | null> {
-  const claudePath = findOnPath('claude');
+  const claudePath = findClaude();
   if (!claudePath) {
     console.log('[cld] claude not found: plain pixel-agents office');
     return null;

@@ -2173,6 +2173,18 @@ export const en = {
     'Draws the night city seen from above (rooftops, streets, trees, lamps) around the office. Off: the plain background as before.',
   'perf.toggle': 'Performance readout (draw time, characters, cache)',
   'perf.readout': 'Draw {ms} ms (max {max}) · {n} characters, {hd} of them 64×128 · zoom {zoom} · cache {mb} MB',
+  'agentCli.title': 'Install the agent CLI (Claude Code)',
+  'agentCli.git': 'Before step 1, if Git is not installed: install Git for Windows (the defaults are fine), https://git-scm.com/download/win. Claude Code needs it, and so do the office\'s worktrees',
+  'agentCli.step1': '1. Run this in a terminal ({os})',
+  'agentCli.step2': '2. Run claude once and sign in',
+  'agentCli.step3': '3. Press Find again',
+  'agentCli.os.win32': 'Windows PowerShell',
+  'agentCli.os.posix': 'macOS, Linux or WSL terminal',
+  'agentCli.again': 'Find again',
+  'agentCli.restarting': 'Found it. The office is restarting with your agents',
+  'agentCli.failed': 'Found it, but the office could not restart itself. Restart Agent Tycoon, or press Find again',
+  'agentCli.stillMissing': 'Still not installed. Finish the steps above first',
+  'agentCli.close': 'Hide for now',
 } as const satisfies Record<string, string>;
 
 export type TranslationKey = keyof typeof en;

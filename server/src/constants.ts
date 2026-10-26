@@ -229,3 +229,12 @@ export const SHUTDOWN_DEADLINE_MS = 10_000;
 
 /** Tool descriptions remembered per agent for re-sends; a running tool is always among the newest. */
 export const TOOL_DESC_KEEP = 64;
+
+/** AGENT-CLI: a plain office (no Claude Code at start) looks again when a viewer connects, at most this often. */
+export const AGENT_CLI_RECHECK_MIN_GAP_MS = 5_000;
+/** AGENT-CLI: after ordering the restart, the plain daemon waits this long to be replaced before it says the restart failed. */
+export const AGENT_CLI_RESTART_WAIT_MS = 30_000;
+/** AGENT-CLI: the service manager command that restarts the daemon gives up after this long. */
+export const AGENT_CLI_RESTART_COMMAND_TIMEOUT_MS = 30_000;
+/** AGENT-CLI: exit code of a daemon that ends itself for a restart (EX_TEMPFAIL); the exit code itself restarts nothing, a helper or a test runner does. */
+export const AGENT_CLI_RESTART_EXIT_CODE = 75;

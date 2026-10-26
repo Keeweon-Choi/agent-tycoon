@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { toMajorMinor } from './changelogData.js';
 import { ActionLayer } from './cld/ActionLayer.js';
+import { AgentCliNotice } from './cld/AgentCliNotice.js';
 import { AuthLayer } from './cld/auth/AuthLayer.js';
 import { LobbyBoard } from './cld/board/LobbyBoard.js';
 import { WhiteboardMemos } from './cld/board/WhiteboardMemos.js';
@@ -1295,6 +1296,8 @@ function App() {
       {cldMode && <OffDutySheet />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}
+      {/* A plain office (no Claude Code) is not in cld mode: the notice is for exactly that one. */}
+      <AgentCliNotice />
       {showStaleBuildBanner && (
         <StaleBuildBanner
           busy={staleBuildBusy}
