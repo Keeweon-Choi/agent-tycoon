@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HooksConsentRequest, ServerMessage } from '../../../core/src/messages.js';
 import { cldNotice } from '../cld/notify/notices.js';
 import { cldGetSnapshot, cldHandleMessage, virtualAgentId } from '../cld/officeStore.js';
+import { syncUnattachedActive } from '../cld/restSync.js';
 import {
   codexLook,
   codexWanted,
@@ -262,6 +263,11 @@ export function useExtensionMessages(
     // Buffer agents from existingAgents until layout is loaded
     let pendingAgents: PendingAgent[] = [];
     let officeCharacterIds = new Set<number>();
+    // REST-BUSY: orchestrators with no live agent (no agentStatus will ever reach them).
+    const unattachedRows = () =>
+      (cldGetSnapshot().officeSnapshot?.orchestrators ?? [])
+        .filter((o) => o.agentId == null)
+        .map((o) => ({ id: virtualAgentId(`orch:${o.name}`), busy: o.busy }));
     // cld-gui (T-0025): until when a resync's replayed states make no sound.
     let quietUntil = 0;
 
@@ -307,6 +313,7 @@ export function useExtensionMessages(
             return kept;
           });
           officeCharacterIds = new Set(wanted.keys());
+          syncUnattachedActive(os, unattachedRows());
         }
       }
       // CI / e2e diagnostic: record every received transport message on the
@@ -385,6 +392,7 @@ export function useExtensionMessages(
           if (p.isHeadless) os.setHeadless(p.id, true);
         }
         pendingAgents = [];
+        syncUnattachedActive(os, unattachedRows());
         layoutReadyRef.current = true;
         setLayoutReady(true);
         if (msg.wasReset) {
