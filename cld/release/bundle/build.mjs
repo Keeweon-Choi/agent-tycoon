@@ -267,7 +267,10 @@ async function main() {
   // 5. Pack. Relative paths only (GNU tar on Windows reads "C:" as a host name).
   const base = `agent-tycoon-daemon-${version.version}-${TARGET}`;
   const tarRel = path.join('..', '..', `${base}.tar`);
-  run('tar', ['-cf', tarRel, ...fs.readdirSync(stage).sort()], { cwd: stage });
+  // pax: names travel as UTF-8 in extended headers. The default GNU format writes raw bytes, which
+  // Windows tar.exe reads in the ANSI code page: on a Korean Windows a dependency's "snow ☃" fixture
+  // came out as "snow __" and the install stopped (owner's laptop 10-26; reproduced, pax extracts it).
+  run('tar', ['--format=pax', '-cf', tarRel, ...fs.readdirSync(stage).sort()], { cwd: stage });
   const tarFile = path.join(OUT, `${base}.tar`);
   const tar = fs.readFileSync(tarFile);
   fs.rmSync(tarFile);
