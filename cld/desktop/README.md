@@ -181,6 +181,13 @@ SSH 모드에서 앱이 하는 일:
 - **키 지우기**: 이 기기 키와 수락한 호스트 키를 지웁니다. 다음 SSH 연결 때 새 키를 만들고 호스트 키와 비밀번호를 다시 묻습니다.
   호스트의 `authorized_keys`에 남은 옛 줄(`agent-tycoon@<컴퓨터 이름>`)은 필요하면 호스트에서 지웁니다.
 
+## Windows 앱 제거
+
+Windows 설정 → 앱 → 설치된 앱 → **Agent Tycoon** → 제거는 이 앱이 Windows에서 설치한 사무실도 함께 정리합니다. `%LOCALAPPDATA%\AgentTycoon\install.json`이 `installedBy: gui`인 경우에만 해당하므로, CLI·소스 설치와 WSL 배포판은 건드리지 않습니다.
+
+- **Delete the application data**를 끄면: Windows용 데몬 프로그램, `agty.cmd`/`cld-gui.cmd`, 로그온 예약 작업은 지웁니다. `%USERPROFILE%\.config\cld-gui`의 사무실 설정·데이터는 남습니다.
+- **Delete the application data**를 켜면: 위 항목과 `%USERPROFILE%\.config\cld-gui`도 지웁니다. 또한 이 앱은 Pixel Office와 공유하는 `%APPDATA%\dev.cldgui.pixeloffice`의 연결 설정·이 기기 SSH 키도 지우므로, Pixel Office까지 정리할 때만 선택하세요.
+
 ## 키와 트레이
 
 | 키 | 동작 |

@@ -35,6 +35,10 @@ function load(): Workspace {
 let state: Workspace = load();
 /** Tab keys the open workspace shows right now (nothing while the terminal is closed). */
 let visible: ReadonlySet<string> = new Set();
+/** A notice can request one trusted shell before its workspace is mounted. */
+let requestedShell: { cwd: string; input: string } | null = null;
+/** Input waits until its xterm socket is connected. */
+const pendingInput = new Map<string, string[]>();
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const subscribe = (l: () => void) => {
@@ -75,6 +79,8 @@ export const workspaceActions = {
 export function resetWorkspaceForTests(next: Workspace = emptyWorkspace()): void {
   state = next;
   visible = new Set();
+  requestedShell = null;
+  pendingInput.clear();
   emit();
 }
 
@@ -82,6 +88,29 @@ export function resetWorkspaceForTests(next: Workspace = emptyWorkspace()): void
 
 /** Fired when something wants the terminal on screen; App opens the 터미널 panel. */
 export const OPEN_TERMINAL_EVENT = 'cld-open-terminal-tab';
+
+/** Opens the terminal UI, then asks its existing shell flow to open and type once. */
+export function requestShellWithInput(cwd: string, input: string): void {
+  requestedShell = { cwd, input };
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(OPEN_TERMINAL_EVENT));
+}
+
+/** TerminalWorkspace consumes this after it mounts. */
+export function takeRequestedShell(): { cwd: string; input: string } | null {
+  const next = requestedShell;
+  requestedShell = null;
+  return next;
+}
+
+export function queueTerminalInput(key: string, input: string): void {
+  pendingInput.set(key, [...(pendingInput.get(key) ?? []), input]);
+}
+
+export function takeTerminalInput(key: string): string[] {
+  const input = pendingInput.get(key) ?? [];
+  pendingInput.delete(key);
+  return input;
+}
 
 /** Open (or focus) an agent's terminal as a tab and bring the terminal forward. */
 export function openAgentTerminal(bgId: string, title: string, agentId?: number): void {

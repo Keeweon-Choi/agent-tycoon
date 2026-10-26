@@ -38,6 +38,11 @@
     ],
     "resources": {
       "daemon/": "daemon/"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "../nsis/hooks.nsh"
+      }
     }
   }
 }

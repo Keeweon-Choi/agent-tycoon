@@ -1211,13 +1211,19 @@ export async function pruneEmptyDirs(dir) {
 /** Program removal is deliberately fail-fast: each completed operation is logged before the next. */
 export async function uninstall(o, deps = realDeps()) {
   if ((o.program ? 1 : 0) + (o.reset ? 1 : 0) !== 1) throw new Error('uninstall needs exactly one of --program or --reset');
+  if (o.ifInstalledBy && !INSTALLED_BY.includes(o.ifInstalledBy)) throw new Error(`--if-installed-by must be one of ${INSTALLED_BY.join(', ')}`);
   if (deps.env.CLD_AGENT_TOKEN) {
     deps.print('에이전트 세션 안에서는 제거할 수 없어요. 사람의 터미널에서 실행하세요');
     return { code: 2 };
   }
   const root = o.root ?? installRoot(rootPlatform(deps.platform), deps.home, deps.env);
   // Do not even create a lock directory for a source/no-manager installation.
-  if (!(await readRecord(root))) {
+  const record = await readRecord(root);
+  if (o.ifInstalledBy && record?.installedBy !== o.ifInstalledBy) {
+    deps.print(`설치 기록이 없거나 ${o.ifInstalledBy} 설치가 아니어서 제거하지 않았습니다`);
+    return { code: 0 };
+  }
+  if (!record) {
     const plan = await uninstallPlan(o, deps);
     for (const line of plan.lines) deps.print(line);
     return { code: 2, plan };
@@ -1444,7 +1450,7 @@ export async function open(o, deps = realDeps()) {
 
 export function parseArgs(argv) {
   const o = {};
-  const values = { '--from': 'from', '--sums': 'sums', '--sig': 'sig', '--pub': 'pub', '--port': 'port', '--service': 'service', '--installed-by': 'installedBy', '--wait': 'wait', '--root': 'root' };
+  const values = { '--from': 'from', '--sums': 'sums', '--sig': 'sig', '--pub': 'pub', '--port': 'port', '--service': 'service', '--installed-by': 'installedBy', '--if-installed-by': 'ifInstalledBy', '--wait': 'wait', '--root': 'root' };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (values[flag]) { const v = argv[++i]; if (v === undefined || v.startsWith('--')) throw new Error(`${flag} needs a value`); o[values[flag]] = v; }
@@ -1456,6 +1462,7 @@ export function parseArgs(argv) {
   }
   if (o.port !== undefined) { o.port = Number(o.port); if (!Number.isInteger(o.port) || o.port < 1 || o.port > 65535) throw new Error('--port is not a port'); }
   if (o.wait !== undefined) { o.wait = Number(o.wait) * 1000; if (!(o.wait >= 0)) throw new Error('--wait is seconds'); }
+  if (o.ifInstalledBy && !INSTALLED_BY.includes(o.ifInstalledBy)) throw new Error(`--if-installed-by must be one of ${INSTALLED_BY.join(', ')}`);
   if (o.root) o.root = path.resolve(o.root);
   return o;
 }
@@ -1465,7 +1472,7 @@ export const USAGE = `사용법:
   agty update            (중간에 멈춘 업데이트를 마저 하거나 되돌림)
   agty rollback [--yes]  (= update --rollback: 이전 버전으로, 데이터 형식이 다르면 스냅샷 복원)
   agty status [--json]
-  agty uninstall --program | --reset [--dry-run] [--yes] [--stop-agents] [--ignore-exposure]
+  agty uninstall --program | --reset [--dry-run] [--yes] [--stop-agents] [--ignore-exposure] [--if-installed-by gui|cli|source]
   agty open [--port N]
   agty start [--port N] [--hold]   (데몬이 꺼져 있을 때만 시작, --hold: 응답하는 동안 붙잡고 있기, 로그온 작업용)
   agty stop --daemon [--yes]   (데몬만 멈춤, 실행 중 에이전트가 있으면 먼저 물음)

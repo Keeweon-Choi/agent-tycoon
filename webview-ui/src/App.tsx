@@ -59,6 +59,7 @@ import {
   typingForStaleBuild,
 } from './cld/staleBuild.js';
 import { StaleBuildBanner } from './cld/StaleBuildBanner.js';
+import { TerminalWorkspace } from './cld/terminal/TerminalWorkspace.js';
 import { OPEN_TERMINAL_EVENT } from './cld/terminal/workspaceStore.js';
 import { WorkSheet } from './cld/work/WorkSheet.js';
 import { OPEN_WORKBENCH_EVENT } from './cld/workbench/workbenchStore.js';
@@ -311,8 +312,9 @@ function App() {
     terminalUnavailableReason,
     terminalAgentIds,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty, reviewStaleBuild);
-  const { officeSnapshot, officeReadOnly: storeReadOnly } = useCldStore();
+  const { officeSnapshot, officeReadOnly: storeReadOnly, agentCli } = useCldStore();
   const cldMode = officeSnapshot !== null;
+  const [plainTerminalOpen, setPlainTerminalOpen] = useState(false);
   // The card container's + (owner 10-24): the same 오케스트레이터 추가 as the settings, for a client that may act.
   const addOrchestrator =
     officeSnapshot?.readOnly === false && !storeReadOnly ? () => engineOpenForm(null) : undefined;
@@ -428,10 +430,13 @@ function App() {
   // 터미널로 보기 (T-0078): the agent's tab is in the workspace; bring the 터미널 panel forward
   // (on a phone the messenger is minimized under it, its conversation kept).
   useEffect(() => {
-    const openTerminal = () => handleOfficePanel('terminal');
+    const openTerminal = () => {
+      if (cldMode) handleOfficePanel('terminal');
+      else setPlainTerminalOpen(true);
+    };
     window.addEventListener(OPEN_TERMINAL_EVENT, openTerminal);
     return () => window.removeEventListener(OPEN_TERMINAL_EVENT, openTerminal);
-  }, [handleOfficePanel]);
+  }, [cldMode, handleOfficePanel]);
   // W1: a 작업실 button (the 현황판 card's) opens the window, or on a phone the Dock page.
   useEffect(() => {
     const openWorkbench = () => openWindow('workbench');
@@ -1310,9 +1315,23 @@ function App() {
           }}
         />
       )}
-      {/* cld-gui (T-0022): device approval and the passkey prompt. */}
-      {cldMode && !isCldMock && <AuthLayer />}
+      {/* cld-gui (T-0022): device approval and the passkey prompt; also in a plain office (no claude
+          yet), whose terminal installs it and needs this device's key (CLI-TERMINAL). */}
+      {(cldMode || agentCli !== null) && !isCldMock && <AuthLayer />}
       {cldMode && <RepoActionLayer />}
+
+      {!cldMode && (
+        <Modal
+          isOpen={plainTerminalOpen}
+          onClose={() => setPlainTerminalOpen(false)}
+          title={t('hud.terminal')}
+          className="w-[min(960px,100%)] h-[min(680px,100%)]"
+        >
+          <div className="h-[600px] max-h-[calc(100vh-120px)] p-8">
+            <TerminalWorkspace />
+          </div>
+        </Modal>
+      )}
 
       {/* Hooks info modal. Top level, beside the other modals: inside the
           office region it would sit in the mobile shell's transformed track,

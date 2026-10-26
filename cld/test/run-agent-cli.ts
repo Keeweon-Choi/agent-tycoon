@@ -2,8 +2,9 @@
  * AGENT-CLI: Agent Tycoon installed before Claude Code. The built daemon (dist/cli.js) starts in an
  * isolated HOME whose PATH has no claude:
  *   1. the plain office shows the notice (install command for this OS, 다시 찾기);
- *   2. 다시 찾기 with claude still missing answers "아직 설치되지 않았어요" and changes nothing;
- *   3. a fake claude (the engine's) is put in <home>/.local/bin, which is not on the daemon's PATH
+ *   2. Claude Code 설치 opens a terminal in HOME and runs a fake curl, never the network;
+ *   3. 다시 찾기 with claude still missing answers "아직 설치되지 않았어요" and changes nothing;
+ *   4. a fake claude (the engine's) is put in <home>/.local/bin, which is not on the daemon's PATH
  *      (the folder an installer uses); 다시 찾기 finds it, the daemon ends itself with exit 75
  *      (CLD_GUI_TEST_RESTART=exit: this runner plays the helper that restarts it; on Windows a hidden helper does, see restartDaemon) and
  *      is started again; the page reconnects and the office has the engine, the notice is gone.
@@ -46,7 +47,14 @@ async function main() {
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-agent-cli-'));
-  const PATH = '/usr/bin:/bin';
+  const bin = path.join(home, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(
+    path.join(bin, 'curl'),
+    '#!/bin/sh\nprintf \'%s\\n\' "$*" > "$HOME/fake-curl.log"\nprintf \'%s\\n\' \'echo AGENT_CLI_FAKE_INSTALL_RAN\'\n',
+  );
+  fs.chmodSync(path.join(bin, 'curl'), 0o755);
+  const PATH = [bin, '/usr/bin', '/bin'].join(path.delimiter);
   check(
     findClaude({ env: { PATH }, home, platform: process.platform }) === null,
     'precondition: no claude on the daemon PATH or in the usual install folders of this HOME',
@@ -111,11 +119,12 @@ async function main() {
       throw err;
     });
     check((await notice.getAttribute('data-state')) === 'missing', 'the notice shows, state missing');
-    const command = (await page.getByTestId('agent-cli-command').innerText()).trim();
+    // CLI-TERMINAL: one command per install step (Windows: Git, then Claude Code through PowerShell)
+    const command = (await page.getByTestId('agent-cli-command-claude').innerText()).trim();
     check(
       command ===
         (process.platform === 'win32'
-          ? 'irm https://claude.ai/install.ps1 | iex'
+          ? 'powershell -NoProfile -Command "irm https://claude.ai/install.ps1 | iex"'
           : 'curl -fsSL https://claude.ai/install.sh | bash'),
       `it names this OS's one-line installer (${command})`,
     );
@@ -128,7 +137,100 @@ async function main() {
     check(daemon.log.join('').includes('[cld] claude not found'), 'the daemon log says plain office');
     await page.screenshot({ path: path.join(OUT, '01-notice-missing.png') });
 
-    // ── 2. 다시 찾기 with nothing installed ──
+    // ── 2. Claude Code 설치 opens a home shell and runs only this HOME's fake curl ──
+    // A shell needs a device key, which registers by itself shortly after the code login (as in
+    // run-terminal); a code-only session is refused a terminal.
+    // (polled from here: waitForFunction took the async predicate's promise for a truthy answer)
+    let keyed = false;
+    for (let i = 0; i < 30 && !keyed; i++) {
+      keyed = await page.evaluate(() =>
+        fetch('/api/auth/me')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((me) => Boolean((me as { deviceId?: string | null } | null)?.deviceId)),
+      );
+      if (!keyed) await page.waitForTimeout(500);
+    }
+    check(keyed, 'the page has its device key (a terminal needs one)');
+    // The first open asks for the 접속 방식 here too (the AuthLayer now runs in a plain office): 나중에.
+    const notNow = page.getByRole('button', { name: '나중에' });
+    if (await notNow.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await notNow.click();
+    await page.getByRole('button', { name: 'Claude Code 설치', exact: true }).click();
+    // wherever the office shows its terminal (the dock's panel, or the plain-mode window)
+    const opened = await page
+      .waitForFunction(
+        () =>
+          [...document.querySelectorAll<HTMLElement>('.xterm-rows')].some(
+            (el) => el.offsetParent !== null,
+          ),
+        undefined,
+        { timeout: 20_000 },
+      )
+      .then(() => true)
+      .catch(async () => {
+        await page.screenshot({ path: path.join(OUT, 'failure-terminal.png') });
+        console.error(
+          'diag:',
+          // anonymous functions only: tsx names arrow functions with a __name the page lacks
+          await page.evaluate(() =>
+            Promise.all(
+              [
+                ['/api/auth/me', 'GET'],
+                ['/api/shell', 'GET'],
+                ['/api/auth/stepup/device', 'POST'],
+              ].map(([u, method]) =>
+                fetch(u, { method }).then(
+                  async (r) => `${method} ${u} ${r.status} ${(await r.text()).slice(0, 300)}`,
+                ),
+              ),
+            ).then((lines) => lines.join('\n')),
+          ),
+        );
+        return false;
+      });
+    check(opened, 'the Claude Code install button opens a terminal');
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll<HTMLElement>('.xterm-rows')].some(
+          (el) => el.offsetParent !== null && el.innerText.includes('AGENT_CLI_FAKE_INSTALL_RAN'),
+        ),
+      undefined,
+      { timeout: 20_000, polling: 'raf' },
+    );
+    check(true, 'within 20 s the terminal shows AGENT_CLI_FAKE_INSTALL_RAN');
+    check(
+      fs.readFileSync(path.join(home, 'fake-curl.log'), 'utf8').trim() ===
+        '-fsSL https://claude.ai/install.sh',
+      'fake-curl.log records -fsSL https://claude.ai/install.sh',
+    );
+    await page.screenshot({ path: path.join(OUT, '04-install-from-terminal.png') });
+
+    const readOnlyContext = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    const readOnlyPage = await readOnlyContext.newPage();
+    await readOnlyPage.routeWebSocket(/\/ws(\?|$)/, (ws) => {
+      const server = ws.connectToServer();
+      server.onMessage((message) => {
+        try {
+          const received = JSON.parse(String(message)) as { type: string; readOnly?: boolean };
+          if (received.type === 'officeAccess') received.readOnly = true;
+          ws.send(JSON.stringify(received));
+        } catch {
+          ws.send(message);
+        }
+      });
+      ws.onMessage((message) => server.send(message));
+    });
+    await readOnlyPage.goto(await daemon.loginUrl());
+    await readOnlyPage.waitForURL(`http://127.0.0.1:${port}/`);
+    const readOnlyNotice = readOnlyPage.getByTestId('agent-cli-notice');
+    await readOnlyNotice.waitFor({ timeout: 20_000 });
+    check(
+      (await readOnlyNotice.isVisible()) &&
+        (await readOnlyNotice.locator('[data-testid^="agent-cli-install-"]').count()) === 0,
+      'a read-only viewer sees the notice without install buttons',
+    );
+    await readOnlyContext.close();
+
+    // ── 3. 다시 찾기 with nothing installed ──
     await page.getByTestId('agent-cli-again').click();
     await page.getByTestId('agent-cli-still').waitFor({ timeout: 10_000 });
     check((await page.getByTestId('agent-cli-still').innerText()).includes('아직 설치되지 않았어요'), 'the notice says it is still not installed');
@@ -136,7 +238,7 @@ async function main() {
     check(exits.length === 0, 'the daemon is still the first one');
     await page.screenshot({ path: path.join(OUT, '02-still-missing.png') });
 
-    // ── 3. The installer puts claude where the daemon's PATH does not reach; 다시 찾기 ──
+    // ── 4. The installer puts claude where the daemon's PATH does not reach; 다시 찾기 ──
     const localBin = path.join(home, '.local', 'bin');
     fs.mkdirSync(localBin, { recursive: true });
     const wrapperFile = path.join(localBin, 'claude');
@@ -160,8 +262,9 @@ async function main() {
     await waitForDaemon(port, daemon.child.pid!, 30_000, home);
     await notice.waitFor({ state: 'detached', timeout: 30_000 });
     check(true, 'the page reconnected and the notice is gone');
-    const before = received.length;
-    for (const stop = Date.now() + 30_000; !received.slice(before).some((m) => m.type === 'engineState'); ) {
+    // Any engineState is the restarted office's: the plain one sent none (checked above). Counting only
+    // what came after the notice went missed one that arrived with the reconnect, before it.
+    for (const stop = Date.now() + 30_000; !received.some((m) => m.type === 'engineState'); ) {
       if (Date.now() > stop) throw new Error('no engineState after the restart');
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -169,9 +272,9 @@ async function main() {
     const log2 = daemon.log.join('');
     check(log2.includes(`[cld] claude: ${wrapperFile}`) && /\[cld\] engine on/.test(log2), 'its log: claude found, engine on');
     // The full office's first open asks for the 접속 방식 (it names this PC's networks): 나중에, as a user may.
+    // (answered already when the plain office asked it first)
     const later = page.getByRole('button', { name: '나중에' });
-    await later.waitFor({ timeout: 15_000 });
-    await later.click();
+    if (await later.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await later.click();
     await page.locator('[data-hud-id^="icon:"]').first().waitFor();
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(OUT, '03-full-office.png') });

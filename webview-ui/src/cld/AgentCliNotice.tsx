@@ -4,19 +4,25 @@
  * It is shown inline (no toast layer): a plain office is not in cld mode.
  */
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Button } from '../components/ui/Button.js';
 import { t } from '../i18n/index.js';
 import { transport } from '../transport/index.js';
+import { agentCliInstallSteps } from './agentCliInstall.js';
 import { useCldStore } from './officeStore.js';
+import { requestShellWithInput } from './terminal/workspaceStore.js';
 
 export function AgentCliNotice() {
-  const { agentCli, officeReadOnly } = useCldStore();
+  const { agentCli, hostInfo, officeReadOnly } = useCldStore();
   const [hidden, setHidden] = useState(false);
   if (!agentCli || hidden) return null;
-  const windows = agentCli.command.startsWith('irm ');
   const restarting = agentCli.state === 'restarting';
-  return (
+  const steps = agentCliInstallSteps(agentCli.command);
+  const windows = steps.length === 2;
+  // On the body, like Modal: the terminal it opens is a body-level modal (z 50-51), and inside
+  // the app's stacking context this z-60 notice drew under it, its recheck button out of reach.
+  const panel = (
     <div
       role="status"
       data-testid="agent-cli-notice"
@@ -40,17 +46,47 @@ export function AgentCliNotice() {
       ) : (
         <>
           {agentCli.state === 'failed' && <span>{t('agentCli.failed')}</span>}
-          {/* ponytail: always shown on Windows (not probed for git); a probe when users complain it is noise */}
-          {windows && <span data-testid="agent-cli-git">{t('agentCli.git')}</span>}
-          <span>{t('agentCli.step1', { os: t(windows ? 'agentCli.os.win32' : 'agentCli.os.posix') })}</span>
-          <code
-            data-testid="agent-cli-command"
-            className="block bg-btn-bg border-2 border-border py-4 px-8 select-all break-all"
-          >
-            {agentCli.command}
-          </code>
-          <span>{t('agentCli.step2')}</span>
-          <span>{t('agentCli.step3')}</span>
+          {/* ponytail: Git is always shown on Windows (not probed); users who find it noisy can ask for a probe. */}
+          {steps.map((step) => (
+            <div key={step.id} className="flex flex-col gap-4">
+              <span>
+                {t(
+                  step.id === 'claude' && !windows
+                    ? 'agentCli.installOnly.claude'
+                    : `agentCli.install.${step.id}`,
+                )}
+              </span>
+              {step.id === 'git' && (
+                <span data-testid="agent-cli-git">
+                  {t('agentCli.git')}{' '}
+                  <a className="underline" href="https://git-scm.com/download/win">
+                    {t('agentCli.gitLink')}
+                  </a>
+                </span>
+              )}
+              <code
+                data-testid={`agent-cli-command-${step.id}`}
+                className="block bg-btn-bg border-2 border-border py-4 px-8 select-all break-all"
+              >
+                {step.command}
+              </code>
+              {!officeReadOnly && (
+                <Button
+                  size="sm"
+                  variant="active"
+                  className="self-start"
+                  data-testid={`agent-cli-install-${step.id}`}
+                  disabled={!hostInfo}
+                  onClick={() => {
+                    if (hostInfo) requestShellWithInput(hostInfo.home, `${step.command}\r`);
+                  }}
+                >
+                  {t(`agentCli.installButton.${step.id}`)}
+                </Button>
+              )}
+            </div>
+          ))}
+          <span>{t('agentCli.afterInstall')}</span>
           {agentCli.again && <strong data-testid="agent-cli-still">{t('agentCli.stillMissing')}</strong>}
           {!officeReadOnly && (
             <Button
@@ -67,4 +103,6 @@ export function AgentCliNotice() {
       )}
     </div>
   );
+  // (no document when the tests render it to markup)
+  return typeof document === 'undefined' ? panel : createPortal(panel, document.body);
 }

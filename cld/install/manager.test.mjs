@@ -275,6 +275,25 @@ async function managerRecord(home) {
   return { root, owned, changed };
 }
 
+test('uninstall --if-installed-by only removes the matching manager install', async () => {
+  const guiHome = tmp('uninstall-owned-by-gui'); const { root: guiRoot } = await completeInstall(guiHome);
+  const guiRecord = await readRecord(guiRoot); guiRecord.installedBy = 'gui'; await writeRecord(guiRoot, guiRecord);
+  const gui = uninstallDeps(guiHome);
+  assert.equal((await uninstall({ program: true, yes: true, ifInstalledBy: 'gui' }, gui)).code, 0);
+  assert.equal(fs.existsSync(path.join(guiRoot, 'install.json')), false);
+
+  const cliHome = tmp('uninstall-owned-by-cli'); const { root: cliRoot } = await completeInstall(cliHome);
+  const cli = uninstallDeps(cliHome);
+  assert.equal((await uninstall({ program: true, yes: true, ifInstalledBy: 'gui' }, cli)).code, 0);
+  assert.equal((await readRecord(cliRoot)).installedBy, 'cli');
+  assert.deepEqual(cli.calls, ['설치 기록이 없거나 gui 설치가 아니어서 제거하지 않았습니다']);
+
+  const absentHome = tmp('uninstall-without-record'); const absent = uninstallDeps(absentHome);
+  assert.equal((await uninstall({ program: true, yes: true, ifInstalledBy: 'gui' }, absent)).code, 0);
+  assert.equal(fs.existsSync(path.join(absentHome, 'install')), false);
+  assert.deepEqual(absent.calls, ['설치 기록이 없거나 gui 설치가 아니어서 제거하지 않았습니다']);
+});
+
 async function recordedVersion(root, text = '// untouched\n') {
   const dir = path.join(root, 'versions', '1.0.0');
   fs.mkdirSync(path.join(dir, 'dist'), { recursive: true });

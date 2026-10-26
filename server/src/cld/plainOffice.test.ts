@@ -42,6 +42,8 @@ describe('PlainOffice decision: plain to full', () => {
     await ready();
     expect(k.sent).toEqual([
       { type: 'agentCliState', state: 'missing', command: 'curl -fsSL https://claude.ai/install.sh | bash' },
+      // the install buttons open a shell in this home folder
+      expect.objectContaining({ type: 'hostInfo', home: expect.any(String) }),
     ]);
     expect(k.restarts).toBe(0);
   });
@@ -56,7 +58,7 @@ describe('PlainOffice decision: plain to full', () => {
     const { k, ready } = setup({ claude: '/h/.local/bin/claude' });
     await ready();
     expect(k.restarts).toBe(1);
-    expect(k.sent.map((m) => m.state)).toEqual(['missing', 'restarting', 'failed']); // still alive after the wait
+    expect(k.sent.filter((m) => m.type === 'agentCliState').map((m) => m.state)).toEqual(['missing', 'restarting', 'failed']); // still alive after the wait
     expect(k.sleeps).toEqual([30_000]);
     expect(k.logs.join('\n')).toContain('restart did not take effect: plain pixel-agents office keeps running');
   });

@@ -58,7 +58,10 @@ import {
 import {
   getWorkspace,
   OPEN_TERMINAL_EVENT,
+  queueTerminalInput,
   reportVisibleTabs,
+  takeRequestedShell,
+  takeTerminalInput,
   useWorkspace,
   workspaceActions,
 } from './workspaceStore.js';
@@ -125,7 +128,15 @@ export function TerminalWorkspace({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const inputs = useRef(new Map<string, TerminalInputHandle>());
+  const statuses = useRef<Record<string, TerminalConnectionStatus>>({});
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const flushTerminalInput = (key: string) => {
+    if (statuses.current[key] !== 'connected') return;
+    const input = inputs.current.get(key);
+    if (!input) return;
+    for (const data of takeTerminalInput(key)) input.send(data);
+  };
 
   const refresh = useCallback(() => {
     listShells().then(setList, () =>
@@ -289,12 +300,27 @@ export function TerminalWorkspace({
     );
   };
 
-  const openShellFolder = (cwd: string) =>
+  const openShellFolder = (cwd: string, input?: string) =>
     withProof(async () => {
       const row = await openShell(cwd);
-      workspaceActions.open(shellTab(row.id, folderName(row.cwd)));
+      const tab = shellTab(row.id, folderName(row.cwd));
+      workspaceActions.open(tab);
+      if (input) queueTerminalInput(tab.key, input);
       refresh();
     });
+
+  useEffect(() => {
+    const openRequestedShell = () => {
+      // The plain-office modal mounts on the same event that queued this request;
+      // wait for its sign-in read instead of losing the first install button press.
+      if (!me) return;
+      const request = takeRequestedShell();
+      if (request) openShellFolder(request.cwd, request.input);
+    };
+    openRequestedShell();
+    window.addEventListener(OPEN_TERMINAL_EVENT, openRequestedShell);
+    return () => window.removeEventListener(OPEN_TERMINAL_EVENT, openRequestedShell);
+  });
 
   const reopenShell = (id: string, cwd: string) => {
     setMenu(false);
@@ -564,7 +590,10 @@ export function TerminalWorkspace({
                   prepare={tab.kind === 'shell' ? ensureShellProof : undefined}
                   onStatusChange={(n, s) => {
                     const k = keysByNumber.get(n);
-                    if (k) setStatus((prev) => ({ ...prev, [k]: s }));
+                    if (!k) return;
+                    statuses.current[k] = s;
+                    setStatus((prev) => ({ ...prev, [k]: s }));
+                    if (s === 'connected') flushTerminalInput(k);
                   }}
                   onRefused={(n, reason) => {
                     const k = keysByNumber.get(n);
@@ -581,8 +610,10 @@ export function TerminalWorkspace({
                   onRegisterInput={(n, handle) => {
                     const k = keysByNumber.get(n);
                     if (!k) return;
-                    if (handle) inputs.current.set(k, handle);
-                    else inputs.current.delete(k);
+                    if (handle) {
+                      inputs.current.set(k, handle);
+                      flushTerminalInput(k);
+                    } else inputs.current.delete(k);
                   }}
                   {...(mobile && { fontSizePx: MOBILE_TERMINAL_FONT_SIZE_PX, autoFocus: false })}
                 />

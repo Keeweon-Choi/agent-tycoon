@@ -17,6 +17,7 @@ import {
   AGENT_CLI_RESTART_WAIT_MS,
 } from '../constants.js';
 import { claudeInstallCommand } from './agentCli.js';
+import { detectHostInfo } from './folders.js';
 import type { CldHooks, WsSend } from './hooks.js';
 
 type State = 'missing' | 'restarting' | 'failed';
@@ -44,6 +45,9 @@ export class PlainOffice {
       onClientReady: (send) => {
         this.viewers.add(send);
         this.tell(send);
+        // the notice's install buttons open a shell in the home folder (CLI-TERMINAL): a full office
+        // sends this on ready, a plain one did not, so the buttons stayed disabled
+        send({ ...detectHostInfo() });
         void this.check('viewer');
       },
       onClientClosed: (send) => void this.viewers.delete(send),
