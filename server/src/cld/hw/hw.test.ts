@@ -822,7 +822,8 @@ describe('HwSource: one sensor source per OS', () => {
     // With the flag it runs (on a loaded machine the fake may answer after the 1.5 s production
     // timeout, so its readings are checked below with a reader that waits longer).
     await linux('intel-nvidia-proprietary', { nvidiaSmi: findNvidiaSmi() }).sample();
-    await vi.waitFor(() => expect(calls(log)).toBeGreaterThan(0));
+    // the fake is a process: under load it starts after vi.waitFor's default 1 s (public CI 10-26)
+    await vi.waitFor(() => expect(calls(log)).toBeGreaterThan(0), { timeout: 15_000 });
     const flagged = calls(log);
     const patient = new NvidiaSmi(findNvidiaSmi()!, { timeoutMs: 15_000 });
     const on = await linux('intel-nvidia-proprietary', { nvidia: patient }).sample();
