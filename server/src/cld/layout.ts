@@ -1,4 +1,4 @@
-import { koText } from '../../../core/src/cld/serverText.js';
+import { koText, matchKorean } from '../../../core/src/cld/serverText.js';
 /**
  * Generated office (FR-OFC-001..003): one room per provider room (an engine project's room, or
  * the project directory of a Claude session) in order, each with a desk + PC + chair per
@@ -17,6 +17,31 @@ import { koText } from '../../../core/src/cld/serverText.js';
 export const MAX_COLS = 64; // webview-ui/src/constants.ts
 export const MAX_ROWS = 64;
 export const LOUNGE_ROOM = koText('room_lounge');
+/** LOUNGE: the pantry, a labelled corner of the lounge (vending machine, coffee machine, water cooler). */
+export const PANTRY_ROOM = koText('room_pantry');
+/** A room label as it is called now: the lounge was 라운지 ("2층 라운지") before, and a saved decor
+ *  or floor layout may still key on that (decor.ts migrates it). Any other label comes back as is. */
+export function currentLabel(label: string): string {
+  const hit = matchKorean(label);
+  if (hit?.code === 'room_lounge_old') return LOUNGE_ROOM;
+  if (hit?.code === 'room_lounge_floor_old') return koText('room_lounge_floor', hit.params);
+  return label;
+}
+/** The pantry's three machines (stable uids, ordinary catalog objects the editor can move). */
+export const PANTRY_UIDS = {
+  vending: 'lounge:vending',
+  coffee: 'lounge:coffee',
+  water: 'lounge:water',
+} as const;
+export const PANTRY_TYPES = {
+  vending: 'VENDING_MACHINE',
+  coffee: 'COFFEE_MACHINE',
+  water: 'WATER_COOLER',
+} as const;
+/** The pantry corner: three machines side by side, two rows high; its area is the row they are
+ *  used from (its label then sits below the machines, not over them). */
+const PANTRY_SIZE = { w: 3 };
+const PANTRY_MACHINE_ROWS = 2;
 /** Floor 1's entrance (T-0046): the office door, the big board, benches. */
 export const LOBBY_ROOM = koText('room_lobby');
 /** The board's furniture type (webview-ui/public/assets/furniture/LED_BOARD). */
@@ -174,13 +199,14 @@ function pack(specs: Array<Pick<Room, 'label' | 'units' | 'lounge' | 'lobby'>>):
 
 /**
  * `lounge`: the lounge's label (a floor above the first names its own,
- * T-0027). `lobby`: the floor has the 로비 (floor 1), which then holds the
- * office door instead of the lounge.
+ * T-0027), `pantry` the label of its pantry corner (also one per floor).
+ * `lobby`: the floor has the 로비 (floor 1), which then holds the office door instead of the lounge.
  */
 export function generateLayout(
   roomSpecs: RoomSpec[],
   lounge = LOUNGE_ROOM,
   lobby = lounge === LOUNGE_ROOM,
+  pantry = PANTRY_ROOM,
 ): GeneratedLayout {
   const work: Array<Pick<Room, 'label' | 'units'>> = roomSpecs
     .filter((r) => r.members.length || r.contractorDesk)
@@ -214,6 +240,7 @@ export function generateLayout(
   const areaTiles = new Array<string | null>(cols * rows).fill(null);
   const furniture: PlacedFurniture[] = [];
   const seats: Record<string, string> = {};
+  const pantryAreas: string[] = [];
   const set = (c: number, r: number, tile: number, color: (typeof tileColors)[number]) => {
     tiles[r * cols + c] = tile;
     tileColors[r * cols + c] = color;
@@ -283,8 +310,23 @@ export function generateLayout(
         { uid: 'lounge:sofa-left', type: 'SOFA_SIDE', col: tx - 1, row: ty },
         { uid: 'lounge:sofa-right', type: 'SOFA_SIDE:left', col: tx + 2, row: ty },
         { uid: 'lounge:plant-1', type: 'PLANT', col: room.x + 1, row: room.y + 1 },
-        { uid: 'lounge:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: room.y + 1 },
+        { uid: 'lounge:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: room.y + 5 },
       );
+      // LOUNGE: the pantry is the top right corner (a corner, not a room of its own: the rooms'
+      // packing stays as it was). The machines stand against the top wall, side by side, and
+      // are used from the row below (free of the sofas, which end a row lower).
+      const px = room.x + room.w - 1 - PANTRY_SIZE.w;
+      (['vending', 'coffee', 'water'] as const).forEach((k, i) =>
+        furniture.push({
+          uid: PANTRY_UIDS[k],
+          type: PANTRY_TYPES[k],
+          col: px + i,
+          row: room.y + 1,
+        }),
+      );
+      for (let c = px; c < px + PANTRY_SIZE.w; c++)
+        areaTiles[(room.y + 1 + PANTRY_MACHINE_ROWS) * cols + c] = pantry;
+      pantryAreas.push(pantry);
       return;
     }
 
@@ -331,7 +373,13 @@ export function generateLayout(
       tiles,
       tileColors,
       furniture,
-      areas: rooms.map((r, i) => ({ label: r.label, color: AREA_COLORS[i % AREA_COLORS.length] })),
+      areas: [
+        ...rooms.map((r, i) => ({ label: r.label, color: AREA_COLORS[i % AREA_COLORS.length] })),
+        ...pantryAreas.map((label, i) => ({
+          label,
+          color: AREA_COLORS[(rooms.length + i) % AREA_COLORS.length],
+        })),
+      ],
       areaTiles,
     },
     seats,

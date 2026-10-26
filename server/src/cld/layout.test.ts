@@ -10,6 +10,9 @@ import {
   LOBBY_ROOM,
   LOUNGE_ROOM,
   MAX_COLS,
+  PANTRY_ROOM,
+  PANTRY_TYPES,
+  PANTRY_UIDS,
   seatUid,
   WHITEBOARD_TYPE,
   whiteboardUid,
@@ -52,15 +55,18 @@ describe('layout generator', () => {
   const at = (c: number, r: number) => layout.tiles[r * layout.cols + c];
 
   it('one room (area) per tab in order, then the lounge and the lobby', () => {
-    expect(rooms.map((r) => r.label)).toEqual(layout.areas.map((a) => a.label));
+    expect(rooms.map((r) => r.label)).toEqual(
+      layout.areas.slice(0, rooms.length).map((a) => a.label),
+    );
     for (const room of rooms)
       for (let y = room.y + 1; y < room.y + room.h - 1; y++)
         for (let x = room.x + 1; x < room.x + room.w - 1; x++)
-          expect(layout.areaTiles[y * layout.cols + x]).toBe(room.label);
+          expect([room.label, PANTRY_ROOM]).toContain(layout.areaTiles[y * layout.cols + x]); // the pantry corner is the lounge's
     expect(layout.areas.map((a) => a.label)).toEqual([
       ...S8.map((r) => r.label),
       LOUNGE_ROOM,
       LOBBY_ROOM,
+      PANTRY_ROOM, // LOUNGE: the pantry corner is an area, not a room
     ]);
     for (const r of S8) expect(layout.areaTiles).toContain(r.label);
     expect(layout.cols).toBeLessThanOrEqual(MAX_COLS);
@@ -114,7 +120,7 @@ describe('layout generator', () => {
     const g = generateLayout(many);
     expect(g.layout.cols).toBeLessThanOrEqual(MAX_COLS);
     expect(Object.keys(g.seats)).toHaveLength(36);
-    expect(g.layout.areas).toHaveLength(11); // and the lounge and the lobby
+    expect(g.layout.areas).toHaveLength(12); // and the lounge, the lobby and the pantry
   });
 
   it('works for project rooms without the engine (no contractor desks)', () => {
@@ -184,9 +190,11 @@ describe('layout generator', () => {
   it('the lounge stays its own room (T-0041), without the door when the lobby has it', () => {
     const lounge = layout.furniture.filter((f) => f.uid.startsWith('lounge:'));
     expect(lounge.map((f) => f.type)).toContain('COFFEE_TABLE');
-    expect(lounge.every((f) => layout.areaTiles[f.row * layout.cols + f.col] === LOUNGE_ROOM)).toBe(
-      true,
-    );
+    expect(
+      lounge.every((f) =>
+        [LOUNGE_ROOM, PANTRY_ROOM].includes(layout.areaTiles[f.row * layout.cols + f.col]!),
+      ),
+    ).toBe(true);
     // The floor's outer edge has a gap only in the lobby.
     const doors = new Set<string | null>();
     for (let c = 0; c < layout.cols; c++) {
@@ -198,8 +206,9 @@ describe('layout generator', () => {
   });
 
   it('a floor above the first keeps a lounge (with the door), no lobby and no board', () => {
-    const g = generateLayout(S8, `2층 ${LOUNGE_ROOM}`).layout;
-    expect(g.areas.at(-1)!.label).toBe(`2층 ${LOUNGE_ROOM}`);
+    const g = generateLayout(S8, `2층 ${LOUNGE_ROOM}`, false, `2층 ${PANTRY_ROOM}`).layout;
+    expect(g.areas.at(-2)!.label).toBe(`2층 ${LOUNGE_ROOM}`);
+    expect(g.areas.at(-1)!.label).toBe(`2층 ${PANTRY_ROOM}`);
     expect(g.areas.some((a) => a.label === LOBBY_ROOM)).toBe(false);
     expect(g.furniture.some((f) => f.type === BOARD_TYPE)).toBe(false);
     const last = g.rows - 1;
@@ -207,6 +216,25 @@ describe('layout generator', () => {
       (t, i) => Math.floor(i / g.cols) === last && t !== 0 && t !== 255,
     );
     expect(g.areaTiles[gap]).toBe(`2층 ${LOUNGE_ROOM}`);
+  });
+
+  it('LOUNGE: a pantry corner with a vending machine, a coffee machine and a water cooler (stable uids)', () => {
+    const by = new Map(layout.furniture.map((f) => [f.uid, f]));
+    const lounge = rooms.find((r) => r.label === LOUNGE_ROOM)!;
+    const at = (uid: string) => by.get(uid)!;
+    for (const k of ['vending', 'coffee', 'water'] as const) {
+      expect(at(PANTRY_UIDS[k]).type).toBe(PANTRY_TYPES[k]);
+      expect(bundledCatalog().has(PANTRY_TYPES[k])).toBe(true);
+    }
+    // side by side against the lounge's top wall; the pantry's own area is the row they are used from
+    const row = at(PANTRY_UIDS.vending).row;
+    expect(row).toBe(lounge.y + 1);
+    const cols = [PANTRY_UIDS.vending, PANTRY_UIDS.coffee, PANTRY_UIDS.water].map((u) => at(u).col);
+    expect(cols.map((c) => c - cols[0])).toEqual([0, 1, 2]);
+    for (const c of cols) {
+      expect(layout.areaTiles[row * layout.cols + c]).toBe(LOUNGE_ROOM);
+      expect(layout.areaTiles[(row + 2) * layout.cols + c]).toBe(PANTRY_ROOM); // where it is used from
+    }
   });
 
   it('a whiteboard on every work room top wall (T-0065), none in the lobby or lounges, none over a door', () => {

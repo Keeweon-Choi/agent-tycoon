@@ -155,7 +155,10 @@ describe('temps (T-0041)', () => {
 describe('the 🤝 dotted line follows the sub-agents still in the office (LINKS)', () => {
   const dots = (os: OfficeState) => {
     let n = 0;
-    const ctx = { fillRect: () => n++, set fillStyle(_v: string) {} } as unknown as CanvasRenderingContext2D;
+    const ctx = {
+      fillRect: () => n++,
+      set fillStyle(_v: string) {},
+    } as unknown as CanvasRenderingContext2D;
     // The sub-agents drawn 100 px off, so a line has room for its dots.
     const far = os.getCharacters().map((c) => (c.isSubagent ? { ...c, x: c.x + 100 } : c));
     cldDrawSpeechLinks(ctx, far, 0, 0, 1);
@@ -226,15 +229,18 @@ describe('office hours (T-0041)', () => {
     run(os, evening, 4);
     expect(staffSnapshot().overtime).toEqual([1]);
     expect(Object.keys(staffSnapshot().away)).toEqual(['2']);
-    expect(os.characters.get(2)?.cldAway).toBe(true);
-    expect(os.getCharacters().map((c) => c.id)).toEqual([1]); // not drawn
+    // LOUNGE: off duty it is still in the building, drawn and resting (not gone through the door)
+    expect(os.characters.get(2)?.cldAway).toBe(false);
+    expect(os.characters.get(2)?.cldRest).toBeDefined();
+    expect(os.getCharacters().map((c) => c.id)).toEqual([1, 2]);
     run(os, Date.UTC(2026, 9, 22, 9, 0), 4);
     expect(staffSnapshot().away).toEqual({});
     expect(staffSnapshot().overtime).toEqual([]);
-    expect(os.characters.get(2)?.cldAway).toBe(false);
+    expect(os.characters.get(2)?.cldRest).toBeUndefined(); // back on duty: on its way to its desk
+    expect(os.characters.get(2)?.matrixEffect).toBe(null); // no spawn effect at a door
   });
 
-  it('who is on overtime follows each one\'s own ring, never what the FSM says of a character on a floor not shown (CARD-TAGS)', () => {
+  it("who is on overtime follows each one's own ring, never what the FSM says of a character on a floor not shown (CARD-TAGS)", () => {
     cldHandleMessage({ type: 'hostInfo', utcOffsetMin: 0 } as never);
     const os = office([
       ['busy', 1],
@@ -342,7 +348,7 @@ describe('the load shows the steady state at once (T-0041 bug, 10-22)', () => {
     }
   }
 
-  it('at 23:00 with 3 idle and 1 working, only the working one is ever drawn and nobody walks out', () => {
+  it('at 23:00 with 3 idle and 1 working, the idle ones are resting at once, never walking out or in', () => {
     cldHandleMessage({ type: 'hostInfo', utcOffsetMin: 0 } as never);
     const os = office([
       ['busy', 1],
@@ -352,10 +358,13 @@ describe('the load shows the steady state at once (T-0041 bug, 10-22)', () => {
     ]);
     for (const id of [2, 3, 4]) os.setAgentActive(id, false);
     watch(os, at(23), 30, () => {
-      expect(drawn(os).filter((id) => id !== 1)).toEqual([]);
-      for (const id of [2, 3, 4]) expect(os.characters.get(id)?.path).toEqual([]);
+      for (const id of [2, 3, 4]) {
+        expect(os.characters.get(id)?.path).toEqual([]);
+        expect(os.characters.get(id)?.matrixEffect).toBe(null);
+      }
     });
-    expect(drawn(os)).toEqual([1]);
+    expect(drawn(os)).toEqual([1, 2, 3, 4]);
+    for (const id of [2, 3, 4]) expect(os.characters.get(id)?.cldRest?.phase).toBe('rest');
     expect(staffSnapshot().overtime).toEqual([1]);
     expect(Object.keys(staffSnapshot().away).sort()).toEqual(['2', '3', '4']);
   });
@@ -401,6 +410,7 @@ describe('the load shows the steady state at once (T-0041 bug, 10-22)', () => {
     os.setAgentActive(2, false);
     os.setAgentActive(3, false);
     watch(os, at(23), 2, () => expect(drawn(os)).toEqual([]));
+    let first: number[] | null = null;
     cldHandleMessage({
       type: 'officeSnapshot',
       tabs: [],
@@ -410,8 +420,19 @@ describe('the load shows the steady state at once (T-0041 bug, 10-22)', () => {
         state: 'running',
       })),
     } as unknown as OfficeSnapshot);
-    watch(os, at(23), 10, () => expect(drawn(os).filter((id) => id !== 1)).toEqual([]));
-    expect(drawn(os)).toEqual([1]);
+    // Everyone appears in the same frame, the idle ones already resting (no walk, no flash).
+    watch(os, at(23), 10, () => {
+      const now = drawn(os);
+      if (!first && now.length) {
+        first = now;
+        expect(now).toEqual([1, 2, 3]);
+        for (const id of [2, 3]) {
+          expect(os.characters.get(id)?.path).toEqual([]);
+          expect(os.characters.get(id)?.cldRest).toBeDefined();
+        }
+      }
+    });
+    expect(first).toEqual([1, 2, 3]);
   });
 });
 
@@ -452,24 +473,28 @@ describe('the entrance is no way home by itself (ELEVATOR step 4)', () => {
     }
   });
 
-  it('on its way home and sent to another door, it leaves only by the door its walk home was for', () => {
-    cldHandleMessage({ type: 'hostInfo', utcOffsetMin: 0 } as never);
-    const os = office([['idle', 2]], twoDoors());
-    os.setAgentActive(2, false);
-    run(os, at(17, 59), 4);
-    run(os, at(18), 1); // the grace starts
-    place(os, 2, 6, 4);
-    staffStep(os, 0.3, at(18) + HOME_GRACE_MS + MIN); // past it: off home, by the door at col 6
-    const ch = os.characters.get(2)!;
+  it('a temp on its way out and put at another door leaves only by the door its walk out was for', () => {
+    const os = office([['lead', 1]], twoDoors());
+    const t0 = Date.now();
+    run(os, t0, 4);
+    const sub = os.addSubagent(1, 'tu-a');
+    noteSubagent(sub, 'fix login', undefined);
+    run(os, t0);
+    let gone = false;
+    deferRemoval(sub, () => {
+      gone = true;
+      os.removeSubagent(1, 'tu-a');
+    });
+    os.setAgentActive(1, false);
+    run(os, t0 + MIN);
+    place(os, sub, 6, 4);
+    staffStep(os, 0.3, t0 + 11 * MIN); // past the linger time: off for the nearest door, at col 6
+    const ch = os.characters.get(sub)!;
     expect(ch.path.at(-1)).toEqual({ col: 6, row: 6 });
-    expect(os.walkToTile(2, 2, 6)).toBe(true); // the user sends it to the other door
-    for (let t = 0; t < 3; t += 0.1) {
-      os.update(0.1);
-      staffStep(os, 0.1, at(18) + HOME_GRACE_MS + MIN);
-      if (ch.tileCol === 2 && ch.tileRow === 6) expect(ch.cldAway).toBe(false);
-    }
-    run(os, at(18) + HOME_GRACE_MS + MIN, 6);
-    expect(Object.keys(staffSnapshot().away)).toEqual(['2']);
-    expect([ch.tileCol, ch.tileRow]).toEqual([6, 6]);
+    place(os, sub, 2, 6); // put at the other door (a drop, a walk by hand)
+    run(os, t0 + 11 * MIN, 1);
+    expect(gone).toBe(false);
+    run(os, t0 + 11 * MIN, 8);
+    expect(gone).toBe(true);
   });
 });

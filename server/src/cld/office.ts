@@ -152,6 +152,7 @@ import {
   floorPrefix,
   generateLayout,
   LOUNGE_ROOM,
+  PANTRY_ROOM,
   stackFloors,
   WHITEBOARD_TYPE,
 } from './layout.js';
@@ -2108,7 +2109,7 @@ export class Office {
   /**
    * Every floor's generated office (T-0027): a room on its floor with its
    * contractor desk; its characters placed on another floor sit in an annex
-   * there ("2층 <room>"), and each floor has a lounge ("2층 라운지" above the
+   * there ("2층 <room>"), and each floor has a lounge ("2층 휴게실" above the
    * first; floor 1 also has the 로비, T-0046), so no area label is on two floors. Seats stay `seat:<key>`
    * whichever floor a character is on.
    */
@@ -2141,7 +2142,13 @@ export class Office {
           spare: home && members.length ? spec.spare : 0,
         };
       });
-      const gen = generateLayout(rooms, k ? koText('room_lounge_floor', { floor: floorName(k + 1) }) : LOUNGE_ROOM);
+      const floor1 = k === 0;
+      const gen = generateLayout(
+        rooms,
+        floor1 ? LOUNGE_ROOM : koText('room_lounge_floor', { floor: floorName(k + 1) }),
+        floor1,
+        floor1 ? PANTRY_ROOM : koText('room_pantry_floor', { floor: floorName(k + 1) }),
+      );
       const own = k > 0 && isLayout(floor.layout);
       floorPlans.push({ id: floor.id, own, rooms: own ? [] : gen.rooms });
       Object.assign(seats, gen.seats);

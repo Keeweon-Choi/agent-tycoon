@@ -62,7 +62,7 @@ const catalog: Footprints = [
     canPlaceOnWalls: true,
   },
 ];
-const floor = (label: string, members: string[], id = '1', lounge = '라운지'): BaseFloor => {
+const floor = (label: string, members: string[], id = '1', lounge = '휴게실'): BaseFloor => {
   const g = generateLayout([{ label, members }], lounge, id === '1');
   return { id, own: false, layout: g.layout as FloorLayout, rooms: g.rooms };
 };
@@ -87,7 +87,7 @@ const at = (f: BaseFloor, label: string, x: number, y: number) => {
 describe('room decor', () => {
   it('round trips floor and carpet edits, furniture, removals and wall colour on one and two floors', () => {
     const one = floor('a', ['a1', 'a2']);
-    const two = floor('b', ['b1'], '2', '2층 라운지');
+    const two = floor('b', ['b1'], '2', '2층 휴게실');
     for (const floors of [[one], [one, two]]) {
       const label = floors.length === 1 ? 'a' : 'b';
       const d: Decor = {
@@ -274,7 +274,7 @@ describe('room decor', () => {
   });
 
   it('keeps an item added on floor 2 (editor uids carry no floor prefix)', () => {
-    const floors = [floor('a', ['a1']), floor('b', ['b1'], '2', '2층 라운지')];
+    const floors = [floor('a', ['a1']), floor('b', ['b1'], '2', '2층 휴게실')];
     const office = saveOf(floors, empty) as FloorLayout & { cldFloors: Array<{ row: number }> };
     const b = floors[1].rooms.find((r) => r.label === 'b')!;
     const row = office.cldFloors[1].row + b.y + 2;
@@ -340,6 +340,37 @@ describe('room decor', () => {
     ).toBe(true);
   });
 
+  it('LOUNGE: a pantry machine the user moved stays moved; a decor saved under the old lounge name follows the new name', () => {
+    const f = floor('a', ['a1']);
+    const coffee = f.layout.furniture.find((v) => v.uid === 'lounge:coffee')!;
+    const moved = structuredClone(f.layout);
+    moved.furniture.find((v) => v.uid === coffee.uid)!.row += 3;
+    const d = decorFromSave(moved, [f], empty, catalog) as Decor;
+    expect(d.rooms['휴게실'].furniture).toContainEqual(
+      expect.objectContaining({ uid: coffee.uid }),
+    );
+    const shown = composeOffice([f], d, catalog).layouts[0].furniture.find(
+      (v) => v.uid === coffee.uid,
+    );
+    expect(shown?.row).toBe(coffee.row + 3);
+    // the same decor as an older version saved it (the lounge was 라운지, then "2층 라운지")
+    const old = JSON.parse(JSON.stringify(d).replace('휴게실', '라운지')) as unknown;
+    expect(Object.keys((parseDecor(old) as Decor).rooms)).toEqual(['휴게실']);
+    const two = { version: 1, rooms: { '2층 라운지': (old as Decor).rooms['라운지'] } };
+    expect(Object.keys((parseDecor(two) as Decor).rooms)).toEqual(['2층 휴게실']);
+    // a work room that merely ends in the same word is not the lounge
+    expect(
+      Object.keys(
+        (
+          parseDecor({
+            version: 1,
+            rooms: { x라운지: { tiles: [], furniture: [], removed: ['u'] } },
+          }) as Decor
+        ).rooms,
+      ),
+    ).toEqual(['x라운지']);
+  });
+
   it('records removed and moved generator furniture', () => {
     const f = floor('a', ['a1']);
     const deleted = structuredClone(f.layout);
@@ -351,8 +382,8 @@ describe('room decor', () => {
     const moved = structuredClone(f.layout);
     moved.furniture.find((v) => v.uid === table.uid)!.col++;
     const d = decorFromSave(moved, [f], empty, catalog) as Decor;
-    expect(d.rooms['라운지'].removed).toContain('lounge:table');
-    expect(d.rooms['라운지'].furniture).toContainEqual(
+    expect(d.rooms['휴게실'].removed).toContain('lounge:table');
+    expect(d.rooms['휴게실'].furniture).toContainEqual(
       expect.objectContaining({ uid: 'lounge:table' }),
     );
     const shown = composeOffice([f], d, catalog).layouts[0].furniture.filter(

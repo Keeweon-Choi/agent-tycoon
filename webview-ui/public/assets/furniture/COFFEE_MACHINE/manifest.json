@@ -1,0 +1,59 @@
+{
+  "id": "COFFEE_MACHINE",
+  "name": "Coffee Machine",
+  "category": "misc",
+  "type": "group",
+  "groupType": "state",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 0,
+  "members": [
+    {
+      "type": "group",
+      "groupType": "animation",
+      "state": "on",
+      "members": [
+        {
+          "type": "asset",
+          "id": "COFFEE_MACHINE_1",
+          "file": "COFFEE_MACHINE_1.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 0
+        },
+        {
+          "type": "asset",
+          "id": "COFFEE_MACHINE_2",
+          "file": "COFFEE_MACHINE_2.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 1
+        },
+        {
+          "type": "asset",
+          "id": "COFFEE_MACHINE_3",
+          "file": "COFFEE_MACHINE_3.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 2
+        }
+      ]
+    },
+    {
+      "type": "asset",
+      "id": "COFFEE_MACHINE",
+      "file": "COFFEE_MACHINE.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "state": "off"
+    }
+  ]
+}

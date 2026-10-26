@@ -11,7 +11,7 @@ import type {
 import { transcriptPath } from '../providers/claudeProvider.js';
 import type { AgentEntry, World } from '../providers/types.js';
 import { ENTRY_DEFAULTS } from '../providers/types.js';
-import { engineCalls, killFakeSessions, makeEngineHome, REPO_ROOT } from '../testHome.js';
+import { engineCalls, killFakeSessions, makeEngineHome, removeTestHome, REPO_ROOT } from '../testHome.js';
 import { waitFor } from '../waitKit.js';
 import {
   claudeCommand,
@@ -99,8 +99,8 @@ function setup(
   cleanup.push(() => {
     for (const e of engines) e.dispose();
     killFakeSessions(home);
-    // A fake session can still write one last job file while it exits (ENOTEMPTY under load).
-    fs.rmSync(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+    // A fake session can still write one last job file while it exits (ENOTEMPTY under load): the shared retry.
+    removeTestHome(home);
   });
   let n = 0;
   const act = (

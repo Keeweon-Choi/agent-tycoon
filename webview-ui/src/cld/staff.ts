@@ -31,12 +31,12 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import { findPath, isWalkable } from '../office/layout/tileMap.js';
 import { type Character, CharacterState, TILE_SIZE, TileType } from '../office/types.js';
 import { isBrowserRuntime, isE2E } from '../runtime.js';
-import { LOUNGE_SUFFIX as LOUNGE } from './elevator.js';
 import { employeeBusyElsewhere, employeeName, employeeOf, setSpawnLookup } from './employees.js';
 import { characterRingOf, characterVisualOf } from './ez/visuals.js';
 import { floorIndexAt, floorRects } from './floors.js';
 import { isOff } from './format.js';
 import { characterKind, characterName } from './kinds.js';
+import { beginRest, endRest, isLoungeZone as isLounge } from './lounge.js';
 import { modelBadge } from './modelBadges.js';
 import { dutyFor, isOfficeOpen, officeHours } from './officeHours.js';
 import { cldGetSnapshot, cldLocalEvent, virtualAgentId } from './officeStore.js';
@@ -78,13 +78,12 @@ interface Rec {
   };
   // Permanent staff
   idleSince?: number;
-  /** Game time it set off for home. */
-  walkingHome?: number;
-  /** The door its walk out (home, or a temp's leaving) was sent to: the only way out. */
+  /** The door a temp's walk out was sent to: the only way out. */
   door?: Tile;
   /** Placed by a step (held out of sight before, while loading). */
   decided?: boolean;
   held?: boolean;
+  /** Off duty (퇴근): resting in the building, ch.cldRest says where. */
   away?: boolean;
   wasActive?: boolean;
 }
@@ -269,7 +268,7 @@ export function staffFocus(id: number): void {
  *  walking out), or null for the usual. */
 export function staffWander(ch: Character): Tile[] | null {
   const rec = recs.get(ch.id);
-  if (rec?.walkingHome !== undefined) return [];
+  if (rec?.away) return []; // resting off duty: lounge.ts moves it
   return rec?.temp?.wander ?? null;
 }
 
@@ -329,7 +328,6 @@ const seatTile = (os: OfficeState, uid: string | null): Tile | null => {
 };
 const zoneAt = (os: OfficeState, t: Tile): string | null =>
   os.layout.areaTiles?.[t.row * os.layout.cols + t.col] ?? null;
-const isLounge = (zone: string | null) => !!zone && zone.endsWith(LOUNGE);
 
 /** A free seat in `zone` (not the lounge), nearest to `near`. */
 function spareSeat(os: OfficeState, zone: string | null, near: Tile): string | null {
@@ -686,8 +684,9 @@ function stepTemp(
     finishTemp(os, rec, ch);
 }
 
-/** Permanent staff: at the desk, on overtime, walking home or at home. At
- *  load (`settling`) the steady state at once: at the desk, or already home. */
+/** Permanent staff: at the desk, on overtime, or off duty and resting in the lounge (LOUNGE:
+ *  nobody leaves the building any more). At load (`settling`) the steady state at once: at the
+ *  desk, or already resting. */
 function stepStaff(
   os: OfficeState,
   rec: Rec,
@@ -700,72 +699,50 @@ function stepStaff(
   const working = !off && isWorking(ch);
   if (working || open || settling) rec.idleSince = undefined;
   else rec.idleSince ??= now;
-  // Live, idle a moment first: a turn's end is no reason to leave yet. The
+  // Live, idle a moment first: a turn's end is no reason to go off duty yet. The
   // grace only counts for what this page saw happen, never for the load.
-  // One at home or on its way stays so: the grace never calls anyone back in.
-  const present = !rec.away && rec.walkingHome === undefined;
+  // One already off duty stays so: the grace never calls anyone back in.
   // An orchestrator that is off has nothing to wait for: no grace.
-  const grace = !off && present && rec.idleSince !== undefined && now - rec.idleSince < HOME_GRACE_MS;
+  const grace =
+    !off && !rec.away && rec.idleSince !== undefined && now - rec.idleSince < HOME_GRACE_MS;
   // Still present after hours (working, or idle in its grace) is 야근 until it
-  // goes home (then 퇴근); off is never at work.
+  // goes off duty (then 퇴근); off is never at work.
   const due = dutyFor(open, working);
   const duty = due === 'home' && grace ? 'overtime' : due;
   if (settling) {
-    rec.walkingHome = undefined;
     ch.matrixEffect = null;
+    ch.cldAway = false;
     if (duty === 'home') {
       if (!rec.away) rec.wasActive = ch.isActive;
       rec.away = true;
-      ch.cldAway = true;
-      ch.isActive = false;
       ch.bubbleType = null;
+      endRest(os, ch);
+      beginRest(os, ch, { instant: true });
       return 'away';
     }
     if (rec.away) ch.isActive = rec.wasActive || ch.isActive;
     rec.away = false;
-    ch.cldAway = false;
+    endRest(os, ch);
     seatNow(os, ch);
     return duty;
   }
   if (rec.away) {
-    if (duty === 'home') return 'away';
-    // Back in: through the door it left by (it waited there), to its desk.
+    if (duty === 'home') {
+      if (!ch.cldRest) beginRest(os, ch); // its rest was cleared (a re-sent office): rest again
+      return 'away';
+    }
+    // Back on duty: from where it rests, to its desk (by elevator if need be).
     rec.away = false;
-    ch.cldAway = false;
     ch.isActive = rec.wasActive || ch.isActive;
-    startMatrixEffect(ch, 'spawn');
+    endRest(os, ch);
     os.sendToSeat(ch.id);
     return duty;
   }
-  if (rec.walkingHome !== undefined) {
-    if (duty !== 'home') {
-      rec.walkingHome = undefined;
-      ch.isActive = rec.wasActive || ch.isActive;
-      os.sendToSeat(ch.id);
-      return duty;
-    }
-    if (atDoor(os, rec, ch) || clock - rec.walkingHome > LEAVE_TIMEOUT_SEC) {
-      rec.walkingHome = undefined;
-      rec.away = true;
-      ch.cldAway = true;
-      startMatrixEffect(ch, 'despawn');
-      if (os.selectedAgentId === ch.id) os.selectedAgentId = null;
-      if (os.cameraFollowId === ch.id) os.cameraFollowId = null;
-    }
-    return 'away';
-  }
   if (duty !== 'home') return duty;
   rec.wasActive = ch.isActive;
-  ch.isActive = false; // or the FSM walks it back to its desk
   ch.bubbleType = null;
-  if (!walkOut(os, rec, ch)) {
-    // No door: gone where it stood.
-    rec.away = true;
-    ch.cldAway = true;
-    startMatrixEffect(ch, 'despawn');
-    return 'away';
-  }
-  rec.walkingHome = clock;
+  rec.away = true;
+  beginRest(os, ch); // isActive false: or the FSM walks it back to its desk
   return 'away';
 }
 
@@ -871,8 +848,7 @@ export function staffStep(os: OfficeState, dt: number, now = Date.now()): void {
     );
     const off = row ? isOff(row) : false;
     const at = stepStaff(os, rec, ch, off, open, now, settling);
-    // On its way out it is still in the office: 야근 until the door.
-    if (at === 'overtime' || (at === 'away' && !rec.away && !off)) overtime.push(ch.id);
+    if (at === 'overtime') overtime.push(ch.id);
     if (rec.away) {
       const desk = seatTile(os, ch.seatId);
       away[ch.id] = desk
@@ -892,6 +868,7 @@ export function staffStep(os: OfficeState, dt: number, now = Date.now()): void {
         path: c?.path.length,
         active: c?.isActive,
         state: c?.state,
+        rest: c?.cldRest?.phase,
       };
     });
   const next = { open, temps, away, overtime };

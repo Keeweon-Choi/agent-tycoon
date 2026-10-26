@@ -1,0 +1,100 @@
+{
+ "description": "LOUNGE: the drinking sequence's props, drawn by gen-pantry-assets.ts after the owner's references; rows keyed by the palette (props.json's, then this file's `palette`).",
+ "palette": {
+  "u": "#2a58e8",
+  "U": "#1a36d9",
+  "v": "#4a8cff",
+  "c": "#6f4a2a",
+  "p": "#f6efdc",
+  "P": "#d8ccb0"
+ },
+ "props": {
+  "can": {
+   "frames": [
+    [
+     ".ooo.",
+     "ogwgo",
+     "ouvuo",
+     "ouwuo",
+     "ouvuo",
+     "oUUUo",
+     ".ooo."
+    ]
+   ]
+  },
+  "canTilt": {
+   "frames": [
+    [
+     ".oooooo.",
+     "ouvvuggo",
+     "ouwuuggo",
+     "oUUuuggo",
+     ".oooooo."
+    ]
+   ]
+  },
+  "hiss": {
+   "frames": [
+    [
+     "..w.",
+     ".w..",
+     "w...",
+     "..w."
+    ]
+   ]
+  },
+  "mug": {
+   "frames": [
+    [
+     ".oooo.",
+     "occcco",
+     "opppoo",
+     "oPppo.",
+     ".oooo."
+    ]
+   ]
+  },
+  "steam": {
+   "frames": [
+    [
+     ".w.",
+     "..w",
+     ".w.",
+     "w..",
+     ".w.",
+     "..w",
+     "..."
+    ],
+    [
+     "..w",
+     ".w.",
+     "w..",
+     ".w.",
+     "..w",
+     ".w.",
+     "..."
+    ],
+    [
+     ".w.",
+     "w..",
+     ".w.",
+     "..w",
+     ".w.",
+     "w..",
+     "..."
+    ]
+   ]
+  },
+  "paperCup": {
+   "frames": [
+    [
+     "oooo",
+     "owwo",
+     "obbo",
+     ".ww.",
+     ".oo."
+    ]
+   ]
+  }
+ }
+}

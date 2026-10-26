@@ -12,7 +12,7 @@
  *   and walks out after the linger time; the 알림 list says so;
  * - "+N" on the lead's card opens the list, a row goes to the character;
  * - 외주 gathers the unowned Codex worker; the 현황판 folds and counts;
- * - at 18:00 the idle veteran goes home (퇴근 plate, card marked) while the
+ * - at 18:00 the idle veteran goes off duty (LOUNGE: it rests in the lounge, a 퇴근 badge, card marked) while the
  *   busy lead stays with 야근; at 09:00 the veteran comes back.
  * Screenshots go to cld/artifacts/t0041/.
  *
@@ -205,9 +205,14 @@ async function main() {
     ...[1, 2, 3, 4, 5, 6].map((k) => session(fake.home, 10 + k, `b${k}`, '/work/beta')),
   ];
   const lead = sessions[0];
-  const started = startDaemon({ home, claudePath }, port, ['--no-terminal', '--engine', 'on', '--allow-chat'], {
-    TZ: 'Asia/Seoul',
-  });
+  const started = startDaemon(
+    { home, claudePath },
+    port,
+    ['--no-terminal', '--engine', 'on', '--allow-chat'],
+    {
+      TZ: 'Asia/Seoul',
+    },
+  );
   const daemon = started.child;
   const log = started.log;
   const pageErrors: string[] = [];
@@ -278,17 +283,24 @@ async function main() {
 
     // An off character (a finished Codex worker lingering) is dimmed, and in full while selected.
     const offIds = await page.$$eval('[data-testid="agent-overlay"]', (ns) =>
-      ns.filter((n) => (n as HTMLElement).style.opacity === '0.55').map((n) => Number(n.getAttribute('data-agent-id'))),
+      ns
+        .filter((n) => (n as HTMLElement).style.opacity === '0.55')
+        .map((n) => Number(n.getAttribute('data-agent-id'))),
     );
     if (offIds.length) {
       const sel = (id: number | null) =>
         page.evaluate((id) => {
           (
-            window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }
+            window as unknown as {
+              __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void };
+            }
           ).__pixelAgentsTestHooks.selectAgent(id as number);
         }, id);
       const look = () =>
-        page.$eval(`[data-testid="agent-overlay"][data-agent-id="${offIds[0]}"]`, (n) => (n as HTMLElement).style.opacity);
+        page.$eval(
+          `[data-testid="agent-overlay"][data-agent-id="${offIds[0]}"]`,
+          (n) => (n as HTMLElement).style.opacity,
+        );
       await sel(offIds[0]);
       await page.waitForTimeout(400);
       const selected = await look();
@@ -497,13 +509,13 @@ async function main() {
     await until(
       'the veteran goes home',
       async () =>
-        (await page.locator(`[data-testid="off-duty-plate"][data-agent-id="${vetId}"]`).count()) >
+        (await page.locator(`[data-testid="off-duty-badge"][data-agent-id="${vetId}"]`).count()) >
         0,
       40_000,
     );
     check(
-      !(await anchors(page)).some((x) => x.id === vetId),
-      'at 18:00 the idle veteran walked out (its desk shows 퇴근)',
+      (await anchors(page)).some((x) => x.id === vetId),
+      'at 18:00 the idle veteran is off duty but still in the building, resting (a 퇴근 badge at its feet)',
     );
     await until(
       'the lead does overtime',
@@ -518,15 +530,18 @@ async function main() {
         '퇴근',
       "the veteran's card still lists it, marked 퇴근",
     );
-    // U-10 + U-27: the card and the plate of the one at home open its info sheet and chat.
+    // U-10 + U-27: the card of the one off duty opens its info sheet and chat (LOUNGE: the camera
+    // goes to the resting character as well).
     fs.mkdirSync(UI_OUT, { recursive: true });
     const sheet = page.getByTestId('off-duty-sheet');
     await cardFor(page, 'veteran').click();
     await sheet.waitFor({ timeout: 5_000 });
     const sheetText = (await sheet.textContent()) ?? '';
     check(
-      sheetText.includes('퇴근했어요') && sheetText.includes('Lv 1') && sheetText.includes('환생 0회'),
-      `a tap on the card of the veteran at home opens its sheet (${sheetText.slice(0, 80)})`,
+      sheetText.includes('퇴근했어요') &&
+        sheetText.includes('Lv 1') &&
+        sheetText.includes('환생 0회'),
+      `a tap on the card of the veteran off duty opens its sheet (${sheetText.slice(0, 80)})`,
     );
     check(
       (await sheet.getByTestId('off-duty-chat').count()) === 1,
@@ -536,22 +551,24 @@ async function main() {
     await page.screenshot({ path: path.join(UI_OUT, 'desktop-off-duty-sheet.png') });
     await page.getByRole('button', { name: 'x', exact: true }).click();
     await sheet.waitFor({ state: 'detached' });
-    // The plate stands at the veteran's desk, maybe off screen: dispatch the click to it.
-    await page.locator(`[data-testid="off-duty-plate"][data-agent-id="${vetId}"]`).dispatchEvent('click');
+    await cardFor(page, 'veteran').click();
     await sheet.waitFor({ timeout: 5_000 });
-    check(true, 'its 퇴근 plate on the desk opens the sheet too');
+    check(true, 'the card opens the sheet again');
     await sheet.getByTestId('off-duty-chat').click();
     await sheet.waitFor({ state: 'detached' });
     await page.getByRole('textbox', { name: '보낼 글' }).waitFor({ timeout: 10_000 });
     check(true, '대화 열기 opens the messenger on its conversation');
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(UI_OUT, 'desktop-off-duty-chat.png') });
-    await page.locator('[data-hud-window="messenger"]').getByRole('button', { name: '메신저 닫기' }).click();
+    await page
+      .locator('[data-hud-window="messenger"]')
+      .getByRole('button', { name: '메신저 닫기' })
+      .click();
     await page.waitForTimeout(1_000);
     await shot(page, 'desktop-1800');
     await until(
-      'the phone shows the plate',
-      async () => (await phone.locator('[data-testid="off-duty-plate"]').count()) > 0,
+      'the phone shows the badge',
+      async () => (await phone.locator('[data-testid="off-duty-badge"]').count()) > 0,
     );
     await phone.waitForTimeout(1_000);
     await shot(phone, 'phone-1800');
@@ -562,10 +579,10 @@ async function main() {
       'the veteran is back',
       async () =>
         (await anchors(page)).some((x) => x.id === vetId) &&
-        (await page.locator('[data-testid="off-duty-plate"]').count()) === 0,
+        (await page.locator('[data-testid="off-duty-badge"]').count()) === 0,
       40_000,
     );
-    check(true, 'at 09:00 the veteran came back in');
+    check(true, 'at 09:00 the veteran is back on duty, walking to its desk');
     await page.waitForTimeout(3_000);
     await shot(page, 'desktop-0900');
     check(pageErrors.length === 0, `no page errors (${pageErrors.join(' | ') || 'none'})`);

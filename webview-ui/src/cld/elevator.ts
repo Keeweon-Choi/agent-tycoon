@@ -33,6 +33,7 @@ import type {
   TileType as TileTypeVal,
 } from '../office/types.js';
 import { CharacterState, Direction, TILE_SIZE, TileType } from '../office/types.js';
+import { isLoungeZone, LOUNGE_SUFFIX, restDropFloor } from './lounge.js';
 import { floorIndexAt, floorRects } from './walk.js';
 
 type Tile = { col: number; row: number };
@@ -75,8 +76,7 @@ export interface Visit {
 /** "col,row" of an elevator's front tile -> the front tiles of the others. */
 export type FloorLinks = Map<string, Tile[]>;
 
-/** The generated lounge's label ends so on every floor (server/src/cld/layout.ts LOUNGE_ROOM). */
-export const LOUNGE_SUFFIX = '\uB77C\uC6B4\uC9C0';
+export { LOUNGE_SUFFIX };
 const SPRITE_W = 2 * TILE_SIZE;
 const SPRITE_H = 30;
 /** Door positions drawn between shut and open. */
@@ -140,8 +140,7 @@ export function findElevators(
   const wall = (c: number, r: number) =>
     tileMap[r]?.[c] === TileType.WALL && !blocked.has(`${c},${r}`);
   const free = (c: number, r: number) => isWalkable(c, r, tileMap, blocked);
-  const lounge = (c: number, r: number) =>
-    !!layout.areaTiles?.[r * layout.cols + c]?.endsWith(LOUNGE_SUFFIX);
+  const lounge = (c: number, r: number) => isLoungeZone(layout.areaTiles?.[r * layout.cols + c]);
   /** Per floor: the tiles (local row, left col) two free wall tiles over free floor allow. */
   const spots = rects.map((rect) => {
     const out: Tile[] = [];
@@ -499,6 +498,7 @@ export function visitFloor(os: OfficeState, id: number, floorId: string): boolea
   const ch = os.characters.get(id);
   const rects = floorRects(os.layout);
   const el = os.cldElevators?.find((e) => e.floor === floorId);
+  if (ch?.cldRest) return restDropFloor(os, ch, floorId); // LOUNGE: a resting one goes there and rests
   if (!ch || !rects || !el || ch.cldAway || ch.isSubagent || ch.matrixEffect) return false;
   const k = rects.findIndex((r) => r.id === floorId);
   const homeSeat = ch.cldVisit ? ch.cldVisit.homeSeat : ch.seatId;

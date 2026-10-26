@@ -35,6 +35,15 @@ describe('selectOrOpenInfo (a card tap)', () => {
     expect(offDutyId()).toBeNull();
   });
 
+  it('a character off duty (resting in the lounge) is followed and opens its sheet too', () => {
+    staff.away = { 7: { x: 1, y: 2 } };
+    let followed = 0;
+    const resting = { selectAndFollow: () => ++followed > 0 } as unknown as OfficeState;
+    expect(selectOrOpenInfo(resting, 7)).toBe(false); // the caller does not go on to its terminal
+    expect(followed).toBe(1);
+    expect(offDutyId()).toBe(7);
+  });
+
   it('a character that went home opens its sheet instead', () => {
     staff.away = { 7: { x: 1, y: 2 } };
     expect(selectOrOpenInfo(os(false), 7)).toBe(false);

@@ -2251,11 +2251,16 @@ export const SERVER_TEXT = {
     en: 'a value',
   },
   // -- room and floor names the daemon creates (layout.ts, engine.ts, groups.ts, building.ts) --
-  room_lounge: { ko: '라운지', en: 'Lounge' },
+  room_lounge: { ko: '휴게실', en: 'Lounge' },
+  room_pantry: { ko: '탕비실', en: 'Pantry' },
+  // LOUNGE: the lounge was called 라운지 until 10-26; a floor's own saved layout may still say so.
+  room_lounge_old: { ko: '라운지', en: 'Lounge' },
   room_lobby: { ko: '로비', en: 'Lobby' },
   room_ops: { ko: '관리실', en: 'Operations' },
   room_all: { ko: '전체', en: 'All' },
-  room_lounge_floor: { ko: '{floor} 라운지', en: '{floor} Lounge' },
+  room_lounge_floor: { ko: '{floor} 휴게실', en: '{floor} Lounge' },
+  room_pantry_floor: { ko: '{floor} 탕비실', en: '{floor} Pantry' },
+  room_lounge_floor_old: { ko: '{floor} 라운지', en: '{floor} Lounge' },
   floor_n: { ko: '{n}층', en: 'Floor {n}' },
   tasks_unreadable: {
     ko: '{file} 을(를) 읽지 못했습니다({why}). 파일은 그대로 두었고, 고칠 때까지 작업을 저장하지 않습니다',

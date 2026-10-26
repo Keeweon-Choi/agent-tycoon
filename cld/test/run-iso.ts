@@ -205,7 +205,7 @@ async function placeCounter(
     const wall = (c: number, r: number) => t.tiles[r * t.cols + c] === 0;
     const lounge = h
       .getAreaTiles()
-      .filter((a) => a.row >= f.row && a.row < f.row + f.rows && a.label.endsWith('라운지'));
+      .filter((a) => a.row >= f.row && a.row < f.row + f.rows && a.label.endsWith('휴게실'));
     const top = Math.min(...lounge.map((a) => a.row));
     for (const a of lounge.filter((x) => x.row === top).sort((x, y) => x.col - y.col))
       if (

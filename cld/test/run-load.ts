@@ -9,8 +9,8 @@
  * Codex task running), Claude sessions `lead` (mid-tool: working), `helper`,
  * `b1`, `b2` (idle). From the first frame anything is drawn, at +0.5 s and at
  * +25 s (past the old 20 s idle timer):
- * - only the working ones are drawn (lead with 야근, the running Codex worker);
- * - the idle ones are home already, a 퇴근 plate on each desk, never drawn;
+ * - the working ones are drawn (lead with 야근, the running Codex worker), and the idle ones too,
+ *   already resting in the lounge (LOUNGE: off duty nobody leaves), a 퇴근 badge on each;
  * - nobody moved between the two: the same characters at the same places;
  * - the two screenshots differ only by animation frames.
  * Screenshots go to cld/artifacts/t0041/load-2300-*.png.
@@ -91,7 +91,7 @@ interface Seen {
   plates: string[];
   overtime: string[];
 }
-/** Who is drawn (id, kind, place), whose desk says 퇴근, who has 야근. */
+/** Who is drawn (id, kind, place), who wears the 퇴근 badge, who has 야근. */
 const look = (page: Page): Promise<Seen> =>
   page.evaluate(() => {
     const at = (n: Element) => {
@@ -103,7 +103,7 @@ const look = (page: Page): Promise<Seen> =>
       anchors: all('[data-testid="status-icon-anchor"]').map(
         (n) => `${n.getAttribute('data-agent-id')}:${n.getAttribute('data-kind')}@${at(n)}`,
       ),
-      plates: all('[data-testid="off-duty-plate"]').map((n) => n.getAttribute('data-agent-id')!),
+      plates: all('[data-testid="off-duty-badge"]').map((n) => n.getAttribute('data-agent-id')!),
       overtime: all('[data-testid="overtime-badge"]').map(
         (n) => n.closest('[data-testid="feet-badges"]')?.getAttribute('data-agent-id') ?? '',
       ),
@@ -190,6 +190,7 @@ async function main() {
   const pageErrors: string[] = [];
   // Office hours are what this runner tests, on a fixed page clock: left on.
   const browser = await launchBrowser({ officeHours: true });
+  const E2E = 'window.__PIXEL_AGENTS_E2E = true;';
   try {
     const loginUrl = await started.loginUrl();
     // Log in once (the cookie), then open the office cold in a new page.
@@ -198,7 +199,7 @@ async function main() {
       deviceScaleFactor: 1,
       timezoneId: 'UTC',
     });
-    await ctx.addInitScript('globalThis.__name = (fn) => fn;');
+    await ctx.addInitScript(`globalThis.__name = (fn) => fn; ${E2E}`);
     const login = await ctx.newPage();
     await login.goto(loginUrl);
     await login.waitForURL(`http://127.0.0.1:${port}/`);
@@ -239,17 +240,18 @@ async function main() {
     const lead = Object.keys(cards).find((id) => cards[id] === 'lead')!;
     const kinds = a.anchors.map((x) => x.split('@')[0].split(':')[1]).sort();
     check(
-      a.anchors.length === 2 &&
+      a.anchors.length === 7 &&
         a.anchors.some((x) => x.startsWith(`${lead}:`)) &&
-        kinds.join() === 'codex,orchestrator',
-      `at +0.5 s only the working ones are drawn (${a.anchors.join(' ')})`,
+        kinds.join() ===
+          'codex,orchestrator,orchestrator,orchestrator,orchestrator,orchestrator,orchestrator',
+      `at +0.5 s the working ones and the resting ones are drawn (${a.anchors.join(' ')})`,
     );
     const idle = ['veteran', 'sleeper', 'helper', 'b1', 'b2'].map((n) =>
       Object.keys(cards).find((id) => cards[id] === n)!,
     );
     check(
       idle.every((id) => a.plates.includes(id)) && a.plates.length === 5,
-      `the idle and off ones are home already, a 퇴근 plate on each desk (${a.plates.join(', ')})`,
+      `the idle and off ones are resting already, a 퇴근 badge on each (${a.plates.join(', ')})`,
     );
     check(
       a.overtime.includes(lead) && !a.overtime.some((id) => idle.includes(id)),
@@ -285,9 +287,17 @@ async function main() {
       [first, ...during, b].every((s) => JSON.stringify(s) === JSON.stringify(a)),
       'from the first frame to +25 s nobody appeared, left or moved',
     );
+    const rest = await page.evaluate(`(() => {
+      const h = window.__pixelAgentsTestHooks;
+      return h.getCharacters().map((c) => [c.id, h.getCharacterTile(c.id)?.rest ?? null, c.matrixEffect]);
+    })()`);
     check(
-      !during.some((s) => idle.some((id) => s.anchors.some((x) => x.startsWith(`${id}:`)))),
-      'the idle ones were never drawn (no walk out)',
+      idle.every((id) =>
+        (rest as Array<[number, string | null, string | null]>).some(
+          ([i, r]) => String(i) === id && r === 'rest',
+        ),
+      ) && (rest as Array<[number, string | null, string | null]>).every(([, , fx]) => !fx),
+      'the idle ones rest in the lounge, none was ever walking out (no despawn effect)',
     );
     const diff = pixelDiff(shotA, shotB);
     check(

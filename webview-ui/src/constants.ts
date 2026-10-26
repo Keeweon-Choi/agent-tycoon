@@ -625,6 +625,27 @@ export const ELEVATOR_COLORS = {
 } as const;
 /** A lingering temp with no lounge on its floor stays this close (tiles) to its desk. */
 export const NEAR_SEAT_TILES = 3;
+// cld LOUNGE (cld/lounge.ts): off duty, orchestrators rest in the lounge instead of leaving.
+/** A resting character walks to a machine for a drink once in this many seconds, at random (game s). */
+export const LOUNGE_DRINK_MIN_SEC = 150;
+export const LOUNGE_DRINK_MAX_SEC = 330;
+/** What a machine plays while someone gets a drink: seconds per state (coffee: cup, pouring, done;
+ *  vending: lit, button, can in the tray; water: filling the cup, no picture of its own). */
+export const LOUNGE_USE_SEC = {
+  coffee: [1, 2.4, 1.2],
+  vending: [0.8, 0.7, 1.2],
+  water: [1.6],
+} as const;
+/** The drinking sequence has seven steps (the owner's references), this long each (game s). */
+export const LOUNGE_DRINK_STEPS = 7;
+export const LOUNGE_DRINK_STEP_SEC = 0.9;
+/** A character dropped on a blocked spot settles on the nearest free tile within this many tiles. */
+export const LOUNGE_DROP_NEAR_TILES = 3;
+/** Seconds per zzz frame while dozing (slower than the status icon's). */
+export const LOUNGE_ZZZ_FRAME_SEC = 1.4;
+/** A classic 16x32 figure is this tall (px, feet to the top of its head): the unit the drink's
+ *  positions are written in (cld/lounge.ts drinkPose), scaled to a taller figure's drawn height. */
+export const LOUNGE_FIGURE_PX = 26;
 /** Temp rows shown before "외 N" (the 현황판 and the "+N" list). */
 export const TEMP_ROWS_MAX = 5;
 /** Model badges at a temp's feet: Claude's in cool tones, Codex's in warm ones. */

@@ -1,0 +1,59 @@
+{
+  "id": "VENDING_MACHINE",
+  "name": "Vending Machine",
+  "category": "misc",
+  "type": "group",
+  "groupType": "state",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 0,
+  "members": [
+    {
+      "type": "group",
+      "groupType": "animation",
+      "state": "on",
+      "members": [
+        {
+          "type": "asset",
+          "id": "VENDING_MACHINE_1",
+          "file": "VENDING_MACHINE_1.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 0
+        },
+        {
+          "type": "asset",
+          "id": "VENDING_MACHINE_2",
+          "file": "VENDING_MACHINE_2.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 1
+        },
+        {
+          "type": "asset",
+          "id": "VENDING_MACHINE_3",
+          "file": "VENDING_MACHINE_3.png",
+          "width": 16,
+          "height": 32,
+          "footprintW": 1,
+          "footprintH": 2,
+          "frame": 2
+        }
+      ]
+    },
+    {
+      "type": "asset",
+      "id": "VENDING_MACHINE",
+      "file": "VENDING_MACHINE.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "state": "off"
+    }
+  ]
+}

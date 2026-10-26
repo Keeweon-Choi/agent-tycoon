@@ -26,6 +26,7 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 export type { ColorValue } from '../components/ui/types.js';
 import type { FurnitureVisual } from '../../../core/src/assets/manifestUtils.js';
 import type { Ride, Visit } from '../cld/elevator.js';
+import type { Rest } from '../cld/lounge.js';
 import type { ColorValue } from '../components/ui/types.js';
 
 export const CharacterState = {
@@ -273,6 +274,8 @@ export interface Character {
   cldRide?: Ride;
   /** cld-gui (ELEVATOR): dropped on another floor and visiting it; its own seat is kept. */
   cldVisit?: Visit;
+  /** cld-gui (LOUNGE): off duty and resting in the building (cld/lounge.ts drives it); its desk seat is kept. */
+  cldRest?: Rest;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */

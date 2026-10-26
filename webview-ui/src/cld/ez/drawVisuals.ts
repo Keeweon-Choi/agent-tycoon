@@ -19,6 +19,8 @@ import {
   CHARACTER_SITTING_OFFSET_PX,
   FATIGUE_YAWN_EVERY_SEC,
   FATIGUE_YAWN_SEC,
+  LOUNGE_FIGURE_PX,
+  LOUNGE_ZZZ_FRAME_SEC,
   NOTICE_PULSE_COLOR,
   NOTICE_PULSE_PERIOD_MS,
   PIXEL_FONT_FAMILY,
@@ -35,15 +37,21 @@ import {
 import { adjustSprite } from '../../office/colorize.js';
 import { copyFor, deriveSmooth } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
-import { BUBBLE_THINKING_SPRITES, characterLift } from '../../office/sprites/spriteData.js';
+import {
+  BUBBLE_THINKING_SPRITES,
+  characterLift,
+  getCharacterSprites,
+} from '../../office/sprites/spriteData.js';
 import type { Character, SpriteData } from '../../office/types.js';
 import { CharacterState, Direction } from '../../office/types.js';
 import { isE2E } from '../../runtime.js';
 import { FRAME_H as CHAR_H, FRAME_W as CHAR_W } from '../characters/compose.js';
+import { drinkPose, type Rest } from '../lounge.js';
 import { noticePulse } from '../notify/notices.js';
 import { REST_SPRITES, restFrame, restWatch, sipAnchorOf } from '../rest.js';
 import { sameFloor, tempLeaving } from '../staff.js';
 import { THEME } from '../theme.js';
+import pantryData from './pantryProps.json';
 import propData from './props.json';
 import {
   characterVisualOf,
@@ -74,6 +82,88 @@ export const EFFECT_SPRITES = resolve(propData.effects) as Record<'sweat' | 'yaw
 export const ICON_SPRITES = Object.fromEntries(
   Object.entries(propData.icons).map(([id, s]) => [id, s.frames.map(toSprite)]),
 ) as Record<'zzz' | 'alert' | 'lock', SpriteData[]>;
+/** LOUNGE: the drinking sequence's props (a can, a mug, hiss lines, steam, a paper cup). */
+const pantryColours: Record<string, string> = { ...palette, ...pantryData.palette };
+const PANTRY_SPRITES = Object.fromEntries(
+  Object.entries(pantryData.props).map(([id, p]) => [
+    id,
+    p.frames.map((rows) =>
+      rows.map((row) => [...row].map((k) => (k === '.' ? '' : pantryColours[k]))),
+    ),
+  ]),
+) as Record<'can' | 'canTilt' | 'hiss' | 'mug' | 'steam' | 'paperCup', SpriteData[]>;
+
+/** A figure's drawn box: its visible height in world px (feet to the top of its head), whatever its
+ *  size (classic, HD, an imported sheet), from the standing frame. Cached per sprite set. */
+const figureHeights = new WeakMap<object, number>();
+function figureHeight(ch: Character): number {
+  const s = getCharacterSprites(ch.palette, ch.hueShift);
+  let h = figureHeights.get(s);
+  if (h === undefined) {
+    const f = s.stand?.[Direction.DOWN] ?? s.walk[Direction.DOWN][1];
+    const top = f.findIndex((row) => row.some(Boolean));
+    h = top < 0 ? LOUNGE_FIGURE_PX : (f.length - top) / s.density;
+    figureHeights.set(s, h);
+  }
+  return h;
+}
+
+/** LOUNGE: a resting character's drink in hand (the owner's reference steps) or its slow zzz. */
+function restDrawables(
+  ch: Character,
+  rest: Rest,
+  feetX: number,
+  feetY: number,
+  zoom: number,
+  zY: number,
+  alpha: number,
+): Drawable[] {
+  const out: Drawable[] = [];
+  const h = figureHeight(ch);
+  const unit = h / LOUNGE_FIGURE_PX;
+  /** A sprite's centre at (dx, dy) units (x from the figure's centre, y from the top of its box). */
+  const put = (sprite: SpriteData, [dx, dy]: [number, number], z = PROP_Z) =>
+    out.push({
+      zY: zY + z,
+      draw: drawAt(
+        getCachedSprite(sprite, zoom),
+        feetX + Math.round(dx * unit - sprite[0].length / 2) * zoom,
+        feetY + Math.round(dy * unit - h - sprite.length / 2) * zoom,
+        alpha,
+      ),
+    });
+  if (rest.phase === 'drink' && rest.kind) {
+    const pose = drinkPose(rest.kind, rest.t);
+    if (pose.prop) put(PANTRY_SPRITES[pose.prop.name][0], pose.prop.at);
+    if (pose.hiss) put(PANTRY_SPRITES.hiss[0], pose.hiss);
+    if (pose.steam) {
+      const frames = PANTRY_SPRITES.steam;
+      put(frames[Math.floor(rest.t / ACTIVITY_PROP_FRAME_SEC) % frames.length], pose.steam, ICON_Z);
+    }
+  } else if (rest.phase === 'rest') {
+    // Dozing: a small, slow zzz over the head, unless the head icon already draws one.
+    const visual = characterVisualOf(ch.id);
+    if (!(visual?.headIcon && statusIcon(visual.ring) === 'zzz')) {
+      const frames = ICON_SPRITES.zzz;
+      const sprite =
+        frames[
+          Math.floor(animationClock() / LOUNGE_ZZZ_FRAME_SEC + Math.abs(ch.id)) % frames.length
+        ];
+      const img = getCachedSprite(sprite, zoom);
+      out.push({
+        zY: zY + ICON_Z,
+        draw: drawAt(
+          img,
+          feetX + (STATUS_ICON_OFFSET_X - Math.floor(sprite[0].length / 2)) * zoom,
+          feetY - (h + sprite.length * 0.5) * zoom,
+          alpha,
+        ),
+      });
+    }
+  }
+  return out;
+}
+
 /** The nameplate's lead icon, an orchestrator's (the rank icons are rankSprites.ts). */
 export const LEAD_SPRITE = toSprite(propData.ranks.lead);
 
@@ -239,6 +329,7 @@ export function cldCharacterDrawables(
       ),
     });
   }
+  if (ch.cldRest) pulsed.push(...restDrawables(ch, ch.cldRest, feetX, feetY, zoom, zY, alpha));
   const visual = characterVisualOf(ch.id);
   if (!visual) return pulsed;
   const t = animationClock();
@@ -267,7 +358,7 @@ export function cldCharacterDrawables(
         alpha,
       ),
     });
-  if (visual.prop && resting === null)
+  if (visual.prop && resting === null && ch.cldRest?.phase !== 'drink')
     add(propFrame(visual.prop, own), PROP_SPRITES[visual.prop].at);
   // SHEET-IMPORT: over the head of a taller figure, higher by what it stands over a classic one
   const lift = characterLift(ch.palette, ch.hueShift);

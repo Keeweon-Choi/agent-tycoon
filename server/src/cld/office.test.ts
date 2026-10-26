@@ -135,7 +135,13 @@ describe('office with the Claude provider only (no engine)', () => {
     );
     expect(calls[0]).toMatchObject({
       bin,
-      args: ['exec', '--skip-git-repo-check', '-c', 'model_reasoning_effort=low', 'Reply with exactly: OK'],
+      args: [
+        'exec',
+        '--skip-git-repo-check',
+        '-c',
+        'model_reasoning_effort=low',
+        'Reply with exactly: OK',
+      ],
       env: expect.objectContaining({ HOME: fake.home }),
     });
     expect(calls[0].env).not.toHaveProperty('CODEX_USAGE_PROBE_SECRET');
@@ -259,8 +265,9 @@ describe('office with the Claude provider only (no engine)', () => {
       'beta',
       'delta',
       'gamma',
-      '라운지',
+      '휴게실',
       '로비',
+      '탕비실',
     ]);
     expect(office.seatFor(hs.orchestrators[0].agentId!)).toBe('seat:name:alpha-orchestrator');
   });
@@ -496,7 +503,9 @@ describe('office with the built-in engine', () => {
 
   it('only lets a privileged chatHold reach the engine messenger; a closed page never releases it (MSG-HOLD2)', async () => {
     const { office } = await startEngineOffice({ projects: ROSTER, readOnly: false, chat: true });
-    const messenger = (office as unknown as { messenger: { hold: (...args: unknown[]) => boolean } }).messenger;
+    const messenger = (
+      office as unknown as { messenger: { hold: (...args: unknown[]) => boolean } }
+    ).messenger;
     const hold = vi.spyOn(messenger, 'hold');
     const send = () => undefined;
     const msg = { type: 'chatHold', name: 'alpha', id: 'waiting.json', on: true };
@@ -653,7 +662,13 @@ describe('office with the built-in engine', () => {
     office.onClientReady((m) => snap.push(m));
     expect(snap.map((m) => m.type)).toContain('engineState');
     expect(office.layoutFor()).toMatchObject({
-      areas: [{ label: 'alpha' }, { label: 'beta' }, { label: '라운지' }, { label: '로비' }],
+      areas: [
+        { label: 'alpha' },
+        { label: 'beta' },
+        { label: '휴게실' },
+        { label: '로비' },
+        { label: '탕비실' },
+      ],
     });
     // An unprivileged client is refused; nothing runs.
     const n = answers.length;

@@ -156,7 +156,15 @@ declare global {
         rideT: number | null;
         hidden: boolean;
         visit: string | null;
+        /** LOUNGE: its rest phase (go, rest, fetch, use, drink), the seat and the drink. */
+        rest: string | null;
+        restSeat: string | null;
+        restKind: string | null;
       } | null;
+      /** What keeps the office loop at the full rate: something animating, sprites still warming. */
+      getBusy?: () => { animating: boolean; warm: number };
+      /** LOUNGE: a resting character goes for a drink now (its timer is set to zero). */
+      restDrinkNow?: (id: number) => boolean;
       /** ELEVATOR: each floor's elevator (its wall tiles' left one) and how open its doors are. */
       getElevators?: () => Array<{ floor: string; col: number; row: number; open: number }>;
       /** Pixel position for rAF-sampled keyboard-walk checks (T-0061). */
@@ -381,8 +389,23 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
           rideT: ch.cldRide?.t ?? null,
           hidden: !!ch.cldRide?.hidden,
           visit: ch.cldVisit?.floor ?? null,
+          rest: ch.cldRest?.phase ?? null,
+          restSeat: ch.cldRest?.spot.seat ?? null,
+          restKind: ch.cldRest?.kind ?? null,
         }
       : null;
+  };
+
+  hooks.getBusy = () => ({
+    animating: officeStateRef.current?.isAnimating() ?? false,
+    warm: warmPending(),
+  });
+
+  hooks.restDrinkNow = (id) => {
+    const rest = officeStateRef.current?.characters.get(id)?.cldRest;
+    if (!rest) return false;
+    rest.next = 0;
+    return true;
   };
 
   hooks.getElevators = () =>

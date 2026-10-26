@@ -168,7 +168,9 @@ describe('stacked floors', () => {
     const one = generateLayout([{ label: 'a', members: ['engine:a'] }]).layout;
     const two = generateLayout(
       [{ label: 'b', members: ['engine:b', 'engine:c'] }],
-      '2층 라운지',
+      '2층 휴게실',
+      false,
+      '2층 탕비실',
     ).layout;
     const s = stackFloors([
       { id: '1', prefix: '', layout: one as unknown as Record<string, unknown> },
@@ -196,7 +198,15 @@ describe('stacked floors', () => {
     expect(seat.row).toBe(
       two.furniture.find((f) => f.uid === 'seat:engine:b')!.row + one.rows + FLOOR_GAP,
     );
-    expect(s.areas.map((a) => a.label)).toEqual(['a', '라운지', '로비', 'b', '2층 라운지']);
+    expect(s.areas.map((a) => a.label)).toEqual([
+      'a',
+      '휴게실',
+      '로비',
+      '탕비실',
+      'b',
+      '2층 휴게실',
+      '2층 탕비실',
+    ]);
   });
 });
 
@@ -304,7 +314,7 @@ describe('office floors (T-0027, engine projects)', () => {
     expect(b.floors[0].rooms).not.toContain('orch-beta');
     const l = (messages[n] as { layout: Stacked }).layout;
     const [f1, f2] = l.cldFloors!;
-    expect(labelsOn(l, f2)).toEqual(new Set(['orch-beta', '2층 라운지']));
+    expect(labelsOn(l, f2)).toEqual(new Set(['orch-beta', '2층 휴게실', '2층 탕비실']));
     expect(labelsOn(l, f1).has('orch-beta')).toBe(false);
     // delta's seat is on floor 2's rows, and the map says so.
     const seat = l.furniture.find((f) => f.uid === office.seatFor(agentOf(office, 'delta')))!;
@@ -327,7 +337,9 @@ describe('office floors (T-0027, engine projects)', () => {
     expect(office.areaMappings()['alpha']).toEqual(['2층 orch-alpha']);
     expect(office.areaMappings()['beta']).toEqual(['orch-alpha']);
     const l = (last('layoutLoaded') as { layout: Stacked }).layout;
-    expect(labelsOn(l, l.cldFloors![1])).toEqual(new Set(['2층 orch-alpha', '2층 라운지']));
+    expect(labelsOn(l, l.cldFloors![1])).toEqual(
+      new Set(['2층 orch-alpha', '2층 휴게실', '2층 탕비실']),
+    );
     // The contractor desk stays in the room's own floor.
     expect(l.furniture.find((f) => f.uid === 'seat:codex@orch-alpha')!.row).toBeLessThan(
       l.cldFloors![1].row,

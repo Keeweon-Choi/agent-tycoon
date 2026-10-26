@@ -14,6 +14,7 @@ import {
   visitStep,
 } from '../../cld/elevator.js';
 import { cldWalkPace } from '../../cld/ez/visuals.js';
+import { restStep } from '../../cld/lounge.js';
 import type { HeldWalkKeys } from '../../cld/walk.js';
 import { floorRects } from '../../cld/walk.js';
 import {
@@ -89,8 +90,11 @@ export class OfficeState {
   /** cld-gui (ELEVATOR): each floor's elevator (null: one floor) and the links they give
    *  the pathfinder between floors. */
   cldElevators: Elevator[] | null = null;
-  private cldLinks: FloorLinks | null = null;
+  cldLinks: FloorLinks | null = null;
   private cldDoorsMoving = false;
+  /** cld-gui (LOUNGE): a pantry machine's picture while somebody uses it (furniture uid -> the
+   *  catalog type of its current state); absent: the idle picture the layout names. */
+  private cldPantry = new Map<string, string>();
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */
@@ -247,6 +251,8 @@ export class OfficeState {
             riders.push(ch);
             continue;
           }
+          // cld-gui (LOUNGE): one resting off duty keeps its desk but stays where it rests.
+          if (ch.cldRest) continue;
           // Snap character to seat position
           ch.tileCol = seat.seatCol;
           ch.tileRow = seat.seatRow;
@@ -1098,8 +1104,15 @@ export class OfficeState {
 
     // cld-gui (ELEVATOR): the elevators are drawn with the furniture.
     const elevators = this.cldElevators?.map((e) => e.instance) ?? [];
+    // cld-gui (LOUNGE): a machine in use shows its state.
+    const pantry = (items: PlacedFurniture[]) =>
+      this.cldPantry.size
+        ? items.map((i) =>
+            this.cldPantry.has(i.uid) ? { ...i, type: this.cldPantry.get(i.uid)! } : i,
+          )
+        : items;
     if (autoOnTiles.size === 0) {
-      this.furniture = [...layoutToFurnitureInstances(this.layout.furniture), ...elevators];
+      this.furniture = [...layoutToFurnitureInstances(pantry(this.layout.furniture)), ...elevators];
       return;
     }
 
@@ -1129,7 +1142,15 @@ export class OfficeState {
       return item;
     });
 
-    this.furniture = [...layoutToFurnitureInstances(modifiedFurniture), ...elevators];
+    this.furniture = [...layoutToFurnitureInstances(pantry(modifiedFurniture)), ...elevators];
+  }
+
+  /** cld-gui (LOUNGE): show a machine in one of its states (a catalog type), or idle again (null). */
+  setPantryType(uid: string, type: string | null): void {
+    if (this.cldPantry.get(uid) === (type ?? undefined)) return;
+    if (type === null) this.cldPantry.delete(uid);
+    else this.cldPantry.set(uid, type);
+    this.rebuildFurnitureInstances();
   }
 
   setAgentTool(id: number, tool: string | null): void {
@@ -1391,6 +1412,8 @@ export class OfficeState {
         rideStep(ch, dt, this.cldElevators)
       )
         continue;
+      // cld-gui (LOUNGE): one resting off duty is its own: still, or at a machine (a walk is the FSM's).
+      if (ch.cldRest && restStep(this, ch, dt)) continue;
 
       // Temporarily unblock own seat so character can pathfind to it. cld
       // T-0026: a tired character walks slower; T-0027: it wanders on its floor

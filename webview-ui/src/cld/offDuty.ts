@@ -33,14 +33,17 @@ export function openOffDuty(agentId: number | null): void {
 }
 
 /**
- * A card tap: select the character and follow it; one that is out of sight
- * because it went home opens its sheet instead (and the caller learns that no
- * character was selected).
+ * A card tap: select the character and follow it. One that is off duty (퇴근) opens its sheet
+ * too, and the caller learns that no character was selected as it would be for one at work
+ * (LOUNGE: it rests in the building now, so the camera goes to it as well).
  */
 export function selectOrOpenInfo(os: OfficeState, id: number): boolean {
-  if (os.selectAndFollow(id)) return true;
-  if (staffSnapshot().away[id]) openOffDuty(id);
-  return false;
+  const selected = os.selectAndFollow(id);
+  if (staffSnapshot().away[id]) {
+    openOffDuty(id);
+    return false;
+  }
+  return selected;
 }
 
 export interface OffDutyFacts {

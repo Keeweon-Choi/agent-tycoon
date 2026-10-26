@@ -38,6 +38,7 @@ import {
   setSeatPoint,
 } from '../../cld/iso/render.js';
 import { isoSeatPoint } from '../../cld/iso/seatPoint.js';
+import { restDropAt } from '../../cld/lounge.js';
 import { drawOtherFloors } from '../../cld/otherFloors.js';
 import { useGameControls } from '../../cld/useGameControls.js';
 import {
@@ -551,7 +552,8 @@ export function OfficeCanvas({
       }
 
       const characterDrag = characterDragRef.current;
-      if (characterDrag && !isEditMode) {
+      if (characterDrag && e.buttons === 0) characterDragRef.current = null; // let go elsewhere
+      else if (characterDrag && !isEditMode) {
         characterDrag.moving ||= !withinTapSlop(
           e.clientX - characterDrag.x,
           e.clientY - characterDrag.y,
@@ -755,7 +757,7 @@ export function OfficeCanvas({
         if (e.button === 0) {
           const hitId = characterAt(e.clientX, e.clientY);
           characterDragRef.current =
-            hitId !== null && floorMovable(hitId)
+            hitId !== null && (floorMovable(hitId) || officeState.characters.get(hitId)?.cldRest)
               ? { id: hitId, x: e.clientX, y: e.clientY, moving: false }
               : null;
         }
@@ -842,7 +844,22 @@ export function OfficeCanvas({
       if ((characterDrag?.moving || carried) && e.button === 0 && !isEditMode) {
         const floorId = otherFloorAt(e.clientX, e.clientY);
         const id = carried?.id ?? characterDrag?.id;
-        if (floorId && id !== undefined) visitFloor(officeState, id, floorId);
+        const resting = id !== undefined ? officeState.characters.get(id) : undefined;
+        if (resting?.cldRest) {
+          // cld-gui (LOUNGE): a resting one goes where it is dropped (a seat, a tile, any floor).
+          const hit = iso ? isoAt(e.clientX, e.clientY) : null;
+          const pos = iso ? null : pointToWorld(e.clientX, e.clientY);
+          if (hit?.kind === 'floor') visitFloor(officeState, resting.id, hit.id);
+          else if (hit && (hit.kind === 'tile' || hit.kind === 'item'))
+            restDropAt(officeState, resting, hit.col, hit.row);
+          else if (pos)
+            restDropAt(
+              officeState,
+              resting,
+              Math.floor(pos.worldX / TILE_SIZE),
+              Math.floor(pos.worldY / TILE_SIZE),
+            );
+        } else if (floorId && id !== undefined) visitFloor(officeState, id, floorId);
         endFloorDrag();
         suppressClickRef.current = true; // the click that ends a drag selects nothing
         if (canvasRef.current) canvasRef.current.style.cursor = 'default';
@@ -886,7 +903,17 @@ export function OfficeCanvas({
       // undo entry — one click-drag collapses to a single undo.
       editorState.endStroke();
     },
-    [editorState, isEditMode, onDrop, onEditorSelectionChange, officeState, otherFloorAt],
+    [
+      editorState,
+      isEditMode,
+      onDrop,
+      onEditorSelectionChange,
+      officeState,
+      otherFloorAt,
+      iso,
+      isoAt,
+      pointToWorld,
+    ],
   );
 
   // Shared by mouse click and touch tap — both resolve a viewport point to a
@@ -1003,9 +1030,11 @@ export function OfficeCanvas({
     [isEditMode, performTap],
   );
 
-  const handleMouseLeave = useCallback(() => {
+  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
     isPanningRef.current = false;
-    characterDragRef.current = null;
+    // cld-gui (LOUNGE): a character carried across its own nameplate (a DOM box over the canvas)
+    // is still carried when the pointer comes back; only a released button ends it.
+    if (!(e.buttons & 1)) characterDragRef.current = null;
     isEraseDraggingRef.current = false;
     editorState.isDragging = false;
     editorState.endStroke();

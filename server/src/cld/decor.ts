@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import type { FurnitureAsset } from '../../../core/src/assets/manifestUtils.js';
 import { writeJsonAtomic } from './jsonFile.js';
 import type { RoomRect } from './layout.js';
-import { floorPrefix, floorRowOffsets, VOID_TILE, WALL_TILE } from './layout.js';
+import {
+  currentLabel,
+  floorPrefix,
+  floorRowOffsets,
+  VOID_TILE,
+  WALL_TILE,
+} from './layout.js';
 
 export type { RoomRect } from './layout.js';
 export interface DecorTile {
@@ -83,8 +89,10 @@ export function parseDecor(raw: unknown): Decor | null {
   const out = empty();
   if ('wallColor' in raw) out.wallColor = raw.wallColor;
   if (Array.isArray(raw.pets)) out.pets = raw.pets;
-  for (const [label, value] of Object.entries(raw.rooms)) {
+  for (const [key, value] of Object.entries(raw.rooms)) {
     if (!obj(value)) continue;
+    // LOUNGE: the lounge was 라운지 (and "2층 라운지"): a decor saved then follows the new name.
+    const label = currentLabel(key);
     const room = roomEmpty();
     if (Array.isArray(value.tiles))
       for (const v of value.tiles) {
@@ -109,7 +117,7 @@ export function parseDecor(raw: unknown): Decor | null {
       }
     if (Array.isArray(value.removed))
       room.removed = value.removed.filter((v): v is string => typeof v === 'string');
-    if (hasContent(room)) out.rooms[label] = room;
+    if (hasContent(room) && !Object.hasOwn(out.rooms, label)) out.rooms[label] = room;
   }
   return out;
 }

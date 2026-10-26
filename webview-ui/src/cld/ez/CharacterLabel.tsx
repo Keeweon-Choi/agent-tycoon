@@ -135,28 +135,11 @@ export function CharacterLabel({
 }: CharacterLabelProps) {
   // UI-SCALE: the plate's sizes are the 화면 크기 step's, never the screen width's.
   const sizes = nameplateSizes(useUiScale());
-  // T-0041: gone home: only the 퇴근 plate on its desk.
   const staff = staffSnapshot();
   const engineProject = useEngineProject(name);
   const orchestratorModel = modelEffortLabel(engineProject?.model, engineProject?.effort);
-  const plate = staff.away[ch.id];
-  if (plate)
-    return (
-      <button
-        type="button"
-        className="absolute -translate-x-1/2 -translate-y-full pointer-events-auto cursor-pointer bg-bg border border-border px-4 text-xs leading-tight text-text-muted pointer-coarse:min-h-44"
-        style={{ left: project.toScreenX(plate.x), top: project.toScreenY(plate.y) }}
-        data-testid="off-duty-plate"
-        data-agent-id={ch.id}
-        title={t('offDuty.open')}
-        onClick={(e) => {
-          e.stopPropagation();
-          openOffDuty(ch.id);
-        }}
-      >
-        {t('temp.offDuty')}
-      </button>
-    );
+  // LOUNGE: off duty it is still in the building, resting: its own label, with 퇴근 at its feet.
+  const offDuty = !!staff.away[ch.id];
   if (staffHides(ch)) return null; // held out of sight while the office loads
   const temp = staff.temps.find((t) => t.id === ch.id);
   // TEMP-PLATES: a sub-agent or Codex temporary is a roster employee, with its own level.
@@ -194,7 +177,7 @@ export function CharacterLabel({
   );
   // T-0041: at the feet, the temp's readable rank/model and 야근 after hours.
   const feet =
-    (temp && feetRank) || overtime ? (
+    (temp && feetRank) || overtime || offDuty ? (
       <span
         className="absolute -translate-x-1/2 flex items-center gap-2 pointer-events-none"
         style={{ left: project.toScreenX(ch.x), top: project.toScreenY(ch.y + sit + 1) }}
@@ -202,6 +185,15 @@ export function CharacterLabel({
         data-agent-id={ch.id}
       >
         {temp && feetRank && <TempRank level={level?.level} badge={temp.model} modelId={temp.modelId} />}
+        {offDuty && (
+          <span
+            className="bg-bg border border-border px-4 text-xs leading-tight whitespace-nowrap text-text-muted"
+            data-testid="off-duty-badge"
+            data-agent-id={ch.id}
+          >
+            {t('temp.offDuty')}
+          </span>
+        )}
         {overtime && (
           <span
             className="bg-bg border border-border px-4 text-xs leading-tight whitespace-nowrap"
