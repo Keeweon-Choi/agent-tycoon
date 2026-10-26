@@ -268,15 +268,18 @@ async function main() {
     // T-0070: the events are in the 알림 list now (the 소식 tab is gone).
     await page.getByTestId('notice-bell').click();
     const feedList = page.getByTestId('notice-list');
+    // NOTICE-DEDUP (9b64fd70) and 52479a46: the list holds no start row and no sent message.
     for (const text of [
-      `${DESC}을 시작했어요`,
       `${DESC}을 멈추는 중이에요`,
       `${DESC}이 멈췄어요`,
       'echo 작업이 실패했어요',
-      'alpha → alpha 메시지 (inbox)',
     ])
       await feedList.getByText(text, { exact: false }).first().waitFor({ timeout: 10_000 });
-    check(true, 'the 알림 list shows job_start, stop, job_end and the send (engine events)');
+    check(
+      (await feedList.getByText(`${DESC}을 시작했어요`).count()) === 0 &&
+        (await feedList.getByText('alpha → alpha 메시지 (inbox)').count()) === 0,
+      'the 알림 list shows job stop and job_end, and neither the job start nor the send',
+    );
     await shot(page, 'desktop-feed');
     await page.getByRole('button', { name: '알림 닫기' }).click();
 

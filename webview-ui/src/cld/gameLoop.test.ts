@@ -49,7 +49,7 @@ describe('startGameLoop (T-0075)', () => {
 
   async function start() {
     const browser = fakeBrowser();
-    const { startGameLoop, wakeOffice } = await import('../office/engine/gameLoop.js');
+    const { startGameLoop, wakeOffice, setOfficeCovered } = await import('../office/engine/gameLoop.js');
     const dts: number[] = [];
     let renders = 0;
     let busy = false;
@@ -62,6 +62,7 @@ describe('startGameLoop (T-0075)', () => {
     return {
       browser,
       wakeOffice,
+      setOfficeCovered,
       stop,
       dts,
       renders: () => renders,
@@ -140,6 +141,20 @@ describe('startGameLoop (T-0075)', () => {
     const time = loop.dts.slice(updates).reduce((s, dt) => s + dt, 0);
     expect(time).toBeGreaterThan(0.9);
     loop.browser.visible(1);
+    loop.browser.tick(2);
+    expect(loop.renders()).toBeGreaterThan(renders);
+    loop.stop();
+  });
+
+  it('covered by a phone page: nothing is drawn, the world keeps time, and it draws again once uncovered', async () => {
+    const loop = await start();
+    loop.setOfficeCovered(true);
+    const renders = loop.renders();
+    const updates = loop.dts.length;
+    loop.browser.tick(60);
+    expect(loop.renders()).toBe(renders);
+    expect(loop.dts.length).toBeGreaterThan(updates);
+    loop.setOfficeCovered(false);
     loop.browser.tick(2);
     expect(loop.renders()).toBeGreaterThan(renders);
     loop.stop();

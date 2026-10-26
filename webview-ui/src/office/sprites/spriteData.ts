@@ -155,9 +155,8 @@ export interface CharacterSprites {
  *  zoom no density divides (a fractional one) takes the coarsest. A sheet without copies is
  *  itself, as before. */
 export function spritesAtZoom(sprites: CharacterSprites, zoom: number): CharacterSprites {
-  // SHEET-IMPORT (owner 10-26): a detailed character (density 4 and up) draws its one master at
-  // every zoom (smoothSprite.ts), never a copy picked by the zoom
-  if (!sprites.lods?.length || sprites.density >= SMOOTH_DENSITY) return sprites;
+  // a detailed character carries no copies (spritesOf): it draws its one master at every zoom
+  if (!sprites.lods?.length) return sprites;
   const all = [sprites, ...sprites.lods].sort((a, b) => b.density - a.density);
   return all.find((s) => Number.isInteger(zoom / s.density)) ?? all[all.length - 1];
 }
@@ -270,7 +269,12 @@ function spritesOf(char: LoadedCharacterData): CharacterSprites {
       [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
     },
     density: char.drawDensity ?? char.density ?? 1,
-    ...(char.lods?.length ? { lods: char.lods.map(spritesOf) } : {}),
+    // SHEET-IMPORT (owner 10-26): a detailed character (density 4 and up) draws its one master at
+    // every zoom (smoothSprite.ts), never a copy picked by the zoom, also when it draws at
+    // drawDensity 3 (ACCEPT-4: the zoom-picked 32×64 copy had come back for the 64×128 bunny)
+    ...(char.lods?.length && (char.density ?? 1) < SMOOTH_DENSITY
+      ? { lods: char.lods.map(spritesOf) }
+      : {}),
   };
 }
 

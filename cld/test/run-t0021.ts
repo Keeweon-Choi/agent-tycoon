@@ -144,7 +144,8 @@ async function main() {
   const daemon = startDaemon(
     { home },
     port,
-    ['--engine', 'on', '--allow-chat', '--lhm-port', String(lhmPort), '--no-terminal'],
+    // S1: the daemon is read-only unless --allow-actions (a task's worktree is an action).
+    ['--engine', 'on', '--allow-chat', '--allow-actions', '--lhm-port', String(lhmPort), '--no-terminal'],
     { PATH: env.PATH, LANG: env.LANG, FAKE_TURN_MS: env.FAKE_TURN_MS },
     true,
   );

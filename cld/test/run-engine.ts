@@ -230,9 +230,10 @@ async function main() {
     );
     await form.getByLabel('사무실').fill('연구실');
     check(
-      (await form.getByLabel('모델').inputValue()) === '' &&
-        (await form.getByLabel('노력').inputValue()) === '',
-      'installed CLI choices start at their defaults',
+      // LEAD-DEFAULT (d2ceb3a8): a new Lead starts with the Leads' model and effort (Opus · max).
+      (await form.getByLabel('모델').inputValue()) === 'opus' &&
+        (await form.getByLabel('노력').inputValue()) === 'max',
+      "a new Lead's choices start at the Leads' model and effort (opus, max)",
     );
     check(
       (await form.getByLabel('모델').locator('option').allTextContents()).some((text) =>
@@ -442,8 +443,10 @@ async function main() {
         lead[0].projectId === registry[0].projectId &&
         lead[0].role === 'lead' &&
         lead[0].wantRunning === true &&
-        lead[0].model === undefined,
-      'projects.json + assignments.json: beta-app only, wantRunning, no launch options',
+        // LEAD-DEFAULT (d2ceb3a8): the Lead record carries the Leads' model and effort.
+        lead[0].model === 'opus' &&
+        lead[0].effort === 'max',
+      'projects.json + assignments.json: beta-app only, wantRunning, the Leads\' model and effort',
     );
     rss.peak = rssMb(server.pid!, 'VmHWM');
     console.log(`rss MB: ${JSON.stringify(rss)}`);

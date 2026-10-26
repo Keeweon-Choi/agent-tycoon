@@ -3,14 +3,37 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createAgentState } from './agentState.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { SERVER_HEALTH_PROTOCOL_VERSION } from './constants.js';
 import {
+  agentCreatedMessage,
   createHttpServer,
   entryModuleSrc,
   type HttpServerHandle,
   webBuildFromStaticDir,
 } from './httpServer.js';
+
+describe('agentCreated', () => {
+  const agent = createAgentState({
+    id: 4,
+    sessionId: 'cld:engine:eta',
+    isExternal: false,
+    projectDir: '',
+    jsonlFile: '',
+    directoryName: 'eta',
+  });
+
+  it("carries the character's planned chair, so a restart's late roster finds it", () => {
+    expect(agentCreatedMessage(4, agent, 'seat:name:eta')).toMatchObject({
+      type: 'agentCreated',
+      id: 4,
+      directoryName: 'eta',
+      seatId: 'seat:name:eta',
+    });
+    expect(agentCreatedMessage(4, agent).seatId).toBeUndefined();
+  });
+});
 
 describe('standalone web build marker', () => {
   it.each([

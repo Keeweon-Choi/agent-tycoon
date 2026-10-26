@@ -250,7 +250,8 @@ async function main() {
     await addButton.waitFor();
     await card(drawer, page, 'alpha').waitFor();
     await page.waitForTimeout(1000);
-    check((await page.getByRole('button', { name: ADD }).count()) === 1, 'one 오케스트레이터 추가');
+    // TOPBAR-CARDS adds a + in the card bar: the drawer holds exactly one add button of its own.
+    check((await drawer.getByRole('button', { name: ADD }).count()) === 1, 'one 오케스트레이터 추가');
     check(
       (await page.getByRole('button', { name: /프로젝트 추가/ }).count()) === 0,
       'no 프로젝트 추가 left',

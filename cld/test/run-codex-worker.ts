@@ -243,7 +243,8 @@ async function main() {
     await card.getByText('쉬는 중').waitFor({ timeout: 20_000 });
     check(
       (await card.getByTestId('codex-badge').innerText()) === 'Codex' &&
-        (await card.getByRole('button').count()) === 0 &&
+        // CH-4: every card has its 꾸미기 button; no chat or Lead button besides it.
+        (await card.getByRole('button').allInnerTexts()).every((t) => t.trim() === '꾸미기') &&
         (await card.getByTestId('codex-worker-task').innerText()).includes('맡은 일 없음'),
       'the card: the Codex badge, resting, no task, no chat or Lead button',
     );
@@ -298,7 +299,8 @@ async function main() {
       e1.exit.value === 0 && e1.exit.source === 'observed' && e1.commits.value === 1 && e1.commits.source === 'observed' && e1.summary.source === 'reported' && e1.summary.value.startsWith('로그인 고쳤어요'),
       `the Task's Execution codex:${e1.ref}: exit 0 and a commit observed, the report reported`,
     );
-    await eventually('the Lead told', () => toLead('alpha-w1').length >= 1);
+    // K1 (e02661c5): an action notice waits noticeBatchMs (30 s) for the rest of its burst before the Lead is typed to.
+    await eventually('the Lead told', () => toLead('alpha-w1').length >= 1, 60_000);
     const told = toLead('alpha-w1')[0];
     check(told.includes(`alpha-w1에게서 · Task ${d1.taskId}`) && told.includes('끝남 · exit 0 · 커밋 1개') && told.includes('보고(Worker 의 말):'), 'the Lead got one line under alpha-w1’s name with the facts and the report');
 
@@ -326,7 +328,7 @@ async function main() {
     await eventually('the long run', () => codex().length === 4 && codex()[3].state === 'running' && codex()[3].pid !== null);
     check(json(cli('worker', 'stop', 'alpha-w1')).ok === true, 'cld-gui worker stop alpha-w1');
     await eventually('stopped', () => codex()[3].state === 'stopped', 30_000);
-    await eventually('the Lead told of the stop', () => toLead('alpha-w1').some((x) => x.includes('사용자가 멈췄어요')), 30_000);
+    await eventually('the Lead told of the stop', () => toLead('alpha-w1').some((x) => x.includes('사용자가 멈췄어요')), 60_000);
     check(true, 'the run ended stopped and the Lead heard 사용자가 멈췄어요');
     await card.getByText('꺼짐').waitFor({ timeout: 20_000 });
 

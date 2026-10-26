@@ -423,10 +423,11 @@ async function main() {
       const vp = p.opts.viewport!;
       const rowsBefore = await visibleRows(phone);
       await phone.setViewportSize({ width: vp.width, height: vp.height - 300 }); // the keyboard
-      for (const key of ['Esc 키', '탭 키', '붙여넣기']) {
+      // Key bar 10-24: Shift, Tab and paste are gone from the bar (Esc, Ctrl, End are on it).
+      for (const key of ['Esc 키', '컨트롤 키', 'End 키']) {
         await phone.getByRole('button', { name: key, exact: true }).waitFor();
       }
-      check(true, `TC-155 ${p.name}: the key bar (Esc, Tab, paste) is up`);
+      check(true, `TC-155 ${p.name}: the key bar (Esc, Ctrl, End) is up`);
       // The pane shrinks first, then the PTY follows: wait for both before typing.
       await phone.waitForFunction(
         (n) =>
@@ -481,6 +482,7 @@ async function main() {
     );
     // 설정: the number of agent terminals at once (default = --chat-attaches, here 1).
     await page.getByRole('button', { name: '설정', exact: true }).click();
+    await page.getByRole('tab', { name: '고급', exact: true }).click(); // SETTINGS-TABS: the cap is in the 고급 tab
     const capGroup = page.getByRole('group', { name: '동시에 붙일 에이전트 터미널' });
     await capGroup.waitFor();
     check(

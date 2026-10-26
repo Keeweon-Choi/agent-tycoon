@@ -167,7 +167,7 @@ async function leadPalette(page: Page): Promise<number> {
       __pixelAgentsTestHooks: { drawnDensity: (p: number, h: number, z: number) => number };
     };
     for (let p = 0; p < 2000; p++)
-      if (w.__pixelAgentsTestHooks.drawnDensity(p, 0, 4) === 4) return p;
+      if (w.__pixelAgentsTestHooks.drawnDensity(p, 0, 4) === 3) return p; // a 64×128 person draws at density 3 (SHEET-IMPORT)
     return -1;
   });
 }
@@ -247,8 +247,9 @@ async function main() {
         palette,
       );
       check(
-        picked.join() === '1,2,1,4,2,4',
-        `the copy per zoom 1,2,3,4,6,8: ${picked.join(',')} (16×32, 32×64, 16×32, 64×128, 32×64, 64×128)`,
+        // SHEET-IMPORT: one master at every zoom, never the copy the zoom divides (was 1,2,1,4,2,4)
+        picked.join() === '3,3,3,3,3,3',
+        `the density per zoom 1,2,3,4,6,8: ${picked.join(',')} (her one 64×128 master drawn at 3 each time)`,
       );
       result.lodPerZoom = Object.fromEntries([1, 2, 3, 4, 6, 8].map((z, i) => [z, picked[i]]));
       const leadId = (await hooks(page)((h) => h.getAgentSeats()))[0].id;

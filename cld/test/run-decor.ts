@@ -370,7 +370,7 @@ async function main(): Promise<void> {
         await page.keyboard.press('Escape');
         const base = lastLayout()!.cldBase;
         const sent0 = sent.length;
-        await page.getByRole('button', { name: '꾸미기', exact: true }).click();
+        await page.getByRole('button', { name: '인테리어', exact: true }).click();
         await page.getByRole('button', { name: 'Floor', exact: true }).click();
         const saveButton = page.locator('button[title="Save layout"]');
         const canvas = page.locator('canvas').first();

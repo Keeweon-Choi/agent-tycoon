@@ -4,7 +4,9 @@ import {
   IME_START,
   imeFlush,
   imePending,
+  imeRebase,
   imeRoute,
+  imeStale,
   type ImeState,
   imeText,
 } from '../src/terminal/imeGuard.js';
@@ -127,5 +129,37 @@ describe('imeRoute', () => {
     expect(
       imeRoute(pending, { type: 'keydown', key: 'Backspace', keyCode: 8, ctrlKey: true }),
     ).toBe('flush');
+  });
+});
+
+describe('imeStale: a composition that never ended', () => {
+  // Fast Korean: Enter while composing flushes the open syllable and starts dropping the rest of that
+  // composition, then the IME lets go without a compositionend.
+  const composing = imeText({ ...IME_START, composing: true }, '\uc694', false).state;
+  const stuck = imeFlush(composing).state;
+
+  it('the next real key proves it', () => {
+    expect(stuck).toMatchObject({ composing: true, dropping: true });
+    expect(imeStale(stuck, { type: 'keydown', key: 'c', keyCode: 67 })).toBe(true);
+    expect(imeStale(composing, { type: 'keydown', key: 'a', keyCode: 65 })).toBe(true);
+  });
+
+  it('a live composition does not look stale', () => {
+    // Enter typed before the IME's commit is marked composing; the IME's own keys are 229.
+    expect(imeStale(stuck, { type: 'keydown', key: 'Enter', keyCode: 13, isComposing: true })).toBe(
+      false,
+    );
+    expect(imeStale(stuck, { type: 'keydown', key: 'Process', keyCode: 229 })).toBe(false);
+    expect(imeStale(stuck, { type: 'keydown', key: 'Shift', keyCode: 16 })).toBe(false);
+    expect(imeStale(stuck, { type: 'input' })).toBe(false);
+    expect(imeStale(IME_START, { type: 'keydown', key: 'c', keyCode: 67 })).toBe(false);
+  });
+
+  it("with the flags cleared, ASCII is xterm's again and the next syllable is not lost", () => {
+    const fresh = { ...stuck, composing: false, dropping: false };
+    expect(imeRoute(fresh, { type: 'keypress', key: ' ' })).toBe('xterm');
+    // (flush empties the textarea once nothing is open)
+    const first = imeText({ ...imeRebase(fresh, ''), composing: true }, '\uc544', true);
+    expect(first.out).toBe('\uc544');
   });
 });

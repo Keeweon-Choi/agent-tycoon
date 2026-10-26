@@ -20,6 +20,7 @@ export interface GameLoopCallbacks {
 
 // cld-gui (T-0075): one source of truth for "should the office draw now".
 let onScreen = true; // the canvas intersects the viewport
+let covered = false; // a page of the phone shell is in front of it (WINMODEL: the canvas stays in place)
 let busy = true; // something on the office needs smooth motion
 let fastUntil = 0; // input keeps the full rate until this time
 
@@ -29,15 +30,29 @@ const pacer = createFramePacer(() =>
 
 /** The gate the office canvas and its DOM overlays share: false while the
  *  office is off screen, at the idle rate while nothing moves. */
-export const frameDue = (ts: number): boolean => onScreen && pacer(ts);
+export const frameDue = (ts: number): boolean => onScreen && !covered && pacer(ts);
 
 /** Whether the office canvas is on screen (the nameplates' overlap pass waits for it). */
-export const officeOnScreen = (): boolean => onScreen;
+export const officeOnScreen = (): boolean => onScreen && !covered;
 const shownListeners = new Set<() => void>();
 /** Runs `fn` each time the office comes back on screen; returns the unsubscribe. */
 export function onOfficeShown(fn: () => void): () => void {
   shownListeners.add(fn);
   return () => shownListeners.delete(fn);
+}
+
+/**
+ * The phone's Dock shows one page at a time over the office, which keeps its place under it (it used
+ * to slide off screen, which the IntersectionObserver saw): while a page covers it nothing is drawn.
+ */
+export function setOfficeCovered(next: boolean): void {
+  if (next === covered) return;
+  const was = onScreen && !covered;
+  covered = next;
+  if (onScreen && !covered && !was) {
+    wakeOffice();
+    for (const fn of shownListeners) fn();
+  }
 }
 
 /** Input on the office: draw at the full rate from the next frame on. */

@@ -211,7 +211,11 @@ async function main() {
     await phone.waitForTimeout(800);
     await tap('board');
     await phone.waitForTimeout(800);
-    expectFixed((await active()) === 'office', `3: messenger -> 현황판, then 현황판 again: minimized, the office shows (dock says ${await active()})`);
+    // WINMODEL (owner 10-24): the shown tab pressed again goes to its root; 사무실 goes home.
+    expectFixed((await active()) === 'board', `3: messenger -> 현황판, then 현황판 again: its root, still on it (dock says ${await active()})`);
+    await tap('office');
+    await phone.waitForTimeout(800);
+    expectFixed((await active()) === 'office', `3: 사무실 goes home (dock says ${await active()})`);
     await tap('messenger');
     await phone.waitForTimeout(800);
     expectFixed((await active()) === 'messenger' && (await conv.isVisible()), `3: and the messenger comes back (dock says ${await active()})`);
@@ -227,9 +231,9 @@ async function main() {
     await list.evaluate((el) => (el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 200)));
     await phone.waitForTimeout(400);
     const scrolled = await list.evaluate((el) => el.scrollTop);
-    await tap('messenger'); // minimize
+    await tap('office'); // home (WINMODEL: the shown tab's own button goes to its root instead)
     await phone.waitForTimeout(500);
-    expectFixed((await active()) === 'office' && !(await conv.isVisible()), 'minimize: the Dock button of the open messenger minimizes it (office)');
+    expectFixed((await active()) === 'office' && !(await conv.isVisible()), 'minimize: 사무실 sends the open messenger home (office)');
     await tap('messenger');
     await conv.waitFor();
     await phone.waitForTimeout(500);
@@ -258,9 +262,9 @@ async function main() {
     await wbScroll.evaluate((el) => ((el as HTMLElement).scrollTop = 220));
     await phone.waitForTimeout(300);
     const wbTop = await wbScroll.evaluate((el) => (el as HTMLElement).scrollTop);
-    await tap('workbench'); // minimize
+    await tap('office'); // home
     await phone.waitForTimeout(500);
-    expectFixed((await active()) === 'office', 'minimize: the Dock button of the open 작업실 minimizes it (office)');
+    expectFixed((await active()) === 'office', 'minimize: 사무실 sends the open 작업실 home (office)');
     await tap('workbench');
     await phone.waitForTimeout(600);
     const wbTop2 = await (await scroller()).evaluate((el) => (el as HTMLElement).scrollTop);

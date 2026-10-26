@@ -309,8 +309,11 @@ async function main() {
   /** The folded usage strip: text, tones, shape, tap to unfold. */
   async function usageChecks(page: Page, label: string, phone: boolean) {
     const open = page.getByLabel('사용량', { exact: true });
-    await open.waitFor();
-    await page.getByRole('button', { name: '사용량 접기' }).click();
+    // Owner 10-24: the phone's usage sits at the bottom, folded until opened; the desktop's starts open.
+    if (!phone) {
+      await open.waitFor();
+      await page.getByRole('button', { name: '사용량 접기' }).click();
+    }
     const folded = page.getByTestId('usage-folded');
     await folded.waitFor();
     const text = (await folded.innerText()).replace(/\s+/g, ' ').trim();

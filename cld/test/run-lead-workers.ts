@@ -283,7 +283,13 @@ async function main() {
     await rooms.getByRole('button', { name: /^팀방/ }).click();
     const room = messenger.getByTestId(/group-room-screen-/);
     await room.waitFor();
-    check(((await room.locator('header').textContent()) ?? '').includes('alpha, alpha-a, alpha-b'), 'a room holds the Lead and both Workers by name');
+    // MSG-UI2: the header has a member pill; its list names each member.
+    await room.getByRole('button', { name: '멤버 3명 보기' }).click();
+    const memberNames = await room.getByRole('list', { name: '구성원' }).locator('strong').allTextContents();
+    check(
+      [...memberNames].sort().join(', ') === 'alpha, alpha-a, alpha-b',
+      `a room holds the Lead and both Workers by name (${memberNames.join(', ')})`,
+    );
     const before = typed().length;
     const composer = room.getByRole('textbox', { name: '팀방 메시지' });
     await composer.fill('@alpha-a 리뷰 부탁해요');

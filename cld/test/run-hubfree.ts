@@ -97,7 +97,9 @@ async function main() {
     const page = await ctx.newPage();
     page.on('pageerror', (err) => pageErrors.push(err.message));
     page.on('console', (msg) => {
-      if (msg.type() === 'error') pageErrors.push(`console: ${msg.text()}`);
+      // MSG-UI3: the owner's picture is fetched at /cld/profile/owner.png and is a 404 until one is set.
+      if (msg.type() === 'error' && !msg.location().url.includes('/cld/profile/'))
+        pageErrors.push(`console: ${msg.text()} ${msg.location().url}`);
     });
     page.on('websocket', (ws) =>
       ws.on('framereceived', (f) => {
@@ -177,6 +179,8 @@ async function main() {
       'the HW tab holds the GPU board (or its empty line)',
     );
     await page.getByRole('button', { name: '설정', exact: true }).click();
+    // SETTINGS-TABS: the layout reset is in the 화면 tab.
+    await page.getByRole('tab', { name: '화면', exact: true }).click();
     await page.getByRole('button', { name: '화면 배치 초기화' }).waitFor();
     check(true, '설정 opens its menu');
     await page.getByRole('button', { name: 'x', exact: true }).click(); // the dialog's close

@@ -10,7 +10,7 @@ export function CameraModeControl() {
   const free = mode === 'free';
   return (
     <div
-      className="absolute right-8 bottom-8 z-20 pixel-panel flex gap-2 p-2"
+      className="absolute right-[calc(var(--cld-safe-right)+8px)] bottom-8 z-20 pixel-panel flex gap-2 p-2"
       role="group"
       aria-label={t('gfx.camera.label')}
       data-testid="camera-modes"

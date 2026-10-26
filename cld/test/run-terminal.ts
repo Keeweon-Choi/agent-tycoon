@@ -627,7 +627,8 @@ async function main() {
     );
     const rects = (await b.evaluate(`(() => {
       const esc = document.querySelector('button[aria-label="Esc 키"]');
-      const keyBar = esc.parentElement.parentElement;
+      // U-33: the keys sit in a grid inside the bar's border-t-2 box (one parent up no longer reaches it).
+      const keyBar = esc.closest('div.border-t-2');
       const cursor = document.querySelector('[data-testid="terminal-pane"]:not(.hidden) .xterm-rows .xterm-cursor');
       return {
         vv: window.visualViewport.height,

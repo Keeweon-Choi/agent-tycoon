@@ -325,17 +325,19 @@ async function afterChecks(
     (await active()) === 'messenger' && (await sameConversation()),
     `Dock: back on the messenger, the same conversation, draft and scroll (${scrolled})`,
   );
-  await tap('messenger');
+  // WINMODEL (owner 10-24): the Dock is a tab bar. The shown tab pressed again goes to its root
+  // (the messenger's list), it no longer minimizes; 사무실 goes home, every page kept.
+  await tap('office');
   await phone.waitForTimeout(300);
   check(
     (await active()) === 'office' && !(await conv.isVisible()),
-    'Dock: a tap on the screen showing minimizes it: the office',
+    'Dock: 사무실 goes home, the messenger kept out of sight',
   );
   await tap('messenger');
   await conv.waitFor();
   check(
     await sameConversation(),
-    'Dock: reopened after minimize, the draft and the scroll are there',
+    'Dock: reopened from home, the draft and the scroll are there',
   );
   const selectedTab = () =>
     phone
@@ -370,7 +372,7 @@ async function afterChecks(
   check((await active()) === 'board', 'Dock: 현황판 comes back on its HW tab');
   await tap('files');
   await tap('files');
-  check((await active()) === 'office', 'Dock: a second tap on 파일 minimizes it');
+  check((await active()) === 'files', 'Dock: a second tap on 파일 stays (its root), no minimize');
 
   // ── Layers: a dialog covers the Dock ──
   await tap('messenger');
@@ -403,11 +405,18 @@ async function afterChecks(
     await phone.getByTestId('mobile-dock').waitFor();
   };
   await keyboardDown();
+  await tap('messenger');
+  await conv.waitFor({ state: 'hidden' });
+  check(
+    (await active()) === 'messenger',
+    'Dock: a tap on the messenger showing goes to its list (its root), still on the messenger',
+  );
   await tap('terminal');
   await termShows(phone);
   await phone.locator('.xterm-screen').first().tap();
   await phone.setViewportSize({ width: 390, height: 664 });
-  for (const key of ['Esc 키', '탭 키', '붙여넣기'])
+  // U-33 / key bar 10-24: Shift, Tab and paste are gone from the bar (the owner's 7-column layout).
+  for (const key of ['Esc 키', '컨트롤 키', 'End 키'])
     await phone.getByRole('button', { name: key, exact: true }).waitFor();
   const keyBar = await phone.getByRole('button', { name: 'Esc 키', exact: true }).boundingBox();
   check(
@@ -768,10 +777,11 @@ async function main() {
       );
       await desk.screenshot({ path: path.join(OUT, 'after-desktop-files.png') });
       await filesIcon.click();
-      await explorer.waitFor({ state: 'detached' });
+      // WINMODEL (owner 10-24): the front window's icon minimizes (only its x closes).
+      await explorer.waitFor({ state: 'hidden' });
       check(
-        (await desk.locator('[data-hud-window="office"]').count()) === 0,
-        'desktop: a second click on 파일 closes it',
+        /최소화됨/.test((await filesIcon.getAttribute('aria-label')) ?? ''),
+        'desktop: a second click on 파일 minimizes it (the window is kept, its icon says so)',
       );
       await filesIcon.click();
       await explorer.waitFor();

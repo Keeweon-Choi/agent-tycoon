@@ -270,6 +270,8 @@ async function main() {
   /** The assertions, on one viewport's open 작업 tab. */
   async function verify(page: Page, view: string) {
     const panel = page.getByTestId('jobs-panel');
+    // The Task tab opens on 업무 (c489aea3): the job list is its 실행 view.
+    await page.getByRole('group', { name: '작업 보기' }).getByRole('button', { name: '실행', exact: true }).click();
     await until(
       `${view}: 8 job cards`,
       async () => (await panel.getByTestId('job-card').count()) === 8,

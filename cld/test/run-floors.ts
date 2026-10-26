@@ -541,6 +541,8 @@ async function main() {
     console.log(
       `after the restart: ${JSON.stringify(reloaded)} (floor 2 is ${f2}); eta: ${JSON.stringify(
         await page.evaluate(`window.__pixelAgentsTestHooks.getCharacterTile(${agentId('eta')})`),
+      )}; alpha: ${JSON.stringify(
+        await page.evaluate(`window.__pixelAgentsTestHooks.getCharacterTile(${agentId('alpha')})`),
       )}; floors ${JSON.stringify(([...received].reverse().find((m) => m.type === 'layoutLoaded') as { layout: { cldFloors?: unknown } } | undefined)?.layout.cldFloors)}`,
     );
     check(
@@ -833,7 +835,8 @@ async function main() {
       };
     });
     check(
-      bar.pad === 55 && bar.pickTop >= 47,
+      // The phone's top bar pads the notch (47) by 4 px since 89c50831; what matters is that it clears it.
+      bar.pad >= 47 && bar.pickTop >= 47,
       `phone: the top bar clears the notch (padding ${bar.pad} px; the picker at ${bar.pickTop.toFixed(0)} px)`,
     );
     check(

@@ -707,7 +707,18 @@ async function main() {
           size: el.style.backgroundSize,
         };
       });
+    // ACCEPT-4: the baseline is read once the backdrop has held still for three reads (1.2 s): the
+    // floor switch above may still be settling (the acceptance runs under load failed here twice,
+    // an earlier full run too, while four unloaded, pinned and CPU-throttled runs did not). An
+    // office that never settles still fails (after 25 reads, 10 s).
     let style = await bg();
+    for (let held = 0, reads = 0; held < 3; reads++) {
+      if (reads === 25) throw new Error('check failed: desktop: the backdrop never held still (10 s)');
+      await page.waitForTimeout(400);
+      const next = await bg();
+      held = next.position === style.position ? held + 1 : 0;
+      style = next;
+    }
     check(
       style.image.includes('topdown-night') &&
         style.rendering === 'pixelated' &&
@@ -720,7 +731,7 @@ async function main() {
     const idleStyle = await bg();
     check(
       idleStyle.position === style.position,
-      'desktop: idle, the backdrop is not written again',
+      `desktop: idle, the backdrop is not written again (${style.position} then ${idleStyle.position}, camera ${JSON.stringify(await cam(page))})`,
     );
     const cb2 = (await page.getByTestId('office-canvas').boundingBox())!;
     await page.mouse.move(cb2.x + cb2.width * 0.5, cb2.y + cb2.height * 0.92);

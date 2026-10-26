@@ -35,8 +35,9 @@ import {
   startDaemon,
 } from '../../server/src/cld/testHome.js';
 
+// RUNNERS-FIX: run-all hands out 18256/18257: any spare port will do.
 const port = Number(process.argv[2] ?? SPARE_PORTS[2]);
-if (![18258, 18259].includes(port)) throw new Error('port must be 18258 or 18259');
+if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18259');
 const BASE = `http://127.0.0.1:${port}/`;
 const IDLE_SECONDS = 6;
 const ACTIVE_MS = 1_500;
@@ -293,13 +294,16 @@ async function main(): Promise<void> {
       .getByRole('region', { name: `${CHAT_SESSION} 대화` })
       .getByRole('button', { name: '터미널로 보기' })
       .tap();
-    await phone.page.getByRole('button', { name: 'Office', exact: true }).waitFor();
+    await phone.page.getByRole('button', { name: '사무실', exact: true }).first() /* the page's own button; the Dock has one too */.waitFor();
     await phone.page.waitForTimeout(1_500); // the slide ends
-    const onScreen = await phone.page.evaluate(() => {
-      const r = document.querySelector('[data-testid="office-canvas"]')!.getBoundingClientRect();
-      return r.right > 0 && r.left < window.innerWidth;
+    // WINMODEL: the Dock's pages sit over the office, which keeps its place: covered, not slid away.
+    const covered = await phone.page.evaluate(() => {
+      const canvas = document.querySelector('[data-testid="office-canvas"]')!;
+      const r = canvas.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit !== null && !canvas.contains(hit);
     });
-    check(!onScreen, 'the terminal page is in front: the office canvas is translated off screen');
+    check(covered, 'the terminal page is in front: it covers the office canvas');
     const hidden = await windows(phone.page, pcdp, 4);
     const hiddenRenders = sum(hidden.w, 'renders');
     console.log(
@@ -309,8 +313,12 @@ async function main(): Promise<void> {
       hiddenRenders <= HIDDEN_MAX_RENDERS,
       `an office that is not on screen renders nothing (${hiddenRenders} renders in 4 s, limit ${HIDDEN_MAX_RENDERS})`,
     );
-    await phone.page.getByRole('button', { name: 'Office', exact: true }).tap();
-    await phone.page.getByRole('button', { name: '>_', exact: true }).waitFor();
+    await phone.page.getByRole('button', { name: '사무실', exact: true }).first() /* the page's own button; the Dock has one too */.tap();
+    // The old >_ toggle is gone (WINMODEL: the Dock's 사무실 goes home): wait for the canvas.
+    await phone.page.waitForFunction(() => {
+      const r = document.querySelector('[data-testid="office-canvas"]')!.getBoundingClientRect();
+      return r.right > 0 && r.left < window.innerWidth;
+    });
     await phone.page.waitForTimeout(1_000);
     const back = await windows(phone.page, pcdp, 2);
     check(back.w[1].renders > 0, `back on the office page it renders again (${fmt(back.w)})`);

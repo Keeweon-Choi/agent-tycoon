@@ -350,7 +350,8 @@ async function main() {
     const cdp = await phoneCtx.newCDPSession(phone);
     const hold = async (loc: Locator) => {
       await loc.scrollIntoViewIfNeeded();
-      const b = (await loc.boundingBox())!;
+      // MSG-UI3: rows carry an avatar and a bubble aligned to a side; hold on the bubble itself.
+      const b = (await loc.locator('div.border').first().boundingBox())!;
       const point = { x: b.x + Math.min(24, b.width / 2), y: b.y + Math.min(12, b.height / 2) };
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
       await phone.waitForTimeout(800);
@@ -533,7 +534,8 @@ async function main() {
       await bottom(m2);
       await shot(p2, 'phone390-pending-dashed');
       const sides = await pend.evaluate((wrap) => {
-        const el = wrap.firstElementChild as HTMLElement;
+        // MSG-UI3: the row also holds the avatar and name; the dashed box is the bubble.
+        const el = wrap.querySelector('.border-dashed') as HTMLElement;
         const cs = getComputedStyle(el);
         const r = el.getBoundingClientRect();
         const list = el.closest('[data-testid="chat-scroll"]')!.getBoundingClientRect();

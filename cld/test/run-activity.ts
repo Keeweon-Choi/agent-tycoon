@@ -899,7 +899,11 @@ async function main() {
       ['desktop', page],
       ['phone', phone],
     ] as const) {
-      await p.getByRole('button', { name: '범례' }).click();
+      if (label === 'phone') {
+        // The phone's top bar keeps the floor and 설정; 범례 is the first row of 설정 (run-mobile-dock).
+        await p.getByTestId('mobile-top-bar').getByRole('button', { name: '설정' }).click();
+        await p.getByTestId('settings-quick').getByRole('button', { name: '범례' }).click();
+      } else await p.getByRole('button', { name: '범례' }).click();
       const legend = p.getByTestId('activity-legend');
       await legend.waitFor();
       const rings = await legend.locator('[data-ring]').count();
@@ -908,7 +912,7 @@ async function main() {
         .evaluateAll((n) => n.map((e) => e.getAttribute('data-prop')));
       const signs = await legend.getByTestId('fatigue-legend').locator('li').count();
       check(
-        rings === 6 && new Set(props).size === Object.keys(propData.props).length && signs === 7, // 7: T-0047 added the 휴식 N/M one
+        rings === 6 && new Set(props).size === Object.keys(propData.props).length && signs === 8, // 8: T-0047 added the 휴식 N/M one, REST-ANIM (48909080) the rest drink
         `${label}: 범례 shows ${rings} ring states, ${props.length} props and ${signs} fatigue signs`,
       );
       await p.waitForTimeout(300);
@@ -924,7 +928,9 @@ async function main() {
       await shot(p, `${label}-legend`);
       await legend.evaluate((el) => el.scrollIntoView({ block: 'end' }));
       await shot(p, `${label}-legend-fatigue`);
-      await p.getByRole('button', { name: 'x', exact: true }).click();
+      // The legend opened from 설정 lies over it on the phone: close the top one, then the 설정 under it.
+      await p.getByRole('button', { name: 'x', exact: true }).last().click();
+      if (label === 'phone') await p.getByRole('button', { name: 'x', exact: true }).last().click();
     }
 
     // U-15: a renew that really started the new conversation is one 환생 (the engine event).

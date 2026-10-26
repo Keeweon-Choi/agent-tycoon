@@ -324,24 +324,27 @@ async function main() {
     );
     await shot(page, 'desktop-text-field');
 
-    // ── GUX-4: Back closes the top panel; the office stays ──
+    // ── GUX-4 / WINMODEL (owner 10-24): the PC no longer takes the browser's Back for windows ──
     await page.evaluate(() => ((window as unknown as { __alive: boolean }).__alive = true));
     const urlBefore = page.url();
+    const entries = () => page.evaluate(() => history.length);
+    const entriesBefore = await entries();
     await page.getByRole('button', { name: /^현황판/ }).click();
     const office = page.locator('[data-hud-window="office"]');
     await office.waitFor();
-    await page.goBack();
-    await until('Back closes the 현황판 window', async () => (await office.count()) === 0);
+    // Back would leave the page (a goBack here lands on about:blank): the windows hold no entry.
     check(
-      (await messenger.count()) === 1,
-      'desktop: Back closes only the top panel (the messenger stays)',
+      (await entries()) === entriesBefore && (await messenger.count()) === 1,
+      'desktop: opening windows pushes no history entry, so Back has nothing of theirs to close',
     );
-    await page.goBack();
-    await until('Back closes the messenger', async () => (await messenger.count()) === 0);
+    await page.getByRole('button', { name: '정보 창 닫기' }).click();
+    await until('the x closes the 현황판 window', async () => (await office.count()) === 0);
+    await messenger.getByRole('button', { name: '메신저 닫기' }).click();
+    await until('the x closes the messenger', async () => (await messenger.count()) === 0);
     check(
       page.url() === urlBefore &&
         (await page.evaluate(() => (window as unknown as { __alive?: boolean }).__alive === true)),
-      'desktop: Back closed both panels and stayed on the office page',
+      'desktop: the page stayed on the office page',
     );
     const side = await page.evaluate(() => {
       const canvas = document.querySelector('[data-testid="office-canvas"]')!;

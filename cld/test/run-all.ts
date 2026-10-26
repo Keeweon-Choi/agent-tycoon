@@ -142,7 +142,21 @@ async function main() {
     const name = f.replace(/\.ts$/, '');
     if (only && !only.includes(name)) continue;
     let args = [String(a)];
-    if (['run-access', 'run-device-login', 'run-hw-panel', 'run-notices', 'run-t0021', 'run-terminal'].includes(name))
+    // RUNNERS-FIX: the runners that read a second port (sparePort(3): proxy, push, LHM, direct).
+    if (
+      [
+        'run-access',
+        'run-device-login',
+        'run-hw-panel',
+        'run-notices',
+        'run-o5',
+        'run-remote-xplat',
+        'run-room-notice',
+        'run-rooms',
+        'run-t0021',
+        'run-terminal',
+      ].includes(name)
+    )
       args = [String(a), String(b)];
     if (name === 'run-office') args = ['fake', String(a), 'S-8', 'S-8', 'on', 't0042-all'];
     if (name === 'run-hw') {

@@ -242,6 +242,18 @@ async function main(): Promise<void> {
         const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
         return { scale: m.a, x: m.e, y: m.f, box: el.getBoundingClientRect().toJSON() };
       });
+    /** The viewer's fit settles a moment after it opens (the actions bar takes its room, ATTACH-UNIFY). */
+    const settled = async (page: Page) => {
+      let last = await transform(page);
+      let still = 0;
+      for (let i = 0; i < 60 && still < 5; i++) {
+        await page.waitForTimeout(250);
+        const now = await transform(page);
+        still = Math.abs(now.scale - last.scale) < 0.001 && now.scale > 0 ? still + 1 : 0;
+        last = now;
+      }
+      return last;
+    };
     const counter = (page: Page) => page.locator('.attach-title-meta').textContent();
     const shot = (page: Page, name: string) =>
       page.screenshot({ path: path.join(OUT, `${name}.png`) });
@@ -297,11 +309,14 @@ async function main(): Promise<void> {
       headerFont >= bodyFont,
       `desktop: readable file name is ${headerFont}px (messenger body ${bodyFont}px)`,
     );
-    const fit = await transform(page);
+    const fit = await settled(page);
     check(
-      Math.abs(fit.scale - (800 - 16) / 800) < 0.01 &&
+      // The image fits above the actions bar: at most the screen less its margin, wholly on screen.
+      fit.scale > 0.5 &&
+        fit.scale <= (800 - 16) / 800 + 0.01 &&
         (await level(page)) === Math.round(fit.scale * 100) &&
-        fit.box.height <= 800,
+        fit.box.top >= 0 &&
+        fit.box.bottom <= 800,
       `desktop: opens fitted to the screen (${await level(page)}%, transform scale ${fit.scale.toFixed(3)})`,
     );
     await shot(page, 'desktop-fit');
@@ -423,17 +438,18 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="attach-img"]').waitFor();
     await until(
       'b fitted',
-      async () => Math.abs((await transform(page)).scale - 784 / 1200) < 0.01,
+      // The first image is height-bound, so its fitted box height is the room above the actions bar.
+      async () => Math.abs((await transform(page)).scale - fit.box.height / 1200) < 0.01,
     );
     check(true, 'desktop: next shows the second image, fitted again (4 / 4)');
     await shot(page, 'desktop-second');
     await page.keyboard.press('ArrowRight');
-    await page.locator('[data-testid="attach-file"]').waitFor();
+    // ATTACH-UNIFY: a small text file previews inline (no file card), its name is the viewer's title.
+    await page.locator('[data-testid="attach-download"]').waitFor();
     check(
       ((await counter(page)) ?? '').startsWith('1 / 4 · ') &&
-        (await page.locator('[data-testid="attach-file"]').textContent())!.includes('notes.txt') &&
-        (await page.locator('[data-testid="attach-file"]').textContent())!.includes('text/plain'),
-      'desktop: ArrowRight wraps to the first attachment, the text file, with its name and type',
+        ((await page.locator('.attach-title').textContent()) ?? '').includes('notes.txt'),
+      'desktop: ArrowRight wraps to the first attachment, the text file, with its name',
     );
     await shot(page, 'desktop-file');
 
@@ -465,10 +481,12 @@ async function main(): Promise<void> {
     await tab.close().catch(() => undefined);
     await page.evaluate(() => (window.open = () => null));
     await page.locator('[data-testid="attach-open"]').click();
-    await page.locator('[data-testid="attach-note"]').waitFor();
+    // ATTACH-UNIFY: an action's result is a toast now, not the card's note.
+    const refused = page.getByText('이 브라우저가 새 창을 열지 못하게 했어요');
+    await refused.first().waitFor();
     check(
       page.url() === BASE,
-      `desktop: with the popup refused it says so ("${await page.locator('[data-testid="attach-note"]').textContent()}") and the URL is unchanged`,
+      `desktop: with the popup refused it says so ("${await refused.first().textContent()}") and the URL is unchanged`,
     );
     await shot(page, 'desktop-popup-refused');
 
@@ -523,7 +541,7 @@ async function main(): Promise<void> {
     await pimageA.tap();
     await pviewer.waitFor();
     await until('phone fitted', async () => (await transform(phone)).scale > 0);
-    const pfit = await transform(phone);
+    const pfit = await settled(phone);
     check(
       phone.url() === BASE && Math.abs(pfit.scale - (393 - 16) / 1200) < 0.01,
       `phone: a tap opens the viewer fitted (${await level(phone)}%), URL unchanged`,
@@ -577,7 +595,8 @@ async function main(): Promise<void> {
       if (!((await counter(phone)) ?? '').startsWith('4 / 4 · ')) break;
       await phone.locator('[data-testid="attach-next"]').tap();
     }
-    await phone.locator('[data-testid="attach-file"]').waitFor();
+    // ATTACH-UNIFY: a small text file previews inline (no file card); its actions are the bar's.
+    await phone.locator('[data-testid="attach-download"]').waitFor();
     await shot(phone, 'phone-file');
     const pdownload = phone.waitForEvent('download');
     await phone.locator('[data-testid="attach-download"]').tap();

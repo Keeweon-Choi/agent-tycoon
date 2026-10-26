@@ -38,7 +38,15 @@ const BEFORE_CLI = beforeAt > 0 ? process.argv[beforeAt + 1] : null;
 /** Only the imports and the numbers again (the view screenshots of an earlier pass stay). */
 const PERF_ONLY = process.argv.includes('--perf-only');
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/sheet-import');
-const SHEETS_DIR = path.join(REPO_ROOT, '../specs/owner-iso-chars-1026');
+/** The owner's generated sheets (not in the repo): beside a worktree (.worktrees/specs), or under
+ *  the main checkout's .worktrees/specs (ACCEPT-4: from the main checkout the first path is
+ *  /tmp/example-home/projects/specs, which does not exist, and the upload crashed the runner). */
+const SHEETS_DIR =
+  process.env.SHEETS_DIR ??
+  ['../specs', '.worktrees/specs']
+    .map((d) => path.join(REPO_ROOT, d, 'owner-iso-chars-1026'))
+    .find((d) => fs.existsSync(d)) ??
+  '';
 const SHEETS = [3, 5, 8, 1];
 const DESK: BrowserContextOptions = {
   viewport: { width: 1280, height: 800 },
@@ -407,6 +415,8 @@ async function perfRun(
 }
 
 async function main() {
+  if (!SHEETS_DIR)
+    throw new Error("check failed: the owner's sheets are not found (set SHEETS_DIR)");
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   if (!PERF_ONLY)

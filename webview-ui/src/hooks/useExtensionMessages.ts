@@ -432,7 +432,14 @@ export function useExtensionMessages(
         } else {
           const palette = msg.palette as number | undefined;
           const hueShift = msg.hueShift as number | undefined;
-          os.addAgent(id, palette, hueShift, undefined, undefined, directoryName);
+          os.addAgent(
+            id,
+            palette,
+            hueShift,
+            msg.seatId as string | undefined,
+            undefined,
+            directoryName,
+          );
           noteDirectoryName(directoryName);
           if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
             os.setHeadless(id, true);

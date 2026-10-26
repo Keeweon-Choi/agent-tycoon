@@ -106,6 +106,26 @@ export interface ImeEvent {
   metaKey?: boolean;
 }
 
+/** Shift, Ctrl, Alt, Meta: a keydown of these says nothing about a composition. */
+const MODIFIER_KEYS = [16, 17, 18, 91, 93];
+
+/**
+ * A real key (not the IME's 229, not marked composing) while the layer thinks a composition is
+ * open: that composition ended without a compositionend (Chromium's CDP imeSetComposition('')
+ * fires nothing; an IME that lets go silently does the same). Left alone, `composing` swallows every
+ * keypress and `dropping` every syllable until some later compositionend.
+ */
+export function imeStale(s: ImeState, ev: ImeEvent): boolean {
+  const code = ev.keyCode ?? 0;
+  return (
+    (s.composing || s.dropping) &&
+    ev.type === 'keydown' &&
+    code !== 229 &&
+    !ev.isComposing &&
+    !MODIFIER_KEYS.includes(code)
+  );
+}
+
 /**
  * Who handles `ev`: 'textarea' keeps it from xterm (the browser changes the
  * textarea and imeText reads the result), 'xterm' lets xterm have it,
@@ -123,7 +143,7 @@ export function imeRoute(s: ImeState, ev: ImeEvent): 'textarea' | 'xterm' | 'flu
     case 'keydown': {
       const code = ev.keyCode ?? 0;
       if (code === 229) return 'textarea';
-      if (code === 16 || code === 17 || code === 18 || code === 91 || code === 93) return 'xterm';
+      if (MODIFIER_KEYS.includes(code)) return 'xterm';
       // A real key while composing (Chrome: Enter typed before the IME's commit): xterm
       // must get it; the open text goes first.
       if (s.composing || ev.isComposing) return 'flush';

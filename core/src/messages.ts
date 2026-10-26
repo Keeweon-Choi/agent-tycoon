@@ -189,6 +189,7 @@ export interface AgentCreated {
   isExternal?: boolean;
   palette?: number;
   hueShift?: number;
+  seatId?: string;
 }
 
 export interface AgentClosed {
@@ -637,7 +638,7 @@ export interface PackPreset {
 export interface CharacterPart {
   id: string;
   slot: CharacterPartSlot;
-  kind: AnonymousSchema_287;
+  kind: AnonymousSchema_288;
   gender?: CharacterGender;
   name?: string;
   ramp: string[];
@@ -666,7 +667,7 @@ export type CharacterPartSlot =
   | 'hair'
   | 'acc';
 
-export type AnonymousSchema_287 = 'sheet' | 'head';
+export type AnonymousSchema_288 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
   density?: CharacterPartDensity;
@@ -1096,10 +1097,10 @@ export interface UsageWindow {
   fiveHourIsReset?: boolean | null;
   sevenDayReset?: string | null;
   sevenDayIsReset?: boolean | null;
-  models?: AnonymousSchema_573[];
+  models?: AnonymousSchema_574[];
 }
 
-export interface AnonymousSchema_573 {
+export interface AnonymousSchema_574 {
   family: string;
   pct: number;
   reset?: string | null;
@@ -1115,7 +1116,7 @@ export interface CodexUsageCheckResult {
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_585;
+  language: AnonymousSchema_586;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1124,15 +1125,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_585 = 'ko' | 'en';
+export type AnonymousSchema_586 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_592;
+  mode: AnonymousSchema_593;
   error?: string;
 }
 
-export type AnonymousSchema_592 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_593 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1175,13 +1176,13 @@ export interface OfficeEvent {
   name?: string | null;
   summary: string;
   ref?: string | null;
-  provider?: AnonymousSchema_621;
-  period?: AnonymousSchema_622;
+  provider?: AnonymousSchema_622;
+  period?: AnonymousSchema_623;
 }
 
-export type AnonymousSchema_621 = 'claude' | 'codex' | 'null';
+export type AnonymousSchema_622 = 'claude' | 'codex' | 'null';
 
-export type AnonymousSchema_622 = 'fiveHour' | 'sevenDay' | 'null';
+export type AnonymousSchema_623 = 'fiveHour' | 'sevenDay' | 'null';
 
 export interface StatusOutput {
   type: 'statusOutput';
@@ -1587,13 +1588,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_871;
+  status: AnonymousSchema_872;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_871 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_872 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1624,10 +1625,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_885;
+  state: AnonymousSchema_886;
 }
 
-export type AnonymousSchema_885 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_886 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2241,14 +2242,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1196;
+  action: AnonymousSchema_1197;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1196 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1197 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2381,12 +2382,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1272;
+  lang?: AnonymousSchema_1273;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1272 = 'en' | 'ko';
+export type AnonymousSchema_1273 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2425,19 +2426,19 @@ export interface CodexUsageCheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1288;
+  language: AnonymousSchema_1289;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1288 = 'ko' | 'en';
+export type AnonymousSchema_1289 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1292;
+  mode: AnonymousSchema_1293;
 }
 
-export type AnonymousSchema_1292 = 'ask' | 'bypass';
+export type AnonymousSchema_1293 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

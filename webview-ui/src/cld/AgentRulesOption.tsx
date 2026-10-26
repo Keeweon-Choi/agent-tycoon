@@ -62,7 +62,7 @@ export function AgentRulesOption() {
     <div className="space-y-4" data-testid="agent-rules-option">
       <p className="text-base">{t('rules.title')}</p>
       <p className="text-sm text-text-muted">{t('rules.help')}</p>
-      <label className="flex items-center gap-4 text-sm">
+      <label className="flex items-center gap-4 text-sm pointer-coarse:min-h-48">
         <input
           type="checkbox"
           checked={shown.useBuiltInRules}

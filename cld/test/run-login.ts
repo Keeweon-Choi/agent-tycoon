@@ -175,8 +175,9 @@ async function main() {
   };
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
+  // The phone's top bar keeps only the floor and 설정 (기기 추가 moved into 설정), so 설정 marks "in the app".
   const inApp = (page: Page) =>
-    page.getByRole('button', { name: '기기 추가', exact: true }).waitFor({ timeout: 15_000 });
+    page.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 15_000 });
   /** A CDP virtual platform authenticator with user verification (Face ID's stand-in). */
   const virtualAuthenticator = async (ctx: BrowserContext, page: Page) => {
     const cdp = await ctx.newCDPSession(page);

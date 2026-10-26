@@ -8,6 +8,7 @@ import {
   doubleTapScale,
   fitScale,
   fitView,
+  followFit,
   isDoubleTap,
   isViewerTap,
   isZoomed,
@@ -222,5 +223,16 @@ describe('labels and wheel', () => {
     expect(wheelFactor(100, 0, 0.002)).toBeLessThan(1);
     expect(wheelFactor(-100, 0, 0.002) * wheelFactor(100, 0, 0.002)).toBeCloseTo(1);
     expect(wheelFactor(-3, 1, 0.002)).toBeCloseTo(wheelFactor(-48, 0, 0.002));
+  });
+});
+
+describe('followFit', () => {
+  it('a view at the old fit follows a fit that shrank (and grew)', () => {
+    expect(followFit({ scale: 0.98, x: 0, y: 0 }, 0.98, 0.83).scale).toBe(0.83);
+    expect(followFit({ scale: 0.5, x: 0, y: 0 }, 0.5, 0.7).scale).toBe(0.7);
+  });
+  it('a zoomed view keeps its scale, never going below the fit', () => {
+    expect(followFit({ scale: 2, x: 3, y: 4 }, 0.98, 0.83)).toEqual({ scale: 2, x: 3, y: 4 });
+    expect(followFit({ scale: 0.6, x: 0, y: 0 }, 0.98, 0.83).scale).toBe(0.83);
   });
 });

@@ -2,7 +2,7 @@
  * T-0017 check: dist/cli.js with an isolated HOME (fake claude sessions, R-8)
  * on a spare port, in headless Chromium. Only generated test images are used.
  *
- * Desktop: select alpha -> its menu -> 캐릭터 바꾸기 -> 사진으로 만들기, upload
+ * Desktop: select alpha -> its menu -> 꾸미기 -> 커스텀 -> 사진으로 만들기, upload
  * a generated portrait, move the crop (the portrait must change), change the
  * colour count, save; then alpha must be drawn with the saved sheet (office
  * canvas pixels of its hair colour) and its card must show the portrait.
@@ -21,7 +21,7 @@
  *
  *   npx tsx cld/test/run-characters.ts <port 18256-18259> [pin]
  */
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -372,6 +372,21 @@ async function main() {
   const assignment = (name: string) =>
     (JSON.parse(fs.readFileSync(store, 'utf-8')) as Record<string, { preset?: string }>)[name];
 
+  /** CH-4: the menu's 꾸미기 opens the window; its 커스텀 tab holds the photo maker and the presets. */
+  const openCustom = async (page: Page, menu: Locator) => {
+    await menu.getByRole('menuitem', { name: '꾸미기' }).click();
+    const win = page.getByTestId('looks-window');
+    await win.waitFor();
+    await win.getByRole('button', { name: '커스텀' }).click();
+  };
+  /** The desktop window has a close button; the phone's page is minimized by the Dock. */
+  const closeLooks = async (page: Page) => {
+    const close = page.getByRole('button', { name: '꾸미기 닫기' });
+    if (await close.count()) await close.click();
+    else await page.locator('[data-dock="office"]').tap();
+    await page.getByTestId('looks-window').waitFor({ state: 'hidden' });
+  };
+
   /** Menu -> picker -> photo -> upload -> crop -> colours -> save, for one character. */
   const makeFromPhoto = async (page: Page, name: string, kind: string, prefix: string) => {
     const menu = page.getByRole('menu', { name: `${name} 메뉴` });
@@ -379,8 +394,7 @@ async function main() {
     await page.waitForTimeout(900); // the camera settles on the character
     await keepCanvas(page);
     await shot(page, `${prefix}-before`);
-    await menu.getByRole('menuitem', { name: '캐릭터 바꾸기' }).click();
-    await page.getByText(`캐릭터 바꾸기 · ${name}`).waitFor();
+    await openCustom(page, menu);
     await shot(page, `${prefix}-picker`);
     await page.getByRole('button', { name: '사진으로 만들기' }).click();
     const file = photoFile(kind, fake.home);
@@ -413,7 +427,9 @@ async function main() {
     await shot(page, `${prefix}-photo`);
     const files = new Set(fs.readdirSync(presetsDir));
     await page.getByRole('button', { name: '저장', exact: true }).click();
-    await page.getByText(`캐릭터 바꾸기 · ${name}`).waitFor({ state: 'detached' });
+    // CH-4: the photo page saves back into the 꾸미기 window; close it so the office is in view.
+    await page.getByTestId('photo-crop').waitFor({ state: 'detached' });
+    await closeLooks(page);
     await until(`${name}'s preset saved`, async () => !!assignment(name)?.preset);
     const id = assignment(name)!.preset!;
     check(!files.has(`${id}.png`) && /^photo-\d+$/.test(id), `${prefix}: saved as a new ${id}.png`);
@@ -511,9 +527,11 @@ async function main() {
     const delta = await agentId('delta');
     await page.locator(`[data-testid="agent-card"][data-agent-id="${delta}"]`).click();
     const deltaMenu = page.getByRole('menu', { name: 'delta 메뉴' });
-    await deltaMenu.getByRole('menuitem', { name: '캐릭터 바꾸기' }).click();
+    await openCustom(page, deltaMenu);
     await page.getByRole('button', { name: '프리셋 alpha 사진' }).click();
+    await page.getByTestId('looks-save').click();
     await until('delta takes the preset', async () => assignment('delta')?.preset === saved.id);
+    await closeLooks(page);
     await usesSheet(page, 'delta', saved.sheet, saved.mug, 'desktop preset pick', false);
     await desk.close();
 

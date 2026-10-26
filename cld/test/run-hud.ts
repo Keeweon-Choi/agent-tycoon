@@ -49,6 +49,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { defaultWindowPlace, EDGE_GAP_PX, ICON_COLUMN_PX, RAIL_PX } from '../../webview-ui/src/cld/hud/layout.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -197,6 +198,8 @@ async function main(): Promise<void> {
     const win = (page: Page, id: string) => page.locator(`[data-hud-window="${id}"]`);
     const settings = async (page: Page) => {
       await page.getByRole('button', { name: '설정', exact: true }).click();
+      // SETTINGS-TABS: the layout reset is in the 화면 tab (the tab is remembered per browser).
+      await page.getByRole('tab', { name: '화면', exact: true }).click();
       return page.getByRole('button', { name: '화면 배치 초기화' });
     };
 
@@ -230,7 +233,8 @@ async function main(): Promise<void> {
     check(
       names.every((n) => near(defaults[n].width, defaults[n].height, 1)) &&
         lefts.every((x) => near(x, lefts[0], 1)) &&
-        near(lefts[0] + defaults['현황판'].width, layer.x + layer.width - 80, 2) &&
+        // The card bar rail is RAIL_PX wide now (120, TOPBAR-CARDS); the icons sit one edge gap left of it.
+        near(lefts[0] + defaults['현황판'].width, layer.x + layer.width - RAIL_PX - EDGE_GAP_PX, 2) &&
         names.every((n, i) => i === 0 || defaults[n].y > defaults[names[i - 1]].y),
       `the six icons are squares in a column at the right edge, clear of the card bar (${names.map((n) => fmt(defaults[n])).join(' | ')})`,
     );
@@ -471,9 +475,19 @@ async function main(): Promise<void> {
     );
     await page.setViewportSize({ width: 900, height: 560 });
     await page.waitForTimeout(400);
+    // WINDOW-LAYERS (owner 10-25): a window may sit under the card bar and icon column; what always
+    // stays free is a part of its title bar to grab, so the buttons need not all be clickable here.
+    const grab = await page.evaluate(() => {
+      const bar = document.querySelector('[data-testid="hud-title-office"]')!.getBoundingClientRect();
+      const free = document.elementFromPoint(bar.left + 20, bar.top + bar.height / 2);
+      return {
+        onScreen: bar.left >= 0 && bar.top >= 0 && bar.right <= window.innerWidth + 1 && bar.bottom <= window.innerHeight,
+        grabbable: !!free?.closest('[data-testid="hud-title-office"]'),
+      };
+    });
     check(
-      (await titleBarReachable(page, 'office')) === null,
-      'a smaller browser window: the title bar is pulled back in',
+      grab.onScreen && grab.grabbable,
+      'a smaller browser window: the title bar is pulled back in, a part of it free to grab',
     );
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.waitForTimeout(400);
@@ -662,15 +676,16 @@ async function main(): Promise<void> {
       `아래 가로: the six icons are one row at the bottom centre, in the bottom strip (${row.map(fmt).join(' | ')})`,
     );
     await win(page, 'office').waitFor({ state: 'visible' });
+    // WINDOW-LAYERS (owner 10-25): a window has the whole room; the icon row draws over its bottom.
     check(
       (await box(win(page, 'office'))).y + (await box(win(page, 'office'))).height <=
-        stripTop + 0.5,
-      '아래 가로: the windows end above the icon row',
+        L.y + L.height + 0.5,
+      '아래 가로: the windows stay inside the room (the icon row is drawn over them)',
     );
     await OUT_SHOT(page, 'desktop-preset-bottom');
     await choose('작업용');
     L = await layerBox();
-    const room = L.width - 136;
+    const room = L.width - RAIL_PX - ICON_COLUMN_PX - EDGE_GAP_PX; // the preset's room (layout.ts)
     const mRect = inLayer(await box(win(page, 'messenger')), L);
     const tRect = inLayer(await box(win(page, 'terminal')), L);
     check(
@@ -698,10 +713,13 @@ async function main(): Promise<void> {
     await choose('오른쪽 세로');
     const mDef = inLayer(await box(win(page, 'messenger')), L);
     const tDef = inLayer(await box(win(page, 'terminal')), L);
+    // The default places come from layout.ts (the rail is RAIL_PX wide now, so they are no longer 164 / 220 px).
+    const mPlace = defaultWindowPlace('messenger', { w: L.width, h: L.height });
+    const tPlace = defaultWindowPlace('terminal', { w: L.width, h: L.height });
     check(
-      near(mDef.x + mDef.w, L.width - 164, 1) &&
-        near(tDef.x + tDef.w, L.width - 220, 1) &&
-        near(mDef.y, 4 + 28, 1),
+      near(mDef.x + mDef.w, L.width - mPlace.dx, 1) &&
+        near(tDef.x + tDef.w, L.width - tPlace.dx, 1) &&
+        near(mDef.y, mPlace.dy, 1),
       `오른쪽 세로: the windows are back at their default places (${mDef.x + mDef.w}, ${tDef.x + tDef.w} from the left)`,
     );
     for (const n of names)
@@ -830,11 +848,12 @@ async function main(): Promise<void> {
     check(
       near(full.x, L.x, 1) &&
         near(full.y, L.y, 1) &&
-        near(full.width, L.width - 136, 1) &&
-        near(full.height, L.height - 48, 1) &&
+        // WINDOW-LAYERS (owner 10-25): a maximized window fills the whole room, over the panels.
+        near(full.width, L.width, 1) &&
+        near(full.height, L.height, 1) &&
         (await term.locator('[data-handle]').count()) === 0 &&
         JSON.parse((await stored(page)) ?? '{}').items?.terminal?.max === true,
-      `최대화 fills the office area above the bottom strip, clear of the icon column (${fmt(full)}) and is stored`,
+      `최대화 fills the whole room, in front of the panels (${fmt(full)}) and is stored`,
     );
     await OUT_SHOT(page, 'desktop-maximized');
     const tt = await box(page.getByTestId('hud-title-terminal'));
@@ -1039,23 +1058,32 @@ async function main(): Promise<void> {
         const hit = document.elementFromPoint(b.left + b.width / 2, b.top + 80);
         return hit !== null && page_.contains(hit);
       }, selector);
+    // WINMODEL (owner 10-24): the phone's pages have no 최소화 or ×; the Dock's 사무실 goes home and every
+    // page stays mounted, so a tab comes back as it was.
+    const home = () => phone.locator('[data-dock="office"]').tap();
     await icon(phone, /^메신저/).tap();
     await pm.waitFor({ state: 'visible' });
     const pmBox = await box(pm);
-    await pm.getByRole('button', { name: '최소화' }).tap();
+    check(
+      (await pm.getByRole('button', { name: '최소화' }).count()) === 0,
+      'phone: a page has no 최소화 button of its own (the Dock is the tab bar)',
+    );
+    await home();
+    await pm.waitFor({ state: 'hidden' });
     check(
       !(await pm.isVisible()) &&
         (await phone.getByTestId('hud-taskbar').count()) === 0 &&
         (await current()) === 'office',
-      'phone: 최소화 hides the page and the Dock marks the office; no taskbar',
+      'phone: 사무실 hides the page and the Dock marks the office; no taskbar',
     );
     await shot2(phone, 'phone-minimized');
     await icon(phone, /^알림/).tap();
     await pwin('알림 화면').waitFor();
-    await pwin('알림 화면').getByRole('button', { name: '최소화' }).tap();
+    await home();
+    await pwin('알림 화면').waitFor({ state: 'hidden' });
     check(
       !(await pwin('알림 화면').isVisible()) && (await current()) === 'office',
-      'phone: two pages minimized: the office shows',
+      'phone: two pages sent home: the office shows',
     );
     await icon(phone, /^메신저/).tap();
     await pm.waitFor({ state: 'visible' });
@@ -1071,23 +1099,16 @@ async function main(): Promise<void> {
       (await topIs('[aria-label="알림 화면"]')) &&
         (await current()) === 'notices' &&
         !(await pm.isVisible()),
-      'phone: a tap on 알림 in the Dock puts that page on top, the messenger minimized under it',
+      'phone: a tap on 알림 in the Dock puts that page on top, the messenger under it',
     );
     await shot2(phone, 'phone-restored');
-    await pwin('알림 화면').getByRole('button', { name: '사무실' }).tap();
-    await icon(phone, /^메신저/).tap(); // the messenger is still minimized
-    await pm.waitFor({ state: 'visible' });
-    await pm
-      .getByRole('button', { name: '사무실' })
-      .or(pm.getByRole('button', { name: '‹ 목록' }))
-      .first()
-      .tap();
-    if (await pm.getByRole('button', { name: '사무실' }).count())
-      await pm.getByRole('button', { name: '사무실' }).tap();
+    await home();
     await phone.waitForTimeout(300);
     check(
-      (await pm.isVisible()) === false && (await pwin('알림 화면').count()) === 0,
-      'phone: with every page closed nothing is left',
+      (await pm.isVisible()) === false &&
+        (await pwin('알림 화면').isVisible()) === false &&
+        (await current()) === 'office',
+      'phone: with every page sent home the office shows (the pages are kept, out of sight)',
     );
 
     check(pageErrors.length === 0, `no page errors ${JSON.stringify(pageErrors)}`);

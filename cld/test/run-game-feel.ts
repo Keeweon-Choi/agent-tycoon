@@ -255,15 +255,24 @@ async function main() {
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const menuOf = (page: Page, name: string) => page.getByRole('menu', { name: `${name} 메뉴` });
-  /** Where to click a character: its label's top is 34 CSS px above
-   *  feet - 32 world px, and its hit box the 24 world px above its feet. */
+  /** Where to click a character: 12 world px over its feet (inside its hit box seated or not),
+   *  from its own position. ACCEPT-4: not from its label: ACCEPT-3's seat puts a character near
+   *  the top of the canvas, where the label is held down on screen (clampPlate) and the click
+   *  landed under the hit box. */
   const charPoint = async (page: Page, id: number) => {
-    const label = page.locator(`[data-testid="agent-overlay"][data-agent-id="${id}"]`).first();
-    const box = (await label.boundingBox())!;
-    // An EZ label grows upward from that point (its bottom is it), a plain one hangs 34 px below its top.
-    const ez = await label.evaluate((el) => el.classList.contains('-translate-y-full'));
-    const { scale } = await cam(page);
-    return { x: box.x + box.width / 2, y: (ez ? box.y + box.height : box.y + 34) + 20 * scale };
+    const { x, y, scale } = await cam(page);
+    const pos = await page.evaluate(
+      (i) =>
+        (
+          window as unknown as {
+            __pixelAgentsTestHooks: {
+              getCharacterPosition: (i: number) => { x: number; y: number };
+            };
+          }
+        ).__pixelAgentsTestHooks.getCharacterPosition(i),
+      id,
+    );
+    return { x: x + (pos.x - 8) * scale, y: y + (pos.y - 8 - 12) * scale };
   };
   /** Click (or tap) a character until the office follows it (it walks). */
   const select = async (page: Page, name: string, how: 'click' | 'tap' | 'dblclick') => {
@@ -699,6 +708,8 @@ async function main() {
     check(c1.x === c0.x && c1.y === c0.y, 'desktop: edge-scroll is off by default');
     await page.mouse.move(640, 400);
     await page.getByRole('button', { name: '설정' }).click();
+    // SETTINGS-TABS: the edge-scroll row is in the 화면 tab.
+    await page.getByRole('tab', { name: '화면', exact: true }).click();
     const toggle = page.getByRole('button', { name: '가장자리 스크롤' });
     check((await toggle.getAttribute('aria-pressed')) === 'false', 'desktop: settings show it off');
     await toggle.click();
@@ -743,8 +754,9 @@ async function main() {
       };
     });
     check(
-      ring.style === 'solid' && ring.width === '2px' && ring.color === 'rgb(116, 111, 255)',
-      `desktop: Tab focus (${ring.tag} "${ring.label}") shows the 2 px square accent ring`,
+      // c25fbfb3: the accent got more contrast (--color-accent-bright #6b5cff).
+      ring.style === 'solid' && ring.width === '2px' && ring.color === 'rgb(107, 92, 255)',
+      `desktop: Tab focus (${ring.tag} "${ring.label}") shows the 2 px square accent ring (${ring.style} ${ring.width} ${ring.color})`,
     );
     await shot(page, 'desktop-focus-ring');
     scroll = await pageScroll(page);
@@ -937,6 +949,7 @@ async function main() {
     // T-0041: the settings button is on the phone too (office hours); only the mouse-only
     // edge-scroll row is left out of it.
     await phone.getByRole('button', { name: '설정', exact: true }).first().tap();
+    await phone.getByRole('tab', { name: '화면', exact: true }).tap(); // SETTINGS-TABS: where the row would be
     const edgeRow = await phone.getByText('가장자리 스크롤').isVisible();
     await phone.getByRole('button', { name: 'x', exact: true }).last().tap();
     check(

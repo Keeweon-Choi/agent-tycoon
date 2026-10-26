@@ -4,6 +4,7 @@
  *
  *   npx tsx cld/test/run-stale-ui.ts [port, default 18258]
  */
+import type { Page } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -37,9 +38,18 @@ async function until(what: string, fn: () => Promise<boolean>, ms = 20_000): Pro
   throw new Error(`timed out: ${what}`);
 }
 
+/**
+ * A reload's `framenavigated` fires at commit, and the next deploy renames the entry module: the new
+ * page must have loaded and mounted its app first, or the app never starts and never hears of the deploy.
+ */
+const appUp = (page: Page) =>
+  page.waitForFunction(
+    () => document.readyState === 'complete' && (document.querySelector('#root')?.childElementCount ?? 0) > 0,
+  );
+
 function entryFromHtml(staticDir: string): string {
   const html = fs.readFileSync(path.join(staticDir, 'index.html'), 'utf8');
-  const match = /<script[^>]+type="module"[^>]+src="\/([^"?]+)"/.exec(html);
+  const match = /<script[^>]+type="module"[^>]+src="(?:\.\/|\/)([^"?]+)"/.exec(html);
   if (!match) throw new Error('the copied webview has no module entry');
   return match[1];
 }
@@ -81,6 +91,8 @@ async function main() {
         ...process.env,
         ...fake.env,
         XDG_RUNTIME_DIR: fake.home,
+        // The copied cli.js loads its external dependencies (@fastify/cors) from here, not from a node_modules beside it.
+        NODE_PATH: path.join(REPO_ROOT, 'node_modules'),
         PATH: testDaemonPath([path.dirname(fake.claudePath)]),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -110,7 +122,10 @@ async function main() {
     await waitForDaemon(port, child.pid!, 30_000, fake.home);
   };
 
-  const browser = await launchBrowser();
+  // The stale page is a route-fulfilled document, which Chromium's Local Network Access check treats
+  // as not local: its WebSocket to 127.0.0.1 is blocked (ERR_BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS),
+  // so it could never hear the server's build. The check is switched off for this runner only.
+  const browser = await launchBrowser({ args: ['--disable-features=LocalNetworkAccessChecks'] });
   try {
     const child = start();
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -122,6 +137,7 @@ async function main() {
     const idleReload = page.waitForEvent('framenavigated');
     await deploy();
     await idleReload;
+    await appUp(page);
     check(!(await page.getByTestId('stale-build-banner').isVisible().catch(() => false)), 'idle page reloads');
 
     // The app only needs an actual focused text field; a tiny fixture avoids
@@ -143,6 +159,7 @@ async function main() {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     await clearedReload;
+    await appUp(page);
     check(true, 'clearing focused text reloads within 2 seconds');
 
     await page.evaluate(() => {
@@ -157,6 +174,7 @@ async function main() {
     check(await page.getByTestId('stale-build-banner').isVisible(), 'open dialog shows the banner');
     await page.evaluate(() => document.querySelector('#stale-ui-fixture-dialog')?.remove());
     await until('dialog close reload', async () => !(await page.getByTestId('stale-build-banner').isVisible().catch(() => false)));
+    await appUp(page);
 
     // Serve the previous HTML for the reload itself: the page did reload for
     // this build, but is deliberately still old when it reconnects, exercising
@@ -167,10 +185,11 @@ async function main() {
     await page.route(`http://127.0.0.1:${port}/`, (route) =>
       route.fulfill({ body: staleHtml, contentType: 'text/html' }),
     );
-    await page.route(`**/${oldEntry}`, (route) => route.fulfill({ body: staleScript }));
+    await page.route(`**/${oldEntry}`, (route) => route.fulfill({ body: staleScript, contentType: 'text/javascript' }));
     const onceReload = page.waitForEvent('framenavigated');
     await deploy();
     await onceReload;
+    await appUp(page); // the stale entry must be served to this page before the routes go
     await page.unroute(`http://127.0.0.1:${port}/`);
     await page.unroute(`**/${oldEntry}`);
     await until('manual refresh copy', async () => page.getByTestId('stale-build-banner').isVisible());

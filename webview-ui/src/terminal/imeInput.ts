@@ -6,6 +6,7 @@ import {
   imePending,
   imeRebase,
   imeRoute,
+  imeStale,
   type ImeState,
   imeText,
 } from './imeGuard.js';
@@ -115,7 +116,7 @@ export function attachImeInput(
       if (!state.composing) flush();
       return;
     }
-    const route = imeRoute(state, {
+    const read = {
       type: ev.type,
       key: e.key,
       keyCode: e.keyCode,
@@ -123,7 +124,13 @@ export function attachImeInput(
       ctrlKey: e.ctrlKey,
       altKey: e.altKey,
       metaKey: e.metaKey,
-    });
+    };
+    if (imeStale(state, read)) {
+      // The composition ended without a compositionend: what it left open goes with this key's flush.
+      if (endTimer) settle(ta.value);
+      state = { ...state, composing: false, dropping: false };
+    }
+    const route = imeRoute(state, read);
     if (ev.type === 'keydown') xtermTyped = false;
     if (route === 'xterm') {
       if (ev.type === 'keypress') xtermTyped = true;

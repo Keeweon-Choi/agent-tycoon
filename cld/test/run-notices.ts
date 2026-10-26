@@ -376,7 +376,8 @@ async function main() {
     await page.waitForTimeout(800);
     leadTurn(transcript);
     await until('desktop: the toast', async () => (await toast(page).count()) > 0, 30_000);
-    const text = await toast(page).textContent();
+    // The toast has a dismiss x of its own now (FloatingToast): its text comes first.
+    const text = ((await toast(page).textContent()) ?? '').replace(/^×/, '');
     check(text === '🔔 lead · 일을 마쳤어요', `desktop: the toast says who and what ("${text}")`);
     let most = 0;
     for (let i = 0; i < 8; i++) {

@@ -350,6 +350,9 @@ components:
         hueShift:
           type: integer
           description: Server-assigned hue shift in degrees (0-360).
+        seatId:
+          type: string
+          description: cld-gui. The chair the office plans for this character, when it has one.
 
     AgentClosed:
       description: An agent has been removed from the office.

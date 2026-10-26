@@ -89,5 +89,19 @@ describe('character density (HD)', () => {
     setCustomCharacter(9007, { ...sheet(64, 128), density: 4, drawDensity: 3 }, null);
     expect(getCharacterSprites(9007).density).toBe(3);
     expect(characterLift(9007)).toBeCloseTo(128 / 3 - 31, 5);
+    // ACCEPT-4: drawn at density 3 with copies, it still draws its one master at every zoom (the
+    // 32×64 copy had been picked at zoom 4, a classic-sized bunny)
+    setCustomCharacter(
+      9008,
+      {
+        ...sheet(64, 128),
+        density: 4,
+        drawDensity: 3,
+        lods: [{ ...sheet(32, 64), density: 2 }, sheet(16, 32)],
+      },
+      null,
+    );
+    for (const z of [1, 2, 3, 4, 6, 8])
+      expect(spritesAtZoom(getCharacterSprites(9008), z).density).toBe(3);
   });
 });

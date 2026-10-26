@@ -305,14 +305,17 @@ async function main() {
           .join('|') === '출시팀 · alpha|출시팀 · beta',
       'C3: one push per room reply, titled room · member, none for the alpha or beta DM',
     );
-    // The open page's bell says the same: one notice, for the room (and none for alpha or beta).
+    // The open page's bell says the same: ROOM-NOTICE / U-49, one notice per room reply, titled
+    // room · member (and none for the alpha or beta DM).
     await page.locator('[data-testid="notice-bell"]').click();
     const notices = page.locator('[data-testid="notice-item"]');
     const noticeTexts = await notices.allInnerTexts();
     console.log(`bell: ${JSON.stringify(noticeTexts)}`);
     check(
-      noticeTexts.length === 1 && noticeTexts[0].includes('출시팀'),
-      'C3: the bell has one notice, for the room, none for the alpha or beta DM',
+      noticeTexts.length === 2 &&
+        noticeTexts.every((t) => t.includes('출시팀')) &&
+        ['alpha', 'beta'].every((m) => noticeTexts.some((t) => t.includes(`출시팀 · ${m}`))),
+      'C3: the bell has one notice per room reply, for the room, none for the alpha or beta DM',
     );
     await page.locator('[data-testid="notice-bell"]').click();
     await rooms.getByRole('button', { name: /^출시팀/ }).click();

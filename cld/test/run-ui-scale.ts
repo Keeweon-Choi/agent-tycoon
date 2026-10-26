@@ -44,6 +44,8 @@ const FACTOR = { small: 0.875, medium: 1, large: 1.25 } as const;
 const CREW = ['해리 커밋터', '다스 디버거', '간달프 더 머지', '셜록 홈즈버그', '프로도 배기스 핫픽스', '레골라스 린터', '덤블도어 디프', '아라곤 어설션'];
 
 let oks = 0;
+const CARD_NAME_PX = 18;
+const PHONE_CARD_NAME_PX = 10;
 function check(ok: unknown, what: string): void {
   if (!ok) throw new Error(`check failed: ${what}`);
   oks++;
@@ -223,7 +225,9 @@ async function main() {
         heights[step] = m.rankW;
         check(m.plateOutside === 0, `${tag} ${label}: no plate wider than the screen (widest ${m.plateMaxW.toFixed(1)} px of ${m.innerW})`);
         check(m.scrollW <= m.innerW, `${tag} ${label}: no page horizontal scroll (${m.scrollW} <= ${m.innerW})`);
-        check(Math.abs(m.cardName - 10 * FACTOR[step]) < 0.01, `${tag} ${label}: an agent card's name is ${m.cardName} px (10 x ${FACTOR[step]})`);
+        // TOPBAR-CARDS (10-24): the desktop orchestrator cards' name is 18 px at 보통; the phone's compact card 10.
+        const cardName = tag === 'phone' ? PHONE_CARD_NAME_PX : CARD_NAME_PX;
+        check(Math.abs(m.cardName - cardName * FACTOR[step]) < 0.01, `${tag} ${label}: an agent card's name is ${m.cardName} px (${cardName} x ${FACTOR[step]})`);
         if (!Number.isNaN(m.cardH)) console.log(`${tag} ${label}: agent card height ${m.cardH.toFixed(1)} px`);
         await page.screenshot({ path: path.join(OUT, `${tag}-${step}.png`) });
       }

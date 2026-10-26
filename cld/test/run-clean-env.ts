@@ -30,6 +30,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import {
+  answerNewAgentChoice,
   assertPortFree,
   FAKE_CLAUDE,
   killFakeSessions,
@@ -91,6 +92,9 @@ async function main() {
     'PATH has no node, npm or hub of ours (only /usr/bin, /bin and the two fakes)',
   );
 
+  // O4: a clean machine's first open (daemon with --allow-actions) asks which permission mode new agents
+  // start with, in a tour over the office: run-o4 covers that; here it is answered beforehand.
+  answerNewAgentChoice(home);
   const flags = (
     daemonArgs({ ...defaults, port, readOnly: false, chat: true, allowTerminal: true }) as string[]
   ).slice(2);
@@ -127,7 +131,9 @@ async function main() {
       const page = await ctx.newPage();
       page.on('pageerror', (err) => pageErrors.push(err.message));
       page.on('console', (msg) => {
-        if (msg.type() === 'error') pageErrors.push(`console: ${msg.text()}`);
+        // MSG-UI3: the owner's picture is fetched at /cld/profile/owner.png and is a 404 until one is set.
+        if (msg.type() === 'error' && !msg.location().url.includes('/cld/profile/'))
+          pageErrors.push(`console: ${msg.text()}`);
       });
       page.on('websocket', (ws) =>
         ws.on('framereceived', (f) => {
@@ -149,6 +155,8 @@ async function main() {
         later.waitFor({ timeout: 15_000 }).catch(() => undefined),
         icons.waitFor({ timeout: 15_000 }).catch(() => undefined),
       ]);
+      // The icons are there before the start screen is (it comes with the first office snapshot).
+      await later.waitFor({ timeout: 8_000 }).catch(() => undefined);
       if (await later.isVisible().catch(() => false)) {
         await page.screenshot({ path: path.join(OUT, `${shot}.png`) });
         await later.click();

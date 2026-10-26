@@ -42,6 +42,7 @@ import {
   clampPan,
   fitScale,
   fitView,
+  followFit,
   isViewerTap,
   isZoomed,
   linkedFileProblem,
@@ -306,12 +307,19 @@ export function AttachmentViewer({
   }, [file.linked, file.name, file.path, file.sizeKb, isImage, ticketFor]);
   useEffect(() => setMarkdownRendered(file.line === undefined), [file.path, file.line]);
   // The image's size arrives after the fit is known: start fitted.
+  const fittedAt = useRef(fit);
   useEffect(() => {
-    if (nat) setView(fitView(fitScale(nat, geom.current.vp)));
+    if (!nat) return;
+    fittedAt.current = fitScale(nat, geom.current.vp);
+    setView(fitView(fittedAt.current));
   }, [nat]);
-  // A resize that changes the fit must not strand the view below it.
+  // A resize that changes the fit must not strand the view below it, nor leave a fitted image at the
+  // old fit (the actions bar's height arrives after the image opens).
   useEffect(() => {
-    if (nat) setView((v) => clampPan({ ...v, scale: Math.max(v.scale, fit) }, nat, vp));
+    if (!nat) return;
+    const prev = fittedAt.current;
+    fittedAt.current = fit;
+    setView((v) => clampPan(followFit(v, prev, fit), nat, vp));
   }, [nat, fit, vp]);
 
   // ── Pointers: one finger pans (zoomed) or swipes, two pinch, a still tap is a tap ──

@@ -256,7 +256,8 @@ async function main() {
       `${label}: no input box in the work view`,
     );
     const buttons = (await sheet.getByRole('button').allInnerTexts()).map((t) => t.trim());
-    const allowed = new Set(['리더에게 가기', '닫기', '×', '더 보기', '접기']);
+    // MSG-ACTIONS: the lines carry a 복사 (copy) button; it acts on the clipboard, not on the sub-agent.
+    const allowed = new Set(['리더에게 가기', '닫기', '×', '더 보기', '접기', '복사']);
     check(
       buttons.every((b) => allowed.has(b)) && buttons.includes('리더에게 가기'),
       `${label}: only 리더에게 가기 and 닫기 act (${buttons.join(', ')})`,
@@ -425,6 +426,8 @@ async function main() {
     // (selecting and following it, no view); a tap on it opens nothing either;
     // the tooltip's 작업 보기 does. The row's own button opens it too.
     const chipP = cardFor(phone, 'alpha').locator('[data-testid="temp-chip"]');
+    // The phone's cards are compact by default and hide the chip; the toggle opens the full ones.
+    if (!(await chipP.count())) await phone.getByTestId('cards-toggle').tap();
     await chipP.tap();
     await phone.locator('[data-testid="temp-list"]').waitFor();
     const subIdP = (await anchors(phone)).find((a) => a.kind === 'subagent')!.id;

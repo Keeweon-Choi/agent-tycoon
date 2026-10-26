@@ -40,7 +40,7 @@ function check(ok: unknown, what: string): void {
 async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
-  const fake = makeFakeHome({ claude: 'S-8', agentsJson: true });
+  const fake = makeFakeHome({ claude: 'S-8', agentsJson: true, newAgentChoice: false });
   const choice = (): string | undefined => {
     try {
       return JSON.parse(

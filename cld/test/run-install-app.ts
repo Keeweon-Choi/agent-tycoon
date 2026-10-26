@@ -33,8 +33,9 @@ type PwaManifest = {
 
 function hasInstallManifest(manifest: PwaManifest): boolean {
   return (
-    manifest.name === '에이전트 타이쿤' &&
-    manifest.short_name === '에이전트 타이쿤' &&
+    // I1 (10-24): the manifest is one static file, so it carries the English name; the page title follows the language.
+    manifest.name === 'Agent Tycoon' &&
+    manifest.short_name === 'Agent Tycoon' &&
     manifest.id === './' &&
     manifest.start_url === './' &&
     manifest.scope === './' &&
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
     check(
       seen.url.endsWith('/manifest.webmanifest') &&
         seen.errors.length === 0 &&
-        seen.manifest?.name === '에이전트 타이쿤' &&
+        seen.manifest?.name === 'Agent Tycoon' &&
         seen.manifest.id === `http://127.0.0.1:${port}/` &&
         /\b192x192\b/.test(sizes) &&
         /\b512x512\b/.test(sizes),

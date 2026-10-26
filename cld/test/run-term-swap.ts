@@ -228,7 +228,8 @@ async function main() {
           ids === '["a0000016"]' &&
             (await page
               .getByTestId('terminal-overlay')
-              .getByText('다른 기기나 다른 창')
+              // 1ce5df2f: the line names what can hold the slot (another device or window, or a message being sent).
+              .getByText('다른 기기나 창')
               .count()) === 1 &&
             (await page.getByRole('button', { name: SWAP }).count()) === 0,
           'C: another browser holds the slot: the overlay says so in Korean and offers no swap button',

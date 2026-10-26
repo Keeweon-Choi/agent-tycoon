@@ -112,6 +112,32 @@ export function entryModuleSrc(indexHtml: string): string | undefined {
   return undefined;
 }
 
+/**
+ * The `agentCreated` message. cld-gui: `seatId` is the chair the office plans for the character
+ * (as in `existingAgents`), so one that arrives before its room's chairs exist (the roster
+ * returning after a daemon restart) takes its own chair the moment the office has it.
+ */
+export function agentCreatedMessage(
+  id: number,
+  agent: AgentState,
+  seatId?: string,
+): Record<string, unknown> {
+  return {
+    type: 'agentCreated',
+    id,
+    directoryName: agent.directoryName,
+    isExternal: agent.isExternal || undefined,
+    isTeammate: agent.leadAgentId !== undefined || undefined,
+    teammateName: agent.agentName,
+    parentAgentId: agent.leadAgentId,
+    teamName: agent.teamName,
+    hooksOnly: agent.hooksOnly || undefined,
+    palette: agent.palette,
+    hueShift: agent.hueShift,
+    seatId,
+  };
+}
+
 /** Read the build marker once while creating the standalone server. */
 export function webBuildFromStaticDir(staticDir: string): string | undefined {
   try {
@@ -411,19 +437,7 @@ function registerWebSocketRoute(
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
-      safeSend(socket, {
-        type: 'agentCreated',
-        id,
-        directoryName: agent.directoryName,
-        isExternal: agent.isExternal || undefined,
-        isTeammate: agent.leadAgentId !== undefined || undefined,
-        teammateName: agent.agentName,
-        parentAgentId: agent.leadAgentId,
-        teamName: agent.teamName,
-        hooksOnly: agent.hooksOnly || undefined,
-        palette: agent.palette,
-        hueShift: agent.hueShift,
-      });
+      safeSend(socket, agentCreatedMessage(id, agent, cldHooks.seatFor?.(id)));
     };
 
     const onAgentRemoved = (id: number) => {

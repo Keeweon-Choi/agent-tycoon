@@ -333,17 +333,23 @@ async function main() {
     check(true, 'a passkey was added after the device key proved itself silently (no prompt)');
     await strict.reload(); // closes the panel
     await strict.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
-    const required = await strict.evaluate(
-      async () =>
-        (
-          await fetch('/api/auth/settings', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ passkeyRequired: true }),
-          })
-        ).status,
+    // cf5417ad (10-24): turning 패스키 필수 on takes this device's own passkey, just tapped here:
+    // the security panel's checkbox taps it (the virtual authenticator answers).
+    await strict.getByRole('button', { name: '보안', exact: true }).click();
+    await strict
+      .getByTestId('security')
+      .getByRole('button', { name: /패스키\(생체 인증\) 필수/ })
+      .click();
+    // The toggle taps the passkey, then posts: wait for the setting to show.
+    for (let i = 0; i < 80; i += 1) {
+      if (await strict.evaluate(async () => (await (await fetch('/api/auth/me')).json()).passkeyRequired === true))
+        break;
+      await strict.waitForTimeout(250);
+    }
+    check(
+      await strict.evaluate(async () => (await (await fetch('/api/auth/me')).json()).passkeyRequired === true),
+      '"패스키 필수" is on',
     );
-    check(required === 200, '"패스키 필수" is on');
     // The passkey step-up above is still fresh for 120 s; a restart forgets every proof (memory only).
     await daemon.stop();
     daemon = startDaemon(fake, port, ['--no-terminal', '--allow-actions'], {

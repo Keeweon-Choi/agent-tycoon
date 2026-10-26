@@ -40,6 +40,7 @@ import {
   GHOST_PREVIEW_TINT_ALPHA,
   GHOST_VALID_TINT,
   GRID_LINE_COLOR,
+  HD64_DRAW_DENSITY,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
   OUTLINE_Z_SORT_OFFSET,
@@ -372,7 +373,6 @@ interface ZDrawable {
 
 /** HD64-SAMPLE (the performance readout): HD64 characters in the last scene. */
 let hd64Drawn = 0;
-const HD64_DENSITY = 4;
 
 /** @internal */
 export function renderScene(
@@ -421,7 +421,8 @@ export function renderScene(
     // HD: the character's density that divides this zoom; a detailed one (64×128 and up) draws
     // its one master at every zoom (smoothSprite.ts)
     const all = getCharacterSprites(ch.palette, ch.hueShift);
-    if (countHd64 && all.density === HD64_DENSITY) hd64Drawn++;
+    // a 64×128 person draws at density 3, an import above
+    if (countHd64 && all.density >= HD64_DRAW_DENSITY) hd64Drawn++;
     const sprites = spritesAtZoom(all, zoom);
     // its frames at this zoom are built between frames, before a stride needs them
     warmCharacter(sprites, zoom / sprites.density, (f) => [f, dimmedSprite(f)], ch.id);

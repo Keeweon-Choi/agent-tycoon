@@ -353,8 +353,9 @@ async function main() {
     );
     check(
       (await plateRank.getAttribute('data-rank')) === 'intern' &&
-        (await plateRank.getAttribute('aria-label')) === '인턴 · Sonnet',
-      'its plate shows its rank (인턴 · Sonnet)',
+        // RANK-LEVELS: the model is its real id's version when the transcript names one (the lines say claude-opus-4-5).
+        (await plateRank.getAttribute('aria-label')) === '인턴 · Opus-4.5',
+      'its plate shows its rank (인턴 · Opus-4.5)',
     );
     // It sits down at a spare desk in its lead's room (the director's own
     // view, an e2e-only hook in staff.ts).
@@ -400,9 +401,9 @@ async function main() {
       return (await o.locator('[data-testid="agent-details"]').count()) > 0;
     });
     check(true, 'tapping the row selects the sub-agent (its details are up)');
-    const details = page.locator(`[data-testid="agent-details"]`).filter({ hasText: '등급: 사원' });
+    const details = page.locator(`[data-testid="agent-details"]`).filter({ hasText: '직급: 인턴' });
     check(
-      (await details.count()) === 1 && (await details.textContent())?.includes('모델: Sonnet'),
+      (await details.count()) === 1 && (await details.textContent())?.includes('모델: Opus-4.5'),
       'the selected temp stat card shows its rank and full model',
     );
     await page.waitForTimeout(800);
@@ -491,7 +492,8 @@ async function main() {
     append([said([call('tu-late', 'Bash', { command: 'npm test' })])]);
     await at(both, KST(21, 18, 0));
     await page.waitForTimeout(1_500);
-    await at(both, KST(21, 18, 1)); // past the grace
+    // 8b9b7c65 (10-24): an idle orchestrator goes home 30 minutes after closing, not at once.
+    await at(both, KST(21, 18, 31)); // past the grace
     await until(
       'the veteran goes home',
       async () =>

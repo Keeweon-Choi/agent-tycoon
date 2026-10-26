@@ -27,6 +27,16 @@ export interface FakeHome {
   env: Record<string, string>;
 }
 
+/** O4: the first-run Intro asks which permission mode new agents start with, to any viewer that is not
+ *  read-only (a daemon with --allow-actions), and its dialog covers the office. By default the question
+ *  is answered ('ask'); run-o4 tests the question itself. A reused home keeps its own answer. */
+export function answerNewAgentChoice(home: string): void {
+  const file = path.join(home, '.config/cld-gui/new-agent-permission.json');
+  if (fs.existsSync(file)) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ mode: 'ask' }));
+}
+
 export function makeFakeHome(opts: {
   home?: string;
   claude?: string | null;
@@ -37,6 +47,8 @@ export function makeFakeHome(opts: {
   /** False leaves the 접속 방식 unchosen, so the host's first open shows T-0074's start screen
    *  (run-access tests it). By default the choice is made: the screen would cover the office. */
   accessChosen?: boolean;
+  /** False leaves the new agents' permission mode unanswered (run-o4 tests the Intro's question). */
+  newAgentChoice?: boolean;
 }): FakeHome {
   const home = opts.home ?? fs.mkdtempSync(path.join(os.tmpdir(), 'cld-home-'));
   const sub = (p: string) => path.join(home, p);
@@ -49,6 +61,7 @@ export function makeFakeHome(opts: {
     fs.mkdirSync(sub('.config/cld-gui'), { recursive: true });
     fs.writeFileSync(sub('.config/cld-gui/config.json'), JSON.stringify({ accessChosen: true }));
   }
+  if (opts.newAgentChoice !== false) answerNewAgentChoice(home);
   const texts: string[] = [];
   if (opts.claude) {
     env.FAKE_CLAUDE_SCENARIO = path.join(FAKE_CLAUDE, opts.claude);
@@ -414,6 +427,7 @@ export function makeEngineHome(): { home: string; bin: string; claudePath: strin
     path.join(home, '.config/cld-gui/config.json'),
     JSON.stringify({ accessChosen: true }),
   );
+  answerNewAgentChoice(home);
   return { home, bin, claudePath: path.join(bin, fakeBin('claude')) };
 }
 

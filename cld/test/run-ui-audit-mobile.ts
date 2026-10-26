@@ -323,6 +323,18 @@ function auditInPage(arg: {
       s.pointerEvents !== 'none'
     ) {
       if (el.matches('textarea') && (r.width < 4 || r.height < 4)) continue;
+      // A control cut by its scroller (a longer tab: the last row half below the fold) is measured when
+      // scrolled into view, not as the clip leaves it: only a whole visible control is judged here.
+      // (A checkbox answers through its label: that box is what the scroller cuts.)
+      const hit = el.closest('label')?.getBoundingClientRect() ?? r;
+      let clipped = false;
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const oy = getComputedStyle(p).overflowY;
+        if (oy !== 'auto' && oy !== 'scroll') continue;
+        const pr = p.getBoundingClientRect();
+        if (hit.top < pr.top - 0.5 || hit.bottom > pr.bottom + 0.5) clipped = true;
+      }
+      if (clipped) continue;
       const a = reach(el);
       if (a.w < 44 || a.h < 44) add('target', el, `${a.w}x${a.h} px`);
     }

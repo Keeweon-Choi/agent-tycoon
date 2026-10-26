@@ -96,6 +96,7 @@ import { OfficeCanvas } from './office/components/OfficeCanvas.js';
 import { ToolOverlay } from './office/components/ToolOverlay.js';
 import { EditorState } from './office/editor/editorState.js';
 import { EditorToolbar } from './office/editor/EditorToolbar.js';
+import { setOfficeCovered } from './office/engine/gameLoop.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { exportLayoutToFile } from './office/layout/exportLayout.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
@@ -352,6 +353,11 @@ function App() {
   // browser's Back for its windows; the phone's Back steps inside its tab (usePhoneTabs).
   useEffect(() => setPhone(isMobile), [isMobile]);
   const phoneTabs = usePhoneTabs(isMobile);
+  // A page over the office on the phone: the canvas under it draws nothing (the CPU/RAM budget, run-overlay-cost).
+  useEffect(() => {
+    setOfficeCovered(isMobile && phoneTabs.tab !== 'office');
+    return () => setOfficeCovered(false);
+  }, [isMobile, phoneTabs.tab]);
   // The office's imperative character selection, mirrored into React so the
   // card bars can restyle the focused agent's card on canvas taps.
   const focusedAgentId = useSyncExternalStore(

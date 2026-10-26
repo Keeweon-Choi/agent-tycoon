@@ -53,6 +53,16 @@ export function clampPan(view: View, img: Size, vp: Size): View {
 
 export const fitView = (fit: number): View => ({ scale: fit, x: 0, y: 0 });
 
+/**
+ * The room changed and the fit moved from `prev` to `fit` (the actions bar took its height after
+ * the image opened): a view that sat at the old fit follows the new one; a zoomed one only stays
+ * above it. Without this a fit that shrank left the image opening too big and off its stage.
+ */
+export function followFit(view: View, prev: number, fit: number): View {
+  const atFit = Math.abs(view.scale - prev) <= prev * ATTACH_FIT_EPSILON;
+  return { ...view, scale: atFit ? fit : Math.max(view.scale, fit) };
+}
+
 /** Zoom to `scale`, keeping the image point under `at` where it is. */
 export function zoomAround(
   view: View,

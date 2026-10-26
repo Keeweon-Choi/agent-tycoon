@@ -233,8 +233,9 @@ async function main() {
     const recent = (await vet.innerText()).split('최근 활동').at(-1) ?? '';
     console.log(recent);
     check(
-      recent.includes('사장 → veteran 메시지') && !recent.includes('cld-gui →'),
-      `${label}: owner messages are attributed to the owner`,
+      // BOARD-2 (9d30196c): the recent activity holds no send rows at all, the owner's included.
+      !recent.includes('사장 → veteran 메시지') && !recent.includes('cld-gui →'),
+      `${label}: no send rows in 최근 활동 (neither the owner's nor an agent's)`,
     );
     check(
       !/send_|inbox_|token_guard/.test(recent) && !recent.includes('대기 메시지'),

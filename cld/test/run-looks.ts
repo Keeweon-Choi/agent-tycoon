@@ -200,7 +200,7 @@ async function main() {
     check(looks().lead?.gear === undefined, `기본으로 = the automatic look (${JSON.stringify(looks().lead)})`);
 
     // A person look.
-    await win.getByRole('button', { name: '사람' }).click();
+    await win.getByRole('button', { name: '사람', exact: true }).click();
     await win.getByRole('button', { name: '모습 3' }).click();
     await page.waitForTimeout(300);
     await shot(page, 'desktop-window-person');

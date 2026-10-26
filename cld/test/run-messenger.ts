@@ -1478,7 +1478,8 @@ async function main() {
         await box(sys),
       ];
       check(
-        pb.x < bb.x && pb.x + pb.width < bb.x + bb.width - 8 && Math.abs(sb.height) < 40,
+        // UI-CONSISTENCY (10-25): a notice row is 48 px with its room, one line; two lines are 60+.
+        pb.x < bb.x && pb.x + pb.width < bb.x + bb.width - 8 && Math.abs(sb.height) < 56,
         `peer bubble on the left (${Math.round(pb.x)}..${Math.round(pb.x + pb.width)}), the boss's on the right (${Math.round(bb.x)}..${Math.round(bb.x + bb.width)}), the notice one line (${Math.round(sb.height)} px)`,
       );
       const look = (l: typeof boss) =>
