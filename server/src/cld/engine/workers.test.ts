@@ -403,7 +403,7 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     ]);
     // D2-shaped: no Worker, so assignments.json stays v1.
     expect(
-      JSON.parse(fs.readFileSync(path.join(r.home, '.config/cld-gui/assignments.json'), 'utf8')),
+      JSON.parse(fs.readFileSync(path.join(r.home, '.config/agent-tycoon/assignments.json'), 'utf8')),
     ).toMatchObject({ v: 1 });
     const e = r.boot();
     expect(e.registryProblem()).toBeNull();
@@ -562,7 +562,7 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     expect(readLiveSessions(r.home).filter((s) => s.kind === 'background')).toEqual([]);
     expect(e.tokens.agentOf(token)).toBeNull();
     const stored = JSON.parse(
-      fs.readFileSync(path.join(r.home, '.config/cld-gui/assignments.json'), 'utf8'),
+      fs.readFileSync(path.join(r.home, '.config/agent-tycoon/assignments.json'), 'utf8'),
     ) as { v: number; assignments: unknown[] };
     expect(stored).toMatchObject({ v: 1, assignments: [{ role: 'lead' }] });
   });
@@ -593,7 +593,7 @@ describe('D3b: promoting a Worker to its project’s Lead', () => {
     );
   const ids = (home: string) =>
     loadRegistry(registryPath(home)).projects.map((p) => [p.name, p.role ?? 'lead', p.role ? p.assignmentId : p.leadAssignmentId]);
-  const cfgFile = (home: string, ...p: string[]) => path.join(home, '.config', 'cld-gui', ...p);
+  const cfgFile = (home: string, ...p: string[]) => path.join(home, '.config', 'agent-tycoon', ...p);
 
   it('parses promote with oldLead worker or stop, nothing else', () => {
     const base = { type: 'engineAction', requestId: 'r', action: 'promote', name: 'alpha-a' };
@@ -829,7 +829,7 @@ describe('D3b: after the swap', () => {
     await r.act(e, 'start', 'alpha-a');
     const tokens = { lead: r.tokenIn(r.alpha, 'alpha'), worker: r.tokenIn(r.alpha, 'alpha-a') };
     for (const n of ['alpha', 'alpha-a']) writeTranscript(r.alpha, r.agent(e, n).sessionId!, r.home);
-    const files = () => ['projects.json', 'assignments.json'].map((f) => fs.readFileSync(path.join(r.home, '.config/cld-gui', f), 'utf8'));
+    const files = () => ['projects.json', 'assignments.json'].map((f) => fs.readFileSync(path.join(r.home, '.config/agent-tycoon', f), 'utf8'));
     const was = files();
     const leadBg = r.agent(e, 'alpha').bgId!;
     failing.when = (a) => a.includes('stop') && a.includes(leadBg); // W stops, then L's stop fails
@@ -839,7 +839,7 @@ describe('D3b: after the swap', () => {
     expect(e.tokens.agentOf(tokens.worker)).toBe('alpha-a');
     expect(['alpha', 'alpha-a'].map((n) => r.agent(e, n).live)).toEqual([true, true]);
     expect(files()).toEqual(was);
-    expect(fs.existsSync(path.join(r.home, '.config/cld-gui/lead-swap.json'))).toBe(false);
+    expect(fs.existsSync(path.join(r.home, '.config/agent-tycoon/lead-swap.json'))).toBe(false);
   });
 
   it('D3 (J2): an I/O error after the registry phase; a Worker added after it survives the next start, which only finishes the effects', async () => {
@@ -848,7 +848,7 @@ describe('D3b: after the swap', () => {
     const e = r.boot();
     await r.act(e, 'start', 'alpha');
     await r.act(e, 'start', 'alpha-a');
-    const queue = path.join(r.home, '.config', 'cld-gui', 'queue');
+    const queue = path.join(r.home, '.config', 'agent-tycoon', 'queue');
     registryFault.afterWrite = (f) => {
       if (f === queue) {
         delete registryFault.afterWrite;
@@ -857,7 +857,7 @@ describe('D3b: after the swap', () => {
     };
     expect(await r.act(e, 'promote', 'alpha-a')).toMatchObject({ ok: true });
     expect(r.logs.some((l) => l.includes('the commit stopped'))).toBe(true);
-    const journal = path.join(r.home, '.config', 'cld-gui', 'lead-swap.json');
+    const journal = path.join(r.home, '.config', 'agent-tycoon', 'lead-swap.json');
     expect(JSON.parse(fs.readFileSync(journal, 'utf8'))).toMatchObject({ phase: 'effects', projects: '', assignments: '' });
     expect(await r.act(e, 'add', 'alpha-c', { role: 'worker', project: 'alpha' })).toMatchObject({ ok: true });
     const lead = r.agent(e, 'alpha').sessionId;
@@ -872,7 +872,7 @@ describe('D3b: after the swap', () => {
     expect(e2.names()).toEqual(['alpha', 'beta', 'alpha-a', 'alpha-b', 'alpha-c']);
     expect(stored(r.home, 'alpha').sessionId).toBe(lead);
     expect(fs.existsSync(journal)).toBe(false);
-    expect(fs.readdirSync(path.join(r.home, '.config', 'cld-gui', 'inbox', 'alpha')).filter((f) => f.startsWith('0-lead-'))).toHaveLength(1);
+    expect(fs.readdirSync(path.join(r.home, '.config', 'agent-tycoon', 'inbox', 'alpha')).filter((f) => f.startsWith('0-lead-'))).toHaveLength(1);
     // F2: finishing an 'effects'-phase journal keeps the live sessions' fresh tokens.
     expect([e2.tokens.agentOf(live.lead), e2.tokens.agentOf(live.worker)]).toEqual(['alpha', 'alpha-a']);
   });
@@ -886,7 +886,7 @@ describe('D3b: after the swap', () => {
     await r.act(e, 'start', 'alpha');
     await r.act(e, 'start', 'alpha-a');
     for (const n of ['alpha', 'alpha-a']) writeTranscript(r.alpha, r.agent(e, n).sessionId!, r.home);
-    const cfg = path.join(r.home, '.config', 'cld-gui');
+    const cfg = path.join(r.home, '.config', 'agent-tycoon');
     const ids = { lead: stored(r.home, 'alpha').leadAssignmentId!, worker: stored(r.home, 'alpha-a').assignmentId! };
     const sids = { lead: r.agent(e, 'alpha').sessionId!, worker: r.agent(e, 'alpha-a').sessionId! };
     const drop = e.tokens.drop.bind(e.tokens);

@@ -1,7 +1,7 @@
 /**
  * cld remote (T-0024): how devices outside this PC reach the office.
  *
- * Connectors (`--connector`, else `connector` in ~/.config/cld-gui/config.json):
+ * Connectors (`--connector`, else `connector` in ~/.config/agent-tycoon/config.json):
  * - local: loopback only (the host's own browser, SSH tunnels);
  * - lan: plus this PC's LAN address, plain http (codes and QR; no passkeys);
  * - tailscale: loopback behind `tailscale serve`/Funnel (the installer sets it up);
@@ -243,7 +243,7 @@ export interface RemoteOptions {
   allowedHosts: readonly string[];
   /** --read-only: sessions may read the status but not enable or test. */
   readOnly: boolean;
-  /** ~/.config/cld-gui */
+  /** ~/.config/agent-tycoon */
   configDir: string;
   /** The host token, known once the server started (the installer's Bearer requests). */
   token: { current?: string };

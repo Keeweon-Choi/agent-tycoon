@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { normalizeProjectPath } from '../../../core/src/normalizeProjectPath.js';
+import { configDirectory } from './configPath.js';
 import { registryPath, saveRegistry } from './engine/registry.js';
 import { findOnPath } from './providers/claudeProvider.js';
 
@@ -31,7 +32,7 @@ export interface FakeHome {
  *  read-only (a daemon with --allow-actions), and its dialog covers the office. By default the question
  *  is answered ('ask'); run-o4 tests the question itself. A reused home keeps its own answer. */
 export function answerNewAgentChoice(home: string): void {
-  const file = path.join(home, '.config/cld-gui/new-agent-permission.json');
+  const file = path.join(configDirectory(home), 'new-agent-permission.json');
   if (fs.existsSync(file)) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ mode: 'ask' }));
@@ -57,9 +58,10 @@ export function makeFakeHome(opts: {
     FAKE_CLAUDE_LOG: sub('fake-claude.log'),
   };
   // A reused home (opts.home) keeps the config.json it has.
-  if (opts.accessChosen !== false && !fs.existsSync(sub('.config/cld-gui/config.json'))) {
-    fs.mkdirSync(sub('.config/cld-gui'), { recursive: true });
-    fs.writeFileSync(sub('.config/cld-gui/config.json'), JSON.stringify({ accessChosen: true }));
+  const config = path.join(configDirectory(home), 'config.json');
+  if (opts.accessChosen !== false && !fs.existsSync(config)) {
+    fs.mkdirSync(path.dirname(config), { recursive: true });
+    fs.writeFileSync(config, JSON.stringify({ accessChosen: true }));
   }
   if (opts.newAgentChoice !== false) answerNewAgentChoice(home);
   const texts: string[] = [];
@@ -422,9 +424,9 @@ export function makeEngineHome(): { home: string; bin: string; claudePath: strin
       `@echo off\r\nnode "${path.join(FAKE_CLAUDE, 'engine.cjs')}" %*\r\n`,
     );
   else fs.symlinkSync(path.join(FAKE_CLAUDE, 'engine.cjs'), path.join(bin, 'claude'));
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true }),
   );
   answerNewAgentChoice(home);

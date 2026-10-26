@@ -17,7 +17,7 @@ it('keeps the latest five successful durations per exact name and reads their me
   expect(historyMedian(home, '배포')).toBe(4000);
   expect(historyMedian(home, '시험')).toBeNull();
   const saved = JSON.parse(
-    fs.readFileSync(path.join(home, '.config/cld-gui/job-history.json'), 'utf8'),
+    fs.readFileSync(path.join(home, '.config/agent-tycoon/job-history.json'), 'utf8'),
   );
   expect(saved['배포']).toEqual([2000, 3000, 4000, 5000, 6000]);
 });

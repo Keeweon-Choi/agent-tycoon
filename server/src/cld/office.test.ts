@@ -32,7 +32,7 @@ afterEach(() => {
 async function startOffice(opts: {
   claude?: string;
   chat?: boolean;
-  /** Text of ~/.config/cld-gui/ez-rules.json. */
+  /** Text of ~/.config/agent-tycoon/ez-rules.json. */
   ezRules?: string;
   codexUsageSpawnFn?: typeof spawn;
   codexUsageNow?: () => number;
@@ -88,7 +88,7 @@ describe('office with the Claude provider only (no engine)', () => {
       period: 'sevenDay',
     });
     expect(
-      fs.readFileSync(path.join(fake.home, '.config', 'cld-gui', 'events.jsonl'), 'utf-8'),
+      fs.readFileSync(path.join(fake.home, '.config', 'agent-tycoon', 'events.jsonl'), 'utf-8'),
     ).toContain('"usage_reset_early"');
   });
 
@@ -282,7 +282,7 @@ describe('office with the Claude provider only (no engine)', () => {
       () => undefined,
     );
     expect(last('characterPresets')).toMatchObject({ assignments: { [name]: look } });
-    const store = path.join(fake.home, '.config/cld-gui/characters.json');
+    const store = path.join(fake.home, '.config/agent-tycoon/characters.json');
     const saved = JSON.parse(fs.readFileSync(store, 'utf-8')) as Record<string, unknown>;
     expect(saved[name]).toEqual(look);
     expect(saved.nobody).toBeUndefined();
@@ -291,7 +291,7 @@ describe('office with the Claude provider only (no engine)', () => {
     for (const o of snap.orchestrators.filter((o) => o.name !== name))
       expect(saved[o.name]).toEqual({ palette: expect.any(Number), hueShift: expect.any(Number) });
     expect(saved.$meta).toMatchObject({ v: 2 });
-    expect(fs.existsSync(path.join(fake.home, '.config/cld-gui/characters/README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/characters/README.md'))).toBe(true);
   });
 });
 
@@ -714,7 +714,7 @@ describe('office with the built-in engine', () => {
         child.on('close', resolve);
       });
     const senders = (to: string) => {
-      const dir = path.join(home, '.config/cld-gui/inbox', to);
+      const dir = path.join(home, '.config/agent-tycoon/inbox', to);
       return fs
         .readdirSync(dir)
         .filter((f) => f.endsWith('.md'))
@@ -740,7 +740,7 @@ describe('office with the built-in engine', () => {
       (await act({ action: 'add', name: 'alpha-a', role: 'worker', project: 'alpha' })).ok,
     ).toBe(true);
     const disk = (f: string) =>
-      JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui', f), 'utf-8'));
+      JSON.parse(fs.readFileSync(path.join(home, '.config/agent-tycoon', f), 'utf-8'));
     const leadId = disk('projects.json').projects[0].leadAssignmentId as string;
     const workerId = (disk('assignments.json').assignments as Array<Record<string, string>>).find(
       (a) => a.name === 'alpha-a',
@@ -874,7 +874,7 @@ describe('office with the built-in engine', () => {
       'stop',
       'job_end',
     ]);
-    expect(fs.readFileSync(path.join(home, '.config/cld-gui/events.jsonl'), 'utf-8')).toContain(
+    expect(fs.readFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), 'utf-8')).toContain(
       '"source":"gui:ios"',
     );
     // `cld-gui jobs` sees it ended; a send to an engine project that is off goes to its inbox.
@@ -889,7 +889,7 @@ describe('office with the built-in engine', () => {
       reason: 'off',
       messageId: expect.stringMatching(/^[a-z2-7]{8}$/),
     });
-    const inbox = path.join(home, '.config/cld-gui/inbox/alpha');
+    const inbox = path.join(home, '.config/agent-tycoon/inbox/alpha');
     const [md] = fs.readdirSync(inbox).filter((f) => f.endsWith('.md'));
     expect(fs.readFileSync(path.join(inbox, md), 'utf-8').split('\n')[0]).toMatch(
       new RegExp(` ⟨m:${String(sent.out.messageId)}⟩$`),

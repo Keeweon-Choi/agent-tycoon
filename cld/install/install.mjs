@@ -5,19 +5,21 @@ import { createHash } from 'node:crypto';
 import fssync from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import configPathModule from '../../core/src/cld/configPath.cjs';
 import { addEntry, badLedgerPath, emptyLedger, EXPOSURE_FILE, parseLedger, unwantedEntries } from '../../core/src/exposureLedger.mjs';
 import { gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn } from './gpuPolicy.mjs';
 import { hwSensorsStep } from './hwSensors.mjs';
 import { CONNECTORS, defaultConnector, realDeps, remoteSetup, revertExposures, SETUP_CHOICES, setupLines } from './remote.mjs';
 
 const { CLI_NAME, LEGACY_CLI_NAME } = createRequire(import.meta.url)('../bin/cld-brand.js');
+export const { configDirectory, legacyConfigDirectory } = configPathModule;
 const execFile = promisify(execFileCallback);
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, '../..');
@@ -82,13 +84,13 @@ export function renderSystemdUnit({ repo = repoRoot, node = process.execPath, ho
 
 export function renderLaunchAgent({ repo = repoRoot, node = process.execPath, home = os.homedir(), config, label = 'dev.cld-gui.daemon', pathNodeDir = path.dirname(node) }) {
   const args = [node, ...NODE_FLAGS, path.join(repo, 'dist/cli.js'), ...daemonArgs(config)].map((arg) => `    <string>${xml(arg)}</string>`).join('\n');
-  const log = path.join(home, '.config', 'cld-gui', 'daemon.log');
+  const log = path.join(configDirectory(home), 'daemon.log');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>${xml(label)}</string>\n  <key>ProgramArguments</key><array>\n${args}\n  </array>\n  <key>WorkingDirectory</key><string>${xml(repo)}</string>\n  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${xml(servicePath(home, pathNodeDir, ['/opt/homebrew/bin']))}</string></dict>\n  <key>StandardOutPath</key><string>${xml(log)}</string>\n  <key>StandardErrorPath</key><string>${xml(log)}</string>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n</dict></plist>\n`;
 }
 
 export function renderSchtasksCommand({ repo = repoRoot, node = process.execPath, home = os.homedir(), config, name = 'cld-gui' }) {
   const daemon = [node, ...NODE_FLAGS, path.join(repo, 'dist/cli.js'), ...daemonArgs(config)].map((item) => `"${String(item).replaceAll('"', '\\"')}"`).join(' ');
-  const log = path.join(home, '.config', 'cld-gui', 'daemon.log').replaceAll('"', '\\"');
+  const log = path.join(configDirectory(home), 'daemon.log').replaceAll('"', '\\"');
   const command = `cmd.exe /d /s /c "${daemon} >> \"${log}\" 2>&1"`;
   return ['schtasks', '/Create', '/F', '/SC', 'ONLOGON', '/TN', name, '/TR', command];
 }
@@ -117,7 +119,7 @@ export function installPlan({ platform, repo = repoRoot, home = os.homedir(), no
   return [{ kind: 'command', command: create }, { kind: 'command', command: ['schtasks', '/End', '/TN', 'cld-gui'], optional: true }, { kind: 'command', command: ['schtasks', '/Run', '/TN', 'cld-gui'] }];
 }
 
-export function configPath(home = os.homedir()) { return path.join(home, '.config', 'cld-gui', 'config.json'); }
+export function configPath(home = os.homedir()) { return path.join(configDirectory(home), 'config.json'); }
 export function exposurePath(home = os.homedir()) { return path.join(path.dirname(configPath(home)), EXPOSURE_FILE); }
 /**
  * What remote.mjs is asked for (S6): --connector tailscale is Serve, funnel is Funnel; an install

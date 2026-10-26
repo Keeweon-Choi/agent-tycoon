@@ -15,7 +15,7 @@ set -euo pipefail
 
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 token_file=${CLD_GUI_TOKEN_FILE:-"$HOME/.pixel-agents/standalone-token"}
-config="$HOME/.config/cld-gui/config.json"
+config="$(node -e 'const { configDirectory } = require(process.argv[2]); console.log(configDirectory(process.argv[1]));' "$HOME" "$here/../../core/src/cld/configPath.cjs")/config.json"
 port=${CLD_GUI_PORT:-$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["port"]))' "$config" 2>/dev/null || echo 18240)}
 # Where a new device opens the link, for a daemon too old to say (T-0024: the
 # daemon answers with its canonical address, the secret path included).

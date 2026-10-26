@@ -83,7 +83,7 @@ test('status reports a down daemon and the next recovery command', async () => {
 
 test('logs plans use the service-specific command on every OS', () => {
   assert.deepEqual(maintenance.logs({ platform: 'linux', home }, { n: 12 }).command, ['journalctl', '--user', '-u', 'cld-gui', '-n', '12', '--no-pager']);
-  assert.deepEqual(maintenance.logs({ platform: 'darwin', home }, { n: 12, follow: true }).command, ['tail', '-n', '12', '-f', `${home}/.config/cld-gui/daemon.log`]);
+  assert.deepEqual(maintenance.logs({ platform: 'darwin', home }, { n: 12, follow: true }).command, ['tail', '-n', '12', '-f', `${home}/.config/agent-tycoon/daemon.log`]);
   const windows = maintenance.logs({ platform: 'win32', home }, { n: 12, follow: true }).command;
   assert.equal(windows[0], 'powershell');
   assert.match(windows.at(-1), /Get-Content .* -Tail 12 -Wait/);
@@ -224,10 +224,10 @@ test('doctor prints the data sizes and the rule per category, reading only', asy
     const put = (rel, bytes) => { const f = path.join(h, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'x'.repeat(bytes)); };
     put('.local/state/cld-gui/jobs/1001-000001-a.log', 3 * 1024 * 1024);
     put('.local/state/cld-gui/codex/1001-000001-a.jsonl', 2048);
-    put('.config/cld-gui/events.jsonl', 1024);
-    put('.config/cld-gui/events.jsonl.1', 1024);
-    put('.config/cld-gui/daemon.log', 512);
-    put('.config/cld-gui/inbox/a.json', 4096);
+    put('.config/agent-tycoon/events.jsonl', 1024);
+    put('.config/agent-tycoon/events.jsonl.1', 1024);
+    put('.config/agent-tycoon/daemon.log', 512);
+    put('.config/agent-tycoon/inbox/a.json', 4096);
     const before = fs.readdirSync(path.join(h, '.local/state/cld-gui/jobs')).length;
     const result = await maintenance.doctor({
       platform: 'linux', home: h, node: '22.14.0', command: commandFixture([]), exists: () => true,

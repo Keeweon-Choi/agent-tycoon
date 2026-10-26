@@ -131,11 +131,11 @@ it('serves a chosen folder with the same preview and one-use download gates', as
 
 it('refuses protected folders in a chosen root: ., .., encoding, case, symlinks, tickets', async () => {
   const base = '/api/cld/files/~folder';
-  for (const dir of ['.ssh', '.claude', '.config/cld-gui', '.pixel-agents', 'work/.Aws'])
+  for (const dir of ['.ssh', '.claude', '.config/agent-tycoon', '.pixel-agents', 'work/.Aws'])
     fs.mkdirSync(path.join(temp, dir), { recursive: true });
   fs.writeFileSync(path.join(temp, '.ssh', 'config'), 'Host x');
   fs.writeFileSync(path.join(temp, '.claude', '.credentials.json'), 'token');
-  fs.writeFileSync(path.join(temp, '.config', 'cld-gui', 'auth.json'), 'token');
+  fs.writeFileSync(path.join(temp, '.config', 'agent-tycoon', 'auth.json'), 'token');
   fs.writeFileSync(path.join(temp, 'work', '.Aws', 'credentials'), 'token');
   fs.symlinkSync(path.join(temp, '.ssh'), path.join(temp, 'keys'));
   const enc = encodeURIComponent;
@@ -167,7 +167,7 @@ it('refuses protected folders in a chosen root: ., .., encoding, case, symlinks,
     'keys/config',
     'work/.aws/credentials',
     '.claude/.credentials.json',
-    '.config/cld-gui/auth.json',
+    '.config/agent-tycoon/auth.json',
     'work/..%2F.ssh/config',
     'x/%2E%2E/.ssh/config',
     '..%2F' + path.basename(temp) + '/.ssh/config',

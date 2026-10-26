@@ -396,7 +396,7 @@ export interface EngineOptions {
   binDir?: string | null;
   /** The PATH sessions and jobs should get (sessionPath.ts), built once by the caller; null = the service's own. */
   sessionPath?: string | null;
-  /** T-0019: an event for ~/.config/cld-gui/events.jsonl (HIF shape). */
+  /** T-0019: an event for ~/.config/agent-tycoon/events.jsonl (HIF shape). */
   event?: (type: string, source: string, fields: Record<string, unknown>) => void;
   /** T-0019: a session was started (start, restart, revive, renew): deliver its inbox. */
   started?: (name: string) => void;

@@ -3,10 +3,12 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../configPath.js';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const hostPath = (home: string): string =>
-  path.join(home, '.config', 'cld-gui', 'host.json');
+  path.join(configDirectory(home), 'host.json');
 
 function validHost(value: unknown): value is { v: 1; hostId: string; createdAt: string } {
   if (typeof value !== 'object' || value === null) return false;

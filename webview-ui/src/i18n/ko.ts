@@ -1496,7 +1496,7 @@ export const ko = {
   'character.menu': '{name} 메뉴',
   'character.changeColor': '색 바꾸기',
   'character.presets': '프리셋',
-  'character.presetHelp': '~/.config/cld-gui/characters/ 에 112×96 PNG를 넣으면 여기에 나와요.',
+  'character.presetHelp': '~/.config/agent-tycoon/characters/ 에 112×96 PNG를 넣으면 여기에 나와요.',
   'character.presetName': '프리셋 {name}',
   'character.makeFromPhoto': '사진으로 만들기',
   'character.refused.full':

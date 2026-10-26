@@ -8,6 +8,7 @@ import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import { StandaloneAuth } from './cld/auth.js';
 import type { ChatManager } from './cld/chat.js';
+import { configDirectory } from './cld/configPath.js';
 import { hostShellRegistry } from './cld/shell/registry.js';
 import type {
   AssetCache,
@@ -144,7 +145,7 @@ export class PixelAgentsServer {
     const auth = embedded
       ? undefined
       : new StandaloneAuth({
-          configDir: path.join(os.homedir(), '.config', 'cld-gui'),
+          configDir: configDirectory(os.homedir()),
           allowApprovalRequests: options?.allowApprovalRequests,
         });
     // O3: a rotated host token is in the record (written once the new token is in place).
@@ -166,7 +167,7 @@ export class PixelAgentsServer {
       auth,
       chat: options?.chat,
       allowTerminal: options?.allowTerminal,
-      // Shells in our tmux server, listed in ~/.config/cld-gui/shells.json (T-0069).
+      // Shells in our tmux server, listed in ~/.config/agent-tycoon/shells.json (T-0069).
       shellRegistry:
         !embedded && options?.allowTerminal
           ? hostShellRegistry((notice) => store?.broadcast({ ...notice }))

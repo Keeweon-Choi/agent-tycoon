@@ -238,7 +238,7 @@ describe('engine recovery scenarios', () => {
     first.dispose();
     killRecordedSessions(t.home);
     await vi.waitFor(() => expect(readLiveSessions(t.home)).toEqual([]), { timeout: 5_000 });
-    fs.writeFileSync(path.join(t.home, '.config', 'cld-gui', 'engine.boot'), 'previous-boot\n');
+    fs.writeFileSync(path.join(t.home, '.config', 'agent-tycoon', 'engine.boot'), 'previous-boot\n');
     const before = engineCalls(t.home).filter((call) => call.argv[0] === '--bg').length;
 
     const second = t.boot();

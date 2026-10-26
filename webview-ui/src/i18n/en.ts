@@ -1518,7 +1518,7 @@ export const en = {
   'character.menu': '{name} menu',
   'character.changeColor': 'Change color',
   'character.presets': 'Presets',
-  'character.presetHelp': 'Add 112×96 PNG files to ~/.config/cld-gui/characters/ to see them here.',
+  'character.presetHelp': 'Add 112×96 PNG files to ~/.config/agent-tycoon/characters/ to see them here.',
   'character.presetName': 'Preset {name}',
   'character.makeFromPhoto': 'Make from photo',
   'character.refused.full':

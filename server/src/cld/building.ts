@@ -1,6 +1,6 @@
 /**
  * The building (T-0027): the office's floors, kept by cld-gui in
- * ~/.config/cld-gui/building.json. The office is generated plus decor
+ * ~/.config/agent-tycoon/building.json. The office is generated plus decor
  * (decor.ts); layout.json is read once for migration. With no building.json there is one floor
  * holding every room, the office as it was.
  *

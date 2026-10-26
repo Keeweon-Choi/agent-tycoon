@@ -9,15 +9,16 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { dataSizes, sizeLines } = require('./cld-gui-sizes');
 const { CLI_NAME, LEGACY_CLI_NAME } = require('./cld-brand');
+const { configDirectory } = require('../../core/src/cld/configPath.cjs');
 
 const DEFAULT_PORT = 18240;
 const SERVICE = 'cld-gui';
 const LABEL = 'dev.cld-gui.daemon';
 
-function configFile(home) { return path.join(home, '.config', 'cld-gui', 'config.json'); }
-function logFile(home) { return path.join(home, '.config', 'cld-gui', 'daemon.log'); }
-function pushFile(home) { return path.join(home, '.config', 'cld-gui', 'push.json'); }
-function remoteTestFile(home) { return path.join(home, '.config', 'cld-gui', 'remote-test.json'); }
+function configFile(home) { return path.join(configDirectory(home), 'config.json'); }
+function logFile(home) { return path.join(configDirectory(home), 'daemon.log'); }
+function pushFile(home) { return path.join(configDirectory(home), 'push.json'); }
+function remoteTestFile(home) { return path.join(configDirectory(home), 'remote-test.json'); }
 /** The LaunchAgent label of a service name (the old cld-gui one keeps its historical label). */
 function launchLabel(name = SERVICE) { return name === SERVICE ? LABEL : `dev.${name}.daemon`; }
 function serviceFile(platform, home, name = SERVICE) {

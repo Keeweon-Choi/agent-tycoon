@@ -166,7 +166,7 @@ describe('the office keeps and shows them', () => {
       ).orchestrators.find((o) => o.name === name);
     expect(row('alpha')?.level).toMatchObject({ xp: XP_TURN + XP_TOOL, level: 1, rebirths: 1 });
     expect(row('beta')?.level).toMatchObject({ xp: 0, level: 1, rebirths: 0 });
-    const disk = JSON.parse(fs.readFileSync(`${home}/.config/cld-gui/levels.json`, 'utf-8'));
+    const disk = JSON.parse(fs.readFileSync(`${home}/.config/agent-tycoon/levels.json`, 'utf-8'));
     expect(disk.levels['engine:alpha']).toEqual({ xp: XP_TURN + XP_TOOL, rebirths: 1 });
   });
 
@@ -179,7 +179,7 @@ describe('the office keeps and shows them', () => {
     store.broadcast({ type: 'agentStatus', id, status: 'waiting' });
     stop(); // flushes the debounce
     expect(snapshots()).toBe(before);
-    const disk = JSON.parse(fs.readFileSync(`${home}/.config/cld-gui/levels.json`, 'utf-8'));
+    const disk = JSON.parse(fs.readFileSync(`${home}/.config/agent-tycoon/levels.json`, 'utf-8'));
     expect(disk.levels['engine:alpha'].xp).toBe(XP_TURN);
     expect(office.officeState().orchestrators.find((o) => o.name === 'alpha')?.level?.xp).toBe(XP_TURN);
   });

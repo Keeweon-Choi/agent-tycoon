@@ -244,7 +244,7 @@ describe('the built-in phrase table', () => {
   });
 });
 
-// ~/.config/cld-gui/ez-rules.json, as the daemon validated and sent it.
+// ~/.config/agent-tycoon/ez-rules.json, as the daemon validated and sent it.
 describe("the user's own rules", () => {
   const user = (tools: EzToolRule[], commands: EzCommandRule[]): EzContext => ({
     user: { tools, commands },

@@ -4,7 +4,7 @@
  *   update:   source (download | release folder | bundle) -> signature + SHA-256 + OS/CPU (verify.mjs)
  *             -> new version folder -> self-test with the new runtime -> compatibility (manifest)
  *             -> stop the old daemon (agent sessions are separate processes and keep running)
- *             -> rollback snapshot of ~/.config/cld-gui when dataSchema differs -> switch `current`
+ *             -> rollback snapshot of ~/.config/agent-tycoon when dataSchema differs -> switch `current`
  *             -> start -> health with the new version + engine takeover -> keep two old versions.
  *             Any failure after the stop: pointer back, snapshot restored if the data may have
  *             changed, old version started, the version marked failed (never retried without --force).
@@ -151,7 +151,7 @@ async function verify(src, t) {
   }
 }
 
-// ── Snapshots of ~/.config/cld-gui (same host, secrets included, permissions kept; not the B1 export) ──
+// ── Snapshots of ~/.config/agent-tycoon (same host, secrets included, permissions kept; not the B1 export) ──
 
 /** Regular files under `dir`, relative, sorted (what a snapshot must still hold to be restored). */
 async function filesUnder(dir) {

@@ -87,6 +87,7 @@ import {
   parseChatSendNow,
   sendTextRefusal,
 } from './chatSend.js';
+import { configDirectory } from './configPath.js';
 import type { Lead } from './conversations.js';
 import { Conversations, readOptions } from './conversations.js';
 import type { BaseFloor, FloorLayout, Footprints } from './decor.js';
@@ -283,7 +284,7 @@ export interface OfficeOptions {
   sessionPath?: string | null;
   /** T-0019: types cld-gui sends into background sessions (the chat's attach manager). */
   typist?: Typist;
-  /** T-0039: push.json (the standalone CLI's ~/.config/cld-gui); none: no Web Push. */
+  /** T-0039: push.json (the standalone CLI's ~/.config/agent-tycoon); none: no Web Push. */
   pushFile?: string;
   /** T-0063: the first --allowed-host, the VAPID subject's https origin. */
   pushHost?: string;
@@ -441,14 +442,14 @@ export class Office {
     this.binder = new CharacterBinder(opts.runtime, opts.store);
     this.codexBinder = new CharacterBinder(opts.runtime, opts.store, CODEX_GRACE_MS);
     this.characters = new CharacterPresets({
-      configDir: path.join(opts.home ?? os.homedir(), '.config', 'cld-gui'),
+      configDir: configDirectory(opts.home ?? os.homedir()),
       publish: (msg) => this.publish(msg),
       // Keys are names: an engine project's or a Claude session's; a temp employee's `emp:<id>`.
       knownKey: (key) =>
         this.world.agents.some((a) => a.name === key) ||
         (key.startsWith('emp:') && this.roster.allEmployees().some((e) => `emp:${e.id}` === key)),
     });
-    const cldConfig = path.join(opts.home ?? os.homedir(), '.config', 'cld-gui');
+    const cldConfig = configDirectory(opts.home ?? os.homedir());
     this.parts = new CharacterPartStore(
       path.join(cldConfig, 'parts'),
       (msg) => this.publish(msg),
@@ -459,7 +460,7 @@ export class Office {
     this.repos = new RepoManager({
       projects: () => this.projectFolders(),
       readOnly: opts.readOnly,
-      configDir: path.join(opts.home ?? os.homedir(), '.config', 'cld-gui'),
+      configDir: configDirectory(opts.home ?? os.homedir()),
       looking: (send) => !this.hidden.has(send),
       // W2: the 작업실's "worktree 만들기" (the owner's: createdBy user).
       taskWorktree: (req, privileged, source) =>
@@ -486,17 +487,17 @@ export class Office {
       });
     this.ezRules = new EzRulesFile(ezRulesPath(opts.home));
     this.building = new BuildingStore(
-      path.join(opts.home ?? os.homedir(), '.config', 'cld-gui', 'building.json'),
+      path.join(configDirectory(opts.home ?? os.homedir()), 'building.json'),
     );
-    this.decor = new DecorStore(path.join(home, '.config', 'cld-gui', 'decor.json'));
-    this.memos = new MemoStore(path.join(home, '.config', 'cld-gui', 'memos.json'));
+    this.decor = new DecorStore(path.join(configDirectory(home), 'decor.json'));
+    this.memos = new MemoStore(path.join(configDirectory(home), 'memos.json'));
     // Nobody watching: the counters and their file only. A viewer's wake() reloads the
     // office, whose snapshot then carries the current levels (no snapshot built for nobody).
-    this.levels = new LevelStore(path.join(home, '.config', 'cld-gui', 'levels.json'), () => {
+    this.levels = new LevelStore(path.join(configDirectory(home), 'levels.json'), () => {
       if (this.watching() > 0) this.publish<OfficeSnapshot>(this.officeState());
       this.publish(this.temps.message());
     });
-    this.roster = new RosterStore(path.join(home, '.config', 'cld-gui', 'roster.json'));
+    this.roster = new RosterStore(path.join(configDirectory(home), 'roster.json'));
     this.levels.beforeWrite = () => this.roster.flushIfDirty();
     this.temps = new TempStaff({
       roster: this.roster,
@@ -519,7 +520,7 @@ export class Office {
       if (key) this.levels.observe(id as number, key, m);
     });
     opts.store.on('agentRemoved', (id) => this.levels.forget(id));
-    this.pins = new PinStore(path.join(home, '.config', 'cld-gui', 'pins.json'));
+    this.pins = new PinStore(path.join(configDirectory(home), 'pins.json'));
     this.tasks = new TaskStore(
       tasksPath(home),
       () => {
@@ -972,7 +973,7 @@ export class Office {
     if (!copy) return null;
     const { repoRoot, managed } = copy;
     return new UpdateNotice({
-      configDir: path.join(opts.home ?? os.homedir(), '.config', 'cld-gui'),
+      configDir: configDirectory(opts.home ?? os.homedir()),
       root: managed.root,
       version: managed.version,
       serviceKind: managed.serviceKind,
@@ -997,7 +998,7 @@ export class Office {
       registerOwnerProfileRoutes(
         app,
         auth,
-        path.join(this.opts.home ?? os.homedir(), '.config', 'cld-gui', 'profile'),
+        path.join(configDirectory(this.opts.home ?? os.homedir()), 'profile'),
       );
       if (this.updates) registerUpdateRoutes(app, auth, this.updates, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
       registerStartPolicyRoutes(app, auth, this.startPolicy, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
@@ -2554,7 +2555,7 @@ export class Office {
     this.onClientOpened(send);
     send({ ...this.host }); // every /ws client is logged in (T-0022)
     const projects = path.join(this.host.home, 'projects');
-    const dismissed = path.join(this.host.home, '.config', 'cld-gui', 'import-suggestion.json');
+    const dismissed = path.join(configDirectory(this.host.home), 'import-suggestion.json');
     if (
       this.engine &&
       !this.opts.readOnly &&
@@ -2817,7 +2818,7 @@ export class Office {
     }
     if (msg.type === 'projectImportDismiss') {
       if (privileged && !this.opts.readOnly) {
-        const file = path.join(this.host.home, '.config', 'cld-gui', 'import-suggestion.json');
+        const file = path.join(configDirectory(this.host.home), 'import-suggestion.json');
         try {
           fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
           fs.writeFileSync(file, '{}\n', { mode: 0o600 });

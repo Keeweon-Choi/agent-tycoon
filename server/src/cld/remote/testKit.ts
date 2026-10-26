@@ -126,7 +126,7 @@ export function fakeIssuer(ca: TestCa, options: { fail?: () => boolean; now?: ()
   return { issue, requests };
 }
 
-/** A fresh tls dir under the OS temp dir (never ~/.config/cld-gui). */
+/** A fresh tls dir under the OS temp dir (never ~/.config/agent-tycoon). */
 export function tempDir(prefix = 'cld-remote-'): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }

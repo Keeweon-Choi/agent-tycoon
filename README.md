@@ -4,7 +4,9 @@
 
 ## 딸깍 설치
 
-필요한 것: git, npm, Node.js 22 이상. Claude Code CLI는 에이전트를 실행할 때 필요하지만 설치 자체에는 없어도 됩니다. 자세한 설치와 원격 접속 방법은 [설치 안내](cld/INSTALL.md)에 있습니다.
+**데스크톱 앱 (Windows · macOS · Linux)** — [설치 안내](cld/INSTALL.md#데스크톱-앱)를 따라 받으세요. 설치 파일에 코드 서명이 없어 처음 한 번 경고가 뜹니다. 넘기는 방법도 안내에 있습니다.
+
+**터미널 설치에 필요한 것:** git, npm, Node.js 22 이상. Claude Code CLI는 에이전트를 실행할 때 필요하지만 설치 자체에는 없어도 됩니다. 자세한 설치와 원격 접속 방법은 [설치 안내](cld/INSTALL.md)에 있습니다.
 
 **터미널에서 한 줄** (macOS · Linux · WSL)
 

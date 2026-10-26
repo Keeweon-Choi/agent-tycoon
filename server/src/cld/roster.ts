@@ -1,5 +1,5 @@
 /**
- * TEMP-PLATES: each project's staff roster, in ~/.config/cld-gui/roster.json.
+ * TEMP-PLATES: each project's staff roster, in ~/.config/agent-tycoon/roster.json.
  *
  * An Employee is a game character (a stable id, a name id from the roster names, a look
  * keyed `emp:<id>` in characters.json, XP keyed `emp:<id>` in levels.json). An Execution is

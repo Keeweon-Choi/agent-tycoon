@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../configPath.js';
+
 interface ProjectLocation {
   name: string;
   folder: string;
@@ -32,7 +34,7 @@ export function readWorkerProjects(file: string): ProjectLocation[] {
 
 /** The deepest registered project containing this worker's working directory. */
 export function workerProjectAt(home: string, cwd: string): string | null {
-  const projects = readWorkerProjects(path.join(home, '.config', 'cld-gui', 'projects.json'));
+  const projects = readWorkerProjects(path.join(configDirectory(home), 'projects.json'));
   let best: { name: string; len: number } | null = null;
   for (const project of projects) {
     const folder = project.folder.endsWith(path.sep)

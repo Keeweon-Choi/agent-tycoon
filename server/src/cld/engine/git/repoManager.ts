@@ -136,7 +136,7 @@ export interface RepoManagerOptions {
   /** The projects the daemon manages (E1 registry): name and folder. */
   projects: () => ProjectFolder[];
   readOnly: boolean;
-  /** ~/.config/cld-gui (worktrees.json). */
+  /** ~/.config/agent-tycoon (worktrees.json). */
   configDir: string;
   run?: GitRunner;
   pollMs?: number;

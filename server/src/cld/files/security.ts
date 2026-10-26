@@ -1,5 +1,7 @@
 import * as os from 'node:os';
 
+import { legacyConfigDirectory } from '../configPath.js';
+
 const parts = (value: string) =>
   value
     .split(/[\\/]+/)
@@ -21,7 +23,8 @@ const SEQUENCES = [
   ['.password-store'],
   ['.config', 'gcloud'],
   ['.config', 'gh'],
-  ['.config', 'cld-gui'],
+  parts(legacyConfigDirectory('')),
+  ['.config', 'agent-tycoon'],
   ['.config', 'google-chrome'],
   ['.config', 'chromium'],
   ['.config', 'microsoft-edge'],

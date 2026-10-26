@@ -27,7 +27,7 @@ describe('pinned conversations (U-30)', () => {
     ask('room:all', true);
     ask('alpha', true); // already pinned: no duplicate
     expect(pinned(first.messages)).toEqual(['alpha', 'room:all']);
-    const file = `${first.home}/.config/cld-gui/pins.json`;
+    const file = `${first.home}/.config/agent-tycoon/pins.json`;
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     const home = first.home;
     first.stop();

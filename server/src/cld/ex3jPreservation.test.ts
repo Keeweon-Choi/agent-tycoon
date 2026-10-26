@@ -57,7 +57,7 @@ const reply = (text: string, minute: number, uuid: string, tool = false) =>
 function d2Home(): { home: string; files: () => Record<string, string> } {
   const { home } = makeEngineHome();
   cleanup.push(() => removeTestHome(home));
-  const cfg = path.join(home, '.config', 'cld-gui');
+  const cfg = path.join(home, '.config', 'agent-tycoon');
   const put = (rel: string, text: string) => {
     const f = path.join(cfg, rel);
     fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
@@ -265,7 +265,7 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     const original = files();
     // D3b: every file under the config dir, for "before any swap nothing new is written".
     const everything = () => {
-      const cfg = path.join(home, '.config', 'cld-gui');
+      const cfg = path.join(home, '.config', 'agent-tycoon');
       const out: Record<string, string> = {};
       const walk = (dir: string) => {
         for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -392,7 +392,7 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
   it('9 Leads and no Worker: no file changes, no lead-history.json, no journal (D5: an old Codex record neither; W2: an old worktrees.json neither)', async () => {
     const { home } = makeEngineHome();
     cleanup.push(() => removeTestHome(home));
-    const cfg = path.join(home, '.config', 'cld-gui');
+    const cfg = path.join(home, '.config', 'agent-tycoon');
     const rules = path.join(home, 'rules-engine.md');
     fs.writeFileSync(rules, '# rules\n');
     const names = ['ops-lead', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];

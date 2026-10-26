@@ -249,11 +249,24 @@ impl Found {
 /// Marker between the record and the config in `WSL_FIND`'s output.
 pub const FIND_MARK: &str = "--agent-tycoon-config--";
 
-/// Prints the distro's install record, the marker, then cld-gui's config.json (each may be absent).
+/// The daemon's settings folder, as the daemon picks it (core/src/cld/configPath.cjs): the legacy
+/// `~/.config/cld-gui` while it exists, else `~/.config/agent-tycoon` (installs since 10-27).
+pub fn settings_dir(home: &std::path::Path) -> std::path::PathBuf {
+    let legacy = home.join(".config").join("cld-gui");
+    if legacy.exists() {
+        legacy
+    } else {
+        home.join(".config").join("agent-tycoon")
+    }
+}
+
+/// Prints the distro's install record, the marker, then the daemon's config.json (each may be
+/// absent; the settings folder chosen as `settings_dir` does).
 pub const WSL_FIND: &str = r#"r=${AGENT_TYCOON_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-tycoon}
 cat "$r/install.json" 2>/dev/null
 printf '\n%s\n' '--agent-tycoon-config--'
-cat "$HOME/.config/cld-gui/config.json" 2>/dev/null
+d="$HOME/.config/cld-gui"; [ -d "$d" ] || d="$HOME/.config/agent-tycoon"
+cat "$d/config.json" 2>/dev/null
 exit 0"#;
 
 pub fn split_find(out: &str) -> Found {
@@ -915,6 +928,20 @@ mod tests {
         assert!(asks_policy("native", "linux"));
         assert!(!asks_policy("native", "windows")); // the manager: Linux and WSL only for now
         assert!(!asks_policy("native", "macos"));
+    }
+
+    #[test]
+    fn settings_dir_keeps_the_legacy_folder() {
+        let home = std::env::temp_dir().join(format!("at-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(settings_dir(&home), home.join(".config").join("agent-tycoon"));
+        std::fs::create_dir_all(home.join(".config").join("cld-gui")).unwrap();
+        assert_eq!(settings_dir(&home), home.join(".config").join("cld-gui"));
+        // a new folder beside it never moves an existing install off its data
+        std::fs::create_dir_all(home.join(".config").join("agent-tycoon")).unwrap();
+        assert_eq!(settings_dir(&home), home.join(".config").join("cld-gui"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

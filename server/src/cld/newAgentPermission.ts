@@ -8,13 +8,14 @@
 import * as path from 'path';
 
 import { PERMISSION_MODE_BYPASS } from '../constants.js';
+import { configDirectory } from './configPath.js';
 import type { SocketStepUp, WsSend } from './hooks.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
 
 export type NewAgentMode = 'ask' | 'bypass';
 
-const file = (home: string): string => path.join(home, '.config', 'cld-gui', 'new-agent-permission.json');
+const file = (home: string): string => path.join(configDirectory(home), 'new-agent-permission.json');
 
 /** The stored choice; '' while unanswered (or unreadable: asking again is the safe side). */
 export function readNewAgentMode(home: string): NewAgentMode | '' {

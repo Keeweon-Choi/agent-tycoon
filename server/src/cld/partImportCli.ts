@@ -5,7 +5,7 @@
  *   nice -n 10 npx tsx server/src/cld/partImportCli.ts <folder> --dir <partsDir> [--preview <outDir>] [--dry]
  *     [--mismatch borrow|empty|keep] [--frames <file>=<i,j>:<borrow|empty|keep>]...
  *
- * `--dir` is where the parts go (the daemon's is ~/.config/cld-gui/parts; it is never assumed);
+ * `--dir` is where the parts go (the daemon's is ~/.config/agent-tycoon/parts; it is never assumed);
  * a running daemon reads it at its next start. `--preview` writes each part on the bald body ×4
  * (all 21 frames); `--dry` converts and reports without saving. `--mismatch` is what a frame drawn
  * facing the wrong way becomes (default borrow: the row's nearest right frame); `--frames` sets it for

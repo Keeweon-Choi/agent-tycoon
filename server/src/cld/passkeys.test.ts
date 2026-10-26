@@ -366,7 +366,7 @@ describe('passkeys', () => {
     expect((await login(authenticator, funnel('192.0.2.2'), PUBLIC_ORIGIN)).statusCode).toBe(200);
   });
 
-  it('is off without a config dir, and never reads ~/.config/cld-gui', async () => {
+  it('is off without a config dir, and never reads ~/.config/agent-tycoon', async () => {
     configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-config-'));
     server = await startAuthServer(dist.staticDir);
     const res = await server.app.inject({

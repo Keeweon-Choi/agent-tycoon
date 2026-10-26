@@ -1,4 +1,42 @@
-# cld-gui 설치
+# 에이전트 타이쿤 설치
+
+## 데스크톱 앱
+
+git이나 Node.js 없이 화면으로 쓰려면 데스크톱 앱을 설치하세요. 사무실 프로그램도 앱 안에 들어 있습니다.
+
+### 받기
+
+1. [Desktop bundles](https://github.com/Keeweon-Choi/agent-tycoon/actions/workflows/desktop-bundles.yml)에서 초록색 체크가 있는 가장 새 실행을 열고, 아래 **Artifacts**에서 운영체제에 맞는 zip을 받으세요. GitHub 로그인 계정이 필요합니다.
+2. Chrome 또는 Edge가 흔치 않거나 위험할 수 있다며 받기를 보류하면 `Ctrl+J`의 다운로드 목록에서 **계속** 또는 **유지**를 고르세요. Edge는 **… → 유지 → 자세히 표시 → 그래도 계속**을 고릅니다.
+3. 설치 파일은 실행 뒤 90일 동안 받을 수 있습니다. 받을 것이 없으면 저장소의 Issues에 알려 주세요.
+
+### Windows
+
+1. `agent-tycoon-windows` zip을 받은 뒤 파일을 우클릭해 **모두 압축 풀기**를 누르고, `Agent Tycoon_<버전>_x64-setup.exe`를 실행하세요.
+2. SmartScreen의 **Windows의 PC 보호**가 나오면 **추가 정보**를 누른 뒤 **실행**을 누르세요. 관리자 권한 없이 현재 사용자에게 설치합니다.
+
+### macOS
+
+1. `agent-tycoon-macos` zip의 `Agent Tycoon_<버전>_aarch64.dmg`를 여세요. Apple Silicon 전용이며 Intel 빌드는 아직 없습니다.
+2. dmg에서 **Agent Tycoon**을 **응용 프로그램**으로 드래그하세요.
+3. 처음 열 때 Apple이 악성 소프트웨어를 확인할 수 없다는 메시지가 나오면 **완료**를 누르고, **시스템 설정 → 개인정보 보호 및 보안** 아래쪽의 **그래도 열기**를 눌러 Mac 암호를 입력하세요. macOS 15부터는 우클릭 **열기**로 넘길 수 없습니다.
+4. **손상되었기 때문에 열 수 없습니다**라고 나오면 터미널에서 `xattr -dr com.apple.quarantine "/Applications/Agent Tycoon.app"`를 실행하고 다시 여세요.
+
+### Linux
+
+1. `agent-tycoon-linux` zip의 AppImage는 `chmod +x <.AppImage 파일>` 뒤 `./<.AppImage 파일>`로 실행하세요. FUSE 2가 필요하면 `sudo apt install libfuse2`를, Ubuntu 24.04에서는 `sudo apt install libfuse2t64`를 실행하세요.
+2. deb는 `sudo apt install ./<.deb 파일>`로 설치하세요.
+
+### 처음 실행
+
+1. 첫 화면에서 **이 컴퓨터에서 시작** 또는 **다른 컴퓨터에 연결**을 고르세요.
+2. **이 컴퓨터에서 시작**은 앱에 든 사무실 프로그램(데몬)을 진행 표시줄과 함께 설치하며, 이 단계에는 인터넷이 필요 없습니다. Windows에서 이미 사무실을 실행하는 WSL 배포판이 있으면 그것을 씁니다.
+3. Claude Code가 없으면 **에이전트 CLI(Claude Code)를 설치해 주세요**가 나옵니다. **Git 설치**(Windows에서 Git이 없을 때만)와 **Claude Code 설치**를 차례로 누르면 사무실 터미널에서 설치가 돌아갑니다. 끝나면 **다시 찾기**를 누르고, 터미널에서 `claude`를 한 번 실행해 로그인하세요.
+
+### 업데이트와 제거
+
+1. 업데이트는 새 설치 파일을 기존 설치 위에 실행하세요. 앱만 새 버전으로 바뀌고, 이미 설치된 사무실 프로그램과 데이터는 그대로 남습니다.
+2. Windows에서 지우려면 **설정 → 앱 → 설치된 앱 → Agent Tycoon → 제거**를 여세요. 앱이 설치한 사무실 프로그램도 함께 지워지며, 제거기의 앱 데이터 삭제 상자를 고르면 설정과 로그인도 지워집니다. WSL의 사무실이나 터미널 설치기는 건드리지 않습니다.
 
 ## 가장 쉬운 방법
 
@@ -65,7 +103,7 @@ sh cld/install/install.sh --from rel --pub <따로 받아 둔 릴리스 공개 �
 node cld/install/install.mjs
 ```
 
-설치기는 기본 포트 `18240`, 읽기 전용 모드와 내장 엔진(자동)을 사용합니다. 설정은 `~/.config/cld-gui/config.json`에 남으며 다음 실행에서도 유지됩니다. 실행할 명령과 파일만 보고 싶다면 `--dry-run`, 현재 상태만 보려면 `--check`를 사용하세요. 현황판에서 프로젝트를 켜고 끄고 고치려면 `--allow-actions`를 붙여 다시 실행하고, 되돌릴 때는 `--read-only`를 붙입니다. 내장 엔진(프로젝트의 세션을 Claude Code 백그라운드 세션으로 돌림)은 `--engine auto`(기본, 켜짐), `--engine on`, `--engine off`로 정합니다.
+설치기는 기본 포트 `18240`, 읽기 전용 모드와 내장 엔진(자동)을 사용합니다. 설정은 `~/.config/agent-tycoon/config.json`(이 이름을 쓰기 전에 설치한 컴퓨터는 `~/.config/cld-gui/config.json`)에 남으며 다음 실행에서도 유지됩니다. 실행할 명령과 파일만 보고 싶다면 `--dry-run`, 현재 상태만 보려면 `--check`를 사용하세요. 현황판에서 프로젝트를 켜고 끄고 고치려면 `--allow-actions`를 붙여 다시 실행하고, 되돌릴 때는 `--read-only`를 붙입니다. 내장 엔진(프로젝트의 세션을 Claude Code 백그라운드 세션으로 돌림)은 `--engine auto`(기본, 켜짐), `--engine on`, `--engine off`로 정합니다.
 
 ```sh
 node cld/install/install.mjs --dry-run
@@ -149,7 +187,7 @@ node cld/install/install.mjs
 node cld/install/install.mjs --uninstall
 ```
 
-`--uninstall`은 서비스만 제거하고 설정은 보존합니다. 직접 열기(`direct`)를 쓰던 PC에서는 먼저 공유기의 외부 443 연결과 HTTPS 대기를 닫습니다. 설정도 지우려면 `--uninstall --purge`를 사용하세요. 인증서·키·비밀 주소·DuckDNS 토큰(`~/.config/cld-gui/tls`)도 함께 지웁니다.
+`--uninstall`은 서비스만 제거하고 설정은 보존합니다. 직접 열기(`direct`)를 쓰던 PC에서는 먼저 공유기의 외부 443 연결과 HTTPS 대기를 닫습니다. 설정도 지우려면 `--uninstall --purge`를 사용하세요. 인증서·키·비밀 주소·DuckDNS 토큰(`~/.config/agent-tycoon/tls`, 이 이름을 쓰기 전에 설치한 컴퓨터는 `~/.config/cld-gui/tls`)도 함께 지웁니다.
 
 ### 새 버전 알림 (관리자로 깐 설치만)
 

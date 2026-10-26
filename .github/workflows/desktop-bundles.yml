@@ -126,4 +126,5 @@ jobs:
             cld/desktop/src-tauri/target/release/bundle/dmg/*.dmg
             cld/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
-          retention-days: 14
+          # The download people get (owner 10-27: Actions zips, no Releases); 90 days is the maximum, and storage is free on the public repo.
+          retention-days: 90

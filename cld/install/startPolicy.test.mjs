@@ -154,7 +154,7 @@ test('start: a detached daemon that is alive but not answering yet is waited for
   const booting = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', 'dist/cli.js'], { stdio: 'ignore' });
   t.after(() => booting.kill('SIGKILL'));
   let died = null; booting.on('exit', (code, signal) => { died = signal ?? code; });
-  const pidFile = path.join(home, '.config', 'cld-gui', 'daemon.pid');
+  const pidFile = path.join(home, '.config', 'agent-tycoon', 'daemon.pid');
   fs.mkdirSync(path.dirname(pidFile), { recursive: true }); fs.writeFileSync(pidFile, `${booting.pid}\n`);
   const f = fakeDeps(home);
   let polls = 0; f.deps.health = async () => (++polls > 2 ? { service: 'cld-gui', version: '1.0.0' } : null); // it answers a moment later

@@ -2,7 +2,7 @@
  * CH-6b: furniture the user redrew in the pixel editor. A save is always a NEW item: the daemon
  * picks the id (`custom-<base>-<time>`), checks the PNG against the original's sprite size before
  * decoding it, and writes `<id>.png` plus a manifest it builds itself from the original's catalog
- * fields into ~/.config/cld-gui/furniture/<id>/ (0700 folder, 0600 files, write-then-rename). The
+ * fields into ~/.config/agent-tycoon/furniture/<id>/ (0700 folder, 0600 files, write-then-rename). The
  * browser never sends a manifest. One orientation and one state: a redrawn item does not rotate
  * or switch on/off. Only these custom items can be removed; bundled ones live elsewhere.
  */
@@ -17,6 +17,7 @@ import { koText, refused } from '../../../core/src/cld/serverText.js';
 import { artIssue, MAX_SHEET_BYTES, pngHeaderIssue } from '../../../core/src/cld/sheetCheck.js';
 import { sameOriginRequest } from './authRoutes.js';
 import { decode } from './characterPresets.js';
+import { configDirectory } from './configPath.js';
 import { writeJsonAtomic } from './jsonFile.js';
 
 export const CUSTOM_FURNITURE_ID = /^custom-[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -25,7 +26,7 @@ const BODY_LIMIT = Math.ceil(MAX_SHEET_BYTES / 3) * 4 + 1024;
 const MAX_BASE_LENGTH = 40;
 
 export const customFurnitureDir = (home = os.homedir()) =>
-  path.join(home, '.config', 'cld-gui', 'furniture');
+  path.join(configDirectory(home), 'furniture');
 
 /** `custom-<base>-<time>`: the original's id, lower case, without an earlier custom's stamp. */
 function idStem(base: string, now: number): string {

@@ -89,7 +89,7 @@ describe('listFolders: what it shows', () => {
     for (const d of [
       '.ssh',
       '.Claude/projects',
-      '.config/cld-gui',
+      '.config/agent-tycoon',
       'projects/a/.claude/worktrees/w',
     ])
       fs.mkdirSync(path.join(home, d), { recursive: true });

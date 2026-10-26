@@ -1,5 +1,5 @@
 /**
- * U-48 phase 2a: our own ~/.config/cld-gui/tracking.json, the only file document
+ * U-48 phase 2a: our own ~/.config/agent-tycoon/tracking.json, the only file document
  * tracking writes. Per project: the documents turned on (paths or globs relative to
  * its folder) and the conventional ones turned off, whether short ids count, and the
  * item keys hidden from the board. The index itself is never stored.
@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { TrackingProjectSettings } from '../../../../core/src/messages.js';
+import { configDirectory } from '../configPath.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
 
 export const TRACKING_VERSION = 1;
@@ -22,7 +23,7 @@ export const KEY_MAX = 400;
 /** Never read below these, whatever a path or glob says. */
 export const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.worktrees']);
 
-export const trackingPath = (home: string) => path.join(home, '.config', 'cld-gui', 'tracking.json');
+export const trackingPath = (home: string) => path.join(configDirectory(home), 'tracking.json');
 export const NO_SETTINGS: TrackingProjectSettings = { on: [], off: [], shortIds: false, hidden: [] };
 
 /** Why a refused change was refused; the screen words them (tasks.docs.error.<code>). */

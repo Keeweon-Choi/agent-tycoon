@@ -1,6 +1,6 @@
 Node 22.23.2 ✔
 DRY-RUN: command -v npm; command -v git; command -v claude (플랫폼 wsl)
-DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/cld-gui/config.json:
+DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/agent-tycoon/config.json:
 {
   "port": 18240,
   "readOnly": true,
@@ -89,7 +89,7 @@ try {
 if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log }
 exit $p.ExitCode
 DRY-RUN: wait up to 60 s for http://127.0.0.1:8085/data.json, then the daemon gets --lhm-port 8085
-DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/cld-gui/config.json:
+DRY-RUN file /tmp/example-home/projects/cld-gui/.worktrees/codex-1022-130217/.t0068-home/.config/agent-tycoon/config.json:
 {
   "port": 18240,
   "readOnly": true,

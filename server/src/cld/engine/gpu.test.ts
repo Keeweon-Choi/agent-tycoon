@@ -86,8 +86,8 @@ function home(config?: Record<string, unknown>): string {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-gpu-'));
   cleanup.push(() => fs.rmSync(h, { recursive: true, force: true }));
   if (config) {
-    fs.mkdirSync(path.join(h, '.config/cld-gui'), { recursive: true });
-    fs.writeFileSync(path.join(h, '.config/cld-gui/gpu.json'), JSON.stringify(config));
+    fs.mkdirSync(path.join(h, '.config/agent-tycoon'), { recursive: true });
+    fs.writeFileSync(path.join(h, '.config/agent-tycoon/gpu.json'), JSON.stringify(config));
   }
   return h;
 }
@@ -171,9 +171,9 @@ describe('queue folder and config', () => {
     const h = home();
     expect(gpuDir(h)).toBe(ownGpuDir(h));
     const elsewhere = path.join(h, 'q');
-    fs.mkdirSync(path.join(h, '.config/cld-gui'), { recursive: true });
+    fs.mkdirSync(path.join(h, '.config/agent-tycoon'), { recursive: true });
     fs.writeFileSync(
-      path.join(h, '.config/cld-gui/gpu.json'),
+      path.join(h, '.config/agent-tycoon/gpu.json'),
       JSON.stringify({ dir: elsewhere, exclusiveGib: 'big', sharedBudgetGib: 3, nvidiaSmi: true }),
     );
     expect(gpuDir(h)).toBe(elsewhere);

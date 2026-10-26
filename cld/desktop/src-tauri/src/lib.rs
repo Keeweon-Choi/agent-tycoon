@@ -822,7 +822,7 @@ fn find_local(config: &Config) -> Result<local::Found, String> {
     };
     Ok(local::Found::from_texts(
         &read(native_root().map(|r| r.join("install.json"))),
-        &read(home_dir().map(|h| h.join(".config").join("cld-gui").join("config.json"))),
+        &read(home_dir().map(|h| local::settings_dir(&h).join("config.json"))),
     ))
 }
 

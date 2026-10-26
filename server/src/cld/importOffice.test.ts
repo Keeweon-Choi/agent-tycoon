@@ -24,7 +24,7 @@ it('suggests ~/projects until dismissed in server config, and refuses an unprivi
     error: '이 접속에는 조작 권한이 없어요',
   });
   office.onClientMessage({ type: 'projectImportDismiss' }, send, true);
-  expect(fs.existsSync(path.join(home, '.config/cld-gui/import-suggestion.json'))).toBe(true);
+  expect(fs.existsSync(path.join(home, '.config/agent-tycoon/import-suggestion.json'))).toBe(true);
   const next: Array<Record<string, unknown>> = [];
   office.onClientReady((message) => next.push(message));
   expect(next.some((m) => m.type === 'projectImportSuggestion')).toBe(false);

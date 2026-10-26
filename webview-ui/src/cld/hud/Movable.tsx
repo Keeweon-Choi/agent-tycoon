@@ -66,12 +66,22 @@ interface MovableProps {
   className?: string;
   /** z-index once moved (inside the HUD layer it is unnecessary). */
   z?: number;
+  /** A bottom-preset dock item stays in the responsive row, not its old saved pixel slot. */
+  flowInBottomPreset?: boolean;
   children: ReactNode;
 }
 
-export function Movable({ id, label, className = '', z, children }: MovableProps) {
+export function Movable({
+  id,
+  label,
+  className = '',
+  z,
+  flowInBottomPreset = false,
+  children,
+}: MovableProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const entry = useHud().layout.items[id];
+  const hud = useHud();
+  const entry = hud.layout.items[id];
   const bounds = useBounds(ref);
   const [size, setSize] = useState<Size>({ w: 0, h: 0 });
   const [live, setLive] = useState<Place | null>(null);
@@ -113,7 +123,11 @@ export function Movable({ id, label, className = '', z, children }: MovableProps
     };
   }, [menu]);
 
-  const placed = live ?? (entry?.place && bounds ? clampPlace(entry.place, size, bounds) : null);
+  const placed =
+    live ??
+    ((!flowInBottomPreset || hud.layout.preset !== 'bottom') && entry?.place && bounds
+      ? clampPlace(entry.place, size, bounds)
+      : null);
 
   const openMenu = () => {
     const el = ref.current;

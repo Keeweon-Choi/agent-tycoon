@@ -21,6 +21,7 @@ import {
 } from './assetReload.js';
 import { findClaude } from './cld/agentCli.js';
 import { ChatManager } from './cld/chat.js';
+import { configDirectory } from './cld/configPath.js';
 import { customFurnitureDir, registerFurnitureRoutes } from './cld/customFurniture.js';
 import { CLD_BIN_DIR, type EngineMode } from './cld/engine/engine.js';
 import { readGpuConfig } from './cld/engine/gpu.js';
@@ -81,7 +82,7 @@ export interface CliArgs {
   lhmPort?: number;
   /** cld-gui --nvidia-smi: the HW sampler may query an NVIDIA GPU with nvidia-smi (off by default). */
   nvidiaSmi?: boolean;
-  /** cld-gui --connector (T-0024); unset: ~/.config/cld-gui/config.json, else local. */
+  /** cld-gui --connector (T-0024); unset: ~/.config/agent-tycoon/config.json, else local. */
   connector?: Connector;
   /** cld-gui --direct-port: the HTTPS port the router forwards 443 to (default 18443). */
   directPort?: number;
@@ -230,10 +231,10 @@ Options:
                         installer's --hw-sensors step)
   --nvidia-smi          Let the HW panel query an NVIDIA GPU with nvidia-smi
                         when no other source has it (default off; also
-                        "nvidiaSmi": true in ~/.config/cld-gui/gpu.json)
+                        "nvidiaSmi": true in ~/.config/agent-tycoon/gpu.json)
   --connector <local|lan|tailscale|direct>
                         How other devices reach the office (default: the
-                        connector in ~/.config/cld-gui/config.json, else local)
+                        connector in ~/.config/agent-tycoon/config.json, else local)
   --direct-port <n>     HTTPS port the router forwards 443 to (default 18443)
   --help                Show this help message`);
       process.exit(0);
@@ -353,7 +354,7 @@ async function main(): Promise<void> {
       ? new ChatManager({
           claudePath,
           maxPtys: args.chatAttaches,
-          settingsFile: path.join(os.homedir(), '.config', 'cld-gui', 'terminal.json'),
+          settingsFile: path.join(configDirectory(os.homedir()), 'terminal.json'),
         })
       : undefined;
     const chat = args.chat ? attach : undefined;
@@ -378,7 +379,7 @@ async function main(): Promise<void> {
       lhmPort: args.lhmPort ?? null,
       nvidiaSmi: nvidiaSmiPath,
       // T-0039: Web Push keys and subscriptions beside the login stores.
-      pushFile: path.join(os.homedir(), '.config', 'cld-gui', 'push.json'),
+      pushFile: path.join(configDirectory(os.homedir()), 'push.json'),
       pushHost: args.allowedHosts[0],
     });
 
@@ -447,7 +448,7 @@ async function main(): Promise<void> {
       directPort: args.directPort,
       allowedHosts: args.allowedHosts,
       readOnly: args.readOnly,
-      configDir: path.join(os.homedir(), '.config', 'cld-gui'),
+      configDir: configDirectory(os.homedir()),
       token: hostToken,
       legacyTailscaleTrust: args.legacyTailscaleTrust,
       // Browser runners' fake network (cld/test/run-access.ts); unset in every install.

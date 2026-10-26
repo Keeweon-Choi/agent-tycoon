@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import zlib from 'node:zlib';
-import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const backup = require('./cld-gui-backup.js');
@@ -24,7 +24,7 @@ const allowed = {
 function put(home, relative, content) {
   const file = relative.startsWith('pixel-agents/')
     ? path.join(home, '.pixel-agents', relative.slice('pixel-agents/'.length))
-    : path.join(home, '.config', 'cld-gui', relative);
+    : path.join(home, '.config', 'agent-tycoon', relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
   return file;
@@ -33,7 +33,7 @@ function put(home, relative, content) {
 function get(home, relative) {
   return relative.startsWith('pixel-agents/')
     ? path.join(home, '.pixel-agents', relative.slice('pixel-agents/'.length))
-    : path.join(home, '.config', 'cld-gui', relative);
+    : path.join(home, '.config', 'agent-tycoon', relative);
 }
 
 function seed() {
@@ -135,10 +135,10 @@ test('broken archives are refused before config changes', async () => {
     for (const [name, make] of cases) {
       const file = path.join(home, `${name.replaceAll(' ', '-')}.gz`);
       make(file);
-      const before = treeHash(path.join(home, '.config', 'cld-gui'));
+      const before = treeHash(path.join(home, '.config', 'agent-tycoon'));
       const result = await backup.restore(deps(home), { file, yes: true });
       assert.equal(result.ok, false, name);
-      assert.equal(treeHash(path.join(home, '.config', 'cld-gui')), before, name);
+      assert.equal(treeHash(path.join(home, '.config', 'agent-tycoon')), before, name);
     }
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
@@ -148,13 +148,13 @@ test('restore refuses a running daemon and previews without --yes', async () => 
   try {
     const made = backup.backup(deps(home));
     put(home, 'projects.json', 'changed');
-    const before = treeHash(path.join(home, '.config', 'cld-gui'));
+    const before = treeHash(path.join(home, '.config', 'agent-tycoon'));
     const running = await backup.restore(deps(home, { daemonRunning: async () => true }), { file: made.file, yes: true });
     assert.deepEqual(running, { ok: false, error: 'cld-gui 를 멈춘 뒤 다시 하세요' });
     const preview = await backup.restore(deps(home), { file: made.file, yes: false });
     assert.equal(preview.preview, true);
     assert.ok(preview.lines.includes('바꿀 파일: projects.json'));
-    assert.equal(treeHash(path.join(home, '.config', 'cld-gui')), before);
+    assert.equal(treeHash(path.join(home, '.config', 'agent-tycoon')), before);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -191,7 +191,7 @@ test('a failed replacement restores the already-written originals', async () => 
   try {
     const made = backup.backup(deps(home));
     for (const relative of Object.keys(allowed)) put(home, relative, `changed: ${relative}`);
-    const changed = treeHash(path.join(home, '.config', 'cld-gui'));
+    const changed = treeHash(path.join(home, '.config', 'agent-tycoon'));
     let renames = 0;
     const failingFs = Object.create(fs);
     failingFs.renameSync = (...args) => {
@@ -203,6 +203,6 @@ test('a failed replacement restores the already-written originals', async () => 
     assert.equal(result.ok, false);
     for (const [relative] of Object.entries(allowed)) assert.equal(fs.readFileSync(get(home, relative), 'utf8'), `changed: ${relative}`);
     assert.notEqual(result.savedDirectory, undefined);
-    assert.notEqual(treeHash(path.join(home, '.config', 'cld-gui')), changed, 'saved originals are retained after rollback');
+    assert.notEqual(treeHash(path.join(home, '.config', 'agent-tycoon')), changed, 'saved originals are retained after rollback');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

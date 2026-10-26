@@ -1,6 +1,6 @@
 /**
  * The engine's event log (T-0019, cld/docs/design/cld-cli.md §8):
- * ~/.config/cld-gui/events.jsonl, one JSON line per event in this shape
+ * ~/.config/agent-tycoon/events.jsonl, one JSON line per event in this shape
  * ({v, ts, type, source, ...}), each line under 4 KB and written with one
  * append (O_APPEND), so the feed can tail it. The daemon writes it; `cld-gui send` does too while the
  * daemon is off.
@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { OfficeEvent } from '../../../../core/src/messages.js';
+import { configDirectory } from '../configPath.js';
 import { EventsTail } from './eventsTail.js';
 import { rememberWorkName, summarizeEvent } from './eventSummary.js';
 import { EVENTS_ROTATE_BYTES } from './logPolicy.js';
@@ -17,7 +18,7 @@ import { EVENTS_ROTATE_BYTES } from './logPolicy.js';
 /** The feed keeps this many events (what a new viewer is sent). */
 const FEED_MAX = 200;
 
-export const configDir = (home = os.homedir()): string => path.join(home, '.config', 'cld-gui');
+export const configDir = (home = os.homedir()): string => configDirectory(home);
 export const eventsPath = (home = os.homedir()): string =>
   path.join(configDir(home), 'events.jsonl');
 

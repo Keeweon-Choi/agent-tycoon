@@ -26,7 +26,8 @@
  * dragged icon land on the 8 px grid and stick to the screen's and another window's
  * edge within 12 px (negative control: Alt held = free, so the dragged position is NOT
  * on the grid); a resize snaps its moved edges; the three presets in 설정 (오른쪽 세로,
- * 아래 가로, 작업용) put icons and windows where they say; each window has 최소화 and
+ * 아래 가로, 작업용) put icons and windows where they say; the bottom row stays horizontally
+ * centred at 1280x800 and 1920x1080 after a desktop resize; each window has 최소화 and
  * 최대화 buttons, a minimized window is shown only by its icon staying lit (aria-label
  * "… (최소화됨)") and a click on that icon restores it with its size and place, a minimized
  * terminal keeps its shell (pid unchanged), maximize fills the office area and 원래 크기
@@ -665,7 +666,7 @@ async function main(): Promise<void> {
     };
     await choose('아래 가로');
     L = await layerBox();
-    const row = [];
+    const row: Box[] = [];
     for (const n of names) row.push(await box(icon(page, new RegExp(`^${n}`))));
     const stripTop = L.y + L.height - 48;
     check(
@@ -675,6 +676,25 @@ async function main(): Promise<void> {
         near((row[0].x + row.at(-1)!.x + row.at(-1)!.width) / 2, L.x + L.width / 2, 8),
       `아래 가로: the six icons are one row at the bottom centre, in the bottom strip (${row.map(fmt).join(' | ')})`,
     );
+    const checkBottomDockCentre = async (viewport: { width: number; height: number }) => {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(300);
+      const windowCentre = viewport.width / 2;
+      const dock: Box[] = [];
+      for (const n of names) dock.push(await box(icon(page, new RegExp(`^${n}`))));
+      const dockCentre = (dock[0].x + dock.at(-1)!.x + dock.at(-1)!.width) / 2;
+      check(
+        Math.abs(dockCentre - windowCentre) <= 8,
+        `아래 가로 ${viewport.width}x${viewport.height}: |dock centre ${Math.round(
+          dockCentre,
+        )} - window centre ${Math.round(windowCentre)}| <= 8 px`,
+      );
+    };
+    await checkBottomDockCentre({ width: 1280, height: 800 });
+    await checkBottomDockCentre({ width: 1920, height: 1080 });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(300);
+    L = await layerBox();
     await win(page, 'office').waitFor({ state: 'visible' });
     // WINDOW-LAYERS (owner 10-25): a window has the whole room; the icon row draws over its bottom.
     check(

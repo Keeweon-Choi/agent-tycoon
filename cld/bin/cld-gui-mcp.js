@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // cld-gui-mcp: the MCP adapter of the cld-gui engine (C5a, onboarding-security
 // B §9). The engine attaches it to each Claude session it starts with
-// `--mcp-config ~/.config/cld-gui/mcp-config.json`; Claude Code runs it with the
+// `--mcp-config ~/.config/agent-tycoon/mcp-config.json`; Claude Code runs it with the
 // daemon's Node and the session's own environment, so CLD_AGENT_TOKEN is the
 // session's identity. It holds no state and decides nothing: every tool call
 // goes to the daemon's control socket as `mcp` (the CLI's own client), and the

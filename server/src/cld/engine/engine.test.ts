@@ -1034,7 +1034,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     e2.dispose();
     killFakeSessions(r.home);
     await waitFor(() => expect(readLiveSessions(r.home)).toEqual([]));
-    fs.writeFileSync(path.join(r.home, '.config/cld-gui/engine.boot'), 'another-boot\n');
+    fs.writeFileSync(path.join(r.home, '.config/agent-tycoon/engine.boot'), 'another-boot\n');
     const e3 = r.boot();
     await waitFor(() => expect(r.project(e3, 'alpha')!.live).toBe(true));
     expect(r.inbox[1].text).toContain('컴퓨터가 다시 켜져서');
@@ -1107,7 +1107,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
   });
 
   /** RENEW-STUCK: where pending renewals are kept. */
-  const renewals = (home: string) => path.join(home, '.config/cld-gui/renewals');
+  const renewals = (home: string) => path.join(home, '.config/agent-tycoon/renewals');
 
   it('renew survives a daemon restart: the new daemon resumes it, handoff once, record gone', async () => {
     const r = rig();

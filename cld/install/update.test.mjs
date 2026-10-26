@@ -41,7 +41,7 @@ function makeRelease(version, { dataSchema = { 'projects.json': 1 }, protocol = 
 
 /**
  * A fake host: systemctl stop/restart flip whether the daemon runs; a started daemon "migrates" by
- * writing its manifest's dataSchema into ~/.config/cld-gui/schema.json; health and the engine socket
+ * writing its manifest's dataSchema into ~/.config/agent-tycoon/schema.json; health and the engine socket
  * answer from the version `current` points at (unless it is in `bad`). Every engine command is recorded.
  */
 function fakeHost(home, root, { badTest = [], bad = [], sessions = ['alpha', 'beta'] } = {}) {
@@ -59,7 +59,7 @@ function fakeHost(home, root, { badTest = [], bad = [], sessions = ['alpha', 'be
         // A daemon migrates older data up to its own format and cannot read a newer one (it then fails health).
         host.running = true;
         const m = JSON.parse(fs.readFileSync(path.join(root, 'current', 'manifest.json'), 'utf8'));
-        const file = path.join(home, '.config', 'cld-gui', 'schema.json');
+        const file = path.join(home, '.config', 'agent-tycoon', 'schema.json');
         const there = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
         host.unreadable = Object.entries(there).some(([f, v]) => v > (m.dataSchema?.[f] ?? 0));
         if (!host.unreadable) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(m.dataSchema ?? {})); }
@@ -81,7 +81,7 @@ function fakeHost(home, root, { badTest = [], bad = [], sessions = ['alpha', 'be
 /** HOME with user data (a 0600 secret), and 1.0.0 installed from a release whose key gets pinned. */
 async function installed(name, { dataSchema = { 'projects.json': 1 }, ...opts } = {}) {
   const home = tmp(name); const root = path.join(home, 'root');
-  const data = path.join(home, '.config', 'cld-gui');
+  const data = path.join(home, '.config', 'agent-tycoon');
   fs.mkdirSync(data, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(data, 'projects.json'), '{"v":1,"projects":[]}', { mode: 0o600 });
   fs.writeFileSync(path.join(data, 'devices.json'), 'secret-device-keys', { mode: 0o600 });
@@ -207,7 +207,7 @@ test('migration/start failure: pointer back, snapshot restored, old started, fai
   assert.equal(fs.readFileSync(path.join(data, 'schema.json'), 'utf8'), '{"projects.json":1}');
   assert.equal(fs.readFileSync(path.join(data, 'devices.json'), 'utf8'), 'secret-device-keys');
   assert.equal(fs.statSync(path.join(data, 'devices.json')).mode & 0o777, 0o600);
-  const aside = fs.readdirSync(path.dirname(data)).find((n) => n.startsWith('cld-gui.replaced-'));
+  const aside = fs.readdirSync(path.dirname(data)).find((n) => n.startsWith('agent-tycoon.replaced-'));
   assert.equal(fs.readFileSync(path.join(path.dirname(data), aside, 'schema.json'), 'utf8'), '{"projects.json":2}'); // kept, not deleted
   assert.equal(host.running, true);
   noAgentStop(host);
@@ -430,14 +430,14 @@ test('trust: a URL download never fetches or uses a key from the server', async 
 
 test('restore leaves no unrecorded secret copy: the aside folder is recorded, named, and removed by uninstall --reset (owned ones only)', async () => {
   const { home, root, host, o } = await installed('aside', { bad: ['2.0.0'] });
-  await assert.rejects(update({ ...o, from: makeRelease('2.0.0', { dataSchema: { 'projects.json': 2 } }).dir }, host.deps), (e) => /kept in \S+cld-gui\.replaced-\d+; agty uninstall --reset removes them/.test(e.message));
+  await assert.rejects(update({ ...o, from: makeRelease('2.0.0', { dataSchema: { 'projects.json': 2 } }).dir }, host.deps), (e) => /kept in \S+agent-tycoon\.replaced-\d+; agty uninstall --reset removes them/.test(e.message));
   const record = await readRecord(root);
   assert.equal(record.replaced.length, 1);
   const aside = record.replaced[0];
   assert.equal(fs.readFileSync(path.join(aside, 'devices.json'), 'utf8'), 'secret-device-keys');
   // decoys: an unrecorded look-alike, and a recorded entry that became a link to somewhere else
-  const decoy = path.join(home, '.config', 'cld-gui.replaced-1'); fs.mkdirSync(decoy);
-  const outside = tmp('outside'); const linked = path.join(home, '.config', 'cld-gui.replaced-2'); fs.symlinkSync(outside, linked);
+  const decoy = path.join(home, '.config', 'agent-tycoon.replaced-1'); fs.mkdirSync(decoy);
+  const outside = tmp('outside'); const linked = path.join(home, '.config', 'agent-tycoon.replaced-2'); fs.symlinkSync(outside, linked);
   record.replaced.push(linked); await writeRecord(root, record);
   host.running = false;
   const deps = uninstallFake(host, root);

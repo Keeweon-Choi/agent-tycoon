@@ -124,7 +124,7 @@ describe('slash commands through the office (engine project)', () => {
       ok: false,
       error: '/ 명령은 대화가 켜져 있을 때만 보낼 수 있어요',
     });
-    expect(fs.existsSync(path.join(t.home, '.config/cld-gui/inbox/alpha'))).toBe(false);
+    expect(fs.existsSync(path.join(t.home, '.config/agent-tycoon/inbox/alpha'))).toBe(false);
   });
 
   it('nothing is watched once the conversation closes or the client leaves', async () => {

@@ -12,6 +12,7 @@ import {
 } from '../../constants.js';
 import { type PtySession, PtySessionManager } from '../../terminal/ptySessionManager.js';
 import { LOGIN_ENV } from '../chat.js';
+import { configDirectory } from '../configPath.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
 import { findTmux, Tmux } from './tmux.js';
 
@@ -381,7 +382,7 @@ export function hostShellRegistry(broadcast: (notice: ShellNotice) => void): She
   if (!bin) console.log('[cld shell] no tmux: shells end with the daemon');
   return new ShellRegistry(undefined, broadcast, Date.now, SHELL_IDLE_MS, {
     tmux: bin ? new Tmux(bin) : null,
-    file: path.join(home, '.config', 'cld-gui', 'shells.json'),
+    file: path.join(configDirectory(home), 'shells.json'),
   });
 }
 

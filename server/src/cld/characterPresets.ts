@@ -1,6 +1,6 @@
 /**
- * Character presets (T-0017, FR-OFC-015/016). ~/.config/cld-gui/characters/
- * holds sheets in the char_N.png format; ~/.config/cld-gui/characters.json
+ * Character presets (T-0017, FR-OFC-015/016). ~/.config/agent-tycoon/characters/
+ * holds sheets in the char_N.png format; ~/.config/agent-tycoon/characters.json
  * binds a character name (an engine project or a Claude session) to a preset or
  * to a built-in look. The folder is watched (fs.watch; while someone views,
  * also a scan every 30 s for what the watch missed, T-0013) and every change is published as
@@ -122,7 +122,7 @@ cld-gui 사무실 캐릭터 그림을 두는 폴더입니다. 데몬이 이 폴�
 
 ## 이름과 연결
 
-고른 결과는 \`~/.config/cld-gui/characters.json\`에 캐릭터 이름(엔진 프로젝트 이름이나 Claude 세션 이름)별로 저장됩니다. 아무것도 고르지 않은 캐릭터도 처음 보인 모습이 저장되어 데몬을 다시 켜도 그대로입니다.
+고른 결과는 \`~/.config/agent-tycoon/characters.json\`에 캐릭터 이름(엔진 프로젝트 이름이나 Claude 세션 이름)별로 저장됩니다. 아무것도 고르지 않은 캐릭터도 처음 보인 모습이 저장되어 데몬을 다시 켜도 그대로입니다.
 
     { "alpha": { "preset": "photo-1761040000000" }, "beta": { "palette": 3, "hueShift": 90 } }
 
@@ -439,7 +439,7 @@ interface Preset {
 }
 
 export interface CharacterPresetOptions {
-  /** ~/.config/cld-gui */
+  /** ~/.config/agent-tycoon */
   configDir: string;
   publish(msg: PresetsMessage): void;
   /** A character by this name exists now (checked for setCharacter and uploads). */

@@ -53,7 +53,13 @@ function IconButton({
         ? 'border-accent bg-accent text-white'
         : 'border-accent bg-bg text-accent-text hover:bg-btn-hover';
   return (
-    <Movable id={`icon:${id}`} label={name} className="relative z-10" z={10}>
+    <Movable
+      id={`icon:${id}`}
+      label={name}
+      className="relative z-10"
+      z={10}
+      flowInBottomPreset
+    >
       <button
         type="button"
         data-testid={testId}
@@ -148,12 +154,14 @@ export function HudIcons({
  * normal windows (1..n by order), the fixed panels (the `dock`, the card bar and the elevator panel,
  * which portal into the panel slot, HUD_PANELS_Z) and a maximized window (HUD_MAXIMIZED_Z, see
  * windowModel.windowZ). Isolated so its own z order never fights the office's labels and doors.
- * The dock is a column vertically centred beside the card bar, so the corner where a window's
- * title buttons are stays free of it; unmoved icons flow in it, moved ones are absolutely placed.
+ * Right and work presets keep the dock column beside the card bar. The bottom preset ignores its
+ * old saved pixel slots and flows the icons in a row centred on the whole window, so resizing
+ * cannot leave the row centred on a previous window width.
  */
 export function HudLayer({ dock, children }: { dock: ReactNode; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+  const bottomDock = useHud().layout.preset === 'bottom';
   // The layer fills its parent: presets (설정) place things for this size.
   const bounds = useBounds(ref);
   useEffect(() => {
@@ -205,8 +213,11 @@ export function HudLayer({ dock, children }: { dock: ReactNode; children: ReactN
       <div
         ref={setSlot}
         data-hud-panels
-        className="absolute inset-0 pointer-events-none flex flex-col items-end justify-center gap-8 p-8"
-        style={{ zIndex: HUD_PANELS_Z, paddingRight: RAIL_PX + EDGE_GAP_PX }}
+        className={`absolute inset-0 pointer-events-none flex gap-8 p-8 ${bottomDock ? 'flex-row items-end justify-center' : 'flex-col items-end justify-center'}`}
+        style={{
+          zIndex: HUD_PANELS_Z,
+          ...(!bottomDock && { paddingRight: RAIL_PX + EDGE_GAP_PX }),
+        }}
       >
         {dock}
       </div>

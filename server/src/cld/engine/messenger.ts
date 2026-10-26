@@ -24,11 +24,11 @@
  * only its terminal shows), gets no attach: its messages wait, held() says so
  * for the app, and it is asked again after each retry pause. `blocked` with
  * the turn over is a session waiting for a reply: the message goes in.
- * Otherwise it waits in ~/.config/cld-gui/queue/
+ * Otherwise it waits in ~/.config/agent-tycoon/queue/
  * (checked every 2 s; `--if-idle` gives up after 10 minutes) and
  * moves to the inbox when the session goes off. queuedFor lists the boss's
  * waiting messages for the app (보냄(대기 중), also after a reload). The inbox,
- * ~/.config/cld-gui/inbox/<name>/<ts>.md, is typed in as the first message
+ * ~/.config/agent-tycoon/inbox/<name>/<ts>.md, is typed in as the first message
  * after the engine next starts that session (the start hook calls
  * deliverInbox), then moved to delivered/.
  *

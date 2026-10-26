@@ -106,7 +106,7 @@ function rig(
   const inbox = (name: string) => {
     try {
       return fs
-        .readdirSync(path.join(home, '.config/cld-gui/inbox', name))
+        .readdirSync(path.join(home, '.config/agent-tycoon/inbox', name))
         .filter((f) => f.endsWith('.md'));
     } catch {
       return [];
@@ -114,7 +114,7 @@ function rig(
   };
   const readInbox = (name: string) =>
     inbox(name).map((f) =>
-      fs.readFileSync(path.join(home, '.config/cld-gui/inbox', name, f), 'utf-8'),
+      fs.readFileSync(path.join(home, '.config/agent-tycoon/inbox', name, f), 'utf-8'),
     );
   const events_ = () =>
     fs
@@ -1036,7 +1036,7 @@ describe('messages', () => {
       ),
     );
     await vi.waitFor(() => expect(r.inbox('alpha')).toHaveLength(0));
-    expect(fs.readdirSync(path.join(r.home, '.config/cld-gui/inbox/alpha/delivered'))).toHaveLength(
+    expect(fs.readdirSync(path.join(r.home, '.config/agent-tycoon/inbox/alpha/delivered'))).toHaveLength(
       2,
     );
     expect(r.events().at(-1)).toMatchObject({ type: 'inbox_deliver', to: 'alpha', count: 2 });
@@ -1045,7 +1045,7 @@ describe('messages', () => {
   it('a broken registry is not "every project is gone": queued messages wait, then go', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-msg-'));
     cleanup.push(() => removeTestHome(home));
-    const queue = path.join(home, '.config/cld-gui/queue');
+    const queue = path.join(home, '.config/agent-tycoon/queue');
     fs.mkdirSync(queue, { recursive: true });
     for (const [i, to] of ['alpha', 'beta'].entries()) {
       const q: QueuedSend = {
@@ -1082,7 +1082,7 @@ describe('messages', () => {
     await new Promise((r) => setTimeout(r, 10 * FAST.tickMs)); // its own ticks too
 
     expect(fs.readdirSync(queue).filter((f) => f.endsWith('.json'))).toHaveLength(2);
-    expect(fs.existsSync(path.join(home, '.config/cld-gui/inbox'))).toBe(false);
+    expect(fs.existsSync(path.join(home, '.config/agent-tycoon/inbox'))).toBe(false);
     expect(typed).toEqual([]);
     expect(logs.filter((l) => /dropped/.test(l))).toEqual([]);
 
@@ -1107,9 +1107,9 @@ describe('messages', () => {
       ifIdle: false,
       created: Date.now(),
     };
-    fs.mkdirSync(path.join(home, '.config/cld-gui/queue'), { recursive: true });
+    fs.mkdirSync(path.join(home, '.config/agent-tycoon/queue'), { recursive: true });
     fs.writeFileSync(
-      path.join(home, '.config/cld-gui/queue', `${q.created}-abcdef.json`),
+      path.join(home, '.config/agent-tycoon/queue', `${q.created}-abcdef.json`),
       JSON.stringify(q),
     );
     const typed: string[] = [];

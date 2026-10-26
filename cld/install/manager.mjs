@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import configPathModule from '../../core/src/cld/configPath.cjs';
 import { extractBundle, sha256File, verifyBundle } from '../release/bundle/verify.mjs';
 import { encodePowerShell } from './hwSensors.mjs';
 import { configPath, daemonArgs, defaults, detectPlatform, exposurePath, hostToken, mergeConfig, NODE_FLAGS, pathWith, pathWithout, renderLaunchAgent, renderSystemdUnit, revertLedger, rotateLog, shellQuote, winPath } from './install.mjs';
@@ -32,6 +33,7 @@ import { realDeps as remoteDeps } from './remote.mjs';
 import { rollback, update } from './update.mjs';
 
 const require = createRequire(import.meta.url);
+const { configDirectory } = configPathModule;
 const maintenance = require('../bin/cld-gui-maintenance.js');
 const { CLI_NAME, LEGACY_CLI_NAME } = require('../bin/cld-brand.js');
 const execFile = promisify(execFileCallback);
@@ -341,7 +343,7 @@ export function servicePlan(kind, op, s, uid = 0) {
 }
 
 // Without a service manager (WSL without systemd, or --service detached) the daemon runs detached
-// with its pid in ~/.config/cld-gui/daemon.pid, the same file the source installer uses.
+// with its pid in ~/.config/agent-tycoon/daemon.pid, the same file the source installer uses.
 const pidFile = (home) => path.join(path.dirname(configPath(home)), 'daemon.pid');
 async function detachedPid(home) {
   const pid = Number((await fs.readFile(pidFile(home), 'utf8').catch(() => '')).trim());
@@ -397,7 +399,7 @@ export async function detectOld({ platform, home, run }) {
 /**
  * Takes over the old service once: its file is kept in <root>/adopted/ (for revertAdoption), it is
  * stopped and disabled, its file removed (only if unchanged since read), and ~/.local/bin links that
- * pointed at the repo's cld-gui now point at our launcher. Data (~/.config/cld-gui etc.) is not touched.
+ * pointed at the repo's cld-gui now point at our launcher. Data (~/.config/agent-tycoon etc.) is not touched.
  */
 export async function adoptOld(old, { root, record, kind, deps }) {
   const backup = path.join(root, 'adopted', old.file ? path.basename(old.file) : `${OLD_SERVICE}.task.xml`);
@@ -468,7 +470,7 @@ async function runCommand(cmd, { optional = false, timeout = 60_000, env, cwd } 
 }
 const controlSocket = (home) => process.platform === 'win32'
   ? `\\\\.\\pipe\\cld-gui-engine-${os.userInfo().username.toLowerCase().replace(/[^a-z0-9._-]/g, '_')}`
-  : path.join(home, '.config', 'cld-gui', 'engine.sock');
+  : path.join(configDirectory(home), 'engine.sock');
 
 // ── Real effects, injectable ─────────────────────────────────────────────────
 
@@ -1133,12 +1135,13 @@ export async function uninstallPlan(o, deps = realDeps()) {
     if (checked.manifestHeld) manifestHeld.push(path.join(version.dir, 'manifest.json'));
   }
   const reset = o.reset ? resetPaths(deps.home, record.port) : { remove: [], keep: [] };
-  // Update rollback snapshots (P3) are copies of ~/.config/cld-gui with its secrets, useful only to this install's rollback.
+  // Update rollback snapshots (P3) are copies of ~/.config/agent-tycoon with its secrets, useful only to this install's rollback.
   const snapshots = [];
   for (const dir of record.snapshots ?? []) if (await ownedCopy(path.join(root, 'snapshots'), dir, root)) snapshots.push(dir);
-  // Live data a snapshot restore moved aside (~/.config/cld-gui.replaced-<ts>): the user's data, with secrets.
+  // Live data a snapshot restore moved aside (~/.config/agent-tycoon.replaced-<ts>): the user's data, with secrets.
   const replaced = [];
-  for (const dir of record.replaced ?? []) if (path.basename(dir).startsWith('cld-gui.replaced-') && await ownedCopy(path.dirname(path.dirname(configPath(deps.home))), dir)) replaced.push(dir);
+  const replacedPrefix = `${path.basename(configDirectory(deps.home))}.replaced-`;
+  for (const dir of record.replaced ?? []) if (path.basename(dir).startsWith(replacedPrefix) && await ownedCopy(path.dirname(path.dirname(configPath(deps.home))), dir)) replaced.push(dir);
   return {
     source: false, root, record, status, statusUnknown, daemonMismatch, daemon: identity.daemon, agents, stale, exposure, files: [...new Set([...files, ...versions])], versionState, snapshots, replaced, kept: [...new Set(kept)], outside: [...new Set(outside)], reset,
     lines: [
@@ -1172,7 +1175,7 @@ export function resetPaths(home, port) {
     .filter((name) => /^\d+-(\d+)\.json$/.exec(name)?.[1] === String(port))
     .map((name) => path.join(servers, name));
   return {
-    remove: [path.join(home, '.config', 'cld-gui'), path.join(pixel, 'standalone-state.json'), path.join(pixel, 'standalone-token'), ...(serverOurs ? [server] : []), ...ownedServerFiles],
+    remove: [configDirectory(home), path.join(pixel, 'standalone-state.json'), path.join(pixel, 'standalone-token'), ...(serverOurs ? [server] : []), ...ownedServerFiles],
     keep: [path.join(pixel, 'layout.json'), path.join(pixel, 'config.json'), path.join(pixel, 'vscode-state.json'), path.join(pixel, 'hooks'), ...(!serverOurs && fssync.existsSync(server) ? [server] : []), ...serverFiles.filter((name) => !ownedServerFiles.includes(path.join(servers, name))).map((name) => path.join(servers, name))],
   };
 }

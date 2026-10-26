@@ -1,6 +1,6 @@
 /**
  * The local control channel (T-0019, cld/docs/design/cld-cli.md §7): how the
- * `cld-gui` CLI reaches the daemon. ~/.config/cld-gui/engine.sock (a Unix
+ * `cld-gui` CLI reaches the daemon. ~/.config/agent-tycoon/engine.sock (a Unix
  * socket, 0600, made under another name and renamed into place) on Linux and
  * macOS, \\.\pipe\cld-gui-engine-<user> on Windows. Only the same OS user
  * reaches it; the web UI never does. One JSON line per connection each way:

@@ -2,7 +2,7 @@
  * Silent device keys (T-0034). After any login the web app makes a
  * non-extractable ECDSA P-256 key and keeps it in IndexedDB with a random
  * device id; the host keeps only the public key (JWK), here, in
- * ~/.config/cld-gui/devices.json (0600, atomic writes, never written over
+ * ~/.config/agent-tycoon/devices.json (0600, atomic writes, never written over
  * when it can't be read). A device whose session is gone signs a
  * single-use 60 s nonce and gets a new session with no input.
  *

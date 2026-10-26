@@ -1,5 +1,5 @@
 /**
- * CHAR-HUMAN: the owner's imported parts, one folder each under ~/.config/cld-gui/parts/<id>/
+ * CHAR-HUMAN: the owner's imported parts, one folder each under ~/.config/agent-tycoon/parts/<id>/
  * (0700) holding `part.json` (0600, write-then-rename). The id is `p-<slot>-<name>`: importing the
  * same name again replaces it, and a body row (`-down`, `-up`, `-right`) replaces only that row of
  * it. Sent to every client as `characterParts`; the routes sit behind the login and the office's

@@ -269,7 +269,7 @@ describe('office floors (T-0027, engine projects)', () => {
     fs.writeFileSync(layoutFile, JSON.stringify(custom));
     const before = fs.readFileSync(layoutFile, 'utf-8');
     const { office, stop } = await testOffice(home);
-    const decorFile = path.join(home, '.config/cld-gui/decor.json');
+    const decorFile = path.join(home, '.config/agent-tycoon/decor.json');
     const decor = JSON.parse(fs.readFileSync(decorFile, 'utf-8'));
     expect(fs.statSync(decorFile).mode & 0o777).toBe(0o600);
     expect(decor.rooms['orch-gamma'].tiles).toHaveLength(1);
@@ -296,7 +296,7 @@ describe('office floors (T-0027, engine projects)', () => {
       JSON.stringify({ version: 1, cols: 1, rows: 1, tiles: [1], furniture: [] }),
     );
     await testOffice(home);
-    expect(fs.existsSync(path.join(home, '.config/cld-gui/decor.json'))).toBe(false);
+    expect(fs.existsSync(path.join(home, '.config/agent-tycoon/decor.json'))).toBe(false);
   });
 
   it('moveToFloor: a room goes with its characters; everyone gets the office and the floors', async () => {
@@ -324,7 +324,7 @@ describe('office floors (T-0027, engine projects)', () => {
     // A floor change is ours alone: no project's room changes.
     expect(fs.readFileSync(registryPath(fake.home), 'utf-8')).toBe(registry);
     const saved = JSON.parse(
-      fs.readFileSync(path.join(fake.home, '.config/cld-gui/building.json'), 'utf-8'),
+      fs.readFileSync(path.join(fake.home, '.config/agent-tycoon/building.json'), 'utf-8'),
     );
     expect(saved.floors[1].rooms).toEqual(['orch-beta']);
   });
@@ -388,7 +388,7 @@ describe('office floors (T-0027, engine projects)', () => {
     const { fake, ask, building } = await testOffice();
     ask({ type: 'addFloor' }, false);
     expect(building()).toBeUndefined();
-    expect(fs.existsSync(path.join(fake.home, '.config/cld-gui/building.json'))).toBe(false);
+    expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/building.json'))).toBe(false);
   });
 
   it('saves decor, follows regeneration, and undoes against the old stamped base', async () => {
@@ -406,7 +406,7 @@ describe('office floors (T-0027, engine projects)', () => {
     }
     edited.furniture.push({ uid: 't-plant', type: 'PLANT', col: room.x + 1, row: room.y + 2 });
     office.saveLayout(edited as unknown as Record<string, unknown>, (m) => sent.push(m));
-    const decorFile = path.join(fake.home, '.config/cld-gui/decor.json');
+    const decorFile = path.join(fake.home, '.config/agent-tycoon/decor.json');
     const decor = JSON.parse(fs.readFileSync(decorFile, 'utf-8'));
     expect(sent.at(-1)?.type).toBe('layoutLoaded');
     expect(decor.rooms['orch-gamma'].tiles).toHaveLength(3);
@@ -463,7 +463,7 @@ describe('office floors (T-0027, engine projects)', () => {
     };
     expect(office.decor.save(data)).toBeNull();
     expect(office.buildingState().decor).toContainEqual({ room: 'orch-gamma', stored: 1 });
-    const file = path.join(fake.home, '.config/cld-gui/decor.json');
+    const file = path.join(fake.home, '.config/agent-tycoon/decor.json');
     const before = fs.readFileSync(file, 'utf-8');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     office.saveLayout({ ...office.layoutFor(), cldBase: 'ffffffffffff' }, () => {});

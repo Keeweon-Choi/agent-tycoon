@@ -1,4 +1,4 @@
-/** The memos on the office's whiteboards (T-0065), by furniture uid, in ~/.config/cld-gui/memos.json. */
+/** The memos on the office's whiteboards (T-0065), by furniture uid, in ~/.config/agent-tycoon/memos.json. */
 import * as fs from 'fs';
 
 import type { WhiteboardMemos } from '../../../core/src/messages.js';

@@ -5,7 +5,7 @@
 // Claude Code hands every status-line command the session's JSON on stdin, and
 // for Pro/Max accounts that JSON carries `rate_limits` (5-hour and 7-day
 // windows) after the first response (https://code.claude.com/docs/en/statusline).
-// This keeps those two windows in ~/.config/cld-gui/usage-claude.json for the
+// This keeps those two windows in ~/.config/agent-tycoon/usage-claude.json for the
 // office's usage bar, then runs the user's own status line (project, then user
 // settings) with the same input and prints what it prints, so their display
 // stays as it was. It never makes the status line fail on our account.
@@ -14,6 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { configDirectory } = require('../../core/src/cld/configPath.cjs');
 
 const SELF = 'cld-gui-statusline';
 
@@ -72,7 +73,7 @@ function main() {
     /* not JSON: nothing to keep, the user's line still runs */
   }
   try {
-    keep(input, path.join(os.homedir(), '.config', 'cld-gui', 'usage-claude.json'));
+    keep(input, path.join(configDirectory(os.homedir()), 'usage-claude.json'));
   } catch {
     /* a full disk must not blank the status line */
   }

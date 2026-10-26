@@ -38,7 +38,7 @@ async function office() {
   for (const name of ['alpha', 'alpha-a', 'alpha-b'])
     expect(await engine('start', name)).toMatchObject({ ok: true });
   const bg = (name: string) => t.office.engine!.state().projects.find((p) => p.name === name)?.bgId;
-  const config = path.join(t.home, '.config/cld-gui');
+  const config = path.join(t.home, '.config/agent-tycoon');
   const files = (dir: string) => {
     try {
       return fs.readdirSync(path.join(config, dir), { recursive: true }).map(String).filter((f) => /\.(json|md)$/.test(f));

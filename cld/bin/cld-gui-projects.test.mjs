@@ -11,7 +11,7 @@ const cli = fileURLToPath(new URL('./cld-gui', import.meta.url));
 function runWithRegistry(shape) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-cli-projects-'));
   const folder = path.join(home, 'work', 'alpha');
-  const file = path.join(home, '.config', 'cld-gui', 'projects.json');
+  const file = path.join(home, '.config', 'agent-tycoon', 'projects.json');
   fs.mkdirSync(folder, { recursive: true });
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const project = { name: 'alpha', folder };
@@ -24,7 +24,7 @@ function runWithRegistry(shape) {
       timeout: 5_000,
     });
     assert.equal(result.status, 0, result.stderr);
-    const queue = path.join(home, '.config', 'cld-gui', 'queue');
+    const queue = path.join(home, '.config', 'agent-tycoon', 'queue');
     const entries = fs.readdirSync(queue);
     assert.equal(entries.length, 1);
     return JSON.parse(fs.readFileSync(path.join(queue, entries[0]), 'utf8'));
@@ -58,7 +58,7 @@ test('send accepts the same project from legacy, v1 and v2 projects.json', () =>
 
 test('D3: with the daemon off, send queues for a Worker by its own name (assignments.json)', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-cli-workers-'));
-  const config = path.join(home, '.config', 'cld-gui');
+  const config = path.join(home, '.config', 'agent-tycoon');
   fs.mkdirSync(config, { recursive: true });
   fs.writeFileSync(
     path.join(config, 'projects.json'),

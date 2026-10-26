@@ -214,7 +214,7 @@ describe('D4: the agent provider seam', () => {
     expect((await r.act(e, 'start', 'alpha-a')).ok).toBe(true);
     const [lead, worker] = r.claudeCalls().filter((a) => a[0] === '--bg');
     const cli = cldBinPath(CLD_BIN_DIR!);
-    const mcp = path.join(r.home, '.config', 'cld-gui', 'mcp-config.json');
+    const mcp = path.join(r.home, '.config', 'agent-tycoon', 'mcp-config.json');
     const settings = (argv: string[]) => {
       const token = (JSON.parse(argv[argv.indexOf('--settings') + 1]) as { env: { CLD_AGENT_TOKEN: string } }).env
         .CLD_AGENT_TOKEN;
@@ -230,7 +230,7 @@ describe('D4: the agent provider seam', () => {
     };
     // RULES-DEFAULT: every session gets ONE combined file (default + user + project rules).
     const combined = (name: string) =>
-      path.join(r.home, '.config', 'cld-gui', 'rules-combined', name);
+      path.join(r.home, '.config', 'agent-tycoon', 'rules-combined', name);
     const lf = lead[lead.indexOf('--append-system-prompt-file') + 1];
     expect(path.dirname(lf)).toBe(path.dirname(combined('x')));
     expect(fs.readFileSync(lf, 'utf-8')).toMatch(/^# (Agent Tycoon)[^]*\n# Lead [^]*# rules\n$/);

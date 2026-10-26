@@ -215,9 +215,9 @@ describe('the file on disk', () => {
   };
   const one = JSON.stringify({ commands: [{ program: 'make', ...phrase }] });
 
-  it('lives under ~/.config/cld-gui/', () => {
+  it('lives under ~/.config/agent-tycoon/', () => {
     expect(ezRulesPath('/home/me')).toBe(
-      path.join('/home/me', '.config', 'cld-gui', 'ez-rules.json'),
+      path.join('/home/me', '.config', 'agent-tycoon', 'ez-rules.json'),
     );
   });
 

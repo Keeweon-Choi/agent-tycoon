@@ -1,5 +1,5 @@
 /**
- * The engine's project registry (T-0018, D2): ~/.config/cld-gui/projects.json
+ * The engine's project registry (T-0018, D2): ~/.config/agent-tycoon/projects.json
  * `{v: 2, projects: [{projectId, name, folder, room?, leadAssignmentId}]}` and
  * beside it assignments.json `{v: 1, assignments: [{assignmentId, projectId,
  * role: 'lead', provider, title?, rulesFile?, model?, permissionMode?,
@@ -44,6 +44,7 @@ import * as path from 'path';
 import type { PathHost } from '../../../../core/src/cld/projectPath.js';
 import { sameProjectPath } from '../../../../core/src/cld/projectPath.js';
 import { koText, refused } from '../../../../core/src/cld/serverText.js';
+import { configDirectory } from '../configPath.js';
 import { findFolder } from '../folders.js';
 
 export interface ProjectRecord {
@@ -141,7 +142,7 @@ export const DEFAULT_PROVIDER = 'claude';
 const ROOM_MAX = 40;
 
 export const registryPath = (home = os.homedir()): string =>
-  path.join(home, '.config', 'cld-gui', 'projects.json');
+  path.join(configDirectory(home), 'projects.json');
 
 /** assignments.json, beside the registry file. */
 export const assignmentsPath = (registryFile: string): string =>

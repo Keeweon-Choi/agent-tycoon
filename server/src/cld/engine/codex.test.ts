@@ -80,9 +80,9 @@ function rig(
   const projectFolder = o.projectFolder?.(repo) ?? repo.folder;
   const home = path.join(repo.root, 'home');
   // The engine project `alpha` (the notice's receiver; projects.json read by `cld-gui send`).
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(home, '.config/agent-tycoon/projects.json'),
     JSON.stringify([{ name: 'alpha', folder: repo.folder }]),
   );
   // Never the user's PATH: the real codex lives there (~/.local/bin). node, git, bash only.
@@ -126,7 +126,7 @@ function rig(
     jobs,
     worktree: (p, task) =>
       new Worktrees({
-        file: path.join(home, '.config/cld-gui/worktrees.json'),
+        file: path.join(home, '.config/agent-tycoon/worktrees.json'),
         run: repo.run,
       }).create(p, task),
     folderOf: (name) => (name === 'alpha' ? projectFolder : null),
@@ -187,7 +187,7 @@ function rig(
       .filter((e) => String(e.type).startsWith('codex_'));
   /** Notices `cld-gui send` queued (no daemon here): their texts. */
   const notices = () => {
-    const dir = path.join(home, '.config/cld-gui/queue');
+    const dir = path.join(home, '.config/agent-tycoon/queue');
     return fs.existsSync(dir)
       ? fs
           .readdirSync(dir)
@@ -415,7 +415,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         fs.writeFileSync(path.join(rulesDir, 'worker.en.md'), 'SHIPPED-WORKER\n');
         cleanup.push(() => fs.rmSync(rulesDir, { recursive: true, force: true }));
         const r = rig('success', { rulesDir });
-        const cfg = path.join(r.home, '.config/cld-gui');
+        const cfg = path.join(r.home, '.config/agent-tycoon');
         fs.writeFileSync(path.join(cfg, 'ui-language'), 'en\n');
         return { r, cfg };
       };

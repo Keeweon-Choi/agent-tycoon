@@ -1,4 +1,4 @@
-/** The conversations pinned to the top of the messenger (U-30), in ~/.config/cld-gui/pins.json. */
+/** The conversations pinned to the top of the messenger (U-30), in ~/.config/agent-tycoon/pins.json. */
 import * as fs from 'fs';
 
 import type { PinnedConversations } from '../../../core/src/messages.js';

@@ -1,6 +1,6 @@
 /**
  * The user's own EZ phrase rules (FR-OFC-018, ADR-0014): the optional file
- * ~/.config/cld-gui/ez-rules.json. The built-in table is the screen's
+ * ~/.config/agent-tycoon/ez-rules.json. The built-in table is the screen's
  * (webview-ui/src/cld/ez/rules.ts); this file only adds to it and overrides it,
  * so with no file everything works as it does.
  *
@@ -31,6 +31,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { EzCommandRule, EzFatigue, EzRules, EzToolRule } from '../../../core/src/messages.js';
+import { configDirectory } from './configPath.js';
 
 export const EZ_TEXT_MAX = 16;
 const FILE_MAX_BYTES = 64 * 1024;
@@ -56,7 +57,7 @@ const FATIGUE_RANGES: Record<keyof EzFatigue, [number, number]> = {
 };
 
 export const ezRulesPath = (home = os.homedir()): string =>
-  path.join(home, '.config', 'cld-gui', 'ez-rules.json');
+  path.join(configDirectory(home), 'ez-rules.json');
 
 type Note = (line: string) => void;
 type Obj = Record<string, unknown>;

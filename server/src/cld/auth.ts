@@ -178,7 +178,7 @@ export interface SessionView {
 
 export interface StandaloneAuthOptions {
   /**
-   * ~/.config/cld-gui: where passkeys.json, sessions.json and devices.json
+   * ~/.config/agent-tycoon: where passkeys.json, sessions.json and devices.json
    * live. Absent: no passkeys or device keys, and sessions are kept in memory
    * only (no file is read or written).
    */

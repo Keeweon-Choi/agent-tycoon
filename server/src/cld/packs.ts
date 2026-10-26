@@ -1,6 +1,6 @@
 /**
  * CHAR-FACTORY: content packs (char-pack-format.md). A pack is a folder with pack.json and its part
- * PNGs: built in (cld/packs/<id>/, copied to dist/packs/) or the user's (~/.config/cld-gui/packs/
+ * PNGs: built in (cld/packs/<id>/, copied to dist/packs/) or the user's (~/.config/agent-tycoon/packs/
  * <id>/: expansion packs). Every file is checked like an imported part (inside the folder, a
  * regular file, the PNG header before decoding, the part's exact size: classic or HD). Part ids
  * become `<pack>/<part>`. Every pack is on; an old pack.json's adultOnly / defaultEnabled /

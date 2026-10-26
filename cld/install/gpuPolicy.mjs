@@ -1,6 +1,6 @@
 /**
  * T-0094: GPU reservations never fail open. The runtime (server/src/cld/engine/gpu.ts, `policyOf`)
- * derives the thresholds from the GPU's total VRAM when ~/.config/cld-gui/gpu.json has none; the
+ * derives the thresholds from the GPU's total VRAM when ~/.config/agent-tycoon/gpu.json has none; the
  * installer writes that file once, from the same rule, so the numbers are visible and editable.
  * It never overwrites an existing gpu.json. The shares below must stay equal to gpu.ts's
  * DERIVED_SHARE (both sides are pinned by tests on 8, 12 and 24 GiB).
@@ -11,13 +11,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import configPathModule from '../../core/src/cld/configPath.cjs';
+
+const { configDirectory } = configPathModule;
 const run = promisify(execFile);
 export const DERIVED_SHARE = Object.freeze({ exclusive: 0.55, shared: 0.55, live: 0.75 });
 const halfGib = (gib) => Math.round(gib * 2) / 2;
 /** WSL ships nvidia-smi here, outside a service's PATH. */
 const SMI_CANDIDATES = ['nvidia-smi', '/usr/lib/wsl/lib/nvidia-smi'];
 
-export const gpuJsonPath = (home = os.homedir()) => path.join(home, '.config', 'cld-gui', 'gpu.json');
+export const gpuJsonPath = (home = os.homedir()) => path.join(configDirectory(home), 'gpu.json');
 
 /** The default thresholds for a GPU of `totalMib`, or null when the size is not a positive number. */
 export function derivedGpuPolicy(totalMib) {

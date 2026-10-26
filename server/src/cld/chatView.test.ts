@@ -105,7 +105,7 @@ describe('chat view through the office', () => {
     // The session is off: the message waits in its inbox, with the messenger's header.
     chat('배포해 줘');
     expect(await result('배포해 줘')).toMatchObject({ ok: true, delivered: 'inbox' });
-    const inbox = path.join(home, '.config/cld-gui/inbox/alpha');
+    const inbox = path.join(home, '.config/agent-tycoon/inbox/alpha');
     const [file] = fs.readdirSync(inbox).filter((name) => name.endsWith('.md'));
     expect(fs.readFileSync(path.join(inbox, file), 'utf-8')).toMatch(
       /^\[사장 · 메신저 · \d\d-\d\d \d\d:\d\d\] ⟨m:[a-z2-7]{8}⟩\n배포해 줘$/,

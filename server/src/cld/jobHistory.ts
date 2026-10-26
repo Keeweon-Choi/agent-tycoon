@@ -4,11 +4,12 @@ import * as path from 'path';
 
 import { koText } from '../../../core/src/cld/serverText.js';
 import type { JobProgress } from '../../../core/src/messages.js';
+import { configDirectory } from './configPath.js';
 import { writeAtomic } from './engine/messenger.js';
 import { digestJobLog } from './jobDigest.js';
 
 type History = Record<string, number[]>;
-const fileOf = (home: string) => path.join(home, '.config/cld-gui/job-history.json');
+const fileOf = (home: string) => path.join(configDirectory(home), 'job-history.json');
 function read(home: string): History {
   try {
     const value: unknown = JSON.parse(fs.readFileSync(fileOf(home), 'utf8'));

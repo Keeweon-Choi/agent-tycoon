@@ -80,7 +80,7 @@ const rejected = (code: string, message: string, extra: Result = {}): Rejected =
 const isRejected = (r: unknown): r is Rejected =>
   !!r && typeof r === 'object' && (r as Result).status === 'rejected';
 
-// ── The approval store (~/.config/cld-gui/approvals.json) ─────────────────
+// ── The approval store (~/.config/agent-tycoon/approvals.json) ─────────────────
 
 /** A delegate_task call waiting for someone: the user (`ap-…`) or the Lead (its proposed Task's id). */
 export interface PendingApproval {

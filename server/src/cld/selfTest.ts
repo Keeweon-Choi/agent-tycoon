@@ -12,6 +12,7 @@ import * as path from 'path';
 
 import { SERVER_HEALTH_PROTOCOL_VERSION } from '../constants.js';
 import { resolvePtyModule } from '../terminal/ptyModule.js';
+import { configDirectory } from './configPath.js';
 
 /** The modules esbuild leaves in node_modules (esbuild.js buildCli externals, plus
  *  uqr for cld/bin/cld-gui-qr.mjs). node-pty is checked separately. */
@@ -111,7 +112,7 @@ export function runSelfTest(distRoot: string): number {
   }
 
   for (const dir of [
-    path.join(os.homedir(), '.config', 'cld-gui'),
+    configDirectory(os.homedir()),
     path.join(os.homedir(), '.pixel-agents'),
   ]) {
     try {

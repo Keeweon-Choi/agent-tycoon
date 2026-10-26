@@ -229,7 +229,7 @@ export interface TaskWorktreeOptions {
 }
 
 export interface WorktreesOptions {
-  /** ~/.config/cld-gui/worktrees.json */
+  /** ~/.config/agent-tycoon/worktrees.json */
   file: string;
   run: GitRunner;
   log?: (line: string) => void;

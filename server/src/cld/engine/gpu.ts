@@ -15,7 +15,7 @@
  * - elsewhere: `.admit.lock` by exclusive create, and an owner is alive while
  *   the `pid` in its file is.
  * Strict FIFO: only the head may enter, under the user's numbers in
- * ~/.config/cld-gui/gpu.json. Without them the rule fails closed (ADR-0014, T-0094): numbers
+ * ~/.config/agent-tycoon/gpu.json. Without them the rule fails closed (ADR-0014, T-0094): numbers
  * derived from the GPU's total VRAM, and with that unknown one reservation at a time.
  */
 import type { ChildProcess } from 'child_process';
@@ -25,6 +25,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { CLI_NAME } from '../cliName.js';
+import { configDirectory } from '../configPath.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { windowsCmd } from '../spawnJson.js';
 import { isoLocal } from './events.js';
@@ -61,9 +62,9 @@ export interface GpuPolicy {
 }
 
 export const gpuConfigPath = (home = os.homedir()): string =>
-  path.join(home, '.config', 'cld-gui', 'gpu.json');
+  path.join(configDirectory(home), 'gpu.json');
 
-/** ~/.config/cld-gui/gpu.json; a field of the wrong type is ignored, a broken file is empty. */
+/** ~/.config/agent-tycoon/gpu.json; a field of the wrong type is ignored, a broken file is empty. */
 export function readGpuConfig(home = os.homedir()): GpuConfig {
   let j: Record<string, unknown>;
   try {

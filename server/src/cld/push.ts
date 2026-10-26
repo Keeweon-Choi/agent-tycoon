@@ -3,7 +3,7 @@
  * device about a turn end, a question or permission ask, or a finished job
  * while that device has no visible client open.
  *
- * - push.json (~/.config/cld-gui, 0600, write-then-rename): the VAPID keys,
+ * - push.json (~/.config/agent-tycoon, 0600, write-then-rename): the VAPID keys,
  *   made once, and one subscription per device (its device-key id, else its
  *   session handle). Unreadable: kept as it is, logged, push off.
  * - Messages are encrypted for the subscription (RFC 8291 aes128gcm) and

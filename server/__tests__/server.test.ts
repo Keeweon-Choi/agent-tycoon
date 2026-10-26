@@ -26,6 +26,7 @@ vi.mock('os', async () => {
 // Must import AFTER mock setup
 const { PixelAgentsServer } = await import('../src/server.js');
 const { PtySessionManager } = await import('../src/terminal/ptySessionManager.js');
+const { configDirectory } = await import('../src/cld/configPath.js');
 
 async function postHook(
   port: number,
@@ -299,7 +300,7 @@ describe('PixelAgentsServer', () => {
     expect(fs.readFileSync(tokenFile, 'utf-8').trim()).toBe(rotated.token);
     expect(fs.statSync(tokenFile).mode & 0o777).toBe(0o600);
     // O3: the rotation is in the security record, once, without a token in it.
-    const record = fs.readFileSync(path.join(tmpBase, '.config', 'cld-gui', 'audit.jsonl'), 'utf-8');
+    const record = fs.readFileSync(path.join(configDirectory(tmpBase), 'audit.jsonl'), 'utf-8');
     expect(record.trim().split('\n').map((l) => JSON.parse(l))).toMatchObject([
       { kind: 'tokenRotated', detail: 'host', by: 'host' },
     ]);

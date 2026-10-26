@@ -81,7 +81,7 @@ export interface ForwardTarget {
 }
 
 export interface DirectDeps {
-  /** ~/.config/cld-gui/tls (0700; files 0600). */
+  /** ~/.config/agent-tycoon/tls (0700; files 0600). */
   dir: string;
   lanIp: string | null;
   /** The TLS port the router forwards 443 to. */

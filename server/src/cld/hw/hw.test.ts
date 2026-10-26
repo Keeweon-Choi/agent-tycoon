@@ -532,9 +532,9 @@ describe('collector additions', () => {
 
   it('reads configured disk thresholds and marks a drive low', async () => {
     const home = tmp('cld-hw-home-');
-    fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+    fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
     fs.writeFileSync(
-      path.join(home, '.config/cld-gui/hw.json'),
+      path.join(home, '.config/agent-tycoon/hw.json'),
       JSON.stringify({ diskFreeWarnGib: 1e9 }),
     );
     const s = await new HwSource({

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { koText } from '../../../core/src/cld/serverText.js';
+import { configDirectory } from './configPath.js';
 // Bundled by esbuild for the daemon; TS's NodeNext config does not resolve JSON imports.
 // @ts-expect-error JSON is bundled at build time.
 import shipped from './jobRules.json';
@@ -16,7 +17,7 @@ const builtin = shipped.names as NameRule[];
 
 export function readNameRules(home: string): NameRule[] {
   try {
-    const file = path.join(home, '.config/cld-gui/job-names.json');
+    const file = path.join(configDirectory(home), 'job-names.json');
     const data: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
     const rows = Array.isArray(data) ? data : (data as { names?: unknown })?.names;
     return Array.isArray(rows)

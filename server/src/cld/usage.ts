@@ -8,6 +8,7 @@ import {
   USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS,
   USAGE_REFRESH_MS,
 } from '../constants.js';
+import { configDirectory } from './configPath.js';
 import { rateLimitsIn } from './engine/codex.js';
 
 const VERSION = /^\d+(?:\.\d+)*$/;
@@ -182,7 +183,7 @@ export function claudeModelUsage(home: string, now = Date.now()): UsageModel[] {
 
 /** Where cld/bin/cld-gui-statusline.js keeps Claude Code's own rate_limits. */
 export const claudeUsageFile = (home: string): string =>
-  path.join(home, '.config', 'cld-gui', 'usage-claude.json');
+  path.join(configDirectory(home), 'usage-claude.json');
 
 /**
  * Claude Code's own 5-hour and 7-day windows, as the status line of an engine

@@ -7,7 +7,7 @@
  * revive, renew), dropped on remove. A bare wake resume carries no flags, so
  * that session keeps the token it already has.
  *
- * Kept as sha256 hashes in ~/.config/cld-gui/agent-tokens.json (0600, atomic)
+ * Kept as sha256 hashes in ~/.config/agent-tycoon/agent-tokens.json (0600, atomic)
  * so a daemon restart still knows the sessions that keep their old
  * environment. Sessions started before this existed have no token: they keep
  * working as unidentified callers (today's cwd / --from display label, never

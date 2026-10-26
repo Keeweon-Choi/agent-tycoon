@@ -1,6 +1,6 @@
 /**
  * 작업 현황 (DEV-BOARD) and the Task store (D6): the tasks of every project, in
- * ~/.config/cld-gui/tasks.json ({v:2, tasks}, 0600, tmp+rename; the daemon is
+ * ~/.config/agent-tycoon/tasks.json ({v:2, tasks}, 0600, tmp+rename; the daemon is
  * the only writer). A file this store cannot read is left exactly as it is and
  * reported; nothing is written over it.
  *

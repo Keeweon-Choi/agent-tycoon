@@ -1,5 +1,5 @@
 /**
- * Lv / XP / 환생 (U-15) of the office's characters, in ~/.config/cld-gui/levels.json.
+ * Lv / XP / 환생 (U-15) of the office's characters, in ~/.config/agent-tycoon/levels.json.
  * XP grows only from work the office actually saw: a completed turn, a tool use,
  * a finished job or Codex task. A 환생 is a renew that really started the new
  * conversation. Nothing is guessed or back-filled, so a character starts at Lv 1.

@@ -151,8 +151,8 @@ describe('local control channel', () => {
   );
 
   it('lives in the config folder (Unix socket) or a per-user pipe (Windows)', () => {
-    expect(controlPath('/home/u', 'linux')).toBe('/home/u/.config/cld-gui/engine.sock');
-    expect(controlPath('/Users/u', 'darwin')).toBe('/Users/u/.config/cld-gui/engine.sock');
+    expect(controlPath('/home/u', 'linux')).toBe('/home/u/.config/agent-tycoon/engine.sock');
+    expect(controlPath('/Users/u', 'darwin')).toBe('/Users/u/.config/agent-tycoon/engine.sock');
     expect(controlPath('C:\\Users\\Kim', 'win32', 'Kim Lee')).toBe(
       '\\\\.\\pipe\\cld-gui-engine-kim_lee',
     );
@@ -631,7 +631,7 @@ describe('cld-gui CLI', () => {
 
   it('send with the daemon off: a queue file the daemon resumes (0600), exit 0 queued/daemon_off', async () => {
     const h = home();
-    const cfg = path.join(h, '.config/cld-gui');
+    const cfg = path.join(h, '.config/agent-tycoon');
     fs.mkdirSync(path.join(h, 'work/alpha'), { recursive: true });
     fs.mkdirSync(cfg, { recursive: true });
     fs.writeFileSync(
@@ -768,7 +768,7 @@ describe('S7: who is speaking over the socket', () => {
 
   it('daemon off: the queue file the CLI leaves never carries the app source', async () => {
     const h = home();
-    const cfg = path.join(h, '.config/cld-gui');
+    const cfg = path.join(h, '.config/agent-tycoon');
     fs.mkdirSync(cfg, { recursive: true });
     fs.writeFileSync(
       path.join(cfg, 'projects.json'),

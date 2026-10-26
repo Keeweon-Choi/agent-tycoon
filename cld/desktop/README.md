@@ -129,7 +129,7 @@ cd src-tauri && cargo xwin clippy --target x86_64-pc-windows-msvc    # 경고 0�
 처음 실행하면 **이 컴퓨터에서 시작**과 **다른 컴퓨터에 연결**(아래의 연결 설정) 둘 중 하나를 고릅니다. 고른 것은 저장되고, 두 번째부터는 바로 그쪽으로 갑니다. 설정 화면의 **이 컴퓨터**로 언제든 바꿉니다.
 
 - **Windows**: 어디서 돌릴지 앱이 혼자 고르고 진행 화면에 한 줄로 알립니다("WSL Ubuntu-22.04 에서 사무실을 엽니다" / "Windows 에서 바로 사무실을 엽니다"). 순서(`local::auto_choice`): (1) 사무실이 이미 있는 WSL2 배포판(설치 기록, 소스 설치의 config, 응답하는 데몬), (2) Windows에 이미 설치된 것, (3) 개발 환경으로 보이는 WSL2 배포판(git이 있고 홈에 골격 파일 말고도 무언가 있음: 기본 배포판 먼저), (4) Windows에서 바로. 배포판 안은 `wsl.exe -l -v`와 읽기만 하는 스크립트로 보고(꺼진 배포판은 이때 켜짐), 설치는 늘 **설치** 화면을 거칩니다. 진행 화면의 **자세히 → 다른 방식으로 실행**과 설정의 **이 컴퓨터 → 다음**은 예전 고르는 화면(**WSL 배포판 <이름>에서 실행**, **Windows에서 바로 실행**, **다른 컴퓨터에 연결**)을 엽니다.
-- **찾기**: 고른 곳의 설치 기록(`install.json`: WSL은 `wsl.exe -d <배포판> --exec sh -c …`로 배포판 안, Windows는 `%LOCALAPPDATA%\AgentTycoon`, Linux `~/.local/share/agent-tycoon`, macOS `~/Library/Application Support/AgentTycoon`)과 `~/.config/cld-gui/config.json`(소스 설치)을 읽고, 그 포트의 `http://127.0.0.1:<포트>/api/health`(`service`·`version`·`protocol`)를 봅니다.
+- **찾기**: 고른 곳의 설치 기록(`install.json`: WSL은 `wsl.exe -d <배포판> --exec sh -c …`로 배포판 안, Windows는 `%LOCALAPPDATA%\AgentTycoon`, Linux `~/.local/share/agent-tycoon`, macOS `~/Library/Application Support/AgentTycoon`)과 설정의 `config.json`을 읽고, 그 포트의 `http://127.0.0.1:<포트>/api/health`(`service`·`version`·`protocol`)를 봅니다. 새 설치는 `~/.config/agent-tycoon/config.json`(Windows `%USERPROFILE%\.config\agent-tycoon\config.json`)이고, 이 이름 변경 전 설치는 계속 `~/.config/cld-gui/config.json`(Windows `%USERPROFILE%\.config\cld-gui\config.json`)을 씁니다.
   - 응답하면 그대로 씁니다. 설치돼 있는데 꺼져 있으면 시작합니다(WSL: 배포판 안 `agty start --hold`, 앱을 닫아도 남아 에이전트 작업이 이어짐; 그 밖: `agty start`). 시작 정책이 수동이면 **시작** 버튼을 기다립니다.
   - 아무것도 없으면 설치할지 묻습니다. WSL과 Linux에서는 시작 정책(필요할 때만(기본)·항상·수동)도 묻습니다. 소스 설치만 있으면 관리자가 데이터를 그대로 둔 채 이어받습니다.
 - **설치**: 앱에 든 묶음을 관리자에게 그대로 넘깁니다(터미널 없이). WSL은 배포판 안에서 묶음의 Node와 관리자를 임시 폴더에 풀어 `manager.mjs install --from <묶음> --pub <키> --installed-by gui [--start-policy … --no-linger]`, 다른 OS는 시스템 `tar`로 같은 일을 앱이 합니다(install.ps1·install.sh와 같은 넘김). 관리자의 줄은 **자세히**에, 단계(설치 파일 확인 → 프로그램 설치 → 사무실 시작 → 로그인)는 화면에 보입니다. 실패하면 그 단계에서 멈추고 설치 기록에 남은 것(풀어 둔 버전, 자동 시작, 만든 파일 수)을 보입니다.
@@ -185,7 +185,7 @@ SSH 모드에서 앱이 하는 일:
 
 Windows 설정 → 앱 → 설치된 앱 → **Agent Tycoon** → 제거는 이 앱이 Windows에서 설치한 사무실도 함께 정리합니다. `%LOCALAPPDATA%\AgentTycoon\install.json`이 `installedBy: gui`인 경우에만 해당하므로, CLI·소스 설치와 WSL 배포판은 건드리지 않습니다.
 
-- **Delete the application data**를 끄면: Windows용 데몬 프로그램, `agty.cmd`/`cld-gui.cmd`, 로그온 예약 작업은 지웁니다. `%USERPROFILE%\.config\cld-gui`의 사무실 설정·데이터는 남습니다.
+- **Delete the application data**를 끄면: Windows용 데몬 프로그램, `agty.cmd`/`cld-gui.cmd`, 로그온 예약 작업은 지웁니다. 새 설치의 `%USERPROFILE%\.config\agent-tycoon`과 이전 설치의 `%USERPROFILE%\.config\cld-gui` 사무실 설정·데이터는 남습니다.
 - **Delete the application data**를 켜면: 위 항목과 `%USERPROFILE%\.config\cld-gui`도 지웁니다. 또한 이 앱은 Pixel Office와 공유하는 `%APPDATA%\dev.cldgui.pixeloffice`의 연결 설정·이 기기 SSH 키도 지우므로, Pixel Office까지 정리할 때만 선택하세요.
 
 ## 키와 트레이

@@ -149,7 +149,7 @@ test('install -> update -> failed health switches back -> failed self-test never
     assert.ok(record.files[file]);
   }
   assert.ok(calls.includes('systemctl --user enable agent-tycoon') && calls.includes('systemctl --user restart agent-tycoon'));
-  assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/config.json'), 'utf8')).port, 18257);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.config/agent-tycoon/config.json'), 'utf8')).port, 18257);
   assert.equal(fs.existsSync(path.join(root, 'manager.lock')), false);
 
   await update(makeBundle('1.1.0'), { ...deps, env: { ...deps.env, AGENT_TYCOON_ROOT: root } });
@@ -186,8 +186,8 @@ test('adopting the source install: service switched, links retargeted, data unto
   fs.mkdirSync(path.join(home, '.local/bin'), { recursive: true });
   fs.symlinkSync(path.join(repo, 'cld/bin/cld-gui'), path.join(home, '.local/bin/cld-gui'));
   fs.symlinkSync('/usr/bin/true', path.join(home, '.local/bin/cld')); // someone else's: left alone
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config/cld-gui/projects.json'), '{"keep":true}');
+  fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config/agent-tycoon/projects.json'), '{"keep":true}');
   const { deps, calls } = fakeDeps({ home, root });
 
   await install({ ...makeBundle('1.0.0'), root, service: 'systemd' }, deps);
@@ -199,7 +199,7 @@ test('adopting the source install: service switched, links retargeted, data unto
   assert.equal(fs.readlinkSync(path.join(home, '.local/bin/cld')), '/usr/bin/true');
   assert.equal(record.adopted.from, 'source');
   assert.equal(record.port, 18240); // the old config's port (default), data dir untouched
-  assert.equal(fs.readFileSync(path.join(home, '.config/cld-gui/projects.json'), 'utf8'), '{"keep":true}');
+  assert.equal(fs.readFileSync(path.join(home, '.config/agent-tycoon/projects.json'), 'utf8'), '{"keep":true}');
   // a second install does not adopt again
   await install({ ...makeBundle('1.0.0'), root, service: 'systemd' }, deps);
   assert.equal((await readRecord(root)).adopted.at, record.adopted.at);
@@ -257,7 +257,7 @@ function uninstallDeps(home, status = { ok: true, projects: [], jobs: [], tasks:
     confirm: async () => true, chooseAgents: async () => 'stop',
     revertLedger: async (_targetHome, { dryRun = false } = {}) => {
       calls.push(dryRun ? 'ledger-plan' : 'ledger');
-      return { ok: true, file: path.join(home, '.config', 'cld-gui', 'exposure.json'), entries: [] };
+      return { ok: true, file: path.join(home, '.config', 'agent-tycoon', 'exposure.json'), entries: [] };
     },
   };
 }
@@ -498,7 +498,7 @@ test('uninstall stops before files when the service remains active after deactiv
 
 test('an unreadable exposure ledger stops uninstall unless --yes explicitly ignores it', async () => {
   const home = tmp('uninstall-bad-ledger'); const { owned } = await managerRecord(home);
-  const ledger = path.join(home, '.config', 'cld-gui', 'exposure.json');
+  const ledger = path.join(home, '.config', 'agent-tycoon', 'exposure.json');
   const fake = uninstallDeps(home);
   fake.revertLedger = async () => ({ ok: false, unreadable: true, file: ledger, entries: [] });
   const blocked = await uninstall({ program: true, yes: true }, fake);
@@ -530,7 +530,7 @@ test('the ledger plan is quiet in a real run; its DRY-RUN line belongs to --dry-
   }
   assert.deepEqual(asked, [[false, true], [true, false]]); // [--dry-run?, quiet?] of the plan's ledger question
   // the real ledger code honours it
-  const file = path.join(home, '.config', 'cld-gui', 'exposure.json');
+  const file = path.join(home, '.config', 'agent-tycoon', 'exposure.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ v: 1, entries: [{ kind: 'portproxy', externalPort: 1, directPort: 2 }] }));
   const log = t.mock.method(console, 'log', () => {});
@@ -555,8 +555,8 @@ test('the plan says whether no daemon answered or another install\'s daemon did'
 
 test('uninstall reset removes only our data, never Claude/Codex or projects', async () => {
   const home = tmp('uninstall-reset'); await managerRecord(home);
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config/cld-gui', 'data'), 'ours');
+  fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config/agent-tycoon', 'data'), 'ours');
   fs.mkdirSync(path.join(home, '.pixel-agents'), { recursive: true });
   fs.writeFileSync(path.join(home, '.pixel-agents', 'standalone-state.json'), '{}');
   fs.writeFileSync(path.join(home, '.pixel-agents', 'standalone-token'), 'token');
@@ -568,7 +568,7 @@ test('uninstall reset removes only our data, never Claude/Codex or projects', as
   for (const dir of ['.claude', '.codex', 'project']) fs.mkdirSync(path.join(home, dir), { recursive: true });
   const result = await uninstall({ reset: true, yes: true }, uninstallDeps(home));
   assert.equal(result.code, 0);
-  assert.equal(fs.existsSync(path.join(home, '.config/cld-gui')), false);
+  assert.equal(fs.existsSync(path.join(home, '.config/agent-tycoon')), false);
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'standalone-state.json')), false);
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'server.json')), true); // null is never our numeric port
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'servers', '111-18257.json')), false);
@@ -579,7 +579,7 @@ test('uninstall reset removes only our data, never Claude/Codex or projects', as
 
 test('uninstall continues reset and records a file Windows still holds', async () => {
   const home = tmp('uninstall-held-file'); const { root, owned } = await managerRecord(home);
-  const resetData = path.join(home, '.config', 'cld-gui');
+  const resetData = path.join(home, '.config', 'agent-tycoon');
   fs.mkdirSync(resetData, { recursive: true }); fs.writeFileSync(path.join(resetData, 'data'), 'ours');
   const fake = uninstallDeps(home);
   fake.rm = async (file) => {
@@ -607,7 +607,7 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile);
   record.files[launcher] = sha256File(launcher); await writeRecord(root, record);
-  const resetData = path.join(home, '.config', 'cld-gui'); fs.mkdirSync(resetData, { recursive: true });
+  const resetData = path.join(home, '.config', 'agent-tycoon'); fs.mkdirSync(resetData, { recursive: true });
   const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node; fake.managerPath = manager; fake.pid = 4455; fake.systemRoot = 'C:\\Windows';
   fake.control = async () => ({ ok: true, projects: [], jobs: [], tasks: [], daemon: { pid: 1234, port: 18257, entry: path.join(dir, 'dist', 'cli.js') } });
   const removed = []; const spawned = []; let unref = false;
@@ -733,7 +733,7 @@ test('doctor --fix reports a folder at the link path as kept instead of throwing
 });
 
 test('the manager forwards CLD_AGENT_TOKEN in its control request', async () => {
-  const home = tmp('control-token'); const socket = path.join(home, '.config', 'cld-gui', 'engine.sock');
+  const home = tmp('control-token'); const socket = path.join(home, '.config', 'agent-tycoon', 'engine.sock');
   fs.mkdirSync(path.dirname(socket), { recursive: true });
   const seen = [];
   const server = net.createServer((conn) => {
@@ -922,7 +922,7 @@ test('agty open finds the desktop app by its new name (Agent Tycoon) first, the 
 });
 
 test('a first install opens the whole office (actions, messenger, terminal); a config.json already there keeps its choices', async () => {
-  const conf = (home) => JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/config.json'), 'utf8'));
+  const conf = (home) => JSON.parse(fs.readFileSync(path.join(home, '.config/agent-tycoon/config.json'), 'utf8'));
   const fresh = tmp('home');
   await install({ ...makeBundle('1.0.0'), root: path.join(fresh, 'root'), service: 'systemd' }, fakeDeps({ home: fresh, root: path.join(fresh, 'root') }).deps);
   assert.deepEqual(
@@ -930,8 +930,8 @@ test('a first install opens the whole office (actions, messenger, terminal); a c
     { readOnly: false, chat: true, allowTerminal: true },
   );
   const kept = tmp('home');
-  fs.mkdirSync(path.join(kept, '.config/cld-gui'), { recursive: true });
-  fs.writeFileSync(path.join(kept, '.config/cld-gui/config.json'), JSON.stringify({ port: 18240, readOnly: true, chat: false, allowTerminal: false }));
+  fs.mkdirSync(path.join(kept, '.config/agent-tycoon'), { recursive: true });
+  fs.writeFileSync(path.join(kept, '.config/agent-tycoon/config.json'), JSON.stringify({ port: 18240, readOnly: true, chat: false, allowTerminal: false }));
   await install({ ...makeBundle('1.0.0'), root: path.join(kept, 'root'), service: 'systemd' }, fakeDeps({ home: kept, root: path.join(kept, 'root') }).deps);
   assert.deepEqual(
     (({ readOnly, chat, allowTerminal }) => ({ readOnly, chat, allowTerminal }))(conf(kept)),

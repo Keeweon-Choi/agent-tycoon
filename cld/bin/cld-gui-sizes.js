@@ -5,6 +5,7 @@
 // logPrune.test.ts keeps the two in step.
 const fs = require('fs');
 const path = require('path');
+const { configDirectory } = require('../../core/src/cld/configPath.cjs');
 
 const LOG_KEEP_DAYS = 30;
 const LOG_DIR_CAP_BYTES = 1024 ** 3;
@@ -33,7 +34,7 @@ function stateDir(platform, home, env = process.env) {
 /** One row per data category: { name, bytes, rule }. */
 function dataSizes(home, platform = process.platform, env = process.env) {
   const state = stateDir(platform, home, env);
-  const conf = path.join(home, '.config', 'cld-gui');
+  const conf = configDirectory(home);
   const events = fileBytes(path.join(conf, 'events.jsonl')) + fileBytes(path.join(conf, 'events.jsonl.1'));
   const daemon = fileBytes(path.join(conf, 'daemon.log')) + fileBytes(path.join(conf, 'daemon.log.1'));
   const mb = (n) => Math.round(n / 1024 / 1024);

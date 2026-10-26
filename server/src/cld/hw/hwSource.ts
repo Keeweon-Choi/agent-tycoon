@@ -21,6 +21,7 @@ import type {
   HwReadingSource,
   HwSample,
 } from '../../../../core/src/messages.js';
+import { configDirectory } from '../configPath.js';
 import { readDxgUsers } from '../engine/gpu.js';
 import { maskText } from '../mask.js';
 import { shortProcessCommand } from './commandDisplay.js';
@@ -66,7 +67,7 @@ export function readHwConfig(home = os.homedir()): HwDiskConfig {
   let raw: Record<string, unknown> = {};
   try {
     raw = JSON.parse(
-      fs.readFileSync(path.join(home, '.config/cld-gui/hw.json'), 'utf-8'),
+      fs.readFileSync(path.join(configDirectory(home), 'hw.json'), 'utf-8'),
     ) as Record<string, unknown>;
   } catch {
     /* defaults */

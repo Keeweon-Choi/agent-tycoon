@@ -1219,7 +1219,7 @@ components:
       description: |
         Save the office layout. With the cld office on, the daemon keeps the
         differences from the generated office as decor in
-        ~/.config/cld-gui/decor.json and answers the sender with layoutLoaded.
+        ~/.config/agent-tycoon/decor.json and answers the sender with layoutLoaded.
         Otherwise, save to ~/.pixel-agents/layout.json.
       type: object
       additionalProperties: false
@@ -1705,8 +1705,8 @@ components:
         - foreground
 
     # ── cld-gui: character presets (T-0017, FR-OFC-015/016) ──────
-    # Sheets in ~/.config/cld-gui/characters/ (the char_N.png format, 112×96)
-    # and the look chosen per character name (~/.config/cld-gui/characters.json).
+    # Sheets in ~/.config/agent-tycoon/characters/ (the char_N.png format, 112×96)
+    # and the look chosen per character name (~/.config/agent-tycoon/characters.json).
 
     CharacterPresets:
       description: |
@@ -1862,7 +1862,7 @@ components:
 
     CharacterParts:
       description: |
-        CHAR-HUMAN: the owner's imported parts (~/.config/cld-gui/parts/)
+        CHAR-HUMAN: the owner's imported parts (~/.config/agent-tycoon/parts/)
         and the named person looks saved from the looks window, re-sent in
         full whenever one is saved or removed. The built-in parts ship with
         the page.
@@ -2007,7 +2007,7 @@ components:
     CharacterPack:
       description: |
         CHAR-FACTORY: a content pack (cld/packs/<id>/ built in,
-        ~/.config/cld-gui/packs/<id>/ the user's), always on.
+        ~/.config/agent-tycoon/packs/<id>/ the user's), always on.
       type: object
       additionalProperties: false
       required: [id, version, title, builtIn, characters, presets]
@@ -3393,7 +3393,7 @@ components:
     AgentRulesRequest:
       description: |
         The settings page's "Agent rules" (RULES-DEFAULT). Without `text` or `useBuiltInRules`: show. With
-        `text`: save the user's global rules (~/.config/cld-gui/rules.md; empty text removes the file). With
+        `text`: save the user's global rules (~/.config/agent-tycoon/rules.md; empty text removes the file). With
         `useBuiltInRules`: change whether the shipped tool-use rules apply. Either change needs a privileged
         connection, and a remote one a fresh step-up. `language` is the UI language, remembered (privileged
         only) to pick the default rules. Answered to the sender by `agentRules`.
@@ -3539,7 +3539,7 @@ components:
           type: string
 
     GpuBoard:
-      description: The GPU reservation board (T-0046), folded from the `gpu_queue`, `gpu_lease`, `gpu_release`, `gpu_cancel` and `gpu_move` events of the engine's `~/.config/cld-gui/events.jsonl` (T-0021). `queue` is in line order (`gpu_move` applied). `recent` holds the last few endings, newest last. Sent when the engine is on.
+      description: The GPU reservation board (T-0046), folded from the `gpu_queue`, `gpu_lease`, `gpu_release`, `gpu_cancel` and `gpu_move` events of the engine's `~/.config/agent-tycoon/events.jsonl` (T-0021). `queue` is in line order (`gpu_move` applied). `recent` holds the last few endings, newest last. Sent when the engine is on.
       type: object
       additionalProperties: false
       required: [type, holders, queue, recent]
@@ -3598,7 +3598,7 @@ components:
           type: string
 
     OfficeEvent:
-      description: One line of the engine's `~/.config/cld-gui/events.jsonl` (T-0019), summarized for the feed. `kind` is the event type (send, turn_end, revive, codex_end, job_end, orch_renew, ...). Message bodies are not forwarded; only `summary`.
+      description: One line of the engine's `~/.config/agent-tycoon/events.jsonl` (T-0019), summarized for the feed. `kind` is the event type (send, turn_end, revive, codex_end, job_end, orch_renew, ...). Message bodies are not forwarded; only `summary`.
       type: object
       additionalProperties: false
       required: [type, ts, kind, summary]
@@ -4748,7 +4748,7 @@ components:
 
     EzRules:
       description: |
-        The user's EZ phrase rules from ~/.config/cld-gui/ez-rules.json,
+        The user's EZ phrase rules from ~/.config/agent-tycoon/ez-rules.json,
         checked by the daemon: only the valid entries, in file order. The
         screen tries them before its built-in table, so they add to it and
         override it. Sent after the handshake, and only when the file holds
@@ -5288,7 +5288,7 @@ components:
 
     # ── cld-gui: floors (T-0027) ─────────────────────────────────
     # The office as a building of floors, kept in
-    # ~/.config/cld-gui/building.json. Floor 1 is the generated office plus decor. Floor
+    # ~/.config/agent-tycoon/building.json. Floor 1 is the generated office plus decor. Floor
     # changes are cosmetic: any logged-in client may make them, also on a
     # read-only daemon.
 
@@ -5415,7 +5415,7 @@ components:
     TaskBoard:
       description: |
         작업 현황 (DEV-BOARD): every reported task of every project
-        (~/.config/cld-gui/tasks.json), sent at `webviewReady` and to everyone
+        (~/.config/agent-tycoon/tasks.json), sent at `webviewReady` and to everyone
         when one changes. `corrupt` says the tasks file could not be read: it is
         kept untouched and nothing is saved until it is fixed. `error` goes only
         to the sender of a refused `taskEdit`. Observed items (Codex runs, jobs)
@@ -5590,7 +5590,7 @@ components:
     TrackingSources:
       description: |
         U-48 phase 2a: the reply to `trackingSettings`: the project's stored settings
-        (~/.config/cld-gui/tracking.json), the documents found (conventional ones and
+        (~/.config/agent-tycoon/tracking.json), the documents found (conventional ones and
         the ones turned on), and the "켤까요?" candidates (Markdown files the project's
         git changed in the last 7 days that hold checkboxes, a status table or a
         front-matter status; a suggestion only). `error` says why a change was refused.
@@ -5882,7 +5882,7 @@ components:
     DelegationApprovals:
       description: |
         C6: the delegate_task calls waiting for the user's approval
-        (~/.config/cld-gui/approvals.json), sent at `webviewReady` and to
+        (~/.config/agent-tycoon/approvals.json), sent at `webviewReady` and to
         everyone when the list changes. With `requestId` it answers that
         screen's `delegationDecision`: `error` says why nothing happened
         (`stepup`: prove this device first), `outcome` is the re-run call's
@@ -6251,7 +6251,7 @@ components:
           items: { type: string }
     # ── cld-gui: Web Push (T-0039, FR-NTF-001/002/004/006, IR-PUSH-001) ──
     # One subscription per device (its device-key id, else its session
-    # handle), kept 0600 in ~/.config/cld-gui/push.json with the daemon's
+    # handle), kept 0600 in ~/.config/agent-tycoon/push.json with the daemon's
     # VAPID keys. The daemon pushes the enabled kinds only while that device
     # has no visible client. The payload is the notice's title and body, the
     # character id and a url: never transcript text. Endpoints are capability

@@ -3,16 +3,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {
-  CLI_MARK, clientPlan, daemonArgs, defaults, detectPlatform, findFreePort, installCli, installPlan, loginBase,
-  exposurePath, mergeConfig, nameTaken, parseArgs, parseRegPath, pathExport, pathWith, pathWithout, recordExposure, remoteRequest,
-  removeCli, renderLaunchAgent, renderSchtasksCommand, renderSystemdUnit, revertLedger, rotateLog, winCliCmd,
-} from './install.mjs';
+
 import { derivedGpuPolicy, detectVramMib, gpuJsonPath, gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn } from './gpuPolicy.mjs';
 import {
   encodePowerShell, hwSensorsPlan, LHM, linuxSensors, parseHttpServiceState, parseTasklist, PAWNIO,
-  renderLhmAdminScript, renderLhmUninstallAdminScript, renderLhmConfig, renderLhmInstallScript, renderLhmUninstallScript,
+  renderLhmAdminScript, renderLhmConfig, renderLhmInstallScript, renderLhmUninstallAdminScript, renderLhmUninstallScript,
 } from './hwSensors.mjs';
+import {
+  CLI_MARK, clientPlan, configPath, daemonArgs, defaults, detectPlatform,   exposurePath, findFreePort, installCli, installPlan, legacyConfigDirectory, loginBase,
+mergeConfig, nameTaken, parseArgs, parseRegPath, pathExport, pathWith, pathWithout, recordExposure, remoteRequest,
+  removeCli, renderLaunchAgent, renderSchtasksCommand, renderSystemdUnit, revertLedger, rotateLog, winCliCmd,
+} from './install.mjs';
 
 const repo = '/absolute/project';
 const home = '/absolute/home';
@@ -24,6 +25,17 @@ test('detects native platforms and the WSL proc-version fixture', () => {
   assert.equal(detectPlatform('linux', 'Linux version 6.8.0-generic'), 'linux');
   assert.equal(detectPlatform('darwin'), 'darwin');
   assert.equal(detectPlatform('win32'), 'win32');
+});
+
+test('the installer uses Agent Tycoon settings unless this home only has legacy settings', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tycoon-install-'));
+  try {
+    assert.equal(configPath(temp), path.join(temp, '.config', 'agent-tycoon', 'config.json'));
+    fs.mkdirSync(legacyConfigDirectory(temp), { recursive: true });
+    assert.equal(configPath(temp), path.join(legacyConfigDirectory(temp), 'config.json'));
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test('--remote takes an explicit choice and rejects an unknown one', () => {
@@ -150,7 +162,7 @@ test('uninstall plans remove service registration and optionally config', () => 
   for (const platform of ['linux', 'wsl', 'darwin', 'win32']) {
     const plan = installPlan({ platform, repo, home, node, config, uninstall: true, purge: true });
     assert.ok(plan.some((action) => action.kind === 'remove' && action.file.endsWith('config.json')), platform);
-    assert.ok(plan.some((action) => action.kind === 'remove' && action.recursive && action.file === path.join(home, '.config', 'cld-gui', 'tls')), platform);
+    assert.ok(plan.some((action) => action.kind === 'remove' && action.recursive && action.file === path.join(home, '.config', 'agent-tycoon', 'tls')), platform);
   }
   assert.deepEqual(installPlan({ platform: 'win32', repo, home, node, config, uninstall: true })[0].command, ['schtasks', '/Delete', '/F', '/TN', 'cld-gui']);
   const linux = installPlan({ platform: 'linux', repo, home, node, config, uninstall: true });

@@ -14,7 +14,7 @@ describe('worker project registry reader', () => {
   it('finds the same project in legacy, v1 and v2 registries', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-worker-projects-'));
     homes.push(home);
-    const file = path.join(home, '.config', 'cld-gui', 'projects.json');
+    const file = path.join(home, '.config', 'agent-tycoon', 'projects.json');
     const record = { name: 'alpha', folder: path.join(home, 'work', 'alpha') };
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify([record]));

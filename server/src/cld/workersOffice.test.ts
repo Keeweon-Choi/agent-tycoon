@@ -137,7 +137,7 @@ describe('D3b: after promoting a Worker', () => {
         contacts: contacts.map((c) => [c.name, c.project ?? null]).sort(),
         rooms: rooms.map((r) => [r.name, r.members]),
         characters: t.office.officeState().orchestrators.map((o) => [o.name, o.tab]).sort(),
-        pins: fs.readFileSync(path.join(t.home, '.config/cld-gui/pins.json'), 'utf8'),
+        pins: fs.readFileSync(path.join(t.home, '.config/agent-tycoon/pins.json'), 'utf8'),
       };
     };
     const before = await vi.waitFor(() => {
@@ -219,7 +219,7 @@ describe('D3b: a swap finished at start', () => {
       'agent:alpha-b',
     ).task as { id: string };
     // The commit cannot write the registry (the folder read-only right after the token drops).
-    const cfg = path.join(t.home, '.config', 'cld-gui');
+    const cfg = path.join(t.home, '.config', 'agent-tycoon');
     const drop = engine.tokens.drop.bind(engine.tokens);
     let drops = 0;
     engine.tokens.drop = (name: string) => {

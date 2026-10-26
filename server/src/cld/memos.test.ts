@@ -29,7 +29,7 @@ async function memoOffice(home?: string) {
   const fake = { home: h };
   const sent: Array<Record<string, unknown>> = [];
   const send = (m: Record<string, unknown>) => sent.push(m);
-  const file = `${fake.home}/.config/cld-gui/memos.json`;
+  const file = `${fake.home}/.config/agent-tycoon/memos.json`;
   const ask = (uid: unknown, text: unknown, privileged = true, ua = IPHONE) =>
     office.onClientMessage({ type: 'setWhiteboardMemo', uid, text }, send, privileged, ua);
   const memos = (list: Array<Record<string, unknown>>) =>
@@ -86,7 +86,7 @@ describe('whiteboard memos (T-0065)', () => {
   it('a malformed memos.json is renamed aside and the store starts empty', async () => {
     const fake = { home: fs.mkdtempSync(path.join(os.tmpdir(), 'cld-memos-')) };
     tmp.push(fake.home);
-    const dir = `${fake.home}/.config/cld-gui`;
+    const dir = `${fake.home}/.config/agent-tycoon`;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(`${dir}/memos.json`, '{not json');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

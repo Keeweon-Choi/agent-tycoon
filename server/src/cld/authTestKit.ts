@@ -68,7 +68,7 @@ export interface AuthServer extends HttpServerHandle {
 
 /**
  * A standalone server (no listener unless `listen`) behind the fake serve name. `configDir`
- * turns passkeys on (a temp dir, never ~/.config/cld-gui).
+ * turns passkeys on (a temp dir, never ~/.config/agent-tycoon).
  */
 export async function startAuthServer(
   staticDir: string,

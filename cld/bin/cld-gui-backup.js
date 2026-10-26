@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const { CLI_NAME } = require('./cld-brand');
+const { configDirectory } = require('../../core/src/cld/configPath.cjs');
 
 const BACKUP_FORMAT = 'agent-tycoon-backup';
 const BACKUP_VERSION = 1;
@@ -31,7 +32,6 @@ function canonicalJson(value) {
 }
 
 function sha256(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
-function configDirectory(home) { return path.join(home, '.config', 'cld-gui'); }
 
 function timestamp(now, withSeconds = false) {
   const date = new Date(now());

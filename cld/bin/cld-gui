@@ -16,9 +16,9 @@
 //   cld-gui worktree new --task <id> [--assign <name>] [--base <branch>] | worktree list [--task <id>]  (W2)
 //   cld-gui version | login […] | help
 //
-// It talks to the daemon over ~/.config/cld-gui/engine.sock (Windows:
+// It talks to the daemon over ~/.config/agent-tycoon/engine.sock (Windows:
 // \\.\pipe\cld-gui-engine-<user>). When the daemon is off, `send` leaves the
-// message in ~/.config/cld-gui/queue/ for it (the daemon resumes that queue).
+// message in ~/.config/agent-tycoon/queue/ for it (the daemon resumes that queue).
 'use strict';
 const crypto = require('crypto');
 const fs = require('fs');
@@ -28,10 +28,11 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const backupCli = require('./cld-gui-backup');
 const { CLI_NAME: CLI, LEGACY_CLI_NAME: LEGACY } = require('./cld-brand');
+const { configDirectory } = require('../../core/src/cld/configPath.cjs');
 const maintenance = require('./cld-gui-maintenance');
 
 const HOME = os.homedir();
-const CONFIG = path.join(HOME, '.config', 'cld-gui');
+const CONFIG = configDirectory(HOME);
 const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
 /** The manager (cld/install/manager.mjs, H §2): install, update, open, and the install part of status. */
 const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);

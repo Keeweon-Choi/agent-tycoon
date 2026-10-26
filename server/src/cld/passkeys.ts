@@ -2,7 +2,7 @@
  * Passkeys (T-0022): WebAuthn through @simplewebauthn/server (pinned), never
  * hand-rolled. The relying party is the request's own host -- the `ts.net`
  * name, or `localhost` behind an SSH tunnel -- and every RP ID keeps its own
- * credential list in ~/.config/cld-gui/passkeys.json (0600, atomic writes).
+ * credential list in ~/.config/agent-tycoon/passkeys.json (0600, atomic writes).
  * Discoverable credentials with user verification (Face ID, Windows Hello);
  * the signature counter is checked by the library and stored after each login.
  */

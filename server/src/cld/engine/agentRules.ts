@@ -6,7 +6,7 @@
  *   1. the product's built-in rules, when the host keeps them enabled (next to cld/bin; they
  *      update with the engine): the shared default.<ko|en>.md, then (C7a, OSD-J) the role's
  *      playbook <lead|worker|reviewer>.<ko|en>.md,
- *   2. the user's global rules, ~/.config/cld-gui/rules.md (written only by the settings page),
+ *   2. the user's global rules, ~/.config/agent-tycoon/rules.md (written only by the settings page),
  *   3. the agent's own `rulesFile`, if set.
  * A missing or unreadable layer is skipped; the engine never writes layers 2 and 3.
  */

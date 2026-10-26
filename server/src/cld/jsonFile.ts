@@ -1,5 +1,5 @@
 /**
- * The login stores under ~/.config/cld-gui (passkeys, sessions): read them,
+ * The login stores under ~/.config/agent-tycoon (passkeys, sessions): read them,
  * and write them 0600 through a temp file and a rename, so a crash never
  * leaves half a file.
  */
