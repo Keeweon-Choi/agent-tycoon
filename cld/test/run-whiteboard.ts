@@ -33,6 +33,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -145,7 +146,7 @@ async function main(): Promise<void> {
   await warmUpOffice(warm, daemon);
   await warm.close();
   const pageErrors: string[] = [];
-  const memosFile = path.join(fake.home, '.config/cld-gui/memos.json');
+  const memosFile = path.join(configDirectory(fake.home), 'memos.json');
   const onDisk = () =>
     JSON.parse(fs.readFileSync(memosFile, 'utf-8')).memos as Record<
       string,

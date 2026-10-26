@@ -31,6 +31,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const beforeAt = process.argv.indexOf('--before');
@@ -124,7 +125,7 @@ const INIT = `
 
 function makeHome() {
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });
-  const cfg = path.join(fake.home, '.config/cld-gui');
+  const cfg = configDirectory(fake.home);
   fs.writeFileSync(
     path.join(cfg, 'building.json'),
     JSON.stringify({
@@ -173,7 +174,7 @@ async function open(
 
 /** Imported presets in the temp HOME (id, label), oldest first. */
 function imported(home: string): Array<{ id: string; label: string }> {
-  const dir = path.join(home, '.config/cld-gui/characters');
+  const dir = path.join(configDirectory(home), 'characters');
   return fs
     .readdirSync(dir)
     .filter((f) => /^sheet-\d+(-\d+)?\.json$/.test(f))

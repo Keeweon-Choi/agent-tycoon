@@ -22,6 +22,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/room-unread');
@@ -54,13 +55,13 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin, claudePath } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const members = Object.keys(REPLIES);
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       members.map((name) => {
         const folder = path.join(home, 'work', name);

@@ -47,6 +47,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/d3');
@@ -77,7 +78,7 @@ async function main() {
   fs.mkdirSync(OUT_W1, { recursive: true });
   fs.mkdirSync(OUT_D3B, { recursive: true });
   const { home, bin } = makeEngineHome();
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   // Our own temp HOME: its daemon's port is the spare one, never the live daemon's.
   fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ accessChosen: true, port }));
   // W1: alpha is a git clone with committed code, a loose change and one task worktree.

@@ -32,6 +32,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/board-explain');
@@ -112,7 +113,7 @@ async function main() {
   const vetDir = path.join(home, 'work', 'veteran');
   fs.mkdirSync(vetDir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'veteran', folder: vetDir, wantRunning: true }]),
   );
   const sleepers = [0, 1].map(() => spawn('sleep', ['900'], { stdio: 'ignore' }));
@@ -142,7 +143,7 @@ async function main() {
     { type: 'send', ts: ts(50), source: 'cli', to: 'veteran', delivered: 'pane' },
   ];
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/events.jsonl'),
+    path.join(configDirectory(home), 'events.jsonl'),
     events.map((e) => JSON.stringify({ v: 1, ...e })).join('\n') + '\n',
   );
   const lead = session(home, 'lead', '/work/alpha');

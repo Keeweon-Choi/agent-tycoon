@@ -32,6 +32,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -100,7 +101,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/building.json'),
+    path.join(configDirectory(home), 'building.json'),
     JSON.stringify({
       version: 1,
       perProject: false,
@@ -218,7 +219,7 @@ async function main() {
       });
     const roster = () => {
       try {
-        const r = JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/roster.json'), 'utf-8'));
+        const r = JSON.parse(fs.readFileSync(path.join(configDirectory(home), 'roster.json'), 'utf-8'));
         return Object.values(r.projects as Record<string, { employees: Array<{ nameId: string; execution: string | null }>; executions: Record<string, { ended: number | null; endedBy?: string }> }>).map((p) => ({
           employees: p.employees.map((e) => `${e.nameId}:${e.execution}`),
           executions: Object.entries(p.executions).map(([k, b]) => `${k}:${b.ended === null ? 'open' : b.endedBy}`),

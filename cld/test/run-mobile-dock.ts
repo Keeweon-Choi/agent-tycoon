@@ -35,6 +35,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BEFORE = process.argv.includes('--before');
@@ -439,7 +440,7 @@ async function main() {
   const testTmux = new Tmux(tmuxBin, TMUX_SOCKET);
   // The spare port in the temp HOME's own config: nothing can fall back to the live 18240.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const sessions = path.join(home, '.claude/sessions');
@@ -447,7 +448,7 @@ async function main() {
   const folders = Object.fromEntries(LEADS.map((n) => [n, path.join(home, 'work', n)]));
   for (const f of Object.values(folders)) fs.mkdirSync(f, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       LEADS.map((name) => ({ name, folder: folders[name], room: '개발실', wantRunning: true })),
     ),

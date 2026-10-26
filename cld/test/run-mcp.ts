@@ -38,6 +38,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const DEADLINE_MS = 300_000;
@@ -105,7 +106,7 @@ class McpClient {
 async function main() {
   await assertPortFree(port);
   const { home, bin } = makeEngineHome();
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ accessChosen: true, port }));
   const folder = path.join(home, 'work', 'alpha');
   fs.mkdirSync(folder, { recursive: true });

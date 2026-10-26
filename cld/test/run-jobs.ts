@@ -25,6 +25,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0019');
@@ -83,9 +84,9 @@ async function main() {
   const { home, bin } = makeEngineHome();
   const folder = path.join(home, 'projects', 'alpha');
   fs.mkdirSync(folder, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder, wantRunning: false }]),
   );
   const daemon = startDaemon({ home, claudePath: path.join(bin, 'claude') }, port, [
@@ -144,8 +145,8 @@ async function main() {
     await new Promise((r) => setTimeout(r, 3_000));
     rss.noViewer = rssMb(server.pid!);
     check(
-      fs.statSync(path.join(home, '.config/cld-gui/engine.sock')).isSocket(),
-      'the daemon listens on ~/.config/cld-gui/engine.sock',
+      fs.statSync(path.join(configDirectory(home), 'engine.sock')).isSocket(),
+      'the daemon listens on its settings directory engine.sock',
     );
 
     // Jobs from the project folder, over the local socket.
@@ -171,8 +172,8 @@ async function main() {
       sent.code === 0 && sent.out.delivered === 'inbox' && sent.out.reason === 'off',
       'a send to a project that is off: inbox',
     );
-    const inbox = fs.readdirSync(path.join(home, '.config/cld-gui/inbox/alpha'));
-    check(inbox.length === 1, 'one file in ~/.config/cld-gui/inbox/alpha');
+    const inbox = fs.readdirSync(path.join(configDirectory(home), 'inbox/alpha'));
+    check(inbox.length === 1, 'one file in the settings directory inbox/alpha');
     // S7: an env-spoofed app source from outside any project is no owner's message.
     const spoof = spawnSync(
       process.execPath,
@@ -184,7 +185,7 @@ async function main() {
         timeout: 30_000,
       },
     );
-    const inboxDir = path.join(home, '.config/cld-gui/inbox/alpha');
+    const inboxDir = path.join(configDirectory(home), 'inbox/alpha');
     const spoofed = fs
       .readdirSync(inboxDir)
       .filter((f) => f.endsWith('.md') && !inbox.includes(f))
@@ -324,7 +325,7 @@ async function main() {
       `cld-gui jobs: both ended (exit 3 and null after the stop): ${JSON.stringify(rows.map((r) => [r.id, r.exit]))}`,
     );
     const events = fs
-      .readFileSync(path.join(home, '.config/cld-gui/events.jsonl'), 'utf-8')
+      .readFileSync(path.join(configDirectory(home), 'events.jsonl'), 'utf-8')
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>);

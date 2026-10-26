@@ -41,6 +41,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0043');
@@ -103,7 +104,7 @@ async function main() {
   const { home, bin } = makeEngineHome();
   // Our own temp HOME: its daemon's port is the spare one, never the live daemon's.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const sessions = path.join(home, '.claude/sessions');
@@ -117,9 +118,9 @@ async function main() {
     '---\ndescription: 배포 전 확인해요\nargument-hint: <태그>\n---\n',
   );
   // Four engine projects that were on: the engine revives them at start.
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       LEADS.map((name, i) => ({
         name,

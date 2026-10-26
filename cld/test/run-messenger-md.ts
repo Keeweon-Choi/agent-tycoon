@@ -33,6 +33,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 
 const port = sparePort();
@@ -86,9 +87,9 @@ async function main() {
   fs.mkdirSync(sessions, { recursive: true });
   const folder = path.join(home, 'work', 'alpha');
   fs.mkdirSync(folder, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder, room: '개발실', wantRunning: true }]),
   );
   const daemon = startDaemon(

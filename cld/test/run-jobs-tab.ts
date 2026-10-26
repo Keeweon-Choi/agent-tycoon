@@ -36,6 +36,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0068');
 /** The 작업실 picker's entry for jobs of no project (webview-ui/src/cld/workbench/workbench.ts NO_PROJECT). */
@@ -88,9 +89,9 @@ function seedJobs(home: string, alive: number[]): void {
     'loading data\nepoch 3/10\ntrain:  46%|████▌     | 460/1000 [01:23<01:40,  5.41it/s]',
   );
   // The last runs of `bash 작업` took 10 minutes: eta's bar is "지난번 10분 · …".
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/job-history.json'),
+    path.join(configDirectory(home), 'job-history.json'),
     JSON.stringify({ 'bash 작업': [600_000, 600_000, 600_000] }),
   );
   fs.writeFileSync(path.join(logs, '1022-010000-beta.log'), 'loading data\nepoch 3/10\n');

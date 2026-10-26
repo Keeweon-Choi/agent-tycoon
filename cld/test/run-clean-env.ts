@@ -41,6 +41,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 // @ts-expect-error the installer is plain ESM without types
 import { daemonArgs, defaults } from '../install/install.mjs';
 
@@ -293,7 +294,7 @@ async function main() {
       `the status line the engine injected ran cleanly, with no user line to chain (${lines.length} run)`,
     );
     check(
-      fs.existsSync(path.join(home, '.config/cld-gui/usage-claude.json')),
+      fs.existsSync(path.join(configDirectory(home), 'usage-claude.json')),
       "it kept Claude Code's rate_limits in the test HOME (usage-claude.json)",
     );
 

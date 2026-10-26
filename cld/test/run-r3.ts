@@ -21,6 +21,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/r3');
@@ -44,7 +45,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'S-8', agentsJson: true });
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   // The first-run question is answered: this run is about 설정.
   fs.writeFileSync(path.join(configDir, 'new-agent-permission.json'), JSON.stringify({ mode: 'ask' }));
   const folder = path.join(fake.home, 'work', 'lead-a');

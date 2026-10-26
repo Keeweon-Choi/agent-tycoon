@@ -28,6 +28,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { rankSprite } from '../../webview-ui/src/cld/ez/rankSprites.js';
 import { RANK_STYLES } from '../../webview-ui/src/cld/rank.js';
 import { THEME } from '../../webview-ui/src/cld/theme.js';
@@ -161,7 +162,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
   // The roster and its levels, before the daemon starts.
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   fs.mkdirSync(cfg, { recursive: true });
   fs.writeFileSync(
     path.join(cfg, 'roster.json'),

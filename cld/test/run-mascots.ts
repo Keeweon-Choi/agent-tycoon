@@ -29,6 +29,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ch3');
@@ -116,7 +117,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
-  const store = path.join(home, '.config/cld-gui/characters.json');
+  const store = path.join(configDirectory(home), 'characters.json');
   fs.writeFileSync(
     store,
     JSON.stringify({ veteran: { palette: 2, hueShift: 0 }, $meta: { v: 2, pinnedAt: 'x' } }),

@@ -63,6 +63,7 @@ import {
   sparePort,
   startDaemon as launchDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const proxyPort = sparePort(3);
@@ -259,7 +260,7 @@ async function main() {
   const local = `http://localhost:${port}`;
   // Port 443, like tailscale serve: Chromium sends office.test.ts.net:443 to the proxy.
   const canonical = `https://${SERVE_NAME}`;
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   const token = () =>
     fs.readFileSync(path.join(fake.home, '.pixel-agents/standalone-token'), 'utf-8').trim();
   /** A host code (cld-gui-login): a 60 s link code. */

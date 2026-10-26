@@ -25,6 +25,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/card-tags');
@@ -121,7 +122,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/building.json'),
+    path.join(configDirectory(home), 'building.json'),
     JSON.stringify({
       version: 1,
       perProject: false,

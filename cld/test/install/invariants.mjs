@@ -9,8 +9,9 @@
  * --home: fingerprint another HOME (the negative control, and the dev-environment check inside scenarios).
  * --no-system: leave out what is not under HOME (crontab, the real daemon's port, systemctl --user, the Windows Path).
  *
- * ~/.config/cld-gui and ~/.pixel-agents are watched by the files an installer writes or deletes (config.json, the
- * folder itself, server.json, the token), not by every file: the real daemon rewrites its own logs and state all the time.
+ * Both settings folder names and ~/.pixel-agents are watched by the files an installer writes or deletes (config.json,
+ * the folder itself, server.json, the token), not by every file: the real daemon rewrites its own logs and state all the time.
+ * The explicit names are intentional: this checker must detect an installer creating or deleting either folder.
  * ponytail: ~/.claude and ~/.codex are watched by their settings file only; Claude Code rewrites the rest itself.
  */
 import { spawnSync } from 'node:child_process';
@@ -68,11 +69,14 @@ export function snapshot({ home = os.homedir(), system = true } = {}) {
   for (const rc of RC_FILES) out[`rc ${rc}`] = file(h(rc));
   out['claude settings.json'] = file(h('.claude', 'settings.json'));
   out['codex config.toml'] = file(h('.codex', 'config.toml'));
-  out['cld-gui folder'] = identity(h('.config', 'cld-gui'));
-  out['cld-gui config.json'] = file(h('.config', 'cld-gui', 'config.json'));
-  out['cld-gui daemon.pid'] = file(h('.config', 'cld-gui', 'daemon.pid'));
-  out['cld-gui tls'] = names(h('.config', 'cld-gui', 'tls'), '');
+  for (const [name, dir] of [['legacy cld-gui', h('.config', 'cld-gui')], ['agent-tycoon', h('.config', 'agent-tycoon')]]) {
+    out[`${name} folder`] = identity(dir);
+    out[`${name} config.json`] = file(path.join(dir, 'config.json'));
+    out[`${name} daemon.pid`] = file(path.join(dir, 'daemon.pid'));
+    out[`${name} tls`] = names(path.join(dir, 'tls'), '');
+  }
   out['~/.config cld-gui*'] = names(h('.config'), 'cld-gui');
+  out['~/.config agent-tycoon*'] = names(h('.config'), 'agent-tycoon');
   out['pixel-agents folder'] = identity(h('.pixel-agents'));
   for (const f of ['config.json', 'server.json', 'standalone-token']) out[`pixel-agents ${f}`] = file(h('.pixel-agents', f));
   out['pixel-agents layout.json'] = fs.existsSync(h('.pixel-agents', 'layout.json')) ? 'present' : 'absent';

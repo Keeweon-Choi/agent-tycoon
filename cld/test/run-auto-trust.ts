@@ -27,6 +27,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/auto-trust');
@@ -48,7 +49,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
-  fs.writeFileSync(path.join(home, '.config/cld-gui/config.json'), JSON.stringify({ accessChosen: true, port }));
+  fs.writeFileSync(path.join(configDirectory(home), 'config.json'), JSON.stringify({ accessChosen: true, port }));
   const folder = (name: string, mode?: string) => {
     const d = path.join(home, 'projects', name);
     fs.mkdirSync(d, { recursive: true });

@@ -2,12 +2,15 @@
 // with the new version, the engine's sessions are taken over, the CLI works, the data stays; a data-format change
 // takes a rollback snapshot; two old versions are kept, older ones removed; rollback goes back one.
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
 import { release, scenario, serve } from './harness.mjs';
 
+const require = createRequire(import.meta.url);
+const { configDirectory } = require('../../../core/src/cld/configPath.cjs');
 test('INSTALL-6: 1.0.0 -> 1.1.0 -> 1.2.0 (data format change) -> 1.3.0, two old versions kept, rollback one back', { timeout: 60_000 }, async (t) => {
   const s = await scenario('i6-updates'); t.after(() => s.cleanup());
   s.seedData();
@@ -39,9 +42,9 @@ test('INSTALL-6: 1.0.0 -> 1.1.0 -> 1.2.0 (data format change) -> 1.3.0, two old 
 
   r = await s.agty(['update', '--from', rel['1.2.0'].dir]); // a release folder
   assert.equal(r.code, 0, r.out + r.err);
-  assert.match(r.out, /rollback snapshot of .*\.config\/cld-gui/);
+  assert.ok(r.out.includes(`rollback snapshot of ${configDirectory(s.home)}`));
   await check('1.2.0');
-  assert.equal(fs.readFileSync(path.join(s.home, '.config/cld-gui/data-version.txt'), 'utf8'), 'migrated by 1.2.0\n');
+  assert.equal(fs.readFileSync(path.join(configDirectory(s.home), 'data-version.txt'), 'utf8'), 'migrated by 1.2.0\n');
 
   r = await s.agty(['update', '--check', '--json', '--from', web.url]);
   assert.equal(r.code, 0, r.out + r.err);

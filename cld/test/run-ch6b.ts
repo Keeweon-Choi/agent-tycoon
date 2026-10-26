@@ -4,7 +4,7 @@
  * transcript) so the office has a desk; no model is ever called.
  *
  * Desktop: 인테리어 → click the lead's desk → 그림 고치기 → paint a red line → 저장. The daemon
- * writes ~/.config/cld-gui/furniture/custom-desk-front-<time>/ (png + its own manifest, 0600),
+ * writes its settings/furniture/custom-desk-front-<time>/ (png + its own manifest, 0600),
  * the desk switches to it (Ctrl+Z / Ctrl+Y move between the two), Save, a reload keeps it. Phone:
  * the office shows the custom desk. Desktop: 이 그림 지우기 removes the folder and the placed
  * copy goes like a missing asset. Screenshots: cld/artifacts/ch6b/.
@@ -27,6 +27,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ch6b');
@@ -135,7 +136,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
-  const custom = path.join(home, '.config/cld-gui/furniture');
+  const custom = path.join(configDirectory(home), 'furniture');
   const lead = session(home, 'lead', '/work/alpha');
   const started = startDaemon({ home, claudePath }, port, ['--no-terminal'], {});
   const browser = await launchBrowser();

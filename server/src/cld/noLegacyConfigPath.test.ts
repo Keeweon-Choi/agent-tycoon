@@ -6,9 +6,15 @@ import { describe, expect, it } from 'vitest';
 
 import { REPO_ROOT } from './testHome.js';
 
-const ROOTS = ['server/src', 'server/__tests__', 'webview-ui/src', 'cld/install', 'cld/bin', 'core'];
+const ROOTS = ['server/src', 'server/__tests__', 'webview-ui/src', 'cld/install', 'cld/bin', 'cld/test', 'core'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'coverage']);
-const EXEMPT = new Set(['server/src/cld/noLegacyConfigPath.test.ts', 'core/src/cld/configPath.cjs']);
+const EXEMPT = new Set([
+  'server/src/cld/noLegacyConfigPath.test.ts',
+  'core/src/cld/configPath.cjs',
+  'cld/test/install/evidence.sh',
+  'cld/test/install/fake/daemon.cjs',
+  'cld/test/install/invariants.mjs',
+]);
 const LEGACY_PATH = /(?:['"]\.config['"]\s*,\s*['"]cld-gui['"]|\.config[\\/]cld-gui)/;
 
 function* files(dir: string): Generator<string> {

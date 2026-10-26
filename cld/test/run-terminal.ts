@@ -65,6 +65,7 @@ import {
   startDaemon as launchDaemon,
   waitForDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const offPort = sparePort(3);
@@ -801,7 +802,7 @@ async function main() {
       w2.log.join('').includes('2 shell(s) restored'),
       'the new daemon says it restored 2 shells',
     );
-    const saved = path.join(fake.home, '.config/cld-gui/shells.json');
+    const saved = path.join(configDirectory(fake.home), 'shells.json');
     check(
       (fs.statSync(saved).mode & 0o777) === 0o600 &&
         (JSON.parse(fs.readFileSync(saved, 'utf8')) as { shells: unknown[] }).shells.length === 2,

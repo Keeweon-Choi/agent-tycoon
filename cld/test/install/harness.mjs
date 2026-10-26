@@ -22,6 +22,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +34,8 @@ import { currentOs, sha256File } from '../../release/bundle/verify.mjs';
 import { snapshot, tree } from './invariants.mjs';
 
 export { snapshot, tree };
+const require = createRequire(import.meta.url);
+const { configDirectory, legacyConfigDirectory } = require('../../../core/src/cld/configPath.cjs');
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO = path.resolve(here, '..', '..', '..');
 /** The install script under test; the negative control points this at a copy with a check removed. */
@@ -66,7 +69,7 @@ for (const t of TOOLS) {
 function managerFiles() {
   const install = fs.readdirSync(path.join(REPO, 'cld', 'install')).filter((f) => f.endsWith('.mjs') && !f.endsWith('.test.mjs')).map((f) => `cld/install/${f}`);
   const bin = fs.readdirSync(path.join(REPO, 'cld', 'bin')).filter((f) => !f.endsWith('.test.mjs')).map((f) => `cld/bin/${f}`);
-  return [...install, ...bin, 'cld/release/bundle/verify.mjs', 'core/src/exposureLedger.mjs', 'core/src/remoteSetupPlan.mjs', 'package.json'];
+  return [...install, ...bin, 'cld/release/bundle/verify.mjs', 'core/src/exposureLedger.mjs', 'core/src/remoteSetupPlan.mjs', 'core/src/cld/configPath.cjs', 'package.json'];
 }
 
 /**
@@ -163,18 +166,19 @@ export async function scenario(name, { agents = true } = {}) {
     flag: (name, version, content = '') => fs.writeFileSync(path.join(dirs.ctl, `${name}-${version}`), String(content)),
     unflag: (name, version) => fs.rmSync(path.join(dirs.ctl, `${name}-${version}`), { force: true }),
     /** { rel: sha256 } of the regular files under HOME/<rel> (sockets and links left out). */
-    files: (rel = '.config/cld-gui') => {
+    files: (rel = path.relative(home, configDirectory(home))) => {
       const dir = path.join(home, rel);
       if (!fs.existsSync(dir)) return null;
       return Object.fromEntries(fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name)).sort().map((f) => [path.relative(dir, f), sha(fs.readFileSync(f))]));
     },
-    /** A fixed set of user data: ~/.config/cld-gui (projects, tasks, chat), ~/.claude, ~/.codex. */
+    /** A fixed existing-user data set deliberately uses the legacy folder, so selection remains backwards compatible. */
     seedData: () => {
       const put = (rel, text) => { const f = path.join(home, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
-      put('.config/cld-gui/projects.json', '{"v":2,"projects":[{"name":"shop","path":"~/work/shop"}]}\n');
-      put('.config/cld-gui/tasks.json', '{"v":2,"tasks":[{"id":"T-1","title":"keep me"}]}\n');
-      put('.config/cld-gui/groups/team.jsonl', '{"from":"boss","text":"hello"}\n');
-      put('.config/cld-gui/passkeys.json', '{"keys":["test"]}\n');
+      const legacy = path.relative(home, legacyConfigDirectory(home));
+      put(path.join(legacy, 'projects.json'), '{"v":2,"projects":[{"name":"shop","path":"~/work/shop"}]}\n');
+      put(path.join(legacy, 'tasks.json'), '{"v":2,"tasks":[{"id":"T-1","title":"keep me"}]}\n');
+      put(path.join(legacy, 'groups/team.jsonl'), '{"from":"boss","text":"hello"}\n');
+      put(path.join(legacy, 'passkeys.json'), '{"keys":["test"]}\n');
       put('.claude/settings.json', '{"theme":"dark"}\n');
       put('.claude/projects/-work-shop/s1.jsonl', '{"type":"user"}\n');
       put('.codex/config.toml', 'model = "test"\n');

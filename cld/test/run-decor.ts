@@ -21,6 +21,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -252,7 +253,7 @@ async function main(): Promise<void> {
           decorated(lastLayout()!, rectOf(lastLayout()!, 'orch-gamma')),
           'save composes the painted room and plant',
         );
-        const decorFile = path.join(fake.home, '.config/cld-gui/decor.json');
+        const decorFile = path.join(configDirectory(fake.home), 'decor.json');
         check(
           fs.existsSync(decorFile) && (fs.statSync(decorFile).mode & 0o777) === 0o600,
           'decor.json exists with mode 0600',

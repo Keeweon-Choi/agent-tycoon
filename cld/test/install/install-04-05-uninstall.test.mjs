@@ -4,11 +4,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 
 import { release, scenario, snapshot } from './harness.mjs';
 
+const require = createRequire(import.meta.url);
+const { configDirectory, legacyConfigDirectory } = require('../../../core/src/cld/configPath.cjs');
 const r1 = release('1.0.0');
 const devenv = (s) => { const v = snapshot({ home: s.home, system: false }); return Object.fromEntries(Object.entries(v).filter(([k]) => /^(rc |claude|codex|nvm|fnm|volta|login|interactive|npm)/.test(k))); };
 
@@ -29,7 +32,7 @@ test('INSTALL-4: uninstall --program removes the program and keeps every piece o
   assert.equal(fs.existsSync(path.join(s.home, '.config/systemd/user/agent-tycoon.service')), false);
   assert.ok(s.calls().some((c) => c.join(' ') === 'systemctl --user disable --now agent-tycoon'));
   assert.equal(s.daemons().length, 0); assert.equal(await s.health(), null);
-  assert.deepEqual(s.files(), data, '~/.config/cld-gui unchanged, file by file');
+  assert.deepEqual(s.files(), data, 'settings data unchanged, file by file');
   assert.deepEqual(s.files('.claude'), claude); assert.deepEqual(s.files('.codex'), codex);
   assert.deepEqual(devenv(s), env);
 
@@ -63,7 +66,7 @@ test('INSTALL-5: uninstall --reset shows its list, removes our data only; backup
 
   r = await s.agty(['uninstall', '--reset', '--dry-run']);
   assert.equal(r.code, 0, r.out + r.err);
-  assert.match(r.out, new RegExp(`5\\. 완전 초기화: .*${s.home}/\\.config/cld-gui`));
+  assert.ok(r.out.split('\n').some((line) => line.startsWith('5. 완전 초기화:') && line.includes(configDirectory(s.home))));
   assert.match(r.out, /남김\(공유 Pixel Agents 파일\): .*layout\.json/);
   assert.match(r.out, /DRY-RUN: 변경하지 않았습니다/);
   assert.deepEqual(s.files(), before.data, 'a dry run changes nothing');
@@ -75,7 +78,8 @@ test('INSTALL-5: uninstall --reset shows its list, removes our data only; backup
 
   r = await s.agty(['uninstall', '--reset', '--yes']);
   assert.equal(r.code, 0, r.out + r.err);
-  assert.equal(fs.existsSync(path.join(s.home, '.config/cld-gui')), false, 'our data folder is gone');
+  for (const dataFolder of [legacyConfigDirectory(s.home), path.join(s.home, '.config', 'agent-tycoon')])
+    assert.equal(fs.existsSync(dataFolder), false, `${dataFolder}: our data folder is gone`);
   for (const f of ['standalone-state.json', 'standalone-token', 'server.json']) assert.equal(fs.existsSync(path.join(s.home, '.pixel-agents', f)), false, f);
   for (const f of ['layout.json', 'config.json', 'vscode-state.json', 'hooks/claude-hook.js']) assert.ok(fs.existsSync(path.join(s.home, '.pixel-agents', f)), `${f} kept`);
   assert.equal(fs.existsSync(s.root), false);

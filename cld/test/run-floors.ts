@@ -37,6 +37,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -205,7 +206,7 @@ async function main() {
     fake.home,
     '.claude/projects/-work-orch-gamma/a0000007-0000-4000-8000-000000000007.jsonl',
   );
-  const buildingFile = path.join(fake.home, '.config/cld-gui/building.json');
+  const buildingFile = path.join(configDirectory(fake.home), 'building.json');
   const received: Array<Record<string, unknown>> = [];
   const pageErrors: string[] = [];
   const font = fs.readFileSync(FONT);

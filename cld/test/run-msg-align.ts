@@ -27,6 +27,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/msg-align');
@@ -52,9 +53,9 @@ async function main() {
   fs.mkdirSync(sessions, { recursive: true });
   const folder = path.join(home, 'work', 'alpha');
   fs.mkdirSync(folder, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       ['alpha', 'beta', 'gamma'].map((name) => {
         const dir = path.join(home, 'work', name);
@@ -67,7 +68,7 @@ async function main() {
   const now = Date.now();
   const employee = STAFF_NAMES[0];
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/roster.json'),
+    path.join(configDirectory(home), 'roster.json'),
     JSON.stringify({
       v: 1,
       projects: {

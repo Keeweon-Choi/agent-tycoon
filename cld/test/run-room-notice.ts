@@ -24,6 +24,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 if (process.argv.length < 4 || process.argv[2] === process.argv[3])
   throw new Error(
@@ -99,7 +100,7 @@ async function main() {
   const { home, bin } = makeEngineHome();
   // Our own temp HOME: its daemon's port is the spare one, never the live daemon's.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const folders = Object.fromEntries(
@@ -107,9 +108,9 @@ async function main() {
   );
   for (const folder of Object.values(folders)) fs.mkdirSync(folder, { recursive: true });
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       fixture.members.map((name) => ({
         name,
@@ -128,7 +129,7 @@ async function main() {
     format: 'jwk',
   });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/push.json'),
+    path.join(configDirectory(home), 'push.json'),
     JSON.stringify({
       vapid: {
         publicKey: Buffer.concat([

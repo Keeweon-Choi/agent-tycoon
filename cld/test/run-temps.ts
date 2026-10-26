@@ -37,6 +37,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0041');
@@ -160,7 +161,7 @@ async function main() {
   const vetDir = path.join(home, 'work', 'veteran');
   fs.mkdirSync(vetDir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'veteran', folder: vetDir, wantRunning: true }]),
   );
   const done = (id: string, state: 'done' | 'failed', spec: string) =>

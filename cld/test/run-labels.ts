@@ -31,6 +31,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import propData from '../../webview-ui/src/cld/ez/props.json';
 
 const port = sparePort();
@@ -248,7 +249,7 @@ async function main() {
   const veteranDir = path.join(home, 'work', 'veteran');
   fs.mkdirSync(veteranDir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'veteran', folder: veteranDir, wantRunning: true }]),
   );
   const { proc, transcript } = startLead(fake.home);

@@ -26,6 +26,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const DIRECT_PORT = sparePort(3);
@@ -84,7 +85,7 @@ async function main() {
   await assertPortFree(port, DIRECT_PORT);
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'S-8', accessChosen: false, agentsJson: true });
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.json'),

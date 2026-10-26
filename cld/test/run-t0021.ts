@@ -37,6 +37,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const lhmPort = sparePort(3);
@@ -87,7 +88,7 @@ async function main() {
   git(['commit', '-q', '-m', 'init']);
   fs.writeFileSync(path.join(work, 'spec-limit.md'), '# 한도에 걸리는 일\n');
   fs.writeFileSync(path.join(work, 'spec-done.md'), '# 끝나는 일\n');
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   fs.mkdirSync(cfg, { recursive: true });
   fs.writeFileSync(
     path.join(cfg, 'projects.json'),

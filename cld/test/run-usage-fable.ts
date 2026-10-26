@@ -23,6 +23,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/usage-fable');
@@ -52,7 +53,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const plugin = path.join(

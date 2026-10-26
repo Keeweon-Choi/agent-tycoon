@@ -4,12 +4,15 @@
 // The app finding the WSL daemon from Windows is manual (cld/docs/test/install-owner-checklist.md).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 
 import { mergeConfig, renderSystemdUnit } from '../../install/install.mjs';
 import { release, scenario, tree, until } from './harness.mjs';
 
+const require = createRequire(import.meta.url);
+const { legacyConfigDirectory } = require('../../../core/src/cld/configPath.cjs');
 const OUTSIDE = new Set(['sudo', 'loginctl', 'wsl', 'wsl.exe', 'powershell', 'powershell.exe', 'schtasks', 'schtasks.exe', 'netsh', 'netsh.exe', 'reg.exe', 'crontab']);
 const r1 = release('1.0.0');
 
@@ -47,8 +50,9 @@ test('INSTALL-2: a running source install (cld-gui service) is adopted, not doub
   fs.writeFileSync(path.join(repo, 'manifest.json'), JSON.stringify({ version: 'source', protocol: 1 }));
   fs.writeFileSync(path.join(repo, 'cld', 'bin', 'cld-gui'), '// source cli\n');
   const config = mergeConfig({ port: s.port });
-  fs.mkdirSync(path.join(s.home, '.config/cld-gui'), { recursive: true });
-  fs.writeFileSync(path.join(s.home, '.config/cld-gui/config.json'), JSON.stringify(config));
+  // This source-install adoption fixture deliberately models an older install's legacy settings folder.
+  fs.mkdirSync(legacyConfigDirectory(s.home), { recursive: true });
+  fs.writeFileSync(path.join(legacyConfigDirectory(s.home), 'config.json'), JSON.stringify(config));
   const oldUnit = path.join(s.home, '.config/systemd/user/cld-gui.service');
   fs.mkdirSync(path.dirname(oldUnit), { recursive: true });
   fs.writeFileSync(oldUnit, renderSystemdUnit({ repo, node: process.execPath, home: s.home, config, name: 'cld-gui' }));

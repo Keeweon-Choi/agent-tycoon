@@ -37,6 +37,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const baseArg = process.argv.indexOf('--base');
@@ -68,7 +69,7 @@ async function until(what: string, fn: () => Promise<boolean> | boolean, ms = 15
 function session(home: string) {
   // The same look on both builds (the daemon otherwise picks one): built-in sheet 0.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/characters.json'),
+    path.join(configDirectory(home), 'characters.json'),
     JSON.stringify({ lead: { palette: 0, hueShift: 0 } }),
   );
   const cwd = '/work/alpha';
@@ -462,9 +463,9 @@ async function main() {
     const fake = makeEngineHome();
     home = fake.home;
     lead = session(home);
-    fs.mkdirSync(path.join(home, '.config/cld-gui/characters'), { recursive: true });
+    fs.mkdirSync(path.join(configDirectory(home), 'characters'), { recursive: true });
     for (const f of ['bunny-hd-sample.png', 'bunny-hd-sample.json'])
-      fs.copyFileSync(path.join(HD_SAMPLE, f), path.join(home, '.config/cld-gui/characters', f));
+      fs.copyFileSync(path.join(HD_SAMPLE, f), path.join(configDirectory(home), 'characters', f));
     daemon = startDaemon({ home, claudePath: fake.claudePath }, port, ['--no-terminal'], {});
 
     // ── Pixel identity with the new modes off, and idle frames ──

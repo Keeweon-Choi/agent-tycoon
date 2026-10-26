@@ -23,6 +23,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/notice-dedup');
@@ -111,7 +112,7 @@ async function main() {
   const vetDir = path.join(home, 'work', 'veteran');
   fs.mkdirSync(vetDir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'veteran', folder: vetDir, wantRunning: false }]),
   );
   const jobId = seedJob(home, {
@@ -123,7 +124,7 @@ async function main() {
     exit: 0,
   });
   const { proc, transcript } = startLead(home);
-  const events = path.join(home, '.config/cld-gui/events.jsonl');
+  const events = path.join(configDirectory(home), 'events.jsonl');
   const daemon = startDaemon({ home, claudePath }, port, [
     '--no-terminal',
     '--engine',

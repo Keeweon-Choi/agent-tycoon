@@ -1,7 +1,7 @@
 /**
  * O4 first-run onboarding check: a fresh HOME's first office open shows the
  * Intro's skip-permissions step (F-11); the choice (the permission mode NEW agents
- * start with) is saved once (~/.config/cld-gui/new-agent-permission.json) and seeds a
+ * start with) is saved once (new-agent-permission.json in the settings directory) and seeds a
  * project added afterwards, never one that already existed; the old upstream
  * host-wide flag is not read;
  * the remote-first-then-phone step follows and links to the existing 접속 방식
@@ -24,6 +24,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/o4');
@@ -44,7 +45,7 @@ async function main() {
   const choice = (): string | undefined => {
     try {
       return JSON.parse(
-        fs.readFileSync(path.join(fake.home, '.config/cld-gui/new-agent-permission.json'), 'utf8'),
+        fs.readFileSync(path.join(configDirectory(fake.home), 'new-agent-permission.json'), 'utf8'),
       ).mode;
     } catch {
       return undefined;

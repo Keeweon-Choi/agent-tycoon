@@ -33,6 +33,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/temp-plates');
@@ -169,12 +170,12 @@ async function main() {
       ).__pixelAgentsTestHooks.selectAgent(id as number);
     }, id);
   const roster = () =>
-    JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/roster.json'), 'utf-8')) as {
+    JSON.parse(fs.readFileSync(path.join(configDirectory(home), 'roster.json'), 'utf-8')) as {
       projects: Record<string, { employees: Array<{ id: string; nameId: string; execution: string | null }>; executions: Record<string, { employee: string }> }>;
     };
   const xpOf = (employee: string): number => {
     try {
-      const l = JSON.parse(fs.readFileSync(path.join(home, '.config/cld-gui/levels.json'), 'utf-8'));
+      const l = JSON.parse(fs.readFileSync(path.join(configDirectory(home), 'levels.json'), 'utf-8'));
       return l.levels[`emp:${employee}`]?.xp ?? 0;
     } catch {
       return 0;

@@ -28,6 +28,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ch6');
@@ -127,8 +128,8 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
-  const store = path.join(home, '.config/cld-gui/characters.json');
-  const presetDir = path.join(home, '.config/cld-gui/characters');
+  const store = path.join(configDirectory(home), 'characters.json');
+  const presetDir = path.join(configDirectory(home), 'characters');
   fs.writeFileSync(store, JSON.stringify({ $meta: { v: 2, pinnedAt: 'x' } }));
   const lead = session(home, 'lead', '/work/alpha');
   const started = startDaemon({ home, claudePath }, port, ['--no-terminal'], {});

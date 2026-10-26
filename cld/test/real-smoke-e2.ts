@@ -36,6 +36,7 @@ import { Messenger } from '../../server/src/cld/engine/messenger.js';
 import { readLiveSessions } from '../../server/src/cld/engine/agents/claude/sessions.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import { REPO_ROOT } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 if (!process.argv.includes('--yes-real-claude')) {
   console.error('real claude, 2 prompts: pass --yes-real-claude');
@@ -91,7 +92,7 @@ async function main() {
   const engine = new Engine({
     claudePath: CLAUDE,
     home: HOME,
-    registryFile: path.join(state, '.config/cld-gui/projects.json'),
+    registryFile: path.join(configDirectory(state), 'projects.json'),
     readOnly: false,
     log: (l) => log(l),
     event: (type, source, fields) => events.append(type, source, fields),
@@ -263,7 +264,7 @@ async function main() {
       log(
         'inbox files left',
         fs
-          .readdirSync(path.join(state, '.config/cld-gui/inbox', name))
+          .readdirSync(path.join(configDirectory(state), 'inbox', name))
           .filter((f) => f.endsWith('.md')).length,
       );
     }
@@ -359,7 +360,7 @@ async function main() {
     log(
       'handoff waits in the inbox (typing was off)',
       fs
-        .readdirSync(path.join(state, '.config/cld-gui/inbox', name))
+        .readdirSync(path.join(configDirectory(state), 'inbox', name))
         .filter((f) => f.endsWith('.md')).length,
     );
 

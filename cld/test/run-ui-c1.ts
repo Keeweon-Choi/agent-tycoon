@@ -32,6 +32,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ui-c1');
 /** The 작업실 picker's entry for items of no project (webview-ui/src/cld/workbench/workbench.ts NO_PROJECT). */
@@ -119,7 +120,7 @@ async function main() {
     });
     if (r.status !== 0) throw new Error(`cld-gui ${args.join(' ')}: ${r.status} ${r.stderr}`);
   };
-  const events = path.join(fake.home, '.config/cld-gui/events.jsonl');
+  const events = path.join(configDirectory(fake.home), 'events.jsonl');
   const cleanup = () => {
     for (const s of sleepers) s.kill('SIGKILL');
     if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill('SIGKILL');

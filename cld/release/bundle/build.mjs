@@ -196,7 +196,7 @@ async function main() {
   );
   fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(stage, 'package.json'));
   // The manager (P2, H §2.1) runs from the installed version with the private Node: cld/install
-  // plus the two dependency-free core modules it imports, and the bundle verifier for updates.
+  // plus the dependency-free core modules it and cld/bin import, and the bundle verifier for updates.
   const manager = [
     ...fs
       .readdirSync(path.join(ROOT, 'cld', 'install'))
@@ -205,6 +205,7 @@ async function main() {
     'cld/release/bundle/verify.mjs',
     'core/src/exposureLedger.mjs',
     'core/src/remoteSetupPlan.mjs',
+    'core/src/cld/configPath.cjs',
   ];
   for (const rel of manager) {
     fs.mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });

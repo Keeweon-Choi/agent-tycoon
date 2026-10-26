@@ -33,6 +33,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/winmodel');
@@ -55,7 +56,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   fs.writeFileSync(path.join(cfg, 'config.json'), JSON.stringify({ accessChosen: true, port }));
   const sessions = path.join(home, '.claude/sessions');
   fs.mkdirSync(sessions, { recursive: true });

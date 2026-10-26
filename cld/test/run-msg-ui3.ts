@@ -29,6 +29,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/msg-ui3');
@@ -57,9 +58,9 @@ async function main() {
   fs.mkdirSync(sessions, { recursive: true });
   const folder = path.join(home, 'work', 'alpha');
   fs.mkdirSync(folder, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       ['alpha', 'beta', 'gamma'].map((name) => {
         const dir = path.join(home, 'work', name);
@@ -315,7 +316,7 @@ async function main() {
         return { status: r.status, type: r.headers.get('content-type'), w: view.getUint32(16), h: view.getUint32(20) };
       });
       check(served.status === 200 && served.type === 'image/png' && served.w === 128 && served.h === 128, `server: serves a 128x128 PNG (${JSON.stringify(served)})`);
-      const stored = path.join(home, '.config/cld-gui/profile/owner.png');
+      const stored = path.join(configDirectory(home), 'profile/owner.png');
       check((fs.statSync(stored).mode & 0o777) === 0o600, 'server: the stored file is 0600');
       const anon = await fetch(`http://127.0.0.1:${port}/cld/profile/owner.png`);
       check(anon.status === 401, 'server: no login, no picture');

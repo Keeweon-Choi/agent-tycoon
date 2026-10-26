@@ -7,12 +7,15 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 
 import { stampInstallers } from '../../release/stamp-installers.mjs';
 import { ARCH, EVIL, INSTALL_SH, KEY, OS, release, scenario, serve } from './harness.mjs';
 
+const require = createRequire(import.meta.url);
+const { legacyConfigDirectory } = require('../../../core/src/cld/configPath.cjs');
 const MARK = 'substituted-bundle-ran';
 /** A complete, well-formed bundle that is not the signed one: its wizard leaves a mark if it is ever run. */
 const substitute = () => release('1.0.0', { files: { 'cld/install/wizard.mjs': `import fs from 'node:fs';\nfs.writeFileSync(process.env.AT_TEST_CTL + '/${MARK}', 'ran');\n` } });
@@ -20,7 +23,8 @@ const substitute = () => release('1.0.0', { files: { 'cld/install/wizard.mjs': `
 function nothingInstalled(s, what) {
   assert.equal(fs.existsSync(s.root), false, `${what}: no install root`);
   assert.equal(fs.existsSync(path.join(s.home, '.config/systemd/user')), false, `${what}: no service`);
-  assert.equal(fs.existsSync(path.join(s.home, '.config/cld-gui')), false, `${what}: no data folder`);
+  for (const dataFolder of [legacyConfigDirectory(s.home), path.join(s.home, '.config', 'agent-tycoon')])
+    assert.equal(fs.existsSync(dataFolder), false, `${what}: no data folder at ${dataFolder}`);
   assert.equal(fs.existsSync(path.join(s.ctl, MARK)), false, `${what}: nothing from the refused bundle ran`);
   assert.deepEqual(fs.readdirSync(s.env.TMPDIR), [], `${what}: the temp folder is gone`);
   assert.equal(s.daemons().length, 0);

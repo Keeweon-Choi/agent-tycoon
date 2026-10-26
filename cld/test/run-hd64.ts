@@ -28,6 +28,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/hd64');
@@ -62,7 +63,7 @@ function check(ok: unknown, what: string): void {
 
 function session(home: string) {
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/characters.json'),
+    path.join(configDirectory(home), 'characters.json'),
     JSON.stringify({ lead: LOOK }),
   );
   const cwd = '/work/alpha';

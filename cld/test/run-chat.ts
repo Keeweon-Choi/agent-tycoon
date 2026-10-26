@@ -24,6 +24,7 @@ import * as path from 'path';
 import { WebSocket } from 'ws';
 
 import type { FakeHome } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   type Daemon,
@@ -494,7 +495,7 @@ async function main() {
     await capGroup.getByRole('button', { name: '2', exact: true }).click();
     await page.waitForTimeout(500);
     const kept = JSON.parse(
-      fs.readFileSync(path.join(a.home, '.config/cld-gui/terminal.json'), 'utf8'),
+      fs.readFileSync(path.join(configDirectory(a.home), 'terminal.json'), 'utf8'),
     ) as { chatAttaches: number };
     check(kept.chatAttaches === 2, '설정: the daemon kept the cap (terminal.json)');
     await shot(page, 'desktop-settings-cap');

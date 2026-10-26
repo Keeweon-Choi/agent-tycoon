@@ -29,6 +29,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/iso-2');
@@ -135,7 +136,7 @@ const HD64 = {
 
 function makeHome() {
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });
-  const cfg = path.join(fake.home, '.config/cld-gui');
+  const cfg = configDirectory(fake.home);
   fs.writeFileSync(
     path.join(cfg, 'building.json'),
     JSON.stringify({

@@ -12,7 +12,9 @@ set -u
 out=${1:-$HOME/agent-tycoon-evidence-$(date +%Y%m%d-%H%M%S).txt}
 here=$(cd "$(dirname "$0")" && pwd)
 root=${AGENT_TYCOON_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-tycoon}
-data=$HOME/.config/cld-gui
+# This mirrors core/src/cld/configPath.cjs because this standalone diagnostic cannot require it.
+legacy=$HOME/.config/cld-gui
+if [ -d "$legacy" ]; then data=$legacy; else data=$HOME/.config/agent-tycoon; fi
 port=$(sed -n 's/^ *"port": *\([0-9]*\).*/\1/p' "$data/config.json" 2>/dev/null | head -1)
 port=${port:-18240}
 

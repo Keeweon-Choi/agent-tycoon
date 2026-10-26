@@ -43,6 +43,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const proxyPort = sparePort(3);
@@ -125,7 +126,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'S-8', agentsJson: true });
   const certDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-o5-tls-'));
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   // The fake network: nothing served by a real tailscale, nothing else asked.
   const factsFile = path.join(fake.home, 'remote-facts.json');
   fs.writeFileSync(factsFile, JSON.stringify({ tailscale: {} }));

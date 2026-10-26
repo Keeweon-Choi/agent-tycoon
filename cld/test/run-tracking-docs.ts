@@ -34,6 +34,7 @@ import {
   startDaemon,
   writeEngineProjects,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/u48b');
 const CLI = path.join(REPO_ROOT, 'cld/bin/cld-gui');
@@ -108,7 +109,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({});
   const home = fake.home;
-  const config = path.join(home, '.config/cld-gui/config.json');
+  const config = path.join(configDirectory(home), 'config.json');
   fs.writeFileSync(config, JSON.stringify({ ...JSON.parse(fs.readFileSync(config, 'utf-8')), port }));
   const folder = path.join(home, 'work', PROJECT);
   fs.mkdirSync(path.join(folder, 'notes'), { recursive: true });
@@ -309,7 +310,7 @@ async function main() {
     await road.locator('button[aria-expanded]').first().click();
     await road.getByTestId('tracked-hide').click();
     await until('desktop: the hidden card leaves the board', async () => (await docCard(desk, 'ROADMAP.md').count()) === 0);
-    const stored = path.join(home, '.config/cld-gui/tracking.json');
+    const stored = path.join(configDirectory(home), 'tracking.json');
     const st = fs.statSync(stored);
     const json = JSON.parse(fs.readFileSync(stored, 'utf-8')) as { v: number; projects: Record<string, { docs: { on: string[] }; shortIds: boolean; hidden: string[] }> };
     check((st.mode & 0o777) === 0o600, 'tracking.json is 0600');

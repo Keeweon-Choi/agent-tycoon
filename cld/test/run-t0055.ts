@@ -29,6 +29,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -69,7 +70,7 @@ async function main() {
   fs.mkdirSync(alphaDir, { recursive: true });
   // One project the engine revives.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder: alphaDir, wantRunning: true }]),
   );
   const plugin = path.join(

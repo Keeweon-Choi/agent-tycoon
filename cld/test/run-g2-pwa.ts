@@ -22,6 +22,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/g2-pwa');
@@ -47,14 +48,14 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   const folder = path.join(home, 'work', 'alpha');
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder, wantRunning: true }]),
   );
   const daemon = startDaemon(

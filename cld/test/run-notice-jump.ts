@@ -21,6 +21,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/notice-jump');
@@ -46,14 +47,14 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   const folders = Object.fromEntries(LEADS.map((name) => [name, path.join(home, 'work', name)]));
   for (const folder of Object.values(folders)) fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(LEADS.map((name) => ({ name, folder: folders[name], wantRunning: true }))),
   );
   const daemon = startDaemon(

@@ -37,6 +37,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { TEMPLATE, templateColor } from '../../webview-ui/src/cld/characters/template.js';
 import { ACTIVITY_IDLE_DIM } from '../../webview-ui/src/constants.js';
 import { adjustSprite } from '../../webview-ui/src/office/colorize.js';
@@ -147,7 +148,7 @@ async function pinAcrossRestarts(): Promise<void> {
       wantRunning: false,
     },
   ]);
-  const store = path.join(fake.home, '.config/cld-gui/characters.json');
+  const store = path.join(configDirectory(fake.home), 'characters.json');
   // beta was chosen before this version; eta has a v2 look this build cannot draw yet (it is
   // drawn on its base sheet); the other six names never were chosen.
   fs.writeFileSync(
@@ -312,8 +313,8 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });
   const launch = () => startDaemon(fake, port, ['--no-terminal']);
-  const presetsDir = path.join(fake.home, '.config/cld-gui/characters');
-  const store = path.join(fake.home, '.config/cld-gui/characters.json');
+  const presetsDir = path.join(configDirectory(fake.home), 'characters');
+  const store = path.join(configDirectory(fake.home), 'characters.json');
   const received: Array<Record<string, unknown>> = [];
   /** Every request body and WebSocket frame the browser sent (as text, and raw). */
   const outgoing: string[] = [];

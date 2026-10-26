@@ -35,6 +35,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0050');
@@ -106,7 +107,6 @@ async function main() {
     '.ssh/id_rsa',
     '.ssh/config',
     '.claude/.credentials.json',
-    '.config/cld-gui/secret.json',
     '.local/share/office/run/state.json',
     '.aws/credentials',
     '.gnupg/pubring.kbx',
@@ -120,6 +120,7 @@ async function main() {
     '.config/gh/hosts.yml',
   ])
     write(h(p), SECRET);
+  write(path.join(configDirectory(home), 'secret.json'), SECRET);
   write(h('.local/share/office/notes.txt'), 'office notes');
   write(h('.config/app/settings.ini'), 'theme=dark');
 
@@ -176,9 +177,9 @@ async function main() {
     write(path.join(bob, p), SECRET);
   write(path.join(bob, 'Documents/report.md'), '# Windows report\n');
 
-  fs.mkdirSync(h('.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    h('.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([
       { name: 'alpha', folder: alpha, room: '개발실', wantRunning: false },
       { name: 'feature', folder: feature, room: '개발실', wantRunning: false },
@@ -521,8 +522,8 @@ async function main() {
       h('.SSH'),
       h('.claude'),
       h('.ClAuDe/sessions'),
-      h('.config/cld-gui'),
-      h('.CONFIG/Cld-Gui'),
+      configDirectory(home),
+      configDirectory(home).toUpperCase(),
       h('.pixel-agents'),
       h('.aws'),
       h('.gnupg'),
@@ -590,7 +591,7 @@ async function main() {
       [home, '.ssh/config'],
       [home, '.SSH/config'],
       [home, '.claude/.credentials.json'],
-      [home, '.config/cld-gui/secret.json'],
+      [configDirectory(home), 'secret.json'],
       [home, '.pixel-agents/standalone-token'],
       [home, 'work/alpha/escape/config'],
       [home, 'work/../.ssh/config'],

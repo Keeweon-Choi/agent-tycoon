@@ -26,6 +26,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0018');
@@ -112,7 +113,7 @@ async function main() {
   const { home, bin } = makeEngineHome();
   // Our own temp HOME: its daemon's port is the spare one, never the live daemon's.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/config.json'),
+    path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
   const daemon = startDaemon({ home, claudePath: path.join(bin, 'claude') }, port, [
@@ -424,10 +425,10 @@ async function main() {
     );
     // D2: the project in projects.json v2, its agent (wantRunning, launch options) in assignments.json.
     const file = JSON.parse(
-      fs.readFileSync(path.join(home, '.config/cld-gui/projects.json'), 'utf-8'),
+      fs.readFileSync(path.join(configDirectory(home), 'projects.json'), 'utf-8'),
     ) as { v: number; projects: Array<Record<string, unknown>> };
     const agents = JSON.parse(
-      fs.readFileSync(path.join(home, '.config/cld-gui/assignments.json'), 'utf-8'),
+      fs.readFileSync(path.join(configDirectory(home), 'assignments.json'), 'utf-8'),
     ) as { v: number; assignments: Array<Record<string, unknown>> };
     const registry = file.projects;
     const lead = agents.assignments;

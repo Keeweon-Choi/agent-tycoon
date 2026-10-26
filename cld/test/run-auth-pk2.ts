@@ -36,6 +36,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/auth-pk2');
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({});
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   const devicesFile = path.join(configDir, 'devices.json');
   fs.writeFileSync(
     path.join(configDir, 'passkeys.json'),

@@ -23,6 +23,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/board2');
@@ -97,9 +98,9 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
   const ts = (ago: number) => new Date(Date.now() - ago * 1000).toISOString().replace(/\.\d+Z$/, 'Z');
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/events.jsonl'),
+    path.join(configDirectory(home), 'events.jsonl'),
     [
       { type: 'send', ts: ts(300), source: 'messenger:phone', to: 'lead', delivered: 'pane' },
       { type: 'send', ts: ts(50), source: 'cli', to: 'lead', delivered: 'pane' },

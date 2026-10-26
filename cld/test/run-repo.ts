@@ -34,6 +34,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0020');
@@ -154,13 +155,13 @@ async function main() {
   const fake = { home, claudePath };
   // The engine project alpha works in the temp clone.
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder: repo.folder, wantRunning: false }]),
   );
   // Two task worktrees: `login` has a commit nobody merged and a loose file,
   // `docs` is fresh (merged, clean).
   const worktrees = new Worktrees({
-    file: path.join(fake.home, '.config/cld-gui/worktrees.json'),
+    file: path.join(configDirectory(fake.home), 'worktrees.json'),
     run: repo.run,
     log: () => undefined,
   });

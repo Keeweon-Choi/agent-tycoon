@@ -31,6 +31,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { composePerson } from '../../webview-ui/src/cld/characters/parts.js';
 
 const port = sparePort();
@@ -156,8 +157,8 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
-  const store = path.join(home, '.config/cld-gui/characters.json');
-  const partsDir = path.join(home, '.config/cld-gui/parts');
+  const store = path.join(configDirectory(home), 'characters.json');
+  const partsDir = path.join(configDirectory(home), 'parts');
   fs.writeFileSync(store, JSON.stringify({ $meta: { v: 2, pinnedAt: 'x' } }));
   const rows = ['down', 'up', 'right'] as const;
   const drawingFile = (row: string) => path.join(home, `top-redhoodie-f-${row}.png`);

@@ -10,6 +10,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const directPort = sparePort(3);
@@ -18,7 +19,7 @@ if (port === directPort) throw new Error('daemon and direct ports must differ');
 async function main() {
   await assertPortFree(port, directPort);
   const fake = makeFakeHome({ claude: 'S-8', accessChosen: false, agentsJson: true });
-  const configDir = path.join(fake.home, '.config/cld-gui');
+  const configDir = configDirectory(fake.home);
   fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(
     path.join(configDir, 'config.json'),

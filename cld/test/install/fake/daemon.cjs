@@ -4,7 +4,7 @@
 // `--self-test`, and ~/.pixel-agents/server.json. Behaviour per version comes from files in $AT_TEST_CTL:
 //   selftest-fail-<v>   self-test exits 1          selftest-sleep-<v>  self-test waits (an update to interrupt)
 //   health-delay-<v>    ms before listening        crash-<v>           exits 1 at start (after migrate-<v>)
-//   migrate-<v>         writes ~/.config/cld-gui/data-version.txt at start (a data migration)
+//   migrate-<v>         writes data-version.txt in the selected settings directory at start (a data migration)
 //   projects.json       the engine's projects ([{ name, state }]), the same for every version
 const fs = require('fs');
 const http = require('http');
@@ -26,7 +26,9 @@ if (process.argv.includes('--self-test')) {
 }
 
 const port = Number(process.argv[process.argv.indexOf('--port') + 1]);
-const data = path.join(os.homedir(), '.config', 'cld-gui');
+// This file is copied into a bundle, so it cannot require the repo; core/src/cld/configPath.cjs is the source of truth.
+const legacy = path.join(os.homedir(), '.config', 'cld-gui');
+const data = fs.existsSync(legacy) ? legacy : path.join(os.homedir(), '.config', 'agent-tycoon');
 if (flag('migrate')) { fs.mkdirSync(data, { recursive: true }); fs.writeFileSync(path.join(data, 'data-version.txt'), `migrated by ${version}\n`); }
 if (flag('crash')) { console.error(`fake daemon ${version}: crash at start`); process.exit(1); }
 

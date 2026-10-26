@@ -31,6 +31,7 @@ import {
   startDaemon,
   writeEngineProjects,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0046');
@@ -181,7 +182,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({});
-  const events = path.join(fake.home, '.config/cld-gui/events.jsonl');
+  const events = path.join(configDirectory(fake.home), 'events.jsonl');
   // T-0063: two rooms of five, and the lead's: wide enough that centring the office
   // puts the lobby board's left end under the elevator panel's column.
   const names = [

@@ -30,6 +30,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { composePerson } from '../../webview-ui/src/cld/characters/parts.js';
 
 const port = sparePort();
@@ -200,7 +201,7 @@ async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
   const { home, claudePath } = makeEngineHome();
-  const cfg = path.join(home, '.config/cld-gui');
+  const cfg = configDirectory(home);
   const store = path.join(cfg, 'characters.json');
   fs.writeFileSync(store, JSON.stringify({ $meta: { v: 2, pinnedAt: 'x' } }));
   // a small expansion pack in the user's packs folder, as an owner would add one

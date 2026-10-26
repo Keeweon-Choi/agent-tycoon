@@ -25,6 +25,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/u41');
@@ -42,11 +43,11 @@ async function main() {
   const { home, bin } = makeEngineHome();
   const sessions = path.join(home, '.claude/sessions');
   fs.mkdirSync(sessions, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   const dir = path.join(home, 'work', 'alpha');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder: dir, room: '개발실', wantRunning: true }]),
   );
   const daemon = startDaemon({ home, claudePath: path.join(bin, 'claude') }, port, [

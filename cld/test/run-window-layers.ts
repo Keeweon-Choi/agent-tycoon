@@ -26,6 +26,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/window-layers');
@@ -57,11 +58,11 @@ async function withOffice(
 ) {
   await assertPortFree(port);
   const { home, bin } = makeEngineHome();
-  fs.writeFileSync(path.join(home, '.config/cld-gui/config.json'), JSON.stringify({ accessChosen: true, port }));
+  fs.writeFileSync(path.join(configDirectory(home), 'config.json'), JSON.stringify({ accessChosen: true, port }));
   const folders = Object.fromEntries(leads.map((n) => [n, path.join(home, 'work', n)]));
   for (const f of Object.values(folders)) fs.mkdirSync(f, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(leads.map((name) => ({ name, folder: folders[name], room: '개발실', wantRunning: true }))),
   );
   const daemon = startDaemon({ home, claudePath: path.join(bin, 'claude') }, port, ['--engine', 'on', '--no-terminal', '--allow-actions'], {

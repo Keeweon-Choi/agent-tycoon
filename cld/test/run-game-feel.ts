@@ -51,6 +51,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const ONLY_SELECT = process.argv.includes('--only-select');
@@ -173,9 +174,9 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });
   // The 알림 list needs events to be told twice: two lines of the engine's event file.
-  fs.mkdirSync(path.join(fake.home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(fake.home), { recursive: true });
   fs.writeFileSync(
-    path.join(fake.home, '.config/cld-gui/events.jsonl'),
+    path.join(configDirectory(fake.home), 'events.jsonl'),
     [
       { v: 1, ts: '2026-10-22T09:00:00+09:00', type: 'turn_end', source: 'engine', name: 'alpha' },
       { v: 1, ts: '2026-10-22T09:05:00+09:00', type: 'orch_start', source: 'engine', name: 'beta' },

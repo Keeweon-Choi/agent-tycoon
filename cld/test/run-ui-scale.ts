@@ -26,6 +26,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ui-scale');
@@ -139,7 +140,7 @@ async function main() {
   const { home, claudePath } = makeEngineHome();
   const procs = CREW.map((name, k) => session(home, k + 1, name));
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/levels.json'),
+    path.join(configDirectory(home), 'levels.json'),
     JSON.stringify({
       v: 1,
       levels: Object.fromEntries(CREW.map((name, k) => [`name:${name}`, { xp: 40 * k, rebirths: 0 }])),

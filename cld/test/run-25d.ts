@@ -27,6 +27,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const baseArg = process.argv.indexOf('--base');
@@ -65,7 +66,7 @@ async function until(what: string, fn: () => Promise<boolean> | boolean, ms = 15
  *  or, with `walker`, an idle one in the same folder (it sits nowhere and can be walked about). */
 function session(home: string, walker = false) {
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/characters.json'),
+    path.join(configDirectory(home), 'characters.json'),
     JSON.stringify({ lead: { palette: 0, hueShift: 0 }, walker: { palette: 1, hueShift: 0 } }),
   );
   const cwd = '/work/alpha';

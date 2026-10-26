@@ -37,6 +37,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -124,9 +125,9 @@ async function main(): Promise<void> {
   );
   const pad = path.join(padRoot, 'session', 'scratchpad');
   fs.mkdirSync(pad, { recursive: true });
-  fs.mkdirSync(path.join(home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(home), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder, room: '개발실', wantRunning: true }]),
   );
   const daemon = startDaemon(

@@ -44,6 +44,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 if (process.argv.length < 4 || process.argv[2] === process.argv[3])
   throw new Error(
@@ -282,7 +283,7 @@ async function main() {
   const vetDir = path.join(home, 'work', 'veteran');
   fs.mkdirSync(vetDir, { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'veteran', folder: vetDir, wantRunning: false }]),
   );
   // T-0043: an engine job that ended, so a job-end notice can open its card in the 작업실's Task tab.
@@ -295,7 +296,7 @@ async function main() {
     exit: 0,
   });
   const { proc, transcript } = startLead(fake.home);
-  const events = path.join(fake.home, '.config/cld-gui/events.jsonl');
+  const events = path.join(configDirectory(fake.home), 'events.jsonl');
   // Part B: a fake push service on https://127.0.0.1 (never Apple, Google or
   // Mozilla), its self-signed certificate trusted by the daemon alone.
   const tls = makeCert(fake.home);
@@ -692,7 +693,7 @@ async function main() {
     );
     await lap.locator('[data-testid="push-row"]').scrollIntoViewIfNeeded();
     await shot(lap, 'desktop-push-on');
-    const pushFile = path.join(fake.home, '.config/cld-gui/push.json');
+    const pushFile = path.join(configDirectory(fake.home), 'push.json');
     const saved = JSON.parse(fs.readFileSync(pushFile, 'utf-8')) as {
       subscriptions: Array<{ endpoint: string; kinds: string[] }>;
     };

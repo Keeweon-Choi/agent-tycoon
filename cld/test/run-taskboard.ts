@@ -28,6 +28,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/taskboard');
 // The repo's fixture (same shape as the orchestrator's list, neutral names): the orchestrator's
@@ -74,9 +75,9 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const fake = makeFakeHome({ claude: 'S-8', agentsJson: true });
   // The seed's tasks belong to cld-gui: a project (off) of this home, so the 작업실 lists it.
-  fs.mkdirSync(path.join(fake.home, '.config/cld-gui'), { recursive: true });
+  fs.mkdirSync(configDirectory(fake.home), { recursive: true });
   fs.writeFileSync(
-    path.join(fake.home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(fake.home), 'projects.json'),
     JSON.stringify([{ name: 'cld-gui', folder: path.join(fake.home, 'cld-gui'), wantRunning: false }]),
   );
   const sleeper = spawn('sleep', ['600'], { stdio: 'ignore', detached: true });

@@ -38,6 +38,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0029');
@@ -157,7 +158,7 @@ async function main() {
   for (const f of Object.values(folders)) fs.mkdirSync(f, { recursive: true });
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/projects.json'),
+    path.join(configDirectory(home), 'projects.json'),
     JSON.stringify(
       ROWS.map((name) => ({
         name,
@@ -184,7 +185,7 @@ async function main() {
   // What the 최근 활동 of alpha shows: the engine's own event file, read at start.
   const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
   fs.writeFileSync(
-    path.join(home, '.config/cld-gui/events.jsonl'),
+    path.join(configDirectory(home), 'events.jsonl'),
     [
       { type: 'orch_start', ts: ago(30), source: 'engine', name: 'alpha', resumed: true },
       { type: 'job_start', ts: ago(20), source: 'cli', project: 'alpha', id: 'j-1', label: '학습' },
