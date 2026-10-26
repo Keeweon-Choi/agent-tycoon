@@ -146,7 +146,13 @@ function rig(
     const end = Date.now() + ms;
     for (;;) {
       const r = readCodex(codexDir(home), id);
-      if (r && ok(r)) return r;
+      // a finished task's record is saved just before its codex_end event: wait for both
+      // (public CI read the events in between: [codex_resume] without codex_end)
+      const final = r?.state === 'done' || r?.state === 'failed';
+      const endSeen = () =>
+        fs.existsSync(eventsPath(home)) &&
+        events().some((e) => e.type === 'codex_end' && e.id === id);
+      if (r && ok(r) && (!final || endSeen())) return r;
       if (Date.now() > end) throw new Error(`timed out: ${JSON.stringify(r)}`);
       await new Promise((x) => setTimeout(x, 50));
     }
