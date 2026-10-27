@@ -715,7 +715,14 @@ export function startRemote(opts: RemoteOptions): {
     const kind = await detectFirewall({ platform, wslMode: await wslMode(), run: runCommand, read: readFile });
     if (!kind) return null;
     const commands = firewallCommands(kind, ports);
-    return { kind, commands, rules: commands.names ? await firewallRules(runCommand) : null };
+    return {
+      kind,
+      commands,
+      rules: commands.names ? await firewallRules(runCommand) : null,
+      ...(kind === 'windows' || kind === 'wsl-mirrored'
+        ? { admin: { kind: 'firewall' as const, firewall: kind, ports } }
+        : {}),
+    };
   };
   /** Ports the person said they opened in a firewall we cannot read (config.json `firewallAck`). */
   const firewallAck = () => {
@@ -1040,7 +1047,7 @@ export function startRemote(opts: RemoteOptions): {
       const setup = {
         ok: false,
         text: koText('ts_setup_on_host'),
-        admin: 'node cld/install/install.mjs --remote --connector tailscale',
+        actions: [{ kind: 'copy' as const, text: 'node cld/install/install.mjs --remote --connector tailscale', label: koText('label_terminal_cmd') }],
       };
       if (wanted === 'tailscale') {
         // Back to an existing `tailscale serve`: only once it still serves this
@@ -1194,6 +1201,7 @@ export function startRemote(opts: RemoteOptions): {
             wslMode: mode,
             relayReady: mode === 'nat' && !!relayText && new RegExp(`\\b443\\s+127\\.0\\.0\\.1\\s+${directPort}\\b`).test(relayText),
             wslInstructions: mode === 'nat' ? relayCommands(directPort).add.join('\n') : undefined,
+            relay: mode === 'nat' ? { kind: 'relay', directPort, externalPort: 443 } : undefined,
             firewall,
             tailscaleInstalled: tsText !== null || await installed(tailscaleCommand),
             tailscaleLoggedIn: ts.BackendState === 'Running' && !!ts.Self?.DNSName,

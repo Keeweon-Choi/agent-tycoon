@@ -8,6 +8,7 @@ import { openExternal } from '../externalLinks.js';
 import { useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
 import { AddDeviceButton, OutsideDeviceInvite } from './AddDevice.js';
+import { type AdminSetup,canRunAdminSetup, runAdminSetup } from './adminSetup.js';
 import { authFetch, type Me } from './authApi.js';
 import { CustomAddressCard, type CustomStatus } from './CustomAddress.js';
 import type { ConnectorStatus } from './Remote.js';
@@ -21,8 +22,8 @@ interface Step {
   text: string;
   /** A further line (a reason, a session seen, the next thing to do). */
   fix?: string;
-  /** A host command a person runs once (an administrator PowerShell on Windows). */
-  admin?: string;
+  /** A typed Windows administrator action; the desktop app builds its own PowerShell. */
+  admin?: AdminSetup;
   guide?: string;
   actions?: Action[];
   suggest?: Choice;
@@ -58,19 +59,38 @@ const REMOTE_TARGETS: Choice[] = ['direct', 'duckdns', 'tailscale', 'funnel', 't
 const outsideOf = (status: AccessStatus) =>
   status.remoteTest?.ok ? status.remoteTest.url : status.direct?.enabled ? status.direct.url : null;
 
-function StepActions({ steps, onSuggest, suggestKey = 'access.otherMethod', testId = 'access-steps' }: {
+function StepActions({ steps, onSuggest, onAdminSuccess, suggestKey = 'access.otherMethod', testId = 'access-steps' }: {
   steps: Step[];
   onSuggest: (choice: Choice) => void;
+  onAdminSuccess?: () => Promise<void>;
   suggestKey?: 'access.otherMethod' | 'access.existing.go';
   testId?: string;
 }) {
   const [copied, setCopied] = useState('');
+  const [adminMessage, setAdminMessage] = useState('');
+  const [adminBusy, setAdminBusy] = useState(false);
+  const runAdmin = async (request: AdminSetup) => {
+    setAdminBusy(true);
+    setAdminMessage('');
+    try {
+      const result = await runAdminSetup(request);
+      if (result.canceled) setAdminMessage(t('access.admin.canceled'));
+      else if (!result.ok) setAdminMessage(t('access.admin.failed', { code: result.exitCode }));
+      else await onAdminSuccess?.();
+    } catch {
+      setAdminMessage(t('access.admin.error'));
+    } finally { setAdminBusy(false); }
+  };
   return <ul className="m-0 p-0 list-none flex flex-col gap-6 text-xs" data-testid={testId}>
     {steps.map((step, index) => <li key={index} className="flex flex-col gap-3">
       <span className={step.ok ? 'text-accent-text' : 'text-text'}>{step.unknown ? '?' : step.ok ? '✔' : '✖'} {serverLine(step.text)}</span>
       {step.fix && <p className="m-0 whitespace-pre-wrap text-text-muted">{step.fix.split('\n').map(serverLine).join('\n')}</p>}
       {step.guide && <p className="m-0 whitespace-pre-wrap text-text-muted">{step.guide.split('\n').map(serverLine).join('\n')}</p>}
-      {[...(step.admin ? [{ kind: 'copy' as const, text: step.admin, label: t('access.copyAdmin') }] : []), ...(step.actions ?? [])].map((action, item) => <div key={item} className="flex flex-col gap-3">
+      {step.admin && canRunAdminSetup() && <div className="flex flex-col gap-3">
+        <Button size="sm" variant="accent" disabled={adminBusy} onClick={() => void runAdmin(step.admin!)} data-testid="access-run-admin">{t('access.admin.run')}</Button>
+        {adminMessage && <p className="m-0 text-xs text-red-400" role="alert">{adminMessage}</p>}
+      </div>}
+      {(step.actions ?? []).map((action, item) => <div key={item} className="flex flex-col gap-3">
         {action.kind === 'copy' && <pre className="m-0 p-6 text-xs bg-bg-dark border border-border whitespace-pre-wrap break-all select-text" data-testid="access-commands">{action.text}</pre>}
         <Button size="sm" onClick={() => {
           if (action.kind === 'open') openExternal(action.url);
@@ -234,7 +254,7 @@ export function AccessPanel({ onSwitched }: { onSwitched?: (to: Connector) => vo
         {option === 'lan' && status.maySetup && <Button size="sm" variant={active(option) ? 'active' : 'accent'} disabled={busy} onClick={() => setLanWarning(true)} aria-label={`${t('access.card.lan.title')} — ${t('access.openWith')}`}>{t('access.openWith')}</Button>}
         {option !== 'local' && option !== 'lan' && status.maySetup && <Button size="sm" variant={active(option) ? 'active' : 'accent'} disabled={busy} onClick={() => void setup(option)} aria-label={`${t(`access.card.${option}.title`)} — ${t('access.openWith')}`}>{t('access.openWith')}</Button>}
         {selected === option && run && <div className="flex flex-col gap-5" data-testid={`access-run-${option}`}>
-          <StepActions steps={run.steps} onSuggest={moveTo} />
+          <StepActions steps={run.steps} onSuggest={moveTo} onAdminSuccess={() => setup(option, true)} />
           {run.pending && <Button size="sm" disabled={busy} onClick={() => void setup(option, true)}>{t('access.recheck')}</Button>}
           {run.steps.at(-1)?.confirm && <Button size="sm" variant="accent" disabled={busy} onClick={() => void setup(option, false, false, true)}>{t('access.firewallDone')}</Button>}
           {run.ok && run.test && !run.test.steps?.some((step) => step.unknown) && <p className="m-0 text-xs text-accent-text" role="status">{t('access.outside.verified', { time: new Date(run.test.checkedAt).toLocaleTimeString(language === 'ko' ? 'ko-KR' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) })} · {run.url}</p>}

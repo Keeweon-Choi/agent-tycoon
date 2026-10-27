@@ -421,10 +421,13 @@ describe('DirectConnector', () => {
       expect(first.ok).toBe(false);
       const missing = first.steps.find((s) => s.admin);
       expect(missing?.text).toContain('넘겨 주지 않아요');
-      expect(missing?.admin).toBe(
-        'netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=443 connectaddress=127.0.0.1 connectport=0\n' +
+      expect(missing?.admin).toEqual({ kind: 'relay', directPort: 0, externalPort: 443 });
+      expect(missing?.actions?.[0]).toEqual({
+        kind: 'copy',
+        text: 'netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=443 connectaddress=127.0.0.1 connectport=0\n' +
           'Remove-NetFirewallRule -Name cld-gui-443 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-443 -DisplayName "cld-gui 443" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow',
-      );
+        label: 'PowerShell 명령 복사',
+      });
       expect(issuer.requests).toEqual([]);
       expect(direct.listeningPort()).toBeNull();
       expect(direct.enabled).toBe(false);
@@ -528,7 +531,37 @@ describe('DirectConnector', () => {
     expect(direct.status().certificate).not.toBeNull();
   });
 
-  it('a DuckDNS name also keeps an IP certificate, and renews it when the public IP changes', async () => {
+  it('IP mode asks for an IP certificate when a stale saved certificate names DuckDNS', async () => {
+    const duck = {
+      name: 'office.duckdns.org',
+      client: { txt: async () => undefined, update: async () => undefined },
+    };
+    const dir = tempDir();
+    const saved = await ca.issue(duck.name);
+    fs.writeFileSync(`${dir}/cert.key`, saved.key, { mode: 0o600 });
+    fs.writeFileSync(`${dir}/cert.pem`, saved.cert, { mode: 0o600 });
+    fs.writeFileSync(
+      `${dir}/state.json`,
+      `${JSON.stringify({
+        enabled: true,
+        secret: newSecret(),
+        ip: PUBLIC,
+        upnp: true,
+        certFor: duck.name,
+        notBefore: saved.notBefore,
+        notAfter: saved.notAfter,
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const { direct, issuer } = connector({ dir, duck });
+
+    await direct.maintain();
+
+    expect(issuer.requests).toEqual([{ ip: PUBLIC, name: undefined }]);
+    expect(JSON.parse(fs.readFileSync(`${dir}/state.json`, 'utf8'))).toMatchObject({ certFor: PUBLIC });
+  });
+
+  it('name mode asks for its DuckDNS name and keeps an IP certificate slot', async () => {
     let wan = PUBLIC;
     const updates: string[] = [];
     const duck = {
@@ -550,6 +583,39 @@ describe('DirectConnector', () => {
     expect(issuer.requests.at(-1)).toEqual({ ip: '198.51.100.99', name: undefined });
     expect(direct.status().ipCertificate?.notAfter).toBeTypeOf('number');
     expect(direct.url()).toBe(`https://office.duckdns.org/${direct.secret}/`);
+  });
+
+  it('IP mode serves its renewed IP certificate to clients without SNI', async () => {
+    const duck = {
+      name: 'office.duckdns.org',
+      client: { txt: async () => undefined, update: async () => undefined },
+    };
+    const dir = tempDir();
+    const saved = await ca.issue(duck.name);
+    fs.writeFileSync(`${dir}/cert.key`, saved.key, { mode: 0o600 });
+    fs.writeFileSync(`${dir}/cert.pem`, saved.cert, { mode: 0o600 });
+    fs.writeFileSync(
+      `${dir}/state.json`,
+      `${JSON.stringify({
+        enabled: true,
+        secret: newSecret(),
+        ip: PUBLIC,
+        upnp: true,
+        certFor: duck.name,
+        notBefore: saved.notBefore,
+        notAfter: saved.notAfter,
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const { direct, issuer } = connector({ dir, duck });
+    await direct.resume();
+    await direct.maintain();
+
+    expect(issuer.requests).toEqual([{ ip: PUBLIC, name: undefined }]);
+    const fingerprint = new crypto.X509Certificate(fs.readFileSync(`${dir}/cert.pem`)).fingerprint256;
+    expect((await peer(direct.listeningPort() ?? 0, undefined, ['http/1.1'])).fingerprint).toBe(
+      fingerprint,
+    );
   });
 
   it('a DuckDNS listener serves its IP certificate without SNI and its name certificate with SNI', async () => {

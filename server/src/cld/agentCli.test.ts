@@ -8,6 +8,9 @@ import {
   claudeInstallDirs,
   type ClaudeVersionResult,
   findClaude,
+  readWindowsMachinePath,
+  readWindowsUserPath,
+  windowsLogonPath,
 } from './agentCli.js';
 
 const tmp: string[] = [];
@@ -237,6 +240,42 @@ describe('findClaude (Windows, search order with fakes)', () => {
     const dirs = claudeInstallDirs('win32', 'C:\\Users\\kim', env);
     expect(dirs).toContain('C:\\Users\\kim\\AppData\\Roaming\\npm');
     expect(dirs.some((d) => d.startsWith('/'))).toBe(false);
+  });
+});
+
+describe('Windows logon PATH', () => {
+  const env = {
+    Path: 'C:\\Daemon\\bin',
+    SystemRoot: 'C:\\Windows',
+    USERPROFILE: 'C:\\Users\\Ada',
+  };
+  const machineKey = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
+  const query = (key: string): string => {
+    if (key === machineKey) return 'Path    REG_EXPAND_SZ    %SystemRoot%\\System32';
+    if (key === 'HKCU\\Environment') return 'Path    REG_EXPAND_SZ    %USERPROFILE%\\.local\\bin';
+    throw new Error(`unexpected key: ${key}`);
+  };
+
+  it('expands and joins the machine and user registry PATH values', () => {
+    expect(readWindowsMachinePath(env, query)).toBe('C:\\Windows\\System32');
+    expect(readWindowsUserPath(env, query)).toBe('C:\\Users\\Ada\\.local\\bin');
+    expect(windowsLogonPath(env, query)).toBe(
+      'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
+    );
+  });
+
+  it('falls back to the daemon PATH when the machine registry read fails', () => {
+    expect(windowsLogonPath(env, (key) => {
+      if (key === machineKey) throw new Error('no machine PATH');
+      return 'Path    REG_SZ    C:\\Users\\Ada\\.local\\bin';
+    })).toBe('C:\\Daemon\\bin');
+  });
+
+  it('falls back to the daemon PATH when the user registry read fails', () => {
+    expect(windowsLogonPath(env, (key) => {
+      if (key === 'HKCU\\Environment') throw new Error('no user PATH');
+      return 'Path    REG_SZ    C:\\Windows\\System32';
+    })).toBe('C:\\Daemon\\bin');
   });
 });
 

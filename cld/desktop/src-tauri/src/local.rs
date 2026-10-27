@@ -7,6 +7,7 @@
 //! value reaches them as its own argv element (`wsl.exe --exec sh -c <script> sh <args…>`), the
 //! way `cld/install/wizard.mjs` runs `wslInstallArgv`.
 
+use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::path::PathBuf;
@@ -236,6 +237,119 @@ pub struct Found {
 }
 
 pub const DEFAULT_PORT: u16 = 18240;
+
+/// The only elevated setup requests an office page may make. Command text never crosses the bridge.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum AdminSetupRequest {
+    #[serde(rename_all = "camelCase")]
+    Relay {
+        direct_port: i64,
+        external_port: i64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Firewall {
+        firewall: String,
+        ports: Vec<i64>,
+    },
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+const WSL_VM_CREATOR: &str = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}";
+#[cfg_attr(not(windows), allow(dead_code))]
+const ADMIN_PORT_MIN: i64 = 1024;
+#[cfg_attr(not(windows), allow(dead_code))]
+const ADMIN_PORT_MAX: i64 = 65535;
+#[cfg_attr(not(windows), allow(dead_code))]
+const ADMIN_EXTERNAL_PORT: i64 = 443;
+#[cfg_attr(not(windows), allow(dead_code))]
+const ADMIN_FIREWALL_PORTS_MAX: usize = 4;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn valid_admin_port(port: i64) -> bool {
+    port == ADMIN_EXTERNAL_PORT || (ADMIN_PORT_MIN..=ADMIN_PORT_MAX).contains(&port)
+}
+
+/// Validates a typed request and builds the exact PowerShell lines the server shows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn admin_lines(request: &AdminSetupRequest) -> Result<Vec<String>, String> {
+    match request {
+        AdminSetupRequest::Relay {
+            direct_port,
+            external_port,
+        } => {
+            if *external_port != ADMIN_EXTERNAL_PORT {
+                return Err("관리자 설정의 외부 포트는 443이어야 합니다".into());
+            }
+            if !(ADMIN_PORT_MIN..=ADMIN_PORT_MAX).contains(direct_port) {
+                return Err("관리자 설정의 직접 포트는 1024–65535 사이여야 합니다".into());
+            }
+            Ok(vec![
+                format!("netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport={external_port} connectaddress=127.0.0.1 connectport={direct_port}"),
+                windows_rule(*external_port),
+            ])
+        }
+        AdminSetupRequest::Firewall { firewall, ports } => {
+            if !["windows", "wsl-mirrored"].contains(&firewall.as_str()) {
+                return Err("관리자 설정의 방화벽 종류가 올바르지 않습니다".into());
+            }
+            if ports.is_empty() || ports.len() > ADMIN_FIREWALL_PORTS_MAX {
+                return Err("관리자 설정의 방화벽 포트는 1–4개여야 합니다".into());
+            }
+            if ports.iter().any(|port| !valid_admin_port(*port)) {
+                return Err("관리자 설정의 방화벽 포트가 올바르지 않습니다".into());
+            }
+            Ok(ports
+                .iter()
+                .map(|port| match firewall.as_str() {
+                    "windows" => windows_rule(*port),
+                    "wsl-mirrored" => format!("Remove-NetFirewallHyperVRule -Name cld-gui-{port} -ErrorAction SilentlyContinue; New-NetFirewallHyperVRule -Name cld-gui-{port} -DisplayName \"cld-gui {port}\" -Direction Inbound -VMCreatorId '{WSL_VM_CREATOR}' -Protocol TCP -LocalPorts {port}"),
+                    _ => unreachable!(),
+                })
+                .collect())
+        }
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_rule(port: i64) -> String {
+    format!("Remove-NetFirewallRule -Name cld-gui-{port} -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-{port} -DisplayName \"cld-gui {port}\" -Direction Inbound -Protocol TCP -LocalPort {port} -Action Allow")
+}
+
+/// An SSH tunnel may be loopback too; only the app's saved local mode authorizes elevation.
+pub fn allows_admin_setup(mode: &str) -> bool {
+    mode == "local"
+}
+
+/// PowerShell's `-EncodedCommand` payload: UTF-16LE bytes, Base64 without line wrapping.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn powershell_encoded_command(lines: &[String]) -> String {
+    const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = lines
+        .join("\r\n")
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let word = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        encoded.push(BASE64[(word >> 18) as usize] as char);
+        encoded.push(BASE64[((word >> 12) & 0x3f) as usize] as char);
+        encoded.push(if chunk.len() > 1 { BASE64[((word >> 6) & 0x3f) as usize] as char } else { '=' });
+        encoded.push(if chunk.len() > 2 { BASE64[(word & 0x3f) as usize] as char } else { '=' });
+    }
+    encoded
+}
+
+/// The unelevated PowerShell process asks Windows once, waits, and returns the elevated exit code.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn elevated_powershell_command(encoded: &str) -> String {
+    format!(
+        "try {{ $p = Start-Process (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe') -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','{encoded}'; exit $p.ExitCode }} catch {{ if ($_.Exception.NativeErrorCode -eq 1223) {{ exit 1223 }}; exit 1 }}"
+    )
+}
 
 impl Found {
     pub fn from_texts(record: &str, config: &str, pinned_key: &str) -> Found {
@@ -728,6 +842,64 @@ mod tests {
             out.extend(unit.to_le_bytes());
         }
         out
+    }
+
+    #[test]
+    fn admin_setup_validation_and_lines() {
+        let relay = AdminSetupRequest::Relay {
+            direct_port: 18443,
+            external_port: 443,
+        };
+        assert_eq!(
+            admin_lines(&relay).unwrap(),
+            vec![
+                "netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=443 connectaddress=127.0.0.1 connectport=18443",
+                "Remove-NetFirewallRule -Name cld-gui-443 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-443 -DisplayName \"cld-gui 443\" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow",
+            ]
+        );
+        for bad in [
+            AdminSetupRequest::Relay { direct_port: 18443, external_port: 442 },
+            AdminSetupRequest::Relay { direct_port: 1023, external_port: 443 },
+            AdminSetupRequest::Relay { direct_port: 65536, external_port: 443 },
+            AdminSetupRequest::Relay { direct_port: -1, external_port: 443 },
+            AdminSetupRequest::Firewall { firewall: "other".into(), ports: vec![443] },
+            AdminSetupRequest::Firewall { firewall: "windows".into(), ports: vec![] },
+            AdminSetupRequest::Firewall { firewall: "windows".into(), ports: vec![443, 1024, 1025, 1026, 1027] },
+            AdminSetupRequest::Firewall { firewall: "windows".into(), ports: vec![442] },
+            AdminSetupRequest::Firewall { firewall: "wsl-mirrored".into(), ports: vec![1023] },
+            AdminSetupRequest::Firewall { firewall: "windows".into(), ports: vec![65536] },
+            AdminSetupRequest::Firewall { firewall: "windows".into(), ports: vec![-1] },
+        ] {
+            assert!(admin_lines(&bad).is_err(), "{bad:?}");
+        }
+        assert!(allows_admin_setup("local"));
+        assert!(!allows_admin_setup("ssh"));
+        assert!(!allows_admin_setup("tailscale"));
+    }
+
+    #[derive(Deserialize)]
+    struct AdminFixture {
+        requests: Vec<AdminFixtureLine>,
+    }
+
+    #[derive(Deserialize)]
+    struct AdminFixtureLine {
+        request: AdminSetupRequest,
+        lines: Vec<String>,
+    }
+
+    #[test]
+    fn admin_command_fixture_matches_the_desktop_builder() {
+        let fixture: AdminFixture = serde_json::from_str(include_str!("../admin-lines.json")).unwrap();
+        for fixture_line in fixture.requests {
+            assert_eq!(admin_lines(&fixture_line.request).unwrap(), fixture_line.lines);
+        }
+    }
+
+    #[test]
+    fn powershell_payload_is_utf16le_base64() {
+        assert_eq!(powershell_encoded_command(&["A".into()]), "QQA=");
+        assert!(elevated_powershell_command("QQA=").contains("-EncodedCommand','QQA="));
     }
 
     #[test]

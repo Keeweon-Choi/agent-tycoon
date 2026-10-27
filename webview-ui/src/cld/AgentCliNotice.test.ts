@@ -39,6 +39,15 @@ describe('agent CLI install commands', () => {
     ]);
   });
 
+  it('puts Claude Code on the user PATH before its installer runs, and in this cmd window after', () => {
+    // The installer may end its PowerShell with exit: a step after it would never run.
+    expect(WINDOWS_CLAUDE_INSTALL_COMMAND.indexOf("SetEnvironmentVariable('Path'")).toBeGreaterThan(-1);
+    expect(WINDOWS_CLAUDE_INSTALL_COMMAND.indexOf("SetEnvironmentVariable('Path'")).toBeLessThan(
+      WINDOWS_CLAUDE_INSTALL_COMMAND.indexOf('irm https://claude.ai/install.ps1'),
+    );
+    expect(WINDOWS_CLAUDE_INSTALL_COMMAND.endsWith('" & set "PATH=%PATH%;%USERPROFILE%\\.local\\bin"')).toBe(true);
+  });
+
   it('keeps the POSIX installer command as the only step', () => {
     expect(agentCliInstallSteps('curl -fsSL https://claude.ai/install.sh | bash')).toEqual([
       { id: 'claude', command: 'curl -fsSL https://claude.ai/install.sh | bash' },

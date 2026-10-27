@@ -1,5 +1,8 @@
 import type { ColorValue } from './components/ui/types.js';
 
+// ── Desktop bridge ──────────────────────────────────────────
+export const ADMIN_SETUP_COMMAND = 'run_admin_setup';
+
 // ── Messenger ───────────────────────────────────────────────
 export const ATTACH_ACCEPT =
   'image/*,.pdf,.txt,.md,.csv,.json,.log,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.go,.rs,.java,.kt,.swift,.c,.h,.cpp,.hpp,.cs,.sh,.bash,.zsh,.css,.html,.xml,.yaml,.yml,.sql,.toml,.zip,.7z,.tar,.gz,.tgz,.docx,.xlsx,.pptx,.odt,.ods,.odp,.doc,.xls,.ppt,.hwp,.hwpx,.rtf';

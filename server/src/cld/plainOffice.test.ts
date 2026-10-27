@@ -163,7 +163,10 @@ describe('restartDaemon', () => {
     expect(spawned!.args).toEqual([
       '-NoProfile',
       '-Command',
-      'Wait-Process -Id 4321 -Timeout 30 -ErrorAction SilentlyContinue; schtasks /Run /TN cld-gui',
+      "Wait-Process -Id 4321 -Timeout 30 -ErrorAction SilentlyContinue; " +
+        "for ($i = 0; $i -lt 60 -and (Get-ScheduledTask -TaskName 'cld-gui' -ErrorAction SilentlyContinue).State -eq 'Running'; $i++) { Start-Sleep -Milliseconds 500 }; " +
+        'schtasks /Run /TN cld-gui; Start-Sleep -Seconds 5; ' +
+        "if ((Get-ScheduledTask -TaskName 'cld-gui' -ErrorAction SilentlyContinue).State -ne 'Running') { schtasks /Run /TN cld-gui }",
     ]);
     expect(spawned!.opts).toEqual({ detached: true, stdio: 'ignore', windowsHide: true });
     expect(spawned!.unref).toBe(1);

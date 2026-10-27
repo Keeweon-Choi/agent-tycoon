@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "office-keys",
-  "description": "The office page gets the window keys and open_external (http/https links to the default browser, what target=_blank does anyway) and nothing else: no config, fs, shell, keys or passwords. Covers localhost and 127.0.0.1 (the ssh tunnel); no remote host is listed, so an office reached by address needs its origin added here.",
+  "description": "The office page gets the window keys, safe external links, and a typed Windows administrator setup action. The app itself checks that its saved connection is local; no page script, fs, shell, keys or passwords are available. Covers localhost and 127.0.0.1 (the ssh tunnel); no remote host is listed, so an office reached by address needs its origin added here.",
   "windows": ["main"],
   "remote": {
     "urls": [
@@ -13,6 +13,7 @@
     "allow-toggle-fullscreen",
     "allow-toggle-on-top",
     "allow-open-settings",
-    "allow-open-external"
+    "allow-open-external",
+    "allow-run-admin-setup"
   ]
 }

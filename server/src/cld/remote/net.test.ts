@@ -4,9 +4,11 @@
  * message, and UPnP against a local fake router (no real SSDP, no real router).
  */
 import * as dgram from 'dgram';
+import { readFileSync } from 'fs';
 import * as http from 'http';
 import type { AddressInfo } from 'net';
 import * as net from 'net';
+import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -34,6 +36,13 @@ import {
   parseSsdpResponse,
   UpnpError,
 } from './upnp.js';
+
+type AdminFixtureRequest =
+  | { kind: 'relay'; directPort: number; externalPort: number }
+  | { kind: 'firewall'; firewall: 'windows' | 'wsl-mirrored'; ports: number[] };
+const ADMIN_FIXTURE = JSON.parse(readFileSync(path.join(__dirname, '../../../../cld/desktop/src-tauri/admin-lines.json'), 'utf8')) as {
+  requests: { request: AdminFixtureRequest; lines: string[] }[];
+};
 
 describe('NAT classification (CGNAT / double NAT detection)', () => {
   it('a public WAN that the internet also sees: open', () => {
@@ -259,6 +268,17 @@ describe('REMOTE-XPLAT: the host firewall per platform', () => {
     expect(await firewallRules(async () => 'cld-gui-443\r\nhyperv:cld-gui-18240\r\n')).toEqual(['cld-gui-443', 'hyperv:cld-gui-18240']);
     expect(await firewallRules(async () => '')).toEqual([]);
     expect(await firewallRules(async () => null)).toBeNull();
+  });
+});
+
+describe('Windows administrator command fixture', () => {
+  it('keeps the desktop app lines identical to the server lines', () => {
+    for (const { request, lines } of ADMIN_FIXTURE.requests) {
+      const actual = request.kind === 'relay'
+        ? relayCommands(request.directPort, request.externalPort).add
+        : firewallCommands(request.firewall, request.ports).add;
+      expect(actual).toEqual(lines);
+    }
   });
 });
 

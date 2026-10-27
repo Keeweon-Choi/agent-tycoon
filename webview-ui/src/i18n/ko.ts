@@ -177,6 +177,10 @@ export const ko = {
   'access.tailscale.android': '안드로이드 앱 열기',
   'access.openWith': '이걸로 열기',
   'access.copyAdmin': '관리자 명령 복사',
+  'access.admin.run': '관리자 권한으로 실행',
+  'access.admin.canceled': '승인 창에서 취소했어요',
+  'access.admin.failed': '관리자 명령이 종료 코드 {code}로 실패했어요.',
+  'access.admin.error': '관리자 명령을 실행하지 못했어요.',
   'access.firewallDone': '실행했어요',
   'access.existing.title': '이미 있는 길',
   'access.existing.help':

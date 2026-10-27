@@ -5,11 +5,12 @@ import { runRemoteSetup } from './setup.js';
 const facts = { natKind: 'open' as const, upnp: true, wslMode: null, relayReady: false, tailscaleInstalled: false, tailscaleLoggedIn: false, cloudflaredInstalled: false, platform: 'linux' };
 
 describe('selected remote setup execution', () => {
-  it('waits for a Windows relay with a copy action', async () => {
-    const outcome = await runRemoteSetup({ ...facts, wslMode: 'nat', wslInstructions: 'netsh interface portproxy add v4tov4 ...' }, 'direct',
+  it('waits for a Windows relay with a copy action and typed administrator request', async () => {
+    const outcome = await runRemoteSetup({ ...facts, wslMode: 'nat', wslInstructions: 'netsh interface portproxy add v4tov4 ...', relay: { kind: 'relay', directPort: 18443, externalPort: 443 } }, 'direct',
       async () => { throw new Error('must not run'); }, async () => { throw new Error('must not test'); });
     expect(outcome.pending).toBe(true);
     expect(outcome.steps[0].actions?.[0]).toMatchObject({ kind: 'copy', text: 'netsh interface portproxy add v4tov4 ...' });
+    expect(outcome.steps[0].admin).toEqual({ kind: 'relay', directPort: 18443, externalPort: 443 });
   });
   it('does not switch away from direct on CGNAT', async () => {
     const outcome = await runRemoteSetup({ ...facts, natKind: 'cgnat' }, 'direct',

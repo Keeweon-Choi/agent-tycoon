@@ -18,9 +18,11 @@ test('CGNAT refuses direct and suggests Tailscale', () => {
   assert.equal(plan('direct', { natKind: 'cgnat' })[0].suggest, 'tailscale');
 });
 test('WSL without relay copies PowerShell lines and stops', () => {
-  const steps = plan('direct', { natKind: 'unknown', wslMode: 'nat', wslInstructions: 'netsh interface portproxy add v4tov4 ...\nNew-NetFirewallRule ...' });
+  const relay = { kind: 'relay', directPort: 18443, externalPort: 443 };
+  const steps = plan('direct', { natKind: 'unknown', wslMode: 'nat', wslInstructions: 'netsh interface portproxy add v4tov4 ...\nNew-NetFirewallRule ...', relay });
   assert.deepEqual(steps.map((s) => s.kind), ['wsl-relay']);
   assert.match(steps[0].actions[0].text, /netsh interface portproxy/);
+  assert.deepEqual(steps[0].admin, relay);
 });
 test('DuckDNS asks for account details, then shares the direct router step', () => {
   assert.equal(plan('duckdns')[0].actions[0].url, 'https://www.duckdns.org');
@@ -70,12 +72,13 @@ test('REMOTE-XPLAT WSL mirrored never gets the portproxy step; NAT does', () => 
   assert.deepEqual(kinds('direct', { wslMode: 'nat', relayReady: false }), ['wsl-relay']);
 });
 test('REMOTE-XPLAT firewall step before any listener: Windows re-checks by itself, Linux/macOS confirm by hand', () => {
-  const win = { kind: 'windows', add: ['A', 'B'], ready: false, confirm: false };
+  const win = { kind: 'windows', add: ['A', 'B'], ready: false, confirm: false, admin: { kind: 'firewall', firewall: 'windows', ports: [18240, 18443] } };
   const direct = plan('direct', { firewall: win });
   assert.deepEqual(direct.map((s) => s.kind), ['firewall']);
   assert.equal(direct[0].actions[0].text, 'A\nB');
   assert.equal(direct[0].confirm, undefined);
   assert.match(direct[0].guide, /관리자 PowerShell/);
+  assert.deepEqual(direct[0].admin, win.admin);
   const ufw = plan('lan', { firewall: { kind: 'ufw', add: ['sudo ufw allow 18240/tcp'], ready: false, confirm: true } });
   assert.deepEqual(ufw.map((s) => s.kind), ['firewall', 'switch']);
   assert.equal(ufw[0].confirm, true);

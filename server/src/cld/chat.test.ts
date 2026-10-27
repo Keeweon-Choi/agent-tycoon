@@ -194,8 +194,8 @@ describe('chat: login environment', () => {
   };
 
   it('keeps Windows logon variables with the spelling Windows supplied', () => {
-    expect(loginEnvFrom(base, 'win32')).toEqual({
-      Path: 'C:\\Windows\\System32',
+    expect(loginEnvFrom(base, 'win32', () => 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin')).toEqual({
+      Path: 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
       SystemRoot: 'C:\\Windows',
       LOCALAPPDATA: 'C:\\Users\\Ada\\AppData\\Local',
       TEMP: 'C:\\Users\\Ada\\AppData\\Local\\Temp',
@@ -205,8 +205,25 @@ describe('chat: login environment', () => {
     });
   });
 
+  it('uses the fresh Windows logon PATH instead of the daemon PATH', () => {
+    expect(loginEnvFrom(base, 'win32', () => 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin').Path).toBe(
+      'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
+    );
+  });
+
   it('does not add Windows logon variables on Linux', () => {
     expect(loginEnvFrom(base, 'linux')).toEqual({});
+  });
+
+  it('does not replace Linux PATH with a Windows logon PATH', () => {
+    let called = false;
+    expect(
+      loginEnvFrom({ PATH: '/usr/local/bin:/usr/bin' }, 'linux', () => {
+        called = true;
+        return 'C:\\Windows\\System32';
+      }),
+    ).toEqual({ PATH: '/usr/local/bin:/usr/bin' });
+    expect(called).toBe(false);
   });
 });
 

@@ -144,6 +144,7 @@ fn main() {
             "choose_local",
             "local_install",
             "local_start",
+            "run_admin_setup",
         ]),
     ))
     .expect("failed to run tauri-build");

@@ -29,7 +29,7 @@ export async function runRemoteSetup(
   const add = (step: Step) => { steps.push(step); onStep(step); };
   for (const step of remoteSetupPlan(facts, choice)) {
     if (step.guide || step.suggest) {
-      add({ ok: false, text: step.text, guide: step.guide, actions: step.actions, suggest: step.suggest, ...(step.confirm ? { confirm: true } : {}) });
+      add({ ok: false, text: step.text, guide: step.guide, actions: step.actions, suggest: step.suggest, ...(step.admin ? { admin: step.admin } : {}), ...(step.confirm ? { confirm: true } : {}) });
       // A step the person confirms by hand is not re-checked on a timer: nothing could read its result.
       return { ok: false, pending: !step.suggest && !step.confirm, steps };
     }

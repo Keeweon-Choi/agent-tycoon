@@ -124,7 +124,7 @@ async function main() {
     check(
       command ===
         (process.platform === 'win32'
-          ? 'powershell -NoProfile -Command "irm https://claude.ai/install.ps1 | iex"'
+          ? "powershell -NoProfile -Command \"$d=Join-Path $env:USERPROFILE '.local\\bin'; $p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not ($p -split ';' | Where-Object { $_.TrimEnd('\\') -ieq $d })){[Environment]::SetEnvironmentVariable('Path',$(if($p){$p.TrimEnd(';')+';'+$d}else{$d}),'User')}; irm https://claude.ai/install.ps1 | iex\" & set \"PATH=%PATH%;%USERPROFILE%\\.local\\bin\""
           : 'curl -fsSL https://claude.ai/install.sh | bash'),
       `it names this OS's one-line installer (${command})`,
     );

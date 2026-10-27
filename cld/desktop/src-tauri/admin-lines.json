@@ -1,0 +1,37 @@
+{
+  "requests": [
+    {
+      "request": { "kind": "relay", "directPort": 18443, "externalPort": 443 },
+      "lines": [
+        "netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=443 connectaddress=127.0.0.1 connectport=18443",
+        "Remove-NetFirewallRule -Name cld-gui-443 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-443 -DisplayName \"cld-gui 443\" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow"
+      ]
+    },
+    {
+      "request": { "kind": "firewall", "firewall": "windows", "ports": [18240] },
+      "lines": [
+        "Remove-NetFirewallRule -Name cld-gui-18240 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-18240 -DisplayName \"cld-gui 18240\" -Direction Inbound -Protocol TCP -LocalPort 18240 -Action Allow"
+      ]
+    },
+    {
+      "request": { "kind": "firewall", "firewall": "windows", "ports": [443, 18443] },
+      "lines": [
+        "Remove-NetFirewallRule -Name cld-gui-443 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-443 -DisplayName \"cld-gui 443\" -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow",
+        "Remove-NetFirewallRule -Name cld-gui-18443 -ErrorAction SilentlyContinue; New-NetFirewallRule -Name cld-gui-18443 -DisplayName \"cld-gui 18443\" -Direction Inbound -Protocol TCP -LocalPort 18443 -Action Allow"
+      ]
+    },
+    {
+      "request": { "kind": "firewall", "firewall": "wsl-mirrored", "ports": [18240] },
+      "lines": [
+        "Remove-NetFirewallHyperVRule -Name cld-gui-18240 -ErrorAction SilentlyContinue; New-NetFirewallHyperVRule -Name cld-gui-18240 -DisplayName \"cld-gui 18240\" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 18240"
+      ]
+    },
+    {
+      "request": { "kind": "firewall", "firewall": "wsl-mirrored", "ports": [443, 18443] },
+      "lines": [
+        "Remove-NetFirewallHyperVRule -Name cld-gui-443 -ErrorAction SilentlyContinue; New-NetFirewallHyperVRule -Name cld-gui-443 -DisplayName \"cld-gui 443\" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 443",
+        "Remove-NetFirewallHyperVRule -Name cld-gui-18443 -ErrorAction SilentlyContinue; New-NetFirewallHyperVRule -Name cld-gui-18443 -DisplayName \"cld-gui 18443\" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 18443"
+      ]
+    }
+  ]
+}

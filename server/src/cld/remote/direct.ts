@@ -41,12 +41,17 @@ export const ISSUE_RETRY_MS = 60 * 60_000;
 const GATE_COOKIE = 'cld_gate';
 const GATE_MAX_AGE = 400 * 24 * 60 * 60; // the longest browsers keep a cookie
 
-/** One line of a run: ✔/✖ with a Korean reason; `admin` is a host command a person runs once. */
+/** A narrowly typed Windows administrator action. The desktop app builds its own command lines. */
+export type AdminSetup =
+  | { kind: 'relay'; directPort: number; externalPort: number }
+  | { kind: 'firewall'; firewall: 'windows' | 'wsl-mirrored'; ports: number[] };
+
+/** One line of a run: ✔/✖ with a Korean reason; `admin` authorizes one typed desktop action. */
 export interface Step {
   ok: boolean;
   text: string;
   fix?: string;
-  admin?: string;
+  admin?: AdminSetup;
   guide?: string;
   actions?: ({ kind: 'open'; url: string; label: string } | { kind: 'copy'; text: string; label: string })[];
   suggest?: 'local' | 'lan' | 'direct' | 'ssh' | 'duckdns' | 'tailscale' | 'funnel' | 'tunnel';
@@ -644,7 +649,8 @@ export class DirectConnector {
     return {
       ok: false,
       text: koText('windows_relay_missing', { external: EXTERNAL_PORT }),
-      admin: relayCommands(this.deps.port).add.join('\n'),
+      admin: { kind: 'relay', directPort: this.deps.port, externalPort: EXTERNAL_PORT },
+      actions: [{ kind: 'copy', text: relayCommands(this.deps.port).add.join('\n'), label: koText('label_powershell_cmd') }],
       fix: koText('fix_run_powershell'),
     };
   }
@@ -891,8 +897,11 @@ export class DirectConnector {
       return false;
     }
     try {
+      // A DuckDNS client can remain configured after switching back to IP mode.
+      // The persisted mode, not that client, selects the primary certificate.
+      const name = this.state.name;
       const certificate = await this.deps.issue({
-        ...(this.deps.duck ? { name: this.deps.duck.name } : { ip }),
+        ...(name ? { name } : { ip }),
         alpn: this.alpn,
         log: (line) => this.log(line),
       });

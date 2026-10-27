@@ -40,7 +40,7 @@ export function remoteSetupPlan(facts, choice) {
     if (facts.wslMode === 'nat' && !facts.relayReady)
       return [{ kind: 'wsl-relay', text: 'Windows가 이 PC로 연결을 넘겨야 해요', guide: 'Windows 관리자 PowerShell에서 아래 명령을 실행하세요.\n설정 뒤 자동으로 다시 확인해요.', actions: [
         { kind: 'copy', text: facts.wslInstructions || 'Windows 포트 전달을 설정하세요', label: 'PowerShell 명령 복사' },
-      ] }];
+      ], ...(facts.relay ? { admin: facts.relay } : {}) }];
     const firewall = firewallStep(facts);
     if (firewall) return [firewall];
     return [{ kind: 'direct', text: choice === 'duckdns' ? '공유기를 열고 DuckDNS HTTPS 주소를 확인해요' : '공유기를 자동으로 열고 HTTPS 주소를 확인해요' }];
@@ -106,5 +106,5 @@ function firewallStep(facts) {
     fw.confirm ? '실행했으면 "실행했어요"를 누르세요.' : '설정 뒤 자동으로 다시 확인해요.'].join('\n');
   return { kind: 'firewall', text: FIREWALL_TEXT[fw.kind], guide, actions: [
     { kind: 'copy', text: fw.add.join('\n'), label: windows ? 'PowerShell 명령 복사' : '터미널 명령 복사' },
-  ], ...(fw.confirm ? { confirm: true } : {}) };
+  ], ...(fw.admin ? { admin: fw.admin } : {}), ...(fw.confirm ? { confirm: true } : {}) };
 }

@@ -1,6 +1,9 @@
 export type RemoteChoice = 'local' | 'lan' | 'direct' | 'ssh' | 'duckdns' | 'tailscale' | 'funnel' | 'tunnel';
 export const REMOTE_CHOICES: readonly RemoteChoice[];
 export type SetupKind = 'switch' | 'ssh' | 'keep' | 'unavailable' | 'direct' | 'duckdns-account' | 'wsl-relay' | 'firewall' | 'tailscale-serve' | 'tailscale-funnel' | 'tailscale-funnel-consent' | 'tailscale-login' | 'tailscale-install' | 'cloudflared-install' | 'tunnel';
+export type AdminSetup =
+  | { kind: 'relay'; directPort: number; externalPort: number }
+  | { kind: 'firewall'; firewall: 'windows' | 'wsl-mirrored'; ports: number[] };
 export interface SetupFact {
   existingWorking?: 'direct' | 'duckdns' | 'tailscale' | 'funnel' | 'tunnel' | null;
   duckdnsConfigured?: boolean;
@@ -9,6 +12,7 @@ export interface SetupFact {
   wslMode: string | null;
   relayReady: boolean;
   wslInstructions?: string;
+  relay?: AdminSetup;
   tailscaleInstalled: boolean;
   tailscaleLoggedIn: boolean;
   tailscaleLoginUrl?: string;
@@ -27,10 +31,10 @@ export interface SetupFact {
   /** WSL drives Windows' tailscale.exe. */
   tailscaleWindows?: boolean;
   /** The host firewall in front of the listener this choice opens; null or absent: none in the way. */
-  firewall?: { kind: 'windows' | 'wsl-mirrored' | 'ufw' | 'firewalld' | 'macos'; add: string[]; ready: boolean; confirm?: boolean } | null;
+  firewall?: { kind: 'windows' | 'wsl-mirrored' | 'ufw' | 'firewalld' | 'macos'; add: string[]; ready: boolean; admin?: AdminSetup; confirm?: boolean } | null;
 }
 export type SetupAction = { kind: 'open'; url: string; label: string } | { kind: 'copy'; text: string; label: string };
 /** `confirm`: the person must say they ran the commands (nothing here can read the result back). */
-export interface SetupPlanStep { kind: SetupKind; text: string; guide?: string; actions?: SetupAction[]; suggest?: RemoteChoice; confirm?: boolean }
+export interface SetupPlanStep { kind: SetupKind; text: string; guide?: string; actions?: SetupAction[]; admin?: AdminSetup; suggest?: RemoteChoice; confirm?: boolean }
 export function sshTunnelCommand(o: { port: number; sshPort?: number; user: string; host: string }): string;
 export function remoteSetupPlan(facts: SetupFact, choice: RemoteChoice): SetupPlanStep[];

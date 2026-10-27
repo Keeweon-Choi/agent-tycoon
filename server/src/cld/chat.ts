@@ -45,6 +45,7 @@ import {
 } from '../constants.js';
 import type { IPty, PtyModule } from '../terminal/ptyModule.js';
 import { PtySession } from '../terminal/ptySessionManager.js';
+import { windowsLogonPath } from './agentCli.js';
 import { deviceLabel } from './device.js';
 import { claudeAttachArgv } from './engine/agents/claude/claude.js';
 import type {
@@ -141,6 +142,7 @@ export const WINDOWS_LOGIN_ENV = [
 export function loginEnvFrom(
   base: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
+  windowsPath: (env: NodeJS.ProcessEnv) => string = windowsLogonPath,
 ): Record<string, string> {
   const keep = new Set(
     (platform === 'win32' ? [...LOGIN_ENV, ...WINDOWS_LOGIN_ENV] : LOGIN_ENV).map((key) =>
@@ -151,6 +153,11 @@ export function loginEnvFrom(
   for (const [key, value] of Object.entries(base)) {
     if (value !== undefined && keep.has(platform === 'win32' ? key.toUpperCase() : key))
       env[key] = value;
+  }
+  if (platform === 'win32') {
+    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env[pathKey] = windowsPath(base);
   }
   return env;
 }

@@ -91,6 +91,19 @@ struct Config {
     distro: String,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminSetupResult {
+    ok: bool,
+    exit_code: i32,
+    #[serde(skip_serializing_if = "is_false")]
+    canceled: bool,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -296,6 +309,47 @@ fn reconnect(app: AppHandle) {
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     show_settings(&app, "");
+}
+
+/// Runs only the app-built, allowlisted network setup for this computer's own office.
+#[cfg(desktop)]
+#[tauri::command]
+fn run_admin_setup(app: AppHandle, request: local::AdminSetupRequest) -> Result<AdminSetupResult, String> {
+    let mode = app
+        .state::<App>()
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|config| config.mode.clone())
+        .unwrap_or_default();
+    if !local::allows_admin_setup(&mode) {
+        return Err("이 컴퓨터에서 시작한 사무실에서만 관리자 설정을 실행할 수 있습니다".into());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = request;
+        Err("관리자 PowerShell 설정은 Windows에서만 실행할 수 있습니다".into())
+    }
+    #[cfg(windows)]
+    {
+        let lines = local::admin_lines(&request)?;
+        let encoded = local::powershell_encoded_command(&lines);
+        let command = local::elevated_powershell_command(&encoded);
+        // The system's own PowerShell, never one found first on PATH: what it starts runs elevated.
+        let powershell = PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()))
+            .join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+        let output = hidden(&powershell.to_string_lossy())
+            .args(["-NoProfile", "-NonInteractive", "-Command", &command])
+            .output()
+            .map_err(|error| format!("관리자 PowerShell을 실행하지 못했습니다 ({error})"))?;
+        let exit_code = output.status.code().unwrap_or(1);
+        Ok(AdminSetupResult {
+            ok: exit_code == 0,
+            exit_code,
+            canceled: exit_code == 1223,
+        })
+    }
 }
 
 #[tauri::command]
@@ -2326,7 +2380,9 @@ pub fn run() {
             #[cfg(desktop)]
             local_install,
             #[cfg(desktop)]
-            local_start
+            local_start,
+            #[cfg(desktop)]
+            run_admin_setup
         ])
         .setup(|app| setup(app.handle()))
         .build(tauri::generate_context!())

@@ -169,8 +169,13 @@ export async function restartDaemon(d: RestartDeps): Promise<boolean> {
   if (platform === 'win32') {
     // A task exiting non-zero is NOT restarted (restart-on-failure only covers a failed launch; measured
     // on Windows 11), and `schtasks /Run` does nothing while the task runs (IgnoreNew). A hidden helper
-    // outlives the task's main process: it waits for this pid, then runs the task again.
-    const wait = `Wait-Process -Id ${d.pid ?? process.pid} -Timeout 30 -ErrorAction SilentlyContinue; ${plan.restart.join(' ')}`;
+    // outlives the task's main process: it waits for this pid, then runs the task again. This pid ending is
+    // not yet the task ending (cmd.exe and wscript.exe above it exit after it), and a run asked for in between
+    // is dropped: 10-28 a Windows 10 laptop stayed down. So the helper also waits for the task to leave
+    // Running (at most 30 s), and runs it once more if it is not running 5 s later.
+    const state = `(Get-ScheduledTask -TaskName '${service}' -ErrorAction SilentlyContinue).State`;
+    const runTask = plan.restart.join(' ');
+    const wait = `Wait-Process -Id ${d.pid ?? process.pid} -Timeout 30 -ErrorAction SilentlyContinue; for ($i = 0; $i -lt 60 -and ${state} -eq 'Running'; $i++) { Start-Sleep -Milliseconds 500 }; ${runTask}; Start-Sleep -Seconds 5; if (${state} -ne 'Running') { ${runTask} }`;
     const powershell = path.win32.join(
       d.systemRoot ?? process.env.SystemRoot ?? 'C:\\Windows',
       'System32',
