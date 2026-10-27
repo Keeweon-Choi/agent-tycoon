@@ -10,7 +10,7 @@ import { AccessStart } from './Access.js';
 import { ApprovalDialog } from './ApprovalDialog.js';
 import { authFetch, isPhoneSafariTab, type Me, passkeyError, registerPasskey } from './authApi.js';
 import { moveByItself } from './autoMove.js';
-import { ensureDeviceKey } from './deviceKey.js';
+import { ensureDeviceKey, noteDeviceKeyStep } from './deviceKey.js';
 import { HandoffPrompt } from './HandoffPrompt.js';
 import { RemoteBanner } from './Remote.js';
 import { setSecurityOpener } from './securityOpen.js';
@@ -48,17 +48,20 @@ export function AuthLayer() {
   const own = useRef(new Set<string>());
 
   useEffect(() => {
-    authFetch<Me>('/api/auth/me').then(
-      (loaded) => {
-        own.current.add(loaded.id);
-        setMe(loaded);
-        void ensureDeviceKey(loaded, (id) => own.current.add(id)).then((text) => {
-          if (text) setToast({ text, list: true });
-          // O5: then follow the host to its verified outside address, if it has one.
-          else void moveByItself(loaded, (to) => setToast({ text: t('autoMove.moving', { host: new URL(to).host }) }));
-        });
-      },
-      () => undefined,
+    // A step-up waits for this (deviceStepUp): after a code login it is what makes the session a device.
+    noteDeviceKeyStep(
+      authFetch<Me>('/api/auth/me').then(
+        (loaded) => {
+          own.current.add(loaded.id);
+          setMe(loaded);
+          return ensureDeviceKey(loaded, (id) => own.current.add(id)).then((text) => {
+            if (text) setToast({ text, list: true });
+            // O5: then follow the host to its verified outside address, if it has one.
+            else void moveByItself(loaded, (to) => setToast({ text: t('autoMove.moving', { host: new URL(to).host }) }));
+          });
+        },
+        () => undefined,
+      ),
     );
     const offMessage = transport.onMessage((msg) => {
       const time = (ms: number) =>

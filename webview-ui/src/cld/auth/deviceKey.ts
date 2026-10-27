@@ -119,6 +119,17 @@ export async function proveDevice(device: StoredDevice, url: string): Promise<Re
   return postJson(url, proof);
 }
 
+/** AuthLayer's first step on this page: its /api/auth/me, then ensureDeviceKey. */
+let keyStep: Promise<unknown> = Promise.resolve();
+
+/** AuthLayer hands over that step: until it ends, a read of /api/auth/me may still name no device. */
+export function noteDeviceKeyStep(step: Promise<unknown>): void {
+  keyStep = step.catch(() => undefined);
+}
+
+/** Resolves once AuthLayer's first step ended (at once where there is none). */
+export const deviceKeySettled = (): Promise<unknown> => keyStep;
+
 /**
  * After any login: make sure this session is a device whose key this
  * browser holds. A key it already has is proved (the same device logging in

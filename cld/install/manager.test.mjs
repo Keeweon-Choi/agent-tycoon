@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -369,6 +368,34 @@ test('uninstall --yes cancels when a possibly live daemon will not answer status
   assert.ok(fake.calls.includes('1. 실행 중 에이전트: 확인하지 못함 (데몬이 응답하지 않음)'));
 });
 
+test('a consented Windows uninstall continues past a hung daemon and ends only private-node fallback processes', async () => {
+  const home = tmp('uninstall-unknown-windows'); const { root, owned } = await managerRecord(home);
+  const record = await readRecord(root);
+  record.service = { name: 'agent-tycoon', kind: 'schtasks', cwd: path.join(root, 'versions', '1.0.0') };
+  await writeRecord(root, record);
+  const fake = uninstallDeps(home, null);
+  fake.platform = 'win32'; fake.pid = 8871; fake.socketExists = () => true;
+  fake.control = async (command) => { fake.controlCalls.push(command); return null; };
+  const commands = [];
+  fake.run = async (command) => {
+    commands.push(command);
+    return { ok: true, stdout: command[0] === 'powershell.exe' ? 'stopped 4455\r\n' : '', stderr: '' };
+  };
+  const result = await uninstall({ reset: true, yes: true, stopAgents: true, root }, fake);
+  assert.equal(result.code, 0);
+  assert.equal(fs.existsSync(owned), false);
+  assert.deepEqual(fake.controlCalls, ['status']);
+  assert.ok(fake.calls.includes('! 데몬이 응답하지 않아 실행 중 에이전트를 확인하지 못했습니다. 서비스를 끄고 계속합니다'));
+  const fallback = commands.find((command) => command[0] === 'powershell.exe');
+  assert.ok(fallback);
+  const script = Buffer.from(fallback.at(-1), 'base64').toString('utf16le');
+  assert.match(script, /ProcessId -ne 8871/);
+  assert.match(script, /GetFileName\(\$node\) -ieq 'node\.exe'/);
+  assert.match(script, /GetDirectoryName\(\$versionDir\)\.Equals\(\$versions, \[StringComparison\]::OrdinalIgnoreCase\)/);
+  assert.match(script, /versions/);
+  assert.doesNotMatch(script, /Stop-Process -Id 8871/);
+});
+
 test('uninstall refuses a socket daemon belonging to another install', async () => {
   const home = tmp('uninstall-other-daemon'); const { owned } = await managerRecord(home);
   const other = path.join(home, 'other', 'dist', 'cli.js');
@@ -631,6 +658,32 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
   assert.equal(fs.existsSync(path.join(dir, rels[0])), true);
 });
 
+test('Windows defers a held private node even when its own executable path differs only by case', async () => {
+  const home = tmp('uninstall-windows-held-node'); const { root, dir } = await completeInstall(home);
+  const node = path.join(dir, 'node', 'node.exe'); const manager = path.join(dir, 'cld', 'install', 'manager.mjs');
+  for (const [file, content] of [[node, 'node'], [manager, 'manager']]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
+  }
+  const manifestFile = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  for (const file of [node, manager]) manifest.files[path.relative(dir, file)] = sha256File(file);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile); await writeRecord(root, record);
+  const resetData = path.join(home, '.config', 'agent-tycoon'); fs.mkdirSync(resetData, { recursive: true });
+  const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node.toUpperCase(); fake.managerPath = manager.toUpperCase();
+  let deferred = false;
+  fake.rm = async (file) => {
+    if (file === node) { const error = new Error('held'); error.code = 'EPERM'; throw error; }
+    await fs.promises.rm(file, { force: true });
+  };
+  fake.spawn = () => { deferred = true; return { unref: () => {} }; };
+  const result = await uninstall({ reset: true, yes: true, root }, fake);
+  assert.ok([0, 1].includes(result.code));
+  assert.equal(fs.existsSync(resetData), false);
+  assert.equal(deferred, true);
+  assert.ok(fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
+});
+
 test('non-Windows uninstall does not start the Windows removal helper', async () => {
   const home = tmp('uninstall-no-windows-helper'); await managerRecord(home);
   const fake = uninstallDeps(home); let spawned = false;
@@ -733,18 +786,26 @@ test('doctor --fix reports a folder at the link path as kept instead of throwing
 });
 
 test('the manager forwards CLD_AGENT_TOKEN in its control request', async () => {
-  const home = tmp('control-token'); const socket = path.join(home, '.config', 'agent-tycoon', 'engine.sock');
-  fs.mkdirSync(path.dirname(socket), { recursive: true });
+  const home = tmp('control-token');
   const seen = [];
-  const server = net.createServer((conn) => {
-    let text = '';
-    conn.on('data', (d) => { text += d; if (text.includes('\n')) { seen.push(JSON.parse(text)); conn.write(`${JSON.stringify({ ok: true })}\n`); } });
-  });
-  await new Promise((resolve) => server.listen(socket, resolve));
-  try {
-    assert.deepEqual(await realDeps({ home, env: { CLD_AGENT_TOKEN: 'agent-token-1' } }).control('status'), { ok: true });
-    assert.deepEqual(await realDeps({ home, env: {} }).control('status'), { ok: true });
-  } finally { server.close(); }
+  const createControlConnection = () => {
+    const handlers = new Map();
+    const client = {
+      setTimeout: () => {}, setEncoding: () => {}, destroy: () => {},
+      on: (event, handler) => {
+        handlers.set(event, handler);
+        if (event === 'connect') queueMicrotask(handler);
+        return client;
+      },
+      write: (text) => {
+        seen.push(JSON.parse(text));
+        queueMicrotask(() => handlers.get('data')(`${JSON.stringify({ ok: true })}\n`));
+      },
+    };
+    return client;
+  };
+  assert.deepEqual(await realDeps({ home, createControlConnection, env: { CLD_AGENT_TOKEN: 'agent-token-1' } }).control('status'), { ok: true });
+  assert.deepEqual(await realDeps({ home, createControlConnection, env: {} }).control('status'), { ok: true });
   assert.equal(seen[0].token, 'agent-token-1');
   assert.equal(seen[0].cmd, 'status');
   assert.equal(seen[1].token, undefined);
@@ -887,7 +948,10 @@ test('R5: stopping the Windows service ends the task, then the daemon itself (it
   // Nothing answers with our token: only the task is ended.
   calls.length = 0;
   await serviceOp('schtasks', 'deactivate', s, { ...deps, healthPid: async () => null });
-  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'schtasks /Delete']);
+  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'powershell.exe -NoProfile', 'schtasks /Delete']);
+  const fallback = Buffer.from(calls[1].at(-1), 'base64').toString('utf16le');
+  assert.match(fallback, /ProcessId -ne/);
+  assert.match(fallback, /GetFileName\(\$node\) -ieq 'node\.exe'/);
 });
 
 test('R5: uninstall takes our folder (only it) back out of the Windows user Path that --add-path added', async () => {

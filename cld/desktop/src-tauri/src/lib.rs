@@ -702,9 +702,18 @@ fn local_flow(app: &AppHandle, config: &Config, generation: u64, action: Action)
             view(app, |v| {
                 v.status = "연결됨".into();
                 v.detail.clear();
+                v.step = None;
+                v.install_progress = None;
             });
             if let (Some(window), Ok(url)) = (main_window(app), Url::parse(&url)) {
-                let _ = window.navigate(url);
+                let port = url.port();
+                if let (true, Some(port)) = (
+                    window.navigate(url).is_ok() && config.local_env == "native",
+                    port,
+                ) {
+                    let app = app.clone();
+                    thread::spawn(move || watch_local(&app, generation, port));
+                }
             }
         }
         Ok(None) => {} // a question is on the screen
@@ -942,6 +951,36 @@ fn daemon_health(port: u16) -> Option<local::Health> {
     match http(port, "GET", "/api/health", None, "")? {
         (200, body) => local::parse_health(&body),
         _ => None,
+    }
+}
+
+/// Watches the native office after it has opened. WSL is deliberately excluded: Windows's
+/// loopback address may not reach the distro even while its office is healthy.
+#[cfg(desktop)]
+fn watch_local(app: &AppHandle, generation: u64, port: u16) {
+    let mut failures = 0;
+    loop {
+        thread::sleep(local::WATCH_INTERVAL);
+        let st = app.state::<App>();
+        if st.generation.load(SeqCst) != generation {
+            return;
+        }
+        let busy = {
+            let view = st.view.lock().unwrap();
+            view.settings || view.ask != Ask::Nothing || view.step.is_some()
+        };
+        if busy {
+            continue;
+        }
+        let (next, reconnect) = local::watch_step(failures, daemon_health(port).is_some());
+        failures = next;
+        if reconnect {
+            if st.generation.load(SeqCst) == generation {
+                log(app, "이 컴퓨터: 사무실이 1분 동안 응답하지 않아 다시 엽니다");
+                connect(app);
+            }
+            return;
+        }
     }
 }
 

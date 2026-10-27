@@ -1864,7 +1864,7 @@ export const ko = {
   'action.busyAtDesk': '{name} 일하는 중이라 자리에 있어요',
   'chat.noSend': '이 대화는 앱에서 보낼 수 없어요',
   'chat.engineOff': '이 대화는 앱에서 보낼 수 없어요 (엔진이 꺼져 있어요)',
-  'chat.outsideTerminal': '이 대화는 앱에서 보낼 수 없어요 (엔진 밖 터미널에서 열려 있음)',
+  'chat.outsideTerminal': '터미널에서 직접 연 Claude 세션이라 여기서는 보낼 수 없어요. 그 터미널에서 이어 가거나, 오케스트레이터 패널의 + 로 새로 만들면 여기서 대화할 수 있어요',
   'badge.handoff': '인수인계 필요',
   'temps.outsourced': '외주',
   'temps.done': '완료',
@@ -2157,6 +2157,9 @@ export const ko = {
   'agentCli.installButton.claude': 'Claude Code 설치',
   'agentCli.afterInstall':
     '설치가 끝나면 다시 찾기를 눌러 새 환경으로 데몬을 다시 시작하고, 터미널에서 claude 를 한 번 실행해 로그인해요.',
+  // The Windows install line signs in by itself (claude auth login); 다시 찾기 restarts the daemon and its terminals.
+  'agentCli.afterInstallWindows':
+    '설치가 끝나면 같은 창에서 Claude 로그인이 브라우저로 열려요. 로그인까지 마친 뒤 다시 찾기를 누르면 데몬이 새 환경으로 다시 시작해요.',
   'agentCli.os.win32': 'Windows PowerShell',
   'agentCli.os.posix': 'macOS, Linux, WSL 터미널',
   'agentCli.again': '다시 찾기',

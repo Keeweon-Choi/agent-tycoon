@@ -131,7 +131,7 @@ export function AgentCliNotice() {
               )}
             </div>
           ))}
-          <span>{t('agentCli.afterInstall')}</span>
+          <span>{t(windows ? 'agentCli.afterInstallWindows' : 'agentCli.afterInstall')}</span>
           {agentCli.again && <strong data-testid="agent-cli-still">{t('agentCli.stillMissing')}</strong>}
           {!officeReadOnly && (
             <Button

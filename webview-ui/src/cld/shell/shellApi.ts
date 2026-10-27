@@ -4,7 +4,7 @@
  * itself in the last 120 s (the step-up); attaching to one needs the same.
  */
 import { authFetch, type Me, type StepUpOutcome, verifyPasskey } from '../auth/authApi.js';
-import { idbStore, type KeyStore, loadDevice, proveDevice } from '../auth/deviceKey.js';
+import { deviceKeySettled, idbStore, type KeyStore, loadDevice, proveDevice } from '../auth/deviceKey.js';
 
 export interface ShellRow {
   id: string;
@@ -63,6 +63,10 @@ export async function deviceStepUp(
   me: Pick<Me, 'keyStepUp' | 'deviceId'>,
   store: KeyStore = idbStore,
 ): Promise<StepUpOutcome> {
+  // A `me` read before AuthLayer linked or registered this browser's key names no device (10-28:
+  // the terminal's read at load after a code login refused every shell): read it again once that ended.
+  if (me.keyStepUp && !me.deviceId)
+    me = await deviceKeySettled().then(() => authFetch<Me>('/api/auth/me'));
   if (!me.keyStepUp) return 'required';
   if (!me.deviceId) return 'noKey';
   const stored = await loadDevice(store);

@@ -9,7 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/index.js';
 import { deviceStepUp } from '../shell/shellApi.js';
 import { type StepUpOutcome, stepUpText } from './authApi.js';
-import { ensureDeviceKey, type KeyStore, type StoredDevice } from './deviceKey.js';
+import { ensureDeviceKey, type KeyStore, noteDeviceKeyStep, type StoredDevice } from './deviceKey.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -135,6 +135,8 @@ it('each step-up outcome has its note: a busy limit, a lost key, passkeys requir
   server({ '/login/device/challenge': 200, '/api/auth/stepup/device': 200 });
   expect(await deviceStepUp({ ...known, keyStepUp: true }, store)).toBe('ok');
   expect(await deviceStepUp({ ...known, keyStepUp: false }, store)).toBe('required');
+  // A session that still is no device after AuthLayer's step (read again: /api/auth/me).
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...fresh, keyStepUp: true }))));
   expect(await deviceStepUp({ ...fresh, keyStepUp: true }, store)).toBe('noKey');
   const notes: Record<StepUpOutcome, string> = {
     ok: t('stepup.needed'),
@@ -145,4 +147,27 @@ it('each step-up outcome has its note: a busy limit, a lost key, passkeys requir
     failed: t('stepup.needed'),
   };
   for (const [why, text] of Object.entries(notes)) expect(stepUpText(why as StepUpOutcome)).toBe(text);
+});
+
+it("10-28: a `me` read before this page's key linked (the terminal's, at load after a code login) still steps up", async () => {
+  const { store, slots } = memoryStore();
+  slots.set('key', await key(known.deviceId));
+  // AuthLayer's step: until it ends the server still names no device for this session.
+  let linked = false;
+  let link!: () => void;
+  noteDeviceKeyStep(new Promise<void>((resolve) => (link = resolve)).then(() => void (linked = true)));
+  const urls: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url === '/api/auth/me')
+        return new Response(JSON.stringify({ ...(linked ? known : fresh), keyStepUp: true }));
+      return new Response(JSON.stringify(url === '/login/device/challenge' ? { nonce: 'n' } : { ok: true }));
+    }),
+  );
+  const outcome = deviceStepUp({ ...fresh, keyStepUp: true }, store);
+  setTimeout(link, 10);
+  expect(await outcome).toBe('ok');
+  expect(urls).toEqual(['/api/auth/me', '/login/device/challenge', '/api/auth/stepup/device']);
 });

@@ -1890,7 +1890,7 @@ export const en = {
   'chat.noSend': 'You cannot send to this conversation from the app.',
   'chat.engineOff': 'You cannot send to this conversation from the app. The engine is off.',
   'chat.outsideTerminal':
-    'You cannot send to this conversation from the app. It is open in a terminal outside the engine.',
+    'This Claude session was started by hand in a terminal, so it cannot be sent to from here. Continue it in that terminal, or make a new one with + in the orchestrator panel to talk to it here.',
   'badge.handoff': 'Handoff needed',
   'temps.outsourced': 'Contractors',
   'temps.done': 'Done',
@@ -2187,6 +2187,8 @@ export const en = {
   'agentCli.installButton.claude': 'Install Claude Code',
   'agentCli.afterInstall':
     'After the installation finishes: press Find again so the daemon restarts with a fresh environment, then type claude once in the terminal to sign in.',
+  'agentCli.afterInstallWindows':
+    'When the installation finishes, Claude opens its sign-in in your browser from the same window. After signing in, press Find again so the daemon restarts with a fresh environment.',
   'agentCli.os.win32': 'Windows PowerShell',
   'agentCli.os.posix': 'macOS, Linux or WSL terminal',
   'agentCli.again': 'Find again',

@@ -280,6 +280,16 @@ export const endDaemonCommand = (pid, versionsDir) => powershell([
   `if ($p -and $p.CommandLine -and $p.CommandLine.IndexOf(${psQuote(`${versionsDir}\\`)}, [StringComparison]::OrdinalIgnoreCase) -ge 0) { Stop-Process -Id ${Number(pid)} -Force; 'stopped' } else { 'not ours' }`,
 ]);
 
+/** Ends only private Node processes directly below this install's versions directory, never this manager. */
+export const endPrivateWindowsNodesCommand = (versionsDir, selfPid) => powershell([
+  `$versions = [IO.Path]::GetFullPath(${psQuote(versionsDir)})`,
+  'Get-CimInstance Win32_Process | ForEach-Object {',
+  '  $p = $_; $node = $p.ExecutablePath; $nodeDir = if ($node) { [IO.Path]::GetDirectoryName($node) }',
+  '  $versionDir = if ($nodeDir) { [IO.Path]::GetDirectoryName($nodeDir) }',
+  `  if ($p.ProcessId -ne ${Number(selfPid)} -and $node -and [IO.Path]::GetFileName($node) -ieq 'node.exe' -and [IO.Path]::GetFileName($nodeDir) -ieq 'node' -and $versionDir -and [IO.Path]::GetDirectoryName($versionDir).Equals($versions, [StringComparison]::OrdinalIgnoreCase)) { Stop-Process -Id $p.ProcessId -Force; "stopped $($p.ProcessId)" }`,
+  '}',
+]);
+
 /**
  * The daemon below the logon task, ended directly: its pid from /api/health with the host token (so it is this
  * home's daemon), checked to run from <root>\versions (endDaemonCommand), then waited for until health is quiet.
@@ -288,12 +298,20 @@ export const endDaemonCommand = (pid, versionsDir) => powershell([
 export async function endWindowsDaemon(s, deps) {
   if (!s?.cwd) return { ended: false };
   const port = mergeConfig(await readConfig(deps.home)).port;
-  const pid = await deps.healthPid(port);
-  if (!Number.isInteger(pid) || pid <= 0) return { ended: false };
-  const r = await deps.run(endDaemonCommand(pid, path.win32.dirname(s.cwd)), { optional: true, timeout: 30_000 });
-  if (!/stopped/.test(r?.stdout ?? '')) { deps.print(`! pid ${pid} on port ${port} is not this install's daemon; left running`); return { ended: false }; }
-  for (let i = 0; i < 20 && (await deps.health(port)); i += 1) await deps.sleep(500);
-  return { ended: true, pid };
+  let pid = null;
+  try { pid = await deps.healthPid?.(port); } catch { /* no responsive health endpoint: use the private-node fallback */ }
+  const versionsDir = path.win32.dirname(s.cwd);
+  if (Number.isInteger(pid) && pid > 0) {
+    const r = await deps.run(endDaemonCommand(pid, versionsDir), { optional: true, timeout: 30_000 });
+    if (!/stopped/.test(r?.stdout ?? '')) { deps.print(`! pid ${pid} on port ${port} is not this install's daemon; left running`); return { ended: false }; }
+    for (let i = 0; i < 20 && (await deps.health?.(port)); i += 1) await deps.sleep(500);
+    return { ended: true, pid };
+  }
+  const r = await deps.run(endPrivateWindowsNodesCommand(versionsDir, deps.pid ?? process.pid), { optional: true, timeout: 30_000 });
+  const pids = [...String(r?.stdout ?? '').matchAll(/^stopped\s+(\d+)\s*$/gmi)].map((match) => Number(match[1]));
+  if (!pids.length) return { ended: false };
+  for (let i = 0; i < 20 && (await deps.health?.(port)); i += 1) await deps.sleep(500);
+  return { ended: true, pids };
 }
 
 /** What a service is: its file (none for a scheduled task), rendered content, and the daemon argv. */
@@ -495,8 +513,7 @@ export function realDeps(overrides = {}) {
   const home = overrides.home ?? os.homedir();
   const env = overrides.env ?? process.env;
   const control = async (cmd) => new Promise((resolve) => {
-    const socket = controlSocket(home);
-    const client = net.createConnection(socket);
+    const client = (overrides.createControlConnection ?? net.createConnection)(controlSocket(home));
     let text = '';
     client.setTimeout(3_000);
     client.setEncoding('utf8');
@@ -978,6 +995,11 @@ export const inside = (root, file) => {
   const rel = path.relative(path.resolve(root), path.resolve(file));
   return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
 };
+/** Windows preserves path spelling but does not distinguish its case. */
+const windowsInside = (root, file) => {
+  const rel = path.win32.relative(path.win32.resolve(root).toLowerCase(), path.win32.resolve(file).toLowerCase());
+  return rel === '' || (!rel.startsWith('..\\') && rel !== '..' && !path.win32.isAbsolute(rel));
+};
 const fileDigest = async (file) => {
   if (!(await fs.lstat(file)).isFile()) throw new Error('not a regular file');
   return sha256(await fs.readFile(file));
@@ -1221,10 +1243,10 @@ function windowsHeldFile(file, root, record, versionState, deps) {
   const manager = deps.managerPath ?? path.join(here, 'manager.mjs');
   const version = Object.keys(versionState).find((name) => {
     const dir = record.versions?.[name]?.dir;
-    return dir && (inside(dir, executable) || inside(dir, manager));
+    return dir && (windowsInside(dir, executable) || windowsInside(dir, manager));
   });
-  if (version && inside(record.versions[version].dir, file)) return { version };
-  if (inside(path.dirname(executable), file)) return {};
+  if (version && windowsInside(record.versions[version].dir, file)) return { version };
+  if (windowsInside(path.dirname(executable), file)) return {};
   if (path.dirname(file) === path.join(root, 'bin') && path.extname(file).toLowerCase() === '.cmd') return {};
   return null;
 }
@@ -1278,7 +1300,9 @@ export async function uninstall(o, deps = realDeps()) {
       return { code: 3, plan };
     }
     if (plan.statusUnknown) {
-      if (o.yes || !(await deps.confirmUnknownDaemon())) {
+      if (o.yes && o.stopAgents) {
+        deps.print('! 데몬이 응답하지 않아 실행 중 에이전트를 확인하지 못했습니다. 서비스를 끄고 계속합니다');
+      } else if (o.yes || !(await deps.confirmUnknownDaemon())) {
         deps.print('데몬 응답을 확인하지 못해 제거를 취소했습니다');
         return { code: 3, plan };
       }
@@ -1290,7 +1314,7 @@ export async function uninstall(o, deps = realDeps()) {
       if (!stopAgents) { deps.print('제거를 취소했습니다'); return { code: 3, plan }; }
     }
     if (!o.yes && !(await deps.confirm('정말 제거할까요? (y/N)'))) { deps.print('제거를 취소했습니다'); return { code: 0, plan }; }
-    if (stopAgents) {
+    if (stopAgents && !(plan.statusUnknown && o.yes)) {
       const stopped = await deps.control('stop-agents');
       if (!stopped?.ok) {
         deps.print('에이전트 중지를 확인하지 못해 제거를 취소했습니다');
@@ -1363,6 +1387,9 @@ export async function uninstall(o, deps = realDeps()) {
         keptFiles.add(file);
         failedFiles.set(file, error.code);
         if (version) failedVersions.add(version);
+        // A process can still hold any file under our root (not only the manager's node.exe).
+        // Let the detached helper retry after this process exits while the rest of removal completes.
+        if (deps.platform === 'win32') selfHeldFiles.set(file, { version });
         deps.print(`⚠ 파일을 삭제하지 못했습니다 (${error.code}): ${file}`);
         continue;
       }

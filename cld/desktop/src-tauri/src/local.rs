@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// The page the bundled ui/ shows. First run: welcome (no saved choice); then the saved choice.
 pub fn screen(saved: bool, settings: bool, choosing: bool) -> &'static str {
@@ -237,6 +238,17 @@ pub struct Found {
 }
 
 pub const DEFAULT_PORT: u16 = 18240;
+pub const WATCH_INTERVAL: Duration = Duration::from_secs(10);
+pub const WATCH_FAILURES: u32 = 6;
+
+/// Counts consecutive failed office health checks and says when it is time to reconnect.
+pub fn watch_step(failures: u32, healthy: bool) -> (u32, bool) {
+    if healthy {
+        return (0, false);
+    }
+    let failures = failures.saturating_add(1);
+    (failures, failures >= WATCH_FAILURES)
+}
 
 /// The only elevated setup requests an office page may make. Command text never crosses the bridge.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -1050,6 +1062,37 @@ mod tests {
         assert_eq!(parse_health(r#"{"status":"ok","service":"other"}"#), None);
         assert_eq!(parse_health("<html>"), None);
         assert_eq!(parse_health(r#"{"status":"ok"}"#), None);
+    }
+
+    #[test]
+    fn watch_step_resets_after_a_healthy_check() {
+        assert_eq!(watch_step(4, true), (0, false));
+    }
+
+    #[test]
+    fn watch_step_reconnects_on_the_sixth_consecutive_failure() {
+        let mut failures = 0;
+        for expected in 1..=WATCH_FAILURES {
+            let (next, reconnect) = watch_step(failures, false);
+            assert_eq!(next, expected);
+            assert_eq!(reconnect, expected == WATCH_FAILURES);
+            failures = next;
+        }
+    }
+
+    #[test]
+    fn watch_step_starts_over_after_a_healthy_check() {
+        let mut failures = 0;
+        for _ in 0..3 {
+            (failures, _) = watch_step(failures, false);
+        }
+        (failures, _) = watch_step(failures, true);
+        for expected in 1..WATCH_FAILURES {
+            let (next, reconnect) = watch_step(failures, false);
+            assert_eq!((next, reconnect), (expected, false));
+            failures = next;
+        }
+        assert_eq!(watch_step(failures, false), (WATCH_FAILURES, true));
     }
 
     #[test]

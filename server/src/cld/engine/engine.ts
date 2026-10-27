@@ -1667,7 +1667,7 @@ export class Engine {
       if (action === 'promote') held.forEach((n) => this.swapping.delete(n));
     }
     this.log(
-      `action ${what}: ${out.ok ? 'ok' : `failed (${out.error})`}${out.bgId ? ` bg=${out.bgId}` : ''}${out.note ? ` (${out.note})` : ''} ${((Date.now() - started) / 1000).toFixed(1)}s`,
+      `action ${what}: ${out.ok ? 'ok' : `failed (${out.error}${out.detail ? `: ${out.detail}` : ''})`}${out.bgId ? ` bg=${out.bgId}` : ''}${out.note ? ` (${out.note})` : ''} ${((Date.now() - started) / 1000).toFixed(1)}s`,
     );
     this.refresh();
     return reply(out);

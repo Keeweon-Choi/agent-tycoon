@@ -1,7 +1,7 @@
 import { beforeEach, expect, it } from 'vitest';
 
 import type { BackgroundSession, OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messages.js';
-import { setLanguage } from '../i18n/index.js';
+import { setLanguage, t } from '../i18n/index.js';
 import { chatOpenFor, chatTarget, noSendNote, readOnlyNote, requestChat } from './chat.js';
 import { virtualAgentId } from './officeStore.js';
 import {
@@ -72,9 +72,11 @@ it('the no-send note says why, and never blames another terminal for engine proj
   const project: OfficeOrchestrator = { ...orch('proj', 10, null), provider: 'engine' };
   const withProject: OfficeSnapshot = { ...state, orchestrators: [...state.orchestrators, project] };
   expect(readOnlyNote(10, withProject)).toBe(`${noSendNote()} (\uc5d4\uc9c4\uc774 \uaebc\uc838 \uc788\uc5b4\uc694)`);
-  // A plain Claude session, listed or not, is open in a terminal outside the engine.
-  expect(readOnlyNote(8, state)).toBe(`${noSendNote()} (\uc5d4\uc9c4 \ubc16 \ud130\ubbf8\ub110\uc5d0\uc11c \uc5f4\ub824 \uc788\uc74c)`);
-  expect(readOnlyNote(12345, state)).toBe(`${noSendNote()} (\uc5d4\uc9c4 \ubc16 \ud130\ubbf8\ub110\uc5d0\uc11c \uc5f4\ub824 \uc788\uc74c)`);
-  expect(readOnlyNote(12345, null)).toBe(`${noSendNote()} (\uc5d4\uc9c4 \ubc16 \ud130\ubbf8\ub110\uc5d0\uc11c \uc5f4\ub824 \uc788\uc74c)`);
+  // A plain Claude session, listed or not, was started by hand in a terminal outside the engine.
+  expect(readOnlyNote(8, state)).toBe(t('chat.outsideTerminal'));
+  expect(readOnlyNote(12345, state)).toBe(t('chat.outsideTerminal'));
+  expect(readOnlyNote(12345, null)).toBe(t('chat.outsideTerminal'));
+  // 10-28: it also says how to get a conversation that can be sent to (the orchestrator panel's +).
+  expect(t('chat.outsideTerminal')).toContain('+');
   for (const id of [7, 8, 10]) expect(readOnlyNote(id, withProject)).not.toContain('\ub2e4\ub978 \ud130\ubbf8\ub110');
 });
