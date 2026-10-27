@@ -1,5 +1,6 @@
 /** Installer lines typed into a trusted shell from the plain-office notice. */
-export const GIT_INSTALL_COMMAND = 'winget install --id Git.Git -e --source winget';
+export const GIT_INSTALL_COMMAND =
+  'winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements';
 export const WINDOWS_CLAUDE_INSTALL_COMMAND =
   'powershell -NoProfile -Command "irm https://claude.ai/install.ps1 | iex"';
 

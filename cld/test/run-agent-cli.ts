@@ -137,6 +137,25 @@ async function main() {
     check(daemon.log.join('').includes('[cld] claude not found'), 'the daemon log says plain office');
     await page.screenshot({ path: path.join(OUT, '01-notice-missing.png') });
 
+    // The first open's 접속 방식 question waits for the full office (it grew over the notice and took its clicks).
+    await page.waitForTimeout(2_000);
+    check(
+      (await page.getByRole('dialog').filter({ hasText: '접속 방식 고르기' }).count()) === 0,
+      'while Claude Code is missing the access choice does not cover the notice',
+    );
+    await page.getByRole('button', { name: '접기', exact: true }).click();
+    const bar = page.getByTestId('agent-cli-bar');
+    await bar.waitFor({ timeout: 10_000 });
+    await notice.waitFor({ state: 'detached', timeout: 10_000 });
+    check(
+      (await bar.isVisible()) && (await page.getByTestId('agent-cli-notice').count()) === 0,
+      'folding leaves the install guide bar, not the full notice',
+    );
+    await page.screenshot({ path: path.join(OUT, '01-folded-bar.png') });
+    await bar.getByTestId('agent-cli-expand').click();
+    await notice.waitFor({ timeout: 10_000 });
+    check(await notice.isVisible(), 'expanding the bar restores the full notice');
+
     // ── 2. Claude Code 설치 opens a home shell and runs only this HOME's fake curl ──
     // A shell needs a device key, which registers by itself shortly after the code login (as in
     // run-terminal); a code-only session is refused a terminal.
@@ -155,6 +174,12 @@ async function main() {
     const notNow = page.getByRole('button', { name: '나중에' });
     if (await notNow.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await notNow.click();
     await page.getByRole('button', { name: 'Claude Code 설치', exact: true }).click();
+    await bar.waitFor({ timeout: 10_000 });
+    await notice.waitFor({ state: 'detached', timeout: 10_000 });
+    check(
+      (await bar.isVisible()) && (await page.getByTestId('agent-cli-notice').count()) === 0,
+      'the install button folds the notice to its bar',
+    );
     // wherever the office shows its terminal (the dock's panel, or the plain-mode window)
     const opened = await page
       .waitForFunction(
@@ -188,6 +213,7 @@ async function main() {
         return false;
       });
     check(opened, 'the Claude Code install button opens a terminal');
+    check(await bar.isVisible(), 'the folded bar leaves the opened terminal visible');
     await page.waitForFunction(
       () =>
         [...document.querySelectorAll<HTMLElement>('.xterm-rows')].some(
@@ -203,6 +229,25 @@ async function main() {
       'fake-curl.log records -fsSL https://claude.ai/install.sh',
     );
     await page.screenshot({ path: path.join(OUT, '04-install-from-terminal.png') });
+    // The bar's 터미널 brings the closed terminal window back (owner 10-27: the plain office has no dock).
+    const xtermShown = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('.xterm-rows')].some((el) => el.offsetParent !== null),
+      );
+    await page.getByRole('dialog').filter({ hasText: '터미널' }).locator('[data-modal-title] button').click();
+    await page.waitForFunction(
+      () => ![...document.querySelectorAll<HTMLElement>('.xterm-rows')].some((el) => el.offsetParent !== null),
+      undefined,
+      { timeout: 10_000 },
+    );
+    check(!(await xtermShown()), 'closing the terminal window hides the terminal');
+    await bar.getByTestId('agent-cli-terminal').click();
+    await page.waitForFunction(
+      () => [...document.querySelectorAll<HTMLElement>('.xterm-rows')].some((el) => el.offsetParent !== null),
+      undefined,
+      { timeout: 10_000 },
+    );
+    check(await xtermShown(), "the folded bar's 터미널 opens the terminal again");
 
     const readOnlyContext = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     const readOnlyPage = await readOnlyContext.newPage();
@@ -230,10 +275,14 @@ async function main() {
     );
     await readOnlyContext.close();
 
-    // ── 3. 다시 찾기 with nothing installed ──
-    await page.getByTestId('agent-cli-again').click();
+    // ── 3. 다시 찾기 from the folded bar with nothing installed ──
+    await bar.getByTestId('agent-cli-again').click();
+    await notice.waitFor({ timeout: 10_000 });
     await page.getByTestId('agent-cli-still').waitFor({ timeout: 10_000 });
-    check((await page.getByTestId('agent-cli-still').innerText()).includes('아직 설치되지 않았어요'), 'the notice says it is still not installed');
+    check(
+      (await page.getByTestId('agent-cli-still').innerText()).includes('아직 설치되지 않았어요'),
+      'rechecking from the bar unfolds the notice and says it is still not installed',
+    );
     check((await notice.getAttribute('data-state')) === 'missing', 'still missing: nothing restarted');
     check(exits.length === 0, 'the daemon is still the first one');
     await page.screenshot({ path: path.join(OUT, '02-still-missing.png') });

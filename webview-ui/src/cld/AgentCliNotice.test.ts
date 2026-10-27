@@ -29,7 +29,10 @@ beforeEach(() => {
 });
 
 describe('agent CLI install commands', () => {
-  it('uses PowerShell from Windows cmd.exe, after the Git step', () => {
+  it('accepts winget agreements and uses PowerShell from Windows cmd.exe, after the Git step', () => {
+    expect(GIT_INSTALL_COMMAND).toBe(
+      'winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements',
+    );
     expect(agentCliInstallSteps('irm https://claude.ai/install.ps1 | iex')).toEqual([
       { id: 'git', command: GIT_INSTALL_COMMAND },
       { id: 'claude', command: WINDOWS_CLAUDE_INSTALL_COMMAND },

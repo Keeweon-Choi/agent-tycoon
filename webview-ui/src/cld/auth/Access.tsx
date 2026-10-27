@@ -5,6 +5,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { t, useLanguage } from '../../i18n/index.js';
 import { writeClipboardText } from '../../terminal/clipboard.js';
 import { openExternal } from '../externalLinks.js';
+import { useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
 import { AddDeviceButton, OutsideDeviceInvite } from './AddDevice.js';
 import { authFetch, type Me } from './authApi.js';
@@ -276,11 +277,13 @@ export function AccessButton() {
 /** The host's first open on localhost, before choosing a connection. */
 export function AccessStart() {
   const [open, setOpen] = useState(false);
+  // Owner 10-27: without Claude Code the install notice comes first; this grew over it and took its clicks.
+  const waitingForCli = useCldStore().agentCli !== null;
   useEffect(() => {
     if (!LOOPBACK.test(window.location.hostname)) return;
     authFetch<AccessStatus>('/api/cld/connector').then((s) => setOpen(s.start && s.maySetup), () => undefined);
   }, []);
-  if (!open) return null;
+  if (!open || waitingForCli) return null;
   const later = () => {
     setOpen(false);
     void authFetch('/api/cld/connector/chosen', { method: 'POST', body: {} }).catch(() => undefined);

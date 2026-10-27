@@ -11,7 +11,7 @@ import {
   TERMINAL_SHUTDOWN_SLACK_MS,
 } from '../../constants.js';
 import { type PtySession, PtySessionManager } from '../../terminal/ptySessionManager.js';
-import { LOGIN_ENV } from '../chat.js';
+import { loginEnvFrom } from '../chat.js';
 import { configDirectory } from '../configPath.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
 import { findTmux, Tmux } from './tmux.js';
@@ -422,10 +422,7 @@ function parseShells(value: unknown): PersistedShell[] {
 /** A login's basics only, like `claude attach` (ADR-0009 8, T22): none of
  *  the service's own environment reaches the shell or what it starts. */
 function loginEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of LOGIN_ENV)
-    if (process.env[key] !== undefined) env[key] = process.env[key] as string;
-  return env;
+  return loginEnvFrom(process.env, process.platform);
 }
 
 /** A login shell for the daemon's own OS user; no client-supplied command. */

@@ -262,8 +262,27 @@ describe('engine pieces', () => {
     ]);
     expect(env.HOME).toBe('/home/t');
     expect(
-      cleanEnv({ Path: 'C:\\b', SystemRoot: 'C:\\W', CLAUDE_PID: '1' }, 'C:\\u', 'win32', null),
-    ).toEqual({ Path: 'C:\\b', SystemRoot: 'C:\\W', HOME: 'C:\\u' });
+      cleanEnv(
+        {
+          Path: 'C:\\b',
+          SystemRoot: 'C:\\W',
+          LOCALAPPDATA: 'C:\\u\\AppData\\Local',
+          PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+          PROCESSOR_ARCHITECTURE: 'AMD64',
+          CLAUDE_PID: '1',
+        },
+        'C:\\u',
+        'win32',
+        null,
+      ),
+    ).toEqual({
+      Path: 'C:\\b',
+      SystemRoot: 'C:\\W',
+      LOCALAPPDATA: 'C:\\u\\AppData\\Local',
+      PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+      PROCESSOR_ARCHITECTURE: 'AMD64',
+      HOME: 'C:\\u',
+    });
   });
 
   it('T-0019: CLD_BIN and the cld-gui bin folder first on PATH, whatever the shell config', () => {

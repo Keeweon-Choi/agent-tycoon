@@ -21,6 +21,7 @@ import {
   filterInput,
   foldsWhenPasted,
   inputLineEmpty,
+  loginEnvFrom,
   permissionDialog,
   sessionProcessAlive,
 } from './chat.js';
@@ -177,6 +178,37 @@ const INJECTED = [
   'a0000001', // interactive alpha's session id prefix
   '',
 ];
+
+describe('chat: login environment', () => {
+  const base = {
+    Path: 'C:\\Windows\\System32',
+    SystemRoot: 'C:\\Windows',
+    LOCALAPPDATA: 'C:\\Users\\Ada\\AppData\\Local',
+    TEMP: 'C:\\Users\\Ada\\AppData\\Local\\Temp',
+    PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+    PROCESSOR_ARCHITECTURE: 'AMD64',
+    'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+    CLD_AGENT_TOKEN: 'secret',
+    NODE_OPTIONS: '--inspect',
+    AGENT_TYCOON_X: 'session',
+  };
+
+  it('keeps Windows logon variables with the spelling Windows supplied', () => {
+    expect(loginEnvFrom(base, 'win32')).toEqual({
+      Path: 'C:\\Windows\\System32',
+      SystemRoot: 'C:\\Windows',
+      LOCALAPPDATA: 'C:\\Users\\Ada\\AppData\\Local',
+      TEMP: 'C:\\Users\\Ada\\AppData\\Local\\Temp',
+      PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
+      PROCESSOR_ARCHITECTURE: 'AMD64',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+    });
+  });
+
+  it('does not add Windows logon variables on Linux', () => {
+    expect(loginEnvFrom(base, 'linux')).toEqual({});
+  });
+});
 
 describe('chat: which sessions can be attached', () => {
   it('only the exact id of a background session in the list', () => {

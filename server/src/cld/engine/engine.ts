@@ -33,6 +33,7 @@ import type {
   ProjectImportRow,
 } from '../../../../core/src/messages.js';
 import { RENEW_FILL_PCT } from '../../constants.js';
+import { WINDOWS_LOGIN_ENV } from '../chat.js';
 import { detectHostInfo } from '../folders.js';
 import type { SocketStepUp, WsSend } from '../hooks.js';
 import { seededPermission } from '../newAgentPermission.js';
@@ -221,23 +222,9 @@ function workerRoots(projectFolder: string): string[] {
 /** Kept from the daemon's environment: the user's, never a session's. */
 const ENV_KEEP = ['HOME', 'PATH', 'LANG', 'USER', 'SHELL', 'TERM', 'XDG_RUNTIME_DIR'];
 /** Not session state either, but nothing starts without them there. */
-const ENV_KEEP_OS: Partial<Record<NodeJS.Platform, string[]>> = {
+const ENV_KEEP_OS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
   darwin: ['TMPDIR', 'LOGNAME'],
-  win32: [
-    'SYSTEMROOT',
-    'WINDIR',
-    'USERPROFILE',
-    'APPDATA',
-    'LOCALAPPDATA',
-    'TEMP',
-    'TMP',
-    'PATHEXT',
-    'COMSPEC',
-    'HOMEDRIVE',
-    'HOMEPATH',
-    'USERNAME',
-    'PROGRAMDATA',
-  ],
+  win32: WINDOWS_LOGIN_ENV,
 };
 
 /** This checkout's cld/bin (the `cld-gui` CLI, T-0019): from dist/ or from server/src/cld/engine/. */
@@ -264,7 +251,11 @@ export function cleanEnv(
   binDir: string | null = CLD_BIN_DIR,
   nodeDir: string = path.dirname(process.execPath),
 ): NodeJS.ProcessEnv {
-  const keep = new Set([...ENV_KEEP, ...(ENV_KEEP_OS[platform] ?? [])]);
+  const keep = new Set(
+    [...ENV_KEEP, ...(ENV_KEEP_OS[platform] ?? [])].map((key) =>
+      platform === 'win32' ? key.toUpperCase() : key,
+    ),
+  );
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(base)) {
     const key = platform === 'win32' ? k.toUpperCase() : k;

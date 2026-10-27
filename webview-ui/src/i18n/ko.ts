@@ -2159,5 +2159,7 @@ export const ko = {
   'agentCli.restarting': '찾았어요. 에이전트가 있는 사무실로 다시 시작하는 중이에요',
   'agentCli.failed': '찾았지만 사무실이 스스로 다시 시작하지 못했어요. Agent Tycoon 을 다시 켜거나 다시 찾기를 눌러 주세요',
   'agentCli.stillMissing': '아직 설치되지 않았어요. 위 순서를 먼저 마쳐 주세요',
-  'agentCli.close': '잠시 닫기',
+  'agentCli.fold': '접기',
+  'agentCli.expand': '펼치기',
+  'agentCli.barTitle': 'Claude Code 설치 안내',
 } as const satisfies Record<TranslationKey, string>;

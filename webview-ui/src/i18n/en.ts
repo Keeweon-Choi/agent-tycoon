@@ -2189,7 +2189,9 @@ export const en = {
   'agentCli.restarting': 'Found it. The office is restarting with your agents',
   'agentCli.failed': 'Found it, but the office could not restart itself. Restart Agent Tycoon, or press Find again',
   'agentCli.stillMissing': 'Still not installed. Finish the steps above first',
-  'agentCli.close': 'Hide for now',
+  'agentCli.fold': 'Collapse',
+  'agentCli.expand': 'Expand',
+  'agentCli.barTitle': 'Claude Code installation guide',
 } as const satisfies Record<string, string>;
 
 export type TranslationKey = keyof typeof en;

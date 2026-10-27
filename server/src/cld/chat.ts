@@ -96,6 +96,64 @@ export const LOGIN_ENV = [
   'XDG_RUNTIME_DIR',
   'TMPDIR',
 ] as const;
+/** Windows programs and installers do not start without these logon values.
+ *  They remain an allowlist: no variable belonging to this daemon reaches an attach. */
+export const WINDOWS_LOGIN_ENV = [
+  'SystemRoot',
+  'windir',
+  'SystemDrive',
+  'ComSpec',
+  'PATHEXT',
+  'OS',
+  'PROCESSOR_ARCHITECTURE',
+  'PROCESSOR_IDENTIFIER',
+  'PROCESSOR_LEVEL',
+  'PROCESSOR_REVISION',
+  'NUMBER_OF_PROCESSORS',
+  'COMPUTERNAME',
+  'USERNAME',
+  'USERDOMAIN',
+  'USERDOMAIN_ROAMINGPROFILE',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'LOGONSERVER',
+  'SESSIONNAME',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'TEMP',
+  'TMP',
+  'ProgramData',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
+  'ProgramW6432',
+  'CommonProgramFiles',
+  'CommonProgramFiles(x86)',
+  'CommonProgramW6432',
+  'ALLUSERSPROFILE',
+  'PUBLIC',
+  'PSModulePath',
+  'DriverData',
+  'OneDrive',
+] as const;
+
+/** A login environment only: Windows keys match without changing the source spelling. */
+export function loginEnvFrom(
+  base: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): Record<string, string> {
+  const keep = new Set(
+    (platform === 'win32' ? [...LOGIN_ENV, ...WINDOWS_LOGIN_ENV] : LOGIN_ENV).map((key) =>
+      platform === 'win32' ? key.toUpperCase() : key,
+    ),
+  );
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined && keep.has(platform === 'win32' ? key.toUpperCase() : key))
+      env[key] = value;
+  }
+  return env;
+}
 /** `claude agents --json` background ids: 8 lowercase hex digits. */
 const ID = /^[0-9a-f]{8}$/;
 /** ← in normal and application cursor mode, with or without modifiers. */
@@ -925,11 +983,10 @@ export class ChatManager implements Typist {
     let pty: IPty;
     try {
       this.opts.pty ??= loadPty();
-      const env: Record<string, string> = { TERM: TERMINAL_TERM_NAME };
-      for (const k of LOGIN_ENV) {
-        const v = process.env[k];
-        if (v !== undefined) env[k] = v;
-      }
+      const env: Record<string, string> = {
+        TERM: TERMINAL_TERM_NAME,
+        ...loginEnvFrom(process.env, process.platform),
+      };
       // The provider's attach program (D4: Claude's `claude attach <id>`).
       const [file, ...args] = claudeAttachArgv(this.opts.claudePath, id);
       pty = this.opts.pty.spawn(file, args, {
