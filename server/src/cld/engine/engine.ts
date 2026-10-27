@@ -46,6 +46,8 @@ import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
 import type { AgentProvider, LiveSession } from './agents/types.js';
 import { AgentTokens } from './agentTokens.js';
+import type { BypassResult } from './bypass.js';
+import { acceptBypass, BYPASS_ARGS, BYPASS_TIMING } from './bypass.js';
 import { CODEX_EFFORTS, isCodexEffort } from './codex.js';
 import { configDir, shortStamp } from './events.js';
 import { loadOrCreateHost } from './host.js';
@@ -414,6 +416,8 @@ export interface EngineOptions {
   swapped?: (names: string[]) => void;
   /** AUTO-TRUST: the trust step's waits (tests shorten them). */
   trustTiming?: Partial<typeof TRUST_TIMING>;
+  /** BYPASS-ACCEPT: the Bypass Permissions warning step's waits (tests shorten them). */
+  bypassTiming?: Partial<typeof BYPASS_TIMING>;
 }
 
 /** What the office shows for an agent whose provider this build does not have. */
@@ -2354,6 +2358,19 @@ export class Engine {
         if (r.ok) note = note ? `${note} · ${koText('trust_answered')}` : koText('trust_answered');
       }
     }
+    // BYPASS-ACCEPT: only Claude's bypassPermissions start may have produced this result. Its
+    // one-time warning is answered by Claude's own interactive dialog, then this same start gets
+    // one retry. An unrecognised dialog leaves `r` intact, so the original failure reaches the UI.
+    if (!r.ok && r.needsBypassAccept && p.permissionMode === 'bypassPermissions' && agent.protocol === 'claude') {
+      const original = r;
+      if ((await this.bypassStep(p)).outcome === 'accepted') {
+        this.log(`"${p.name}": Bypass Permissions warning answered; starting again`);
+        r = await startOnce();
+        if (r.ok) note = note ? `${note} · ${koText('bypass_answered')}` : koText('bypass_answered');
+      } else {
+        r = original;
+      }
+    }
     if (!r.ok) {
       // A folder the CLI does not trust yet: only a person answers that question.
       if (r.needsTrust) this.untrusted.add(p.name);
@@ -2422,6 +2439,20 @@ export class Engine {
       this.trusting.delete(p.name);
       this.refresh();
     }
+  }
+
+  /** BYPASS-ACCEPT: Claude's own one-time warning, in our PTY with the engine environment.
+   *  `startProject` reaches here only after a bypassPermissions start was refused for that warning. */
+  private async bypassStep(p: ProjectRecord): Promise<BypassResult> {
+    const { file, args } = claudeCommand(this.opts.claudePath, BYPASS_ARGS, this.scope);
+    return acceptBypass({
+      file,
+      args,
+      cwd: p.folder,
+      env: this.env,
+      log: (l) => this.log(`"${p.name}": ${l}`),
+      timing: this.opts.bypassTiming,
+    });
   }
 
   /**

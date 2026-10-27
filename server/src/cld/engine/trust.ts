@@ -89,7 +89,9 @@ const CTRL_C = '\x03';
 /** The dialog's title, as 2.1.310 draws it, and the older one. */
 const TITLES = ['Accessing workspace:', 'Do you trust the files in this folder?'];
 /** An option row: the box border and the pointer around it, an index in older versions. */
-const option = (label: string) => new RegExp(`^(❯\\s*)?(\\d+\\.\\s*)?${label}$`);
+// Claude's pointer: U+276F, or '>' where it falls back to ASCII (a Windows console, 10-28 photo).
+const option = (label: string) => new RegExp(`^([❯>]\\s*)?(\\d+\\.\\s*)?${label}$`);
+const pointed = (row: string): boolean => row.startsWith('❯') || row.startsWith('>');
 const YES = option('Yes, (?:I trust this folder|proceed)');
 const NO = option('No, (?:exit|continue without these permissions)');
 /** The part a person must read: what the folder's own settings approve without asking. */
@@ -120,7 +122,7 @@ export function trustDialog(term: HeadlessTerminal): { onYes: boolean; warnings:
     else if (NO.test(r)) no = true;
   }
   if (yes === null || !no) return null;
-  return { onYes: yes.startsWith('❯'), warnings: WARNINGS.some((w) => onScreen(term, w)) };
+  return { onYes: pointed(yes), warnings: WARNINGS.some((w) => onScreen(term, w)) };
 }
 
 export async function trustFolder(o: TrustOptions): Promise<TrustResult> {

@@ -70,9 +70,12 @@ const SYSTEMD_RUN_FAILED =
   /^Failed to (connect to bus|create bus connection|start transient scope)/m;
 /** `claude --bg` in a folder Claude has not been allowed to trust: refused, nothing started. */
 const UNTRUSTED = /Workspace not trusted/i;
+/** Claude's background start has refused until its one-time bypass warning is accepted. */
+const BYPASS_WARNING = /dangerously-skip-permissions|bypass permissions/i;
 
 export const TRUST_NEEDED =
   koText('trust_needed');
+export const BYPASS_NEEDED = koText('bypass_needed');
 
 /** One `claude` run: in its own systemd user scope, or detached into a new session. */
 export function claudeCommand(
@@ -378,7 +381,15 @@ export class ClaudeAgent implements AgentProvider {
     const args = startArgs({ ...p, rulesFile }, resume, wake, this.o.cldBin, this.o.sessionPath, token, mcp);
     const r = await this.claude(args, p.folder, this.o.startMs);
     if (r.code !== 0) {
-      if (!UNTRUSTED.test(r.stderr + r.stdout))
+      const output = r.stderr + r.stdout;
+      if (p.permissionMode === 'bypassPermissions' && BYPASS_WARNING.test(output))
+        return {
+          ok: false,
+          error: BYPASS_NEEDED,
+          needsBypassAccept: true,
+          detail: firstLine(r),
+        };
+      if (!UNTRUSTED.test(output))
         return { ok: false, ...refused('session_start_failed'), detail: firstLine(r) };
       // Only a person answers Claude's trust question; the engine never does.
       return { ok: false, error: TRUST_NEEDED, needsTrust: true };

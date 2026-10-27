@@ -67,7 +67,15 @@ export type StartResult =
       /** C7a: the role playbook the session got (`<role>-<hash>`), for the start event. */
       playbook?: string;
     }
-  | { ok: false; error: string; /** The CLI's own words, for the client only. */ detail?: string; needsTrust?: true };
+  | {
+      ok: false;
+      error: string;
+      /** The CLI's own words, for the client only. */
+      detail?: string;
+      needsTrust?: true;
+      /** Claude's one-time Bypass Permissions warning needs its own interactive answer. */
+      needsBypassAccept?: true;
+    };
 
 export type StopResult = { ok: true } | { ok: false; error: string; detail?: string };
 

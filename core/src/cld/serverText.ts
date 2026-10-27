@@ -970,6 +970,14 @@ export const SERVER_TEXT = {
     ko: '폴더 신뢰 질문에 대신 답하고 켰어요',
     en: 'Answered the folder trust question for you and started it.',
   },
+  bypass_needed: {
+    ko: 'Claude Code의 Bypass Permissions 경고 확인이 필요해요',
+    en: "Claude Code's Bypass Permissions warning needs to be accepted first.",
+  },
+  bypass_answered: {
+    ko: 'Claude Code의 Bypass Permissions 경고에 대신 동의하고 켰어요',
+    en: "Accepted Claude Code's Bypass Permissions warning for you and started it.",
+  },
   trust_claude_only: {
     ko: '폴더 신뢰는 Claude 에이전트에만 있어요',
     en: 'Folder trust applies to Claude agents only.',

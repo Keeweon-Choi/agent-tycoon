@@ -180,6 +180,9 @@ describe('trustDialog: the real 2.1.310 screens, and screens that are not the qu
     expect(trustDialog(await screenOf(REAL_TRUST(false)))).toEqual({ onYes: false, warnings: false });
     expect(trustDialog(await screenOf(REAL_TRUST(true)))).toEqual({ onYes: true, warnings: false });
     expect(trustDialog(await screenOf(REAL_TRUST(false, true)))).toEqual({ onYes: false, warnings: true });
+    // A Windows console's ASCII pointer ('>' instead of U+276F) reads the same (10-28).
+    const ascii = REAL_TRUST(true).map((row) => row.replace('❯', '>'));
+    expect(trustDialog(await screenOf(ascii))).toEqual({ onYes: true, warnings: false });
   });
 
   it('is null for the prompt, a recalled history line, other dialogs and partial frames', async () => {

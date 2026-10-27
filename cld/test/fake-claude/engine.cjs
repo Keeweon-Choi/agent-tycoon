@@ -22,6 +22,8 @@
  *   rm <id>         removes a job
  *   (no arguments, or the trust run's --settings … --strict-mcp-config)
  *                   interactive: ./trust-tui.cjs, the folder-trust dialog (AUTO-TRUST)
+ *   --dangerously-skip-permissions
+ *                   interactive: ./bypass-tui.cjs, the Bypass Permissions warning (BYPASS-ACCEPT)
  * A "reboot" is killing the sleeps (testHome.killFakeSessions): files stay.
  */
 const crypto = require('crypto');
@@ -71,8 +73,9 @@ fs.appendFileSync(
 );
 
 const out = (s) => process.stdout.write(`${s}\n`);
+// Synchronous so a detached background start cannot exit before its captured stderr reaches engine.ts.
 const fail = (s, code = 1) => {
-  process.stderr.write(`${s}\n`);
+  fs.writeSync(2, `${s}\n`);
   process.exit(code);
 };
 if (args[0] === '--help') {
@@ -198,8 +201,16 @@ function freeName(name) {
 }
 
 function bg(rest) {
+  if (fs.existsSync(path.join(process.cwd(), '.fake-bypass-refusal')))
+    return fail('Bypass Permissions warning: run claude --dangerously-skip-permissions once first.');
+  if (
+    rest.includes('--permission-mode') &&
+    rest[rest.indexOf('--permission-mode') + 1] === 'bypassPermissions' &&
+    fs.existsSync(path.join(process.cwd(), '.fake-bypass-needed'))
+  )
+    return fail('Bypass Permissions warning: run claude --dangerously-skip-permissions once first.');
   if (fs.existsSync(path.join(process.cwd(), '.fake-untrusted')))
-    fail(
+    return fail(
       `Workspace not trusted. Run \`claude\` in ${process.cwd()} once and accept the trust prompt, then retry.`,
     );
   let name;
@@ -279,7 +290,9 @@ function statusLine(rest) {
 }
 
 const [cmd, id] = args;
-if (cmd === undefined || (cmd === '--settings' && args.includes('--strict-mcp-config'))) {
+if (cmd === '--dangerously-skip-permissions') {
+  process.exit(spawnSync(process.execPath, [path.join(__dirname, 'bypass-tui.cjs')], { stdio: 'inherit' }).status ?? 0);
+} else if (cmd === undefined || (cmd === '--settings' && args.includes('--strict-mcp-config'))) {
   // AUTO-TRUST: an interactive `claude` in a folder (./trust-tui.cjs, its own process).
   process.exit(spawnSync(process.execPath, [path.join(__dirname, 'trust-tui.cjs')], { stdio: 'inherit' }).status ?? 0);
 } else if (cmd === '--bg') {

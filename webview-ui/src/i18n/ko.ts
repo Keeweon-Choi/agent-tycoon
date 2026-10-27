@@ -1973,7 +1973,7 @@ export const ko = {
   'onboarding.bypass.when':
     '빠르게 맡기고 싶고 중요한 폴더를 백업해 두었다면 허용해도 좋아요. 잘 모르겠으면 허용하지 마세요.',
   'onboarding.bypass.scope':
-    '지금부터 새로 만드는 에이전트(새 프로젝트, Worker, 가져오기)의 시작 권한 모드만 정해요. 이미 있는 에이전트는 바뀌지 않고, 각 에이전트의 설정에서 따로 바꿀 수 있어요.',
+    '지금부터 새로 만드는 에이전트(새 프로젝트, Worker, 가져오기)의 시작 권한 모드만 정해요. 이미 있는 에이전트는 바뀌지 않고, 각 에이전트의 설정에서 따로 바꿀 수 있어요. 허용하면 Claude Code 가 처음 한 번 띄우는 같은 경고(Bypass Permissions)에도 엔진이 대신 동의로 답해요.',
   'onboarding.bypass.allow': '새 에이전트는 묻지 않고 실행',
   'onboarding.bypass.ask': '계속 물어보기',
   'onboarding.bypass.saving': '저장하는 중...',
@@ -1990,7 +1990,7 @@ export const ko = {
   'onboarding.remote.later': '지금 안 해도 돼요. 설정의 접속 방식과 기기 추가에서도 할 수 있어요.',
   'settings.bypass.title': '새 에이전트: 묻지 않고 실행',
   'settings.bypass.help':
-    '켜면 지금부터 만드는 프로젝트와 Worker가 권한을 묻지 않는 모드로 시작해요. 이미 있는 에이전트는 그대로이고, 각 에이전트의 설정에서 바꿔요.',
+    '켜면 지금부터 만드는 프로젝트와 Worker가 권한을 묻지 않는 모드로 시작해요. 이미 있는 에이전트는 그대로이고, 각 에이전트의 설정에서 바꿔요. 허용하면 Claude Code 가 처음 한 번 띄우는 같은 경고(Bypass Permissions)에도 엔진이 대신 동의로 답해요.',
   'settings.imeGuard.title': '한글 입력 보정(터미널)',
   'settings.imeGuard.help':
     '폰 터미널에서 한글이 자모로 갈라지지 않게 합니다. 어떤 키보드에서 이상하면 끄고 터미널을 다시 여세요.',
