@@ -15,6 +15,7 @@ import {
   DirectConnector,
   type DirectDeps,
   gate,
+  ISSUE_RETRY_MS,
   MAINTENANCE_MS,
   newSecret,
   prefixLocation,
@@ -527,22 +528,71 @@ describe('DirectConnector', () => {
     expect(direct.status().certificate).not.toBeNull();
   });
 
-  it('a DuckDNS name: the certificate names it, an IP change only updates the record', async () => {
+  it('a DuckDNS name also keeps an IP certificate, and renews it when the public IP changes', async () => {
     let wan = PUBLIC;
     const updates: string[] = [];
     const duck = {
       name: 'office.duckdns.org',
       client: { txt: async () => undefined, update: async (ip: string) => void updates.push(ip) },
     };
-    const { direct, issuer } = connector({ wan: () => wan, observed: null, duck });
+    const { direct, issuer, dir } = connector({ wan: () => wan, observed: null, duck });
     const result = await direct.enable();
     expect(result.url).toBe(`https://office.duckdns.org/${direct.secret}/`);
-    expect(issuer.requests).toEqual([{ ip: undefined, name: 'office.duckdns.org' }]);
+    expect(issuer.requests).toEqual([
+      { ip: undefined, name: 'office.duckdns.org' },
+      { ip: PUBLIC, name: undefined },
+    ]);
+    for (const file of ['ip-cert.pem', 'ip-cert.key'])
+      expect(fs.statSync(`${dir}/${file}`).mode & 0o777).toBe(0o600);
     wan = '198.51.100.99';
     await direct.maintain();
     expect(updates).toEqual([PUBLIC, '198.51.100.99']);
-    expect(issuer.requests).toHaveLength(1);
+    expect(issuer.requests.at(-1)).toEqual({ ip: '198.51.100.99', name: undefined });
+    expect(direct.status().ipCertificate?.notAfter).toBeTypeOf('number');
     expect(direct.url()).toBe(`https://office.duckdns.org/${direct.secret}/`);
+  });
+
+  it('a DuckDNS listener serves its IP certificate without SNI and its name certificate with SNI', async () => {
+    const duck = {
+      name: 'office.duckdns.org',
+      client: { txt: async () => undefined, update: async () => undefined },
+    };
+    const { direct, dir } = connector({ duck });
+    await direct.enable();
+    const port = direct.listeningPort() ?? 0;
+    const ipFingerprint = new crypto.X509Certificate(fs.readFileSync(`${dir}/ip-cert.pem`)).fingerprint256;
+    const nameFingerprint = new crypto.X509Certificate(fs.readFileSync(`${dir}/cert.pem`)).fingerprint256;
+    expect((await peer(port, undefined, ['http/1.1'])).fingerprint).toBe(ipFingerprint);
+    expect((await peer(port, 'OFFICE.DUCKDNS.ORG', ['http/1.1'])).fingerprint).toBe(
+      nameFingerprint,
+    );
+  });
+
+  it('an IP certificate failure leaves DuckDNS enabled and retries after its own cooldown', async () => {
+    let now = Date.now();
+    let failIp = true;
+    const issuer = fakeIssuer(ca, {
+      now: () => now,
+      fail: () => failIp && issuer.requests.at(-1)?.ip === PUBLIC,
+    });
+    const duck = {
+      name: 'office.duckdns.org',
+      client: { txt: async () => undefined, update: async () => undefined },
+    };
+    const { direct } = connector({ now: () => now, issue: issuer.issue, duck });
+    const enabled = await direct.enable();
+    expect(enabled.ok).toBe(true);
+    expect(enabled.steps.filter((step) => !step.ok).map((step) => step.text)).toEqual([
+      expect.stringContaining('IP 주소'),
+    ]);
+    expect(issuer.requests).toHaveLength(2);
+    await direct.maintain();
+    expect(issuer.requests).toHaveLength(2);
+    failIp = false;
+    now += ISSUE_RETRY_MS;
+    await direct.maintain();
+    expect(issuer.requests).toHaveLength(3);
+    expect(direct.status().ipCertificate).not.toBeNull();
   });
 
   it('running enable again (a redeploy) keeps a current certificate: no duplicate issue', async () => {

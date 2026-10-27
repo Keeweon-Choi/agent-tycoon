@@ -14,6 +14,7 @@ const EXEMPT = new Set([
   'cld/test/install/evidence.sh',
   'cld/test/install/fake/daemon.cjs',
   'cld/test/install/invariants.mjs',
+  'cld/bin/cld-gui-login', // mirrors the rule in shell: wsl.exe's non-interactive shell has no node
 ]);
 const LEGACY_PATH = /(?:['"]\.config['"]\s*,\s*['"]cld-gui['"]|\.config[\\/]cld-gui)/;
 

@@ -15,7 +15,11 @@ set -euo pipefail
 
 here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 token_file=${CLD_GUI_TOKEN_FILE:-"$HOME/.pixel-agents/standalone-token"}
-config="$(node -e 'const { configDirectory } = require(process.argv[2]); console.log(configDirectory(process.argv[1]));' "$HOME" "$here/../../core/src/cld/configPath.cjs")/config.json"
+# The settings folder by core/src/cld/configPath.cjs's rule (a home with the legacy folder keeps it),
+# spelled out: the desktop app runs this through wsl.exe, whose non-interactive shell has no node.
+config_dir="$HOME/.config/agent-tycoon"
+if [[ -d "$HOME/.config/cld-gui" ]]; then config_dir="$HOME/.config/cld-gui"; fi
+config="$config_dir/config.json"
 port=${CLD_GUI_PORT:-$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["port"]))' "$config" 2>/dev/null || echo 18240)}
 # Where a new device opens the link, for a daemon too old to say (T-0024: the
 # daemon answers with its canonical address, the secret path included).

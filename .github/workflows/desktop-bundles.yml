@@ -1,7 +1,7 @@
 # Desktop installers (T1): the Agent Tycoon app (cld/desktop, Tauri v2) built natively on each OS
 # and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64), Windows NSIS setup.exe.
 # Same trigger policy as release-bundles.yml: manual dispatch and v* tags only (private-repo macOS
-# and Windows minutes cost several times Linux). No secrets, read-only token.
+# and Windows minutes cost several times Linux). One secret (the release signing key), read-only token.
 # The version comes from one place, src-tauri/Cargo.toml (tauri.conf.json has no version field).
 #
 # UNSIGNED for now (code signing and notarization are P9). What the user sees:
@@ -87,11 +87,21 @@ jobs:
             patchelf pkg-config file
 
       # The app carries the daemon bundle for its OS (T2+P5: build.rs reads <repo>/out/bundles/<target>/ and
-      # stops a release build without it). Test-signed here: no release key in CI, build.mjs makes a throwaway one.
+      # stops a release build without it). Signed with the release key (a repository secret); a throwaway key without it.
+      # Each installer build carries its own daemon version (0.1.0-rc.1.<run number>), so a newer app sees
+      # that its daemon is newer than the one it installed and updates it in place (APP-UPDATE).
+      # A release version (no pre-release part) is left exactly as it is.
+      - name: Stamp this build's daemon version
+        working-directory: .
+        run: node -e "const fs=require('fs'),f='cld/release/version.json',v=JSON.parse(fs.readFileSync(f,'utf8'));if(v.version.includes('-'))v.version+='.'+process.env.GITHUB_RUN_NUMBER;fs.writeFileSync(f,JSON.stringify(v,null,2)+'\n');console.log('daemon version',v.version)"
+
       - name: Daemon bundles for this OS
         working-directory: .
         env:
           HUSKY: '0'
+          # One release key (a repository secret, owner 10-27), so an installed daemon accepts the next
+          # build's bundle; without the secret (a fork) build.mjs signs with a throwaway key as before.
+          AGENT_TYCOON_SIGNING_KEY: ${{ secrets.AGENT_TYCOON_SIGNING_KEY }}
         run: |
           npm ci
           case "${{ matrix.os }}" in

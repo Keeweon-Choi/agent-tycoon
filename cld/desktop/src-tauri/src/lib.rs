@@ -719,6 +719,7 @@ fn local_steps(
             if healthy { "있음" } else { "없음" }
         ),
     );
+    refresh_local(app, config, &mut found, live);
     match action {
         Action::Look => match local::plan(&found, healthy) {
             local::Plan::Open => {}
@@ -820,9 +821,11 @@ fn find_local(config: &Config) -> Result<local::Found, String> {
         path.and_then(|p| fs::read_to_string(p).ok())
             .unwrap_or_default()
     };
+    let root = native_root();
     Ok(local::Found::from_texts(
-        &read(native_root().map(|r| r.join("install.json"))),
+        &read(root.as_ref().map(|r| r.join("install.json"))),
         &read(home_dir().map(|h| local::settings_dir(&h).join("config.json"))),
+        &read(root.as_ref().map(|r| r.join("release.pub"))),
     ))
 }
 
@@ -999,14 +1002,7 @@ fn install_local(
     live: &dyn Fn() -> bool,
 ) -> Result<(), String> {
     let wsl = config.local_env == "wsl";
-    view(app, |v| {
-        v.status = "설치하는 중…".into();
-        v.step = Some(0);
-        v.failed = false;
-        v.lines.clear();
-        v.install_progress = None;
-        v.leftover.clear();
-    });
+    install_progress_view(app, "설치하는 중…");
     log(
         app,
         &format!("이 컴퓨터: 설치 시작 (시작 정책 {})", policy.unwrap_or("-")),
@@ -1039,6 +1035,150 @@ fn install_local(
     }
     log(app, "이 컴퓨터: 설치 끝");
     Ok(())
+}
+
+/// Gives a bundled-manager run the install screen, including its detailed lines and progress bar.
+#[cfg(desktop)]
+fn install_progress_view(app: &AppHandle, status: &str) {
+    view(app, |v| {
+        v.status = status.into();
+        v.step = Some(0);
+        v.failed = false;
+        v.lines.clear();
+        v.install_progress = None;
+        v.leftover.clear();
+    });
+}
+
+/// Moves a GUI-owned install forward only when this app carries a newer daemon. A failed manager
+/// run is deliberately non-fatal: its update path restores the prior daemon, which we then open.
+#[cfg(desktop)]
+fn refresh_local(
+    app: &AppHandle,
+    config: &Config,
+    found: &mut local::Found,
+    live: &dyn Fn() -> bool,
+) {
+    let Some(record) = found.record.as_ref() else {
+        return;
+    };
+    if record.installed_by.as_deref() != Some("gui") {
+        log(
+            app,
+            &format!(
+                "이 컴퓨터: 업데이트 유지 (installedBy={})",
+                record.installed_by.as_deref().unwrap_or("없음")
+            ),
+        );
+        return;
+    }
+    let Some(old_version) = record.current.as_deref() else {
+        log(app, "이 컴퓨터: 업데이트 유지 (현재 버전을 설치 기록에서 찾지 못함)");
+        return;
+    };
+    let (bundle, pubkey) = match bundled_daemon(app, &config.local_env) {
+        Ok(bundle) => bundle,
+        Err(problem) => {
+            log(app, &format!("이 컴퓨터: 업데이트 유지 (묶음 확인 실패: {problem})"));
+            return;
+        }
+    };
+    let Some(bundle_name) = bundle.file_name().and_then(|name| name.to_str()) else {
+        log(app, "이 컴퓨터: 업데이트 유지 (묶음 파일 이름을 읽지 못함)");
+        return;
+    };
+    let Some(target) =
+        local::bundle_target(&config.local_env, std::env::consts::OS, std::env::consts::ARCH)
+    else {
+        log(app, "이 컴퓨터: 업데이트 유지 (묶음 대상이 없음)");
+        return;
+    };
+    let Some(new_version) = local::bundle_version(bundle_name, target) else {
+        log(
+            app,
+            &format!("이 컴퓨터: 업데이트 유지 (묶음 버전을 읽지 못함: {bundle_name})"),
+        );
+        return;
+    };
+    let bundled_key = match fs::read_to_string(&pubkey) {
+        Ok(key) => key,
+        Err(error) => {
+            log(
+                app,
+                &format!("이 컴퓨터: 업데이트 유지 (릴리스 키를 읽지 못함: {error})"),
+            );
+            return;
+        }
+    };
+    let decision = local::refresh(
+        record,
+        &new_version,
+        found.pinned_key.as_deref(),
+        &bundled_key,
+    );
+    match decision {
+        local::Refresh::Keep => {
+            let reason = if local::compare_versions(&new_version, old_version)
+                != std::cmp::Ordering::Greater
+            {
+                format!("{} <= {}", new_version, old_version)
+            } else {
+                "새로 고칠 수 없는 설치 기록".into()
+            };
+            log(app, &format!("이 컴퓨터: 업데이트 유지 ({reason})"));
+            return;
+        }
+        local::Refresh::Update => log(
+            app,
+            &format!("이 컴퓨터: 업데이트 ({old_version} → {new_version}, 같은 릴리스 키)"),
+        ),
+        local::Refresh::Reinstall => log(
+            app,
+            &format!("이 컴퓨터: 다시 설치 ({old_version} → {new_version}, 이전 릴리스 키)"),
+        ),
+    }
+    install_progress_view(
+        app,
+        &format!("사무실 프로그램을 새 버전으로 바꾸는 중… ({old_version} → {new_version})"),
+    );
+    let bundle_text = bundle.to_string_lossy();
+    let result = match decision {
+        local::Refresh::Update if config.local_env == "wsl" => stream_lines(
+            app,
+            hidden("wsl.exe").args(local::wsl_update_argv(
+                &config.distro,
+                local::plain_path(&bundle_text),
+            )),
+            live,
+        ),
+        local::Refresh::Update => native_update(app, &bundle, live),
+        local::Refresh::Reinstall if config.local_env == "wsl" => stream_lines(
+            app,
+            hidden("wsl.exe").args(local::wsl_install_argv(
+                &config.distro,
+                local::plain_path(&bundle_text),
+                local::plain_path(&pubkey.to_string_lossy()),
+                None,
+            )),
+            live,
+        ),
+        local::Refresh::Reinstall => native_install(app, &bundle, &pubkey, None, live),
+        local::Refresh::Keep => unreachable!(),
+    };
+    if let Err(problem) = result {
+        log(app, &format!("이 컴퓨터: 업데이트 실패: {problem}"));
+        let line = format!("업데이트하지 못해 이전 버전으로 엽니다: {problem}");
+        view(app, |v| v.lines.push(line));
+    } else {
+        log(app, "이 컴퓨터: 업데이트 끝");
+    }
+    match find_local(config) {
+        Ok(updated) => *found = updated,
+        Err(problem) => log(
+            app,
+            &format!("이 컴퓨터: 업데이트 뒤 설치 기록을 읽지 못함: {problem}"),
+        ),
+    }
 }
 
 /// `daemon/<target>/` among the app's resources: the bundle and the key its SHA256SUMS is signed with.
@@ -1099,6 +1239,44 @@ fn native_install(
     policy: Option<&'static str>,
     live: &dyn Fn() -> bool,
 ) -> Result<(), String> {
+    native_bundle_manager(
+        app,
+        bundle,
+        |manager, bundle| {
+            local::manager_install_args(
+                &manager.to_string_lossy(),
+                bundle,
+                &pubkey.to_string_lossy(),
+                policy,
+            )
+        },
+        live,
+    )
+}
+
+/// Runs the bundled manager's rollback-safe update with the key already pinned by install.
+#[cfg(desktop)]
+fn native_update(
+    app: &AppHandle,
+    bundle: &std::path::Path,
+    live: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    native_bundle_manager(
+        app,
+        bundle,
+        |manager, bundle| local::manager_update_args(&manager.to_string_lossy(), bundle),
+        live,
+    )
+}
+
+/// Unpacks a bundle's private runtime and hands a command to its manager, then always removes it.
+#[cfg(desktop)]
+fn native_bundle_manager(
+    app: &AppHandle,
+    bundle: &std::path::Path,
+    manager_args: impl FnOnce(&std::path::Path, &str) -> Vec<String>,
+    live: &dyn Fn() -> bool,
+) -> Result<(), String> {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
@@ -1142,12 +1320,7 @@ fn native_install(
         let manager = tmp.join("cld").join("install").join("manager.mjs");
         stream_lines(
             app,
-            hidden(&node.to_string_lossy()).args(local::manager_install_args(
-                &manager.to_string_lossy(),
-                &b,
-                &pubkey.to_string_lossy(),
-                policy,
-            )),
+            hidden(&node.to_string_lossy()).args(manager_args(&manager, &b)),
             live,
         )
     })();

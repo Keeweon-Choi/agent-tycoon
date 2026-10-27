@@ -1589,6 +1589,10 @@ export const SERVER_TEXT = {
     ko: '인증서 발급: {name} (만료 {until}, 2/3 지나면 자동 갱신)',
     en: 'Certificate issued: {name} (expires {until}, renewed automatically after 2/3 of its life)',
   },
+  ip_cert_warning: {
+    ko: 'IP 주소 인증서를 아직 받지 못했어요. 다음 시도까지 IP 주소로 열면 인증서 경고가 보여요',
+    en: 'The IP address certificate is not ready yet. Opening the IP address will show a certificate warning until the next try.',
+  },
   letsencrypt_failed: {
     ko: "Let's Encrypt가 바깥에서 {external}번으로 이 PC를 확인하지 못했어요: {why}",
     en: "Let's Encrypt could not reach this PC from outside on port {external}: {why}",

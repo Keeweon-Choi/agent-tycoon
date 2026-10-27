@@ -8,6 +8,7 @@
 //! way `cld/install/wizard.mjs` runs `wslInstallArgv`.
 
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 /// The page the bundled ui/ shows. First run: welcome (no saved choice); then the saved choice.
@@ -170,6 +171,7 @@ pub fn parse_health(body: &str) -> Option<Health> {
 pub struct Record {
     pub port: Option<u16>,
     pub current: Option<String>,
+    pub installed_by: Option<String>,
     pub start_policy: String,
     pub versions: Vec<String>,
     pub service: Option<String>,
@@ -188,6 +190,10 @@ pub fn parse_record(text: &str) -> Option<Record> {
     Some(Record {
         port: port.filter(|p| *p > 0),
         current: v.get("current").and_then(Value::as_str).map(String::from),
+        installed_by: v
+            .get("installedBy")
+            .and_then(Value::as_str)
+            .map(String::from),
         start_policy: v
             .get("startPolicy")
             .and_then(Value::as_str)
@@ -225,16 +231,19 @@ pub struct Found {
     pub record: Option<Record>,
     /// A cld-gui config.json is there (a source install, or the manager's own config).
     pub config_port: Option<u16>,
+    /// The release key the manager pinned at install time, if it is readable.
+    pub pinned_key: Option<String>,
 }
 
 pub const DEFAULT_PORT: u16 = 18240;
 
 impl Found {
-    pub fn from_texts(record: &str, config: &str) -> Found {
+    pub fn from_texts(record: &str, config: &str, pinned_key: &str) -> Found {
         let config_port = config_port(config);
         Found {
             record: parse_record(record),
             config_port,
+            pinned_key: (!pinned_key.trim().is_empty()).then(|| pinned_key.trim().into()),
         }
     }
     pub fn port(&self) -> u16 {
@@ -248,6 +257,8 @@ impl Found {
 
 /// Marker between the record and the config in `WSL_FIND`'s output.
 pub const FIND_MARK: &str = "--agent-tycoon-config--";
+/// Marker between the daemon config and the manager's pinned release key in `WSL_FIND`.
+pub const FIND_KEY_MARK: &str = "--agent-tycoon-release-key--";
 
 /// The daemon's settings folder, as the daemon picks it (core/src/cld/configPath.cjs): the legacy
 /// `~/.config/cld-gui` while it exists, else `~/.config/agent-tycoon` (installs since 10-27).
@@ -260,18 +271,21 @@ pub fn settings_dir(home: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
-/// Prints the distro's install record, the marker, then the daemon's config.json (each may be
-/// absent; the settings folder chosen as `settings_dir` does).
+/// Prints the distro's install record, the daemon config and the pinned release key, each after
+/// a marker (each may be absent; the settings folder chosen as `settings_dir` does).
 pub const WSL_FIND: &str = r#"r=${AGENT_TYCOON_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/agent-tycoon}
 cat "$r/install.json" 2>/dev/null
 printf '\n%s\n' '--agent-tycoon-config--'
 d="$HOME/.config/cld-gui"; [ -d "$d" ] || d="$HOME/.config/agent-tycoon"
 cat "$d/config.json" 2>/dev/null
+printf '\n%s\n' '--agent-tycoon-release-key--'
+cat "$r/release.pub" 2>/dev/null
 exit 0"#;
 
 pub fn split_find(out: &str) -> Found {
-    let (record, config) = out.split_once(FIND_MARK).unwrap_or((out, ""));
-    Found::from_texts(record.trim(), config.trim())
+    let (record, rest) = out.split_once(FIND_MARK).unwrap_or((out, ""));
+    let (config, pinned_key) = rest.split_once(FIND_KEY_MARK).unwrap_or((rest, ""));
+    Found::from_texts(record.trim(), config.trim(), pinned_key.trim())
 }
 
 /// What the app does with what it found.
@@ -328,6 +342,98 @@ pub fn bundle_name(names: &[String], target: &str) -> Option<String> {
         .filter(|n| n.starts_with("agent-tycoon-daemon-") && n.ends_with(&tail));
     let first = found.next()?;
     found.next().is_none().then(|| first.clone())
+}
+
+/// The version in `agent-tycoon-daemon-<version>-<target>.tar.gz`.
+pub fn bundle_version(file_name: &str, target: &str) -> Option<String> {
+    let version = file_name
+        .strip_prefix("agent-tycoon-daemon-")?
+        .strip_suffix(&format!("-{target}.tar.gz"))?;
+    (!version.is_empty()).then(|| version.into())
+}
+
+/// Semver order, matching the bundled manager: build metadata is ignored and numeric prerelease
+/// identifiers sort numerically (so `rc.10` follows `rc.2`).
+pub fn compare_versions(a: &str, b: &str) -> Ordering {
+    fn parse(version: &str) -> (Vec<u64>, Vec<&str>) {
+        let without_build = version.split_once('+').map_or(version, |(main, _)| main);
+        let (main, prerelease) = without_build
+            .split_once('-')
+            .map_or((without_build, ""), |(main, pre)| (main, pre));
+        (
+            main.split('.').map(|part| part.parse().unwrap_or(0)).collect(),
+            prerelease
+                .split('.')
+                .filter(|part| !part.is_empty())
+                .collect(),
+        )
+    }
+
+    let (main_a, pre_a) = parse(a);
+    let (main_b, pre_b) = parse(b);
+    for index in 0..main_a.len().max(main_b.len()) {
+        match main_a.get(index).unwrap_or(&0).cmp(main_b.get(index).unwrap_or(&0)) {
+            Ordering::Equal => {}
+            order => return order,
+        }
+    }
+    match (pre_a.is_empty(), pre_b.is_empty()) {
+        (true, true) => {}
+        (true, false) => return Ordering::Greater,
+        (false, true) => return Ordering::Less,
+        (false, false) => {}
+    }
+    for index in 0..pre_a.len().max(pre_b.len()) {
+        let (Some(a), Some(b)) = (pre_a.get(index), pre_b.get(index)) else {
+            return if pre_a.get(index).is_none() {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        };
+        if a == b {
+            continue;
+        }
+        match (a.parse::<u64>(), b.parse::<u64>()) {
+            (Ok(a), Ok(b)) => match a.cmp(&b) {
+                Ordering::Equal => {}
+                order => return order,
+            },
+            (Ok(_), Err(_)) => return Ordering::Less,
+            (Err(_), Ok(_)) => return Ordering::Greater,
+            (Err(_), Err(_)) => return a.cmp(b),
+        }
+    }
+    Ordering::Equal
+}
+
+/// What a newer desktop app should do with an existing install.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Refresh {
+    Keep,
+    Update,
+    Reinstall,
+}
+
+/// Only GUI-owned installs move forward automatically. A mismatched (or missing) pinned key is
+/// an older build's throwaway key, so install is used once to pin the release key again.
+pub fn refresh(
+    record: &Record,
+    bundled_version: &str,
+    pinned_key: Option<&str>,
+    bundled_key: &str,
+) -> Refresh {
+    let newer = record.current.as_deref().is_some_and(|current| {
+        compare_versions(bundled_version, current) == Ordering::Greater
+    });
+    if record.installed_by.as_deref() != Some("gui") || !newer {
+        return Refresh::Keep;
+    }
+    if pinned_key.is_some_and(|key| key.trim() == bundled_key.trim()) {
+        Refresh::Update
+    } else {
+        Refresh::Reinstall
+    }
 }
 
 /// The SHA-256 build.rs pinned for `target` (`AGENT_TYCOON_BUNDLE_PINS`: `target=sha256,…`).
@@ -391,6 +497,13 @@ pub fn manager_install_args(
     args
 }
 
+/// The bundled manager's non-interactive update command. It uses the install's pinned key.
+pub fn manager_update_args(manager: &str, bundle: &str) -> Vec<String> {
+    [manager, "update", "--from", bundle, "--yes"]
+        .map(String::from)
+        .to_vec()
+}
+
 /// `tar` arguments that unpack only the runtime and the manager (as install.ps1 and install.sh).
 pub fn unpack_args(bundle: &str, into: &str) -> Vec<String> {
     [
@@ -416,6 +529,15 @@ trap 'rm -rf "$t"' 0
 trap 'exit 1' HUP INT TERM PIPE
 gzip -dc "$b" | tar -xf - -C "$t" node cld core package.json
 "$t/node/bin/node" "$t/cld/install/manager.mjs" install --from "$b" --pub "$p" --installed-by gui "$@""#;
+
+/// The bundled manager update from inside WSL. The installed key verifies the bundle.
+pub const WSL_UPDATE: &str = r#"set -e
+b=$(wslpath -u "$1")
+t=$(mktemp -d "${TMPDIR:-/tmp}/agent-tycoon-install.XXXXXX")
+trap 'rm -rf "$t"' 0
+trap 'exit 1' HUP INT TERM PIPE
+gzip -dc "$b" | tar -xf - -C "$t" node cld core package.json
+"$t/node/bin/node" "$t/cld/install/manager.mjs" update --from "$b" --yes"#;
 
 /// A one-time login code from the distro's daemon: the installed version's cld-gui-login, else a
 /// source install's (loopback, host token; the 60 s code, bare).
@@ -453,6 +575,10 @@ pub fn wsl_install_argv(
         rest.extend(["--start-policy", policy, "--no-linger"]);
     }
     wsl_script_argv(distro, WSL_INSTALL, &rest)
+}
+
+pub fn wsl_update_argv(distro: &str, bundle: &str) -> Vec<String> {
+    wsl_script_argv(distro, WSL_UPDATE, &[bundle])
 }
 
 /// A Windows path as wslpath reads it: without the `\\?\` verbatim prefix.
@@ -756,14 +882,15 @@ mod tests {
 
     #[test]
     fn existing_installs() {
-        let record = r#"{"schema":1,"port":18241,"current":"0.1.0","startPolicy":"manual","versions":{"0.1.0":{}},"service":{"name":"agent-tycoon"},"files":{"a":"x","b":"y"}}"#;
-        let found = split_find(&format!("{record}\n{FIND_MARK}\n{{\"port\":18240}}\n"));
+        let record = r#"{"schema":1,"port":18241,"current":"0.1.0","installedBy":"gui","startPolicy":"manual","versions":{"0.1.0":{}},"service":{"name":"agent-tycoon"},"files":{"a":"x","b":"y"}}"#;
+        let found = split_find(&format!("{record}\n{FIND_MARK}\n{{\"port\":18240}}\n{FIND_KEY_MARK}\n pinned key \n"));
         assert_eq!(found.port(), 18241); // the record's port wins
         let r = found.record.as_ref().unwrap();
         assert_eq!(
-            (r.start_policy.as_str(), r.files, r.service.as_deref()),
-            ("manual", 2, Some("agent-tycoon"))
+            (r.start_policy.as_str(), r.files, r.service.as_deref(), r.installed_by.as_deref()),
+            ("manual", 2, Some("agent-tycoon"), Some("gui"))
         );
+        assert_eq!(found.pinned_key.as_deref(), Some("pinned key"));
         assert_eq!(plan(&found, false), Plan::AskStart);
         assert_eq!(plan(&found, true), Plan::Open);
 
@@ -788,7 +915,7 @@ mod tests {
         // A record this app cannot read is not taken as an install.
         assert_eq!(split_find(r#"{"schema":2}"#).record, None);
         assert_eq!(
-            Found::from_texts("not json", "{\"port\":0}"),
+            Found::from_texts("not json", "{\"port\":0}", ""),
             Found::default()
         );
     }
@@ -863,6 +990,12 @@ mod tests {
             "agent-tycoon-daemon-0.2.0-linux-x64.tar.gz".into(),
         ];
         assert_eq!(bundle_name(&two, "linux-x64"), None); // never a guess between two
+        assert_eq!(
+            bundle_version("agent-tycoon-daemon-0.1.0-rc.1-linux-x64.tar.gz", "linux-x64"),
+            Some("0.1.0-rc.1".into())
+        );
+        assert_eq!(bundle_version("agent-tycoon-daemon--linux-x64.tar.gz", "linux-x64"), None);
+        assert_eq!(bundle_version("agent-tycoon-daemon-0.1.0-win-x64.tar.gz", "linux-x64"), None);
         let (a, b) = ("a".repeat(64), "b".repeat(64));
         let pins = format!("win-x64={a},linux-x64={b}");
         assert_eq!(pinned(&pins, "linux-x64"), Some(b.as_str()));
@@ -910,10 +1043,19 @@ mod tests {
             ["--start-policy", "on-demand", "--no-linger"]
         );
         assert_eq!(
+            manager_update_args("m", "b"),
+            ["m", "update", "--from", "b", "--yes"]
+        );
+        assert_eq!(
             unpack_args("b", "t"),
             ["-xf", "b", "-C", "t", "node", "cld", "core", "package.json"]
         );
         assert_eq!(wsl_script_argv("Ubuntu", WSL_LOGIN, &[]).len(), 7);
+        assert_eq!(
+            wsl_update_argv("Ubuntu", evil)[7..],
+            [evil]
+        );
+        assert!(!WSL_UPDATE.contains("Ubuntu") && !WSL_UPDATE.contains("rm -rf ~"));
         assert_eq!(
             wsl_script_argv("Ubuntu", WSL_HEALTH, &["18240"])[5..],
             [WSL_HEALTH, "sh", "18240"]
@@ -977,6 +1119,45 @@ mod tests {
         };
         let lines = leftovers(Some(&r));
         assert!(lines[0].contains("0.1.0") && lines[1].contains("3개"));
+    }
+
+    #[test]
+    fn versions_and_refreshes() {
+        for (older, newer) in [
+            ("0.1.0-rc.1", "0.1.0"),
+            ("0.1.0-rc.2", "0.1.0-rc.10"),
+            ("1.9.0", "1.10.0"),
+            ("1.0.0-alpha", "1.0.0-beta"),
+            ("1.0.0-rc.1", "1.0.0-rc.1.1"),
+            ("0.1.0-rc.1", "0.1.0-rc.1.57"),
+            ("0.1.0-rc.1.57", "0.1.0-rc.1.58"),
+            ("0.1.0-rc.1.58", "0.1.0-rc.2"),
+            ("0.1.0-rc.2", "0.1.0"),
+        ] {
+            assert_eq!(compare_versions(older, newer), Ordering::Less, "{older} < {newer}");
+            assert_eq!(compare_versions(newer, older), Ordering::Greater, "{newer} > {older}");
+        }
+        assert_eq!(compare_versions("1.2.0", "1.2.0+build.5"), Ordering::Equal);
+
+        let gui = |current: Option<&str>| Record {
+            current: current.map(String::from),
+            installed_by: Some("gui".into()),
+            ..Record::default()
+        };
+        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", Some(" key\n"), "key"), Refresh::Update);
+        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", Some("old key"), "key"), Refresh::Reinstall);
+        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", None, "key"), Refresh::Reinstall);
+        assert_eq!(refresh(&gui(Some("0.1.1")), "0.1.1", Some("key"), "key"), Refresh::Keep);
+        assert_eq!(refresh(&gui(Some("0.1.2")), "0.1.1", Some("key"), "key"), Refresh::Keep);
+        assert_eq!(refresh(&gui(None), "0.1.1", Some("key"), "key"), Refresh::Keep);
+        for installed_by in [Some("cli"), Some("source"), None] {
+            let record = Record {
+                current: Some("0.1.0".into()),
+                installed_by: installed_by.map(String::from),
+                ..Record::default()
+            };
+            assert_eq!(refresh(&record, "0.1.1", Some("key"), "key"), Refresh::Keep);
+        }
     }
 
     #[test]

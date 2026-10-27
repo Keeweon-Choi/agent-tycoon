@@ -72,6 +72,11 @@ export interface DirectState {
   ipChangedAt?: number;
   previousIp?: string;
   issueFailedAt?: number;
+  /** In DuckDNS mode, the separate certificate that keeps old IP invitations valid. */
+  ipCertFor?: string;
+  ipNotBefore?: number;
+  ipNotAfter?: number;
+  ipIssueFailedAt?: number;
 }
 
 /** Where gated requests go: the Fastify server (`app.server`). */
@@ -208,6 +213,10 @@ export class DirectConnector {
   private state: DirectState;
   private server: https.Server | null = null;
   private readonly challenges = new Map<string, tls.SecureContext>();
+  private nameContext: tls.SecureContext | undefined;
+  private ipContext: tls.SecureContext | undefined;
+  private defaultContext: tls.SecureContext | undefined;
+  private defaultCertificate: { key: string; cert: string } | null = null;
   private timer: NodeJS.Timeout | null = null;
   private busy: Promise<unknown> = Promise.resolve();
   /** TCP connections the listener accepted (the relay check counts them). */
@@ -280,33 +289,65 @@ export class DirectConnector {
     fs.renameSync(tmp, this.file('state.json'));
   }
 
-  private readCertificate(): { key: string; cert: string } | null {
+  private readCertificate(slot: 'name' | 'ip' = 'name'): { key: string; cert: string } | null {
+    const prefix = slot === 'ip' ? 'ip-cert' : 'cert';
     try {
       return {
-        key: fs.readFileSync(this.file('cert.key'), 'utf8'),
-        cert: fs.readFileSync(this.file('cert.pem'), 'utf8'),
+        key: fs.readFileSync(this.file(`${prefix}.key`), 'utf8'),
+        cert: fs.readFileSync(this.file(`${prefix}.pem`), 'utf8'),
       };
     } catch {
       return null;
     }
   }
 
-  private install(certificate: Certificate): void {
+  private refreshCertificateContexts(): void {
+    const name = this.readCertificate();
+    const ip = this.readCertificate('ip');
+    this.nameContext = name ? tls.createSecureContext(name) : undefined;
+    this.ipContext = ip ? tls.createSecureContext(ip) : undefined;
+    // IP literals send no SNI. In name mode its certificate is the default;
+    // without a saved IP certificate, keep serving the name certificate.
+    this.defaultCertificate = this.state.name && ip ? ip : name;
+    this.defaultContext = this.state.name && ip ? this.ipContext : this.nameContext;
+  }
+
+  private writeCertificate(slot: 'name' | 'ip', certificate: Certificate): void {
     fs.mkdirSync(this.deps.dir, { recursive: true, mode: 0o700 });
+    const prefix = slot === 'ip' ? 'ip-cert' : 'cert';
     for (const [name, body] of [
-      ['cert.key', certificate.key],
-      ['cert.pem', certificate.cert],
+      [`${prefix}.key`, certificate.key],
+      [`${prefix}.pem`, certificate.cert],
     ]) {
       const tmp = this.file(`${name}.${process.pid}.tmp`);
       fs.writeFileSync(tmp, body, { mode: 0o600 });
       fs.renameSync(tmp, this.file(name));
     }
+  }
+
+  private updateServerCertificate(): void {
+    this.refreshCertificateContexts();
+    if (this.defaultCertificate) this.server?.setSecureContext(this.defaultCertificate);
+  }
+
+  private install(certificate: Certificate): void {
+    this.writeCertificate('name', certificate);
     this.state.notBefore = certificate.notBefore;
     this.state.notAfter = certificate.notAfter;
     this.state.certFor = certificate.identifier;
     delete this.state.issueFailedAt;
     this.save();
-    this.server?.setSecureContext({ key: certificate.key, cert: certificate.cert });
+    this.updateServerCertificate();
+  }
+
+  private installIp(certificate: Certificate): void {
+    this.writeCertificate('ip', certificate);
+    this.state.ipNotBefore = certificate.notBefore;
+    this.state.ipNotAfter = certificate.notAfter;
+    this.state.ipCertFor = certificate.identifier;
+    delete this.state.ipIssueFailedAt;
+    this.save();
+    this.updateServerCertificate();
   }
 
   // ── What others read ──
@@ -332,7 +373,18 @@ export class DirectConnector {
   }
 
   status() {
-    const { enabled, ip, name, upnp, notBefore, notAfter, ipChangedAt, previousIp } = this.state;
+    const {
+      enabled,
+      ip,
+      name,
+      upnp,
+      notBefore,
+      notAfter,
+      ipNotBefore,
+      ipNotAfter,
+      ipChangedAt,
+      previousIp,
+    } = this.state;
     return {
       enabled,
       url: this.url(),
@@ -346,6 +398,16 @@ export class DirectConnector {
         notBefore && notAfter
           ? { notBefore, notAfter, renewAt: renewAt(notBefore, notAfter) }
           : null,
+      ipCertificate:
+        ipNotBefore && ipNotAfter
+          ? {
+              notBefore: ipNotBefore,
+              notAfter: ipNotAfter,
+              renewAt: renewAt(ipNotBefore, ipNotAfter),
+            }
+          : null,
+      ipNotBefore: ipNotBefore ?? null,
+      ipNotAfter: ipNotAfter ?? null,
       ipChangedAt: ipChangedAt ?? null,
       previousIp: previousIp ?? null,
       lastRun: this.lastRun,
@@ -365,12 +427,23 @@ export class DirectConnector {
   private async listen(): Promise<void> {
     if (this.server?.listening) return;
     const host = await this.listenHost();
-    const saved = this.readCertificate();
+    this.refreshCertificateContexts();
     const server = https.createServer({
-      ...(saved ?? {}),
+      ...(this.defaultCertificate ?? {}),
       // TLS-ALPN-01: Let's Encrypt asks for the reverse name of the IP (RFC 8738),
       // which no browser sends; everyone else gets the real certificate.
-      SNICallback: (name, cb) => cb(null, this.challenges.get(name.toLowerCase())),
+      SNICallback: (name, cb) => {
+        const requested = name.toLowerCase();
+        const challenge = this.challenges.get(requested);
+        const duckName = this.state.name ?? this.deps.duck?.name;
+        cb(
+          null,
+          challenge ??
+            (duckName && requested === duckName.toLowerCase()
+              ? this.nameContext
+              : this.defaultContext),
+        );
+      },
       ALPNProtocols: ['http/1.1', 'acme-tls/1'],
     });
     server.keepAliveTimeout = 30_000;
@@ -682,6 +755,16 @@ export class DirectConnector {
         return done(false);
       }
       this.setIp(ip ?? this.state.ip);
+      if (this.deps.duck && this.state.ip) {
+        const { ipCertFor, ipNotBefore, ipNotAfter } = this.state;
+        const currentIpCertificate =
+          ipCertFor === this.state.ip &&
+          ipNotBefore !== undefined &&
+          ipNotAfter !== undefined &&
+          this.now < renewAt(ipNotBefore, ipNotAfter) &&
+          this.readCertificate('ip') !== null;
+        if (!currentIpCertificate) await this.certifyIp(this.state.ip, steps);
+      }
       this.state.enabled = true;
       this.save();
       this.schedule();
@@ -763,7 +846,7 @@ export class DirectConnector {
         if (this.deps.duck) await this.deps.duck.client.update(ip).catch(() => undefined);
         this.save();
       }
-      const { notBefore, notAfter, certFor, name } = this.state;
+      const { notBefore, notAfter, certFor, name, ipCertFor, ipNotBefore, ipNotAfter } = this.state;
       // An IP certificate names the old IP after a change; any certificate is due at 2/3.
       const stale = !name && certFor !== this.state.ip;
       const due =
@@ -771,6 +854,14 @@ export class DirectConnector {
         notAfter !== undefined &&
         this.now >= renewAt(notBefore, notAfter);
       if (stale || due) await this.certify(name ? undefined : this.state.ip, steps);
+      if (name && this.state.ip) {
+        const ipStale = ipCertFor !== this.state.ip;
+        const ipDue =
+          ipNotBefore !== undefined &&
+          ipNotAfter !== undefined &&
+          this.now >= renewAt(ipNotBefore, ipNotAfter);
+        if (ipStale || ipDue) await this.certifyIp(this.state.ip, steps);
+      }
       if (steps.length > 0) this.lastRun = steps;
       // Not silent: a renewal that keeps failing ends in an expired certificate.
       for (const step of steps) if (!step.ok) this.log(`점검: ✖ ${step.text}`);
@@ -820,6 +911,33 @@ export class DirectConnector {
         text: koText('letsencrypt_failed', { external: EXTERNAL_PORT, why: (error as Error).message }),
         fix: koText('fix_443_blocked'),
       });
+      return false;
+    }
+  }
+
+  /** The fallback slot in DuckDNS mode: failure must never affect the name certificate. */
+  private async certifyIp(ip: string, steps: Step[]): Promise<boolean> {
+    if (this.state.ipIssueFailedAt && this.now - this.state.ipIssueFailedAt < ISSUE_RETRY_MS) {
+      steps.push({ ok: false, text: koText('ip_cert_warning') });
+      return false;
+    }
+    try {
+      const certificate = await this.deps.issue({
+        ip,
+        alpn: this.alpn,
+        log: (line) => this.log(line),
+      });
+      this.installIp(certificate);
+      const until = new Date(certificate.notAfter).toLocaleString('sv-SE', { hour12: false });
+      steps.push({
+        ok: true,
+        text: koText('cert_issued', { name: certificate.identifier, until }),
+      });
+      return true;
+    } catch {
+      this.state.ipIssueFailedAt = this.now;
+      this.save();
+      steps.push({ ok: false, text: koText('ip_cert_warning') });
       return false;
     }
   }
