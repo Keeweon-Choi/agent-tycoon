@@ -978,6 +978,10 @@ export const SERVER_TEXT = {
     ko: 'Claude Code의 Bypass Permissions 경고에 대신 동의하고 켰어요',
     en: "Accepted Claude Code's Bypass Permissions warning for you and started it.",
   },
+  bypass_trust_answered: {
+    ko: '이 폴더를 신뢰하고 Claude Code의 Bypass Permissions 경고에 대신 동의한 뒤 켰어요',
+    en: "Trusted this folder and accepted Claude Code's Bypass Permissions warning for you, then started it.",
+  },
   trust_claude_only: {
     ko: '폴더 신뢰는 Claude 에이전트에만 있어요',
     en: 'Folder trust applies to Claude agents only.',

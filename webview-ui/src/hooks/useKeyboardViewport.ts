@@ -56,7 +56,9 @@ export function useKeyboardViewport(enabled: boolean): KeyboardViewport {
       });
       baselines.current = r.baselines;
       setViewport((prev) =>
-        prev.keyboardOpen === r.viewport.keyboardOpen && prev.clampHeight === r.viewport.clampHeight
+        prev.keyboardOpen === r.viewport.keyboardOpen &&
+        prev.visualHeight === r.viewport.visualHeight &&
+        prev.clampHeight === r.viewport.clampHeight
           ? prev
           : r.viewport,
       );

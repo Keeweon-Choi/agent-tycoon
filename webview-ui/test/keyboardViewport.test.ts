@@ -34,13 +34,14 @@ function run(samples: ViewportSample[]) {
 
 describe('keyboard viewport', () => {
   it('full height with nothing focused: closed, no clamp', () => {
-    expect(run([sample(844, 844, false)])).toEqual({ keyboardOpen: false, clampHeight: null });
+    expect(run([sample(844, 844, false)])).toEqual({ keyboardOpen: false, clampHeight: null, visualHeight: 844 });
   });
 
   it('iOS: only the visual viewport shrinks — open, and the shell clamps to it', () => {
     expect(run([sample(844, 844), sample(844, 500)])).toEqual({
       keyboardOpen: true,
       clampHeight: 500,
+      visualHeight: 500,
     });
   });
 
@@ -48,6 +49,7 @@ describe('keyboard viewport', () => {
     expect(run([sample(844, 844, false), sample(500, 500)])).toEqual({
       keyboardOpen: true,
       clampHeight: null,
+      visualHeight: 500,
     });
   });
 

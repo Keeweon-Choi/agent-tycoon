@@ -300,9 +300,11 @@ describe('Windows logon environment', () => {
 });
 
 describe('claudeInstallCommand', () => {
-  it('is the PowerShell one-liner on Windows and curl elsewhere', () => {
+  it('is the PowerShell one-liner on Windows and installs, persists PATH, then signs in elsewhere', () => {
     expect(claudeInstallCommand('win32')).toBe('irm https://claude.ai/install.ps1 | iex');
     for (const p of ['linux', 'darwin'] as const)
-      expect(claudeInstallCommand(p)).toBe('curl -fsSL https://claude.ai/install.sh | bash');
+      expect(claudeInstallCommand(p)).toBe(
+        'curl -fsSL https://claude.ai/install.sh | bash && { case "$SHELL:$(uname)" in */zsh:*) p="$HOME/.zprofile";; */bash:Darwin) p="$HOME/.bash_profile";; *) p="$HOME/.profile";; esac; grep -q \'\\.local/bin\' "$p" 2>/dev/null || printf \'%s\\n\' \'export PATH="$HOME/.local/bin:$PATH" # Added by Agent Tycoon (Claude Code)\' >> "$p"; export PATH="$HOME/.local/bin:$PATH"; claude auth status >/dev/null 2>&1 || claude auth login; }',
+      );
   });
 });

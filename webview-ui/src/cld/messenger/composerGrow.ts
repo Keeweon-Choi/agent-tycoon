@@ -17,6 +17,8 @@ export interface ComposerMetrics {
   lineHeight: number;
   /** Padding and border around the text, top and bottom together. */
   extra: number;
+  /** The visible part of a phone's viewport when its keyboard is open. */
+  visualViewportHeight?: number;
   viewportHeight: number;
   phone: boolean;
   /** An inactive composer keeps its draft, but only shows its compact height. */
@@ -27,10 +29,13 @@ export function composerHeight(m: ComposerMetrics): { height: number; scrolls: b
   const oneLine = Math.round(m.lineHeight + m.extra);
   const collapsedHeight = Math.round(m.lineHeight * COMPOSER_COLLAPSED_LINES + m.extra);
   if (m.collapsed) return { height: collapsedHeight, scrolls: false };
+  const viewportHeight = m.phone && m.visualViewportHeight !== undefined
+    ? m.visualViewportHeight
+    : m.viewportHeight;
   const max = Math.max(
     oneLine,
     m.phone
-      ? Math.floor(m.viewportHeight * PHONE_MAX_SCREEN_SHARE)
+      ? Math.floor(viewportHeight * PHONE_MAX_SCREEN_SHARE)
       : Math.round(m.lineHeight * COMPOSER_MAX_LINES + m.extra),
   );
   return {

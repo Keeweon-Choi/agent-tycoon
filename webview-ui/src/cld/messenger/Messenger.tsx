@@ -70,6 +70,7 @@ import {
   uploadAttachment,
 } from './attachments.js';
 import { AttachmentGallery } from './AttachmentViewer.js';
+import { keepPhoneComposerFocus } from './composerFocus.js';
 import { composerHeight } from './composerGrow.js';
 import { FACE_COLUMN, FACE_GAP, FACE_GUTTER_LEFT, FACE_GUTTER_RIGHT, OwnerFace, SenderFace } from './Faces.js';
 import { messageCharacterCount, prepareMessage } from './longMessage.js';
@@ -158,6 +159,8 @@ const nextRequestId = () => `history-${++requestSeq}`;
 
 interface MessengerProps {
   mobile: boolean;
+  /** The visual viewport height on a phone; changes while its keyboard animates. */
+  visualViewportHeight?: number | null;
   /** The terminal drawer's per-agent activity (working / attention / idle). */
   statusFor: (agentId: number) => TabStatus | null;
   getAppearance: (agentId: number) => AgentAppearance;
@@ -210,7 +213,7 @@ export function Messenger(props: MessengerProps) {
   );
 }
 
-function MessengerBody({ mobile, statusFor, getAppearance }: MessengerProps) {
+function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance }: MessengerProps) {
   const m = useMessenger();
   const pageStyle = usePageStyle('messenger');
   const subs = m.open.map((id) => <Subscription key={id} agentId={id} />);
@@ -264,6 +267,7 @@ function MessengerBody({ mobile, statusFor, getAppearance }: MessengerProps) {
               <Conversation
                 key={m.active}
                 agentId={m.active!}
+                visualViewportHeight={visualViewportHeight}
                 statusFor={statusFor}
                 getAppearance={getAppearance}
               />
@@ -306,6 +310,7 @@ function MessengerBody({ mobile, statusFor, getAppearance }: MessengerProps) {
             <Conversation
               key={m.active}
               agentId={m.active!}
+              visualViewportHeight={visualViewportHeight}
               statusFor={statusFor}
               getAppearance={getAppearance}
             />
@@ -1421,6 +1426,7 @@ function RoomTab({ roomId }: { roomId: string; chip?: boolean }) {
 
 function Conversation({
   agentId,
+  visualViewportHeight,
   statusFor,
   getAppearance,
 }: { agentId: number } & Omit<MessengerProps, 'mobile'>) {
@@ -1768,13 +1774,14 @@ function Conversation({
       lineHeight: parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.3,
       extra: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + border,
       viewportHeight: window.innerHeight,
+      visualViewportHeight: visualViewportHeight ?? undefined,
       phone,
       collapsed: !composerExpanded,
     });
     el.style.height = `${fit.height}px`;
     el.style.overflowY = fit.scrolls ? 'auto' : 'hidden';
     if (!composerExpanded) el.scrollTop = 0;
-  }, [text, phone, canSend, composerExpanded]);
+  }, [text, phone, canSend, composerExpanded, visualViewportHeight]);
   const chooseSlash = (command: SlashCommand) => {
     edit(`/${command.name} `);
     setSlashOpen(false);
@@ -1800,6 +1807,8 @@ function Conversation({
   };
   /** Phones: no Ctrl+Enter, so 즉시 is a button beside 보내기. */
   const touch = isTouchDevice();
+  const keepComposerFocus = (event: ReactPointerEvent<HTMLButtonElement>) =>
+    keepPhoneComposerFocus(phone, event);
   /** When Ctrl+X armed the Ctrl+X Ctrl+S chord. */
   const chord = useRef<number | null>(null);
 
@@ -2612,6 +2621,7 @@ function Conversation({
                     type="button"
                     size="sm"
                     disabled={uploading || chips.length >= MAX_ATTACHMENTS}
+                    onPointerDown={keepComposerFocus}
                     onClick={chooseAttachments}
                   >
                     {t('messenger.attach')}
@@ -2624,6 +2634,7 @@ function Conversation({
                   size="sm"
                   disabled={sending || uploading || renewing || (!text.trim() && !chips.length)}
                   title={renewing ? t('messenger.renewingNote') : t('messenger.sendNowHint')}
+                  onPointerDown={keepComposerFocus}
                   onClick={() => void submit(true)}
                 >
                   {t('messenger.sendNow')}
@@ -2635,6 +2646,7 @@ function Conversation({
                 size="sm"
                 disabled={sending || uploading || (!text.trim() && !chips.length)}
                 title={t('messenger.sendShortcut')}
+                onPointerDown={keepComposerFocus}
               >
                 {sending ? t('messenger.send.sending') : t('messenger.sendButton')}
               </Button>

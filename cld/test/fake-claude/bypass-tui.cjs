@@ -1,12 +1,14 @@
 // Fake interactive `claude --dangerously-skip-permissions` for BYPASS-ACCEPT. A folder with
 // .fake-bypass-needed has Claude Code 2.1.311's one-time warning; Enter on Yes removes that
-// marker (Claude's own recorded answer in this fixture). .fake-bypass selects a negative variant.
+// marker (Claude's own recorded answer in this fixture). A .fake-untrusted marker draws the plain
+// trust question first, as a fresh folder does. .fake-bypass selects a negative variant.
 const fs = require('fs');
 const path = require('path');
 
 const cwd = process.cwd();
 const home = process.env.HOME;
 const needed = path.join(cwd, '.fake-bypass-needed');
+const untrusted = path.join(cwd, '.fake-untrusted');
 let mode = '';
 try {
   mode = fs.readFileSync(path.join(cwd, '.fake-bypass'), 'utf8').trim();
@@ -25,6 +27,8 @@ if (mode === 'hang') {
 
 let warning = fs.existsSync(needed);
 let onYes = false;
+let trust = fs.existsSync(untrusted);
+let trustOnYes = false;
 let ctrlC = 0;
 function draw() {
   const cols = process.stdout.columns || 80;
@@ -35,6 +39,14 @@ function draw() {
   }
   if (mode === 'trust') {
     out(' Accessing workspace:\r\n\r\n ❯ No, exit\r\n   Yes, I trust this folder\r\n');
+    return;
+  }
+  if (trust) {
+    out(' Accessing workspace:\r\n\r\n');
+    out(" Quick safety check: Is this a project you created or one you trust? If not, take a moment to review what's in this folder first.\r\n\r\n");
+    out(" Claude Code'll be able to read, edit, and execute files here.\r\n\r\n");
+    out(` ${trustOnYes ? ' ' : '❯'} No, exit\r\n`);
+    out(` ${trustOnYes ? '❯' : ' '} Yes, I trust this folder\r\n`);
     return;
   }
   if (warning) {
@@ -62,6 +74,15 @@ process.stdin.on('data', (buf) => {
     if (++ctrlC >= 2) process.exit(0);
     draw();
     setTimeout(() => (ctrlC = 0), 1000);
+    return;
+  }
+  if (trust) {
+    if (s === '\x1b[B') trustOnYes = true;
+    else if (s === '\r' && trustOnYes) {
+      fs.rmSync(untrusted, { force: true });
+      trust = false;
+    }
+    draw();
     return;
   }
   if (!warning || mode === 'unknown' || mode === 'trust') return;

@@ -3,29 +3,117 @@
  * 다시 찾기 button for a viewer that may change things. It can fold out of the terminal's way.
  * It is shown inline (no toast layer): a plain office is not in cld mode.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Button } from '../components/ui/Button.js';
+import {
+  AGENT_CLI_RESTART_CLOCK_MS,
+  AGENT_CLI_RESTART_HEALTH_MAX_ATTEMPTS,
+  AGENT_CLI_RESTART_HEALTH_POLL_MS,
+  AGENT_CLI_RESTART_PROGRESS_ARIA_MAX,
+  AGENT_CLI_RESTART_PROGRESS_ARIA_MIN,
+  AGENT_CLI_RESTART_PROGRESS_BORDER_COLOR,
+  AGENT_CLI_RESTART_PROGRESS_BORDER_PX,
+  AGENT_CLI_RESTART_PROGRESS_FILL_COLOR,
+  AGENT_CLI_RESTART_PROGRESS_HEIGHT_PX,
+  AGENT_CLI_RESTART_PROGRESS_RADIUS_PX,
+  AGENT_CLI_RESTART_SLOW_MS,
+} from '../constants.js';
 import { t } from '../i18n/index.js';
 import { transport } from '../transport/index.js';
+import type { TransportState } from '../transport/types.js';
 import { agentCliInstallSteps } from './agentCliInstall.js';
+import {
+  agentCliRestartProgress,
+  agentCliRestartStage,
+  requestAgentCliRecheck,
+} from './agentCliRestartProgress.js';
 import { useCldStore } from './officeStore.js';
 import { OPEN_TERMINAL_EVENT, requestShellWithInput } from './terminal/workspaceStore.js';
 
 export function AgentCliNotice() {
   const { agentCli, hostInfo, officeReadOnly } = useCldStore();
   const [folded, setFolded] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [connectionDropped, setConnectionDropped] = useState(false);
+  const [engineReady, setEngineReady] = useState(false);
+  const [restartStartedAt, setRestartStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+  const previousAgentCli = useRef(agentCli);
+  const restarting = agentCli?.state === 'restarting';
 
   useEffect(() => {
     setFolded(false);
   }, [agentCli?.again, agentCli?.state]);
 
+  // A reply always creates a new agentCliState snapshot; do not keep the button busy after it.
+  useEffect(() => {
+    if (previousAgentCli.current !== agentCli) setChecking(false);
+    previousAgentCli.current = agentCli;
+  }, [agentCli]);
+
+  useEffect(() => {
+    if (!restarting) return;
+    setConnectionDropped(transport.state !== 'connected');
+    setEngineReady(false);
+    return transport.onStateChange((state: TransportState) => {
+      if (state !== 'connected') setConnectionDropped(true);
+    });
+  }, [restarting]);
+
+  useEffect(() => {
+    if (!restarting || !connectionDropped) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
+
+    const checkHealth = async () => {
+      attempts += 1;
+      controller = new AbortController();
+      try {
+        const response = await fetch('/api/health', { signal: controller.signal });
+        if (!cancelled && response.ok) {
+          setEngineReady(true);
+          return;
+        }
+      } catch {
+        // The daemon is expected to refuse this while it is stopped.
+      }
+      if (!cancelled && attempts < AGENT_CLI_RESTART_HEALTH_MAX_ATTEMPTS) {
+        timer = setTimeout(checkHealth, AGENT_CLI_RESTART_HEALTH_POLL_MS);
+      }
+    };
+    void checkHealth();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      controller?.abort();
+    };
+  }, [connectionDropped, restarting]);
+
+  useEffect(() => {
+    if (!restarting) {
+      setRestartStartedAt(null);
+      return;
+    }
+    const startedAt = Date.now();
+    setRestartStartedAt(startedAt);
+    setNow(startedAt);
+    const timer = setInterval(() => setNow(Date.now()), AGENT_CLI_RESTART_CLOCK_MS);
+    return () => clearInterval(timer);
+  }, [restarting]);
+
   if (!agentCli) return null;
-  const restarting = agentCli.state === 'restarting';
-  const steps = agentCliInstallSteps(agentCli.command);
+  const steps = agentCliInstallSteps(agentCli.command, hostInfo?.os);
   const windows = steps.length === 2;
-  const recheck = () => transport.send({ type: 'agentCliRecheck' });
+  const macOS = hostInfo?.os === 'darwin';
+  const recheck = () =>
+    requestAgentCliRecheck(() => transport.send({ type: 'agentCliRecheck' }), setChecking);
+  const elapsedMs = restartStartedAt === null ? 0 : Math.max(0, now - restartStartedAt);
+  const stage = agentCliRestartStage(connectionDropped, engineReady);
+  const progress = agentCliRestartProgress(elapsedMs);
   const bar = (
     <div
       role="status"
@@ -45,8 +133,16 @@ export function AgentCliNotice() {
         </Button>
       )}
       {!officeReadOnly && (
-        <Button size="sm" variant="active" className="shrink-0" data-testid="agent-cli-again" onClick={recheck}>
-          {t('agentCli.again')}
+        <Button
+          size="sm"
+          variant="active"
+          className="shrink-0"
+          data-testid="agent-cli-again"
+          aria-busy={checking}
+          disabled={checking}
+          onClick={recheck}
+        >
+          {checking ? t('agentCli.progress.checkingButton') : t('agentCli.again')}
         </Button>
       )}
       <Button
@@ -59,6 +155,7 @@ export function AgentCliNotice() {
       >
         {t('agentCli.expand')}
       </Button>
+      {checking && <span data-testid="agent-cli-checking">{t('agentCli.progress.checking')}</span>}
     </div>
   );
   if (folded) return typeof document === 'undefined' ? bar : createPortal(bar, document.body);
@@ -84,26 +181,73 @@ export function AgentCliNotice() {
         </Button>
       </div>
       {restarting ? (
-        <span>{t('agentCli.restarting')}</span>
+        <>
+          <span>{t('agentCli.restarting')}</span>
+          <div className="flex items-center justify-between gap-4" data-testid="agent-cli-restart-stage">
+            <strong>{t(`agentCli.progress.stage.${stage}`)}</strong>
+            <span data-testid="agent-cli-restart-elapsed">
+              {t('agentCli.progress.elapsed', { seconds: Math.floor(elapsedMs / 1_000) })}
+            </span>
+          </div>
+          <div
+            aria-label={t('agentCli.progress.elapsed', { seconds: Math.floor(elapsedMs / 1_000) })}
+            aria-valuemax={AGENT_CLI_RESTART_PROGRESS_ARIA_MAX}
+            aria-valuemin={AGENT_CLI_RESTART_PROGRESS_ARIA_MIN}
+            aria-valuenow={progress}
+            className="w-full overflow-hidden"
+            data-testid="agent-cli-restart-progress"
+            role="progressbar"
+            style={{
+              border: `${AGENT_CLI_RESTART_PROGRESS_BORDER_PX}px solid ${AGENT_CLI_RESTART_PROGRESS_BORDER_COLOR}`,
+              borderRadius: AGENT_CLI_RESTART_PROGRESS_RADIUS_PX,
+              height: AGENT_CLI_RESTART_PROGRESS_HEIGHT_PX,
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: AGENT_CLI_RESTART_PROGRESS_FILL_COLOR,
+                height: '100%',
+                imageRendering: 'pixelated',
+                width: `${progress}%`,
+              }}
+            />
+          </div>
+          {elapsedMs >= AGENT_CLI_RESTART_SLOW_MS && (
+            <span data-testid="agent-cli-restart-slow">{t('agentCli.progress.slow')}</span>
+          )}
+        </>
       ) : (
         <>
+          {checking && <span data-testid="agent-cli-checking">{t('agentCli.progress.checking')}</span>}
           {agentCli.state === 'failed' && <span>{t('agentCli.failed')}</span>}
-          {/* ponytail: Git is always shown on Windows (not probed); users who find it noisy can ask for a probe. */}
+          {/* ponytail: Git is always shown on Windows and macOS (not probed); users who find it noisy can ask for a probe. */}
           {steps.map((step) => (
             <div key={step.id} className="flex flex-col gap-4">
               <span>
                 {t(
-                  step.id === 'claude' && !windows
-                    ? 'agentCli.installOnly.claude'
-                    : `agentCli.install.${step.id}`,
+                  step.id === 'git'
+                    ? macOS
+                      ? 'agentCli.install.macGit'
+                      : 'agentCli.install.git'
+                    : macOS
+                      ? 'agentCli.install.macClaude'
+                      : !windows
+                        ? 'agentCli.installOnly.claude'
+                        : 'agentCli.install.claude',
                 )}
               </span>
               {step.id === 'git' && (
                 <span data-testid="agent-cli-git">
-                  {t('agentCli.git')}{' '}
-                  <a className="underline" href="https://git-scm.com/download/win">
-                    {t('agentCli.gitLink')}
-                  </a>
+                  {macOS ? (
+                    t('agentCli.macGit')
+                  ) : (
+                    <>
+                      {t('agentCli.git')}{' '}
+                      <a className="underline" href="https://git-scm.com/download/win">
+                        {t('agentCli.gitLink')}
+                      </a>
+                    </>
+                  )}
                 </span>
               )}
               <code
@@ -126,7 +270,7 @@ export function AgentCliNotice() {
                     }
                   }}
                 >
-                  {t(`agentCli.installButton.${step.id}`)}
+                  {t(step.id === 'git' && macOS ? 'agentCli.installButton.macGit' : `agentCli.installButton.${step.id}`)}
                 </Button>
               )}
             </div>
@@ -139,9 +283,11 @@ export function AgentCliNotice() {
               variant="active"
               className="self-start"
               data-testid="agent-cli-again"
+              aria-busy={checking}
+              disabled={checking}
               onClick={recheck}
             >
-              {t('agentCli.again')}
+              {checking ? t('agentCli.progress.checkingButton') : t('agentCli.again')}
             </Button>
           )}
         </>

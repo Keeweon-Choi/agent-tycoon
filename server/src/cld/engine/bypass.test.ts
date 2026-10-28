@@ -32,13 +32,14 @@ function setup(mode?: string) {
   if (mode) fs.writeFileSync(path.join(folder, '.fake-bypass'), mode);
   const logs: string[] = [];
   const killed: number[] = [];
-  const run = (timing = FAST) =>
+  const run = (timing = FAST, answerTrust = false) =>
     acceptBypass({
       file: claudePath,
       args: BYPASS_ARGS,
       cwd: folder,
       env: { ...process.env, HOME: home, FAKE_HANG_MS: '3000' },
       log: (l) => logs.push(l),
+      answerTrust,
       timing,
       kill: (p: IPty) => killed.push(p.pid),
     });
@@ -54,7 +55,14 @@ function setup(mode?: string) {
       return [];
     }
   };
-  return { run, keys, logs, killed, needed: () => fs.existsSync(path.join(folder, '.fake-bypass-needed')) };
+  return {
+    run,
+    keys,
+    logs,
+    killed,
+    folder,
+    needed: () => fs.existsSync(path.join(folder, '.fake-bypass-needed')),
+  };
 }
 
 describe('Claude Code Bypass Permissions warning through a real PTY (fake claude)', () => {
@@ -62,6 +70,7 @@ describe('Claude Code Bypass Permissions warning through a real PTY (fake claude
     const s = setup();
     expect(await s.run()).toEqual({
       outcome: 'accepted',
+      trusted: false,
       steps: ['started', 'dialog', 'chose', 'past', 'closed'],
     });
     expect(s.keys()).toEqual(['\x1b[B', '\r', '\x03', '\x03']);
@@ -78,10 +87,10 @@ describe('Claude Code Bypass Permissions warning through a real PTY (fake claude
     expect(s.needed()).toBe(true);
   });
 
-  it('an unknown screen and the folder-trust dialog are untouched', async () => {
+  it('an unknown screen and trust with answerTrust false are untouched', async () => {
     for (const mode of ['unknown', 'trust']) {
       const s = setup(mode);
-      const r = await s.run({ ...FAST, appearMs: 500 });
+      const r = await s.run({ ...FAST, appearMs: 500 }, false);
       expect(r.outcome, mode).toBe('unknownScreen');
       expect(r.steps, mode).toEqual(['started', 'killed']);
       expect(s.keys(), mode).toEqual([]);
@@ -89,12 +98,25 @@ describe('Claude Code Bypass Permissions warning through a real PTY (fake claude
     }
   });
 
+  it('answers the plain trust question before the bypass warning when authorised', async () => {
+    const s = setup();
+    fs.writeFileSync(path.join(s.folder, '.fake-untrusted'), '');
+    expect(await s.run(FAST, true)).toEqual({
+      outcome: 'accepted',
+      trusted: true,
+      steps: ['started', 'trusted', 'dialog', 'chose', 'past', 'closed'],
+    });
+    expect(s.keys()).toEqual(['\x1b[B', '\r', '\x1b[B', '\r', '\x03', '\x03']);
+    expect(fs.existsSync(path.join(s.folder, '.fake-untrusted'))).toBe(false);
+    expect(s.needed()).toBe(false);
+  });
+
   it('a child that never shows a screen is killed within the bound', async () => {
     const s = setup('hang');
     const started = Date.now();
     const r = await s.run({ ...FAST, appearMs: 400 });
     expect(Date.now() - started).toBeLessThan(3_000);
-    expect(r).toEqual({ outcome: 'timeout', steps: ['started', 'killed'] });
+    expect(r).toEqual({ outcome: 'timeout', trusted: false, steps: ['started', 'killed'] });
     expect(s.keys()).toEqual([]);
     expect(s.killed).toHaveLength(1);
   });
@@ -122,6 +144,11 @@ describe('bypassDialog', () => {
     });
     // A Windows console's ASCII pointer reads the same.
     expect(bypassDialog(await screenOf([...WARNING.slice(0, 2), '> No, exit', '  Yes, I accept']))).toEqual({
+      onYes: false,
+      onNo: true,
+    });
+    // Windows Claude Code 2.1.311 uses U+203A for the focused option.
+    expect(bypassDialog(await screenOf([...WARNING.slice(0, 2), '› No, exit', '  Yes, I accept']))).toEqual({
       onYes: false,
       onNo: true,
     });

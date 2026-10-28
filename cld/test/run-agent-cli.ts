@@ -125,7 +125,7 @@ async function main() {
       command ===
         (process.platform === 'win32'
           ? "powershell -NoProfile -Command \"$d=Join-Path $env:USERPROFILE '.local\\bin'; $p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not ($p -split ';' | Where-Object { $_.TrimEnd('\\') -ieq $d })){[Environment]::SetEnvironmentVariable('Path',$(if($p){$p.TrimEnd(';')+';'+$d}else{$d}),'User')}; irm https://claude.ai/install.ps1 | iex\" && set \"PATH=%PATH%;%USERPROFILE%\\.local\\bin\" && (claude auth status >nul 2>&1 || claude auth login)"
-          : 'curl -fsSL https://claude.ai/install.sh | bash'),
+          : 'curl -fsSL https://claude.ai/install.sh | bash && { case "$SHELL:$(uname)" in */zsh:*) p="$HOME/.zprofile";; */bash:Darwin) p="$HOME/.bash_profile";; *) p="$HOME/.profile";; esac; grep -q \'\\.local/bin\' "$p" 2>/dev/null || printf \'%s\\n\' \'export PATH="$HOME/.local/bin:$PATH" # Added by Agent Tycoon (Claude Code)\' >> "$p"; export PATH="$HOME/.local/bin:$PATH"; claude auth status >/dev/null 2>&1 || claude auth login; }'),
       `it names this OS's one-line installer (${command})`,
     );
     const text = await notice.innerText();

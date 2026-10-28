@@ -55,6 +55,20 @@ describe('composerHeight', () => {
     });
   });
 
+  it('uses the resized visual viewport while an iPhone keyboard is open without a list scroll', () => {
+    const ios = { ...base, phone: true, viewportHeight: 852, content: content(30) };
+    expect(composerHeight({ ...ios, visualViewportHeight: 852 })).toEqual({
+      height: 284,
+      scrolls: true,
+    });
+    // iOS keeps window.innerHeight at 852; only visualViewport changes to the
+    // keyboard-free 351 px. The composer must immediately leave message room.
+    expect(composerHeight({ ...ios, visualViewportHeight: 351 })).toEqual({
+      height: 117,
+      scrolls: true,
+    });
+  });
+
   it('never goes below one line, even on a very short screen', () => {
     expect(
       composerHeight({ ...base, phone: true, viewportHeight: 60, content: content(4) }),

@@ -41,7 +41,12 @@ describe('PlainOffice decision: plain to full', () => {
     const { k, ready } = setup();
     await ready();
     expect(k.sent).toEqual([
-      { type: 'agentCliState', state: 'missing', command: 'curl -fsSL https://claude.ai/install.sh | bash' },
+      {
+        type: 'agentCliState',
+        state: 'missing',
+        command:
+          'curl -fsSL https://claude.ai/install.sh | bash && { case "$SHELL:$(uname)" in */zsh:*) p="$HOME/.zprofile";; */bash:Darwin) p="$HOME/.bash_profile";; *) p="$HOME/.profile";; esac; grep -q \'\\.local/bin\' "$p" 2>/dev/null || printf \'%s\\n\' \'export PATH="$HOME/.local/bin:$PATH" # Added by Agent Tycoon (Claude Code)\' >> "$p"; export PATH="$HOME/.local/bin:$PATH"; claude auth status >/dev/null 2>&1 || claude auth login; }',
+      },
       // the install buttons open a shell in this home folder
       expect.objectContaining({ type: 'hostInfo', home: expect.any(String) }),
     ]);

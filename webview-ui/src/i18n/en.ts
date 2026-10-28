@@ -2182,11 +2182,15 @@ export const en = {
   'agentCli.gitLink': 'Git for Windows download',
   'agentCli.install.git': '1. Install Git for Windows',
   'agentCli.install.claude': '2. Install Claude Code',
+  'agentCli.install.macGit': '1. Install Xcode Command Line Tools (Git)',
+  'agentCli.install.macClaude': '2. Install Claude Code',
   'agentCli.installOnly.claude': 'Install Claude Code',
   'agentCli.installButton.git': 'Install Git',
+  'agentCli.installButton.macGit': 'Install Xcode Command Line Tools (Git)',
   'agentCli.installButton.claude': 'Install Claude Code',
+  'agentCli.macGit': 'macOS will explain if the Xcode Command Line Tools are already installed.',
   'agentCli.afterInstall':
-    'After the installation finishes: press Find again so the daemon restarts with a fresh environment, then type claude once in the terminal to sign in.',
+    'When the installation finishes, Claude opens its sign-in in your browser from the same window. After signing in, press Find again so the daemon restarts with a fresh environment.',
   'agentCli.afterInstallWindows':
     'When the installation finishes, Claude opens its sign-in in your browser from the same window. After signing in, press Find again so the daemon restarts with a fresh environment.',
   'agentCli.os.win32': 'Windows PowerShell',
@@ -2198,6 +2202,14 @@ export const en = {
   'agentCli.fold': 'Collapse',
   'agentCli.expand': 'Expand',
   'agentCli.barTitle': 'Claude Code installation guide',
+  'agentCli.progress.checking': 'Checking Claude Code…',
+  'agentCli.progress.checkingButton': 'Checking…',
+  'agentCli.progress.stage.closing': 'Closing the office program',
+  'agentCli.progress.stage.starting': 'Starting it again',
+  'agentCli.progress.stage.engine': 'Preparing the agent engine',
+  'agentCli.progress.elapsed': '{seconds}s',
+  'agentCli.progress.slow':
+    'This is taking longer than usual. Press Reconnect in the app tray, or reload this page.',
 } as const satisfies Record<string, string>;
 
 export type TranslationKey = keyof typeof en;

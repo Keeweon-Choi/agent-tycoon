@@ -69,6 +69,24 @@ describe('BYPASS-ACCEPT through the engine', () => {
     expect(s.logs).toContain('[cld engine] "alpha": Bypass Permissions warning answered; starting again');
   });
 
+  it('a new bypass folder answers trust and Bypass together and reports both to the person', async () => {
+    const s = setup();
+    const folder = s.folder('alpha');
+    fs.writeFileSync(path.join(folder, '.fake-untrusted'), '');
+    fs.writeFileSync(path.join(folder, '.fake-bypass-needed'), '');
+    expect(
+      await s.action('add', 'alpha', { folder, permissionMode: 'bypassPermissions' }),
+    ).toMatchObject({ ok: true });
+    expect(await s.action('start', 'alpha')).toMatchObject({
+      ok: true,
+      note: koText('bypass_trust_answered'),
+    });
+    expect(s.bgRuns()).toHaveLength(2);
+    expect(s.bypassRuns()).toHaveLength(1);
+    expect(fs.existsSync(path.join(folder, '.fake-untrusted'))).toBe(false);
+    expect(fs.existsSync(path.join(folder, '.fake-bypass-needed'))).toBe(false);
+  });
+
   it('a non-bypass project never reaches the dialog, even when the start output names it', async () => {
     const s = setup();
     const folder = s.folder('alpha');

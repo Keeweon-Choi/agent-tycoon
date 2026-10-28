@@ -1,5 +1,5 @@
 # Desktop installers (T1): the Agent Tycoon app (cld/desktop, Tauri v2) built natively on each OS
-# and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64), Windows NSIS setup.exe.
+# and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64 and Intel), Windows NSIS setup.exe.
 # Same trigger policy as release-bundles.yml: manual dispatch and v* tags only (private-repo macOS
 # and Windows minutes cost several times Linux). One secret (the release signing key), read-only token.
 # The version comes from one place, src-tauri/Cargo.toml (tauri.conf.json has no version field).
@@ -46,9 +46,9 @@ jobs:
           ONLY: ${{ inputs.only }}
         run: |
           # ubuntu-22.04, not 24.04: an AppImage built against newer glibc does not run on older distros.
-          # macos-15 is Apple Silicon only (ponytail: no Intel dmg; add macos-15-intel when asked).
-          all='[{"os":"linux","runner":"ubuntu-22.04","bundles":"appimage,deb","files":"appimage/*.AppImage deb/*.deb"},{"os":"macos","runner":"macos-15","bundles":"dmg,app","files":"dmg/*.dmg"},{"os":"windows","runner":"windows-2025","bundles":"nsis","files":"nsis/*-setup.exe"}]'
-          if [ -z "$ONLY" ] || [ "$ONLY" = all ]; then pick="$all"; else pick=$(jq -c --arg o "$ONLY" 'map(select(.os == $o))' <<< "$all"); fi
+          # macos-15 is Apple Silicon; macos-15-intel (the last Intel image; macos-13 is retired) builds the native x86_64 dmg.
+          all='[{"os":"linux","runner":"ubuntu-22.04","bundles":"appimage,deb","files":"appimage/*.AppImage deb/*.deb"},{"os":"macos","runner":"macos-15","bundles":"dmg,app","files":"dmg/*.dmg"},{"os":"macos-intel","runner":"macos-15-intel","bundles":"dmg,app","files":"dmg/*.dmg"},{"os":"windows","runner":"windows-2025","bundles":"nsis","files":"nsis/*-setup.exe"}]'
+          if [ -z "$ONLY" ] || [ "$ONLY" = all ]; then pick="$all"; else pick=$(jq -c --arg o "$ONLY" 'map(select(.os == $o or ($o == "macos" and .os == "macos-intel")))' <<< "$all"); fi
           echo "include=$pick" >> "$GITHUB_OUTPUT"
 
   bundle:
@@ -107,6 +107,7 @@ jobs:
           case "${{ matrix.os }}" in
             linux) node cld/release/bundle/build.mjs --out out/bundles/linux-x64 ;;
             macos) node cld/release/bundle/build.mjs --out out/bundles/darwin-arm64 ;;
+            macos-intel) node cld/release/bundle/build.mjs --out out/bundles/darwin-x64 ;;
             windows)
               node cld/release/bundle/build.mjs --out out/bundles/win-x64
               node cld/release/bundle/build.mjs --target linux-x64 --skip-build --out out/bundles/linux-x64 ;;

@@ -2152,11 +2152,15 @@ export const ko = {
   'agentCli.gitLink': 'Git for Windows 내려받기',
   'agentCli.install.git': '1. Git for Windows 설치',
   'agentCli.install.claude': '2. Claude Code 설치',
+  'agentCli.install.macGit': '1. Xcode 명령줄 도구(Git) 설치',
+  'agentCli.install.macClaude': '2. Claude Code 설치',
   'agentCli.installOnly.claude': 'Claude Code 설치',
   'agentCli.installButton.git': 'Git 설치',
+  'agentCli.installButton.macGit': 'Xcode 명령줄 도구(Git) 설치',
   'agentCli.installButton.claude': 'Claude Code 설치',
+  'agentCli.macGit': '이미 설치되어 있다면 macOS가 안내해요.',
   'agentCli.afterInstall':
-    '설치가 끝나면 다시 찾기를 눌러 새 환경으로 데몬을 다시 시작하고, 터미널에서 claude 를 한 번 실행해 로그인해요.',
+    '설치가 끝나면 같은 창에서 Claude 로그인이 브라우저로 열려요. 로그인까지 마친 뒤 다시 찾기를 누르면 데몬이 새 환경으로 다시 시작해요.',
   // The Windows install line signs in by itself (claude auth login); 다시 찾기 restarts the daemon and its terminals.
   'agentCli.afterInstallWindows':
     '설치가 끝나면 같은 창에서 Claude 로그인이 브라우저로 열려요. 로그인까지 마친 뒤 다시 찾기를 누르면 데몬이 새 환경으로 다시 시작해요.',
@@ -2169,4 +2173,12 @@ export const ko = {
   'agentCli.fold': '접기',
   'agentCli.expand': '펼치기',
   'agentCli.barTitle': 'Claude Code 설치 안내',
+  'agentCli.progress.checking': 'Claude Code 를 확인하는 중…',
+  'agentCli.progress.checkingButton': '확인 중…',
+  'agentCli.progress.stage.closing': '사무실 프로그램을 끄는 중',
+  'agentCli.progress.stage.starting': '다시 켜는 중',
+  'agentCli.progress.stage.engine': '에이전트 엔진 준비 중',
+  'agentCli.progress.elapsed': '{seconds}초',
+  'agentCli.progress.slow':
+    '평소보다 오래 걸리고 있어요. 앱 트레이에서 다시 연결을 누르거나 이 페이지를 새로 고쳐 주세요.',
 } as const satisfies Record<TranslationKey, string>;

@@ -1,6 +1,7 @@
 /** Installer lines typed into a trusted shell from the plain-office notice. */
 export const GIT_INSTALL_COMMAND =
   'winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements';
+export const MACOS_GIT_INSTALL_COMMAND = 'xcode-select --install';
 /**
  * Claude Code's installer only prints the PATH step: this puts %USERPROFILE%\.local\bin on the user PATH first
  * (once; a new terminal, VS Code included, sees it), then installs, then `set` gives this cmd window (ComSpec,
@@ -19,11 +20,16 @@ export interface AgentCliInstallStep {
 }
 
 /** Windows shells open through cmd.exe, so run the PowerShell installer explicitly. */
-export function agentCliInstallSteps(command: string): AgentCliInstallStep[] {
+export function agentCliInstallSteps(command: string, platform?: string): AgentCliInstallStep[] {
   if (command.startsWith('irm '))
     return [
       { id: 'git', command: GIT_INSTALL_COMMAND },
       { id: 'claude', command: WINDOWS_CLAUDE_INSTALL_COMMAND },
+    ];
+  if (platform === 'darwin')
+    return [
+      { id: 'git', command: MACOS_GIT_INSTALL_COMMAND },
+      { id: 'claude', command },
     ];
   return [{ id: 'claude', command }];
 }

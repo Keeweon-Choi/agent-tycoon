@@ -683,6 +683,26 @@ export const INTRO_BUBBLE_EDGE_MARGIN_PX = 4;
 /** Where the Intro's Claude Code step sends people who don't have it yet. */
 export const CLAUDE_CODE_URL = 'https://claude.com/claude-code';
 export const CLAUDE_CODE_INSTALL_COMMAND = 'npm install -g @anthropic-ai/claude-code';
+// ── Agent CLI restart notice ────────────────────────────────
+/** The usual daemon-helper restart time shown by the plain-office notice. */
+export const AGENT_CLI_RESTART_EXPECTED_MS = 60_000;
+/** After this long the notice tells the owner where to reconnect from. */
+export const AGENT_CLI_RESTART_SLOW_MS = 180_000;
+/** Health requests only run after the old daemon's WebSocket has dropped. */
+export const AGENT_CLI_RESTART_HEALTH_POLL_MS = 2_000;
+export const AGENT_CLI_RESTART_CLOCK_MS = 1_000;
+/** Do not keep polling after the slow-restart threshold. */
+export const AGENT_CLI_RESTART_HEALTH_MAX_ATTEMPTS =
+  AGENT_CLI_RESTART_SLOW_MS / AGENT_CLI_RESTART_HEALTH_POLL_MS;
+/** A restart that takes longer than expected stops visibly short of completion. */
+export const AGENT_CLI_RESTART_PROGRESS_MAX_PERCENT = 92;
+export const AGENT_CLI_RESTART_PROGRESS_BORDER_PX = 2;
+export const AGENT_CLI_RESTART_PROGRESS_HEIGHT_PX = 12;
+export const AGENT_CLI_RESTART_PROGRESS_RADIUS_PX = 0;
+export const AGENT_CLI_RESTART_PROGRESS_ARIA_MIN = 0;
+export const AGENT_CLI_RESTART_PROGRESS_ARIA_MAX = 100;
+export const AGENT_CLI_RESTART_PROGRESS_BORDER_COLOR = '#1f2937';
+export const AGENT_CLI_RESTART_PROGRESS_FILL_COLOR = '#38bdf8';
 /** Speech-tail squares: placed at fraction `t` along the segment from the
  *  bubble's nearest edge point to the greeter's head, shrinking toward the
  *  speaker. Recomputed every frame so the tail stays connected no matter where

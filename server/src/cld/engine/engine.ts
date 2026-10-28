@@ -2383,10 +2383,14 @@ export class Engine {
     // one retry. An unrecognised dialog leaves `r` intact, so the original failure reaches the UI.
     if (!r.ok && r.needsBypassAccept && p.permissionMode === 'bypassPermissions' && agent.protocol === 'claude') {
       const original = r;
-      if ((await this.bypassStep(p)).outcome === 'accepted') {
+      const bypass = await this.bypassStep(p);
+      if (bypass.outcome === 'accepted') {
         this.log(`"${p.name}": Bypass Permissions warning answered; starting again`);
         r = await startOnce();
-        if (r.ok) note = note ? `${note} · ${koText('bypass_answered')}` : koText('bypass_answered');
+        if (r.ok) {
+          const text = koText(bypass.trusted ? 'bypass_trust_answered' : 'bypass_answered');
+          note = note ? `${note} · ${text}` : text;
+        }
       } else {
         r = original;
       }
@@ -2471,6 +2475,7 @@ export class Engine {
       cwd: p.folder,
       env: this.env,
       log: (l) => this.log(`"${p.name}": ${l}`),
+      answerTrust: true,
       timing: this.opts.bypassTiming,
     });
   }

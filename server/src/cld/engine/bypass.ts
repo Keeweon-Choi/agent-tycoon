@@ -11,6 +11,7 @@ import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { TERMINAL_TERM_NAME } from '../../constants.js';
 import type { IPty, PtyModule } from '../../terminal/ptyModule.js';
 import { loadPty, onScreen, screenTail } from '../chat.js';
+import { trustDialog } from './trust.js';
 
 export const BYPASS_TIMING = {
   appearMs: 20_000,
@@ -23,10 +24,12 @@ export const BYPASS_TIMING = {
 };
 
 export type BypassOutcome = 'accepted' | 'unknownScreen' | 'notMoved' | 'exited' | 'timeout' | 'noPty';
-export type BypassStep = 'started' | 'dialog' | 'chose' | 'past' | 'closed' | 'killed';
+export type BypassStep = 'started' | 'trusted' | 'dialog' | 'chose' | 'past' | 'closed' | 'killed';
 
 export interface BypassResult {
   outcome: BypassOutcome;
+  /** Whether this bypass-only run also answered the plain folder-trust question. */
+  trusted: boolean;
   steps: BypassStep[];
 }
 
@@ -36,6 +39,8 @@ export interface BypassOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   log: (line: string) => void;
+  /** The bypass start is authorised to trust its own folder's plain dialog too. */
+  answerTrust: boolean;
   timing?: Partial<typeof BYPASS_TIMING>;
   pty?: PtyModule;
   /** Ends our own hung child (tests pass a fake). */
@@ -49,9 +54,10 @@ const DOWN = '\x1b[B';
 const CTRL_C = '\x03';
 const TITLE = 'WARNING: Claude Code running in Bypass Permissions mode';
 const RESPONSIBILITY = 'By proceeding, you accept all responsibility';
-// Claude's pointer: U+276F, or '>' where it falls back to ASCII (a Windows console, 10-28 photo).
-const option = (label: string) => new RegExp(`^([❯>]\\s*)?(\\d+\\.\\s*)?${label}$`);
-const pointed = (row: string): boolean => row.startsWith('❯') || row.startsWith('>');
+// Claude's pointer: U+276F, U+203A on Windows, or ASCII '>' where it falls back to ASCII.
+const POINTER = '[❯›>]';
+const option = (label: string) => new RegExp(`^(${POINTER}\\s*)?(\\d+\\.\\s*)?${label}$`);
+const pointed = (row: string): boolean => new RegExp(`^${POINTER}`).test(row);
 const YES = option('Yes, I accept');
 const NO = option('No, exit');
 
@@ -80,9 +86,10 @@ export function bypassDialog(term: HeadlessTerminal): { onYes: boolean; onNo: bo
 export async function acceptBypass(o: BypassOptions): Promise<BypassResult> {
   const t = { ...BYPASS_TIMING, ...o.timing };
   const steps: BypassStep[] = [];
+  let trusted = false;
   const done = (outcome: BypassOutcome): BypassResult => {
     o.log(`bypass ${JSON.stringify(o.cwd)}: ${outcome}`);
-    return { outcome, steps };
+    return { outcome, trusted, steps };
   };
   let child: IPty;
   try {
@@ -119,10 +126,40 @@ export async function acceptBypass(o: BypassOptions): Promise<BypassResult> {
     }
   };
   const answer = async (): Promise<BypassOutcome> => {
-    if (!(await until(() => bypassDialog(screen) !== null, t.appearMs))) {
+    const plainTrust = () => {
+      const d = trustDialog(screen);
+      return d && !d.warnings ? d : null;
+    };
+    if (!(await until(() => bypassDialog(screen) !== null || (o.answerTrust && plainTrust() !== null), t.appearMs))) {
       if (exited) return 'exited';
       o.log(`bypass ${JSON.stringify(o.cwd)}: not the bypass warning: ${screenTail(screen)}`);
       return screenTail(screen) ? 'unknownScreen' : 'timeout';
+    }
+    if (!bypassDialog(screen)) {
+      // A fresh folder asks this before the bypass warning. This bypass-only path is authorised
+      // to answer only its ordinary two-option dialog; pre-approvals remain for the person.
+      await sleep(t.settleMs);
+      await flushed();
+      const firstTrust = plainTrust();
+      if (!firstTrust || firstTrust.onYes) return exited ? 'exited' : 'unknownScreen';
+      child.write(DOWN);
+      if (!(await until(() => plainTrust()?.onYes === true, t.moveMs)))
+        return exited ? 'exited' : 'unknownScreen';
+      const nowTrust = plainTrust();
+      if (exited || !nowTrust || !nowTrust.onYes) return 'unknownScreen';
+      child.write('\r');
+      o.log(`bypass ${JSON.stringify(o.cwd)}: chose "Yes, I trust this folder"`);
+      if (!(await until(() => trustDialog(screen) === null, t.pastMs)) || exited)
+        return exited ? 'exited' : 'notMoved';
+      trusted = true;
+      steps.push('trusted');
+      o.log(`bypass ${JSON.stringify(o.cwd)}: Claude moved past the trust question`);
+      // Start a fresh bounded wait: Claude draws Bypass only after recording trust.
+      if (!(await until(() => bypassDialog(screen) !== null, t.appearMs))) {
+        if (exited) return 'exited';
+        o.log(`bypass ${JSON.stringify(o.cwd)}: not the bypass warning: ${screenTail(screen)}`);
+        return screenTail(screen) ? 'unknownScreen' : 'timeout';
+      }
     }
     steps.push('dialog');
     o.log(`bypass ${JSON.stringify(o.cwd)}: bypass warning shown`);

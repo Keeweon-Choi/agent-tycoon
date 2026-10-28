@@ -38,6 +38,8 @@ export type ViewportBaselines = ReadonlyMap<number, number>;
 
 export interface KeyboardViewport {
   keyboardOpen: boolean;
+  /** Current visual viewport height, so phone content can remeasure when keys move. */
+  visualHeight: number | null;
   /** Height to clamp the shell to (iOS), or null when the layout viewport
    *  already matches the visible area (keyboard down, or Android resizing). */
   clampHeight: number | null;
@@ -58,8 +60,16 @@ export function readKeyboardViewport(
     keyboardOpen && sample.visualHeight < sample.innerHeight - VISUAL_VIEWPORT_FULL_EPSILON_PX;
   return {
     baselines: next,
-    viewport: { keyboardOpen, clampHeight: clamped ? Math.round(sample.visualHeight) : null },
+    viewport: {
+      keyboardOpen,
+      visualHeight: Math.round(sample.visualHeight),
+      clampHeight: clamped ? Math.round(sample.visualHeight) : null,
+    },
   };
 }
 
-export const KEYBOARD_CLOSED: KeyboardViewport = { keyboardOpen: false, clampHeight: null };
+export const KEYBOARD_CLOSED: KeyboardViewport = {
+  keyboardOpen: false,
+  visualHeight: null,
+  clampHeight: null,
+};

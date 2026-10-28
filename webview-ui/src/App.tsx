@@ -1184,6 +1184,7 @@ function App() {
                   {cldMode && hud.open.messenger && (
                     <Messenger
                       mobile
+                      visualViewportHeight={keyboard.visualHeight}
                       statusFor={terminalDrawer.statusFor}
                       getAppearance={terminalDrawer.getAppearance}
                     />

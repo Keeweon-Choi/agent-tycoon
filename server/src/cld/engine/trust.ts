@@ -89,9 +89,10 @@ const CTRL_C = '\x03';
 /** The dialog's title, as 2.1.310 draws it, and the older one. */
 const TITLES = ['Accessing workspace:', 'Do you trust the files in this folder?'];
 /** An option row: the box border and the pointer around it, an index in older versions. */
-// Claude's pointer: U+276F, or '>' where it falls back to ASCII (a Windows console, 10-28 photo).
-const option = (label: string) => new RegExp(`^([❯>]\\s*)?(\\d+\\.\\s*)?${label}$`);
-const pointed = (row: string): boolean => row.startsWith('❯') || row.startsWith('>');
+// Claude's pointer: U+276F, U+203A on Windows, or ASCII '>' where it falls back to ASCII.
+const POINTER = '[❯›>]';
+const option = (label: string) => new RegExp(`^(${POINTER}\\s*)?(\\d+\\.\\s*)?${label}$`);
+const pointed = (row: string): boolean => new RegExp(`^${POINTER}`).test(row);
 const YES = option('Yes, (?:I trust this folder|proceed)');
 const NO = option('No, (?:exit|continue without these permissions)');
 /** The part a person must read: what the folder's own settings approve without asking. */

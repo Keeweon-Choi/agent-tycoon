@@ -180,7 +180,9 @@ describe('trustDialog: the real 2.1.310 screens, and screens that are not the qu
     expect(trustDialog(await screenOf(REAL_TRUST(false)))).toEqual({ onYes: false, warnings: false });
     expect(trustDialog(await screenOf(REAL_TRUST(true)))).toEqual({ onYes: true, warnings: false });
     expect(trustDialog(await screenOf(REAL_TRUST(false, true)))).toEqual({ onYes: false, warnings: true });
-    // A Windows console's ASCII pointer ('>' instead of U+276F) reads the same (10-28).
+    // Windows Claude Code 2.1.311 draws U+203A; its ASCII fallback reads the same too.
+    const windows = REAL_TRUST(true).map((row) => row.replace('❯', '›'));
+    expect(trustDialog(await screenOf(windows))).toEqual({ onYes: true, warnings: false });
     const ascii = REAL_TRUST(true).map((row) => row.replace('❯', '>'));
     expect(trustDialog(await screenOf(ascii))).toEqual({ onYes: true, warnings: false });
   });
