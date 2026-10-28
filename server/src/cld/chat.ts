@@ -45,7 +45,7 @@ import {
 } from '../constants.js';
 import type { IPty, PtyModule } from '../terminal/ptyModule.js';
 import { PtySession } from '../terminal/ptySessionManager.js';
-import { windowsLogonPath } from './agentCli.js';
+import { windowsLogonEnv,type WindowsLogonEnvironment } from './agentCli.js';
 import { deviceLabel } from './device.js';
 import { claudeAttachArgv } from './engine/agents/claude/claude.js';
 import type {
@@ -142,7 +142,7 @@ export const WINDOWS_LOGIN_ENV = [
 export function loginEnvFrom(
   base: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
-  windowsPath: (env: NodeJS.ProcessEnv) => string = windowsLogonPath,
+  readWindowsLogonEnv: (env: NodeJS.ProcessEnv) => WindowsLogonEnvironment | null = windowsLogonEnv,
 ): Record<string, string> {
   const keep = new Set(
     (platform === 'win32' ? [...LOGIN_ENV, ...WINDOWS_LOGIN_ENV] : LOGIN_ENV).map((key) =>
@@ -155,9 +155,22 @@ export function loginEnvFrom(
       env[key] = value;
   }
   if (platform === 'win32') {
-    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
-    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
-    env[pathKey] = windowsPath(base);
+    const logon = readWindowsLogonEnv(base);
+    if (logon) {
+      const path = Object.entries(logon).find(([key]) => key.toUpperCase() === 'PATH');
+      // Windows builds a logon environment as system, then user variables, then the session's own
+      // (USERNAME, USERPROFILE, APPDATA, ...): the machine's USERNAME is SYSTEM, so the session values kept
+      // above win, and only names they do not have come from the registry.
+      for (const [key, value] of Object.entries(logon)) {
+        if (key.toUpperCase() === 'PATH') continue;
+        if (Object.keys(env).some((existing) => existing.toUpperCase() === key.toUpperCase())) continue;
+        env[key] = value;
+      }
+      if (path) {
+        for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+        env[path[0]] = path[1];
+      }
+    }
   }
   return env;
 }

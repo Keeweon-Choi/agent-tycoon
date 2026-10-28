@@ -649,13 +649,50 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
   assert.deepEqual(removed.filter((file) => inside(dir, file) || file === launcher), []);
   assert.deepEqual(spawned, [{
     command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-    args: ['-NoProfile', '-Command', `Wait-Process -Id 4455 -Timeout 60 -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '${root.replaceAll("'", "''")}' -Recurse -Force -ErrorAction SilentlyContinue`],
+    args: ['-NoProfile', '-Command', [
+      'Wait-Process -Id 4455 -Timeout 60 -ErrorAction SilentlyContinue',
+      `$root = '${root.replaceAll("'", "''")}'`,
+      'for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $root); $attempt++) {',
+      '  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue',
+      '  if (Test-Path -LiteralPath $root) { Start-Sleep -Milliseconds 500 }',
+      '}',
+      'if (Test-Path -LiteralPath $root) {',
+      '  try {',
+      '    $left = @($root) + @(Get-ChildItem -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })',
+      "    ('{0} {1}' -f (Get-Date -Format o), ($left -join '; ')) | Out-File -LiteralPath (Join-Path $env:TEMP 'agent-tycoon-uninstall.log') -Append -Encoding utf8 -ErrorAction SilentlyContinue",
+      '  } catch {}',
+      '}',
+    ].join('; ')],
     options: { detached: true, stdio: 'ignore', windowsHide: true },
   }]);
   assert.equal(unref, true);
   assert.ok(fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
   assert.equal(fs.existsSync(resetData), false);
   assert.equal(fs.existsSync(path.join(dir, rels[0])), true);
+});
+
+test('Windows deferred cleanup script has a bounded retry loop and diagnostic log', async () => {
+  const home = tmp('uninstall-windows-retry'); const { root, dir } = await completeInstall(home);
+  const node = path.join(dir, 'node', 'node.exe'); const manager = path.join(dir, 'cld', 'install', 'manager.mjs');
+  for (const [file, content] of [[node, 'node'], [manager, 'manager']]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
+  }
+  const manifestFile = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  for (const file of [node, manager]) manifest.files[path.relative(dir, file)] = sha256File(file);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile); await writeRecord(root, record);
+  const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node; fake.managerPath = manager;
+  fake.rm = async (file) => {
+    if (file === node) { const error = new Error('held'); error.code = 'EPERM'; throw error; }
+    await fs.promises.rm(file, { force: true });
+  };
+  let script;
+  fake.spawn = (_command, args) => { script = args[2]; return { unref: () => {} }; };
+  await uninstall({ program: true, yes: true, root }, fake);
+  assert.match(script, /for \(\$attempt = 0; \$attempt -lt 20 -and \(Test-Path -LiteralPath \$root\); \$attempt\+\+\)/);
+  assert.match(script, /Start-Sleep -Milliseconds 500/);
+  assert.match(script, /Out-File -LiteralPath \(Join-Path \$env:TEMP 'agent-tycoon-uninstall\.log'\) -Append -Encoding utf8/);
 });
 
 test('Windows defers a held private node even when its own executable path differs only by case', async () => {

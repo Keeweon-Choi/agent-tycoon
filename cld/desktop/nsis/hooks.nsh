@@ -1,3 +1,14 @@
+; A reinstall can leave an older bundle beside the new one. Remove only bundled archives in
+; target folders that already exist; installed daemons and the preuninstall hook are untouched.
+!macro NSIS_HOOK_PREINSTALL
+  IfFileExists "$INSTDIR\daemon\win-x64\*" 0 agent_tycoon_daemon_linux_x64
+  Delete "$INSTDIR\daemon\win-x64\agent-tycoon-daemon-*.tar.gz"
+agent_tycoon_daemon_linux_x64:
+  IfFileExists "$INSTDIR\daemon\linux-x64\*" 0 agent_tycoon_daemon_preinstall_done
+  Delete "$INSTDIR\daemon\linux-x64\agent-tycoon-daemon-*.tar.gz"
+agent_tycoon_daemon_preinstall_done:
+!macroend
+
 ; Remove only a daemon that this Windows app installed. The existence check keeps WSL-only offices out.
 !macro NSIS_HOOK_PREUNINSTALL
   ; An update runs the old uninstaller too; it must retain the daemon.

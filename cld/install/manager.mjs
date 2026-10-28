@@ -1254,7 +1254,20 @@ function windowsHeldFile(file, root, record, versionState, deps) {
 function deferWindowsRootRemoval(root, deps) {
   const systemRoot = deps.systemRoot ?? deps.env.SystemRoot ?? process.env.SystemRoot ?? 'C:\\Windows';
   const powershell = path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const command = `Wait-Process -Id ${deps.pid ?? process.pid} -Timeout 60 -ErrorAction SilentlyContinue; Remove-Item -LiteralPath ${psQuote(root)} -Recurse -Force -ErrorAction SilentlyContinue`;
+  const command = [
+    `Wait-Process -Id ${deps.pid ?? process.pid} -Timeout 60 -ErrorAction SilentlyContinue`,
+    `$root = ${psQuote(root)}`,
+    'for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $root); $attempt++) {',
+    '  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue',
+    '  if (Test-Path -LiteralPath $root) { Start-Sleep -Milliseconds 500 }',
+    '}',
+    'if (Test-Path -LiteralPath $root) {',
+    '  try {',
+    '    $left = @($root) + @(Get-ChildItem -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })',
+    "    ('{0} {1}' -f (Get-Date -Format o), ($left -join '; ')) | Out-File -LiteralPath (Join-Path $env:TEMP 'agent-tycoon-uninstall.log') -Append -Encoding utf8 -ErrorAction SilentlyContinue",
+    '  } catch {}',
+    '}',
+  ].join('; ');
   const child = (deps.spawn ?? spawnChild)(powershell, ['-NoProfile', '-Command', command], {
     detached: true,
     stdio: 'ignore',

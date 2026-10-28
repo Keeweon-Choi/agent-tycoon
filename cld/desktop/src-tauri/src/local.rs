@@ -39,9 +39,51 @@ pub fn decode(bytes: &[u8]) -> String {
             .collect();
         String::from_utf16_lossy(&units)
     } else {
-        String::from_utf8_lossy(bytes).into_owned()
+        match String::from_utf8(bytes.to_vec()) {
+            Ok(text) => text,
+            Err(_) => console_decode(bytes).unwrap_or_else(|| String::from_utf8_lossy(bytes).into_owned()),
+        }
     };
-    text.replace(['\u{feff}', '\0'], "")
+    plain_display_text(&text.replace(['\u{feff}', '\0'], ""))
+}
+
+/// Decode an invalid UTF-8 command line as the Windows console that emitted it. A Windows GUI
+/// process has no console sometimes, so fall back from its output code page to the OEM code page.
+#[cfg(windows)]
+fn console_decode(bytes: &[u8]) -> Option<String> {
+    use windows_sys::Win32::Globalization::{GetOEMCP, MultiByteToWideChar};
+    use windows_sys::Win32::System::Console::GetConsoleOutputCP;
+
+    let length = i32::try_from(bytes.len()).ok()?;
+    let output_cp = unsafe { GetConsoleOutputCP() };
+    let oem_cp = unsafe { GetOEMCP() };
+    [output_cp, oem_cp]
+        .into_iter()
+        .filter(|code_page| *code_page != 0)
+        .find_map(|code_page| {
+            let units = unsafe {
+                MultiByteToWideChar(code_page, 0, bytes.as_ptr(), length, std::ptr::null_mut(), 0)
+            };
+            (units > 0).then(|| {
+                let mut wide = vec![0_u16; units as usize];
+                let written = unsafe {
+                    MultiByteToWideChar(
+                        code_page,
+                        0,
+                        bytes.as_ptr(),
+                        length,
+                        wide.as_mut_ptr(),
+                        units,
+                    )
+                };
+                (written == units).then(|| String::from_utf16_lossy(&wide))
+            })?
+        })
+}
+
+#[cfg(not(windows))]
+fn console_decode(_bytes: &[u8]) -> Option<String> {
+    None
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -235,6 +277,9 @@ pub struct Found {
     pub config_port: Option<u16>,
     /// The release key the manager pinned at install time, if it is readable.
     pub pinned_key: Option<String>,
+    /// The record's current private Node executable is missing, so this is a partly removed
+    /// install rather than one that can safely be started.
+    pub private_node_missing: bool,
 }
 
 pub const DEFAULT_PORT: u16 = 18240;
@@ -370,6 +415,8 @@ impl Found {
             record: parse_record(record),
             config_port,
             pinned_key: (!pinned_key.trim().is_empty()).then(|| pinned_key.trim().into()),
+            // Set by find_local, which can look at the files the record names.
+            private_node_missing: false,
         }
     }
     pub fn port(&self) -> u16 {
@@ -425,16 +472,24 @@ pub enum Plan {
     AskStart,
     /// Nothing answers and nothing the manager installed is here: ask, then install.
     /// `adopt`: an older source install's config is there; the manager takes it over.
-    AskInstall { adopt: bool },
+    /// `replace_broken`: a GUI-owned install was partly removed and will be replaced.
+    AskInstall { adopt: bool, replace_broken: bool },
 }
 
 pub fn plan(found: &Found, healthy: bool) -> Plan {
+    if found.private_node_missing {
+        return Plan::AskInstall {
+            adopt: false,
+            replace_broken: true,
+        };
+    }
     match (&found.record, healthy) {
         (_, true) => Plan::Open,
         (Some(r), false) if r.start_policy == "manual" => Plan::AskStart,
         (Some(_), false) => Plan::Start,
         (None, false) => Plan::AskInstall {
             adopt: found.config_port.is_some(),
+            replace_broken: false,
         },
     }
 }
@@ -460,14 +515,25 @@ pub fn bundle_target(env: &str, os: &str, arch: &str) -> Option<&'static str> {
     })
 }
 
-/// The one daemon bundle for `target` among a folder's file names.
-pub fn bundle_name(names: &[String], target: &str) -> Option<String> {
+/// A daemon archive name and its SHA-256, supplied by the app resource directory reader.
+#[derive(Debug, PartialEq)]
+pub struct BundleFile {
+    pub name: String,
+    pub sha256: String,
+}
+
+/// The daemon bundle for `target` whose digest is this build's pin. Reinstalls can leave an
+/// older archive beside the new one, so a name alone is deliberately not enough to choose.
+pub fn bundle_name(files: &[BundleFile], target: &str, pin: &str) -> Option<String> {
     let tail = format!("-{target}.tar.gz");
-    let mut found = names
+    files
         .iter()
-        .filter(|n| n.starts_with("agent-tycoon-daemon-") && n.ends_with(&tail));
-    let first = found.next()?;
-    found.next().is_none().then(|| first.clone())
+        .find(|file| {
+            file.name.starts_with("agent-tycoon-daemon-")
+                && file.name.ends_with(&tail)
+                && file.sha256.eq_ignore_ascii_case(pin)
+        })
+        .map(|file| file.name.clone())
 }
 
 /// The version in `agent-tycoon-daemon-<version>-<target>.tar.gz`.
@@ -710,6 +776,12 @@ pub fn wsl_update_argv(distro: &str, bundle: &str) -> Vec<String> {
 /// A Windows path as wslpath reads it: without the `\\?\` verbatim prefix.
 pub fn plain_path(path: &str) -> &str {
     path.strip_prefix(r"\\?\").unwrap_or(path)
+}
+
+/// A path printed by Windows tooling should not expose its verbatim-path implementation detail.
+pub fn plain_display_text(text: &str) -> String {
+    text.replace("\\\\?\\UNC\\", "\\\\")
+        .replace("\\\\?\\", "")
 }
 
 /// The install steps the main screen shows, and which one a manager line finishes.
@@ -962,6 +1034,10 @@ mod tests {
         assert!(parse_wsl_list(b"").is_empty());
         // UTF-8 (a Linux program's output through wsl.exe) passes as it is.
         assert_eq!(decode("Ubuntu\n".as_bytes()), "Ubuntu\n");
+        assert_eq!(
+            decode(br"error: \\?\C:\AgentTycoon\bin\agty.cmd"),
+            r"error: C:\AgentTycoon\bin\agty.cmd"
+        );
     }
 
     #[test]
@@ -1119,13 +1195,34 @@ mod tests {
         let source = split_find(&format!("\n{FIND_MARK}\n{{\"port\":18250}}"));
         assert_eq!((source.record.is_none(), source.port()), (true, 18250));
         assert_eq!(plan(&source, true), Plan::Open);
-        assert_eq!(plan(&source, false), Plan::AskInstall { adopt: true });
+        assert_eq!(
+            plan(&source, false),
+            Plan::AskInstall {
+                adopt: true,
+                replace_broken: false
+            }
+        );
 
         // Nothing: the default port, install.
         let none = split_find(&format!("\n{FIND_MARK}\n"));
         assert_eq!(
             (none.port(), plan(&none, false)),
-            (DEFAULT_PORT, Plan::AskInstall { adopt: false })
+            (
+                DEFAULT_PORT,
+                Plan::AskInstall {
+                    adopt: false,
+                    replace_broken: false
+                }
+            )
+        );
+        let mut partly_removed = split_find(record);
+        partly_removed.private_node_missing = true;
+        assert_eq!(
+            plan(&partly_removed, false),
+            Plan::AskInstall {
+                adopt: false,
+                replace_broken: true
+            }
         );
         // A record this app cannot read is not taken as an install.
         assert_eq!(split_find(r#"{"schema":2}"#).record, None);
@@ -1188,23 +1285,35 @@ mod tests {
             Some("darwin-arm64")
         );
         assert_eq!(bundle_target("wsl", "linux", "x86_64"), None);
-        let names: Vec<String> = [
-            "SHA256SUMS",
-            "agent-tycoon-daemon-0.1.0-linux-x64.tar.gz",
-            "agent-tycoon-daemon-0.1.0-win-x64.tar.gz",
-        ]
-        .map(String::from)
-        .to_vec();
-        assert_eq!(
-            bundle_name(&names, "linux-x64").as_deref(),
-            Some("agent-tycoon-daemon-0.1.0-linux-x64.tar.gz")
-        );
-        assert_eq!(bundle_name(&names, "darwin-x64"), None);
-        let two = [
-            names[1].clone(),
-            "agent-tycoon-daemon-0.2.0-linux-x64.tar.gz".into(),
+        let file = |name: &str, sha256: &str| BundleFile {
+            name: name.into(),
+            sha256: sha256.into(),
+        };
+        let pin = "a".repeat(64);
+        let files = vec![
+            file("SHA256SUMS", ""),
+            file("agent-tycoon-daemon-0.1.0-linux-x64.tar.gz", &pin),
+            file("agent-tycoon-daemon-0.1.0-win-x64.tar.gz", &pin),
         ];
-        assert_eq!(bundle_name(&two, "linux-x64"), None); // never a guess between two
+        assert_eq!(bundle_name(&[], "linux-x64", &pin), None); // no archives
+        assert_eq!(
+            bundle_name(&files, "linux-x64", &pin).as_deref(),
+            Some("agent-tycoon-daemon-0.1.0-linux-x64.tar.gz")
+        ); // one matching archive
+        let several = vec![
+            file("agent-tycoon-daemon-0.1.0-linux-x64.tar.gz", "b"),
+            file("agent-tycoon-daemon-0.2.0-linux-x64.tar.gz", &pin),
+        ];
+        assert_eq!(
+            bundle_name(&several, "linux-x64", &pin).as_deref(),
+            Some("agent-tycoon-daemon-0.2.0-linux-x64.tar.gz")
+        ); // several, one pinned
+        let no_match = vec![
+            file("agent-tycoon-daemon-0.1.0-linux-x64.tar.gz", "b"),
+            file("agent-tycoon-daemon-0.2.0-linux-x64.tar.gz", "c"),
+        ];
+        assert_eq!(bundle_name(&no_match, "linux-x64", &pin), None);
+        assert_eq!(bundle_name(&files, "darwin-x64", &pin), None);
         assert_eq!(
             bundle_version("agent-tycoon-daemon-0.1.0-rc.1-linux-x64.tar.gz", "linux-x64"),
             Some("0.1.0-rc.1".into())

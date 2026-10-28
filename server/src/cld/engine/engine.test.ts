@@ -270,17 +270,29 @@ describe('engine pieces', () => {
           PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
           PROCESSOR_ARCHITECTURE: 'AMD64',
           CLAUDE_PID: '1',
+          CLD_GUI_SECRET: 'daemon-only',
         },
         'C:\\u',
         'win32',
         null,
+        undefined,
+        () => ({
+          Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+          JAVA_HOME: 'C:\\Java\\user',
+          SHARED: 'user',
+          KOREAN_HOME: 'C:\\Users\\최\\tools',
+          home: 'C:\\registry-home',
+        }),
       ),
     ).toEqual({
-      Path: 'C:\\b',
+      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
       SystemRoot: 'C:\\W',
       LOCALAPPDATA: 'C:\\u\\AppData\\Local',
       PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
       PROCESSOR_ARCHITECTURE: 'AMD64',
+      JAVA_HOME: 'C:\\Java\\user',
+      SHARED: 'user',
+      KOREAN_HOME: 'C:\\Users\\최\\tools',
       HOME: 'C:\\u',
     });
   });
@@ -303,10 +315,33 @@ describe('engine pieces', () => {
     expect(
       cleanEnv({ PATH: '/usr/bin' }, '/home/t', 'linux', '/r/cld/bin', '/usr/bin').PATH,
     ).toBe('/r/cld/bin:/usr/bin');
+    // The session's own values beat the registry's (a machine's USERNAME is SYSTEM); PATH is the registry's.
+    const session = cleanEnv(
+      { USERNAME: 'Ada', Path: 'C:\\daemon' },
+      'C:\\u',
+      'win32',
+      null,
+      undefined,
+      () => ({ USERNAME: 'SYSTEM', Path: 'C:\\Windows;C:\\Users\\Ada\\bin', JAVA_HOME: 'C:\\Java' }),
+    );
+    expect(session.USERNAME).toBe('Ada');
+    expect(session.Path).toBe('C:\\Windows;C:\\Users\\Ada\\bin');
+    expect(session.JAVA_HOME).toBe('C:\\Java');
     // Windows keeps its own spelling of Path; the CLI is the .cmd next to the script.
-    const win = cleanEnv({ Path: 'C:\\b' }, 'C:\\u', 'win32', 'C:\\r\\cld\\bin', 'C:\\b');
-    expect(win.Path).toBe('C:\\r\\cld\\bin;C:\\b');
+    const win = cleanEnv(
+      { Path: 'C:\\b' },
+      'C:\\u',
+      'win32',
+      'C:\\r\\cld\\bin',
+      'C:\\b',
+      () => ({
+        Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+        cld_bin: 'C:\\registry\\cld-gui.cmd',
+      }),
+    );
+    expect(win.Path).toBe('C:\\r\\cld\\bin;C:\\Windows\\System32;C:\\Users\\최\\bin;C:\\b');
     expect(win.CLD_BIN).toMatch(/cld-gui\.cmd$/);
+    expect(win.cld_bin).toBeUndefined();
     // This checkout's CLI, found from the module (dist/ or the source tree).
     expect(CLD_BIN_DIR).toBe(path.join(REPO_ROOT, 'cld', 'bin'));
     expect(fs.existsSync(cldBinPath(CLD_BIN_DIR!, 'linux'))).toBe(true);

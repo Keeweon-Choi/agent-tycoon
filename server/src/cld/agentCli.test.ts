@@ -10,6 +10,7 @@ import {
   findClaude,
   readWindowsMachinePath,
   readWindowsUserPath,
+  windowsLogonEnv,
   windowsLogonPath,
 } from './agentCli.js';
 
@@ -243,39 +244,58 @@ describe('findClaude (Windows, search order with fakes)', () => {
   });
 });
 
-describe('Windows logon PATH', () => {
+describe('Windows logon environment', () => {
   const env = {
     Path: 'C:\\Daemon\\bin',
-    SystemRoot: 'C:\\Windows',
-    USERPROFILE: 'C:\\Users\\Ada',
+    CLD_GUI_SECRET: 'daemon-only',
   };
-  const machineKey = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
-  const query = (key: string): string => {
-    if (key === machineKey) return 'Path    REG_EXPAND_SZ    %SystemRoot%\\System32';
-    if (key === 'HKCU\\Environment') return 'Path    REG_EXPAND_SZ    %USERPROFILE%\\.local\\bin';
-    throw new Error(`unexpected key: ${key}`);
-  };
+  const query = (): string =>
+    JSON.stringify({
+      Machine: {
+        Path: 'C:\\Windows\\System32',
+        JAVA_HOME: 'C:\\Java\\machine',
+        GOPATH: 'C:\\go\\machine',
+        SHARED: 'machine',
+      },
+      User: {
+        Path: 'C:\\Users\\최\\bin',
+        JAVA_HOME: 'C:\\Java\\user',
+        gopath: 'C:\\go\\user',
+        KOREAN_HOME: 'C:\\Users\\최\\tools',
+        SHARED: 'user',
+      },
+    });
 
-  it('expands and joins the machine and user registry PATH values', () => {
+  it('joins PATH, lets user values win case-insensitively, and preserves Unicode', () => {
     expect(readWindowsMachinePath(env, query)).toBe('C:\\Windows\\System32');
-    expect(readWindowsUserPath(env, query)).toBe('C:\\Users\\Ada\\.local\\bin');
-    expect(windowsLogonPath(env, query)).toBe(
-      'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
-    );
+    expect(readWindowsUserPath(env, query)).toBe('C:\\Users\\최\\bin');
+    expect(windowsLogonEnv(env, query)).toEqual({
+      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      JAVA_HOME: 'C:\\Java\\user',
+      gopath: 'C:\\go\\user',
+      SHARED: 'user',
+      KOREAN_HOME: 'C:\\Users\\최\\tools',
+    });
+    expect(windowsLogonPath(env, query)).toBe('C:\\Windows\\System32;C:\\Users\\최\\bin');
   });
 
-  it('falls back to the daemon PATH when the machine registry read fails', () => {
-    expect(windowsLogonPath(env, (key) => {
-      if (key === machineKey) throw new Error('no machine PATH');
-      return 'Path    REG_SZ    C:\\Users\\Ada\\.local\\bin';
-    })).toBe('C:\\Daemon\\bin');
+  it('uses one reader invocation for two quick calls', () => {
+    let calls = 0;
+    const cached = (): string => {
+      calls++;
+      return query();
+    };
+    expect(windowsLogonEnv(env, cached)?.JAVA_HOME).toBe('C:\\Java\\user');
+    expect(windowsLogonEnv(env, cached)?.KOREAN_HOME).toBe('C:\\Users\\최\\tools');
+    expect(calls).toBe(1);
   });
 
-  it('falls back to the daemon PATH when the user registry read fails', () => {
-    expect(windowsLogonPath(env, (key) => {
-      if (key === 'HKCU\\Environment') throw new Error('no user PATH');
-      return 'Path    REG_SZ    C:\\Windows\\System32';
-    })).toBe('C:\\Daemon\\bin');
+  it('returns null and keeps the daemon PATH when the reader fails', () => {
+    const failed = (): string => {
+      throw new Error('PowerShell unavailable');
+    };
+    expect(windowsLogonEnv(env, failed)).toBeNull();
+    expect(windowsLogonPath(env, failed)).toBe('C:\\Daemon\\bin');
   });
 });
 

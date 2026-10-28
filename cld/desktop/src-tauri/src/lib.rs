@@ -210,7 +210,11 @@ enum Ask {
     /// First contact: the user accepts this known_hosts line by its fingerprint.
     HostKey { line: String, fingerprint: String },
     /// Nothing installed here: install the bundled daemon (asking the start policy where it applies).
-    Install { adopt: bool, policy: bool },
+    Install {
+        adopt: bool,
+        policy: bool,
+        replace_broken: bool,
+    },
     /// Installed, off, start policy manual: the user presses 시작.
     Start,
 }
@@ -237,9 +241,13 @@ fn ui_state(app: AppHandle) -> serde_json::Value {
         Ask::Install { .. } => ("install", ""),
         Ask::Start => ("start", ""),
     };
-    let (adopt, ask_policy) = match view.ask {
-        Ask::Install { adopt, policy } => (adopt, policy),
-        _ => (false, false),
+    let (adopt, ask_policy, replace_broken) = match view.ask {
+        Ask::Install {
+            adopt,
+            policy,
+            replace_broken,
+        } => (adopt, policy, replace_broken),
+        _ => (false, false, false),
     };
     #[cfg(desktop)]
     const STEPS: [&str; 4] = local::STEPS;
@@ -269,6 +277,7 @@ fn ui_state(app: AppHandle) -> serde_json::Value {
         "platform": std::env::consts::OS,
         "adopt": adopt,
         "askPolicy": ask_policy,
+        "replaceBroken": replace_broken,
         "step": view.step,
         "steps": STEPS,
         "failed": view.failed,
@@ -791,7 +800,10 @@ fn local_steps(
                 ask(app, Ask::Start);
                 return Ok(None);
             }
-            local::Plan::AskInstall { adopt } if cfg!(windows) && !wsl => {
+            local::Plan::AskInstall {
+                adopt,
+                replace_broken,
+            } if cfg!(windows) && !wsl => {
                 // One office per user: never a Windows install beside a WSL one that is just off.
                 if let Some(d) = wsl_distros().into_iter().find(|d| {
                     find_in_distro(&d.name)
@@ -807,13 +819,24 @@ fn local_steps(
                     Ask::Install {
                         adopt,
                         policy: false,
+                        replace_broken,
                     },
                 ); // the policy: WSL and Linux only
                 return Ok(None);
             }
-            local::Plan::AskInstall { adopt } => {
+            local::Plan::AskInstall {
+                adopt,
+                replace_broken,
+            } => {
                 let policy = local::asks_policy(&config.local_env, std::env::consts::OS);
-                ask(app, Ask::Install { adopt, policy });
+                ask(
+                    app,
+                    Ask::Install {
+                        adopt,
+                        policy,
+                        replace_broken,
+                    },
+                );
                 return Ok(None);
             }
         },
@@ -885,11 +908,36 @@ fn find_local(config: &Config) -> Result<local::Found, String> {
             .unwrap_or_default()
     };
     let root = native_root();
-    Ok(local::Found::from_texts(
+    let mut found = local::Found::from_texts(
         &read(root.as_ref().map(|r| r.join("install.json"))),
         &read(home_dir().map(|h| local::settings_dir(&h).join("config.json"))),
         &read(root.as_ref().map(|r| r.join("release.pub"))),
-    ))
+    );
+    found.private_node_missing = root.as_deref().is_some_and(|root| {
+        found
+            .record
+            .as_ref()
+            .and_then(|record| private_node(root, record))
+            .is_some_and(|node| !node.is_file())
+    });
+    Ok(found)
+}
+
+/// The manager's private Node for the recorded version. Reject path components so an untrusted
+/// record can neither inspect nor later authorize removal outside the manager's install root.
+#[cfg(desktop)]
+fn private_node(root: &std::path::Path, record: &local::Record) -> Option<PathBuf> {
+    use std::path::Component;
+    let version = record.current.as_deref()?;
+    let mut components = std::path::Path::new(version).components();
+    (matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()).then(|| {
+            let version = root.join("versions").join(version);
+            if cfg!(windows) {
+                version.join("node").join("node.exe")
+            } else {
+                version.join("node").join("bin").join("node")
+            }
+        })
 }
 
 #[cfg(desktop)]
@@ -1100,7 +1148,7 @@ fn install_local(
         app,
         &format!("이 컴퓨터: 설치 시작 (시작 정책 {})", policy.unwrap_or("-")),
     );
-    let result = bundled_daemon(app, &config.local_env).and_then(|(bundle, pubkey)| {
+    let result = remove_broken_gui_install(app, config).and_then(|_| bundled_daemon(app, &config.local_env)).and_then(|(bundle, pubkey)| {
         if wsl {
             let (bundle, pubkey) = (bundle.to_string_lossy(), pubkey.to_string_lossy());
             stream_lines(
@@ -1127,6 +1175,31 @@ fn install_local(
         return Err(format!("설치하지 못했습니다: {problem}"));
     }
     log(app, "이 컴퓨터: 설치 끝");
+    Ok(())
+}
+
+/// A previous Windows/Linux/macOS GUI install can have an install record and launcher but lose
+/// its version directory during uninstall. Only then, and only when the record names this GUI as
+/// owner, remove the manager root so `install` starts from a coherent state.
+#[cfg(desktop)]
+fn remove_broken_gui_install(app: &AppHandle, config: &Config) -> Result<(), String> {
+    if config.local_env == "wsl" {
+        return Ok(());
+    }
+    let Some(root) = native_root() else {
+        return Ok(());
+    };
+    let found = find_local(config)?;
+    let gui_owned_and_broken = found.private_node_missing
+        && found
+            .record
+            .as_ref()
+            .is_some_and(|record| record.installed_by.as_deref() == Some("gui"));
+    if gui_owned_and_broken {
+        fs::remove_dir_all(&root)
+            .map_err(|e| format!("불완전하게 지워진 설치 폴더를 비우지 못했습니다: {e}"))?;
+        log(app, "이 컴퓨터: 불완전하게 지워진 GUI 설치 폴더를 설치 전에 제거");
+    }
     Ok(())
 }
 
@@ -1285,25 +1358,37 @@ fn bundled_daemon(app: &AppHandle, env: &str) -> Result<(PathBuf, PathBuf), Stri
         .map_err(|e| format!("앱 폴더를 찾지 못했습니다: {e}"))?
         .join("daemon")
         .join(target);
-    let names: Vec<String> = fs::read_dir(&dir)
+    let bundles: Vec<local::BundleFile> = fs::read_dir(&dir)
         .map(|entries| {
             entries
-                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let name = entry.file_name().into_string().ok()?;
+                    let tail = format!("-{target}.tar.gz");
+                    (name.starts_with("agent-tycoon-daemon-") && name.ends_with(&tail)).then(|| {
+                        local::BundleFile {
+                            sha256: bundle_sha256(&entry.path()).unwrap_or_default(),
+                            name,
+                        }
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default();
-    let bundle = local::bundle_name(&names, target).ok_or_else(|| {
-        format!(
+    if bundles.is_empty() {
+        return Err(format!(
             "이 앱에 {target}용 설치 파일이 없습니다 ({}).",
             dir.display()
-        )
-    })?;
+        ));
+    }
     let pin = local::pinned(env!("AGENT_TYCOON_BUNDLE_PINS"), target)
         .ok_or("이 앱은 설치 파일 없이 만들어졌습니다. 아무것도 풀지 않았습니다.")?;
+    let bundle = local::bundle_name(&bundles, target, pin).ok_or_else(|| match bundles.len() {
+        0 => unreachable!(),
+        1 => format!("설치 파일 {}이(가) 이 앱을 만들 때와 다릅니다(SHA-256). 아무것도 풀지 않았습니다. 앱을 다시 설치하세요.", bundles[0].name),
+        _ => format!("이 앱에 {target}용 설치 파일이 여러 개 있지만 이 버전의 파일을 찾지 못했습니다. 앱을 다시 설치하세요."),
+    })?;
     let path = dir.join(&bundle);
-    if bundle_sha256(&path).as_deref() != Some(pin) {
-        return Err(format!("설치 파일 {bundle}이(가) 이 앱을 만들 때와 다릅니다(SHA-256). 아무것도 풀지 않았습니다. 앱을 다시 설치하세요."));
-    }
     Ok((path, dir.join("agent-tycoon-release.pub")))
 }
 
@@ -2127,7 +2212,7 @@ fn no_ssh(e: std::io::Error) -> String {
 
 #[cfg(desktop)]
 fn last_line(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
+    local::decode(bytes)
         .lines()
         .rev()
         .map(str::trim)
@@ -2139,15 +2224,23 @@ fn last_line(bytes: &[u8]) -> String {
 /// The status view's question; the ladder stops when it sees one.
 #[cfg(desktop)]
 fn ask(app: &AppHandle, ask: Ask) {
-    let status = match ask {
-        Ask::Password => "호스트 비밀번호가 필요합니다",
-        Ask::HostKey { .. } => "처음 보는 호스트 키입니다",
-        Ask::Install { .. } => "이 컴퓨터에 Agent Tycoon을 설치할까요?",
-        Ask::Start => "사무실이 꺼져 있습니다",
-        Ask::Nothing => "",
+    let (status, detail) = match ask {
+        Ask::Password => ("호스트 비밀번호가 필요합니다", ""),
+        Ask::HostKey { .. } => ("처음 보는 호스트 키입니다", ""),
+        Ask::Install {
+            replace_broken: true,
+            ..
+        } => (
+            "이 컴퓨터에 Agent Tycoon을 설치할까요?",
+            "이전 설치가 일부만 지워졌습니다. 설치하면 남은 설치를 바꿉니다.",
+        ),
+        Ask::Install { .. } => ("이 컴퓨터에 Agent Tycoon을 설치할까요?", ""),
+        Ask::Start => ("사무실이 꺼져 있습니다", ""),
+        Ask::Nothing => ("", ""),
     };
     view(app, |v| {
         v.status = status.into();
+        v.detail = detail.into();
         v.ask = ask;
     });
 }

@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // The 10 s version-probe timeout lives in server/src/constants.ts (constants policy).
-import { AGENT_CLI_VERSION_TIMEOUT_MS } from '../constants.js';
+import { AGENT_CLI_VERSION_TIMEOUT_MS, WINDOWS_LOGON_ENV_CACHE_MS } from '../constants.js';
 
 /** Where `claude` lives when the installer's PATH change did not reach this process. */
 export const claudeInstallDirs = (
@@ -29,65 +29,142 @@ export const claudeInstallDirs = (
   ];
 };
 
-/** Reads one Windows environment registry value. Tests inject this instead of calling reg.exe. */
-export type WindowsRegistryQuery = (key: string) => string;
+/** Reads Windows's machine and user environment registry values as one UTF-8 JSON document.
+ *  Tests inject this instead of starting PowerShell. */
+export type WindowsRegistryQuery = () => string;
 
-const queryWindowsRegistry: WindowsRegistryQuery = (key) =>
-  execFileSync('reg.exe', ['query', key, '/v', 'Path'], {
+const queryWindowsRegistry: WindowsRegistryQuery = () => {
+  const powershell = path.win32.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
+  return execFileSync(
+    powershell,
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8;[PSCustomObject]@{Machine=[Environment]::GetEnvironmentVariables('Machine');User=[Environment]::GetEnvironmentVariables('User')}|ConvertTo-Json -Compress",
+    ],
+    {
     encoding: 'utf8',
     timeout: 3_000,
     windowsHide: true,
-  });
+    },
+  );
+};
+
+type WindowsRegistryEnvironment = { machine: Record<string, string>; user: Record<string, string> };
+export type WindowsLogonEnvironment = Record<string, string>;
 
 const windowsEnvironmentValue = (env: NodeJS.ProcessEnv, name: string): string | undefined =>
   Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
 
-/** Expands REG_EXPAND_SZ variables as Windows does for a new logon. */
-const expandWindowsEnvironment = (value: string, env: NodeJS.ProcessEnv): string =>
-  value.replace(/%([^%]+)%/g, (all, name: string) => windowsEnvironmentValue(env, name) ?? all);
+const objectOfStrings = (value: unknown): Record<string, string> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') return null;
+    out[key] = entry;
+  }
+  return out;
+};
 
-const readWindowsRegistryPath = (
-  key: string,
-  env: NodeJS.ProcessEnv,
-  query: WindowsRegistryQuery,
-): string => {
+const parseWindowsRegistryEnvironment = (json: string): WindowsRegistryEnvironment | null => {
   try {
-    const out = query(key);
-    const value = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*)$/im.exec(out)?.[1]?.trim() ?? '';
-    return expandWindowsEnvironment(value, env);
+    const parsed: unknown = JSON.parse(json);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const { Machine, User } = parsed as { Machine?: unknown; User?: unknown };
+    const machine = objectOfStrings(Machine);
+    const user = objectOfStrings(User);
+    return machine && user ? { machine, user } : null;
   } catch {
-    return '';
+    return null;
   }
 };
 
-/** The user PATH as Windows keeps it (HKCU\Environment), %VARS% expanded; '' when unreadable. */
+const logonEnvironmentCache = new WeakMap<
+  WindowsRegistryQuery,
+  { until: number; value: WindowsRegistryEnvironment | null }
+>();
+
+const readWindowsRegistryEnvironment = (
+  query: WindowsRegistryQuery,
+): WindowsRegistryEnvironment | null => {
+  const now = Date.now();
+  const cached = logonEnvironmentCache.get(query);
+  if (cached && cached.until > now) return cached.value;
+  let value: WindowsRegistryEnvironment | null = null;
+  try {
+    value = parseWindowsRegistryEnvironment(query());
+  } catch {
+    /* The daemon's own environment remains the safe fallback. */
+  }
+  logonEnvironmentCache.set(query, { until: now + WINDOWS_LOGON_ENV_CACHE_MS, value });
+  return value;
+};
+
+const setWindowsEnvironmentValue = (
+  out: Record<string, string>,
+  key: string,
+  value: string,
+): void => {
+  for (const existing of Object.keys(out))
+    if (existing.toLowerCase() === key.toLowerCase()) delete out[existing];
+  out[key] = value;
+};
+
+/** A new Windows logon's registry environment, with the user values taking precedence. */
+export function windowsLogonEnv(
+  base: NodeJS.ProcessEnv = process.env,
+  query: WindowsRegistryQuery = queryWindowsRegistry,
+): WindowsLogonEnvironment | null {
+  void base; // Kept in the public API so callers provide the same fallback context as windowsLogonPath.
+  const registry = readWindowsRegistryEnvironment(query);
+  if (!registry) return null;
+  const out: WindowsLogonEnvironment = {};
+  for (const [key, value] of Object.entries(registry.machine)) setWindowsEnvironmentValue(out, key, value);
+  for (const [key, value] of Object.entries(registry.user)) setWindowsEnvironmentValue(out, key, value);
+  const machinePath = Object.entries(registry.machine).find(([key]) => key.toLowerCase() === 'path');
+  const userPath = Object.entries(registry.user).find(([key]) => key.toLowerCase() === 'path');
+  if (machinePath || userPath) {
+    for (const key of Object.keys(out)) if (key.toLowerCase() === 'path') delete out[key];
+    out[userPath?.[0] ?? machinePath![0]] = [machinePath?.[1], userPath?.[1]]
+      .filter((value): value is string => value !== undefined)
+      .join(';');
+  }
+  return out;
+}
+
+/** The user PATH as Windows keeps it (HKCU\Environment); '' when unreadable. */
 export function readWindowsUserPath(
   env: NodeJS.ProcessEnv = process.env,
   query: WindowsRegistryQuery = queryWindowsRegistry,
 ): string {
-  return readWindowsRegistryPath('HKCU\\Environment', env, query);
+  void env;
+  return windowsEnvironmentValue(readWindowsRegistryEnvironment(query)?.user ?? {}, 'Path') ?? '';
 }
 
-/** The machine PATH as Windows keeps it, %VARS% expanded; '' when unreadable. */
+/** The machine PATH as Windows keeps it; '' when unreadable. */
 export function readWindowsMachinePath(
   env: NodeJS.ProcessEnv = process.env,
   query: WindowsRegistryQuery = queryWindowsRegistry,
 ): string {
-  return readWindowsRegistryPath(
-    'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
-    env,
-    query,
-  );
+  void env;
+  return windowsEnvironmentValue(readWindowsRegistryEnvironment(query)?.machine ?? {}, 'Path') ?? '';
 }
 
-/** A new Windows logon's PATH, or this daemon's PATH if either registry value cannot be read. */
+/** A new Windows logon's PATH, or this daemon's PATH if the registry cannot be read. */
 export function windowsLogonPath(
   env: NodeJS.ProcessEnv = process.env,
   query: WindowsRegistryQuery = queryWindowsRegistry,
 ): string {
-  const machine = readWindowsMachinePath(env, query);
-  const user = readWindowsUserPath(env, query);
-  return machine && user ? `${machine};${user}` : windowsEnvironmentValue(env, 'PATH') ?? '';
+  return windowsEnvironmentValue(windowsLogonEnv(env, query) ?? {}, 'Path') ??
+    windowsEnvironmentValue(env, 'PATH') ??
+    '';
 }
 
 export interface FindClaudeDeps {

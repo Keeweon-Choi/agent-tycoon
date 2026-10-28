@@ -33,6 +33,7 @@ import type {
   ProjectImportRow,
 } from '../../../../core/src/messages.js';
 import { RENEW_FILL_PCT } from '../../constants.js';
+import { windowsLogonEnv,type WindowsLogonEnvironment } from '../agentCli.js';
 import { WINDOWS_LOGIN_ENV } from '../chat.js';
 import { detectHostInfo } from '../folders.js';
 import type { SocketStepUp, WsSend } from '../hooks.js';
@@ -252,6 +253,7 @@ export function cleanEnv(
   platform: NodeJS.Platform = process.platform,
   binDir: string | null = CLD_BIN_DIR,
   nodeDir: string = path.dirname(process.execPath),
+  readWindowsLogonEnv: (env: NodeJS.ProcessEnv) => WindowsLogonEnvironment | null = windowsLogonEnv,
 ): NodeJS.ProcessEnv {
   const keep = new Set(
     [...ENV_KEEP, ...(ENV_KEEP_OS[platform] ?? [])].map((key) =>
@@ -263,8 +265,26 @@ export function cleanEnv(
     const key = platform === 'win32' ? k.toUpperCase() : k;
     if (v !== undefined && (keep.has(key) || key.startsWith('LC_'))) out[k] = v;
   }
+  if (platform === 'win32') {
+    const logon = readWindowsLogonEnv(base);
+    if (logon) {
+      // System, then user, then the session's own values (kept above) win, as a Windows logon builds it;
+      // PATH is the registry's machine + user PATH (the machine's USERNAME is SYSTEM, so it must not win).
+      for (const [key, value] of Object.entries(logon)) {
+        const isPath = key.toUpperCase() === 'PATH';
+        const kept = Object.keys(out).filter((existing) => existing.toUpperCase() === key.toUpperCase());
+        if (kept.length && !isPath) continue;
+        for (const existing of kept) delete out[existing];
+        out[key] = value;
+      }
+    }
+  }
+  if (platform === 'win32')
+    for (const key of Object.keys(out)) if (key.toUpperCase() === 'HOME') delete out[key];
   out.HOME = home;
   if (binDir) {
+    if (platform === 'win32')
+      for (const key of Object.keys(out)) if (key.toUpperCase() === 'CLD_BIN') delete out[key];
     out.CLD_BIN = cldBinPath(binDir, platform);
     const key = Object.keys(out).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
     const sep = platform === 'win32' ? ';' : ':';

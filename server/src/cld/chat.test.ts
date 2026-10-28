@@ -194,21 +194,41 @@ describe('chat: login environment', () => {
   };
 
   it('keeps Windows logon variables with the spelling Windows supplied', () => {
-    expect(loginEnvFrom(base, 'win32', () => 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin')).toEqual({
-      Path: 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
+    expect(loginEnvFrom(base, 'win32', () => ({
+      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      JAVA_HOME: 'C:\\Java',
+      SHARED: 'user',
+      KOREAN_HOME: 'C:\\Users\\최\\tools',
+    }))).toEqual({
+      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
       SystemRoot: 'C:\\Windows',
       LOCALAPPDATA: 'C:\\Users\\Ada\\AppData\\Local',
       TEMP: 'C:\\Users\\Ada\\AppData\\Local\\Temp',
       PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
       PROCESSOR_ARCHITECTURE: 'AMD64',
       'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      JAVA_HOME: 'C:\\Java',
+      SHARED: 'user',
+      KOREAN_HOME: 'C:\\Users\\최\\tools',
     });
   });
 
-  it('uses the fresh Windows logon PATH instead of the daemon PATH', () => {
-    expect(loginEnvFrom(base, 'win32', () => 'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin').Path).toBe(
-      'C:\\Windows\\System32;C:\\Users\\Ada\\.local\\bin',
-    );
+  it("keeps the session's own values over the registry's (the machine's USERNAME is SYSTEM)", () => {
+    const env = loginEnvFrom({ ...base, USERNAME: 'Ada' }, 'win32', () => ({
+      USERNAME: 'SYSTEM',
+      TEMP: 'C:\\Windows\\TEMP',
+      JAVA_HOME: 'C:\\Java',
+    }));
+    expect(env.USERNAME).toBe('Ada');
+    expect(env.TEMP).toBe('C:\\Users\\Ada\\AppData\\Local\\Temp');
+    expect(env.JAVA_HOME).toBe('C:\\Java');
+  });
+
+  it('keeps the old Windows basics and daemon PATH when the registry reader fails', () => {
+    const env = loginEnvFrom(base, 'win32', () => null);
+    expect(env.Path).toBe('C:\\Windows\\System32');
+    expect(env.JAVA_HOME).toBeUndefined();
+    expect(env.CLD_AGENT_TOKEN).toBeUndefined();
   });
 
   it('does not add Windows logon variables on Linux', () => {
@@ -220,7 +240,7 @@ describe('chat: login environment', () => {
     expect(
       loginEnvFrom({ PATH: '/usr/local/bin:/usr/bin' }, 'linux', () => {
         called = true;
-        return 'C:\\Windows\\System32';
+        return { Path: 'C:\\Windows\\System32' };
       }),
     ).toEqual({ PATH: '/usr/local/bin:/usr/bin' });
     expect(called).toBe(false);
