@@ -661,6 +661,11 @@ describe('chat: the input line cld-gui send types into', () => {
     expect(await empty(screenOf([SUGGESTION]))).toBe(true);
     expect(await empty(screenOf(['❯ \x1b[7m \x1b[27m']))).toBe(true);
   });
+  it("Windows ConPTY prompt glyphs ('›', '>') are the same input line (10-28 laptop)", async () => {
+    expect(await empty(screenOf(['› \x1b[7m \x1b[27m']))).toBe(true);
+    expect(await empty(screenOf(['> \x1b[7m \x1b[27m']))).toBe(true);
+    expect(await empty(screenOf(['› half a thought\x1b[7m \x1b[27m']))).toBe(false);
+  });
   it('not empty: a draft, one letter under the cursor, a draft on a later line', async () => {
     expect(await empty(screenOf(['❯ half a thought\x1b[7m \x1b[27m']))).toBe(false);
     expect(await empty(screenOf(['❯ \x1b[7ma\x1b[27m']))).toBe(false);

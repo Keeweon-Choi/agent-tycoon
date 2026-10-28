@@ -199,7 +199,10 @@ const SEND_NOW_HINT_MS = 1_200;
 
 /** PERM-PROMPT: a permission dialog's first option, exactly "1. Yes" (never a "don't ask again"
  *  one), and its question right above the options. */
-const PERM_YES = /^\s*(?:❯\s*)?1\.\s*Yes\s*$/;
+// Claude's pointer and prompt glyph: U+276F, or '›' / '>' where it falls back (a Windows ConPTY, 10-28).
+const PROMPT_GLYPHS = ['❯', '›', '>'];
+const startsWithPrompt = (s: string): boolean => PROMPT_GLYPHS.some((g) => s.startsWith(g));
+const PERM_YES = /^\s*(?:[❯›>]\s*)?1\.\s*Yes\s*$/;
 const PERM_ASK = /^\s*Do you want to /;
 /** The words of a call matched against a dialog, whitespace removed: a cut-off line never matches. */
 const PERM_MATCH_MAX = 300;
@@ -240,7 +243,7 @@ function inputRow(term: HeadlessTerminal, whileWorking = false): number {
   if (refused.some((t) => onScreen(term, t))) return -1;
   for (let i = term.rows - 1; i > 0; i--)
     if (
-      text(i).trimStart().startsWith('❯') &&
+      startsWithPrompt(text(i).trimStart()) &&
       text(i - 1)
         .trimStart()
         .startsWith('─')
@@ -306,7 +309,7 @@ export function inputLineEmpty(term: HeadlessTerminal, whileWorking = false): bo
   const line = (r: number) => b.getLine(b.viewportY + r);
   const row = line(i)!;
   let x = 0;
-  while (x < term.cols && row.getCell(x)?.getChars() !== '❯') x++;
+  while (x < term.cols && !PROMPT_GLYPHS.includes(row.getCell(x)?.getChars() ?? '')) x++;
   if (!blankFrom(row, x + 1, term.cols)) return false;
   for (let r = i + 1; r < term.rows; r++) {
     if (line(r)?.translateToString().trimStart().startsWith('─')) return true;
@@ -412,7 +415,7 @@ export function draftShown(
   const b = term.buffer.active;
   const row = (r: number) => b.getLine(b.viewportY + r)?.translateToString() ?? '';
   const first = row(i);
-  let shown = first.slice(first.indexOf('❯') + 1);
+  let shown = first.slice(first.search(/[❯›>]/) + 1);
   for (let r = i + 1; r < term.rows && !row(r).trimStart().startsWith('─'); r++) shown += row(r);
   const box = squash(shown);
   if (!box) return false;
