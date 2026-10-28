@@ -203,7 +203,7 @@ describe('engine pieces', () => {
     ]);
     // Our --settings only adds session-scoped keys: no hooks, permissions, plugins or MCP of our own.
     const settings = JSON.parse(args[args.indexOf('--settings') + 1]) as Record<string, unknown>;
-    expect(Object.keys(settings).sort()).toEqual(['env', 'statusLine', 'worktree']);
+    expect(Object.keys(settings).sort()).toEqual(['env', 'promptSuggestionEnabled', 'statusLine', 'worktree']);
   });
 
   it('claude runs in its own systemd user scope, or in a new session without one', () => {
@@ -363,6 +363,8 @@ describe('engine pieces', () => {
         env: { CLD_BIN: '/r/cld/bin/cld-gui' },
         worktree: { bgIsolation: 'none' },
         statusLine: { type: 'command', command: statusLineCommand('/r/cld/bin/cld-gui') },
+        // Undimmed on a Windows 10 ConPTY, a suggestion reads as a draft and holds messages (10-28).
+        promptSuggestionEnabled: false,
       }),
     ]);
     expect(startArgs(p, 'sid', true, '/r/cld/bin/cld-gui')).toEqual(['--bg', '--resume', 'sid']);

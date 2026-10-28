@@ -661,6 +661,13 @@ describe('chat: the input line cld-gui send types into', () => {
     expect(await empty(screenOf([SUGGESTION]))).toBe(true);
     expect(await empty(screenOf(['❯ \x1b[7m \x1b[27m']))).toBe(true);
   });
+  it('a Windows ConPTY suggestion without the dim attribute is still an empty input line (10-28 laptop)', async () => {
+    expect(await empty(screenOf(['› \x1b[7mT\x1b[27mry "how does <filepath> work?"']))).toBe(true);
+    expect(await empty(screenOf(['› \x1b[90mTry "how does <filepath> work?"\x1b[39m']))).toBe(true);
+    // Anything else typed there is still a draft.
+    expect(await empty(screenOf(['› Try this instead']))).toBe(false);
+    expect(await empty(screenOf(['› Try "a" and more']))).toBe(false);
+  });
   it("Windows ConPTY prompt glyphs ('›', '>') are the same input line (10-28 laptop)", async () => {
     expect(await empty(screenOf(['› \x1b[7m \x1b[27m']))).toBe(true);
     expect(await empty(screenOf(['> \x1b[7m \x1b[27m']))).toBe(true);

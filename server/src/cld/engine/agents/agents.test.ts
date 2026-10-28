@@ -228,6 +228,7 @@ describe('D4: the agent provider seam', () => {
           type: 'command',
           command: `"${process.execPath}" "${path.join(CLD_BIN_DIR!, 'cld-gui-statusline.js')}"`,
         },
+        promptSuggestionEnabled: false,
       });
     };
     // RULES-DEFAULT: every session gets ONE combined file (default + user + project rules).

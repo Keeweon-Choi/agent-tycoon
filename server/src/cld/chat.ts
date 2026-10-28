@@ -203,6 +203,8 @@ const SEND_NOW_HINT_MS = 1_200;
 const PROMPT_GLYPHS = ['❯', '›', '>'];
 const startsWithPrompt = (s: string): boolean => PROMPT_GLYPHS.some((g) => s.startsWith(g));
 const PERM_YES = /^\s*(?:[❯›>]\s*)?1\.\s*Yes\s*$/;
+/** Claude's input-line suggestion (`Try "…"`), when it arrives without the dim attribute. */
+const SUGGESTION_ONLY = /^Try "[^"]*"$/;
 const PERM_ASK = /^\s*Do you want to /;
 /** The words of a call matched against a dialog, whitespace removed: a cut-off line never matches. */
 const PERM_MATCH_MAX = 300;
@@ -310,7 +312,10 @@ export function inputLineEmpty(term: HeadlessTerminal, whileWorking = false): bo
   const row = line(i)!;
   let x = 0;
   while (x < term.cols && !PROMPT_GLYPHS.includes(row.getCell(x)?.getChars() ?? '')) x++;
-  if (!blankFrom(row, x + 1, term.cols)) return false;
+  // Claude's placeholder suggestion comes dim on Linux, but a Windows ConPTY re-sends it as plain grey text
+  // (10-28 laptop: '› Try "how does <filepath> work?"' was taken for a draft and every message waited).
+  if (!blankFrom(row, x + 1, term.cols) && !SUGGESTION_ONLY.test(row.translateToString(true, x + 1).trim()))
+    return false;
   for (let r = i + 1; r < term.rows; r++) {
     if (line(r)?.translateToString().trimStart().startsWith('─')) return true;
     if (!blankFrom(line(r)!, 0, term.cols)) return false;

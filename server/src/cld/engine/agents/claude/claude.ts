@@ -174,6 +174,10 @@ export function startArgs(
             // background-session guard would push every edit into a worktree (10-22 12:1x).
             worktree: { bgIsolation: 'none' },
             statusLine: { type: 'command', command: statusLineCommand(cldBin) },
+            // No suggested next prompt (nor the first `Try "…"`, which comes with it) in the input line:
+            // a Windows 10 ConPTY drops their dim attribute, the messenger took them for a typed draft
+            // and every message waited (10-28 laptop). Messenger users never see them (user 10-28 21:57).
+            promptSuggestionEnabled: false,
           }),
         ]
       : []),
