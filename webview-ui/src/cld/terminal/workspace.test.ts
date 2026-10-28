@@ -24,6 +24,7 @@ import {
   showTab,
   splitDown,
   splitRight,
+  swapCapRetryDelay,
   tabLabels,
   type Workspace,
 } from './workspace.js';
@@ -192,6 +193,12 @@ describe('a cap refusal after a swap', () => {
     expect(heldElsewhere(1_000, 11_000, 10_000)).toBe(true); // the edge counts
     expect(heldElsewhere(1_000, 11_001, 10_000)).toBe(false); // a later refusal is the plain cap
     expect(heldElsewhere(undefined, 4_000, 10_000)).toBe(false); // never swapped
+  });
+
+  it('uses each bounded retry delay before giving the cap refusal back to the user', () => {
+    const delays = [300, 600, 1_200] as const;
+    expect(delays.map((_, retry) => swapCapRetryDelay(retry, delays))).toEqual(delays);
+    expect(swapCapRetryDelay(delays.length, delays)).toBeNull();
   });
 });
 

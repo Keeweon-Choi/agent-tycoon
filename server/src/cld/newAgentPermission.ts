@@ -15,6 +15,9 @@ import { STEPUP_REQUIRED } from './shell/gate.js';
 
 export type NewAgentMode = 'ask' | 'bypass';
 
+/** The UI highlights this answer first, but `readNewAgentMode` remains unanswered until the owner presses it. */
+export const NEW_AGENT_PERMISSION_RECOMMENDED_MODE: NewAgentMode = 'bypass';
+
 const file = (home: string): string => path.join(configDirectory(home), 'new-agent-permission.json');
 
 /** The stored choice; '' while unanswered (or unreadable: asking again is the safe side). */
@@ -29,7 +32,9 @@ export function readNewAgentMode(home: string): NewAgentMode | '' {
 
 /** What a new Claude record starts with: spread it BEFORE the request's own fields. */
 export function seededPermission(home: string): { permissionMode?: string } {
-  return readNewAgentMode(home) === 'bypass' ? { permissionMode: PERMISSION_MODE_BYPASS } : {};
+  return readNewAgentMode(home) === NEW_AGENT_PERMISSION_RECOMMENDED_MODE
+    ? { permissionMode: PERMISSION_MODE_BYPASS }
+    : {};
 }
 
 export function newAgentPermissionMessage(home: string, error?: string) {

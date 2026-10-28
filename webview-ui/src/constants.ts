@@ -827,6 +827,10 @@ export const CARD_BAR_MAX_VISIBLE = 10;
 export const TERMINAL_DRAWER_RESIZE_HANDLE_PX = 6;
 /** "이 터미널로 바꾸기" reads the attach cap with this timeout; a slow answer counts as an unknown cap. */
 export const TERMINAL_SWAP_CAP_READ_TIMEOUT_MS = 2_000;
+/** Let the released attach close its socket before mounting the swapped-in tab. */
+export const TERMINAL_SWAP_RELEASE_SETTLE_MS = 150;
+/** Retry a swap's cap refusal while the released attach process exits, then show the usual refusal. */
+export const TERMINAL_SWAP_CAP_RETRY_DELAYS_MS = [300, 600, 1_200, 2_400] as const;
 /** A cap refusal this soon after "이 터미널로 바꾸기" means a viewer this window cannot release holds the slot. */
 export const TERMINAL_SWAP_REFUSAL_WINDOW_MS = 10_000;
 

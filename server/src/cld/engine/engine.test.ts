@@ -561,6 +561,63 @@ describe('engine with the fake claude', () => {
     expect(stored.find((p) => p.name === 'gamma')!.projectId).not.toBe(alphaId);
   });
 
+  it('an office add starts its new orchestrator, while a CLI add leaves it off', async () => {
+    const { boot, folder, project, bgCalls } = setup();
+    const e = boot();
+
+    expect(
+      await e.run(
+        { type: 'engineAction', requestId: 'office-add', action: 'add', name: 'office', folder: folder('office') },
+        true,
+        'web',
+        true,
+      ),
+    ).toMatchObject({ ok: true, action: 'add', name: 'office', bgId: expect.any(String) });
+    expect(project(e, 'office')).toMatchObject({ live: true, wantRunning: true });
+    expect(bgCalls()).toHaveLength(1);
+
+    expect(
+      await e.run(
+        { type: 'engineAction', requestId: 'cli-add', action: 'add', name: 'cli', folder: folder('cli') },
+        true,
+        'cli',
+      ),
+    ).toMatchObject({ ok: true, action: 'add', name: 'cli' });
+    expect(project(e, 'cli')).toMatchObject({ live: false, wantRunning: false });
+    expect(bgCalls()).toHaveLength(1);
+  });
+
+  it('a messenger message starts an off orchestrator once and delivers its inbox', async () => {
+    let messenger: Messenger | undefined;
+    const typed: string[] = [];
+    const r = setup({
+      extra: { started: (name) => messenger?.deliverInbox(name) },
+    });
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    messenger = new Messenger({
+      home: r.home,
+      engine: e,
+      typist: { type: (_id, text) => (typed.push(text), Promise.resolve('typed')) },
+      events: new EngineEvents(eventsPath(r.home)),
+      timing: { tickMs: 20, retryMs: 50, ifIdleMs: 10 * 60_000, quietMs: 5_000 },
+      log: () => undefined,
+    });
+    messenger.start();
+    cleanup.push(() => messenger?.dispose());
+
+    const first = messenger.send({ to: 'alpha', text: 'first', from: null, source: 'cli', ifIdle: false });
+    const second = messenger.send({ to: 'alpha', text: 'second', from: null, source: 'cli', ifIdle: false });
+    await expect(first).resolves.toMatchObject({ ok: true, delivered: 'inbox', reason: 'off' });
+    await expect(second).resolves.toMatchObject({ ok: true, delivered: 'inbox', reason: 'off' });
+    await waitFor(() => expect(typed).toHaveLength(1));
+
+    expect(r.bgCalls()).toHaveLength(1);
+    expect(typed[0]).toContain('\nfirst');
+    expect(typed[0]).toContain('\nsecond');
+    expect(r.logs.filter((line) => line.includes('inbox start "alpha"'))).toHaveLength(1);
+  });
+
   it('start, then start again (no duplicate), stop, fresh vs resume, restart', async () => {
     const { home, boot, act, folder, project, transcript, bgCalls } = setup();
     const e = boot();
@@ -1527,7 +1584,7 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
     ]);
   });
 
-  it('an idle retirement rests with no revive prompt; the next messenger message wakes it first', async () => {
+  it('an idle retirement rests with no revive prompt; the next messenger message wakes and types directly', async () => {
     const r = rig();
     const e = r.boot();
     await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
@@ -1564,9 +1621,11 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
       await messenger.send({ to: 'alpha', text: 'continue from here', from: null, source: 'cli', ifIdle: false }),
     ).toMatchObject({ ok: true, delivered: 'pane' });
     expect(r.bgCalls()).toHaveLength(before + 1);
+    await waitFor(() => expect(typed).toHaveLength(1));
     expect(typed).toHaveLength(1);
     expect(typed[0]).toContain('\ncontinue from here');
     expect(typed[0]).not.toContain('자동 복구');
+    expect(r.inbox).toEqual([]);
   });
 
   it('an always-on idle retirement resumes without a prompt and does not consume revive attempts', async () => {
@@ -1718,6 +1777,21 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
     expect(r.events.filter((x) => x.type === 'orch_giveup')).toEqual([
       { type: 'orch_giveup', source: 'engine', name: 'alpha', error: expect.any(String), reason: 'crash_loop' },
     ]);
+    const messenger = new Messenger({
+      home: r.home,
+      engine: e,
+      typist: { type: () => Promise.resolve('typed') },
+      events: new EngineEvents(eventsPath(r.home)),
+      timing: { tickMs: 20, retryMs: 50, ifIdleMs: 10 * 60_000, quietMs: 5_000 },
+      log: () => undefined,
+    });
+    cleanup.push(() => messenger.dispose());
+    expect(await messenger.send({ to: 'alpha', text: 'do not restart', from: null, source: 'cli', ifIdle: false })).toMatchObject({
+      ok: true,
+      delivered: 'inbox',
+      reason: 'off',
+    });
+    expect(r.bgCalls()).toHaveLength(3);
     // A manual start clears the mark, and the count starts over.
     expect((await r.act(e, 'start', 'alpha')).ok).toBe(true);
     expect(r.project(e, 'alpha')!.downNote).toBeUndefined();

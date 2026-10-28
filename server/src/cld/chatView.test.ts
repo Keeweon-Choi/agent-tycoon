@@ -76,12 +76,15 @@ describe('chat view through the office', () => {
     const got: Array<Record<string, unknown>> = [];
     const send = (m: Record<string, unknown>) => got.push(m);
     const folder = fs.mkdtempSync(path.join(home, 'alpha-'));
-    office.onClientMessage(
-      { type: 'engineAction', requestId: 'r1', action: 'add', name: 'alpha', folder },
-      send,
-      true,
-    );
-    await vi.waitFor(() => expect(got[0]).toMatchObject({ type: 'engineActionResult', ok: true }));
+    // About the messenger's header on an off session: add through a non-person engine path (an office
+    // add starts the session at once, ADD-AUTOSTART), so the message still waits in the inbox.
+    expect(
+      await office.engine!.run(
+        { type: 'engineAction', requestId: 'r1', action: 'add', name: 'alpha', folder },
+        true,
+        'test',
+      ),
+    ).toMatchObject({ type: 'engineActionResult', ok: true });
     const chat = (text: string, privileged = true) =>
       office.onClientMessage(
         { type: 'chatSend', requestId: `q-${text}`, name: 'alpha', text },

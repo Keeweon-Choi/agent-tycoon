@@ -56,12 +56,15 @@ async function start() {
     path.join(folder, '.claude/commands/ship.md'),
     '---\ndescription: 배포해요\n---\nSECRET-BODY',
   );
-  office.onClientMessage(
-    { type: 'engineAction', requestId: 'add', action: 'add', name: 'alpha', folder },
-    send,
-    true,
-  );
-  await vi.waitFor(() => expect(got[0]).toMatchObject({ type: 'engineActionResult', ok: true }));
+  // This suite is about refusing commands for an off session. Add through a
+  // non-person engine path: office adds deliberately start immediately.
+  expect(
+    await office.engine!.run(
+      { type: 'engineAction', requestId: 'add', action: 'add', name: 'alpha', folder },
+      true,
+      'test',
+    ),
+  ).toMatchObject({ type: 'engineActionResult', ok: true });
   const agentId = office.officeState().orchestrators.find((o) => o.name === 'alpha')!.agentId!;
   const chat = async (text: string, privileged = true) => {
     const requestId = `q${got.length}`;

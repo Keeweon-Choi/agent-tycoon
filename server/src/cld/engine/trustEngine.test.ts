@@ -99,11 +99,10 @@ function setup(timing: Record<string, number> = {}) {
 }
 
 describe('AUTO-TRUST: a person answers through the office, nobody else', () => {
-  it('오케스트레이터 추가, then its first 켜기: the question answered, the start retried once and on', async () => {
+  it('오케스트레이터 추가: the question answered, the start retried once and on', async () => {
     const s = setup();
     const f = s.folder('alpha');
-    expect(await s.office('add', 'alpha', { folder: f })).toMatchObject({ ok: true });
-    const r = await s.office('start', 'alpha');
+    const r = await s.office('add', 'alpha', { folder: f });
     expect(r).toMatchObject({ ok: true, note: koText('trust_answered') });
     expect(s.trustRuns()).toHaveLength(1);
     expect(s.trustRuns()[0].cwd).toBe(f);
@@ -136,8 +135,10 @@ describe('AUTO-TRUST: a person answers through the office, nobody else', () => {
     for (const mode of ['unknown', 'warn', 'crash', 'stuck']) {
       const name = `p-${mode}`;
       const f = s.folder(name, mode);
-      await s.office('add', name, { folder: f });
-      expect(await s.office('start', name), mode).toMatchObject({ ok: false, error: TRUST_NEEDED });
+      expect(await s.office('add', name, { folder: f }), mode).toMatchObject({
+        ok: false,
+        error: TRUST_NEEDED,
+      });
       expect(s.project(name), mode).toMatchObject({ live: false, needsTrust: true });
       expect(fs.existsSync(path.join(f, '.fake-untrusted')), mode).toBe(true);
     }
@@ -149,8 +150,9 @@ describe('AUTO-TRUST: a person answers through the office, nobody else', () => {
   it('the CLI, an agent’s MCP tool and an unprivileged office client never reach the trust step', async () => {
     const s = setup();
     const f = s.folder('alpha');
-    await s.office('add', 'alpha', { folder: f });
-    // Marked and consented: only the path decides now.
+    // A non-person add stays off, so each non-person start reaches the same
+    // original trust refusal without being answered during add.
+    await s.direct('add', 'alpha', { folder: f }, 'test');
     expect(await s.direct('start', 'alpha', {}, 'mcp')).toMatchObject({
       ok: false,
       error: TRUST_NEEDED,

@@ -2003,6 +2003,7 @@ export const en = {
     "This only sets the starting permission mode of agents you create from now on (new projects, Workers, imports). Agents you already have are not changed; each agent's own settings change its mode. Allowing it also lets the engine accept Claude Code's own one-time Bypass Permissions warning for you.",
   'onboarding.bypass.allow': 'Start new agents without asking',
   'onboarding.bypass.ask': 'Keep asking',
+  'onboarding.bypass.recommended': 'Recommended',
   'onboarding.bypass.saving': 'Saving...',
   'onboarding.bypass.refused':
     'It was not saved. From another device you have to confirm it is you first. Press the button again.',
@@ -2019,6 +2020,9 @@ export const en = {
   'settings.bypass.title': 'New agents: run without asking',
   'settings.bypass.help':
     "On: projects and Workers you create from now on start in the skip-permissions mode. Agents you already have keep their own setting; change those in each agent's settings. Allowing it also lets the engine accept Claude Code's own one-time Bypass Permissions warning for you.",
+  'settings.bypass.allow': 'Run without asking',
+  'settings.bypass.ask': 'Keep asking',
+  'settings.bypass.recommended': 'Recommended',
   'settings.imeGuard.title': 'Composed typing in the terminal',
   'settings.imeGuard.help':
     'Keeps Korean and other IME input whole in the phone terminal. If a keyboard misbehaves, turn it off and reopen the terminal.',

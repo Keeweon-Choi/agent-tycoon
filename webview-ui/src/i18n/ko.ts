@@ -1976,6 +1976,7 @@ export const ko = {
     '지금부터 새로 만드는 에이전트(새 프로젝트, Worker, 가져오기)의 시작 권한 모드만 정해요. 이미 있는 에이전트는 바뀌지 않고, 각 에이전트의 설정에서 따로 바꿀 수 있어요. 허용하면 Claude Code 가 처음 한 번 띄우는 같은 경고(Bypass Permissions)에도 엔진이 대신 동의로 답해요.',
   'onboarding.bypass.allow': '새 에이전트는 묻지 않고 실행',
   'onboarding.bypass.ask': '계속 물어보기',
+  'onboarding.bypass.recommended': '추천',
   'onboarding.bypass.saving': '저장하는 중...',
   'onboarding.bypass.refused':
     '저장되지 않았어요. 다른 기기에서는 먼저 본인 확인이 필요해요. 버튼을 다시 눌러 주세요.',
@@ -1991,6 +1992,9 @@ export const ko = {
   'settings.bypass.title': '새 에이전트: 묻지 않고 실행',
   'settings.bypass.help':
     '켜면 지금부터 만드는 프로젝트와 Worker가 권한을 묻지 않는 모드로 시작해요. 이미 있는 에이전트는 그대로이고, 각 에이전트의 설정에서 바꿔요. 허용하면 Claude Code 가 처음 한 번 띄우는 같은 경고(Bypass Permissions)에도 엔진이 대신 동의로 답해요.',
+  'settings.bypass.allow': '묻지 않고 실행',
+  'settings.bypass.ask': '계속 물어보기',
+  'settings.bypass.recommended': '추천',
   'settings.imeGuard.title': '한글 입력 보정(터미널)',
   'settings.imeGuard.help':
     '폰 터미널에서 한글이 자모로 갈라지지 않게 합니다. 어떤 키보드에서 이상하면 끄고 터미널을 다시 여세요.',

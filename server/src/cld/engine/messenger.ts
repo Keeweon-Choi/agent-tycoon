@@ -184,8 +184,10 @@ export interface MessengerEngine {
    *  which agents exist (it is empty or partial), so pending messages wait untouched. */
   registryProblem?(): string | null;
   sessionOf(name: string): SessionInfo;
-  /** Wake a session Claude retired for idleness; false means it remains ordinarily off. */
+  /** Wake a session Claude retired for idleness before its message is delivered. */
   wake?(name: string): Promise<boolean>;
+  /** Start an ordinarily off session after its message reached the inbox; false leaves it there for a later start. */
+  startFromInbox?(name: string): Promise<boolean>;
   /** A renew is between its turn's end and the new conversation, or a Lead swap holds the
    *  name (D3b): hold its messages. */
   renewing(name: string): boolean;
@@ -693,11 +695,26 @@ export class Messenger {
         : {}),
     };
     let s = this.opts.engine.sessionOf(req.to);
-    // An idle-retired project is deliberately off until something addresses it.
-    // Start it before choosing delivery so this message itself is its first prompt.
-    // K1: an FYI never starts anything.
+    // An idle-retired project resumes before delivery, so this very message is
+    // typed into its resumed conversation. K1: an FYI never starts anything.
     if (s === null && !item.raw && !fyi(item) && (await this.opts.engine.wake?.(req.to)))
       s = this.opts.engine.sessionOf(req.to);
+    // An ordinarily off project takes the inbox-first path. Its start hook
+    // makes that inbox the first prompt; a burst while Claude starts makes one
+    // start, not many. A crash-guarded or idle-retired project leaves it there.
+    // A raw command still needs a live session.
+    if (s === null && !item.raw && !fyi(item)) {
+      const id = this.toInbox(item, 'off');
+      if (!id) return { ok: false, code: 'queue_failed', ...refused('inbox_write_failed') };
+      await this.opts.engine.startFromInbox?.(req.to);
+      return {
+        ok: true,
+        delivered: 'inbox',
+        reason: 'off',
+        ...(fromApp(item) && { id }),
+        ...this.idOf(item),
+      };
+    }
     if ((s === null || s === 'terminal') && !fyi(item)) {
       // A command acts on a live session; an inbox file would run it at some later start.
       if (item.raw)

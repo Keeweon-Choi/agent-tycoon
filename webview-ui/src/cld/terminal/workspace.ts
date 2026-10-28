@@ -251,6 +251,11 @@ export function heldElsewhere(
   return swappedAt !== undefined && now - swappedAt <= windowMs;
 }
 
+/** The next bounded retry after a swapped-out attach is still counted by the daemon, or null when done. */
+export function swapCapRetryDelay(retry: number, delays: readonly number[]): number | null {
+  return delays[retry] ?? null;
+}
+
 // ── What is kept per device ─────────────────────────────────────────────────
 
 export function serialize(ws: Workspace): string {

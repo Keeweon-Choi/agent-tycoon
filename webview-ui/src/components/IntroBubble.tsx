@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DISCORD_INVITE_URL } from '../changelogData.js';
 import { AccessButton } from '../cld/auth/Access.js';
 import { AddDeviceButton } from '../cld/auth/AddDevice.js';
-import { useBypass } from '../cld/bypass.js';
+import { preferredBypassMode, useBypass } from '../cld/bypass.js';
 import {
   CLAUDE_CODE_INSTALL_COMMAND,
   CLAUDE_CODE_URL,
@@ -126,6 +126,7 @@ export function IntroBubble({
   const stepId = steps[Math.min(step, steps.length - 1)];
   const last = step >= steps.length - 1;
   const saved = useBypass();
+  const preferredBypass = preferredBypassMode(saved.mode) === 'bypass';
 
   // The greeter lives exactly as long as this component.
   useEffect(() => {
@@ -430,22 +431,27 @@ export function IntroBubble({
           {stepId === 'bypass' && bypass !== 'done' ? (
             <div className="flex items-center justify-end gap-6 flex-wrap">
               <Button
-                variant={bypassWaiting ? 'disabled' : 'default'}
+                variant={bypassWaiting ? 'disabled' : preferredBypass ? 'default' : 'active'}
                 size="sm"
                 disabled={bypassWaiting}
+                aria-pressed={!preferredBypass}
                 data-testid="bypass-ask"
                 onClick={() => onBypass(false)}
               >
                 {bypassWaiting ? t('onboarding.bypass.saving') : t('onboarding.bypass.ask')}
               </Button>
               <Button
-                variant={bypassWaiting ? 'disabled' : 'accent'}
+                variant={bypassWaiting ? 'disabled' : preferredBypass ? 'accent' : 'default'}
                 size="sm"
                 disabled={bypassWaiting}
+                aria-pressed={preferredBypass}
                 data-testid="bypass-allow"
                 onClick={() => onBypass(true)}
               >
                 {t('onboarding.bypass.allow')}
+                <span className="text-xs" data-testid="bypass-recommended">
+                  {t('onboarding.bypass.recommended')}
+                </span>
               </Button>
             </div>
           ) : stepId === 'consent' ? (

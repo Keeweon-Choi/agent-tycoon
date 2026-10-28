@@ -29,6 +29,10 @@ const set = (next: BypassSnapshot) => {
 /** The one fn the Intro asks "should I be up?" of: loaded and unanswered. */
 export const bypassUnanswered = (s: BypassSnapshot): boolean => s.mode === '';
 
+/** The visible first choice is Bypass, but an unanswered server value remains unanswered until clicked. */
+export const preferredBypassMode = (mode: BypassSnapshot['mode']): NewAgentMode =>
+  mode === 'ask' ? 'ask' : 'bypass';
+
 /** Mid-save step-up retry: the mode the refused request asked for. */
 let lastAsked: NewAgentMode | null = null;
 

@@ -8,7 +8,7 @@ import { IME_GUARD_OFF_KEY } from '../terminal/imeGuard.js';
 import { AgentRulesOption } from './AgentRulesOption.js';
 import { AccessButton } from './auth/Access.js';
 import { SecurityButton } from './auth/SecurityPanel.js';
-import { bypassReadOnly, chooseBypass, useBypass } from './bypass.js';
+import { bypassReadOnly, chooseBypass, preferredBypassMode, useBypass } from './bypass.js';
 import { PixelSprite } from './ez/PixelSprite.js';
 import { rankSprite } from './ez/rankSprites.js';
 import { nameplatesOn, setNameplates } from './ez/useNameplates.js';
@@ -35,7 +35,7 @@ function BypassOption() {
   const { mode, error } = useBypass();
   const cld = useCldStore();
   if (bypassReadOnly(cld)) return null;
-  const on = mode === 'bypass';
+  const preferred = preferredBypassMode(mode);
   return (
     <SettingRow
       testId="bypass-option"
@@ -49,13 +49,19 @@ function BypassOption() {
         )
       }
     >
+      <Button size="sm" variant={preferred === 'ask' ? 'active' : 'default'} aria-pressed={preferred === 'ask'} onClick={() => chooseBypass('ask')}>
+        {t('settings.bypass.ask')}
+      </Button>
       <Button
         size="sm"
-        variant={on ? 'active' : 'default'}
-        aria-pressed={on}
-        onClick={() => chooseBypass(on ? 'ask' : 'bypass')}
+        variant={preferred === 'bypass' ? 'active' : 'default'}
+        aria-pressed={preferred === 'bypass'}
+        onClick={() => chooseBypass('bypass')}
       >
-        {t(on ? 'settings.bypass.on' : 'settings.bypass.off')}
+        {t('settings.bypass.allow')}
+        <span className="text-xs" data-testid="settings-bypass-recommended">
+          {t('settings.bypass.recommended')}
+        </span>
       </Button>
     </SettingRow>
   );

@@ -22,4 +22,9 @@ describe('i18n', () => {
       translate('settings.title', { name: 'Ada' }, 'ko', { 'settings.title': '안녕 {name} {missing}' }),
     ).toBe('안녕 Ada {missing}');
   });
+
+  it('labels the bypass recommendation in both the Intro and Settings', () => {
+    expect(translate('onboarding.bypass.recommended', undefined, 'en')).toBe('Recommended');
+    expect(translate('settings.bypass.recommended', undefined, 'ko')).toBe('추천');
+  });
 });

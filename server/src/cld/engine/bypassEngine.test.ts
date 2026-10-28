@@ -58,10 +58,11 @@ describe('BYPASS-ACCEPT through the engine', () => {
     const s = setup();
     const folder = s.folder('alpha');
     fs.writeFileSync(path.join(folder, '.fake-bypass-needed'), '');
+    // A person adding in the office receives the first-start answer directly.
     expect(
       await s.action('add', 'alpha', { folder, permissionMode: 'bypassPermissions' }),
-    ).toMatchObject({ ok: true });
-    expect(await s.action('start', 'alpha')).toMatchObject({ ok: true, note: koText('bypass_answered') });
+    ).toMatchObject({ ok: true, note: koText('bypass_answered') });
+    expect(await s.action('start', 'alpha')).toMatchObject({ ok: true, note: '이미 켜져 있어요' });
     expect(s.bgRuns()).toHaveLength(2);
     expect(s.bypassRuns()).toHaveLength(1);
     expect(s.bypassRuns()[0].cwd).toBe(folder);
@@ -76,11 +77,8 @@ describe('BYPASS-ACCEPT through the engine', () => {
     fs.writeFileSync(path.join(folder, '.fake-bypass-needed'), '');
     expect(
       await s.action('add', 'alpha', { folder, permissionMode: 'bypassPermissions' }),
-    ).toMatchObject({ ok: true });
-    expect(await s.action('start', 'alpha')).toMatchObject({
-      ok: true,
-      note: koText('bypass_trust_answered'),
-    });
+    ).toMatchObject({ ok: true, note: koText('bypass_trust_answered') });
+    expect(await s.action('start', 'alpha')).toMatchObject({ ok: true, note: '이미 켜져 있어요' });
     expect(s.bgRuns()).toHaveLength(2);
     expect(s.bypassRuns()).toHaveLength(1);
     expect(fs.existsSync(path.join(folder, '.fake-untrusted'))).toBe(false);
@@ -91,8 +89,7 @@ describe('BYPASS-ACCEPT through the engine', () => {
     const s = setup();
     const folder = s.folder('alpha');
     fs.writeFileSync(path.join(folder, '.fake-bypass-refusal'), '');
-    expect(await s.action('add', 'alpha', { folder })).toMatchObject({ ok: true });
-    expect(await s.action('start', 'alpha')).toMatchObject({
+    expect(await s.action('add', 'alpha', { folder })).toMatchObject({
       ok: false,
       error: expect.stringContaining(koText('session_start_failed')),
     });

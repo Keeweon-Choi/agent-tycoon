@@ -902,11 +902,9 @@ export class Engine {
     return this.renewals.has(name);
   }
 
-  /**
-   * A messenger message wakes only a project Claude retired for idleness. The
-   * caller then types that original message into the freshly resumed session,
-   * so there is no automatic recovery turn in front of it.
-   */
+  /** A messenger message wakes only a project Claude retired for idleness.
+   * The caller then types that original message into the resumed session, so
+   * there is no automatic recovery turn in front of it. */
   async wake(name: string): Promise<boolean> {
     // Nothing is started that could not be saved (commit refuses a broken registry).
     if (this.broken) {
@@ -931,6 +929,52 @@ export class Engine {
       this.running.delete(name);
     }
     this.log(`wake "${name}": ${out.ok ? `ok bg=${out.bgId ?? '-'}` : `failed (${out.error})`}`);
+    this.refresh();
+    return out.ok;
+  }
+
+  /**
+   * A message already filed in the inbox starts only a project the person left
+   * off (or has never started). An idle retirement resumes through wake(), and
+   * a crash-loop marker is cleared only by the person's own start/stop action.
+   */
+  async startFromInbox(name: string): Promise<boolean> {
+    if (this.broken) {
+      this.log(`inbox start "${name}": not started (${this.file}: ${this.broken})`);
+      return false;
+    }
+    let p = this.find(name);
+    if (
+      !p ||
+      p.wantRunning ||
+      this.retiredForIdleness(p) ||
+      this.gaveUp.has(name) ||
+      this.running.has(name) ||
+      this.renewals.has(name)
+    )
+      return false;
+    this.running.add(name);
+    let out: Outcome;
+    try {
+      out = await this.enqueue(async () => {
+        this.refresh();
+        p = this.find(name);
+        if (
+          !p ||
+          p.wantRunning ||
+          this.retiredForIdleness(p) ||
+          this.gaveUp.has(name) ||
+          this.holder(p)
+        )
+          return { ok: false, error: 'not ordinarily off' };
+        return this.startProject(p, 'messenger');
+      });
+    } catch (err) {
+      out = fail(err instanceof Error ? err.message : String(err));
+    } finally {
+      this.running.delete(name);
+    }
+    this.log(`inbox start "${name}": ${out.ok ? `ok bg=${out.bgId ?? '-'}` : `failed (${out.error})`}`);
     this.refresh();
     return out.ok;
   }
@@ -1823,9 +1867,16 @@ export class Engine {
   private exec(req: EngineAction, source: string, person = false): Promise<Outcome> | Outcome {
     if (req.action === 'add' && (req.role || req.project)) return this.addWorker(req);
     if (req.action === 'add') {
-      const out = this.add(req);
-      if (out.ok && person) this.consented.add(req.name);
-      return out;
+      const added = this.add(req);
+      // An office add is also the person's first 켜기: it follows the ordinary start
+      // queue so its trust and Bypass Permissions answers run before the new card says on.
+      // The CLI and MCP keep their explicit-start behaviour.
+      if (!added.ok || !person) return added;
+      this.consented.add(req.name);
+      return this.startProject(this.find(req.name)!, source, false, false, true).then((started) => ({
+        ...started,
+        ...warned([added.note, started.note].filter((note): note is string => !!note)),
+      }));
     }
     const p = this.find(req.name);
     if (!p) return fail(koText('project_unknown_short'));

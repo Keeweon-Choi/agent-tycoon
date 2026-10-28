@@ -2,8 +2,10 @@
 // through the provider its assignment names (a fake second provider here); an unknown one
 // stops only its agent; and Claude's argv through the engine is what it was before the move.
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
-import { spawn } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -323,14 +325,22 @@ describe('D5 (6.2): the printed id and the systemd-run fallback', () => {
     }
   });
 
-  /** A spawn that never runs claude or systemd-run: node prints what `answer` says for the call. */
+  /** A spawn that never runs claude or systemd-run: its streams report what `answer` says for the call. */
   function scripted(answer: (file: string, args: string[]) => { code: number; out?: string; err?: string }) {
     const calls: Array<{ file: string; args: string[]; detached: boolean }> = [];
     const spawnFn = ((file: string, args: string[], o: { detached?: boolean }) => {
       calls.push({ file, args, detached: !!o.detached });
       const a = answer(file, args);
-      const script = `process.stdout.write(${JSON.stringify(a.out ?? '')});process.stderr.write(${JSON.stringify(a.err ?? '')});process.exit(${a.code})`;
-      return spawn(process.execPath, ['-e', script], { ...o, detached: false });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const child = Object.assign(new EventEmitter(), { stdout, stderr }) as unknown as ChildProcess;
+      setImmediate(() => {
+        stdout.end(a.out ?? '');
+        stderr.end(a.err ?? '');
+        child.emit('exit', a.code, null);
+        child.emit('close', a.code, null);
+      });
+      return child;
     }) as unknown as SpawnFn;
     return { calls, spawnFn };
   }
@@ -548,17 +558,20 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
     expect(t.run.calls).toEqual([]);
   });
 
-  it('stopped: messages go to the inbox; started again, the inbox is one deliver; a person’s own message is refused', async () => {
+  it('stopped: the first message starts it from the inbox; the next waits; a person’s own message is refused', async () => {
     const t = rig();
     await t.act(t.e, 'start', 'alpha-a');
     expect(await t.act(t.e, 'stop', 'alpha-a')).toMatchObject({ ok: true });
     expect(t.run.calls).toEqual(['stop rest:' + loadRegistry(registryPath(t.home)).projects.find((p) => p.name === 'alpha-a')!.assignmentId]);
     expect(t.roster()).toMatchObject({ live: false, wantRunning: false });
     expect(await t.m.send(fromLead('a'))).toMatchObject({ ok: true, delivered: 'inbox' });
-    expect(await t.m.send(fromLead('b'))).toMatchObject({ ok: true, delivered: 'inbox' });
-    expect(await t.act(t.e, 'start', 'alpha-a')).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(t.run.delivered).toHaveLength(1));
-    expect(t.run.delivered[0].text).toMatch(/\na\n\n\[cld-gui · alpha에게서 · .*\nb$/);
+    expect(t.roster()).toMatchObject({ live: true, busy: true, wantRunning: true });
+    expect(t.run.delivered[0].text).toMatch(/\na$/);
+    expect(await t.m.send(fromLead('b'))).toMatchObject({ ok: true, delivered: 'queued' });
+    t.run.finish();
+    await vi.waitFor(() => expect(t.run.delivered).toHaveLength(2));
+    expect(t.run.delivered[1].text).toMatch(/\nb$/);
     expect(await t.m.send({ to: 'alpha-a', text: '안녕', ifIdle: false, from: null, source: 'messenger:mac' })).toEqual({
       ok: false,
       code: 'no_direct_chat',

@@ -22,7 +22,9 @@ import { Button } from '../../components/ui/Button.js';
 import {
   MOBILE_TERMINAL_FONT_SIZE_PX,
   TERMINAL_SWAP_CAP_READ_TIMEOUT_MS,
+  TERMINAL_SWAP_CAP_RETRY_DELAYS_MS,
   TERMINAL_SWAP_REFUSAL_WINDOW_MS,
+  TERMINAL_SWAP_RELEASE_SETTLE_MS,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { TerminalConnectionStatus } from '../../terminal/terminalClient.js';
@@ -51,6 +53,7 @@ import {
   paneRects,
   phoneKey,
   shellTab,
+  swapCapRetryDelay,
   type Tab,
   tabLabels,
   terminalMessages,
@@ -68,8 +71,6 @@ import {
 
 /** The pane's own bar on a desktop (select, close). */
 const PANE_HEADER_PX = 26;
-/** An agent's attach takes this long to leave the daemon after its socket closed. */
-const RELEASE_SETTLE_MS = 150;
 const SHELLS_PER_DEVICE = 3;
 
 /** TerminalPane keys its callbacks by a number: one per tab, never an agent's. */
@@ -130,6 +131,19 @@ export function TerminalWorkspace({
   const inputs = useRef(new Map<string, TerminalInputHandle>());
   const statuses = useRef<Record<string, TerminalConnectionStatus>>({});
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Bounded re-mounts only while a swap waits for its released attach to leave the daemon. */
+  const swapRetries = useRef(new Map<string, number>());
+  const remountTimers = useRef(new Map<string, Set<number>>());
+
+  useEffect(
+    () => () => {
+      for (const timers of remountTimers.current.values()) {
+        for (const timer of timers) window.clearTimeout(timer);
+      }
+      remountTimers.current.clear();
+    },
+    [],
+  );
 
   const flushTerminalInput = (key: string) => {
     if (statuses.current[key] !== 'connected') return;
@@ -235,12 +249,15 @@ export function TerminalWorkspace({
   const closedShells = own.filter((s) => !shellTabs.some((t) => t.ref === s.id));
   const agents = (officeSnapshot?.chat ? officeSnapshot.orchestrators : []).filter((o) => o.bg?.id);
 
-  const remount = (key: string) => {
+  const finishSwap = (key: string) =>
     setSwapping((w) => {
       const next = new Set(w);
       next.delete(key);
       return next;
     });
+
+  const remount = (key: string, finish = true) => {
+    if (finish) finishSwap(key);
     setElsewhere((e) => {
       const next = new Set(e);
       next.delete(key);
@@ -251,11 +268,37 @@ export function TerminalWorkspace({
     setGens((g) => ({ ...g, [key]: (g[key] ?? 0) + 1 }));
   };
 
+  const clearRemountTimers = (key: string) => {
+    for (const timer of remountTimers.current.get(key) ?? []) window.clearTimeout(timer);
+    remountTimers.current.delete(key);
+  };
+
+  const remountAfter = (key: string, delay: number, attach = false) => {
+    const timer = window.setTimeout(() => {
+      const timers = remountTimers.current.get(key);
+      timers?.delete(timer);
+      if (timers?.size === 0) remountTimers.current.delete(key);
+      if (attach) {
+        setReleased((r) => {
+          const next = new Set(r);
+          next.delete(key);
+          return next;
+        });
+      }
+      // A retry remains visibly in progress until it connects or every retry is exhausted.
+      remount(key, false);
+    }, delay);
+    const timers = remountTimers.current.get(key) ?? new Set<number>();
+    timers.add(timer);
+    remountTimers.current.set(key, timers);
+  };
+
   /**
    * "이 터미널로 바꾸기": attach this agent tab. When the daemon's cap (설정) has no room left,
    * the least recently focused attached agent tab lets go first.
    */
   const swapIn = async (key: string, at: number) => {
+    clearRemountTimers(key);
     swappedAt.current.set(key, at);
     setSwapping((w) => new Set(w).add(key));
     let cap: number | null = null;
@@ -285,19 +328,12 @@ export function TerminalWorkspace({
     if (victim) {
       setReleased((r) => new Set(r).add(victim));
       setStatus((s) => omit(s, victim));
+      swapRetries.current.set(key, 0);
+    } else {
+      swapRetries.current.delete(key);
     }
     // The old attach needs a moment to leave before the cap lets this one in.
-    window.setTimeout(
-      () => {
-        setReleased((r) => {
-          const next = new Set(r);
-          next.delete(key);
-          return next;
-        });
-        remount(key);
-      },
-      victim ? RELEASE_SETTLE_MS : 0,
-    );
+    remountAfter(key, victim ? TERMINAL_SWAP_RELEASE_SETTLE_MS : 0, true);
   };
 
   const openShellFolder = (cwd: string, input?: string) =>
@@ -592,14 +628,30 @@ export function TerminalWorkspace({
                     const k = keysByNumber.get(n);
                     if (!k) return;
                     statuses.current[k] = s;
+                    if (s === 'connected') {
+                      swapRetries.current.delete(k);
+                      swappedAt.current.delete(k);
+                      finishSwap(k);
+                    }
                     setStatus((prev) => ({ ...prev, [k]: s }));
                     if (s === 'connected') flushTerminalInput(k);
                   }}
                   onRefused={(n, reason) => {
                     const k = keysByNumber.get(n);
                     if (!k) return;
+                    const retry = swapRetries.current.get(k);
+                    if (reason === 'cap' && retry !== undefined) {
+                      const delay = swapCapRetryDelay(retry, TERMINAL_SWAP_CAP_RETRY_DELAYS_MS);
+                      if (delay !== null) {
+                        swapRetries.current.set(k, retry + 1);
+                        if (!remountTimers.current.get(k)?.size) remountAfter(k, delay);
+                        return;
+                      }
+                    }
+                    swapRetries.current.delete(k);
                     const at = swappedAt.current.get(k);
                     swappedAt.current.delete(k);
+                    finishSwap(k);
                     if (
                       reason === 'cap' &&
                       heldElsewhere(at, performance.now(), TERMINAL_SWAP_REFUSAL_WINDOW_MS)

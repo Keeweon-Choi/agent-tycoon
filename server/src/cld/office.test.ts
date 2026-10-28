@@ -634,13 +634,20 @@ describe('office with the built-in engine', () => {
       await vi.waitFor(() => expect(answers.length).toBe(n + 1), { timeout: 8000 });
       return answers[n];
     };
+    const added = new Map<string, Record<string, unknown>>();
     for (const name of ['alpha', 'beta']) {
       fs.mkdirSync(path.join(home, 'w', name), { recursive: true });
-      expect(await ask({ action: 'add', name, folder: path.join(home, 'w', name) })).toMatchObject({
+      const answer = await ask({ action: 'add', name, folder: path.join(home, 'w', name) });
+      expect(answer).toMatchObject({
         type: 'engineActionResult',
         ok: true,
+        bgId: expect.stringMatching(/^[0-9a-f]{8}$/),
       });
+      added.set(name, answer);
     }
+    // An office add is the person's first start. Stop alpha before checking
+    // the ordinary explicit-start answer that this test is also about.
+    expect(await ask({ action: 'stop', name: 'alpha' })).toMatchObject({ ok: true });
     const started = await ask({ action: 'start', name: 'alpha' });
     expect(started).toMatchObject({ ok: true, bgId: expect.stringMatching(/^[0-9a-f]{8}$/) });
     await office.refreshClaude(); // the Claude provider's row folds into the project
@@ -648,14 +655,14 @@ describe('office with the built-in engine', () => {
     expect(hs.tabs.map((t) => t.name)).toEqual(['alpha', 'beta']);
     expect(hs.orchestrators.map((o) => [o.name, o.state, o.bg?.id ?? null])).toEqual([
       ['alpha', 'running', started.bgId],
-      ['beta', 'off', null],
+      ['beta', 'running', added.get('beta')!.bgId],
     ]);
     expect(hs.orchestrators.every((o) => typeof o.agentId === 'number')).toBe(true);
     expect(store.size).toBe(2);
     expect(last('engineState')).toMatchObject({
       projects: [
         { name: 'alpha', live: true, wantRunning: true, bgId: started.bgId },
-        { name: 'beta', live: false },
+        { name: 'beta', live: true, wantRunning: true, bgId: added.get('beta')!.bgId },
       ],
     });
     const snap: Array<Record<string, unknown>> = [];
@@ -714,12 +721,18 @@ describe('office with the built-in engine', () => {
         child.on('close', resolve);
       });
     const senders = (to: string) => {
-      const dir = path.join(home, '.config/agent-tycoon/inbox', to);
+      // The first message now starts an off project from its inbox, then the
+      // inbox record moves to delivered/; subsequent messages may be typed or
+      // queued. The delivery event is the stable, end-to-end record in all
+      // three cases, including the sender determined from each CLI token.
       return fs
-        .readdirSync(dir)
-        .filter((f) => f.endsWith('.md'))
-        .sort()
-        .map((f) => /· (\S+)에게서 ·/.exec(fs.readFileSync(path.join(dir, f), 'utf-8'))?.[1]);
+        .readFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), 'utf-8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as { type?: string; to?: string; from?: string })
+        .filter((event) => event.type === 'send' && event.to === to)
+        .map((event) => event.from)
+        .sort();
     };
     expect(await send('alpha', worker)).toBe(0);
     expect(await send('alpha-a', lead)).toBe(0);
