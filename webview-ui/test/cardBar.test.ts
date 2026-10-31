@@ -129,4 +129,12 @@ describe('the saved order', () => {
     store.set([...store.keys()][0], '{"a":1}');
     expect(loadSavedOrder()).toEqual([]);
   });
+
+  it('reads the order saved under the pre-rename key until a new one is saved', () => {
+    store.set('pixel-agents.mobileCardOrder', '[2,1]');
+    expect(loadSavedOrder()).toEqual([2, 1]);
+    saveOrder([1, 2]);
+    expect(store.get('agent-tycoon.mobileCardOrder')).toBe('[1,2]');
+    expect(loadSavedOrder()).toEqual([1, 2]);
+  });
 });

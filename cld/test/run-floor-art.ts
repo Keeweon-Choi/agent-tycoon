@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     await warmUpOffice(ctx, daemon);
     await ctx.addInitScript(() => {
-      (window as unknown as { __PIXEL_AGENTS_E2E: boolean }).__PIXEL_AGENTS_E2E = true;
+      (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
     });
     const page = await ctx.newPage();
     page.on('websocket', (ws) =>
@@ -199,11 +199,11 @@ async function main(): Promise<void> {
           ({ c, r }) =>
             (
               window as unknown as {
-                __pixelAgentsTestHooks: {
+                __agentTycoonTestHooks: {
                   getTileCenter: (c: number, r: number) => { x: number; y: number } | null;
                 };
               }
-            ).__pixelAgentsTestHooks.getTileCenter(c, r),
+            ).__agentTycoonTestHooks.getTileCenter(c, r),
           { c: target.c, r: target.r },
         );
         if (!p0) break;
@@ -297,7 +297,7 @@ async function main(): Promise<void> {
         userAgent: devices['iPhone 13'].userAgent,
       });
       await phone.addInitScript(() => {
-        (window as unknown as { __PIXEL_AGENTS_E2E: boolean }).__PIXEL_AGENTS_E2E = true;
+        (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
       });
       const mp = await phone.newPage();
       mp.on('pageerror', (e) => errors.push(String(e)));
@@ -316,11 +316,11 @@ async function main(): Promise<void> {
           ({ c, r }) =>
             (
               window as unknown as {
-                __pixelAgentsTestHooks: {
+                __agentTycoonTestHooks: {
                   getTileCenter: (c: number, r: number) => { x: number; y: number } | null;
                 };
               }
-            ).__pixelAgentsTestHooks.getTileCenter(c, r),
+            ).__agentTycoonTestHooks.getTileCenter(c, r),
           { c: room.x, r: room.y },
         );
         if (!p0) break;

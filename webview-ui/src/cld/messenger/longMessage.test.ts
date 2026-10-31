@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  FOLD_CHARS,
+  FOLD_LINES,
+  foldBubble,
   longMessageFileName,
   longMessageSuffix,
   messageCharacterCount,
@@ -34,5 +37,20 @@ describe('long messenger message', () => {
     const prepared = prepareMessage(source, 200, at);
     expect(prepared.attachment?.content).toBe(source);
     expect(messageCharacterCount(prepared.text.replace(longMessageSuffix(), ''))).toBe(200);
+  });
+});
+
+describe('bubble fold (show more / collapse)', () => {
+  const long = Array.from({ length: FOLD_LINES + 3 }, (_, i) => `line ${i}`).join('\n');
+  it('a long bubble folds to its first lines and opens whole; the toggle stays both ways', () => {
+    const folded = foldBubble(long, false);
+    expect(folded.long).toBe(true);
+    expect(folded.shown.split('\n')).toHaveLength(FOLD_LINES);
+    expect(folded.shown.endsWith('…')).toBe(true);
+    expect(foldBubble(long, true)).toEqual({ long: true, shown: long });
+  });
+  it('a short bubble has no toggle; a very long single line folds by characters', () => {
+    expect(foldBubble('hi', false)).toEqual({ long: false, shown: 'hi' });
+    expect(foldBubble('x'.repeat(FOLD_CHARS + 1), false).shown).toHaveLength(FOLD_CHARS + 1);
   });
 });

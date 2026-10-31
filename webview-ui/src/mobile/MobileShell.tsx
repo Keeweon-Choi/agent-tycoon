@@ -12,8 +12,11 @@ import type { TerminalInputHandle } from '../components/TerminalPane.js';
 import { Button } from '../components/ui/Button.js';
 import type { Directory } from '../hooks/useExtensionMessages.js';
 import type { TerminalDrawerController } from '../hooks/useTerminalDrawer.js';
+import { t } from '../i18n/index.js';
+import { readClipboardText } from '../terminal/clipboard.js';
 import { TRACK_TRANSITION, trackTransform, useEdgeSwipe } from './useEdgeSwipe.js';
 import type { MobileShellController } from './useMobileShell.js';
+import { useStandaloneViewport } from './useStandaloneViewport.js';
 
 interface MobileShellProps {
   /** The office region App builds for both shells. */
@@ -69,6 +72,7 @@ export function MobileShell({
   describeCard,
   bottom,
 }: MobileShellProps) {
+  useStandaloneViewport();
   const shellRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // The shell ends where the card bar starts: the toasts (ActionLayer,
@@ -100,6 +104,11 @@ export function MobileShell({
 
   const inputRef = useRef<TerminalInputHandle>(null);
   const handleKey = useCallback((sequence: string) => inputRef.current?.send(sequence), []);
+  const handlePaste = useCallback(() => {
+    void readClipboardText(t('upstream.paste')).then((text) => {
+      if (text) inputRef.current?.paste(text);
+    });
+  }, []);
   const handleSend = useCallback(() => {
     if (inputRef.current) submitTerminalLine(inputRef.current);
   }, []);
@@ -187,7 +196,7 @@ export function MobileShell({
       {/* Accessory keys for the TUI, only while the software keyboard is up —
           the last flex child, so it sits directly above the keyboard. */}
       {shell.view === 'terminal' && keyboardOpen && (
-        <MobileKeyBar onKey={handleKey} onSend={handleSend} />
+        <MobileKeyBar onKey={handleKey} onSend={handleSend} onPaste={handlePaste} />
       )}
     </>
   );

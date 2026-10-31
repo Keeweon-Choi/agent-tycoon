@@ -118,8 +118,7 @@ async function waitForHttpOk(url: string): Promise<void> {
 /**
  * Copy the mock `claude` into a bin dir inside the isolated HOME. The wrapper
  * resolves its sibling scripts (mock-claude-runner.cjs, tail-follow.cjs)
- * relative to its own dir, so both must live alongside it — same layout as the
- * VS Code fixture's bin dir (helpers/launch.ts). Returns the bin dir to
+ * relative to its own dir, so both must live alongside it. Returns the bin dir to
  * prepend to the host's PATH.
  */
 function installMockClaudeBin(homeDir: string): string {
@@ -159,13 +158,15 @@ function spawnStandaloneHost(args: {
     ...process.env,
     HOME: args.homeDir,
     USERPROFILE: args.homeDir,
+    // Never the caller's Claude account: the usage reading takes the token from here.
+    CLAUDE_CONFIG_DIR: path.join(args.homeDir, '.claude'),
   };
   if (args.mockClaude) {
     // The host's PTYs inherit its env, so a browser-launched `claude` resolves
-    // to the mock. PIXEL_AGENTS_NODE_BIN keeps the wrapper on this exact node.
+    // to the mock. AGENT_TYCOON_NODE_BIN keeps the wrapper on this exact node.
     const binDir = installMockClaudeBin(args.homeDir);
     env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
-    env.PIXEL_AGENTS_NODE_BIN = process.execPath;
+    env.AGENT_TYCOON_NODE_BIN = process.execPath;
   }
   return spawn(
     process.execPath,
@@ -206,7 +207,7 @@ async function stopProcess(child: ChildProcessWithoutNullStreams): Promise<void>
 /**
  * Install a WebSocket recorder BEFORE page navigation. Proxies window.WebSocket
  * so every incoming message frame is JSON-parsed and pushed to
- * window.__pixelAgentsMessages, which drainMessages() reads from.
+ * window.__agentTycoonMessages, which drainMessages() reads from.
  */
 async function installMessageRecorder(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -229,14 +230,14 @@ async function installMessageRecorder(page: Page): Promise<void> {
       },
     });
     window.WebSocket = RecordingWebSocket as typeof WebSocket;
-    (window as Window & { __pixelAgentsMessages?: unknown[] }).__pixelAgentsMessages =
+    (window as Window & { __agentTycoonMessages?: unknown[] }).__agentTycoonMessages =
       recordedMessages;
   });
 }
 
 async function drainRecordedMessages(page: Page): Promise<RecordedServerMessage[]> {
   return await page.evaluate(() => {
-    const store = (window as Window & { __pixelAgentsMessages?: unknown[] }).__pixelAgentsMessages;
+    const store = (window as Window & { __agentTycoonMessages?: unknown[] }).__agentTycoonMessages;
     if (!Array.isArray(store)) {
       return [];
     }
@@ -249,7 +250,7 @@ async function drainRecordedMessages(page: Page): Promise<RecordedServerMessage[
 /** The trailing `\s` is load-bearing: stdout arrives in chunks, and without a
  *  terminator a half-delivered line would match and yield a truncated URL that
  *  still parses (`http://127.0.0.1:501`). */
-const PRINTED_URL_PATTERN = /Pixel Agents server running at (\S+)\s/;
+const PRINTED_URL_PATTERN = /Agent Tycoon server running at (\S+)\s/;
 
 /**
  * Wait for the URL line the CLI prints on its own stdout, and hand back exactly
@@ -296,7 +297,7 @@ export async function launchStandalone(
     fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-standalone-e2e-workspace-'));
   fs.mkdirSync(tmpHome, { recursive: true });
   fs.mkdirSync(workspaceDir, { recursive: true });
-  // Consent baseline, mirroring the VS Code launch helper: without it the CLI
+  // Consent baseline: without it the CLI
   // asks over the tokened /ws handshake and the in-app dialog covers the
   // office in every spec. Only when the file does not exist yet — a shared
   // HOME (multi-server) was already seeded by the surface that owns it.
@@ -344,9 +345,9 @@ export async function launchStandalone(
   try {
     await page.setViewportSize(options.viewport ?? { width: 1280, height: 800 });
     // Mark this as the e2e harness before navigation so the standalone webview
-    // installs its test-only observability hooks (window.__pixelAgentsTestHooks).
+    // installs its test-only observability hooks (window.__agentTycoonTestHooks).
     await page.addInitScript(() => {
-      (window as unknown as { __PIXEL_AGENTS_E2E?: boolean }).__PIXEL_AGENTS_E2E = true;
+      (window as unknown as { __AGENT_TYCOON_E2E?: boolean }).__AGENT_TYCOON_E2E = true;
     });
     await page.context().addInitScript(() => {
       try {

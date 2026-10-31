@@ -167,6 +167,14 @@ describe('ids: only an exact MCP Task id links', () => {
   });
 });
 
+describe('parseProgress line endings', () => {
+  it('a CRLF checklist (Windows editors) parses to the same items as LF', () => {
+    const lf = '- [x] one T-1\n* [ ] two\n## DONE\n';
+    expect(parseProgress(lf.replace(/\n/g, '\r\n'))).toEqual(parseProgress(lf));
+    expect(parseProgress(lf)).toMatchObject({ lines: [{ mark: 'x' }, { mark: ' ' }], hasDone: true });
+  });
+});
+
 describe('privacy: titles only, masked, 200 characters', () => {
   it('masks secrets, folds whitespace and cuts', () => {
     expect(titleOf('deploy with password=hunter2 and token: abcd1234')).not.toMatch(/hunter2|abcd1234/);

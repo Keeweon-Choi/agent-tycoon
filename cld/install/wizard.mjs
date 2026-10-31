@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { sha256File, verifySums } from '../release/bundle/verify.mjs';
-import { headless, install, open, realDeps, START_POLICIES } from './manager.mjs';
+import { headless, install, open, realDeps, START_POLICIES, winEnvCommand, winEnvValue } from './manager.mjs';
 import { lang, TEXT } from './wizardText.mjs';
 
 const require = createRequire(import.meta.url);
@@ -170,7 +170,8 @@ async function placeApp(file, name, tmp, ctx) {
   }
   let exe = file; // NSIS; from WSL it runs on the Windows side, from a Windows folder
   if (ctx.platform === 'wsl') {
-    const winTemp = (await execFile('cmd.exe', ['/d', '/c', 'echo %TEMP%'], { cwd: '/mnt/c' })).stdout.trim();
+    const [pwsh, ...pwshArgs] = winEnvCommand('TEMP');
+    const winTemp = winEnvValue((await execFile(pwsh, pwshArgs, { cwd: '/mnt/c' })).stdout);
     exe = path.join((await execFile('wslpath', ['-u', winTemp])).stdout.trim(), name);
     await fs.copyFile(file, exe);
   }

@@ -111,7 +111,7 @@ describe('slash catalogue', () => {
     expect(slashRefusal(list, `/compact ${'x'.repeat(500)}`)?.error).toBe(
       '/ 명령은 500자까지만 보낼 수 있어요',
     );
-    expect(slashRefusal(list, '/model')?.error).toBe('/model에는 <모델>을(를) 함께 적어야 해요');
+    expect(slashRefusal(list, '/model')?.error).toBe('/model에는 <모델>을 함께 적어야 해요');
     expect(slashRefusal(list, '/compact 요약')).toBeNull();
   });
 });

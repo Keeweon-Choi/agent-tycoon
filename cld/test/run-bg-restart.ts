@@ -110,7 +110,7 @@ async function main() {
     start();
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     await ctx.addInitScript(
-      "globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true; try { localStorage.setItem('cld.office-hours', JSON.stringify({ on: false })) } catch {}",
+      "globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true; try { localStorage.setItem('cld.office-hours', JSON.stringify({ on: false })) } catch {}",
     );
     const page = await ctx.newPage();
     const pageErrors: string[] = [];

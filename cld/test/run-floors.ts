@@ -93,7 +93,7 @@ const shiftRows = (r1: Rect, r2: Rect) => {
 async function tilePoint(page: Page, col: number, row: number) {
   return page.evaluate(
     ({ col, row }) =>
-      (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks.getTileCenter(
+      (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks.getTileCenter(
         col,
         row,
       ),
@@ -111,7 +111,7 @@ async function probe(page: Page, rows: number[], cols: number[]) {
   });
   return page.evaluate(
     ({ rows, cols }) => {
-      const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+      const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
       const canvas = document.querySelector('[data-testid="office-canvas"]') as HTMLCanvasElement;
       const r = canvas.getBoundingClientRect();
       const ctx = canvas.getContext('2d')!;
@@ -220,11 +220,11 @@ async function main() {
     // Upstream's e2e flag: canvas geometry (getTileCenter), nothing that drives the app.
     await ctx.addInitScript(() => {
       const w = window as unknown as {
-        __PIXEL_AGENTS_E2E: boolean;
+        __AGENT_TYCOON_E2E: boolean;
         __name: (f: unknown) => unknown;
       };
       w.__name = (f) => f; // tsx keeps function names with an __name() helper the page lacks
-      w.__PIXEL_AGENTS_E2E = true;
+      w.__AGENT_TYCOON_E2E = true;
     });
     if (view === 'one')
       await ctx.addInitScript(() => {
@@ -490,7 +490,7 @@ async function main() {
     // is the 24 world px above the feet.
     const box = (await label(page, 'alpha').first().boundingBox())!;
     const scale = await page.evaluate(() => {
-      const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+      const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
       return (h.getTileCenter(1, 0)!.x - h.getTileCenter(0, 0)!.x) / 16;
     });
     const from = { x: box.x + box.width / 2, y: box.y + 34 + 20 * scale };
@@ -541,9 +541,9 @@ async function main() {
     };
     console.log(
       `after the restart: ${JSON.stringify(reloaded)} (floor 2 is ${f2}); eta: ${JSON.stringify(
-        await page.evaluate(`window.__pixelAgentsTestHooks.getCharacterTile(${agentId('eta')})`),
+        await page.evaluate(`window.__agentTycoonTestHooks.getCharacterTile(${agentId('eta')})`),
       )}; alpha: ${JSON.stringify(
-        await page.evaluate(`window.__pixelAgentsTestHooks.getCharacterTile(${agentId('alpha')})`),
+        await page.evaluate(`window.__agentTycoonTestHooks.getCharacterTile(${agentId('alpha')})`),
       )}; floors ${JSON.stringify(([...received].reverse().find((m) => m.type === 'layoutLoaded') as { layout: { cldFloors?: unknown } } | undefined)?.layout.cldFloors)}`,
     );
     check(
@@ -644,8 +644,8 @@ async function main() {
               `.cld-elevator [data-floor-id="${floorId}"][aria-current="true"]`,
             )
           ) {
-            const h = (window as unknown as { __pixelAgentsTestHooks: Hooks })
-              .__pixelAgentsTestHooks;
+            const h = (window as unknown as { __agentTycoonTestHooks: Hooks })
+              .__agentTycoonTestHooks;
             w.__glide.push(h.getTileCenter(5, row)!.y);
           }
           if (performance.now() - start < 1000) requestAnimationFrame(tick);
@@ -778,8 +778,8 @@ async function main() {
     const stats = () =>
       phone.evaluate(() =>
         (
-          window as unknown as { __pixelAgentsTestHooks: Hooks }
-        ).__pixelAgentsTestHooks.getOtherFloorStats(),
+          window as unknown as { __agentTycoonTestHooks: Hooks }
+        ).__agentTycoonTestHooks.getOtherFloorStats(),
       );
     const beforePerf = await stats();
     const fpsAll = await countRaf(phone, 3000);

@@ -798,13 +798,13 @@ async function main() {
     );
     await shot(page, 'desktop-hover');
 
-    // U-15: Lv, 환생 and the XP bar are on the label's details, and the observed work counts.
+    // U-15: the rank, 환생 and Lv (data attributes) are on the summary; the XP numbers are in the detail view. The observed work counts.
     const lv = overlay(page, testId).getByTestId('level');
     await lv.waitFor({ timeout: 5_000 });
     const lvText = (await lv.textContent()) ?? '';
     check(
-      /^Lv 1 · 환생 0회/.test(lvText) && /다음 레벨까지 \d+/.test(lvText),
-      `desktop: test's details read "${lvText}"`,
+      (await lv.getAttribute('data-level')) === '1' && /환생 0회/.test(lvText),
+      `desktop: test's summary reads "${lvText}" (Lv ${await lv.getAttribute('data-level')})`,
     );
     check(
       Number(await lv.getAttribute('data-xp')) > 0,
@@ -951,22 +951,21 @@ async function main() {
       20_000,
     );
     check(true, 'the daemon counted the renew as one 환생 of sleeper');
-    // U-10: an off orchestrator's label offers its info (name, state, level, recent activity).
+    // U-10 + STAT-2: an off orchestrator's stats view (from its menu) carries its info: state, level, provider.
     const sleeperId = await idOf(page, 'sleeper');
     await page.locator(`[data-testid="agent-card"][data-agent-id="${sleeperId}"]`).click();
-    const openInfo = overlay(page, sleeperId).getByTestId('off-duty-open');
-    await openInfo.waitFor({ timeout: 10_000 });
-    await openInfo.click();
-    const sheet = page.getByTestId('off-duty-sheet');
+    await page.getByRole('menuitem', { name: '스탯' }).click({ timeout: 10_000 });
+    const sheet = page.getByTestId('stat-detail');
     await sheet.waitFor({ timeout: 5_000 });
+    if ((await sheet.getByTestId('stat-list').count()) === 0) await sheet.getByTestId('stat-toggle').click();
     const sheetText = (await sheet.textContent()) ?? '';
     check(
-      sheetText.includes('꺼져 있어요') && sheetText.includes('환생 1회') && sheetText.includes('엔진'),
-      `desktop: sleeper's info sheet reads state, level and provider (${sheetText.slice(0, 90)})`,
+      sheetText.includes('꺼져 있어요') && /환생\s*1회/.test(sheetText) && sheetText.includes('엔진'),
+      `desktop: sleeper's stats read state, level and provider (${sheetText.slice(0, 90)})`,
     );
     check(
-      (await sheet.getByTestId('off-duty-chat').count()) === 0,
-      'desktop: with chat off the sheet offers no chat button',
+      (await sheet.getByRole('button', { name: '대화 열기' }).count()) === 0,
+      'desktop: with chat off the stats offer no chat button',
     );
     await page.screenshot({ path: path.join(UI_OUT, 'desktop-off-sheet.png') });
     await page.getByRole('button', { name: 'x', exact: true }).click();

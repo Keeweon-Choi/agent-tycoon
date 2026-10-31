@@ -3,12 +3,14 @@ import * as path from 'node:path';
 
 import type { ProjectFilePreview } from '../../../../core/src/cld/projectFiles.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
+import { VIDEO_ATTACH_MAX } from './attachments.js';
 import { sensitiveFile } from './denylist.js';
 import { blockedBelow, FileAccessError, relativeInside, resolveInside } from './roots.js';
 
 export const PREVIEW_BYTES = 256 * 1024;
 export const DOWNLOAD_BYTES = 50 * 1024 * 1024;
 
+const video = new Set(['.mp4', '.m4v', '.mov', '.webm']);
 const image = new Set(['.png', '.jpg', '.jpeg', '.jfif', '.jpe', '.gif', '.webp', '.svg']);
 const code = new Set([
   '.txt',
@@ -46,8 +48,13 @@ export function previewKind(file: string): PreviewKind {
   if (ext === '.json') return 'json';
   if (ext === '.pdf') return 'pdf';
   if (ext === '.html' || ext === '.htm') return 'html';
+  if (video.has(ext)) return 'video';
   return 'download';
 }
+
+/** The largest file a ticket serves: a video's own limit, 50 MB for the rest. */
+const contentLimit = (kind: PreviewKind): number =>
+  kind === 'video' ? VIDEO_ATTACH_MAX : DOWNLOAD_BYTES;
 
 export function fileForContent(
   root: string,
@@ -59,19 +66,25 @@ export function fileForContent(
     throw new FileAccessError(koText('sensitive_blocked'));
   const stat = fs.statSync(real);
   if (!stat.isFile()) throw new FileAccessError(koText('not_a_file'), 400);
-  if (stat.size > DOWNLOAD_BYTES) throw new FileAccessError(koText('file_over_50'), 413);
-  return { real, size: stat.size, kind: previewKind(relative) };
+  const kind = previewKind(relative);
+  if (stat.size > contentLimit(kind)) throw new FileAccessError(koText('file_over_50'), 413);
+  return { real, size: stat.size, kind };
 }
 
 /** Keep the checked inode open while streaming, and close a replacement race:
  * on Linux the opened descriptor's own path is checked again; elsewhere (no
  * /proc) the checked path must still have no link in it and be the opened file. */
-export function openContent(root: string, relative: string, allowSensitive: boolean) {
+export function openContent(
+  root: string,
+  relative: string,
+  allowSensitive: boolean,
+  flags: 'r' | 'r+' = 'r',
+) {
   const file = fileForContent(root, relative, allowSensitive);
-  const fd = fs.openSync(file.real, 'r');
+  const fd = fs.openSync(file.real, flags);
   try {
     const stat = fs.fstatSync(fd);
-    if (!stat.isFile() || stat.size > DOWNLOAD_BYTES)
+    if (!stat.isFile() || stat.size > contentLimit(file.kind))
       throw new FileAccessError(koText('file_unreadable'));
     if (process.platform === 'linux') {
       const opened = fs.realpathSync(`/proc/self/fd/${fd}`);
@@ -112,7 +125,7 @@ export function previewFile(
 ): ProjectFilePreview {
   const { real, fd, size, kind } = openContent(root, relative, allowSensitive);
   try {
-    if (kind === 'download') throw new FileAccessError(koText('preview_not_supported'), 415);
+    if (kind === 'download' || kind === 'video') throw new FileAccessError(koText('preview_not_supported'), 415);
     const result: ProjectFilePreview = {
       path: relativeInside(root, real),
       kind,
@@ -144,6 +157,10 @@ export function mimeType(file: string): string {
         '.webp': 'image/webp',
         '.svg': 'image/svg+xml',
         '.pdf': 'application/pdf',
+        '.mp4': 'video/mp4',
+        '.m4v': 'video/mp4',
+        '.mov': 'video/quicktime',
+        '.webm': 'video/webm',
         '.html': 'text/html; charset=utf-8',
         '.htm': 'text/html; charset=utf-8',
       } as Record<string, string>

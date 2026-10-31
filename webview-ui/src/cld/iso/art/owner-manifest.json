@@ -65,7 +65,7 @@
       ],
       "anchor": [
         288,
-        849
+        1037
       ],
       "faces": "+row",
       "from": "retro elevator wall"
@@ -88,20 +88,20 @@
       "file": "o-wall-entrance-a.png",
       "density": 12,
       "footprint": [
-        10,
+        13,
         1
       ],
       "anchor": [
-        960,
-        1152
+        1248,
+        1474
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 10,
+        "n": 13,
         "start": [
           0,
-          672
+          850
         ],
         "role": "entrance"
       },
@@ -344,7 +344,7 @@
       ],
       "anchor": [
         288,
-        861
+        1051
       ],
       "faces": "+row",
       "from": "elevator wall (call button on the left)"
@@ -353,20 +353,20 @@
       "file": "o-wall-window-single.png",
       "density": 12,
       "footprint": [
-        7,
+        8,
         1
       ],
       "anchor": [
-        672,
-        1016
+        768,
+        1250
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 7,
+        "n": 8,
         "start": [
           0,
-          680
+          866
         ],
         "role": "window"
       },
@@ -410,20 +410,20 @@
       "file": "o-wall-door-tall.png",
       "density": 12,
       "footprint": [
-        4,
+        6,
         1
       ],
       "anchor": [
-        384,
-        879
+        576,
+        1151
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 4,
+        "n": 6,
         "start": [
           0,
-          687
+          863
         ],
         "role": "door"
       },
@@ -433,20 +433,20 @@
       "file": "o-wall-window-wide.png",
       "density": 12,
       "footprint": [
-        14,
+        18,
         1
       ],
       "anchor": [
-        1344,
-        1363
+        1728,
+        1739
       ],
       "faces": "+row",
       "wall": {
         "along": "col",
-        "n": 14,
+        "n": 18,
         "start": [
           0,
-          691
+          875
         ],
         "role": "window"
       },
@@ -461,7 +461,7 @@
       ],
       "anchor": [
         96,
-        719
+        911
       ],
       "faces": "none",
       "from": "cream wall corner"
@@ -475,7 +475,7 @@
       ],
       "anchor": [
         288,
-        869
+        1059
       ],
       "faces": "+row",
       "from": "elevator wall (mirrored to run down to the right; draw it flipped)"
@@ -502,20 +502,20 @@
       "file": "o-wall-plain.png",
       "density": 12,
       "footprint": [
-        7,
+        8,
         1
       ],
       "anchor": [
-        672,
-        1016
+        768,
+        1250
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 7,
+        "n": 8,
         "start": [
           0,
-          680
+          866
         ],
         "role": "plain"
       },
@@ -525,20 +525,20 @@
       "file": "o-wall-window.png",
       "density": 12,
       "footprint": [
-        13,
+        16,
         1
       ],
       "anchor": [
-        1248,
-        1287
+        1536,
+        1609
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 13,
+        "n": 16,
         "start": [
           0,
-          663
+          841
         ],
         "role": "window"
       },
@@ -548,20 +548,20 @@
       "file": "o-wall-plain-b.png",
       "density": 12,
       "footprint": [
-        7,
+        9,
         1
       ],
       "anchor": [
-        672,
-        1021
+        864,
+        1298
       ],
       "faces": "+row",
       "wall": {
         "along": "col",
-        "n": 7,
+        "n": 9,
         "start": [
           0,
-          685
+          866
         ],
         "role": "plain"
       },
@@ -585,20 +585,20 @@
       "file": "o-wall-door.png",
       "density": 12,
       "footprint": [
-        7,
+        9,
         1
       ],
       "anchor": [
-        672,
-        1021
+        864,
+        1299
       ],
       "faces": "+row",
       "wall": {
         "along": "col",
-        "n": 7,
+        "n": 9,
         "start": [
           0,
-          685
+          867
         ],
         "role": "door"
       },
@@ -675,20 +675,20 @@
       "file": "o-wall-entrance-b.png",
       "density": 12,
       "footprint": [
-        9,
+        12,
         1
       ],
       "anchor": [
-        864,
-        1098
+        1152,
+        1417
       ],
       "faces": "+row",
       "wall": {
         "along": "row",
-        "n": 9,
+        "n": 12,
         "start": [
           0,
-          666
+          841
         ],
         "role": "entrance"
       },
@@ -812,7 +812,7 @@
       ],
       "anchor": [
         288,
-        869
+        1059
       ],
       "faces": "+row",
       "from": "derived from the owner's elevator wall: the doors slid open on the car"

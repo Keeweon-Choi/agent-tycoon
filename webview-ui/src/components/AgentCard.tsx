@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react';
 
-import { CARD_BAR_CARD_WIDTH_PX } from '../constants.js';
+import {
+  CARD_BAR_CARD_WIDTH_PX,
+  MOBILE_ROSTER_CARD_WIDTH_PX,
+  MOBILE_ROSTER_FACE_PX,
+} from '../constants.js';
 import type { CardVariant } from './cardBar.js';
 import { CharacterMugShot } from './CharacterMugShot.js';
 import { Button } from './ui/Button.js';
@@ -50,6 +54,8 @@ interface AgentCardProps {
   compact?: boolean;
   /** Beside the dot on a compact card (퇴근, 야근). */
   statusNote?: ReactNode;
+  /** The phone's full roster card: a centered, more prominent orchestrator face. */
+  mobileExpanded?: boolean;
   /** cld-gui (CH-4): right-click (desktop card) opens 꾸미기. */
   onCustomize?: (agentId: number) => void;
   /** The desktop bar's card (owner 10-24): a fixed width and bigger text; the face keeps its size. */
@@ -71,6 +77,7 @@ export function AgentCard({
   extra,
   compact = false,
   statusNote,
+  mobileExpanded = false,
   onCustomize,
   large = false,
 }: AgentCardProps) {
@@ -115,6 +122,47 @@ export function AgentCard({
             ×
           </Button>
         )}
+      </div>
+    );
+  if (mobileExpanded)
+    return (
+      <div
+        className={`pointer-events-auto relative flex flex-col items-center justify-center gap-4 px-6 py-4 cursor-pointer border-2 shrink-0 ${CARD_VARIANT[variant]}`}
+        style={{ width: MOBILE_ROSTER_CARD_WIDTH_PX }}
+        onClick={() => onSelect(agentId)}
+        title={name ?? `Agent ${agentId}`}
+        data-testid="agent-card"
+        data-agent-id={agentId}
+        data-mobile-expanded
+      >
+        <CharacterMugShot
+          palette={appearance.palette}
+          hueShift={appearance.hueShift}
+          size={MOBILE_ROSTER_FACE_PX}
+        />
+        {showClose && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose(agentId);
+            }}
+            title="Close agent"
+            className="absolute right-2 top-2 leading-none"
+          >
+            ×
+          </Button>
+        )}
+        {name !== undefined && (
+          <span className="w-full truncate text-center text-[length:calc(10px*var(--ui-scale))] leading-tight" data-testid="card-name">
+            {name}
+          </span>
+        )}
+        <div className="flex items-center justify-center gap-4 min-w-0 whitespace-nowrap [&_[data-testid=temp-chip]]:w-auto!">
+          <span className={`size-6 shrink-0 ${status ? STATUS_DOT[status] : ''}`} />
+          {extra}
+        </div>
       </div>
     );
   return (

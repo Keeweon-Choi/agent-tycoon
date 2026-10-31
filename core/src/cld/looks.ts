@@ -12,6 +12,10 @@ import type {
   MascotSpecies,
 } from '../messages.js';
 
+/** OWNER-AVATAR: the look key the owner keeps for themself (the lobby's counter, their office
+ *  character); the daemon accepts it like a character's name. */
+export const OWNER_LOOK_KEY = 'owner';
+
 /** A v1 palette look as it is; a v2 humanoid on its \`base\` sheet with its \`hue\` (the webview
  *  draws its colours and accessories, CH-5); null for anything else (a preset is drawn from its sheet; a
  *  mascot, until CH-3, as the character's own palette): never an invisible sheet. */
@@ -55,7 +59,7 @@ export function mascotOfProvider(provider: string | null | undefined): MascotSpe
   return provider === 'claude' ? 'coral' : provider === 'codex' ? 'byte' : 'tori';
 }
 
-/* eslint-disable pixel-agents/no-inline-colors -- stored look colours: data, not UI styling */
+/* eslint-disable agent-tycoon/no-inline-colors -- stored look colours: data, not UI styling */
 /** The fixed body colours per species (§5.4, `chosen-variants.png`): the first is the default; a
  *  new name gets the least used one among the same species' looks. */
 export const MASCOT_COLORS: Readonly<Record<MascotSpecies, readonly string[]>> = {
@@ -96,7 +100,7 @@ export const HUMANOID_SWATCHES = {
     '#7f5539',
   ],
 } as const;
-/* eslint-enable pixel-agents/no-inline-colors */
+/* eslint-enable agent-tycoon/no-inline-colors */
 
 /** The swatches a part picks from. */
 export const swatchesOf = (part: keyof CharacterColors): readonly string[] =>

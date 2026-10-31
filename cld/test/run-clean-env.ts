@@ -181,8 +181,8 @@ async function main() {
     );
     const usage1 = received.filter((m) => m.type === 'usageState');
     check(
-      usage1.length > 0 && usage1.every((m) => m.claude === null && m.codex === null),
-      'usageState says unknown (claude null, codex null), nothing invented',
+      usage1.length > 0 && usage1.every((m) => m.providers.every((p) => p.windows.length === 0)),
+      'usageState says unknown (no windows), nothing invented',
     );
     const engine = [...received].reverse().find((m) => m.type === 'engineState') as
       { agentChoices?: { claude?: unknown; codex?: unknown } } | undefined;
@@ -212,7 +212,10 @@ async function main() {
       await openWorkbenchTab(page, tab);
       await page.waitForTimeout(700);
       const text = (await bench.innerText()).trim();
-      check(text.length > 0, `작업실 tab ${tab} renders (${text.slice(0, 40).replace(/\n/g, ' ')}…)`);
+      check(
+        text.length > 0,
+        `작업실 tab ${tab} renders (${text.slice(0, 40).replace(/\n/g, ' ')}…)`,
+      );
     }
     await bench.getByRole('button', { name: /닫기/ }).first().click();
 

@@ -271,6 +271,24 @@ export function fillZoom(view: Size, box: Size, step = 1): number {
   return Math.max(fit, near <= ZOOM_MAX ? near : clampZoom(Math.round(cover)));
 }
 
+/** One candidate framing target and its whole-pixel zoom. */
+export interface InitialCameraFitTarget<B = Box> {
+  box: B;
+  zoom: number;
+}
+
+/** The first camera framing: phones prefer the current floor, while desktop retains its view.
+ * A manually stored zoom always wins over either automatic fit. */
+export function initialCameraFit<B = Box>(input: {
+  phone: boolean;
+  desktop: InitialCameraFitTarget<B>;
+  phoneTarget: InitialCameraFitTarget<B>;
+  storedZoom?: number | null;
+}): InitialCameraFitTarget<B> & { phoneTarget: boolean } {
+  const fit = input.phone ? input.phoneTarget : input.desktop;
+  return { ...fit, phoneTarget: input.phone, zoom: input.storedZoom ?? fit.zoom };
+}
+
 /** The pan that frames `box` (world px) in `view` (device px of a `canvas`) at `zoom`: on an
  *  axis where the box fits it is centred; where it does not, `focus` (world px, the box's
  *  centre by default) is centred, but no further than keeps the box covering the view. */

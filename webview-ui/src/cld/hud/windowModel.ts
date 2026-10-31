@@ -44,7 +44,8 @@ export type Tab =
   | 'files'
   | 'notices'
   | 'terminal'
-  | 'looks';
+  | 'looks'
+  | 'devroom';
 
 /** The PC's icons: a window each, 파일 being the 현황판 window on its 파일 tab. */
 export type Icon = Exclude<WindowId, 'looks'> | 'files';

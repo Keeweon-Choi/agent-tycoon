@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 
+import { openChangelog } from '../changelogOpen.js';
 import { Button } from '../components/ui/Button.js';
 import { Modal } from '../components/ui/Modal.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -14,11 +15,11 @@ import { rankSprite } from './ez/rankSprites.js';
 import { nameplatesOn, setNameplates } from './ez/useNameplates.js';
 import { setStackedView, useFloors } from './floors.js';
 import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
+import { BackgroundOptions } from './gfx/BackgroundOption.js';
 import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
 import { applyLayoutPreset, resetLayout } from './hud/hudStore.js';
 import { type Preset, PRESETS } from './hud/layout.js';
 import { IsoOption } from './iso/IsoOption.js';
-import { Office25dOption } from './office25d/Office25dOption.js';
 import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHours.js';
 import { panelAvailable, useCldStore } from './officeStore.js';
 import { OwnerPictureOption } from './OwnerPictureOption.js';
@@ -359,6 +360,7 @@ function LayoutPresets() {
     'workbench',
     ...(store.officeSnapshot?.chat ? ['messenger'] : []),
     'notices',
+    'devroom',
     ...(panelAvailable('terminal', store) ? ['terminal'] : []),
     'files',
   ];
@@ -564,8 +566,17 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
               ))}
             </div>
           </SettingRow>
-          <OwnerPictureOption />
+          <OwnerPictureOption onPickLook={() => setOpen(false)} />
           <OfficeHoursOptions />
+          <SettingRow
+            testId="changelog-option"
+            title={t('changelog.settingsTitle')}
+            help={t('changelog.settingsHelp')}
+          >
+            <Button size="sm" onClick={() => openChangelog()}>
+              {t('changelog.open')}
+            </Button>
+          </SettingRow>
         </div>
         <div
           role="tabpanel"
@@ -613,7 +624,7 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
             </div>
           </SettingRow>
           <BackdropOptions />
-          <Office25dOption />
+          <BackgroundOptions />
           <IsoOption />
           <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
             <Button

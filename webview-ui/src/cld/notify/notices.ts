@@ -14,6 +14,7 @@ import { useSyncExternalStore } from 'react';
 
 import {
   CAUSE_TEXT,
+  doingTaskTitle,
   KIND_OF,
   type NoticeCause,
   type NoticeKind,
@@ -21,9 +22,11 @@ import {
   noticeTarget,
   noticeVerdict,
   parseNoticeUrl,
+  turnEndText,
 } from '../../../../core/src/cld/notices.js';
+import { koText } from '../../../../core/src/cld/serverText.js';
 import { NOTICE_COOLDOWN_MS } from '../../../../core/src/constants.js';
-import type { OfficeEvent, PushState } from '../../../../core/src/messages.js';
+import type { OfficeEvent, PreviewOpen, PushState } from '../../../../core/src/messages.js';
 import {
   NOTICE_DEFAULT_VOLUME,
   NOTICE_FEED_REPLAY_MS,
@@ -40,8 +43,10 @@ import {
 } from '../../notificationSound.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
 import { chatOpenFor } from '../chat.js';
+import { canPreviewHere } from '../devroom/previewHost.js';
 import { employeeName } from '../employees.js';
 import { engineGetSnapshot } from '../engineStore.js';
+import { lastWorkOf } from '../ez/visuals.js';
 import { type CharacterKind, characterKind, characterName } from '../kinds.js';
 import {
   type LeadReply,
@@ -412,11 +417,18 @@ export function cldNotice(
   if (!officeState || !office) return false;
   if (!ch) return true;
   const name = characterName(ch, officeState, codexTasks);
+  const turnLine = () =>
+    serverLine(
+      turnEndText({
+        task: doingTaskTitle(cldGetSnapshot().taskBoard?.tasks ?? [], name),
+        doing: lastWorkOf(id),
+      }),
+    );
   // ROOM-NOTICE: the server says this lead's newest turn answers a room post: its end is that
   // member's notice in the room (a text reply, when it wrote one, replaces this short line).
   const room = cause === 'turnEnd' ? turnRoomOf(id) : null;
   if (room) {
-    roomDeliver('turnEnd', id, name, serverLine(CAUSE_TEXT.turnEnd), characterKind(ch, officeState, codexTasks), now, room);
+    roomDeliver('turnEnd', id, name, turnLine(), characterKind(ch, officeState, codexTasks), now, room);
     return true;
   }
   const kind = characterKind(ch, officeState, codexTasks);
@@ -425,7 +437,9 @@ export function cldNotice(
     kind === 'orchestrator' && !!engineGetSnapshot().state?.projects.some((p) => p.name === name && p.role);
   const text = asker
     ? t('permPrompt.noticeSub', { name: employeeName({ nameId: asker }) })
-    : serverLine(CAUSE_TEXT[cause]);
+    : cause === 'turnEnd'
+      ? turnLine()
+      : serverLine(CAUSE_TEXT[cause]);
   deliver(cause, id, name, text, worker ? 'worker' : kind, now);
   return true;
 }
@@ -463,17 +477,8 @@ export function cldNoticeEvent(ev: OfficeEvent, now = Date.now()): void {
     return;
   }
   if (ev.kind === 'usage_reset_early') {
-    const provider = ev.provider === 'codex' ? 'codex' : 'claude';
-    const period = ev.period === 'sevenDay' ? 'sevenDay' : 'fiveHour';
-    const text =
-      provider === 'codex'
-        ? period === 'sevenDay'
-          ? t('usage.codexSevenDayEarlyReset')
-          : t('usage.codexFiveHourEarlyReset')
-        : period === 'sevenDay'
-          ? t('usage.claudeSevenDayEarlyReset')
-          : t('usage.claudeFiveHourEarlyReset');
-    deliver('job', null, provider === 'codex' ? 'Codex' : 'Claude', text, 'orchestrator', now, {
+    const text = t(ev.period === '7d' ? 'usage.earlyReset7d' : 'usage.earlyReset5h');
+    deliver('job', null, ev.providerName ?? ev.provider ?? '', text, 'orchestrator', now, {
       open: 'office',
     });
     return;
@@ -489,6 +494,26 @@ export function cldNoticeEvent(ev: OfficeEvent, now = Date.now()): void {
         : ({ open: 'agent', agentId } as const)
       : noticeTarget({ cause: 'job', agentId, event: { kind: ev.kind, ref: ev.ref } });
   deliver('job', agentId, ev.name ?? t('notice.jobName'), serverLine(ev.summary), 'orchestrator', now, target);
+}
+
+/**
+ * P4 S6: a phone asked the PC for a preview (previewOpen goes to every screen): only the screen that
+ * can show it makes a notice, an ask like a question (its toast opens the 미리보기). Each ask counts.
+ */
+export function cldPreviewOpen(msg: PreviewOpen, now = Date.now()): void {
+  if (!canPreviewHere() || snapshot.settings.kinds.attention === false) return;
+  const notice: Notice = {
+    id: `${now.toString(36)}-${++seq}`,
+    cause: 'question',
+    agentId: null,
+    name: msg.project,
+    text: serverLine(koText('preview_ask', { task: msg.task })),
+    at: now,
+    read: false,
+    target: { open: 'preview', project: msg.project, task: msg.task, ...(msg.url && { url: msg.url }) },
+  };
+  if (snapshot.settings.sound) void SOUND[KIND_OF[notice.cause]]();
+  set({ items: [notice, ...snapshot.items].slice(0, NOTICE_LIST_MAX), toast: notice });
 }
 
 /** A lead's new reply in the office messenger (T-0043) whose conversation is not on screen. */

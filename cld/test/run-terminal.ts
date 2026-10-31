@@ -53,11 +53,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { findTmux, Tmux } from '../../server/src/cld/shell/tmux.js';
 import {
   assertPortFree,
   daemonLoginUrl,
   type FakeHome,
+  FULL_CHROME,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
@@ -65,14 +67,13 @@ import {
   startDaemon as launchDaemon,
   waitForDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const offPort = sparePort(3);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0078');
 const CHROME =
   process.env.T0052_CHROME ??
-  path.join(os.homedir(), '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome');
+  FULL_CHROME;
 const DEADLINE_MS = 540_000;
 const MARKER = 'T0052-TYPED-MARKER';
 const TMUX_SOCKET = `cld-test-${randomBytes(6).toString('hex')}`;

@@ -14,7 +14,7 @@
  * insets: the same tree, ≥ 44 px tap targets, nothing in the inset strips. Two
  * transcripts get a tool call first (beta asks a question, delta reads), so every
  * filter has rows. Every statusView sent is saved; screenshots use Hangul from
- * malgun.ttf (read only). The top bar's usage strip (a fake claude-dashboard plugin)
+ * malgun.ttf (read only). The top bar's usage strip (testHome's fakeUsage)
  * folds to one line ("Claude 5h 42% · 7d 16% Codex 5h 35% · 7d 6%") and stays folded
  * across a reload, on both screens. A hard deadline and SIGINT/SIGTERM/SIGHUP kill
  * the server and the fake's sessions too.
@@ -29,6 +29,7 @@ import * as path from 'path';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
+  fakeUsage,
   hostHealth,
   killFakeSessions,
   launchBrowser,
@@ -194,23 +195,12 @@ async function main() {
       .map((e) => `${JSON.stringify({ v: 1, ...e })}\n`)
       .join(''),
   );
-  // The claude-dashboard plugin: the top bar's usage strip.
-  const plugin = path.join(
-    home,
-    '.claude/plugins/cache/claude-dashboard/claude-dashboard/9.9.9/dist/check-usage.js',
-  );
-  fs.mkdirSync(path.dirname(plugin), { recursive: true });
-  fs.writeFileSync(
-    plugin,
-    `const at = (h) => new Date(Date.now() + h * 3600_000).toISOString();
-console.log(JSON.stringify({
-  claude: { fiveHourPercent: 42, sevenDayPercent: 16, fiveHourReset: at(2), sevenDayReset: at(60) },
-  codex: { fiveHourPercent: 35, sevenDayPercent: 6, fiveHourReset: at(3), sevenDayReset: at(100) },
-}));\n`,
-  );
+  // The top bar's usage strip: a stand-in usage endpoint and a Codex log.
+  const usage = await fakeUsage(home, { fiveHour: 42, sevenDay: 16 }, { fiveHour: 35, sevenDay: 6 });
   const fake = { home, claudePath: path.join(bin, 'claude') };
   const daemon = startDaemon(fake, port, ['--engine', 'on', '--no-terminal', '--allow-actions'], {
     FAKE_TURN_MS: '600',
+    ...usage.env,
   });
   const { child: server, log: serverLog } = daemon;
   const loginUrl = daemon.loginUrl();

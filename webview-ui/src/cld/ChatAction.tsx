@@ -7,12 +7,22 @@ import { useCldStore } from './officeStore.js';
 /** 대화 (the character menu) / 대화 열기 (the status card): the lead's
  *  conversation in the office messenger (T-0043), whose header opens a
  *  background session's terminal. Nothing while chat is off. */
-export function ChatAction({ agentId, variant }: { agentId: number; variant: 'menu' | 'card' }) {
+export function ChatAction({
+  agentId,
+  variant,
+  onOpen,
+}: {
+  agentId: number;
+  variant: 'menu' | 'card';
+  /** Called as the chat opens (a modal that holds this button closes itself). */
+  onOpen?: () => void;
+}) {
   const { officeSnapshot: officeState } = useCldStore();
   if (!chatTarget(agentId, officeState)) return null;
   const open = (e: { stopPropagation: () => void }) => {
     e.stopPropagation();
     openMessenger(agentId);
+    onOpen?.();
   };
   if (variant === 'menu') {
     return (

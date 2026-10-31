@@ -162,6 +162,16 @@ describe('presets folder', () => {
     expect(presets.file('bunny.png')).toEqual(sample);
   });
 
+  it('CHAR-ISO-1: an imported isometric sheet with an 8th column (the walking neutral) is a preset; 9 columns are not', () => {
+    put('boss.png', png(288 * 8, 528 * 2));
+    put('boss.json', JSON.stringify({ label: 'Boss', columns: 'standFirst' }));
+    put('wide.png', png(288 * 9, 528 * 2));
+    presets.scan();
+    expect(last().presets.map((p) => [p.id, p.format, p.columns])).toEqual([
+      ['boss', 'iso', 'standFirst'],
+    ]);
+  });
+
   it('ignores anything else with one log line per file', () => {
     const bad = {
       'Bad Name.png': CHAR_0,
@@ -530,7 +540,7 @@ describe('SHEET-IMPORT routes', () => {
     expect(
       (await send('/cld/characters/import', { png: b64(generated(2)), attach: '../ok' })).json(),
     ).toMatchObject({ errorCode: 'sheet_import_attach' });
-  });
+  }, 30_000); // sheet decoding and two PNG writes: ~1 s alone, past 10 s when the gate loads the CPU (11-01)
 
   it('generates the stored filename when a label has path-looking text', async () => {
     const saved = await send('/cld/characters/import', {
@@ -545,7 +555,7 @@ describe('SHEET-IMPORT routes', () => {
   });
 });
 
-/* eslint-disable pixel-agents/no-inline-colors -- stored looks' colours are data here, not UI */
+/* eslint-disable agent-tycoon/no-inline-colors -- stored looks' colours are data here, not UI */
 describe('appearance v2 and the pin migration (CH-1)', () => {
   const store = () => path.join(config, 'characters.json');
   const registry = () => path.join(config, 'projects.json');
@@ -1379,7 +1389,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     for (const n of live) expect(runs[0][n]).toEqual([pinned[n].palette, pinned[n].hueShift]);
   });
 });
-/* eslint-enable pixel-agents/no-inline-colors */
+/* eslint-enable agent-tycoon/no-inline-colors */
 
 describe('CH-6 sheet checks: the daemon and the browser give the same answer', () => {
   /** CHAR_0 with `edit` applied to its pixels. */

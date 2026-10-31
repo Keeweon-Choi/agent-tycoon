@@ -222,7 +222,7 @@ async function main() {
   const browser = await launchBrowser({ officeHours: true });
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext({ ...opts, timezoneId: 'UTC' });
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__t0041/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,
@@ -293,9 +293,9 @@ async function main() {
         page.evaluate((id) => {
           (
             window as unknown as {
-              __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void };
+              __agentTycoonTestHooks: { selectAgent: (id: number | null) => void };
             }
-          ).__pixelAgentsTestHooks.selectAgent(id as number);
+          ).__agentTycoonTestHooks.selectAgent(id as number);
         }, id);
       const look = () =>
         page.$eval(
@@ -414,10 +414,11 @@ async function main() {
       return (await o.locator('[data-testid="agent-details"]').count()) > 0;
     });
     check(true, 'tapping the row selects the sub-agent (its details are up)');
-    const details = page.locator(`[data-testid="agent-details"]`).filter({ hasText: '직급: 인턴' });
+    // STAT-CARD: the summary says the rank chip only; the full model is in the 스탯 view.
+    const rankChip = page.locator(`[data-testid="agent-overlay"][data-agent-id="${subId}"] [data-testid="rank-text"]`);
     check(
-      (await details.count()) === 1 && (await details.textContent())?.includes('모델: Opus-4.5'),
-      'the selected temp stat card shows its rank and full model',
+      (await rankChip.count()) === 1 && ((await rankChip.textContent()) ?? '').includes('인턴'),
+      'the selected temp summary shows its rank',
     );
     await page.waitForTimeout(800);
     await shot(page, 'desktop-row-to-character');
@@ -534,28 +535,28 @@ async function main() {
     // U-10 + U-27: the card of the one off duty opens its info sheet and chat (LOUNGE: the camera
     // goes to the resting character as well).
     fs.mkdirSync(UI_OUT, { recursive: true });
-    const sheet = page.getByTestId('off-duty-sheet');
+    const sheet = page.getByTestId('stat-detail');
     await cardFor(page, 'veteran').click();
     await sheet.waitFor({ timeout: 5_000 });
     const sheetText = (await sheet.textContent()) ?? '';
     check(
       sheetText.includes('퇴근했어요') &&
         sheetText.includes('Lv 1') &&
-        sheetText.includes('환생 0회'),
+        /환생\s*0회/.test(sheetText),
       `a tap on the card of the veteran off duty opens its sheet (${sheetText.slice(0, 80)})`,
     );
     check(
-      (await sheet.getByTestId('off-duty-chat').count()) === 1,
+      (await sheet.getByRole('button', { name: '대화 열기' }).count()) === 1,
       'the sheet offers the chat (a message wakes a resting session through the messenger)',
     );
     await page.waitForTimeout(500);
-    await page.screenshot({ path: path.join(UI_OUT, 'desktop-off-duty-sheet.png') });
+    await page.screenshot({ path: path.join(UI_OUT, 'desktop-off-duty-stat.png') });
     await page.getByRole('button', { name: 'x', exact: true }).click();
     await sheet.waitFor({ state: 'detached' });
     await cardFor(page, 'veteran').click();
     await sheet.waitFor({ timeout: 5_000 });
     check(true, 'the card opens the sheet again');
-    await sheet.getByTestId('off-duty-chat').click();
+    await sheet.getByRole('button', { name: '대화 열기' }).click();
     await sheet.waitFor({ state: 'detached' });
     await page.getByRole('textbox', { name: '보낼 글' }).waitFor({ timeout: 10_000 });
     check(true, '대화 열기 opens the messenger on its conversation');

@@ -1,14 +1,10 @@
-import type { Frame, Locator, Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 import { narrate } from './test-narration';
 
-/**
- * Overlay helpers work the same against a VS Code webview iframe (Frame) and
- * a standalone browser page (Page). Both Playwright surfaces expose `locator`
- * with identical semantics for the queries used here.
- */
-type OverlaySurface = Frame | Page;
+/** Overlay helpers drive the standalone browser page. */
+type OverlaySurface = Page;
 
 const OVERLAY_TIMEOUT_MS = 15_000;
 
@@ -204,7 +200,7 @@ export async function expectCharacterGhosted(
             getCharacters?: () => Array<{ id: number; isHeadless?: boolean }>;
             getGhostHeadlessAgents?: () => boolean;
           }
-          const hooks = (window as { __pixelAgentsTestHooks?: GhostHooks }).__pixelAgentsTestHooks;
+          const hooks = (window as { __agentTycoonTestHooks?: GhostHooks }).__agentTycoonTestHooks;
           const characters = hooks?.getCharacters?.() ?? [];
           if (characters.length !== 1) return `expected 1 character, got ${characters.length}`;
           const setting = hooks?.getGhostHeadlessAgents?.() ?? false;
@@ -236,7 +232,7 @@ export async function expectTeammateSeatedNextToLead(
       getAgentSeats?: () => Array<{ id: number; seatId: string | null }>;
       getSeats?: () => Array<{ uid: string; col: number; row: number; assigned: boolean }>;
     }
-    const hooks = (window as { __pixelAgentsTestHooks?: SeatHooks }).__pixelAgentsTestHooks;
+    const hooks = (window as { __agentTycoonTestHooks?: SeatHooks }).__agentTycoonTestHooks;
     const characters = hooks?.getCharacters?.() ?? [];
     const agentSeats = hooks?.getAgentSeats?.() ?? [];
     const seats = hooks?.getSeats?.() ?? [];
@@ -267,7 +263,7 @@ export async function expectTeammateSeatedNextToLead(
  *  live activity text in its overlay (hover shows only the subtask title). */
 export async function selectCharacter(frame: OverlaySurface, agentId: number): Promise<void> {
   await frame.evaluate((id) => {
-    window.__pixelAgentsTestHooks?.selectAgent?.(id);
+    window.__agentTycoonTestHooks?.selectAgent?.(id);
   }, agentId);
 }
 
@@ -293,7 +289,7 @@ export async function closeAgentFromOverlay(
   // data-agent-id, so the text-based lookup path resolves an id too.
   const agentId = options.agentId ?? Number(await overlay.getAttribute('data-agent-id'));
   await frame.evaluate((id) => {
-    window.__pixelAgentsTestHooks?.selectAgent?.(id);
+    window.__agentTycoonTestHooks?.selectAgent?.(id);
   }, agentId);
 
   const closeButton = overlay.locator('button[title="Close agent"]');

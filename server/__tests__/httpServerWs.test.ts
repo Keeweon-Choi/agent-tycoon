@@ -15,7 +15,7 @@ vi.mock('os', async () => {
   return { ...actual, homedir: () => tmpBase };
 });
 
-const { PixelAgentsServer } = await import('../src/server.js');
+const { AgentTycoonServer } = await import('../src/server.js');
 const { AgentStateStore } = await import('../src/agentStateStore.js');
 const { grantHooksConsent } = await import('../src/configPersistence.js');
 
@@ -100,13 +100,13 @@ function readHooksConsent(): boolean {
 }
 
 describe('/ws connection gate', () => {
-  let server: InstanceType<typeof PixelAgentsServer>;
+  let server: InstanceType<typeof AgentTycoonServer>;
   const sockets: WebSocket[] = [];
 
   beforeEach(() => {
     tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-ws-test-'));
     fs.mkdirSync(path.join(tmpBase, '.pixel-agents'), { recursive: true });
-    server = new PixelAgentsServer();
+    server = new AgentTycoonServer();
   });
 
   afterEach(() => {
@@ -253,7 +253,7 @@ describe('/ws connection gate', () => {
 // T-0002 / ADR-0009: standalone has no ?token= privilege tier and hooks are
 // disabled there; src/cld/standaloneSecurity.test.ts covers the replacement.
 describe.skip('/ws privileged-message gate', () => {
-  let server: InstanceType<typeof PixelAgentsServer>;
+  let server: InstanceType<typeof AgentTycoonServer>;
   const sockets: WebSocket[] = [];
   /** Values `onSetHooksEnabled` was invoked with — the install/uninstall seam. */
   let sideEffects: boolean[];
@@ -262,7 +262,7 @@ describe.skip('/ws privileged-message gate', () => {
     tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-ws-priv-'));
     fs.mkdirSync(path.join(tmpBase, '.pixel-agents'), { recursive: true });
     sideEffects = [];
-    server = new PixelAgentsServer();
+    server = new AgentTycoonServer();
   });
 
   afterEach(() => {

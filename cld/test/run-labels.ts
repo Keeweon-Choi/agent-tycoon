@@ -526,19 +526,40 @@ async function main() {
         throw err;
       });
       const detailName = await overlay.locator('[data-testid="agent-name"]').textContent();
-      const detailKind = await overlay.locator('[data-testid="agent-kind"]').textContent();
-      const details = await overlay.locator('[data-testid="agent-details"]').textContent();
+      const summary = (await overlay.locator('[data-testid="agent-details"]').textContent()) ?? '';
       check(
-        // TEMP-PLATES: a roster name, its task in the details, and the temporary-employee line.
+        // STAT-CARD: the summary is short: a roster name and what it does now, nothing about kind or lead.
         !!detailName &&
           !['fix login', 'write docs'].includes(detailName) &&
-          detailKind === '서브에이전트' &&
-          details?.includes('리더: lead') &&
-          /fix login|write docs/.test(details) &&
-          details.includes('임시 직원'),
-        `${label}: ${p === phone ? 'tapping' : 'hovering'} a sub-agent shows "${detailName}" (${detailKind}; ${details})`,
+          (await overlay.locator('[data-testid="activity-text"]').count()) === 1 &&
+          !summary.includes('리더'),
+        `${label}: ${p === phone ? 'tapping' : 'hovering'} a sub-agent shows the summary for "${detailName}" (${summary})`,
       );
       await shot(p, `${label}-${p === phone ? 'tap' : 'hover'}-subagent`);
+      // The 상세 view (menu of the selected character): kind, lead, task and the employee line.
+      if (p === page) {
+        const spot = await anchors(p).then((all) => all.find((a) => a.id === target.id) ?? target);
+        await p.mouse.click(spot.x - ICON.offsetX * z, spot.y + (ICON.rise - 10) * z);
+      }
+      await p.locator('[data-testid="stat-open"]').waitFor({ timeout: 10_000 });
+      await p.locator('[data-testid="stat-open"]')[p === phone ? 'tap' : 'click']();
+      const stat = p.locator('[data-testid="stat-detail"]');
+      await stat.waitFor({ timeout: 5_000 });
+      // The big tiles carry the numbers; kind, lead and task are in the full list behind 자세히.
+      if (!(await stat.locator('[data-testid="stat-list"]').count()))
+        await stat.locator('[data-testid="stat-toggle"]')[p === phone ? 'tap' : 'click']();
+      await stat.locator('[data-testid="stat-list"]').waitFor();
+      const detailText = (await stat.textContent()) ?? '';
+      check(
+        detailText.includes('서브에이전트') &&
+          detailText.includes('lead') &&
+          /fix login|write docs/.test(detailText) &&
+          detailText.includes('임시 직원'),
+        `${label}: the full detail list says kind, lead, task and the temporary-employee line (${detailText.slice(0, 160)})`,
+      );
+      await shot(p, `${label}-subagent-detail`);
+      await p.locator('[data-modal-title] button').click();
+      await stat.waitFor({ state: 'detached' });
       if (p === page) await p.mouse.move(5, 400);
 
       // 4. Cards: grouped by kind, each named. T-0041: temps have no card of

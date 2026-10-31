@@ -67,6 +67,7 @@ const FREE_WINDOWS: ReadonlySet<string> = new Set<WindowId>([
   'notices',
   'workbench',
   'looks',
+  'devroom',
 ]);
 export const windowIsFree = (id: string): boolean => FREE_WINDOWS.has(id);
 
@@ -298,7 +299,14 @@ export function snapResizeRect(
 
 // ── Defaults ──────────────────────────────────────────────────
 
-export type WindowId = 'office' | 'messenger' | 'notices' | 'terminal' | 'workbench' | 'looks';
+export type WindowId =
+  | 'office'
+  | 'messenger'
+  | 'notices'
+  | 'terminal'
+  | 'workbench'
+  | 'looks'
+  | 'devroom';
 /** Icon column: one icon (40 px at 보통) plus its gap, so a window opens beside it. */
 export const ICON_COLUMN_PX = 56;
 
@@ -309,6 +317,7 @@ const DEFAULT_WIDTH: Record<WindowId, number> = {
   terminal: 900,
   workbench: 560,
   looks: 480, // the pixel editor: a 192 px canvas and its 224 px tool column side by side
+  devroom: 1232, // P4 W1b: the worktree rail and the agents' terminals side by side
 };
 /** The 파일 tab is a two-pane explorer: it opens wide. */
 export const WIDE_OFFICE_WIDTH = 1050;
@@ -322,12 +331,13 @@ const CASCADE_ORDER: readonly WindowId[] = [
   'terminal',
   'workbench',
   'looks',
+  'devroom',
 ];
 
 /** Where a window opens before the user moved it: tall, against the right edge beside the icon column. */
 export function defaultWindowPlace(id: WindowId, bounds: Size, wide = false): Place {
   const want = id === 'office' && wide ? WIDE_OFFICE_WIDTH : DEFAULT_WIDTH[id];
-  const w = Math.min(want, Math.round(bounds.w * (wide || id === 'terminal' ? 0.85 : 0.7)));
+  const w = Math.min(want, Math.round(bounds.w * (wide || id === 'terminal' || id === 'devroom' ? 0.85 : 0.7)));
   const step = CASCADE_ORDER.indexOf(id) * CASCADE_PX;
   const dy = TOP_GAP_PX + step;
   return {
@@ -472,7 +482,7 @@ export function applyPreset(
 }
 
 /** Icons added after layouts were saved (owner 10-24: 파일). */
-export const NEW_ICONS: readonly string[] = ['files', 'workbench'];
+export const NEW_ICONS: readonly string[] = ['files', 'workbench', 'devroom'];
 
 /**
  * A saved 아래 가로 row predates `ids`: each missing one takes the next slot after the

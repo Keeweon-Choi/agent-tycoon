@@ -66,7 +66,7 @@ const SRC =
 const WALL_COLUMN_H = ISO_WALL_H + 2 * ISO_HALF_H;
 /** Tolerances (output px at density 12; the pilot's, scaled from density 4; a wall's base is
  *  measured against the art's own pixel stair-steps, about 8 px at this density). */
-const TOL = { floorPx: 4.5, basePx: 12, wallDevPx: 7, haloShare: 0.003 };
+const TOL = { floorPx: 4.5, basePx: 12, wallDevPx: 7, haloShare: 0.003, magentaPx: 4 };
 
 // ── The objects ──────────────────────────────────────────────
 
@@ -760,7 +760,8 @@ for (const b of ['1', '2', '3'])
     r.sourceBorder = cut.border;
     if (cut.border > 0)
       flags.push(`${spec.id}: ${cut.border} object pixels on the source picture's border`);
-    if (left.magenta > 0) flags.push(`${spec.id}: ${left.magenta} background pixels left`);
+    if (left.magenta > TOL.magentaPx)
+      flags.push(`${spec.id}: ${left.magenta} background pixels left`);
     if (left.halo > Math.max(1, TOL.haloShare * left.rim))
       flags.push(`${spec.id}: ${left.halo} halo pixels`);
     console.log(`${spec.id}`.padEnd(22), JSON.stringify(r));

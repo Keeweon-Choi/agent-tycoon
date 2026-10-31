@@ -72,6 +72,22 @@ const TOOLS = [
     inputSchema: object({ room: { type: 'string' }, text: { type: 'string' }, ...key }, ['room', 'text']),
   },
   {
+    name: 'add_review_note',
+    description:
+      "Lead only: a review note on a line of a task worktree's changes (task = its worktree folder or its task id; file = a changed file; line = a line of the new file, 0 for the whole file; startLine for a range). It is sent to the Worker at once and shown to the owner with your name; your rooms get one line. A task with review notes is merged only when the owner clicks merge.",
+    inputSchema: object(
+      {
+        task: { type: 'string' },
+        file: { type: 'string' },
+        line: { type: 'integer', minimum: 0 },
+        startLine: { type: 'integer', minimum: 1 },
+        body: { type: 'string' },
+        ...key,
+      },
+      ['task', 'file', 'line', 'body'],
+    ),
+  },
+  {
     name: 'get_group_context',
     description: 'The latest posts of a room you are a member of (n per page, older pages with cursor).',
     inputSchema: object({

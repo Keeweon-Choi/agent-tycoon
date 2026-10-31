@@ -1,6 +1,6 @@
 /**
  * Persistent group-room definitions.  The room transcript deliberately lives
- * elsewhere (`groups/<id>.jsonl`): this little file is only the editable
+ * elsewhere (`groups/<id>.<YYYY-MM>.jsonl`, groupLogFiles.ts): this little file is only the editable
  * roster, so a damaged roster can never erase a room's history.
  */
 import { randomBytes } from 'crypto';

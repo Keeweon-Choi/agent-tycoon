@@ -4,7 +4,8 @@ import type {
   HwSample,
   OfficeOrchestrator,
   SessionProcessState,
-  UsageWindow,
+  UsageLimitWindow,
+  UsageProvider,
 } from '../../../core/src/messages.js';
 import { t } from '../i18n/index.js';
 import { type HwViewKind, hwViewModel } from './hwView.js';
@@ -53,41 +54,44 @@ export function usageWindowText(
   return isReset ? t('usage.reset') : pct == null ? '—' : `${Math.round(pct)}%`;
 }
 
-/** Claude's per-model weekly window label ("F 7d") and tooltip name ("Fable"). */
+/** A per-model weekly window's label ("F 7d") and tooltip name ("Fable"). */
 export const modelTag = (family: string): string => `${family.slice(0, 1).toUpperCase()} 7d`;
 export const modelName = (family: string): string =>
   family.slice(0, 1).toUpperCase() + family.slice(1);
 
-/** The folded usage strip's figures for a provider: "5h 1%" and "7d 66%" (then "F 7d 0%" per model)
- *  (rounded; a reset marker when a known reset elapsed), each with its raw percent for the tone. */
-export function foldedFigures(
-  w: UsageWindow | null | undefined,
-): Array<{ text: string; pct: number | null }> {
-  return (
-    [
-      ['5h', w?.fiveHourPct, w?.fiveHourIsReset],
-      ['7d', w?.sevenDayPct, w?.sevenDayIsReset],
-      ...(w?.models ?? []).map((m) => [modelTag(m.family), m.pct, null] as const),
-    ] as const
-  ).map(([window, raw, isReset]) => {
-    const pct = typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-    return {
-      text: `${window} ${isReset ? t('usage.reset') : pct == null ? '—' : `${Math.round(pct)}%`}`,
-      pct,
-    };
-  });
+/** One reported window as the usage strip shows it: the provider's own window id, never a fixed slot. */
+export const usageWindows = (
+  p: UsageProvider,
+): Array<UsageLimitWindow & { label: string; title: string | null }> => [
+  ...p.windows.map((w) => ({ ...w, label: w.id, title: null })),
+  ...(p.models ?? []).map((m) => ({
+    id: `model:${m.family}`,
+    pct: m.pct,
+    resetAt: m.reset ?? null,
+    label: modelTag(m.family),
+    title: modelName(m.family),
+  })),
+];
+
+/** The folded usage strip's figures for a provider: only the windows it reported ("7d 3%", "5h 77%",
+ *  then "F 7d 0%" per model), rounded, a reset marker when a known reset elapsed, each with its raw percent for the tone. */
+export function foldedFigures(p: UsageProvider): Array<{ text: string; pct: number | null }> {
+  return usageWindows(p).map((w) => ({
+    text: `${w.label} ${usageWindowText(w.pct, w.isReset)}`,
+    pct: typeof w.pct === 'number' && Number.isFinite(w.pct) ? w.pct : null,
+  }));
 }
 
-/** The folded usage strip as plain text: "Claude 5h 1% · 7d 66%   Codex 5h 73% · 7d 27%". */
-export function foldedUsageText(
-  providers: ReadonlyArray<[string, UsageWindow | null | undefined]>,
-): string {
+/** The folded usage strip as plain text: "Claude 7d 3%   Codex 5h 77% · 7d 19%". */
+export function foldedUsageText(providers: ReadonlyArray<UsageProvider>): string {
   return providers
     .map(
-      ([name, w]) =>
-        `${name} ${foldedFigures(w)
-          .map((f) => f.text)
-          .join(' · ')}`,
+      (p) =>
+        `${p.name} ${
+          foldedFigures(p)
+            .map((f) => f.text)
+            .join(' · ') || t('usage.none')
+        }`,
     )
     .join('   ');
 }

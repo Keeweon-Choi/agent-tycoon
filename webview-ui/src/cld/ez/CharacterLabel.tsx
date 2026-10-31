@@ -7,6 +7,7 @@
  * details: kind, Lv / 환생, the lead, Task, rank and model, the activity in
  * words and how long it has been at it.
  */
+import { CharacterMugShot } from '../../components/CharacterMugShot.js';
 import { Button } from '../../components/ui/Button.js';
 import {
   CHARACTER_SITTING_OFFSET_PX,
@@ -14,6 +15,9 @@ import {
   OFF_OVERLAY_ALPHA,
   OVERLAY_LABEL_SELECTED_Z_INDEX,
   OVERLAY_LABEL_Z_INDEX,
+  STAT_SUMMARY_BAR_PX,
+  STAT_SUMMARY_FACE_PX,
+  STAT_SUMMARY_MAX_PX,
   STATUS_DETAILS_RISE_PX,
   STATUS_ICON_OFFSET_X,
   STATUS_ICON_RISE_PX,
@@ -26,9 +30,8 @@ import { CharacterState } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
 import { employeeOf } from '../employees.js';
 import { useEngineProject } from '../engineStore.js';
-import { activityElapsed, type CharacterKind, elapsedText, kindLabel } from '../kinds.js';
-import { modelEffortLabel, modelName, rankModelLabel } from '../modelBadges.js';
-import { openOffDuty } from '../offDuty.js';
+import { activityElapsed, type CharacterKind, kindLabel } from '../kinds.js';
+import { modelEffortLabel, rankModelLabel } from '../modelBadges.js';
 import { OfficeBadges } from '../OfficeBadges.js';
 import type { OfficeIdentity } from '../officeStore.js';
 import { getRankStyle, rankName, rankOfLevel } from '../rank.js';
@@ -45,10 +48,10 @@ import {
 } from './drawVisuals.js';
 import { FatigueBar, LevelRing, RestBubble, UnknownFatigue } from './Fatigue.js';
 import type { FatigueLook } from './fatigueState.js';
-import { levelText } from './level.js';
 import { clampPlate, nameMaxPx, offAlpha, rankIcon, ringOf } from './nameplate.js';
 import { PixelSprite } from './PixelSprite.js';
 import { rankSprite } from './rankSprites.js';
+import { RebirthMark } from './RebirthMark.js';
 import { nameplatesOn } from './useNameplates.js';
 import { type CharacterVisual, ringWord, statusIcon } from './visuals.js';
 
@@ -92,8 +95,6 @@ export interface CharacterLabelProps {
   name: string;
   /** Whether the nameplate shows without a hover (showsNameLabel). */
   named: boolean;
-  /** The lead's name, for sub-agents and teammates. */
-  leadName: string | null;
   visual: CharacterVisual;
   /** The raw tool status behind the friendly words: the activity line's tooltip. */
   rawActivity: string;
@@ -119,7 +120,6 @@ export function CharacterLabel({
   kind,
   name,
   named,
-  leadName,
   visual,
   rawActivity,
   fatigue,
@@ -151,7 +151,8 @@ export function CharacterLabel({
   const feetRank = !named || !nameplatesOn();
   const details = hovered || selected;
   const icon = statusIcon(visual.ring);
-  const elapsed = activityElapsed(ch.id, `${visual.icon} ${visual.text}`);
+  // Starts the activity's clock for every plate, so the detail view (StatCard) can say how long it has run.
+  activityElapsed(ch.id, `${visual.icon} ${visual.text}`);
   // Every character's status, at the head icon's spot (where the canvas draws
   // it for a name-less one): tests find it here, and screen readers too when
   // no name label speaks for the character.
@@ -229,6 +230,22 @@ export function CharacterLabel({
     bounds,
     NAMEPLATE_EDGE_MARGIN_PX,
   );
+  // The rank icon: beside the name on the plate; inside the rank chip once the summary is open.
+  const rankIconNode = rank && (
+    <span
+      className="shrink-0"
+      role="img"
+      aria-label={rankText}
+      title={rankText}
+      data-testid="rank-icon"
+      data-rank={rank}
+    >
+      <PixelSprite
+        sprite={rank === 'lead' ? LEAD_SPRITE : rankSprite(getRankStyle(), rank)}
+        scale={sizes.rank}
+      />
+    </span>
+  );
   return (
     <>
       {iconAnchor}
@@ -252,6 +269,7 @@ export function CharacterLabel({
         {/* charpack v3 §6A: the nameplate; the overlap pass (useNameplates.ts) dims it by its data-nameplate. */}
         <div
           className="relative flex items-start border-border px-4 pt-2 pb-4 gap-4 pixel-panel max-w-2xs"
+          style={details ? { maxWidth: STAT_SUMMARY_MAX_PX } : undefined}
           data-nameplate=""
           data-agent-id={ch.id}
           data-focus={details ? '' : undefined}
@@ -259,23 +277,33 @@ export function CharacterLabel({
           {named && (
             <StatusIconNode visual={visual} phase={Math.abs(ch.id) * PHASE_PER_ID} scale={sizes.status} />
           )}
-          <div className="flex flex-col gap-3 min-w-0">
-            <span className="flex items-center gap-3 whitespace-nowrap">
-              {rank && (
+          {details && (
+            // The face, and the rank chip under it.
+            <div className="flex flex-col items-start gap-3 shrink-0">
+              <span className="border-2 border-border" data-testid="stat-face">
+                <CharacterMugShot palette={ch.palette} hueShift={ch.hueShift} size={STAT_SUMMARY_FACE_PX} />
+              </span>
+              {rankId && (
                 <span
-                  className="shrink-0"
-                  role="img"
-                  aria-label={rankText}
-                  title={rankText}
-                  data-testid="rank-icon"
-                  data-rank={rank}
+                  className="flex items-center gap-2 border-2 border-border px-4 text-2xs leading-tight text-yellow-300"
+                  data-testid="rank-text"
                 >
-                  <PixelSprite
-                    sprite={rank === 'lead' ? LEAD_SPRITE : rankSprite(getRankStyle(), rank)}
-                    scale={sizes.rank}
-                  />
+                  {rankIconNode}
+                  {rankName(rankId)}
                 </span>
               )}
+            </div>
+          )}
+          <div className="flex flex-col gap-3 min-w-0">
+            <span
+              className="flex items-center gap-3 whitespace-nowrap"
+              // STAT-CARD: the short summary; the numbers behind it are in the 스탯 view.
+              data-testid={details ? 'level' : undefined}
+              data-level={details ? level?.level : undefined}
+              data-rebirths={details ? level?.rebirths : undefined}
+              data-xp={details ? level?.xp : undefined}
+            >
+              {!details && rankIconNode}
               <span
                 className={`font-bold text-accent-text leading-tight ${details ? 'whitespace-normal break-words min-w-0' : 'truncate'}`}
                 style={{ maxWidth: nameMaxPx(sizes, details), fontSize: sizes.name }}
@@ -285,92 +313,25 @@ export function CharacterLabel({
                 {name}
               </span>
               {ring && <LevelRing ring={ring} sizes={sizes} />}
+              {details && level && <RebirthMark count={level.rebirths} scale={sizes.rank} />}
             </span>
             {fatigue ? (
-              <FatigueBar look={fatigue} compact={sizes} />
+              <FatigueBar look={fatigue} compact={sizes} barPx={details ? STAT_SUMMARY_BAR_PX : undefined} />
             ) : (
               employee && <UnknownFatigue compact={sizes} />
             )}
             {details && (
               <div
-                className="flex flex-col gap-2 text-2xs leading-tight"
+                className="flex flex-col gap-3 text-2xs leading-tight"
                 data-testid="agent-details"
               >
-                <span className="text-text-muted" data-testid="agent-kind">
-                  {kindLabel(kind)}
-                </span>
-                {(identity?.engine || identity?.background) && (
-                  // The owner's call (10-24): technical states, in the details only.
-                  <span data-testid="agent-session">
-                    {[
-                      identity.engine && t('character.engineSession'),
-                      identity.background && t('character.attachable'),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                )}
-                {employee && (
-                  // The owner's condition: a returning employee is the same game character, never the same AI session.
-                  <span data-testid="temp-employee" data-employee={employee.employeeId}>
-                    {t('character.tempEmployee')}
-                  </span>
-                )}
-                {level && (
-                  <span
-                    data-testid="level"
-                    data-level={level.level}
-                    data-rebirths={level.rebirths}
-                    data-xp={level.xp}
-                  >
-                    {levelText(level)}
-                  </span>
-                )}
-                {leadName && <span className="truncate">{t('character.leader', { name: leadName })}</span>}
-                {temp?.task && (
-                  <span className="truncate" data-testid="temp-task">
-                    {t('character.task', { task: temp.task })}
-                  </span>
-                )}
-                {rankId && <span data-testid="rank-text">{t('character.rank', { rank: rankName(rankId) })}</span>}
-                {temp?.model && <span>{t('character.model', { model: modelName(temp.model, temp.modelId) ?? '' })}</span>}
-                {orchestratorModel && <span>{t('character.launch', { model: orchestratorModel })}</span>}
                 <span
-                  className="whitespace-nowrap truncate"
+                  className="line-clamp-2 break-words"
                   title={rawActivity}
                   data-testid="activity-text"
                 >
                   {visual.icon} {visual.text}
                 </span>
-                {ch.contextTokens > 0 && !ch.isSubagent && (
-                  // The raw gauge's numbers (the old 자세히 mode's tooltip): the bar above is the same fill.
-                  <span
-                    data-testid="context-numbers"
-                    data-context-pct={Math.round((ch.contextTokens / ch.maxContextTokens) * 100)}
-                  >
-                    {t('character.context', {
-                      pct: Math.round((ch.contextTokens / ch.maxContextTokens) * 100),
-                      used: Math.round(ch.contextTokens / 1000),
-                      max: Math.round(ch.maxContextTokens / 1000),
-                    })}
-                  </span>
-                )}
-                <span className="text-text-muted">{elapsedText(elapsed)}</span>
-                {selected && identity?.off && (
-                  // U-10: an off orchestrator's facts and its chat, from its label.
-                  <button
-                    type="button"
-                    className="self-start border border-border px-4 py-1 pointer-events-auto hover:bg-btn-hover pointer-coarse:min-h-44"
-                    data-testid="off-duty-open"
-                    data-agent-id={ch.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openOffDuty(ch.id);
-                    }}
-                  >
-                    {t('offDuty.open')}
-                  </button>
-                )}
                 {selected && temp?.work && (
                   // T-0056: the click selects; this opens what the temp is doing.
                   <button

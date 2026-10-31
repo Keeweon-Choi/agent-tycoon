@@ -196,6 +196,10 @@ async function main() {
     path.join(stage, 'cld', 'release', 'version.json'),
   );
   fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(stage, 'package.json'));
+  // Our MIT licence (with upstream pixel-agents' notice) and the notices of code we took (Orca, MIT) travel
+  // with every bundle: npm's `files` list used to carry them and npm distribution is gone (RENAME).
+  for (const rel of ['LICENSE', 'THIRD_PARTY_NOTICES.md'])
+    if (fs.existsSync(path.join(ROOT, rel))) fs.copyFileSync(path.join(ROOT, rel), path.join(stage, rel));
   // The manager (P2, H §2.1) runs from the installed version with the private Node: cld/install
   // plus the dependency-free core modules it and cld/bin import, and the bundle verifier for updates.
   // cld/bin is still copied above as a directory; only its manager dependencies come through here.

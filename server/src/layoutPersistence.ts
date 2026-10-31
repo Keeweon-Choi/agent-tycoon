@@ -3,11 +3,11 @@ import * as os from 'os';
 import * as path from 'path';
 
 import {
-  LAYOUT_FILE_DIR,
   LAYOUT_FILE_NAME,
   LAYOUT_FILE_POLL_INTERVAL_MS,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
+import { officeFile, officeFileToRead } from './officeFolder.js';
 
 export interface LayoutWatcher {
   markOwnWrite(): void;
@@ -15,17 +15,17 @@ export interface LayoutWatcher {
 }
 
 function getLayoutFilePath(): string {
-  return path.join(os.homedir(), LAYOUT_FILE_DIR, LAYOUT_FILE_NAME);
+  return officeFile(LAYOUT_FILE_NAME);
 }
 
-export function readLayoutFromFile(): Record<string, unknown> | null {
-  const filePath = getLayoutFilePath();
+export function readLayoutFromFile(home = os.homedir()): Record<string, unknown> | null {
+  const filePath = officeFileToRead(LAYOUT_FILE_NAME, home);
   try {
     if (!fs.existsSync(filePath)) return null;
     const raw = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
-    console.error('[Pixel Agents] Failed to read layout file:', err);
+    console.error('[Agent Tycoon] Failed to read layout file:', err);
     return null;
   }
 }
@@ -42,7 +42,7 @@ export function writeLayoutToFile(layout: Record<string, unknown>): void {
     fs.writeFileSync(tmpPath, json, 'utf-8');
     fs.renameSync(tmpPath, filePath);
   } catch (err) {
-    console.error('[Pixel Agents] Failed to write layout file:', err);
+    console.error('[Agent Tycoon] Failed to write layout file:', err);
   }
 }
 
@@ -56,9 +56,8 @@ interface LayoutLoadResult {
  * Load layout from file. Falls back to bundled default if the file is empty.
  * Resets to the bundled default when a newer revision is bundled.
  *
- * Migration from VS Code workspaceState happens earlier, in
- * adapters/vscode/migrateVsCodeState.ts (run on extension activate). By the
- * time this is called, the file is the only source of truth.
+ * The file is the only source of truth (the VS Code extension that migrated
+ * its workspaceState into it is gone).
  *
  * 1. If file exists → return it (reset if bundled default has a newer revision)
  * 2. Else if defaultLayout provided → write to file, return it
@@ -73,17 +72,17 @@ export function loadLayout(
     const defaultRevision = (defaultLayout?.[LAYOUT_REVISION_KEY] as number) ?? 0;
     if (defaultRevision > fileRevision) {
       console.log(
-        `[Pixel Agents] Layout revision outdated (${fileRevision} < ${defaultRevision}), resetting to bundled default`,
+        `[Agent Tycoon] Layout revision outdated (${fileRevision} < ${defaultRevision}), resetting to bundled default`,
       );
       writeLayoutToFile(defaultLayout!);
       return { layout: defaultLayout!, wasReset: true };
     }
-    console.log('[Pixel Agents] Layout loaded from file');
+    console.log('[Agent Tycoon] Layout loaded from file');
     return { layout: fromFile, wasReset: false };
   }
 
   if (defaultLayout) {
-    console.log('[Pixel Agents] Writing bundled default layout to file');
+    console.log('[Agent Tycoon] Writing bundled default layout to file');
     writeLayoutToFile(defaultLayout);
     return { layout: defaultLayout, wasReset: false };
   }
@@ -92,7 +91,7 @@ export function loadLayout(
 }
 
 /**
- * Watch ~/.pixel-agents/layout.json for external changes (other VS Code windows).
+ * Watch the office layout.json for external changes (a hand edit, another daemon).
  * Uses hybrid fs.watch + polling (same pattern as JSONL watching).
  */
 export function watchLayoutFile(
@@ -129,10 +128,10 @@ export function watchLayoutFile(
 
       const raw = fs.readFileSync(filePath, 'utf-8');
       const layout = JSON.parse(raw) as Record<string, unknown>;
-      console.log('[Pixel Agents] External layout change detected');
+      console.log('[Agent Tycoon] External layout change detected');
       onExternalChange(layout);
     } catch (err) {
-      console.error('[Pixel Agents] Error checking layout file:', err);
+      console.error('[Agent Tycoon] Error checking layout file:', err);
     }
   }
 
@@ -145,7 +144,7 @@ export function watchLayoutFile(
       });
       fsWatcher.on('error', (err) => {
         // fs.watch can be unreliable on macOS (kqueue) and may hit inotify limits on Linux
-        console.log(`[Pixel Agents] Layout: fs.watch error: ${err.message}`);
+        console.log(`[Agent Tycoon] Layout: fs.watch error: ${err.message}`);
         fsWatcher?.close();
         fsWatcher = null;
       });

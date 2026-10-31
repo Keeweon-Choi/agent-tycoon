@@ -38,16 +38,20 @@ import {
   noticeVerdict,
   PUSH_TIME_MARK,
   pushTag,
+  turnEndText,
 } from '../../../core/src/cld/notices.js';
+import { plainText } from '../../../core/src/cld/plainText.js';
 import { koText, textIn, type TextLang } from '../../../core/src/cld/serverText.js';
 import { staffName } from '../../../core/src/cld/staffNames.js';
 import { LOOKING_FRESH_MS } from '../../../core/src/constants.js';
+import type { ChatAttachment } from '../../../core/src/messages.js';
 import type { AgentStateStore } from '../agentStateStore.js';
 import { cleanAuditText } from './audit.js';
 import type { DeviceEvent, StandaloneAuth } from './auth.js';
 import type { WsSend } from './hooks.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { maskText } from './mask.js';
+import { PushImages } from './pushImage.js';
 import type { RoomRef } from './transcriptView.js';
 
 /** One push request may take this long; then it is dropped (no retry). */
@@ -123,11 +127,30 @@ export function kindOn(row: Pick<PushSubscriptionRow, 'kinds' | 'off'>, kind: No
  */
 export function replyPreview(text: string | null): string | null {
   if (!text) return null;
-  const chars = [...maskText(text).replace(/\s+/g, ' ').trim()];
+  const chars = [...plainText(maskText(text))];
   if (!chars.length) return null;
   return chars.length > PUSH_PREVIEW_MAX
     ? `${chars.slice(0, PUSH_PREVIEW_MAX - 1).join('')}…`
     : chars.join('');
+}
+
+/**
+ * What a message with files says where it has no words: "[사진]" / "[사진 N장]" for pictures,
+ * "[동영상]" for videos, else "첨부 파일". null: no file to speak of.
+ */
+export function attachmentLabel(files: readonly ChatAttachment[] | undefined): string | null {
+  const sent = (files ?? []).filter((f) => f.path);
+  if (!sent.length) return null;
+  const photos = sent.filter((f) => f.type?.startsWith('image/')).length;
+  if (photos) return koText(photos === 1 ? 'push_photo' : 'push_photos', { n: photos });
+  return koText(
+    sent.every((f) => f.type?.startsWith('video/')) ? 'attachment_video_label' : 'attachment_label',
+  );
+}
+
+/** The label that only counts pictures, for the tail of a body that has words (null: no picture). */
+function photoLabel(files: readonly ChatAttachment[]): string | null {
+  return files.some((f) => f.path && f.type?.startsWith('image/')) ? attachmentLabel(files) : null;
 }
 
 const b64url = (b: Buffer | string) => Buffer.from(b).toString('base64url');
@@ -318,6 +341,10 @@ export interface PushPayload {
   tag: string;
   /** When it happened: the service worker fills it into the body's time mark. */
   at?: number;
+  /** A short-lived picture link (pushImage.ts) for a browser that shows one in a notification. */
+  image?: string;
+  /** "[사진]" / "[사진 N장]" in the device's language: the body's tail where the browser shows no picture. */
+  imageLabel?: string;
 }
 
 export type PushResult = 'sent' | 'gone' | 'failed';
@@ -399,6 +426,8 @@ export function parsePushSubscribe(
 export interface TurnInfo {
   room: RoomRef | null;
   text: string | null;
+  /** The files that message carries (their outbox copies). */
+  attachments?: ChatAttachment[];
 }
 
 export interface PushServiceOptions {
@@ -418,6 +447,8 @@ export interface PushServiceOptions {
     /** T-0043: it is a lead (its notice opens its conversation); its session is a background one. */
     lead?: boolean;
     background?: boolean;
+    /** The title of the Task it works on now: what its turn end says it finished. */
+    task?: string | null;
   } | null;
   /** The character of a project (a feed event names it). */
   agentIdOf(name: string): number | null;
@@ -429,6 +460,8 @@ export interface PushServiceOptions {
    */
   turn?(id: number): TurnInfo | Promise<TurnInfo>;
   fetchFn?: typeof fetch;
+  /** The picture links of this daemon's pushes (the HTTP route serves the same instance). */
+  images?: PushImages;
 }
 
 /**
@@ -446,11 +479,13 @@ export class PushService {
   private skipLoggedAt = -Infinity;
   /** tag -> the last message pushed under it (PUSH_REPEAT_MS). */
   private readonly lastReply = new Map<string, { body: string; at: number }>();
+  readonly images: PushImages;
   private stats: Record<string, number>;
   private statsTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onBroadcast = (m: Record<string, unknown>) => this.broadcast(m);
 
   constructor(private readonly opts: PushServiceOptions) {
+    this.images = opts.images ?? new PushImages();
     this.stats = { ...opts.store.stats };
     opts.agents.on('broadcast', this.onBroadcast);
   }
@@ -600,7 +635,16 @@ export class PushService {
     return false;
   }
 
+  /**
+   * Character id -> the one-line description of its newest tool call: what a turn end names when
+   * no Task does. ponytail: only a description the call gave itself; the screen's own phrase for
+   * the activity is webview-only (ez rules), so a push without both keeps the plain turn end.
+   */
+  private readonly lastDoing = new Map<number, string>();
+
   private broadcast(m: Record<string, unknown>): void {
+    if (m.type === 'agentToolStart' && typeof m.id === 'number' && typeof m.desc === 'string' && m.desc)
+      this.lastDoing.set(m.id, m.desc);
     if (m.type === 'agentStatus' && m.status === 'waiting' && typeof m.id === 'number') {
       this.notifyAgent(m.id, m.awaitingInput === true ? 'question' : 'turnEnd');
     } else if (m.type === 'agentToolPermission' && typeof m.id === 'number') {
@@ -662,11 +706,11 @@ export class PushService {
     d: NonNullable<ReturnType<PushServiceOptions['describe']>>,
     cause: Exclude<NoticeCause, 'job' | 'reply'>,
     now: number,
-    { room, text }: TurnInfo,
+    { room, text, attachments }: TurnInfo,
   ): void {
     // U-49: a turn that ended with text for the user is that message, in place of the generic
     // turn end (one buzz). Asks stay asks.
-    const preview = cause === 'turnEnd' ? replyPreview(text) : null;
+    const preview = cause === 'turnEnd' ? (replyPreview(text) ?? attachmentLabel(attachments)) : null;
     if (preview) {
       const target: NoticeTarget = room
         ? room.id
@@ -677,6 +721,7 @@ export class PushService {
       this.notify('reply', room ? null : id, sender, preview, d.who, d.remote, now, {
         target,
         devices: (s) => kindOn(s, 'reply'),
+        files: attachments,
       });
       // A device with 메시지 off still gets the turn end, as on the screen.
       this.deliverTurnEnd(id, d, cause, now, room, (s) => !kindOn(s, 'reply'));
@@ -692,7 +737,9 @@ export class PushService {
     now: number,
     room: RoomRef | null,
     devices?: (s: PushSubscriptionRow) => boolean,
-    text = CAUSE_TEXT[cause],
+    text = cause === 'turnEnd'
+      ? turnEndText({ task: d.task, doing: this.lastDoing.get(id) })
+      : CAUSE_TEXT[cause],
   ): void {
     // ROOM-NOTICE: a room turn's end is the MEMBER's, in the room ("<room> · <member>", the room
     // thread opens): one per member and post (the cooldown folds a repeat), so two members
@@ -731,6 +778,8 @@ export class PushService {
       key?: string;
       /** Only these devices (U-49: who wants the message, who the plain turn end). */
       devices?: (s: PushSubscriptionRow) => boolean;
+      /** The files the message carries: a picture is offered to the notification, and counted in its text. */
+      files?: ChatAttachment[];
     } = {},
   ): void {
     const { store } = this.opts;
@@ -749,6 +798,12 @@ export class PushService {
       url: noticeUrl(pushTarget),
       tag: pushTag(cause, agentId, name, pushTarget),
     };
+    const label = opts.files ? photoLabel(opts.files) : null;
+    if (label) {
+      const first = opts.files!.find((f) => f.path && f.type?.startsWith('image/'));
+      const image = first?.path ? this.images.mint(first.path) : null;
+      if (image) payload.image = image;
+    }
     const sends: Promise<PushResult>[] = [];
     const left = (why: string) => {
       this.count(`skipped.${cause}.${why.replace(/ /g, '-')}`);
@@ -798,7 +853,7 @@ export class PushService {
         this.lastTurnEnd.set(sub.device, now);
       }
       sends.push(
-        sendPush(sub, { ...payload, body: textIn(sub.lang ?? 'ko', payload.body) }, vapid, store.subject, this.opts.fetchFn).then((result) => {
+        sendPush(sub, { ...payload, body: textIn(sub.lang ?? 'ko', payload.body), ...(label && { imageLabel: textIn(sub.lang ?? 'ko', label) }) }, vapid, store.subject, this.opts.fetchFn).then((result) => {
           if (result === 'gone' && store.removeWhere((s) => s.endpoint === sub.endpoint))
             console.log('[cld push] subscription expired at the push service: removed');
           return result;

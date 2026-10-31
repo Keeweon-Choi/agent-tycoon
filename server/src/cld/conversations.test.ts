@@ -96,6 +96,22 @@ describe('messenger conversations', () => {
     expect(t.contacts()[0].held).toBe(true);
   });
 
+  it('contacts: a message that is only a video reads [동영상] in the list', () => {
+    const t = setup(1);
+    fs.appendFileSync(
+      t.leads[0].transcript!,
+      line('user', '[첨부] /p/.cld-inbox/clip.mp4 (video/mp4, 2048 KB)', 3),
+    );
+    t.conv.poll();
+    expect(t.contacts()[0].preview).toBe('[동영상]');
+    fs.appendFileSync(
+      t.leads[0].transcript!,
+      line('user', '[첨부] /p/.cld-inbox/a.png (image/png, 2 KB)', 4),
+    );
+    t.conv.poll();
+    expect(t.contacts()[0].preview).toBe('[첨부] /p/.cld-inbox/a.png (image/png, 2 KB)');
+  });
+
   it('contacts: a last message from a peer or the system says so (T-0087)', () => {
     const t = setup(1);
     t.conv.poll();

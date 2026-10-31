@@ -27,7 +27,7 @@ test('INSTALL-13: on a terminal the wizard asks, the desktop app defaults to yes
   assert.equal(r.code, 0, r.out + r.err);
   assert.match(r.out, /When should Agent Tycoon run\?/);
   assert.equal(ran(s, 'setup.exe').length, 1, 'the Windows installer ran once');
-  assert.ok(s.calls().some((c) => c[0] === 'cmd.exe' && c.includes('echo %TEMP%')) && ran(s, 'wslpath').length, 'copied to the Windows temp folder first');
+  assert.ok(s.calls().some((c) => c[0] === 'powershell.exe' && c.at(-1).endsWith('$env:TEMP')) && ran(s, 'wslpath').length, 'copied to the Windows temp folder first');
   assert.deepEqual(fs.readdirSync(path.join(s.ctl, 'wintemp')), [], 'and removed from there afterwards');
   assert.equal(ran(s, 'appimage').length, 0); noLinuxGui(s);
   assert.equal(ran(s, 'explorer.exe').length, 0, 'launch answered no');

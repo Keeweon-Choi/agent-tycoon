@@ -30,7 +30,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   return {
     id: 1,
     sessionId: 'sess-1',
-    terminalRef: undefined,
     isExternal: false,
     projectDir: '/test',
     jsonlFile: '/test/session.jsonl',
@@ -128,18 +127,6 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       const cfg = readConfig();
       expect(cfg.standalone.areaMappings).toEqual({});
     });
-
-    it('does not leak into the vscode namespace', () => {
-      handleClientMessage(
-        { type: 'saveAreaMappings', mappings: { frontend: ['Engineering'] } },
-        (m) => sent.push(m),
-        ctx,
-      );
-
-      const cfg = readConfig();
-      expect(cfg.standalone.areaMappings).toEqual({ frontend: ['Engineering'] });
-      expect(cfg.vscode.areaMappings).toEqual({});
-    });
   });
 
   // ── setShowAreas ─────────────────────────────────────────────
@@ -149,10 +136,10 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       handleClientMessage({ type: 'setShowAreas', enabled: true }, (m) => sent.push(m), ctx);
 
       const adapter = store.getAdapter()!;
-      expect(adapter.getSetting('pixel-agents.showAreas', false)).toBe(true);
+      expect(adapter.getSetting('agent-tycoon.showAreas', false)).toBe(true);
 
       handleClientMessage({ type: 'setShowAreas', enabled: false }, (m) => sent.push(m), ctx);
-      expect(adapter.getSetting('pixel-agents.showAreas', true)).toBe(false);
+      expect(adapter.getSetting('agent-tycoon.showAreas', true)).toBe(false);
     });
   });
 
@@ -380,7 +367,7 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
     it('emits carpetTilesLoaded after wallTilesLoaded when both are present in the cache', () => {
       // Hex placeholders are test fixtures, not UI tokens — disable the
       // centralized-color rule just for this cache literal.
-      /* eslint-disable pixel-agents/no-inline-colors */
+      /* eslint-disable agent-tycoon/no-inline-colors */
       const cache: AssetCache = {
         characters: null,
         pets: null,
@@ -390,7 +377,7 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
         furniture: null,
         defaultLayout: null,
       };
-      /* eslint-enable pixel-agents/no-inline-colors */
+      /* eslint-enable agent-tycoon/no-inline-colors */
       ctx = freshCtx(cache);
 
       handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
@@ -619,10 +606,9 @@ describe('clientMessageHandler: saveAgentSeats palette sync', () => {
 /**
  * Terminal control plane: how the handler wires PtySessionManager into the
  * protocol. The data plane (frames over /terminal/:agentId) is covered by
- * terminalRoutes.test.ts; the launch mechanics by standaloneAgentLauncher.
- * test.ts. What's asserted here is the dispatch glue: availability broadcast
- * on webviewReady, live-session re-announcement for reloading browsers, and
- * launch/close routing.
+ * terminalRoutes.test.ts. What's asserted here is the dispatch glue: availability
+ * broadcast on webviewReady, live-session re-announcement for reloading browsers,
+ * and close routing.
  */
 describe('clientMessageHandler: standalone terminal control plane', () => {
   let tempHome: string;
@@ -668,7 +654,6 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     return {
       id,
       sessionId: `session-${id}`,
-      terminalRef: undefined,
       isExternal: false,
       projectDir: path.join(tempHome, 'nowhere'),
       jsonlFile: path.join(tempHome, 'nowhere', `session-${id}.jsonl`),
@@ -802,52 +787,13 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     expect(types.indexOf('terminalSessionOpened')).toBeGreaterThan(types.indexOf('existingAgents'));
   });
 
-  // ── launchAgent ──────────────────────────────────────────────
-
-  it('launchAgent spawns a PTY-backed agent and announces its terminal', () => {
-    const { manager } = workingPtyManager();
-
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-
-    expect(store.size).toBe(1);
-    const id = [...store][0][0];
-    expect(manager.has(id)).toBe(true);
-    expect(broadcasts).toContainEqual({ type: 'terminalSessionOpened', agentId: id });
-  });
-
-  it('launchAgent is ignored from an untokened client', () => {
-    const { manager } = workingPtyManager();
-
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager, privileged: false }));
-
-    expect(store.size).toBe(0);
-    expect(broadcasts).toHaveLength(0);
-  });
-
-  it('launchAgent applies the persisted permission posture, not a per-launch field', () => {
-    const { manager, spawnArgs } = workingPtyManager();
-
-    // Posture off: no flag, and a stale client field cannot turn it on — the
-    // launch message carries no bypass field any more.
-    dispatch(
-      { type: 'launchAgent', bypassPermissions: true },
-      ctx({ runtime, ptyManager: manager }),
-    );
-    expect(spawnArgs[0]).not.toContain('--dangerously-skip-permissions');
-
-    // Posture on: every launch gets the flag without the client saying so.
-    dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-    expect(spawnArgs[1]).toContain('--dangerously-skip-permissions');
-  });
-
   it('setBypassPermissions persists via the adapter (standalone namespace)', () => {
     dispatch({ type: 'setBypassPermissions', enabled: true }, ctx());
     const adapter = store.getAdapter()!;
-    expect(adapter.getSetting('pixel-agents.bypassPermissions', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.bypassPermissions', false)).toBe(true);
 
     dispatch({ type: 'setBypassPermissions', enabled: false }, ctx());
-    expect(adapter.getSetting('pixel-agents.bypassPermissions', true)).toBe(false);
+    expect(adapter.getSetting('agent-tycoon.bypassPermissions', true)).toBe(false);
   });
 
   it('setBypassPermissions publishes the accepted posture to every connected office', () => {
@@ -865,20 +811,15 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     // The escalation this pins: an untokened viewer (LAN, DNS-rebound page)
     // flips the posture, and the operator's NEXT launch from a tokened tab runs
     // with --dangerously-skip-permissions.
-    const { manager, spawnArgs } = workingPtyManager();
-    const runtime = new AgentRuntime(store, claudeProvider);
-
     dispatch({ type: 'setBypassPermissions', enabled: true }, ctx({ privileged: false }));
 
-    expect(store.getAdapter()!.getSetting('pixel-agents.bypassPermissions', false)).toBe(false);
+    expect(store.getAdapter()!.getSetting('agent-tycoon.bypassPermissions', false)).toBe(false);
     // Nothing changed, so nothing is published to the other offices.
     expect(broadcasts.filter((m) => m.type === 'bypassPermissionsUpdated')).toEqual([]);
     // The optimistic toggle snaps back: the refused client gets the real value.
     expect(sent).toContainEqual(
       expect.objectContaining({ type: 'settingsLoaded', bypassPermissions: false }),
     );
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-    expect(spawnArgs[0]).not.toContain('--dangerously-skip-permissions');
   });
 
   it('webviewReady reports the persisted permission posture in settingsLoaded', () => {
@@ -906,7 +847,7 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
 
   it('webviewReady contributes the server start directory as a host Directory when shown', () => {
     const { manager } = workingPtyManager();
-    store.getAdapter()!.setSetting('pixel-agents.showHostDirectories', true);
+    store.getAdapter()!.setSetting('agent-tycoon.showHostDirectories', true);
 
     dispatch({ type: 'webviewReady' }, ctx({ ptyManager: manager }));
 
@@ -923,12 +864,12 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     const host = { name: path.basename(process.cwd()), path: process.cwd(), source: 'host' };
 
     dispatch({ type: 'setShowHostDirectories', enabled: true }, ctx({ ptyManager: manager }));
-    expect(store.getAdapter()!.getSetting('pixel-agents.showHostDirectories', false)).toBe(true);
+    expect(store.getAdapter()!.getSetting('agent-tycoon.showHostDirectories', false)).toBe(true);
     expect(broadcasts).toEqual([{ type: 'directoriesLoaded', directories: [host] }]);
 
     broadcasts = [];
     dispatch({ type: 'setShowHostDirectories', enabled: false }, ctx({ ptyManager: manager }));
-    expect(store.getAdapter()!.getSetting('pixel-agents.showHostDirectories', true)).toBe(false);
+    expect(store.getAdapter()!.getSetting('agent-tycoon.showHostDirectories', true)).toBe(false);
     expect(broadcasts).toEqual([{ type: 'directoriesLoaded', directories: [] }]);
   });
 
@@ -960,7 +901,7 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
       ctx({ ptyManager: manager, privileged: false }),
     );
 
-    expect(store.getAdapter()!.getSetting('pixel-agents.showHostDirectories', false)).toBe(false);
+    expect(store.getAdapter()!.getSetting('agent-tycoon.showHostDirectories', false)).toBe(false);
     expect(broadcasts.filter((m) => m.type === 'directoriesLoaded')).toEqual([]);
     expect(sent).toContainEqual(
       expect.objectContaining({ type: 'settingsLoaded', showHostDirectories: false }),
@@ -1086,47 +1027,6 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
     expect(broadcasts[0].directories).not.toContainEqual(
       expect.objectContaining({ path: target }) as unknown,
     );
-  });
-
-  it('launchAgent with a directoryPath labels the agent with its Directory name', () => {
-    const { manager, spawned } = workingPtyManager();
-    const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-launch-dir-')));
-    try {
-      dispatch(
-        { type: 'saveDirectory', name: 'Side Project', path: target },
-        ctx({ ptyManager: manager }),
-      );
-
-      dispatch(
-        { type: 'launchAgent', directoryPath: target },
-        ctx({ runtime, ptyManager: manager }),
-      );
-
-      expect(spawned).toHaveLength(1);
-      const id = [...store][0][0];
-      // Labelled with the Directory's NAME, not the launch path's basename:
-      // that is what the user called it, and what its Area mapping is keyed by
-      // (directoryNameForLaunch in server/src/directories.ts).
-      expect(store.get(id)?.directoryName).toBe('Side Project');
-    } finally {
-      fs.rmSync(target, { recursive: true, force: true });
-    }
-  });
-
-  it('launchAgent falls back to the server cwd when no directoryPath is sent', () => {
-    const { manager } = workingPtyManager();
-
-    dispatch({ type: 'launchAgent' }, ctx({ runtime, ptyManager: manager }));
-
-    const id = [...store][0][0];
-    expect(store.get(id)?.directoryName).toBe(path.basename(process.cwd()));
-  });
-
-  it('launchAgent is ignored without a ptyManager', () => {
-    dispatch({ type: 'launchAgent' }, ctx({ runtime }));
-
-    expect(store.size).toBe(0);
-    expect(broadcasts).toHaveLength(0);
   });
 
   // ── closeAgent ───────────────────────────────────────────────

@@ -3,23 +3,25 @@
  * one Dock page (phone). A project picker, then four tabs, each a small
  * component: 에이전트 (the Lead and Workers; D3b: "+ Worker" and 'Lead 로'), Task (C6: the
  * delegations waiting for the user's approval, then the task board, narrowed
- * to this project; W2: each card's worktree, "worktree 만들기"), worktree and 변경 (the
- * repository panel's two halves).
+ * to this project; W2: each card's worktree, "worktree 만들기", and its 검토) and 변경 (the project's
+ * own repository). A card's 검토 replaces the whole window body with that worktree's review (P4).
  * What is left open (project, tab) is remembered per device (workbenchStore).
  */
 import { useMemo } from 'react';
 
+import { JOSA, josa } from '../../../../core/src/cld/josa.js';
 import { Button } from '../../components/ui/Button.js';
-import { t } from '../../i18n/index.js';
+import { getLanguage, t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { openLooks } from '../characters/looks.js';
 import { ChatAction } from '../ChatAction.js';
+import { TaskReview } from '../devroom/TaskReview.js';
 import { useEngineStore } from '../engineStore.js';
 import { stateLabel } from '../format.js';
 import { CldScope, type CldSnapshot, useCldStore } from '../officeStore.js';
 import { codexStatus, codexWord } from '../panels/jobs.js';
 import { RepoPanel } from '../repo/RepoPanel.js';
-import { useRepoStore } from '../repo/repoStore.js';
+import { repoAsk, useRepoStore } from '../repo/repoStore.js';
 import { useRepoView } from '../repo/useRepoView.js';
 import { serverLine } from '../serverText.js';
 import { DocSources } from '../taskboard/DocSources.js';
@@ -44,7 +46,15 @@ import {
   workbenchProjects,
   type WorkbenchTab,
 } from './workbenchState.js';
-import { setWorkbenchProject, setWorkbenchTab, useCanAct, useNow, useWorkbench } from './workbenchStore.js';
+import {
+  closeReview,
+  setWorkbenchProject,
+  setWorkbenchTab,
+  useCanAct,
+  useNow,
+  useWorkbench,
+  useWorkbenchReview,
+} from './workbenchStore.js';
 
 const muted = 'text-text-muted text-xs';
 
@@ -203,8 +213,13 @@ function ApprovalCards({ project }: { project: string }) {
             data-approval-id={a.id}
           >
             <p className="min-w-0 break-words">
-              <strong>{a.caller}</strong>{' '}
-              {t('approvals.wants', { title: a.title || '—', target: a.target })}
+              <strong>{a.caller}</strong>
+              {getLanguage() === 'ko' ? '' : ' '}
+              {t('approvals.wants', {
+                ga: josa(a.caller, JOSA.subject),
+                title: a.title || '—',
+                target: a.target,
+              })}
             </p>
             <p className={muted}>
               {t(a.check === 'mode' ? 'approvals.why.mode' : 'approvals.why.limits')} · {a.why}
@@ -294,8 +309,26 @@ function TasksTab({
   );
 }
 
+/** 검토: one task worktree's review in place of the tabs; 병합 asks the usual confirmation. */
+function ReviewPage({ project, task }: { project: string; task: string }) {
+  useRepoView(project);
+  return (
+    <TaskReview
+      project={project}
+      task={task}
+      onBack={closeReview}
+      onMerge={(worktree) => repoAsk({ kind: 'merge', project, worktree })}
+    />
+  );
+}
+
 /** The project picker and the tabs, then the open tab's body. */
 export function Workbench({ mobile = false }: { mobile?: boolean }) {
+  const reviewing = useWorkbenchReview();
+  return reviewing ? <ReviewPage project={reviewing.project} task={reviewing.task} /> : <WorkbenchTabs mobile={mobile} />;
+}
+
+function WorkbenchTabs({ mobile }: { mobile: boolean }) {
   const store = useCldStore();
   const engine = useEngineStore().state?.projects;
   const saved = useWorkbench();
@@ -374,7 +407,7 @@ export function Workbench({ mobile = false }: { mobile?: boolean }) {
         ) : tab === 'tasks' ? (
           <TasksTab project={project} scope={scope} team={team} />
         ) : (
-          <RepoPanel project={project} part={tab === 'changes' ? 'changes' : 'worktrees'} />
+          <RepoPanel project={project} />
         )}
       </div>
     </>

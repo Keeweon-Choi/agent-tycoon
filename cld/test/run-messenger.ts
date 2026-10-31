@@ -28,12 +28,13 @@ import type { Browser, BrowserContextOptions, Locator, Page } from '@playwright/
 import { devices } from '@playwright/test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
+  FULL_CHROME,
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
@@ -41,7 +42,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0043');
@@ -57,7 +57,7 @@ const PNG_BYTES = Buffer.from(
 /** Full Chromium for the service worker (as in run-notices.ts). */
 const FULL_CHROME =
   process.env.T0039_CHROME ??
-  path.join(os.homedir(), '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome');
+  FULL_CHROME;
 const FONT = '/mnt/c/Windows/Fonts/malgun.ttf';
 const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__t0043/malgun.ttf');
   unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7A3; }`;
@@ -1219,7 +1219,7 @@ async function main() {
       );
       const dividerText = (await divider.innerText()).trim();
       check(
-        /^── 이전 대화 · \d+월 \d+일 \d\d:\d\d ──$/.test(dividerText) &&
+        /^이전 대화 끝 · \d+월 \d+일 \d\d:\d\d 교대$/.test(dividerText) &&
           (await hd.getByText('어제 대화 0').count()) === 1 &&
           (await hd.getByText('대화의 처음').count()) === 1,
         `${label}: "${dividerText}", the earlier session above it, 대화의 처음 at the top`,

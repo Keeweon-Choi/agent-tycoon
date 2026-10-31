@@ -113,7 +113,7 @@ function session(home: string) {
 /** The e2e hooks, a frame counter (clearRect(0,0,...) on the office canvas = one drawn frame). */
 const INIT = `
   globalThis.__name = (fn) => fn; // tsx names the functions it passes to page.evaluate
-  window.__PIXEL_AGENTS_E2E = true;
+  window.__AGENT_TYCOON_E2E = true;
   window.__frames = 0;
   const clear = CanvasRenderingContext2D.prototype.clearRect;
   CanvasRenderingContext2D.prototype.clearRect = function (x, y, w, h) {
@@ -146,7 +146,7 @@ type Hooks = {
 const hooks =
   (page: Page) =>
   <T>(fn: (h: Hooks) => T): Promise<T> =>
-    page.evaluate(`(${fn.toString()})(window.__pixelAgentsTestHooks)`) as Promise<T>;
+    page.evaluate(`(${fn.toString()})(window.__agentTycoonTestHooks)`) as Promise<T>;
 const cam = (page: Page) => hooks(page)((h) => h.getCamera());
 
 /** Hashes of the office canvas: everything but the characters (`rest`), and each character's
@@ -160,7 +160,7 @@ const canvasHash = (page: Page) =>
       getAgentSeats: () => Array<{ id: number }>;
       getCharacterPosition: (id: number) => { x: number; y: number } | null;
     };
-    const h = (window as unknown as { __pixelAgentsTestHooks: H }).__pixelAgentsTestHooks;
+    const h = (window as unknown as { __agentTycoonTestHooks: H }).__agentTycoonTestHooks;
     const c = document.querySelector<HTMLCanvasElement>('[data-testid="office-canvas"]')!;
     const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
     const dpr = window.devicePixelRatio || 1;
@@ -359,7 +359,7 @@ async function logoCrisp(page: Page, name: string) {
 /** Where to click lead (CSS px of the page). */
 async function leadAt(p: Page) {
   const t = await p.evaluate(() => {
-    const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+    const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
     const tile = h.getCharacterTile(h.getAgentSeats()[0].id)!;
     return h.getTileCenter(tile.col, tile.row)!;
   });
@@ -827,8 +827,8 @@ async function main() {
       await page.evaluate(
         (i) =>
           (
-            window as unknown as { __pixelAgentsTestHooks: Hooks }
-          ).__pixelAgentsTestHooks.makeHdCharacter(i),
+            window as unknown as { __agentTycoonTestHooks: Hooks }
+          ).__agentTycoonTestHooks.makeHdCharacter(i),
         id,
       ),
       'desktop: a synthetic density-2 sheet on lead',
@@ -838,7 +838,7 @@ async function main() {
       const size = await canvasSize(page);
       const o = origin(c, size);
       const t = await page.evaluate((i) => {
-        const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+        const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
         return { pos: h.getCharacterPosition(i)!, tile: h.getCharacterTile(i)! };
       }, id);
       const sit = t.tile.state === 'type' ? 6 : 0;
@@ -863,7 +863,7 @@ async function main() {
     );
     // The wheel over lead zooms about lead, so it stays on screen at the odd zoom.
     const over = await page.evaluate((i) => {
-      const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+      const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
       const t = h.getCharacterTile(i)!;
       return h.getTileCenter(t.col, t.row)!;
     }, id);
@@ -929,8 +929,8 @@ async function main() {
       await p.evaluate(
         ([c, r]) =>
           (
-            window as unknown as { __pixelAgentsTestHooks: Hooks }
-          ).__pixelAgentsTestHooks.placeFurniture('PENDANT_LAMP', c, r + 1),
+            window as unknown as { __agentTycoonTestHooks: Hooks }
+          ).__agentTycoonTestHooks.placeFurniture('PENDANT_LAMP', c, r + 1),
         [col, row],
       );
       await p.waitForTimeout(600);
@@ -954,8 +954,8 @@ async function main() {
       const tc = await p.evaluate(
         ([c, r]) =>
           (
-            window as unknown as { __pixelAgentsTestHooks: Hooks }
-          ).__pixelAgentsTestHooks.getTileCenter(c, r),
+            window as unknown as { __agentTycoonTestHooks: Hooks }
+          ).__agentTycoonTestHooks.getTileCenter(c, r),
         [col, row],
       );
       await p.screenshot({
@@ -968,8 +968,8 @@ async function main() {
       await p.evaluate(
         ([c, r]) =>
           (
-            window as unknown as { __pixelAgentsTestHooks: Hooks }
-          ).__pixelAgentsTestHooks.placeFurniture('TALL_PLANT', c, r + 1),
+            window as unknown as { __agentTycoonTestHooks: Hooks }
+          ).__agentTycoonTestHooks.placeFurniture('TALL_PLANT', c, r + 1),
         [col, row],
       );
       await p.waitForTimeout(600);
@@ -1025,8 +1025,8 @@ async function main() {
       await p.evaluate(
         (n) =>
           (
-            window as unknown as { __pixelAgentsTestHooks: Hooks }
-          ).__pixelAgentsTestHooks.makeHdCharacter(n),
+            window as unknown as { __agentTycoonTestHooks: Hooks }
+          ).__agentTycoonTestHooks.makeHdCharacter(n),
         i,
       );
       await until('HD reframe', async () => (await cam(p)).zoom % 2 === 0, 5000).catch(

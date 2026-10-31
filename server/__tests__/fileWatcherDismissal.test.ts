@@ -25,7 +25,6 @@ import {
   adoptExternalSessionFromHook,
   ensureProjectScan,
   scanExternalDir,
-  scanForNewJsonlFiles,
   setDismissalTracker,
   setTeamProvider,
   startExternalSessionScanning,
@@ -252,48 +251,6 @@ describe('fileWatcher dismissal state', () => {
     });
   });
 
-  // ── scanForNewJsonlFiles (project-scan helper) ─────────────────────
-
-  describe('scanForNewJsonlFiles: project scanner', () => {
-    function runProjectScan(): void {
-      scanForNewJsonlFiles(
-        projectDir,
-        knownJsonlFiles,
-        { current: null },
-        nextAgentIdRef,
-        agents,
-        fileWatchers,
-        pollingTimers,
-        waitingTimers,
-        permissionTimers,
-        () => {},
-      );
-    }
-
-    it('skips files already in knownJsonlFiles (seeded at startup)', () => {
-      const file = writeJsonlFile('sess-1.jsonl', '{"type":"assistant"}\n');
-      knownJsonlFiles.add(file);
-
-      runProjectScan();
-
-      // No adoption — the file is known, not new.
-      expect(agents.size).toBe(0);
-    });
-
-    it('skips files expired in dismissedJsonlFiles during project scan', () => {
-      // Project scan (used by the internal terminal adoption path) also
-      // honors dismissal cooldown. Seed the file as dismissed very recently.
-      const file = writeJsonlFile('sess-1.jsonl', '{"type":"assistant"}\n');
-      tracker.dismiss(file, Date.now() - 5_000);
-
-      runProjectScan();
-
-      // No active-terminal agent is present, so adoption shouldn't fire regardless.
-      // Primarily: dismissal entry should NOT get erased by this pass.
-      expect(tracker.isDismissed(file)).toBe(true);
-    });
-  });
-
   describe('scanExternalDir: team session ownership', () => {
     it('leaves a tracked lead’s teammate session to team discovery', () => {
       // Newer harnesses run each spawned agent as its own top-level session in
@@ -394,7 +351,6 @@ describe('fileWatcher dismissal state', () => {
         projectDir,
         knownJsonlFiles,
         projectScanTimerRef,
-        { current: null },
         nextAgentIdRef,
         agents,
         fileWatchers,
@@ -402,8 +358,6 @@ describe('fileWatcher dismissal state', () => {
         waitingTimers,
         permissionTimers,
         () => {},
-        undefined,
-        { current: true },
       );
       writeJsonlFile('workspace-session.jsonl', '{"type":"assistant"}\n');
 

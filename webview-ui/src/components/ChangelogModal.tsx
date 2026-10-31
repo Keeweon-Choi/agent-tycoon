@@ -1,9 +1,10 @@
-import {
-  CHANGELOG_REPO_URL,
-  changelogEntries,
-  DISCORD_INVITE_URL,
-  toMajorMinor,
-} from '../changelogData.ts';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+import { CHANGELOG_REPO_URL, changelogEntries, toMajorMinor } from '../changelogData.ts';
+import { FloatingToast } from '../cld/FloatingToast.js';
+import { actionToastDuration } from '../cld/officeStore.js';
+import { t, useLanguage } from '../i18n/index.js';
 import { Modal } from './ui/Modal.js';
 
 function GitHubIcon() {
@@ -19,7 +20,7 @@ function GitHubIcon() {
   );
 }
 
-export function DiscordIcon() {
+function DiscordIcon() {
   return (
     <svg
       viewBox="0 0 127.14 96.36"
@@ -39,81 +40,84 @@ interface ChangelogModalProps {
 }
 
 export function ChangelogModal({ isOpen, onClose, currentVersion }: ChangelogModalProps) {
+  useLanguage();
+  // Our Discord does not exist yet: the button only says so, with the app's floating toast.
+  const [discordNote, setDiscordNote] = useState(false);
+  useEffect(() => {
+    if (!discordNote) return;
+    const timer = window.setTimeout(
+      () => setDiscordNote(false),
+      actionToastDuration({ tone: 'info', duration: undefined }),
+    );
+    return () => window.clearTimeout(timer);
+  }, [discordNote]);
   const majorMinor = toMajorMinor(currentVersion);
   const entry = changelogEntries.find((e) => e.version === majorMinor) ?? changelogEntries[0];
 
   if (!entry) return null;
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={<span className="text-4xl">What's New in v{entry.version}</span>}
-      zIndex={51}
-      // Wider minimum than Modal's, still yielding to narrow screens (100% =
-      // Modal's sizing wrapper minus its margin padding).
-      className="min-w-[min(384px,100%)]!"
-    >
-      {/* Body */}
-      <div className="py-4 px-10 max-h-[60vh] overflow-y-auto">
-        {entry.sections.map((section) => (
-          <div key={section.title} className="mb-12">
-            <div className="text-lg text-accent-text mb-4">{section.title}</div>
-            <ul className="m-0 pl-18 list-disc">
-              {section.items.map((item, i) => (
-                <li key={i} className="text-sm mb-2">
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title={<span className="text-4xl">{t('changelog.title', { version: entry.version })}</span>}
+        zIndex={51}
+        // Wider minimum than Modal's, still yielding to narrow screens (100% =
+        // Modal's sizing wrapper minus its margin padding).
+        className="min-w-[min(384px,100%)]!"
+      >
+        {/* Body */}
+        <div className="py-4 px-10 max-h-[60vh] overflow-y-auto">
+          {entry.sections.map((section) => (
+            <div key={section.title} className="mb-12">
+              <div className="text-lg text-accent-text mb-4">{t(section.title)}</div>
+              <ul className="m-0 pl-18 list-disc">
+                {section.items.map((item, i) => (
+                  <li key={i} className="text-sm mb-2">
+                    {t(item)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
 
-        {/* Contributors */}
-        {entry.contributors.length > 0 && (
-          <div className="mb-8">
-            <div className="text-lg text-accent-text mb-4">Contributors</div>
-            <ul className="m-0 pl-18 list-disc">
-              {entry.contributors.map((c) => (
-                <li key={c.name} className="text-sm mb-2">
-                  <a
-                    href={c.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-accent-text hover:text-accent-text no-underline"
-                  >
-                    {c.name}
-                  </a>
-                  {' — '}
-                  {c.description}
-                </li>
-              ))}
-            </ul>
-          </div>
+        {/* Footer */}
+        <div className="border-t border-border mt-4 flex">
+          <a
+            href={CHANGELOG_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 py-6 px-10 border-r border-border flex items-center justify-center gap-12 text-lg no-underline cursor-pointer transition-colors duration-200 hover:text-accent-text"
+          >
+            <GitHubIcon />
+            {t('changelog.github')}
+          </a>
+          <button
+            type="button"
+            onClick={() => setDiscordNote(true)}
+            className="flex-1 py-6 px-10 flex items-center justify-center gap-12 text-lg cursor-pointer transition-colors duration-200 hover:text-accent-text bg-transparent border-0 text-inherit font-inherit"
+          >
+            <DiscordIcon />
+            {t('changelog.discord')}
+          </button>
+        </div>
+      </Modal>
+      {isOpen &&
+        discordNote &&
+        createPortal(
+          <FloatingToast
+            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[85] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+            frameClassName="px-12 py-8 text-sm break-words text-yellow-300"
+            onDismiss={() => setDiscordNote(false)}
+            onTap={() => setDiscordNote(false)}
+            testId="changelog-discord-note"
+          >
+            {t('changelog.discordSoon')}
+          </FloatingToast>,
+          document.body,
         )}
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-border mt-4 flex">
-        <a
-          href={`${CHANGELOG_REPO_URL}/blob/main/CHANGELOG.md`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 py-6 px-10 border-r border-border flex items-center justify-center gap-12 text-lg no-underline cursor-pointer transition-colors duration-200 hover:text-accent-text"
-        >
-          <GitHubIcon />
-          View on GitHub
-        </a>
-        <a
-          href={DISCORD_INVITE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 py-6 px-10 flex items-center justify-center gap-12 text-lg no-underline cursor-pointer transition-colors duration-200 hover:text-accent-text"
-        >
-          <DiscordIcon />
-          Join our Discord!
-        </a>
-      </div>
-    </Modal>
+    </>
   );
 }

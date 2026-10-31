@@ -1,7 +1,7 @@
 /**
  * T-0055 visual check: the messenger's jump-to-newest button and the folded
  * usage line. dist/cli.js with the engine's fake claude (one revived project,
- * `alpha`), a fake claude-dashboard plugin (Claude 5h 1% / 7d 66% and Codex
+ * `alpha`), a stand-in usage endpoint and Codex log (Claude 5h 1% / 7d 66% and Codex
  * 5h 73% / 27%) and --allow-chat, isolated HOME, a spare port; the real claude
  * is never run.
  *
@@ -22,6 +22,7 @@ import * as path from 'path';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
+  fakeUsage,
   launchBrowser,
   killFakeSessions,
   makeEngineHome,
@@ -73,19 +74,7 @@ async function main() {
     path.join(configDirectory(home), 'projects.json'),
     JSON.stringify([{ name: 'alpha', folder: alphaDir, wantRunning: true }]),
   );
-  const plugin = path.join(
-    home,
-    '.claude/plugins/cache/claude-dashboard/claude-dashboard/9.9.9/dist/check-usage.js',
-  );
-  fs.mkdirSync(path.dirname(plugin), { recursive: true });
-  const at = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
-  fs.writeFileSync(
-    plugin,
-    `console.log(JSON.stringify({
-  claude: { fiveHourPercent: 1, sevenDayPercent: 66, fiveHourReset: ${JSON.stringify(at(2))}, sevenDayReset: ${JSON.stringify(at(60))} },
-  codex: { fiveHourPercent: 73, sevenDayPercent: 27, fiveHourReset: ${JSON.stringify(at(3))}, sevenDayReset: ${JSON.stringify(at(100))} },
-}));\n`,
-  );
+  const usage = await fakeUsage(home, { fiveHour: 1, sevenDay: 66 }, { fiveHour: 73, sevenDay: 27 });
   const sessions = path.join(home, '.claude/sessions');
   const sessionFile = (): [string, Record<string, unknown>] | null => {
     for (const f of fs.existsSync(sessions) ? fs.readdirSync(sessions) : []) {
@@ -116,7 +105,7 @@ async function main() {
     { home, claudePath },
     port,
     ['--engine', 'on', '--no-terminal', '--allow-chat'],
-    { FAKE_TURN_MS: '600' },
+    { FAKE_TURN_MS: '600', ...usage.env },
   );
   const { child: server, log: serverLog } = daemon;
   const loginUrl = daemon.loginUrl();

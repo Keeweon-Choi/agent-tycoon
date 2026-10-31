@@ -46,7 +46,7 @@ function dataSizes(home, platform = process.platform, env = process.env) {
     { name: '데몬 로그', bytes: daemon, rule: `시작할 때 ${mb(EVENTS_ROTATE_BYTES)} MB 가 넘으면 순환하고 이전 파일 1개를 둔다` },
     {
       name: '대화·받은편지·에이전트·설정',
-      bytes: Math.max(0, treeBytes(conf) - events - daemon) + treeBytes(path.join(home, '.pixel-agents')),
+      bytes: Math.max(0, treeBytes(conf) - events - daemon), // the office files are in conf/office since 2026-11
       rule: '사용자 데이터라 자동으로 지우지 않는다 (크기만 알린다)',
     },
     { name: 'H/W 모니터링 기록', bytes: 0, rule: '디스크에 쓰지 않는다 (화면 메모리에 최근 40개 표본만)' },

@@ -7,6 +7,7 @@ import type { OfficeState } from '../../office/engine/officeState.js';
 import { overlayProjection } from '../../office/projection.js';
 import { CharacterState } from '../../office/types.js';
 import { ChatAction } from '../ChatAction.js';
+import { openStatDetail } from '../ez/statDetail.js';
 import { isoOverlayFor } from '../iso/render.js';
 import { useCldStore } from '../officeStore.js';
 import { lookNameOf, openLooks } from './looks.js';
@@ -61,6 +62,7 @@ export function CharacterMenu({
   // ISO-PILOT: beside the character where the isometric building drew it.
   const project = isoOverlayFor(ch, window.devicePixelRatio || 1, base)?.project ?? base;
   const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+  const owner = ch.cldOwner === true; // OWNER-AVATAR: no chat, no 스탯: only 꾸미기
   return (
     <div
       className="absolute -translate-x-1/2 pixel-panel p-2"
@@ -70,9 +72,10 @@ export function CharacterMenu({
         zIndex: MENU_Z_INDEX,
       }}
       role="menu"
-      aria-label={t('character.menu', { name })}
+      aria-label={t('character.menu', { name: owner ? t('owner.me') : name })}
+      data-testid={owner ? 'owner-menu' : undefined}
     >
-      <ChatAction agentId={agentId!} variant="menu" />
+      {!owner && <ChatAction agentId={agentId!} variant="menu" />}
       <button
         type="button"
         role="menuitem"
@@ -84,6 +87,20 @@ export function CharacterMenu({
       >
         {t('looks.open')}
       </button>
+      {!owner && (
+        <button
+          type="button"
+          role="menuitem"
+          className="block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover"
+          data-testid="stat-open"
+          onClick={(e) => {
+            e.stopPropagation();
+            openStatDetail(agentId);
+          }}
+        >
+          {t('stat.open')}
+        </button>
+      )}
     </div>
   );
 }

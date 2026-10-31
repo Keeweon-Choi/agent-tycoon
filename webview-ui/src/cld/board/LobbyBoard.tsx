@@ -23,6 +23,8 @@ import {
   BOARD_SCREEN,
   BOARD_TYPE,
   BOARD_Z_INDEX,
+  ISO_BOARD_EM_PX,
+  ISO_BOARD_MIN_EM_PX,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { frameDue } from '../../office/engine/gameLoop.js';
@@ -33,6 +35,7 @@ import { TILE_SIZE } from '../../office/types.js';
 import { DRAG_THRESHOLD_PX } from '../camera.js';
 import { isOfficeCanvasTarget } from '../canvasTarget.js';
 import { currentRect, onFloor } from '../floors.js';
+import { isoBoardQuad } from '../iso/render.js';
 import { useCldStore, virtualAgentId } from '../officeStore.js';
 import { closeOverlay } from '../overlayHistory.js';
 import { type BoardPage, pickPage, rotate, startRotation } from './board.js';
@@ -41,6 +44,8 @@ import { BoardView, type LookOf } from './BoardPages.js';
 
 interface LobbyBoardProps {
   officeState: OfficeState;
+  /** The isometric building is drawn: the board is a copy laid on the lobby wall's face. */
+  iso?: boolean;
   containerRef: React.RefObject<HTMLDivElement | null>;
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
@@ -52,6 +57,16 @@ interface Rect {
   top: number;
   width: number;
   height: number;
+}
+
+/** Where the board is: the element's own box, the box it covers on screen (what is "in view"),
+ *  the wall's transform (isometric only) and how much it scales the board's em. */
+interface Placed {
+  rect: Rect;
+  bounds: Rect;
+  transform?: string;
+  scale: number;
+  alpha: number;
 }
 
 /** Characters' palettes: a project's orchestrator's look, else one picked by its name. */
@@ -95,6 +110,7 @@ function usePages(live: boolean, hovering: React.RefObject<{ mini: boolean; full
 
 export function LobbyBoard({
   officeState,
+  iso = false,
   containerRef,
   zoom,
   panRef,
@@ -104,29 +120,45 @@ export function LobbyBoard({
   const lookOf = useLookOf(officeState);
   const [full, setFull] = useState(false);
   const close = useCallback(() => setFull(false), []);
-  // Follow the camera on the canvas's frames.
+  // Follow the camera on the canvas's frames: re-rendered only when the board moved on screen.
+  const where = useRef({ iso, zoom });
+  where.current = { iso, zoom };
   const [, setTick] = useState(0);
   useEffect(() => {
     let raf = 0;
+    let last: object | null = null;
     const tick = (ts: number) => {
-      if (frameDue(ts)) setTick((n) => n + 1);
+      if (frameDue(ts)) {
+        const { iso: onWall, zoom: z } = where.current;
+        const now: object | null = onWall
+          ? isoBoardQuad(window.devicePixelRatio || 1)
+          : boardRect(officeState, containerRef.current, z, panRef.current);
+        if (moved(last, now)) setTick((n) => n + 1);
+        last = now;
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [officeState, containerRef, panRef]);
 
-  const rect = boardRect(officeState, containerRef.current, zoom, panRef.current);
+  const placed = iso
+    ? isoPlaced()
+    : flatPlaced(boardRect(officeState, containerRef.current, zoom, panRef.current));
+  const rect = placed?.rect ?? null;
   const em = rect ? rect.width / BOARD_EM_WIDTH : 0;
   const container = containerRef.current?.getBoundingClientRect();
+  const b = placed?.bounds;
   const inView =
-    !!rect &&
+    !!b &&
     !!container &&
-    rect.left < container.width &&
-    rect.top < container.height &&
-    rect.left + rect.width > 0 &&
-    rect.top + rect.height > 0;
-  const live = (inView && em >= BOARD_MIN_EM_PX) || full;
+    b.left < container.width &&
+    b.top < container.height &&
+    b.left + b.width > 0 &&
+    b.top + b.height > 0;
+  // Only the pages of a board big enough to read turn (as drawn: the wall's scale counts).
+  const live =
+    (inView && em * (placed?.scale ?? 1) >= (iso ? ISO_BOARD_MIN_EM_PX : BOARD_MIN_EM_PX)) || full;
   // A mouse over the board (or the full view) holds its page.
   const hovering = useRef({ mini: false, full: false });
   const { page, onPage, nowSec } = usePages(live, hovering);
@@ -136,7 +168,8 @@ export function LobbyBoard({
 
   // A tap on the board (not a drag) opens the full view; the canvas below still gets it.
   const rectRef = useRef<Rect | null>(null);
-  rectRef.current = inView ? rect : null;
+  // ponytail: the isometric copy is not tappable (a slanted face); the full view opens from the 2D board.
+  rectRef.current = inView && !iso ? rect : null;
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -201,7 +234,13 @@ export function LobbyBoard({
           className={`led-board led-mini ${live ? '' : 'led-frozen'}`}
           data-testid="lobby-board"
           data-live={live}
-          style={{ ...rect, fontSize: em, zIndex: BOARD_Z_INDEX }}
+          style={{
+            ...rect,
+            fontSize: em,
+            zIndex: BOARD_Z_INDEX,
+            opacity: placed.alpha,
+            ...(placed?.transform && { transform: placed.transform, transformOrigin: '0 0' }),
+          }}
           aria-label={t('board.wallOpen')}
         >
           {view(!live, 'mini')}
@@ -214,6 +253,36 @@ export function LobbyBoard({
       )}
     </>
   );
+}
+
+const flatPlaced = (rect: Rect | null): Placed | null =>
+  rect && { rect, bounds: rect, scale: 1, alpha: 1 };
+
+/** Whether the board's place on screen changed between two frames (null: not drawn). */
+function moved(a: object | null, b: object | null): boolean {
+  if (!a || !b) return a !== b;
+  const [x, y] = [a as Record<string, unknown>, b as Record<string, unknown>];
+  for (const k in y) if (x[k] !== y[k]) return true;
+  return false;
+}
+
+/** The isometric board: its natural 3:1 box at ISO_BOARD_EM_PX, sheared onto the wall's face. */
+function isoPlaced(): Placed | null {
+  const q = isoBoardQuad(window.devicePixelRatio || 1);
+  if (!q) return null;
+  const width = BOARD_EM_WIDTH * ISO_BOARD_EM_PX;
+  const height = (width * BOARD_SCREEN.h) / BOARD_SCREEN.w;
+  const xs = [q.x, q.x + q.ux, q.x + q.vx, q.x + q.ux + q.vx];
+  const ys = [q.y, q.y + q.uy, q.y + q.vy, q.y + q.uy + q.vy];
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  return {
+    rect: { left: 0, top: 0, width, height },
+    bounds: { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top },
+    transform: `matrix(${q.ux / width}, ${q.uy / width}, ${q.vx / height}, ${q.vy / height}, ${q.x}, ${q.y})`,
+    scale: Math.hypot(q.ux, q.uy) / width,
+    alpha: q.alpha,
+  };
 }
 
 /** The board's screen in the office container's CSS px, or null (no board on this floor). */

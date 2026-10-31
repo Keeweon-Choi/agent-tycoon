@@ -6,6 +6,7 @@ import type {
   CharacterPart,
   CharacterPresets,
   CodexTasks,
+  DiskUsage,
   EzRules,
   FolderList,
   GpuBoard,
@@ -23,10 +24,14 @@ import type {
   TrackedItems,
   UsageState,
 } from '../../../core/src/messages.js';
+import { FX_REBIRTH_LIVE } from '../constants.js';
 import { getLanguage, subscribeLanguage, t } from '../i18n/index.js';
 import { recordHw } from './board/hwHistory.js';
 import { whiteboardHandleMessage } from './board/whiteboard.js';
 import { bypassHandleMessage } from './bypass.js';
+import { devroomHandleResult } from './devroom/devroomStore.js';
+import { mergeHandleMessage, mergeHandleResult } from './devroom/mergeStore.js';
+import { director } from './director/director.js';
 import { engineGetSnapshot, engineHandleMessage } from './engineStore.js';
 import { type EzContext, PLAIN_CONTEXT } from './ez/activity.js';
 import {
@@ -39,11 +44,13 @@ import {
 } from './ez/fatigueState.js';
 import { floorsHandleMessage } from './floors.js';
 import { isOff, type OfficePanel } from './format.js';
+import { backgroundHandleMessage } from './gfx/bg/settings.js';
 import { jobHandleMessage } from './jobStore.js';
 import { messengerConnectionLost, messengerHandleMessage } from './messenger/messengerStore.js';
-import { cldNoticeEvent, cldNoticeReplay, cldPushState } from './notify/notices.js';
+import { cldNoticeEvent, cldNoticeReplay, cldPreviewOpen, cldPushState } from './notify/notices.js';
 import { repoHandleMessage } from './repo/repoStore.js';
-import { restWatch } from './rest.js';
+import { newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
+import { rebirthWatch, restWatch } from './rest.js';
 import { serverLine, serverText } from './serverText.js';
 import { docSourcesHandleMessage } from './taskboard/taskBoardState.js';
 import { workHandleMessage } from './work/workStore.js';
@@ -74,6 +81,8 @@ export interface CldSnapshot {
   /** U-48: what the agents' own work lists say, per project (the daemon sends them only while this page shows). */
   tracked: Record<string, TrackedItems>;
   hwSample: HwSample | null;
+  /** The hardware page's on-demand, cached disk-card snapshot. */
+  diskUsage: DiskUsage | null;
   usageState: UsageState | null;
   /** An on-demand Codex usage probe is running for this client. */
   codexUsageChecking: boolean;
@@ -110,6 +119,7 @@ const empty: CldSnapshot = {
   taskBoard: null,
   tracked: {},
   hwSample: null,
+  diskUsage: null,
   usageState: null,
   codexUsageChecking: false,
   agentCli: null,
@@ -222,8 +232,12 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'taskBoard': {
       // `error` answers only this screen's refused edit: a toast, not part of the board.
       const { error, ...board } = msg;
+      const before = snapshot.taskBoard;
       snapshot = { ...snapshot, taskBoard: board };
       if (error) cldToast(t('tasks.toast'), error, 'error');
+      // ponytail: the 검토 대기 notice is this screen's toast only; a bell/push entry needs a new notice cause.
+      for (const task of newlyInReview(before, board))
+        cldToast(t('review.waitingToast'), t('review.waitingLine', { name: task.assignee?.name ?? task.project, id: task.id }), 'info');
       break;
     }
     case 'trackedItems': {
@@ -243,6 +257,9 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'hwSample':
       snapshot = { ...snapshot, hwSample: msg };
       recordHw(msg); // T-0046: the board's graphs
+      break;
+    case 'diskUsage':
+      snapshot = { ...snapshot, diskUsage: msg };
       break;
     case 'gpuBoard':
       snapshot = { ...snapshot, gpuBoard: msg };
@@ -284,6 +301,9 @@ export function cldHandleMessage(msg: ServerMessage): void {
       snapshot = { ...snapshot, events: [msg, ...snapshot.events].slice(0, 200) };
       cldNoticeEvent(msg); // T-0039: a job or Codex task that ended
       break;
+    case 'previewOpen':
+      cldPreviewOpen(msg); // P4 S6: a phone asked this PC for a 미리보기
+      break;
     case 'statusOutput':
       snapshot = { ...snapshot, statusByName: { ...snapshot.statusByName, [msg.name]: msg } };
       break;
@@ -292,6 +312,7 @@ export function cldHandleMessage(msg: ServerMessage): void {
       break;
     case 'officeAccess':
       restWatch.connected(performance.now()); // the handshake: what follows is replay (REST-ANIM)
+      rebirthWatch.connected(performance.now());
       snapshot = {
         ...snapshot,
         agentCli: null, // a full office never sends one; a plain one sends it again after this
@@ -323,11 +344,15 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'pinnedConversations':
       messengerHandleMessage(msg); // the office messenger (T-0043) keeps its own store
       return;
+    case 'officeBackground':
+      backgroundHandleMessage(msg); // BACKGROUND: the isometric surroundings keep their own store
+      return;
     case 'pushState':
       cldPushState(msg); // T-0039 (the notices keep it)
       return;
     case 'engineState':
     case 'engineActionResult':
+    case 'engineMoveAllResult':
       engineHandleMessage(msg);
       return;
     case 'newAgentPermission':
@@ -345,6 +370,21 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'repoWorktreeDetail':
     case 'repoActionResult':
       repoHandleMessage(msg, cldToast); // the repository panel (T-0020) keeps its own state
+      if (msg.type === 'repoActionResult') {
+        devroomHandleResult(msg, cldToast); // the dev room's 따라잡기
+        mergeHandleResult(msg); // its 병합 tab's own writes
+      }
+      return;
+    case 'repoMergeCheckResult':
+    case 'repoConflictsResult':
+    case 'repoCleanupListResult':
+    case 'devroomSettings':
+      mergeHandleMessage(msg); // the dev room's 병합 tab keeps its own state
+      return;
+    case 'reviewNotes':
+    case 'reviewNoteResult':
+    case 'reviewSendResult':
+      reviewHandleMessage(msg, cldToast); // the review loop keeps its own state too
       return;
     case 'jobActionResult':
       jobHandleMessage(msg, cldToast); // the engine's job logs and stops (T-0019)
@@ -422,12 +462,19 @@ export function cldResetForTests(): void {
   listeners.forEach((listener) => listener());
 }
 
-/** REST-ANIM: every row's 휴식 count as fatigueFor counts it (the daemon's, or the drops seen). */
+/** REST-ANIM + C1: every row's 휴식 count as fatigueFor counts it (the daemon's, or the drops
+ *  seen) and its 환생 count; one that went up live plays a coffee break or a rebirth (director). */
 function noteRests(): void {
   const now = performance.now();
   for (const o of snapshot.officeSnapshot?.orchestrators ?? []) {
     const id = o.agentId ?? virtualAgentId(`orch:${o.name}`);
-    restWatch.observe(id, Math.max(o.compactions, snapshot.contexts[id]?.drops ?? 0), now);
+    if (restWatch.observe(id, Math.max(o.compactions, snapshot.contexts[id]?.drops ?? 0), now))
+      director.play(id, { kind: 'coffee' });
+    if (o.level && rebirthWatch.observe(id, o.level.rebirths, now))
+      director.play(id, {
+        kind: FX_REBIRTH_LIVE[Math.floor(Math.random() * FX_REBIRTH_LIVE.length)],
+        count: o.level.rebirths,
+      });
   }
 }
 

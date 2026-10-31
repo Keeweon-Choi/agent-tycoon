@@ -44,7 +44,7 @@ afterEach(() => {
 
 /** A provider that keeps its sessions in memory and records what it was asked. */
 class FakeAgent implements AgentProvider {
-  readonly id = 'fake';
+  readonly id: string = 'fake';
   readonly protocol = 'pty' as const;
   readonly capabilities = { ...CLAUDE_CAPABILITIES, approvalPolicy: [], usage: null };
   readonly calls: Array<[string, string]> = [];
@@ -606,5 +606,362 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
     };
     expect(e.apply({ rooms: [], agents: [row] }).agents.map((a) => a.key)).toContain('name:alpha-a');
     expect(await r.act(e, 'promote', 'alpha-a')).toMatchObject({ ok: false, error: 'Codex Worker 는 아직 Lead 가 될 수 없어요' });
+  });
+});
+
+describe('TERM-P1: agents in our PTY host', () => {
+  /** A provider like claude-pty: nobody retires its idle sessions (viewed), it counts viewers. */
+  class IdleAgent extends FakeAgent {
+    viewers = 0;
+    viewed = () => this.viewers > 0;
+  }
+
+  it('the engine stops an idle, unwatched session after idleStopMs and wakes it with a message', async () => {
+    const idle = new IdleAgent();
+    let now = Date.now();
+    const r = home('fake', { agents: [idle], timing: { ...FAST, idleStopMs: 60_000 }, now: () => now });
+    const e = r.boot();
+    expect(await r.act(e, 'start', 'alpha-a')).toMatchObject({ ok: true });
+    const watch = () => (e as unknown as { watch(): Promise<void> }).watch();
+    await watch(); // first idle look
+    now += 61_000;
+    idle.viewers = 1;
+    await watch(); // watched: left alone, its clock starts again
+    expect(idle.calls.filter(([c]) => c === 'stop')).toEqual([]);
+    idle.viewers = 0;
+    await watch();
+    now += 61_000;
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'stop')).toHaveLength(1);
+    expect(r.agent(e, 'alpha-a')).toMatchObject({ live: false, wantRunning: true, downNote: expect.any(String) });
+    expect(r.logs.some((l) => l.includes('watch "alpha-a": idle') && l.includes('stopped, resting'))).toBe(true);
+    // Resting, not dead: the next watch pass does not revive it; a message does (wake).
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'start')).toHaveLength(1);
+    expect(await e.wake('alpha-a')).toBe(true);
+    expect(idle.calls.filter(([c]) => c === 'start')).toHaveLength(2);
+  });
+
+  it('an always-on agent is never stopped for idleness', async () => {
+    const idle = new IdleAgent();
+    let now = Date.now();
+    const r = home('fake', { agents: [idle], timing: { ...FAST, idleStopMs: 60_000 }, now: () => now });
+    const e = r.boot();
+    expect(await r.act(e, 'edit', 'alpha-a', { alwaysOn: true })).toMatchObject({ ok: true });
+    expect(await r.act(e, 'start', 'alpha-a')).toMatchObject({ ok: true });
+    const watch = () => (e as unknown as { watch(): Promise<void> }).watch();
+    await watch();
+    now += 61_000;
+    await watch();
+    now += 61_000;
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'stop')).toEqual([]);
+  });
+
+  it('a Claude agent switches between --bg and the PTY host while it is off; other kinds stay fixed', async () => {
+    const r = home(undefined);
+    const e = r.boot();
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: true });
+    expect(r.agent(e, 'alpha').provider).toBe('claude-pty');
+    expect(loadRegistry(registryPath(r.home)).projects.find((p) => p.name === 'alpha')?.provider).toBe('claude-pty');
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'claude' })).toMatchObject({ ok: true });
+    expect(r.agent(e, 'alpha').provider).toBeUndefined();
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'codex' })).toMatchObject({ ok: false });
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: true });
+    expect(await r.act(e, 'start', 'alpha')).toMatchObject({ ok: false }); // this test build has no host
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'claude' })).toMatchObject({ ok: true });
+    expect(await r.act(e, 'start', 'alpha')).toMatchObject({ ok: true });
+    // TERM-P3: claude -> claude-pty while on is the move (it needs the host); the way back needs it off.
+    expect(await r.act(e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('dist/cld-ptyhost.js'),
+    });
+  });
+});
+
+describe('TERM-P3: every agent in our PTY host', () => {
+  /** A Claude-like provider: `resume` keeps the conversation id; sessions start with `status`. */
+  class ResumeAgent extends FakeAgent {
+    status = 'idle';
+    held = () => Promise.resolve(this.sessions.some((s) => s.status === 'waiting'));
+    constructor(readonly id: string) {
+      super();
+    }
+    override start(p: ProjectRecord, o?: { resume?: string }): Promise<StartResult> {
+      this.calls.push(['start', `${p.name}${o?.resume ? ` --resume ${o.resume}` : ''}`]);
+      const id = `${this.id}${++this.n}`;
+      const sessionId = o?.resume ?? randomUUID();
+      fs.writeFileSync(this.transcript({ cwd: p.folder, sessionId }), '');
+      this.sessions.push({
+        id,
+        pid: (this.id === 'claude' ? 4_100_000 : 4_200_000) + this.n,
+        cwd: p.folder,
+        kind: 'background',
+        sessionId,
+        name: sessionName(p),
+        status: this.status,
+        startedAt: Date.now(),
+      });
+      return Promise.resolve({ ok: true as const, id });
+    }
+    setStatus(status: string, name?: string) {
+      for (const s of this.sessions) if (!name || s.name === name) s.status = status;
+    }
+  }
+
+  function rig(
+    moveIdleMs = 2_000,
+    pty = new ResumeAgent('claude-pty'),
+    appearMs = FAST.appearMs,
+    more: Partial<EngineOptions> = {},
+  ) {
+    const bg = new ResumeAgent('claude');
+    const r = home(undefined, { agents: [bg, pty], timing: { ...FAST, moveIdleMs, appearMs }, ...more });
+    const e = r.boot();
+    const record = () => loadRegistry(registryPath(r.home)).projects.find((p) => p.name === 'alpha')!;
+    return { ...r, e, bg, pty, record };
+  }
+
+  it('a new Lead, Worker or delegated Worker is a claude-pty agent when this build has the host; without it, claude', async () => {
+    const r = home(undefined, { ptyHostScript: '/x/cld-ptyhost.js' });
+    const e = r.boot();
+    const beta = path.join(r.home, 'work', 'beta');
+    fs.mkdirSync(beta, { recursive: true });
+    expect(await r.act(e, 'add', 'beta', { folder: beta })).toMatchObject({ ok: true });
+    expect(await r.act(e, 'add', 'beta-w', { role: 'worker', project: 'beta' })).toMatchObject({ ok: true });
+    expect(await r.act(e, 'add', 'beta-c', { role: 'worker', project: 'beta', provider: 'claude' })).toMatchObject({ ok: true });
+    const saved = loadRegistry(registryPath(r.home)).projects;
+    for (const name of ['beta', 'beta-w', 'beta-c']) expect(saved.find((p) => p.name === name)?.provider).toBe('claude-pty');
+    // The tools still see a Claude agent (delegation's "same kind", usage limits).
+    expect(e.roster().find((a) => a.name === 'beta')?.provider).toBe('claude');
+    const old = home(undefined);
+    const e2 = old.boot();
+    expect(await old.act(e2, 'add', 'gamma', { folder: old.alpha })).toMatchObject({ ok: true });
+    expect(loadRegistry(registryPath(old.home)).projects.find((p) => p.name === 'gamma')?.provider).toBeUndefined();
+  });
+
+  it('move: refused mid-turn (nothing stopped); once idle it stops the old session and resumes the same id in the host', async () => {
+    const r = rig();
+    expect(await r.act(r.e, 'start', 'alpha')).toMatchObject({ ok: true });
+    const id = r.record().sessionId!;
+    r.bg.setStatus('busy');
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('턴이 끝난 뒤'),
+    });
+    r.bg.setStatus('waiting');
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: false });
+    expect(r.bg.calls.filter(([c]) => c === 'stop')).toEqual([]);
+    expect(r.record().provider).toBeUndefined();
+    r.bg.setStatus('idle');
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: true, note: expect.any(String) });
+    expect(r.bg.calls).toEqual([['start', 'alpha'], ['stop', 'claude1']]);
+    expect(r.pty.calls).toEqual([['start', `alpha --resume ${id}`]]);
+    expect(r.record()).toMatchObject({ provider: 'claude-pty', sessionId: id, wantRunning: true });
+    expect(r.agent(r.e, 'alpha')).toMatchObject({ live: true, provider: 'claude-pty' });
+  });
+
+  it('move: a resumed session never seen idle is no success: the host session goes, the record and the old session come back, and it says why', async () => {
+    const r = rig(300);
+    expect(await r.act(r.e, 'start', 'alpha')).toMatchObject({ ok: true });
+    const before = r.record();
+    r.pty.status = 'busy'; // up in the host on the same id, never idle
+    const out = await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' });
+    expect(out).toMatchObject({ ok: false, error: expect.stringContaining('되돌렸어요') });
+    expect(out.error).toContain(before.sessionId!.slice(0, 8));
+    expect(r.pty.calls.map(([c]) => c)).toEqual(['start', 'stop']);
+    expect(r.bg.calls).toEqual([['start', 'alpha'], ['stop', 'claude1'], ['start', `alpha --resume ${before.sessionId}`]]);
+    expect(r.record()).toMatchObject({ sessionId: before.sessionId, wantRunning: true });
+    expect(r.record().provider).toBeUndefined();
+    expect(r.agent(r.e, 'alpha')).toMatchObject({ live: true });
+  });
+
+  it('move: an agent that is off only changes provider (it starts in the host next time)', async () => {
+    const r = rig();
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: true });
+    expect(r.bg.calls).toEqual([]);
+    expect(r.pty.calls).toEqual([]);
+    expect(r.record().provider).toBe('claude-pty');
+  });
+
+  /** The host spawned a terminal whose Claude never wrote its session file (not in live()). */
+  class SlowPty extends ResumeAgent {
+    pending: string[] = [];
+    closes = true;
+    constructor() {
+      super('claude-pty');
+    }
+    override start(p: ProjectRecord): Promise<StartResult> {
+      this.calls.push(['start', p.name]);
+      const id = `slow${++this.n}`;
+      this.pending.push(id);
+      return Promise.resolve({ ok: true as const, id });
+    }
+    closeAll = () => {
+      this.calls.push(['closeAll', this.pending.join(',')]);
+      if (this.closes) this.pending = [];
+      return Promise.resolve(this.closes);
+    };
+  }
+
+  it('move rollback: a host terminal not up yet is closed before the old session starts again (never two on one conversation)', async () => {
+    const pty = new SlowPty();
+    const r = rig(300, pty, 300);
+    expect(await r.act(r.e, 'start', 'alpha')).toMatchObject({ ok: true });
+    const before = r.record();
+    let pendingAtRestart: string[] | null = null;
+    const start = r.bg.start.bind(r.bg);
+    r.bg.start = (p, o) => ((pendingAtRestart = [...pty.pending]), start(p, o));
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: false });
+    expect(pendingAtRestart).toEqual([]);
+    expect(r.record()).toMatchObject({ sessionId: before.sessionId, wantRunning: true });
+    expect(r.record().provider).toBeUndefined();
+  });
+
+  it('move rollback: a host terminal that will not close keeps the agent in the host (no old session beside it)', async () => {
+    const pty = new SlowPty();
+    pty.closes = false;
+    const r = rig(300, pty, 300);
+    expect(await r.act(r.e, 'start', 'alpha')).toMatchObject({ ok: true });
+    expect(await r.act(r.e, 'edit', 'alpha', { provider: 'claude-pty' })).toMatchObject({ ok: false });
+    expect(r.bg.calls.filter(([c]) => c === 'start')).toHaveLength(1);
+    expect(r.record().provider).toBe('claude-pty');
+  });
+});
+
+describe('TERM-P3: move every agent to the new terminal (the owner\'s queue)', () => {
+  class Agent extends FakeAgent {
+    status = 'idle';
+    constructor(readonly id: string) {
+      super();
+    }
+    override start(p: ProjectRecord, o?: { resume?: string }): Promise<StartResult> {
+      this.calls.push(['start', p.name]);
+      const id = `${this.id}${++this.n}`;
+      const sessionId = o?.resume ?? randomUUID();
+      fs.writeFileSync(this.transcript({ cwd: p.folder, sessionId }), '');
+      this.sessions.push({
+        id,
+        pid: (this.id === 'claude' ? 4_100_000 : 4_200_000) + this.n,
+        cwd: p.folder,
+        kind: 'background',
+        sessionId,
+        name: sessionName(p),
+        status: this.status,
+        startedAt: Date.now(),
+      });
+      return Promise.resolve({ ok: true as const, id });
+    }
+    setStatus(status: string, name?: string) {
+      for (const s of this.sessions) if (!name || s.name === name) s.status = status;
+    }
+  }
+
+  /** alpha (Lead with the Worker alpha-a), beta (a Lead alone) and gamma (a Lead, off); a short poll and wait. */
+  async function rig(wait = 5_000) {
+    const events: Array<Record<string, unknown>> = [];
+    const bg = new Agent('claude');
+    const pty = new Agent('claude-pty');
+    const r = home(undefined, {
+      agents: [bg, pty],
+      timing: { ...FAST, moveIdleMs: 300, moveAllPollMs: 20, moveAllWaitMs: wait },
+      event: (type, _s, f) => events.push({ type, ...f }),
+    });
+    const e = r.boot();
+    for (const n of ['beta', 'gamma']) {
+      const folder = path.join(r.home, 'work', n);
+      fs.mkdirSync(folder, { recursive: true });
+      expect(await r.act(e, 'add', n, { folder })).toMatchObject({ ok: true });
+    }
+    for (const n of ['alpha', 'alpha-a', 'beta']) expect(await r.act(e, 'start', n)).toMatchObject({ ok: true });
+    const lines = () => events.filter((x) => x.type === 'pty_move').map((x) => [x.name, x.result]);
+    const summary = () => events.find((x) => x.type === 'pty_move_all');
+    const done = () => vi.waitFor(() => expect(summary()).toBeDefined(), { timeout: 20_000, interval: 20 });
+    const record = (n: string) => loadRegistry(registryPath(r.home)).projects.find((p) => p.name === n)!;
+    return { ...r, e, bg, pty, events, lines, summary, done, record };
+  }
+
+  it('moves off agents, then Workers, then Leads, then Leads with Workers, one line each and a summary; a second press finds nothing left', async () => {
+    const r = await rig();
+    expect(r.e.moveAll(true)).toEqual({ ok: true, total: 4 });
+    await r.done();
+    expect(r.lines()).toEqual([
+      ['gamma', 'moved'],
+      ['alpha-a', 'moved'],
+      ['beta', 'moved'],
+      ['alpha', 'moved'],
+    ]);
+    expect(r.summary()).toMatchObject({ total: 4, moved: 4, skipped: 0, rolledBack: 0 });
+    expect(r.summary()?.stopped).toBeUndefined();
+    for (const n of ['alpha', 'alpha-a', 'beta', 'gamma']) expect(r.record(n).provider).toBe('claude-pty');
+    // Already in the host: nothing to do.
+    expect(r.e.moveAll(true)).toMatchObject({ ok: false, error: expect.stringContaining('새 터미널') });
+    expect(r.e.state().moveAll).toBeUndefined();
+  });
+
+  it('a busy agent waits and moves when its turn ends; a second request is refused meanwhile; the owner can stop the queue', async () => {
+    const r = await rig();
+    r.bg.setStatus('busy', 'beta');
+    r.bg.setStatus('busy', 'alpha');
+    expect(r.e.moveAll(true)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(r.lines()).toEqual([['gamma', 'moved'], ['alpha-a', 'moved']]), { interval: 20 });
+    await new Promise((res) => setTimeout(res, 150));
+    expect(r.lines()).toHaveLength(2); // beta is still waited for, alpha behind it
+    expect(r.e.state().moveAll).toEqual({ done: 2, total: 4 });
+    expect(r.e.moveAll(true)).toEqual({ ok: false, error: expect.stringContaining('이미') });
+    r.bg.setStatus('idle', 'beta');
+    await vi.waitFor(() => expect(r.lines()).toHaveLength(3), { interval: 20 });
+    expect(r.lines()[2]).toEqual(['beta', 'moved']);
+    expect(r.e.state().moveAll).toEqual({ done: 3, total: 4 }); // alpha is busy: the queue waits for it
+    expect(r.e.moveAllStop(true)).toEqual({ ok: true });
+    await r.done();
+    expect(r.summary()).toMatchObject({ stopped: true });
+    expect(r.record('alpha').provider).toBeUndefined(); // the one left is untouched
+    expect(r.e.moveAllStop(true)).toMatchObject({ ok: false });
+    expect(r.e.moveAll(true)).toEqual({ ok: true, total: 1 }); // pressing again skips the agents already moved
+    r.bg.setStatus('idle', 'alpha');
+    await vi.waitFor(() => expect(r.record('alpha').provider).toBe('claude-pty'), { interval: 20 });
+  });
+
+  it('an agent busy past the maximum wait is skipped with the reason and the queue goes on', async () => {
+    const r = await rig(150);
+    r.bg.setStatus('busy', 'beta');
+    expect(r.e.moveAll(true)).toMatchObject({ ok: true });
+    await r.done();
+    expect(r.lines()).toEqual([
+      ['gamma', 'moved'],
+      ['alpha-a', 'moved'],
+      ['beta', 'skipped'],
+      ['alpha', 'moved'],
+    ]);
+    expect(r.events.find((x) => x.type === 'pty_move' && x.name === 'beta')?.why).toEqual(expect.any(String));
+    expect(r.summary()).toMatchObject({ moved: 3, skipped: 1, rolledBack: 0 });
+    expect(r.record('beta').provider).toBeUndefined();
+  });
+
+  it('an agent not seen idle in the host is rolled back and reported, and the queue goes on', async () => {
+    const r = await rig();
+    r.pty.status = 'busy'; // up in the host on the same id, never idle
+    expect(r.e.moveAll(true)).toMatchObject({ ok: true });
+    await r.done();
+    expect(r.lines()).toEqual([
+      ['gamma', 'moved'], // off: no session to see idle
+      ['alpha-a', 'rolled_back'],
+      ['beta', 'rolled_back'],
+      ['alpha', 'rolled_back'],
+    ]);
+    expect(r.summary()).toMatchObject({ moved: 1, rolledBack: 3 });
+    expect(r.record('beta').provider).toBeUndefined();
+  });
+
+  it('is the owner\'s only: a client without the right (or a read-only engine) is refused, nothing moves', async () => {
+    const r = await rig();
+    expect(r.e.moveAll(false)).toMatchObject({ ok: false });
+    expect(r.e.moveAllStop(false)).toMatchObject({ ok: false });
+    const answers: Array<Record<string, unknown>> = [];
+    r.e.handleMoveAll({ type: 'engineMoveAll' }, (m) => answers.push(m), false);
+    expect(answers).toEqual([{ type: 'engineMoveAllResult', ok: false, error: expect.any(String) }]);
+    expect(r.events.filter((x) => x.type === 'pty_move')).toEqual([]);
+    expect(r.e.state().moveAll).toBeUndefined();
   });
 });

@@ -10,6 +10,7 @@ import type {
   RepoFile,
   RepoWorktree,
 } from '../../../../core/src/messages.js';
+import type { TranslationKey } from '../../i18n/en.js';
 import { getLanguage, t } from '../../i18n/index.js';
 import { objectParticle } from '../actionText.js';
 import { serverLine, serverText } from '../serverText.js';
@@ -244,26 +245,18 @@ export function confirmAction(c: RepoConfirm): {
   }
 }
 
-const DONE: Record<RepoActionKind, 'repo.done.stage' | 'repo.done.unstage' | 'repo.done.commit' | 'repo.done.push' | 'repo.done.worktreeRemove' | 'repo.done.worktreeNew' | 'repo.done.merge'> = {
+const DONE: Record<RepoActionKind, TranslationKey> = {
   stage: 'repo.done.stage', unstage: 'repo.done.unstage', commit: 'repo.done.commit',
   push: 'repo.done.push', worktreeRemove: 'repo.done.worktreeRemove', worktreeNew: 'repo.done.worktreeNew',
-  merge: 'repo.done.merge',
+  merge: 'repo.done.merge', sync: 'repo.done.sync', resolve: 'repo.done.resolve',
+  mergeContinue: 'repo.done.mergeContinue', mergeAbort: 'repo.done.mergeAbort',
+  conflictHandoff: 'repo.done.conflictHandoff',
 };
 
-/** W3: a worktree's last merge, in a line (a conflict's files are in its error). */
-export function mergeLine(m: NonNullable<RepoWorktree['merge']>): string {
-  const who = m.auto ? t('repo.mergeAuto') : '';
-  if (!m.ok) return `${who}${t('repo.mergeFailed', { base: m.target })}: ${serverText(m)}`;
-  const how = m.kind === 'already' ? t('repo.mergeAlready') : m.kind === 'ff' ? 'fast-forward' : t('repo.mergeCommit');
-  return `${who}${t('repo.mergeDone', { base: m.target })} (${how}${m.sha ? ` ${m.sha.slice(0, 7)}` : ''})`;
-}
-
-/** W4: a merge history entry: when, which worktree, and what happened. */
-export function mergeHistoryLine(m: NonNullable<RepoWorktree['merge']>): string {
-  const d = new Date(m.at);
-  const two = (n: number) => String(n).padStart(2, '0');
-  const when = Number.isNaN(d.getTime()) ? '' : `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())} `;
-  return `${when}${m.task ?? m.branch ?? ''} · ${mergeLine(m)}`;
+/** +a −d of a diff's rows (the review's file list and each file's header). */
+export function diffCounts(text: string): { add: number; del: number } {
+  const rows = diffRows(text);
+  return { add: rows.filter((r) => r.kind === 'add').length, del: rows.filter((r) => r.kind === 'del').length };
 }
 
 export function resultToast(r: RepoActionResult): {
@@ -271,7 +264,9 @@ export function resultToast(r: RepoActionResult): {
   tone: 'ok' | 'info' | 'error';
 } {
   if (!r.ok) return { text: serverText(r, t('repo.failed')), tone: 'error' };
-  const done = t(DONE[r.action]);
+  // A sync that stopped on a conflict still succeeded: the detail says what is left to do.
+  if (r.conflicts?.length && r.detail) return { text: serverLine(r.detail), tone: 'info' };
+  const done = t(DONE[r.action]) + (r.cleaned ? ` · ${t('repo.done.cleaned')}` : '');
   return { text: r.detail ? `${done} · ${serverLine(r.detail)}` : done, tone: 'ok' };
 }
 
@@ -279,6 +274,69 @@ export type DiffKind = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';
 export interface DiffRun {
   kind: DiffKind;
   text: string;
+}
+
+/** One visible unified-diff line, with the source line(s) it represents. */
+export interface DiffRow {
+  /** Stable within a file version; new-side rows use their old line when one exists. */
+  key: string;
+  kind: DiffKind;
+  oldNo?: number;
+  newNo?: number;
+  text: string;
+}
+
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+/**
+ * Split a unified diff into individually addressable rows. A context line's
+ * old-side number is its durable key: adding lines above it changes its new
+ * number but not the row that a review note refers to.
+ */
+export function diffRows(text: string): DiffRow[] {
+  const rows: DiffRow[] = [];
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  let inHunk = false;
+  let oldNo: number | undefined;
+  let newNo: number | undefined;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.startsWith('diff ')) {
+      inHunk = false;
+      oldNo = undefined;
+      newNo = undefined;
+    }
+    const hunk = line.match(HUNK);
+    let kind: DiffKind;
+    let rowOld: number | undefined;
+    let rowNew: number | undefined;
+    if (hunk) {
+      inHunk = true;
+      oldNo = Number(hunk[1]);
+      newNo = Number(hunk[2]);
+      kind = 'hunk';
+    } else if (!inHunk || line.startsWith('\\')) {
+      kind = 'meta';
+    } else if (line.startsWith('+')) {
+      kind = 'add';
+      rowNew = newNo;
+      newNo = newNo === undefined ? undefined : newNo + 1;
+    } else if (line.startsWith('-')) {
+      kind = 'del';
+      rowOld = oldNo;
+      oldNo = oldNo === undefined ? undefined : oldNo + 1;
+    } else {
+      kind = 'ctx';
+      rowOld = oldNo;
+      rowNew = newNo;
+      oldNo = oldNo === undefined ? undefined : oldNo + 1;
+      newNo = newNo === undefined ? undefined : newNo + 1;
+    }
+    const key = rowOld !== undefined ? `old:${rowOld}` : rowNew !== undefined ? `new:${rowNew}` : `${kind}:${index}`;
+    rows.push({ key, kind, ...(rowOld !== undefined && { oldNo: rowOld }), ...(rowNew !== undefined && { newNo: rowNew }), text: line });
+  }
+  return rows;
 }
 
 /**

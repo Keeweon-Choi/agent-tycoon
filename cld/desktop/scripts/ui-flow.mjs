@@ -9,7 +9,6 @@
 // themselves are tested in src-tauri/src/local.rs.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -254,7 +253,7 @@ const SCENARIOS = {
 // The Chrome the repo's runners use (cld/test/run-notices.ts); PLAYWRIGHT_CHROME overrides it.
 const chrome =
   process.env.PLAYWRIGHT_CHROME ??
-  path.join(os.homedir(), '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome');
+  chromium.executablePath();
 const browser = await chromium.launch({
   headless: true,
   args: ['--disable-gpu'],

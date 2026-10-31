@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from '../../fixtures/standalone';
+import { officeFile } from '../../helpers/hooks';
 import { buildSeedLayout } from '../../helpers/layout-seed';
 import {
   getDirectoryAreas,
@@ -30,9 +31,7 @@ interface SharedConfig {
 
 function readSharedConfig(tmpHome: string): SharedConfig {
   try {
-    return JSON.parse(
-      fs.readFileSync(path.join(tmpHome, '.pixel-agents', 'config.json'), 'utf8'),
-    ) as SharedConfig;
+    return JSON.parse(fs.readFileSync(officeFile(tmpHome, 'config.json'), 'utf8')) as SharedConfig;
   } catch {
     return {};
   }

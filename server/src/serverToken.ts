@@ -1,9 +1,9 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
-import { SERVER_JSON_DIR, STANDALONE_TOKEN_FILE_NAME } from './constants.js';
+import { STANDALONE_TOKEN_FILE_NAME } from './constants.js';
+import { officeFile, officeFileToRead } from './officeFolder.js';
 
 /** A token we wrote ourselves is a UUID; anything else in the file is treated
  *  as damage and replaced rather than handed to the auth gate. */
@@ -22,9 +22,9 @@ const USABLE_TOKEN = /^[A-Za-z0-9-]{16,128}$/;
  *
  * Stored on its own, mode 0600, beside server.json -- never in config.json,
  * which is world-readable and rewritten wholesale by every settings change.
- * The file's own mode is the protection: ~/.pixel-agents is usually created
- * earlier by config or layout persistence with the default directory mode, and
- * mkdir never tightens an existing directory. Falls back to a per-process
+ * The file's own mode is the protection: the office folder may have been
+ * created earlier with a looser mode, and mkdir never tightens an existing
+ * directory. Falls back to a per-process
  * token when the file cannot be written, so a read-only HOME still gets a
  * working (if unstable) server.
  *
@@ -33,11 +33,13 @@ const USABLE_TOKEN = /^[A-Za-z0-9-]{16,128}$/;
  * carrying the old one -- on every device -- stops granting privilege.
  */
 export function loadOrCreateStandaloneToken({ rotate = false } = {}): string {
-  const dir = path.join(os.homedir(), SERVER_JSON_DIR);
-  const file = path.join(dir, STANDALONE_TOKEN_FILE_NAME);
+  const file = officeFile(STANDALONE_TOKEN_FILE_NAME);
+  const dir = path.dirname(file);
   if (!rotate) {
     try {
-      const existing = fs.readFileSync(file, 'utf-8').trim();
+      const existing = fs
+        .readFileSync(officeFileToRead(STANDALONE_TOKEN_FILE_NAME), 'utf-8')
+        .trim();
       if (USABLE_TOKEN.test(existing)) return existing;
     } catch {
       // Absent or unreadable: mint below.
@@ -61,7 +63,7 @@ export function loadOrCreateStandaloneToken({ rotate = false } = {}): string {
       );
     }
     console.warn(
-      `[Pixel Agents] Could not persist the server token (${err instanceof Error ? err.message : String(err)}); using a per-process token.`,
+      `[Agent Tycoon] Could not persist the server token (${err instanceof Error ? err.message : String(err)}); using a per-process token.`,
     );
   }
   return token;

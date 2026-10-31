@@ -66,8 +66,10 @@ macOS는 이 PC에서 만들 수 없습니다(Apple SDK 필요). CI의 `macos-15
 
 - 버전은 `src-tauri/Cargo.toml`의 `version` 한 곳입니다. `tauri.conf.json`에는 `version`이 없어 Tauri가 Cargo 값을 씁니다. 올릴 때 `Cargo.toml`만 고치세요(`Cargo.lock`은 cargo가 맞춥니다; `package.json`의 `version`은 번들에 쓰이지 않습니다).
 - 제품 이름은 `tauri.conf.json`의 `productName` = `Agent Tycoon`, 실행 파일·크레이트 이름 `agent-tycoon`(로그 파일 `agent-tycoon.log`, 새로 만드는 SSH 키 설명 `agent-tycoon@<컴퓨터>`).
-- 식별자는 옛 이름 그대로 `dev.cldgui.pixeloffice`입니다. 앱 데이터 폴더(저장한 설정, 이 기기 SSH 키)가 이 이름을 따르므로 바꾸면 그것들을 잃습니다.
-- 옛 **Pixel Office** 설치는 지우지 않고 그대로 옆에 남습니다(다른 제품 이름이라 설치 폴더·시작 메뉴·제거 항목이 따로). 두 앱은 설정과 키를 같이 쓰고, 한 번에 하나만 뜹니다(둘째로 연 앱은 먼저 뜬 앱 창을 앞으로 가져옴). 필요 없으면 Windows 설정 → 앱에서 Pixel Office를 제거하세요. 이미 등록한 기기 키 설명은 옛 `pixel-office@<컴퓨터>`로 남습니다.
+- 식별자는 `dev.agenttycoon.app`입니다(11-01 전에는 `dev.agenttycoon.app`). 앱 데이터 폴더가 이 이름을 따릅니다: Windows `%APPDATA%\<식별자>`(설정, 이 기기 SSH 키)와 `%LOCALAPPDATA%\<식별자>`(로그, WebView2 프로필 `EBWebView`: 사무실 페이지의 localStorage·IndexedDB 기기 키·쿠키), macOS `~/Library/Application Support/<식별자>`·`~/Library/Logs/<식별자>`·WKWebView 저장소 `~/Library/WebKit/<식별자>`·`~/Library/HTTPStorages/<식별자>`, Linux `~/.config/<식별자>`(설정)·`~/.local/share/<식별자>`(키, 로그, 웹뷰).
+- 새 식별자로 처음 실행하면 웹뷰를 띄우기 전에 옛 식별자의 폴더를 새 이름으로 복사합니다(`src-tauri/src/appdata.rs`: `<새 폴더>.moving`에 복사 → 파일마다 크기 확인 → 이름 바꾸기). 새 폴더가 이미 있으면 아무것도 하지 않고, 옛 폴더는 그대로 둡니다(다음 릴리스에서 지움). 결과는 로그에 `옛 앱 데이터를 옮겼습니다` 줄로 남습니다.
+- `bundle.publisher`는 `cldgui`로 고정합니다. Tauri NSIS는 제작사(지정하지 않으면 식별자의 둘째 마디)로 설치 위치 키 `HKCU\Software\<제작사>\Agent Tycoon`을 만들고, 업그레이드 때 "먼저 제거"가 그 키로 옛 제거 프로그램을 부릅니다. 제작사가 바뀌면 그 키가 비어 옛 제거가 실패합니다.
+- 제품 이름(`Agent Tycoon`)이 같으므로 새 설치 파일은 옛 Agent Tycoon과 같은 제거 항목·설치 폴더(`%LOCALAPPDATA%\Agent Tycoon`)·바로 가기를 그대로 덮어씁니다. 옛 **Pixel Office** 설치(다른 제품 이름)는 설치 파일의 `NSIS_HOOK_PREINSTALL`(`nsis/hooks.nsh`)이 조용히 제거합니다(앱을 닫고, 데이터는 남김). macOS는 `.app` 이름이 같아 `/Applications`에 끌어 넣으면 옛 앱을 바꿉니다. 이미 등록한 기기 키 설명은 옛 `pixel-office@<컴퓨터>`로 남을 수 있습니다.
 
 ### NSIS 3.08 (Ubuntu 22.04)
 
@@ -101,6 +103,7 @@ cd cld/desktop
 sh scripts/makensis.test.sh                       # 래퍼가 NSIS 3.09 미만에서만 헤더를 더하는지 (가짜 makensis로 확인)
 rustc --edition 2021 --test src-tauri/src/connect.rs -o "$CARGO_TARGET_DIR/connect-tests" && "$CARGO_TARGET_DIR/connect-tests"
 rustc --edition 2021 --test src-tauri/src/owner.rs -o "$CARGO_TARGET_DIR/owner-tests" && "$CARGO_TARGET_DIR/owner-tests"   # 포트 주인 조회(Linux 쪽)
+rustc --edition 2021 --test src-tauri/src/appdata.rs -o "$CARGO_TARGET_DIR/appdata-tests" && "$CARGO_TARGET_DIR/appdata-tests"   # 옛 식별자 폴더 복사(처음, 이미 옮김, 반쯤 옮김)
 # local.rs는 serde_json을 씁니다: 호스트용 serde_json을 한 번 빌드해 링크합니다.
 (cd src-tauri && cargo build -q -p serde_json --target-dir "$CARGO_TARGET_DIR/host-json")
 rustc --edition 2021 --test src-tauri/src/local.rs -L dependency="$CARGO_TARGET_DIR/host-json/debug/deps" \
@@ -186,7 +189,7 @@ SSH 모드에서 앱이 하는 일:
 Windows 설정 → 앱 → 설치된 앱 → **Agent Tycoon** → 제거는 이 앱이 Windows에서 설치한 사무실도 함께 정리합니다. `%LOCALAPPDATA%\AgentTycoon\install.json`이 `installedBy: gui`인 경우에만 해당하므로, CLI·소스 설치와 WSL 배포판은 건드리지 않습니다.
 
 - **Delete the application data**를 끄면: Windows용 데몬 프로그램, `agty.cmd`/`cld-gui.cmd`, 로그온 예약 작업은 지웁니다. 새 설치의 `%USERPROFILE%\.config\agent-tycoon`과 이전 설치의 `%USERPROFILE%\.config\cld-gui` 사무실 설정·데이터는 남습니다.
-- **Delete the application data**를 켜면: 위 항목과 `%USERPROFILE%\.config\cld-gui`도 지웁니다. 또한 이 앱은 Pixel Office와 공유하는 `%APPDATA%\dev.cldgui.pixeloffice`의 연결 설정·이 기기 SSH 키도 지우므로, Pixel Office까지 정리할 때만 선택하세요.
+- **Delete the application data**를 켜면: 위 항목과 `%USERPROFILE%\.config\cld-gui`도 지웁니다. 또한 `%APPDATA%\dev.agenttycoon.app`과 `%LOCALAPPDATA%\dev.agenttycoon.app`(연결 설정, 이 기기 SSH 키, 로그, 웹뷰 데이터), 그리고 첫 실행 때 복사하고 남겨 둔 옛 `dev.agenttycoon.app` 폴더 둘도 지웁니다.
 
 ## 키와 트레이
 
@@ -212,10 +215,10 @@ macOS에서는 Ctrl 대신 Cmd입니다(Cmd+R, Cmd+Shift+T, Cmd+,). 키와 버�
 
 | 파일 | 경로 |
 | --- | --- |
-| 설정 | `%APPDATA%\dev.cldgui.pixeloffice\config.json` |
-| 이 기기 키 | `%APPDATA%\dev.cldgui.pixeloffice\ssh\id_ed25519` (공개 키는 `id_ed25519.pub`) |
-| 앱 전용 known_hosts | `%APPDATA%\dev.cldgui.pixeloffice\ssh\known_hosts` |
-| 로그 | `%LOCALAPPDATA%\dev.cldgui.pixeloffice\logs\agent-tycoon.log` |
+| 설정 | `%APPDATA%\dev.agenttycoon.app\config.json` |
+| 이 기기 키 | `%APPDATA%\dev.agenttycoon.app\ssh\id_ed25519` (공개 키는 `id_ed25519.pub`) |
+| 앱 전용 known_hosts | `%APPDATA%\dev.agenttycoon.app\ssh\known_hosts` |
+| 로그 | `%LOCALAPPDATA%\dev.agenttycoon.app\logs\agent-tycoon.log` |
 
 로그에는 연결 이벤트가 한 줄씩(UTC 시각) 쌓이고 1 MB를 넘으면 오래된 절반을 지웁니다.
 키를 만들거나 등록하거나 지운 일, 수락한 호스트 키는 지문(`SHA256:…`)으로만 남습니다.
@@ -229,7 +232,7 @@ macOS에서는 Ctrl 대신 Cmd입니다(Cmd+R, Cmd+Shift+T, Cmd+,). 키와 버�
 - **"Tailscale이 켜져 있는지 확인하세요"**: 이름은 풀리지만 연결이 안 됩니다. 노트북의 Tailscale이 꺼져 있거나 다른 tailnet에 로그인돼 있습니다. 브라우저로 같은 주소가 열리는지 먼저 보세요.
 - **"비밀번호가 맞지 않습니다"**: 호스트 계정 비밀번호를 다시 넣습니다. 한 번 넣을 때마다 ssh는 한 번만 시도합니다.
 - **"키 인증에 실패했고, 이 호스트는 비밀번호 로그인을 받지 않습니다"** (`Permission denied (publickey)`): 이 기기 공개 키
-  (`%APPDATA%\dev.cldgui.pixeloffice\ssh\id_ed25519.pub`)를 호스트의 `~/.ssh/authorized_keys`에 직접 넣습니다.
+  (`%APPDATA%\dev.agenttycoon.app\ssh\id_ed25519.pub`)를 호스트의 `~/.ssh/authorized_keys`에 직접 넣습니다.
 - **"키를 등록했는데도 키 인증이 실패했습니다"**: 등록은 됐지만 sshd가 키를 받지 않습니다. 호스트의 홈 폴더가 그룹·기타 쓰기 가능하면
   sshd(`StrictModes`)가 키를 거절합니다(`chmod go-w ~`). `AuthorizedKeysFile`을 바꿨는지도 봅니다.
 - **"ssh가 비밀번호를 묻지 않았습니다"**: 이 기기의 Windows OpenSSH가 `SSH_ASKPASS`를 쓰지 않았습니다. PowerShell에서 `ssh -V`로 버전을 보고 알려 주세요.

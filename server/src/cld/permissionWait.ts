@@ -268,25 +268,27 @@ export function openToolCall(file: string, toolId: string): OpenToolCall | null 
       continue;
     }
     if (!use) continue;
-    const input = (use.input && typeof use.input === 'object' ? use.input : {}) as Record<
-      string,
-      unknown
-    >;
-    const str = (k: string) => {
-      const v = input[k];
-      return typeof v === 'string' && v.trim() ? v.trim() : undefined;
-    };
-    const description = str('description')?.split('\n')[0];
-    // The whole command must be in the dialog (its first line alone would match another script).
-    const command = str('command');
-    const detail = description ?? command?.split('\n')[0].trim() ?? str('file_path') ?? str('url');
-    return {
-      tool: typeof use.name === 'string' ? use.name : '?',
-      ...(detail && { detail: detail.slice(0, DETAIL_MAX) }),
-      match: [description, command].filter((x): x is string => !!x),
-    };
+    return toolCall(use.name, use.input);
   }
   return null;
+}
+
+/** A tool call's card from its name and input (a transcript's tool_use, or TERM-P3's hook input). */
+export function toolCall(name: unknown, rawInput: unknown): OpenToolCall {
+  const input = (rawInput && typeof rawInput === 'object' ? rawInput : {}) as Record<string, unknown>;
+  const str = (k: string) => {
+    const v = input[k];
+    return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+  };
+  const description = str('description')?.split('\n')[0];
+  // The whole command must be in the dialog (its first line alone would match another script).
+  const command = str('command');
+  const detail = description ?? command?.split('\n')[0].trim() ?? str('file_path') ?? str('url');
+  return {
+    tool: typeof name === 'string' ? name : '?',
+    ...(detail && { detail: detail.slice(0, DETAIL_MAX) }),
+    match: [description, command].filter((x): x is string => !!x),
+  };
 }
 
 /** The subject's call, read from the lead's transcript or its sub-agent's own. */

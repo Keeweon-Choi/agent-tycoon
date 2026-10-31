@@ -84,7 +84,7 @@ export class PlainOffice {
     }
     // When the restart works this process ends while it waits.
     if (ordered) await (this.d.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(AGENT_CLI_RESTART_WAIT_MS);
-    this.log('[cld] agent CLI restart did not take effect: plain pixel-agents office keeps running');
+    this.log('[cld] agent CLI restart did not take effect: plain office keeps running');
     this.set('failed');
   }
 

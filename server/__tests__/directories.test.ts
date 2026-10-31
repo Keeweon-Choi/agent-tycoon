@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readConfig } from '../src/configPersistence.js';
 import {
   buildDirectoryUnion,
-  directoryNameForLaunch,
   expandTilde,
   handleDirectoryClientMessage,
   listDirectories,
@@ -49,7 +48,7 @@ describe('directories', () => {
   /** Make the next config write fail: the atomic write goes through a `.tmp`
    *  sibling, and a directory squatting on that name makes it throw. */
   function blockConfigWrites(): void {
-    const dir = path.join(tempHome, '.pixel-agents');
+    const dir = path.join(tempHome, '.config', 'agent-tycoon', 'office');
     fs.mkdirSync(path.join(dir, 'config.json.tmp'), { recursive: true });
   }
 
@@ -318,37 +317,6 @@ describe('directories', () => {
       expect(handled).toBe(true);
       expect(broadcasts).toEqual([]);
       expect(replies).toEqual([{ type: 'directorySuggestions', paths: [alpha] }]);
-    });
-  });
-
-  // ── launch labelling ─────────────────────────────────────────
-
-  describe('directoryNameForLaunch', () => {
-    it('gives a launch the name its Directory was given, not the path basename', () => {
-      saveUserDirectory({ name: 'Side Project', path: alpha });
-
-      expect(directoryNameForLaunch(alpha, [])).toBe('Side Project');
-    });
-
-    it('matches regardless of how the launch path was written', () => {
-      saveUserDirectory({ name: 'Side Project', path: alpha });
-
-      expect(directoryNameForLaunch(`${alpha}${path.sep}`, [])).toBe('Side Project');
-      expect(directoryNameForLaunch('~/alpha', [])).toBe('Side Project');
-    });
-
-    it('names host-contributed Directories too', () => {
-      expect(directoryNameForLaunch(beta, [{ name: 'beta', path: beta }])).toBe('beta');
-    });
-
-    it("prefers the user's name over the host's for the same path", () => {
-      saveUserDirectory({ name: 'My Workspace', path: beta });
-
-      expect(directoryNameForLaunch(beta, [{ name: 'beta', path: beta }])).toBe('My Workspace');
-    });
-
-    it('is undefined for a path that is no Directory, so the host keeps its own label', () => {
-      expect(directoryNameForLaunch(alpha, [{ name: 'beta', path: beta }])).toBeUndefined();
     });
   });
 });

@@ -28,6 +28,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 import * as path from 'path';
 
+import { fixJosa } from '../../../../core/src/cld/josa.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type { BoardExecution, BoardTask, TaskBoard } from '../../../../core/src/messages.js';
 import { CLI_NAME } from '../cliName.js';
@@ -461,13 +462,13 @@ export class TaskStore {
     }
     if (typeof v2 === 'string') {
       this.tasks = tasks.filter(isTask);
-      this.unwritable = `${file} 을(를) v2 로 옮기지 않았습니다(${v2}). 파일은 그대로 두었고 작업을 저장하지 않습니다`;
+      this.unwritable = fixJosa(`${file}을(를) v2 로 옮기지 않았습니다(${v2}). 파일은 그대로 두었고 작업을 저장하지 않습니다`);
       this.log(this.unwritable);
       return;
     }
     this.tasks = v2;
     if (opts.readOnly) {
-      this.unwritable = `${file} 은(는) v1 입니다. 읽기 전용이라 옮기지 않았고, 보통 시작이 옮길 때까지 작업을 저장하지 않습니다`;
+      this.unwritable = fixJosa(`${file}은(는) v1 입니다. 읽기 전용이라 옮기지 않았고, 보통 시작이 옮길 때까지 작업을 저장하지 않습니다`);
       this.log(this.unwritable);
       return;
     }
@@ -476,7 +477,7 @@ export class TaskStore {
       writeJsonAtomic(file, this.doc(v2));
       this.log(`tasks.json: migrated to v2, ${v2.length} tasks (v1 kept as ${kept})`);
     } catch (err) {
-      this.unwritable = `${file} 을(를) v2 로 옮기지 못했습니다(${err instanceof Error ? err.message : String(err)}). 원래 파일은 그대로이고, 다시 시작할 때까지 작업을 저장하지 않습니다`;
+      this.unwritable = fixJosa(`${file}을(를) v2 로 옮기지 못했습니다(${err instanceof Error ? err.message : String(err)}). 원래 파일은 그대로이고, 다시 시작할 때까지 작업을 저장하지 않습니다`);
       this.log(this.unwritable);
     }
   }

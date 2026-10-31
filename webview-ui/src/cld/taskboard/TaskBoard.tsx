@@ -606,6 +606,11 @@ function TaskCard({
         </span>
         <span className="mt-4 flex flex-wrap gap-4 items-center text-xs">
           {nested && <span className={`${chip} ${STATUS_TONE[item.status]}`}>{t(`tasks.status.${item.status}`)}</span>}
+          {item.task?.status === 'review' && (
+            <span className={`${chip} text-accent-text`} data-testid="task-review-chip">
+              {t('review.chip')}
+            </span>
+          )}
           {item.tracked ? (
             <>
               <span className={chip} data-testid="tracked-kind">

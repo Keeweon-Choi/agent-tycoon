@@ -1,5 +1,5 @@
-# Everyday CI (F-28): one cheap Linux job that mirrors the local merge gate. The 3-OS VS Code
-# e2e matrix, the macOS/Windows server tests and the Node 20 npm smoke run only on a manual
+# Everyday CI (F-28): one cheap Linux job that mirrors the local merge gate. The 3-OS standalone
+# e2e matrix and the macOS/Windows server tests run only on a manual
 # dispatch and on version tags
 # (private-repo minutes are limited, and macOS/Windows minutes cost several times Linux).
 # No secrets are used anywhere in this file; the token is read-only. Never add
@@ -19,10 +19,10 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: 'all, or server-tests (Linux gate + macOS/Windows server tests, no e2e)'
+        description: 'all, server-tests (Linux gate + macOS/Windows server tests, no e2e), or ptyhost (Linux gate + the PTY host tests on macOS/Windows)'
         type: choice
         default: all
-        options: [all, server-tests]
+        options: [all, server-tests, ptyhost]
 
 permissions:
   contents: read
@@ -83,7 +83,7 @@ jobs:
       # The hook-script test skips itself when dist/hooks/claude-hook.js is missing.
       - name: Build hook script
         if: ${{ !cancelled() }}
-        run: npm run build:extension
+        run: npm run build:daemon
 
       - name: Server Tests
         if: ${{ !cancelled() }}
@@ -129,7 +129,7 @@ jobs:
         run: npm ci
 
       - name: Build hook script
-        run: npm run build:extension
+        run: npm run build:daemon
 
       # Temp dirs without a link or a short name in their path: macOS's default sits behind
       # the /var -> /private/var link and Windows's under C:\Users\RUNNER~1, and tests compare
@@ -140,7 +140,9 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
-        run: npx vitest run --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
+        # ptyhost (TERM-P2): only our PTY host's tests (named pipe + token on Windows, conpty.dll, the
+        # fake claude in a real ConPTY / macOS PTY). Its own esbuild build; no dist needed.
+        run: npx vitest run ${{ inputs.only == 'ptyhost' && 'src/cld/ptyhost' || '' }} --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
 
       - name: Upload Results
         if: always()
@@ -150,32 +152,8 @@ jobs:
           if-no-files-found: ignore
           path: server-tests-${{ matrix.label }}.json
 
-  npm-package-node20:
-    name: npm Package Smoke (Node 20)
-    if: (github.event_name == 'workflow_dispatch' && inputs.only != 'server-tests') || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v7
-        with:
-          node-version: '20.x'
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Verify npm Package Contract and Installed Artifact
-        run: npm run test:package-contract && npm run verify:npm-package
-
   e2e:
-    if: (github.event_name == 'workflow_dispatch' && inputs.only != 'server-tests') || startsWith(github.ref, 'refs/tags/v')
+    if: (github.event_name == 'workflow_dispatch' && inputs.only == 'all') || startsWith(github.ref, 'refs/tags/v')
     name: ${{ matrix.target.label }} E2E (shard ${{ matrix.shard }}/3)
     # One matrix replaces the former linux-e2e / macos-e2e / windows-e2e jobs:
     # 3 OSes x 3 shards = 9 runs. Shard distribution is test-level (Playwright
@@ -211,15 +189,6 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Restore VS Code Cache
-        id: cache_vscode_restore
-        uses: actions/cache/restore@v5
-        with:
-          path: .vscode-test
-          key: vscode-test-${{ runner.os }}-${{ hashFiles('e2e/global-setup.ts') }}-v3
-          restore-keys: |
-            vscode-test-${{ runner.os }}-
-
       - name: Restore Playwright Cache
         id: cache_playwright_restore
         uses: actions/cache/restore@v5
@@ -232,8 +201,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build Extension
-        run: npm run build:extension
+      - name: Build Daemon
+        run: npm run build:daemon
 
       - name: Build Webview
         run: npm run build:webview
@@ -278,17 +247,10 @@ jobs:
             test-results/e2e
 
       # Cache save gated on cache MISS + path existence only (NOT test outcome):
-      # the VS Code + Chromium binaries are external artifacts whose validity is
+      # the Chromium binaries are external artifacts whose validity is
       # independent of our tests. Gating on test success created a vicious cycle
       # (flake -> skip save -> re-download -> slower -> more flake). Only shard 1
       # writes (single-writer; the cache key is per-OS via runner.os).
-      - name: Save VS Code Cache
-        if: always() && matrix.shard == 1 && steps.cache_vscode_restore.outputs.cache-hit != 'true' && hashFiles('.vscode-test/vscode-executable.txt') != ''
-        uses: actions/cache/save@v5
-        with:
-          path: .vscode-test
-          key: ${{ steps.cache_vscode_restore.outputs.cache-primary-key }}
-
       - name: Save Playwright Cache
         if: always() && matrix.shard == 1 && steps.cache_playwright_restore.outputs.cache-hit != 'true' && hashFiles('.playwright-browsers/**') != ''
         uses: actions/cache/save@v5

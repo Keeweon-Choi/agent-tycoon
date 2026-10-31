@@ -65,7 +65,7 @@ describe('PlainOffice decision: plain to full', () => {
     expect(k.restarts).toBe(1);
     expect(k.sent.filter((m) => m.type === 'agentCliState').map((m) => m.state)).toEqual(['missing', 'restarting', 'failed']); // still alive after the wait
     expect(k.sleeps).toEqual([30_000]);
-    expect(k.logs.join('\n')).toContain('restart did not take effect: plain pixel-agents office keeps running');
+    expect(k.logs.join('\n')).toContain('restart did not take effect: plain office keeps running');
   });
 
   it('a restart that could not be ordered fails at once, without the wait', async () => {

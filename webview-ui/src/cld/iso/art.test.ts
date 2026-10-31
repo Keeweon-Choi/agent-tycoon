@@ -58,8 +58,10 @@ describe("the owner's pieces (gen-iso-objects.ts)", () => {
 
   it('cut the pictures clean: transparent around every object, no backdrop or halo left', () => {
     // The generator's own report, tolerances applied there (halo share, wall base, ...): the
-    // only thing it may still flag is a spare piece's base, which no building uses.
-    expect(ownerReport.flags.filter((f) => !f.startsWith('wall-window-wide'))).toEqual([]);
+    // only thing it may still flag is a spare piece (wall base off the stair line, a stray pixel),
+    // which no building uses.
+    const used = neededFiles();
+    expect(ownerReport.flags.filter((f) => used.has(`o-${f.split(':')[0]}.png`))).toEqual([]);
     for (const [name, p] of pieces) {
       const png = read(p.file);
       // A transparent corner: nothing of a backdrop box is left around the object.

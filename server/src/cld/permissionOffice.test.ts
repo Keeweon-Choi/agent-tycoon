@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentRuntime } from '../agentRuntime.js';
 import { AgentStateStore } from '../agentStateStore.js';
+import { PTY_PERMISSION_WAIT_MS } from '../constants.js';
 import { claudeProvider } from '../providers/hook/claude/claude.js';
 import { ChatManager } from './chat.js';
 import type { Lead } from './conversations.js';
@@ -56,6 +57,7 @@ async function start() {
     runtime,
     store,
     readOnly: false,
+    ptyHostScript: null, // these office tests drive the fake claude --bg
     chat: true,
     claude: new ClaudeSessions(path.join(home, '.claude/sessions'), null),
     home,
@@ -262,5 +264,50 @@ describe('PERM-PROMPT through the office', () => {
     expect(await t.answer(true, t.card()!.toolId)).toMatchObject({ ok: true, result: 'answered' });
     expect(t.answers()).toContain('"answer":"yes"');
     expect(t.card()).toBeUndefined();
+  }, 90_000);
+});
+
+describe('TERM-P3: a PTY agent asks through its PermissionRequest hook', () => {
+  it('the same card and bubble; 허용 and 거부 are the hook\'s decision; no answer in time is none (its own dialog)', async () => {
+    const t = await start();
+    // alpha runs in the fake claude here; as a PTY agent its prompts come from the hook only.
+    vi.spyOn(t.office.engine!, 'inPty').mockImplementation((name) => name === 'alpha');
+    const ask = (t.office as unknown as {
+      askPermission(name: string, a: { tool: string; input: Record<string, unknown> }): Promise<string | null>;
+    }).askPermission.bind(t.office);
+    const call = { tool: 'Bash', input: { command: 'rm -rf build', description: 'Clean the build' } };
+    // Allow.
+    let decided = ask('alpha', call);
+    await vi.waitFor(() => expect(t.card()).toBeDefined());
+    expect(t.card()).toEqual({ toolId: expect.stringMatching(/^hook:/), tool: 'Bash', detail: 'Clean the build\nrm -rf build' });
+    expect(t.broadcasts.some((m) => m.type === 'agentToolPermission' && m.id === t.agentId)).toBe(true);
+    expect(await t.answer(true, t.card()!.toolId)).toMatchObject({ ok: true, result: 'answered' });
+    expect(await decided).toBe('allow');
+    expect(t.card()).toBeUndefined();
+    expect(t.answers()).toBe(''); // nothing typed into a terminal
+    // Deny.
+    decided = ask('alpha', call);
+    await vi.waitFor(() => expect(t.card()).toBeDefined());
+    t.office.onClientMessage(
+      { type: 'permissionAnswer', requestId: 'deny', agentId: t.agentId, toolId: t.card()!.toolId, allow: false },
+      t.send,
+      true,
+    );
+    expect(await decided).toBe('deny');
+    expect(t.card()).toBeUndefined();
+    // Nobody answers in time: no decision, the card goes.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      decided = ask('alpha', call);
+      expect(t.card()).toBeDefined();
+      vi.advanceTimersByTime(PTY_PERMISSION_WAIT_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(await decided).toBeNull();
+    expect(t.card()).toBeUndefined();
+    expect(t.broadcasts.some((m) => m.type === 'agentToolPermissionClear' && m.id === t.agentId)).toBe(true);
+    // An agent that is not in the host: no card, no decision.
+    expect(await ask('nobody', call)).toBeNull();
   }, 90_000);
 });

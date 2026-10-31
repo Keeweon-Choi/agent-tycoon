@@ -138,6 +138,7 @@ test('launch agent and scheduled-task commands use absolute paths and flags', ()
   assert.doesNotMatch(plist, /trust-tailscale-user/);
   assert.match(plist, /<key>PATH<\/key><string>\/absolute\/home\/\.local\/bin:\/absolute\/node\/bin:/);
   assert.match(plist, /<key>LANG<\/key><string>en_US\.UTF-8<\/string>/);
+  assert.match(plist, /<key>AbandonProcessGroup<\/key><true\/>/); // the PTY host and its agents outlive the daemon (ADR-0018)
   assert.deepEqual(installPlan({ platform: 'win32', repo, home, node, config }).map((a) => a.command[1]), ['/Create', '/End', '/Run']);
   const task = renderSchtasksCommand({ repo, node, config });
   assert.deepEqual(task.slice(0, 7), ['schtasks', '/Create', '/F', '/SC', 'ONLOGON', '/TN', 'cld-gui']);

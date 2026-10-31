@@ -31,7 +31,6 @@ export function ellipseSprite(
 
 const made = new Map<string, SpriteData | null>();
 function decalSprite(d: GroundDecal): SpriteData | null {
-  if (d.sprite) return d.sprite;
   const key = `${d.kind}:${d.preset}:${d.w}`;
   let s = made.get(key);
   if (s === undefined) {

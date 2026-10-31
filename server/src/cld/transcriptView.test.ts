@@ -829,6 +829,16 @@ describe('C3: the channel of a turn (the one predicate)', () => {
       expect(await currentTurn('/nonexistent/c3.jsonl')).toEqual({ room: null, text: null });
     });
 
+    it('a message that sends files: its text without the [첨부] line, and the files', async () => {
+      const file = write([user('보여줘'), assistant('화면이에요\n[첨부] /p/shot.png')]);
+      const outbox = (source: string) => ({ name: 'shot.png', path: `${source}.copy`, type: 'image/png' });
+      expect(await currentTurn(file, { outbox })).toMatchObject({
+        text: '화면이에요',
+        attachments: [{ path: '/p/shot.png.copy' }],
+      });
+      expect((await currentTurn(file)).attachments).toBeUndefined(); // read without an outbox: as before
+    });
+
     it('U-49: the text is the last assistant message of the newest turn, nothing else', async () => {
       const tool = rec({
         type: 'assistant',

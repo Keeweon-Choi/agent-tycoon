@@ -96,18 +96,18 @@ const furniture = (page: Page) =>
     () =>
       (
         window as unknown as {
-          __pixelAgentsTestHooks?: { getFurniture?: () => Placed[] };
+          __agentTycoonTestHooks?: { getFurniture?: () => Placed[] };
         }
-      ).__pixelAgentsTestHooks?.getFurniture?.() ?? [],
+      ).__agentTycoonTestHooks?.getFurniture?.() ?? [],
   );
 const instances = (page: Page) =>
   page.evaluate(
     () =>
       (
         window as unknown as {
-          __pixelAgentsTestHooks?: { getFurnitureCount?: () => number };
+          __agentTycoonTestHooks?: { getFurnitureCount?: () => number };
         }
-      ).__pixelAgentsTestHooks?.getFurnitureCount?.() ?? 0,
+      ).__agentTycoonTestHooks?.getFurnitureCount?.() ?? 0,
   );
 /** The lead's desk (the user's items come after the generator's in a composed layout). */
 const deskOf = async (page: Page) =>
@@ -121,11 +121,11 @@ async function tilePoint(page: Page, col: number, row: number) {
     ([x, y]) =>
       (
         window as unknown as {
-          __pixelAgentsTestHooks?: {
+          __agentTycoonTestHooks?: {
             getTileCenter?: (c: number, r: number) => { x: number; y: number } | null;
           };
         }
-      ).__pixelAgentsTestHooks?.getTileCenter?.(x, y) ?? null,
+      ).__agentTycoonTestHooks?.getTileCenter?.(x, y) ?? null,
     [col, row] as const,
   );
   if (!c) throw new Error(`tile ${col},${row} has no projection`);
@@ -143,7 +143,7 @@ async function main() {
   const pageErrors: string[] = [];
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     const page = await ctx.newPage();
     page.on('pageerror', (err) => pageErrors.push(String(err)));
     page.on('dialog', (d) => void d.accept());

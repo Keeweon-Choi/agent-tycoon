@@ -3,20 +3,18 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 
-import {
-  HOOK_API_PREFIX,
-  SERVER_JSON_DIR,
-  SERVER_JSON_NAME,
-  SERVERS_DIR,
-} from '../../../../constants.js';
+import { officeDirectory } from '../../../../cld/configPath.js';
+import { HOOK_API_PREFIX, SERVER_JSON_NAME, SERVERS_DIR } from '../../../../constants.js';
+import { readEnv } from '../../../../env.js';
 import type { ServerConfig, ServerTarget } from '../../../../serverConfig.js';
 import { isServerConfig, isServerTarget } from '../../../../serverConfig.js';
 
-const SERVER_JSON = path.join(os.homedir(), SERVER_JSON_DIR, SERVER_JSON_NAME);
-const SERVERS_REGISTRY_DIR = path.join(os.homedir(), SERVER_JSON_DIR, SERVERS_DIR);
+const OFFICE_DIR = officeDirectory(os.homedir());
+const SERVER_JSON = path.join(OFFICE_DIR, SERVER_JSON_NAME);
+const SERVERS_REGISTRY_DIR = path.join(OFFICE_DIR, SERVERS_DIR);
 
 /**
- * CI / e2e diagnostic: when PIXEL_AGENTS_DEBUG_LOG is set, record the hook
+ * CI / e2e diagnostic: when AGENT_TYCOON_DEBUG_LOG is set, record the hook
  * script's outcome at every exit point. The hook delivery chain (spawn
  * claude-hook.js -> read the registry -> POST to every live server) is
  * otherwise 100% silent: every failure path resolves quietly, so a dropped
@@ -29,7 +27,7 @@ const SERVERS_REGISTRY_DIR = path.join(os.homedir(), SERVER_JSON_DIR, SERVERS_DI
 // inheritEnv:false, etc.). After reading the registry we fall back to a
 // live server's `debugLog` field, which the server populated from the same
 // env var.
-let debugLogPath = process.env['PIXEL_AGENTS_DEBUG_LOG'];
+let debugLogPath = readEnv('DEBUG_LOG');
 function hookDebug(line: string): void {
   if (!debugLogPath) return;
   try {
@@ -51,9 +49,9 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Enumerate every live registry entry under ~/.pixel-agents/servers/, so the
+ * Enumerate every live registry entry under <office folder>/servers/, so the
  * event can fan out to each running server (VS Code embedded + a standalone
- * `npx pixel-agents`, or several of either, all at once). Entries whose owning
+ * `node dist/cli.js`, or several of either, all at once). Entries whose owning
  * PID is no longer alive are skipped (the owning server prunes its own stale
  * file on next start; this script only needs to not POST to it). Returns an
  * empty array when the directory is absent/empty/unreadable -- the caller

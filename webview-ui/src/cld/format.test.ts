@@ -129,32 +129,45 @@ describe('formatters', () => {
       '2\uc77c 1\uc2dc\uac04 5\ubd84 \ub4a4 \ucd08\uae30\ud654',
     );
   });
+  it('a window without a reset time reads as such', () => {
+    expect(resetCountdown(null, now)).toBe(t('format.noReset'));
+  });
   it('uses exact percentage thresholds', () => {
     expect(percentTone(69.9)).toBe('normal');
     expect(percentTone(70)).toBe('warn');
     expect(percentTone(85)).toBe('critical');
   });
-  it("folds usage to each provider's two figures", () => {
-    expect(
-      foldedUsageText([
-        ['Claude', { fiveHourPct: 1, sevenDayPct: 66 }],
-        ['Codex', { fiveHourPct: 72.6, sevenDayPct: 27.2 }],
-      ]),
-    ).toBe('Claude 5h 1% · 7d 66%   Codex 5h 73% · 7d 27%');
-    expect(
-      foldedUsageText([
-        ['Claude', { fiveHourPct: Number.NaN }],
-        ['Codex', null],
-      ]),
-    ).toBe('Claude 5h — · 7d —   Codex 5h — · 7d —');
+  const win = (id: string, pct: number | null, extra = {}) => ({
+    id,
+    pct,
+    resetAt: null,
+    ...extra,
   });
-  it('adds the per-model weekly windows right after 7d', () => {
+  it("folds usage to each provider's reported windows only", () => {
     expect(
       foldedUsageText([
-        [
-          'Claude',
-          { fiveHourPct: 1, sevenDayPct: 66, models: [{ family: 'fable', pct: 0, reset: null }] },
-        ],
+        { id: 'claude', name: 'Claude', windows: [win('7d', 3)] },
+        { id: 'codex', name: 'Codex', windows: [win('5h', 77), win('7d', 19.4)] },
+      ]),
+    ).toBe('Claude 7d 3%   Codex 5h 77% · 7d 19%');
+  });
+  it('shows a made-up provider with its own window id, and a note for one that reported nothing', () => {
+    expect(
+      foldedUsageText([
+        { id: 'acp', name: 'ACP', windows: [win('monthly', 12)] },
+        { id: 'claude', name: 'Claude', windows: [] },
+      ]),
+    ).toBe(`ACP monthly 12%   Claude ${t('usage.none')}`);
+  });
+  it('adds the per-model weekly windows after the provider windows', () => {
+    expect(
+      foldedUsageText([
+        {
+          id: 'claude',
+          name: 'Claude',
+          windows: [win('5h', 1), win('7d', 66)],
+          models: [{ family: 'fable', pct: 0, reset: null }],
+        },
       ]),
     ).toBe('Claude 5h 1% · 7d 66% · F 7d 0%');
   });
@@ -171,6 +184,6 @@ describe('formatters', () => {
   });
 });
 
-it('UI-C1: the status board window\'s tab strip is status board and HW; files is the folder icon\'s mode', () => {
+it("UI-C1: the status board window's tab strip is status board and HW; files is the folder icon's mode", () => {
   expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'hw']);
 });

@@ -34,7 +34,7 @@ import {
 import lookHashes from './fixtures/lookHashes.json';
 import { LOOK_SAMPLES } from './fixtures/lookSamples.js';
 
-/* eslint-disable pixel-agents/no-inline-colors -- sprite pixels and stored look colours */
+/* eslint-disable agent-tycoon/no-inline-colors -- sprite pixels and stored look colours */
 const ALPHA = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const templates = [0, 1, 2, 3, 4, 5].map((i) => {

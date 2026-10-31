@@ -11,9 +11,9 @@
  * that should not be). Then it writes the user's own ez-rules.json -- one rule that
  * changes a phrase, one broken entry -- and checks that a NEW page speaks with it
  * while the daemon logs the broken entry once. Screenshots use Hangul from
- * malgun.ttf (read only). T-0059/ENV-2: with no claude-dashboard plugin and no usage
+ * malgun.ttf (read only). T-0059/ENV-2: with no Claude token and no usage
  * source the top bar says usage is unknown and shows no numbers (negative control); 프로젝트 현황 works from a card's own git folder; then
- * the daemon restarts with a fake plugin in HOME and the strip shows the plugin's
+ * the daemon restarts with a token and a stand-in usage endpoint and the strip shows its
  * numbers, still without office. A hard deadline and SIGINT/SIGTERM/SIGHUP kill the server.
  *
  *   npx tsx cld/test/run-vanilla.ts <port 18256-18259>
@@ -27,6 +27,7 @@ import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
 import { ezRulesPath } from '../../server/src/cld/ezRules.js';
 import {
   assertPortFree,
+  fakeUsage,
   launchBrowser,
   makeFakeHome,
   openOfficeWindow,
@@ -48,10 +49,7 @@ const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__t0016/
   unicode-range: U+2190-21FF, U+2300-23FF, U+2600-27BF, U+2B00-2BFF, U+FE0F, U+200D, U+1F000-1FAFF; }`;
 const DEADLINE_MS = 180_000;
 /** Nothing of this PC, and no GPU budget (4.5 or 6 GiB, not part of a longer number), may appear on screen. */
-const NEVER_ON_SCREEN: RegExp[] = [
-  /orch-pofol|pofol|ops|rules\.md/,
-  /(?<![\d.])(4\.5|6)\s?GiB/,
-];
+const NEVER_ON_SCREEN: RegExp[] = [/orch-pofol|pofol|ops|rules\.md/, /(?<![\d.])(4\.5|6)\s?GiB/];
 /** Messages only a office provider sends. */
 // officeJobs and codexTasks are the built-in engine's (on without a office, T-0019, T-0021), not office data.
 const OFFICE_ONLY_MESSAGES = ['officeEvent', 'statusOutput'];
@@ -117,7 +115,7 @@ async function main() {
   const daemon = startDaemon(fake, port, daemonArgs, { PATH: traps });
   const { child: server, log: serverLog } = daemon;
   const loginUrl = daemon.loginUrl();
-  let second: ReturnType<typeof startDaemon> | undefined; // the restart with the plugin
+  let second: ReturnType<typeof startDaemon> | undefined; // the restart with a usage reading
   const abort = (why: string) => {
     console.error(`aborted: ${why}`);
     for (const d of [server, second?.child])
@@ -335,7 +333,9 @@ async function main() {
       `no office-only message and no ezRules without a file (${[...seen].sort().join(', ')})`,
     );
     check(
-      received.filter((m) => m.type === 'usageState').every((m) => !m.claude && !m.codex),
+      received
+        .filter((m) => m.type === 'usageState')
+        .every((m) => m.providers.every((p) => p.windows.length === 0)),
       'ENV-2: usage without any source is unknown (null), no numbers made up',
     );
     const officeState = [...received].reverse().find((m) => m.type === 'officeSnapshot') as
@@ -417,7 +417,7 @@ async function main() {
         rulesLog[0].includes('longer than 16'),
       `the broken entry was logged once, and only it: ${rulesLog[0]}`,
     );
-    // T-0059 negative control: no plugin file and no usage source yet, so no numbers.
+    // T-0059 negative control: no token and no usage source yet, so no numbers.
     const noUsage = await screen(again);
     check(
       noUsage.includes('Claude 사용량 알 수 없음') && !/\b5h\b|\b7d\b/.test(noUsage),
@@ -439,19 +439,11 @@ async function main() {
     await shot(again, 'vanilla-project-status');
     check(!fs.existsSync(trapLog), 'the local report ran no office, tmux or nvidia-smi');
 
-    // T-0059: the daemon restarts with a fake plugin in HOME; the strip shows its numbers.
+    // T-0059: the daemon restarts with a token and a stand-in usage endpoint; the strip shows its numbers.
     for (const p of [page, phone, again]) await p.context().close(); // no reconnect noise
     await daemon.stop();
-    const plugin = path.join(
-      fake.home,
-      '.claude/plugins/cache/claude-dashboard/claude-dashboard/9.9.9/dist/check-usage.js',
-    );
-    fs.mkdirSync(path.dirname(plugin), { recursive: true });
-    fs.writeFileSync(
-      plugin,
-      `console.log(JSON.stringify({ claude: { fiveHourPercent: 42, sevenDayPercent: 16 }, codex: { fiveHourPercent: 35, sevenDayPercent: 6 } }));\n`,
-    );
-    second = startDaemon(fake, port, daemonArgs, { PATH: traps });
+    const usage = await fakeUsage(fake.home, { fiveHour: 42, sevenDay: 16 }, { fiveHour: 35, sevenDay: 6 });
+    second = startDaemon(fake, port, daemonArgs, { PATH: traps, ...usage.env });
     const { page: withPlugin } = await open({
       viewport: { width: 1400, height: 900 },
       deviceScaleFactor: 1,
@@ -464,12 +456,12 @@ async function main() {
     const bar = await screen(withPlugin);
     check(
       /Claude\s*5h\s*42%[\s\S]*7d\s*16%[\s\S]*Codex\s*5h\s*35%[\s\S]*7d\s*6%/.test(bar),
-      'with the plugin the top bar shows Claude 5h 42% 7d 16% and Codex 5h 35% 7d 6%',
+      'with a usage reading the top bar shows Claude 5h 42% 7d 16% and Codex 5h 35% 7d 6%',
     );
     await shot(withPlugin, 'vanilla-usage-strip');
     check(
       types().includes('usageState') && !fs.existsSync(trapLog),
-      'the usageState came from the plugin alone (office traps still silent)',
+      'the usageState came from the stand-in endpoint and Codex log alone (office traps still silent)',
     );
     check(
       problems.length === 0,

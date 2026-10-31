@@ -108,7 +108,7 @@ export function parseProgress(text: string): Progress | 'unreadable' {
   if (text.includes('\0')) return 'unreadable';
   const lines: ProgressLine[] = [];
   let hasDone = false;
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const m = CHECKBOX.exec(line);
     if (m) lines.push({ mark: m[1], title: titleOf(m[2]) });
     else if (DONE_HEADING.test(line)) hasDone = true;

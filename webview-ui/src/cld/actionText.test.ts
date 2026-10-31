@@ -31,6 +31,6 @@ describe('texts', () => {
     expect(subjectWithParticle('7')).toBe('7\uc774');
     expect(subjectWithParticle('2')).toBe('2\uac00');
     expect(subjectWithParticle('r')).toBe('r\uc774'); // 알
-    expect(subjectWithParticle('worker')).toBe('worker\uc774');
+    expect(subjectWithParticle('worker')).toBe('worker\uac00'); // 워커: a word ending in r reads open
   });
 });

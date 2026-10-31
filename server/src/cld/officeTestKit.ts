@@ -76,6 +76,7 @@ export async function startEngineOffice(
     runtime,
     store,
     readOnly: opts.readOnly ?? true,
+    ptyHostScript: null, // these office tests drive the fake claude --bg
     chat: opts.chat,
     claude,
     home,

@@ -16,6 +16,7 @@ import {
   FLOOR_GLIDE_PER_S,
   framePan,
   glidePan,
+  initialCameraFit,
   isDrag,
   keyDirection,
   officeBox,
@@ -284,6 +285,56 @@ describe('GFX framing', () => {
     expect(fitZoom({ w: 1280, h: 744 }, box, 2)).toBe(1); // no even zoom fits: odd it is
     expect(fillZoom({ w: 1280, h: 744 }, box, 2)).toBe(2);
     expect(fillZoom({ w: 100000, h: 100000 }, box, 2)).toBe(ZOOM_MAX);
+  });
+
+  it('starts a phone on its current floor while desktop retains the building fit', () => {
+    const cases = [
+      {
+        view: { w: 1170, h: 1500 },
+        building: { x: 0, y: 0, w: 560, h: 1248 },
+        floor: { x: 0, y: 416, w: 560, h: 416 },
+      },
+      {
+        view: { w: 1125, h: 1050 },
+        building: { x: 0, y: 0, w: 480, h: 1184 },
+        floor: { x: 0, y: 384, w: 480, h: 384 },
+      },
+      {
+        view: { w: 1236, h: 1600 },
+        building: { x: 0, y: 0, w: 640, h: 1536 },
+        floor: { x: 0, y: 512, w: 640, h: 512 },
+      },
+    ];
+    for (const { view, building, floor } of cases) {
+      const desktop = initialCameraFit({
+        phone: false,
+        desktop: { box: building, zoom: fillZoom(view, building) },
+        phoneTarget: { box: floor, zoom: fillZoom(view, floor) },
+      });
+      const phone = initialCameraFit({
+        phone: true,
+        desktop: { box: building, zoom: fillZoom(view, building) },
+        phoneTarget: { box: floor, zoom: fillZoom(view, floor) },
+      });
+      expect(desktop).toMatchObject({ box: building, phoneTarget: false });
+      expect(phone).toMatchObject({ box: floor, phoneTarget: true });
+      expect(phone.zoom).toBeGreaterThan(desktop.zoom);
+    }
+  });
+
+  it('keeps a manually stored zoom instead of replacing it with the initial fit', () => {
+    const view = { w: 1170, h: 1500 };
+    const building = { x: 0, y: 0, w: 560, h: 1248 };
+    const floor = { x: 0, y: 416, w: 560, h: 416 };
+    const storedZoom = 3;
+    expect(
+      initialCameraFit({
+        phone: true,
+        desktop: { box: building, zoom: fillZoom(view, building) },
+        phoneTarget: { box: floor, zoom: fillZoom(view, floor) },
+        storedZoom,
+      }),
+    ).toMatchObject({ box: floor, zoom: storedZoom, phoneTarget: true });
   });
 
   it('Fit centres the whole office in the view left by the panels', () => {

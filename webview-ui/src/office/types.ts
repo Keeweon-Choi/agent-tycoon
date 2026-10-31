@@ -81,8 +81,6 @@ export interface GroundDecal {
   y: number;
   /** The footprint's width, world px (a shadow is as wide as what casts it). */
   w: number;
-  /** 2.5D PILOT: a picture of its own (a light pool from the owner's art), in place of the preset. */
-  sprite?: SpriteData;
 }
 
 export interface ToolActivity {
@@ -262,6 +260,9 @@ export interface Character {
    *  per-consumer guard reads this flag. It exists for the render/e2e snapshot
    *  (testHooks.getCharacters) to tell the greeter from agents. */
   isGreeter?: boolean;
+  /** OWNER-AVATAR: the owner's own character (OWNER_CHARACTER_ID): walked by the keys and the
+   *  joystick, followed by default; no seat, no wander, no status, no staff rules. */
+  cldOwner?: boolean;
   /** cld-gui (T-0041): gone home after hours. Kept (its card, its desk) but
    *  not drawn, hit-tested or moved until it comes back in. */
   cldAway?: boolean;

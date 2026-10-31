@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
-import type { HwDisk, HwGpu, HwSample } from '../../../core/src/messages.js';
+import type { HwDisk, HwGpu, HwSample, HwView } from '../../../core/src/messages.js';
 
 export type HwViewKind = 'wsl' | 'windows';
 
@@ -189,4 +189,14 @@ export function useHwPrefs(): HwPrefs {
 /** Tests: forget what was read. */
 export function resetHwPrefs(): void {
   prefs = null;
+}
+
+let hwViews = 0;
+/** The daemon keeps one hwView flag per connection: the hardware panel and an opened board
+ *  share it, so only the first open and the last close are sent. */
+export function openHwView(send: (msg: HwView) => void): () => void {
+  if (hwViews++ === 0) send({ type: 'hwView', on: true });
+  return () => {
+    if (--hwViews === 0) send({ type: 'hwView', on: false });
+  };
 }

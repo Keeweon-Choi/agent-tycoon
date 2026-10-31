@@ -338,20 +338,22 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
   });
 
   it('uncommitted changes: refused, then confirmed', async () => {
-    const { wt, project, dir } = setup();
+    const { r, wt, project, dir } = setup();
     await wt.create(project, 'x');
     fs.writeFileSync(path.join(dir('x'), 'loose.txt'), 'l\n');
     const refused = await wt.cleanup(project, 'x');
     expect(refused).toMatchObject({ ok: false, needsForce: true });
     expect(refused.error).toContain('커밋하지 않은 변경 1건');
     expect(fs.existsSync(path.join(dir('x'), 'loose.txt'))).toBe(true);
-    // Merged (nothing committed on it) and confirmed: gone, and the empty branch with it.
+    // P4 (owner 11-01): confirmed, the folder goes and its uncommitted work stays on the branch.
     expect(await wt.cleanup(project, 'x', { force: true })).toEqual({
       ok: true,
-      branchDeleted: true,
-      detail: '브랜치도 지웠어요',
+      branchDeleted: false,
+      detail: '브랜치 task/x는 병합되지 않아 남겼어요',
     });
     expect(fs.existsSync(dir('x'))).toBe(false);
+    expect(r.git(['show', 'task/x:loose.txt'])).toBe('l\n');
+    expect(r.git(['log', '-1', '--format=%s', 'task/x']).trim()).toBe('WIP: x (kept when its folder was cleaned up)');
   });
 
   it('a folder deleted by hand is closed out: the admin entry and, if merged, the branch', async () => {

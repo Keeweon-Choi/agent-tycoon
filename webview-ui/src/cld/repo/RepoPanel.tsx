@@ -1,30 +1,27 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useState } from 'react';
 
-import type { RepoFile, RepoMerge, RepoState, RepoWorktree } from '../../../../core/src/messages.js';
+import type { RepoFile, RepoState } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { useCldStore } from '../officeStore.js';
 import { serverText } from '../serverText.js';
 import type { DiffView } from './repoStore.js';
 import {
-  detailKey,
   diffKey,
   repoAsk,
-  repoCloseDetail,
   repoCloseDiff,
-  repoRequestDetail,
   repoRequestDiff,
   useRepoStore,
 } from './repoStore.js';
 import type { DiffKind } from './repoText.js';
-import { branchLine, diffRuns, fileLetter, groupFiles, mergeHistoryLine, mergeLine, pushBlocked } from './repoText.js';
+import { branchLine, diffRows, fileLetter, groupFiles, pushBlocked } from './repoText.js';
 import { useRepoView } from './useRepoView.js';
 
 const button =
   'border border-border px-8 py-4 text-xs hover:bg-border disabled:opacity-50 disabled:cursor-default disabled:hover:bg-transparent';
 const muted = 'text-text-muted text-xs';
-// `font-mono` on each run: the base layer's `* { font-pixel }` hits every span
+// `font-mono` on each row: the base layer's `* { font-pixel }` hits every span
 // itself, so a span would not inherit the monospace face of its <pre>.
 const DIFF_CLASS: Record<DiffKind, string> = {
   add: 'font-mono text-green-300',
@@ -49,13 +46,17 @@ function DiffBlock({ view, onMore }: { view: DiffView; onMore: () => void }) {
   return (
     <div className="mt-4 min-w-0">
       <pre
-        className="max-h-[320px] overflow-auto whitespace-pre bg-black/30 p-8 text-2xs font-mono leading-tight"
+        className="max-h-[320px] overflow-auto whitespace-pre bg-black/30 p-8 text-base font-mono leading-tight"
         aria-label="diff"
       >
         {view.text === '' && t('repo.diffEmpty')}
-        {diffRuns(view.text).map((run, i) => (
-          <span key={i} className={DIFF_CLASS[run.kind]}>
-            {run.text}
+        {diffRows(view.text).map((row) => (
+          <span key={row.key} className="grid grid-cols-[3rem_3rem_1fr] min-w-max">
+            <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">{row.oldNo ?? ''}</span>
+            <span className="font-pixel text-right pr-8 text-text-muted tabular-nums">{row.newNo ?? ''}</span>
+            <span className={DIFF_CLASS[row.kind]}>
+              {row.text}
+            </span>
             {'\n'}
           </span>
         ))}
@@ -137,197 +138,6 @@ function FileRow({
         />
       )}
     </li>
-  );
-}
-
-/** W4: a task worktree's changed files (tabs, one diff at a time), its commits, the guard note. */
-function WorktreeDetail({ project, w }: { project: string; w: RepoWorktree }) {
-  const { details, diffs } = useRepoStore();
-  const send = (msg: Parameters<typeof transport.send>[0]) => transport.send(msg);
-  const [picked, setPicked] = useState<string | null>(null);
-  const d = details[detailKey(project, w.task)];
-  // ponytail: refreshed when the counts move (every 10 s poll); an edit that keeps them equal waits for the button.
-  useEffect(() => {
-    repoRequestDetail(project, w.task, send);
-  }, [project, w.task, w.ahead, w.behind, w.dirty]);
-  useEffect(() => () => repoCloseDetail(project, w.task), [project, w.task]);
-  const file = d?.files.find((f) => f.path === picked) ?? d?.files[0];
-  useEffect(() => {
-    if (!file) return;
-    repoRequestDiff(project, file.path, false, send, false, w.task);
-    return () => repoCloseDiff(project, file.path, false, w.task);
-  }, [project, w.task, file?.path, w.ahead, w.behind, w.dirty]); // eslint-disable-line react-hooks/exhaustive-deps
-  const view = file ? diffs[diffKey(project, file.path, false, w.task)] : undefined;
-  if (!d || (d.loading && !d.files.length && !d.commits.length)) return <p className={`${muted} mt-4`}>{t('messenger.loading')}</p>;
-  if (d.error) return <p className="text-xs text-red-400 mt-4">{d.error}</p>;
-  return (
-    <div className="mt-4 space-y-4 min-w-0" data-testid="worktree-detail">
-      <div className="flex items-center justify-between gap-8">
-        <h5 className="text-xs font-bold">{t('repo.changedFiles', { count: d.files.length })}</h5>
-        <button type="button" className={button} disabled={d.loading} onClick={() => repoRequestDetail(project, w.task, send)}>
-          {t('repo.detailRefresh')}
-        </button>
-      </div>
-      {d.files.length === 0 && <p className={muted}>{t('repo.noChangedFilesWt')}</p>}
-      <div className="flex flex-wrap gap-4 max-h-[96px] overflow-auto" role="tablist" aria-label={t('repo.changedFiles', { count: d.files.length })}>
-        {d.files.map((f) => (
-          <button
-            key={f.path}
-            type="button"
-            role="tab"
-            aria-selected={f.path === file?.path}
-            title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
-            className={`${button} min-w-0 max-w-full break-all text-left ${f.path === file?.path ? 'bg-border' : ''}`}
-            data-testid="worktree-file-tab"
-            onClick={() => setPicked(f.path)}
-          >
-            <span className={LETTER_CLASS[f.status] ?? ''}>{f.status}</span> {f.path.split('/').pop()}
-          </button>
-        ))}
-      </div>
-      {file && <p className={`${muted} break-all`}>{file.origPath ? `${file.origPath} → ${file.path}` : file.path}</p>}
-      {view && <DiffBlock view={view} onMore={() => file && repoRequestDiff(project, file.path, false, send, true, w.task)} />}
-      {d.filesTruncated && <p className={muted}>{t('repo.changedFilesCut')}</p>}
-      <h5 className="text-xs font-bold">{t('repo.recentCommits', { count: d.commits.length })}</h5>
-      {d.commits.length === 0 ? (
-        <p className={muted}>{t('repo.noCommitsWt')}</p>
-      ) : (
-        <ul className="space-y-2" data-testid="worktree-commits">
-          {d.commits.map((c) => (
-            <li key={c.sha} className="break-words">
-              <span className="text-accent-text">{c.sha.slice(0, 7)}</span> {c.subject}
-              <span className={muted}> · {c.author} · {c.at.slice(0, 16).replace('T', ' ')}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {d.guard && <p className={muted} data-testid="worktree-guard">{d.guard}</p>}
-    </div>
-  );
-}
-
-function DetailToggle({ project, w }: { project: string; w: RepoWorktree }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-4">
-      <button type="button" className={button} aria-expanded={open} data-testid="worktree-detail-toggle" onClick={() => setOpen(!open)}>
-        {open ? t('repo.hideDetail') : t('repo.showDetail')}
-      </button>
-      {open && <WorktreeDetail project={project} w={w} />}
-    </div>
-  );
-}
-
-function Worktrees({
-  project,
-  worktrees,
-  canWrite,
-  running,
-}: {
-  project: string;
-  worktrees: RepoWorktree[];
-  canWrite: boolean;
-  running: boolean;
-}) {
-  return (
-    <section className="mt-12 border-t border-border pt-8" aria-label={t('repo.workspaces')}>
-      <h4 className="text-xs font-bold mb-4">{t('repo.workspacesCount', { count: worktrees.length })}</h4>
-      <ul className="space-y-4">
-        {worktrees.map((w) => (
-          <li key={w.task} className="border border-border p-8 text-xs min-w-0" data-testid="worktree-row" data-task={w.task}>
-            <div className="flex items-start justify-between gap-8">
-              <strong className="break-all">{w.task}</strong>
-              {canWrite && (
-                <span className="flex gap-4 shrink-0">
-                  {/* W3: its branch into its base (ff, else a merge commit; a conflict changes nothing). */}
-                  {!w.merged && w.ahead > 0 && (
-                    <button
-                      type="button"
-                      className={`${button} border-accent text-accent-text`}
-                      disabled={running}
-                      data-testid="worktree-merge"
-                      onClick={() => repoAsk({ kind: 'merge', project, worktree: w })}
-                    >
-                      {t('repo.merge')}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={button}
-                    disabled={running}
-                    onClick={() => repoAsk({ kind: 'worktreeRemove', project, worktree: w })}
-                  >
-                    {t('repo.remove')}
-                  </button>
-                </span>
-              )}
-            </div>
-            <p className={`${muted} break-all`}>
-              {w.branch} ← {w.base}
-            </p>
-            {/* W2: the Task it was made for and who it is given to. */}
-            <p className="break-words" data-testid="worktree-task" data-task-id={w.taskId ?? ''}>
-              {w.taskId ? t('repo.worktreeTask', { id: w.taskId }) : t('repo.worktreeNoTask')}
-              {' · '}
-              {w.assignee ? t('repo.worktreeAssignee', { name: w.assignee }) : t('repo.worktreeNobody')}
-            </p>
-            <p>
-              <span title={t('repo.aheadBehind')}>
-                ↑{w.ahead} ↓{w.behind}
-              </span>
-              {' · '}
-              {!w.exists ? t('repo.folderMissing') : w.dirty > 0 ? t('repo.dirtyCount', { count: w.dirty }) : t('repo.clean')}
-              {' · '}
-              <span className={w.merged ? 'text-green-300' : 'text-yellow-300'}>
-                {w.merged ? t('repo.merged') : t('repo.unmerged')}
-              </span>
-            </p>
-            {w.merge && (
-              <p
-                className={`break-words ${w.merge.ok ? 'text-green-300' : 'text-yellow-300'}`}
-                data-testid="worktree-merge-result"
-              >
-                {mergeLine(w.merge)}
-              </p>
-            )}
-            <DetailToggle project={project} w={w} />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** W4: the project's merges, newest first (kept across restarts). */
-function MergeHistory({ merges }: { merges: RepoMerge[] }) {
-  return (
-    <section className="mt-12 border-t border-border pt-8" aria-label={t('repo.mergeHistory', { count: merges.length })}>
-      <h4 className="text-xs font-bold mb-4">{t('repo.mergeHistory', { count: merges.length })}</h4>
-      <ul className="space-y-2 text-xs" data-testid="merge-history">
-        {merges.map((m, i) => (
-          <li key={i} className={`break-words ${m.ok ? 'text-green-300' : 'text-yellow-300'}`}>
-            {mergeHistoryLine(m)}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/** The worktree tab: the task worktrees (or a line saying there are none) and the merge history. */
-function WorktreeList(props: {
-  project: string;
-  worktrees: RepoWorktree[];
-  merges: RepoMerge[];
-  canWrite: boolean;
-  running: boolean;
-}) {
-  const { merges, ...rest } = props;
-  return (
-    <>
-      {rest.worktrees.length > 0 ? <Worktrees {...rest} /> : <p className={muted}>{t('repo.noWorktrees')}</p>}
-      {merges.length > 0 && <MergeHistory merges={merges} />}
-    </>
   );
 }
 
@@ -528,15 +338,13 @@ function RepoBody({
 }
 
 /**
- * A project's repository (T-0020, FR-ENG-005), now in the 작업실 (W1): the 변경 tab shows
- * the branch, its upstream and ahead/behind and the changed files with their diffs; the
- * worktree tab, the task worktrees.
- * Reading is for every project; stage, commit, push and removing a worktree
- * show only when the daemon runs with --allow-actions, and each asks first.
+ * A project's own repository (T-0020, FR-ENG-005) in the 작업실's 변경 tab: the branch, its
+ * upstream and ahead/behind and the changed files with their diffs. The task worktrees live in
+ * the 개발실 (P4); their review is devroom/TaskReview.tsx.
+ * Reading is for every project; stage, commit and push show only when the daemon runs with
+ * --allow-actions, and each asks first.
  */
-export type RepoPart = 'changes' | 'worktrees';
-
-export function RepoPanel({ project, part }: { project: string; part: RepoPart }) {
+export function RepoPanel({ project }: { project: string }) {
   const { officeSnapshot: officeState, officeReadOnly } = useCldStore();
   const { states, busy } = useRepoStore();
   useRepoView(project);
@@ -548,14 +356,6 @@ export function RepoPanel({ project, part }: { project: string; part: RepoPart }
         <p className={muted}>{t('repo.repoLoading')}</p>
       ) : !state.ok ? (
         <p className={muted}>{serverText(state, t('repo.repoMissing'))}</p>
-      ) : part === 'worktrees' ? (
-        <WorktreeList
-          project={project}
-          worktrees={state.worktrees ?? []}
-          merges={state.merges ?? []}
-          canWrite={canWrite}
-          running={busy[project] !== undefined}
-        />
       ) : (
         <RepoBody
           project={project}

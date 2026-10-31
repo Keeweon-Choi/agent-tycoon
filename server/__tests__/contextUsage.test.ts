@@ -18,7 +18,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   return {
     id: 1,
     sessionId: 'session',
-    terminalRef: undefined,
     isExternal: true,
     projectDir: '/test',
     jsonlFile: '/test/session.jsonl',
@@ -255,7 +254,7 @@ describe('seedContextUsage', () => {
   let messages: Array<Record<string, unknown>>;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-agents-context-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tycoon-context-'));
     agents = new AgentStateStore();
     messages = [];
     agents.on('broadcast', (msg) => messages.push(msg as Record<string, unknown>));

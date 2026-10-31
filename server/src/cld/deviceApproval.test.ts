@@ -18,7 +18,7 @@ import {
   stopAuthServer,
   TOKEN,
 } from './authTestKit.js';
-import { isTailscaleAddress } from './deviceApproval.js';
+import { APPROVAL_TTL_MS, isTailscaleAddress } from './deviceApproval.js';
 
 let dist: { root: string; staticDir: string };
 beforeAll(() => {
@@ -184,11 +184,12 @@ describe('new-device approval', () => {
   });
 
   it('expires after 5 minutes', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(now);
     const { broadcasts } = await start();
     const { secret, code } = (await ask()).json();
     const id = String(broadcasts[0].id);
-    vi.advanceTimersByTime(5 * 60_000 + 1);
+    dateNow.mockReturnValue(now + APPROVAL_TTL_MS + 1);
     expect((await poll(secret)).json()).toEqual({ state: 'gone' });
     expect(broadcasts).toContainEqual({ type: 'deviceApprovalClosed', id, outcome: 'expired' });
     expect((await answer(id, { approve: true, code })).json()).toEqual({ result: 'gone' });

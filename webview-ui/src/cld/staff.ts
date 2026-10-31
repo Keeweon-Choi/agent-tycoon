@@ -30,7 +30,7 @@ import { startMatrixEffect } from '../office/engine/matrixEffectState.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { findPath, isWalkable } from '../office/layout/tileMap.js';
 import { type Character, CharacterState, TILE_SIZE, TileType } from '../office/types.js';
-import { isBrowserRuntime, isE2E } from '../runtime.js';
+import { isE2E } from '../runtime.js';
 import { employeeBusyElsewhere, employeeName, employeeOf, setSpawnLookup } from './employees.js';
 import { characterRingOf, characterVisualOf } from './ez/visuals.js';
 import { floorIndexAt, floorRects } from './floors.js';
@@ -137,7 +137,7 @@ let loading: { since: number; office: unknown; settleAt: number | null } | null 
   settleAt: null,
 };
 /** In the browser the office is cld's: hold even before the first office snapshot. */
-let holdWithoutOffice = isBrowserRuntime;
+let holdWithoutOffice = true;
 
 /** existingAgents (the page's first snapshot, or a resync after a reconnect). */
 export function staffLoading(): void {
@@ -155,7 +155,7 @@ export function staffHides(ch: Character): boolean {
 /** Out of sight until the state settles: characters this page has not placed yet. */
 function hold(os: OfficeState): void {
   for (const ch of os.characters.values()) {
-    if (ch.matrixEffect === 'despawn' && !ch.cldAway) continue;
+    if ((ch.matrixEffect === 'despawn' && !ch.cldAway) || ch.cldOwner) continue;
     const rec = recs.get(ch.id) ?? newRec(ch.id);
     if (rec.decided) continue;
     rec.held = true;
@@ -804,6 +804,7 @@ export function staffStep(os: OfficeState, dt: number, now = Date.now()): void {
   const overtime: number[] = [];
   for (const ch of [...os.characters.values()]) {
     if (ch.matrixEffect === 'despawn' && !ch.cldAway) continue; // on its way out
+    if (ch.cldOwner) continue; // OWNER-AVATAR: the owner keeps no office hours
     const kind = characterKind(ch, officeState, codexTasks);
     const rec = recs.get(ch.id) ?? newRec(ch.id);
     rec.held = false;
@@ -887,7 +888,7 @@ export function staffResetForTests(opts: { holdWithoutOffice?: boolean } = {}): 
   office = null;
   clock = 0;
   loading = { since: 0, office: null, settleAt: null };
-  holdWithoutOffice = opts.holdWithoutOffice ?? isBrowserRuntime;
+  holdWithoutOffice = opts.holdWithoutOffice ?? true;
   sinceStep = STAFF_STEP_SEC;
   snap = { open: true, temps: [], away: {}, overtime: [] };
   snapKey = '';

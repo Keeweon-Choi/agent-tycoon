@@ -122,7 +122,7 @@ async function main() {
       ['phone', { width: 393, height: 852 }, true],
     ] as const) {
       const ctx = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
-      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
       await ctx.route('**/__uic/*.ttf', (route) =>
         route.fulfill({ body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun, contentType: 'font/ttf' }),
       );

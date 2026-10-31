@@ -106,7 +106,7 @@ function session(home: string) {
 
 const INIT = `
   globalThis.__name = (fn) => fn; // tsx names the functions it passes to page.evaluate
-  window.__PIXEL_AGENTS_E2E = true;`;
+  window.__AGENT_TYCOON_E2E = true;`;
 const CLASSIC = { 'cld.camera-mode': 'classic', 'cld.backdrop': 'off', 'cld.title-scene': 'off' };
 
 type Hooks = {
@@ -135,7 +135,7 @@ const hooks =
   (page: Page) =>
   <T>(fn: (h: Hooks, arg: unknown) => T, arg?: unknown): Promise<T> =>
     page.evaluate(
-      `(${fn.toString()})(window.__pixelAgentsTestHooks, ${JSON.stringify(arg ?? null)})`,
+      `(${fn.toString()})(window.__agentTycoonTestHooks, ${JSON.stringify(arg ?? null)})`,
     ) as Promise<T>;
 
 async function open(browser: Browser, url: string, opts: BrowserContextOptions) {
@@ -165,10 +165,10 @@ async function open(browser: Browser, url: string, opts: BrowserContextOptions) 
 async function leadPalette(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as unknown as {
-      __pixelAgentsTestHooks: { drawnDensity: (p: number, h: number, z: number) => number };
+      __agentTycoonTestHooks: { drawnDensity: (p: number, h: number, z: number) => number };
     };
     for (let p = 0; p < 2000; p++)
-      if (w.__pixelAgentsTestHooks.drawnDensity(p, 0, 4) === 3) return p; // a 64×128 person draws at density 3 (SHEET-IMPORT)
+      if (w.__agentTycoonTestHooks.drawnDensity(p, 0, 4) === 3) return p; // a 64×128 person draws at density 3 (SHEET-IMPORT)
     return -1;
   });
 }

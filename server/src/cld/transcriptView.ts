@@ -318,6 +318,8 @@ export interface CurrentTurn {
   room: string | null;
   /** U-49: the text of its last assistant message, as the messenger would show it (null: none). */
   text: string | null;
+  /** The files that message carries (read with `opts.outbox`), when it carries any. */
+  attachments?: ChatAttachment[];
 }
 
 /**
@@ -330,7 +332,10 @@ export interface CurrentTurn {
  * with lineItems, so it is exactly what the messenger shows: sidechain, tool lines and results
  * never count.
  */
-export async function currentTurn(file: string | null): Promise<CurrentTurn> {
+export async function currentTurn(
+  file: string | null,
+  opts: LineOptions = {},
+): Promise<CurrentTurn> {
   const none: CurrentTurn = { room: null, text: null };
   if (!file) return none;
   let handle: fs.promises.FileHandle;
@@ -348,20 +353,28 @@ export async function currentTurn(file: string | null): Promise<CurrentTurn> {
       const lines = buf.subarray(0, bytesRead).toString('utf8').split('\n');
       if (start > 0) lines.shift(); // torn at its head
       let text: string | null = null;
+      let attachments: ChatAttachment[] | undefined;
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i];
         if (text === null && line.includes('"type":"assistant"')) {
-          const said = lineItems(line)
-            .filter((item) => item.kind === 'assistant' && item.text.trim() !== '')
+          const said = lineItems(line, 0, opts)
+            .filter(
+              (item) => item.kind === 'assistant' && (item.text.trim() !== '' || item.attachments?.length),
+            )
             .at(-1);
-          if (said) text = said.text;
+          if (said) {
+            text = said.text;
+            attachments = said.attachments;
+          }
         }
         if (!line.includes('"type":"user"') && !line.includes('queued_command')) continue;
         if (line.length > BIG_RESULT_BYTES && line.includes('"type":"tool_result"')) continue;
         const prompt = userTurnText(line);
-        if (prompt !== null) return { room: roomOfPrompt(prompt), text };
+        if (prompt !== null)
+          return { room: roomOfPrompt(prompt), text, ...(attachments && { attachments }) };
       }
-      if (start === 0 || window >= CHAT_SCAN_MAX_BYTES) return { room: null, text };
+      if (start === 0 || window >= CHAT_SCAN_MAX_BYTES)
+        return { room: null, text, ...(attachments && { attachments }) };
     }
   } catch {
     return none;

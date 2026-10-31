@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { getExternalNarrationLogPath } from './external-monitor';
-import { waitForHookServer } from './hooks';
+import { officeFile, waitForHookServer } from './hooks';
 import { narrate } from './test-narration';
 
 const DEFAULT_HOLD_OPEN_MS = 30_000;
@@ -262,7 +262,7 @@ export async function waitForClaudeHookSetup(tmpHome: string): Promise<void> {
   await waitForHookServer(tmpHome);
 
   const settingsPath = path.join(tmpHome, '.claude', 'settings.json');
-  const hookScriptPath = path.join(tmpHome, '.pixel-agents', 'hooks', 'claude-hook.js');
+  const hookScriptPath = officeFile(tmpHome, 'hooks', 'claude-hook.js');
   const deadline = Date.now() + HOOK_SETUP_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
@@ -345,7 +345,7 @@ export async function spawnExternalClaudeScenario(options: {
   sessionId: string;
 }): Promise<ExternalClaudeSpawn> {
   // Universal narration moment (cosmetic): every external spawn is a detached
-  // session Pixel Agents adopts rather than launches. Its own magenta stdout
+  // session the daemon adopts rather than launches. Its own magenta stdout
   // narrates the per-hook timeline in the monitor tab.
   narrate.step('spawning a detached external mock session (adopted, not launched)');
   await arrangeNextClaudeInvocation(options.tmpHome, options.scenario);
@@ -354,9 +354,9 @@ export async function spawnExternalClaudeScenario(options: {
   const env = {
     ...applyMockHomeEnv(process.env, options.tmpHome),
     PATH: `${path.dirname(claudeBinary)}${path.delimiter}${process.env['PATH'] ?? ''}`,
-    PIXEL_AGENTS_NODE_BIN: process.execPath,
+    AGENT_TYCOON_NODE_BIN: process.execPath,
     // Switches the runner's narration to the magenta [external·tag] style.
-    PIXEL_AGENTS_MOCK_EXTERNAL: '1',
+    AGENT_TYCOON_MOCK_EXTERNAL: '1',
   };
 
   // Pipe stderr so we can surface diagnostics on timeout. stdout (the mock's

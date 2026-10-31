@@ -214,7 +214,7 @@ describe('looks: what the office draws for a saved look (CH-1)', () => {
         v: 2,
         kind: 'humanoid',
         base: 4,
-        // eslint-disable-next-line pixel-agents/no-inline-colors -- a stored look's colour
+        // eslint-disable-next-line agent-tycoon/no-inline-colors -- a stored look's colour
         colors: { hair: '#000000' },
         acc: ['cap'],
       }),
@@ -348,7 +348,7 @@ describe('compositor and mascots (CH-2, CH-3)', () => {
       );
   });
 
-  /* eslint-disable pixel-agents/no-inline-colors -- sprite pixels and stored look colours */
+  /* eslint-disable agent-tycoon/no-inline-colors -- sprite pixels and stored look colours */
   describe('people: part colours and accessories (CH-5)', () => {
     const COMBOS = Array.from({ length: 8 }, (_, m) =>
       HUMANOID_ACCESSORIES.filter((_a, i) => m & (1 << i)),
@@ -465,7 +465,7 @@ describe('compositor and mascots (CH-2, CH-3)', () => {
       expect(seen.size).toBe(3);
     });
   });
-  /* eslint-enable pixel-agents/no-inline-colors */
+  /* eslint-enable agent-tycoon/no-inline-colors */
 });
 
 describe('rest moment (REST-ANIM)', () => {
@@ -474,6 +474,8 @@ describe('rest moment (REST-ANIM)', () => {
     expect(w.observe(1, 3, 0)).toBe(false); // page load: a baseline
     expect(w.observe(1, 3, 1000)).toBe(false);
     expect(w.observe(1, 4, 2000)).toBe(true); // a live compaction
+    expect(w.progress(1, 2000)).toBeNull(); // the director decides where the drink happens
+    w.sip(1, 2000);
     expect(w.progress(1, 2000 + 1000)).toBeCloseTo(1);
     expect(w.progress(1, 2000 + REST_ANIM_SEC * 1000)).toBeNull(); // over
     expect(w.progress(1, 2000 + 1000)).toBeNull(); // and gone

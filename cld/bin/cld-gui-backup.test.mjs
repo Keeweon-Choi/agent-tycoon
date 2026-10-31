@@ -23,7 +23,7 @@ const allowed = {
 
 function put(home, relative, content) {
   const file = relative.startsWith('pixel-agents/')
-    ? path.join(home, '.pixel-agents', relative.slice('pixel-agents/'.length))
+    ? path.join(home, '.config', 'agent-tycoon', 'office', relative.slice('pixel-agents/'.length))
     : path.join(home, '.config', 'agent-tycoon', relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content);
@@ -32,7 +32,7 @@ function put(home, relative, content) {
 
 function get(home, relative) {
   return relative.startsWith('pixel-agents/')
-    ? path.join(home, '.pixel-agents', relative.slice('pixel-agents/'.length))
+    ? path.join(home, '.config', 'agent-tycoon', 'office', relative.slice('pixel-agents/'.length))
     : path.join(home, '.config', 'agent-tycoon', relative);
 }
 

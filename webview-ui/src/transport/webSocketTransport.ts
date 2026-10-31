@@ -39,7 +39,7 @@ export function viewerBeat(hidden: boolean): ClientMessage | null {
 
 /**
  * WebSocket transport for standalone browser mode.
- * Connects to the Pixel Agents server via WebSocket for bidirectional messaging.
+ * Connects to the Agent Tycoon server via WebSocket for bidirectional messaging.
  * Includes automatic reconnection with exponential backoff and message queuing.
  *
  * cld-gui (T-0025): every new socket re-sends the session (sessionKey), so a

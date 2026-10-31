@@ -26,7 +26,8 @@ function fakes(o: { login?: string | null; win?: string | null; wsl?: boolean })
     calls.push(file);
     if (file === 'bash')
       return o.login === undefined ? '/home/u/.local/bin:/usr/bin:/usr/sbin' : o.login;
-    expect(args).toEqual(['/d', '/c', 'echo %PATH%']);
+    expect(file).toMatch(/powershell\.exe$/);
+    expect(args.at(-1)).toBe('[Console]::OutputEncoding=[Text.Encoding]::UTF8;$env:PATH');
     expect(opts.cwd).toBe('/mnt/c/Windows');
     return o.win === undefined ? `${WIN}\r\n` : o.win;
   };
@@ -66,6 +67,14 @@ describe('sessionPath', () => {
         '/mnt/c/Windows',
         '/usr/lib/wsl/lib',
       ].join(':'),
+    );
+  });
+
+  it('a Korean user folder in the Windows PATH (UTF-8 output, maybe a BOM) is converted intact', () => {
+    const f = fakes({ win: '\uFEFFC:\\Users\\\uAE40\uAE30\uC6D0\\bin;C:\\Windows\r\n' });
+    const dirs = new Set([...DIRS, '/mnt/c/Users/\uAE40\uAE30\uC6D0/bin']);
+    expect(buildSessionPath({ ...f.opts, isDir: (p: string) => dirs.has(p) })).toContain(
+      '/mnt/c/Users/\uAE40\uAE30\uC6D0/bin:/mnt/c/Windows',
     );
   });
 

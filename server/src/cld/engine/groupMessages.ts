@@ -1,7 +1,6 @@
 /** Append-only room posts, their tagged fan-out, and delivery-state folding. */
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
-import * as path from 'path';
 
 import { koText, pickRefusal, refused, type WithError } from '../../../../core/src/cld/serverText.js';
 import type { ChatItem, ChatReply } from '../../../../core/src/messages.js';
@@ -12,6 +11,7 @@ import {
   turnMessageId,
   userTurnText,
 } from '../transcriptView.js';
+import { maintainGroupLogs, monthFile, readSegment, roomSegments } from './groupLogFiles.js';
 import { ALL_GROUP_ID, type GroupRoom, GroupStore, groupTimelineDir } from './groups.js';
 import type { QueuedSend, SendResult } from './messenger.js';
 import { cleanText, MESSAGE_ID, newMessageId, replyRef, TEXT_MAX } from './messenger.js';
@@ -75,7 +75,7 @@ const BOSS = '사장';
 /** C4 (F-18): the collaboration events a room shows as one line. Lookups (list_agents,
  *  get_task_status, get_group_context) are never among them: they stay in the event log. */
 export interface SystemEvent {
-  kind: 'assigned' | 'reported' | 'conflict' | 'merged';
+  kind: 'assigned' | 'reported' | 'conflict' | 'merged' | 'review';
   task: string;
   /** Who acted and for whom: the line goes to the rooms that hold every one of them. */
   from: string;
@@ -84,14 +84,18 @@ export interface SystemEvent {
   detail?: string;
   /** A room that already shows this event in its own words (a Worker's summary post). */
   except?: string;
+  /** The line already worded (the review loop's "사장님이 … 보냈어요"). */
+  text?: string;
 }
 const SYSTEM_LINE = {
   assigned: 'sys_assigned',
   reported: 'sys_reported',
   conflict: 'sys_conflict',
   merged: 'sys_merged',
+  review: 'sys_review',
 } as const;
 export const systemLine = (e: SystemEvent): string =>
+  e.text ??
   koText(SYSTEM_LINE[e.kind], {
     task: e.task,
     line: `${e.from}${e.to ? ` → ${e.to}` : ''}${e.detail ? ` · ${e.detail}` : ''}`
@@ -292,7 +296,7 @@ export class GroupMessages {
 
   timeline(room: GroupRoom, limit = 50): GroupPost[] {
     const posts = new Map<string, GroupPost>();
-    for (const record of this.records(room.id)) {
+    for (const record of this.records(room.id, limit, room.systemLines === false)) {
       if (record.kind === 'post') {
         // C4: a room with its system lines off shows none, also those written before.
         if (record.post.system && room.systemLines === false) continue;
@@ -481,33 +485,44 @@ export class GroupMessages {
       this.opts.changed?.(roomId);
   }
 
-  private records(roomId: string): TimelineRecord[] {
-    let text: string;
-    try {
-      text = fs.readFileSync(
-        path.join(groupTimelineDir(this.opts.home), `${roomId}.jsonl`),
-        'utf-8',
-      );
-    } catch {
-      return [];
+  /** Daily (office prune): earlier-version logs split by month, old months gzipped; nothing deleted. */
+  maintain(): void {
+    maintainGroupLogs(groupTimelineDir(this.opts.home), this.now(), (line) => console.log(`[cld engine] ${line}`));
+  }
+
+  /**
+   * The room's records, oldest first: the newest month file, then earlier ones (gzipped or not)
+   * only while fewer than `want` posts have been read (`skipSystem`: its system lines do not count).
+   */
+  private records(roomId: string, want = Infinity, skipSystem = false): TimelineRecord[] {
+    const dir = groupTimelineDir(this.opts.home);
+    const segments = roomSegments(dir, roomId);
+    let records: TimelineRecord[] = [];
+    let posts = 0;
+    for (let i = segments.length - 1; i >= 0 && posts < want; i--) {
+      const text = readSegment(segments[i]);
+      if (text === null) continue;
+      const found = text.split('\n').flatMap((line) => {
+        try {
+          const value: unknown = JSON.parse(line);
+          return value && typeof value === 'object' && (value as { v?: unknown }).v === 1
+            ? [value as TimelineRecord]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+      posts += found.filter((r) => r.kind === 'post' && !(skipSystem && r.post.system)).length;
+      records = [...found, ...records];
     }
-    return text.split('\n').flatMap((line) => {
-      try {
-        const value: unknown = JSON.parse(line);
-        return value && typeof value === 'object' && (value as { v?: unknown }).v === 1
-          ? [value as TimelineRecord]
-          : [];
-      } catch {
-        return [];
-      }
-    });
+    return records;
   }
 
   private append(roomId: string, record: TimelineRecord): boolean {
     try {
       const dir = groupTimelineDir(this.opts.home);
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      fs.appendFileSync(path.join(dir, `${roomId}.jsonl`), `${JSON.stringify(record)}\n`, {
+      fs.appendFileSync(monthFile(dir, roomId, this.now()), `${JSON.stringify(record)}\n`, {
         mode: 0o600,
       });
       return true;

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
 import { MOBILE_MEDIA_QUERY } from '../constants.js';
-import { isBrowserRuntime } from '../runtime.js';
 
 /**
  * Whether the viewport should get the mobile shell (sliding office/terminal
@@ -19,12 +18,9 @@ import { isBrowserRuntime } from '../runtime.js';
  * scrollback.
  */
 export function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(
-    () => isBrowserRuntime && window.matchMedia(MOBILE_MEDIA_QUERY).matches,
-  );
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia(MOBILE_MEDIA_QUERY).matches);
 
   useEffect(() => {
-    if (!isBrowserRuntime) return;
     const query = window.matchMedia(MOBILE_MEDIA_QUERY);
     const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     query.addEventListener('change', onChange);

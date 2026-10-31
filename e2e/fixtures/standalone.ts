@@ -5,6 +5,7 @@ import type { TestInfo } from '@playwright/test';
 import { expect, test as base } from '@playwright/test';
 
 import { applyAllureLabels } from '../helpers/allure-labels';
+import { officeFile } from '../helpers/hooks';
 import {
   launchStandalone,
   type LaunchStandaloneOptions,
@@ -81,7 +82,7 @@ export const test = base.extend<{
       await attachTextFileIfExists(
         testInfo,
         'server-json',
-        path.join(standalone.tmpHome, '.pixel-agents', 'server.json'),
+        officeFile(standalone.tmpHome, 'server.json'),
         'application/json',
       );
       // Only ever written when the host launched a mock claude (mockClaude: true).

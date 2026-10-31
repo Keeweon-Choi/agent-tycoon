@@ -288,7 +288,7 @@ function waterCooler(): void {
  * hiss ticks). Keys are props.json's palette plus the can's three blues.
  */
 // Asset data, not UI styling.
-/* eslint-disable pixel-agents/no-inline-colors */
+/* eslint-disable agent-tycoon/no-inline-colors */
 const PROP_COLOURS = {
   u: '#2a58e8',
   U: '#1a36d9',
@@ -297,7 +297,7 @@ const PROP_COLOURS = {
   p: '#f6efdc',
   P: '#d8ccb0',
 };
-/* eslint-enable pixel-agents/no-inline-colors */
+/* eslint-enable agent-tycoon/no-inline-colors */
 const PROP_ROWS: Record<string, string[][]> = {
   // upright, held at the hand (5x7): silver top, blue body with the white logo, dark base
   can: [['.ooo.', 'ogwgo', 'ouvuo', 'ouwuo', 'ouvuo', 'oUUUo', '.ooo.']],

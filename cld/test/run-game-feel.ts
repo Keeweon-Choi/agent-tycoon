@@ -106,7 +106,7 @@ type Hooks = {
 
 const cam = (page: Page): Promise<Cam> =>
   page.evaluate(() => {
-    const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+    const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
     const c = document.querySelector('[data-testid="office-canvas"]')!.getBoundingClientRect();
     const a = h.getTileCenter(0, 0)!;
     const b = h.getTileCenter(1, 0)!;
@@ -204,13 +204,13 @@ async function main() {
     // character, nothing that drives the app. Plus a count of office frames.
     await ctx.addInitScript(() => {
       const w = window as unknown as {
-        __PIXEL_AGENTS_E2E: boolean;
+        __AGENT_TYCOON_E2E: boolean;
         __officeFrames: number;
         __name: (f: unknown) => unknown;
       };
       // tsx keeps function names with an __name() helper the page lacks.
       w.__name = (f) => f;
-      w.__PIXEL_AGENTS_E2E = true;
+      w.__AGENT_TYCOON_E2E = true;
       w.__officeFrames = 0;
       const clear = CanvasRenderingContext2D.prototype.clearRect;
       CanvasRenderingContext2D.prototype.clearRect = function (x, y, cw, ch) {
@@ -266,11 +266,11 @@ async function main() {
       (i) =>
         (
           window as unknown as {
-            __pixelAgentsTestHooks: {
+            __agentTycoonTestHooks: {
               getCharacterPosition: (i: number) => { x: number; y: number };
             };
           }
-        ).__pixelAgentsTestHooks.getCharacterPosition(i),
+        ).__agentTycoonTestHooks.getCharacterPosition(i),
       id,
     );
     return { x: x + (pos.x - 8) * scale, y: y + (pos.y - 8 - 12) * scale };
@@ -532,7 +532,7 @@ async function main() {
     // the projection already has the new zoom with the pan made for it.
     const sameTask = await page.evaluate(
       ({ x, y }) => {
-        const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+        const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
         const canvas = document.querySelector('[data-testid="office-canvas"]')!;
         const r = canvas.getBoundingClientRect();
         const world = () => {

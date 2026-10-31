@@ -168,7 +168,7 @@ async function main() {
         hasTouch: mobile,
         deviceScaleFactor: mobile ? 3 : 1,
       });
-      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
       await ctx.addCookies(cookies);
       const page = await ctx.newPage();
       page.on('pageerror', (err) => pageErrors.push(String(err)));

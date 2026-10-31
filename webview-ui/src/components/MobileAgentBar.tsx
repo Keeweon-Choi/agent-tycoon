@@ -2,9 +2,16 @@ import type { TouchEvent as ReactTouchEvent } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  mobileRosterState,
+  nextMobileRosterState,
+  savedMobileRosterState,
+} from '../cld/mobileRoster.js';
+import {
   CARD_REORDER_LONG_PRESS_MS,
   CARD_SCROLL_INTO_VIEW_MARGIN_PX,
   MOBILE_CARDS_EXPANDED_STORAGE_KEY,
+  MOBILE_ROSTER_STATE_STORAGE_KEY,
+  MOBILE_ROSTER_STATES,
 } from '../constants.js';
 import type { Directory } from '../hooks/useExtensionMessages.js';
 import { t } from '../i18n/index.js';
@@ -14,13 +21,11 @@ import type { AgentAppearance, TabStatus } from './AgentCard.js';
 import { AgentCard } from './AgentCard.js';
 import {
   type CardInfo,
-  cardsExpanded,
   cardVariant,
   groupOrder,
   loadSavedOrder,
   mergeOrder,
   reorderByPointer,
-  savedCardsExpanded,
   saveOrder,
 } from './cardBar.js';
 import { LaunchDrawer } from './LaunchDrawer.js';
@@ -58,11 +63,14 @@ interface MobileAgentBarProps {
   safeBottom?: boolean;
 }
 
-function loadExpanded(): boolean {
+function loadRosterState() {
   try {
-    return cardsExpanded(localStorage.getItem(MOBILE_CARDS_EXPANDED_STORAGE_KEY));
+    return mobileRosterState(
+      localStorage.getItem(MOBILE_ROSTER_STATE_STORAGE_KEY),
+      localStorage.getItem(MOBILE_CARDS_EXPANDED_STORAGE_KEY),
+    );
   } catch {
-    return false;
+    return MOBILE_ROSTER_STATES.COMPACT;
   }
 }
 
@@ -117,12 +125,16 @@ export function MobileAgentBar({
   const merged = useMemo(() => mergeOrder(savedOrder, agentIds), [savedOrder, agentIds]);
   const displayIds = groupOf ? groupOrder(merged, groupOf) : merged;
   const [draggingId, setDraggingId] = useState<number | null>(null);
-  // Owner 10-24: compact cards by default; the ▴ button opens the full ones (per device).
-  const [expanded, setExpanded] = useState(loadExpanded);
-  const toggleExpanded = () => {
-    setExpanded(!expanded);
+  // Compact is the default; one control opens the full cards, folds the strip away,
+  // then restores its compact form. This stays a viewer-only preference.
+  const [rosterState, setRosterState] = useState(loadRosterState);
+  const expanded = rosterState === MOBILE_ROSTER_STATES.EXPANDED;
+  const hidden = rosterState === MOBILE_ROSTER_STATES.HIDDEN;
+  const toggleRoster = () => {
+    const next = nextMobileRosterState(rosterState);
+    setRosterState(next);
     try {
-      localStorage.setItem(MOBILE_CARDS_EXPANDED_STORAGE_KEY, savedCardsExpanded(!expanded));
+      localStorage.setItem(MOBILE_ROSTER_STATE_STORAGE_KEY, savedMobileRosterState(next));
     } catch {
       // Storage blocked: this visit still has it.
     }
@@ -275,7 +287,7 @@ export function MobileAgentBar({
       scroller.removeEventListener('touchend', onTouchEnd);
       scroller.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, []);
+  }, [hidden]);
 
   // Tapping a character on the canvas focuses an agent whose card may sit
   // outside the scroller — bring it fully into view. Also fires when the
@@ -295,7 +307,7 @@ export function MobileAgentBar({
     } else if (rightOverhang > 0) {
       scroller.scrollBy({ left: rightOverhang, behavior: 'smooth' });
     }
-  }, [focusedAgentId]);
+  }, [focusedAgentId, hidden]);
 
   return (
     // No safe-area padding: the cards keep the same 6px below as above. The
@@ -303,19 +315,30 @@ export function MobileAgentBar({
     // iOS only claims the swipe gesture there. touch-pan-x: the bar scrolls
     // horizontally only; a vertical drag must not pan the page (iOS pans the
     // layout viewport while the keyboard is up).
+    // Hidden: the strip takes no height (h-0), so the office grows into its place, and only
+    // the handle floats over the office's bottom edge. It stays on the left, where the toggle is
+    // in the strip too (owner 11-01 03:13), under the joystick (which rests above it) and clear of
+    // 자동/로비 (bottom-right).
     <div
-      className={`shrink-0 bg-bg border-t-2 border-border touch-pan-x ${safeBottom ? 'pb-(--cld-safe-bottom)' : ''}`}
+      className={`shrink-0 bg-bg touch-pan-x ${hidden ? 'relative h-0 z-30' : `border-t-2 border-border ${safeBottom ? 'pb-(--cld-safe-bottom)' : ''}`}`}
       data-testid="mobile-agent-bar"
+      data-roster-state={rosterState}
     >
-      <div className="flex items-stretch gap-6 py-6 pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]">
+      <div
+        className={
+          hidden
+            ? `absolute left-[calc(var(--cld-safe-left)+8px)] flex ${safeBottom ? 'bottom-(--cld-safe-bottom)' : 'bottom-0'}`
+            : 'flex items-stretch gap-6 py-6 pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]'
+        }
+      >
         <button
           type="button"
-          className="shrink-0 w-44 flex items-center justify-center border-2 border-border bg-btn-bg text-text-muted rounded-none"
+          className={`shrink-0 flex items-center justify-center border-2 border-border bg-btn-bg text-text-muted rounded-none ${hidden ? 'w-64 h-24 border-b-0' : 'w-44'}`}
           aria-expanded={expanded}
-          aria-label={expanded ? t('cards.collapse') : t('cards.expand')}
-          title={expanded ? t('cards.collapse') : t('cards.expand')}
+          aria-label={hidden ? t('cards.show') : expanded ? t('cards.hide') : t('cards.expand')}
+          title={hidden ? t('cards.show') : expanded ? t('cards.hide') : t('cards.expand')}
           data-testid="cards-toggle"
-          onClick={toggleExpanded}
+          onClick={toggleRoster}
         >
           <svg
             width="10"
@@ -327,101 +350,106 @@ export function MobileAgentBar({
           >
             <path
               d={
-                expanded
+                expanded || hidden
                   ? 'M0 0h5v1H0z M1 1h3v1H1z M2 2h1v1H2z'
                   : 'M2 0h1v1H2z M1 1h3v1H1z M0 2h5v1H0z'
               }
             />
           </svg>
         </button>
-        {/* Launch card pinned on the left; only the agent cards scroll.
+        {!hidden && (
+          <>
+            {/* Launch card pinned on the left; only the agent cards scroll.
             A tap opens the launch drawer above it — so the wrapper is the
             positioning context and the outside-press boundary. */}
-        {!hideActions && (
-          <div ref={launchRef} className="relative shrink-0 flex">
-            <button
-              onClick={canLaunch ? handleLaunchClick : undefined}
-              // A long press must not open the OS callout menu over the drawer.
-              onContextMenu={(e) => e.preventDefault()}
-              disabled={!canLaunch}
-              title={
-                canLaunch ? 'Launch agent' : (launchUnavailableReason ?? 'Terminal unavailable')
-              }
-              className={`flex items-center justify-center shrink-0 px-14 border-2 rounded-none text-2xl leading-none select-none ${
-                canLaunch
-                  ? 'bg-accent border-accent text-white cursor-pointer active:bg-accent-bright'
-                  : 'bg-btn-bg border-border text-text-muted cursor-default opacity-(--btn-disabled-opacity)'
-              }`}
-            >
-              +
-            </button>
-            <LaunchDrawer
-              isOpen={isLaunchDrawerOpen}
-              directories={directories}
-              onSelect={(directory) => {
-                setIsLaunchDrawerOpen(false);
-                onLaunchDirectory(directory);
-              }}
-              onAddDirectory={() => {
-                setIsLaunchDrawerOpen(false);
-                onAddDirectory();
-              }}
-              onEditDirectory={(directory) => {
-                setIsLaunchDrawerOpen(false);
-                onEditDirectory(directory);
-              }}
-            />
-          </div>
-        )}
-        <div
-          ref={scrollerRef}
-          className="flex items-stretch gap-6 overflow-x-auto no-scrollbar flex-1 min-w-0"
-        >
-          {displayIds.map((agentId, i) => {
-            const variant = cardVariant(agentId, {
-              activeId: activeAgentId,
-              focusedId: focusedAgentId,
-            });
-            const info = describeCard?.(agentId);
-            const divider =
-              info && i > 0 && groupOf?.(displayIds[i - 1]) !== info.group ? (
-                <div
-                  className="shrink-0 w-2 bg-border"
-                  title={info.groupLabel}
-                  data-testid="card-group"
-                />
-              ) : null;
-            return (
-              <Fragment key={agentId}>
-                {divider}
-                <div
-                  ref={(el) => {
-                    if (el) cardRefs.current.set(agentId, el);
-                    else cardRefs.current.delete(agentId);
-                  }}
-                  onTouchStart={handleCardTouchStart(agentId)}
-                  className={`shrink-0 flex items-stretch transition-transform ${
-                    draggingId === agentId ? 'relative z-10 -translate-y-4 opacity-70' : ''
+            {!hideActions && (
+              <div ref={launchRef} className="relative shrink-0 flex">
+                <button
+                  onClick={canLaunch ? handleLaunchClick : undefined}
+                  // A long press must not open the OS callout menu over the drawer.
+                  onContextMenu={(e) => e.preventDefault()}
+                  disabled={!canLaunch}
+                  title={
+                    canLaunch ? 'Launch agent' : (launchUnavailableReason ?? 'Terminal unavailable')
+                  }
+                  className={`flex items-center justify-center shrink-0 px-14 border-2 rounded-none text-2xl leading-none select-none ${
+                    canLaunch
+                      ? 'bg-accent border-accent text-white cursor-pointer active:bg-accent-bright'
+                      : 'bg-btn-bg border-border text-text-muted cursor-default opacity-(--btn-disabled-opacity)'
                   }`}
                 >
-                  <AgentCard
-                    agentId={agentId}
-                    variant={variant}
-                    appearance={getAppearance(agentId)}
-                    status={statusFor(agentId)}
-                    showClose={!hideActions && variant === 'active'}
-                    onSelect={onSelectAgent}
-                    onClose={onCloseAgent}
-                    name={info?.name}
-                    extra={info?.extra}
-                    compact={!expanded}
-                    statusNote={info?.status}
-                  />
-                </div>
-              </Fragment>
-            );
-          })}
-        </div>
+                  +
+                </button>
+                <LaunchDrawer
+                  isOpen={isLaunchDrawerOpen}
+                  directories={directories}
+                  onSelect={(directory) => {
+                    setIsLaunchDrawerOpen(false);
+                    onLaunchDirectory(directory);
+                  }}
+                  onAddDirectory={() => {
+                    setIsLaunchDrawerOpen(false);
+                    onAddDirectory();
+                  }}
+                  onEditDirectory={(directory) => {
+                    setIsLaunchDrawerOpen(false);
+                    onEditDirectory(directory);
+                  }}
+                />
+              </div>
+            )}
+            <div
+              ref={scrollerRef}
+              className="flex items-stretch gap-6 overflow-x-auto no-scrollbar flex-1 min-w-0"
+            >
+              {displayIds.map((agentId, i) => {
+                const variant = cardVariant(agentId, {
+                  activeId: activeAgentId,
+                  focusedId: focusedAgentId,
+                });
+                const info = describeCard?.(agentId);
+                const divider =
+                  info && i > 0 && groupOf?.(displayIds[i - 1]) !== info.group ? (
+                    <div
+                      className="shrink-0 w-2 bg-border"
+                      title={info.groupLabel}
+                      data-testid="card-group"
+                    />
+                  ) : null;
+                return (
+                  <Fragment key={agentId}>
+                    {divider}
+                    <div
+                      ref={(el) => {
+                        if (el) cardRefs.current.set(agentId, el);
+                        else cardRefs.current.delete(agentId);
+                      }}
+                      onTouchStart={handleCardTouchStart(agentId)}
+                      className={`shrink-0 flex items-stretch transition-transform ${
+                        draggingId === agentId ? 'relative z-10 -translate-y-4 opacity-70' : ''
+                      }`}
+                    >
+                      <AgentCard
+                        agentId={agentId}
+                        variant={variant}
+                        appearance={getAppearance(agentId)}
+                        status={statusFor(agentId)}
+                        showClose={!hideActions && variant === 'active'}
+                        onSelect={onSelectAgent}
+                        onClose={onCloseAgent}
+                        name={info?.name}
+                        extra={info?.extra}
+                        compact={!expanded}
+                        mobileExpanded={expanded}
+                        statusNote={info?.status}
+                      />
+                    </div>
+                  </Fragment>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

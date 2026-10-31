@@ -45,7 +45,7 @@ const IDLE_MS = 3000;
  *  is drawn first, then the shown floor). */
 const INIT = `
   globalThis.__name = (fn) => fn;
-  window.__PIXEL_AGENTS_E2E = true;
+  window.__AGENT_TYCOON_E2E = true;
   window.__frames = 0;
   const clear = CanvasRenderingContext2D.prototype.clearRect;
   CanvasRenderingContext2D.prototype.clearRect = function (x, y, w, h) {
@@ -89,7 +89,7 @@ type Rect = { id: string; row: number; rows: number; cols: number };
 type Building = { floors: Array<{ id: string; rooms: string[]; characters: string[] }> };
 
 const hook = <T>(page: Page, call: string): Promise<T> =>
-  page.evaluate(`window.__pixelAgentsTestHooks.${call}`) as Promise<T>;
+  page.evaluate(`window.__agentTycoonTestHooks.${call}`) as Promise<T>;
 const tileOf = async (page: Page, id: number) => {
   const t = await hook<Tile | null>(page, `getCharacterTile(${id})`);
   lastSeen = `${id}: ${JSON.stringify(t)}`;
@@ -107,7 +107,7 @@ const shiftRows = (r1: Rect, r2: Rect) => r1.row - r2.row - (r2.rows + (r2.row -
 async function idleFrames(page: Page): Promise<number | null> {
   for (let i = 0; i < 15; i++) {
     const r = (await page.evaluate(`(async () => {
-      const h = window.__pixelAgentsTestHooks;
+      const h = window.__agentTycoonTestHooks;
       const start = window.__frames;
       const t0 = performance.now();
       let moved = false;
@@ -205,7 +205,7 @@ async function main() {
       const t = (await tileOf(page, id))!;
       const c = (await tileCenter(page, t.col, t.row))!;
       const scale = (await page.evaluate(`(() => {
-        const h = window.__pixelAgentsTestHooks;
+        const h = window.__agentTycoonTestHooks;
         return (h.getTileCenter(1, 0).x - h.getTileCenter(0, 0).x) / 16;
       })()`)) as number;
       const canvasBox = (await page.getByTestId('office-canvas').boundingBox())!;
@@ -230,7 +230,7 @@ async function main() {
      *  rider in front, a rider shut in, and a rider coming out. */
     const watchRides = (ids: number[]) =>
       page.evaluate(`(() => {
-        const h = window.__pixelAgentsTestHooks;
+        const h = window.__agentTycoonTestHooks;
         const canvas = document.querySelector('[data-testid="office-canvas"]');
         const ids = ${JSON.stringify(ids)};
         const rec = (window.__rides = { phases: {}, shots: {} });
@@ -501,10 +501,10 @@ async function main() {
     console.error(daemon.log.join('').slice(-1500));
     console.error(`page errors: ${pageErrors.join(' | ').slice(0, 3000)}`);
     console.error(
-      `elevators: ${JSON.stringify(await lastPage?.evaluate('window.__pixelAgentsTestHooks.getElevators()').catch(() => null))}`,
+      `elevators: ${JSON.stringify(await lastPage?.evaluate('window.__agentTycoonTestHooks.getElevators()').catch(() => null))}`,
     );
     const probe =
-      "(async () => { const h = window.__pixelAgentsTestHooks; const log = []; let last = ''; const t0 = performance.now(); " +
+      "(async () => { const h = window.__agentTycoonTestHooks; const log = []; let last = ''; const t0 = performance.now(); " +
       `const tick = () => { const c = h.getCharacterTile(${beta0}); const e = h.getElevators(); ` +
       "const k = [c.ride, c.col + ',' + c.row, c.queued, c.active, e.map((x) => x.open.toFixed(2)).join('/')].join(' '); " +
       "if (k.split(' ')[0] !== last) { last = k.split(' ')[0]; log.push(Math.round(performance.now() - t0) + 'ms ' + k + ' t=' + c.rideT); } " +

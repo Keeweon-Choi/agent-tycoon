@@ -13,7 +13,6 @@ import {
   TERMINAL_SEQ_END,
   TERMINAL_SEQ_ESC,
   TERMINAL_SEQ_HOME,
-  TERMINAL_SEQ_INSERT,
   TERMINAL_SEQ_NEWLINE,
   TERMINAL_SEQ_PAGE_DOWN,
   TERMINAL_SEQ_PAGE_UP,
@@ -34,6 +33,8 @@ interface MobileKeyBarProps {
   onKey: (sequence: string) => void;
   /** Enter, or chat:sendNow during a Claude turn (submitTerminalLine). */
   onSend: () => void;
+  /** Reads the clipboard and pastes it into the active terminal (phones have no Ctrl+V). */
+  onPaste?: () => void;
 }
 
 type Arrow = 'up' | 'down' | 'left' | 'right';
@@ -43,6 +44,7 @@ type BarKey = { aria: TranslationKey } & (
   | { label: TranslationKey; modifier: MobileKeyModifier }
   | { arrow: Arrow; sequence: string }
   | { label: TranslationKey; send: true }
+  | { label: TranslationKey; paste: true }
 );
 
 /**
@@ -51,7 +53,8 @@ type BarKey = { aria: TranslationKey } & (
  */
 const KEYS: ReadonlyArray<BarKey> = [
   { label: 'u33.keyEsc', aria: 'u33.ariaEsc', sequence: TERMINAL_SEQ_ESC },
-  { label: 'u33.keyIns', aria: 'upstream.mobileKeyInsert', sequence: TERMINAL_SEQ_INSERT },
+  // Paste took Insert's place (owner 11-01 02:36: no way to paste on a phone; Insert is unused there).
+  { label: 'u33.keyPaste', aria: 'upstream.paste', paste: true },
   { label: 'u33.keyHome', aria: 'upstream.mobileKeyHome', sequence: TERMINAL_SEQ_HOME },
   { label: 'u33.keyPgUp', aria: 'upstream.mobileKeyPageUp', sequence: TERMINAL_SEQ_PAGE_UP },
   { label: 'u33.keyNewline', aria: 'u33.ariaNewline', sequence: TERMINAL_SEQ_NEWLINE },
@@ -96,7 +99,7 @@ const ArrowIcon = ({ arrow }: { arrow: Arrow }) => (
  * content cannot alter or remove, so these rows sit directly above it and
  * supply the keys a Claude Code TUI needs that a phone keyboard lacks.
  */
-export function MobileKeyBar({ onKey, onSend }: MobileKeyBarProps) {
+export function MobileKeyBar({ onKey, onSend, onPaste }: MobileKeyBarProps) {
   const armed = useSyncExternalStore(
     subscribeArmedKeyModifiers,
     getArmedKeyModifiers,
@@ -123,7 +126,10 @@ export function MobileKeyBar({ onKey, onSend }: MobileKeyBarProps) {
   const press = (key: BarKey) => {
     if ('modifier' in key) toggleArmedKeyModifier(key.modifier);
     else if ('sequence' in key) sendKey(key.sequence);
-    else {
+    else if ('paste' in key) {
+      release();
+      onPaste?.();
+    } else {
       release();
       onSend();
     }

@@ -16,8 +16,7 @@ export type TransportState =
 /**
  * Transport-agnostic message layer between webview and extension/server.
  *
- * Implementations:
- * - PostMessageTransport: VS Code webview (acquireVsCodeApi); permanently `connected`.
+ * Implementation:
  * - WebSocketTransport: standalone browser; reports connecting/reconnecting/disconnected
  *   as the socket comes and goes.
  */

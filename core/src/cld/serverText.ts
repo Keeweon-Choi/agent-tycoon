@@ -9,6 +9,8 @@
  * One entry per message: add it here and both languages exist (the webview
  * builds its `srv.<code>` dictionary entries from this table).
  */
+import { fixJosa, markerPattern } from './josa.js';
+
 export type TextVars = Record<string, string | number>;
 
 /** What a daemon reply carries beside its Korean `error` text. */
@@ -369,6 +371,10 @@ export const SERVER_TEXT = {
     ko: '{target} 는 보호 브랜치라 자동으로 병합하지 않아요. 작업실에서 직접 병합해 주세요',
     en: '{target} is a protected branch, so it is not merged automatically. Merge it yourself in the workshop.',
   },
+  merge_review_notes: {
+    ko: '검토 메모가 있는 작업이라 자동으로 병합하지 않아요. 작업실에서 직접 병합해 주세요',
+    en: 'This task has review notes, so it is not merged automatically. Merge it yourself in the workshop.',
+  },
   task_name_needed: {
     ko: '작업 이름을 알려 주세요',
     en: 'Tell me the task name.',
@@ -444,6 +450,59 @@ export const SERVER_TEXT = {
   merge_conflict: {
     ko: '충돌이라 멈췄어요(아무것도 바꾸지 않았어요): {files}',
     en: 'Stopped because of a conflict (nothing was changed): {files}',
+  },
+  // -- P4 dev room: sync, conflicts, cleanup (engine/git/conflicts.ts, worktrees.ts) --
+  sync_agent_busy: {
+    ko: '에이전트가 지금 이 작업 폴더에서 일하고 있어요. 에이전트에게 맡기거나 쉴 때 다시 해 주세요',
+    en: 'The agent is working in this worktree now. Hand it to the agent, or try again when it is idle.',
+  },
+  sync_dirty: {
+    ko: '커밋하지 않은 변경이 있어서 따라잡을 수 없어요. 에이전트에게 커밋을 맡겨 주세요',
+    en: 'There are uncommitted changes, so the base cannot be merged in. Ask the agent to commit them.',
+  },
+  sync_done: { ko: '{base} 를 따라잡았어요', en: 'Caught up with {base}.' },
+  sync_conflict: {
+    ko: '{base} 와 파일 {count}개가 겹쳐요. 겹친 곳을 골라 풀어 주세요',
+    en: '{count} files conflict with {base}. Choose how to resolve each one.',
+  },
+  sync_committed: { ko: '충돌을 풀고 합쳤어요', en: 'Conflicts resolved and merged.' },
+  sync_aborted: { ko: '합치기를 취소했어요(작업 폴더는 그대로예요)', en: 'The merge was cancelled (the worktree is as it was).' },
+  no_merge_in_progress: { ko: '진행 중인 합치기가 없어요', en: 'No merge is in progress.' },
+  conflicts_left: { ko: '아직 풀지 않은 파일이 {count}개 있어요', en: '{count} files are still unresolved.' },
+  conflict_file_unknown: { ko: '충돌 중인 파일이 아니에요', en: 'That file is not in conflict.' },
+  conflict_file_unreadable: {
+    ko: '이 파일은 여기서 풀 수 없어요(너무 크거나 글자 파일이 아니에요). 에이전트에게 맡겨 주세요',
+    en: 'This file cannot be resolved here (too large or not text). Hand it to the agent.',
+  },
+  conflict_blocks_changed: {
+    ko: '파일이 그 사이 바뀌었어요. 충돌 목록을 다시 불러와 주세요',
+    en: 'The file changed meanwhile. Reload the conflicts.',
+  },
+  conflict_blocks_left: { ko: '남은 충돌 {count}개', en: '{count} conflicts left.' },
+  conflict_file_resolved: { ko: '이 파일의 충돌을 다 풀었어요', en: 'All conflicts in this file are resolved.' },
+  conflict_handoff_header: {
+    ko: '[충돌] Task {task} · 작업 폴더 {worktree} 가 {base} 와 겹쳐서 아직 합칠 수 없어요 (파일: {files}). 작업 폴더에서 git merge {base} 를 실행해 충돌을 풀어 커밋한 뒤 update_task 로 status 를 review 로 알려 주세요.',
+    en: '[Conflict] Task {task} (worktree {worktree}) conflicts with {base} and cannot be merged yet (files: {files}). In the worktree, run git merge {base}, resolve the conflicts, commit, then report status review with update_task.',
+  },
+  sys_conflict_handoff: {
+    ko: '사장님이 {worker} 에게 {base} 와의 충돌을 풀어 달라고 맡겼어요 (Task {task})',
+    en: 'The owner asked {worker} to resolve the conflicts with {base} (Task {task})',
+  },
+  conflict_none: { ko: '{base} 와 겹치는 곳이 없어요', en: 'Nothing conflicts with {base}.' },
+  handoff_done: { ko: '{to} 에게 충돌을 풀어 달라고 맡겼어요', en: 'Asked {to} to resolve the conflicts.' },
+  handoff_no_target: { ko: '이 작업을 맡은 에이전트가 없어요', en: 'No agent is working on this task.' },
+  wip_commit_failed: {
+    ko: '커밋하지 않은 작업을 브랜치에 남기지 못해서 지우지 않았어요: {why}',
+    en: 'The uncommitted work could not be kept on the branch, so nothing was removed: {why}',
+  },
+  git_failed_why: { ko: 'git 이 실패했어요: {why}', en: 'git failed: {why}' },
+  review_lead_header: {
+    ko: '[검토 의견] 리드 {lead} 가 Task {task} · 작업 폴더 {worktree} 의 바뀐 곳에 의견을 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
+    en: '[Review note] The Lead {lead} left a note on the changes of Task {task} (worktree {worktree}). Fix it, then report status review again with update_task.',
+  },
+  sys_review_lead: {
+    ko: '{lead} 가 {worker} 에게 검토 의견을 보냈어요 (Task {task})',
+    en: '{lead} sent {worker} a review note (Task {task})',
   },
   merge_already: {
     ko: '{branch} 는 이미 {target} 에 있어요',
@@ -649,6 +708,34 @@ export const SERVER_TEXT = {
     ko: '작업 공간을 지우지 못했어요: {why}',
     en: 'Could not remove the workspace: {why}',
   },
+  review_notes_unreadable: {
+    ko: '검토 메모를 읽거나 저장하지 못했어요',
+    en: 'Could not read or save the review notes.',
+  },
+  review_note_invalid: {
+    ko: '검토 메모의 내용이나 줄 번호가 올바르지 않아요',
+    en: 'The review note text or line is not valid.',
+  },
+  review_note_limit: {
+    ko: '작업 공간마다 검토 메모는 200개까지예요',
+    en: 'A worktree can have at most 200 review notes.',
+  },
+  review_note_missing: {
+    ko: '검토 메모를 찾지 못했어요',
+    en: 'That review note was not found.',
+  },
+  review_nothing_to_send: {
+    ko: '보낼 검토 의견이 없어요',
+    en: 'There are no unsent review notes.',
+  },
+  review_no_target: {
+    ko: '이 작업을 맡은 에이전트도 리드도 지금 없어 보내지 못했어요',
+    en: 'Neither the agent on this task nor its Lead is there to receive the notes.',
+  },
+  review_send_header: {
+    ko: '[검토 의견] 사장님이 Task {task} · 작업 폴더 {worktree} 의 바뀐 곳에 의견 {count}개를 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
+    en: '[Review notes] The owner left {count} notes on the changes of Task {task} (worktree {worktree}). Fix them, then report status review again with update_task.',
+  },
   branch_deleted: {
     ko: '브랜치도 지웠어요',
     en: 'The branch was removed too.',
@@ -775,7 +862,7 @@ export const SERVER_TEXT = {
     en: '{name}: moving to a new conversation.',
   },
   already_lead: {
-    ko: "'{name}' 은(는) 이미 Lead 예요: Lead 로 바꿀 수 있는 것은 Worker 예요",
+    ko: "'{name}'은(는) 이미 Lead 예요: Lead 로 바꿀 수 있는 것은 Worker 예요",
     en: "'{name}' is already a Lead. Only a Worker can become a Lead.",
   },
   codex_not_lead: {
@@ -817,6 +904,62 @@ export const SERVER_TEXT = {
   agent_kind_fixed: {
     ko: '에이전트 종류는 바꿀 수 없어요(새로 만들어 주세요)',
     en: 'The agent kind cannot be changed (create a new one).',
+  },
+  pty_switch_running: {
+    ko: '터미널 방식은 에이전트를 끈 뒤에 바꿀 수 있어요',
+    en: 'Turn the agent off before changing its terminal mode.',
+  },
+  pty_move_busy: {
+    ko: '대화 중이거나 답을 기다리는 중이라 지금은 옮길 수 없어요: 턴이 끝난 뒤 다시 해 주세요',
+    en: 'It is mid-turn or waiting for an answer: move it once the turn has ended.',
+  },
+  pty_move_no_transcript: {
+    ko: '이 대화의 기록 파일이 없어 같은 대화로 옮길 수 없어요',
+    en: "This conversation's transcript is missing, so it cannot move with the same conversation.",
+  },
+  pty_move_not_idle: {
+    ko: '새 터미널에서 대화 {id} 가 쉬는 상태로 보이지 않았어요',
+    en: 'Conversation {id} was not seen idle in the new terminal.',
+  },
+  pty_move_failed: {
+    ko: '새 터미널로 옮기지 못해 원래대로 되돌렸어요: {why}',
+    en: 'Could not move it to the new terminal; it is back as it was: {why}',
+  },
+  pty_move_back_failed: {
+    ko: '새 터미널로 옮기지 못했고({why}) 원래 세션도 다시 켜지 못했어요: {back}',
+    en: 'Could not move it to the new terminal ({why}) nor start its old session again: {back}',
+  },
+  pty_moved: {
+    ko: '새 터미널로 옮겼어요(같은 대화)',
+    en: 'Moved to the new terminal (same conversation).',
+  },
+  pty_moved_off: {
+    ko: '꺼져 있어 방식만 바꿨어요: 다음에 켤 때 새 터미널에서 시작해요',
+    en: 'It is off, so only its mode changed: it starts in the new terminal next time.',
+  },
+  pty_move_all_running: {
+    ko: '이미 모두 옮기는 중이에요',
+    en: 'Moving every agent is already running.',
+  },
+  pty_move_all_idle: {
+    ko: '옮기는 중이 아니에요',
+    en: 'Nothing is being moved.',
+  },
+  pty_move_all_nothing: {
+    ko: '옮길 에이전트가 없어요(모두 새 터미널이에요)',
+    en: 'No agent to move: every Claude agent is in the new terminal already.',
+  },
+  pty_move_all_already: {
+    ko: '이미 새 터미널이에요',
+    en: 'Already in the new terminal.',
+  },
+  pty_move_all_timeout: {
+    ko: '{min}분 넘게 일하는 중이라 건너뛰었어요(나중에 다시 눌러 주세요)',
+    en: 'Still working after {min} minutes, so it was skipped (press the button again later).',
+  },
+  pty_host_missing: {
+    ko: '터미널 호스트(dist/cld-ptyhost.js)가 없어요: 다시 빌드해 주세요',
+    en: 'The terminal host (dist/cld-ptyhost.js) is missing: rebuild cld-gui.',
   },
   role_project_fixed: {
     ko: '역할과 프로젝트는 바꿀 수 없어요',
@@ -867,7 +1010,7 @@ export const SERVER_TEXT = {
     en: "The conversation of '{name}' is open in a terminal. Close it, then try again.",
   },
   swap_busy: {
-    ko: "'{name}' 이(가) 일하는 중이에요. 작업이 끝난 뒤 다시 해 주세요",
+    ko: "'{name}'이(가) 일하는 중이에요. 작업이 끝난 뒤 다시 해 주세요",
     en: "'{name}' is working. Try again when the work is done.",
   },
   already_on: {
@@ -943,7 +1086,7 @@ export const SERVER_TEXT = {
     en: 'Could not create the folder.',
   },
   not_a_worker: {
-    ko: "'{name}' 은(는) Worker 가 아니에요",
+    ko: "'{name}'은(는) Worker 가 아니에요",
     en: "'{name}' is not a Worker.",
   },
   swap_list_unreadable: {
@@ -1022,6 +1165,18 @@ export const SERVER_TEXT = {
     ko: '첨부 파일',
     en: 'Attachment',
   },
+  attachment_video_label: {
+    ko: '[동영상]',
+    en: '[Video]',
+  },
+  push_photo: {
+    ko: '[사진]',
+    en: '[Photo]',
+  },
+  push_photos: {
+    ko: '[사진 {n}장]',
+    en: '[{n} photos]',
+  },
   conversation_loading: {
     ko: '이 대화를 불러오는 중이에요',
     en: 'This conversation is still loading.',
@@ -1043,6 +1198,10 @@ export const SERVER_TEXT = {
   sys_reported: { ko: 'Task {task} 보고: {line}', en: 'Task {task} reported: {line}' },
   sys_conflict: { ko: 'Task {task} 병합 충돌: {line}', en: 'Task {task} merge conflict: {line}' },
   sys_merged: { ko: 'Task {task} 병합됨: {line}', en: 'Task {task} merged: {line}' },
+  sys_review: {
+    ko: '사장님이 {worker} 에게 검토 의견 {count}개를 보냈어요 (Task {task})',
+    en: 'The owner sent {worker} {count} review notes (Task {task})',
+  },
   // -- work words: job titles and news lines (core/work.ts, engine/eventSummary.ts) --
   work_default: { ko: '작업', en: 'Job' },
   work_default_codex: { ko: 'Codex 작업', en: 'Codex task' },
@@ -1109,7 +1268,7 @@ export const SERVER_TEXT = {
     en: '{from} → {who} delegation proposal {task}',
   },
   ev_delegation_start_failed: {
-    ko: '{to} 이(가) 켜지지 않아 Task {task} 가 기다려요',
+    ko: '{to}이(가) 켜지지 않아 Task {task} 가 기다려요',
     en: '{to} did not start, so Task {task} is waiting',
   },
   ev_delegation_approved: { ko: '{to} 의 위임 승인', en: 'Delegation to {to} approved' },
@@ -1134,6 +1293,23 @@ export const SERVER_TEXT = {
   ev_orch_giveup_why: {
     ko: '{who}: 자꾸 꺼져서 다시 띄우지 않아요 ({why})',
     en: '{who}: it keeps stopping, so it is not restarted ({why})',
+  },
+  ev_pty_move_moved: { ko: '{who}: 새 터미널로 옮겼어요', en: '{who}: moved to the new terminal' },
+  ev_pty_move_skipped: {
+    ko: '{who}: 옮기지 않고 건너뛰었어요 ({why})',
+    en: '{who}: skipped, not moved ({why})',
+  },
+  ev_pty_move_rolled_back: {
+    ko: '{who}: 옮기지 못해 되돌렸어요 ({why})',
+    en: '{who}: could not be moved and was put back ({why})',
+  },
+  ev_pty_move_all: {
+    ko: '모두 새 터미널로 옮기기 끝: 옮김 {moved}, 건너뜀 {skipped}, 되돌림 {back} (모두 {total})',
+    en: 'Moving every agent to the new terminal is done: {moved} moved, {skipped} skipped, {back} rolled back ({total} in all)',
+  },
+  ev_pty_move_all_stopped: {
+    ko: '모두 새 터미널로 옮기기를 멈췄어요: 옮김 {moved}, 건너뜀 {skipped}, 되돌림 {back} (모두 {total})',
+    en: 'Moving every agent to the new terminal was stopped: {moved} moved, {skipped} skipped, {back} rolled back ({total} in all)',
   },
   ev_turn_end: { ko: '{who} 턴 끝', en: '{who} finished a turn' },
   ev_compacted: { ko: '{who} 휴식', en: '{who} took a rest' },
@@ -1175,10 +1351,16 @@ export const SERVER_TEXT = {
   gpu_why_dead: { ko: '비정상 종료', en: 'abnormal exit' },
   // -- notices and pushes (core/notices.ts) --
   cause_turn_end: { ko: '일을 마쳤어요', en: 'Finished its work' },
+  preview_ask: {
+    ko: "'{task}' 미리보기 열기 (폰에서 요청)",
+    en: "Open the preview of '{task}' (asked from a phone)",
+  },
+  cause_turn_end_task: { ko: "'{task}' 작업을 마쳤어요", en: "Finished '{task}'" },
+  cause_turn_end_doing: { ko: '일을 마쳤어요 · {doing}', en: 'Finished its work · {doing}' },
   cause_question: { ko: '답을 기다려요', en: 'Waiting for your answer' },
   cause_permission: { ko: '허락을 기다려요', en: 'Waiting for your permission' },
   cause_permission_sub: {
-    ko: '{sub}의 허락을 기다려요',
+    ko: '{sub}이(가) 허락을 기다려요',
     en: '{sub} is waiting for your permission',
   },
   dev_new: { ko: '새 기기가 들어왔어요', en: 'A new device signed in' },
@@ -1231,6 +1413,10 @@ export const SERVER_TEXT = {
     ko: '이 형식은 직접 미리볼 수 없어요',
     en: 'This type cannot be previewed directly.',
   },
+  range_invalid: {
+    ko: '요청한 파일 범위가 올바르지 않아요',
+    en: 'That part of the file is not available.',
+  },
   link_expired: {
     ko: '링크가 만료되었어요',
     en: 'This link has expired.',
@@ -1255,6 +1441,10 @@ export const SERVER_TEXT = {
     ko: '파일은 20 MB 이하만 첨부할 수 있어요',
     en: 'Files up to 20 MB can be attached.',
   },
+  attach_video_too_large: {
+    ko: '동영상은 300 MB 이하만 첨부할 수 있어요',
+    en: 'Videos up to 300 MB can be attached.',
+  },
   attach_type_mismatch: {
     ko: '파일 내용이 확장자와 맞지 않아요',
     en: 'The file content does not match its extension.',
@@ -1274,6 +1464,18 @@ export const SERVER_TEXT = {
   file_over_50: {
     ko: '50 MB를 넘는 파일이에요',
     en: 'The file is over 50 MB.',
+  },
+  file_changed_on_disk: {
+    ko: '디스크에서 바뀜: 파일이 열었을 때와 달라져서 저장하지 않았어요',
+    en: 'Changed on disk: the file is different from when you opened it, so nothing was saved.',
+  },
+  file_not_text: {
+    ko: '글자 파일만 고칠 수 있어요',
+    en: 'Only text files can be edited.',
+  },
+  file_over_edit: {
+    ko: '1 MB를 넘는 파일은 여기서 고칠 수 없어요',
+    en: 'Files over 1 MB cannot be edited here.',
   },
   path_outside_project: {
     ko: '프로젝트 밖 경로예요',
@@ -2279,7 +2481,7 @@ export const SERVER_TEXT = {
   room_lounge_floor_old: { ko: '{floor} 라운지', en: '{floor} Lounge' },
   floor_n: { ko: '{n}층', en: 'Floor {n}' },
   tasks_unreadable: {
-    ko: '{file} 을(를) 읽지 못했습니다({why}). 파일은 그대로 두었고, 고칠 때까지 작업을 저장하지 않습니다',
+    ko: '{file}을(를) 읽지 못했습니다({why}). 파일은 그대로 두었고, 고칠 때까지 작업을 저장하지 않습니다',
     en: '{file} could not be read ({why}). The file was left as it is, and no tasks are saved until it is fixed.',
   },
   // -- R3: start policy in 설정 (server/src/cld/startPolicy.ts) --
@@ -2313,8 +2515,10 @@ export const isServerTextCode = (code: unknown): code is ServerTextCode =>
 const HOLE = /\{(\w+)\}/g;
 const HOLE_SPLIT = /\{(\w+)\}/;
 export const fillText = (template: string, vars?: TextVars): string =>
-  template.replace(HOLE, (hole, name: string) =>
-    vars?.[name] === undefined ? hole : String(vars[name]),
+  fixJosa(
+    template.replace(HOLE, (hole, name: string) =>
+      vars?.[name] === undefined ? hole : String(vars[name]),
+    ),
   );
 
 /** Any coded reply text: the Korean `error`, optionally its code (what relays and old callers hold). */
@@ -2356,7 +2560,7 @@ const TEMPLATES = Object.entries(SERVER_TEXT).map(([code, text]) => {
   const source = text.ko
     .split(HOLE_SPLIT)
     .map((part, i) => {
-      if (i % 2 === 0) return escapeRe(part);
+      if (i % 2 === 0) return markerPattern(part, escapeRe);
       names.push(part);
       return '([\\s\\S]+?)';
     })

@@ -12,7 +12,7 @@ export interface ServerTarget {
 
 /**
  * What a standalone server exposes, as the operator asked for it at launch.
- * Recorded so a second `npx pixel-agents` reuses a running server only when it
+ * Recorded so a second `node dist/cli.js` reuses a running server only when it
  * would have started the SAME one -- otherwise `--no-terminal` or a narrower
  * `--host` would be silently ignored in favour of a server that has a shell.
  */

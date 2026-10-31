@@ -13,6 +13,7 @@ import {
   BellGlyph,
   BoardGlyph,
   BubbleGlyph,
+  CommandGlyph,
   FolderGlyph,
   HomeGlyph,
   TerminalGlyph,
@@ -84,6 +85,7 @@ export function MobileDock({
       badgeTestId: 'notice-unread',
       glyph: <BellGlyph />,
     },
+    { screen: 'devroom', hudId: 'devroom', name: t('hud.devroom'), glyph: <CommandGlyph /> },
     ...(panelAvailable('terminal', store)
       ? [
           {

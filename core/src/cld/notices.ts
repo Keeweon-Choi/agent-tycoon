@@ -5,7 +5,9 @@
  * nothing loud for what the user is looking at; turn ends of sub-agents and
  * teammates only when asked for. Pure, no runtime side effects.
  */
-import { NOTICE_COOLDOWN_MS, PUSH_ATTENTION_COOLDOWN_MS } from '../constants.js';
+import { NOTICE_COOLDOWN_MS, NOTICE_WHAT_MAX, PUSH_ATTENTION_COOLDOWN_MS } from '../constants.js';
+import { loopbackUrl } from './devUrl.js';
+import { plainText } from './plainText.js';
 import { koText } from './serverText.js';
 
 /** `reply` (T-0043; U-49 pushed too): a lead's message to the user, with its text. */
@@ -32,6 +34,40 @@ export const CAUSE_TEXT: Record<Exclude<NoticeCause, 'job' | 'reply'>, string> =
   question: koText('cause_question'),
   permission: koText('cause_permission'),
 };
+/** The notice's own words are cut to NOTICE_WHAT_MAX characters, with a "…". */
+const brief = (text: string): string => {
+  const chars = [...plainText(text)];
+  return chars.length > NOTICE_WHAT_MAX ? `${chars.slice(0, NOTICE_WHAT_MAX - 1).join('')}…` : chars.join('');
+};
+
+/**
+ * What a turn end says (owner 11-01): the Task the agent works on, else its last activity line,
+ * else the plain "finished its work".
+ */
+export function turnEndText(what: { task?: string | null; doing?: string | null }): string {
+  const task = what.task ? brief(what.task) : '';
+  if (task) return koText('cause_turn_end_task', { task });
+  const doing = what.doing ? brief(what.doing) : '';
+  return doing ? koText('cause_turn_end_doing', { doing }) : CAUSE_TEXT.turnEnd;
+}
+
+/** The title of the Task `name` is working on now (its newest 'doing' one), or null. */
+export function doingTaskTitle(
+  tasks: readonly {
+    title: string;
+    status: string;
+    updatedAt: string;
+    assignee?: { name: string };
+    owner?: { name: string };
+  }[],
+  name: string,
+): string | null {
+  const mine = tasks
+    .filter((t) => t.status === 'doing' && (t.assignee?.name === name || t.owner?.name === name))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return mine[0]?.title ?? null;
+}
+
 /**
  * O3: the push that tells the other devices a new one came in. Words only; the
  * time is filled in by the service worker in the phone's own time zone.
@@ -130,6 +166,8 @@ export type NoticeTarget =
   | { open: 'workbench'; project: string }
   /** O3: a new device came in: the 보안 panel, where the device list and the record are. */
   | { open: 'security' }
+  /** P4 S6: a phone asked the PC to open task `task`'s 미리보기 (`url`: a loopback one, when it knew it). */
+  | { open: 'preview'; project: string; task: string; url?: string }
   | { open: 'office' };
 
 /** The target of a notice the rules let through: `lead` when the character is a lead (a world entry). */
@@ -200,6 +238,11 @@ export function noticeUrl(t: NoticeTarget): string {
     q.set('room', t.room);
   } else if (t.open === 'security') {
     q.set('open', 'security');
+  } else if (t.open === 'preview') {
+    q.set('open', 'preview');
+    q.set('project', t.project);
+    q.set('task', t.task);
+    if (t.url) q.set('url', t.url);
   } else if (t.open === 'job' || t.open === 'codex') {
     q.set('open', t.open);
     if (t.id) q.set('id', t.id);
@@ -242,6 +285,14 @@ export function parseNoticeUrl(search: string): NoticeTarget | null {
         }
       : null;
   if (open === 'security') return { open: 'security' };
+  if (open === 'preview') {
+    const project = q.get('project');
+    const task = q.get('task');
+    if (!project || !task || !SAFE_NAME.test(project) || !SAFE_NAME.test(task)) return null;
+    const raw = q.get('url');
+    const url = raw ? loopbackUrl(raw) : null;
+    return raw && !url ? null : { open: 'preview', project, task, ...(url && { url }) };
+  }
   if (open === 'room') {
     const room = q.get('room');
     return room && SAFE_ID.test(room) ? { open: 'room', room } : null;

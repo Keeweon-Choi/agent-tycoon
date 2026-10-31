@@ -101,7 +101,7 @@ test('P7: from WSL, starting while a Windows host is installed is refused; one i
   assert.deepEqual(beside.runs, [['systemctl', '--user', 'start', 'agent-tycoon']]);
 });
 
-test('P7: the record lookups (read only): each WSL distro through wsl.exe --exec, the Windows record through cmd.exe + wslpath', async () => {
+test('P7: the record lookups (read only): each WSL distro through wsl.exe --exec, the Windows record through powershell.exe + wslpath', async () => {
   const calls = [];
   const fromWindows = await sideRecords.win32(async (cmd, o) => {
     calls.push({ cmd, o });
@@ -116,8 +116,27 @@ test('P7: the record lookups (read only): each WSL distro through wsl.exe --exec
   const local = tmp('localappdata');
   fs.mkdirSync(path.join(local, 'AgentTycoon'));
   fs.writeFileSync(path.join(local, 'AgentTycoon', 'install.json'), JSON.stringify({ schema: 1, current: '1.0.0', port: 18250 }));
-  const fromWsl = await sideRecords.wsl(async (cmd) => ({ ok: true, stdout: cmd[0] === 'cmd.exe' ? 'C:\\Users\\u\\AppData\\Local\r\n' : `${local}\n`, stderr: '' }));
+  const fromWsl = await sideRecords.wsl(async (cmd) => ({ ok: true, stdout: cmd[0] === 'powershell.exe' ? 'C:\\Users\\u\\AppData\\Local\r\n' : `${local}\n`, stderr: '' }));
   assert.deepEqual(fromWsl, [{ os: 'win32', distro: null, port: 18250, besides: null }]);
-  assert.deepEqual(await sideRecords.wsl(async () => ({ ok: true, stdout: '%LOCALAPPDATA%\r\n', stderr: '' })), []);
+  assert.deepEqual(await sideRecords.wsl(async () => ({ ok: true, stdout: '\r\n', stderr: '' })), []);
   assert.match(oneHostMessage({ os: 'win32', port: 18250, answering: false, via: 'install record (port 18250)' }, 'wsl'), /이미 Windows 쪽/);
+});
+
+test('P7: a Korean Windows user folder (cp949 console) is read through PowerShell with UTF-8 output, not cmd echo', async () => {
+  const user = 'C:\\Users\uAE40\uAE30\uC6D0\\AppData\\Local';
+  // The old read: cmd echoes cp949 bytes, which Node decodes as UTF-8 and mangles.
+  const cp949 = Buffer.from([0x43, 0x3a, 0x5c, 0xb1, 0xe8, 0xb1, 0xe2, 0xbf, 0xf8]); // C:\ + the cp949 bytes of the name
+  assert.match(cp949.toString('utf8'), /\uFFFD/);
+  assert.equal(new TextDecoder('euc-kr').decode(cp949), 'C:\\\uAE40\uAE30\uC6D0');
+  const cmds = [];
+  const out = await sideRecords.wsl(async (cmd) => {
+    cmds.push(cmd);
+    // What the new command prints: UTF-8 (a BOM may lead), read back as UTF-8.
+    if (cmd[0] === 'powershell.exe') return { ok: true, stdout: `\uFEFF${user}\r\n`, stderr: '' };
+    return { ok: true, stdout: `${tmp('kr')}\n`, stderr: '' };
+  });
+  assert.deepEqual(out, []); // no record there, but the lookup itself ran
+  assert.equal(cmds[0][0], 'powershell.exe');
+  assert.match(cmds[0].at(-1), /OutputEncoding=\[Text\.Encoding\]::UTF8;\$env:LOCALAPPDATA$/);
+  assert.deepEqual(cmds[1], ['wslpath', '-u', user], 'the Korean name reaches wslpath intact, without the BOM');
 });

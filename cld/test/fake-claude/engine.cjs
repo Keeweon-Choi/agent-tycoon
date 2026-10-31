@@ -22,6 +22,8 @@
  *   rm <id>         removes a job
  *   (no arguments, or the trust run's --settings … --strict-mcp-config)
  *                   interactive: ./trust-tui.cjs, the folder-trust dialog (AUTO-TRUST)
+ *   -n NAME [--resume SID] [flags]   (no --bg; TERM-P1)
+ *                   interactive in our PTY host: ./pty-tui.cjs (session file, OSC 7501, transcript)
  *   --dangerously-skip-permissions
  *                   interactive: ./bypass-tui.cjs, the Bypass Permissions warning (BYPASS-ACCEPT)
  * A "reboot" is killing the sleeps (testHome.killFakeSessions): files stay.
@@ -290,7 +292,11 @@ function statusLine(rest) {
 }
 
 const [cmd, id] = args;
-if (cmd === '--dangerously-skip-permissions') {
+if (cmd === '-n') {
+  // TERM-P1: an interactive session in our PTY host (./pty-tui.cjs, this same process).
+  statusLine(args);
+  require('./pty-tui.cjs')(args);
+} else if (cmd === '--dangerously-skip-permissions') {
   process.exit(spawnSync(process.execPath, [path.join(__dirname, 'bypass-tui.cjs')], { stdio: 'inherit' }).status ?? 0);
 } else if (cmd === undefined || (cmd === '--settings' && args.includes('--strict-mcp-config'))) {
   // AUTO-TRUST: an interactive `claude` in a folder (./trust-tui.cjs, its own process).

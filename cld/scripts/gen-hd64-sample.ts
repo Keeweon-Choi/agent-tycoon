@@ -870,7 +870,7 @@ export function quantize(a: Img, max = 62): Img {
 }
 const KMEANS_ROUNDS = 8;
 /** The recolour shown in the composites: the suit in red. */
-// eslint-disable-next-line pixel-agents/no-inline-colors -- a part colour the demo picks
+// eslint-disable-next-line agent-tycoon/no-inline-colors -- a part colour the demo picks
 const RED_SUIT = '#b02040';
 
 /** The classic copy of a 64×128 part, drawn by rule from it (step 3 replaces it with the

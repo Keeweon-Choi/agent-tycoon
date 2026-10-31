@@ -165,7 +165,7 @@ export async function mergeBranches(
   let next = src;
   if (!(await isAncestor(run, top, old, src))) {
     kind = 'merge';
-    const made = await mergeCommit(run, top, source, target, old, src);
+    const made = await mergeCommit(run, top, source, target, old, src, false);
     if (!made.ok) return made;
     next = made.sha!;
   }
@@ -182,7 +182,43 @@ export async function mergeBranches(
   return { ok: true, kind, sha: next };
 }
 
-/** A merge commit of `src` onto `old` in a temporary detached worktree; nothing else changes. */
+/** git 2.38+ has `merge-tree --write-tree` (a merge without a checkout); read once. */
+let writeTree: Promise<boolean> | null = null;
+function hasWriteTree(run: GitRunner, top: string): Promise<boolean> {
+  writeTree ??= run(top, ['version'], { env: READ_ENV }).then((r) => {
+    const m = /(\d+)\.(\d+)/.exec(text(r.stdout));
+    return !!m && (Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2]) >= 38));
+  });
+  return writeTree;
+}
+
+/**
+ * P4: would merging local branch `source` into local branch `target` conflict? The files (at
+ * most 50; empty = it merges cleanly). Nothing changes: `merge-tree --write-tree` on git 2.38+
+ * (objects only), else a merge in the temporary detached worktree, thrown away with it.
+ */
+export async function mergeConflicts(run: GitRunner, top: string, source: string, target: string): Promise<string[]> {
+  const [src, old] = [await sha(run, top, `refs/heads/${source}`), await sha(run, top, `refs/heads/${target}`)];
+  if (!src || !old) throw new RepoError(koText('compare_no_branch'));
+  if ((await isAncestor(run, top, src, old)) || (await isAncestor(run, top, old, src))) return [];
+  if (await hasWriteTree(run, top)) {
+    const r = await run(top, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', old, src], {
+      env: READ_ENV,
+      timeoutMs: MERGE_TIMEOUT_MS,
+    });
+    if (r.code === 0) return [];
+    if (r.code !== 1) throw new RepoError(koText('merge_failed', { why: gitMessage(r.stderr) }));
+    // The tree's id, then each conflicted file (once per stage it has).
+    return [...new Set(r.stdout.toString('utf-8').split('\0').slice(1).filter(Boolean))].slice(0, CONFLICTS_MAX);
+  }
+  const out = await mergeCommit(run, top, source, target, old, src, true);
+  if (out.ok) return [];
+  if (out.conflicts) return out.conflicts;
+  throw new RepoError(out.error ?? koText('git_run_failed'));
+}
+
+/** A merge commit of `src` onto `old` in a temporary detached worktree; nothing else changes.
+ *  `dry`: only whether it would conflict (no commit made; the worktree goes either way). */
 async function mergeCommit(
   run: GitRunner,
   top: string,
@@ -190,6 +226,7 @@ async function mergeCommit(
   target: string,
   old: string,
   src: string,
+  dry: boolean,
 ): Promise<MergeOutcome> {
   const dir = path.join(top, WORKTREES_DIR);
   // Made here only when no task worktree made it: then it goes again (the checkout as it was).
@@ -212,10 +249,11 @@ async function mergeCommit(
     if (add.code !== 0) throw new RepoError(koText('merge_prepare_failed', { why: gitMessage(add.stderr) }));
     const m = await run(
       tmp,
-      ['-c', 'rerere.enabled=false', 'merge', '--no-ff', '--no-edit', '--no-stat', '--no-gpg-sign', '--no-verify',
+      ['-c', 'rerere.enabled=false', 'merge', '--no-ff', ...(dry ? ['--no-commit'] : []), '--no-edit', '--no-stat', '--no-gpg-sign', '--no-verify',
         '-m', `Merge branch '${source}' into ${target}`, src],
       { timeoutMs: MERGE_TIMEOUT_MS },
     );
+    if (m.code === 0 && dry) return { ok: true };
     if (m.code === 0) {
       const head = await sha(run, tmp, 'HEAD');
       return head ? { ok: true, sha: head } : fail('git_failed', koText('merge_commit_unreadable'));

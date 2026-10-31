@@ -67,6 +67,17 @@ export interface McpDeps {
   findRoom(room: string): GroupRoom | null;
   /** The room's posts, oldest first. */
   timeline(room: GroupRoom): GroupPost[];
+  /** P4 add_review_note: a Lead's note on task worktree `task` (its folder name or its Task id),
+   *  sent to the Worker at once; absent, the tool answers unavailable. */
+  addReviewNote?(req: {
+    project: string;
+    task: string;
+    file: string;
+    line: number;
+    startLine?: number;
+    body: string;
+    lead: string;
+  }): Promise<Reply>;
   /** C6: delegate_task's parts; absent, delegate_task answers rejected/unavailable. */
   delegation?: DelegationDeps;
   now?: () => number;
@@ -80,7 +91,7 @@ export const RATE = { perMinute: 6, windowMs: 60_000 };
 const DUPLICATE_MS = 24 * 60 * 60_000;
 const DUPLICATE_MAX = 10_000;
 const PAGE = { tasks: 20, posts: 20, postsMax: 100 };
-const WRITING = new Set(['create_task', 'update_task', 'send_message', 'post_to_group']);
+const WRITING = new Set(['create_task', 'update_task', 'send_message', 'post_to_group', 'add_review_note']);
 
 type Failure = { error: { code: string; message: string }; retryAfterSec?: number };
 export const fail = (code: string, message: string): Failure => ({ error: { code, message } });
@@ -193,9 +204,39 @@ export class McpTools {
         return this.postToGroup(me, roster, input);
       case 'get_group_context':
         return this.groupContext(me, input);
+      case 'add_review_note':
+        return this.addReviewNote(me, input);
       default:
         return fail('unknown_tool', `no tool '${tool}'`);
     }
+  }
+
+  /** P4 (owner 11-01 02:17): the Lead's review note, at once to the Worker; the Task then merges
+   *  only on the owner's click. */
+  private async addReviewNote(me: RosterAgent, input: Record<string, unknown>): Promise<Result> {
+    if (me.role !== 'lead' || !me.project) return fail('forbidden', 'only the project Lead may add review notes');
+    if (!this.d.addReviewNote) return fail('unavailable', 'review notes are not available in this daemon');
+    const task = str(input.task);
+    const file = str(input.file);
+    const body = str(input.body);
+    const line = input.line;
+    const startLine = input.startLine;
+    if (!task || !file || !body) return fail('bad_input', 'task, file and body are required');
+    if (!(Number.isSafeInteger(line) && (line as number) >= 0))
+      return fail('bad_input', 'line must be a line number of the new file (0: the whole file)');
+    if (startLine !== undefined && !(Number.isSafeInteger(startLine) && (startLine as number) > 0 && (startLine as number) <= (line as number)))
+      return fail('bad_input', 'startLine must be between 1 and line');
+    const r = await this.d.addReviewNote({
+      project: me.project,
+      task,
+      file,
+      line: line as number,
+      ...(startLine !== undefined && { startLine: startLine as number }),
+      body,
+      lead: me.name,
+    });
+    if (!r.ok) return fail(String(r.code ?? 'refused'), String(r.error ?? ''));
+    return { status: 'sent', noteId: r.id, to: r.to };
   }
 
   private state(a: RosterAgent): 'idle' | 'busy' | 'down' | 'limit' | 'stopped' {

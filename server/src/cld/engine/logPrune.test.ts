@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { REPO_ROOT } from '../testHome.js';
 import { codexDir } from './codex.js';
+import { configDir } from './events.js';
 import { jobsDir } from './jobs.js';
 import {
   EVENTS_ROTATE_BYTES,
@@ -80,7 +81,26 @@ describe('log pruning (U-42)', () => {
       'notes.txt',
     ])
       expect(r.has(r.jobs, keep), keep).toBe(true);
-    expect(r.logs.at(-1)).toMatch(/log prune: jobs 1 \(0\.0 MB\), codex 0 \(0\.0 MB\) removed/);
+    expect(r.logs.at(-1)).toMatch(/log prune: jobs 1 \(0\.0 MB\), codex 0 \(0\.0 MB\), delivered 0 \(0\.0 MB\) removed/);
+  });
+
+  it('deletes processed inbox messages (and sidecars) older than 30 days, keeps newer ones and the pending inbox', () => {
+    const r = rig();
+    const inbox = path.join(configDir(r.home), 'inbox', 'alpha');
+    const delivered = path.join(inbox, 'delivered');
+    fs.mkdirSync(delivered, { recursive: true });
+    const put = (dir: string, name: string, days: number) => {
+      const f = path.join(dir, name);
+      fs.writeFileSync(f, 'x');
+      fs.utimesSync(f, (NOW - days * DAY) / 1000, (NOW - days * DAY) / 1000);
+    };
+    put(delivered, '1-old.md', LOG_KEEP_DAYS + 1);
+    put(delivered, '1-old.md.meta.json', LOG_KEEP_DAYS + 1);
+    put(delivered, '2-new.md', LOG_KEEP_DAYS - 1);
+    put(inbox, '3-waiting.md', 90); // not processed yet: never pruned
+    expect(r.run().delivered.count).toBe(2);
+    expect(fs.readdirSync(delivered)).toEqual(['2-new.md']);
+    expect(fs.readdirSync(inbox).sort()).toEqual(['3-waiting.md', 'delivered']);
   });
 
   it('prunes finished Codex tasks only (running and limit stay), keeping the same rule', () => {

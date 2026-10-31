@@ -1,10 +1,9 @@
 /**
- * AgentRuntime: shared agent lifecycle core for VS Code and standalone modes.
+ * AgentRuntime: the agent lifecycle core.
  *
- * Owns all infrastructure that both PixelAgentsViewProvider (VS Code) and the
- * standalone CLI need: timer Maps, file watchers, HookEventHandler, DismissalTracker,
- * session scanning, and agent removal. Adapters (VS Code, CLI) create an instance
- * and register platform-specific lifecycle callbacks.
+ * Owns all infrastructure the standalone daemon needs: timer Maps, file watchers,
+ * HookEventHandler, DismissalTracker, session scanning, and agent removal. The
+ * host (server/src/cli.ts) creates an instance and registers its lifecycle callbacks.
  *
  * This is the single source of truth for agent lifecycle wiring. No duplication.
  */
@@ -169,7 +168,7 @@ export class AgentRuntime {
             for (const [leadId, lead] of this.store) {
               if (lead.teamName !== teamMeta.teamName || lead.leadAgentId !== undefined) continue;
               console.log(
-                `[Pixel Agents] Hook: session ${sessionId.slice(0, 8)}... is teammate "${teamMeta.agentName}" of Agent ${leadId}, attaching`,
+                `[Agent Tycoon] Hook: session ${sessionId.slice(0, 8)}... is teammate "${teamMeta.agentName}" of Agent ${leadId}, attaching`,
               );
               scanForTeammateFiles(
                 lead.projectDir,
@@ -197,7 +196,7 @@ export class AgentRuntime {
         }
         if (!isTrackedProjectDir(projectDir) && !this.watchAllSessions.current) {
           console.log(
-            `[Pixel Agents] Hook: external session ${sessionId.slice(0, 8)}... not adopted ` +
+            `[Agent Tycoon] Hook: external session ${sessionId.slice(0, 8)}... not adopted ` +
               `(project untracked, Watch All Sessions off)`,
           );
           return;
@@ -344,7 +343,7 @@ export class AgentRuntime {
   removeTeammate(teammateId: number, source: string): void {
     const agent = this.store.get(teammateId);
     if (!agent) return;
-    console.log(`[Pixel Agents] Removing teammate ${teammateId} (source: ${source})`);
+    console.log(`[Agent Tycoon] Removing teammate ${teammateId} (source: ${source})`);
     this.dismissalTracker.dismiss(agent.jsonlFile);
     // Background teammates (spawnToolUseId set) share the LEAD's session id;
     // unregistering it would knock the lead itself out of the session router.
@@ -405,7 +404,7 @@ export class AgentRuntime {
     for (const id of teammates) {
       const agent = this.store.get(id);
       if (agent) {
-        console.log(`[Pixel Agents] Removing teammate ${id} (lead ${leadId} closed)`);
+        console.log(`[Agent Tycoon] Removing teammate ${id} (lead ${leadId} closed)`);
         this.dismissalTracker.dismiss(agent.jsonlFile);
         if (!agent.spawnToolUseId) {
           this.unregisterAgent(agent.sessionId);
@@ -418,12 +417,11 @@ export class AgentRuntime {
   // ── Scanning ──
 
   /** Start project-level scanning for a directory. */
-  startProjectScan(projectDir: string, onAgentCreated?: (agent: AgentState) => void): void {
+  startProjectScan(projectDir: string): void {
     ensureProjectScan(
       projectDir,
       this.knownJsonlFiles,
       this.projectScanTimer,
-      this.activeAgentId,
       this.store.nextAgentId,
       this.store,
       this.fileWatchers,
@@ -431,8 +429,6 @@ export class AgentRuntime {
       this.waitingTimers,
       this.permissionTimers,
       () => this.store.persist(),
-      onAgentCreated ?? ((agent) => this.registerAgent(agent.sessionId, agent.id)),
-      this.hooksEnabled,
     );
   }
 
@@ -544,7 +540,7 @@ export class AgentRuntime {
 
       if (p.id > maxId) maxId = p.id;
       console.log(
-        `[Pixel Agents] Restored external agent ${p.id} -> ${path.basename(p.jsonlFile)}`,
+        `[Agent Tycoon] Restored external agent ${p.id} -> ${path.basename(p.jsonlFile)}`,
       );
     }
 

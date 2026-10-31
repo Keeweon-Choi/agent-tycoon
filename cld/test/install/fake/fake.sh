@@ -50,9 +50,9 @@ case $name in
     [ "${1:-}" = --user ] || { echo "fake systemctl: only --user is allowed in a test" >&2; exit 1; }
     shift; systemctl_user "$@"; exit $? ;;
   claude | codex) [ "${1:-}" = --version ] && echo "9.9.9 (fake $name)"; exit 0 ;;
-  cmd.exe) case "$*" in *'echo %TEMP%'*) echo 'C:\Users\attest\AppData\Local\Temp' ;; esac; exit 0 ;;
+  cmd.exe) exit 0 ;;
   wslpath) mkdir -p "$ctl/wintemp"; echo "$ctl/wintemp"; exit 0 ;;
-  powershell | powershell.exe | pwsh) case "$*" in *Get-ScheduledTask*) echo Ready ;; esac; exit 0 ;;
+  powershell | powershell.exe | pwsh) case "$*" in *Get-ScheduledTask*) echo Ready ;; *'$env:TEMP'*) echo 'C:\Users\attest\AppData\Local\Temp' ;; esac; exit 0 ;;
   schtasks | schtasks.exe) case "$*" in */Query*) exit 1 ;; esac; exit 0 ;;
   journalctl) echo '-- fake journal --'; exit 0 ;;
   sudo) echo 'fake sudo: never in a test' >&2; exit 1 ;;

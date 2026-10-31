@@ -6,11 +6,19 @@ import type {
 import { t } from '../../i18n/index.js';
 import { serverText } from '../serverText.js';
 
-export type FileRoot = { kind: 'project'; project: string } | { kind: 'folder'; folder: string };
+export type FileRoot =
+  | { kind: 'project'; project: string }
+  | { kind: 'worktree'; project: string; task: string }
+  | { kind: 'folder'; folder: string };
 export const fileRootKey = (root: FileRoot) =>
-  root.kind === 'project' ? `project:${root.project}` : `folder:${root.folder}`;
-const rootProject = (root: FileRoot) => (root.kind === 'project' ? root.project : '~folder');
+  root.kind === 'project'
+    ? `project:${root.project}`
+    : root.kind === 'worktree'
+      ? `worktree:${root.project}:${root.task}`
+      : `folder:${root.folder}`;
+export const rootProject = (root: FileRoot) => (root.kind === 'folder' ? '~folder' : root.project);
 const rootPath = (root: FileRoot) => (root.kind === 'folder' ? root.folder : undefined);
+const rootTask = (root: FileRoot) => (root.kind === 'worktree' ? root.task : undefined);
 
 const base = (project: string) => `/api/cld/files/${encodeURIComponent(project)}`;
 
@@ -67,7 +75,11 @@ export async function fileSettings(allowSensitive?: boolean): Promise<{ allowSen
 }
 
 const rootQuery = (root: FileRoot, values: Record<string, string>) =>
-  new URLSearchParams({ ...values, ...(rootPath(root) && { root: rootPath(root) }) });
+  new URLSearchParams({
+    ...values,
+    ...(rootPath(root) && { root: rootPath(root) }),
+    ...(rootTask(root) && { task: rootTask(root) }),
+  });
 
 export async function listRootFiles(
   root: FileRoot,
@@ -124,8 +136,64 @@ export async function rootFileTicket(
         path: relative,
         mode,
         ...(rootPath(root) && { root: rootPath(root) }),
+        ...(rootTask(root) && { task: rootTask(root) }),
       }),
     }),
   );
   return result.url;
+}
+
+/** The editor's file: the whole text and the hash a save must present. */
+export interface EditText {
+  path: string;
+  text: string;
+  hash: string;
+}
+
+export const readEditText = async (root: FileRoot, relative: string): Promise<EditText> =>
+  response(
+    await fetch(`${base(rootProject(root))}/text?${rootQuery(root, { path: relative })}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    }),
+  );
+
+/** Only the hash, for the 5 s poll while a file is open for editing. */
+export async function readEditHash(root: FileRoot, relative: string): Promise<string> {
+  const query = rootQuery(root, { path: relative, hashOnly: '1' });
+  const result = await response<{ hash: string }>(
+    await fetch(`${base(rootProject(root))}/text?${query}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    }),
+  );
+  return result.hash;
+}
+
+/** Refused with 409 when the file changed on disk since `baseHash`: the error carries the disk's `hash`. */
+export async function saveEditText(
+  root: FileRoot,
+  relative: string,
+  text: string,
+  baseHash: string,
+): Promise<string> {
+  const result = await fetch(`${base(rootProject(root))}/text`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: relative,
+      text,
+      baseHash,
+      ...(rootPath(root) && { root: rootPath(root) }),
+      ...(rootTask(root) && { task: rootTask(root) }),
+    }),
+  });
+  if (result.status === 409)
+    throw Object.assign(new Error('changed on disk'), {
+      status: 409,
+      hash: ((await result.json().catch(() => ({}))) as { hash?: string }).hash,
+    });
+  return (await response<{ hash: string }>(result)).hash;
 }

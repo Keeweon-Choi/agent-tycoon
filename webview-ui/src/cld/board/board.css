@@ -432,6 +432,45 @@ button.led-temp:hover,
 .led-temp.led-tone-critical .led-temp-value {
   color: var(--led-critical);
 }
+.led-diskcard {
+  margin-top: 0.25em;
+  padding: 0.25em 0.35em;
+  border: 0.1em solid var(--led-grid);
+}
+.led-diskcard h3,
+.led-diskcard p {
+  margin: 0;
+}
+.led-diskcard h3,
+.led-diskcard dt {
+  color: var(--led-amber);
+  font-weight: normal;
+}
+.led-diskcard dl {
+  margin: 0.15em 0;
+}
+.led-diskcard dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4em;
+}
+.led-diskcard dd {
+  margin: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+.led-diskcard small {
+  margin-left: 0.35em;
+  color: var(--led-warn);
+}
+.led-diskcard .led-disk-total {
+  margin-top: 0.15em;
+  border-top: 0.1em solid var(--led-grid);
+}
+.led-diskcard p {
+  color: var(--led-muted);
+  font-size: 0.85em;
+}
 .led-hwline-name {
   color: var(--led-amber);
   overflow: hidden;

@@ -37,7 +37,7 @@ import {
 
 // RUNNERS-FIX: run-all hands out 18256/18257: any spare port will do.
 const port = Number(process.argv[2] ?? SPARE_PORTS[2]);
-if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18259');
+if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18269');
 const BASE = `http://127.0.0.1:${port}/`;
 const IDLE_SECONDS = 6;
 const ACTIVE_MS = 1_500;
@@ -69,7 +69,7 @@ async function newPage(
   const ctx = await browser.newContext(opts);
   await ctx.addInitScript(() => {
     (window as unknown as Record<string, unknown>).__name = (f: unknown) => f;
-    (window as unknown as Record<string, unknown>).__PIXEL_AGENTS_E2E = true;
+    (window as unknown as Record<string, unknown>).__AGENT_TYCOON_E2E = true;
     const w = window as unknown as Record<string, number>;
     w.__draws = 0;
     w.__ticks = 0;
@@ -162,11 +162,11 @@ async function selectCharacter(page: Page, name: string) {
     const scale = await page.evaluate(() => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: {
+          __agentTycoonTestHooks: {
             getTileCenter?: (c: number, r: number) => { x: number } | null;
           };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       const a = h.getTileCenter?.(0, 0);
       const b = h.getTileCenter?.(1, 0);
       return a && b ? (b.x - a.x) / 16 : 2;

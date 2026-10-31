@@ -1,8 +1,6 @@
 /**
- * Builders for seeded `~/.pixel-agents/{layout,config}.json`, passed to the
- * pixelAgents fixture via `test.use({ seedLayout, seedConfig })`. The fixture
- * writes them under the isolated HOME BEFORE VS Code launches (see
- * e2e/helpers/launch.ts), so the server reads them on startup.
+ * Builder for a seeded `~/.pixel-agents/layout.json`, written under the
+ * isolated HOME before the standalone server starts, so the server reads it on startup.
  *
  * A seeded layout MUST carry a layoutRevision above the bundled default's (1),
  * or `loadLayout` resets it to the bundled default
@@ -78,50 +76,4 @@ export function buildSeedLayout(opts: SeedLayoutOptions = {}): Record<string, un
   }
 
   return layout;
-}
-
-/**
- * Mirrors server/src/configPersistence.ts DEFAULT_ADAPTER_SETTINGS, except
- * alwaysShowLabels — the e2e baseline turns labels on so overlay text is
- * assertable without hover — and showHostDirectories, on so the workspace
- * folders the launch helpers click are drawer rows (same baseline the
- * launch-level seed applies when a test passes no seedConfig; see
- * e2e/helpers/launch.ts).
- */
-const DEFAULT_ADAPTER_SETTINGS = {
-  soundEnabled: true,
-  lastSeenVersion: '',
-  alwaysShowLabels: true,
-  watchAllSessions: false,
-  hooksInfoShown: false,
-  showAreas: false,
-  areaMappings: {} as Record<string, string[]>,
-  showHostDirectories: true,
-};
-
-export interface SeedConfigOptions {
-  /** Directory name → Area labels (written into the vscode namespace). */
-  areaMappings?: Record<string, string[]>;
-  /** Persisted Show Areas state for the vscode namespace. */
-  showAreas?: boolean;
-}
-
-/**
- * Build a full PixelAgentsConfig for `test.use({ seedConfig })`, setting the
- * vscode namespace's areaMappings / showAreas. The standalone namespace keeps
- * defaults so there is no cross-namespace leak.
- */
-export function buildSeedConfig(opts: SeedConfigOptions = {}): Record<string, unknown> {
-  return {
-    vscode: {
-      ...DEFAULT_ADAPTER_SETTINGS,
-      showAreas: opts.showAreas ?? false,
-      areaMappings: opts.areaMappings ?? {},
-    },
-    standalone: { ...DEFAULT_ADAPTER_SETTINGS },
-    externalAssetDirectories: [],
-    // Same baseline as the launch-level seed: skip the first-run consent prompt
-    // so hook installation proceeds at startup (see e2e/helpers/launch.ts).
-    hooksConsent: { claude: 'granted' },
-  };
 }

@@ -47,6 +47,18 @@ import { closeWindow, hudSubscribe, openWindow, windowShown } from '../hud/hudSt
 import { type Presence, presenceWord } from '../officeHours.js';
 import { serverLine, serverText } from '../serverText.js';
 import type { AttachmentChip } from './attachments.js';
+import {
+  closePane,
+  keepOpen,
+  loadPanes,
+  type PaneLayout,
+  panesShown,
+  type PaneState,
+  paneTarget,
+  placeInPane,
+  savePanes,
+  setPaneLayout,
+} from './panes.js';
 
 /** Open conversations per client; the daemon refuses more (server/src/cld/conversations.ts). */
 export const MAX_OPEN = 4;
@@ -160,6 +172,10 @@ export interface MessengerSnapshot {
   groupError: { requestId: string; error: string } | null;
   /** PERM-PROMPT: the last 허용/거부 of a lead's permission card: on its way, or what it did. */
   permissionAnswers: Record<number, PermissionAnswerState>;
+  /** MSG-SPLIT: the panes (per viewer); the focused one mirrors `active`/`activeRoom`. */
+  split: PaneState;
+  /** MSG-SPLIT: the desktop messenger is wide enough for its panes (the phone never is). */
+  splitWide: boolean;
 }
 /** PERM-PROMPT: one card answer: on its way (`result` absent), done, or refused (`error`). */
 export interface PermissionAnswerState {
@@ -216,6 +232,8 @@ const initial = (): MessengerSnapshot => ({
   groupAttachments: {},
   groupError: null,
   permissionAnswers: {},
+  split: loadPanes(),
+  splitWide: false,
 });
 let snapshot = initial();
 const listeners = new Set<() => void>();
@@ -224,7 +242,9 @@ let seq = 0;
 
 const emit = () => listeners.forEach((l) => l());
 const set = (next: Partial<MessengerSnapshot>) => {
+  const prev = snapshot;
   snapshot = { ...snapshot, ...next };
+  syncPanes(prev);
   syncRead();
   emit();
 };
@@ -277,6 +297,14 @@ export function dividerAfter(items: ChatItem[], index: number): number | undefin
   return item?.session && items[index + 1]?.session !== item.session
     ? item.sessionStart
     : undefined;
+}
+
+/** MSG-POLISH: a band opens an earlier transcript's run: its first item, or the first loaded one
+ *  once the conversation's start is held (`atStart`; otherwise an older page may still precede it). */
+export function startsEarlierSession(items: ChatItem[], index: number, atStart: boolean): boolean {
+  const item = items[index];
+  if (!item?.session) return false;
+  return index > 0 ? items[index - 1].session !== item.session : atStart;
 }
 
 /** A notice lands on the newest message (not a tool or result line, which sit between
@@ -600,7 +628,16 @@ export function onLeadReply(listener: (r: LeadReply) => void): () => void {
 
 /** The panel is open and in sight: a minimized window (or a phone tab not shown) is not being read. */
 const inSight = () => windowShown('messenger');
-const reading = (agentId: number) => inSight() && snapshot.active === agentId;
+/** MSG-SPLIT: the conversation keys in panes on screen beside the focused one (none in layout 1). */
+const paneKeys = (): string[] => {
+  const { split, splitWide } = snapshot;
+  const shown = panesShown(split, splitWide);
+  return shown > 1 ? split.panes.slice(0, shown).filter((k): k is string => k !== null) : [];
+};
+const nameOf = (agentId: number) => snapshot.contacts.find((x) => x.agentId === agentId)?.name;
+const reading = (agentId: number) =>
+  inSight() &&
+  (snapshot.active === agentId || paneKeys().includes(nameOf(agentId) ?? `#${agentId}`));
 /** Lead `agentId`'s conversation is on screen (T-0039's chatOpenFor: you are looking at it). */
 export const messengerShowing = reading;
 
@@ -619,7 +656,8 @@ function roomOfContact(
   return { name: c.room, id, post: c.roomPost ?? null };
 }
 /** C3: room `id`'s conversation is on screen. */
-export const roomShowing = (id: string): boolean => inSight() && snapshot.activeRoom === id;
+export const roomShowing = (id: string): boolean =>
+  inSight() && (snapshot.activeRoom === id || paneKeys().includes(`room:${id}`));
 
 export function messengerHandleMessage(
   msg:
@@ -848,25 +886,48 @@ export function messengerHandleMessage(
   }
 }
 
-/** Mark what the boss is looking at as read. */
+/** Mark what the boss is looking at as read: the active conversation and (MSG-SPLIT) every pane on screen. */
 function syncRead(): void {
-  const roomId = snapshot.activeRoom;
-  if (inSight() && roomId) {
-    const room = snapshot.rooms.find((x) => x.id === roomId);
-    const last = newestId(room?.updates ?? []);
-    const key = `room:${roomId}`;
-    if (last && snapshot.read[key] !== last) {
-      snapshot = { ...snapshot, read: { ...snapshot.read, [key]: last } };
-      saveRead(snapshot.read);
-    }
+  if (!inSight()) return;
+  const keys = paneKeys();
+  if (snapshot.activeRoom) keys.push(`room:${snapshot.activeRoom}`);
+  const name = snapshot.active === null ? undefined : nameOf(snapshot.active);
+  if (name !== undefined) keys.push(name);
+  for (const key of keys) {
+    const last = key.startsWith('room:')
+      ? newestId(snapshot.rooms.find((x) => `room:${x.id}` === key)?.updates ?? [])
+      : snapshot.contacts.find((x) => x.name === key)?.replies.at(-1);
+    if (!last || snapshot.read[key] === last) continue;
+    snapshot = { ...snapshot, read: { ...snapshot.read, [key]: last } };
+    saveRead(snapshot.read);
   }
-  const id = snapshot.active;
-  if (!inSight() || id === null) return;
-  const c = snapshot.contacts.find((x) => x.agentId === id);
-  const last = c?.replies.at(-1);
-  if (!c || !last || snapshot.read[c.name] === last) return;
-  snapshot = { ...snapshot, read: { ...snapshot.read, [c.name]: last } };
-  saveRead(snapshot.read);
+}
+
+/** MSG-SPLIT: keep the panes in step with what the store shows. A conversation brought up (list,
+ *  tab, notice) goes to the focused pane; after a reload the focused pane's comes back; every
+ *  lead in a pane on screen is an open conversation (one chatView each, as a tab is). */
+function syncPanes(prev: MessengerSnapshot): void {
+  let { split, active, activeRoom, open, openRooms } = snapshot;
+  const shown = panesShown(split, snapshot.splitWide);
+  const none = active === null && activeRoom === null;
+  if (!none || active !== prev.active || activeRoom !== prev.activeRoom) {
+    // A lead not listed yet is placed when the list comes (this runs on every change).
+    const key = activeRoom !== null ? `room:${activeRoom}` : active === null ? null : nameOf(active);
+    if (key !== undefined) split = placeInPane(split, key, shown);
+  } else if (snapshot.splitWide) {
+    const back = paneTarget(split.panes[split.focus], snapshot.contacts, snapshot.rooms);
+    if (back && 'room' in back) {
+      activeRoom = back.room;
+      if (!openRooms.includes(back.room)) openRooms = [...openRooms, back.room];
+    } else if (back) active = back.agentId;
+  }
+  const leads = (shown > 1 ? split.panes.slice(0, shown) : [])
+    .map((k) => paneTarget(k, snapshot.contacts, snapshot.rooms))
+    .flatMap((x) => (x && 'agentId' in x ? [x.agentId] : []));
+  if (active !== null && active !== snapshot.active) leads.push(active);
+  open = keepOpen(open, leads, MAX_OPEN);
+  if (split !== prev.split) savePanes(split);
+  snapshot = { ...snapshot, split, active, activeRoom, open, openRooms };
 }
 
 // ── Actions ─────────────────────────────────────────────────
@@ -977,6 +1038,38 @@ export function closeRoomTab(roomId: string): void {
 
 export function showMessengerList(): void {
   set({ active: null, activeRoom: null });
+}
+
+/** MSG-SPLIT: the desktop messenger got wide enough for panes (or lost it, or left the screen). */
+export function setMessengerWide(wide: boolean): void {
+  if (snapshot.splitWide !== wide) set({ splitWide: wide });
+}
+
+export function setMessengerLayout(layout: PaneLayout): void {
+  set({ split: setPaneLayout(snapshot.split, layout) });
+}
+
+/** MSG-SPLIT: pane `index` takes the focus; its conversation becomes the active one. */
+export function focusMessengerPane(index: number): void {
+  if (snapshot.split.focus === index) return;
+  const to = paneTarget(snapshot.split.panes[index], snapshot.contacts, snapshot.rooms);
+  set({
+    split: { ...snapshot.split, focus: index },
+    active: to && 'agentId' in to ? to.agentId : null,
+    activeRoom: to && 'room' in to ? to.room : null,
+  });
+}
+
+/** MSG-SPLIT: empty pane `index`; its conversation closes as its tab would. */
+export function closeMessengerPane(index: number): void {
+  const to = paneTarget(snapshot.split.panes[index], snapshot.contacts, snapshot.rooms);
+  const focused = snapshot.split.focus === index;
+  set({
+    split: closePane(snapshot.split, index),
+    ...(to && 'agentId' in to && { open: snapshot.open.filter((id) => id !== to.agentId) }),
+    ...(to && 'room' in to && { openRooms: snapshot.openRooms.filter((id) => id !== to.room) }),
+    ...(focused && { active: null, activeRoom: null }),
+  });
 }
 
 /** The conversation's chatView went off: what is held is no longer kept current. */

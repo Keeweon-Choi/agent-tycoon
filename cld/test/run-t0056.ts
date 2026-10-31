@@ -120,7 +120,7 @@ async function main() {
     const ctx = await browser.newContext(opts);
     // Office hours off, so nobody goes home when this runs at night (T-0041).
     await ctx.addInitScript(() => localStorage.setItem('cld.office-hours', '{"on":false}'));
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__t0056/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,
@@ -281,7 +281,7 @@ async function main() {
     const open = detailsOf(page, subId).getByTestId('work-open');
     await open.waitFor();
     check(
-      (await sheetCount(page)) === 0 && (await detailsOf(page, subId).innerText()).includes('리더'),
+      (await sheetCount(page)) === 0 && (await detailsOf(page, subId).getByTestId('activity-text').count()) === 1,
       `${label}: pressing the sub-agent only selects it (its details show, no work view)`,
     );
     await shot(page, `${label}-subagent-details`);

@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
+import { setChangelogOpener } from './changelogOpen.js';
 import { ActionLayer } from './cld/ActionLayer.js';
 import { AgentCliNotice } from './cld/AgentCliNotice.js';
 import { AuthLayer } from './cld/auth/AuthLayer.js';
@@ -13,7 +14,9 @@ import { CameraModeControl } from './cld/CameraModeControl.js';
 import { useCldCards } from './cld/cards.js';
 import { CharacterMenu } from './cld/characters/CharacterMenu.js';
 import { lookNameOf, openLooks, useCharacterLooks } from './cld/characters/looks.js';
+import { DevFxBar } from './cld/director/DevFxBar.js';
 import { engineOpenForm } from './cld/engineStore.js';
+import { StatDetailSheet } from './cld/ez/StatCard.js';
 import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
@@ -33,6 +36,7 @@ import {
 import { MobileDock } from './cld/hud/MobileDock.js';
 import { showsAgentCards } from './cld/hud/windowModel.js';
 import { useIsoView } from './cld/iso/isoView.js';
+import { Joystick } from './cld/Joystick.js';
 import { uploadsInFlight } from './cld/messenger/attachments.js';
 import { Messenger } from './cld/messenger/Messenger.js';
 import { messengerGetSnapshot } from './cld/messenger/messengerStore.js';
@@ -42,7 +46,6 @@ import type { NoticeTarget } from './cld/notify/notices.js';
 import { openTarget } from './cld/notify/openTarget.js';
 import { PushBanner } from './cld/notify/PushBanner.js';
 import { selectOrOpenInfo } from './cld/offDuty.js';
-import { OffDutySheet } from './cld/OffDutySheet.js';
 import { DesktopWindows, MobileOfficePanel, MobilePage } from './cld/OfficeNavigation.js';
 import { useCldStore } from './cld/officeStore.js';
 import { MobileTopBar, type OfficePanel, UsageBar, UsageLine } from './cld/panels/OfficePanels.js';
@@ -112,7 +115,7 @@ import {
   setCustomCharacter,
 } from './office/sprites/spriteData.js';
 import { EditTool, type OfficeLayout, TILE_SIZE } from './office/types.js';
-import { isBrowserRuntime, isE2E } from './runtime.js';
+import { isE2E } from './runtime.js';
 import { isTypingInTerminal } from './terminal/terminalDom.js';
 import { installTestHooks } from './testHooks.js';
 import { transport } from './transport/index.js';
@@ -259,8 +262,7 @@ function App() {
   useEffect(() => {
     // browserMock is for Vite dev mode only (UI prototyping without a server).
     // In standalone server mode, the server sends all state over WebSocket.
-    // In VS Code mode, the extension sends all state via postMessage.
-    if (isBrowserRuntime && (import.meta.env.DEV || isCldMock)) {
+    if (import.meta.env.DEV || isCldMock) {
       void import('./browserMock.js').then(({ dispatchMockMessages }) => {
         dispatchMockMessages();
         if (isCldMock) installCldMock();
@@ -291,8 +293,6 @@ function App() {
     watchAllSessions,
     setWatchAllSessions,
     alwaysShowLabels,
-    ghostHeadlessAgents,
-    setGhostHeadlessAgents,
     hooksEnabled,
     hooksInstalled,
     hooksStatusSeq,
@@ -476,6 +476,9 @@ function App() {
     transport.send({ type: 'setLastSeenVersion', version: currentMajorMinor });
   }, [currentMajorMinor]);
 
+  // Settings > 업데이트 소식 opens the same modal.
+  useEffect(() => setChangelogOpener(handleOpenChangelog), [handleOpenChangelog]);
+
   // Sync alwaysShowOverlay from persisted settings
   useEffect(() => {
     setAlwaysShowOverlay(alwaysShowLabels);
@@ -498,14 +501,6 @@ function App() {
       return newVal;
     });
   }, []);
-
-  // Toggle "Display headless as ghosts". setGhostHeadlessAgents also updates the
-  // renderer's module copy, so the office redraws on the next frame.
-  const handleToggleGhostHeadlessAgents = useCallback(() => {
-    const next = !ghostHeadlessAgents;
-    setGhostHeadlessAgents(next);
-    transport.send({ type: 'setGhostHeadlessAgents', enabled: next });
-  }, [ghostHeadlessAgents, setGhostHeadlessAgents]);
 
   const handleSelectAgent = useCallback((id: number) => {
     transport.send({ type: 'focusAgent', id });
@@ -589,7 +584,7 @@ function App() {
   // to canvas CSS pixels with the renderer's own zoom + pan. Guarded on isE2E.
   useEffect(() => {
     if (!isE2E || typeof window === 'undefined') return;
-    const hooks = (window.__pixelAgentsTestHooks ??= {});
+    const hooks = (window.__agentTycoonTestHooks ??= {});
     hooks.editorTileAction = (col, row) => editor.handleEditorTileAction(col, row);
     hooks.editorEraseAction = (col, row) => editor.handleEditorEraseAction(col, row);
     hooks.editorDrop = (uid, col, row, duplicate = false) =>
@@ -693,8 +688,9 @@ function App() {
   const { showTerminal: showMobileTerminal } = mobileShell;
   const handleClick = useCallback(
     (agentId: number) => {
-      // If clicked agent is a sub-agent, focus the parent's terminal instead
       const os = getOfficeState();
+      if (os.characters.get(agentId)?.cldOwner) return; // OWNER-AVATAR: no terminal of its own
+      // If clicked agent is a sub-agent, focus the parent's terminal instead
       const focusId = os.terminalOwnerOf(agentId);
       transport.send({ type: 'focusAgent', id: focusId });
       // Standalone: focusAgent is a no-op server-side (there's no editor to
@@ -957,6 +953,15 @@ function App() {
             alwaysShowOverlay={alwaysShowOverlay}
           />
           {cldMode && <CameraModeControl />}
+          {/* JOYSTICK: the direction keys (walk the selected or the owner's character, or pan the
+              free camera); the phone's office page only. */}
+          {cldMode && isMobile && (
+            <Joystick
+              enabled={
+                !editor.isEditMode && phoneTabs.tab === 'office' && mobileShell.view === 'office'
+              }
+            />
+          )}
           {cldMode && <TitleScene phone={isMobile} />}
         </>
       ) : (
@@ -1041,15 +1046,14 @@ function App() {
         </div>
       )}
 
-      {!cldMode && (
-        <VersionIndicator
-          currentVersion={extensionVersion}
-          lastSeenVersion={lastSeenVersion}
-          hideUpdateNotice={officeReadOnly}
-          onDismiss={handleWhatsNewDismiss}
-          onOpenChangelog={handleOpenChangelog}
-        />
-      )}
+      <VersionIndicator
+        floating={cldMode}
+        currentVersion={extensionVersion}
+        lastSeenVersion={lastSeenVersion}
+        hideUpdateNotice={officeReadOnly && !cldMode}
+        onDismiss={handleWhatsNewDismiss}
+        onOpenChangelog={handleOpenChangelog}
+      />
 
       {/* The hooks ask is the original (upstream) tour; the cld office has none, so there only O4's steps show
           (and the upstream surfaces get none of them: the remote step needs the cld login layer). */}
@@ -1080,9 +1084,10 @@ function App() {
       )}
 
       {/* cld-gui (T-0046): the lobby's 전광판 on its board, and its full view. */}
-      {cldMode && !isDebugMode && !editor.isEditMode && !isoView && (
+      {cldMode && !isDebugMode && !editor.isEditMode && (
         <LobbyBoard
           officeState={officeState}
+          iso={isoView}
           containerRef={containerRef}
           zoom={editor.zoom}
           panRef={editor.panRef}
@@ -1179,6 +1184,8 @@ function App() {
                     <MobileOfficePanel
                       agentTools={agentTools}
                       keyboardOpen={keyboard.keyboardOpen}
+                      statusFor={terminalDrawer.statusFor}
+                      getAppearance={terminalDrawer.getAppearance}
                     />
                   )}
                   {cldMode && hud.open.messenger && (
@@ -1299,7 +1306,8 @@ function App() {
 
       {cldMode && <ActionLayer />}
       <PerfReadout />
-      {cldMode && <OffDutySheet />}
+      <DevFxBar getOfficeState={getOfficeState} />
+      {cldMode && <StatDetailSheet officeState={officeState} />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}
       {/* A plain office (no Claude Code) is not in cld mode: the notice is for exactly that one. */}
@@ -1393,8 +1401,6 @@ function App() {
         onToggleDebugMode={handleToggleDebugMode}
         alwaysShowOverlay={alwaysShowOverlay}
         onToggleAlwaysShowOverlay={handleToggleAlwaysShowOverlay}
-        ghostHeadlessAgents={ghostHeadlessAgents}
-        onToggleGhostHeadlessAgents={handleToggleGhostHeadlessAgents}
         externalAssetDirectories={externalAssetDirectories}
         watchAllSessions={watchAllSessions}
         onToggleWatchAllSessions={() => {

@@ -5,6 +5,7 @@
  */
 import type { NoticeTarget } from '../../../../core/src/cld/notices.js';
 import { openSecurity } from '../auth/securityOpen.js';
+import { openPreview } from '../devroom/devroomStore.js';
 import { engineGetSnapshot } from '../engineStore.js';
 import { openMessenger, showRoomById } from '../messenger/messengerStore.js';
 import { cldGetSnapshot, virtualAgentId } from '../officeStore.js';
@@ -56,6 +57,9 @@ export function openTarget(t: NoticeTarget, deps: OpenDeps): boolean {
       return true;
     case 'security':
       return openSecurity();
+    case 'preview':
+      openPreview(t.project, t.task, t.url);
+      return true;
     case 'workbench':
       setWorkbenchTab('tasks');
       openWorkbench(t.project);

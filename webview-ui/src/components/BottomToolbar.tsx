@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { Directory } from '../hooks/useExtensionMessages.js';
-import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
 import { LaunchDrawer } from './LaunchDrawer.js';
 import { Button } from './ui/Button.js';
@@ -64,8 +63,8 @@ export function BottomToolbar({
   // doesn't, show the button disabled with the reason rather than hiding it —
   // silently missing UI reads as a bug, and the cause (a native module that
   // couldn't install) is not something a user would otherwise ever discover.
-  const canLaunch = !isBrowserRuntime || terminalAvailable;
-  const showUnavailable = isBrowserRuntime && !terminalAvailable;
+  const canLaunch = terminalAvailable;
+  const showUnavailable = !terminalAvailable;
 
   return (
     // Bottom-left. The terminal panel docks on the right edge, so it never

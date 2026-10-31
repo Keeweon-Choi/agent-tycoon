@@ -411,7 +411,9 @@ describe('office floors (T-0027, engine projects)', () => {
     expect(sent.at(-1)?.type).toBe('layoutLoaded');
     expect(decor.rooms['orch-gamma'].tiles).toHaveLength(3);
     expect(decor.rooms['orch-gamma'].furniture).toHaveLength(1);
-    expect(fs.existsSync(path.join(fake.home, '.pixel-agents/layout.json'))).toBe(false);
+    expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/office/layout.json'))).toBe(
+      false,
+    );
     ask({ type: 'addFloor' });
     ask({ type: 'moveToFloor', floorId: building().floors[1].id, room: 'orch-alpha' });
     const next = office.layoutFor() as Stacked & { cldBase: string; tileColors: unknown[] };

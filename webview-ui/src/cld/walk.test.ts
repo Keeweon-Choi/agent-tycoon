@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { OWNER_CHARACTER_ID } from '../constants.js';
 import { OfficeState } from '../office/engine/officeState.js';
 import { CharacterState, type OfficeLayout, TileType } from '../office/types.js';
 import {
@@ -13,6 +14,9 @@ import {
   staysOnFloor,
   WALK_QUEUE_MAX,
   walkDecision,
+  walkRoute,
+  walkStepOf,
+  walkStepTarget,
   winningWalkKey,
 } from './walk.js';
 
@@ -220,7 +224,7 @@ describe('walking the selected character', () => {
     expect(ch.keyboardWalk).toBeUndefined();
   });
 
-  it('turns to the newest held direction at the next tile boundary', () => {
+  it('turns to the held keys at the next tile boundary (two of them a diagonal)', () => {
     const { office, ch } = room();
     office.setHeldWalkKeys(['right']);
     office.walkSelectedStep('right');
@@ -283,5 +287,57 @@ describe('walking the selected character', () => {
     office.setAgentActive(1, true);
     expect(ch.path.at(-1)).toEqual({ col: 6, row: 1 });
     expect(office.walkSelectedStep('left')).toBe('active');
+  });
+});
+
+describe('OWNER-AVATAR input routing', () => {
+  const OWNER = OWNER_CHARACTER_ID;
+
+  it('follow: keys walk the owner; free: they pan; a selection takes them and the camera; clear: back', () => {
+    expect(walkRoute('auto', null, OWNER)).toEqual({ walk: OWNER, follow: OWNER });
+    expect(walkRoute('free', null, OWNER)).toEqual({ walk: null, follow: null });
+    expect(walkRoute('free', 7, OWNER)).toEqual({ walk: null, follow: null });
+    expect(walkRoute('auto', 7, OWNER)).toEqual({ walk: 7, follow: 7 });
+    expect(walkRoute('auto', null, null)).toEqual({ walk: null, follow: null }); // no owner yet
+  });
+
+  it('walks 8 directions: two held keys a diagonal, turned for the isometric view', () => {
+    expect(walkStepOf(['up', 'right'])).toEqual({ col: 1, row: -1 });
+    expect(walkStepOf(['left', 'right'])).toEqual({ col: 1, row: 0 }); // the newest wins
+    expect(walkStepOf(['up'], true)).toEqual({ col: -1, row: -1 }); // screen up
+    expect(walkStepOf(['up', 'right'], true)).toEqual({ col: 0, row: -1 });
+    expect(walkStepOf([])).toBeNull();
+  });
+
+  it('a diagonal never cuts a corner: it slides along the free side', () => {
+    const map = floor();
+    map[1][2] = TileType.WALL; // right of (1,1)
+    const input = {
+      tileCol: 1,
+      tileRow: 1,
+      path: [],
+      tileMap: map,
+      blockedTiles: new Set<string>(),
+      ownSeat: null,
+      layout: { cols: 4, rows: 3 },
+    };
+    expect(walkStepTarget({ col: 1, row: 1 }, input)).toEqual({ col: 1, row: 2 });
+    expect(walkStepTarget({ col: -1, row: 1 }, input)).toEqual({ col: 0, row: 2 });
+  });
+
+  it("the owner's character walks with nothing selected, takes no seat and never wanders", () => {
+    const tiles: TileType[] = Array.from({ length: 3 * 8 }, () => TileType.FLOOR_1);
+    const office = new OfficeState({ version: 1, cols: 8, rows: 3, tiles, furniture: [] });
+    const owner = office.spawnOwner()!;
+    owner.matrixEffect = null;
+    const start = [owner.tileCol, owner.tileRow];
+    for (let t = 0; t < 30; t += 0.1) office.update(0.1); // past every wander timer
+    expect([owner.tileCol, owner.tileRow]).toEqual(start);
+    expect(office.selectedAgentId).toBeNull();
+    office.setHeldWalkKeys(['down', 'right']);
+    expect(office.walkSelectedStep('right', true, OWNER)).toBe('walked');
+    expect(owner.path[0]).toEqual({ col: start[0] + 1, row: start[1] + 1 });
+    expect(office.cameraFollowId).toBe(OWNER);
+    expect(office.getPersistableSeats()[OWNER]).toBeUndefined();
   });
 });

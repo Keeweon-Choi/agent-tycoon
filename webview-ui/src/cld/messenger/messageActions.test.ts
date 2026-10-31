@@ -4,6 +4,7 @@ import type { ChatItem } from '../../../../core/src/messages.js';
 import {
   copyText,
   findReplied,
+  pendingReplyForEdit,
   replyChipText,
   replyDraft,
   replyIdOf,
@@ -56,6 +57,17 @@ it('reply id: a user message by its C2 id, anything else (an answer) by its own 
   expect(findReplied(items, 'aaaa2222')?.id).toBe('u');
   expect(findReplied(items, 'a')?.id).toBe('a');
   expect(findReplied(items, 'gone')).toBeUndefined();
+});
+
+it('keeps the queued message reply available while that message is being edited', () => {
+  const reply = { id: 'original', text: 'Please review this.' };
+  const pending = [
+    { requestId: 'other', replyTo: { id: 'elsewhere', text: 'Ignore this.' } },
+    { requestId: 'editing', replyTo: reply },
+  ];
+  expect(pendingReplyForEdit(pending, 'editing')).toBe(reply);
+  expect(pendingReplyForEdit(pending, 'missing')).toBeUndefined();
+  expect(pendingReplyForEdit(pending, undefined)).toBeUndefined();
 });
 
 it('reply sender and chip: the boss is absent, a peer by name, a notice is cld-gui', () => {

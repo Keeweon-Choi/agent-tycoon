@@ -147,7 +147,7 @@ run_fast() {
     [[ $file =~ ^core/src/[^/]+\.mjs$ ]] && core_test_changed=true
     if [[ -f $file ]]; then
       case "$file" in
-        adapters/vscode/*|server/*|core/*)
+        server/*|core/*)
           case "$file" in
             *.ts|*.tsx|*.mjs|*.js) root_lint+=("$file") ;;
           esac
@@ -169,7 +169,7 @@ run_fast() {
   if (( ${#root_lint[@]} )); then
     run lint-root npx eslint -- "${root_lint[@]}"
   else
-    skip lint-root "no changed linted files under adapters/vscode, server, or core"
+    skip lint-root "no changed linted files under server or core"
   fi
   if (( ${#web_lint[@]} )); then
     run_in lint-webview webview-ui npx eslint -- "${web_lint[@]}"
@@ -281,7 +281,7 @@ case "$tier" in
   release)
     [[ $# -le 1 ]] || usage
     run_integration
-    run build-extension node esbuild.js
+    run build-daemon node esbuild.js
     run build-webview npm run -s build:webview
     run browser-all npx tsx cld/test/run-all.ts 18258 18259
     # run-all deliberately omits hardware sampling without an LHM endpoint.

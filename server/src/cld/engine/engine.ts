@@ -32,7 +32,13 @@ import type {
   ProjectImportResult,
   ProjectImportRow,
 } from '../../../../core/src/messages.js';
-import { RENEW_FILL_PCT } from '../../constants.js';
+import {
+  AGENT_IDLE_STOP_MS,
+  PTY_MOVE_ALL_POLL_MS,
+  PTY_MOVE_ALL_WAIT_MS,
+  PTY_MOVE_IDLE_MS,
+  RENEW_FILL_PCT,
+} from '../../constants.js';
 import { windowsLogonEnv,type WindowsLogonEnvironment } from '../agentCli.js';
 import { WINDOWS_LOGIN_ENV } from '../chat.js';
 import { detectHostInfo } from '../folders.js';
@@ -45,6 +51,7 @@ import { STEPUP_REQUIRED } from '../shell/gate.js';
 import type { SpawnFn } from '../spawnJson.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
+import { ClaudePtyAgent } from './agents/claude/claudePty.js';
 import type { AgentProvider, LiveSession } from './agents/types.js';
 import { AgentTokens } from './agentTokens.js';
 import type { BypassResult } from './bypass.js';
@@ -71,6 +78,8 @@ import {
   checkFolder,
   checkName,
   checkRulesFile,
+  CLAUDE_PTY_PROVIDER,
+  cliOf,
   createAssignmentId,
   createProjectId,
   DEFAULT_PROVIDER,
@@ -118,6 +127,13 @@ export const ENGINE_TIMING = {
   watchMs: 30_000,
   /** T-0126: wait for Claude's daemon to take over the same conversation before calling it gone. */
   adoptMs: 60_000,
+  /** TERM-P1: a session in our PTY host idle this long with no viewer is stopped (idleRetired). */
+  idleStopMs: AGENT_IDLE_STOP_MS,
+  /** TERM-P3: a moved agent must be found idle on its own conversation in our PTY host within this. */
+  moveIdleMs: PTY_MOVE_IDLE_MS,
+  /** TERM-P3 move-all: how often a busy agent is looked at again, and how long before it is skipped. */
+  moveAllPollMs: PTY_MOVE_ALL_POLL_MS,
+  moveAllWaitMs: PTY_MOVE_ALL_WAIT_MS,
   /** T-0091: the Nth dead-session check inside this window is not revived but left down, marked. */
   reviveWindowMs: 10 * 60_000,
   reviveLimit: 3,
@@ -376,6 +392,9 @@ interface Outcome {
   code?: string;
 }
 const fail = (error: string, detail?: string): Outcome => ({ ok: false, error, detail });
+/** TERM-P3: moveToPty's refusals the move-all queue reacts to (wait, or report as rolled back). */
+const MOVE_BUSY = 'move_busy';
+const MOVE_ROLLED_BACK = 'move_rolled_back';
 /** What the user should know although it worked (a slow folder, T-0032). */
 const warned = (notes: string[]): Pick<Outcome, 'note'> =>
   notes.length ? { note: notes.join(' · ') } : {};
@@ -388,6 +407,8 @@ interface Adoption {
 
 export interface EngineOptions {
   claudePath: string;
+  /** TERM-P1: dist/cld-ptyhost.js for `claude-pty` agents; null or unset: they cannot start. */
+  ptyHostScript?: string | null;
   readOnly: boolean;
   /** T-0110: the installed CLIs' model and effort choices; none (empty) unless given. */
   agentChoices?: AgentChoicesReader;
@@ -531,6 +552,8 @@ export class Engine {
   private readonly lastError = new Map<string, string>();
   /** D5 (6.3): agents revive and the watch skipped (no provider, or it is not ready), logged once. */
   private readonly skipLogged = new Set<string>();
+  /** TERM-P1: since when each PTY-host agent has been idle with no viewer (idleStops). */
+  private readonly idleSince = new Map<string, number>();
 
   constructor(private readonly opts: EngineOptions) {
     this.agentChoices = opts.agentChoices ?? { discover: () => ({}) };
@@ -548,7 +571,18 @@ export class Engine {
     this.scope = opts.systemdRun !== undefined ? opts.systemdRun : findSystemdRun(opts.env);
     this.t = { ...ENGINE_TIMING, ...opts.timing };
     this.loadReviveGuard();
+    // TERM-P1 (ADR-0018): Claude in our own PTY host, for agents whose provider is `claude-pty`.
+    this.pty = new ClaudePtyAgent({
+      claudePath: opts.claudePath,
+      home: this.home,
+      env: this.env,
+      systemdRun: this.scope,
+      cldBin: this.cldBin,
+      hostScript: opts.ptyHostScript ?? null,
+      log: (l) => this.log(l),
+    });
     const claude = new ClaudeAgent({
+      exclude: () => this.pty.pids(),
       claudePath: opts.claudePath,
       home: this.home,
       env: this.env,
@@ -560,8 +594,11 @@ export class Engine {
       spawnFn: opts.spawnFn,
       log: (l) => this.log(l),
     });
-    this.agents = new Map([claude, ...(opts.agents ?? [])].map((a) => [a.id, a]));
+    this.agents = new Map([claude, this.pty, ...(opts.agents ?? [])].map((a) => [a.id, a]));
   }
+
+  /** TERM-P1: the agents in our PTY host (the chat route joins their terminals there). */
+  readonly pty: ClaudePtyAgent;
 
   /** The agent providers, by id (the assignments' `provider`). */
   private readonly agents: Map<string, AgentProvider>;
@@ -569,6 +606,17 @@ export class Engine {
   /** The provider that drives `p` (its assignment's), or undefined when this build has none. */
   private agentOf(p: ProjectRecord): AgentProvider | undefined {
     return this.agents.get(p.provider ?? DEFAULT_PROVIDER);
+  }
+
+  /** TERM-P3 (ADR-0018): a new Claude agent runs in our PTY host. ponytail: a build without the
+   *  host script (none ships so) keeps `claude --bg`, as before P1. */
+  private newClaude(provider: string = DEFAULT_PROVIDER): string {
+    return provider === DEFAULT_PROVIDER && this.opts.ptyHostScript ? CLAUDE_PTY_PROVIDER : provider;
+  }
+
+  /** TERM-P3: `name` runs in our PTY host (its permission prompts come from the hook, not a screen). */
+  inPty(name: string): boolean {
+    return this.find(name)?.provider === CLAUDE_PTY_PROVIDER;
   }
 
   /** D5: this build has provider `id` and it can start here (its CLI is installed). */
@@ -604,7 +652,7 @@ export class Engine {
   deliver(
     name: string,
     text: string,
-    o: { task?: string; group?: { roomId: string; messageId: string }; messageId?: string },
+    o: { task?: string; group?: { roomId: string; messageId: string }; messageId?: string; now?: boolean },
   ): Promise<'typed' | 'notReady' | 'failed'> | null {
     const p = this.find(name);
     const agent = p && this.agentOf(p);
@@ -612,6 +660,7 @@ export class Engine {
     return agent.deliver(p, text, {
       ...(o.task && { task: o.task }),
       ...(o.messageId && { messageId: o.messageId }),
+      ...(o.now && { now: true }),
       ...(o.group && { group: { id: o.group.roomId, messageId: o.group.messageId } }),
     });
   }
@@ -880,7 +929,7 @@ export class Engine {
         project: this.projectOf(p.name),
         role: p.role ?? 'lead',
         assignmentId: (p.role ? p.assignmentId : p.leadAssignmentId) ?? null,
-        provider: p.provider ?? DEFAULT_PROVIDER,
+        provider: cliOf(p),
         ...(p.model && { model: p.model }),
         wantRunning: p.wantRunning,
         // D5: a resting session runs nothing (B 9.3: down, and a delegation takes it up).
@@ -1399,6 +1448,7 @@ export class Engine {
       }),
       ...(Object.keys(choices).length > 0 && { agentChoices: choices }),
       ...(warnings.length > 0 && { warnings }),
+      ...(this.moveAllRun && { moveAll: { done: this.moveAllRun.done, total: this.moveAllRun.total } }),
     };
   }
 
@@ -1480,6 +1530,9 @@ export class Engine {
         (s) => s.kind === 'background' && samePath(s.cwd, candidate.folder, this.host),
       );
       const sessionId = holder?.sessionId ?? (row.resume ? candidate.sessionId : undefined);
+      // TERM-P3: in our PTY host, unless a `claude --bg` session holds that conversation now (two
+      // processes on one conversation): that one keeps it, and the move takes it over later.
+      const provider = holder && holder.agent.id !== CLAUDE_PTY_PROVIDER ? DEFAULT_PROVIDER : this.newClaude();
       try {
         this.commit([
           ...this.projects,
@@ -1493,6 +1546,7 @@ export class Engine {
             room: row.room.trim(),
             wantRunning: false,
             ...(sessionId && { sessionId }),
+            ...(provider !== DEFAULT_PROVIDER && { provider }),
           },
         ]);
         added.push(row.name);
@@ -1645,6 +1699,12 @@ export class Engine {
     return { agents, rooms: rooms.map((r, i) => ({ ...r, order: i + 1 })) };
   }
 
+  /** An `engineMoveAll` from a client (privileged only, checked again here): start or stop the queue. */
+  handleMoveAll(msg: Record<string, unknown>, send: WsSend, privileged: boolean): void {
+    const r = msg.stop === true ? this.moveAllStop(privileged) : this.moveAll(privileged);
+    send({ type: 'engineMoveAllResult', ok: r.ok, ...('error' in r && r.error && { error: r.error }) });
+  }
+
   /** An `engineAction` from a client: run it and answer the sender. */
   handle(
     msg: Record<string, unknown>,
@@ -1702,7 +1762,7 @@ export class Engine {
   ): Promise<EngineActionResult> {
     const { requestId, action, name } = req;
     const what = `${action} ${JSON.stringify(name).slice(0, 66)} gui:${device}`;
-    const reply = ({ detail, ...o }: Outcome): EngineActionResult => ({
+    const reply = ({ detail, code: _code, ...o }: Outcome): EngineActionResult => ({
       type: 'engineActionResult',
       requestId,
       action,
@@ -1844,8 +1904,7 @@ export class Engine {
   private promoteRefusal(w: ProjectRecord, held = true): string | null {
     if (!w.role) return koText('already_lead', { name: w.name });
     if (this.agentOf(w)?.capabilities.lifetime === 'run') return koText('codex_not_lead');
-    if ((w.provider ?? DEFAULT_PROVIDER) !== DEFAULT_PROVIDER || !this.agentOf(w))
-      return koText('lead_claude_only');
+    if (cliOf(w) !== DEFAULT_PROVIDER || !this.agentOf(w)) return koText('lead_claude_only');
     const lead = this.leadOf(w);
     if (!lead) return koText('worker_lead_missing');
     for (const n of held ? [w.name, lead.name] : []) {
@@ -1880,6 +1939,14 @@ export class Engine {
     }
     const p = this.find(req.name);
     if (!p) return fail(koText('project_unknown_short'));
+    // TERM-P3: the per-agent switch (and `agty move-pty`) moves a Claude agent into our PTY host;
+    // the rest of the edit applies after it.
+    if (req.action === 'edit' && req.provider === CLAUDE_PTY_PROVIDER && (p.provider ?? DEFAULT_PROVIDER) === DEFAULT_PROVIDER)
+      return this.moveToPty(p, source).then((m) => {
+        if (!m.ok) return m;
+        const e = this.edit(this.find(p.name) ?? p, req);
+        return e.ok ? { ...e, ...(m.bgId && { bgId: m.bgId }), ...warned([m.note, e.note].filter((n): n is string => !!n)) } : e;
+      });
     if (req.action === 'edit') return this.edit(p, req);
     if (req.action === 'remove') return this.remove(p);
     if (req.action === 'promote') return this.promote(p, req.oldLead ?? 'worker', source);
@@ -1926,9 +1993,10 @@ export class Engine {
     const bad = checkName(req.name);
     if (bad) return fail(bad);
     // D5: a Lead is a Claude session (a Codex Lead is the app-server one, after the MVP).
-    if (req.provider !== undefined && req.provider !== DEFAULT_PROVIDER)
+    if (req.provider !== undefined && req.provider !== DEFAULT_PROVIDER && req.provider !== CLAUDE_PTY_PROVIDER)
       return fail(koText('lead_claude_only'));
     if (this.find(req.name)) return fail(koText('name_taken'));
+    const provider = this.newClaude();
     const n = normalizeProjectPath(req.folder ?? '', this.host);
     if ('error' in n) return fail(n.error);
     const fields = this.fields(req);
@@ -1947,6 +2015,7 @@ export class Engine {
         ...(req.permissionMode === undefined && seededPermission(this.home)),
         ...this.leadLaunch(req),
         ...fields.set,
+        ...(provider !== DEFAULT_PROVIDER && { provider }),
         wantRunning: false,
       },
     ];
@@ -1970,7 +2039,7 @@ export class Engine {
     const lead = req.project !== undefined ? this.find(req.project) : undefined;
     if (!lead || lead.role) return fail(koText('project_unknown_short'));
     if (req.room !== undefined) return fail(WORKER_ROOM);
-    const provider = req.provider ?? DEFAULT_PROVIDER;
+    const provider = this.newClaude(req.provider);
     const agent = this.agents.get(provider);
     if (!agent) return fail(koText('agent_unknown', { provider }));
     const why = this.providerFields(agent, req) ?? agent.ready?.();
@@ -1988,7 +2057,7 @@ export class Engine {
         name: req.name,
         folder: own.path ?? lead.folder,
         ...(own.path && { workFolder: own.path }),
-        ...(provider === DEFAULT_PROVIDER && req.permissionMode === undefined && seededPermission(this.home)),
+        ...(cliOf({ provider }) === DEFAULT_PROVIDER && req.permissionMode === undefined && seededPermission(this.home)),
         ...fields.set,
         ...(provider !== DEFAULT_PROVIDER && { provider }),
         wantRunning: false,
@@ -2038,9 +2107,15 @@ export class Engine {
 
   private edit(p: ProjectRecord, req: EngineAction): Outcome {
     if (p.role && req.room !== undefined) return fail(WORKER_ROOM);
-    // ADR-0016 decision 2: an agent's provider is fixed when it is made.
-    if (req.provider !== undefined && req.provider !== (p.provider ?? DEFAULT_PROVIDER))
-      return fail(koText('agent_kind_fixed'));
+    // ADR-0016 decision 2: an agent's provider is fixed when it is made. TERM-P1: a Claude agent
+    // may move between `claude --bg` and our PTY host (same CLI, same conversation) while it is off.
+    const was = p.provider ?? DEFAULT_PROVIDER;
+    if (req.provider !== undefined && req.provider !== was) {
+      const claudeKinds = [DEFAULT_PROVIDER, CLAUDE_PTY_PROVIDER];
+      if (!claudeKinds.includes(was) || !claudeKinds.includes(req.provider)) return fail(koText('agent_kind_fixed'));
+      this.refresh();
+      if (this.holder(p)) return fail(koText('pty_switch_running'));
+    }
     const agent = this.agentOf(p);
     const notFit = agent && this.providerFields(agent, req);
     if (notFit) return fail(notFit);
@@ -2084,6 +2159,8 @@ export class Engine {
       } else warnings = [];
     }
     const next: ProjectRecord = { ...p, folder, ...fields.set };
+    if (req.provider === CLAUDE_PTY_PROVIDER) next.provider = CLAUDE_PTY_PROVIDER;
+    else if (req.provider === DEFAULT_PROVIDER) delete next.provider;
     if (workFolder) next.workFolder = workFolder;
     else delete next.workFolder;
     for (const k of fields.clear) delete next[k];
@@ -2419,7 +2496,7 @@ export class Engine {
       !r.ok &&
       r.needsTrust &&
       trust &&
-      agent.protocol === 'claude' &&
+      (agent.protocol === 'claude' || agent.protocol === 'pty') &&
       (this.untrusted.has(p.name) || this.consented.has(p.name))
     ) {
       this.consented.delete(p.name);
@@ -2552,7 +2629,8 @@ export class Engine {
           .filter((x) => !!target.folder && samePath(x.folder, target.folder, this.host))
           .sort((a, b) => Number(!!a.role) - Number(!!b.role))[0];
     if (!p) return no('unknown_project', koText('project_unknown_short'));
-    if (this.agentOf(p)?.protocol !== 'claude') return no('refused', koText('trust_claude_only'));
+    const protocol = this.agentOf(p)?.protocol;
+    if (protocol !== 'claude' && protocol !== 'pty') return no('refused', koText('trust_claude_only'));
     if (this.running.has(p.name)) return no('refused', koText('project_busy', { name: p.name }));
     this.running.add(p.name);
     try {
@@ -2639,6 +2717,182 @@ export class Engine {
       if (!r.ok) return r;
     }
     return this.startProject(this.find(p.name) ?? p, source);
+  }
+
+  /**
+   * TERM-P3 (ADR-0018): move a Claude agent from `claude --bg` into our PTY host, same conversation.
+   * Off: only its provider changes (its next start is in the host). On: refused unless its turn has
+   * ended and nothing holds it; then the background session is stopped (`claude stop`), the agent
+   * starts in the host with `--resume <the same id>` (P0 a), and it counts as moved only once a
+   * session of the host with that id is found idle. Anything short of that puts the record back as
+   * it was and starts the old session again (the same restart as 다시 켜기), and says why.
+   * Messages wait meanwhile (renewing(): the move holds the name as a Lead swap does).
+   * ponytail: a message the Typist typed just before the idle check can be cut by the stop; it is
+   * in the transcript, so the resumed conversation has it but not the reply it was getting.
+   */
+  private async moveToPty(p: ProjectRecord, source: string): Promise<Outcome> {
+    const pty = this.agents.get(CLAUDE_PTY_PROVIDER);
+    if (!pty) return fail(koText('pty_host_missing'));
+    this.refresh();
+    const h = this.holder(p);
+    const moved: ProjectRecord = { ...p, provider: CLAUDE_PTY_PROVIDER };
+    const clash = this.sessionClash(this.projects.map((x) => (x.name === p.name ? moved : x)), [p.name]);
+    if (clash) return fail(clash);
+    if (!h) {
+      this.patch(p.name, { provider: CLAUDE_PTY_PROVIDER });
+      this.log(`move "${p.name}": off; it starts in the PTY host from now on`);
+      return { ok: true, note: koText('pty_moved_off') };
+    }
+    const notReady = pty.ready?.();
+    if (notReady) return fail(notReady);
+    if (h.kind !== 'background' || !h.id) return fail(koText('terminal_cannot_stop'));
+    if (!turnEnded(h.status) || (await h.agent.held(h))) return { ...fail(koText('pty_move_busy')), code: MOVE_BUSY };
+    const id = h.sessionId;
+    if (!fs.existsSync(pty.transcript({ cwd: p.folder, sessionId: id })))
+      return fail(koText('pty_move_no_transcript'));
+    this.swapping.add(p.name);
+    try {
+      this.log(`move "${p.name}": stopping its background session ${h.id} (conversation ${id.slice(0, 8)})`);
+      const stopped = await this.stopSession(h);
+      if (!stopped.ok)
+        return { ...fail(koText('pty_move_failed', { why: stopped.error ?? '' }), stopped.detail), code: MOVE_ROLLED_BACK };
+      this.patch(p.name, { provider: CLAUDE_PTY_PROVIDER, sessionId: id });
+      const started = await this.startProject(this.find(p.name)!, source);
+      const found =
+        started.ok &&
+        (await this.waitFor(
+          () => this.live.find((s) => s.agent === pty && s.sessionId === id && turnEnded(s.status)) ?? null,
+          this.t.moveIdleMs,
+        ));
+      if (found) {
+        this.log(`move "${p.name}": in the PTY host, conversation ${id.slice(0, 8)} idle`);
+        return { ok: true, bgId: found.id ?? undefined, note: koText('pty_moved') };
+      }
+      const why = started.ok ? koText('pty_move_not_idle', { id: id.slice(0, 8) }) : (started.error ?? '');
+      this.log(`move "${p.name}": failed (${why}); putting it back on claude --bg`);
+      // Never two processes on one conversation: the old session comes back only once the host has
+      // no terminal of this agent left (one not up yet included); else it stays the host's.
+      const left = this.holder(this.find(p.name)!);
+      const closed = (!left || (await this.stopSession(left)).ok) && ((await pty.closeAll?.(p)) ?? true);
+      if (!closed) {
+        this.log(`move "${p.name}": its PTY host terminal did not close; left in the host`);
+        return {
+          ...fail(koText('pty_move_back_failed', { why, back: koText('session_not_stopped') }), started.detail),
+          code: MOVE_ROLLED_BACK,
+        };
+      }
+      this.commit(this.projects.map((x) => (x.name === p.name ? p : x)));
+      const back = await this.startProject(p, source);
+      return {
+        ...fail(koText(back.ok ? 'pty_move_failed' : 'pty_move_back_failed', { why, back: back.error ?? '' }), started.detail),
+        code: MOVE_ROLLED_BACK,
+      };
+    } finally {
+      this.swapping.delete(p.name);
+    }
+  }
+
+  // ── TERM-P3: every agent to the new terminal, one at a time ──
+
+  /** The queue's state while it runs (null: none). ponytail: in memory, so a daemon restart ends it;
+   *  pressing again skips the agents already moved. */
+  private moveAllRun: { total: number; done: number; stop: boolean } | null = null;
+
+  /**
+   * The owner's one click (`agty move-pty --all`): move every Claude agent of the old mode into the
+   * host, off agents first (their provider flips), then Workers, Leads without Workers, Leads with
+   * Workers (the orchestrators). One at a time; a running agent waits for its turn to end up to
+   * moveAllWaitMs, then it is skipped. Each result is one feed line (`pty_move`), then a summary.
+   */
+  moveAll(privileged: boolean): { ok: true; total: number } | { ok: false; error: string } {
+    if (this.opts.readOnly) return { ok: false, error: koText('read_only_mode') };
+    if (!privileged) return { ok: false, error: koText('no_permission') };
+    if (this.broken) return { ok: false, error: koText('registry_unreadable') };
+    if (this.moveAllRun) return { ok: false, error: koText('pty_move_all_running') };
+    this.refresh();
+    const rank = (p: ProjectRecord): number =>
+      !this.holder(p) ? 0 : p.role ? 1 : this.projects.some((w) => w.role && w.projectId === p.projectId) ? 3 : 2;
+    const names = this.projects
+      .filter((p) => (p.provider ?? DEFAULT_PROVIDER) === DEFAULT_PROVIDER)
+      .map((p, i) => ({ name: p.name, rank: rank(p), i }))
+      .sort((a, b) => a.rank - b.rank || a.i - b.i)
+      .map((x) => x.name);
+    if (names.length === 0) return { ok: false, error: koText('pty_move_all_nothing') };
+    this.moveAllRun = { total: names.length, done: 0, stop: false };
+    this.log(`move-all: ${names.length} agent(s): ${names.join(', ')}`);
+    void this.runMoveAll(names);
+    this.refresh();
+    return { ok: true, total: names.length };
+  }
+
+  /** The owner stops the queue: the agent being moved finishes, the rest are left. */
+  moveAllStop(privileged: boolean): { ok: boolean; error?: string } {
+    if (!privileged) return { ok: false, error: koText('no_permission') };
+    if (!this.moveAllRun) return { ok: false, error: koText('pty_move_all_idle') };
+    this.moveAllRun.stop = true;
+    this.log('move-all: stop requested');
+    return { ok: true };
+  }
+
+  private async runMoveAll(names: string[]): Promise<void> {
+    const run = this.moveAllRun!;
+    const count = { moved: 0, skipped: 0, rolled_back: 0 };
+    try {
+      for (const name of names) {
+        if (run.stop || this.disposed) break;
+        const r = await this.moveOne(name, run);
+        if (!r) break; // stopped while waiting for this agent's turn to end
+        count[r.result]++;
+        this.log(`move-all "${name}": ${r.result}${r.why ? ` (${r.why})` : ''}`);
+        this.opts.event?.('pty_move', 'engine', { name, result: r.result, ...(r.why && { why: r.why }) });
+        run.done++;
+        this.refresh();
+      }
+    } finally {
+      this.moveAllRun = null;
+      if (!this.disposed) {
+        this.opts.event?.('pty_move_all', 'engine', {
+          total: names.length,
+          moved: count.moved,
+          skipped: count.skipped,
+          rolledBack: count.rolled_back,
+          ...(run.done < names.length && { stopped: true }),
+        });
+        this.refresh();
+      }
+    }
+  }
+
+  /** One agent's turn in the queue; null when the owner stopped it while it waited. */
+  private async moveOne(
+    name: string,
+    run: { stop: boolean },
+  ): Promise<{ result: 'moved' | 'skipped' | 'rolled_back'; why?: string } | null> {
+    const end = Date.now() + this.t.moveAllWaitMs;
+    for (;;) {
+      if (run.stop || this.disposed) return null;
+      const p = this.find(name);
+      if (!p) return { result: 'skipped', why: koText('project_unknown_short') };
+      if ((p.provider ?? DEFAULT_PROVIDER) !== DEFAULT_PROVIDER)
+        return { result: 'skipped', why: koText('pty_move_all_already') };
+      if (!(this.running.has(name) || this.renewals.has(name) || this.pendingAdoptions.has(name))) {
+        this.running.add(name);
+        let out: Outcome;
+        try {
+          out = await this.enqueue(() => this.moveToPty(this.find(name) ?? p, 'move-all'));
+        } catch (err) {
+          out = fail(err instanceof Error ? err.message : String(err));
+        } finally {
+          this.running.delete(name);
+        }
+        if (out.ok) return { result: 'moved' };
+        if (out.code !== MOVE_BUSY)
+          return { result: out.code === MOVE_ROLLED_BACK ? 'rolled_back' : 'skipped', why: out.error };
+      }
+      if (Date.now() >= end)
+        return { result: 'skipped', why: koText('pty_move_all_timeout', { min: Math.round(this.t.moveAllWaitMs / 60_000) }) };
+      await this.sleep(this.t.moveAllPollMs);
+    }
   }
 
   /** Its provider's stop (Claude: `claude stop <exact id>`), then wait until its pid has left. */
@@ -2822,6 +3076,7 @@ export class Engine {
           this.log(`${agent.id} daemon is gone; its background sessions are revived below`);
         this.daemonWasUp = daemon === true;
       }
+      await this.idleStops();
       const retired = this.idleLooks();
       for (const name of this.projects.filter((p) => p.wantRunning).map((p) => p.name)) {
         const p = this.find(name);
@@ -2857,6 +3112,43 @@ export class Engine {
       }
     } finally {
       this.watching = false;
+    }
+  }
+
+  /**
+   * TERM-P1: nobody retires an idle session in our PTY host but us. A session whose turn has been
+   * over for idleStopMs (since the later of its first idle look and its transcript's last write),
+   * with no one watching its terminal, is stopped and marked idleRetired: the wantRunning agent
+   * then rests until a message wakes it (wake: `--resume`). An always-on agent is never stopped.
+   */
+  private async idleStops(): Promise<void> {
+    for (const p of this.projects) {
+      const h = this.holder(p);
+      const watched = !h?.agent.viewed || h.agent.viewed(h);
+      if (!h || watched || !turnEnded(h.status) || p.alwaysOn || this.running.has(p.name) || this.renewals.has(p.name)) {
+        this.idleSince.delete(p.name);
+        continue;
+      }
+      let wrote = 0;
+      try {
+        wrote = fs.statSync(h.agent.transcript(h)).mtimeMs;
+      } catch {
+        /* no transcript yet */
+      }
+      const since = Math.max(this.idleSince.get(p.name) ?? this.now(), wrote);
+      this.idleSince.set(p.name, since);
+      if (this.now() - since < this.t.idleStopMs) continue;
+      this.idleSince.delete(p.name);
+      this.running.add(p.name);
+      try {
+        const out = await this.enqueue(() =>
+          this.stopSession(h, () => this.patch(p.name, { idleRetired: true })),
+        );
+        this.log(`watch "${p.name}": idle ${Math.round((this.now() - since) / 60_000)} min, no viewer: ${out.ok ? 'stopped, resting' : `not stopped (${out.error})`}`);
+        if (out.ok) this.opts.event?.('orch_idle_stop', 'engine', { name: p.name, session_id: h.sessionId });
+      } finally {
+        this.running.delete(p.name);
+      }
     }
   }
 

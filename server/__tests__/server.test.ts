@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Use isolated temp HOME to avoid touching real ~/.pixel-agents/
+// Use isolated temp HOME to avoid touching the real office folder or ~/.pixel-agents/
 let tmpBase: string;
 let serverJsonDir: string;
 let serverJsonPath: string;
@@ -24,7 +24,7 @@ vi.mock('os', async () => {
 });
 
 // Must import AFTER mock setup
-const { PixelAgentsServer } = await import('../src/server.js');
+const { AgentTycoonServer } = await import('../src/server.js');
 const { PtySessionManager } = await import('../src/terminal/ptySessionManager.js');
 const { configDirectory } = await import('../src/cld/configPath.js');
 
@@ -44,16 +44,16 @@ async function postHook(
   });
 }
 
-describe('PixelAgentsServer', () => {
-  let server: InstanceType<typeof PixelAgentsServer>;
+describe('AgentTycoonServer', () => {
+  let server: InstanceType<typeof AgentTycoonServer>;
 
   beforeEach(() => {
     tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-server-test-'));
-    serverJsonDir = path.join(tmpBase, '.pixel-agents');
+    serverJsonDir = path.join(tmpBase, '.config', 'agent-tycoon', 'office');
     serverJsonPath = path.join(serverJsonDir, 'server.json');
     registryDir = path.join(serverJsonDir, 'servers');
     fs.mkdirSync(serverJsonDir, { recursive: true });
-    server = new PixelAgentsServer();
+    server = new AgentTycoonServer();
   });
 
   afterEach(() => {
@@ -72,6 +72,36 @@ describe('PixelAgentsServer', () => {
     expect(config.token).toBeTruthy();
     expect(config.pid).toBe(process.pid);
     expect(config.startedAt).toBeGreaterThan(0);
+  });
+
+  // DATA-FOLDER: a Claude session started before the upgrade still runs the old hook script, which
+  // looks only in ~/.pixel-agents. What it reads there (the registry, else server.json) must lead
+  // to this server, and leave with it.
+  it('also registers in ~/.pixel-agents for one release, and removes both on stop', async () => {
+    const config = await server.start({ embedded: false });
+    const oldDir = path.join(tmpBase, '.pixel-agents');
+    const entry = JSON.parse(
+      fs.readFileSync(path.join(oldDir, 'servers', `${process.pid}-${config.port}.json`), 'utf-8'),
+    ) as { port: number; token: string };
+    const pointer = JSON.parse(fs.readFileSync(path.join(oldDir, 'server.json'), 'utf-8')) as {
+      port: number;
+      token: string;
+    };
+    expect(pointer).toMatchObject({ port: config.port, token: config.token });
+    let received: Record<string, unknown> | null = null;
+    server.onHookEvent((_provider, event) => (received = event));
+    const res = await postHook(
+      entry.port,
+      entry.token,
+      JSON.stringify({ session_id: 'old', hook_event_name: 'Stop' }),
+    );
+    expect(res.status).toBe(200);
+    expect(received).toMatchObject({ session_id: 'old' });
+
+    server.stop();
+    expect(fs.readdirSync(path.join(oldDir, 'servers'))).toEqual([]);
+    expect(fs.existsSync(path.join(oldDir, 'server.json'))).toBe(false);
+    expect(fs.existsSync(serverJsonPath)).toBe(false);
   });
 
   // 2. Health endpoint returns 200 + uptime
@@ -185,7 +215,7 @@ describe('PixelAgentsServer', () => {
   // 11. Second instance, same capability (embedded+embedded), reuses existing server
   it('second embedded instance reuses an existing embedded server', async () => {
     const config1 = await server.start({ embedded: true });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     const config2 = await server2.start({ embedded: true });
     expect(config2.port).toBe(config1.port);
     expect(config2.pid).toBe(config1.pid);
@@ -196,7 +226,7 @@ describe('PixelAgentsServer', () => {
   // 12. Second instance, same capability (standalone+standalone), reuses existing server
   it('second standalone instance reuses an existing standalone server', async () => {
     const config1 = await server.start({ embedded: false });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     const config2 = await server2.start({ embedded: false });
     expect(config2.port).toBe(config1.port);
     expect(registryFiles()).toHaveLength(1);
@@ -206,7 +236,7 @@ describe('PixelAgentsServer', () => {
   // 13. Capability mismatch: a standalone caller never reuses an embedded server
   it('standalone does not reuse an existing embedded server; starts its own', async () => {
     const config1 = await server.start({ embedded: true });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     const config2 = await server2.start({ embedded: false });
     expect(config2.port).not.toBe(config1.port);
     expect(registryFiles()).toHaveLength(2);
@@ -216,7 +246,7 @@ describe('PixelAgentsServer', () => {
   // 14. Capability mismatch, mirrored: an embedded caller never reuses a standalone server
   it('embedded does not reuse an existing standalone server; starts its own', async () => {
     const config1 = await server.start({ embedded: false });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     const config2 = await server2.start({ embedded: true });
     expect(config2.port).not.toBe(config1.port);
     expect(registryFiles()).toHaveLength(2);
@@ -226,7 +256,7 @@ describe('PixelAgentsServer', () => {
   // 15. Embedded + standalone coexist: two independent live registry entries, neither reuses
   it('embedded and standalone servers coexist as two live registry entries', async () => {
     const embeddedConfig = await server.start({ embedded: true });
-    const standalone = new PixelAgentsServer();
+    const standalone = new AgentTycoonServer();
     const standaloneConfig = await standalone.start({ embedded: false });
 
     expect(standaloneConfig.port).not.toBe(embeddedConfig.port);
@@ -249,7 +279,7 @@ describe('PixelAgentsServer', () => {
   // the opt-out a lie (the CLI would report the terminal off while it is on).
   it('a --no-terminal launch does not reuse a terminal-enabled standalone server', async () => {
     const config1 = await server.start({ embedded: false, ptyManager: new PtySessionManager() });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     const config2 = await server2.start({
       embedded: false,
       ptyManager: PtySessionManager.disabled('off'),
@@ -278,11 +308,11 @@ describe('PixelAgentsServer', () => {
       embedded: false,
       allowedHosts: ['a.example', 'B.example'],
     });
-    const same = new PixelAgentsServer();
+    const same = new AgentTycoonServer();
     expect(
       (await same.start({ embedded: false, allowedHosts: ['b.example', 'A.example'] })).port,
     ).toBe(config1.port);
-    const different = new PixelAgentsServer();
+    const different = new AgentTycoonServer();
     expect((await different.start({ embedded: false, allowedHosts: ['a.example'] })).port).not.toBe(
       config1.port,
     );
@@ -310,7 +340,7 @@ describe('PixelAgentsServer', () => {
 
   it('rotateToken refuses while a standalone server is running', async () => {
     const running = await server.start({ embedded: false });
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     await expect(server2.start({ embedded: false, rotateToken: true })).rejects.toThrow(
       /already running/,
     );
@@ -382,7 +412,7 @@ describe('PixelAgentsServer', () => {
       JSON.stringify({ port: 9999, pid: 999999, token: 'fake', startedAt: 0 }),
     );
     // Server never started (it would reuse), just stop
-    const server2 = new PixelAgentsServer();
+    const server2 = new AgentTycoonServer();
     server2.stop();
     expect(fs.existsSync(serverJsonPath)).toBe(true);
   });
@@ -390,7 +420,7 @@ describe('PixelAgentsServer', () => {
   // 20. stop() removes only this server's own registry entry, preserves the other's (D6)
   it('deletes only its own registry entry on stop, preserving a coexisting server', async () => {
     const embeddedConfig = await server.start({ embedded: true });
-    const standalone = new PixelAgentsServer();
+    const standalone = new AgentTycoonServer();
     const standaloneConfig = await standalone.start({ embedded: false });
     expect(registryFiles()).toHaveLength(2);
 

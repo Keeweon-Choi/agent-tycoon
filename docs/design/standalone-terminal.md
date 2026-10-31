@@ -4,7 +4,7 @@ Status: implemented (`feat/mobile-web-app`, landing together with the mobile she
 
 ## Goal
 
-Give the standalone surface (`npx pixel-agents`) launch/focus/close parity with the VS Code
+Give the standalone surface (`node dist/cli.js`) launch/focus/close parity with the VS Code
 extension by embedding a real terminal in the browser SPA.
 
 Today the two surfaces are asymmetric:
@@ -82,7 +82,7 @@ standalone terminal-lifecycle owner. **See open question 2 below.**
 
 A PTY is non-negotiable for this feature: Claude Code is a full-screen TUI. `child_process.spawn`
 with pipes gives no TTY, no resize, no line discipline, and Claude renders unusably. `node-pty` is
-the standard, but it is a **native module**, which is a real concern for `npx pixel-agents`.
+the standard, but it is a **native module**, which is a real concern for `node dist/cli.js`.
 
 ### Measurements (npm 11.16.0, Node 26.3.1, darwin-arm64)
 
@@ -154,7 +154,7 @@ Taking the fork trades maintainer pedigree for install reliability. Three things
 The result is cached. Availability is broadcast to the client as `terminalAvailability
 { available, reason? }` on `webviewReady`, and:
 
-- The server logs one clear `[Pixel Agents]` warning line with the reason and the remedy.
+- The server logs one clear `[Agent Tycoon]` warning line with the reason and the remedy.
 - The SPA hides `+ Agent` and shows the reason in the drawer instead of a dead terminal.
 
 This is why availability is a _probe_ and not a `try { require } catch`: the npm-11 case produces
@@ -241,7 +241,7 @@ under an unlisted `Host` stays read-only and the server logs the `--allowed-host
   refused while another standalone server is running, which would keep honouring the old token.
   The token stays in the address bar on purpose (stripping it would break bookmarks); the SPA
   sets `referrer: no-referrer` so it never leaves as a Referer.
-- A second `npx pixel-agents` reuses a running standalone server only when its access matches
+- A second `node dist/cli.js` reuses a running standalone server only when its access matches
   (`ServerConfig.standalone`: terminal on/off, bind host, allowed hosts). Otherwise `--no-terminal`
   would report the terminal off while attaching the user to a server that has one.
 - Terminal links: plain URLs (`@xterm/addon-web-links`) and OSC 8 hyperlinks (`linkHandler`) both
@@ -402,7 +402,7 @@ degradation path (see open question 3).
 2. **Should `ITerminalAdapter` grow into a real terminal-lifecycle seam** (`launch/write/resize/
 dispose`) that both surfaces implement, or stay the VS Code adoption helper it is today? The
    branch assumes the latter and puts the lifecycle in `PtySessionManager`.
-3. **A test seam to force PTY-unavailable** (e.g. `PIXEL_AGENTS_DISABLE_PTY=1`) would make the
+3. **A test seam to force PTY-unavailable** (e.g. `AGENT_TYCOON_DISABLE_PTY=1`) would make the
    module-failure degradation path e2e-testable. Today only the `--no-terminal` path is covered
    end to end, and the probe has no override.
 

@@ -9,20 +9,22 @@ import { type Session, sessionIdFromCookie, type StandaloneAuth } from '../auth.
 import { sameOriginRequest } from '../authRoutes.js';
 import type { ProjectFolder } from '../engine/git/repoRead.js';
 import { detectHostInfo } from '../folders.js';
-import { ATTACH_MAX, cleanOldAttachments, storeAttachment } from './attachments.js';
+import { cleanOldAttachments, storeAttachment, VIDEO_ATTACH_MAX } from './attachments.js';
 import { DownloadTickets } from './downloads.js';
 import { gitIgnoredPaths } from './ignored.js';
 import { listFiles } from './listing.js';
 import { fileForContent, mimeType, openContent, previewFile } from './preview.js';
+import { parseRange } from './range.js';
 import { recentFiles } from './recent.js';
-import { chosenRoot, FileAccessError, projectRoot } from './roots.js';
+import { chosenRoot, FileAccessError, projectRoot, worktreeRoot } from './roots.js';
+import { EDIT_MAX_BYTES, readForEdit, saveEdit } from './save.js';
 
 export const FOLDER_PROJECT = '~folder';
-type Query = { path?: string; root?: string; offset?: string; hidden?: string; limit?: string };
+type Query = { path?: string; root?: string; task?: string; hashOnly?: string; offset?: string; hidden?: string; limit?: string };
 type ProjectParam = { project: string };
 const NO_CACHE = 'private, no-store';
-/** Kinds a preview ticket serves inline: <img>, the PDF viewer, a sandboxed iframe. */
-const INLINE: readonly string[] = ['image', 'pdf', 'html'];
+/** Kinds a preview ticket serves inline: <img>, the PDF viewer, a sandboxed iframe, <video>. */
+const INLINE: readonly string[] = ['image', 'pdf', 'html', 'video'];
 
 function responseError(reply: FastifyReply, error: unknown) {
   if (error instanceof FileAccessError)
@@ -50,7 +52,7 @@ export class FileRateLimit {
 }
 
 function audit(
-  action: 'preview' | 'download' | 'upload',
+  action: 'preview' | 'download' | 'upload' | 'edit',
   session: Session,
   project: string,
   relative: string,
@@ -78,10 +80,12 @@ export function registerProjectFileRoutes(
       /* A bad inbox must not prevent the daemon from starting. */
     }
   }
-  const rootFor = (project: string, selected?: string) =>
+  const rootFor = (project: string, selected?: string, task?: string) =>
     project === FOLDER_PROJECT
       ? chosenRoot(selected ?? '', host)
-      : projectRoot(projects(), project);
+      : task !== undefined
+        ? worktreeRoot(projects(), project, task)
+        : projectRoot(projects(), project);
   const session = (request: FastifyRequest, reply: FastifyReply): Session | undefined => {
     const found = auth.session(sessionIdFromCookie(request.headers.cookie));
     if (!found) {
@@ -100,18 +104,18 @@ export function registerProjectFileRoutes(
     return found;
   };
 
-  // The upload's own scope: the 20 MB octet-stream parser reaches no other
-  // route, and the session/Origin check runs in onRequest, before the body is read.
+  // The upload's own scope: the octet-stream parser reaches no other route, hands the handler the
+  // request stream itself (never a whole-body Buffer; the handler enforces the limits as it writes),
+  // and the session/Origin check runs in onRequest, before the body is read.
   const uploaders = new WeakMap<FastifyRequest, Session>();
   app.register(async (scope) => {
-    scope.addContentTypeParser(
-      'application/octet-stream',
-      { parseAs: 'buffer', bodyLimit: ATTACH_MAX },
-      (_request, body, done) => done(null, body),
+    scope.addContentTypeParser('application/octet-stream', (_request, payload, done) =>
+      done(null, payload),
     );
-    scope.post<{ Params: ProjectParam; Body: Buffer }>(
+    scope.post<{ Params: ProjectParam; Body: AsyncIterable<Uint8Array> }>(
       '/cld/attach/:project',
       {
+        bodyLimit: VIDEO_ATTACH_MAX,
         onRequest: async (request, reply) => {
           const who = session(request, reply);
           if (!who) return reply;
@@ -127,7 +131,7 @@ export function registerProjectFileRoutes(
           if (
             typeof rawName !== 'string' ||
             typeof rawType !== 'string' ||
-            !Buffer.isBuffer(request.body)
+            typeof request.body?.[Symbol.asyncIterator] !== 'function'
           )
             throw new FileAccessError(koText('file_request_invalid'), 400);
           const batch = request.headers['x-attachment-batch'];
@@ -147,7 +151,14 @@ export function registerProjectFileRoutes(
             throw new FileAccessError(koText('file_name_invalid'), 400);
           }
           const root = projectRoot(projects(), request.params.project);
-          const result = storeAttachment(root, name, rawType, request.body);
+          const length = request.headers['content-length'];
+          const result = await storeAttachment(
+            root,
+            name,
+            rawType,
+            request.body,
+            length === undefined ? undefined : Number(length),
+          );
           if (key) {
             batches.set(key, { count: (held?.count ?? 0) + 1, at: Date.now() });
             if (batches.size > 1000)
@@ -174,7 +185,7 @@ export function registerProjectFileRoutes(
     async (request, reply) => {
       if (!session(request, reply)) return reply;
       try {
-        const root = rootFor(request.params.project, request.query.root);
+        const root = rootFor(request.params.project, request.query.root, request.query.task);
         return listFiles(
           root,
           request.query.path ?? '',
@@ -193,7 +204,7 @@ export function registerProjectFileRoutes(
     async (request, reply) => {
       if (!session(request, reply)) return reply;
       try {
-        const root = rootFor(request.params.project, request.query.root);
+        const root = rootFor(request.params.project, request.query.root, request.query.task);
         const ignored = gitIgnoredPaths(root);
         const visibleIgnored =
           request.query.hidden === '1'
@@ -211,7 +222,7 @@ export function registerProjectFileRoutes(
     async (request, reply) => {
       if (!session(request, reply)) return reply;
       try {
-        return { ignored: gitIgnoredPaths(rootFor(request.params.project, request.query.root)) };
+        return { ignored: gitIgnoredPaths(rootFor(request.params.project, request.query.root, request.query.task)) };
       } catch (error) {
         return responseError(reply, error);
       }
@@ -224,7 +235,7 @@ export function registerProjectFileRoutes(
       const who = session(request, reply);
       if (!who) return reply;
       try {
-        const root = rootFor(request.params.project, request.query.root);
+        const root = rootFor(request.params.project, request.query.root, request.query.task);
         const result = previewFile(root, request.query.path ?? '', sensitive.has(who.hash));
         audit(
           'preview',
@@ -234,6 +245,60 @@ export function registerProjectFileRoutes(
           result.size,
         );
         return result;
+      } catch (error) {
+        return responseError(reply, error);
+      }
+    },
+  );
+
+  // The editor: the whole text with the hash a save must present (hashOnly: just the hash, for the 5 s poll).
+  app.get<{ Params: ProjectParam; Querystring: Query }>(
+    '/api/cld/files/:project/text',
+    async (request, reply) => {
+      const who = session(request, reply);
+      if (!who) return reply;
+      try {
+        const root = rootFor(request.params.project, request.query.root, request.query.task);
+        const file = readForEdit(root, request.query.path ?? '', sensitive.has(who.hash));
+        return request.query.hashOnly === '1' ? { path: file.path, hash: file.hash } : file;
+      } catch (error) {
+        return responseError(reply, error);
+      }
+    },
+  );
+  // Save: the same session, same-origin, root, denylist and sensitive checks as the reads; refused with
+  // 409 and the disk's hash when the file changed since it was opened.
+  app.put<{
+    Params: ProjectParam;
+    Body: { path?: unknown; root?: unknown; task?: unknown; text?: unknown; baseHash?: unknown };
+  }>(
+    '/api/cld/files/:project/text',
+    { bodyLimit: EDIT_MAX_BYTES * 4 },
+    async (request, reply) => {
+      const who = session(request, reply);
+      if (!who) return reply;
+      const { path: relative, root: chosen, task, text, baseHash } = request.body ?? {};
+      if (
+        typeof relative !== 'string' ||
+        typeof text !== 'string' ||
+        typeof baseHash !== 'string' ||
+        (task !== undefined && typeof task !== 'string') ||
+        (chosen !== undefined && typeof chosen !== 'string')
+      )
+        return reply.code(400).send({ error: koText('file_request_invalid') });
+      try {
+        const root = rootFor(request.params.project, chosen, task);
+        const result = saveEdit(root, relative, sensitive.has(who.hash), text, baseHash);
+        if (!result.ok)
+          return reply.code(409).send({ ...refused('file_changed_on_disk'), hash: result.hash });
+        audit(
+          'edit',
+          who,
+          request.params.project === FOLDER_PROJECT ? root : request.params.project,
+          result.path,
+          result.size,
+        );
+        return { path: result.path, hash: result.hash };
       } catch (error) {
         return responseError(reply, error);
       }
@@ -257,7 +322,7 @@ export function registerProjectFileRoutes(
     },
   );
 
-  app.post<{ Params: ProjectParam; Body: { path?: unknown; root?: unknown; mode?: unknown } }>(
+  app.post<{ Params: ProjectParam; Body: { path?: unknown; root?: unknown; task?: unknown; mode?: unknown } }>(
     '/api/cld/files/:project/ticket',
     async (request, reply) => {
       const who = session(request, reply);
@@ -268,14 +333,17 @@ export function registerProjectFileRoutes(
       )
         return reply.code(400).send({ error: koText('file_request_invalid') });
       try {
-        const root = rootFor(request.params.project, request.body.root as string | undefined);
+        const task = typeof request.body.task === 'string' ? request.body.task : undefined;
+        const root = rootFor(request.params.project, request.body.root as string | undefined, task);
         const file = fileForContent(root, request.body.path, sensitive.has(who.hash));
         if (request.body.mode === 'preview' && !INLINE.includes(file.kind))
           throw new FileAccessError(koText('preview_unsupported'), 415);
         const ticket = tickets.mint({
+          reusable: request.body.mode === 'preview' && file.kind === 'video',
           session: who.hash,
           project: request.params.project,
           ...(request.params.project === FOLDER_PROJECT && { root }),
+          ...(task !== undefined && { task }),
           path: request.body.path,
           mode: request.body.mode as 'preview' | 'download',
         });
@@ -294,7 +362,7 @@ export function registerProjectFileRoutes(
       const ticket = tickets.consume(request.params.ticket, who.hash);
       if (!ticket) return reply.code(404).send({ ...refused('link_expired') });
       try {
-        const root = rootFor(ticket.project, ticket.root);
+        const root = rootFor(ticket.project, ticket.root, ticket.task);
         const file = openContent(root, ticket.path, sensitive.has(who.hash));
         const filename = path.basename(file.real);
         const disposition =
@@ -314,9 +382,30 @@ export function registerProjectFileRoutes(
             'Content-Security-Policy',
             "default-src 'none'; script-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox",
           );
-        reply.header('Content-Length', file.size);
-        audit(ticket.mode, who, ticket.root ?? ticket.project, ticket.path, file.size);
-        return reply.send(fs.createReadStream(file.real, { fd: file.fd, autoClose: true }));
+        // Range (iOS Safari plays and seeks a <video> only through it): 206 with the slice, 416 when
+        // it lies outside the file. The ticket, session and path checks above ran for every request.
+        reply.header('Accept-Ranges', 'bytes');
+        const range = parseRange(request.headers.range, file.size);
+        if (range === 'unsatisfiable') {
+          fs.closeSync(file.fd);
+          return reply
+            .code(416)
+            .type('application/json; charset=utf-8')
+            .header('Content-Range', `bytes */${file.size}`)
+            .send({ ...refused('range_invalid') });
+        }
+        if (range) {
+          reply
+            .code(206)
+            .header('Content-Range', `bytes ${range.start}-${range.end}/${file.size}`)
+            .header('Content-Length', range.end - range.start + 1);
+        } else reply.header('Content-Length', file.size);
+        // One line per playback, not per range request.
+        if (!range || range.start === 0)
+          audit(ticket.mode, who, ticket.root ?? ticket.project, ticket.path, file.size);
+        return reply.send(
+          fs.createReadStream(file.real, { fd: file.fd, autoClose: true, ...range }),
+        );
       } catch (error) {
         return responseError(reply, error);
       }

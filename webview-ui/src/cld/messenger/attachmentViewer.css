@@ -258,3 +258,28 @@
   color: #b8b8d0;
   pointer-events: none;
 }
+
+/* A video: inline in a bubble, and large in the viewer. */
+.attach-inline-video {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  max-height: 240px;
+  background: #000;
+}
+.attach-video-stage {
+  position: absolute;
+  left: calc(var(--cld-safe-left) + 12px);
+  right: calc(var(--cld-safe-right) + 12px);
+  top: calc(var(--cld-safe-top) + 56px);
+  bottom: calc(var(--cld-safe-bottom) + var(--attach-content-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attach-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}

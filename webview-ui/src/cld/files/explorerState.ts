@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { ProjectFileList } from '../../../../core/src/cld/projectFiles.js';
+import { showOffice } from '../hud/hudStore.js';
 import { type FileRoot, fileRootKey } from './filesStore.js';
 
 const STORAGE_KEY = 'cld.files.root.v1';
@@ -8,6 +9,8 @@ function savedRoot(): FileRoot | null {
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as FileRoot | null;
     if (value?.kind === 'project' && typeof value.project === 'string') return value;
+    if (value?.kind === 'worktree' && typeof value.project === 'string' && typeof value.task === 'string')
+      return value;
     if (value?.kind === 'folder' && typeof value.folder === 'string') return value;
   } catch {
     /* unavailable storage */
@@ -38,6 +41,12 @@ export function chooseFileRoot(root: FileRoot) {
 export function openProjectFiles(project: string) {
   chooseFileRoot({ kind: 'project', project });
   window.dispatchEvent(new Event('cld-open-files-tab'));
+}
+
+/** The dev room's `… → 탐색기에서 열기`: the 파일 window, rooted at one task worktree. */
+export function openExplorer(project: string, task: string) {
+  chooseFileRoot({ kind: 'worktree', project, task });
+  showOffice('files');
 }
 
 export class ListingCache {

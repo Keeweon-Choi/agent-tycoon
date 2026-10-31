@@ -12,6 +12,14 @@
  * and `--from` still pick a display label, but the app's own sources
  * (OWNER_SOURCE) are never accepted here, so nothing that comes over this
  * socket is typed under the owner's header.
+ *
+ * Owner (SEC-CONTROL, security.md §8): `owner` is the token in `<config>/owner-token`
+ * (controlIdentity.cjs). Only it unlocks the owner's commands (worker, trust, stop-agents,
+ * `task mode <m>`, renew of any project); task writes and worktree need it or an agent token. An
+ * agent token wins over it. A caller with neither is unidentified and gets the least: never more
+ * than an agent. Before
+ * this, a missing token meant the owner's power, so an agent that dropped CLD_AGENT_TOKEN had it.
+ * ponytail: same-OS-user processes can read owner-token; a guardrail, not a boundary.
  */
 import * as fs from 'fs';
 import * as net from 'net';
@@ -24,18 +32,25 @@ import type {
   EngineActionResult,
   EngineProject,
 } from '../../../../core/src/messages.js';
+import { CONTROL_LONG_MS } from '../../constants.js';
 import { CLI_NAME } from '../cliName.js';
 import { jobDescription } from '../jobNames.js';
 import { configDir } from './events.js';
+import { CLAUDE_PTY_PROVIDER } from './registry.js';
 
 const WORKER_OPS: EngineActionKind[] = ['add', 'edit', 'remove', 'start', 'stop', 'restart', 'promote'];
 const WORKER_FIELDS = ['project', 'role', 'folder', 'model', 'permissionMode', 'effort', 'title', 'provider'] as const;
 const WORKER_USAGE =
   `사용법: ${CLI_NAME} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] | worker edit <이름> [같은 옵션] | worker remove|start|stop|restart <이름> | worker promote <이름> [--old stop]`;
 
+/** SEC-CONTROL: what an unidentified caller hears when it asks for an owner command. */
+export const OWNER_NEEDED = `주인 확인이 안 돼요: 에이전트·작업 밖의 터미널에서 ${CLI_NAME} 를 실행하세요(owner-token)`;
+
+const MOVE_PTY_USAGE = `사용법: ${CLI_NAME} move-pty <이름> | move-pty --all | move-pty --stop`;
 const TRUST_USAGE = `사용법: ${CLI_NAME} trust [--start] <프로젝트 이름 또는 폴더>`;
 
 const REQUEST_MAX = 1024 * 1024;
+const LONG_COMMANDS = new Set(['permission-hook', 'move-pty']);
 const SOURCE_RE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** Sources only the app's authenticated routes inside the daemon may use (the owner's headers). */
 export const OWNER_SOURCE = /^(messenger|gui):/;
@@ -63,6 +78,8 @@ export interface ControlRequest {
   source: string;
   /** The caller's CLD_AGENT_TOKEN, when it sent one (unchecked here). */
   token?: string;
+  /** The owner token the owner's CLI sent (unchecked here). */
+  owner?: string;
   args: Record<string, unknown>;
 }
 
@@ -83,7 +100,8 @@ export function parseControl(line: string): ControlRequest | Reply {
   // The owner's sources are the app's; a caller here is at most a local CLI.
   const source = OWNER_SOURCE.test(claimed) ? 'cli' : claimed;
   const token = typeof j.token === 'string' && j.token.length <= 256 ? j.token : undefined;
-  return { cmd: j.cmd, cwd: j.cwd, source, ...(token && { token }), args };
+  const owner = typeof j.owner === 'string' && j.owner.length <= 256 ? j.owner : undefined;
+  return { cmd: j.cmd, cwd: j.cwd, source, ...(token && { token }), ...(owner && { owner }), args };
 }
 
 /** A sender or project name given on the command line, when it can be one. */
@@ -95,6 +113,8 @@ export interface ControlDeps {
   names(): string[];
   /** S7: the agent a CLD_AGENT_TOKEN was issued to (a Lead or a Worker), or null (forged, stale, none). */
   agentOf?(token: string): string | null;
+  /** SEC-CONTROL: `credential` is the owner token (controlIdentity.cjs ownerTokenMatches). None: nobody is the owner. */
+  isOwner?(credential: string): boolean;
   /** D3: the project an agent works for (a Lead's is its own name): jobs, Codex tasks and
    *  작업 현황 stay attributed to the project. */
   projectOf?(name: string): string | null;
@@ -133,6 +153,8 @@ export interface ControlDeps {
     model: string | null;
     effort?: string | null;
     worktree: boolean;
+    /** The user's one-line description: the run's title in its cards and notices. */
+    desc?: string | null;
     project: string | null;
     cwd: string;
     path?: string;
@@ -159,6 +181,11 @@ export interface ControlDeps {
   /** AUTO-TRUST: `agty trust [--start]`, Claude's folder trust question answered for a registered
    *  project (by name or folder), then optionally started (Engine.trustProject). */
   trust?(target: { name?: string; folder?: string }, start: boolean): Promise<Reply>;
+  /** TERM-P3: `agty move-pty --all` starts the queue that moves every agent into the PTY host; `--stop` ends it. */
+  moveAll?(stop: boolean): { ok: true; total?: number } | { ok: false; error?: string };
+  /** TERM-P3: a PTY agent's PermissionRequest hook (`cld-gui permission-hook`): the owner's
+   *  answer, or null (no answer in time, or no card for it: Claude shows its own dialog). */
+  permission?(agent: string, ask: { tool: string; input: Record<string, unknown> }): Promise<'allow' | 'deny' | null>;
   /** `cld-gui task …` (DEV-BOARD): `by` is the caller (its token's project, else its source). */
   task?(
     args: Record<string, unknown>,
@@ -176,6 +203,10 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
   // The token's project wins, then the project the caller stands in; a given
   // name only stands in for neither.
   const agent = req.token && d.agentOf ? d.agentOf(req.token) : null;
+  // SEC-CONTROL: an agent's token wins; without one, only the owner token makes the owner.
+  const owner = !agent && !!req.owner && !!d.isOwner?.(req.owner);
+  // The owner's commands: an agent hears why; anyone else (no token) is told to be the owner.
+  const ownerOnly = (agentWhy: string) => refuse('forbidden', agent ? agentWhy : OWNER_NEEDED);
   const here = agent ?? d.projectAt(req.cwd);
   const has = (key: 'from' | 'project') => a[key] !== undefined && a[key] !== null;
   const given = (key: 'from' | 'project') => (has(key) ? projectName(a[key]) : null);
@@ -264,8 +295,14 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       if (!spec)
         return refuse(
           'usage',
-          `사용법: ${CLI_NAME} codex [-m <모델>] [-e <강도>] [--worktree] [--project <이름>] <명세 파일>`,
+          `사용법: ${CLI_NAME} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree] [--project <이름>] <명세 파일>`,
         );
+      let desc: string | null;
+      try {
+        desc = jobDescription(a.desc);
+      } catch {
+        return refuse('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
+      }
       let project = projectOf(here);
       if (has('project')) {
         project = given('project');
@@ -277,6 +314,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         model: str(a.model),
         effort: str(a.effort),
         worktree: a.worktree === true,
+        desc,
         project,
         cwd: req.cwd,
         ...(str(a.path) && { path: str(a.path)! }),
@@ -293,7 +331,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
     case 'stop-agents':
       // An agent token represents one project.  It must never acquire the
       // owner's ability to stop every project and background job.
-      if (agent) return refuse('forbidden', '에이전트는 모든 작업을 멈출 수 없어요');
+      if (!owner) return ownerOnly('에이전트는 모든 작업을 멈출 수 없어요');
       return d.stopAgents
         ? d.stopAgents()
         : refuse('daemon_error', '에이전트를 멈출 수 없어요');
@@ -307,9 +345,10 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       if (has('project')) {
         name = given('project');
         if (!name || !d.names().includes(name)) return unknown(String(a.project));
-        // S-06: an agent token renews only itself or its own Workers (the owner keeps --project).
-        if (agent && name !== agent && projectOf(name) !== agent)
-          return refuse('forbidden', '에이전트는 다른 프로젝트를 환생시킬 수 없어요');
+        // S-06: an agent token renews only itself or its own Workers (the owner keeps --project);
+        // an unidentified caller only the project it stands in.
+        if (!owner && (!here || (name !== here && projectOf(name) !== here)))
+          return ownerOnly('에이전트는 다른 프로젝트를 환생시킬 수 없어요');
       }
       if (!name)
         return refuse(
@@ -329,16 +368,21 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       return { ok: !('error' in result), result };
     }
     case 'task':
+      // Writes are the owner's and an agent's (a Lead reports its own work); a mode change the owner's.
+      if (!owner && !agent && !['list', 'show', 'mode'].includes(String(a.op))) return ownerOnly('');
+      if (!owner && a.op === 'mode' && a.mode !== undefined && a.mode !== '')
+        return ownerOnly('에이전트는 위임 모드를 바꿀 수 없어요');
       return d.task
         ? d.task(a, { by: agent ?? req.source, project: projectOf(here), agent })
         : refuse('daemon_error', '작업 현황을 쓸 수 없어요');
     case 'worktree':
+      if (!owner && !agent) return ownerOnly('');
       return d.worktree
         ? d.worktree(a, { by: agent ?? req.source, project: projectOf(here), agent })
         : refuse('daemon_error', 'worktree 를 다룰 수 없어요');
     case 'trust': {
       // A person typed it: an agent (its token) never answers a trust question, as at the MCP tools.
-      if (agent) return refuse('forbidden', '에이전트는 폴더 신뢰에 답할 수 없어요');
+      if (!owner) return ownerOnly('에이전트는 폴더 신뢰에 답할 수 없어요');
       if (!d.trust) return refuse('daemon_error', '폴더 신뢰를 다룰 수 없어요');
       // Exactly one of them: a project name, or an absolute folder (the CLI resolves it).
       const name = projectName(a.name);
@@ -352,9 +396,39 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       if (!target) return refuse('usage', TRUST_USAGE);
       return d.trust(target, a.start === true);
     }
+    case 'permission-hook': {
+      // Only the asking session itself (its token): nobody answers another agent's dialog from here.
+      if (!agent || !d.permission) return refuse('forbidden', '에이전트 세션의 권한 요청만 받아요');
+      const tool = str(a.tool);
+      if (!tool) return refuse('usage', 'tool 이 없습니다');
+      const input = a.input && typeof a.input === 'object' && !Array.isArray(a.input) ? (a.input as Record<string, unknown>) : {};
+      const decision = await d.permission(agent, { tool: tool.slice(0, 200), input });
+      return { ok: true, decision };
+    }
+    case 'move-pty': {
+      // TERM-P3: the owner moves one agent into our PTY host (the per-agent switch, as an edit).
+      if (!owner) return ownerOnly('에이전트는 다른 에이전트를 옮길 수 없어요');
+      if (!d.engineAction) return refuse('daemon_error', '에이전트를 옮길 수 없어요');
+      if (a.all === true || a.stop === true) {
+        if (!d.moveAll) return refuse('daemon_error', '에이전트를 옮길 수 없어요');
+        const q = d.moveAll(a.stop === true);
+        return q.ok ? { ok: true, ...(q.total !== undefined && { total: q.total }) } : refuse('refused', q.error ?? '');
+      }
+      const name = projectName(a.name);
+      if (!name) return refuse('usage', MOVE_PTY_USAGE);
+      if (!d.names().includes(name)) return unknown(name);
+      const r = await d.engineAction({
+        type: 'engineAction',
+        requestId: `cli-${Date.now()}`,
+        action: 'edit',
+        name,
+        provider: CLAUDE_PTY_PROVIDER,
+      });
+      return r.ok ? { ok: true, name, ...(r.note && { note: r.note }) } : refuse('refused', r.error ?? '');
+    }
     case 'worker': {
       // The owner's command: an agent (its token) does not make or change agents (C5/C6 will).
-      if (agent) return refuse('forbidden', '에이전트는 Worker 를 만들거나 바꿀 수 없어요');
+      if (!owner) return ownerOnly('에이전트는 Worker 를 만들거나 바꿀 수 없어요');
       if (!d.engineAction || !d.workers) return refuse('daemon_error', 'Worker 를 다룰 수 없어요');
       const op = str(a.op);
       if (op === 'list') return { ok: true, workers: d.workers() };
@@ -415,6 +489,8 @@ export async function listenControl(
       if (nl === -1) return;
       done = true;
       const req = parseControl(buf.slice(0, nl));
+      // TERM-P3: a permission hook waits for the owner, a move for a stop and a resume.
+      if (!('ok' in req) && LONG_COMMANDS.has(req.cmd)) socket.setTimeout(CONTROL_LONG_MS);
       const answer =
         'ok' in req
           ? Promise.resolve(req)

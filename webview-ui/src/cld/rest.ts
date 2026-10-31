@@ -1,6 +1,7 @@
 /**
- * REST-ANIM: a character whose 휴식 (compaction) count goes up while this screen watches plays a
- * short drink at its mouth (theme.ts picks the drink). A count first seen (page load) or replayed
+ * REST-ANIM: a character whose 휴식 (compaction) count goes up while this screen watches takes a
+ * coffee break (cld/director), or with no machine on its floor a short drink at its mouth
+ * (theme.ts picks the drink). A count first seen (page load) or replayed
  * by a reconnect is only a baseline. Idle costs one Map lookup per character per frame.
  */
 import {
@@ -53,13 +54,17 @@ export class RestWatch {
     this.quietUntil = nowMs + REST_SETTLE_MS;
   }
 
-  /** A character's 휴식 count as the screen sees it now. True when its rest moment starts. */
+  /** A character's count (휴식, or 환생 for C1) as the screen sees it now. True: it went up live
+   *  (the caller hands the moment to the director, cld/director). */
   observe(id: number, count: number, nowMs: number): boolean {
     const before = this.seen.get(id);
     this.seen.set(id, count);
-    if (before === undefined || count <= before || nowMs < this.quietUntil) return false;
+    return before !== undefined && count > before && nowMs >= this.quietUntil;
+  }
+
+  /** The drink at the mouth starts now (C1: the coffee break with no machine on the floor). */
+  sip(id: number, nowMs: number): void {
     this.started.set(id, nowMs);
-    return true;
   }
 
   /** Seconds into the character's rest moment, or null (none, or over). */
@@ -74,3 +79,5 @@ export class RestWatch {
 }
 
 export const restWatch = new RestWatch();
+/** C1: the 환생 count (the stats view's rebirth flames), watched the same way. */
+export const rebirthWatch = new RestWatch();

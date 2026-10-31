@@ -219,7 +219,7 @@ async function main() {
   const pageErrors: string[] = [];
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     const page = await ctx.newPage();
     page.on('pageerror', (err) => pageErrors.push(String(err)));
     return { ctx, page };

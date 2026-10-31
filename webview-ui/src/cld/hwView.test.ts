@@ -8,6 +8,7 @@ import {
   HW_PREFS_KEY,
   hwViewModel,
   openDetail,
+  openHwView,
   pickedItem,
   resetHwPrefs,
   setHwPrefs,
@@ -207,5 +208,18 @@ describe('gpu fallbacks', () => {
       .map((s) => s.title)
       .filter((x) => x.startsWith('GPU'));
     expect(new Set(titles).size).toBe(titles.length);
+  });
+});
+
+describe('openHwView', () => {
+  it('sends on for the first open and off only after the last close', () => {
+    const sent: boolean[] = [];
+    const send = (msg: { on: boolean }) => sent.push(msg.on);
+    const panel = openHwView(send);
+    const board = openHwView(send);
+    board();
+    expect(sent).toEqual([true]);
+    panel();
+    expect(sent).toEqual([true, false]);
   });
 });

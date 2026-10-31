@@ -8,7 +8,10 @@
  *
  *   npx tsx cld/test/run-perm-prompt.ts <port 18256-18259>
  *
- * Screenshots: cld/artifacts/perm-prompt/*.png
+ * PERM-CARD-FIT: a third, very long dialog on a 390x844 phone: the buttons stay in view, the command
+ * scrolls in its own box, long ones start folded, the toggle opens and folds it.
+ *
+ * Screenshots: cld/artifacts/perm-prompt/*.png (the first part) and cld/artifacts/perm-card/*.png (the fit part)
  */
 import type { BrowserContextOptions, Locator, Page } from '@playwright/test';
 import { devices } from '@playwright/test';
@@ -29,6 +32,7 @@ import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/perm-prompt');
+const OUT_CARD = path.join(REPO_ROOT, 'cld/artifacts/perm-card');
 const DEADLINE_MS = 240_000;
 const PHONE = (() => {
   const d = { ...devices['iPhone 13'] } as BrowserContextOptions & { defaultBrowserType?: string };
@@ -57,6 +61,7 @@ async function until(
 async function main() {
   await assertPortFree(port);
   fs.mkdirSync(OUT, { recursive: true });
+  fs.mkdirSync(OUT_CARD, { recursive: true });
   const { home, bin } = makeEngineHome();
   const sessions = path.join(home, '.claude/sessions');
   fs.mkdirSync(sessions, { recursive: true });
@@ -276,6 +281,64 @@ async function main() {
       await p2.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       'phone: no horizontal page scroll',
     );
+
+    // ════ PERM-CARD-FIT: 390x844, a command far taller than the screen ════
+    await p2.setViewportSize({ width: 390, height: 844 });
+    const longCommand = Array.from(
+      { length: 14 },
+      (_, i) => `echo step-${i} && sleep 1 # wraps on a narrow screen ${'x'.repeat(30)}`,
+    ).join('\n');
+    ask('toolu_perm3', 'Run the whole release', longCommand);
+    const card3 = conv2.getByTestId('permission-card');
+    await card3.waitFor({ timeout: 40_000 });
+    await until(
+      'the long card read off the screen',
+      async () => (await card3.getByTestId('permission-fold').count()) > 0,
+      20_000,
+    );
+    const inView = async (l: Locator) => {
+      const b = await l.boundingBox();
+      const h = await p2.evaluate(() => window.visualViewport?.height ?? window.innerHeight);
+      return !!b && b.y >= 0 && b.y + b.height <= h;
+    };
+    const allow3 = card3.getByRole('button', { name: '허용' });
+    check(await inView(allow3), 'fit: 허용 is inside the visible screen with a very long command');
+    check(
+      await inView(card3.getByRole('button', { name: '거부' })),
+      'fit: 거부 is inside the visible screen',
+    );
+    const fold = card3.getByTestId('permission-fold');
+    check(
+      (await fold.getAttribute('aria-expanded')) === 'false',
+      'fit: a long command starts folded on a phone',
+    );
+    check((await card3.getByTestId('permission-detail').count()) === 0, 'fit: folded hides the text');
+    await p2.screenshot({ path: path.join(OUT_CARD, 'phone-folded.png') });
+    await fold.tap();
+    const detail = card3.getByTestId('permission-detail');
+    await detail.waitFor({ timeout: 5_000 });
+    check(
+      ((await detail.textContent()) ?? '').includes('Run the whole release'),
+      'fit: opened, the text is the dialog read off the screen',
+    );
+    await p2.waitForTimeout(300);
+    check(await inView(allow3), 'fit: 허용 stays visible with the command open');
+    const dims = await detail.evaluate((el) => ({
+      scrolls: el.scrollHeight > el.clientHeight,
+      h: el.clientHeight,
+    }));
+    check(dims.scrolls && dims.h <= 844 * 0.4 + 4, `fit: the command scrolls in its own box (${dims.h}px)`);
+    await detail.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await p2.screenshot({ path: path.join(OUT_CARD, 'phone-open-scrolled.png') });
+    check(await inView(allow3), 'fit: 허용 stays visible after scrolling the command');
+    await fold.tap();
+    await detail.waitFor({ state: 'detached', timeout: 5_000 });
+    check(true, 'fit: the toggle folds it again');
+    await card3.getByRole('button', { name: '허용' }).tap();
+    await card3.waitFor({ state: 'detached', timeout: 20_000 });
+    done('toolu_perm3');
     await ctx2.close();
     console.log('done');
   } catch (err) {

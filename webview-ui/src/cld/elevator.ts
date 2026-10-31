@@ -222,8 +222,9 @@ export function elevatorLinks(els: Elevator[] | null): FloorLinks | null {
 // ── Riding ───────────────────────────────────────────────────
 
 /** A path step that is not to a neighbour. */
+/** Not a neighbour (a diagonal one is, OWNER-AVATAR): the step is a ride. */
 const jumps = (from: Tile, to: Tile) =>
-  Math.abs(to.col - from.col) + Math.abs(to.row - from.row) > 1;
+  Math.max(Math.abs(to.col - from.col), Math.abs(to.row - from.row)) > 1;
 
 function callOff(ch: Character, at?: Tile): void {
   ch.cldRide = undefined;

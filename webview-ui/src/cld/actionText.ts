@@ -2,6 +2,7 @@
  * The Korean words of a session's start / stop / restart buttons and their
  * confirmation question, and the particles after a name. Pure.
  */
+import { JOSA, josa, withJosa } from '../../../core/src/cld/josa.js';
 import { getLanguage, t } from '../i18n/index.js';
 
 export type SessionVerb = 'start' | 'quit' | 'restart';
@@ -11,24 +12,15 @@ export const ACTION_LABEL: Record<SessionVerb, string> = {
   get restart() { return t('engine.action.restart'); },
 };
 
-/** 을/를 after a name: Hangul by its final consonant; otherwise a guess from how it is read. */
+/** 을/를 after a name, by how it is read (Hangul final consonant, digit or Latin letter). */
 export function objectParticle(name: string): string {
-  if (getLanguage() !== 'ko') return '';
-  const last = name.trim().slice(-1);
-  const syllable = last.charCodeAt(0) - 0xac00;
-  if (syllable >= 0 && syllable < 11172) return syllable % 28 ? '\uC744' : '\uB97C';
-  return /[lmn0136789]$/i.test(last) ? '\uC744' : '\uB97C';
+  return getLanguage() === 'ko' ? josa(name, JOSA.object) : '';
 }
 
 /** A name with the Korean subject particle, including a safe visible fallback. */
 export function subjectWithParticle(name: string | null | undefined): string {
   const subject = name?.trim() || t('action.character');
-  if (getLanguage() !== 'ko') return subject;
-  const last = subject.slice(-1);
-  const syllable = last.charCodeAt(0) - 0xac00;
-  const hasFinalConsonant =
-    (syllable >= 0 && syllable < 11172 && syllable % 28 !== 0) || /[lmnr013678]$/i.test(last);
-  return `${subject}${hasFinalConsonant ? '\uC774' : '\uAC00'}`;
+  return getLanguage() === 'ko' ? withJosa(subject, JOSA.subject) : subject;
 }
 
 export function confirmText(

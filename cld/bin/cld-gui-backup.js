@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const { CLI_NAME } = require('./cld-brand');
-const { configDirectory } = require('../../core/src/cld/configPath.cjs');
+const { configDirectory, officeDirectory, legacyOfficeDirectory } = require('../../core/src/cld/configPath.cjs');
 
 const BACKUP_FORMAT = 'agent-tycoon-backup';
 const BACKUP_VERSION = 1;
@@ -18,6 +18,9 @@ const ALLOW_LIST = Object.freeze([
   'worktrees.json', 'job-history.json', 'rules-engine.md', 'events.jsonl',
   'pixel-agents/layout.json',
 ]);
+/** The office layout. Its archive name is the one from before the 2026-11 move (the file left
+ *  ~/.pixel-agents for the office folder), so archives made before it still restore. */
+const LAYOUT_ENTRY = 'pixel-agents/layout.json';
 
 const CONFIG_FILES = new Set(ALLOW_LIST.filter((name) => !name.endsWith('/**') && !name.startsWith('pixel-agents/')));
 const CONFIG_TREES = ['groups/', 'characters/'];
@@ -66,12 +69,12 @@ function isAllowedPath(relative) {
   if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) return false;
   const normalized = path.posix.normalize(relative);
   if (normalized !== relative || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) return false;
-  if (relative === 'pixel-agents/layout.json') return true;
+  if (relative === LAYOUT_ENTRY) return true;
   return CONFIG_FILES.has(relative) || CONFIG_TREES.some((prefix) => relative.startsWith(prefix) && relative.length > prefix.length);
 }
 
 function archivePath(home, relative) {
-  if (relative === 'pixel-agents/layout.json') return path.join(home, '.pixel-agents', 'layout.json');
+  if (relative === LAYOUT_ENTRY) return path.join(officeDirectory(home), 'layout.json');
   return path.join(configDirectory(home), ...relative.split('/'));
 }
 
@@ -96,8 +99,10 @@ function filesUnder(deps, base, prefix) {
 function allowedFiles(deps) {
   const found = [];
   const config = configDirectory(deps.home);
-  for (const relative of [...CONFIG_FILES, 'pixel-agents/layout.json']) {
-    const file = archivePath(deps.home, relative);
+  for (const relative of [...CONFIG_FILES, LAYOUT_ENTRY]) {
+    let file = archivePath(deps.home, relative);
+    // ponytail: a daemon before 2026-11 kept it in ~/.pixel-agents; one release.
+    if (relative === LAYOUT_ENTRY && !regularFile(deps, file)) file = path.join(legacyOfficeDirectory(deps.home), 'layout.json');
     if (!regularFile(deps, file)) continue;
     const size = deps.fs.lstatSync(file).size;
     if (size > MAX_FILE_SIZE && relative !== 'events.jsonl') continue;

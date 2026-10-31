@@ -5,8 +5,6 @@ export type { StateAdapter } from './adapter.js';
 export {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   HOOK_API_PREFIX,
-  HOOK_SCRIPTS_DIR,
-  SERVER_JSON_DIR,
   SERVER_JSON_NAME,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
 } from './constants.js';

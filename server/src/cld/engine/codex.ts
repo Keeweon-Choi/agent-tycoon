@@ -270,6 +270,8 @@ export class CodexTasks {
     model: string | null;
     effort?: string | null;
     worktree: boolean;
+    /** `-d`: the run's title (its cards and its finish notice), in place of the spec's heading. */
+    desc?: string | null;
     project: string | null;
     cwd: string;
     path?: string;
@@ -285,7 +287,7 @@ export class CodexTasks {
     try {
       title = w
         ? (w.title ?? messageTitle(w.prompt))
-        : codexTitle(req.spec, fs.readFileSync(req.spec, 'utf8'));
+        : (req.desc ?? codexTitle(req.spec, fs.readFileSync(req.spec, 'utf8')));
     } catch {
       return refuse('bad_file', `명세 파일을 읽지 못했습니다: ${req.spec}`);
     }

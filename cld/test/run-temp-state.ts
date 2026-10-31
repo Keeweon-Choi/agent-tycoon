@@ -155,7 +155,7 @@ async function main() {
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     await ctx.addInitScript(
-      `globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;
+      `globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;
        try { localStorage.setItem('cld.office-hours', '{"on":false,"lingerMin":600}');
              localStorage.setItem('cld.floor-view', 'one'); localStorage.setItem('cld.floor', '1'); } catch {}`,
     );

@@ -216,3 +216,25 @@ export async function answerWorktree(
   }
   return refuse('usage', `사용법: ${CLI_NAME} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] | worktree list [--task <작업 id>]`);
 }
+
+/**
+ * W3: the Tasks done now that were not in `seen` (ids; null = the store not read yet, nothing
+ * merges): each one's worktree branch merges into its base by itself. RepoManager.merge refuses
+ * the automatic request for a protected base and for a Task with review notes (those wait for
+ * the owner's 병합 in the 작업실). Returns the done ids to remember and the merges started.
+ */
+export function mergeNewlyDone(
+  tasks: Pick<TaskStore, 'list'>,
+  repos: Pick<RepoManager, 'worktrees' | 'merge'>,
+  seen: ReadonlySet<string> | null,
+): { seen: Set<string> | null; merges: Array<Promise<WriteResult>> } {
+  if (!seen) return { seen, merges: [] };
+  const done = tasks.list({ status: 'done' });
+  const merges: Array<Promise<WriteResult>> = [];
+  for (const t of done) {
+    if (seen.has(t.id)) continue;
+    const rec = repos.worktrees.forTask(t.project, t.id);
+    if (rec) merges.push(repos.merge(t.project, rec.task, { privileged: true, source: 'auto', auto: true }));
+  }
+  return { seen: new Set(done.map((t) => t.id)), merges };
+}

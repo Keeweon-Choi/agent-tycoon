@@ -45,7 +45,8 @@ export interface LiveSession {
   id?: string;
   pid: number;
   cwd: string;
-  /** 'background': the agent's own daemon holds it; anything else is open in a person's terminal. */
+  /** 'background': a holder the engine drives keeps it (the agent's own daemon, or our PTY host,
+   *  TERM-P1); anything else is open in a person's terminal. */
   kind: string;
   startedAt?: number;
   /** The conversation's id (Claude's UUID). */
@@ -122,6 +123,11 @@ export interface AgentProvider {
   deliver?(
     p: ProjectRecord,
     text: string,
-    o: { task?: string; group?: { id: string; messageId?: string }; messageId?: string },
+    o: { task?: string; group?: { id: string; messageId?: string }; messageId?: string; now?: boolean },
   ): Promise<'typed' | 'notReady' | 'failed'>;
+  /** TERM-P1: a provider whose idle sessions nobody else retires (our PTY host): the engine stops
+   *  one idle for idleStopMs itself, unless this says someone watches its terminal. */
+  viewed?(s: LiveSession): boolean;
+  /** TERM-P3: close every session of `p`'s assignment, one not up yet too; true once none is left. */
+  closeAll?(p: ProjectRecord): Promise<boolean>;
 }

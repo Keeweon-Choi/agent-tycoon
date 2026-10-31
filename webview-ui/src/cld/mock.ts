@@ -109,19 +109,25 @@ export function cldMockMessages(): ServerMessage[] {
     {
       type: 'usageState',
       ts: isoMinutesAgo(1),
-      claude: {
-        fiveHourPct: 73,
-        sevenDayPct: 48,
-        fiveHourReset: isoMinutesAhead(133),
-        sevenDayReset: isoMinutesAhead(4320),
-        models: [{ family: 'fable', pct: 12, reset: isoMinutesAhead(5000) }],
-      },
-      codex: {
-        fiveHourPct: 87,
-        sevenDayPct: 61,
-        fiveHourReset: isoMinutesAhead(84),
-        sevenDayReset: isoMinutesAhead(5750),
-      },
+      providers: [
+        {
+          id: 'claude',
+          name: 'Claude',
+          windows: [
+            { id: '5h', pct: 73, resetAt: isoMinutesAhead(133) },
+            { id: '7d', pct: 48, resetAt: isoMinutesAhead(4320) },
+          ],
+          models: [{ family: 'fable', pct: 12, reset: isoMinutesAhead(5000) }],
+        },
+        {
+          id: 'codex',
+          name: 'Codex',
+          windows: [
+            { id: '5h', pct: 87, resetAt: isoMinutesAhead(84) },
+            { id: '7d', pct: 61, resetAt: isoMinutesAhead(5750) },
+          ],
+        },
+      ],
     },
   ];
   const summaries = [

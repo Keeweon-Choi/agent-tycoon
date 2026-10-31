@@ -90,8 +90,8 @@ test('INSTALL-14: a desktop installer that does not match the signed SHA256SUMS 
   const r = await s.installSh(rel, ['--yes', '--gui', 'yes', '--launch', 'no', '--port', String(s.port)], { defaults: false });
   assert.equal(r.code, 0, r.out + r.err);
   assert.match(r.out, /desktop app not installed: .*SHA-256 does not match the signed SHA256SUMS; not run/);
-  // P7 (one host per Windows user) asks cmd.exe for %LOCALAPPDATA% to find a Windows-side install: not the installer.
-  const hostLookup = (c) => c[0] === 'cmd.exe' && /\becho %LOCALAPPDATA%/.test(c.slice(1).join(' '));
+  // P7 (one host per Windows user) asks powershell.exe for $env:LOCALAPPDATA to find a Windows-side install: not the installer.
+  const hostLookup = (c) => c[0] === 'powershell.exe' && c.at(-1).endsWith('$env:LOCALAPPDATA');
   assert.equal(s.calls().filter((c) => (c[0] === 'setup.exe' || c[0] === 'cmd.exe') && !hostLookup(c)).length, 0, 'the installer never ran');
   assert.equal((await s.health())?.version, '1.0.0', 'the daemon is installed all the same');
 });

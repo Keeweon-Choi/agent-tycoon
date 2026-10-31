@@ -18,6 +18,7 @@ vi.mock('os', async () => {
 // Must import AFTER mock setup.
 const { FileStateAdapter } = await import('../src/fileStateAdapter.js');
 const { getHooksEnabled, setHooksEnabled } = await import('../src/configPersistence.js');
+const { officeFile } = await import('../src/officeFolder.js');
 
 describe('FileStateAdapter', () => {
   beforeEach(() => {
@@ -32,92 +33,89 @@ describe('FileStateAdapter', () => {
 
   it('returns defaults when config file does not exist', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    expect(adapter.getSetting('pixel-agents.soundEnabled', false)).toBe(true);
-    expect(adapter.getSetting('pixel-agents.watchAllSessions', true)).toBe(false);
-    expect(adapter.getSetting('pixel-agents.lastSeenVersion', 'x')).toBe('');
+    expect(adapter.getSetting('agent-tycoon.soundEnabled', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.watchAllSessions', true)).toBe(false);
+    expect(adapter.getSetting('agent-tycoon.lastSeenVersion', 'x')).toBe('');
   });
 
   it('round-trips each namespaced setting key (hooksEnabled moved to the per-provider map)', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
 
-    adapter.setSetting('pixel-agents.soundEnabled', false);
-    adapter.setSetting('pixel-agents.lastSeenVersion', '1.3');
-    adapter.setSetting('pixel-agents.alwaysShowLabels', true);
-    adapter.setSetting('pixel-agents.watchAllSessions', true);
-    adapter.setSetting('pixel-agents.hooksInfoShown', true);
-    adapter.setSetting('pixel-agents.bypassPermissions', true);
+    adapter.setSetting('agent-tycoon.soundEnabled', false);
+    adapter.setSetting('agent-tycoon.lastSeenVersion', '1.3');
+    adapter.setSetting('agent-tycoon.alwaysShowLabels', true);
+    adapter.setSetting('agent-tycoon.watchAllSessions', true);
+    adapter.setSetting('agent-tycoon.hooksInfoShown', true);
+    adapter.setSetting('agent-tycoon.bypassPermissions', true);
 
-    expect(adapter.getSetting('pixel-agents.soundEnabled', true)).toBe(false);
-    expect(adapter.getSetting('pixel-agents.lastSeenVersion', '')).toBe('1.3');
-    expect(adapter.getSetting('pixel-agents.alwaysShowLabels', false)).toBe(true);
-    expect(adapter.getSetting('pixel-agents.watchAllSessions', false)).toBe(true);
-    expect(adapter.getSetting('pixel-agents.hooksInfoShown', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.soundEnabled', true)).toBe(false);
+    expect(adapter.getSetting('agent-tycoon.lastSeenVersion', '')).toBe('1.3');
+    expect(adapter.getSetting('agent-tycoon.alwaysShowLabels', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.watchAllSessions', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.hooksInfoShown', false)).toBe(true);
 
     // hooksEnabled is deliberately NOT an adapter key any more: it is
     // per-provider and machine-global, so the adapter ignores it and the
     // per-provider accessors own it.
-    adapter.setSetting('pixel-agents.hooksEnabled', false);
-    expect(adapter.getSetting('pixel-agents.hooksEnabled', true)).toBe(true);
+    adapter.setSetting('agent-tycoon.hooksEnabled', false);
+    expect(adapter.getSetting('agent-tycoon.hooksEnabled', true)).toBe(true);
     setHooksEnabled('claude', false);
     expect(getHooksEnabled('claude')).toBe(false);
-    expect(adapter.getSetting('pixel-agents.bypassPermissions', false)).toBe(true);
+    expect(adapter.getSetting('agent-tycoon.bypassPermissions', false)).toBe(true);
   });
 
-  it('defaults bypassPermissions to off and keeps it per-namespace', () => {
-    const vscode = new FileStateAdapter({ namespace: 'vscode' });
+  it('defaults bypassPermissions to off', () => {
     const standalone = new FileStateAdapter({ namespace: 'standalone' });
 
-    expect(standalone.getSetting('pixel-agents.bypassPermissions', true)).toBe(false);
+    expect(standalone.getSetting('agent-tycoon.bypassPermissions', true)).toBe(false);
 
-    standalone.setSetting('pixel-agents.bypassPermissions', true);
+    standalone.setSetting('agent-tycoon.bypassPermissions', true);
 
-    expect(standalone.getSetting('pixel-agents.bypassPermissions', false)).toBe(true);
-    expect(vscode.getSetting('pixel-agents.bypassPermissions', true)).toBe(false);
+    expect(standalone.getSetting('agent-tycoon.bypassPermissions', false)).toBe(true);
   });
 
-  it('vscode and standalone namespaces are isolated in config.json', () => {
-    const vscode = new FileStateAdapter({ namespace: 'vscode' });
+  it("reads the removed extension's vscode section and does not write it back", () => {
+    fs.mkdirSync(path.join(tempHome, '.pixel-agents'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tempHome, '.pixel-agents', 'config.json'),
+      JSON.stringify({ vscode: { watchAllSessions: true }, standalone: { soundEnabled: false } }),
+    );
     const standalone = new FileStateAdapter({ namespace: 'standalone' });
+    expect(standalone.getSetting('agent-tycoon.soundEnabled', true)).toBe(false);
 
-    vscode.setSetting('pixel-agents.watchAllSessions', true);
-    standalone.setSetting('pixel-agents.watchAllSessions', false);
+    standalone.setSetting('agent-tycoon.watchAllSessions', false);
 
-    expect(vscode.getSetting('pixel-agents.watchAllSessions', null)).toBe(true);
-    expect(standalone.getSetting('pixel-agents.watchAllSessions', null)).toBe(false);
-
-    const configPath = path.join(tempHome, '.pixel-agents', 'config.json');
-    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    expect(parsed.vscode.watchAllSessions).toBe(true);
-    expect(parsed.standalone.watchAllSessions).toBe(false);
+    const parsed = JSON.parse(
+      fs.readFileSync(officeFile('config.json', tempHome), 'utf-8'),
+    ) as Record<string, Record<string, unknown>>;
+    expect(parsed.vscode).toBeUndefined();
+    expect(parsed.standalone).toMatchObject({ soundEnabled: false, watchAllSessions: false });
   });
 
   it('ignores unknown setting keys (returns default, does not write)', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    expect(adapter.getSetting('pixel-agents.unknownKey', 'fallback')).toBe('fallback');
-    adapter.setSetting('pixel-agents.unknownKey', 'ignored');
-    const configPath = path.join(tempHome, '.pixel-agents', 'config.json');
+    expect(adapter.getSetting('agent-tycoon.unknownKey', 'fallback')).toBe('fallback');
+    adapter.setSetting('agent-tycoon.unknownKey', 'ignored');
+    const configPath = officeFile('config.json', tempHome);
     expect(fs.existsSync(configPath)).toBe(false);
   });
 
-  it('accepts setting keys with or without the pixel-agents. prefix', () => {
+  it('accepts setting keys with or without the agent-tycoon. prefix', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    adapter.setSetting('pixel-agents.soundEnabled', false);
+    adapter.setSetting('agent-tycoon.soundEnabled', false);
     expect(adapter.getSetting('soundEnabled', true)).toBe(false);
     adapter.setSetting('lastSeenVersion', '1.0');
-    expect(adapter.getSetting('pixel-agents.lastSeenVersion', '')).toBe('1.0');
+    expect(adapter.getSetting('agent-tycoon.lastSeenVersion', '')).toBe('1.0');
   });
 
   it('persists settings under namespace in config.json with clean field names', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    adapter.setSetting('pixel-agents.soundEnabled', false);
-    const configPath = path.join(tempHome, '.pixel-agents', 'config.json');
+    adapter.setSetting('agent-tycoon.soundEnabled', false);
+    const configPath = officeFile('config.json', tempHome);
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
     expect(parsed.standalone.soundEnabled).toBe(false);
-    expect(parsed.standalone['pixel-agents.soundEnabled']).toBeUndefined();
+    expect(parsed.standalone['agent-tycoon.soundEnabled']).toBeUndefined();
   });
 
   // ── Per-namespace state file (agents + seats) ───────────────
@@ -143,26 +141,10 @@ describe('FileStateAdapter', () => {
     expect(adapter.loadAgents()).toEqual(agents);
   });
 
-  it('writes state at ~/.pixel-agents/<namespace>-state.json', () => {
-    const adapter = new FileStateAdapter({ namespace: 'vscode' });
+  it('writes state at <office folder>/<namespace>-state.json', () => {
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
     adapter.saveSeats({ '1': { palette: 2, hueShift: 45 } });
-    const stateFile = path.join(tempHome, '.pixel-agents', 'vscode-state.json');
-    expect(fs.existsSync(stateFile)).toBe(true);
-  });
-
-  it('vscode and standalone state files are independent', () => {
-    const vscode = new FileStateAdapter({ namespace: 'vscode' });
-    const standalone = new FileStateAdapter({ namespace: 'standalone' });
-    const agentVs: PersistedAgent[] = [
-      { id: 1, terminalName: 'A', jsonlFile: '/a.jsonl', projectDir: '/proj' },
-    ];
-    const agentSa: PersistedAgent[] = [
-      { id: 9, terminalName: '', jsonlFile: '/b.jsonl', projectDir: '/proj' },
-    ];
-    vscode.saveAgents(agentVs);
-    standalone.saveAgents(agentSa);
-    expect(vscode.loadAgents()).toEqual(agentVs);
-    expect(standalone.loadAgents()).toEqual(agentSa);
+    expect(fs.existsSync(officeFile('standalone-state.json', tempHome))).toBe(true);
   });
 
   it('preserves seats when saving agents (and vice versa)', () => {

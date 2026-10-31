@@ -126,6 +126,25 @@ process.once('exit', () => {
   for (const log of pending) log.flush();
 });
 
+/**
+ * `file` moves to `file.1` (and `.1` to `.2`, ...) when `incoming` more bytes would pass `maxBytes`;
+ * `keep` old files stay, the oldest goes. Rotated files are 0600. A missing file is left alone.
+ */
+export function rotateFile(file: string, incoming: number, maxBytes: number, keep: number): void {
+  let size = 0;
+  try {
+    size = fs.statSync(file).size;
+  } catch {
+    return; // none yet
+  }
+  if (size + incoming <= maxBytes) return;
+  fs.rmSync(`${file}.${keep}`, { force: true });
+  for (let n = keep - 1; n >= 1; n--)
+    if (fs.existsSync(`${file}.${n}`)) fs.renameSync(`${file}.${n}`, `${file}.${n + 1}`);
+  fs.renameSync(file, `${file}.1`);
+  fs.chmodSync(`${file}.1`, 0o600);
+}
+
 export class AuditLog {
   readonly file: string | undefined;
   private warned = false;
@@ -197,17 +216,7 @@ export class AuditLog {
   }
 
   private rotate(incoming: number): void {
-    const file = this.file!;
-    let size = 0;
-    try {
-      size = fs.statSync(file).size;
-    } catch {
-      return; // none yet
-    }
-    if (size + incoming <= AUDIT_MAX_BYTES) return;
-    fs.rmSync(`${file}.1`, { force: true });
-    fs.renameSync(file, `${file}.1`);
-    fs.chmodSync(`${file}.1`, 0o600);
+    rotateFile(this.file!, incoming, AUDIT_MAX_BYTES, 1);
   }
 
   /**

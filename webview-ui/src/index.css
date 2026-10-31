@@ -37,6 +37,11 @@
   --color-peer-bg: #14473a;
   --color-peer-border: #3fb68b;
   --color-peer-name: #7fe0bd;
+  /* MSG-POLISH: the conversation from before a handoff (renew): sepia, used by nothing else
+     (system lines are muted grey, job notices peer green, searches gold, threads blue/orange/pink) */
+  --color-previous-bg: #2b251d;
+  --color-previous-border: #b08d57;
+  --color-previous-text: #dcc59a;
   /* MSG-UI3: one rail colour per room thread */
   --color-thread-1: #3794ff;
   --color-thread-2: #ff8d14;
@@ -57,6 +62,78 @@
   --color-status-active: #3794ff;
   --color-status-success: #89d185;
   --color-status-error: var(--color-danger);
+
+  /* P4 개발실 (cld/artifacts/mockups-1101/devroom-W1b): the worktree rail, its cards and chips. */
+  --color-devroom-rail: #1b1b2b;
+  --color-devroom-card: #242437;
+  --color-devroom-card-line: #41415c;
+  --color-devroom-pick: #232c46;
+  --color-devroom-blue: #6aa7ff;
+  --color-devroom-trunk: #665d95;
+  --color-devroom-box: #29293e;
+  --color-devroom-box-line: #7064aa;
+  --color-devroom-main: #2b2747;
+  --color-devroom-main-line: #8f7cec;
+  --color-devroom-menu: #11111d;
+  --color-devroom-menu-line: #30304a;
+  --color-devroom-bad: #ffaaa9;
+  --color-devroom-term: #0c0c14;
+  --color-devroom-foot: #202032;
+  --color-devroom-title: #f0ecff;
+  --color-devroom-tab-on: #ded7ff;
+  --color-devroom-tab-line: #8170e6;
+  --color-devroom-review: #bf9cff;
+  --color-devroom-review-line: #7a62d6;
+  --color-devroom-review-bg: rgba(111, 66, 255, 0.18);
+  --color-devroom-work-line: #3d6fb8;
+  --color-devroom-work-bg: rgba(55, 148, 255, 0.14);
+  --color-devroom-conf: #ffe07c;
+  --color-devroom-conf-line: #a8841e;
+  --color-devroom-conf-bg: rgba(204, 167, 0, 0.16);
+  --color-devroom-done-bg: rgba(255, 255, 255, 0.05);
+  --color-devroom-ok: #89d185;
+  --color-devroom-conf-text: #ffe898;
+  --color-devroom-mine-bg: rgba(111, 66, 255, 0.14);
+  --color-devroom-mine-text: #d8ccff;
+  --color-devroom-theirs-bg: rgba(55, 148, 255, 0.12);
+  --color-devroom-theirs-text: #c3deff;
+  --color-devroom-block: #171420;
+  --color-devroom-block-bar: #1d1a26;
+  --color-devroom-panel: #10101a;
+  --color-devroom-files: #1c1c2a;
+  --color-devroom-head: #242435;
+  --color-devroom-resolved-line: #4f8a56;
+  --color-devroom-resolved-bg: rgba(137, 209, 133, 0.08);
+  --color-devroom-on-bg: #2c5a34;
+  --color-devroom-on-line: #58a05f;
+  --color-devroom-on-text: #d8ffd8;
+  --color-devroom-bad-bg: #8a2c33;
+  --color-devroom-accent-line: #9d87ff;
+  --color-devroom-ctx: #dad8e2;
+  --color-devroom-confirm-bg: rgba(204, 167, 0, 0.08);
+  --color-devroom-banner-bg: rgba(204, 167, 0, 0.1);
+  --color-devroom-table: #202032;
+  --color-devroom-th: #2a2a3a;
+  --color-devroom-bar: #222234;
+  /* P4 검토 (mockups-1101/review-loop): the diff's rows, the sent note's green, the 병합 button. */
+  --color-review-add-bg: rgba(137, 209, 133, 0.15);
+  --color-review-del-bg: rgba(209, 66, 73, 0.16);
+  --color-review-sent-bg: #1f2c27;
+  --color-review-sent-line: #4f8a56;
+  --color-review-go: #2c5a34;
+  --color-review-go-line: #58a05f;
+
+  /* P4 S5 편집기 (devroom-W4): the code editor's text colours and the agent-changed line. */
+  --color-code-bg: #0e0e18;
+  --color-code-line-on: #1a1a28;
+  --color-code-num: #5d5d78;
+  --color-code-keyword: #d96ac0;
+  --color-code-string: #f0a070;
+  --color-code-comment: #6f7690;
+  --color-code-number: #8fd0ff;
+  --color-code-type: #b9a0ff;
+  --color-code-agent: #e8b41c;
+  --color-code-agent-bg: rgba(232, 180, 28, 0.09);
 
   /* Shadow */
   --shadow-pixel: 2px 2px 0px #0a0a14;
@@ -112,6 +189,9 @@
   --color-peer-bg: var(--color-peer-bg);
   --color-peer-border: var(--color-peer-border);
   --color-peer-name: var(--color-peer-name);
+  --color-previous-bg: var(--color-previous-bg);
+  --color-previous-border: var(--color-previous-border);
+  --color-previous-text: var(--color-previous-text);
   --color-thread-1: var(--color-thread-1);
   --color-thread-2: var(--color-thread-2);
   --color-thread-3: var(--color-thread-3);
@@ -127,9 +207,79 @@
   --color-status-active: var(--color-status-active);
   --color-status-success: var(--color-status-success);
   --color-status-error: var(--color-status-error);
+  --color-devroom-rail: var(--color-devroom-rail);
+  --color-devroom-card: var(--color-devroom-card);
+  --color-devroom-card-line: var(--color-devroom-card-line);
+  --color-devroom-pick: var(--color-devroom-pick);
+  --color-devroom-blue: var(--color-devroom-blue);
+  --color-devroom-trunk: var(--color-devroom-trunk);
+  --color-devroom-box: var(--color-devroom-box);
+  --color-devroom-box-line: var(--color-devroom-box-line);
+  --color-devroom-main: var(--color-devroom-main);
+  --color-devroom-main-line: var(--color-devroom-main-line);
+  --color-devroom-menu: var(--color-devroom-menu);
+  --color-devroom-menu-line: var(--color-devroom-menu-line);
+  --color-devroom-bad: var(--color-devroom-bad);
+  --color-devroom-term: var(--color-devroom-term);
+  --color-devroom-foot: var(--color-devroom-foot);
+  --color-devroom-title: var(--color-devroom-title);
+  --color-devroom-tab-on: var(--color-devroom-tab-on);
+  --color-devroom-tab-line: var(--color-devroom-tab-line);
+  --color-devroom-review: var(--color-devroom-review);
+  --color-devroom-review-line: var(--color-devroom-review-line);
+  --color-devroom-review-bg: var(--color-devroom-review-bg);
+  --color-devroom-work-line: var(--color-devroom-work-line);
+  --color-devroom-work-bg: var(--color-devroom-work-bg);
+  --color-devroom-conf: var(--color-devroom-conf);
+  --color-devroom-conf-line: var(--color-devroom-conf-line);
+  --color-devroom-conf-bg: var(--color-devroom-conf-bg);
+  --color-devroom-done-bg: var(--color-devroom-done-bg);
+  --color-devroom-ok: var(--color-devroom-ok);
+  --color-devroom-conf-text: var(--color-devroom-conf-text);
+  --color-devroom-mine-bg: var(--color-devroom-mine-bg);
+  --color-devroom-mine-text: var(--color-devroom-mine-text);
+  --color-devroom-theirs-bg: var(--color-devroom-theirs-bg);
+  --color-devroom-theirs-text: var(--color-devroom-theirs-text);
+  --color-devroom-block: var(--color-devroom-block);
+  --color-devroom-block-bar: var(--color-devroom-block-bar);
+  --color-devroom-panel: var(--color-devroom-panel);
+  --color-devroom-files: var(--color-devroom-files);
+  --color-devroom-head: var(--color-devroom-head);
+  --color-devroom-resolved-line: var(--color-devroom-resolved-line);
+  --color-devroom-resolved-bg: var(--color-devroom-resolved-bg);
+  --color-devroom-on-bg: var(--color-devroom-on-bg);
+  --color-devroom-on-line: var(--color-devroom-on-line);
+  --color-devroom-on-text: var(--color-devroom-on-text);
+  --color-devroom-bad-bg: var(--color-devroom-bad-bg);
+  --color-devroom-accent-line: var(--color-devroom-accent-line);
+  --color-devroom-ctx: var(--color-devroom-ctx);
+  --color-devroom-confirm-bg: var(--color-devroom-confirm-bg);
+  --color-devroom-banner-bg: var(--color-devroom-banner-bg);
+  --color-devroom-table: var(--color-devroom-table);
+  --color-devroom-th: var(--color-devroom-th);
+  --color-devroom-bar: var(--color-devroom-bar);
+  --color-review-add-bg: var(--color-review-add-bg);
+  --color-review-del-bg: var(--color-review-del-bg);
+  --color-review-sent-bg: var(--color-review-sent-bg);
+  --color-review-sent-line: var(--color-review-sent-line);
+  --color-review-go: var(--color-review-go);
+  --color-review-go-line: var(--color-review-go-line);
 
   /* Shadow */
   --shadow-pixel: var(--shadow-pixel);
+}
+
+/* MSG-POLISH: a message from the previous session: a sepia rail and a faint tint on the left,
+   so it never reads as a notice, a job line or a system line. */
+.previous-session {
+  border-left: 4px solid var(--color-previous-border);
+  background: var(--color-previous-bg);
+  padding-left: 4px;
+}
+.previous-band {
+  border: 2px solid var(--color-previous-border);
+  background: var(--color-previous-bg);
+  color: var(--color-previous-text);
 }
 
 @layer base {
@@ -475,6 +625,53 @@
       'opsz' 24;
     font-size: 1em;
     line-height: 1;
+  }
+}
+
+/* STAT-2: the rebirth mark. Two flame frames and a sparkle swapped in whole steps (no blur); a viewer
+   who reduces motion sees the first frame and the sparkle, still. */
+.rebirth-flame-b {
+  opacity: 0;
+}
+.rebirth-mark[data-lit='false'] .rebirth-spark {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rebirth-mark[data-lit='true'] .rebirth-flame-a {
+    animation: rebirth-a 0.8s steps(1, end) infinite;
+  }
+  .rebirth-mark[data-lit='true'] .rebirth-flame-b {
+    animation: rebirth-b 0.8s steps(1, end) infinite;
+  }
+  .rebirth-mark[data-lit='true'] .rebirth-spark {
+    animation: rebirth-spark 1.6s steps(1, end) infinite;
+  }
+}
+@keyframes rebirth-a {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes rebirth-b {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes rebirth-spark {
+  0% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0;
+  }
+  80% {
+    opacity: 1;
   }
 }
 

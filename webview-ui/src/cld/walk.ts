@@ -81,17 +81,29 @@ export function staysOnFloor(layout: object, fromRow: number, toRow: number): bo
 }
 
 /**
- * The next single tile for keyboard walking, or null when the key is not a
- * direction or that tile is unavailable. `isWalkable` is deliberately shared
- * with pathfinding, so walls, furniture, seats, edges and void agree.
+ * OWNER-AVATAR: the step the held direction keys ask for, in 8 directions: the newest vertical
+ * and the newest horizontal key held, as a screen direction. The isometric view draws a world
+ * step on a screen diagonal, so there the screen direction is turned an eighth of a turn (W, the
+ * screen's up, is the world's up-left). Null: no direction held.
  */
-export function keyboardWalkTarget(input: KeyboardWalkInput): WalkTile | null {
-  const step = keyToWalkStep(input.action);
-  if (!step) return null;
-  const from = input.path[input.path.length - 1] ?? {
-    col: input.tileCol,
-    row: input.tileRow,
-  };
+export function walkStepOf(held: HeldWalkKeys, iso = false): WalkTile | null {
+  let sx = 0;
+  let sy = 0;
+  for (const key of held) {
+    const step = keyToWalkStep(key);
+    if (step?.col) sx = step.col;
+    if (step?.row) sy = step.row;
+  }
+  if (!sx && !sy) return null;
+  return iso ? { col: Math.sign(sx + sy), row: Math.sign(sy - sx) } : { col: sx, row: sy };
+}
+
+/** One tile from `from` by `step`, or null when that tile is unavailable (see below). */
+function stepTarget(
+  from: WalkTile,
+  step: WalkTile,
+  input: Omit<KeyboardWalkInput, 'action'>,
+): WalkTile | null {
   const target = { col: from.col + step.col, row: from.row + step.row };
   if (!staysOnFloor(input.layout, from.row, target.row)) return null;
   if (isWalkable(target.col, target.row, input.tileMap, input.blockedTiles)) return target;
@@ -105,13 +117,52 @@ export function keyboardWalkTarget(input: KeyboardWalkInput): WalkTile | null {
     : null;
 }
 
-/** The next held-key step at a tile boundary, if the current winner can walk. */
+/**
+ * The next single tile for a walk step, or null when it is unavailable. `isWalkable` is
+ * deliberately shared with pathfinding, so walls, furniture, seats, edges and void agree. A
+ * diagonal never cuts a corner (both tiles beside it must be free); blocked, it slides along
+ * whichever of its two straight steps is free.
+ */
+export function walkStepTarget(
+  step: WalkTile,
+  input: Omit<KeyboardWalkInput, 'action'>,
+): WalkTile | null {
+  const from = input.path[input.path.length - 1] ?? { col: input.tileCol, row: input.tileRow };
+  if (!step.col || !step.row) return stepTarget(from, step, input);
+  const across = stepTarget(from, { col: step.col, row: 0 }, input);
+  const down = stepTarget(from, { col: 0, row: step.row }, input);
+  return (across && down && stepTarget(from, step, input)) || down || across;
+}
+
+/** The next single tile for one direction key, or null (not a direction, or unavailable). */
+export function keyboardWalkTarget(input: KeyboardWalkInput): WalkTile | null {
+  const step = keyToWalkStep(input.action);
+  return step ? walkStepTarget(step, input) : null;
+}
+
+/** The next held-key step at a tile boundary, if the held keys can walk (8 directions). */
 export function heldKeyboardWalkTarget(
   held: HeldWalkKeys,
   input: Omit<KeyboardWalkInput, 'action'>,
+  iso = false,
 ): WalkTile | null {
-  const action = winningWalkKey(held);
-  return action ? keyboardWalkTarget({ ...input, action }) : null;
+  const step = walkStepOf(held, iso);
+  return step ? walkStepTarget(step, input) : null;
+}
+
+/**
+ * OWNER-AVATAR, the input routing: who the direction keys and the joystick walk (null: they pan
+ * the camera) and who the camera follows. Free camera: nobody, they pan. Otherwise the selected
+ * character, else the owner's own character (when there is one).
+ */
+export function walkRoute(
+  mode: 'auto' | 'free' | 'off',
+  selected: number | null,
+  owner: number | null,
+): { walk: number | null; follow: number | null } {
+  if (mode === 'free') return { walk: null, follow: null };
+  const id = selected ?? owner;
+  return { walk: id, follow: id };
 }
 
 /** An agent taking up work wins over any player-directed walk. */

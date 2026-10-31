@@ -20,6 +20,8 @@ import {
 
 describe('configPersistence: areas', () => {
   let tempHome: string;
+  /** Where config.json is written; tests that hand-edit a file seed ~/.pixel-agents, the read fallback. */
+  const officeDir = () => path.join(tempHome, '.config', 'agent-tycoon', 'office');
   let originalHome: string | undefined;
 
   beforeEach(() => {
@@ -102,15 +104,10 @@ describe('configPersistence: areas', () => {
       expect(getHooksConsent('claude')).toBe('unanswered');
       expect(getHooksEnabled('claude')).toBe(true);
       writeConfig(readConfig()); // full config on disk...
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(tempHome, '.pixel-agents', 'config.json'), 'utf-8'),
-      );
+      const raw = JSON.parse(fs.readFileSync(path.join(officeDir(), 'config.json'), 'utf-8'));
       delete raw.hooksConsent; // ...from an older shape
       delete raw.hooksEnabled;
-      fs.writeFileSync(
-        path.join(tempHome, '.pixel-agents', 'config.json'),
-        JSON.stringify(raw, null, 2),
-      );
+      fs.writeFileSync(path.join(officeDir(), 'config.json'), JSON.stringify(raw, null, 2));
       expect(getHooksConsent('claude')).toBe('unanswered');
       expect(getHooksEnabled('claude')).toBe(true);
     });
@@ -150,9 +147,7 @@ describe('configPersistence: areas', () => {
       expect(getHooksEnabled('claude')).toBe(true);
       // Both keys are genuinely gone — "never answered" and "answered and
       // reverted" must be indistinguishable on disk.
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(tempHome, '.pixel-agents', 'config.json'), 'utf-8'),
-      );
+      const raw = JSON.parse(fs.readFileSync(path.join(officeDir(), 'config.json'), 'utf-8'));
       expect('claude' in (raw.hooksConsent ?? {})).toBe(false);
       expect('claude' in (raw.hooksEnabled ?? {})).toBe(false);
     });
@@ -168,9 +163,7 @@ describe('configPersistence: areas', () => {
       grantHooksConsent('claude');
       expect(getHooksConsent('claude')).toBe('granted');
       expect(getHooksEnabled('claude')).toBe(true);
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(tempHome, '.pixel-agents', 'config.json'), 'utf-8'),
-      );
+      const raw = JSON.parse(fs.readFileSync(path.join(officeDir(), 'config.json'), 'utf-8'));
       expect('claude' in (raw.hooksEnabled ?? {})).toBe(false);
     });
 
@@ -190,9 +183,7 @@ describe('configPersistence: areas', () => {
       expect(getHooksEnabled('claude')).toBe(true);
       // The key is genuinely gone, not written back as true: "never answered"
       // and "answered and reverted" must be indistinguishable on disk.
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(tempHome, '.pixel-agents', 'config.json'), 'utf-8'),
-      );
+      const raw = JSON.parse(fs.readFileSync(path.join(officeDir(), 'config.json'), 'utf-8'));
       expect('claude' in (raw.hooksEnabled ?? {})).toBe(false);
     });
 
@@ -202,7 +193,6 @@ describe('configPersistence: areas', () => {
       setHooksEnabled('claude', false); // a persisted "off" must not survive uninstall,
       setHooksEnabled('other', false); // or the next install never prompts
       const cfg = readConfig();
-      cfg.vscode.hooksInfoShown = true;
       cfg.standalone.hooksInfoShown = true;
       writeConfig(cfg);
 
@@ -213,7 +203,6 @@ describe('configPersistence: areas', () => {
       expect(getHooksEnabled('claude')).toBe(true);
       expect(getHooksEnabled('other')).toBe(true);
       const reset = readConfig();
-      expect(reset.vscode.hooksInfoShown).toBe(false);
       expect(reset.standalone.hooksInfoShown).toBe(false);
     });
   });
@@ -223,23 +212,17 @@ describe('configPersistence: areas', () => {
   describe('readConfig + writeConfig round-trip for area settings', () => {
     it('returns defaults (showAreas=false, areaMappings={}) when no config file exists', () => {
       const cfg = readConfig();
-      expect(cfg.vscode.showAreas).toBe(false);
-      expect(cfg.vscode.areaMappings).toEqual({});
       expect(cfg.standalone.showAreas).toBe(false);
       expect(cfg.standalone.areaMappings).toEqual({});
     });
 
-    it('round-trips showAreas + areaMappings per-namespace independently', () => {
+    it('round-trips showAreas + areaMappings', () => {
       const cfg = readConfig();
-      cfg.vscode.showAreas = true;
-      cfg.vscode.areaMappings = { frontend: ['Engineering'] };
       cfg.standalone.showAreas = false;
       cfg.standalone.areaMappings = { backend: ['Platform'] };
       writeConfig(cfg);
 
       const reloaded = readConfig();
-      expect(reloaded.vscode.showAreas).toBe(true);
-      expect(reloaded.vscode.areaMappings).toEqual({ frontend: ['Engineering'] });
       expect(reloaded.standalone.showAreas).toBe(false);
       expect(reloaded.standalone.areaMappings).toEqual({ backend: ['Platform'] });
     });
@@ -250,16 +233,12 @@ describe('configPersistence: areas', () => {
       fs.writeFileSync(
         path.join(configDir, 'config.json'),
         JSON.stringify({
-          vscode: { showAreas: 'yes please', areaMappings: 'not-an-object' },
           standalone: { showAreas: true, areaMappings: { frontend: 'broken' } },
         }),
         'utf-8',
       );
 
       const cfg = readConfig();
-      // showAreas: 'yes please' is not a boolean → default false
-      expect(cfg.vscode.showAreas).toBe(false);
-      expect(cfg.vscode.areaMappings).toEqual({});
       // showAreas: true is valid; areaMappings.frontend: 'broken' is not an array → dropped
       expect(cfg.standalone.showAreas).toBe(true);
       expect(cfg.standalone.areaMappings).toEqual({});
@@ -273,15 +252,12 @@ describe('configPersistence: areas', () => {
       fs.writeFileSync(
         path.join(configDir, 'config.json'),
         JSON.stringify({
-          vscode: { bypassPermissions: 'sure' },
-          standalone: { bypassPermissions: true },
+          standalone: { bypassPermissions: 'sure' },
         }),
         'utf-8',
       );
 
-      const cfg = readConfig();
-      expect(cfg.vscode.bypassPermissions).toBe(false);
-      expect(cfg.standalone.bypassPermissions).toBe(true);
+      expect(readConfig().standalone.bypassPermissions).toBe(false);
     });
 
     it('defaults the Directory tier to an empty list', () => {
@@ -333,16 +309,6 @@ describe('configPersistence: areas', () => {
       expect(parseUserDirectories([{ name: 'x', path: '/tmp' }])).toEqual([
         { name: 'x', path: '/tmp' },
       ]);
-    });
-
-    it('keeps namespaces isolated when only one writes mappings', () => {
-      const cfg = readConfig();
-      cfg.vscode.areaMappings = { frontend: ['Engineering'] };
-      writeConfig(cfg);
-
-      const reloaded = readConfig();
-      expect(reloaded.vscode.areaMappings).toEqual({ frontend: ['Engineering'] });
-      expect(reloaded.standalone.areaMappings).toEqual({});
     });
   });
 });

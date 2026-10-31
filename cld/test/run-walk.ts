@@ -100,9 +100,9 @@ async function samplePosition(page: Page, id: number, durationMs: number): Promi
         const sample = () => {
           const pos = (
             window as unknown as {
-              __pixelAgentsTestHooks: { getCharacterPosition: (id: number) => Position | null };
+              __agentTycoonTestHooks: { getCharacterPosition: (id: number) => Position | null };
             }
-          ).__pixelAgentsTestHooks.getCharacterPosition(agentId);
+          ).__agentTycoonTestHooks.getCharacterPosition(agentId);
           if (pos) samples.push(pos);
           if (performance.now() - started >= duration) resolve(samples);
           else requestAnimationFrame(sample);
@@ -125,7 +125,7 @@ const hooks = <T>(page: Page, fn: (h: Hooks, a: any) => T, arg?: unknown): Promi
   page.evaluate(
     ([src, a]) =>
       (new Function('h', 'a', `return (${src})(h, a)`) as (h: unknown, a: unknown) => T)(
-        (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks,
+        (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks,
         a,
       ),
     [fn.toString(), arg] as const,
@@ -230,7 +230,7 @@ async function main() {
       route.fulfill({ body: fs.readFileSync(FONT), contentType: 'font/ttf' }),
     );
     await ctx.addInitScript(() => {
-      (window as unknown as { __PIXEL_AGENTS_E2E: boolean }).__PIXEL_AGENTS_E2E = true;
+      (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
       (window as unknown as { __name: (f: unknown) => unknown }).__name = (f) => f;
       // Office hours off: nobody goes home.
       localStorage.setItem(

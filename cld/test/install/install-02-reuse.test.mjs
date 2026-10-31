@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { mergeConfig, renderSystemdUnit } from '../../install/install.mjs';
+import { winEnvCommand } from '../../install/manager.mjs';
 import { release, scenario, tree, until } from './harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -35,7 +36,10 @@ test('INSTALL-2: a rerun of install.sh reuses the install: same record, port and
   assert.equal(again.port, s.port);
   assert.equal(s.daemons().length, 1, 'still one daemon');
   assert.equal((await s.health()).version, '1.0.0');
-  const outside = s.calls().filter((c) => OUTSIDE.has(c[0]));
+  // Reading %LOCALAPPDATA% to find a Windows-side install is a read-only lookup (it was `cmd.exe /c echo`,
+  // now PowerShell with UTF-8 output for a Korean user folder): not a change outside our folders.
+  const readOnly = JSON.stringify(winEnvCommand('LOCALAPPDATA'));
+  const outside = s.calls().filter((c) => OUTSIDE.has(c[0]) && JSON.stringify(c) !== readOnly);
   assert.deepEqual(outside, [], 'no sudo, linger, WSL, Windows or crontab command');
   assert.ok(s.calls().every((c) => c[0] !== 'systemctl' || c[1] === '--user'), 'systemctl --user only');
   for (const rc of ['.bashrc', '.profile', '.zshrc', '.bash_profile']) assert.equal(fs.existsSync(path.join(s.home, rc)), false, `${rc} not written`);

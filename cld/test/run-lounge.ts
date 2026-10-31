@@ -57,7 +57,7 @@ const HOURS_OFF = `try { localStorage.setItem('cld.office-hours', '{"on":false}'
 /** The e2e hooks, and a frame counter: a clearRect(0,0,...) on the office canvas, once per animation frame. */
 const INIT = `
   globalThis.__name = (fn) => fn;
-  window.__PIXEL_AGENTS_E2E = true;
+  window.__AGENT_TYCOON_E2E = true;
   window.__frames = 0;
   const clear = CanvasRenderingContext2D.prototype.clearRect;
   CanvasRenderingContext2D.prototype.clearRect = function (x, y, w, h) {
@@ -97,7 +97,7 @@ interface Tile {
   restKind: string | null;
 }
 const hook = <T>(page: Page, call: string): Promise<T> =>
-  page.evaluate(`window.__pixelAgentsTestHooks.${call}`) as Promise<T>;
+  page.evaluate(`window.__agentTycoonTestHooks.${call}`) as Promise<T>;
 const tileOf = async (page: Page, id: number) => {
   const t = await hook<Tile | null>(page, `getCharacterTile(${id})`);
   lastSeen = `${id}: ${JSON.stringify(t)}`;
@@ -113,7 +113,7 @@ const characters = (page: Page) =>
 async function idleFrames(page: Page): Promise<number | null> {
   for (let i = 0; i < 15; i++) {
     const r = (await page.evaluate(`(async () => {
-      const h = window.__pixelAgentsTestHooks;
+      const h = window.__agentTycoonTestHooks;
       const start = window.__frames;
       const t0 = performance.now();
       let moved = false;
@@ -197,8 +197,8 @@ async function main() {
       await page.waitForFunction(
         () =>
           (
-            window as unknown as { __pixelAgentsTestHooks?: { getCharacters(): unknown[] } }
-          ).__pixelAgentsTestHooks?.getCharacters().length,
+            window as unknown as { __agentTycoonTestHooks?: { getCharacters(): unknown[] } }
+          ).__agentTycoonTestHooks?.getCharacters().length,
         undefined,
         { timeout: 30_000 },
       );
@@ -295,7 +295,7 @@ async function main() {
       hook<{ x: number; y: number }>(page, `getTileCenter(${col}, ${row})`);
     const zoomNow = async () =>
       (await page.evaluate(`(() => {
-        const h = window.__pixelAgentsTestHooks;
+        const h = window.__agentTycoonTestHooks;
         return (h.getTileCenter(1, 0).x - h.getTileCenter(0, 0).x) / 16;
       })()`)) as number;
     /** The wheel moves the zoom a notch at a time, about the pointer. */
@@ -360,7 +360,7 @@ async function main() {
         Number(/^lounge:/.test(q.t.restSeat ?? '')) - Number(/^lounge:/.test(p.t.restSeat ?? '')),
     );
     await page.locator(`[data-testid="agent-card"][data-agent-id="${idle[0].id}"]`).first().click();
-    await page.getByTestId('off-duty-sheet').waitFor();
+    await page.getByTestId('stat-detail').waitFor();
     await page.getByRole('button', { name: 'x', exact: true }).click();
     await page.waitForTimeout(1500);
     await shot('1b-whole-office-night');
@@ -423,7 +423,7 @@ async function main() {
     /** Press character `id` (its card first: the camera centres it), drag to a tile, let go. The
      *  drop must be on the canvas clear of the panels, so the tile is checked to be on screen. */
     const closeSheet = async () => {
-      const sheet = page.getByTestId('off-duty-sheet');
+      const sheet = page.getByTestId('stat-detail');
       await sheet.waitFor({ timeout: 3000 }).catch(() => undefined);
       if (await sheet.isVisible()) {
         await page.getByRole('button', { name: 'x', exact: true }).click();

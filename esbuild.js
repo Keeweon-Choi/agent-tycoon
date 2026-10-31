@@ -5,7 +5,7 @@ const path = require('path');
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
-/** Extension version read from package.json at build time, inlined via esbuild `define`. */
+/** Package version read from package.json at build time, inlined via esbuild `define`. */
 const pkgVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'),
 ).version;
@@ -14,7 +14,7 @@ const productVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'cld', 'release', 'version.json'), 'utf-8'),
 ).version;
 const versionDefine = {
-  'process.env.PIXEL_AGENTS_VERSION': JSON.stringify(pkgVersion),
+  'process.env.AGENT_TYCOON_VERSION': JSON.stringify(pkgVersion),
   'process.env.CLD_GUI_VERSION': JSON.stringify(productVersion),
 };
 
@@ -104,37 +104,22 @@ const esbuildProblemMatcherPlugin = {
 };
 
 async function main() {
-  const ctx = await esbuild.context({
-    entryPoints: ['adapters/vscode/extension.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: !production,
-    sourcesContent: false,
-    platform: 'node',
-    outfile: 'dist/extension.js',
-    external: ['vscode'],
-    define: versionDefine,
-    logLevel: 'silent',
-    plugins: [
-      /* add to the end of plugins array */
-      esbuildProblemMatcherPlugin,
-    ],
-  });
   if (watch) {
+    const ctx = await esbuild.context({
+      ...cliOptions,
+      logLevel: 'silent',
+      plugins: [esbuildProblemMatcherPlugin],
+    });
     await ctx.watch();
-  } else {
-    await ctx.rebuild();
-    await ctx.dispose();
-    // Copy assets and hooks after build
-    copyAssets();
-    copyPacks();
-    buildHooks();
-    await buildCli();
-    await buildWorker();
-    await buildUninstall();
-    await buildLoginPage();
+    return;
   }
+  copyAssets();
+  copyPacks();
+  buildHooks();
+  await esbuild.build(cliOptions);
+  await buildWorker();
+  await buildPtyHost();
+  await buildLoginPage();
 }
 
 /** cld-gui (T-0022): the login page's script and style, served at /login/*
@@ -157,22 +142,6 @@ async function buildLoginPage() {
   console.log('✓ Built login page → dist/login/');
 }
 
-/** Bundle the vscode:uninstall hook — plain Node, runs after extension removal. */
-async function buildUninstall() {
-  await esbuild.build({
-    entryPoints: ['adapters/vscode/uninstall.ts'],
-    bundle: true,
-    format: 'cjs',
-    minify: production,
-    sourcemap: false,
-    platform: 'node',
-    outfile: 'dist/uninstall.js',
-    define: versionDefine,
-    logLevel: 'silent',
-  });
-}
-
-/** Bundle the standalone CLI entry point. */
 /** cld-gui (T-0021): the GPU wrapper and the Codex worker, run outside the daemon. */
 async function buildWorker() {
   await esbuild.build({
@@ -187,38 +156,50 @@ async function buildWorker() {
   });
 }
 
-async function buildCli() {
+/** cld-gui TERM-P1 (ADR-0018): our PTY host, its own small process (no Fastify, no engine). */
+async function buildPtyHost() {
   await esbuild.build({
-    entryPoints: ['server/src/cli.ts'],
+    entryPoints: ['server/src/cld/ptyhost/hostMain.ts'],
     bundle: true,
     format: 'cjs',
     minify: production,
-    sourcemap: !production,
     platform: 'node',
-    outfile: 'dist/cli.js',
-    external: [
-      'fastify',
-      '@fastify/websocket',
-      '@fastify/static',
-      '@fastify/cors',
-      // Native PTY modules: they ship platform-specific .node binaries that
-      // cannot be bundled, and they're OPTIONAL -- esbuild must not fail the
-      // build when they're absent, and the runtime require() must be left
-      // intact so its failure can be caught and degraded gracefully.
-      // See server/src/terminal/ptyModule.ts.
-      '@lydell/node-pty',
-      'node-pty',
-      // cld-gui direct connector (T-0024): loaded from node_modules only when a
-      // certificate is issued, instead of 1.4 MB (axios, node-forge) parsed at every start.
-      'acme-client',
-    ],
+    target: 'node18',
+    outfile: 'dist/cld-ptyhost.js',
+    external: ['@lydell/node-pty', 'node-pty'],
     define: versionDefine,
     logLevel: 'silent',
   });
-  if (!production) {
-    console.log('[build] CLI bundled: dist/cli.mjs');
-  }
 }
+
+/** The standalone daemon (dist/cli.js). */
+const cliOptions = {
+  entryPoints: ['server/src/cli.ts'],
+  bundle: true,
+  format: 'cjs',
+  minify: production,
+  sourcemap: !production,
+  platform: 'node',
+  outfile: 'dist/cli.js',
+  external: [
+    'fastify',
+    '@fastify/websocket',
+    '@fastify/static',
+    '@fastify/cors',
+    // Native PTY modules: they ship platform-specific .node binaries that
+    // cannot be bundled, and they're OPTIONAL -- esbuild must not fail the
+    // build when they're absent, and the runtime require() must be left
+    // intact so its failure can be caught and degraded gracefully.
+    // See server/src/terminal/ptyModule.ts.
+    '@lydell/node-pty',
+    'node-pty',
+    // cld-gui direct connector (T-0024): loaded from node_modules only when a
+    // certificate is issued, instead of 1.4 MB (axios, node-forge) parsed at every start.
+    'acme-client',
+  ],
+  define: versionDefine,
+  logLevel: 'silent',
+};
 
 main().catch((e) => {
   console.error(e);

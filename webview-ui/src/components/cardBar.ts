@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 
-import { MOBILE_CARD_ORDER_STORAGE_KEY } from '../constants.js';
+import {
+  LEGACY_MOBILE_CARD_ORDER_STORAGE_KEY,
+  MOBILE_CARD_ORDER_STORAGE_KEY,
+} from '../constants.js';
 
 /** Pure rules shared by the agent card bars — highlight tier and the mobile
  *  bar's drag-to-reorder order (DOM-free, so they run on the Node runner). */
@@ -37,7 +40,10 @@ export function mergeOrder(saved: readonly number[], live: readonly number[]): n
 /** The per-device card order (both bars share it); [] when nothing is saved or storage is blocked. */
 export function loadSavedOrder(): number[] {
   try {
-    const raw = localStorage.getItem(MOBILE_CARD_ORDER_STORAGE_KEY);
+    // ponytail: the legacy key is read for one release after the rename; drop it then.
+    const raw =
+      localStorage.getItem(MOBILE_CARD_ORDER_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_MOBILE_CARD_ORDER_STORAGE_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : null;
     return Array.isArray(parsed) ? parsed.filter((v): v is number => typeof v === 'number') : [];
   } catch {

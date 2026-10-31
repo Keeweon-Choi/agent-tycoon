@@ -1,3 +1,4 @@
+import { ATTACH_VIDEO_MAX_BYTES } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { serverText } from '../serverText.js';
 
@@ -26,6 +27,12 @@ const imageType: Record<string, string> = {
   jpe: 'image/jpeg',
   gif: 'image/gif',
   webp: 'image/webp',
+};
+const videoType: Record<string, string> = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
 };
 const storedType: Record<string, string> = {
   zip: 'application/zip',
@@ -86,6 +93,7 @@ export function linkedFileType(name: string): string {
   const ext = name.split('.').at(-1)?.toLowerCase() ?? '';
   if (imageType[ext]) return imageType[ext];
   if (ext === 'pdf') return 'application/pdf';
+  if (videoType[ext]) return videoType[ext];
   return textExtensions.has(ext) ? 'text/plain' : 'application/octet-stream';
 }
 
@@ -94,15 +102,20 @@ export function fileType(name: string, declared: string): string | null {
   if (imageType[ext]) return !declared || declared === imageType[ext] ? imageType[ext] : null;
   if (ext === 'pdf') return !declared || declared === 'application/pdf' ? 'application/pdf' : null;
   if (storedType[ext]) return storedType[ext];
+  // A phone names a clip's type by its container (video/quicktime for .mov, sometimes nothing): the extension decides.
+  if (videoType[ext]) return videoType[ext];
   if (textExtensions.has(ext)) return declared || 'text/plain';
   return null;
 }
 
+export const isVideoType = (type: string): boolean => type.startsWith('video/');
+
 export function fileChip(file: File, id: string): AttachmentChip {
   const type = fileType(file.name, file.type);
+  const video = type !== null && isVideoType(type);
   const error =
-    file.size > MAX_ATTACHMENT_BYTES
-      ? t('attachment.error.size')
+    file.size > (video ? ATTACH_VIDEO_MAX_BYTES : MAX_ATTACHMENT_BYTES)
+      ? t(video ? 'attachment.error.videoSize' : 'attachment.error.size')
       : !type
         ? t('attachment.error.type')
         : undefined;

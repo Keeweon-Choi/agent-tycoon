@@ -5,7 +5,7 @@
  * reload, a drag does not select, + opens 오케스트레이터 추가) and the phone's card bar as before.
  *
  * dist/cli.js with --engine on --allow-actions --no-terminal in a temp HOME whose `claude` is the
- * engine fake, a fake claude-dashboard usage script, on a spare port; headless Chromium
+ * engine fake, a stand-in usage endpoint (testHome's fakeUsage), on a spare port; headless Chromium
  * (--disable-gpu). Screenshots: cld/artifacts/topbar-cards/.
  *
  *   npx tsx cld/test/run-topbar-cards.ts <port 18256-18259>
@@ -17,6 +17,7 @@ import * as path from 'path';
 
 import {
   assertPortFree,
+  fakeUsage,
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
@@ -112,25 +113,13 @@ async function main() {
       LEADS.map((name) => ({ name, folder: folders[name], room: '개발실', wantRunning: true })),
     ),
   );
-  // The claude-dashboard plugin: the usage strip (with the refresh icon) needs a reading.
-  const plugin = path.join(
-    home,
-    '.claude/plugins/cache/claude-dashboard/claude-dashboard/9.9.9/dist/check-usage.js',
-  );
-  fs.mkdirSync(path.dirname(plugin), { recursive: true });
-  fs.writeFileSync(
-    plugin,
-    `const at = (h) => new Date(Date.now() + h * 3600_000).toISOString();
-console.log(JSON.stringify({
-  claude: { fiveHourPercent: 42, sevenDayPercent: 16, fiveHourReset: at(2), sevenDayReset: at(60) },
-  codex: { fiveHourPercent: 35, sevenDayPercent: 6, fiveHourReset: at(3), sevenDayReset: at(100) },
-}));\n`,
-  );
+  // The usage strip (with the refresh icon) needs a reading.
+  const usage = await fakeUsage(home, { fiveHour: 42, sevenDay: 16 }, { fiveHour: 35, sevenDay: 6 });
   const daemon = startDaemon(
     { home, claudePath: path.join(bin, 'claude') },
     port,
     ['--engine', 'on', '--no-terminal', '--allow-actions'],
-    { FAKE_TURN_MS: '600' },
+    { FAKE_TURN_MS: '600', ...usage.env },
   );
   const serverLog = daemon.log;
   const cleanup = () => {
@@ -152,7 +141,7 @@ console.log(JSON.stringify({
   const sent: string[] = [];
   const open = async (opts: BrowserContextOptions) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__bx/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,

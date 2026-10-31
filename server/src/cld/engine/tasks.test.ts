@@ -5,6 +5,7 @@ import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaskBoard } from '../../../../core/src/messages.js';
+import { ensureOwnerToken, ownerTokenMatches } from '../controlIdentity.js';
 import { ROSTER, startEngineOffice } from '../officeTestKit.js';
 import { makeEngineHome, removeTestHome, REPO_ROOT } from '../testHome.js';
 import type { ControlDeps } from './control.js';
@@ -204,9 +205,11 @@ describe.runIf(process.platform !== 'win32')('cld-gui task (CLI over the control
   it('add, update with --codex, done, list --json, import the seed', async () => {
     const h = home();
     const store = new TaskStore(tasksPath(h));
+    ensureOwnerToken(h); // SEC-CONTROL: the CLI run with HOME = h is the owner
     const deps = {
       names: () => ['cld-gui'],
       projectAt: () => null,
+      isOwner: (c: string) => ownerTokenMatches(h, c),
       task: (a: Record<string, unknown>, who: { by: string; project: string | null }) =>
         answerTask(store, a, who),
     } as unknown as ControlDeps;
@@ -322,9 +325,11 @@ async function socket(h: string, store: TaskStore, agent: string | null = null) 
     assignmentOf: (n: string) => ({ alpha: A_LEAD, 'alpha-w': A_WORKER })[n] ?? null,
     names: () => ['alpha', 'alpha-w'],
   };
+  ensureOwnerToken(h); // SEC-CONTROL: the CLI run with HOME = h is the owner
   const deps = {
     names: () => ['alpha', 'alpha-w'],
     projectAt: () => null,
+    isOwner: (c: string) => ownerTokenMatches(h, c),
     ...(agent && { agentOf: () => agent, projectOf: () => 'alpha' }),
     task: (
       a: Record<string, unknown>,

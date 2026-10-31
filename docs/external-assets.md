@@ -1,10 +1,10 @@
 # External Asset Directories
 
-Pixel Agents supports loading furniture assets from directories outside the extension. This lets you use custom or third-party pixel art asset packs alongside the built-in furniture.
+Agent Tycoon supports loading furniture assets from directories outside the app. This lets you use custom or third-party pixel art asset packs alongside the built-in furniture.
 
 ## Adding an External Directory
 
-1. Open the Pixel Agents panel and click **Settings**
+1. Open the office and click **Settings**
 2. Click **Add Asset Directory** and pick a folder
 3. Your custom assets will appear in the furniture palette immediately, merged with the built-ins
 4. The directory path is saved to `~/.pixel-agents/config.json` and reloaded automatically on restart

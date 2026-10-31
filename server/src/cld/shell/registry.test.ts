@@ -201,7 +201,7 @@ real('shells in a real tmux server (a test socket of their own)', () => {
     const shell = first.open('dev', 'handle', 'Laptop', path.join(root, 'work'));
     const pid = await pidOf(first, shell.id);
     await first.disposeAll(); // the deploy: the daemon's attach goes, the session stays
-    expect(tmux.hasSession(shell.id)).toBe(true);
+    await until(() => tmux.hasSession(shell.id));
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).shells).toHaveLength(1);
 
     const second = make();

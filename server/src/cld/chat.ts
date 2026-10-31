@@ -59,6 +59,7 @@ import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { maskText } from './mask.js';
 import type { ClaudeSession } from './providers/claudeProvider.js';
 import { CLAUDE_TIMEOUT_MS, parseAgents, processAlive } from './providers/claudeProvider.js';
+import type { PtyHostClient } from './ptyhost/client.js';
 import { spawnJson } from './spawnJson.js';
 
 /** Default cap on attach processes (`--chat-attaches`): ~150 MB each. */
@@ -476,6 +477,18 @@ export function attachable(
   return s;
 }
 
+/** What a viewer's xterm answers by itself (DA1/DA2, CPR, OSC and mode reports): our PTY host's
+ *  mirror already answered them, so a second answer would reach Claude as typed text.
+ *  ponytail: a modified F3 (`ESC[1;5R`) reads as a CPR and is dropped too. */
+const TERMINAL_REPLY = /\x1b\[[?>][\d;]*c|\x1b\[\d+;\d+R|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[\?[\d;]*\$y/g;
+export const withoutTerminalReplies = (data: string): string => data.replace(TERMINAL_REPLY, '');
+
+/** TERM-P1: the agents our PTY host holds, by terminal id (Engine.pty). */
+export interface PtyTerminals {
+  has(id: string): boolean;
+  readonly host: PtyHostClient;
+}
+
 /** Viewer input as it reaches the PTY: no Ctrl+Z, no ← while the agent view is offered. */
 export function filterInput(data: string, agentsOffered: boolean): string {
   const out = data.replaceAll('\x1a', '');
@@ -836,6 +849,8 @@ export interface ChatOptions {
 
 export class ChatManager implements Typist {
   private readonly ptys = new Map<string, ChatPty>();
+  /** TERM-P1: terminals of our PTY host, joined there (no attach, no cap: a viewer costs a stream). */
+  private ptyHost: PtyTerminals | null = null;
   private serial = 0;
   /** The cap now: the chosen value if there is one, else the flag's. */
   private max: number;
@@ -853,6 +868,16 @@ export class ChatManager implements Typist {
     } catch {
       return null;
     }
+  }
+
+  /** TERM-P1: the engine's PTY-host agents (set once the office is up). */
+  usePtyHost(terminals: PtyTerminals | null): void {
+    this.ptyHost = terminals;
+  }
+
+  /** An id of our PTY host: never one to `claude attach`. */
+  private inHost(id: string): boolean {
+    return !!this.ptyHost?.has(id);
   }
 
   /** What `--chat-attaches` (or the built-in default) says: the value before anyone chose. */
@@ -916,7 +941,7 @@ export class ChatManager implements Typist {
    * count against `maxPtys` (~150 MB for a few seconds).
    */
   async type(id: string, text: string, o: TypeOptions = {}): Promise<TypeResult> {
-    if (!ID.test(id)) return 'failed';
+    if (!ID.test(id) || this.inHost(id)) return 'failed';
     let pty = this.ptys.get(id);
     if (!pty) {
       pty = this.spawn(id, id);
@@ -941,7 +966,8 @@ export class ChatManager implements Typist {
     allow: boolean,
   ): Promise<PermissionAnswer> {
     // Nothing to match: no attach at all.
-    if (!ID.test(id) || (Array.isArray(match) ? !match.length : !match.dialog.trim())) return 'failed';
+    if (!ID.test(id) || this.inHost(id) || (Array.isArray(match) ? !match.length : !match.dialog.trim()))
+      return 'failed';
     const pty = this.permissionPty(id);
     if (!pty) return 'failed';
     const r = await pty.answerPermission(match, allow, { ...TYPE_TIMING, ...this.opts.typeTiming });
@@ -952,7 +978,8 @@ export class ChatManager implements Typist {
   /** PERM-PROMPT: the whole permission dialog on session `id`'s screen (ChatPty.readPermissionDialog),
    *  through its open chat or an attach of its own that ends after (~150 MB for a few seconds). */
   async readPermissionDialog(id: string): Promise<string | null> {
-    if (!ID.test(id)) return null;
+    // TERM-P3: only a `claude --bg` agent's dialog is read here; a PTY-host agent's comes from its PermissionRequest hook.
+    if (!ID.test(id) || this.inHost(id)) return null;
     const pty = this.permissionPty(id);
     const d = pty ? await pty.readPermissionDialog({ ...TYPE_TIMING, ...this.opts.typeTiming }) : null;
     this.log(`permission dialog in ${id}: ${d === null ? 'not read' : 'read'}`);
@@ -980,6 +1007,45 @@ export class ChatManager implements Typist {
       notice(socket, text);
       socket.close(WS_CLOSE_NO_SESSION, reason);
     };
+    if (this.ptyHost && ID.test(id) && this.ptyHost.has(id)) {
+      const host = this.ptyHost.host;
+      const send = (frame: string) => {
+        if (socket.readyState === WS_OPEN) socket.send(frame);
+      };
+      // Snapshot-then-live: output that comes before the replay is sent waits behind it.
+      let queue: string[] | null = [];
+      const sub = await host.subscribe(
+        id,
+        (data) => {
+          const frame = encodeTerminalFrame({ type: 'output', data });
+          if (queue) queue.push(frame);
+          else send(frame);
+        },
+        () => socket.close(WS_CLOSE_NO_SESSION, 'exited'),
+      );
+      if (!sub) return refuse(CHAT_TEXT.notLive);
+      if (socket.readyState !== WS_OPEN) return sub.off();
+      send(encodeTerminalFrame({ type: 'replay', data: sub.snapshot, cols: sub.cols, rows: sub.rows }));
+      for (const frame of queue) send(frame);
+      queue = null;
+      const since = Date.now();
+      this.log(`join ${id} (PTY host) gui:${device}`);
+      socket.on('close', () => {
+        sub.off();
+        this.log(`leave ${id} (PTY host) gui:${device} after ${Math.round((Date.now() - since) / 1000)}s`);
+      });
+      input = (raw) => {
+        const frame = parseClientFrame(raw);
+        if (!frame) return;
+        if (frame.type === 'resize') void host.call('resize', { t: id, cols: frame.cols, rows: frame.rows });
+        else {
+          const data = withoutTerminalReplies(filterInput(frame.data, false));
+          if (data) void host.write(id, data);
+        }
+      };
+      for (const raw of early) input(raw);
+      return;
+    }
     const max = this.max;
     // Every request checks a fresh list, also to join an attach already open.
     // The cap is checked after it: a client switching chats closes the old

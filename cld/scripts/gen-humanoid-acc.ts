@@ -28,7 +28,7 @@ interface Layer {
   from?: number;
 }
 
-/* eslint-disable pixel-agents/no-inline-colors -- accessory art colours: data, not UI styling */
+/* eslint-disable agent-tycoon/no-inline-colors -- accessory art colours: data, not UI styling */
 /** Upper case like every sprite pixel (a piece's pixels compare equal to a sheet's). */
 const palette = {
   o: '#1A1A22', // outline
@@ -40,7 +40,7 @@ const palette = {
   D: '#A5362C', // cap shade
   B: '#7E2A24', // cap brim
 };
-/* eslint-enable pixel-agents/no-inline-colors */
+/* eslint-enable agent-tycoon/no-inline-colors */
 
 /** The rim on the brow row, the posts and bridge beside the eyes' top row (bodies 2 and 6 have
  *  lashes on the row below); the lenses are the eyes themselves. */

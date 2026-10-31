@@ -208,6 +208,7 @@ describe('C5a: the MCP adapter (stdio JSON-RPC)', () => {
       'get_task_status',
       'send_message',
       'post_to_group',
+      'add_review_note',
       'get_group_context',
       'delegate_task',
     ]);

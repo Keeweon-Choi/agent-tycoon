@@ -10,6 +10,7 @@
  */
 import { spawnSync } from 'child_process';
 
+import { fixJosa } from '../../../../../../core/src/cld/josa.js';
 import { koText } from '../../../../../../core/src/cld/serverText.js';
 import { findOnPath } from '../../../providers/claudeProvider.js';
 import type { CodexRecord, CodexTasks } from '../../codex.js';
@@ -248,9 +249,9 @@ const STATE_WORD: Record<string, string> = { done: '끝남', failed: '실패', s
 export function runReport(r: CodexRecord, when: (t: number) => string): string | null {
   if (r.state === 'limit') {
     const reset = r.resetAt ? Date.parse(r.resetAt) : NaN;
-    return `Codex 실행 ${r.id} 이(가) 사용량 한도에 걸렸어요. ${
+    return fixJosa(`Codex 실행 ${r.id}이(가) 사용량 한도에 걸렸어요. ${
       Number.isFinite(reset) ? `${when(reset)} 리셋 뒤` : '간격을 늘려 가며(최대 1시간) 다시 해 보며'
-    } 같은 세션을 이어 가요.`;
+    } 같은 세션을 이어 가요.`);
   }
   if (!r.ended) return null;
   const facts = [

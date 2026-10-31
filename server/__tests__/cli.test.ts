@@ -197,7 +197,7 @@ describe('dist/cli.js entry-point guard', () => {
   itBuilt('runs main() when executed directly: --help prints usage and exits 0', async () => {
     const { code, stdout } = await runCli(['--help']);
     expect(code).toBe(0);
-    expect(stdout).toContain('Usage: pixel-agents');
+    expect(stdout).toContain('Usage: node dist/cli.js');
   });
 
   // 12. Direct execution still runs main()'s port validation (rejects before listen())
@@ -279,7 +279,7 @@ describe('dist/cli.js entry-point guard', () => {
    *  would be testing the helper. The trailing `\s` makes it wait for a
    *  complete line: stdout arrives in chunks, and a half-delivered URL still
    *  parses as a URL (`http://127.0.0.1:501`). */
-  const URL_LINE = /Pixel Agents login: (\S+)\s/;
+  const URL_LINE = /Agent Tycoon login: (\S+)\s/;
 
   function printedUrl(output: string): URL {
     const match = URL_LINE.exec(output);
@@ -328,7 +328,7 @@ describe('dist/cli.js entry-point guard', () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-notty-'));
     await runCliServer(tmpHome, async ({ output }) => {
       await waitForCondition(() => output().includes('Login link not printed'));
-      expect(output()).not.toMatch(/code=|Pixel Agents login:/);
+      expect(output()).not.toMatch(/code=|Agent Tycoon login:/);
     });
   });
 
@@ -403,7 +403,7 @@ describe('dist/cli.js entry-point guard', () => {
     );
 
     await runCliServer(tmpHome, async ({ output }) => {
-      await waitForCondition(() => output().includes('[Pixel Agents] Hooks installed'));
+      await waitForCondition(() => output().includes('[Agent Tycoon] Hooks installed'));
       const after = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as {
         permissions?: unknown;
         hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
@@ -460,7 +460,7 @@ describe('dist/cli.js entry-point guard', () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(fs.existsSync(path.join(tmpHome, '.claude', 'settings.json'))).toBe(false);
       expect(output()).toContain('Hooks NOT installed');
-      expect(output()).not.toContain('[Pixel Agents] Hooks installed');
+      expect(output()).not.toContain('[Agent Tycoon] Hooks installed');
     });
   });
 

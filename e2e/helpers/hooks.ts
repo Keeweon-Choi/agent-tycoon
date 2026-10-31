@@ -14,8 +14,15 @@ export interface HookEventPayload {
   [key: string]: unknown;
 }
 
+/** A file in the daemon's office folder (configPath.cjs officeDirectory; a test HOME never has the
+ *  pre-rename ~/.config/cld-gui). Specs seed config and layout in ~/.pixel-agents, where a daemon
+ *  before 2026-11 kept them, so every run also exercises the move into this folder. */
+export function officeFile(tmpHome: string, ...parts: string[]): string {
+  return path.join(tmpHome, '.config', 'agent-tycoon', 'office', ...parts);
+}
+
 function getServerJsonPath(tmpHome: string): string {
-  return path.join(tmpHome, '.pixel-agents', 'server.json');
+  return officeFile(tmpHome, 'server.json');
 }
 
 /** The events in a HOME's settings.json carrying one of our hook commands, sorted.
@@ -31,10 +38,7 @@ export function ourHookEvents(tmpHome: string): string[] {
     return [];
   }
   const ours = (command: string | undefined): boolean =>
-    (command ?? '')
-      .replace(/\\/g, '/')
-      .toLowerCase()
-      .includes('.pixel-agents/hooks/claude-hook.js');
+    (command ?? '').replace(/\\/g, '/').toLowerCase().includes('/office/hooks/claude-hook.js');
   return Object.entries(settings.hooks ?? {})
     .filter(([, entries]) =>
       (entries ?? []).some((e) => (e.hooks ?? []).some((h) => ours(h.command))),

@@ -191,7 +191,7 @@ async function main() {
   const pageErrors: string[] = [];
   // Office hours are what this runner tests, on a fixed page clock: left on.
   const browser = await launchBrowser({ officeHours: true });
-  const E2E = 'window.__PIXEL_AGENTS_E2E = true;';
+  const E2E = 'window.__AGENT_TYCOON_E2E = true;';
   try {
     const loginUrl = await started.loginUrl();
     // Log in once (the cookie), then open the office cold in a new page.
@@ -289,7 +289,7 @@ async function main() {
       'from the first frame to +25 s nobody appeared, left or moved',
     );
     const rest = await page.evaluate(`(() => {
-      const h = window.__pixelAgentsTestHooks;
+      const h = window.__agentTycoonTestHooks;
       return h.getCharacters().map((c) => [c.id, h.getCharacterTile(c.id)?.rest ?? null, c.matrixEffect]);
     })()`);
     check(

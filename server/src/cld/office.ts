@@ -21,6 +21,8 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+import { OWNER_LOOK_KEY } from '../../../core/src/cld/looks.js';
+import { doingTaskTitle } from '../../../core/src/cld/notices.js';
 import { type Coded, CodedError, koText, pickRefusal, type Refused, refused, refusedOf, type WithError } from '../../../core/src/cld/serverText.js';
 import type {
   BuildingState,
@@ -55,11 +57,12 @@ import {
   CODEX_USAGE_PROBE_KILL_GRACE_MS,
   CODEX_USAGE_PROBE_TIMEOUT_MS,
 } from '../constants.js';
-import { PALETTE_COUNT } from '../constants.js';
+import { PALETTE_COUNT, PTY_PERMISSION_WAIT_MS } from '../constants.js';
 import { readLayoutFromFile } from '../layoutPersistence.js';
 import { hookProviders } from '../providers/index.js';
 import { findClaude } from './agentCli.js';
 import type { StandaloneAuth } from './auth.js';
+import { BackgroundStore } from './background.js';
 import type { BuildingData, Change } from './building.js';
 import {
   addFloor,
@@ -88,11 +91,13 @@ import {
   sendTextRefusal,
 } from './chatSend.js';
 import { configDirectory } from './configPath.js';
+import { ensureOwnerToken, ownerTokenMatches } from './controlIdentity.js';
 import type { Lead } from './conversations.js';
-import { Conversations, readOptions } from './conversations.js';
+import { Conversations, listedText, readOptions } from './conversations.js';
 import type { BaseFloor, FloorLayout, Footprints } from './decor.js';
 import { composeOffice, decorFromSave, DecorStore, resetDecorRoom } from './decor.js';
 import { deviceLabel, deviceSource } from './device.js';
+import { Devroom } from './devroom.js';
 import type { AgentChoicesReader } from './engine/agentCapabilities.js';
 import { AgentChoicesCache } from './engine/agentCapabilities.js';
 import { handleAgentRules, rulesDirFor } from './engine/agentRules.js';
@@ -116,6 +121,8 @@ import { EventsTail } from './engine/eventsTail.js';
 import { RepoError } from './engine/git/gitRun.js';
 import { RepoManager } from './engine/git/repoManager.js';
 import type { ProjectFolder } from './engine/git/repoRead.js';
+import type { ReviewSendDeps } from './engine/git/reviewNotes.js';
+import { deliverToWorker, sendReview } from './engine/git/reviewNotes.js';
 import { TASK_PATTERN, worktreePath } from './engine/git/worktrees.js';
 import {
   defaultLocks,
@@ -135,16 +142,17 @@ import { pruneLogs } from './engine/logPrune.js';
 import { McpTools } from './engine/mcpTools.js';
 import type { MESSENGER_TIMING, Typist } from './engine/messenger.js';
 import { Messenger, writeAtomic } from './engine/messenger.js';
-import { DEFAULT_PROVIDER, loadRegistry, registryPath } from './engine/registry.js';
+import { cliOf, loadRegistry, registryPath } from './engine/registry.js';
 import { buildSessionPath } from './engine/sessionPath.js';
 import { answerTask, startForTask, tasksPath, TaskStore } from './engine/tasks.js';
 import type { TaskWorktreeDeps } from './engine/taskWorktree.js';
-import { answerWorktree, worktreeForTask } from './engine/taskWorktree.js';
+import { answerWorktree, mergeNewlyDone, worktreeForTask } from './engine/taskWorktree.js';
 import { TurnLedger } from './engine/turnLedger.js';
 import { EzRulesFile, ezRulesPath } from './ezRules.js';
 import { detectHostInfo, listFolders, parseListFolders } from './folders.js';
 import type { SocketStepUp, WsSend } from './hooks.js';
 import { cldHooks } from './hooks.js';
+import { DiskUsageSource } from './hw/diskUsage.js';
 import { hasHwReadings, HwSource, readTopProcesses, withoutDetail } from './hw/hwSource.js';
 import type { RoomRect, RoomSpec } from './layout.js';
 import {
@@ -169,6 +177,7 @@ import {
   parsePermissionAnswer,
   PermissionWaits,
   subjectCall,
+  toolCall,
 } from './permissionWait.js';
 import { PinStore } from './pins.js';
 import type { ClaudeSession } from './providers/claudeProvider.js';
@@ -182,6 +191,7 @@ import {
 } from './providers/claudeProvider.js';
 import type { AgentEntry, World } from './providers/types.js';
 import { PushService, PushStore, type TurnInfo } from './push.js';
+import { registerPushImageRoute } from './pushImage.js';
 import { RoomSizer } from './roomSizer.js';
 import { applyRoomReplies, RoomSummaries, type RoomSummary } from './roomUnread.js';
 import { RosterStore } from './roster.js';
@@ -199,7 +209,7 @@ import { TrackingFeed } from './tracking/feed.js';
 import { leadHistoryHop } from './transcriptHistory.js';
 import { currentTurn, type RoomRef } from './transcriptView.js';
 import { managedInstall, registerUpdateRoutes, UpdateNotice } from './updateNotice.js';
-import { type EarlyUsageReset, usageScript, UsageSource } from './usage.js';
+import { claudeUsageUrl, type EarlyUsageReset, readMacKeychain, UsageSource } from './usage.js';
 import type { WorkReader, WorkTarget } from './workView.js';
 import { echo, fileReader, parseWorkView, subagentReader, WorkViews } from './workView.js';
 
@@ -213,6 +223,8 @@ interface PermissionEntry {
   /** The screen read of this wait: under way, or done (`dialog` when it found the whole dialog). */
   screen?: 'reading' | 'done';
   dialog?: string;
+  /** TERM-P3: a PTY agent's PermissionRequest hook waits on this card: 허용/거부 is its decision. */
+  hook?: (decision: 'allow' | 'deny' | null) => void;
 }
 
 export const CLAUDE_POLL_MS = 30_000;
@@ -230,6 +242,12 @@ export const CLD_WORKER: string | null =
   [
     path.join(__dirname, 'cld-worker.js'),
     path.resolve(__dirname, '../../../dist/cld-worker.js'),
+  ].find((f) => fs.existsSync(f)) ?? null;
+/** TERM-P1: dist/cld-ptyhost.js, our PTY host for `claude-pty` agents (as CLD_WORKER). */
+export const CLD_PTYHOST: string | null =
+  [
+    path.join(__dirname, 'cld-ptyhost.js'),
+    path.resolve(__dirname, '../../../dist/cld-ptyhost.js'),
   ].find((f) => fs.existsSync(f)) ?? null;
 /** How often the temps per room are counted while anyone views (T-0041). */
 const ROOM_SAMPLE_MS = 30_000;
@@ -263,6 +281,9 @@ export interface OfficeOptions {
   readOnly: boolean;
   /** --allow-chat: background sessions get a 대화 terminal (officeState.chat). */
   chat?: boolean;
+  /** Tests: the engine's PTY host script (default dist's); null keeps new agents on `claude --bg`,
+   *  the path the Typist and PERM-PROMPT office tests were written for. */
+  ptyHostScript?: string | null;
   /** A `claude attach` runs (~150 MB): no `claude agents --json` beside it. */
   attaching?: () => boolean;
   /** `list(spawn)`: spawn is true while someone views. */
@@ -343,11 +364,15 @@ export class Office {
   readonly parts: CharacterPartStore;
   /** T-0020: repositories and task worktrees of the projects (jobs and Codex use `repos.worktrees`). */
   readonly repos: RepoManager;
+  /** P4: the dev room's viewers, stats and settings. */
+  readonly devroom: Devroom;
   /** P3a: the released-version notice; null for a source install (nothing to update from here). */
   private readonly updates: UpdateNotice | null;
   /** R3: the start policy and its facts, in 설정. */
   private readonly startPolicy: StartPolicyControl;
   private readonly hw: Pick<HwSource, 'sample'>;
+  /** A cached, on-demand disk walk for hardware-page viewers. */
+  private readonly diskUsage: DiskUsageSource;
   /** A sample still running (LHM via curl.exe, nvidia-smi): the next tick waits for it. */
   private sampling = false;
   private readonly ezRules: EzRulesFile;
@@ -404,6 +429,8 @@ export class Office {
   private readonly hireLooks = new Map<string, { palette: number; hueShift: number }>();
   /** U-30: the pinned conversations. */
   readonly pins: PinStore;
+  /** BACKGROUND: the isometric office's surroundings. */
+  readonly background: BackgroundStore;
   /** 작업 현황 (DEV-BOARD): the reported tasks; everyone gets them as they change. */
   readonly tasks: TaskStore;
   /** U-48 phase 1: the agents' own work lists as tracked items, read only while someone views. */
@@ -444,8 +471,10 @@ export class Office {
     this.characters = new CharacterPresets({
       configDir: configDirectory(opts.home ?? os.homedir()),
       publish: (msg) => this.publish(msg),
-      // Keys are names: an engine project's or a Claude session's; a temp employee's `emp:<id>`.
+      // Keys are names: an engine project's or a Claude session's; a temp employee's `emp:<id>`;
+      // the owner's own character (OWNER-AVATAR).
       knownKey: (key) =>
+        key === OWNER_LOOK_KEY ||
         this.world.agents.some((a) => a.name === key) ||
         (key.startsWith('emp:') && this.roster.allEmployees().some((e) => `emp:${e.id}` === key)),
     });
@@ -457,6 +486,21 @@ export class Office {
     );
     this.updates = this.makeUpdateNotice(opts);
     this.startPolicy = this.makeStartPolicy();
+    const reviewDeps: ReviewSendDeps = {
+      send: (r) =>
+        this.messenger
+          ? this.messenger.send(r)
+          : Promise.resolve({ ok: false as const, ...refused('not_engine_project') }),
+      names: () => this.engine?.names() ?? [],
+      nameOf: (id) => this.nameOfAssignment(id),
+      leadOf: (name) => this.engine?.projectOf(name) ?? undefined,
+      task: (id) => this.tasks.get(id),
+      setStatus: (id, status, by) => {
+        const r = this.tasks.update(id, { status }, by);
+        if (!r.ok) console.warn(`[cld] review ${id}: status not moved (${String(r.error)})`);
+      },
+      leadLine: (lead, task, text) => this.groupMessages?.system({ kind: 'review', task, from: lead, text }),
+    };
     this.repos = new RepoManager({
       projects: () => this.projectFolders(),
       readOnly: opts.readOnly,
@@ -477,6 +521,43 @@ export class Office {
           source,
         ),
       nameOf: (id) => this.nameOfAssignment(id),
+      // Step ④ of the review loop: the boss's queue to the agent, the Task back to doing, a Lead line.
+      reviewSend: (input) => sendReview(reviewDeps, input),
+      // P4 에이전트에게 맡기기: the same delivery; a Task in review or done goes back to doing.
+      conflictHandoff: (input) =>
+        deliverToWorker(
+          reviewDeps,
+          input,
+          koText('conflict_handoff_header', {
+            task: input.taskId ?? input.worktree,
+            worktree: input.worktree,
+            base: input.base,
+            files: input.files.join(', '),
+          }),
+          (to) => koText('sys_conflict_handoff', { worker: to, base: input.base, task: input.taskId ?? input.worktree }),
+          ['review', 'done'],
+        ),
+      agentBusy: (name) => this.engine?.roster().find((a) => a.name === name)?.busy === true,
+      autoCleanup: () => this.devroom.autoCleanupAfterMerge,
+    });
+    this.devroom = new Devroom({
+      file: path.join(configDirectory(opts.home ?? os.homedir()), 'devroom.json'),
+      repos: this.repos,
+      readOnly: opts.readOnly,
+      terminals: async () => {
+        const host = this.engine?.pty.host;
+        if (!host?.connected) return 0;
+        const r = await host.request('list');
+        return Array.isArray(r.terminals) ? r.terminals.length : 0;
+      },
+      hostPid: () => (this.engine?.pty.host.connected ? this.engine.pty.host.pid : undefined),
+      previewOpen: (msg) => {
+        this.opts.store.broadcast({ ...msg });
+        // The phone that asked is looking at its page, so the push skips it (one per project per minute).
+        this.push?.notify('question', null, msg.project, koText('preview_ask', { task: msg.task }), 'orchestrator', false, Date.now(), {
+          target: { open: 'preview', project: msg.project, task: msg.task, ...(msg.url && { url: msg.url }) },
+        });
+      },
     });
     this.hw =
       opts.hw ??
@@ -485,6 +566,7 @@ export class Office {
         lhmPort: opts.lhmPort,
         nvidiaSmi: opts.nvidiaSmi,
       });
+    this.diskUsage = new DiskUsageSource({ home: opts.home });
     this.ezRules = new EzRulesFile(ezRulesPath(opts.home));
     this.building = new BuildingStore(
       path.join(configDirectory(opts.home ?? os.homedir()), 'building.json'),
@@ -521,6 +603,7 @@ export class Office {
     });
     opts.store.on('agentRemoved', (id) => this.levels.forget(id));
     this.pins = new PinStore(path.join(configDirectory(home), 'pins.json'));
+    this.background = new BackgroundStore(path.join(configDirectory(home), 'background.json'));
     this.tasks = new TaskStore(
       tasksPath(home),
       () => {
@@ -553,7 +636,10 @@ export class Office {
       {
         home,
         codexHome: process.env.CODEX_HOME ?? path.join(home, '.codex'),
-        script: usageScript(home),
+        claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'),
+        // ponytail: with a custom CLAUDE_CONFIG_DIR Claude Code names its Keychain item differently: the file only.
+        keychain: process.platform === 'darwin' && !process.env.CLAUDE_CONFIG_DIR ? readMacKeychain : null,
+        usageUrl: claudeUsageUrl(),
       },
       () => this.publishUsage(),
       (reset) => this.usageResetEarly(reset),
@@ -592,6 +678,7 @@ export class Office {
     this.engine = engineOnHere
       ? new Engine({
           claudePath: opts.engineClaude!,
+          ptyHostScript: opts.ptyHostScript !== undefined ? opts.ptyHostScript : CLD_PTYHOST,
           agentChoices: opts.agentChoices,
           sessionPath: opts.sessionPath,
           readOnly: opts.readOnly,
@@ -767,6 +854,7 @@ export class Office {
               remote: entry?.remoteControl?.on === true,
               lead: !!entry && this.opts.chat === true, // its conversation, in the messenger
               background: !!entry?.bg?.id,
+              task: doingTaskTitle(this.tasks.list(), name),
             };
           },
           agentIdOf: (name) => this.agentIdOfName(name),
@@ -795,7 +883,11 @@ export class Office {
       return e?.key.startsWith('engine:') && e.bg?.id ? e : null;
     };
     const waits = new PermissionWaits({
-      isEngineLead: (id) => !!engineEntry(id),
+      // TERM-P3: a PTY agent's prompts come from its PermissionRequest hook (askPermission).
+      isEngineLead: (id) => {
+        const e = engineEntry(id);
+        return !!e && !this.engine?.inPty(e.name);
+      },
       exempt: new Set(hookProviders.flatMap((p) => [...p.permissionExemptTools])),
       check: async () => {
         const rows = (await agents.list()).filter(waitsForPermission);
@@ -850,9 +942,52 @@ export class Office {
     this.opts.store.on('broadcast', (m) => waits.observe(m));
     this.opts.store.on('agentRemoved', (id) => {
       waits.forget(id);
+      this.permissions.get(id)?.hook?.(null);
       this.permissions.delete(id);
     });
     return waits;
+  }
+
+  /**
+   * TERM-P3 (ADR-0018): a PTY agent's PermissionRequest hook (control `permission-hook`, with the
+   * asking session's own token). The same card, bubble, 🔐 notice and Web Push as a PERM-PROMPT
+   * wait, made from the hook's tool and input (its description and whole command: 허용 approves
+   * exactly that call); 허용/거부 is the hook's decision. No answer in PTY_PERMISSION_WAIT_MS, the
+   * character gone, or no such PTY agent: no decision, and Claude shows its own dialog in the
+   * agent's terminal. Nothing is read off a screen.
+   */
+  askPermission(name: string, ask: { tool: string; input: Record<string, unknown> }): Promise<'allow' | 'deny' | null> {
+    const id = this.agentIdOfName(name);
+    const e = id === null ? undefined : this.entryOf(id);
+    if (id === null || !e?.key.startsWith('engine:') || !e.bg?.id || !this.engine?.inPty(name))
+      return Promise.resolve(null);
+    // ponytail: one card per agent; a second ask while one is up sends the first to its terminal.
+    this.permissions.get(id)?.hook?.(null);
+    const call = toolCall(ask.tool, ask.input);
+    const detail = call.match.length ? call.match.join('\n') : call.detail;
+    const wait = ++this.permissionSerial;
+    return new Promise((resolve) => {
+      const done = (decision: 'allow' | 'deny' | null) => {
+        clearTimeout(timer);
+        if (this.permissions.get(id)?.wait === wait) {
+          this.permissions.delete(id);
+          this.opts.store.broadcast({ type: 'agentToolPermissionClear', id });
+          this.conversations.republish();
+        }
+        resolve(decision);
+      };
+      const timer = setTimeout(() => done(null), PTY_PERMISSION_WAIT_MS);
+      timer.unref?.();
+      this.permissions.set(id, {
+        wait,
+        transcript: { toolId: `hook:${wait}`, tool: call.tool, ...(detail && { detail: maskText(detail) }), match: [] },
+        screen: 'done',
+        hook: done,
+      });
+      console.log(`[cld engine] "${name}" asks a permission (${call.tool}) through its hook`);
+      this.opts.store.broadcast({ type: 'agentToolPermission', id });
+      this.conversations.republish();
+    });
   }
 
   /**
@@ -931,7 +1066,9 @@ export class Office {
     const result =
       !card?.toolId || card.toolId !== req.toolId || !match
         ? ('gone' as const)
-        : ((await this.opts.typist?.answerPermission?.(e.bg.id, match, req.allow)) ?? 'failed');
+        : p?.hook
+          ? (p.hook(req.allow ? 'allow' : 'deny'), 'answered' as const) // TERM-P3: the hook's decision
+          : ((await this.opts.typist?.answerPermission?.(e.bg.id, match, req.allow)) ?? 'failed');
     console.log(`[cld engine] ${what}: ${result}`);
     if (result === 'answered') this.permissionWaits?.answered(req.agentId);
     // Another dialog is up than the card says: read the screen again (the owner asked, once).
@@ -1001,6 +1138,7 @@ export class Office {
         path.join(configDirectory(this.opts.home ?? os.homedir()), 'profile'),
       );
       if (this.updates) registerUpdateRoutes(app, auth, this.updates, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
+      if (this.push) registerPushImageRoute(app, this.push.images);
       registerStartPolicyRoutes(app, auth, this.startPolicy, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
     };
     this.started = true;
@@ -1079,6 +1217,7 @@ export class Office {
     try {
       pruneLogs({ home: this.opts.home ?? os.homedir() });
       this.engineEvents?.rotate();
+      this.groupMessages?.maintain();
     } catch (err) {
       console.warn(`[cld engine] log prune: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -1114,6 +1253,7 @@ export class Office {
     this.codexBinder.dispose();
     this.characters.dispose();
     this.repos.dispose();
+    this.devroom.dispose();
     for (const k of Object.keys(cldHooks)) delete (cldHooks as Record<string, unknown>)[k];
   }
 
@@ -1318,17 +1458,12 @@ export class Office {
   /** W3: the Tasks seen done (null until the store is read): a newly done one merges. */
   private doneTasks: Set<string> | null = null;
 
-  /** W3: a Task newly done: its worktree's branch merges into its base, automatically (so never
-   *  into a protected branch: that one waits for a person's click in the 작업실). */
+  /** W3: a Task newly done: its worktree's branch merges into its base, automatically (never into
+   *  a protected branch, never a Task with review notes: those wait for the owner's click in the
+   *  작업실). The merges never reject; their outcome is in the merge history. */
   private mergeDoneTasks(): void {
-    if (!this.doneTasks || this.opts.readOnly) return;
-    const done = this.tasks.list({ status: 'done' });
-    for (const t of done) {
-      if (this.doneTasks.has(t.id)) continue;
-      const rec = this.repos.worktrees.forTask(t.project, t.id);
-      if (rec) void this.repos.merge(t.project, rec.task, { privileged: true, source: 'auto', auto: true });
-    }
-    this.doneTasks = new Set(done.map((t) => t.id));
+    if (this.opts.readOnly) return;
+    this.doneTasks = mergeNewlyDone(this.tasks, this.repos, this.doneTasks).seen;
   }
 
   /** W2 (N6): worktrees just given, until their agent starts (taskWorktree.ts CLAIM_MS). */
@@ -1449,7 +1584,7 @@ export class Office {
                   return id ? [[p.name, id] as const] : [];
                 }),
               ),
-        providers: new Map(loaded.projects.map((p) => [p.name, p.provider ?? DEFAULT_PROVIDER])),
+        providers: new Map(loaded.projects.map((p) => [p.name, cliOf(p)])),
       };
     }
     return this.assignmentCache.map;
@@ -1627,7 +1762,13 @@ export class Office {
     const messenger = this.messenger;
     const jobs = this.jobs;
     if (!engine || !messenger || !jobs) return;
-    const file = controlPath(this.opts.home ?? os.homedir());
+    const home = this.opts.home ?? os.homedir();
+    const file = controlPath(home);
+    try {
+      ensureOwnerToken(home); // SEC-CONTROL: the owner's CLI reads it; made before anyone asks
+    } catch (err) {
+      console.warn(`[cld engine] owner token: ${err instanceof Error ? err.message : String(err)}; owner commands over ${file} are refused`);
+    }
     const groupPost = (r: { room: string; text: string; from: string | null; source: string }) =>
       this.groupMessages
         ? this.groupMessages
@@ -1648,9 +1789,8 @@ export class Office {
       tasks: this.tasks,
       queueLength: (name) => messenger.queued.filter((q) => q.to === name).length,
       limited: (provider) => {
-        const u =
-          provider === 'claude' ? this.usage.usage?.claude : provider === 'codex' ? this.usage.usage?.codex : null;
-        const full = !!u && ((u.fiveHourPct ?? 0) >= 100 || (u.sevenDayPct ?? 0) >= 100);
+        const u = this.usage.usage?.providers.find((entry) => entry.id === provider);
+        const full = !!u && u.windows.some((w) => (w.pct ?? 0) >= 100);
         // One Codex account: a run waiting on its limit holds every Codex Worker (design §2.1).
         return full || (provider === 'codex' && (this.codex?.workerRecords() ?? []).some((r) => r.state === 'limit'));
       },
@@ -1658,6 +1798,14 @@ export class Office {
       groupPost,
       findRoom: (room) => this.groupStore?.find(room) ?? null,
       timeline: (room) => this.groupMessages?.timeline(room, Number.MAX_SAFE_INTEGER) ?? [],
+      // P4 add_review_note: `task` is the worktree's folder or its Task id (the Lead knows the id).
+      addReviewNote: ({ task, ...r }) => {
+        const rec = this.repos.worktrees
+          .all()
+          .find((w) => w.project === r.project && w.status === 'active' && (w.task === task || w.taskId === task));
+        if (!rec) return Promise.resolve({ ok: false, code: 'unknown_worktree', error: koText('worktree_missing') });
+        return this.repos.leadReviewNote({ ...r, task: rec.task });
+      },
       // C6: delegate_task makes and starts Workers through the engine's own actions.
       delegation: {
         approvals: this.approvals,
@@ -1696,8 +1844,11 @@ export class Office {
           mcp: (agent, tool, input) => mcp.call(agent, tool, input),
           names: () => engine.names(),
           agentOf: (token) => engine.tokens.agentOf(token),
+          permission: (agent, ask) => this.askPermission(agent, ask),
+          isOwner: (credential) => ownerTokenMatches(home, credential),
           projectOf: (name) => engine.projectOf(name),
           engineAction: (req) => engine.run(req, true, 'cli'),
+          moveAll: (stop) => (stop ? engine.moveAllStop(true) : engine.moveAll(true)),
           // AUTO-TRUST: `agty trust`, the owner's command (control.ts refuses an agent's token).
           trust: async (target, start) => {
             const r = await engine.trustProject(target, start);
@@ -1982,8 +2133,7 @@ export class Office {
 
   /** A provider moved a still-future usage window later while its reading dropped. */
   private usageResetEarly(reset: EarlyUsageReset): void {
-    const provider = reset.provider === 'codex' ? 'Codex' : 'Claude';
-    const fields = { provider: reset.provider, period: reset.period };
+    const fields = { provider: reset.provider, providerName: reset.name, period: reset.period };
     if (this.engineEvents) {
       this.engineEvents.append('usage_reset_early', 'usage', fields);
       return;
@@ -1995,7 +2145,9 @@ export class Office {
       ts: isoLocal(),
       kind: 'usage_reset_early',
       source: 'usage',
-      summary: koText(reset.period === 'sevenDay' ? 'ev_usage_reset_week' : 'ev_usage_reset_5h', { provider }),
+      summary: koText(reset.period === '7d' ? 'ev_usage_reset_week' : 'ev_usage_reset_5h', {
+        provider: reset.name,
+      }),
       ...fields,
     });
   }
@@ -2061,6 +2213,16 @@ export class Office {
       clearInterval(this.hwFastTimer);
       this.hwFastTimer = null;
     }
+  }
+
+  /** The disk card is viewer-triggered like H/W sampling, but never gets a timer of its own. */
+  private requestDiskUsage(send: WsSend): void {
+    void this.diskUsage
+      .read()
+      .then((usage) => {
+        if (this.hwViewers.has(send) && this.viewers.has(send) && !this.hidden.has(send)) send({ ...usage });
+      })
+      .catch((err) => console.warn(`[cld] disk usage: ${oneLineError(err)}`));
   }
 
   /** The worker sees a hw.json while a GPU ticket waits for admission. */
@@ -2291,16 +2453,7 @@ export class Office {
 
   private migrateLayoutJson(): void {
     if (this.decor.exists()) return;
-    let saved: Record<string, unknown> | null;
-    if (this.opts.home) {
-      try {
-        saved = JSON.parse(
-          fs.readFileSync(path.join(this.opts.home, '.pixel-agents', 'layout.json'), 'utf-8'),
-        ) as Record<string, unknown>;
-      } catch {
-        saved = null;
-      }
-    } else saved = readLayoutFromFile();
+    const saved = readLayoutFromFile(this.opts.home);
     const def = this.opts.defaultLayout;
     const isDefault =
       !!saved &&
@@ -2570,6 +2723,8 @@ export class Office {
     if (memos.memos.length) send({ ...memos });
     const pins = this.pins.message();
     if (pins.keys.length) send({ ...pins });
+    const background = this.background.message();
+    if (background) send({ ...background });
     send({ ...this.tasks.message() });
     for (const m of this.tracking.snapshot()) send({ ...m });
     if (this.groupStore) send({ type: 'groupRooms', rooms: this.groupRooms() });
@@ -2584,6 +2739,7 @@ export class Office {
   onClientClosed(send: WsSend): void {
     this.push?.closed(send);
     // MSG-HOLD2: a closed page (a reload, a dropped socket) never releases an edit hold.
+    this.devroom.onClientClosed(send);
     this.repos.onClientClosed(send);
     this.unwatchSlash(send);
     this.hwViewers.delete(send);
@@ -2672,7 +2828,10 @@ export class Office {
         if (msg.on) this.hwViewers.add(send);
         else this.hwViewers.delete(send);
         this.updateHwCadence();
-        if (msg.on) this.tickHw();
+        if (msg.on) {
+          this.tickHw();
+          if (!this.hidden.has(send)) this.requestDiskUsage(send);
+        }
       }
       return;
     }
@@ -2749,8 +2908,20 @@ export class Office {
       else this.opts.store.broadcast({ ...this.pins.message() });
       return;
     }
+    if (msg.type === 'setOfficeBackground') {
+      const error = !privileged ? '이 접속에는 조작 권한이 없어요' : this.background.set(msg);
+      if (error) console.warn(`[cld] background: ${error}`);
+      // Refused or not, the sender gets the truth back; a saved look reaches everyone.
+      if (error) send({ ...this.background.current() });
+      else this.opts.store.broadcast({ ...this.background.current() });
+      return;
+    }
     if (msg.type === 'engineAction') {
       this.engine?.handle(msg, send, privileged, deviceLabel(userAgent), stepUp);
+      return;
+    }
+    if (msg.type === 'engineMoveAll') {
+      if (this.engine) this.engine.handleMoveAll(msg, send, privileged);
       return;
     }
     if (msg.type === 'projectScan') {
@@ -2838,6 +3009,7 @@ export class Office {
       this.jobAction(msg, send, privileged, deviceLabel(userAgent));
       return;
     }
+    if (this.devroom.onClientMessage(msg, send, privileged)) return;
     if (this.repos.onClientMessage(msg, send, privileged, deviceSource(deviceLabel(userAgent)), stepUp)) {
       return;
     }
@@ -3087,13 +3259,20 @@ export class Office {
     const name = this.entryOf(id)?.name;
     if (!name) return { room: null, text: null };
     const typed = this.turnLedger.current(name); // asked now: a later post must not change this turn's room
-    const read = await currentTurn(this.entryOf(id)?.transcript ?? null);
-    if (!this.groupStore) return { room: null, text: read.text };
+    const lead = this.leads().find((l) => l.agentId === id);
+    // The lead's sent files are read as the messenger reads them (copied once into its outbox).
+    const read = await currentTurn(
+      this.entryOf(id)?.transcript ?? null,
+      lead ? readOptions(lead, (x) => this.noticeEmployee(x)) : {},
+    );
+    const files = read.attachments ? { attachments: read.attachments } : {};
+    if (!this.groupStore) return { room: null, text: read.text, ...files };
     const withId = (ref: RoomRef | null): RoomRef | null =>
       ref && !ref.id ? { ...ref, id: this.groupStore?.find(ref.name)?.id } : ref;
     return {
       room: withId(typed !== undefined ? typed : read.room ? { name: read.room } : null),
       text: read.text,
+      ...files,
     };
   }
 
@@ -3129,7 +3308,7 @@ export class Office {
       undefined,
     );
     return {
-      ...(last && { preview: `${last.sender ? `${last.sender}: ` : ''}${last.text}` }),
+      ...(last && { preview: `${last.sender ? `${last.sender}: ` : ''}${listedText(last.text)}` }),
       ...(last && { lastAt: last.at }),
       updates: events.filter((event) => event.counts).map((event) => event.id),
     };
@@ -3437,7 +3616,7 @@ function controlAnswers(file: string): Promise<boolean> {
 }
 
 /**
- * Pick the providers and start the office, or return null (plain pixel-agents)
+ * Pick the providers and start the office, or return null (plain office)
  * when Claude Code is not found. The built-in engine runs unless `--engine off`.
  */
 export async function startOffice(opts: {
@@ -3459,7 +3638,7 @@ export async function startOffice(opts: {
 }): Promise<Office | null> {
   const claudePath = findClaude();
   if (!claudePath) {
-    console.log('[cld] claude not found: plain pixel-agents office');
+    console.log('[cld] claude not found: plain office');
     return null;
   }
   const claude = new ClaudeSessions(

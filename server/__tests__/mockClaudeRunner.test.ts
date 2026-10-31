@@ -91,7 +91,7 @@ describe('mock-claude-runner hook execution', () => {
     }
   });
 
-  it('executes only Pixel Agents hooks from ~/.claude/settings.json', async () => {
+  it('executes only Agent Tycoon hooks from ~/.claude/settings.json', async () => {
     const pixelOutput = path.join(tmpBase, 'pixel-hook.json');
     const thirdPartyOutput = path.join(tmpBase, 'third-party-hook.json');
     const pixelHookPath = path.join(tmpHome, '.pixel-agents', 'hooks', 'claude-hook.js');

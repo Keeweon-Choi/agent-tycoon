@@ -1,3 +1,4 @@
+import { josa } from './josa.js';
 import { koText } from './serverText.js';
 
 /** The same work words on cards, the board and notices. */
@@ -30,15 +31,7 @@ export function codexOutcome(state: string): WorkOutcome {
   }
 }
 
-export function particle(word: string, pair: '이/가' | '을/를'): string {
-  const stem = word
-    .trim()
-    .replace(/\([^)]*\)$/, '')
-    .trim();
-  const last = [...stem].at(-1)?.codePointAt(0) ?? 0;
-  const final = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 !== 0;
-  return pair === '이/가' ? (final ? '이' : '가') : final ? '을' : '를';
-}
+export const particle = (word: string, pair: '이/가' | '을/를'): string => josa(word, pair);
 
 /** A Codex spec heading shortens to its task number: "T-0065: …" → "T-0065 작업". */
 export const workSubject = (title: string): string =>

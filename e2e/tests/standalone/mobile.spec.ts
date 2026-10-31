@@ -107,7 +107,7 @@ async function twoFingerGesture(page: Page, from: [Pt, Pt], to: [Pt, Pt]) {
 }
 
 const cameraFollowId = (page: Page) =>
-  page.evaluate(() => window.__pixelAgentsTestHooks?.getCameraFollowId?.() ?? null);
+  page.evaluate(() => window.__agentTycoonTestHooks?.getCameraFollowId?.() ?? null);
 
 /** A one-finger press held for `ms` at (x, y), as TouchEvents dispatched on
  *  the element under the point (Playwright's touchscreen can only tap). */
@@ -213,7 +213,7 @@ test.describe('Standalone / mobile shell', () => {
 
     // Put a URL on screen through the PTY's own echo.
     await terminal.tap();
-    const url = 'https://example.com/pixel-agents-tap';
+    const url = 'https://example.com/agent-tycoon-tap';
     await page.keyboard.type(url);
     const row = page.locator('.xterm-rows > div', { hasText: url }).first();
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -237,7 +237,7 @@ test.describe('Standalone / mobile shell', () => {
     // just focus the terminal.
     await page.touchscreen.tap(urlMidX, rowY);
     await expect.poll(() => popups.length).toBe(1);
-    expect(popups[0]).toContain('pixel-agents-tap');
+    expect(popups[0]).toContain('agent-tycoon-tap');
   });
 
   test('the key bar shows while the software keyboard is up, under both viewport resize policies @area:mobile', async ({

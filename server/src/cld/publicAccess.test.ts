@@ -106,6 +106,8 @@ describe('public (Funnel) requests', () => {
       '/assets/index-abc.js',
       '/assets/sheet.png',
       '/icons/missing.png',
+      '/api/cld/push-image/abc', // a push picture link has one exact shape
+      '/api/cld/push-image/../files/x',
       '/some/spa/route',
       '/login',
       '/login?code=nope',

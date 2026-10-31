@@ -2,15 +2,16 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync } from 'node:fs';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
+import { readEnv } from './env.js';
 import type { AgentState, PersistedAgent } from './types.js';
 
 /**
- * CI / e2e diagnostics: when PIXEL_AGENTS_DEBUG_LOG points to a writable
+ * CI / e2e diagnostics: when AGENT_TYCOON_DEBUG_LOG points to a writable
  * path, every broadcast is appended there with a timestamp. The test fixture
  * attaches the resulting file to Allure so failures can be analyzed without
  * local repro. Zero cost when the env var is unset.
  */
-const DEBUG_LOG_PATH = process.env['PIXEL_AGENTS_DEBUG_LOG'];
+const DEBUG_LOG_PATH = readEnv('DEBUG_LOG');
 
 function debugLogBroadcast(message: Record<string, unknown>): void {
   if (!DEBUG_LOG_PATH) return;
@@ -192,7 +193,7 @@ export class AgentStateStore {
       persisted.push({
         id: agent.id,
         sessionId: agent.sessionId,
-        terminalName: agent.terminalRef?.name ?? '',
+        terminalName: '', // ponytail: persisted shape kept (required by core/schemas.ts); no terminal behind an agent any more
         isExternal: agent.isExternal || undefined,
         jsonlFile: agent.jsonlFile,
         projectDir: agent.projectDir,

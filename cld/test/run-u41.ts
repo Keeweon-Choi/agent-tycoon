@@ -34,7 +34,7 @@ const PHONE = (() => {
   delete d.defaultBrowserType;
   return { ...d, viewport: { width: 393, height: 852 } };
 })();
-// eslint-disable-next-line pixel-agents/no-inline-colors -- the pre-U-41 token values, injected only to take the "before" shots
+// eslint-disable-next-line agent-tycoon/no-inline-colors -- the pre-U-41 token values, injected only to take the "before" shots
 const BEFORE = ':root{--color-accent:#6030ff;--color-accent-text:#6030ff}';
 
 async function main() {

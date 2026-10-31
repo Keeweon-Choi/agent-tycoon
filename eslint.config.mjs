@@ -1,7 +1,7 @@
 import typescriptEslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
-import pixelAgentsPlugin from './eslint-rules/pixel-agents-rules.mjs';
+import agentTycoonPlugin from './eslint-rules/agent-tycoon-rules.mjs';
 
 export default [
   {
@@ -11,7 +11,7 @@ export default [
     plugins: {
       '@typescript-eslint': typescriptEslint.plugin,
       'simple-import-sort': simpleImportSort,
-      'pixel-agents': pixelAgentsPlugin,
+      'agent-tycoon': agentTycoonPlugin,
     },
 
     languageOptions: {
@@ -34,13 +34,7 @@ export default [
       'no-throw-literal': 'error',
       'simple-import-sort/imports': 'error',
       'simple-import-sort/exports': 'error',
-      'pixel-agents/no-inline-colors': 'error',
-    },
-  },
-  {
-    files: ['adapters/vscode/constants.ts'],
-    rules: {
-      'pixel-agents/no-inline-colors': 'off',
+      'agent-tycoon/no-inline-colors': 'error',
     },
   },
   eslintConfigPrettier,

@@ -162,7 +162,7 @@ describe('the GPU line', () => {
 
   it('ticket, VRAM and wait', () => {
     expect(ticketText(7)).toBe('#07');
-    // eslint-disable-next-line pixel-agents/no-inline-colors -- a ticket number, not a colour
+    // eslint-disable-next-line agent-tycoon/no-inline-colors -- a ticket number, not a colour
     expect(ticketText(123)).toBe('#123');
     expect(vramText(2)).toBe('2 GiB');
     expect(vramText(1.25)).toBe('1.3 GiB');

@@ -16,13 +16,15 @@ import { type DenseSheet, FRAMES, withLods } from './compose.js';
  *  the spawn effect) whose master is its rect of the decoded sheet (smoothSprite.ts). An
  *  isometric sheet stands in for the top view too: front ← its front row, back ← its back row,
  *  the sides from its front row. Columns in the owner's order walk left, together, right,
- *  together (or the two steps alone) and stand on column 1. */
+ *  together (or the two steps alone) and stand on column 1. CHAR-ISO-1: an 8th column is the
+ *  walking neutral (arms down), the "together" of the walk; without it the idle stands in. */
 export function importedSheet(
   img: ImageData,
   opts: { iso: boolean; standFirst: boolean; twoStep: boolean },
 ): DenseSheet {
   const [fw, fh] = [IMPORT_WORLD_W * IMPORT_DENSITY, IMPORT_WORLD_H * IMPORT_DENSITY];
-  if (img.width !== fw * FRAMES || img.height !== fh * (opts.iso ? 2 : 3))
+  const cols = img.width / fw;
+  if ((cols !== FRAMES && cols !== FRAMES + 1) || img.height !== fh * (opts.iso ? 2 : 3))
     throw new Error(`${img.width}×${img.height} is no imported sheet`);
   const src = document.createElement('canvas');
   [src.width, src.height] = [img.width, img.height];
@@ -55,7 +57,8 @@ export function importedSheet(
     markSmooth(proxy, { src, x: x0, y: y0, w: fw, h: fh });
     return proxy;
   };
-  const row = (r: number) => Array.from({ length: FRAMES }, (_, f) => frame(r, f));
+  const row = (r: number) => Array.from({ length: cols }, (_, f) => frame(r, f));
+  const together = cols > FRAMES ? FRAMES : 0;
   const [front, back] = [row(0), row(1)];
   const sheet: DenseSheet = {
     down: front,
@@ -63,7 +66,7 @@ export function importedSheet(
     right: opts.iso ? front : row(2),
     density: IMPORT_PROXY_DENSITY,
     ...(opts.standFirst && {
-      walk: opts.twoStep ? ([1, 2, 1, 2] as const) : ([1, 0, 2, 0] as const),
+      walk: opts.twoStep ? ([1, 2, 1, 2] as const) : ([1, together, 2, together] as const),
       stand: 0,
     }),
   };

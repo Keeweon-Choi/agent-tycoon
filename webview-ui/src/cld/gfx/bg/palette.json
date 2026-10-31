@@ -1,0 +1,62 @@
+{
+  "night": {
+    "sky": ["#060a22", "#0b1236", "#121c50", "#1c2a68", "#2d3a7c", "#46508f", "#6d6aa0"],
+    "stars": ["#6c78b8", "#a7b3ea", "#e2e8ff"],
+    "moon": { "disc": "#f2ecca", "crater": "#d3c99f", "pit": "#ded4ab", "glow": "190,205,255", "glowK": 0.22 },
+    "sun": null,
+    "cloud": null,
+    "hills": ["#1c2554", "#161d46"],
+    "skyline": [
+      { "body": "#36427c", "top": "#44508c", "lit": "#b79b68", "off": "#3b4784", "pLit": 0.03, "pOff": 0.05 },
+      { "body": "#252f62", "top": "#303b74", "lit": "#e6b45e", "off": "#2b3669", "pLit": 0.06, "pOff": 0.06 },
+      { "body": "#171e48", "top": "#222a5c", "lit": "#ffd27a", "off": "#1d2552", "pLit": 0.09, "pOff": 0.05 }
+    ],
+    "haze": "#1a2252",
+    "ground": {
+      "road": "#171b33", "road2": "#1a1f38", "dash": "#6f6a46",
+      "walk": "#363c68", "walkJ": "#2c3258", "curb": "#4b5488",
+      "plaza": ["#2b3363", "#2f376a"], "plazaJ": "#232a55",
+      "grass": ["#173330", "#1a3a35", "#15302d"],
+      "lot": "#1b2040", "lotJ": "#151a35",
+      "water": "#1d3a70", "sand": "#2a3358",
+      "ghost": "#242a4a", "ghostJ": "#1e2442", "ghostEdge": "#3a4270"
+    },
+    "tree": { "shadow": "0,0,0", "trunk": "#2a1f1a", "leafD": "#0f2a26", "leafM": "#17413a", "leafL": "#2a6a54", "spark": "#ffd98a", "flower": null },
+    "lamp": { "pole": "#2b3050", "on": "#ffd98a", "pool": "255,200,110", "poolK": 0.32, "halo": "255,200,110", "haloK": 0.4 },
+    "tower": { "top": "#202748", "left": "#1a2040", "right": "#262e58", "edge": "#3a4478", "off": "#222a50", "litL": "#ffd27a", "litR": "#ffc15e", "p": 0.16 },
+    "house": { "top": "#2a3058", "left": "#242a50", "right": "#2e3562", "edge": "#3a4478", "off": "#222a50", "litL": "#ffd27a", "litR": "#ffc15e", "p": 0.5,
+      "roofs": [["#6a3a52", "#8a4a64"], ["#34506e", "#436890"], ["#6e5a34", "#8c7444"], ["#2f6150", "#3d7c66"]] },
+    "mainGlow": "255,200,120",
+    "mainGlowK": 0.2
+  },
+  "day": {
+    "sky": ["#8fd0f4", "#a8dcf7", "#c3e8fa", "#dcf2fc", "#eef9fd", "#fdf6ec"],
+    "stars": [],
+    "moon": null,
+    "sun": { "disc": "#fff3b0", "glow": "255,244,190", "glowK": 0.35 },
+    "cloud": { "white": "#ffffff", "soft": "#f6fbff", "shade": "#d3e4f5" },
+    "hills": ["#bfe0d6", "#a7d4bc"],
+    "skyline": [
+      { "body": "#d3cbe6", "top": "#e2dcef", "lit": "#ffffff", "off": "#b9c6e6", "pLit": 0.03, "pOff": 0.07 },
+      { "body": "#c4bddc", "top": "#d6cfe8", "lit": "#ffffff", "off": "#aab8de", "pLit": 0.05, "pOff": 0.08 },
+      { "body": "#b2abd0", "top": "#c8c1e0", "lit": "#f4f8ff", "off": "#9aaad6", "pLit": 0.06, "pOff": 0.08 }
+    ],
+    "haze": "#e4f4f4",
+    "ground": {
+      "road": "#c6c2d8", "road2": "#cdc9de", "dash": "#fffdf2",
+      "walk": "#f3ead3", "walkJ": "#e3d8bc", "curb": "#ffffff",
+      "plaza": ["#e9e1cd", "#efe8d6"], "plazaJ": "#d9cfb4",
+      "grass": ["#a6dd90", "#9cd687", "#aedc97"],
+      "lot": "#d9d4e6", "lotJ": "#c9c3d8",
+      "water": "#7cc4ef", "sand": "#f1e2b2",
+      "ghost": "#dcd8ea", "ghostJ": "#d0cce2", "ghostEdge": "#b4b0cc"
+    },
+    "tree": { "shadow": "60,90,60", "trunk": "#8a6a4a", "leafD": "#4fa35e", "leafM": "#6dc27a", "leafL": "#a4e6a8", "spark": null, "flower": "#ff9ec2" },
+    "lamp": { "pole": "#6a6f8a", "on": "#fff0b0", "pool": "255,255,220", "poolK": 0, "halo": null, "haloK": 0 },
+    "tower": { "top": "#d6d2e8", "left": "#a9a6c8", "right": "#c3c0dc", "edge": "#eceaf6", "off": "#aab2d6", "litL": "#dce8fa", "litR": "#e8f0fc", "p": 0.16 },
+    "house": { "top": "#f4ecd8", "left": "#e6dcc0", "right": "#f6efe0", "edge": "#ffffff", "off": "#a8c4e8", "litL": "#8cc4f0", "litR": "#a8d4f8", "p": 0.5,
+      "roofs": [["#c9525f", "#e86a7a"], ["#4e86c4", "#6aa7e8"], ["#cc9440", "#f0b660"], ["#5fb083", "#7fd1a0"]] },
+    "mainGlow": null,
+    "mainGlowK": 0
+  }
+}

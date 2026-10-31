@@ -4,13 +4,14 @@ import type { AgentEvent, HookProvider } from '../../core/src/provider.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import { toolDescription } from './cld/transcriptView.js';
 import { SESSION_END_GRACE_MS } from './constants.js';
+import { readEnv } from './env.js';
 import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
 import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
-const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
+const debug = readEnv('DEBUG') !== '0';
 
 /** Normalized hook event received from any provider's hook script via the HTTP server. */
 export interface HookEvent {
@@ -73,7 +74,7 @@ export class HookEventHandler {
   ) {
     if (provider.protocolVersion !== HookEventHandler.SUPPORTED_PROTOCOL_VERSION) {
       console.warn(
-        `[Pixel Agents] HookProvider "${provider.id}" reports protocolVersion=${provider.protocolVersion}, ` +
+        `[Agent Tycoon] HookProvider "${provider.id}" reports protocolVersion=${provider.protocolVersion}, ` +
           `but handler understands ${HookEventHandler.SUPPORTED_PROTOCOL_VERSION}. ` +
           `Events from this provider will be dropped.`,
       );
@@ -112,7 +113,7 @@ export class HookEventHandler {
     const flushed = this.sessionRouter.register(sessionId, agentId);
     if (debug && flushed.length > 0)
       console.log(
-        `[Pixel Agents] Hook: flushing ${flushed.length} buffered event(s) for session ${sessionId.slice(0, 8)}...`,
+        `[Agent Tycoon] Hook: flushing ${flushed.length} buffered event(s) for session ${sessionId.slice(0, 8)}...`,
       );
     for (const { providerId, event } of flushed) {
       this.handleEvent(providerId, event as HookEvent);
@@ -146,7 +147,8 @@ export class HookEventHandler {
     const normEvent = normalized.event;
     const eventName = event.hook_event_name; // retained for logs only
     // CI / e2e diagnostic: see agentStateStore.ts debugLogBroadcast comment.
-    if (process.env['PIXEL_AGENTS_DEBUG_LOG']) {
+    const debugLog = readEnv('DEBUG_LOG');
+    if (debugLog) {
       try {
         const fs = require('fs') as typeof import('fs');
         const sid = (event.session_id as string | undefined)?.slice(0, 8) ?? '?';
@@ -155,7 +157,7 @@ export class HookEventHandler {
             ? ` toolName=${(normEvent as { toolName?: string }).toolName}`
             : '';
         fs.appendFileSync(
-          process.env['PIXEL_AGENTS_DEBUG_LOG']!,
+          debugLog,
           `${new Date().toISOString()} HOOK kind=${normEvent.kind} sid=${sid} src=${(normEvent as { source?: string }).source ?? ''}${extras}\n`,
         );
       } catch {
@@ -175,7 +177,7 @@ export class HookEventHandler {
       const cwd = normEvent.cwd;
       const tracked = this.isTrackedSession(transcriptPath, cwd);
       if (debug && tracked)
-        console.log(`[Pixel Agents] Hook: SessionStart(source=${source}, session=${sid}...)`);
+        console.log(`[Agent Tycoon] Hook: SessionStart(source=${source}, session=${sid}...)`);
 
       // Check registered mapping
       const existingAgentId = this.sessionRouter.resolve(event.session_id);
@@ -186,7 +188,7 @@ export class HookEventHandler {
         }
         if (debug)
           console.log(
-            `[Pixel Agents] Hook: Agent ${existingAgentId} - SessionStart(source=${source}) known`,
+            `[Agent Tycoon] Hook: Agent ${existingAgentId} - SessionStart(source=${source}) known`,
           );
         return;
       }
@@ -197,7 +199,7 @@ export class HookEventHandler {
           agent.hookDelivered = true;
           if (debug)
             console.log(
-              `[Pixel Agents] Hook: Agent ${id} - SessionStart(source=${source}) auto-discovered`,
+              `[Agent Tycoon] Hook: Agent ${id} - SessionStart(source=${source}) auto-discovered`,
             );
           return;
         }
@@ -218,7 +220,7 @@ export class HookEventHandler {
             if (isMatch) {
               agent.pendingClear = false;
               console.log(
-                `[Pixel Agents] Hook: Agent ${id} - /${normEvent.source} detected, reassigning to ${event.session_id}`,
+                `[Agent Tycoon] Hook: Agent ${id} - /${normEvent.source} detected, reassigning to ${event.session_id}`,
               );
               this.sessionRouter.unregister(agent.sessionId);
               this.registerAgent(event.session_id, id);
@@ -238,7 +240,7 @@ export class HookEventHandler {
         }
         if (debug && tracked)
           console.log(
-            `[Pixel Agents] Hook: SessionStart(source=${source}) -> pending external session ${sid}..., awaiting confirmation`,
+            `[Agent Tycoon] Hook: SessionStart(source=${source}) -> pending external session ${sid}..., awaiting confirmation`,
           );
         this.sessionRouter.storePending(event.session_id, {
           sessionId: event.session_id,
@@ -248,7 +250,7 @@ export class HookEventHandler {
       } else {
         if (debug && tracked)
           console.log(
-            `[Pixel Agents] Hook: SessionStart -> unknown session ${sid}..., no transcript_path`,
+            `[Agent Tycoon] Hook: SessionStart -> unknown session ${sid}..., no transcript_path`,
           );
       }
       return;
@@ -260,7 +262,7 @@ export class HookEventHandler {
       this.sessionRouter.discardPending(event.session_id);
       if (debug)
         console.log(
-          `[Pixel Agents] Hook: SessionEnd discarded pending external session ${event.session_id.slice(0, 8)}...`,
+          `[Agent Tycoon] Hook: SessionEnd discarded pending external session ${event.session_id.slice(0, 8)}...`,
         );
       return;
     }
@@ -270,7 +272,7 @@ export class HookEventHandler {
     if (pending) {
       if (debug)
         console.log(
-          `[Pixel Agents] Hook: ${eventName} confirmed external session ${event.session_id.slice(0, 8)}..., notifying host`,
+          `[Agent Tycoon] Hook: ${eventName} confirmed external session ${event.session_id.slice(0, 8)}..., notifying host`,
         );
       this.lifecycleCallbacks.onExternalSessionDetected?.(
         pending.sessionId,
@@ -306,7 +308,7 @@ export class HookEventHandler {
       if (isPending || hasBuffered || hasUnregisteredAgents) {
         if (debug)
           console.log(
-            `[Pixel Agents] Hook: ${eventName} - unknown session ${event.session_id.slice(0, 8)}..., buffering`,
+            `[Agent Tycoon] Hook: ${eventName} - unknown session ${event.session_id.slice(0, 8)}..., buffering`,
           );
         this.sessionRouter.bufferEvent(_providerId, event);
       }
@@ -319,7 +321,7 @@ export class HookEventHandler {
     agent.hookDelivered = true;
     if (debug)
       console.log(
-        `[Pixel Agents] Hook: Agent ${agentId} - ${eventName} (session=${event.session_id.slice(0, 8)}...)`,
+        `[Agent Tycoon] Hook: Agent ${agentId} - ${eventName} (session=${event.session_id.slice(0, 8)}...)`,
       );
 
     // Dispatch on normalized AgentEvent.kind, not raw hook event names.
@@ -375,7 +377,7 @@ export class HookEventHandler {
     const reason = normEvent.reason;
     if (debug)
       console.log(
-        `[Pixel Agents] Hook: Agent ${agentId} - SessionEnd(reason=${reason ?? 'unknown'})`,
+        `[Agent Tycoon] Hook: Agent ${agentId} - SessionEnd(reason=${reason ?? 'unknown'})`,
       );
 
     // /clear and /resume send SessionEnd then SessionStart. Wait briefly for the follow-up.
@@ -387,7 +389,7 @@ export class HookEventHandler {
       this.markAgentWaiting(agent, agentId);
       if (debug)
         console.log(
-          `[Pixel Agents] Hook: Agent ${agentId} - SessionEnd(reason=${reason}), awaiting possible SessionStart`,
+          `[Agent Tycoon] Hook: Agent ${agentId} - SessionEnd(reason=${reason}), awaiting possible SessionStart`,
         );
       // Safety net: if SessionStart never arrives, clean up the zombie agent
       setTimeout(() => {
@@ -508,7 +510,7 @@ export class HookEventHandler {
     if (this.provider.team && agent.currentHookIsTeammateSpawn === true && agent.teamName) {
       if (debug)
         console.log(
-          `[Pixel Agents] Hook: Agent ${agentId} - SubagentStart: teammate "${agentType}" detected, triggering discovery`,
+          `[Agent Tycoon] Hook: Agent ${agentId} - SubagentStart: teammate "${agentType}" detected, triggering discovery`,
         );
       this.lifecycleCallbacks.onTeammateDetected?.(agentId, event.session_id, agentType);
       return;
@@ -575,7 +577,7 @@ export class HookEventHandler {
     if (inlineTeammates.length > 0) {
       if (debug)
         console.log(
-          `[Pixel Agents] Hook: Agent ${agentId} - SubagentStop: marking inline teammates as waiting`,
+          `[Agent Tycoon] Hook: Agent ${agentId} - SubagentStop: marking inline teammates as waiting`,
         );
       for (const [id, a] of inlineTeammates) {
         this.markAgentWaiting(a, id);
@@ -664,7 +666,7 @@ export class HookEventHandler {
         const [id, a] = match;
         if (debug)
           console.log(
-            `[Pixel Agents] Hook: TeammateIdle "${teammateName}" -> teammate Agent ${id}`,
+            `[Agent Tycoon] Hook: TeammateIdle "${teammateName}" -> teammate Agent ${id}`,
           );
         this.markAgentWaiting(a, id);
         return;
@@ -674,7 +676,7 @@ export class HookEventHandler {
     // Fallback: mark all inline teammates as waiting
     if (debug)
       console.log(
-        `[Pixel Agents] Hook: TeammateIdle (no teammate_name match) -> marking ${inlineTeammates.length} teammate(s) done`,
+        `[Agent Tycoon] Hook: TeammateIdle (no teammate_name match) -> marking ${inlineTeammates.length} teammate(s) done`,
       );
     for (const [id, a] of inlineTeammates) {
       this.markAgentWaiting(a, id);
@@ -695,7 +697,7 @@ export class HookEventHandler {
     const teammateName = this.provider.team?.extractTeammateNameFromEvent(event);
     if (debug)
       console.log(
-        `[Pixel Agents] Hook: Agent ${agentId} - TaskCompleted: ${taskSubject}${teammateName ? ` (teammate_name=${teammateName})` : ''}`,
+        `[Agent Tycoon] Hook: Agent ${agentId} - TaskCompleted: ${taskSubject}${teammateName ? ` (teammate_name=${teammateName})` : ''}`,
       );
 
     const inlineTeammates = getInlineTeammates(agentId, this.agents);

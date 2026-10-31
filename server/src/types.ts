@@ -1,10 +1,6 @@
-import type * as vscode from 'vscode';
-
 export interface AgentState {
   id: number;
   sessionId: string;
-  /** Terminal reference — undefined for extension panel sessions */
-  terminalRef?: vscode.Terminal;
   /** Whether this agent was detected from an external source (VS Code extension panel, etc.) */
   isExternal: boolean;
   projectDir: string;

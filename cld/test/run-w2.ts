@@ -6,7 +6,7 @@
  * - two Tasks (T-1 for alpha-w1, T-2 for alpha-c1); in the 작업실's Task tab each card gets
  *   "worktree 만들기" (assignee picked, the repository write's confirmation): branch
  *   task/t-<n>-<slug> from main in .worktrees/, recorded with the Task and the assignee;
- * - the cards show worktree ↔ assignee, the worktree tab lists each worktree's Task and assignee;
+ * - the cards show worktree ↔ assignee (the worktree tab moved to the 개발실, P4);
  * - alpha-w1's next start is in its worktree (the session's cwd), its commit lands there only;
  * - the Lead hands T-2 to alpha-c1 (delegate_task task.id): its Codex run works in T-2's
  *   worktree (the fake commits), the Execution counts that commit (observed);
@@ -289,14 +289,6 @@ async function main() {
     const again = json(cli('worktree', 'new', '--task', 'T-1'));
     check(again.ok === false && again.code === 'exists', `cld-gui worktree new --task T-1 again: refused (${again.error})`);
 
-    // The worktree tab: Task ↔ worktree ↔ assignee.
-    await openWorkbenchTab(desk, 'worktree', { project: 'alpha' });
-    const row = (task: string) => wb.locator(`[data-testid="worktree-row"][data-task="${task}"]`);
-    await row('t-1-login-page').waitFor({ timeout: 20_000 });
-    const rows = await Promise.all([w1.task, w2.task, w3.task].map((t) => row(t).getByTestId('worktree-task').innerText()));
-    check(rows[0] === 'Task T-1 · 담당 alpha-w1' && rows[1] === 'Task T-2 · 담당 alpha-c1' && rows[2] === `Task ${String(d3.taskId)} · 담당 alpha-w1`, `the worktree tab: ${rows.join(' | ')}`);
-    await shot(desk, 'worktree-tab');
-
     // The phone.
     const phone = await newPage({ ...devices['iPhone 13'] });
     await openWorkbenchTab(phone, 'Task', { project: 'alpha', tap: true });
@@ -309,11 +301,7 @@ async function main() {
     check(overflow <= 0, `phone: no sideways scroll (${overflow})`);
     await phone.waitForTimeout(400);
     await shot(phone, 'phone-tasks-worktree');
-    await openWorkbenchTab(phone, 'worktree', { project: 'alpha', tap: true });
-    await dock.locator('[data-testid="worktree-row"]').first().waitFor({ timeout: 20_000 });
-    await phone.waitForTimeout(400);
-    await shot(phone, 'phone-worktree-tab');
-    check(true, 'phone: the Task tab and the worktree tab show Task ↔ worktree ↔ assignee');
+    check(true, 'phone: the Task card shows Task ↔ worktree ↔ assignee');
     console.log(`\n${oks} checks passed`);
   } catch (err) {
     fs.writeFileSync(path.join(os.tmpdir(), 'run-w2.daemon.log'), daemon.log.join(''));

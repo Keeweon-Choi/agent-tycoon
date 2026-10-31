@@ -43,7 +43,7 @@ const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const MEMO = '배포 점검: 오전 10시\nship it by Friday';
 // WHITEBOARD_INK in constants.ts, as the browser reports it.
-// eslint-disable-next-line pixel-agents/no-inline-colors
+// eslint-disable-next-line agent-tycoon/no-inline-colors
 const INK = 'rgb(28, 44, 88)';
 
 type Furniture = { uid: string; type: string; col: number; row: number };
@@ -85,11 +85,11 @@ async function footprint(page: Page, b: Furniture) {
     ({ col, row }) => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: {
+          __agentTycoonTestHooks: {
             getTileCenter: (c: number, r: number) => { x: number; y: number };
           };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       return [h.getTileCenter(col, row), h.getTileCenter(col + 1, row + 1)];
     },
     { col: b.col, row: b.row },
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
       const ctx = await browser.newContext(opts);
       await ctx.addInitScript(() => {
         (window as unknown as Record<string, unknown>).__name = (f: unknown) => f;
-        (window as unknown as Record<string, unknown>).__PIXEL_AGENTS_E2E = true;
+        (window as unknown as Record<string, unknown>).__AGENT_TYCOON_E2E = true;
         localStorage.setItem('cld.office-hours', '{"on":false}');
       });
       const page = await ctx.newPage();

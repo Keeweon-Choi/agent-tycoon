@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { transport } from '../../transport/index.js';
+import { reviewOpen } from './reviewStore.js';
 
 /** Counts the times the socket (re)connected: the server forgets who looks when it drops. */
 function useReconnects(): number {
@@ -23,4 +24,17 @@ export function useRepoView(project: string | null): void {
     transport.send({ type: 'repoView', project, on: true });
     return () => transport.send({ type: 'repoView', project, on: false });
   }, [project, reconnects]);
+}
+
+/** Follow one worktree's review notes while its review is open (again after a dropped socket). */
+/** `tick` asks again (the daemon answers `fixed` when asked, it does not push a worktree's edits). */
+export function useReviewNotes(project: string, task: string, canWrite: boolean, tick = 0): void {
+  useEffect(() => {
+    if (!canWrite) return;
+    const ask = () => reviewOpen(project, task, (msg) => transport.send(msg));
+    ask();
+    return transport.onStateChange((state) => {
+      if (state === 'connected') ask();
+    });
+  }, [project, task, canWrite, tick]);
 }

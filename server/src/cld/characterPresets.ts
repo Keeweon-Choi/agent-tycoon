@@ -90,8 +90,13 @@ const MAX_LABEL_LENGTH = 60;
 const UPLOAD_BODY_LIMIT = 2 * Math.ceil(MAX_PRESET_BYTES / 3) * 4 + 4096;
 /** SHEET-IMPORT: one generated sheet (base64) plus the JSON around it. */
 const IMPORT_BODY_LIMIT = Math.ceil(MAX_IMPORT_BYTES / 3) * 4 + 4096;
-/** An imported sheet: 7 frames of 192×384 in 3 rows (top view) or 2 (isometric). */
+/** An imported sheet: 7 frames of 192×384 in 3 rows (top view) or 2 (isometric); CHAR-ISO-1: or
+ *  8, the last the walking neutral (an expansion pack's hand-made sheet; the importer makes 7). */
 const HD_SHEET_W = IMPORT_FRAME_W * SHEET_FRAMES;
+const HD_SHEET_W8 = HD_SHEET_W + IMPORT_FRAME_W;
+/** The width an imported sheet file must have: 8 columns when it says so, else 7. */
+const hdWidth = (file: string): number =>
+  pngSize(file).w === HD_SHEET_W8 ? HD_SHEET_W8 : HD_SHEET_W;
 const HD_SHEET_H: Record<SheetFormat, number> = {
   top: IMPORT_FRAME_H * 3,
   iso: IMPORT_FRAME_H * 2,
@@ -165,7 +170,7 @@ function pngSize(file: string): { w: number; h: number } {
 /** A preset sheet's kind by its size: classic 112×96, HD 224×192 (CHAR-FACTORY), or an imported
  *  sheet at density 12 (top view 1344×1152, isometric 1344×768). */
 function sheetKind({ w, h }: { w: number; h: number }): { density: Density; format: SheetFormat } {
-  if (w === HD_SHEET_W)
+  if (w === HD_SHEET_W || w === HD_SHEET_W8)
     return { density: IMPORT_DENSITY, format: h === HD_SHEET_H.iso ? 'iso' : 'top' };
   return { density: w === SHEET_W * 2 ? 2 : 1, format: 'top' };
 }
@@ -609,7 +614,13 @@ export class CharacterPresets {
       const { density, format } = kind;
       const imported = density === IMPORT_DENSITY;
       const png = imported
-        ? read(name, HD_SHEET_W, HD_SHEET_H[format], false, MAX_HD_SHEET_BYTES)
+        ? read(
+            name,
+            hdWidth(path.join(this.dir, name)),
+            HD_SHEET_H[format],
+            false,
+            MAX_HD_SHEET_BYTES,
+          )
         : read(name, SHEET_W * density, SHEET_H * density);
       if (!png) continue;
       const mug =
@@ -618,7 +629,13 @@ export class CharacterPresets {
           : null;
       const iso =
         stats.has(`${id}.iso.png`) && format === 'top'
-          ? read(`${id}.iso.png`, HD_SHEET_W, HD_SHEET_H.iso, false, MAX_HD_SHEET_BYTES)
+          ? read(
+              `${id}.iso.png`,
+              hdWidth(path.join(this.dir, `${id}.iso.png`)),
+              HD_SHEET_H.iso,
+              false,
+              MAX_HD_SHEET_BYTES,
+            )
           : null;
       const version = crypto
         .createHash('sha1')

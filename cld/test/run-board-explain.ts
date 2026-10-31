@@ -174,7 +174,7 @@ async function main() {
   const pageErrors: string[] = [];
   const open = async (opts: BrowserContextOptions) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__bx/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,

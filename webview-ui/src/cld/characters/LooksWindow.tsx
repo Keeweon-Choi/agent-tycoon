@@ -42,7 +42,14 @@ import { transport } from '../../transport/index.js';
 import { useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
 import { compose, type ComposedLook, FRAME_H, FRAME_W, lookKey, portraitOf } from './compose.js';
-import { getCustomParts, lookProvider, presetSheet, useLooksUi } from './looks.js';
+import {
+  getCustomParts,
+  lookProvider,
+  OWNER_LOOK_KEY,
+  ownerChoice,
+  presetSheet,
+  useLooksUi,
+} from './looks.js';
 import { PartImport } from './PartImport.js';
 import type { PartData, PartGender, PartSlot } from './parts.js';
 import {
@@ -885,7 +892,12 @@ function CustomOptions({
 export function LooksBody({ name, inWindow = false }: { name: string; inWindow?: boolean }) {
   const { characterPresets, officeReadOnly } = useCldStore();
   useLooksUi(); // a preset sheet that finished loading redraws the preview
-  const saved = characterPresets?.assignments[name];
+  // OWNER-AVATAR: the owner's character wears the lobby's fallback until they pick one, and
+  // without it the first built-in sheet (as spawnOwner draws it).
+  const saved =
+    name === OWNER_LOOK_KEY
+      ? (ownerChoice(characterPresets) ?? { palette: 0, hueShift: 0 })
+      : characterPresets?.assignments[name];
   const provider = lookProvider(name);
   const [draft, setDraft] = useState<CharacterChoice | null>(null);
   const [tab, setTab] = useState<Tab>(() => kindOf(saved));

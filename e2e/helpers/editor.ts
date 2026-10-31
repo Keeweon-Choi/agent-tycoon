@@ -2,7 +2,7 @@
  * Layout-editor driving helpers for the carpet, area and editor e2e specs.
  *
  * Tool selection goes through the REAL toolbar UI (same path a user takes).
- * Tile painting goes through `window.__pixelAgentsTestHooks.editorTileAction`
+ * Tile painting goes through `window.__agentTycoonTestHooks.editorTileAction`
  * / `.editorEraseAction`, which call the same App-level handlers the canvas
  * calls — bypassing ONLY canvas pixel→tile geometry (mirrors the pets fixture's
  * petClick, see webview-ui/src/testHooks.ts). `dropFurnitureAt` bypasses more:
@@ -18,7 +18,7 @@ import { expect } from '@playwright/test';
 
 /** The carpet/area observability surface installed under the isE2E guard. */
 export interface TestHooksWindow extends Window {
-  __pixelAgentsTestHooks?: {
+  __agentTycoonTestHooks?: {
     getCarpetTiles?: () => Array<{
       col: number;
       row: number;
@@ -173,7 +173,7 @@ export async function selectArea(frame: Frame, label: string): Promise<void> {
 /** Paint a tile with the active tool via the real tile-action handler (by col,row). */
 export async function paintTile(frame: Frame, col: number, row: number): Promise<void> {
   await frame.evaluate(
-    ([c, r]) => (window as TestHooksWindow).__pixelAgentsTestHooks?.editorTileAction?.(c, r),
+    ([c, r]) => (window as TestHooksWindow).__agentTycoonTestHooks?.editorTileAction?.(c, r),
     [col, row] as const,
   );
 }
@@ -181,7 +181,7 @@ export async function paintTile(frame: Frame, col: number, row: number): Promise
 /** Erase a tile with the active tool via the real erase-action handler (by col,row). */
 export async function eraseTile(frame: Frame, col: number, row: number): Promise<void> {
   await frame.evaluate(
-    ([c, r]) => (window as TestHooksWindow).__pixelAgentsTestHooks?.editorEraseAction?.(c, r),
+    ([c, r]) => (window as TestHooksWindow).__agentTycoonTestHooks?.editorEraseAction?.(c, r),
     [col, row] as const,
   );
 }
@@ -218,7 +218,7 @@ async function tilePagePoint(frame: Frame, col: number, row: number) {
   if (!box) throw new Error('office canvas is not rendered');
   const local = await frame.evaluate(
     ([c, r]) => {
-      const center = (window as TestHooksWindow).__pixelAgentsTestHooks?.getTileCenter?.(c, r);
+      const center = (window as TestHooksWindow).__agentTycoonTestHooks?.getTileCenter?.(c, r);
       const canvas = document.querySelector('[data-testid="office-canvas"]');
       if (!center || !canvas) return null;
       const rect = canvas.getBoundingClientRect();
@@ -290,7 +290,7 @@ export async function dropFurnitureAt(
 ): Promise<void> {
   await frame.evaluate(
     ([u, c, r, d]) =>
-      (window as TestHooksWindow).__pixelAgentsTestHooks?.editorDrop?.(
+      (window as TestHooksWindow).__agentTycoonTestHooks?.editorDrop?.(
         u as string,
         c as number,
         r as number,
@@ -318,7 +318,7 @@ export async function saveLayout(frame: Frame): Promise<void> {
 /** Read the TileType values at the given (col,row) pairs, in order. */
 export async function readTilesAt(frame: Frame, cells: Array<[number, number]>): Promise<number[]> {
   return frame.evaluate((pairs) => {
-    const grid = (window as TestHooksWindow).__pixelAgentsTestHooks?.getTiles?.();
+    const grid = (window as TestHooksWindow).__agentTycoonTestHooks?.getTiles?.();
     if (!grid) return [];
     return pairs.map(([c, r]) => grid.tiles[r * grid.cols + c]);
   }, cells);
@@ -327,7 +327,7 @@ export async function readTilesAt(frame: Frame, cells: Array<[number, number]>):
 /** Read placed furniture (uid + type + grid coords + colour) from the test hook. */
 export async function readFurniture(frame: Frame): Promise<PlacedItem[]> {
   return frame.evaluate(
-    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getFurniture?.() ?? [],
+    () => (window as TestHooksWindow).__agentTycoonTestHooks?.getFurniture?.() ?? [],
   );
 }
 
@@ -355,7 +355,7 @@ export async function readCarpetTiles(
 ): Promise<Array<{ col: number; row: number; variant: number }>> {
   return frame.evaluate(
     () =>
-      (window as TestHooksWindow).__pixelAgentsTestHooks?.getCarpetTiles?.().map((t) => ({
+      (window as TestHooksWindow).__agentTycoonTestHooks?.getCarpetTiles?.().map((t) => ({
         col: t.col,
         row: t.row,
         variant: t.variant,
@@ -372,7 +372,7 @@ export async function readCarpetJunctionCase(
 ): Promise<number> {
   return frame.evaluate(
     ([x, y, v]) =>
-      (window as TestHooksWindow).__pixelAgentsTestHooks?.getCarpetJunctionCase?.(x, y, v) ?? 0,
+      (window as TestHooksWindow).__agentTycoonTestHooks?.getCarpetJunctionCase?.(x, y, v) ?? 0,
     [jx, jy, variant] as const,
   );
 }
@@ -382,14 +382,14 @@ export async function readAreaTiles(
   frame: Frame,
 ): Promise<Array<{ col: number; row: number; label: string }>> {
   return frame.evaluate(
-    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getAreaTiles?.() ?? [],
+    () => (window as TestHooksWindow).__agentTycoonTestHooks?.getAreaTiles?.() ?? [],
   );
 }
 
 /** Read the Area definitions from the test hook. */
 export async function readAreas(frame: Frame): Promise<Array<{ label: string; color: string }>> {
   return frame.evaluate(
-    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getAreas?.() ?? [],
+    () => (window as TestHooksWindow).__agentTycoonTestHooks?.getAreas?.() ?? [],
   );
 }
 
@@ -400,7 +400,7 @@ export async function readSeats(
   Array<{ uid: string; col: number; row: number; areaLabel: string | null; assigned: boolean }>
 > {
   return frame.evaluate(
-    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getSeats?.() ?? [],
+    () => (window as TestHooksWindow).__agentTycoonTestHooks?.getSeats?.() ?? [],
   );
 }
 
@@ -411,6 +411,6 @@ export async function readAgentSeats(
   Array<{ id: number; seatId: string | null; areaLabel: string | null; directoryName?: string }>
 > {
   return frame.evaluate(
-    () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getAgentSeats?.() ?? [],
+    () => (window as TestHooksWindow).__agentTycoonTestHooks?.getAgentSeats?.() ?? [],
   );
 }

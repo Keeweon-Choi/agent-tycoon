@@ -4,10 +4,16 @@ export interface Ticket {
   session: string;
   project: string;
   root?: string;
+  task?: string;
   path: string;
   mode: 'preview' | 'download';
+  /** A player asks for the same URL many times (iOS Safari probes, then fetches ranges): not used up by a request. */
+  reusable?: boolean;
   expires: number;
 }
+
+/** A reusable ticket stays good this long after its last request. */
+export const REUSABLE_TICKET_IDLE_MS = 10 * 60_000;
 
 /** Consume before opening the file: a concurrent second request cannot reuse it. */
 export class DownloadTickets {
@@ -24,7 +30,9 @@ export class DownloadTickets {
 
   consume(key: string, session: string): Ticket | null {
     const ticket = this.tickets.get(key);
-    this.tickets.delete(key);
-    return ticket && ticket.session === session && ticket.expires > this.now() ? ticket : null;
+    if (!ticket?.reusable) this.tickets.delete(key);
+    const good = ticket && ticket.session === session && ticket.expires > this.now();
+    if (good && ticket.reusable) ticket.expires = this.now() + REUSABLE_TICKET_IDLE_MS;
+    return good ? ticket : null;
   }
 }

@@ -4,6 +4,7 @@ import { mapOffset } from '../office/projection.js';
 import type { Character } from '../office/types.js';
 import { TILE_SIZE } from '../office/types.js';
 import { centerPan, clampPan, clearLeft } from './camera.js';
+import { isCameraManual, noteManualCamera } from './cameraMode.js';
 import type { FloorRect } from './floors.js';
 import {
   cameraRect,
@@ -209,8 +210,10 @@ describe('stacked floor view', () => {
     goToFloor('7');
     expect(floorsSnapshot()).toMatchObject({ current: '7', doors: null });
     goToFloor('1');
+    noteManualCamera();
     setStackedView(false);
     expect(floorsSnapshot().stacked).toBe(false);
+    expect(isCameraManual()).toBe(false); // the toggle frames again after a wheel zoom
     expect(drawnShift(LAYOUT, 14 * TILE_SIZE)).toBeNull();
     expect(stackedFloorAt(LAYOUT, 5 * TILE_SIZE, -8 * TILE_SIZE)).toBeNull();
     expect(cameraRect(LAYOUT)).toEqual(F1);

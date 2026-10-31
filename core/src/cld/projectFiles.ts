@@ -16,7 +16,7 @@ export interface ProjectFileList {
 
 export interface ProjectFilePreview {
   path: string;
-  kind: 'image' | 'markdown' | 'text' | 'csv' | 'json' | 'pdf' | 'html' | 'download';
+  kind: 'image' | 'markdown' | 'text' | 'csv' | 'json' | 'pdf' | 'html' | 'video' | 'download';
   size: number;
   truncated: boolean;
   text?: string;

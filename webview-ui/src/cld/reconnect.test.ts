@@ -186,7 +186,7 @@ describe('the /ws transport', () => {
 
   it('a server that never answered viewerVisibility is not taken for dead', () => {
     transport();
-    sockets()[0].open(); // plain pixel-agents: no answer ever
+    sockets()[0].open(); // plain office: no answer ever
     setHidden(true);
     setHidden(false);
     vi.advanceTimersByTime(60_000);

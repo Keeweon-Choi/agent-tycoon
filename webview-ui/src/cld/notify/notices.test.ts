@@ -5,6 +5,7 @@ import type { OfficeEvent, OfficeSnapshot } from '../../../../core/src/messages.
 import { NOTICE_PAIR_MS, NOTICE_PULSE_MS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
+import { publishCharacterVisual } from '../ez/visuals.js';
 import { hudGetSnapshot } from '../hud/hudStore.js';
 import {
   closeMessenger,
@@ -134,6 +135,29 @@ describe('notices in the office', () => {
     expect(noticeSnapshot().items).toHaveLength(1);
   });
 
+  it('a turn end names the Task the character works on, else its last activity, else the plain line', () => {
+    cldHandleMessage({
+      type: 'taskBoard',
+      tasks: [
+        {
+          id: 'T-1',
+          project: 'veteran',
+          title: '**Notice** UI',
+          status: 'doing',
+          updatedAt: '2026-11-01T00:00:00Z',
+          assignee: { assignmentId: 'a', name: 'veteran' },
+        },
+      ],
+    } as never);
+    cldNotice(7, 'turnEnd', T0);
+    expect(noticeSnapshot().toast).toMatchObject({ text: "Finished 'Notice UI'" });
+    cldHandleMessage({ type: 'taskBoard', tasks: [] } as never);
+    publishCharacterVisual(7, { icon: 'x', text: 'Running tests', prop: null, ring: 'working' });
+    cldNotice(7, 'turnEnd', T0 + NOTICE_COOLDOWN_MS);
+    expect(noticeSnapshot().toast).toMatchObject({ text: 'Finished its work \u00b7 Running tests' });
+    publishCharacterVisual(7, undefined);
+  });
+
   it('K1: an engine Worker\'s turn end makes no owner notice; its permission ask comes at once', () => {
     cldHandleMessage({
       type: 'engineState',
@@ -254,7 +278,8 @@ describe('notices in the office', () => {
         kind: 'usage_reset_early',
         summary: 'untrusted localized summary',
         provider: 'codex',
-        period: 'fiveHour',
+        providerName: 'Codex',
+        period: '5h',
       },
       T0,
     );

@@ -1,5 +1,6 @@
 //! Agent Tycoon: one window around the cld-gui office (this computer, Tailscale or an ssh tunnel).
 
+mod appdata;
 mod connect;
 #[cfg(desktop)]
 mod local;
@@ -1056,14 +1057,18 @@ fn login_local(config: &Config, port: u16) -> Result<String, String> {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     } else {
         let home = home_dir().ok_or("홈 폴더를 찾지 못했습니다")?;
-        let dir = home.join(".pixel-agents");
-        let token = local::host_token(
-            fs::read_to_string(dir.join("server.json")).ok().as_deref(),
-            fs::read_to_string(dir.join("standalone-token"))
-                .ok()
-                .as_deref(),
-        )
-        .ok_or("이 컴퓨터의 사무실 열쇠(호스트 토큰)를 찾지 못했습니다.")?;
+        // The office folder; ~/.pixel-agents for a daemon from before 2026-11 (ponytail: one release).
+        let token = [local::settings_dir(&home).join("office"), home.join(".pixel-agents")]
+            .iter()
+            .find_map(|dir| {
+                local::host_token(
+                    fs::read_to_string(dir.join("server.json")).ok().as_deref(),
+                    fs::read_to_string(dir.join("standalone-token"))
+                        .ok()
+                        .as_deref(),
+                )
+            })
+            .ok_or("이 컴퓨터의 사무실 열쇠(호스트 토큰)를 찾지 못했습니다.")?;
         match http(port, "POST", "/api/login-code", Some(&token), "{}") {
             Some((200, body)) => local::login_code(&body).unwrap_or_default(),
             Some((status, _)) => {
@@ -2306,9 +2311,8 @@ fn open_in_browser(app: &AppHandle, url: &Url) {
     });
 }
 
-/// The app data dirs come from the bundle identifier `dev.cldgui.pixeloffice` (tauri.conf.json),
-/// kept from the Pixel Office days on purpose: they hold the owner's saved config and SSH keys,
-/// and a new identifier would orphan them.
+/// The app data dirs come from the bundle identifier `dev.agenttycoon.app` (tauri.conf.json);
+/// `carry_over_app_data` brings the folders of the old identifier along on the first launch.
 fn config_path(app: &AppHandle) -> Option<PathBuf> {
     app.path()
         .app_config_dir()
@@ -2410,7 +2414,49 @@ fn tray(app: &AppHandle, on_top: bool) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Copies the app data folders of the old identifier (`appdata::OLD_ID`) to the new names: config
+/// and SSH keys, logs, and the webview profile (Windows and Linux: in the local data folder;
+/// macOS: WKWebView's default store under ~/Library/WebKit and HTTPStorages). Runs before
+/// anything writes there, log() included, so a new folder that exists means already moved.
+fn carry_over_app_data(app: &AppHandle) {
+    let path = app.path();
+    let mut dirs: Vec<PathBuf> = [
+        path.app_config_dir(),
+        path.app_data_dir(),
+        path.app_local_data_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    #[cfg(target_os = "macos")]
+    if let Ok(home) = path.home_dir() {
+        for kind in ["Logs", "WebKit", "HTTPStorages"] {
+            dirs.push(home.join("Library").join(kind).join(&app.config().identifier));
+        }
+    }
+    dirs.sort();
+    dirs.dedup(); // config, data and local data are partly the same folder per OS
+    let mut lines = Vec::new();
+    for new in dirs {
+        let Some(old) = new.parent().map(|parent| parent.join(appdata::OLD_ID)) else {
+            continue;
+        };
+        match appdata::carry_over(&old, &new) {
+            Ok(true) => lines.push(format!("옛 앱 데이터를 옮겼습니다: {}", new.display())),
+            Ok(false) => {}
+            Err(e) => lines.push(format!(
+                "옛 앱 데이터를 옮기지 못했습니다: {} ({e})",
+                old.display()
+            )),
+        }
+    }
+    for line in lines {
+        log(app, &line);
+    }
+}
+
 fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    carry_over_app_data(app);
     let config = load_config(app);
     *app.state::<App>().config.lock().unwrap() = config.clone();
 

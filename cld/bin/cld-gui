@@ -8,7 +8,7 @@
 //   cld-gui jobs [--all]
 //   cld-gui stop <job id|pid>
 //   cld-gui renew [--project <name>] [<handoff file> | -]
-//   cld-gui codex [-m <model>] [-e <effort>] [--worktree] [--project <name>] <spec file> | codex [--all]
+//   cld-gui codex [-m <model>] [-e <effort>] [-d <description>] [--worktree] [--project <name>] <spec file> | codex [--all]
 //   cld-gui gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
 //   cld-gui hw [--json]
 //   cld-gui task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
@@ -29,17 +29,18 @@ const { spawn, spawnSync } = require('child_process');
 const backupCli = require('./cld-gui-backup');
 const { CLI_NAME: CLI, LEGACY_CLI_NAME: LEGACY } = require('./cld-brand');
 const { configDirectory } = require('../../core/src/cld/configPath.cjs');
+const controlIdentity = require('../../core/src/cld/controlIdentity.cjs');
 const maintenance = require('./cld-gui-maintenance');
 
 const HOME = os.homedir();
 const CONFIG = configDirectory(HOME);
-const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
+const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
 /** The manager (cld/install/manager.mjs, H §2): install, update, open, and the install part of status. */
 const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
 /** The GPU wrapper and Codex worker of this checkout (built with the daemon). */
 const WORKER = path.join(__dirname, '..', '..', 'dist', 'cld-worker.js');
 const TEXT_MAX = 32 * 1024;
-/** Our product version (cld/release/version.json, the one source; not pixel-agents' package.json). */
+/** Our product version (cld/release/version.json, the one source; not the root package.json). */
 function productVersion() {
   try {
     return require(path.join(__dirname, '..', 'release', 'version.json')).version;
@@ -58,7 +59,7 @@ const USAGE = `사용법:
   ${CLI} jobs [--all]
   ${CLI} stop <작업 id 또는 pid>
   ${CLI} renew [--project <이름>] [<인수인계 파일> | -]
-  ${CLI} codex [-m <모델>] [-e <강도>] [--worktree] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
+  ${CLI} codex [-m <모델>] [-e <강도>] [-d|--desc <작업 설명>] [--worktree] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
   ${CLI} gpu [--json] | gpu run [--vram GiB] [--exclusive] [--wait 분] [--label 설명] -- <명령>
   ${CLI} gpu cancel <id> | gpu move <id> <순서>
   ${CLI} hw [--json]
@@ -71,6 +72,8 @@ const USAGE = `사용법:
   ${CLI} worker edit <이름> [--folder F] [--model M] [--permission-mode P] [--effort E] | worker remove|start|stop|restart <이름>
   ${CLI} worker promote <이름> [--old stop]   그 Worker 를 프로젝트의 Lead 로(이름을 맞바꿈, 이전 Lead 는 그 Worker 이름으로)
   ${CLI} trust [--start] <프로젝트 이름 또는 폴더>   그 프로젝트 폴더에서 claude 를 켜 폴더 신뢰 질문에 대신 답함(--start: 답한 뒤 켜기)
+  ${CLI} move-pty --all     모든 에이전트를 하나씩 새 터미널로(일하는 중이면 턴이 끝나길 기다림, 최대 30분); --stop 으로 멈춤
+  ${CLI} move-pty <이름>   그 에이전트를 새 터미널(우리 PTY 호스트)로 옮김: 턴이 끝난 뒤 옛 세션을 멈추고 같은 대화를 이어 켬
   ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>]   그 작업의 worktree(브랜치 task/<id>-…)
   ${CLI} worktree list [--task <작업 id>] [--json]
   ${CLI} status [--json]
@@ -94,8 +97,11 @@ const source =
   !/^(messenger|gui):/.test(process.env.CLD_SOURCE)
     ? process.env.CLD_SOURCE
     : 'cli';
-// S7: this session's identity, issued by the engine (agentTokens.ts); the daemon checks it.
-const agentToken = process.env.CLD_AGENT_TOKEN || undefined;
+// S7: this session's identity, issued by the engine (agentTokens.ts); SEC-CONTROL: the owner
+// token too, only when no agent or job of this daemon is in our line (controlIdentity.cjs).
+// The daemon checks both. Worked out once, on the first request.
+let identity;
+const callerIdentity = () => (identity ??= controlIdentity.callerIdentity(HOME));
 
 /** Exit only after terminal and pipe writes already queued by this process have settled. */
 function flushStream(stream) {
@@ -186,7 +192,7 @@ function request(cmd, args, timeoutMs = 90_000) {
     s.on('connect', () => {
       connected = true;
       s.write(
-        `${JSON.stringify({ v: 1, cmd, cwd: process.cwd(), source, token: agentToken, args })}\n`,
+        `${JSON.stringify({ v: 1, cmd, cwd: process.cwd(), source, ...callerIdentity(), args })}\n`,
       );
     });
     s.on('data', (d) => {
@@ -656,13 +662,16 @@ async function main(argv) {
       const o = options(
         rest,
         ['--worktree', '--all'],
-        ['-m', '--model', '-e', '--effort', '--project', '--task'],
+        ['-m', '--model', '-e', '--effort', '-d', '--desc', '--project', '--task'],
       );
       if (o.error) return failWith('usage', o.error);
+      const desc = o['--desc'] ?? o['-d'] ?? null;
+      if (desc !== null && (!desc.trim() || desc.length > 80 || /[\r\n\x00-\x1f\x7f]/.test(desc)))
+        return failWith('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
       if (rest.length > 1)
         return failWith(
           'usage',
-          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [--worktree] [--project <이름>] <명세 파일>`,
+          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree] [--project <이름>] <명세 파일>`,
         );
       if (!rest.length) {
         const r = await request('codex', { list: true, all: o['--all'] === true });
@@ -683,6 +692,7 @@ async function main(argv) {
         spec,
         model: o['-m'] ?? o['--model'] ?? null,
         effort: o['-e'] ?? o['--effort'] ?? null,
+        desc,
         worktree: o['--worktree'] === true,
         project: o['--project'] ?? null,
         path: process.env.PATH ?? null,
@@ -721,6 +731,28 @@ async function main(argv) {
       return worker(rest);
     case 'trust':
       return trust(rest);
+    case 'move-pty': {
+      if (rest.length === 1 && (rest[0] === '--all' || rest[0] === '--stop')) {
+        const stop = rest[0] === '--stop';
+        const r = await request('move-pty', stop ? { stop: true } : { all: true });
+        if (r === null) return off();
+        return finish(
+          r,
+          r.ok &&
+            (stop
+              ? '멈추기를 요청했어요: 지금 옮기는 에이전트까지만 끝내요'
+              : `${r.total}개 에이전트를 하나씩 새 터미널로 옮겨요: 결과는 알림 목록에 한 줄씩 떠요(멈추려면 ${CLI} move-pty --stop)`),
+        );
+      }
+      if (rest.length !== 1 || rest[0].startsWith('-'))
+        return failWith('usage', `사용법: ${CLI} move-pty <이름> | move-pty --all | move-pty --stop`);
+      if (!json) console.log(`'${rest[0]}': 새 터미널로 옮기는 중이에요(옛 세션 멈춤 → 같은 대화로 다시 켬)…`);
+      const r = await request('move-pty', { name: rest[0] }, 290_000);
+      if (r === null) return off();
+      return finish(r, r.ok && `'${r.name}': ${r.note ?? '옮겼어요'}`);
+    }
+    case 'permission-hook':
+      return permissionHook();
     case 'worktree':
       return worktree(rest);
     case 'help':
@@ -964,8 +996,42 @@ async function worker(rest) {
       console.log([w.name, w.project, w.role, w.live ? 'on' : w.wantRunning ? 'rest' : 'off', w.folder, w.provider ?? 'claude'].join('\t'));
     return exitAfterFlush(0);
   }
-  const said = op === 'promote' ? `'${r.name}' 이(가) 이제 프로젝트의 Lead 입니다(이름을 맞바꿈)` : `'${r.name}' Worker: ${op} 했습니다`;
+  const said = op === 'promote' ? `'${r.name}' Worker 가 이제 프로젝트의 Lead 입니다(이름을 맞바꿈)` : `'${r.name}' Worker: ${op} 했습니다`;
   return finish(r, r.ok && `${said}${r.note ? ` (${r.note})` : ''}`);
+}
+
+// ── TERM-P3: a PTY agent's PermissionRequest hook (claudePty.ts permissionHooks) ──
+
+/**
+ * Claude Code runs this with the hook's JSON on stdin and the session's CLD_AGENT_TOKEN in its
+ * environment. The daemon shows the owner its card and answers 허용/거부; that answer is printed as
+ * the hook's decision. Anything else (no daemon, no answer in time, a refusal) prints nothing and
+ * exits 0: Claude then shows its own dialog in the agent's terminal. Never exit 2 (that denies).
+ */
+async function permissionHook() {
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) raw += chunk;
+  let ask;
+  try {
+    ask = JSON.parse(raw);
+  } catch {
+    return exitAfterFlush(0);
+  }
+  if (!ask || typeof ask.tool_name !== 'string') return exitAfterFlush(0);
+  const input = ask.tool_input && typeof ask.tool_input === 'object' ? ask.tool_input : {};
+  const r = await request('permission-hook', { tool: ask.tool_name, input }, 280_000);
+  const behavior = r && r.ok ? r.decision : null;
+  if (behavior === 'allow' || behavior === 'deny')
+    process.stdout.write(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PermissionRequest',
+          decision: { behavior, ...(behavior === 'deny' && { message: '사용자가 메신저에서 거부했어요' }) },
+        },
+      })}\n`,
+    );
+  return exitAfterFlush(0);
 }
 
 // ── AUTO-TRUST: Claude's folder trust question, answered by the daemon (Engine.trustProject) ──
@@ -1031,7 +1097,7 @@ async function trust(rest) {
     console.error(manualTrust(r.folder));
     return exitAfterFlush(1);
   }
-  if (start && r.started) console.log(`'${r.name}' 을(를) 켰어요${r.note ? ` (${r.note})` : ''}`);
+  if (start && r.started) console.log(`'${r.name}' Worker 를 켰어요${r.note ? ` (${r.note})` : ''}`);
   else if (start) {
     console.error(`켜지 못했어요: ${r.startError ?? ''}`);
     return exitAfterFlush(1);

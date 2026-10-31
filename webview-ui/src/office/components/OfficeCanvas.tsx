@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 
 import { clampPan as clampCameraPan } from '../../cld/camera.js';
-import { noteManualCamera } from '../../cld/cameraMode.js';
+import {
+  cameraMode,
+  isCameraManual,
+  noteManualCamera,
+  setCameraMode,
+} from '../../cld/cameraMode.js';
+import { director } from '../../cld/director/actions.js';
 import { visitFloor } from '../../cld/elevator.js';
 import {
   cameraRect,
@@ -24,8 +30,15 @@ import {
   backdropStyle,
   useBackdrop,
 } from '../../cld/gfx/backdrop.js';
+import { isoBackground } from '../../cld/gfx/bg/current.js';
 import { isContextHandled, openContextMenu, registerContextTarget } from '../../cld/inputPolicy.js';
-import { clampIsoPan, isoCameraStep, newIsoCam, stackCentre } from '../../cld/iso/camera.js';
+import {
+  clampIsoPan,
+  isoCameraStep,
+  newIsoCam,
+  occupiedRoomsBox,
+  stackCentre,
+} from '../../cld/iso/camera.js';
 import { useIsoView } from '../../cld/iso/isoView.js';
 import {
   isoBusy,
@@ -213,9 +226,10 @@ export function OfficeCanvas({
     canvas.style.height = `${rect.height}px`;
     // No ctx.scale(dpr) — we render directly in device pixels
     // GFX: the city around the office (its size and place follow the camera, in render).
-    Object.assign(container.style, backdropStyle(backdropState().on && backdropAllowed));
+    // The isometric view draws its own background in the canvas (BACKGROUND), never this picture.
+    Object.assign(container.style, backdropStyle(backdropState().on && backdropAllowed && !iso));
     backdropKeyRef.current = '';
-  }, [backdropAllowed]);
+  }, [backdropAllowed, iso]);
   // The setting changed: the same background, styled again.
   useEffect(() => resizeCanvas(), [resizeCanvas, backdrop]);
 
@@ -239,10 +253,11 @@ export function OfficeCanvas({
         const pan = panRef.current;
         const panned = pan.x !== lastPan.x || pan.y !== lastPan.y;
         lastPan = { x: pan.x, y: pan.y };
-        return panned || officeState.isAnimating() || (iso && isoBusy());
+        return panned || officeState.isAnimating() || director.busy() || (iso && isoBusy());
       },
       update: (dt) => {
         officeState.update(dt);
+        director.step(officeState, dt); // C1: coffee breaks and rebirths (nothing queued: nothing done)
         stepCamera(dt);
         if (iso) {
           // ISO-PILOT: frame the building or the floor in focus, glide to a new focus, follow.
@@ -266,6 +281,15 @@ export function OfficeCanvas({
             follow: feet && { x: feet.x, y: feet.y - TILE_SIZE },
             reduced: reducedMotion(),
             dt,
+            phone: tapSelectsFirst,
+            phoneBox: () =>
+              occupiedRoomsBox(
+                stack,
+                focus.level,
+                officeState.getLayout(),
+                [...officeState.characters.values()].filter((ch) => !ch.cldAway),
+              ),
+            manual: isCameraManual(),
           });
           const next = step.zoom;
           if (next !== undefined && next !== zoom)
@@ -297,7 +321,9 @@ export function OfficeCanvas({
               follow: officeState.cameraFollowId,
             },
             performance.now(),
+            backdropAllowed && backdropState().on ? isoBackground() : null,
           );
+          director.drawFront(ctx);
           return;
         }
         isoFrameReset();
@@ -391,6 +417,7 @@ export function OfficeCanvas({
           officeState.pets,
         );
         if (clip) ctx.restore();
+        director.drawFront(ctx); // C1: the moments' front layer, over the whole office
         offsetRef.current = { x: offsetX, y: offsetY };
         // GFX2: the city around the office moves and scales with it; written only when the
         // camera (or the floor) moved, so an idle office writes nothing.
@@ -436,6 +463,7 @@ export function OfficeCanvas({
     stepCamera,
     iso,
     onZoomChange,
+    tapSelectsFirst,
   ]);
 
   // Convert CSS mouse coords to world (sprite pixel) coords
@@ -930,8 +958,12 @@ export function OfficeCanvas({
 
       const hitId = characterAt(clientX, clientY);
       if (hitId !== null) {
+        // cld-gui (OWNER-AVATAR): a tap on the owner's own character ends the free camera.
+        if (officeState.characters.get(hitId)?.cldOwner && cameraMode() === 'free')
+          setCameraMode('auto');
         // Dismiss any active bubble on click
         officeState.dismissBubble(hitId);
+        director.skip(officeState, hitId); // C1: a tap skips its coffee break or rebirth
         // Two-step (mobile): first tap selects + follows so the status label
         // shows; only a repeat tap on the same character opens its terminal.
         // Deselection is tapping empty floor, as ever.
@@ -971,8 +1003,8 @@ export function OfficeCanvas({
       // No agent hit — check seat click while agent is selected
       if (officeState.selectedAgentId !== null) {
         const selectedCh = officeState.characters.get(officeState.selectedAgentId);
-        // Skip seat reassignment for sub-agents
-        if (selectedCh && !selectedCh.isSubagent) {
+        // Skip seat reassignment for sub-agents (and the owner's character, OWNER-AVATAR)
+        if (selectedCh && !selectedCh.isSubagent && !selectedCh.cldOwner) {
           const tile = screenToTile(clientX, clientY);
           if (tile) {
             const seatId = officeState.getSeatAtTile(tile.col, tile.row);

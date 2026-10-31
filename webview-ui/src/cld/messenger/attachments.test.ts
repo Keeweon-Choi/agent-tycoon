@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { ATTACH_ACCEPT } from '../../constants.js';
-import { setLanguage } from '../../i18n/index.js';
+import { setLanguage, t } from '../../i18n/index.js';
 import {
   composeAttachmentText,
   fileChip,
@@ -86,6 +86,42 @@ describe('messenger attachments', () => {
       state: 'pending',
     });
     expect(chip.type.startsWith('image/')).toBe(false);
+  });
+
+  it('accepts videos from the picker with their own, larger limit', () => {
+    for (const accepted of ['video/*', '.mp4', '.mov', '.m4v', '.webm'])
+      expect(ATTACH_ACCEPT).toContain(accepted);
+    // A phone may name a clip by its container, or not at all: the extension decides the type.
+    expect(fileChip(new File(['v'], 'IMG_1.MOV', { type: 'video/quicktime' }), 'a').type).toBe(
+      'video/quicktime',
+    );
+    expect(fileChip(new File(['v'], 'clip.mp4', { type: '' }), 'a')).toMatchObject({
+      type: 'video/mp4',
+      state: 'pending',
+    });
+    const sized = (name: string, size: number) =>
+      Object.defineProperty(new File(['v'], name), 'size', { value: size });
+    // 21 MB: over the general limit, within the video limit.
+    expect(fileChip(sized('clip.webm', 21 * 1024 * 1024), 'a').state).toBe('pending');
+    const huge = fileChip(sized('clip.mp4', 301 * 1024 * 1024), 'b');
+    expect(huge).toMatchObject({ state: 'failed', error: t('attachment.error.videoSize') });
+    expect(fileChip(sized('big.txt', 21 * 1024 * 1024), 'c').error).toBe(t('attachment.error.size'));
+    expect(t('attachment.error.videoSize')).not.toBe(t('attachment.error.size'));
+  });
+
+  it('reads a video attachment line and types a linked video', () => {
+    expect(
+      splitAttachmentText('[\ucca8\ubd80] /p/.cld-inbox/20261101-031122-clip.mp4 (video/mp4, 2048 KB)')
+        .attachments,
+    ).toEqual([
+      {
+        path: '/p/.cld-inbox/20261101-031122-clip.mp4',
+        name: 'clip.mp4',
+        type: 'video/mp4',
+        sizeKb: 2048,
+      },
+    ]);
+    expect(linkedFileType('/tmp/demo.webm')).toBe('video/webm');
   });
 
   it('uses conservative types for message-linked files', () => {

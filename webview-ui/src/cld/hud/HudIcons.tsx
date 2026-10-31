@@ -15,6 +15,7 @@ import {
   BellGlyph,
   BoardGlyph,
   BubbleGlyph,
+  CommandGlyph,
   FolderGlyph,
   TerminalGlyph,
   WorkbenchGlyph,
@@ -128,6 +129,10 @@ export function HudIcons({
         badgeTestId="notice-unread"
       >
         <BellGlyph />
+      </IconButton>
+      {/* P4: the 개발실, after 알림 (the 11-01 mock-ups' dock). */}
+      <IconButton id="devroom" name={t('hud.devroom')}>
+        <CommandGlyph />
       </IconButton>
       {panelAvailable('terminal', store) && (
         <IconButton

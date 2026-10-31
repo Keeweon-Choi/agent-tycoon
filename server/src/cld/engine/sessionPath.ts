@@ -28,6 +28,9 @@ export interface SessionPathOptions {
 const TIMEOUT_MS = 3000;
 const WSL_INTEROP = '/proc/sys/fs/binfmt_misc/WSLInterop';
 const WSL_CMD = '/mnt/c/Windows/System32/cmd.exe';
+// PATH is read through PowerShell with UTF-8 output: cmd's echo is in the console code page (cp949 on a Korean Windows).
+const WSL_PWSH = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe';
+const WIN_PATH_SCRIPT = '[Console]::OutputEncoding=[Text.Encoding]::UTF8;$env:PATH';
 const WSL_LIB = '/usr/lib/wsl/lib';
 
 const realRun: Run = (file, args, opts) => {
@@ -97,8 +100,12 @@ export function buildSessionPath(o: SessionPathOptions): string | null {
     const loginPath = login?.trim().split('\n').pop() ?? '';
     added.push(...loginPath.split(':').filter((e) => e.startsWith('/')));
     if (exists(WSL_INTEROP) || exists(WSL_CMD)) {
-      const raw = run(WSL_CMD, ['/d', '/c', 'echo %PATH%'], { cwd: '/mnt/c/Windows', env });
-      for (const e of raw?.trim().split(';') ?? []) {
+      const raw = run(
+        WSL_PWSH,
+        ['-NoProfile', '-NonInteractive', '-Command', WIN_PATH_SCRIPT],
+        { cwd: '/mnt/c/Windows', env },
+      );
+      for (const e of raw?.replace(/^\uFEFF/, '').trim().split(';') ?? []) {
         const p = windowsToWsl(e);
         if (p && isDir(p)) added.push(p);
       }

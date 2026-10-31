@@ -31,19 +31,8 @@ import {
 } from '../office/toolUtils.js';
 import type { OfficeLayout, ToolActivity } from '../office/types.js';
 import { setWallSprites } from '../office/wallTiles.js';
-import { isBrowserRuntime, isE2E } from '../runtime.js';
+import { isE2E } from '../runtime.js';
 import { transport } from '../transport/index.js';
-
-/**
- * A Headless agent is one the office adopted from outside (`claude -p`, a session
- * picked up by Watch All Sessions) and therefore has no terminal to focus. Its
- * character renders translucent so it reads as untouchable at a glance.
- *
- * Standalone is exempt: that adapter has no terminals at all, so every agent
- * would qualify and the cue would distinguish nothing.
- */
-const isHeadlessAgent = (isExternal: boolean | undefined): boolean =>
-  isExternal === true && !isBrowserRuntime;
 
 export interface SubagentCharacter {
   id: number;
@@ -317,16 +306,16 @@ export function useExtensionMessages(
         }
       }
       // CI / e2e diagnostic: record every received transport message on the
-      // window-side log. The fixture reads window.__pixelAgentsTestHooks.
+      // window-side log. The fixture reads window.__agentTycoonTestHooks.
       // messageLog and attaches as JSON so CI failures can see the exact
       // sequence of messages the webview actually processed. Gated on the e2e
       // harness flag so this unbounded log never grows in a real session.
       if (isE2E && typeof window !== 'undefined') {
-        if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
-        if (!window.__pixelAgentsTestHooks.messageLog) {
-          window.__pixelAgentsTestHooks.messageLog = [];
+        if (!window.__agentTycoonTestHooks) window.__agentTycoonTestHooks = {};
+        if (!window.__agentTycoonTestHooks.messageLog) {
+          window.__agentTycoonTestHooks.messageLog = [];
         }
-        window.__pixelAgentsTestHooks.messageLog.push({
+        window.__agentTycoonTestHooks.messageLog.push({
           at: Date.now(),
           type: msg.type,
           id: msg.id,
@@ -449,9 +438,6 @@ export function useExtensionMessages(
             directoryName,
           );
           noteDirectoryName(directoryName);
-          if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
-            os.setHeadless(id, true);
-          }
         }
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
@@ -490,11 +476,8 @@ export function useExtensionMessages(
         }
         const meta = (msg.agentMeta || {}) as Record<number, ExistingAgentMeta>;
         const directoryNames = (msg.directoryNames || {}) as Record<number, string>;
-        const externalAgents = (msg.externalAgents || {}) as Record<number, boolean>;
-        const headlessAgents: Record<number, boolean> = {};
         for (const id of incoming) {
           noteDirectoryName(directoryNames[id]);
-          if (isHeadlessAgent(externalAgents[id])) headlessAgents[id] = true;
         }
         // Order-independent restore: add agents now if the layout (and its seats)
         // is already built, otherwise buffer them for the next layoutLoaded.
@@ -508,7 +491,6 @@ export function useExtensionMessages(
             directoryNames,
             layoutReadyRef.current,
             pendingAgents,
-            headlessAgents,
           )
         ) {
           saveAgentSeats(os);

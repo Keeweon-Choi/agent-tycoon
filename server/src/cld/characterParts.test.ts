@@ -155,7 +155,7 @@ describe('imported parts (CHAR-HUMAN)', () => {
   });
 });
 
-/* eslint-disable pixel-agents/no-inline-colors -- stored look colours */
+/* eslint-disable agent-tycoon/no-inline-colors -- stored look colours */
 describe('HD art (CHAR-FACTORY)', () => {
   it('a drawing finer than its blocks keeps that detail in part.hd; another row keeps both resolutions', () => {
     const toPng = (img: { width: number; height: number; data: Uint8Array }) => {

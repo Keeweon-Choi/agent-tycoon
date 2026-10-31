@@ -26,8 +26,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { PNG } from 'pngjs';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
+  FULL_CHROME,
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
@@ -35,13 +37,12 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0050');
 const CHROME =
   process.env.T0050_CHROME ??
-  path.join(os.homedir(), '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome');
+  FULL_CHROME;
 const SAFE_AREA = ':root { --cld-safe-top: 47px !important; --cld-safe-bottom: 34px !important; }';
 const DEADLINE_MS = 300_000;
 const IPHONE13 = (() => {

@@ -78,7 +78,7 @@ const FLOORS = [
   { tile: 9, color: { h: 209, s: 0, b: -16, c: -8 } },
 ];
 // Layout data, not UI styling: the webview's AREA_DEFAULT_COLORS (server cannot import webview-ui).
-/* eslint-disable pixel-agents/no-inline-colors */
+/* eslint-disable agent-tycoon/no-inline-colors */
 const AREA_COLORS = [
   '#ff6b6b',
   '#feca57',
@@ -89,7 +89,7 @@ const AREA_COLORS = [
   '#54a0ff',
   '#ffa502',
 ];
-/* eslint-enable pixel-agents/no-inline-colors */
+/* eslint-enable agent-tycoon/no-inline-colors */
 
 export const seatUid = (key: string): string => `seat:${key}`;
 export const contractorSeatUid = (room: string): string => `seat:codex@${room}`;

@@ -354,7 +354,7 @@ const EYES_MAX_ROW = 24;
 const READ_FRAMES = [5, 6];
 const TYPE_FRAME = 3;
 
-// eslint-disable-next-line pixel-agents/no-inline-colors -- a sprite pixel: the built-ins' eye and glasses black
+// eslint-disable-next-line agent-tycoon/no-inline-colors -- a sprite pixel: the built-ins' eye and glasses black
 const isBlack = (c: string) => c.slice(0, 7) === '#000000';
 
 /**

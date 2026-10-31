@@ -17,6 +17,9 @@ import { serverNote, serverText } from './serverText.js';
 
 export type SessionAction = 'start' | 'stop' | 'restart';
 
+/** TERM-P1 (ADR-0018): the provider id of Claude in our own PTY host. */
+export const PTY_PROVIDER = 'claude-pty';
+
 export const engineLabel = (action: EngineActionKind): string => t(`engine.action.${action}`);
 const done = (action: EngineActionKind): string => t(`engine.done.${action}`);
 
@@ -63,6 +66,8 @@ export interface EngineForm {
   title: string;
   remoteControl: boolean;
   alwaysOn: boolean;
+  /** TERM-P1: a Claude agent runs in our own PTY host (provider `claude-pty`). */
+  pty: boolean;
   /** T-0019: compactions before the renew nudge; '' = off. */
   compactionNudge: string;
 }
@@ -84,6 +89,7 @@ export function formFor(p: EngineProject | null): EngineForm {
     title: p?.title ?? '',
     remoteControl: p?.remoteControl ?? false,
     alwaysOn: p?.alwaysOn ?? false,
+    pty: p?.provider === PTY_PROVIDER,
     compactionNudge: p?.compactionNudge ? String(p.compactionNudge) : '',
   };
 }
@@ -127,6 +133,8 @@ export function formFields(
   }
   for (const key of ['remoteControl', 'alwaysOn'] as const)
     if (was ? f[key] !== before[key] : f[key]) out[key] = f[key];
+  // TERM-P1: only an existing Claude agent switches (the daemon allows it while the agent is off).
+  if (was && f.pty !== before.pty) out.provider = f.pty ? PTY_PROVIDER : 'claude';
   const nudge = f.compactionNudge.trim();
   if (was ? nudge !== before.compactionNudge : nudge)
     out.compactionNudge = nudge ? Number(nudge) : 0;

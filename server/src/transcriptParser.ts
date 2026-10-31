@@ -1,5 +1,3 @@
-const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
-
 import * as path from 'path';
 
 import type { HookProvider } from '../../core/src/provider.js';
@@ -8,6 +6,7 @@ import type { AgentStateStore } from './agentStateStore.js';
 import { toolDescription } from './cld/transcriptView.js';
 import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from './constants.js';
 import { updateContextUsage } from './contextUsage.js';
+import { readEnv } from './env.js';
 import { applyPermissionMode } from './permissionMode.js';
 import { hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import {
@@ -18,6 +17,8 @@ import {
   startWaitingTimer,
 } from './timerManager.js';
 import type { AgentState } from './types.js';
+
+const debug = readEnv('DEBUG') !== '0';
 
 /** Empty set used as safe fallback when no HookProvider is registered. */
 const EMPTY_EXEMPT_TOOLS: ReadonlySet<string> = new Set();
@@ -137,7 +138,7 @@ export function processTranscriptLine(
       agent.leadAgentId = undefined;
       if (debug) {
         console.log(
-          `[Pixel Agents] Agent ${agentId} team metadata: team=${agent.teamName}, role=${agent.agentName ?? 'lead'}`,
+          `[Agent Tycoon] Agent ${agentId} team metadata: team=${agent.teamName}, role=${agent.agentName ?? 'lead'}`,
         );
       }
       // Link teammates to leads within the same team
@@ -180,7 +181,7 @@ export function processTranscriptLine(
             const toolName = block.name || '';
             const status = formatToolStatus(toolName, block.input || {});
             console.log(
-              `[Pixel Agents] JSONL: Agent ${agentId} - tool start: ${block.id} ${status}`,
+              `[Agent Tycoon] JSONL: Agent ${agentId} - tool start: ${block.id} ${status}`,
             );
             agent.activeToolIds.add(block.id);
             agent.activeToolStatuses.set(block.id, status);
@@ -283,7 +284,7 @@ export function processTranscriptLine(
     } else if (record.type === 'assistant' && assistantContent === undefined) {
       // Assistant record with no recognizable content structure
       console.warn(
-        `[Pixel Agents] Agent ${agentId}: assistant record has no content. Keys: ${Object.keys(record).join(', ')}`,
+        `[Agent Tycoon] Agent ${agentId}: assistant record has no content. Keys: ${Object.keys(record).join(', ')}`,
       );
     } else if (record.type === 'progress') {
       processProgressRecord(agentId, record, agents, waitingTimers, permissionTimers);
@@ -338,7 +339,7 @@ export function processTranscriptLine(
                 agent.isTeamLead = true;
                 if (debug) {
                   console.log(
-                    `[Pixel Agents] Agent ${agentId} spawned teammate "${teammateSpawn.teammateName}" -> lead of team ${teammateSpawn.teamName}`,
+                    `[Agent Tycoon] Agent ${agentId} spawned teammate "${teammateSpawn.teammateName}" -> lead of team ${teammateSpawn.teamName}`,
                   );
                 }
                 linkTeammates(agentId, agent, agents);
@@ -359,7 +360,7 @@ export function processTranscriptLine(
                 isAsyncAgentResult(block)
               ) {
                 console.log(
-                  `[Pixel Agents] Agent ${agentId} background agent launched: ${completedToolId}`,
+                  `[Agent Tycoon] Agent ${agentId} background agent launched: ${completedToolId}`,
                 );
                 agent.backgroundAgentToolIds.add(completedToolId);
                 // Current harnesses OMIT run_in_background from the tool_use
@@ -388,7 +389,7 @@ export function processTranscriptLine(
               }
 
               console.log(
-                `[Pixel Agents] JSONL: Agent ${agentId} - tool done: ${block.tool_use_id}`,
+                `[Agent Tycoon] JSONL: Agent ${agentId} - tool done: ${block.tool_use_id}`,
               );
               // If the completed tool spawned a subagent, clear its subagent tools
               if (isSubagentTool(completedToolName)) {
@@ -453,7 +454,7 @@ export function processTranscriptLine(
             : (resumedSpawnToolId(agent, content) ?? toolIdMatch[1]);
           if (agent.backgroundAgentToolIds.has(completedToolId)) {
             console.log(
-              `[Pixel Agents] Agent ${agentId} background agent done: ${completedToolId}`,
+              `[Agent Tycoon] Agent ${agentId} background agent done: ${completedToolId}`,
             );
             agent.backgroundAgentToolIds.delete(completedToolId);
             agent.activeSubagentToolIds.delete(completedToolId);
@@ -564,7 +565,7 @@ export function processTranscriptLine(
         agent.seenUnknownRecordTypes.add(record.type);
         if (debug) {
           console.log(
-            `[Pixel Agents] JSONL: Agent ${agentId} - unrecognized record type '${record.type}'. ` +
+            `[Agent Tycoon] JSONL: Agent ${agentId} - unrecognized record type '${record.type}'. ` +
               `Keys: ${Object.keys(record).join(', ')}`,
           );
         }
@@ -625,7 +626,7 @@ function processProgressRecord(
         const rawModel = innerMsg?.model;
         const subModel = typeof rawModel === 'string' && !rawModel.startsWith('<') ? rawModel : undefined;
         console.log(
-          `[Pixel Agents] Agent ${agentId} subagent tool start: ${block.id} ${status} (parent: ${parentToolId})`,
+          `[Agent Tycoon] Agent ${agentId} subagent tool start: ${block.id} ${status} (parent: ${parentToolId})`,
         );
 
         // Track sub-tool IDs
@@ -666,7 +667,7 @@ function processProgressRecord(
     for (const block of content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
         console.log(
-          `[Pixel Agents] Agent ${agentId} subagent tool done: ${block.tool_use_id} (parent: ${parentToolId})`,
+          `[Agent Tycoon] Agent ${agentId} subagent tool done: ${block.tool_use_id} (parent: ${parentToolId})`,
         );
 
         // Remove from tracking

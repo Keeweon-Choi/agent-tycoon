@@ -17,6 +17,7 @@ import { t } from '../i18n/index.js';
 import { stepUpFailedText } from './auth/authApi.js';
 import { requestStepUp } from './auth/stepUp.js';
 import { engineToast } from './engine.js';
+import { serverLine } from './serverText.js';
 
 type Fields = Partial<Omit<EngineAction, 'type' | 'requestId' | 'action' | 'name'>>;
 
@@ -72,6 +73,11 @@ const toast = (name: string, t: { text: string; tone: 'ok' | 'info' | 'error' })
 export function engineHandleMessage(msg: ServerMessage): void {
   if (msg.type === 'engineState') {
     set({ state: msg });
+    return;
+  }
+  if (msg.type === 'engineMoveAllResult') {
+    // Only a refusal needs saying (already running, nothing to move); the queue's progress is engineState's.
+    if (!msg.ok) set({ toast: toast('', { text: serverLine(msg.error ?? ''), tone: 'error' }) });
     return;
   }
   if (msg.type !== 'engineActionResult') return;

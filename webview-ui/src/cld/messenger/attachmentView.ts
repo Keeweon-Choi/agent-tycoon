@@ -176,9 +176,9 @@ export function sizeLabel(kb: number): string {
   return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
 }
 
-/** Can the server hand this out inline for a new tab? Its preview tickets cover images, PDF and HTML; text and the rest are download-only. */
+/** Can the server hand this out inline for a new tab? Its preview tickets cover images, PDF, HTML and video; text and the rest are download-only. */
 export const opensInline = (type: string): boolean =>
-  type === 'application/pdf' || type === 'text/html';
+  type === 'application/pdf' || type === 'text/html' || type.startsWith('video/');
 
 /** A linked file must first receive a ticket; no action can safely be offered after a refusal. */
 export const canOfferFileActions = (linked: boolean, pending: boolean, problem: string): boolean =>

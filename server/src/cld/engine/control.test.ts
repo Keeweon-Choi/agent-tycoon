@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -8,12 +9,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // deliberately exercises its real socket client.
 // @ts-expect-error no declaration file for the JavaScript manager
 import { realDeps as managerDeps } from '../../../../cld/install/manager.mjs';
+import { ensureOwnerToken, ownerTokenMatches } from '../controlIdentity.js';
 import { REPO_ROOT } from '../testHome.js';
 import type { ControlDeps, ControlRequest, Reply } from './control.js';
 import { answerControl, controlPath, listenControl, parseControl } from './control.js';
+import { jobsDir } from './jobs.js';
 import { header, parseQueued } from './messenger.js';
 
 const CLI = path.join(REPO_ROOT, 'cld/bin/cld-gui');
+/** SEC-CONTROL: the owner token in the unit tests below (a real one in the CLI tests' daemon). */
+const OWNER = 'owner-credential';
+const isOwner = (c: string) => c === OWNER;
 
 // Many tests run the real CLI as a process, one node start per call (a dozen in a row for the
 // exit-code and job tests); on a starved CPU (the deploy gate: two nice'd cores) that outlasts the
@@ -79,7 +85,9 @@ const SAMPLE = {
 /** A daemon socket answering with fake deps; the requests it got. */
 async function daemon(h: string, deps: Partial<ControlDeps> = {}) {
   const seen: ControlRequest[] = [];
+  ensureOwnerToken(h); // the CLI run with HOME = h reads it: the owner
   const full: ControlDeps = {
+    isOwner: (c) => ownerTokenMatches(h, c),
     names: () => ['alpha', 'beta'],
     projectAt: (cwd) => (cwd.startsWith(path.join(h, 'alpha')) ? 'alpha' : null),
     send: (r) =>
@@ -211,6 +219,7 @@ describe('local control channel', () => {
       names: () => ['alpha'],
       projectAt: () => null,
       agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      isOwner,
       stopAgents: () => {
         calls.push('sessions then jobs');
         return {
@@ -222,13 +231,38 @@ describe('local control channel', () => {
     } as unknown as ControlDeps;
     expect(await answerControl({ cmd: 'stop-agents', cwd: '/tmp', source: 'cli', token: 'agent-token', args: {} }, deps))
       .toMatchObject({ ok: false, code: 'forbidden' });
+    // SEC-CONTROL: no token is not the owner; nor is an agent that also sends the owner token.
     expect(await answerControl({ cmd: 'stop-agents', cwd: '/tmp', source: 'cli', args: {} }, deps))
+      .toMatchObject({ ok: false, code: 'forbidden', error: expect.stringContaining('owner-token') });
+    expect(await answerControl({ cmd: 'stop-agents', cwd: '/tmp', source: 'cli', owner: 'guess', args: {} }, deps))
+      .toMatchObject({ ok: false, code: 'forbidden' });
+    expect(await answerControl({ cmd: 'stop-agents', cwd: '/tmp', source: 'cli', token: 'agent-token', owner: OWNER, args: {} }, deps))
+      .toMatchObject({ ok: false, code: 'forbidden' });
+    expect(calls).toEqual([]);
+    expect(await answerControl({ cmd: 'stop-agents', cwd: '/tmp', source: 'cli', owner: OWNER, args: {} }, deps))
       .toEqual({
         ok: true,
         stopped: [{ kind: 'session', name: 'alpha' }, { kind: 'job', name: 'j1' }],
         left: [{ kind: 'session', name: 'terminal', why: '터미널에서 열린 대화' }],
       });
     expect(calls).toEqual(['sessions then jobs']);
+  });
+
+  it('codex -d: the description reaches the daemon (null without it); a bad one is refused', async () => {
+    const got: Array<string | null | undefined> = [];
+    const deps = {
+      names: () => ['alpha'],
+      projectAt: () => null,
+      codex: (r: { desc?: string | null }) => (got.push(r.desc), Promise.resolve({ ok: true } as Reply)),
+    } as unknown as ControlDeps;
+    const ask = (args: Record<string, unknown>) =>
+      answerControl({ cmd: 'codex', cwd: '/tmp', source: 'cli', args: { spec: '/s/a.md', ...args } }, deps);
+    await ask({ desc: ' 앱 알림 UI 개선 ' });
+    await ask({});
+    expect(got).toEqual(['앱 알림 UI 개선', null]);
+    expect(await ask({ desc: 'x'.repeat(81) })).toMatchObject({ ok: false, code: 'usage' });
+    expect(await ask({ desc: 'a\nb' })).toMatchObject({ ok: false, code: 'usage' });
+    expect(got).toHaveLength(2);
   });
 
   it('send: the project the caller stands in wins over --from; --from stands in for none', async () => {
@@ -280,15 +314,17 @@ describe('local control channel', () => {
       projectAt: () => null,
       projectOf: (n: string) => (n === 'alpha-a' ? 'alpha' : n),
       agentOf: (token: string) => (token === 'alpha-token' ? 'alpha' : token === 'beta-token' ? 'beta' : null),
+      isOwner,
       renew: (name: string) => (renewed.push(name), { ok: true, name, renew: 'pending' }),
     } as unknown as ControlDeps;
-    const renew = (project: string, token?: string) =>
-      answerControl({ cmd: 'renew', cwd: '/tmp', source: 'cli', ...(token && { token }), args: { project, text: 'h' } }, deps);
+    const renew = (project: string, token?: string, cwd = '/tmp') =>
+      answerControl({ cmd: 'renew', cwd, source: 'cli', ...(token && (token === OWNER ? { owner: token } : { token })), args: { project, text: 'h' } }, deps);
     expect(await renew('alpha', 'beta-token')).toMatchObject({ ok: false, code: 'forbidden' });
     expect(await renew('alpha-a', 'beta-token')).toMatchObject({ ok: false, code: 'forbidden' });
     expect(await renew('beta', 'beta-token')).toMatchObject({ ok: true });
     expect(await renew('alpha-a', 'alpha-token')).toMatchObject({ ok: true }); // a Lead its own Worker
-    expect(await renew('alpha')).toMatchObject({ ok: true }); // the owner (no token)
+    expect(await renew('alpha', OWNER)).toMatchObject({ ok: true }); // the owner
+    expect(await renew('alpha')).toMatchObject({ ok: false, code: 'forbidden' }); // SEC-CONTROL: no token, not the owner
     expect(renewed).toEqual(['beta', 'alpha-a', 'alpha']);
   });
 
@@ -335,13 +371,14 @@ describe('local control channel', () => {
       names: () => ['alpha', 'alpha-a'],
       projectAt: () => null,
       agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      isOwner,
       workers: () => [{ name: 'alpha-a', project: 'alpha', role: 'worker' }],
       engineAction: (r: Record<string, unknown>) => (
         actions.push(r), Promise.resolve({ ok: true, note: 'n' })
       ),
     } as unknown as ControlDeps;
     const ask = (args: Record<string, unknown>, token?: string) =>
-      answerControl({ cmd: 'worker', cwd: '/tmp', source: 'cli', ...(token && { token }), args }, deps);
+      answerControl({ cmd: 'worker', cwd: '/tmp', source: 'cli', ...(token ? { token } : { owner: OWNER }), args }, deps);
     expect(await ask({ op: 'add', project: 'alpha', name: 'alpha-b', model: 'sonnet' })).toEqual({
       ok: true,
       name: 'alpha-b',
@@ -362,6 +399,9 @@ describe('local control channel', () => {
     expect(await ask({ op: 'add', project: 'alpha', name: 'x' }, 'agent-token')).toMatchObject({
       code: 'forbidden',
     });
+    // SEC-CONTROL: no token (an agent that dropped CLD_AGENT_TOKEN) is not the owner either.
+    expect(await answerControl({ cmd: 'worker', cwd: '/tmp', source: 'cli', args: { op: 'remove', name: 'alpha-a' } }, deps))
+      .toMatchObject({ code: 'forbidden' });
     expect(await ask({ op: 'fly', name: 'x' })).toMatchObject({ code: 'usage' });
     expect(actions).toHaveLength(2);
     // D5: `--provider codex` reaches the engine's add.
@@ -371,6 +411,146 @@ describe('local control channel', () => {
 });
 
 describe('cld-gui CLI', () => {
+  it.skipIf(process.platform !== 'linux')(
+    'SEC-CONTROL: an agent that drops CLD_AGENT_TOKEN, or runs agty through a job of this daemon, is not the owner',
+    async () => {
+      const h = home();
+      const token = 'A'.repeat(43);
+      const cfg = path.dirname(controlPath(h));
+      fs.mkdirSync(cfg, { recursive: true });
+      // What agentTokens.ts keeps: the sha256 of each token it issued.
+      const hash = createHash('sha256').update(token).digest('hex');
+      fs.writeFileSync(path.join(cfg, 'agent-tokens.json'), JSON.stringify({ v: 1, tokens: { alpha: hash } }));
+      const { seen } = await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        workers: () => [],
+      });
+      // The agent's shell has the token; the agty it runs does not (unset, not exec'd).
+      const shell = (env: Record<string, string>, unset: string) =>
+        new Promise<ControlRequest>((resolve) => {
+          const child = spawn('/bin/sh', ['-c', `unset ${unset}; "${process.execPath}" "${CLI}" worker list; r=$?; exit $r`], {
+            cwd: h,
+            env: { PATH: process.env.PATH, HOME: h, ...env },
+            stdio: 'ignore',
+          });
+          child.on('close', () => resolve(seen.at(-1)!));
+        });
+      const dropped = await shell({ CLD_AGENT_TOKEN: token }, 'CLD_AGENT_TOKEN');
+      expect(dropped.token).toBe(token); // still that agent
+      expect(dropped.owner).toBeUndefined();
+      // A job of this daemon (its record in the jobs folder): no owner token, not an agent either.
+      const job = '1101-020000-alpha';
+      const jobs = jobsDir(h, 'linux');
+      fs.mkdirSync(jobs, { recursive: true });
+      fs.writeFileSync(path.join(jobs, `${job}.json`), '{}');
+      const inJob = await shell({ CLD_JOB_ID: job }, 'CLD_JOB_ID');
+      expect(inJob.token).toBeUndefined();
+      expect(inJob.owner).toBeUndefined();
+      // Neither (a token another daemon issued, as in a runner's temp HOME): the owner.
+      const owner = await shell({ CLD_AGENT_TOKEN: 'B'.repeat(43) }, 'NOTHING');
+      expect(owner.owner).toBe(fs.readFileSync(path.join(cfg, 'owner-token'), 'utf-8').trim());
+      expect(owner.token).toBe('B'.repeat(43));
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'SEC-CONTROL: what the orchestrators run all day still works for an agent; the owner’s terminal keeps the owner commands',
+    async () => {
+      const h = home();
+      const token = 'C'.repeat(43);
+      const cfg = path.dirname(controlPath(h));
+      fs.mkdirSync(cfg, { recursive: true });
+      const hash = createHash('sha256').update(token).digest('hex');
+      fs.writeFileSync(path.join(cfg, 'agent-tokens.json'), JSON.stringify({ v: 1, tokens: { alpha: hash } }));
+      const reached: string[] = [];
+      const { seen } = await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        projectOf: (n) => n,
+        groupPost: (r) => (reached.push(`groupPost ${r.room} ${r.from}`), Promise.resolve({ ok: true, room: r.room })),
+        groups: () => ({ ok: true, groups: [{ name: '전체', members: ['alpha', 'beta'] }] }),
+        groupRead: () => ({ ok: true, posts: [] }),
+        workers: () => [],
+        engineAction: () =>
+          Promise.resolve({ type: 'engineActionResult', requestId: 'r', action: 'start', name: 'alpha', ok: true }),
+        task: (a) => ({ ok: true, project: 'alpha', mode: a.mode ?? 'reuse' }),
+      });
+      const handoff = path.join(h, 'handoff.md');
+      fs.writeFileSync(handoff, 'state\n');
+      const spec = path.join(h, 'spec.md');
+      fs.writeFileSync(spec, '# spec\n');
+      const agentEnv = { env: { CLD_AGENT_TOKEN: token, CLD_OUTPUT: 'json' } };
+      for (const args of [
+        ['send', 'beta', 'hello'],
+        ['send', '--group', '전체', 'hello all'],
+        ['groups'],
+        ['groups', 'read', '전체', '-n', '5'],
+        ['job', '-d', '빌드', 'echo hi'],
+        ['job', '-t', '-d', '터미널', 'echo hi'],
+        ['job', '--gpu', '--vram', '4', '-d', '학습', 'python train.py'],
+        ['jobs'],
+        ['stop', '4242'],
+        ['renew', handoff],
+        ['codex'],
+        ['codex', '-m', 'gpt-5', '-d', '리뷰', '--worktree', spec],
+        ['hw', '--json'],
+        ['task', 'mode'],
+      ]) {
+        const r = await cli(h, args, agentEnv);
+        expect({ args, code: r.code, err: r.err }).toEqual({ args, code: 0, err: '' });
+        expect(seen.at(-1)).toMatchObject({ token });
+        expect(seen.at(-1)!.owner).toBeUndefined();
+      }
+      expect(reached).toEqual(['groupPost 전체 alpha']);
+      // The owner-only commands stay refused for that agent ...
+      for (const args of [['worker', 'list'], ['task', 'mode', 'auto'], ['trust', 'alpha']])
+        expect((await cli(h, args, agentEnv)).code).not.toBe(0);
+      // ... and work from the owner's terminal (no agent token, the owner-token file there).
+      for (const args of [['worker', 'list'], ['task', 'mode', 'auto']]) {
+        const r = await cli(h, args, { env: { CLD_OUTPUT: 'json' } });
+        expect({ args, code: r.code, err: r.err }).toEqual({ args, code: 0, err: '' });
+        expect(seen.at(-1)!.owner).toBe(fs.readFileSync(path.join(cfg, 'owner-token'), 'utf-8').trim());
+      }
+    },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    "TERM-P3: permission-hook prints the owner's allow or deny as the hook's decision; no answer or no token prints nothing (Claude's own dialog), exit 0",
+    async () => {
+      const h = home();
+      const token = 'P'.repeat(43);
+      const asked: Array<[string, string, unknown]> = [];
+      let answer: 'allow' | 'deny' | null = 'allow';
+      await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        permission: (agent, ask) => (asked.push([agent, ask.tool, ask.input]), Promise.resolve(answer)),
+      });
+      const hookInput = JSON.stringify({
+        hook_event_name: 'PermissionRequest',
+        session_id: 's-1',
+        tool_name: 'Bash',
+        tool_input: { command: 'rm -rf build', description: 'Clean the build' },
+      });
+      const hook = (env: Record<string, string>) => cli(h, ['permission-hook'], { env, input: hookInput });
+      const decision = (out: string) =>
+        (JSON.parse(out) as { hookSpecificOutput: { hookEventName: string; decision: { behavior: string } } })
+          .hookSpecificOutput;
+      let r = await hook({ CLD_AGENT_TOKEN: token });
+      expect(r.code).toBe(0);
+      expect(decision(r.out)).toMatchObject({ hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } });
+      expect(asked).toEqual([['alpha', 'Bash', { command: 'rm -rf build', description: 'Clean the build' }]]);
+      answer = 'deny';
+      r = await hook({ CLD_AGENT_TOKEN: token });
+      expect(decision(r.out).decision).toMatchObject({ behavior: 'deny', message: expect.any(String) });
+      answer = null; // the wait ran out
+      r = await hook({ CLD_AGENT_TOKEN: token });
+      expect({ code: r.code, out: r.out }).toEqual({ code: 0, out: '' });
+      // Not an agent session (no token): refused before anyone is asked.
+      r = await hook({});
+      expect({ code: r.code, out: r.out }).toEqual({ code: 0, out: '' });
+      expect(asked).toHaveLength(3);
+    },
+  );
+
   it('send: sentences, CLD_OUTPUT=json, CLD_SOURCE, exit 0', async () => {
     const h = home();
     const { seen } = await daemon(h);
@@ -467,7 +647,7 @@ describe('cld-gui CLI', () => {
 
     fs.writeFileSync(path.join(h, 'spec.md'), 'do it\n');
     const built = fs.existsSync(path.join(REPO_ROOT, 'dist/cld-worker.js'));
-    const start = await cli(h, ['codex', '-m', 'm1', '-e', 'high', '--worktree', 'spec.md']);
+    const start = await cli(h, ['codex', '-m', 'm1', '-e', 'high', '-d', '앱 알림 UI 개선', '--worktree', 'spec.md']);
     if (!built) return expect(start.code).toBe(1); // no_build before npm run build
     expect(start.code).toBe(0);
     expect(start.out).toContain('Codex 에 맡김 · 작업 1022-041502-alpha');
@@ -475,6 +655,7 @@ describe('cld-gui CLI', () => {
       spec: path.join(fs.realpathSync(h), 'spec.md'),
       model: 'm1',
       effort: 'high',
+      desc: '앱 알림 UI 개선',
       worktree: true,
       project: null,
     });
@@ -617,6 +798,8 @@ describe('cld-gui CLI', () => {
       'task',
       'worker', // D3
       'trust', // AUTO-TRUST
+      'move-pty', // TERM-P3
+      'permission-hook',
       'worktree', // W2
       'install',
       'update',
@@ -783,6 +966,31 @@ describe('S7: who is speaking over the socket', () => {
   });
 });
 
+describe('TERM-P3: agty move-pty --all / --stop', () => {
+  it('the socket: only the owner starts or stops the queue; an agent token and a caller with no token are refused', async () => {
+    const calls: boolean[] = [];
+    const deps = {
+      names: () => ['alpha'],
+      projectAt: () => null,
+      agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      isOwner,
+      engineAction: () => Promise.resolve({ ok: true }),
+      moveAll: (stop: boolean) => {
+        calls.push(stop);
+        return stop ? { ok: true as const } : { ok: true as const, total: 3 };
+      },
+    } as unknown as ControlDeps;
+    const ask = (args: Record<string, unknown>, who: { token?: string; owner?: string } = { owner: OWNER }) =>
+      answerControl({ cmd: 'move-pty', cwd: '/tmp', source: 'cli', ...who, args }, deps);
+    expect(await ask({ all: true }, { token: 'agent-token' })).toMatchObject({ ok: false, code: 'forbidden' });
+    expect(await ask({ stop: true }, {})).toMatchObject({ ok: false, code: 'forbidden' });
+    expect(calls).toEqual([]);
+    expect(await ask({ all: true })).toMatchObject({ ok: true, total: 3 });
+    expect(await ask({ stop: true })).toMatchObject({ ok: true });
+    expect(calls).toEqual([false, true]);
+  });
+});
+
 describe('AUTO-TRUST: agty trust', () => {
   it('the socket: an agent token is refused, a name or an absolute folder (one of them) is required', async () => {
     const calls: unknown[] = [];
@@ -790,6 +998,7 @@ describe('AUTO-TRUST: agty trust', () => {
       names: () => ['alpha'],
       projectAt: () => null,
       agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      isOwner,
       trust: (target: unknown, start: boolean) => {
         calls.push([target, start]);
         return Promise.resolve({ ok: true });
@@ -797,13 +1006,16 @@ describe('AUTO-TRUST: agty trust', () => {
     } as unknown as ControlDeps;
     const ask = (args: Record<string, unknown>, token?: string) =>
       answerControl(
-        { cmd: 'trust', cwd: '/tmp', source: 'cli', ...(token && { token }), args },
+        { cmd: 'trust', cwd: '/tmp', source: 'cli', ...(token ? { token } : { owner: OWNER }), args },
         deps,
       );
     expect(await ask({ name: 'alpha' }, 'agent-token')).toMatchObject({
       ok: false,
       code: 'forbidden',
     });
+    expect(await answerControl({ cmd: 'trust', cwd: '/tmp', source: 'cli', args: { name: 'alpha' } }, deps))
+      .toMatchObject({ ok: false, code: 'forbidden' }); // SEC-CONTROL: no token is not the owner
+
     for (const args of [
       {},
       { name: 'alpha', folder: '/w/alpha' },
@@ -871,7 +1083,7 @@ describe('AUTO-TRUST: agty trust', () => {
     expect(ok.out).toContain('이제 켤 수 있어요');
     const started = await cli(h, ['trust', '--start', '.'], { cwd: alpha });
     expect(started.code).toBe(0);
-    expect(started.out).toContain("'alpha' 을(를) 켰어요");
+    expect(started.out).toContain("'alpha' Worker 를 켰어요");
     expect(seen.at(-1)!.args).toEqual({ folder: real, start: true });
     fs.writeFileSync(path.join(h, 'unknown-screen'), '');
     const failed = await cli(h, ['trust', 'alpha']);

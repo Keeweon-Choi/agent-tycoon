@@ -1,14 +1,9 @@
 import type { ServerMessage } from '../../../core/src/messages.js';
 import { isCldMock } from '../cld/mock.js';
-import { isBrowserRuntime } from '../runtime.js';
-import { PostMessageTransport } from './postMessageTransport.js';
 import type { MessageTransport } from './types.js';
 import { WebSocketTransport } from './webSocketTransport.js';
 
 function createTransport(): MessageTransport {
-  if (!isBrowserRuntime) {
-    return new PostMessageTransport();
-  }
   // Standalone browser: the HttpOnly login cookie authenticates this same-origin
   // WebSocket. Server tokens deliberately never appear in browser URLs.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -38,6 +33,6 @@ function createTransport(): MessageTransport {
   return ws;
 }
 
-/** Singleton transport instance. Import this everywhere instead of vscodeApi. */
+/** Singleton transport instance. Import this everywhere. */
 export const transport: MessageTransport = createTransport();
 export type { MessageTransport } from './types.js';

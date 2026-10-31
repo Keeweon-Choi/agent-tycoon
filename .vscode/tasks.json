@@ -57,7 +57,7 @@
             }
         },
         {
-            "label": "Mocked Pixel Agent Dev Server",
+            "label": "Mocked Office Dev Server",
             "type": "shell",
             "command": "cd webview-ui && npm run dev",
             "isBackground": true,

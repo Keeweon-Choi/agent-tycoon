@@ -1135,7 +1135,9 @@ describe('messages', () => {
 describe('messages through the attach (fake claude, real PTY)', () => {
   // A loaded gate machine (parallel workers plus runners) has taken over 15 s to type a queued message
   // after the fake turn and its quiet window: the waits check order, not speed.
-  const LOADED_MS = 40_000;
+  // 40 s was not enough on 11-01 when the gate ran beside four subagents (the 5th message came after 60 s);
+  // the test is ~34 s alone. The waits are a ceiling for a loaded machine, not the expected time.
+  const LOADED_MS = 90_000;
   it('types into an idle session, waits while it works or holds a draft', async () => {
     const { home, claudePath } = makeEngineHome();
     const folder = path.join(home, 'work', 'alpha');

@@ -2,8 +2,8 @@
  * The standalone host's own Directory contribution.
  *
  * Every host contributes its native context as read-only `source: 'host'`
- * Directories: VS Code its workspace folders (adapters/vscode), standalone the
- * directory the server was started from. The entry is merged with the
+ * Directories: the standalone daemon contributes the directory the server was
+ * started from. The entry is merged with the
  * user-defined ones by directories.ts, which is what stamps `source` and
  * `isDefault` — a host only says what and where.
  */

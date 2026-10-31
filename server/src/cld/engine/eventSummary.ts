@@ -13,6 +13,15 @@ import { maskText } from '../mask.js';
 type Obj = Record<string, unknown>;
 
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
+
+/** A stored usage_reset_early's window id; events written before USAGE-GENERIC say fiveHour/sevenDay. */
+const usagePeriod = (e: Obj): string => {
+  const p = str(e.period);
+  return p === 'sevenDay' ? '7d' : p === 'fiveHour' || !p ? '5h' : p;
+};
+/** Its provider's display name (older events carry only the id). */
+const usageProviderName = (e: Obj): string =>
+  str(e.providerName) ?? (str(e.provider) === 'codex' ? 'Codex' : str(e.provider) ?? 'Claude');
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const arr = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
 
@@ -144,6 +153,22 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
         ? koText('ev_orch_giveup_why', { who, why: maskText(str(e.error)!).slice(0, 80) })
         : koText('ev_orch_giveup', { who });
       break;
+    case 'pty_move': {
+      const why = maskText(str(e.why) ?? '').slice(0, 120);
+      summary =
+        e.result === 'moved'
+          ? koText('ev_pty_move_moved', { who })
+          : koText(e.result === 'rolled_back' ? 'ev_pty_move_rolled_back' : 'ev_pty_move_skipped', { who, why });
+      break;
+    }
+    case 'pty_move_all':
+      summary = koText(e.stopped === true ? 'ev_pty_move_all_stopped' : 'ev_pty_move_all', {
+        moved: num(e.moved) ?? 0,
+        skipped: num(e.skipped) ?? 0,
+        back: num(e.rolledBack) ?? 0,
+        total: num(e.total) ?? 0,
+      });
+      break;
     case 'turn_end':
       summary = koText('ev_turn_end', { who });
       break;
@@ -187,8 +212,9 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
       summary = workAction(workTitle, 'work_stopping');
       break;
     case 'usage_reset_early': {
-      const provider = str(e.provider) === 'codex' ? 'Codex' : 'Claude';
-      summary = koText(str(e.period) === 'sevenDay' ? 'ev_usage_reset_week' : 'ev_usage_reset_5h', { provider });
+      summary = koText(usagePeriod(e) === '7d' ? 'ev_usage_reset_week' : 'ev_usage_reset_5h', {
+        provider: usageProviderName(e),
+      });
       break;
     }
     case 'project':
@@ -224,8 +250,9 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
       ref: str(e.id) ?? (num(e.pid) !== null ? `pid:${num(e.pid)}` : null),
     }),
     ...(kind === 'usage_reset_early' && {
-      provider: str(e.provider) === 'codex' ? ('codex' as const) : ('claude' as const),
-      period: str(e.period) === 'sevenDay' ? ('sevenDay' as const) : ('fiveHour' as const),
+      provider: str(e.provider) ?? 'claude',
+      providerName: usageProviderName(e),
+      period: usagePeriod(e),
     }),
   };
 }

@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { OfficeSnapshot } from '../../../core/src/messages.js';
+import type { OfficeSnapshot, UsageState } from '../../../core/src/messages.js';
 import { AgentRuntime } from '../agentRuntime.js';
 import { AgentStateStore } from '../agentStateStore.js';
 import { claudeProvider } from '../providers/hook/claude/claude.js';
@@ -77,15 +77,15 @@ describe('office with the Claude provider only (no engine)', () => {
     const { fake, office, messages } = await startOffice({ claude: 'C-4' });
     (
       office as unknown as {
-        usageResetEarly(reset: { provider: 'codex'; period: 'sevenDay' }): void;
+        usageResetEarly(reset: { provider: 'codex'; name: 'Codex'; period: '7d' }): void;
       }
-    ).usageResetEarly({ provider: 'codex', period: 'sevenDay' });
+    ).usageResetEarly({ provider: 'codex', name: 'Codex', period: '7d' });
     expect(messages.at(-1)).toMatchObject({
       type: 'officeEvent',
       kind: 'usage_reset_early',
       summary: 'Codex 주간 사용량이 예정보다 일찍 초기화됐어요',
       provider: 'codex',
-      period: 'sevenDay',
+      period: '7d',
     });
     expect(
       fs.readFileSync(path.join(fake.home, '.config', 'agent-tycoon', 'events.jsonl'), 'utf-8'),
@@ -257,7 +257,12 @@ describe('office with the Claude provider only (no engine)', () => {
       'usageState',
     ]);
     // ENV-2: no source in this HOME, so usage is unknown, never a made-up number.
-    expect(snap.find((m) => m.type === 'usageState')).toMatchObject({ claude: null, codex: null });
+    expect(snap.find((m) => m.type === 'usageState')).toMatchObject({
+      providers: [
+        { id: 'claude', windows: [] },
+        { id: 'codex', windows: [] },
+      ],
+    });
     // Generated office: one room per project dir.
     const layout = office.layoutFor() as { areas: Array<{ label: string }> };
     expect(layout.areas.map((a) => a.label)).toEqual([
@@ -291,7 +296,9 @@ describe('office with the Claude provider only (no engine)', () => {
     for (const o of snap.orchestrators.filter((o) => o.name !== name))
       expect(saved[o.name]).toEqual({ palette: expect.any(Number), hueShift: expect.any(Number) });
     expect(saved.$meta).toMatchObject({ v: 2 });
-    expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/characters/README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/characters/README.md'))).toBe(
+      true,
+    );
   });
 });
 
@@ -364,11 +371,13 @@ describe('office with the built-in engine', () => {
       queue: [],
       recent: [],
     });
-    // Nothing a removed provider gave is sent; usage, without a source, is unknown.
+    // Nothing a removed provider gave is sent; usage has no source-reported windows.
     expect(snap.some((m) => m.type === 'statusOutput')).toBe(false);
-    expect(snap.filter((m) => m.type === 'usageState').every((m) => !m.claude && !m.codex)).toBe(
-      true,
-    );
+    expect(
+      snap
+        .filter((m) => m.type === 'usageState')
+        .every((m) => (m as unknown as UsageState).providers.every((p) => p.windows.length === 0)),
+    ).toBe(true);
   });
 
   it('Codex tasks of the engine: a waiting task is a contractor at its project’s desk (T-0021)', async () => {
@@ -499,6 +508,17 @@ describe('office with the built-in engine', () => {
     office.onClientMessage({ type: 'engineChoicesRefresh' }, send, true);
     expect(answers).toHaveLength(1);
     expect(answers[0]).toMatchObject({ type: 'engineState' });
+  });
+
+  it('engineMoveAll is the owner\'s: a client without the right gets a refusal and nothing starts', async () => {
+    const { office } = await engineOffice();
+    const answers: Array<Record<string, unknown>> = [];
+    office.onClientMessage({ type: 'engineMoveAll' }, (m) => answers.push(m), false);
+    office.onClientMessage({ type: 'engineMoveAll', stop: true }, (m) => answers.push(m), false);
+    expect(answers).toEqual([
+      { type: 'engineMoveAllResult', ok: false, error: expect.any(String) },
+      { type: 'engineMoveAllResult', ok: false, error: expect.any(String) },
+    ]);
   });
 
   it('only lets a privileged chatHold reach the engine messenger; a closed page never releases it (MSG-HOLD2)', async () => {
@@ -887,9 +907,9 @@ describe('office with the built-in engine', () => {
       'stop',
       'job_end',
     ]);
-    expect(fs.readFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), 'utf-8')).toContain(
-      '"source":"gui:ios"',
-    );
+    expect(
+      fs.readFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), 'utf-8'),
+    ).toContain('"source":"gui:ios"');
     // `cld-gui jobs` sees it ended; a send to an engine project that is off goes to its inbox.
     const jobs = await run(['jobs']);
     expect((jobs.out.jobs as Array<Record<string, unknown>>)[0]).toMatchObject({ id, exit: null });
@@ -1182,7 +1202,12 @@ describe('office without the engine (plain Claude Code)', () => {
     const types = new Set(snap.map((m) => m.type));
     expect(types.has('officeSnapshot') && types.has('hwSample')).toBe(true);
     // ENV-2: usage is not engine-only; without a source it is unknown (null), never invented.
-    expect(snap.find((m) => m.type === 'usageState')).toMatchObject({ claude: null, codex: null });
+    expect(snap.find((m) => m.type === 'usageState')).toMatchObject({
+      providers: [
+        { id: 'claude', windows: [] },
+        { id: 'codex', windows: [] },
+      ],
+    });
     for (const engineOnly of [
       'codexTasks',
       'officeJobs',

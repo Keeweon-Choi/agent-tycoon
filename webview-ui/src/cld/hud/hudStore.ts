@@ -57,6 +57,7 @@ const DEFAULT_OPEN: HudOpenState = {
   notices: false,
   terminal: false,
   workbench: false,
+  devroom: false,
 };
 
 function loadSavedOpen(): HudOpenState {
@@ -83,6 +84,7 @@ function loadSavedOpen(): HudOpenState {
       notices: typeof state.notices === 'boolean' ? state.notices : false,
       terminal: typeof state.terminal === 'boolean' ? state.terminal : false,
       workbench: typeof state.workbench === 'boolean' ? state.workbench : false,
+      devroom: typeof state.devroom === 'boolean' ? state.devroom : false,
     };
   } catch {
     return DEFAULT_OPEN;
@@ -130,7 +132,7 @@ let snapshot: HudSnapshot = {
   open: { ...savedOpen, messenger: false, looks: false },
   officeTab: 'status',
   boardTab: 'status',
-  order: ['office', 'messenger', 'notices', 'terminal', 'workbench', 'looks'],
+  order: ['office', 'messenger', 'notices', 'terminal', 'workbench', 'looks', 'devroom'],
   minimized: {},
 };
 const listeners = new Set<() => void>();
@@ -216,6 +218,7 @@ export function closePages(): void {
       terminal: false,
       workbench: false,
       looks: false,
+      devroom: false,
     },
     minimized: {},
   });

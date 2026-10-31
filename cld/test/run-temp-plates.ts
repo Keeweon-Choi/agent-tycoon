@@ -8,7 +8,7 @@
  * - wave 1: `lead` spawns a foreground sub-agent (Task) and an unnamed background one (its
  *   own transcript, with usage); the two sub-characters and the Codex temporary wear
  *   roster names and the same nameplate (level ring; 피로도 from the background
- *   sub-agent's own context, 미확인 for the others); the details say "임시 직원";
+ *   sub-agent's own context, 미확인 for the others); its full detail view says "임시 직원";
  * - the wave ends (tool result, the background queue-operation, the Codex run done);
  * - wave 2: two new spawns come back as the same employees (roster.json), and their XP
  *   has grown (levels.json emp:<id>).
@@ -23,6 +23,7 @@ import * as path from 'path';
 
 import { STAFF_NAMES } from '../../core/src/cld/staffNames.js';
 import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   killFakeSessions,
@@ -33,7 +34,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/temp-plates');
@@ -157,7 +157,7 @@ async function main() {
   const pageErrors: string[] = [];
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     const page = await ctx.newPage();
     page.on('pageerror', (err) => pageErrors.push(String(err)));
     return { ctx, page };
@@ -166,8 +166,8 @@ async function main() {
   const select = (page: Page, id: number | null) =>
     page.evaluate((id) => {
       (
-        window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }
-      ).__pixelAgentsTestHooks.selectAgent(id as number);
+        window as unknown as { __agentTycoonTestHooks: { selectAgent: (id: number | null) => void } }
+      ).__agentTycoonTestHooks.selectAgent(id as number);
     }, id);
   const roster = () =>
     JSON.parse(fs.readFileSync(path.join(configDirectory(home), 'roster.json'), 'utf-8')) as {
@@ -266,11 +266,16 @@ async function main() {
     await shot(phone, 'phone-wave1');
     const fg = subs1.find((x) => x.fatigue === 'unknown')!;
     await select(page, fg.id);
-    const details = page.locator(`[data-testid="agent-overlay"][data-agent-id="${fg.id}"] [data-testid="temp-employee"]`);
+    const openDetail = page.locator('[data-testid="stat-open"]');
+    await openDetail.waitFor({ timeout: 5_000 });
+    await openDetail.click();
+    const details = page.locator(`[data-testid="stat-detail"][data-agent-id="${fg.id}"] [data-testid="temp-employee"]`);
     await details.waitFor({ timeout: 5_000 });
-    check((await details.textContent())?.includes('새 세션'), `the details say: ${await details.textContent()}`);
+    check((await details.textContent())?.includes('새 세션'), `the full detail says: ${await details.textContent()}`);
     await page.waitForTimeout(500);
     await shot(page, 'desktop-details');
+    await page.locator('[data-modal-title] button').click();
+    await page.locator('[data-testid="stat-detail"]').waitFor({ state: 'detached' });
     await select(page, null);
 
     const before = roster().projects;

@@ -35,3 +35,18 @@ export function prepareMessage(text: string, max: number, at: Date = new Date())
     attachment: { name: longMessageFileName(at), content: text, type: 'text/markdown' },
   };
 }
+
+/** A bubble longer than this many lines (or characters) folds behind 더 보기. */
+export const FOLD_LINES = 12;
+export const FOLD_CHARS = 1200;
+
+/** A bubble's text, folded or open: `long` means it gets the 더 보기 / 접기 toggle; `shown` is
+ *  the text to draw (cut with … while folded, whole when open). */
+export function foldBubble(text: string, open: boolean): { long: boolean; shown: string } {
+  const lines = text.split('\n');
+  const long = lines.length > FOLD_LINES || text.length > FOLD_CHARS;
+  return {
+    long,
+    shown: long && !open ? `${lines.slice(0, FOLD_LINES).join('\n').slice(0, FOLD_CHARS)}…` : text,
+  };
+}

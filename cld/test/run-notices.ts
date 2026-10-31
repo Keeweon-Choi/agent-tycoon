@@ -29,22 +29,22 @@ import { spawn, spawnSync } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as https from 'https';
-import * as os from 'os';
 import * as path from 'path';
 
 import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
+  FULL_CHROME,
   hostHealth,
-  launchBrowser,
   killFakeSessions,
+  launchBrowser,
   makeEngineHome,
   REPO_ROOT,
   seedJob,
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 if (process.argv.length < 4 || process.argv[2] === process.argv[3])
   throw new Error(
@@ -58,7 +58,7 @@ const OUT70 = path.join(REPO_ROOT, 'cld/artifacts/t0070');
  *  showNotification ("no notification permission") even when granted. */
 const CHROME =
   process.env.T0039_CHROME ??
-  path.join(os.homedir(), '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome');
+  FULL_CHROME;
 const FONTS = {
   malgun: '/mnt/c/Windows/Fonts/malgun.ttf',
   emoji: '/mnt/c/Windows/Fonts/seguiemj.ttf',
@@ -232,9 +232,9 @@ const unread = async (p: Page) => {
   return (await badge.count()) ? Number(await badge.textContent()) : 0;
 };
 const sounds = (p: Page) =>
-  p.evaluate(() => (window.__pixelAgentsTestHooks?.playedSounds ?? []).map((s) => s.kind));
+  p.evaluate(() => (window.__agentTycoonTestHooks?.playedSounds ?? []).map((s) => s.kind));
 const followed = (p: Page) =>
-  p.evaluate(() => window.__pixelAgentsTestHooks?.getCameraFollowId?.() ?? null);
+  p.evaluate(() => window.__agentTycoonTestHooks?.getCameraFollowId?.() ?? null);
 /**
  * T-0063: with a modal open, a label or bubble drawn at the modal's middle must stay under it.
  * Real labels let the pointer through, so a stand-in is put in the label layer (same parent,
@@ -323,7 +323,7 @@ async function main() {
   const browser = await launchBrowser({ executablePath: CHROME });
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__t0039/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,

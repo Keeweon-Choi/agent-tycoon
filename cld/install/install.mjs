@@ -19,7 +19,7 @@ import { hwSensorsStep } from './hwSensors.mjs';
 import { CONNECTORS, defaultConnector, realDeps, remoteSetup, revertExposures, SETUP_CHOICES, setupLines } from './remote.mjs';
 
 const { CLI_NAME, LEGACY_CLI_NAME } = createRequire(import.meta.url)('../bin/cld-brand.js');
-export const { configDirectory, legacyConfigDirectory } = configPathModule;
+export const { configDirectory, legacyConfigDirectory, officeDirectory, legacyOfficeDirectory } = configPathModule;
 const execFile = promisify(execFileCallback);
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, '../..');
@@ -82,10 +82,12 @@ export function renderSystemdUnit({ repo = repoRoot, node = process.execPath, ho
   return `[Unit]\nDescription=${name} host service\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=${repo}\nEnvironment=PATH=${servicePath(home, pathNodeDir)}\nExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNice=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n`;
 }
 
+// AbandonProcessGroup (TERM-P2, ADR-0018): when the daemon exits, launchd would kill what is left in its
+// process group; our PTY host and its agents must outlive a daemon restart (KillMode=process on Linux).
 export function renderLaunchAgent({ repo = repoRoot, node = process.execPath, home = os.homedir(), config, label = 'dev.cld-gui.daemon', pathNodeDir = path.dirname(node) }) {
   const args = [node, ...NODE_FLAGS, path.join(repo, 'dist/cli.js'), ...daemonArgs(config)].map((arg) => `    <string>${xml(arg)}</string>`).join('\n');
   const log = path.join(configDirectory(home), 'daemon.log');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>${xml(label)}</string>\n  <key>ProgramArguments</key><array>\n${args}\n  </array>\n  <key>WorkingDirectory</key><string>${xml(repo)}</string>\n  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${xml(servicePath(home, pathNodeDir, ['/opt/homebrew/bin']))}</string><key>LANG</key><string>en_US.UTF-8</string></dict>\n  <key>StandardOutPath</key><string>${xml(log)}</string>\n  <key>StandardErrorPath</key><string>${xml(log)}</string>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n</dict></plist>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>${xml(label)}</string>\n  <key>ProgramArguments</key><array>\n${args}\n  </array>\n  <key>WorkingDirectory</key><string>${xml(repo)}</string>\n  <key>EnvironmentVariables</key><dict><key>PATH</key><string>${xml(servicePath(home, pathNodeDir, ['/opt/homebrew/bin']))}</string><key>LANG</key><string>en_US.UTF-8</string></dict>\n  <key>StandardOutPath</key><string>${xml(log)}</string>\n  <key>StandardErrorPath</key><string>${xml(log)}</string>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n  <key>AbandonProcessGroup</key><true/>\n</dict></plist>\n`;
 }
 
 export function renderSchtasksCommand({ repo = repoRoot, node = process.execPath, home = os.homedir(), config, name = 'cld-gui' }) {
@@ -214,14 +216,21 @@ async function pathHas(name) { try { await command(process.platform === 'win32' 
 async function tcpFree(port) { return new Promise((resolve) => { const server = net.createServer(); server.once('error', () => resolve(false)); server.listen(port, '127.0.0.1', () => server.close(() => resolve(true))); }); }
 async function fetchJson(url, options = {}) { const response = await fetch(url, options); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); }
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** The office folder first; ~/.pixel-agents is where a daemon before 2026-11 wrote them (ponytail: one release). */
 export async function hostToken(home = os.homedir()) {
+  const read = async (name) => {
+    for (const dir of [officeDirectory(home), legacyOfficeDirectory(home)]) {
+      try { return await fs.readFile(path.join(dir, name), 'utf8'); } catch { /* next folder */ }
+    }
+    throw new Error(`no ${name} in ${officeDirectory(home)} or ${legacyOfficeDirectory(home)}`);
+  };
   try {
-    const server = JSON.parse(await fs.readFile(path.join(home, '.pixel-agents/server.json'), 'utf8'));
+    const server = JSON.parse(await read('server.json'));
     if (typeof server.token === 'string' && server.token) return server.token;
   } catch {
     // An older daemon only has the persistent standalone token.
   }
-  return (await fs.readFile(path.join(home, '.pixel-agents/standalone-token'), 'utf8')).trim();
+  return (await read('standalone-token')).trim();
 }
 async function ours(port) {
   let pid; try { pid = (await fetchJson(`http://127.0.0.1:${port}/api/health`, { headers: { Authorization: `Bearer ${await hostToken()}` } })).pid; } catch { return false; }

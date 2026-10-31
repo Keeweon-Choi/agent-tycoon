@@ -149,15 +149,42 @@ export function startArgs(
   mcpConfigFile: string | null = null,
 ): string[] {
   if (resume && wake) return ['--bg', '--resume', resume];
-  const name = sessionName(p);
   return [
     '--bg',
+    ...sessionFlags(p, resume, cldBin, mcpConfigFile, {
+      env: {
+        CLD_BIN: cldBin ?? '',
+        ...(sessionPath ? { PATH: sessionPath } : {}),
+        ...(agentToken ? { [AGENT_TOKEN_ENV]: agentToken } : {}),
+      },
+      // An orchestrator works in its own checkout, as before: Claude Code's
+      // background-session guard would push every edit into a worktree (10-22 12:1x).
+      worktree: { bgIsolation: 'none' },
+    }),
+  ];
+}
+
+/**
+ * The flags a session starts with, `--bg` or in our PTY host (TERM-P1): its name, the
+ * conversation to resume, rules, model, permission mode, effort, remote control, our MCP adapter
+ * and `--settings` (`extra` and the status line; no suggested prompt).
+ */
+export function sessionFlags(
+  p: ProjectRecord,
+  resume: string | undefined,
+  cldBin: string | null,
+  mcpConfigFile: string | null,
+  extra: Record<string, unknown> = {},
+  permissionMode = p.permissionMode,
+): string[] {
+  const name = sessionName(p);
+  return [
     '-n',
     name,
     ...(resume ? ['--resume', resume] : []),
     ...(p.rulesFile ? ['--append-system-prompt-file', p.rulesFile] : []),
     ...(p.model ? ['--model', p.model] : []),
-    ...(p.permissionMode ? ['--permission-mode', p.permissionMode] : []),
+    ...(permissionMode ? ['--permission-mode', permissionMode] : []),
     ...(p.effort ? ['--effort', p.effort] : []),
     ...(p.remoteControl ? ['--remote-control', name] : []),
     ...(cldBin && mcpConfigFile ? ['--mcp-config', mcpConfigFile] : []),
@@ -165,14 +192,7 @@ export function startArgs(
       ? [
           '--settings',
           JSON.stringify({
-            env: {
-              CLD_BIN: cldBin,
-              ...(sessionPath ? { PATH: sessionPath } : {}),
-              ...(agentToken ? { [AGENT_TOKEN_ENV]: agentToken } : {}),
-            },
-            // An orchestrator works in its own checkout, as before: Claude Code's
-            // background-session guard would push every edit into a worktree (10-22 12:1x).
-            worktree: { bgIsolation: 'none' },
+            ...extra,
             statusLine: { type: 'command', command: statusLineCommand(cldBin) },
             // No suggested next prompt (nor the first `Try "…"`, which comes with it) in the input line:
             // a Windows 10 ConPTY drops their dim attribute, the messenger took them for a typed draft
@@ -202,11 +222,11 @@ export function printedId(stdout: string): string | null {
   return /backgrounded · ([A-Za-z0-9_-]+)/.exec(stripAnsi(stdout))?.[1] ?? null;
 }
 
-const COMPACT_MARK = '"subtype":"compact_boundary"';
+export const COMPACT_MARK = '"subtype":"compact_boundary"';
 
 /** The newest main-chain usage snapshot in a transcript tail, as a percent;
  *  null when a compaction came after it (that usage is the context it emptied). */
-function transcriptFillPct(file: string): number | null {
+export function transcriptFillPct(file: string): number | null {
   const text = readTranscriptTail(file);
   if (text === null) return null;
   for (const line of text.split('\n').reverse()) {
@@ -310,6 +330,8 @@ export interface ClaudeAgentOptions {
   stopMs: number;
   spawnFn?: SpawnFn;
   log: (line: string) => void;
+  /** TERM-P1: pids of sessions our PTY host holds (claudePty lists them; never one of ours here). */
+  exclude?: () => Set<number>;
 }
 
 export class ClaudeAgent implements AgentProvider {
@@ -324,7 +346,9 @@ export class ClaudeAgent implements AgentProvider {
   }
 
   live(): LiveSession[] {
-    return readLiveSessions(this.o.home);
+    const ours = this.o.exclude?.();
+    const all = readLiveSessions(this.o.home);
+    return ours?.size ? all.filter((s) => !ours.has(s.pid)) : all;
   }
 
   liveUnsure(): boolean {

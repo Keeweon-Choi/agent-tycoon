@@ -5,6 +5,7 @@ import { getCustomParts, presetPalette } from './cld/characters/looks.js';
 import { chatOpenFor } from './cld/chat.js';
 import { nameplateStats } from './cld/ez/useNameplates.js';
 import { floorsSnapshot } from './cld/floors.js';
+import { bgStats } from './cld/gfx/bg/draw.js';
 import {
   isoCarLevel,
   isoCharacterBox,
@@ -32,7 +33,7 @@ import {
 
 declare global {
   interface Window {
-    __pixelAgentsTestHooks?: {
+    __agentTycoonTestHooks?: {
       playedSounds?: Array<{ kind: string; at: number }>;
       getCharacters?: () => Array<{
         id: number;
@@ -217,6 +218,8 @@ declare global {
         car: number;
         drawn: boolean;
         floors: Array<{ id: string; row: number; rows: number; level: number }>;
+        /** BACKGROUND: pictures painted and the time they took (ms). */
+        background: { paints: number; ms: number };
       };
       /** ISO-PILOT: CSS px (in the canvas) where the building drew world point (x, y). */
       isoPoint?: (worldX: number, worldY: number) => { x: number; y: number } | null;
@@ -235,7 +238,7 @@ declare global {
 }
 
 /**
- * Install e2e test observables on window.__pixelAgentsTestHooks. Mostly
+ * Install e2e test observables on window.__agentTycoonTestHooks. Mostly
  * read-only / append-only; the one action (selectAgent) only sets selection
  * state and changes no production logic. Called once at module-load from
  * App.tsx with the singleton officeStateRef.
@@ -268,8 +271,8 @@ const wheel = (i: number) => {
 
 export function installTestHooks(officeStateRef: { current: OfficeState | null }): void {
   if (typeof window === 'undefined') return;
-  if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
-  const hooks = window.__pixelAgentsTestHooks;
+  if (!window.__agentTycoonTestHooks) window.__agentTycoonTestHooks = {};
+  const hooks = window.__agentTycoonTestHooks;
   if (!hooks.addAgentLog) hooks.addAgentLog = [];
 
   hooks.perf = () => perfSnapshot();
@@ -280,6 +283,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     car: isoCarLevel(),
     drawn: isoFrame(),
     floors: isoFloors(),
+    background: { ...bgStats },
   });
   hooks.isoCharacterBox = (id) => {
     const b = isoCharacterBox(id);
@@ -562,7 +566,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     const os = officeStateRef.current;
     if (!os) return [];
     return Array.from(os.characters.values())
-      .filter((ch) => !ch.isSubagent)
+      .filter((ch) => !ch.isSubagent && !ch.cldOwner)
       .map((ch) => ({
         id: ch.id,
         seatId: ch.seatId,

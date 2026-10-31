@@ -8,14 +8,14 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
-import { paletteOfLook } from '../../../../core/src/cld/looks.js';
+import { OWNER_LOOK_KEY, paletteOfLook } from '../../../../core/src/cld/looks.js';
 import type {
   CharacterChoice,
   CharacterPreset,
   CharacterPresets,
   OfficeSnapshot,
 } from '../../../../core/src/messages.js';
-import { IMPORT_DENSITY, IMPORT_WORLD_W } from '../../constants.js';
+import { IMPORT_DENSITY, IMPORT_WORLD_W, OWNER_CHARACTER_ID } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
 import {
@@ -61,6 +61,8 @@ const subscribe = (listener: () => void) => {
   };
 };
 export const useLooksUi = () => useSyncExternalStore(subscribe, () => ui);
+/** A character the looks were not applied to joined the office (OWNER-AVATAR: the owner's). */
+export const refreshLooks = () => update({ version: ui.version + 1 });
 /** CH-4: the 꾸미기 window for `name` (a window on the desktop, a page on a phone). */
 export function openLooks(name: string): void {
   update({ picker: name });
@@ -71,9 +73,29 @@ export function closeLooks(): void {
   update({ picker: null });
 }
 
-/** Character name per office character id: engine projects, Claude sessions. */
+export { OWNER_LOOK_KEY };
+const OWNER_FALLBACK_PRESET = 'bunny-hd-sample';
+
+/** The owner's look: the one they picked (assignments.owner), else the HD sample preset. */
+export function ownerChoice(presets: CharacterPresets | null): CharacterChoice | null {
+  if (!presets) return null;
+  return (
+    presets.assignments[OWNER_LOOK_KEY] ??
+    (presets.presets.some((p) => p.id === OWNER_FALLBACK_PRESET)
+      ? { preset: OWNER_FALLBACK_PRESET }
+      : null)
+  );
+}
+
+/** The palette the owner's look draws under (null: the default, or still loading). */
+export function ownerLook(presets: CharacterPresets | null) {
+  const choice = ownerChoice(presets);
+  return presets && choice ? lookOf(OWNER_LOOK_KEY, choice, presets, null) : null;
+}
+
+/** Character name per office character id: engine projects, Claude sessions, the owner. */
 export function characterNames(office: OfficeSnapshot): Map<number, string> {
-  const names = new Map<number, string>();
+  const names = new Map<number, string>([[OWNER_CHARACTER_ID, OWNER_LOOK_KEY]]);
   for (const o of office.orchestrators)
     names.set(o.agentId ?? virtualAgentId(`orch:${o.name}`), o.name);
   return names;
@@ -98,6 +120,7 @@ export function lookProvider(name: string, snap = cldGetSnapshot()): string | nu
 
 /** The 꾸미기 window's title: the character's name (a temp employee by its staff name). */
 export function looksTitle(name: string): string {
+  if (name === OWNER_LOOK_KEY) return t('looks.title', { name: t('owner.me') });
   const id = name.startsWith('emp:') ? name.slice(4) : null;
   const employee = id && cldGetSnapshot().tempStaff.find((e) => e.employeeId === id);
   return t('looks.title', { name: employee ? employeeName(employee) : name });
@@ -181,7 +204,9 @@ function loadSheet(
   void (async () => {
     try {
       const img = await pixelsOf(url);
-      if (img.width === IMPORT_WORLD_W * IMPORT_DENSITY * FRAMES) {
+      // an imported sheet: 7 columns, or 8 with the walking neutral (CHAR-ISO-1)
+      const cols = img.width / (IMPORT_WORLD_W * IMPORT_DENSITY);
+      if (cols === FRAMES || cols === FRAMES + 1) {
         const sheet = importedSheet(img, {
           iso: preset.format === 'iso',
           standFirst: preset.columns === 'standFirst',
@@ -310,7 +335,8 @@ function applyLooks(os: OfficeState, office: OfficeSnapshot, presets: CharacterP
     defaults.set(ch, base);
     // ponytail: an engine Lead's provider is not on the screen, so its fallback mascot is Tori
     const provider = providers.get(name) ?? providerOf(office, name);
-    const want = lookOf(name, presets.assignments[name], presets, provider) ?? base;
+    const choice = name === OWNER_LOOK_KEY ? ownerChoice(presets) : presets.assignments[name];
+    const want = lookOf(name, choice ?? undefined, presets, provider) ?? base;
     if (ch.palette === want.palette && ch.hueShift === want.hueShift) continue;
     ch.palette = want.palette;
     ch.hueShift = want.hueShift;

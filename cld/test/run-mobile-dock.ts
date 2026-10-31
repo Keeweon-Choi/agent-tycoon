@@ -24,6 +24,7 @@ import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import { findTmux, Tmux } from '../../server/src/cld/shell/tmux.js';
 import {
@@ -35,7 +36,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BEFORE = process.argv.includes('--before');
@@ -219,7 +219,8 @@ async function afterChecks(
     .getByRole('button')
     .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''));
   check(
-    ['기기 추가', '보안', '범례'].every((n) => quickNames.includes(n)) && !quickNames.includes('EZ'),
+    ['기기 추가', '보안', '범례'].every((n) => quickNames.includes(n)) &&
+      !quickNames.includes('EZ'),
     `header: 기기 추가, 보안 and 범례 are the first row of 설정, no EZ button (${quickNames.join(' | ')})`,
   );
   await phone.screenshot({ path: path.join(OUT, 'after-settings-quick.png') });
@@ -291,9 +292,98 @@ async function afterChecks(
     (await cards.first().getAttribute('data-compact')) === null && barFull > barCompact,
     `cards: the toggle expands them (bar ${barCompact} -> ${barFull} px)`,
   );
+  const [expandedCard, expandedFace] = await Promise.all([
+    cards.first().boundingBox(),
+    cards.first().locator('canvas').boundingBox(),
+  ]);
+  check(
+    !!expandedCard &&
+      !!expandedFace &&
+      Math.abs(
+        expandedCard.x + expandedCard.width / 2 - (expandedFace.x + expandedFace.width / 2),
+      ) <= 1,
+    'cards: an expanded card centers its larger orchestrator face',
+  );
   await phone.screenshot({ path: path.join(OUT, 'after-cards-expanded.png') });
+  const officeBefore = await phone.getByTestId('office-canvas').boundingBox();
   await phone.getByTestId('cards-toggle').tap();
-  check((await cards.first().getAttribute('data-compact')) !== null, 'cards: and back to compact');
+  check(
+    (await bar.getAttribute('data-roster-state')) === 'hidden' && (await cards.count()) === 0,
+    'cards: the full strip folds away',
+  );
+  // Hidden: the strip has no height, the office reaches the usage line, only the handle floats.
+  const hiddenGeometry = async (label: string) => {
+    const [o, b, h, u, j, m] = await Promise.all([
+      phone.getByTestId('office-canvas').boundingBox(),
+      bar.boundingBox(),
+      phone.getByTestId('cards-toggle').boundingBox(),
+      phone.getByTestId('mobile-bottom').boundingBox(),
+      phone
+        .getByTestId('joystick')
+        .count()
+        .then((n) => (n ? phone.getByTestId('joystick').boundingBox() : null)),
+      phone.getByTestId('camera-modes').boundingBox(),
+    ]);
+    const apart = (a: typeof h, c: typeof h) =>
+      !a ||
+      !c ||
+      a.x + a.width <= c.x ||
+      c.x + c.width <= a.x ||
+      a.y + a.height <= c.y ||
+      c.y + c.height <= a.y;
+    check(!!b && b.height === 0, `cards hidden ${label}: the strip takes no height`);
+    check(
+      !!o && !!u && Math.abs(o.y + o.height - u.y) <= 1,
+      `cards hidden ${label}: the office reaches the usage band (${o && Math.round(o.y + o.height)} vs ${u && Math.round(u.y)})`,
+    );
+    check(
+      !!h &&
+        !!o &&
+        !!u &&
+        h.y + h.height <= u.y + 1 &&
+        h.y >= o.y &&
+        h.x >= 0 &&
+        h.x + h.width <= 390,
+      `cards hidden ${label}: the handle floats over the office's bottom edge`,
+    );
+    check(
+      apart(h, j) && apart(h, m),
+      `cards hidden ${label}: the handle covers neither the joystick nor 자동/로비`,
+    );
+    // Owner 11-01 03:13: the handle is on the left, where the strip's toggle is.
+    check(!!h && h.x + h.width <= 390 / 3, `cards hidden ${label}: the handle is on the left`);
+    return { j };
+  };
+  await phone.waitForTimeout(500); // the canvas resizes after its observer fires
+  const officeAfter = await phone.getByTestId('office-canvas').boundingBox();
+  check(
+    !!officeBefore && !!officeAfter && officeAfter.height > officeBefore.height,
+    `cards hidden: the office grew (${officeBefore?.height} -> ${officeAfter?.height} px)`,
+  );
+  // The update toast sits over the handle's spot: dismiss it for the picture.
+  const notice = phone.getByTestId('update-notice');
+  if (await notice.count()) await notice.getByRole('button').last().tap();
+  await phone.waitForTimeout(500);
+  await hiddenGeometry('without a selection');
+  await phone.screenshot({ path: path.join(OUT, 'after-cards-hidden.png') });
+  // With a character selected the joystick shows (bottom-left); the handle must clear it.
+  const alpha = phone.locator('[data-testid="agent-overlay"]').first();
+  const alphaId = Number(await alpha.getAttribute('data-agent-id'));
+  await phone.evaluate((id) => {
+    (
+      window as unknown as { __agentTycoonTestHooks: { selectAgent: (i: number) => void } }
+    ).__agentTycoonTestHooks.selectAgent(id);
+  }, alphaId);
+  await phone.getByTestId('joystick').waitFor({ timeout: 5_000 });
+  await phone.waitForTimeout(500);
+  const withPad = await hiddenGeometry('with a selected character');
+  check(!!withPad.j, 'cards hidden: the joystick is showing');
+  await phone.screenshot({ path: path.join(OUT, 'after-cards-hidden-joystick.png') });
+  await phone.getByTestId('cards-toggle').tap();
+  check(
+    (await cards.first().getAttribute('data-compact')) !== null,
+    'cards: the handle restores compact cards',
+  );
   await cards.first().tap();
   await phone.waitForTimeout(300);
   check(
@@ -336,10 +426,7 @@ async function afterChecks(
   );
   await tap('messenger');
   await conv.waitFor();
-  check(
-    await sameConversation(),
-    'Dock: reopened from home, the draft and the scroll are there',
-  );
+  check(await sameConversation(), 'Dock: reopened from home, the draft and the scroll are there');
   const selectedTab = () =>
     phone
       .locator(`[aria-label="${PAGE_LABEL.terminal}"] [role="tab"][aria-selected="true"]`)
@@ -530,7 +617,7 @@ async function main() {
         route.fulfill({ body: font, contentType: 'font/ttf' }),
       );
       // tsx keeps function names with a `__name` helper the page does not have.
-      await ctx.addInitScript('window.__name = (f) => f');
+      await ctx.addInitScript('window.__name = (f) => f; window.__AGENT_TYCOON_E2E = true;');
       const page = await ctx.newPage();
       return { ctx, page };
     };
@@ -690,6 +777,91 @@ async function main() {
         await shotAndMeasure(android, screen, 'android360');
       }
       await aCtx.close();
+
+      // ════ The bottom is tight on every phone: the inset counted once, at the very bottom ════
+      // The shell reads --cld-safe-bottom; set it as each device reports it and measure the gap
+      // between the Dock's last pixel and the screen's bottom edge (the inset, plus 4 px at least).
+      const bottomCases = [
+        { name: 'iphone-390x844-inset34', w: 390, h: 844, bottom: 34, top: 47 },
+        { name: 'iphone-se-390x844-inset0', w: 390, h: 844, bottom: 0, top: 0 },
+        { name: 'galaxy-360x780-gesture16', w: 360, h: 780, bottom: 16, top: 24 },
+        { name: 'galaxy-360x780-3button0', w: 360, h: 780, bottom: 0, top: 24 },
+      ];
+      for (const c of bottomCases) {
+        const { ctx: bCtx, page: bp } = await open({
+          ...ANDROID,
+          viewport: { width: c.w, height: c.h },
+          storageState: phoneState,
+        });
+        await bp.goto(`http://127.0.0.1:${port}/`);
+        await ready(bp, false);
+        await bp.addStyleTag({
+          content: `:root { --cld-safe-top: ${c.top}px; --cld-safe-bottom: ${c.bottom}px; }`,
+        });
+        await bp.waitForTimeout(300);
+        const gap = await bp.evaluate(() => {
+          const nav = document.querySelector('[data-testid="mobile-dock"]')!;
+          const last = [...nav.querySelectorAll('button')].reduce(
+            (m, b) => Math.max(m, b.getBoundingClientRect().bottom),
+            0,
+          );
+          return {
+            gap: Math.round(innerHeight - last),
+            root: document.getElementById('root')!.getBoundingClientRect().bottom,
+          };
+        });
+        const want = Math.max(4, c.bottom);
+        check(
+          Math.abs(gap.gap - want) <= 1 && Math.round(gap.root) === c.h,
+          `bottom ${c.name}: ${gap.gap} px under the Dock icons (inset ${c.bottom}, want ${want}), root ends at ${Math.round(gap.root)}`,
+        );
+        await bp.screenshot({ path: path.join(OUT, `bottom-${c.name}.png`) });
+        await bCtx.close();
+      }
+
+      // A Home-Screen app whose layout viewport is shorter than the screen by the top inset
+      // (iPhone 390x844: 797 px tall, owner 11-01 02:04). WebKit paints nothing past that viewport
+      // (11-01 02:50: a root stretched to 844 cut the Dock's icons), so the root ends there, the
+      // home indicator lies below it (no inset inside), and the band under it has the Dock's colour.
+      {
+        const { ctx: sCtx2, page: sp } = await open({
+          ...IPHONE,
+          viewport: { width: 390, height: 797 },
+          screen: { width: 390, height: 844 },
+          storageState: phoneState,
+        });
+        await sp.addInitScript(
+          "Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });",
+        );
+        await sp.goto(`http://127.0.0.1:${port}/`);
+        await ready(sp, false);
+        await sp.addStyleTag({
+          content: ':root { --cld-safe-top: 47px; --cld-safe-bottom: 34px; }',
+        });
+        await sp.evaluate(() => window.dispatchEvent(new Event('resize')));
+        await sp.waitForTimeout(500);
+        const m = await sp.evaluate(() => {
+          const nav = document.querySelector('[data-testid="mobile-dock"]')!;
+          const last = [...nav.querySelectorAll('button')].reduce(
+            (a, b) => Math.max(a, b.getBoundingClientRect().bottom),
+            0,
+          );
+          return {
+            root: Math.round(document.getElementById('root')!.getBoundingClientRect().bottom),
+            gap: Math.round(innerHeight - last),
+            sameColour:
+              getComputedStyle(document.documentElement).backgroundColor ===
+              getComputedStyle(document.querySelector('[data-testid="mobile-bottom"]')!)
+                .backgroundColor,
+          };
+        });
+        check(
+          m.root === 797 && Math.abs(m.gap - 4) <= 1 && m.sameColour,
+          `bottom short Home-Screen viewport (797 of 844): root ends at ${m.root}, ${m.gap} px under the Dock icons, the band below in the Dock's colour (${m.sameColour})`,
+        );
+        await sp.screenshot({ path: path.join(OUT, 'bottom-standalone-short-viewport.png') });
+        await sCtx2.close();
+      }
 
       // ════ A 320 px phone: seven 44 px buttons do not fit, so the Dock scrolls sideways ════
       const { ctx: sCtx, page: narrow } = await open({

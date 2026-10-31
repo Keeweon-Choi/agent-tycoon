@@ -4,16 +4,17 @@
  * at runtime.
  */
 import type { Browser, LaunchOptions, Page } from '@playwright/test';
-import { chromium } from '@playwright/test';
+import { chromium, webkit } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
 import { execFileSync, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
 import { normalizeProjectPath } from '../../../core/src/normalizeProjectPath.js';
-import { configDirectory } from './configPath.js';
+import { configDirectory, officeDirectory } from './configPath.js';
 import { registryPath, saveRegistry } from './engine/registry.js';
 import { findOnPath } from './providers/claudeProvider.js';
 
@@ -117,11 +118,11 @@ function touch(file: string): void {
   if (!fs.existsSync(file)) fs.writeFileSync(file, '');
 }
 
-/** The headless Chromium the runners drive (installed by Playwright, not the system's). */
-export const CHROME = path.join(
-  os.homedir(),
-  '.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell',
-);
+/** Full Chromium of the installed Playwright (`npx playwright install chromium`), for the
+ *  runners the headless shell cannot serve (it refuses a service worker's showNotification).
+ *  launchBrowser itself leaves the choice to Playwright (its own headless shell): a revision
+ *  written here goes stale on the next Playwright update, whose install deletes the old one. */
+export const FULL_CHROME = chromium.executablePath();
 
 /** The browser reports software rendering only: no real GPU device, no GPU compositing. */
 export async function assertNoGpu(browser: Browser): Promise<void> {
@@ -188,18 +189,17 @@ export async function openWorkbenchTab(
  *  The "notifications are off here" banner starts dismissed (it floats over the
  *  lower screen for a while); `pushBanner: true` keeps it, for a runner that tests it.
  *  Contexts use Korean so the runners' Korean selectors remain stable; a runner
- *  may explicitly request another locale. */
+ *  may explicitly request another locale. `webkit: true` starts Playwright's WebKit instead (the
+ *  iPhone's engine; it has no GPU switch to check), with the same context defaults. */
 export async function launchBrowser(
-  opts: LaunchOptions & { officeHours?: boolean; pushBanner?: boolean } = {},
+  opts: LaunchOptions & { officeHours?: boolean; pushBanner?: boolean; webkit?: boolean } = {},
 ): Promise<Browser> {
-  const { officeHours, pushBanner, ...launch } = opts;
-  const browser = await chromium.launch({
-    executablePath: CHROME,
-    ...launch,
-    args: ['--disable-gpu', ...(launch.args ?? [])],
-  });
+  const { officeHours, pushBanner, webkit: useWebkit, ...launch } = opts;
+  const browser = useWebkit
+    ? await webkit.launch(launch)
+    : await chromium.launch({ ...launch, args: ['--disable-gpu', ...(launch.args ?? [])] });
   try {
-    await assertNoGpu(browser);
+    if (!useWebkit) await assertNoGpu(browser);
   } catch (err) {
     await browser.close();
     throw err;
@@ -234,13 +234,14 @@ export async function launchBrowser(
   return browser;
 }
 
-/** The spare ports tests may use (other agents share them). */
-export const SPARE_PORTS = [18256, 18257, 18258, 18259];
+/** The spare ports tests may use (other agents share them): 18256-18259 are also the deploy
+ *  check's install isolation test, so sub-agent runners take 18260-18269. */
+export const SPARE_PORTS = Array.from({ length: 14 }, (_, i) => 18256 + i);
 
 /** A spare port from `process.argv[index]`; anything else is refused. */
 export function sparePort(index = 2): number {
   const port = Number(process.argv[index]);
-  if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18259');
+  if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18269');
   return port;
 }
 
@@ -258,7 +259,7 @@ export async function assertPortFree(...ports: number[]): Promise<void> {
 function hostToken(home: string): string | undefined {
   for (const file of ['server.json', 'standalone-token']) {
     try {
-      const value = fs.readFileSync(path.join(home, '.pixel-agents', file), 'utf-8').trim();
+      const value = fs.readFileSync(path.join(officeDirectory(home), file), 'utf-8').trim();
       if (file === 'standalone-token') return value;
       const server = JSON.parse(value) as { token?: unknown };
       if (typeof server.token === 'string' && server.token) return server.token;
@@ -374,6 +375,8 @@ export function startDaemon(
         : {
             ...process.env,
             XDG_RUNTIME_DIR: fake.home,
+            // Never the caller's Claude account: the usage reading takes the token from here.
+            CLAUDE_CONFIG_DIR: path.join(fake.env?.HOME ?? fake.home, '.claude'),
             ...(fake.env ?? { HOME: fake.home }),
             ...extraEnv,
             PATH: testDaemonPath([
@@ -410,6 +413,54 @@ export function startDaemon(
       clearTimeout(force);
     },
   };
+}
+
+/**
+ * The usage bar's sources in a test HOME: Claude's account usage endpoint as a loopback stand-in
+ * (a fake token in `.claude/.credentials.json`; pass `env` to startDaemon) answering the given
+ * percents (a window left out is one the plan does not have), and a Codex session log.
+ */
+export async function fakeUsage(
+  home: string,
+  claude: { fiveHour?: number; sevenDay?: number; fable?: number },
+  codex: { fiveHour: number; sevenDay: number },
+): Promise<{ env: Record<string, string> }> {
+  const at = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+  const window = (pct: number | undefined, h: number) =>
+    pct === undefined ? null : { utilization: pct, resets_at: at(h) };
+  const fable = { kind: 'weekly_scoped', percent: claude.fable, resets_at: at(120) };
+  const answer = JSON.stringify({
+    five_hour: window(claude.fiveHour, 2),
+    seven_day: window(claude.sevenDay, 60),
+    limits:
+      claude.fable === undefined ? [] : [{ ...fable, scope: { model: { display_name: 'Fable' } } }],
+  });
+  const oauth = { accessToken: 'fake-token', expiresAt: Date.now() + 86_400_000 };
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(
+    path.join(home, '.claude', '.credentials.json'),
+    JSON.stringify({ claudeAiOauth: oauth }),
+  );
+  const sessions = path.join(home, '.codex', 'sessions', '2026', '10', '23');
+  fs.mkdirSync(sessions, { recursive: true });
+  const limit = (pct: number, minutes: number, h: number) => ({
+    used_percent: pct,
+    window_minutes: minutes,
+    resets_at: Math.floor(Date.now() / 1000) + h * 3600,
+  });
+  const rateLimits = {
+    primary: limit(codex.fiveHour, 300, 3),
+    secondary: limit(codex.sevenDay, 10080, 100),
+  };
+  const line = { type: 'event_msg', payload: { type: 'token_count', rate_limits: rateLimits } };
+  fs.writeFileSync(path.join(sessions, 'rollout-usage.jsonl'), `${JSON.stringify(line)}\n`);
+  const server = http.createServer((_req, res) =>
+    res.writeHead(200, { 'content-type': 'application/json' }).end(answer),
+  );
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  server.unref(); // lives as long as the runner
+  const { port } = server.address() as net.AddressInfo;
+  return { env: { CLD_GUI_TEST_CLAUDE_USAGE_URL: `http://127.0.0.1:${port}/api/oauth/usage` } };
 }
 
 /** The engine's stateful fake `claude` (T-0018), as `<home>/bin/claude`. */

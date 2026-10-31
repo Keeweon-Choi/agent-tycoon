@@ -17,7 +17,7 @@ import { NAME_RE } from '../engine.js';
 import type { CldSnapshot } from '../officeStore.js';
 import { codexKind } from '../panels/jobs.js';
 
-export const WORKBENCH_TABS = ['agents', 'tasks', 'worktrees', 'changes'] as const;
+export const WORKBENCH_TABS = ['agents', 'tasks', 'changes'] as const;
 export type WorkbenchTab = (typeof WORKBENCH_TABS)[number];
 export const DEFAULT_TAB: WorkbenchTab = 'agents';
 

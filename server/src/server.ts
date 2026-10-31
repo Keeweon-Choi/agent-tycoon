@@ -8,7 +8,7 @@ import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import { StandaloneAuth } from './cld/auth.js';
 import type { ChatManager } from './cld/chat.js';
-import { configDirectory } from './cld/configPath.js';
+import { configDirectory, legacyOfficeDirectory, officeDirectory } from './cld/configPath.js';
 import { hostShellRegistry } from './cld/shell/registry.js';
 import type {
   AssetCache,
@@ -16,11 +16,11 @@ import type {
   SetHooksEnabledSideEffect,
 } from './clientMessageHandler.js';
 import {
-  SERVER_JSON_DIR,
   SERVER_JSON_NAME,
   SERVER_REGISTRY_PROTOCOL_VERSION,
   SERVERS_DIR,
 } from './constants.js';
+import { readEnv } from './env.js';
 import { createHttpServer } from './httpServer.js';
 import type { ServerConfig, StandaloneAccess } from './serverConfig.js';
 import { isServerConfig, isServerTarget, sameStandaloneAccess } from './serverConfig.js';
@@ -34,7 +34,7 @@ export type { ServerConfig } from './serverConfig.js';
 type HookEventCallback = (providerId: string, event: Record<string, unknown>) => void;
 
 /**
- * Pixel Agents server: receives hook events, broadcasts state via WebSocket,
+ * Agent Tycoon server: receives hook events, broadcasts state via WebSocket,
  * and optionally serves the SPA in standalone mode.
  *
  * Routes (via Fastify in httpServer.ts):
@@ -42,16 +42,17 @@ type HookEventCallback = (providerId: string, event: Record<string, unknown>) =>
  * - `GET /api/health` -- health check (no auth)
  * - `GET /ws` -- WebSocket for real-time agent state (auth required)
  *
- * Discovery: writes `~/.pixel-agents/server.json` (legacy single-target pointer)
- * and `~/.pixel-agents/servers/<pid>-<port>.json` (multi-server registry entry)
- * with port, PID, auth token, and capability flags.
+ * Discovery: writes `<office folder>/server.json` (legacy single-target pointer)
+ * and `<office folder>/servers/<pid>-<port>.json` (multi-server registry entry)
+ * with port, PID, auth token, and capability flags. Both are written to
+ * ~/.pixel-agents as well for one release (DISCOVERY_DIRS).
  * Multi-window / multi-surface: a second instance detects running servers via
  * the registry and reuses one only when it offers the same capability
  * (embedded reuses embedded, standalone reuses standalone) -- an embedded
- * VS Code server and a standalone `npx pixel-agents` server can run at once,
+ * VS Code server and a standalone `node dist/cli.js` server can run at once,
  * each owning its own registry entry, both reachable by hook fan-out.
  */
-export class PixelAgentsServer {
+export class AgentTycoonServer {
   private app: FastifyInstance | null = null;
   private config: ServerConfig | null = null;
   private ownsServer = false;
@@ -128,7 +129,7 @@ export class PixelAgentsServer {
       this.config = candidate;
       this.ownsServer = false;
       console.log(
-        `[Pixel Agents] Reusing existing ${wantsSpa ? 'standalone' : 'embedded'} server on port ${candidate.port} (PID ${candidate.pid})`,
+        `[Agent Tycoon] Reusing existing ${wantsSpa ? 'standalone' : 'embedded'} server on port ${candidate.port} (PID ${candidate.pid})`,
       );
       return candidate;
     }
@@ -186,16 +187,14 @@ export class PixelAgentsServer {
       ...(standalone ? { standalone } : {}),
       // Diagnostic-only: forward the debug-log path to the hook script via
       // server.json (env vars don't reach the spawned hook reliably).
-      ...(process.env['PIXEL_AGENTS_DEBUG_LOG']
-        ? { debugLog: process.env['PIXEL_AGENTS_DEBUG_LOG'] }
-        : {}),
+      ...(readEnv('DEBUG_LOG') ? { debugLog: readEnv('DEBUG_LOG') } : {}),
     };
     this.ownsServer = true;
     // Dual-write: legacy single-target pointer (old hook scripts) + registry
     // entry (new hook scripts fan out to every entry here).
     this.writeServerJson(this.config);
     this.writeRegistryEntry(this.config);
-    console.log(`[Pixel Agents] Server: listening on 127.0.0.1:${port}`);
+    console.log(`[Agent Tycoon] Server: listening on 127.0.0.1:${port}`);
 
     return this.config;
   }
@@ -225,24 +224,10 @@ export class PixelAgentsServer {
     return this.config;
   }
 
-  /** Returns the absolute path to ~/.pixel-agents/server.json. */
-  private getServerJsonPath(): string {
-    return path.join(os.homedir(), SERVER_JSON_DIR, SERVER_JSON_NAME);
-  }
-
-  /** Write server.json atomically (tmp + rename) with mode 0o600. */
+  /** Write server.json atomically (tmp + rename) with mode 0o600, in every discovery folder. */
   private writeServerJson(config: ServerConfig): void {
-    const filePath = this.getServerJsonPath();
-    const dir = path.dirname(filePath);
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-      const tmpPath = filePath + '.tmp';
-      fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      fs.renameSync(tmpPath, filePath);
-    } catch (e) {
-      console.error(`[Pixel Agents] Failed to write server.json: ${e}`);
+    for (const dir of discoveryDirs()) {
+      writeJsonFile(path.join(dir, SERVER_JSON_NAME), config, 'server.json');
     }
   }
 
@@ -260,29 +245,31 @@ export class PixelAgentsServer {
    * most one server" as the baseline degradation for this skew window.
    */
   private deleteServerJson(): void {
-    try {
-      const filePath = this.getServerJsonPath();
-      if (!fs.existsSync(filePath)) return;
-      const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
-      if (isServerTarget(existing) && existing.pid === process.pid) {
-        fs.unlinkSync(filePath);
+    for (const dir of discoveryDirs()) {
+      try {
+        const filePath = path.join(dir, SERVER_JSON_NAME);
+        if (!fs.existsSync(filePath)) continue;
+        const existing = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+        if (isServerTarget(existing) && existing.pid === process.pid) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {
+        // File may already be gone
       }
-    } catch {
-      // File may already be gone
     }
   }
 
-  /** Returns the absolute path to ~/.pixel-agents/servers/. */
+  /** The registry this server reads (reuse, pruning): the office folder's only. */
   private getRegistryDir(): string {
-    return path.join(os.homedir(), SERVER_JSON_DIR, SERVERS_DIR);
+    return path.join(officeDirectory(os.homedir()), SERVERS_DIR);
   }
 
   /** Returns the absolute path to this config's registry entry file. Keyed on
    *  pid+port (not pid alone) so two servers started in the same process --
    *  which happens in tests, never in production where pids are unique per
    *  process -- still get distinct, non-colliding registry files. */
-  private getRegistryFilePath(config: Pick<ServerConfig, 'pid' | 'port'>): string {
-    return path.join(this.getRegistryDir(), `${config.pid}-${config.port}.json`);
+  private registryFileName(config: Pick<ServerConfig, 'pid' | 'port'>): string {
+    return `${config.pid}-${config.port}.json`;
   }
 
   /**
@@ -325,31 +312,51 @@ export class PixelAgentsServer {
     return live;
   }
 
-  /** Write this server's registry entry atomically (tmp + rename) with mode 0o600. */
+  /** Write this server's registry entry atomically (tmp + rename) with mode 0o600, in every discovery folder. */
   private writeRegistryEntry(config: ServerConfig): void {
-    const dir = this.getRegistryDir();
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      }
-      const filePath = this.getRegistryFilePath(config);
-      const tmpPath = `${filePath}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-      fs.renameSync(tmpPath, filePath);
-    } catch (e) {
-      console.error(`[Pixel Agents] Failed to write registry entry: ${e}`);
+    for (const dir of discoveryDirs()) {
+      writeJsonFile(
+        path.join(dir, SERVERS_DIR, this.registryFileName(config)),
+        config,
+        'registry entry',
+      );
     }
   }
 
-  /** Delete this server's own registry entry (self-only cleanup, mirrors deleteServerJson). */
+  /** Delete this server's own registry entries (self-only cleanup, mirrors deleteServerJson). */
   private deleteRegistryEntry(): void {
     if (!this.config) return;
-    try {
-      const filePath = this.getRegistryFilePath(this.config);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    } catch {
-      // File may already be gone
+    for (const dir of discoveryDirs()) {
+      try {
+        fs.rmSync(path.join(dir, SERVERS_DIR, this.registryFileName(this.config)), { force: true });
+      } catch {
+        // File may already be gone
+      }
     }
+  }
+}
+
+/**
+ * Where a hook script looks for this server: the office folder (what the hook script of this
+ * release reads) and ~/.pixel-agents, which an older hook script still reads: a Claude session
+ * started before the upgrade keeps running the settings.json entry it started with (the old
+ * script in ~/.pixel-agents/hooks), so it keeps reaching the daemon through these files.
+ * ponytail: the ~/.pixel-agents copy is for the one release after the 2026-11 move (officeFolder.ts).
+ */
+function discoveryDirs(): string[] {
+  const home = os.homedir();
+  return [officeDirectory(home), legacyOfficeDirectory(home)];
+}
+
+/** Write one discovery file atomically (tmp + rename) with mode 0o600; logs and goes on on failure. */
+function writeJsonFile(filePath: string, value: unknown, what: string): void {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+    const tmpPath = `${filePath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(value, null, 2), { mode: 0o600 });
+    fs.renameSync(tmpPath, filePath);
+  } catch (e) {
+    console.error(`[Agent Tycoon] Failed to write ${what} (${filePath}): ${e}`);
   }
 }
 

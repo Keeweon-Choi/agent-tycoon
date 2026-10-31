@@ -15,6 +15,7 @@ import {
   formError,
   formFields,
   formFor,
+  PTY_PROVIDER,
   rulesFileLabel,
   sessionActions,
 } from './engine.js';
@@ -34,6 +35,7 @@ import { FolderPicker } from './FolderPicker.js';
 import { ImportProjects } from './ImportProjects.js';
 import { useCldStore } from './officeStore.js';
 import { serverLine } from './serverText.js';
+import { useCanAct } from './useCanAct.js';
 
 /** The operations room (server OPS_ROOM): environment work, not a product or a personal project (user 10-22 17:05). */
 // Canonical server room name; the server's room identifiers are not localized.
@@ -42,11 +44,6 @@ const OPS_ROOM = String.fromCodePoint(0xad00, 0xb9ac, 0xc2e4);
 const input = 'w-full border border-border bg-black/20 px-8 py-4 text-sm';
 const OFFICES_LIST = 'cld-offices';
 const CUSTOM = '__custom__';
-
-function useCanAct(): boolean {
-  const { officeSnapshot: officeState, officeReadOnly } = useCldStore();
-  return officeState?.readOnly === false && !officeReadOnly;
-}
 
 /** An engine project's card row: 켜기 / 끄기 / 재시작, 설정, 삭제 (T-0010's look). */
 export function EngineCardButtons({ project: p }: { project: EngineProject }) {
@@ -139,9 +136,37 @@ export function EngineSection() {
           >
             {t('engine.addOffice')}
           </Button>
+          {(state.moveAll || state.projects.some((p) => !p.provider)) && <MoveAllButton moving={state.moveAll} />}
         </div>
       )}
     </section>
+  );
+}
+
+/** TERM-P3: the owner's one click to move every agent into the new terminal; a stop while it runs. */
+function MoveAllButton({ moving }: { moving?: { done: number; total: number } }) {
+  return moving ? (
+    <>
+      <span className="text-xs self-center" data-testid="engine-move-all-progress">
+        {t('engine.moveAllRunning', { done: moving.done, total: moving.total })}
+      </span>
+      <Button
+        size="sm"
+        data-testid="engine-move-all-stop"
+        onClick={() => transport.send({ type: 'engineMoveAll', stop: true })}
+      >
+        {t('engine.moveAllStop')}
+      </Button>
+    </>
+  ) : (
+    <Button
+      size="sm"
+      data-testid="engine-move-all"
+      title={t('engine.moveAllHelp')}
+      onClick={() => transport.send({ type: 'engineMoveAll' })}
+    >
+      {t('engine.moveAll')}
+    </Button>
   );
 }
 
@@ -185,6 +210,7 @@ function EngineFormModal({
         project.title ||
         project.remoteControl ||
         project.alwaysOn ||
+        project.provider === PTY_PROVIDER ||
         project.compactionNudge
       ),
   );
@@ -219,7 +245,7 @@ function EngineFormModal({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const text = (
-    key: Exclude<keyof EngineForm, 'remoteControl' | 'alwaysOn'>,
+    key: Exclude<keyof EngineForm, 'remoteControl' | 'alwaysOn' | 'pty'>,
     label: string,
     placeholder = '',
   ) => (
@@ -474,6 +500,17 @@ function EngineFormModal({
               />
               {t('engine.alwaysOn')}
             </label>
+            {!adding && (!project?.provider || project.provider === PTY_PROVIDER) && (
+              <label className="flex gap-4 items-center text-xs" title={t('engine.ptyHostHelp')}>
+                <input
+                  type="checkbox"
+                  data-testid="engine-pty-host"
+                  checked={f.pty}
+                  onChange={(e) => setF({ ...f, pty: e.target.checked })}
+                />
+                {t('engine.ptyHost')}
+              </label>
+            )}
           </div>
         )}
         {!adding && project?.live && (

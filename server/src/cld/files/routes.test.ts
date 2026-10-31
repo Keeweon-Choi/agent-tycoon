@@ -371,3 +371,87 @@ it('serves a project whose registered folder is itself a symlink, confined to it
     fs.unlinkSync(link);
   }
 });
+
+it('serves a video ticket with Range: whole, first bytes, suffix, open-ended, 416, and reuses the ticket', async () => {
+  const bytes = Buffer.from(Array.from({ length: 1000 }, (_, n) => n % 251));
+  fs.writeFileSync(path.join(temp, 'clip.mp4'), bytes);
+  const ticket = async (mode = 'preview') =>
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/cld/files/p/ticket',
+        headers: postHeaders(),
+        payload: { path: 'clip.mp4', mode },
+      })
+    ).json().url as string;
+  const url = await ticket();
+  const get = (range?: string, who = headers()) =>
+    app.inject({ url, headers: { ...who, ...(range && { range }) } });
+
+  const whole = await get();
+  expect(whole.statusCode).toBe(200);
+  expect(whole.headers).toMatchObject({
+    'accept-ranges': 'bytes',
+    'content-type': 'video/mp4',
+    'content-length': '1000',
+  });
+  expect(whole.rawPayload).toEqual(bytes);
+
+  const first = await get('bytes=0-99');
+  expect(first.statusCode).toBe(206);
+  expect(first.headers).toMatchObject({ 'content-range': 'bytes 0-99/1000', 'content-length': '100' });
+  expect(first.rawPayload).toEqual(bytes.subarray(0, 100));
+
+  const middle = await get('bytes=500-509');
+  expect(middle.rawPayload).toEqual(bytes.subarray(500, 510));
+  const suffix = await get('bytes=-10');
+  expect(suffix.statusCode).toBe(206);
+  expect(suffix.headers['content-range']).toBe('bytes 990-999/1000');
+  expect(suffix.rawPayload).toEqual(bytes.subarray(990));
+  const open = await get('bytes=900-');
+  expect(open.headers['content-range']).toBe('bytes 900-999/1000');
+  expect(open.rawPayload).toEqual(bytes.subarray(900));
+
+  const outside = await get('bytes=1000-');
+  expect(outside.statusCode).toBe(416);
+  expect(outside.headers['content-range']).toBe('bytes */1000');
+  expect((await get('bytes=5-2')).statusCode).toBe(416);
+
+  // The ticket stays tied to the session that asked for it.
+  expect((await get('bytes=0-9', { host: 'office.test', cookie: 'cld_session=nope' })).statusCode).toBe(401);
+});
+
+it('keeps every other ticket single-use, and serves Range on a download ticket too', async () => {
+  const body = Buffer.from('0123456789');
+  fs.writeFileSync(path.join(temp, 'data.csv'), body);
+  const minted = await app.inject({
+    method: 'POST',
+    url: '/api/cld/files/p/ticket',
+    headers: postHeaders(),
+    payload: { path: 'data.csv', mode: 'download' },
+  });
+  const url = minted.json().url as string;
+  const part = await app.inject({ url, headers: { ...headers(), range: 'bytes=2-4' } });
+  expect(part.statusCode).toBe(206);
+  expect(part.body).toBe('234');
+  expect((await app.inject({ url, headers: headers() })).statusCode).toBe(404);
+});
+
+it('serves a video above the 50 MB download limit', async () => {
+  const big = path.join(temp, 'big.mp4');
+  fs.closeSync(fs.openSync(big, 'w'));
+  fs.truncateSync(big, 60 * 1024 * 1024);
+  const minted = await app.inject({
+    method: 'POST',
+    url: '/api/cld/files/p/ticket',
+    headers: postHeaders(),
+    payload: { path: 'big.mp4', mode: 'preview' },
+  });
+  expect(minted.statusCode).toBe(200);
+  const tail = await app.inject({
+    url: minted.json().url,
+    headers: { ...headers(), range: 'bytes=-4' },
+  });
+  expect(tail.statusCode).toBe(206);
+  expect(tail.rawPayload).toEqual(Buffer.alloc(4));
+});

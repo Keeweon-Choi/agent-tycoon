@@ -1,15 +1,15 @@
-# Pixel Agents
+# Agent Tycoon
 
-Pixel Agents turns AI coding sessions into animated characters in a pixel-art office. This glossary is the canonical language for contributors and integrators; end-user docs may simplify it but must never contradict it.
+Agent Tycoon turns AI coding sessions into animated characters in a pixel-art office. This glossary is the canonical language for contributors and integrators; end-user docs may simplify it but must never contradict it.
 
 ## Hosts & Adapters
 
 **Host**:
-The machine Pixel Agents runs on — a laptop, a phone, a VPS, a Raspberry Pi. The office is the same on every host, and can be reached from another device.
+The machine Agent Tycoon runs on — a laptop, a phone, a VPS, a Raspberry Pi. The office is the same on every host, and can be reached from another device.
 _Avoid_: platform, environment, server (that's the runtime process)
 
 **Adapter**:
-The integration that connects one editor or application — VS Code, standalone, a macOS app, and the like — to Pixel Agents. An adapter composes the runtime and the office UI, and binds them to that environment's terminals, storage, and conventions. One adapter per editor or application; VS Code and standalone are the two today.
+The integration that connects one editor or application — VS Code, standalone, a macOS app, and the like — to Agent Tycoon. An adapter composes the runtime and the office UI, and binds them to that environment's terminals, storage, and conventions. One adapter per editor or application; VS Code and standalone are the two today.
 _Avoid_: host (that's the machine it runs on), surface, flavor, platform, edition
 
 **Standalone**:
@@ -23,7 +23,7 @@ _Avoid_: guest mode, watch-only, untokened (that's how it happens, not what it i
 ## Agents & Teams
 
 **Agent**:
-An AI coding session tracked by Pixel Agents, whether spawned from the office or adopted from an external terminal.
+An AI coding session tracked by Agent Tycoon, whether spawned from the office or adopted from an external terminal.
 _Avoid_: bot, terminal (as a synonym), session (as a synonym)
 
 **Headless agent**:
@@ -188,7 +188,7 @@ _Avoid_: roam, patrol
 ## Activity Detection
 
 **Hook**:
-A push notification an AI tool sends about its own session activity, delivered to Pixel Agents as it happens.
+A push notification an AI tool sends about its own session activity, delivered to Agent Tycoon as it happens.
 
 **Transcript**:
 The append-only record of a session. Read in both detection modes for tool content.
@@ -204,7 +204,7 @@ _Avoid_: file fallback, transcript mode, polling mode
 ## Integration Boundary
 
 **Provider**:
-The integration that connects one coding-agent CLI — Claude Code, Codex, Pi, Antigravity, OpenClaw, and the like — to Pixel Agents. A provider normalizes its CLI's raw activity into agent events and knows how to install that CLI's hooks. One provider per CLI; Claude Code is the reference implementation.
+The integration that connects one coding-agent CLI — Claude Code, Codex, Pi, Antigravity, OpenClaw, and the like — to Agent Tycoon. A provider normalizes its CLI's raw activity into agent events and knows how to install that CLI's hooks. One provider per CLI; Claude Code is the reference implementation.
 _Avoid_: plugin, connector
 
 **Agent event**:

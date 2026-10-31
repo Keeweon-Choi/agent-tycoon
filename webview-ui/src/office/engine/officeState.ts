@@ -20,13 +20,15 @@ import { floorRects } from '../../cld/walk.js';
 import {
   canQueueWalkStep,
   heldKeyboardWalkTarget,
-  keyboardWalkTarget,
   shouldReturnToSeat,
   walkDecision,
+  walkStepOf,
+  walkStepTarget,
 } from '../../cld/walk.js';
 import {
   AUTO_ON_FACING_DEPTH,
   AUTO_ON_SIDE_DEPTH,
+  BOARD_TYPE,
   CHARACTER_HIT_HALF_WIDTH,
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
@@ -38,6 +40,8 @@ import {
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   MAX_PET_ID_LENGTH,
+  OWNER_CHARACTER_ID,
+  OWNER_SPAWN_FROM_BOARD,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
   WAITING_BUBBLE_DURATION_SEC,
@@ -102,6 +106,8 @@ export class OfficeState {
   private _selectedAgentId: number | null = null;
   /** Held movement directions for the character that began the current key walk. */
   private heldWalkKeys: HeldWalkKeys = [];
+  /** The isometric view is drawn: held keys step along its screen directions (walkStepOf). */
+  private heldWalkIso = false;
   private keyboardWalkAgentId: number | null = null;
   private readonly selectionListeners = new Set<(id: number | null) => void>();
   get selectedAgentId(): number | null {
@@ -269,7 +275,7 @@ export class OfficeState {
 
     // Second pass: assign remaining characters to free seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId || seatless.has(ch)) continue;
+      if (ch.seatId || seatless.has(ch) || ch.cldOwner) continue;
       const seatId = this.findFreeSeat(ch.directoryName);
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
@@ -680,6 +686,36 @@ export class OfficeState {
     startMatrixEffect(this.greeter, 'despawn');
   }
 
+  /** OWNER-AVATAR: the owner's own character, in front of the lobby board (else the middle of
+   *  the office). It is in `characters` so it walks, rides and draws as everyone does; the
+   *  agent-only loops skip it by `cldOwner`. Idempotent; null when no tile is free. */
+  spawnOwner(palette = 0, hueShift = 0): Character | null {
+    const had = this.characters.get(OWNER_CHARACTER_ID);
+    if (had) return had;
+    const board = this.layout.furniture.find((f) => f.type === BOARD_TYPE);
+    const spawn = board
+      ? this.closestFreeWalkableTile(
+          board.col + OWNER_SPAWN_FROM_BOARD.col,
+          board.row + OWNER_SPAWN_FROM_BOARD.row,
+        )
+      : this.closestFreeWalkableTile(this.layout.cols >> 1, this.layout.rows >> 1);
+    if (!spawn) return null;
+    const ch = createCharacter(OWNER_CHARACTER_ID, palette, null, null, hueShift);
+    Object.assign(ch, {
+      cldOwner: true,
+      isActive: false,
+      state: CharacterState.IDLE,
+      dir: Direction.DOWN,
+      tileCol: spawn.col,
+      tileRow: spawn.row,
+      x: spawn.col * TILE_SIZE + TILE_SIZE / 2,
+      y: spawn.row * TILE_SIZE + TILE_SIZE / 2,
+    });
+    startMatrixEffect(ch, 'spawn');
+    this.characters.set(ch.id, ch);
+    return ch;
+  }
+
   /** Per-frame update from the bubble overlay; ignored once the user panned. */
   setGreeterCameraTarget(p: { x: number; y: number }): void {
     if (!this.greeterCameraCancelled) this.greeterCameraTarget = p;
@@ -742,7 +778,7 @@ export class OfficeState {
   /** Reassign an agent from their current seat to a new seat */
   reassignSeat(agentId: number, seatId: string): void {
     const ch = this.characters.get(agentId);
-    if (!ch) return;
+    if (!ch || ch.cldOwner) return; // OWNER-AVATAR: the owner's character takes no desk
     // Unassign old seat
     if (ch.seatId) {
       const old = this.seats.get(ch.seatId);
@@ -874,8 +910,9 @@ export class OfficeState {
   walkSelectedStep(
     action: CameraKey,
     queue = true,
+    /** OWNER-AVATAR: who walks (walk.ts walkRoute: the selected one, else the owner's character). */
+    id: number | null = this.selectedAgentId,
   ): 'walked' | 'blocked' | 'active' | 'unavailable' {
-    const id = this.selectedAgentId;
     const ch = id === null ? undefined : this.characters.get(id);
     if (!ch) return 'unavailable';
     const decision = walkDecision(ch);
@@ -883,8 +920,11 @@ export class OfficeState {
     if (!queue) return 'walked';
     if (!canQueueWalkStep(ch.path)) return 'walked';
     const seat = ch.seatId ? this.seats.get(ch.seatId) : undefined;
-    const target = keyboardWalkTarget({
-      action,
+    // 8 directions: the held keys together (W+D a diagonal); a press with none held, its own.
+    const held = this.heldWalkKeys.includes(action) ? this.heldWalkKeys : [action];
+    const step = walkStepOf(held, this.heldWalkIso);
+    if (!step) return 'unavailable';
+    const target = walkStepTarget(step, {
       tileCol: ch.tileCol,
       tileRow: ch.tileRow,
       path: ch.path,
@@ -908,8 +948,9 @@ export class OfficeState {
   }
 
   /** Update the current physical keys; their winner is chosen at tile boundaries. */
-  setHeldWalkKeys(keys: HeldWalkKeys): void {
+  setHeldWalkKeys(keys: HeldWalkKeys, iso = this.heldWalkIso): void {
     this.heldWalkKeys = [...keys];
+    this.heldWalkIso = iso;
     const ch =
       this.keyboardWalkAgentId === null ? undefined : this.characters.get(this.keyboardWalkAgentId);
     if (ch?.heldWalkQueued) {
@@ -930,15 +971,19 @@ export class OfficeState {
     )
       return;
     const seat = ch.seatId ? this.seats.get(ch.seatId) : undefined;
-    const target = heldKeyboardWalkTarget(this.heldWalkKeys, {
-      tileCol: ch.tileCol,
-      tileRow: ch.tileRow,
-      path: ch.path,
-      tileMap: this.tileMap,
-      blockedTiles: this.blockedTiles,
-      ownSeat: seat ? { col: seat.seatCol, row: seat.seatRow } : null,
-      layout: this.layout,
-    });
+    const target = heldKeyboardWalkTarget(
+      this.heldWalkKeys,
+      {
+        tileCol: ch.tileCol,
+        tileRow: ch.tileRow,
+        path: ch.path,
+        tileMap: this.tileMap,
+        blockedTiles: this.blockedTiles,
+        ownSeat: seat ? { col: seat.seatCol, row: seat.seatRow } : null,
+        layout: this.layout,
+      },
+      this.heldWalkIso,
+    );
     if (target) {
       ch.path.push(target);
       ch.heldWalkQueued = true;
@@ -1052,6 +1097,8 @@ export class OfficeState {
     if (ch) {
       const wasActive = ch.isActive;
       ch.isActive = active;
+      // cld-gui (C1): on a coffee break the character finishes it; the director brings it back.
+      if (ch.cldRest?.brk) return this.rebuildFurnitureInstances();
       if (shouldReturnToSeat(wasActive, active)) {
         ch.keyboardWalk = undefined;
         ch.heldWalkQueued = undefined;
@@ -1418,7 +1465,8 @@ export class OfficeState {
       // Temporarily unblock own seat so character can pathfind to it. cld
       // T-0026: a tired character walks slower; T-0027: it wanders on its floor
       // (an idle visitor never rides home for a rest: no links).
-      const wander = this.wanderTiles?.(ch) ?? this.walkableTiles;
+      // OWNER-AVATAR: the owner's character goes only where it is walked.
+      const wander = ch.cldOwner ? [] : (this.wanderTiles?.(ch) ?? this.walkableTiles);
       this.withOwnSeatUnblocked(ch, () => {
         this.prepareHeldWalk(ch);
         updateCharacter(
@@ -1493,7 +1541,7 @@ export class OfficeState {
   > {
     const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
     for (const ch of this.characters.values()) {
-      if (ch.isSubagent) continue;
+      if (ch.isSubagent || ch.cldOwner) continue;
       // cld-gui (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
       const seatId = ch.cldVisit ? ch.cldVisit.homeSeat : ch.seatId;
       seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId };

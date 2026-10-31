@@ -139,6 +139,11 @@ const BACKGROUND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 /** An agent provider's id (D4). */
 const PROVIDER_RE = /^[a-z][a-z0-9-]{0,31}$/;
 export const DEFAULT_PROVIDER = 'claude';
+/** TERM-P1 (ADR-0018): Claude Code in our own PTY host; TERM-P3: every new Claude agent's. */
+export const CLAUDE_PTY_PROVIDER = 'claude-pty';
+/** The agent CLI an assignment runs (the PTY host's Claude is Claude): what agents and the roster see. */
+export const cliOf = (p: Pick<ProjectRecord, 'provider'>): string =>
+  p.provider === CLAUDE_PTY_PROVIDER ? DEFAULT_PROVIDER : (p.provider ?? DEFAULT_PROVIDER);
 const ROOM_MAX = 40;
 
 export const registryPath = (home = os.homedir()): string =>

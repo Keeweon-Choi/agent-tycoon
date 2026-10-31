@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as zlib from 'zlib';
 
 import { codexDir } from './engine/codex.js';
 import { readRecords } from './engine/git/worktrees.js';
@@ -176,7 +177,13 @@ function d2Home(): { home: string; files: () => Record<string, string> } {
       const abs = path.join(cfg, rel);
       if (!fs.existsSync(abs)) return;
       if (fs.statSync(abs).isDirectory()) for (const n of fs.readdirSync(abs).sort()) walk(path.join(rel, n));
-      else out[rel] = fs.readFileSync(abs, 'utf-8');
+      else {
+        // A room log is split by month on the first start (groupLogFiles.ts): its lines, joined back, are the file.
+        const month = /\.\d{4}-\d{2}\.jsonl(\.gz)?$/.exec(rel);
+        const text = month?.[1] ? zlib.gunzipSync(fs.readFileSync(abs)).toString('utf-8') : fs.readFileSync(abs, 'utf-8');
+        const key = month ? rel.slice(0, month.index) + '.jsonl' : rel;
+        out[key] = (out[key] ?? '') + text;
+      }
     };
     stores.forEach(walk);
     for (const name of ['alpha', 'beta'] as const)
@@ -342,7 +349,12 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     expect({
       added: Object.keys(allAfter).filter((k) => !(k in allBefore)).sort(),
       changed: Object.keys(allBefore).filter((k) => allAfter[k] !== allBefore[k]),
-    }).toEqual({ added: ['characters.json', 'characters/README.md', 'engine.boot', 'host.json'], changed: [] });
+    }).toEqual({
+      // The first start splits each room log by month (groupLogFiles.ts): the same lines, in the month file.
+      added: ['characters.json', 'characters/README.md', 'engine.boot', 'groups/devroom01.2026-10.jsonl', 'groups/opsroom01.2026-10.jsonl', 'host.json', 'owner-token'],
+      changed: ['groups/devroom01.jsonl', 'groups/opsroom01.jsonl'],
+    });
+    for (const room of ['devroom01', 'opsroom01']) expect(allAfter[`groups/${room}.2026-10.jsonl`]).toBe(allBefore[`groups/${room}.jsonl`]);
     // CH-1: the first start pins every character's look, then $meta.
     expect(JSON.parse(allAfter['characters.json']).$meta).toMatchObject({ v: 2 });
     expect(typed).toEqual([]); // and typed nothing (alpha is mid-turn, the inbox waits for a start)
@@ -470,7 +482,7 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
     expect({
       added: Object.keys(after).filter((k) => !(k in before)).sort(),
       changed: Object.keys(before).filter((k) => after[k] !== before[k]),
-    }).toEqual({ added: ['characters.json', 'characters/README.md', 'engine.boot', 'host.json'], changed: [] });
+    }).toEqual({ added: ['characters.json', 'characters/README.md', 'engine.boot', 'host.json', 'owner-token'], changed: [] });
     expect(JSON.parse(after['characters.json']).$meta).toMatchObject({ v: 2 }); // CH-1 pin
     expect(codexFiles()).toEqual(codexBefore);
   }, 60_000);

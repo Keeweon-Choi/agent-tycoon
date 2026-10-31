@@ -42,7 +42,13 @@ interface Basis {
   tip: string[];
 }
 
-async function basis(run: GitRunner, top: string, spec: WorktreeSpec): Promise<Basis> {
+async function basis(run: GitRunner, top: string, spec: WorktreeSpec, since?: string): Promise<Basis> {
+  if (since !== undefined) {
+    // P4: what changed since a review's send (`sentHead`): a commit of this repository.
+    const ok = FULL_SHA.test(since) && (await run(top, ['cat-file', '-e', `${since}^{commit}`], { env: READ_ENV })).code === 0;
+    if (!ok) throw new RepoError(koText('compare_no_branch'));
+    return spec.exists ? { mb: since, cwd: spec.path, tip: [] } : { mb: since, cwd: top, tip: [`refs/heads/${spec.branch}`] };
+  }
   const baseRef = FULL_SHA.test(spec.base) ? spec.base : `refs/heads/${spec.base}`;
   const branchRef = `refs/heads/${spec.branch}`;
   const mb = await run(top, ['merge-base', baseRef, branchRef], { env: READ_ENV });
@@ -82,8 +88,9 @@ export async function readWorktreeDetail(
   run: GitRunner,
   top: string,
   spec: WorktreeSpec,
+  since?: string,
 ): Promise<WorktreeDetail> {
-  const b = await basis(run, top, spec);
+  const b = await basis(run, top, spec, since);
   const { files, truncated } = await changedFiles(run, spec, b);
   const baseRef = FULL_SHA.test(spec.base) ? spec.base : `refs/heads/${spec.base}`;
   const log = await run(
@@ -105,9 +112,9 @@ export async function readWorktreeDiff(
   run: GitRunner,
   top: string,
   spec: WorktreeSpec,
-  q: { path: string; offset?: number },
+  q: { path: string; offset?: number; since?: string },
 ): Promise<DiffPage> {
-  const b = await basis(run, top, spec);
+  const b = await basis(run, top, spec, q.since);
   const file = (await changedFiles(run, spec, b)).files.find((f) => f.path === q.path);
   if (!file) throw new RepoError(koText('file_not_changed'));
   if (file.status === '?') {

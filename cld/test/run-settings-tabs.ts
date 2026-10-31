@@ -72,7 +72,7 @@ async function main() {
         hasTouch: mobile,
         deviceScaleFactor: mobile ? 2 : 1,
       });
-      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
       await ctx.route('**/__st/malgun.ttf', (route) => route.fulfill({ body: fs.readFileSync(FONT), contentType: 'font/ttf' }));
       await ctx.addCookies(cookies);
       const page = await ctx.newPage();

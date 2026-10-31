@@ -61,10 +61,13 @@ export function jobDescription(value: unknown): string | null {
  *  work, not what, so it is never a run's title (10-24 12:09: every card read "Rules for this task"). */
 const RULES_HEADING = /^Rules for this task\b/i;
 
-/** A run's title: the spec's first top-level heading that is not the rules block, else the file name. */
+/** A leading id in a heading ("REQ-STATUS-DOC: ", "T-0065: ", "D5: "): a number to the team, not words to the owner. */
+const HEADING_ID = /^(?=[^:\s]*[-\d])[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*:\s+/;
+
+/** A run's title: the spec's first top-level heading that is not the rules block (its leading id dropped), else the file name. */
 export function codexTitle(spec: string, contents: string): string {
   for (const m of contents.matchAll(/^\s*#\s+(.+?)\s*$/gm)) {
-    const heading = m[1].trim();
+    const heading = m[1].trim().replace(HEADING_ID, '');
     if (heading && !RULES_HEADING.test(heading)) return heading;
   }
   return path.basename(spec);

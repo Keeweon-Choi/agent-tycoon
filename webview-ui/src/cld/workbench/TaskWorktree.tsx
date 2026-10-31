@@ -9,9 +9,11 @@ import { useContext, useState } from 'react';
 
 import type { BoardTask } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
+import { openDevRoom } from '../devroom/devroomStore.js';
 import { repoAsk } from '../repo/repoStore.js';
 import { worktreeOfTask } from '../repo/repoText.js';
 import { TaskWorktreeScope } from './taskWorktreeScope.js';
+import { openReview } from './workbenchStore.js';
 
 const control = 'bg-bg border border-border px-4 py-2 text-xs min-w-0 max-w-full';
 const button = 'border border-border px-8 py-4 text-xs pointer-coarse:min-h-44 disabled:opacity-50';
@@ -44,6 +46,14 @@ export function TaskWorktreeDetail({ task }: { task: BoardTask }) {
         <p>{wt.path}</p>
         <p className="text-text-muted">{t('tasks.worktree.branch', { branch: wt.branch, base: wt.base })}</p>
         <p>{wt.assignee ? t('repo.worktreeAssignee', { name: wt.assignee }) : t('repo.worktreeNobody')}</p>
+        <div className="mt-4 flex flex-wrap gap-8">
+          <button type="button" className={button} data-testid="task-review-open" onClick={() => openReview(scope.project, wt.task)}>
+            {t('review.open')}
+          </button>
+          <button type="button" className={button} data-testid="task-devroom" onClick={() => openDevRoom(scope.project, wt.task)}>
+            {t('devroom.openButton')}
+          </button>
+        </div>
       </div>
     );
   if (!scope.canAct || task.status === 'done' || scope.worktrees === undefined) return null;

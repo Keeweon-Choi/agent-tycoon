@@ -6,6 +6,7 @@ import {
   branchLine,
   confirmAction,
   confirmText,
+  diffRows,
   diffRuns,
   fileLetter,
   groupFiles,
@@ -174,7 +175,7 @@ describe('what the confirmation says and sends', () => {
     const danger = confirmText({ kind: 'worktreeRemove', project: 'p', worktree: unmerged });
     expect(danger).toMatchObject({ button: '\ubc84\ub9ac\uace0 \uc9c0\uc6b0\uae30', danger: true });
     expect(danger.note).toContain('\ubcd1\ud569\ub418\uc9c0 \uc54a\uc740 \ucee4\ubc0b 2\uac1c');
-    expect(danger.note).toContain('\ube0c\ub79c\uce58 task/login\ub294 \ub0a8\uaca8\uc694');
+    expect(danger.note).toContain('task/login ' + '\uc5d0 \uc784\uc2dc \ucee4\ubc0b\uc73c\ub85c \ubcf4\uad00');
 
     expect(worktreeLoss(wt({ dirty: 1 }))).toBe('\ucee4\ubc0b\ud558\uc9c0 \uc54a\uc740 \ubcc0\uacbd 1\uac74');
     expect(worktreeLoss(wt({ merged: false }))).toBe('\ubcd1\ud569\ub410\ub294\uc9c0 \uc54c \uc218 \uc5c6\uc5b4\uc694');
@@ -295,6 +296,41 @@ describe('diffRuns', () => {
         .map((r) => r.text)
         .join('\n'),
     ).toBe(text);
+  });
+});
+
+describe('diffRows', () => {
+  it('numbers added, removed and context lines across hunks', () => {
+    expect(
+      diffRows([
+        'diff --git a/a.txt b/a.txt',
+        '@@ -2,2 +2,3 @@',
+        ' same',
+        '-old',
+        '+new',
+        '+added',
+        '@@ -8 +9 @@',
+        '-gone',
+        '+there',
+      ].join('\n')).map(({ key, kind, oldNo, newNo, text }) => ({ key, kind, oldNo, newNo, text })),
+    ).toEqual([
+      { key: 'meta:0', kind: 'meta', oldNo: undefined, newNo: undefined, text: 'diff --git a/a.txt b/a.txt' },
+      { key: 'hunk:1', kind: 'hunk', oldNo: undefined, newNo: undefined, text: '@@ -2,2 +2,3 @@' },
+      { key: 'old:2', kind: 'ctx', oldNo: 2, newNo: 2, text: ' same' },
+      { key: 'old:3', kind: 'del', oldNo: 3, newNo: undefined, text: '-old' },
+      { key: 'new:3', kind: 'add', oldNo: undefined, newNo: 3, text: '+new' },
+      { key: 'new:4', kind: 'add', oldNo: undefined, newNo: 4, text: '+added' },
+      { key: 'hunk:6', kind: 'hunk', oldNo: undefined, newNo: undefined, text: '@@ -8 +9 @@' },
+      { key: 'old:8', kind: 'del', oldNo: 8, newNo: undefined, text: '-gone' },
+      { key: 'new:9', kind: 'add', oldNo: undefined, newNo: 9, text: '+there' },
+    ]);
+  });
+
+  it('keeps an unchanged row key when added lines move its new-side number', () => {
+    const before = diffRows('@@ -8 +8 @@\n keep')[1];
+    const after = diffRows('@@ -8 +8,2 @@\n+added\n keep')[2];
+    expect(before).toMatchObject({ key: 'old:8', oldNo: 8, newNo: 8, text: ' keep' });
+    expect(after).toMatchObject({ key: 'old:8', oldNo: 8, newNo: 9, text: ' keep' });
   });
 });
 

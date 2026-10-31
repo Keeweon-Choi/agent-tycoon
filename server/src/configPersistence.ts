@@ -1,8 +1,8 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
-import { CONFIG_FILE_NAME, LAYOUT_FILE_DIR } from './constants.js';
+import { CONFIG_FILE_NAME } from './constants.js';
+import { officeFile, officeFileToRead } from './officeFolder.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
@@ -20,7 +20,7 @@ export interface AdapterSettings {
   showHostDirectories: boolean;
 }
 
-/** All keys in AdapterSettings. Used by adapters to map `pixel-agents.foo` → `foo`.
+/** All keys in AdapterSettings. Used by adapters to map `agent-tycoon.foo` → `foo`.
  *  The hooks preference is NOT here: it is per-provider and machine-global
  *  (the hooks it governs live in one home-directory file per provider), so it
  *  lives beside `hooksConsent` at the config top level, not per namespace. */
@@ -39,8 +39,9 @@ export const ADAPTER_SETTING_KEYS = [
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
 
-/** Namespaces = adapter identities sharing the same config.json file. */
-export type ConfigNamespace = 'vscode' | 'standalone';
+/** Namespaces = adapter identities sharing the same config.json file. The `vscode` one belonged to
+ *  the removed extension: a config.json that still carries it is read, and it is not written back. */
+export type ConfigNamespace = 'standalone';
 
 /** What the user answered a provider's consent ask with, durably. `granted` is recorded BEFORE the install writes, so
  *  it can exist with nothing on disk; `declined` means the ANSWER itself turned hooks off, the provenance a revised
@@ -56,8 +57,7 @@ export interface UserDirectory {
   path: string;
 }
 
-export interface PixelAgentsConfig {
-  vscode: AdapterSettings;
+export interface AgentTycoonConfig {
   standalone: AdapterSettings;
   externalAssetDirectories: string[];
   /** Per-provider consent to modify that provider's settings file (Claude:
@@ -92,10 +92,6 @@ export function setAdapterSettingDefaults(
   defaults: Partial<Pick<AdapterSettings, 'alwaysShowLabels' | 'showAreas'>>,
 ): void {
   Object.assign(DEFAULT_ADAPTER_SETTINGS, defaults);
-}
-
-function getConfigFilePath(): string {
-  return path.join(os.homedir(), LAYOUT_FILE_DIR, CONFIG_FILE_NAME);
 }
 
 /** Coerce a loose object into the per-provider consent map, dropping entries whose value is not exactly 'granted' or
@@ -208,9 +204,8 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
   };
 }
 
-function emptyConfig(): PixelAgentsConfig {
+function emptyConfig(): AgentTycoonConfig {
   return {
-    vscode: { ...DEFAULT_ADAPTER_SETTINGS },
     standalone: { ...DEFAULT_ADAPTER_SETTINGS },
     externalAssetDirectories: [],
     hooksConsent: {},
@@ -219,16 +214,15 @@ function emptyConfig(): PixelAgentsConfig {
   };
 }
 
-export function readConfig(): PixelAgentsConfig {
-  const filePath = getConfigFilePath();
+export function readConfig(): AgentTycoonConfig {
+  const filePath = officeFileToRead(CONFIG_FILE_NAME);
   try {
     if (!fs.existsSync(filePath)) {
       return emptyConfig();
     }
     const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<PixelAgentsConfig>;
+    const parsed = JSON.parse(raw) as Partial<AgentTycoonConfig>;
     return {
-      vscode: parseAdapterSettings(parsed.vscode),
       standalone: parseAdapterSettings(parsed.standalone),
       externalAssetDirectories: Array.isArray(parsed.externalAssetDirectories)
         ? parsed.externalAssetDirectories.filter((d): d is string => typeof d === 'string')
@@ -238,7 +232,7 @@ export function readConfig(): PixelAgentsConfig {
       directories: parseUserDirectories(parsed.directories),
     };
   } catch (err) {
-    console.error('[Pixel Agents] Failed to read config file:', err);
+    console.error('[Agent Tycoon] Failed to read config file:', err);
     return emptyConfig();
   }
 }
@@ -336,9 +330,7 @@ export function resetHooksConfig(): void {
   const cfg = readConfig();
   cfg.hooksConsent = {};
   cfg.hooksEnabled = {};
-  for (const ns of ['vscode', 'standalone'] as const) {
-    cfg[ns].hooksInfoShown = DEFAULT_ADAPTER_SETTINGS.hooksInfoShown;
-  }
+  cfg.standalone.hooksInfoShown = DEFAULT_ADAPTER_SETTINGS.hooksInfoShown;
   writeConfig(cfg);
 }
 
@@ -348,8 +340,8 @@ export function resetHooksConfig(): void {
  * whether the write landed, for callers whose success is reported to the user
  * — a Directory save must not be announced as saved when it never hit the disk.
  */
-export function writeConfig(config: PixelAgentsConfig): boolean {
-  const filePath = getConfigFilePath();
+export function writeConfig(config: AgentTycoonConfig): boolean {
+  const filePath = officeFile(CONFIG_FILE_NAME);
   const dir = path.dirname(filePath);
   try {
     if (!fs.existsSync(dir)) {
@@ -361,7 +353,7 @@ export function writeConfig(config: PixelAgentsConfig): boolean {
     fs.renameSync(tmpPath, filePath);
     return true;
   } catch (err) {
-    console.error('[Pixel Agents] Failed to write config file:', err);
+    console.error('[Agent Tycoon] Failed to write config file:', err);
     return false;
   }
 }

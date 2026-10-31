@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import { fixJosa } from '../../../core/src/cld/josa.js';
 import { en, type TranslationKey } from './en.js';
 import { ko } from './ko.js';
 
@@ -59,9 +60,10 @@ export function translate(
   korean: Partial<Record<TranslationKey, string>> = ko,
 ): string {
   const template = (selected === 'ko' ? korean[key] : undefined) ?? en[key];
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+  const text = template.replace(/\{(\w+)\}/g, (match, name: string) =>
     vars?.[name] === undefined ? match : String(vars[name]),
   );
+  return selected === 'ko' ? fixJosa(text) : text;
 }
 
 export const t = (key: TranslationKey, vars?: Record<string, string | number>): string =>

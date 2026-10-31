@@ -8,6 +8,7 @@ import {
   BOARD_TYPE,
   CAMERA_FOLLOW_ZOOM_STEPS,
   HD_ZOOM_STEP,
+  OWNER_CHARACTER_ID,
   ZOOM_MAX,
 } from '../constants.js';
 import { defaultZoom } from '../hooks/useEditorActions.js';
@@ -29,6 +30,7 @@ import {
   fillZoom,
   framePan,
   glidePan,
+  initialCameraFit,
   isDrag,
   keyDirection,
   officeBox,
@@ -49,7 +51,10 @@ import {
   noteFraming,
   noteManualCamera,
   restoreManual,
+  setCameraMode,
 } from './cameraMode.js';
+import { refreshLooks } from './characters/looks.js';
+import { visitFloor } from './elevator.js';
 import {
   cameraRect,
   currentRect,
@@ -68,7 +73,7 @@ import { characterName } from './kinds.js';
 import { cldGetSnapshot, cldToast } from './officeStore.js';
 import { loadSavedCamera, saveCamera } from './savedCamera.js';
 import { staffStep } from './staff.js';
-import { holdWalkKey, releaseWalkKey } from './walk.js';
+import { holdWalkKey, releaseWalkKey, walkRoute } from './walk.js';
 
 /** The zoom step a character's density asks the camera for: HD (32×64) even zooms; classic and
  *  detailed ones (one master at every zoom) none. */
@@ -110,6 +115,15 @@ interface GameControlsOptions {
    *  pans are clamped by this, and the top-down framing and floor camera stand aside. */
   isoClamp?: ((pan: Vec, zoom: number) => Vec) | null;
 }
+
+/** JOYSTICK: the direction keys' path (walk or pan), for the phone's pad (null: no office mounted). */
+let walkPad: { press: (action: CameraKey) => void; release: (action: CameraKey) => void } | null =
+  null;
+export const getWalkPad = () => walkPad;
+/** OWNER-AVATAR: '내 캐릭터' (the free camera's way back): nothing selected, the camera follows
+ *  the owner's character again. */
+let ownerFollow: (() => void) | null = null;
+export const followOwner = () => ownerFollow?.();
 
 const PAN_KEYS: ReadonlySet<CameraKey> = new Set(['up', 'down', 'left', 'right']);
 
@@ -227,6 +241,15 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     frameTiles: null as unknown,
     /** The follow the auto camera last zoomed in for (null: none). */
     followFramed: null as number | null,
+    /** The zoom a follow zooms in from when the office was never framed (a restored manual view). */
+    followBase: null as number | null,
+    /** OWNER-AVATAR: the camera goes back to the owner's character at the next chance ('first':
+     *  it just came, the view goes to its floor); what that watches for changes. */
+    wantOwner: false as boolean | 'first',
+    selSeen: null as number | null,
+    asksSeen: -1,
+    shownSeen: null as string | null,
+    ownerFollowed: false,
   }).current;
 
   /** The pan clamp for the view drawn (the isometric one when it is on). */
@@ -418,7 +441,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       state.followFramed = follow;
       if (follow !== null) {
         restoreManual(false);
-        const base = lastFraming()?.zoom ?? zoom;
+        const base = lastFraming()?.zoom ?? (state.followBase ??= zoom);
         const close = Math.min(
           ZOOM_MAX,
           Math.ceil((base + CAMERA_FOLLOW_ZOOM_STEPS) / density) * density,
@@ -455,13 +478,19 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     };
     const size = { w: canvas.width, h: canvas.height };
     const view = usableView(size, coveredInsets(canvas));
-    const z = fillZoom(view, box, density);
-    const pan = framePan(layout, z, size, view, box);
-    noteFraming({ mode, zoom: z, view, box });
+    const fit = initialCameraFit({
+      phone: latest.current.phone === true,
+      desktop: { box, zoom: fillZoom(view, box, density) },
+      // Classic already frames the selected floor on every surface; keeping the explicit phone
+      // target here makes its initial-fit policy share the isometric camera's pure decision.
+      phoneTarget: { box, zoom: fillZoom(view, box, density) },
+    });
+    const pan = framePan(layout, fit.zoom, size, view, fit.box);
+    noteFraming({ mode, zoom: fit.zoom, view, box: fit.box });
     // A framed view is no classic default: floorStep must not move it as one when the layout
     // object changes under it (a framed pan can equal the old default by chance).
     state.dflt = { x: NaN, y: NaN };
-    if (z === zoom) {
+    if (fit.zoom === zoom) {
       // A floor switch that glides keeps gliding, to the framed spot.
       if (state.glide) state.glide = pan;
       else panRef.current = pan;
@@ -471,21 +500,74 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     // After this frame is drawn (old zoom, old pan): flushSync re-creates the loop for the new
     // zoom before the pan for it is written, as zoomBy does.
     queueMicrotask(() => {
-      flushSync(() => onZoomChange(z));
+      flushSync(() => onZoomChange(fit.zoom));
       panRef.current = pan;
     });
   }).current;
 
+  /** OWNER-AVATAR, each frame (the cld office only): the owner's character is there, and the
+   *  camera goes back to it when asked (it came, a selection was cleared, Esc, a camera mode was
+   *  picked, '내 캐릭터') unless the free camera is on or a character is selected. On another floor
+   *  than the one shown it takes the elevator here first, and the follow waits for it. */
+  const ownerStep = useRef(() => {
+    const { officeState, isoClamp } = latest.current;
+    const mode = framingMode();
+    if (mode === 'off' || (!state.floorLayout && !isoClamp)) return;
+    let owner = officeState.characters.get(OWNER_CHARACTER_ID);
+    if (!owner) {
+      owner = officeState.spawnOwner() ?? undefined;
+      if (!owner) return;
+      refreshLooks(); // it wears the owner's look
+      state.wantOwner = 'first';
+    }
+    const sel = officeState.selectedAgentId;
+    if (sel !== state.selSeen) {
+      state.selSeen = sel;
+      if (sel === null) state.wantOwner ||= true;
+    }
+    if (cameraAsks() !== state.asksSeen) {
+      state.asksSeen = cameraAsks();
+      state.wantOwner ||= true;
+    }
+    const rects = floorRects(officeState.getLayout());
+    const { current, doors } = floorsSnapshot();
+    const shown = doors?.target ?? current;
+    const away =
+      !!rects && floorIndexAt(rects, owner.tileRow) !== rects.findIndex((r) => r.id === shown);
+    // (floorStep may have dropped the follow last frame, for the floor it left)
+    const followed = officeState.cameraFollowId === owner.id || state.ownerFollowed;
+    state.ownerFollowed = officeState.cameraFollowId === owner.id;
+    if (shown !== state.shownSeen) {
+      // Another floor picked while following it: the view goes there, it follows by elevator.
+      state.shownSeen = shown;
+      if (followed && away) {
+        officeState.breakCameraFollow();
+        state.wantOwner = true;
+      }
+    }
+    if (!state.wantOwner) return;
+    if (walkRoute(mode, sel, owner.id).follow !== owner.id) {
+      state.wantOwner = false;
+      return;
+    }
+    if (owner.matrixEffect || owner.cldRide || (owner.cldVisit && !owner.cldVisit.arrived)) return;
+    if (state.wantOwner !== 'first' && away && shown && visitFloor(officeState, owner.id, shown))
+      return;
+    officeState.cameraFollowId = owner.id;
+    state.wantOwner = false;
+  }).current;
+
   const step = useRef((dt: number) => {
     const { canvasRef, officeState, panRef, zoom } = latest.current;
+    ownerStep();
     floorStep(dt);
     if (state.restore && state.floorLayout && framingMode() === 'auto' && !state.restoreManual)
       state.restore = null; // a framed view is framed again for this screen
-    if (state.restore && state.floorLayout) {
+    if (state.restore && (state.floorLayout || latest.current.isoClamp)) {
       restoreManual(state.restoreManual);
       const canvas = canvasRef.current;
-      if (canvas && !latest.current.isoClamp)
-        panRef.current = clampFor(state.restore, canvas, zoom);
+      // The isometric pan is about the building's centre, so it restores as it was saved.
+      if (canvas) panRef.current = clampFor(state.restore, canvas, zoom);
       state.restore = null;
     }
     frameStep();
@@ -598,6 +680,49 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     const onLeave = (e: MouseEvent) => {
       if (!e.relatedTarget) state.pointer = null; // left the window
     };
+    /** A direction pressed for the selected character (a key, or the phone's joystick). */
+    const pressWalk = (action: CameraKey, repeat: boolean) => {
+      const { officeState, isoClamp } = latest.current;
+      // OWNER-AVATAR (walk.ts walkRoute): the selected character, else the owner's; free: none.
+      const owner = officeState.characters.has(OWNER_CHARACTER_ID) ? OWNER_CHARACTER_ID : null;
+      const id = walkRoute(framingMode(), officeState.selectedAgentId, owner).walk;
+      if (id === null) return 'unavailable';
+      // A key added to held ones steps at once only when nothing walks (the first was blocked,
+      // or W then D on the pad); a walk in progress picks the keys up at its next tile.
+      const walking = !!officeState.characters.get(id)?.path.length;
+      const queue = !repeat && (state.walkHeld.length === 0 || !walking);
+      if (!repeat) state.walkHeld = holdWalkKey(state.walkHeld, action);
+      officeState.setHeldWalkKeys(state.walkHeld, !!isoClamp);
+      const result = officeState.walkSelectedStep(action, queue, id);
+      if (result === 'active' && state.activeWalkHintFor !== id) {
+        const ch = officeState.characters.get(id);
+        const { officeSnapshot, codexTasks } = cldGetSnapshot();
+        const name = ch ? characterName(ch, officeSnapshot, codexTasks) : t('action.character');
+        cldToast(name, t('action.busyAtDesk', { name: subjectWithParticle(name) }), 'info');
+        state.activeWalkHintFor = id;
+      } else if (result !== 'active' && result !== 'unavailable') {
+        state.activeWalkHintFor = null;
+      }
+      return result;
+    };
+    const releaseWalk = (action: CameraKey) => {
+      state.walkHeld = releaseWalkKey(state.walkHeld, action);
+      latest.current.officeState.setHeldWalkKeys(state.walkHeld);
+    };
+    /** A direction key or the joystick: it walks (walkRoute), else it pans. */
+    const pressDirection = (action: CameraKey, repeat: boolean) => {
+      if (pressWalk(action, repeat) === 'unavailable') state.held.add(action);
+    };
+    const releaseDirection = (action: CameraKey) => {
+      state.held.delete(action);
+      releaseWalk(action);
+    };
+    walkPad = { press: (action) => pressDirection(action, false), release: releaseDirection };
+    ownerFollow = () => {
+      latest.current.officeState.selectedAgentId = null;
+      setCameraMode('auto'); // asks again: the owner's character is followed
+      state.wantOwner = true;
+    };
     const onKeyDown = (e: KeyboardEvent) => {
       if (
         e.defaultPrevented ||
@@ -621,26 +746,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       if (!action) return;
       const { officeState, panRef, onZoomChange } = latest.current;
       if (PAN_KEYS.has(action)) {
-        const wasHoldingWalkKey = state.walkHeld.length > 0;
-        if (!e.repeat) state.walkHeld = holdWalkKey(state.walkHeld, action);
-        officeState.setHeldWalkKeys(state.walkHeld);
-        const result = officeState.walkSelectedStep(action, !e.repeat && !wasHoldingWalkKey);
-        if (result !== 'unavailable') {
-          e.preventDefault(); // selected characters own the direction keys
-          const id = officeState.selectedAgentId;
-          if (result === 'active' && id !== null && state.activeWalkHintFor !== id) {
-            const ch = officeState.characters.get(id);
-            const { officeSnapshot, codexTasks } = cldGetSnapshot();
-            const name = ch ? characterName(ch, officeSnapshot, codexTasks) : t('action.character');
-            cldToast(name, t('action.busyAtDesk', { name: subjectWithParticle(name) }), 'info');
-            state.activeWalkHintFor = id;
-          } else if (result !== 'active') {
-            state.activeWalkHintFor = null;
-          }
-          return;
-        }
         e.preventDefault(); // no scrolling whatever was clicked last
-        state.held.add(action);
+        pressDirection(action, e.repeat);
         return;
       }
       if (e.repeat) return;
@@ -658,9 +765,10 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
         panRef.current = state.dflt = defaultPan(layout, zoom, currentRect(layout)); // the floor shown
         state.v = { x: 0, y: 0 };
       } else {
-        officeState.selectedAgentId = null; // Esc hands WASD/arrows back to the camera
+        officeState.selectedAgentId = null; // Esc: back to the owner's character (or the camera)
         state.activeWalkHintFor = null;
         officeState.breakCameraFollow();
+        state.wantOwner = true;
       }
     };
     // Release by key alone: a modifier pressed meanwhile must not strand it.
@@ -673,11 +781,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
         altKey: false,
       });
       if (action) {
-        state.held.delete(action);
-        if (PAN_KEYS.has(action)) {
-          state.walkHeld = releaseWalkKey(state.walkHeld, action);
-          latest.current.officeState.setHeldWalkKeys(state.walkHeld);
-        }
+        if (PAN_KEYS.has(action)) releaseDirection(action);
+        else state.held.delete(action);
       }
     };
     const release = () => {
@@ -715,6 +820,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       document.removeEventListener('visibilitychange', onVisibility);
       document.removeEventListener('mouseout', onLeave);
       document.removeEventListener('gesturestart', noPinchZoom);
+      walkPad = null;
+      ownerFollow = null;
     };
   }, [canvasRef, state, zoomBy, defaultPan]);
 

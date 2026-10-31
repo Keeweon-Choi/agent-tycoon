@@ -443,6 +443,7 @@ describe('icons newer than a saved layout (owner 10-24: the files icon)', () => 
       ...old,
       'files',
       'workbench',
+      'devroom',
     ]).layout;
     expect(withNewIcons(withFiles)).toEqual(withFiles);
     const right = applyPreset({ v: 1, items: {} }, 'right', screen, old).layout;

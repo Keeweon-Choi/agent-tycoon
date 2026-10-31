@@ -60,4 +60,24 @@ describe('SHEET-IMPORT: an imported sheet as the office loads it', () => {
       }),
     ).toThrow();
   });
+
+  it('CHAR-ISO-1: an 8th column is the walking neutral: the walk is step, neutral, other step, neutral and the idle only stands', () => {
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        createElement: () => ({
+          width: 0,
+          height: 0,
+          getContext: () => ({ putImageData: () => undefined }),
+        }),
+      },
+    });
+    const [W, H] = [288 * 8, 528 * 2];
+    const sheet = importedSheet(
+      { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) } as ImageData,
+      { iso: true, standFirst: true, twoStep: false },
+    );
+    expect(sheet.down).toHaveLength(8);
+    expect([sheet.walk, sheet.stand]).toEqual([[1, 7, 2, 7], 0]);
+  });
 });

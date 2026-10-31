@@ -104,10 +104,10 @@ async function main(): Promise<void> {
         await ctx.addInitScript(() => {
           const w = window as unknown as {
             __name: (value: unknown) => unknown;
-            __PIXEL_AGENTS_E2E: boolean;
+            __AGENT_TYCOON_E2E: boolean;
           };
           w.__name = (value) => value;
-          w.__PIXEL_AGENTS_E2E = true; // upstream's test hooks: seats and tiles, read only
+          w.__AGENT_TYCOON_E2E = true; // upstream's test hooks: seats and tiles, read only
         });
         await warmUpOffice(ctx, daemon);
         const page = await ctx.newPage();
@@ -188,12 +188,12 @@ async function main(): Promise<void> {
           col: first.x + relChair.x,
           row: first.y + relChair.y,
         });
-        type W = { __pixelAgentsTestHooks: Hooks };
+        type W = { __agentTycoonTestHooks: Hooks };
         const agentSeats = () =>
-          page.evaluate(() => (window as unknown as W).__pixelAgentsTestHooks.getAgentSeats());
+          page.evaluate(() => (window as unknown as W).__agentTycoonTestHooks.getAgentSeats());
         const tileCenter = (c: number, r: number) =>
           page.evaluate(
-            ({ c, r }) => (window as unknown as W).__pixelAgentsTestHooks.getTileCenter(c, r),
+            ({ c, r }) => (window as unknown as W).__agentTycoonTestHooks.getTileCenter(c, r),
             { c, r },
           );
         // The Claude sessions are read when the first viewer arrives: give the characters their seats.
@@ -214,12 +214,12 @@ async function main(): Promise<void> {
           const hint = l.cldSeats?.[`seat:${keyB}`] === 'decor-test-chair';
           const seats = await agentSeats();
           const pageSeats = await page.evaluate(() =>
-            (window as unknown as W).__pixelAgentsTestHooks.getSeats(),
+            (window as unknown as W).__agentTycoonTestHooks.getSeats(),
           );
           const seatA = pageSeats.find((v) => v.uid === `seat:${keyA}`);
           const seatB = pageSeats.find((v) => v.uid === 'decor-test-chair');
           const tileA = await page.evaluate(
-            (id) => (window as unknown as W).__pixelAgentsTestHooks.getCharacterTile(id),
+            (id) => (window as unknown as W).__agentTycoonTestHooks.getCharacterTile(id),
             idA!,
           );
           return {

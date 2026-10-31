@@ -501,8 +501,8 @@ mod tests {
 
     fn keys() -> Vec<String> {
         key_opts(
-            r"C:\Users\A B\AppData\Roaming\dev.cldgui.pixeloffice\ssh\id_ed25519",
-            r"C:\Users\A B\AppData\Roaming\dev.cldgui.pixeloffice\ssh\known_hosts",
+            r"C:\Users\A B\AppData\Roaming\dev.agenttycoon.app\ssh\id_ed25519",
+            r"C:\Users\A B\AppData\Roaming\dev.agenttycoon.app\ssh\known_hosts",
         )
     }
 
@@ -512,11 +512,11 @@ mod tests {
             keys(),
             [
                 "-i",
-                r"C:\Users\A B\AppData\Roaming\dev.cldgui.pixeloffice\ssh\id_ed25519",
+                r"C:\Users\A B\AppData\Roaming\dev.agenttycoon.app\ssh\id_ed25519",
                 "-o",
                 "IdentitiesOnly=yes",
                 "-o",
-                "UserKnownHostsFile=\"C:/Users/A B/AppData/Roaming/dev.cldgui.pixeloffice/ssh/known_hosts\"",
+                "UserKnownHostsFile=\"C:/Users/A B/AppData/Roaming/dev.agenttycoon.app/ssh/known_hosts\"",
                 "-o",
                 "StrictHostKeyChecking=yes",
                 "-o",

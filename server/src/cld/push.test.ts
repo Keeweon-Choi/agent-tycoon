@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { noticeTarget, noticeUrl, parseNoticeUrl, pushTag } from '../../../core/src/cld/notices.js';
 import { LOOKING_FRESH_MS } from '../../../core/src/constants.js';
+import type { ChatAttachment } from '../../../core/src/messages.js';
 import { AgentStateStore } from '../agentStateStore.js';
 import { StandaloneAuth } from './auth.js';
 import { SoftDevice } from './authTestKit.js';
@@ -173,6 +174,10 @@ function setup(status = 201) {
   const rooms: Record<number, RoomRef> = {};
   /** U-49: the last assistant text of each character's newest turn (absent: none). */
   const texts: Record<number, string> = {};
+  /** The files that message carries (absent: none). */
+  const files: Record<number, ChatAttachment[]> = {};
+  /** The title of the Task each character works on now (absent: none). */
+  const tasks: Record<number, string> = {};
   const fetchFn = (async (url: string, init: RequestInit) => {
     posts.push({
       url,
@@ -189,17 +194,21 @@ function setup(status = 201) {
       id === 10 || id === 11
         ? { name: id === 10 ? 'boss' : 'chief', who: 'orchestrator', lead: true } // U-49: a messenger conversation
         : id === 7
-          ? { name: 'lead', who: 'orchestrator' }
+          ? { name: 'lead', who: 'orchestrator', task: tasks[7] ?? null }
           : id === 8
             ? { name: 'veteran', who: 'orchestrator' }
             : { name: 'scout', who: 'teammate' },
     agentIdOf: (name) => (name === 'lead' ? 7 : null),
-    turn: (id) => ({ room: rooms[id] ?? null, text: texts[id] ?? null }),
+    turn: (id) => ({
+      room: rooms[id] ?? null,
+      text: texts[id] ?? null,
+      ...(files[id] && { attachments: files[id] }),
+    }),
     fetchFn,
   });
   const replies: Record<string, unknown>[] = [];
   const send: WsSend = (m) => replies.push(m);
-  return { dir, store, agents, visible, looked, posts, service, send, replies, rooms, texts };
+  return { dir, store, agents, visible, looked, posts, service, send, replies, rooms, texts, files, tasks };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -374,7 +383,42 @@ describe('PushService', () => {
       const { t, b } = subscribed();
       t.agents.broadcast({ type: 'agentToolPermission', id: 7, asker: 'no-such-name' });
       await flush();
-      expect(payloads(t, b)).toMatchObject([{ title: '🔐 lead', body: 'no-such-name의 허락을 기다려요' }]);
+      expect(payloads(t, b)).toMatchObject([{ title: '🔐 lead', body: 'no-such-name가 허락을 기다려요' }]);
+    });
+
+    it('PERM-PROMPT: the asking agent is the subject, by its last sound', async () => {
+      const { t, b } = subscribed();
+      t.agents.broadcast({ type: 'agentToolPermission', id: 7, asker: 'uchiha-sasuke' });
+      t.agents.broadcast({ type: 'agentToolPermission', id: 8, asker: 'roronoa-zoro' });
+      await flush();
+      expect(payloads(t, b).map((p) => p.body)).toEqual([
+        '우치하 사스케줄이 허락을 기다려요',
+        '롤로노아 제로데이가 허락을 기다려요',
+      ]);
+    });
+
+    it('a turn end names the Task the agent works on', async () => {
+      const { t, b } = subscribed();
+      t.tasks[7] = '앱 알림 UI 개선';
+      t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
+      await flush();
+      expect(payloads(t, b)).toMatchObject([{ title: '🔔 lead', body: "'앱 알림 UI 개선' 작업을 마쳤어요" }]);
+    });
+
+    it('a turn end without a Task names its last described tool call', async () => {
+      const { t, b } = subscribed();
+      t.agents.broadcast({ type: 'agentToolStart', id: 7, toolId: 'a', status: 'Running', desc: '테스트 돌리는 중' });
+      t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
+      await flush();
+      expect(payloads(t, b)).toMatchObject([{ body: '일을 마쳤어요 · 테스트 돌리는 중' }]);
+    });
+
+    it('a message push shows plain text: markdown marks dropped, lists as "· "', async () => {
+      const { t, b } = subscribed();
+      t.texts[10] = '**끝났어요** `npm test` 통과\n- 하나\n- [링크](http://x.y) 둘';
+      t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting' });
+      await flush();
+      expect(payloads(t, b)[0]).toMatchObject({ body: '끝났어요 npm test 통과 · 하나 · 링크 둘' });
     });
 
     it('a room named like a character id does not share its cooldown', async () => {
@@ -836,6 +880,46 @@ describe('U-49: a message from an agent is a push with its text', () => {
     const target = parseNoticeUrl(p.url);
     expect(target).toMatchObject({ open: 'chat', lead: 'boss' });
     expect(JSON.stringify(p)).not.toMatch(/hunter2|abcdefghijklmnop/);
+  });
+
+  it('pictures: the first one rides as a short-lived link, the words get the label for a browser that shows none', async () => {
+    const outbox = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cld-pushimg-')), '.cld-outbox');
+    fs.mkdirSync(outbox);
+    const png = path.join(outbox, '20261101-aaaa-a.png');
+    fs.writeFileSync(png, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const photo = (p: string): ChatAttachment => ({ name: path.basename(p), path: p, type: 'image/png' });
+    // Words and two pictures: the body is the words; the label travels beside it.
+    const { t, b } = subscribed();
+    t.texts[10] = '화면을 보내요';
+    t.files[10] = [photo(png), photo(png)];
+    turnEnd(t, 10);
+    await flush();
+    const [p] = payloads(t, b);
+    expect(p.body).toBe('화면을 보내요');
+    expect(p.imageLabel).toBe('[사진 2장]');
+    expect(p.image).toMatch(/^\/api\/cld\/push-image\//);
+    expect(t.service.images.open(p.image!.slice('/api/cld/push-image/'.length))).not.toBeNull();
+    // No words: the label is the body, in the device's language; one picture is "[사진]".
+    const en = subscribed({ lang: 'en' });
+    en.t.files[10] = [photo(png)];
+    turnEnd(en.t, 10);
+    await flush();
+    const [q] = payloads(en.t, en.b);
+    expect([q.body, q.imageLabel]).toEqual(['[Photo]', '[Photo]']);
+    expect(q.image).toBeTruthy();
+    // A video: its label, no picture link. An image copy outside an outbox: label, no link.
+    const video = subscribed();
+    video.t.files[10] = [{ name: 'v.mp4', path: path.join(outbox, 'v.mp4'), type: 'video/mp4' }];
+    turnEnd(video.t, 10);
+    await flush();
+    expect(payloads(video.t, video.b)[0]).toMatchObject({ body: '[동영상]' });
+    expect(payloads(video.t, video.b)[0].image).toBeUndefined();
+    const stray = subscribed();
+    stray.t.files[10] = [photo(path.join(os.tmpdir(), 'x.png'))];
+    turnEnd(stray.t, 10);
+    await flush();
+    expect(payloads(stray.t, stray.b)[0]).toMatchObject({ body: '[사진]', imageLabel: '[사진]' });
+    expect(payloads(stray.t, stray.b)[0].image).toBeUndefined();
   });
 
   it('the preview is one line of at most 120 characters, and the payload stays small', async () => {

@@ -23,7 +23,16 @@ import { PixelSprite } from './PixelSprite.js';
  * `compact`: the nameplate's second row, "피로도 [bar] 72% · 휴식 1/2" in one line
  * the plate's width (the bar takes what the words leave), at the 화면 크기 step's sizes.
  */
-export function FatigueBar({ look, compact }: { look: FatigueLook; compact?: NameplateSizes }) {
+export function FatigueBar({
+  look,
+  compact,
+  barPx,
+}: {
+  look: FatigueLook;
+  compact?: NameplateSizes;
+  /** A fixed bar length (the summary popover), not whatever the plate leaves. */
+  barPx?: number;
+}) {
   if (compact)
     return (
       <span
@@ -42,8 +51,12 @@ export function FatigueBar({ look, compact }: { look: FatigueLook; compact?: Nam
           {t('activity.fatigue')}
         </span>
         <span
-          className="block flex-1 border border-border bg-bg-dark"
-          style={{ minWidth: compact.barMin, height: compact.barHeight }}
+          className={`block border border-border bg-bg-dark ${barPx ? 'shrink-0' : 'flex-1'}`}
+          style={
+            barPx
+              ? { width: barPx, height: compact.barHeight }
+              : { minWidth: compact.barMin, height: compact.barHeight }
+          }
         >
           <span
             className="block h-full"
@@ -147,7 +160,7 @@ export function LevelBar({ level }: { level: OfficeLevel }) {
  * charpack v3 §6A: the level inside a ring of its XP to the next level,
  * filled clockwise from the top (the server's numbers, placed by ringOf).
  */
-export function LevelRing({ ring, sizes }: { ring: Ring; sizes: NameplateSizes }) {
+export function LevelRing({ ring, sizes }: { ring: Ring; sizes: { ring: number; level: number } }) {
   const size = sizes.ring;
   const stroke = NAMEPLATE_RING_STROKE_PX;
   const r = (size - stroke) / 2;

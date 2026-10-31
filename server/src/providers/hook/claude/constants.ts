@@ -13,6 +13,23 @@ export const CLAUDE_HOOK_SCRIPT_NAME = 'claude-hook.js';
  *  recognized as ours so a very old install can be migrated or removed. */
 export const LEGACY_HOOK_SCRIPT_NAME = 'pixel-agents-hook.js';
 
+/** The upstream Pixel Agents VS Code extension (and our removed one, which had the same id), as
+ *  its folder in an editor's extensions folder starts. While one is installed, the
+ *  ~/.pixel-agents/hooks/claude-hook.js entry in settings.json is shared with it, not ours. */
+export const PIXEL_AGENTS_EXTENSION_PREFIX = 'pablodelucca.pixel-agents-';
+
+/** Editors' extensions folders under the home (desktop, remote server, forks). */
+export const EDITOR_EXTENSION_DIRS = [
+  '.vscode/extensions',
+  '.vscode-insiders/extensions',
+  '.vscode-server/extensions',
+  '.vscode-server-insiders/extensions',
+  '.vscode-oss/extensions',
+  '.cursor/extensions',
+  '.cursor-server/extensions',
+  '.windsurf/extensions',
+] as const;
+
 /** Hook events to install in ~/.claude/settings.json. This list is the whole
  *  data-collection surface: Claude Code POSTs each of these payloads to the
  *  local server, so an event we do not act on is scope we should not ask for.
@@ -66,9 +83,6 @@ export const SETTINGS_MUTATE_ATTEMPTS = 3;
 /** Delay between settings.json mutation attempts (lets a concurrent writer finish). */
 export const SETTINGS_MUTATE_RETRY_DELAY_MS = 100;
 
-/** Terminal name prefix used when launching Claude Code in VS Code.
- *  Used by the extension to match terminals to agents for adoption. */
-export const CLAUDE_TERMINAL_NAME_PREFIX = 'Claude Code';
 
 // ── Context windows (per model, in tokens) ──────────────────
 //

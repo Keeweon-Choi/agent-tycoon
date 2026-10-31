@@ -314,8 +314,6 @@ export function ToolOverlay({
           const kind = characterKind(ch, cldOffice, codexTasks);
           const named = showsNameLabel(kind, alwaysShowOverlay, nameplatesOn(), !!employee);
           publishCharacterVisual(id, { ...visual, fatigue, headIcon: !named });
-          const leadId = subChar?.parentAgentId ?? ch.leadAgentId;
-          const lead = leadId !== undefined ? officeState.characters.get(leadId) : undefined;
           return (
             <CharacterLabel
               key={id}
@@ -323,7 +321,6 @@ export function ToolOverlay({
               kind={kind}
               name={characterName(ch, cldOffice, codexTasks, subChar?.label)}
               named={named}
-              leadName={lead ? characterName(lead, cldOffice, codexTasks) : null}
               visual={visual}
               rawActivity={rawActivity(activityText, activity.detail)}
               fatigue={fatigue}

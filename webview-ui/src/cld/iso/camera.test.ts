@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { ISO_FRAME_MARGIN } from '../../constants.js';
+import { ISO_FRAME_MARGIN, PHONE_ISO_ZOOM_MIN } from '../../constants.js';
 import {
   clampIsoPan,
   fitZoom,
   isoCameraStep,
   newIsoCam,
+  occupiedRoomsBox,
+  phoneFitZoom,
   stackCentre,
   viewTarget,
 } from './camera.js';
@@ -31,6 +33,139 @@ const base = {
   reduced: false,
   dt: 1 / 60,
 };
+
+// PHONE-ZOOM: a portrait phone, 390x633 CSS at dpr 3. Floor 2 (rows 27..48) holds two rooms.
+const phoneView = { w: 1170, h: 1900 };
+const areaTiles: Array<string | null> = new Array(35 * 74).fill(null);
+const room = (label: string, c0: number, r0: number, c1: number, r1: number) => {
+  for (let r = r0; r <= r1; r++)
+    for (let c = c0; c <= c1; c++) areaTiles[(27 + r) * 35 + c] = label;
+};
+room('a', 1, 2, 11, 12);
+room('b', 14, 2, 24, 12);
+const layout = { cols: 35, areaTiles };
+const inRoomB = [{ tileCol: 18, tileRow: 27 + 6 }];
+const mid = (b: { x0: number; y0: number; x1: number; y1: number }) => ({
+  x: (b.x0 + b.x1) / 2,
+  y: (b.y0 + b.y1) / 2,
+});
+
+describe('phone isometric framing', () => {
+  const phone = {
+    ...base,
+    view: phoneView,
+    dpr: 3,
+    level: 1,
+    focusId: '2',
+    building: true,
+    phone: true,
+  };
+
+  it('frames the occupied rooms at a readable zoom, centred on them', () => {
+    const rooms = occupiedRoomsBox(stack, 1, layout, inRoomB)!;
+    const out = isoCameraStep(newIsoCam(), { ...phone, phoneBox: () => rooms });
+    expect(out.zoom).toBeGreaterThanOrEqual(PHONE_ISO_ZOOM_MIN);
+    expect(out.zoom).toBe(phoneFitZoom(phoneView, rooms, 3));
+    expect(out.pan).toEqual(panTo(mid(rooms), stackCentre(stack), out.zoom!));
+    // the old slab fit: zoom 2, the whole floor, characters ~10 CSS px
+    expect(fitZoom(phoneView, floorBox(stack, 1), 3)).toBeLessThan(PHONE_ISO_ZOOM_MIN);
+  });
+
+  it('takes only the rooms with someone in them, else every room of the floor', () => {
+    const b = occupiedRoomsBox(stack, 1, layout, inRoomB)!;
+    const all = occupiedRoomsBox(stack, 1, layout, [])!;
+    const elsewhere = occupiedRoomsBox(stack, 1, layout, [{ tileCol: 18, tileRow: 6 }])!; // floor 1
+    expect(all.x1 - all.x0).toBeGreaterThan(b.x1 - b.x0);
+    expect(elsewhere).toEqual(all);
+    expect(occupiedRoomsBox(stack, 1, { cols: 35 }, inRoomB)).toBeNull();
+    // the room's iso corners lie inside the floor's slab
+    const floor = floorBox(stack, 1);
+    expect(b.x0).toBeGreaterThanOrEqual(floor.x0);
+    expect(b.x1).toBeLessThanOrEqual(floor.x1);
+    expect(b.y1).toBeLessThanOrEqual(floor.y1);
+  });
+
+  it('keeps the slab fit where no rooms are known, and the desktop as it was', () => {
+    const slab = isoCameraStep(newIsoCam(), { ...phone, phoneBox: () => null });
+    expect(slab.zoom).toBe(phoneFitZoom(phoneView, floorBox(stack, 1), 3));
+    const desktop = isoCameraStep(newIsoCam(), {
+      ...base,
+      level: 1,
+      focusId: '2',
+      building: true,
+      phoneBox: () => occupiedRoomsBox(stack, 1, layout, inRoomB),
+    });
+    expect(desktop.zoom).toBe(fitZoom(view, stack.box));
+    const d2 = isoCameraStep(newIsoCam(), { ...base, level: 1, focusId: '2', building: true });
+    expect(desktop).toEqual(d2);
+  });
+
+  it('follows the agents arriving after the first frame, until the user moves the camera', () => {
+    const cam = newIsoCam();
+    let box: ReturnType<typeof occupiedRoomsBox> = null;
+    const first = isoCameraStep(cam, { ...phone, phoneBox: () => box });
+    box = occupiedRoomsBox(stack, 1, layout, inRoomB);
+    const next = isoCameraStep(cam, {
+      ...phone,
+      zoom: first.zoom!,
+      pan: first.pan,
+      phoneBox: () => box,
+    });
+    expect(next.pan).toEqual(
+      panTo(mid(box!), stackCentre(stack), phoneFitZoom(phoneView, box!, 3)),
+    );
+    // the user pans: left alone
+    const moved = { x: 5, y: 5 };
+    const kept = isoCameraStep(cam, {
+      ...phone,
+      zoom: next.zoom ?? first.zoom!,
+      pan: moved,
+      manual: true,
+      phoneBox: () => box,
+    });
+    expect(kept).toEqual({ pan: moved });
+  });
+
+  it('keeps a manual zoom and pan, and reframes on a toggle back to the floor', () => {
+    const rooms = occupiedRoomsBox(stack, 1, layout, inRoomB)!;
+    const saved = { x: 123, y: -45 };
+    expect(
+      isoCameraStep(newIsoCam(), {
+        ...phone,
+        manual: true,
+        zoom: 7,
+        pan: saved,
+        phoneBox: () => rooms,
+      }),
+    ).toEqual({ pan: saved });
+    const cam = newIsoCam();
+    const open = isoCameraStep(cam, { ...phone, phoneBox: () => rooms });
+    const whole = isoCameraStep(cam, {
+      ...phone,
+      building: false,
+      zoom: open.zoom!,
+      pan: open.pan,
+      phoneBox: () => rooms,
+    });
+    expect(whole.zoom).toBe(phoneFitZoom(phoneView, rooms, 3));
+    const all = isoCameraStep(cam, {
+      ...phone,
+      building: true,
+      zoom: whole.zoom!,
+      pan: whole.pan,
+      phoneBox: () => rooms,
+    });
+    expect(all.zoom).toBe(fitZoom(phoneView, stack.box, 3));
+    const back = isoCameraStep(cam, {
+      ...phone,
+      building: false,
+      zoom: all.zoom!,
+      pan: all.pan,
+      phoneBox: () => rooms,
+    });
+    expect(back.zoom).toBe(open.zoom);
+  });
+});
 
 describe('iso camera', () => {
   it('fits a box at the largest whole zoom, never under 1', () => {
@@ -62,6 +197,46 @@ describe('iso camera', () => {
       building: true,
     });
     expect(all.zoom).toBe(fitZoom(view, stack.box));
+  });
+
+  it('opens the phone on the current floor and leaves its saved camera alone', () => {
+    const desktop = isoCameraStep(newIsoCam(), {
+      ...base,
+      level: 1,
+      focusId: '2',
+      building: true,
+    });
+    const phone = isoCameraStep(newIsoCam(), {
+      ...base,
+      level: 1,
+      focusId: '2',
+      building: true,
+      phone: true,
+    });
+    const floor = floorBox(stack, 1);
+    expect(desktop.zoom).toBe(fitZoom(view, stack.box));
+    expect(phone.zoom).toBe(phoneFitZoom(view, floor));
+    expect(phone.zoom).toBeGreaterThan(desktop.zoom!);
+    expect(phone.pan).toEqual(
+      panTo(
+        { x: (floor.x0 + floor.x1) / 2, y: (floor.y0 + floor.y1) / 2 },
+        stackCentre(stack),
+        phone.zoom!,
+      ),
+    );
+
+    const saved = { x: 123, y: -45 };
+    const restored = isoCameraStep(newIsoCam(), {
+      ...base,
+      level: 1,
+      focusId: '2',
+      building: true,
+      phone: true,
+      manual: true,
+      zoom: 7,
+      pan: saved,
+    });
+    expect(restored).toEqual({ pan: saved });
   });
 
   it('glides to a new focus, at once with reduced motion, and lets a manual pan be', () => {

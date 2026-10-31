@@ -17,13 +17,13 @@ import { getExternalNarrationLogPath } from './external-monitor';
  *
  * Two ways to narrate:
  *   - the fixture exposes the handle `setNarrationContext` returns as
- *     `narrator` on the pixelAgents payload — tests call `narrator.step()` /
+ *     `narrator` on its payload — tests call `narrator.step()` /
  *     `narrator.check()`;
  *   - `narrate` (module-level, same handle) lets shared helpers narrate
  *     universal moments (e.g. spawning an agent) without threading the handle
  *     through 60+ call sites. It no-ops until the fixture sets a context.
  *
- * STRICTLY COSMETIC. Pixel Agents never reads terminal output (its inputs are
+ * STRICTLY COSMETIC. The daemon never reads terminal output (its inputs are
  * JSONL transcripts and hook POSTs), so no assertion may depend on narration —
  * deleting every step()/check() call must leave all tests passing. Every
  * failure here is swallowed. The suite runs with workers:1, so the single
@@ -77,7 +77,7 @@ export const narrate: TestNarrator = {
 /**
  * Begin narration for a test. Touches the log file (so the tails have a file to
  * follow immediately) and starts the relative-timestamp clock. Returns the
- * module-level narrator for the fixture to expose. Called by the pixelAgents
+ * module-level narrator for the fixture to expose. Called by a
  * fixture at setup, before use().
  */
 export function setNarrationContext(tmpHome: string): TestNarrator {

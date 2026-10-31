@@ -4,15 +4,14 @@
 
 ## Key Decisions
 
-- **Layered codebase** (core → server → adapters; core → webview-ui). Standalone CLI never imports `adapters/vscode/` and vice versa.
+- **Layered codebase** (core → server; core → webview-ui). The VS Code adapter was removed on 2026-11-01 (only the standalone daemon ships).
 - **AsyncAPI 3.0 contract**, generated TS bindings, CI drift check. Single source of truth for the wire protocol.
 - **AgentRuntime** shared lifecycle core, composed by both surfaces.
 - **AgentStateStore** as single source of truth with typed mutations and typed events. No transport calls outside the broadcast layer.
-- **Transport abstraction**: `MessageTransport` interface, `PostMessageTransport` + `WebSocketTransport`. One branching point in the entire UI.
+- **Transport abstraction**: `MessageTransport` interface, `WebSocketTransport` (the VS Code `PostMessageTransport` is deleted). One branching point in the entire UI.
 - **HookProvider** as the integration boundary, with optional file fallback. New CLIs are a single subdirectory under `server/src/providers/hook/<id>/`.
 - **TeamProvider** as optional extension. Claude Agent Teams is the only implementation.
-- **Per-adapter namespaced persistence** under `~/.pixel-agents/`. VS Code and standalone never clobber each other.
-- **Verify-before-clear migration** for legacy VS Code state.
+- **Per-adapter namespaced persistence**, in the office folder since 2026-11 (formerly `~/.pixel-agents/`, server-runtime.md). The (removed) VS Code surface and standalone never clobbered each other; the `vscode` key is read and no longer written.
 - **Single `WebviewViewProvider`** (panel area, not editor area).
 - **Inline esbuild problem matcher** (no extra extension needed).
 - **`erasableSyntaxOnly`** in webview forbids `enum` — use `as const` objects.

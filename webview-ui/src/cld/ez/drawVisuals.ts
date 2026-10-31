@@ -46,6 +46,7 @@ import type { Character, SpriteData } from '../../office/types.js';
 import { CharacterState, Direction } from '../../office/types.js';
 import { isE2E } from '../../runtime.js';
 import { FRAME_H as CHAR_H, FRAME_W as CHAR_W } from '../characters/compose.js';
+import { director } from '../director/director.js';
 import { drinkPose, type Rest } from '../lounge.js';
 import { noticePulse } from '../notify/notices.js';
 import { REST_SPRITES, restFrame, restWatch, sipAnchorOf } from '../rest.js';
@@ -96,7 +97,7 @@ const PANTRY_SPRITES = Object.fromEntries(
 /** A figure's drawn box: its visible height in world px (feet to the top of its head), whatever its
  *  size (classic, HD, an imported sheet), from the standing frame. Cached per sprite set. */
 const figureHeights = new WeakMap<object, number>();
-function figureHeight(ch: Character): number {
+export function figureHeight(ch: Character): number {
   const s = getCharacterSprites(ch.palette, ch.hueShift);
   let h = figureHeights.get(s);
   if (h === undefined) {
@@ -330,6 +331,9 @@ export function cldCharacterDrawables(
     });
   }
   if (ch.cldRest) pulsed.push(...restDrawables(ch, ch.cldRest, feetX, feetY, zoom, zY, alpha));
+  // C1: a coffee break's bubble or a rebirth burst (the director; one Map lookup otherwise)
+  if (director.playing(ch.id))
+    pulsed.push(...director.drawables(ch, { x: feetX, y: feetY, zoom, h: figureHeight(ch) }, zY));
   const visual = characterVisualOf(ch.id);
   if (!visual) return pulsed;
   const t = animationClock();

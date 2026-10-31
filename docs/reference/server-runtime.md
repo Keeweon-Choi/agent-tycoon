@@ -1,10 +1,10 @@
 # Server runtime, /ws security and persistence
 
-> Read before touching AgentRuntime, AgentStateStore, the HTTP/WebSocket gate (privileged vs read-only clients), hooks-preference persistence, ~/.pixel-agents files or state migration.
+> Read before touching AgentRuntime, AgentStateStore, the HTTP/WebSocket gate (privileged vs read-only clients), hooks-preference persistence, the office folder (formerly ~/.pixel-agents) or state migration.
 
 ## Server Runtime
 
-`AgentRuntime` (`server/src/agentRuntime.ts`) is the shared lifecycle core. Both surfaces (`adapters/vscode/PixelAgentsViewProvider.ts` and `server/src/cli.ts`) compose the same runtime; only the `StateAdapter` namespace, `MessageTransport`, and `TerminalAdapter` differ.
+`AgentRuntime` (`server/src/agentRuntime.ts`) is the shared lifecycle core. `server/src/cli.ts` composes it with the `standalone` `StateAdapter` namespace, the WebSocket `MessageTransport` and the PTY `TerminalAdapter` (the VS Code surface that composed it differently was removed on 2026-11-01).
 
 ```typescript
 export class AgentRuntime {
@@ -14,7 +14,6 @@ export class AgentRuntime {
     layoutPersistence: LayoutPersistence;
     assetCache: AssetCache;
     config: Pick<AdapterSettings, 'hooksEnabled' | 'watchAllSessions'>;
-    terminalAdapter?: TerminalAdapter;
     callbacks: RuntimeLifecycleCallbacks;
   });
   registerAgent / unregisterAgent / removeAgent / removeTeammate / removeTeammates
@@ -48,15 +47,23 @@ Fastify v5 with `@fastify/cors`, `@fastify/websocket`, and (in standalone) `@fas
 `/ws` is gated in **two tiers**, because messages over this socket launch shells, grant durable machine-wide hook consent, and rewrite persisted state.
 
 1. **Connection** (`isAllowedWebSocketOrigin`): embedded requires the Bearer token; standalone requires a same-origin handshake. A missing Origin still connects (non-browser clients send none). This tier is weak by design — a DNS-rebound page sends `Origin` and `Host` as the same attacker-chosen name and IS accepted (`httpServerWs.test.ts` pins that).
-2. **Privileged messages** (`standaloneTokenValid`, `ClientMessageContext.privileged`): proved by an out-of-band secret — embedded via its Bearer token, standalone via the server token in the `/ws` `?token=` query, which the CLI prints in the local URL and the SPA forwards (`webview-ui/src/transport/index.ts`). **Never a network position**: peer address, `Host` and `Origin` all ride the channel a proxy speaks, so a LAN-bound forwarder piping bytes to 127.0.0.1 satisfies all three. The token is a replayable bearer capability, not evidence of locality — it reaches browser history (Fastify's request log redacts it, `wsAuth.redactTokenQuery`), so the printed URL is documented to the user as a secret. Standalone persists it in `~/.pixel-agents/standalone-token` (0600) so a bookmarked URL survives restarts; `--rotate-token` replaces it (revoking every device at once; refused while another standalone server is running, since it would keep honouring the old one). The terminal socket (`/terminal/:agentId`) carries it the same way and both sockets decide privilege with ONE predicate, `wsAuth.standaloneHandshakeVerdict`: the token AND an allowed `Host` — loopback, a specific `--host`, or a name passed with `--allowed-host` (anti-DNS-rebinding defence in depth). The allowlist is explicit rather than "loopback when loopback-bound" because a reverse proxy (Tailscale Serve) forwards to 127.0.0.1 under its public name; a loopback-only rule forced `--host 0.0.0.0`, exposing the port and the token in transit to the LAN. **An unprivileged client is read-only**: it may load and watch the office (`webviewReady`) and NOTHING else — every other message is refused by one gate at the top of `handleClientMessage` (`refuseReadOnly`), so a new message type is privileged by default. Where the UI updates optimistically (settings toggles, hooks toggle, asset directories, area mappings), the refused client is re-sent the real state. A tokened connection under an unlisted Host is read-only too and logs the `--allowed-host` hint. A second standalone launch reuses a running server only when its access matches (`ServerConfig.standalone`: terminal on/off, bind host, allowed hosts) — otherwise `--no-terminal` would silently attach to a server with a shell.
+2. **Privileged messages** (`standaloneTokenValid`, `ClientMessageContext.privileged`): proved by an out-of-band secret — embedded via its Bearer token, standalone via the server token in the `/ws` `?token=` query, which the CLI prints in the local URL and the SPA forwards (`webview-ui/src/transport/index.ts`). **Never a network position**: peer address, `Host` and `Origin` all ride the channel a proxy speaks, so a LAN-bound forwarder piping bytes to 127.0.0.1 satisfies all three. The token is a replayable bearer capability, not evidence of locality — it reaches browser history (Fastify's request log redacts it, `wsAuth.redactTokenQuery`), so the printed URL is documented to the user as a secret. Standalone persists it in `<office folder>/standalone-token` (0600) so a bookmarked URL survives restarts; `--rotate-token` replaces it (revoking every device at once; refused while another standalone server is running, since it would keep honouring the old one). The terminal socket (`/terminal/:agentId`) carries it the same way and both sockets decide privilege with ONE predicate, `wsAuth.standaloneHandshakeVerdict`: the token AND an allowed `Host` — loopback, a specific `--host`, or a name passed with `--allowed-host` (anti-DNS-rebinding defence in depth). The allowlist is explicit rather than "loopback when loopback-bound" because a reverse proxy (Tailscale Serve) forwards to 127.0.0.1 under its public name; a loopback-only rule forced `--host 0.0.0.0`, exposing the port and the token in transit to the LAN. **An unprivileged client is read-only**: it may load and watch the office (`webviewReady`) and NOTHING else — every other message is refused by one gate at the top of `handleClientMessage` (`refuseReadOnly`), so a new message type is privileged by default. Where the UI updates optimistically (settings toggles, hooks toggle, asset directories, area mappings), the refused client is re-sent the real state. A tokened connection under an unlisted Host is read-only too and logs the `--allowed-host` hint. A second standalone launch reuses a running server only when its access matches (`ServerConfig.standalone`: terminal on/off, bind host, allowed hosts) — otherwise `--no-terminal` would silently attach to a server with a shell.
 
 The **hooks preference is persisted only after the install/uninstall settled and the on-disk result agrees** — writing it first strands the user when an uninstall fails: entries still firing, but a persisted hooks-off makes the next startup skip the consent/install path entirely.
 
-Server discovery written to `~/.pixel-agents/server.json` with `{ port, pid, authToken }`. Multi-window safe: a second server detects an existing `server.json` and reuses or replaces it based on PID liveness.
+Server discovery is written to `<office folder>/server.json` and `<office folder>/servers/<pid>-<port>.json` (port, pid, token, capabilities), 0600, removed on stop (self-only). A second server reuses a live registry entry of the same kind and access, or starts its own. For one release both are also written to `~/.pixel-agents/` (below).
 
 ## ClientMessageHandler
 
 Single dispatch point for `ClientMessage`. Each variant calls into `AgentRuntime`, `AgentStateStore`, `LayoutPersistence`, or `FileStateAdapter`, or delegates to host-specific callbacks (`onLaunchAgent`, `onOpenSessionsFolder`, `onExportLayout`, `onImportLayout`, `onSetHooksEnabled`). Both surfaces wire the same handler.
+
+## Engine agents in our PTY host (ADR-0018)
+
+The cld engine (`server/src/cld/engine/engine.ts`) drives each agent through the provider its assignment names. Since TERM-P3 every new Claude agent is `claude-pty`: Claude run directly in our PTY host (`server/src/cld/ptyhost/`, `agents/claude/claudePty.ts`); `claude` (`claude --bg` + `claude attach`) is the emergency backup, kept as it is until P5 removes it. The tools and agents still see the CLI as `claude` (`registry.ts cliOf`).
+
+- **Moving an agent**: `agty move-pty <name>`, the project card's 새 터미널 방식 switch, or the engine action `edit` with `provider: claude-pty` (one path, `Engine.moveToPty`). Off: only the provider changes. On: refused mid-turn or while held; then `claude stop`, `claude --resume <same id>` in the host, and success only once a host session with that id is idle (`PTY_MOVE_IDLE_MS`); anything short of that restores the record and restarts the old session, with the reason. Back to `claude` only while off.
+- **Moving every agent** (owner only): `agty move-pty --all` / `--stop`, or the 모두 새 터미널로 옮기기 button in the 현황판 engine section (`engineMoveAll`, privileged; `engineState.moveAll` = `{done, total}` while it runs). `Engine.moveAll` queues the Claude-mode agents and moves them one at a time through `moveToPty`: off agents, Workers, Leads without Workers, then Leads with Workers (the orchestrators). A running agent is looked at every `PTY_MOVE_ALL_POLL_MS` and moved when idle; past `PTY_MOVE_ALL_WAIT_MS` (30 min) it is skipped with the reason and the queue goes on. One feed line per agent (`pty_move`: moved / skipped / rolled_back + reason), then a summary (`pty_move_all`). A second request while it runs is refused; stop ends it after the agent being moved. ponytail: in memory, so a daemon restart ends it; pressing again skips the agents already moved.
+- **Permission prompts** of a PTY agent come from Claude Code's `PermissionRequest` hook, handed over in `--settings` (`claudePty.ts permissionHooks`; no settings file is written). The hook runs `cld-gui permission-hook`, which asks over the control socket with the session's `CLD_AGENT_TOKEN`; `Office.askPermission` shows the usual PERM-PROMPT card and the owner's 허용/거부 is the decision. No answer within `PTY_PERMISSION_WAIT_MS` (or no daemon): no decision, and Claude shows its own dialog in the agent's terminal. The screen-reading PERM-PROMPT path (`permissionWait.ts`, `claude agents --json`) runs only for remaining `--bg` agents.
 
 ## ServerAgentState (server/src/types.ts)
 
@@ -65,17 +72,22 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
 ## Persistence
 
 ```
-~/.pixel-agents/
-  config.json              { vscode, standalone, externalAssetDirectories, hooksConsent, hooksEnabled (both per-provider) }
-  vscode-state.json        { agents, seats }
+<settings directory>/office/     officeDirectory(home): ~/.config/agent-tycoon/office (~/.config/cld-gui/office on a pre-rename install)
+  config.json              { standalone, externalAssetDirectories, hooksConsent, hooksEnabled (both per-provider), directories }
   standalone-state.json    { agents, seats }
-  layout.json              OfficeLayout (shared across surfaces)
-  server.json              { port, pid, authToken }
-  hooks/claude-hook.js     Bundled hook script (CJS, shebang)
+  layout.json              OfficeLayout
+  standalone-token         server token (0600)
+  server.json              { port, pid, token, ... } legacy single-target pointer
+  servers/<pid>-<port>.json  registry the hook script fans out to
+  hooks/claude-hook.js     Bundled hook script (CJS, shebang), when hooks are installed
 ```
 
-`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown` (the hooks preference is per-provider and machine-global, at the config top level). Running both surfaces in parallel never clobbers either.
+**The move out of `~/.pixel-agents` (2026-11).** That folder is the upstream project's, and its VS Code extension may share it (`vscode-state.json`, its own `server.json`/`servers/` entries and hook). At every start, before anything reads, `migrateOfficeFolder` (`server/src/officeFolder.ts`) copies OUR four files (`config.json`, `standalone-state.json`, `layout.json`, `standalone-token`) into the office folder: per file copy to `<name>.migrating`, compare sha256 with the original, rename (the switch), then count that every original has its twin; a file already in the office folder is never overwritten, so a re-run changes nothing and a run cut short is finished by the next one. Nothing in `~/.pixel-agents` is moved, rewritten or deleted. For one release (`ponytail:` in officeFolder.ts and server.ts):
+- every reader falls back to `~/.pixel-agents/<file>` when the office folder lacks it (`officeFileToRead`); writes always go to the office folder;
+- the server writes `server.json` and its `servers/` entry to `~/.pixel-agents` too (and removes both on stop), because a Claude session started before the upgrade keeps running the settings.json entry it started with, `~/.pixel-agents/hooks/claude-hook.js`, and that old script only looks there. The new hook script reads the office folder;
+- an old `~/.pixel-agents/hooks/claude-hook.js` settings entry counts as ours only while no Pixel Agents extension is installed in the home (hooks-consent.md).
+The release after drops the fallback and the dual write, and then deletes only those four files (plus our own `server.json`/`servers/` entries) from `~/.pixel-agents`. Browser `localStorage` is per device and origin; the move does not change the origin, so nothing there moves.
 
-`migrateVsCodeState` (VS Code adapter only) walks each known legacy key once with **verify-before-clear** semantics: write to file, read back, only then clear the legacy key. While anything remains unmigrated, activation shows a non-blocking warning.
+`FileStateAdapter({ namespace })` backs both runtimes. Per-namespace settings: `soundEnabled`, `lastSeenVersion`, `alwaysShowLabels`, `watchAllSessions`, `hooksInfoShown` (the hooks preference is per-provider and machine-global, at the config top level). The `vscode` namespace (config key and `vscode-state.json`) belonged to the removed VS Code extension: a config that still has the key is read, and the next write drops it.
 
 Layout writes are atomic via tmp + rename. Cross-window watching is hybrid (`fs.watch` + 2 s polling). `markOwnWrite()` prevents the watcher from re-reading our own write.

@@ -82,10 +82,14 @@ function set(next: Partial<RepoSnapshot>): void {
   listeners.forEach((listener) => listener());
 }
 
-/** `task`: a file of that task worktree's changes (W4), not of the project's own status. */
-export const diffKey = (project: string, path: string, staged: boolean, task?: string): string =>
-  `${project}\0${task !== undefined ? `task:${task}` : staged ? 'staged' : 'worktree'}\0${path}`;
-export const detailKey = (project: string, task: string): string => `${project}\0${task}`;
+/**
+ * `task`: a file of that task worktree's changes (W4), not of the project's own status; `since`:
+ * what changed after that commit (the review's "지난 검토 뒤 바뀐 것만").
+ */
+export const diffKey = (project: string, path: string, staged: boolean, task?: string, since?: string): string =>
+  `${project}\0${task !== undefined ? `task:${task}${since ? `@${since}` : ''}` : staged ? 'staged' : 'worktree'}\0${path}`;
+export const detailKey = (project: string, task: string, since?: string): string =>
+  `${project}\0${task}${since ? `@${since}` : ''}`;
 
 const newRequestId = () => `${Date.now().toString(36)}-${++requestSeq}`;
 
@@ -107,8 +111,8 @@ export function repoHandleMessage(
       return;
     }
     case 'repoWorktreeDetail': {
-      const key = detailKey(msg.project, msg.task);
-      if (pendingDetails.get(msg.requestId) !== key) return;
+      const key = pendingDetails.get(msg.requestId); // its own key: a since list differs from the whole one
+      if (key === undefined) return;
       pendingDetails.delete(msg.requestId);
       const view: DetailView = msg.ok
         ? { files: msg.files ?? [], commits: msg.commits ?? [], filesTruncated: !!msg.filesTruncated, ...(msg.guard && { guard: serverLine(msg.guard) }), loading: false }
@@ -177,19 +181,20 @@ export function repoRequestDiff(
   send: (msg: RepoDiffRequest) => void,
   more = false,
   task?: string,
+  since?: string,
 ): void {
-  const key = diffKey(project, path, staged, task);
+  const key = diffKey(project, path, staged, task, since);
   const before = snapshot.diffs[key];
   if (before?.loading) return;
   const offset = more ? before?.nextOffset : undefined;
   if (more && offset === undefined) return;
   const requestId = newRequestId();
   pending.set(requestId, { key, append: more });
-  // Loading the next page keeps the page(s) shown, and the link that is being used.
+  // A refetch or the next page keeps what is shown meanwhile (no flash while an agent keeps writing).
   set({
     diffs: {
       ...snapshot.diffs,
-      [key]: more && before ? { ...before, loading: true } : { text: '', loading: true },
+      [key]: before && (more || before.text) ? { ...before, loading: true } : { text: '', loading: true },
     },
   });
   send({
@@ -197,6 +202,7 @@ export function repoRequestDiff(
     requestId,
     project,
     ...(task !== undefined ? { task } : {}),
+    ...(since ? { since } : {}),
     path,
     staged,
     ...(offset !== undefined ? { offset } : {}),
@@ -204,18 +210,18 @@ export function repoRequestDiff(
 }
 
 /** W4: ask what task worktree `task` changed (again when it changed; the old answer stays shown meanwhile). */
-export function repoRequestDetail(project: string, task: string, send: (msg: RepoWorktreeRequest) => void): void {
-  const key = detailKey(project, task);
+export function repoRequestDetail(project: string, task: string, send: (msg: RepoWorktreeRequest) => void, since?: string): void {
+  const key = detailKey(project, task, since);
   const before = snapshot.details[key];
   if (before?.loading) return;
   const requestId = newRequestId();
   pendingDetails.set(requestId, key);
   set({ details: { ...snapshot.details, [key]: { ...(before ?? { files: [], commits: [], filesTruncated: false }), loading: true } } });
-  send({ type: 'repoWorktreeRequest', requestId, project, task });
+  send({ type: 'repoWorktreeRequest', requestId, project, task, ...(since ? { since } : {}) });
 }
 
-export function repoCloseDetail(project: string, task: string): void {
-  const key = detailKey(project, task);
+export function repoCloseDetail(project: string, task: string, since?: string): void {
+  const key = detailKey(project, task, since);
   if (!(key in snapshot.details)) return;
   const details = { ...snapshot.details };
   delete details[key];
@@ -223,8 +229,8 @@ export function repoCloseDetail(project: string, task: string): void {
   set({ details });
 }
 
-export function repoCloseDiff(project: string, path: string, staged: boolean, task?: string): void {
-  const key = diffKey(project, path, staged, task);
+export function repoCloseDiff(project: string, path: string, staged: boolean, task?: string, since?: string): void {
+  const key = diffKey(project, path, staged, task, since);
   if (!(key in snapshot.diffs)) return;
   const diffs = { ...snapshot.diffs };
   delete diffs[key];

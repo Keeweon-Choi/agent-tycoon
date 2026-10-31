@@ -1,7 +1,7 @@
 /** CHAR-HUMAN: v1/v2 looks whose composed sheets must stay pixel-identical (hashes in lookHashes.json). */
 import type { CharacterChoice } from '../../../core/src/messages.js';
 
-/* eslint-disable pixel-agents/no-inline-colors -- stored look colours */
+/* eslint-disable agent-tycoon/no-inline-colors -- stored look colours */
 export const LOOK_SAMPLES: CharacterChoice[] = [
   { palette: 0 },
   { palette: 2, hueShift: 45 },

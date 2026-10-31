@@ -28,6 +28,7 @@ const pc: WinState = {
     notices: false,
     terminal: false,
     workbench: false,
+    devroom: false,
     looks: false,
   },
   minimized: {},

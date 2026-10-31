@@ -21,7 +21,7 @@ function contentTypeFor(filePath: string): string {
 }
 
 async function buildSubpathPreview(base: string): Promise<string> {
-  const outDir = mkdtempSync(path.join(os.tmpdir(), 'pixel-agents-webview-build-'));
+  const outDir = mkdtempSync(path.join(os.tmpdir(), 'agent-tycoon-webview-build-'));
   await build({
     configFile: path.resolve(root, 'vite.config.ts'),
     logLevel: 'silent',

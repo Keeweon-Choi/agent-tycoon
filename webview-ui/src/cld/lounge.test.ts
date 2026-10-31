@@ -18,11 +18,14 @@ import {
   TILE_SIZE,
   TileType,
 } from '../office/types.js';
+import { makeAction } from './director/actions.js';
+import { Director } from './director/director.js';
 import { visitFloor } from './elevator.js';
 import {
   beginRest,
   DRINK_SEC,
   drinkPose,
+  endBreak,
   endRest,
   LOUNGE_SUFFIX,
   nextDrinkIn,
@@ -31,6 +34,7 @@ import {
   restDropAt,
   restSpotFor,
   restStep,
+  startBreak,
 } from './lounge.js';
 import { setOfficeHours } from './officeHours.js';
 import { cldHandleMessage, cldResetForTests } from './officeStore.js';
@@ -493,5 +497,54 @@ describe('off duty, through the staff director (LOUNGE)', () => {
     go(os, t0, 2);
     // a sub-agent is never given a rest, whatever the hour
     expect(os.characters.get(sub)?.cldRest).toBeUndefined();
+  });
+});
+
+describe('a coffee break from work (C1)', () => {
+  it("walks to the coffee machine, drinks, walks back to its desk and is the FSM's again; work never calls it back early", () => {
+    const os = office(oneFloor(), [1]);
+    const ch = os.characters.get(1)!;
+    os.setAgentActive(1, true);
+    run(os, 2);
+    const desk = at(ch);
+    const d = new Director(() => false, makeAction);
+    d.play(1, { kind: 'coffee' });
+    const phases: string[] = [];
+    let at3 = -1;
+    for (let t = 0; t < 60 && d.playing(1); t += 0.05) {
+      os.update(0.05);
+      d.step(os, 0.05);
+      const r = ch.cldRest;
+      if (r && phases.at(-1) !== r.phase) phases.push(r.phase);
+      if (r?.phase === 'use') at3 = ch.tileRow;
+      if (r?.phase === 'fetch') os.setAgentActive(1, true); // tools keep running meanwhile
+    }
+    expect(phases).toEqual(['fetch', 'use', 'drink', 'go']);
+    expect(at3).toBe(3); // in front of the machine
+    expect(d.playing(1)).toBe(false);
+    expect(ch.cldRest).toBeUndefined();
+    expect(at(ch)).toEqual(desk);
+    expect(ch.isActive).toBe(true);
+  });
+
+  it('with no coffee machine on its floor there is no walk (the drink is shown in place)', () => {
+    const layout = oneFloor();
+    layout.furniture = layout.furniture.filter((f) => f.type !== 'COFFEE_MACHINE');
+    const os = office(layout, [1]);
+    const ch = os.characters.get(1)!;
+    expect(startBreak(os, ch, 'coffee')).toBeNull();
+    expect(ch.cldRest).toBeUndefined();
+  });
+
+  it('a tap ends the break: the character heads back to its desk', () => {
+    const os = office(oneFloor(), [1]);
+    const ch = os.characters.get(1)!;
+    os.setAgentActive(1, true); // working: it stays at the desk once there
+    const rest = startBreak(os, ch, 'coffee')!;
+    run(os, 0.5);
+    endBreak(os, ch, rest);
+    expect(ch.cldRest).toBeUndefined();
+    run(os, 10);
+    expect(at(ch)).toEqual([2, 3]);
   });
 });

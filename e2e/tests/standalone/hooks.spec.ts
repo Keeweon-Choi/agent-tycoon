@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../../fixtures/standalone';
 import type { TestHooksWindow } from '../../helpers/editor';
 import {
+  officeFile,
   ourHookEvents,
   sendHookEvent,
   sessionEndExit,
@@ -119,7 +120,7 @@ test.describe('Standalone / hooks consent', () => {
 
   function readConsentFrom(tmpHome: string): boolean {
     try {
-      const raw = fs.readFileSync(path.join(tmpHome, '.pixel-agents', 'config.json'), 'utf8');
+      const raw = fs.readFileSync(officeFile(tmpHome, 'config.json'), 'utf8');
       const consent = (JSON.parse(raw) as { hooksConsent?: Record<string, string> }).hooksConsent;
       return consent?.claude === 'granted';
     } catch {
@@ -265,14 +266,14 @@ async function openSpectator(page: Page): Promise<Page> {
   // Same harness flag the fixture gives its own page, so the app installs the
   // test hooks the loaded check below reads.
   await spectator.addInitScript(() => {
-    (window as unknown as { __PIXEL_AGENTS_E2E?: boolean }).__PIXEL_AGENTS_E2E = true;
+    (window as unknown as { __AGENT_TYCOON_E2E?: boolean }).__AGENT_TYCOON_E2E = true;
   });
   await spectator.goto(bareUrl.toString());
   await expect
     .poll(
       () =>
         spectator.evaluate(
-          () => (window as TestHooksWindow).__pixelAgentsTestHooks?.getTiles?.()?.tiles.length ?? 0,
+          () => (window as TestHooksWindow).__agentTycoonTestHooks?.getTiles?.()?.tiles.length ?? 0,
         ),
       { timeout: 30_000 },
     )

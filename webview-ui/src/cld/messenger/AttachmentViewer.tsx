@@ -35,7 +35,8 @@ import {
   prepareClipboardPng,
 } from './attachmentActions.js';
 import { Gallery, type TicketFor, type ViewerFile } from './attachmentGallery.js';
-import { linkedFileType } from './attachments.js';
+import { isVideoType, linkedFileType } from './attachments.js';
+import { AttachmentVideo } from './AttachmentVideo.js';
 import {
   canInlineText,
   canOfferFileActions,
@@ -130,6 +131,7 @@ export function AttachmentViewer({
 }) {
   const file = files[index];
   const isImage = file.type.startsWith('image/');
+  const isVideo = isVideoType(file.type);
   const stage = useRef<HTMLDivElement>(null);
   const controls = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
@@ -486,6 +488,25 @@ export function AttachmentViewer({
           {t('attachment.viewer.loading')}
         </p>
       )}
+      {isVideo && !problem && (
+        <div className="attach-video-stage">
+          <AttachmentVideo
+            key={file.path}
+            path={file.path}
+            ticketFor={ticketFor}
+            className="attach-video"
+            testId="attach-video"
+            fallback={
+              <FileCard
+                file={file}
+                problem={t('attachment.video.unavailable')}
+                missing={false}
+                checking={false}
+              />
+            }
+          />
+        </div>
+      )}
       {text !== null ? (
         isMarkdown(file.name) && markdownRendered ? (
           <MarkdownFile content={text} previewRef={textPreview} />
@@ -493,7 +514,7 @@ export function AttachmentViewer({
           <TextFile content={text} line={file.line} previewRef={textPreview} />
         )
       ) : (
-        (!isImage || problem) && (
+        ((!isImage && !isVideo) || problem) && (
           <FileCard
             file={file}
             problem={problem?.text ?? ''}

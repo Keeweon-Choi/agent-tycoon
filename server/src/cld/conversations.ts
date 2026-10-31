@@ -8,6 +8,7 @@
  * clients that have its conversation open (the new items only), and the
  * contact list (last message, latest reply ids) is republished.
  */
+import { plainText } from '../../../core/src/cld/plainText.js';
 import { koText, refused } from '../../../core/src/cld/serverText.js';
 import type { ChatItem, ChatQueued, MessengerContact } from '../../../core/src/messages.js';
 import type { TurnLedger } from './engine/turnLedger.js';
@@ -49,6 +50,13 @@ export interface Lead {
   permission?: MessengerContact['permission'];
 }
 
+const VIDEO_LINE = /^\[첨부\] [^\n]+ \(video\/[^(),]+, \d+ KB\)$/gm;
+
+/** A message's text for a list or a notice: each video's `[첨부]` line reads "[동영상]", not its path. */
+export function listedText(text: string): string {
+  return text.replace(VIDEO_LINE, koText('attachment_video_label'));
+}
+
 /** A contact's summary of its conversation so far. */
 export function contactOf(
   lead: Lead,
@@ -76,11 +84,15 @@ export function contactOf(
   if (!items) return c;
   const last = [...items].reverse().find((i) => i.kind !== 'tool');
   if (last) {
-    // Bold marks (a task notice's summary, a lead's emphasis) are not words: the list shows plain text.
-    c.preview = (last.text || koText('attachment_label'))
-      .split('\n', 1)[0]
-      .replace(/\*\*/g, '')
-      .slice(0, PREVIEW_MAX);
+    // Markdown marks are not words: the list shows plain text (its first line, or all of it when that line is only marks).
+    const text =
+      listedText(last.text) ||
+      koText(
+        last.attachments?.length && last.attachments.every((file) => file.type?.startsWith('video/'))
+          ? 'attachment_video_label'
+          : 'attachment_label',
+      );
+    c.preview = (plainText(text.split('\n', 1)[0]) || plainText(text)).slice(0, PREVIEW_MAX);
     c.lastAt = last.at;
     c.lastKind = last.kind;
     if (last.from) c.lastFrom = last.from;

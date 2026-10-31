@@ -48,6 +48,7 @@ vi.mock('fs', async () => {
 
 const { areHooksInstalled, installHooks, uninstallHooks, copyHookScript } =
   await import('../src/providers/hook/claude/claudeHookInstaller.js');
+const { legacyConfigDirectory } = await import('../src/cld/configPath.js');
 const { CLAUDE_HOOK_EVENTS, SETTINGS_BACKUP_SUFFIX, SETTINGS_TMP_SUFFIX } =
   await import('../src/providers/hook/claude/constants.js');
 
@@ -59,9 +60,14 @@ function readSettings(): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(settingsPathFor(), 'utf-8'));
 }
 
+/** Where our installer puts the script, for the current fake homedir (the office folder). */
+function ourScript(): string {
+  return path.join(tmpBase, '.config', 'agent-tycoon', 'office', 'hooks', 'claude-hook.js');
+}
+
 /** The command string our installer writes, for the current fake homedir. */
 function ourCommand(): string {
-  return `node "${path.join(tmpBase, '.pixel-agents', 'hooks', 'claude-hook.js')}"`;
+  return `node "${ourScript()}"`;
 }
 
 /** Every command string across every event, flattened. */
@@ -347,7 +353,7 @@ describe('claudeHookInstaller', () => {
     expect(fs.readFileSync(backupPath, 'utf-8')).toBe(original);
 
     // A later modification must NOT refresh the backup: it preserves the
-    // pre-Pixel-Agents state, not the previous write.
+    // pre-Agent-Tycoon state, not the previous write.
     await uninstallHooks();
     expect(fs.readFileSync(backupPath, 'utf-8')).toBe(original);
   });
@@ -373,7 +379,7 @@ describe('claudeHookInstaller', () => {
   });
 
   // 8c-2. ...and later writes to a file OUR install created still take none.
-  //       The backup preserves the user's pre-Pixel-Agents file; when the only
+  //       The backup preserves the user's pre-Agent-Tycoon file; when the only
   //       content ever in the file is our own install, a backup enshrines our
   //       output as "the user's original". Observed in a fresh home: the first
   //       uninstall backed up the install's own 12 entries.
@@ -759,6 +765,23 @@ describe('claudeHookInstaller', () => {
     const ours = (p: string) => ({ matcher: '', hooks: [{ type: 'command', command: p }] });
 
     it.each([
+      ['office folder', 'node "/home/me/.config/agent-tycoon/office/hooks/claude-hook.js"', true],
+      [
+        'pre-rename office folder',
+        `node ${path.posix.join(legacyConfigDirectory('/home/me'), 'office/hooks/claude-hook.js')}`,
+        true,
+      ],
+      [
+        'windows office folder',
+        'node "C:\\Users\\x\\.config\\agent-tycoon\\office\\hooks\\claude-hook.js"',
+        true,
+      ],
+      [
+        'lookalike office folder',
+        'node /opt/evil.config/agent-tycoon/office/hooks/claude-hook.js',
+        false,
+      ],
+      ['other settings folder', 'node /home/me/.config/other/office/hooks/claude-hook.js', false],
       ['unix path', 'node "/home/me/.pixel-agents/hooks/claude-hook.js"', true],
       ['windows path', 'node "C:\\Users\\x\\.pixel-agents\\hooks\\claude-hook.js"', true],
       ['unquoted unix path', 'node /home/me/.pixel-agents/hooks/claude-hook.js', true],
@@ -911,6 +934,65 @@ describe('claudeHookInstaller', () => {
     });
   });
 
+  // ── DATA-FOLDER: the hook leaves ~/.pixel-agents for the office folder ──
+
+  describe('the move out of ~/.pixel-agents', () => {
+    const oldCommand = () =>
+      `node "${path.join(tmpBase, '.pixel-agents', 'hooks', 'claude-hook.js')}"`;
+    const foreign = {
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: 'node /opt/other.js' }],
+    };
+    const seed = () =>
+      fs.writeFileSync(
+        settingsPathFor(),
+        JSON.stringify({
+          permissions: { allow: ['Bash(ls:*)'] },
+          hooks: {
+            Stop: [
+              foreign,
+              { matcher: '', hooks: [{ type: 'command', command: oldCommand(), timeout: 5 }] },
+            ],
+            SessionStart: [
+              { matcher: '', hooks: [{ type: 'command', command: oldCommand(), timeout: 5 }] },
+            ],
+          },
+        }),
+      );
+    const commands = (event: string) =>
+      (
+        (readSettings().hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>)[
+          event
+        ] ?? []
+      ).flatMap((e) => e.hooks.map((h) => h.command));
+
+    it('install rewrites our old entry to the office folder and leaves the foreign one', async () => {
+      seed();
+      await installHooks();
+      expect(commands('Stop')).toEqual(['node /opt/other.js', ourCommand()]);
+      expect(commands('SessionStart')).toEqual([ourCommand()]);
+      expect(allCommands()).not.toContain(oldCommand());
+      expect(readSettings().permissions).toEqual({ allow: ['Bash(ls:*)'] });
+    });
+
+    it('with a Pixel Agents extension installed, the old entry is theirs: kept, ours goes beside it', async () => {
+      fs.mkdirSync(
+        path.join(tmpBase, '.vscode-server', 'extensions', 'pablodelucca.pixel-agents-1.4.0'),
+        {
+          recursive: true,
+        },
+      );
+      seed();
+      await installHooks();
+      expect(commands('Stop')).toEqual(['node /opt/other.js', oldCommand(), ourCommand()]);
+      expect(commands('SessionStart')).toEqual([oldCommand(), ourCommand()]);
+
+      await uninstallHooks();
+      expect(commands('Stop')).toEqual(['node /opt/other.js', oldCommand()]);
+      expect(commands('SessionStart')).toEqual([oldCommand()]);
+    });
+  });
+
   // ── W4: event-scope reduction + stale-install migration ───────
 
   it('installs no UserPromptSubmit or TaskCreated hook', async () => {
@@ -965,7 +1047,7 @@ describe('claudeHookInstaller', () => {
   });
 
   // 9. copyHookScript copies file
-  it('copyHookScript copies to ~/.pixel-agents/hooks/', () => {
+  it('copyHookScript copies to <office folder>/hooks/', () => {
     // Create a mock extension path with dist/hooks/claude-hook.js
     const mockExtPath = path.join(tmpBase, 'mock-ext');
     const hookSrc = path.join(mockExtPath, 'dist', 'hooks');
@@ -974,7 +1056,7 @@ describe('claudeHookInstaller', () => {
 
     copyHookScript(mockExtPath);
 
-    const dst = path.join(tmpBase, '.pixel-agents', 'hooks', 'claude-hook.js');
+    const dst = ourScript();
     expect(fs.existsSync(dst)).toBe(true);
     expect(fs.readFileSync(dst, 'utf-8')).toBe('// mock hook script');
   });
@@ -988,7 +1070,7 @@ describe('claudeHookInstaller', () => {
 
     copyHookScript(mockExtPath);
 
-    const dst = path.join(tmpBase, '.pixel-agents', 'hooks', 'claude-hook.js');
+    const dst = ourScript();
     const stat = fs.statSync(dst);
     // Check owner execute bit
     expect(stat.mode & 0o100).toBeTruthy();
@@ -1009,7 +1091,7 @@ describe('claudeHookInstaller', () => {
   //     nothing — the silent failure the reporter flagged.
   it('copyHookScript returns false when the source is missing', () => {
     const mockExtPath = path.join(tmpBase, 'mock-ext'); // no dist/hooks/claude-hook.js
-    const dst = path.join(tmpBase, '.pixel-agents', 'hooks', 'claude-hook.js');
+    const dst = ourScript();
 
     expect(copyHookScript(mockExtPath)).toBe(false);
     expect(fs.existsSync(dst)).toBe(false);

@@ -23,7 +23,6 @@ import {
   repoRequestDiff,
   repoResetForTests,
 } from './repoStore.js';
-import { mergeHistoryLine } from './repoText.js';
 
 const proved = { ok: true, asked: 0 };
 vi.mock('../auth/stepUp.js', () => ({
@@ -344,11 +343,5 @@ describe('W4 task worktree detail', () => {
     // An answer nobody asked for is ignored.
     repoHandleMessage({ type: 'repoWorktreeDetail', requestId: 'zz', project: 'alpha', task: 't2', ok: true }, toast);
     expect(repoGetSnapshot().details['alpha\0t2']).toBeUndefined();
-  });
-
-  it('a history line names the worktree and what happened', () => {
-    const line = mergeHistoryLine({ ok: false, at: '2026-10-24T09:05:00.000Z', target: 'main', auto: true, task: 't1', error: 'x' });
-    expect(line).toContain('t1');
-    expect(line).toContain('x');
   });
 });

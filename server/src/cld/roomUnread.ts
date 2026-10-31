@@ -9,7 +9,7 @@
  * is sent again at most once per ROOM_PUBLISH_MS.
  */
 import type { GroupRoom } from '../../../core/src/messages.js';
-import type { RoomReplyRead } from './conversations.js';
+import { listedText, type RoomReplyRead } from './conversations.js';
 import type { RoomReply } from './transcriptView.js';
 
 /** A room's summary is sent again at most this often while its members' replies stream in. */
@@ -76,7 +76,7 @@ export class RoomSummaries {
     summary.updates.push(reply.item.id);
     if (summary.lastAt === undefined || reply.item.at >= summary.lastAt) {
       summary.lastAt = reply.item.at;
-      summary.preview = `${member}: ${reply.item.text}`;
+      summary.preview = `${member}: ${listedText(reply.item.text)}`;
     }
     this.dirty.add(roomId);
     return true;

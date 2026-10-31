@@ -599,6 +599,13 @@ async function main() {
       const A = (label: string) => audit(page, size, label, portrait);
       const dock = (screen: string) => page.locator(`[data-dock="${screen}"]`);
       const tapDock = (screen: string) => dock(screen).tap();
+      /** The roster toggle cycles compact -> expanded -> hidden (ROSTER-HIDE): tap until `state`. */
+      const roster = async (state: 'compact' | 'expanded' | 'hidden') => {
+        const bar = page.getByTestId('mobile-agent-bar');
+        for (let i = 0; i < 3 && (await bar.getAttribute('data-roster-state')) !== state; i++)
+          await page.getByTestId('cards-toggle').tap();
+        if ((await bar.getAttribute('data-roster-state')) !== state) throw new Error(`roster never ${state}`);
+      };
       const closeDialogs = async () => {
         for (let i = 0; i < 4; i++) {
           const xs = page.getByRole('button', { name: 'x', exact: true });
@@ -623,9 +630,9 @@ async function main() {
 
       await step(size, 'office', async () => {
         await A('office');
-        await page.getByTestId('cards-toggle').tap();
+        await roster('expanded');
         await A('office-cards-expanded');
-        await page.getByTestId('cards-toggle').tap();
+        await roster('compact');
         await page.locator('[data-testid="agent-card"]').first().tap();
         await A('office-card-selected');
       });
@@ -759,7 +766,7 @@ async function main() {
 
       await step(size, 'work-view', async () => {
         await tapDock('office');
-        await page.getByTestId('cards-toggle').tap();
+        await roster('expanded');
         await page.locator('[data-testid="temp-chip"]').first().tap();
         await page.locator('[data-testid="temp-list"]').waitFor();
         await A('temp-list');
@@ -767,7 +774,7 @@ async function main() {
         await page.getByTestId('work-sheet').waitFor();
         await A('work-view');
         await page.getByTestId('work-close').tap();
-        await page.getByTestId('cards-toggle').tap();
+        await roster('compact');
       });
       await step(size, 'permission', async () => {
         rec('alpha', { type: 'permission-mode', permissionMode: 'bypassPermissions' });
@@ -792,10 +799,10 @@ async function main() {
         await page.evaluate(() => localStorage.setItem('cld.office-hours', '{"on":true}'));
         await reload();
         await page.locator('[data-testid="agent-card"]').filter({ hasText: 'gamma' }).first().tap();
-        await page.getByTestId('off-duty-sheet').waitFor();
+        await page.getByTestId('stat-detail').waitFor();
         await A('off-duty-sheet');
         await page
-          .getByTestId('off-duty-sheet')
+          .getByTestId('stat-detail')
           .getByRole('button')
           .filter({ hasText: /꾸미기|모습/ })
           .first()

@@ -7,6 +7,7 @@ import { transport } from '../../transport/index.js';
 import { cldToast } from '../officeStore.js';
 import { repoCancel, repoConfirmNow, repoConnectionLost, useRepoStore } from './repoStore.js';
 import { confirmText } from './repoText.js';
+import { reviewConnectionLost } from './reviewStore.js';
 
 /**
  * The confirmation dialog of every repository write (T-0020), the same dialog
@@ -19,7 +20,10 @@ export function RepoActionLayer() {
   useEffect(
     () =>
       transport.onStateChange((state) => {
-        if (state !== 'connected') repoConnectionLost(cldToast);
+        if (state !== 'connected') {
+          repoConnectionLost(cldToast);
+          reviewConnectionLost();
+        }
       }),
     [],
   );

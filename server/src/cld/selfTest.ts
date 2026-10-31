@@ -12,7 +12,7 @@ import * as path from 'path';
 
 import { SERVER_HEALTH_PROTOCOL_VERSION } from '../constants.js';
 import { resolvePtyModule } from '../terminal/ptyModule.js';
-import { configDirectory } from './configPath.js';
+import { configDirectory, legacyOfficeDirectory } from './configPath.js';
 
 /** The modules esbuild leaves in node_modules (esbuild.js buildCli externals, plus
  *  uqr for cld/bin/cld-gui-qr.mjs). node-pty is checked separately. */
@@ -31,6 +31,7 @@ const REQUIRED_FILES = [
   'assets',
   'hooks/claude-hook.js',
   'cld-worker.js',
+  'cld-ptyhost.js',
   'login/login.js',
   '../cld/bin/cld-gui',
   '../cld/release/version.json',
@@ -113,7 +114,7 @@ export function runSelfTest(distRoot: string): number {
 
   for (const dir of [
     configDirectory(os.homedir()),
-    path.join(os.homedir(), '.pixel-agents'),
+    legacyOfficeDirectory(os.homedir()),
   ]) {
     try {
       line('ok', 'config', `${dir} ${checkConfigDir(dir) ?? 'absent (fresh install)'}`);

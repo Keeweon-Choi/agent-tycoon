@@ -567,7 +567,8 @@ export class Worktrees {
    * cleanup(project, task): remove a merged or abandoned worktree. Without
    * `force` it is refused while the worktree has uncommitted changes or
    * commits its base lacks (`needsForce`); `force` is what the user's
-   * confirmation sends. The branch is deleted only when merged.
+   * confirmation sends; with it, uncommitted work is first committed to the branch (P4). The
+   * branch is deleted only when merged.
    */
   async cleanup(
     project: ProjectFolder,
@@ -600,6 +601,21 @@ export class Worktrees {
         };
       }
 
+      // P4 (owner 11-01): a confirmed removal never drops uncommitted work: it is committed to the
+      // branch first (a WIP commit), so the branch, which then is not merged, keeps it.
+      let merged = st.merged;
+      if (st.registered && opts.force && st.dirty > 0) {
+        const op = await operationInProgress(run, wt);
+        if (op) return { ok: false, ...refused('repo_busy', { operation: op }) };
+        const add = await run(wt, ['add', '-A']);
+        const commit =
+          add.code === 0 &&
+          (await run(wt, ['commit', '-q', '--no-verify', '--no-gpg-sign', '-m', `WIP: ${task} (kept when its folder was cleaned up)`]));
+        if (!commit || commit.code !== 0)
+          return { ok: false, ...refused('wip_commit_failed', { why: gitMessage(commit ? commit.stderr : add.stderr) }) };
+        merged = false;
+      }
+
       const rm = await run(top, ['worktree', 'remove', ...(opts.force ? ['--force'] : []), wt], {
         timeoutMs: WORKTREE_TIMEOUT_MS,
       });
@@ -611,7 +627,7 @@ export class Worktrees {
       let branchDeleted = false;
       let detail: string | undefined;
       if (st.branchOk) {
-        if (st.merged) {
+        if (merged) {
           const del = await run(top, ['branch', '-d', rec.branch]);
           branchDeleted = del.code === 0;
           detail = branchDeleted

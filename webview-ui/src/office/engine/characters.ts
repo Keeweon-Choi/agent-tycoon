@@ -283,7 +283,9 @@ export function updateCharacter(
       ch.dir = directionBetween(ch.tileCol, ch.tileRow, nextTile.col, nextTile.row);
 
       const walkSpeed = ch.keyboardWalk ? KEY_WALK_SPEED_PX_PER_SEC : WALK_SPEED_PX_PER_SEC;
-      ch.moveProgress += (walkSpeed / TILE_SIZE) * dt;
+      // cld-gui (OWNER-AVATAR): a diagonal step is a longer way, walked at the same pace.
+      const diagonal = nextTile.col !== ch.tileCol && nextTile.row !== ch.tileRow;
+      ch.moveProgress += (walkSpeed / TILE_SIZE / (diagonal ? Math.SQRT2 : 1)) * dt;
 
       const fromCenter = tileCenter(ch.tileCol, ch.tileRow);
       const toCenter = tileCenter(nextTile.col, nextTile.row);
@@ -302,8 +304,8 @@ export function updateCharacter(
         ch.heldWalkQueued = undefined;
       }
 
-      // If became active while wandering, repath to seat
-      if (ch.isActive && ch.seatId) {
+      // If became active while wandering, repath to seat (cld-gui C1: not on a coffee break)
+      if (ch.isActive && ch.seatId && !ch.cldRest?.brk) {
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];

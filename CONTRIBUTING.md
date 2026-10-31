@@ -1,6 +1,6 @@
-# Contributing to Pixel Agents
+# Contributing to Agent Tycoon
 
-Thanks for your interest in contributing to Pixel Agents! All contributions are welcome — features, bug fixes, documentation improvements, refactors, and more.
+Thanks for your interest in contributing to Agent Tycoon! All contributions are welcome — features, bug fixes, documentation improvements, refactors, and more.
 
 This project is licensed under the [MIT License](LICENSE), so your contributions will be too. No CLA or DCO is required.
 
@@ -9,48 +9,20 @@ This project is licensed under the [MIT License](LICENSE), so your contributions
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (use the version in [`.nvmrc`](.nvmrc), currently v22)
-- [VS Code](https://code.visualstudio.com/) (v1.105.0 or later)
 
 ### Setup
 
 ```bash
-git clone https://github.com/pixel-agents-hq/pixel-agents.git
-cd pixel-agents
+git clone https://github.com/Keeweon-Choi/agent-tycoon.git
+cd agent-tycoon
 npm install
 npm run build
+node dist/cli.js       # the daemon; open the URL it prints
 ```
-
-Then press **F5** in VS Code to launch the Extension Development Host.
-
-### Build and install the packaged extension locally
-
-If you want to test the extension the same way end users install it, build a `.vsix` package and install it through the VS Code CLI:
-
-```bash
-npx @vscode/vsce package --allow-star-activation --out pixel-agents-local.vsix
-code --install-extension ./pixel-agents-local.vsix --force
-```
-
-`--force` updates the existing local install with your freshly built package.
-
-If you are using Remote SSH, WSL, or a dev container, `code --install-extension` installs the extension into that current VS Code target.
-
-After installing the `.vsix`, run **Developer: Reload Window** in VS Code to load the updated extension.
-
-### Verify the npm package locally
-
-The npm artifact has its own gate because source-level tests cannot detect a missing tarball file or a package-relative path bug:
-
-```bash
-npm run test:package-contract
-npm run verify:npm-package
-```
-
-The verifier runs the production `prepack` build, creates a tarball outside the repository, installs that exact tarball into a temporary project, and exercises CLI help, the health endpoint, the standalone SPA, bundled assets, and default Hook ON setup. Temporary files and the child server are removed automatically; it never publishes to npm.
 
 ### Maintainer release checklist
 
-This fork does not publish the VS Code extension or the `pixel-agents` npm package. Releases are daemon bundles built by [`.github/workflows/release-bundles.yml`](.github/workflows/release-bundles.yml) on a `v*` tag (or a manual run), signed behind the `release` environment. Before tagging: set the version in `cld/release/version.json` to match the tag, run `npm ci`, `npm test`, and wait for the CI gate and a manual full CI run (3-OS e2e) to pass on `main`.
+This fork publishes no VS Code extension and no npm package. Releases are daemon bundles built by [`.github/workflows/release-bundles.yml`](.github/workflows/release-bundles.yml) on a `v*` tag (or a manual run), signed behind the `release` environment. Before tagging: set the version in `cld/release/version.json` to match the tag, run `npm ci`, `npm test`, and wait for the CI gate and a manual full CI run (3-OS e2e) to pass on `main`.
 
 ## Development Workflow
 
@@ -60,13 +32,13 @@ For development with live rebuilds, run:
 npm run watch
 ```
 
-This starts parallel watchers for both the extension backend (esbuild) and TypeScript type-checking.
+This starts parallel watchers for the daemon bundle (esbuild) and TypeScript type-checking.
 
 > **Note:** The webview (Vite) is not included in `watch` — after changing webview code, run `npm run build:webview` or the full `npm run build`.
 
-## Running the Mocked Pixel Agent
+## Running the Mocked Office
 
-You can run the mocked Pixel Agent web app either from the CLI or from VS Code tasks.
+You can run the mocked office web app either from the CLI or from VS Code tasks.
 
 ### Option 1: CLI
 
@@ -81,29 +53,28 @@ Vite will print a local URL (typically `http://localhost:5173`) where the mocked
 ### Option 2: VS Code Run Task
 
 1. Open the command palette and run **Tasks: Run Task**.
-2. Select **Mocked Pixel Agent Dev Server**.
+2. Select **Mocked Office Dev Server**.
 3. Open the local URL shown in the task terminal output (typically `http://localhost:5173`).
 
 ### Project Structure
 
-Pixel Agents uses a layered codebase. `core/` depends on nothing; `server/` and `webview-ui/` depend only on `core/`; `adapters/vscode/` depends on `core/` and `server/`.
+Agent Tycoon uses a layered codebase. `core/` depends on nothing; `server/` and `webview-ui/` depend only on `core/`.
 
 | Directory                   | Description                                                                                                                                                                                                                                           |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `core/`                     | Protocol + interface definitions (AsyncAPI 3.0 contract, HookProvider, MessageTransport, StateAdapter). Zero runtime side effects.                                                                                                                    |
-| `server/`                   | Lifecycle runtime: `AgentRuntime`, `AgentStateStore`, `SessionRouter`, `DismissalTracker`, Fastify HTTP/WS server, file watching, transcript parsing, hook installer, providers, Vitest test suite. Also ships the `npx pixel-agents` standalone CLI. |
-| `adapters/vscode/`          | VS Code surface — `extension.ts`, `WebviewViewProvider`, terminal lifecycle, one-time state migration. Composes `core/` and `server/`.                                                                                                                |
-| `webview-ui/`               | React 19 + Canvas UI. Transport abstraction (`PostMessageTransport` + `WebSocketTransport`). Depends only on `core/`.                                                                                                                                 |
+| `server/`                   | Lifecycle runtime: `AgentRuntime`, `AgentStateStore`, `SessionRouter`, `DismissalTracker`, Fastify HTTP/WS server, file watching, transcript parsing, hook installer, providers, Vitest test suite. Also ships the `node dist/cli.js` standalone CLI. |
+| `webview-ui/`               | React 19 + Canvas UI. Transport abstraction (`WebSocketTransport`). Depends only on `core/`.                                                                                                                                 |
 | `webview-ui/public/assets/` | Bundled sprites, furniture catalog, default layout, fonts.                                                                                                                                                                                            |
 | `scripts/`                  | Build/CI tooling: `generate-messages.ts` (AsyncAPI → TS), `run-e2e.mjs`, `build-allure-report.mjs`, `assemble-vercel-output.mjs`, and the asset extraction pipeline.                                                                                  |
-| `e2e/`                      | Playwright suite — fixtures, helpers, specs for `claude/hooks-on/`, `claude/hooks-off/`, and `standalone/`.                                                                                                                                           |
+| `e2e/`                      | Playwright suite — fixtures, helpers, specs for `standalone/`.                                                                                                                                                                                        |
 | `eslint-rules/`             | Custom rules (`no-inline-colors`, `pixel-shadow`, `pixel-font`) enforced project-wide.                                                                                                                                                                |
 
 The repo uses **npm workspaces** (`server`, `webview-ui` declared in the root `package.json`). A single `npm install` at the root installs dependencies for all workspaces; no nested `cd ... && npm install` is needed.
 
 ## Manual Hook Testing
 
-The repo includes [server/manual-hook-events.http](server/manual-hook-events.http) for manually driving the local hook server while the extension is running.
+The repo includes [server/manual-hook-events.http](server/manual-hook-events.http) for manually driving the local hook server while the daemon is running.
 
 It covers the basic external-session lifecycle:
 
@@ -112,7 +83,7 @@ It covers the basic external-session lifecycle:
 - `PermissionRequest`, `Notification`, and `Stop` to drive permission/waiting states
 - `SessionEnd` to despawn the agent
 
-Before using it, copy `port` and `token` from `~/.pixel-agents/server.json` into the file variables and set `cwd` to a workspace folder opened in the Extension Development Host. If `cwd` is outside the current workspace, enable **Watch All Sessions** in Pixel Agents first.
+Before using it, copy `port` and `token` from `~/.pixel-agents/server.json` into the file variables and set `cwd` to the folder the daemon was started from. If `cwd` is outside it, enable **Watch All Sessions** in the office settings first.
 
 ## Code Guidelines
 
@@ -120,8 +91,7 @@ Before using it, copy `port` and `token` from `~/.pixel-agents/server.json` into
 
 **No unused locals or parameters** (`noUnusedLocals` and `noUnusedParameters` are enabled). All magic numbers and strings are centralized — don't add inline constants to source files:
 
-- **Shared backend timing/scanning constants:** `server/src/constants.ts` (imported by `adapters/vscode/` too)
-- **VS Code-only IDs / command names:** `adapters/vscode/constants.ts`
+- **Backend timing/scanning constants:** `server/src/constants.ts`
 - **Protocol-level constants:** `core/src/constants.ts`
 - **Webview:** `webview-ui/src/constants.ts` (grid, animation, rendering, camera, zoom, editor, canvas overlay rgba strings)
 - **CSS variables:** `webview-ui/src/index.css` `:root` block (`--pixel-*` properties for React inline styles and CSS)
@@ -135,13 +105,13 @@ The project uses a pixel art aesthetic. All overlays should use:
 - Hard offset shadows (`2px 2px 0px`, no blur) — use `var(--pixel-shadow)`
 - The FS Pixel Sans font (loaded in `index.css`)
 
-These conventions are enforced by custom ESLint rules (`eslint-rules/pixel-agents-rules.mjs`):
+These conventions are enforced by custom ESLint rules (`eslint-rules/agent-tycoon-rules.mjs`):
 
-| Rule               | Scope               | What it checks                                              |
-| ------------------ | ------------------- | ----------------------------------------------------------- |
-| `no-inline-colors` | Extension + Webview | No hex/rgb/rgba/hsl/hsla literals outside `constants.ts`    |
-| `pixel-shadow`     | Webview only        | Box shadows must use `var(--pixel-shadow)` or `2px 2px 0px` |
-| `pixel-font`       | Webview only        | Font family must reference FS Pixel Sans                    |
+| Rule               | Scope            | What it checks                                              |
+| ------------------ | ---------------- | ----------------------------------------------------------- |
+| `no-inline-colors` | Server + Webview | No hex/rgb/rgba/hsl/hsla literals outside `constants.ts`    |
+| `pixel-shadow`     | Webview only     | Box shadows must use `var(--pixel-shadow)` or `2px 2px 0px` |
+| `pixel-font`       | Webview only     | Font family must reference FS Pixel Sans                    |
 
 These rules are set to `error` and will block your PR if violated.
 
@@ -158,18 +128,18 @@ npm run test:server
 npm run test:webview
 ```
 
-Server tests cover `AgentStateStore` (typed mutations + events), `HookEventHandler` (routing, buffering, team gating), `SessionRouter` and `DismissalTracker`, `FileStateAdapter` (namespaced persistence), `migrateVsCodeState` (verify-before-clear), `teamUtils`, the Claude provider and its team extension, the hook installer, the HTTP server (lifecycle, auth, `/ws`, broadcast), and the hook script via a spawned-process integration test.
+Server tests cover `AgentStateStore` (typed mutations + events), `HookEventHandler` (routing, buffering, team gating), `SessionRouter` and `DismissalTracker`, `FileStateAdapter` (namespaced persistence), `teamUtils`, the Claude provider and its team extension, the hook installer, the HTTP server (lifecycle, auth, `/ws`, broadcast), and the hook script via a spawned-process integration test.
 
 `claude-hook.test.ts` requires the bundled hook at `dist/hooks/claude-hook.js`, so build before running it (or use `npm test` which builds first).
 
 ## End-to-End Tests
 
-The `e2e/` directory contains Playwright tests that launch a real VS Code instance with the extension loaded in development mode.
+The `e2e/` directory contains Playwright tests that start the standalone daemon in a temp HOME and drive it in a headless browser.
 
 ### Running e2e tests locally
 
 ```bash
-# Build the extension first (tests load the compiled output)
+# Build first (tests load the compiled output)
 npm run build
 
 # Runs the e2e tests
@@ -185,8 +155,6 @@ npm run e2e -- --attach-videos-on-success
 npm run e2e:debug -- --attach-videos-on-success
 ```
 
-On the first run, `@vscode/test-electron` will download a stable VS Code release into `.vscode-test/` (≈200 MB). Subsequent runs reuse the cache.
-
 ### Artifacts
 
 All test artifacts are written to `test-results/e2e/`:
@@ -201,7 +169,7 @@ By default, successful tests discard their videos after teardown. Pass `--attach
 
 ### Mock claude
 
-Tests never invoke the real `claude` CLI. A wrapper script (`e2e/fixtures/mock-claude` on POSIX, `mock-claude.cmd` on Windows) is copied into an isolated `bin/` directory and prepended to `PATH` before VS Code starts. The wrapper delegates to `e2e/fixtures/mock-claude-runner.cjs`, which honors a scenario blob set by the test via the `MOCK_CLAUDE_SCENARIO` env var.
+Tests never invoke the real `claude` CLI. A wrapper script (`e2e/fixtures/mock-claude` on POSIX, `mock-claude.cmd` on Windows) is copied into an isolated `mock-bin/` directory and prepended to the daemon's `PATH`. The wrapper delegates to `e2e/fixtures/mock-claude-runner.cjs`, which honors a scenario blob set by the test via the `MOCK_CLAUDE_SCENARIO` env var.
 
 Tests build scenarios with the fluent `claudeScenario(...)` helper in `e2e/helpers/mock-claude.ts`:
 
@@ -217,16 +185,16 @@ claudeScenario('my-scenario')
 
 `appendJsonl` writes a record to `$HOME/.claude/projects/<project-hash>/<session-id>.jsonl` at the given offset. `emitHook` POSTs a hook event to the running server's `/api/hooks/:providerId`. `holdOpenFor` keeps the wrapper process alive (and the terminal "busy") for that many ms after the last action, then exits.
 
-Each test runs with an isolated `HOME`, workspace directory, VS Code `--user-data-dir`, and mock log file — no state leaks between runs or into your real VS Code profile.
+Each test runs with an isolated `HOME`, workspace directory, server and mock log file — no state leaks between runs or into your real home.
 
 For the normative model behind this (the process-boundary principle, append-only transcript rule, assertion philosophy, and the one standalone-server exception), see [`e2e/README.md` → "Mocking model & rules"](e2e/README.md#mocking-model--rules).
 
 ### E2E test naming
 
-Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `spawn`, `lifecycle`, `cross-cutting`, `teams`, `matrix`, `standalone`. Example:
+Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `standalone`, `mobile`. Example:
 
 ```typescript
-test('rapid /clear then new tool within 500ms lands on the reassigned agent @area:lifecycle', ...);
+test('closeAgent despawns the character @area:standalone', ...);
 ```
 
 The auto-generated test inventory in `e2e/README.md` groups tests by `@area:` tag. After adding or removing tests, run `npm run e2e:inventory` to regenerate — CI fails if it drifts.
@@ -237,12 +205,12 @@ The auto-generated test inventory in `e2e/README.md` groups tests by `@area:` ta
 2. Make your changes
 3. Verify everything passes locally:
    ```bash
-   npm run lint                         # core + server + adapters + webview lint
+   npm run lint                         # core + server + webview lint
    npm run check-types                  # TypeScript strict check across all packages
    npm run asyncapi:validate            # AsyncAPI spec validation
    npm run asyncapi:generate            # Regen core/src/messages.ts (must produce no git diff)
    npm run e2e:inventory                # Regen e2e/README.md (must produce no git diff)
-   npm run build                        # esbuild (extension + CLI + hooks) + Vite (webview)
+   npm run build                        # esbuild (daemon + hooks + worker) + Vite (webview)
    npm test                             # Server vitest + webview vitest
    npm run e2e                          # Full Playwright suite; inventory lives in e2e/README.md
    ```
@@ -257,11 +225,11 @@ The auto-generated test inventory in `e2e/README.md` groups tests by `@area:` ta
 
 ## Reporting Bugs
 
-[Open a bug report](https://github.com/pixel-agents-hq/pixel-agents/issues/new?template=bug_report.yml) — the form will guide you through providing the details we need.
+[Open a bug report](https://github.com/Keeweon-Choi/agent-tycoon/issues/new?template=bug_report.yml) — the form will guide you through providing the details we need.
 
 ## Feature Requests
 
-Have an idea? [Open a feature request](https://github.com/pixel-agents-hq/pixel-agents/issues/new?template=feature_request.yml) — the form will guide you through describing the problem and your proposed solution. You can also browse and join ongoing conversations in [Discussions](https://github.com/pixel-agents-hq/pixel-agents/discussions).
+Have an idea? [Open a feature request](https://github.com/Keeweon-Choi/agent-tycoon/issues/new?template=feature_request.yml) — the form will guide you through describing the problem and your proposed solution.
 
 ## Security Issues
 

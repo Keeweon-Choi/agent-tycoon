@@ -7,6 +7,24 @@ agent_tycoon_daemon_linux_x64:
   IfFileExists "$INSTDIR\daemon\linux-x64\*" 0 agent_tycoon_daemon_preinstall_done
   Delete "$INSTDIR\daemon\linux-x64\agent-tycoon-daemon-*.tar.gz"
 agent_tycoon_daemon_preinstall_done:
+
+  ; The old Pixel Office (product "Pixel Office", identifier dev.cldgui.pixeloffice, no installer hooks)
+  ; is a separate install: remove it silently so one app remains. Its silent uninstaller closes
+  ; pixel-office.exe itself and keeps its app data (the delete-data box is never ticked when silent);
+  ; the new app copies that data on its first launch. Run in place (_?=) like Tauri's own reinstall,
+  ; so the uninstaller and the folder are deleted here afterwards.
+  ReadRegStr $R8 HKCU "Software\cldgui\Pixel Office" ""
+  StrCmp $R8 "" agent_tycoon_pixel_office_done
+  IfFileExists "$R8\uninstall.exe" 0 agent_tycoon_pixel_office_done
+  DetailPrint "Removing the old Pixel Office app"
+  ClearErrors
+  ExecWait '"$R8\uninstall.exe" /S _?=$R8' $0
+  IfErrors agent_tycoon_pixel_office_done
+  StrCmp $0 "0" 0 agent_tycoon_pixel_office_done
+  Delete "$R8\uninstall.exe"
+  RMDir "$R8"
+  DeleteRegKey HKCU "Software\cldgui\Pixel Office"
+agent_tycoon_pixel_office_done:
 !macroend
 
 ; Remove only a daemon that this Windows app installed. The existence check keeps WSL-only offices out.
@@ -30,4 +48,14 @@ agent_tycoon_daemon_preinstall_done:
   StrCmp $0 "0" agent_tycoon_daemon_uninstall_done
   MessageBox MB_ICONEXCLAMATION|MB_OK "Agent Tycoon was not fully removed (exit code $0). End node.exe in Task Manager, then delete %LOCALAPPDATA%\AgentTycoon and %USERPROFILE%\.config\agent-tycoon." /SD IDOK
 agent_tycoon_daemon_uninstall_done:
+!macroend
+
+; Delete application data also removes the folders of the old identifier (until 11-01), which the
+; first launch copied from and left in place.
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $DeleteAppDataCheckboxState = 1
+  ${AndIf} $UpdateMode <> 1
+    RmDir /r "$APPDATA\dev.cldgui.pixeloffice"
+    RmDir /r "$LOCALAPPDATA\dev.cldgui.pixeloffice"
+  ${EndIf}
 !macroend

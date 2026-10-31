@@ -2,19 +2,19 @@
   "memory": {
     "density": 12,
     "pieces": 44,
-    "decodedMB": 49.81,
+    "decodedMB": 73.81,
     "inUse": {
       "pieces": 31,
-      "decodedMB": 20.97
+      "decodedMB": 28.53
     },
     "biggest": "o-wall-window-wide",
-    "biggestMB": 7.81,
+    "biggestMB": 12.81,
     "perPieceMB": {
       "o-rug-round": 0.66,
       "o-cactus": 0.11,
-      "o-wall-lift-retro": 1.01,
+      "o-wall-lift-retro": 1.22,
       "o-floor-marble": 0.07,
-      "o-wall-entrance-a": 4.87,
+      "o-wall-entrance-a": 8.1,
       "o-bookshelf-moss": 0.38,
       "o-whiteboard-a": 0.33,
       "o-monstera": 0.31,
@@ -28,32 +28,32 @@
       "o-floor-carpet-blue": 0.07,
       "o-coffee-table-b": 0.21,
       "o-armchair-a": 0.15,
-      "o-wall-lift-b": 1.02,
-      "o-wall-window-single": 3.1,
+      "o-wall-lift-b": 1.24,
+      "o-wall-window-single": 4.36,
       "o-armchair-b": 0.14,
       "o-floor-carpet-pink": 0.07,
-      "o-wall-door-tall": 1.56,
-      "o-wall-window-wide": 7.81,
-      "o-wall-corner": 0.59,
-      "o-wall-lift": 1.07,
+      "o-wall-door-tall": 3.07,
+      "o-wall-window-wide": 12.81,
+      "o-wall-corner": 0.74,
+      "o-wall-lift": 1.29,
       "o-bookshelf-cozy": 0.41,
-      "o-wall-plain": 3.11,
-      "o-wall-window": 6.91,
-      "o-wall-plain-b": 3.14,
+      "o-wall-plain": 4.37,
+      "o-wall-window": 10.64,
+      "o-wall-plain-b": 5.13,
       "o-floor-wood-dark": 0.07,
-      "o-wall-door": 3.14,
+      "o-wall-door": 5.13,
       "o-chair-right": 0.19,
       "o-floor-wood-light": 0.07,
       "o-cabinet-b": 0.19,
       "o-whiteboard-b": 0.32,
-      "o-wall-entrance-b": 4.19,
+      "o-wall-entrance-b": 7.21,
       "o-chair-down": 0.19,
       "o-desk-b": 0.57,
       "o-coffee-table": 0.2,
       "o-floor-stone": 0.07,
       "o-sofa-b": 0.26,
       "o-wall-low": 0.18,
-      "o-lift-doors-open": 1.07
+      "o-lift-doors-open": 1.29
     }
   },
   "report": {
@@ -101,18 +101,18 @@
       "tiles": 3,
       "scale": [
         0.5697000000000001,
-        1.2478
+        1.5806
       ],
       "alignErrorPx": 4,
-      "heightPx": 720,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 2025
+        "rim": 2421
       },
       "size": [
         288,
-        876
+        1063
       ],
       "sourceBorder": 0
     },
@@ -136,21 +136,21 @@
     "wall-entrance-a": {
       "kind": "wall",
       "role": "entrance",
-      "tiles": 10,
+      "tiles": 13,
       "scale": [
-        1.2834,
-        1.2834
+        1.6684,
+        1.6257000000000001
       ],
-      "alignErrorPx": 4.7,
-      "heightPx": 720,
+      "alignErrorPx": 5.9,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 3512
+        "rim": 4689
       },
       "size": [
-        1050,
-        1159
+        1365,
+        1483
       ],
       "sourceBorder": 0
     },
@@ -429,39 +429,39 @@
       "tiles": 3,
       "scale": [
         0.6174,
-        1.2632
+        1.6
       ],
       "alignErrorPx": 3.7,
-      "heightPx": 720,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 2031
+        "rim": 2424
       },
       "size": [
         288,
-        886
+        1076
       ],
       "sourceBorder": 0
     },
     "wall-window-single": {
       "kind": "wall",
       "role": "window",
-      "tiles": 7,
+      "tiles": 8,
       "scale": [
-        1.3023,
-        1.2245
+        1.4884000000000002,
+        1.551
       ],
-      "alignErrorPx": 0.9,
-      "heightPx": 720,
+      "alignErrorPx": 1.1,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
-        "halo": 3,
-        "rim": 2910
+        "halo": 1,
+        "rim": 3560
       },
       "size": [
-        763,
-        1017
+        872,
+        1251
       ],
       "sourceBorder": 0
     },
@@ -506,42 +506,42 @@
     "wall-door-tall": {
       "kind": "wall",
       "role": "door",
-      "tiles": 4,
+      "tiles": 6,
       "scale": [
-        0.7885,
-        0.8717
+        1.1827999999999999,
+        1.1040999999999999
       ],
-      "alignErrorPx": 6.6,
-      "heightPx": 720,
+      "alignErrorPx": 9.3,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
-        "halo": 0,
-        "rim": 2290
+        "halo": 1,
+        "rim": 3141
       },
       "size": [
-        442,
-        883
+        663,
+        1156
       ],
       "sourceBorder": 0
     },
     "wall-window-wide": {
       "kind": "wall",
       "role": "window",
-      "tiles": 14,
+      "tiles": 18,
       "scale": [
-        1.2455999999999998,
-        1.2632
+        1.6015,
+        1.6
       ],
-      "alignErrorPx": 7.2,
-      "heightPx": 720,
+      "alignErrorPx": 9.3,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 4389
+        "rim": 5790
       },
       "size": [
-        1424,
-        1371
+        1831,
+        1749
       ],
       "sourceBorder": 0
     },
@@ -549,19 +549,19 @@
       "kind": "wall",
       "role": "corner",
       "scale": [
-        0.83,
-        0.8159
+        1.1065999999999998,
+        1.0334
       ],
-      "alignErrorPx": 1,
-      "heightPx": 720,
+      "alignErrorPx": 1.2,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 1838
+        "rim": 2228
       },
       "size": [
         192,
-        767
+        959
       ],
       "sourceBorder": 0
     },
@@ -571,18 +571,18 @@
       "tiles": 3,
       "scale": [
         0.6597999999999999,
-        1.1374000000000002
+        1.4407999999999999
       ],
       "alignErrorPx": 4.9,
-      "heightPx": 720,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 2034
+        "rim": 2430
       },
       "size": [
         288,
-        932
+        1122
       ],
       "sourceBorder": 0
     },
@@ -610,63 +610,63 @@
     "wall-plain": {
       "kind": "wall",
       "role": "plain",
-      "tiles": 7,
+      "tiles": 8,
       "scale": [
-        1.3023,
-        1.2287000000000001
+        1.4884000000000002,
+        1.5563
       ],
-      "alignErrorPx": 1.4,
-      "heightPx": 720,
+      "alignErrorPx": 1.7,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
-        "halo": 0,
-        "rim": 2971
+        "halo": 1,
+        "rim": 3628
       },
       "size": [
-        765,
-        1016
+        874,
+        1250
       ],
       "sourceBorder": 0
     },
     "wall-window": {
       "kind": "wall",
       "role": "window",
-      "tiles": 13,
+      "tiles": 16,
       "scale": [
-        1.4647999999999999,
-        1.409
+        1.8028,
+        1.7847
       ],
-      "alignErrorPx": 0.8,
-      "heightPx": 720,
+      "alignErrorPx": 1,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
-        "halo": 0,
-        "rim": 4149
+        "halo": 4,
+        "rim": 5412
       },
       "size": [
-        1342,
-        1288
+        1652,
+        1610
       ],
       "sourceBorder": 0
     },
     "wall-plain-b": {
       "kind": "wall",
       "role": "plain",
-      "tiles": 7,
+      "tiles": 9,
       "scale": [
-        1.2679,
-        1.2414
+        1.6302,
+        1.5724
       ],
-      "alignErrorPx": 1.7,
-      "heightPx": 720,
+      "alignErrorPx": 2.1,
+      "heightPx": 912,
       "leftover": {
-        "magenta": 0,
-        "halo": 2,
-        "rim": 3073
+        "magenta": 1,
+        "halo": 6,
+        "rim": 3997
       },
       "size": [
-        767,
-        1023
+        987,
+        1300
       ],
       "sourceBorder": 0
     },
@@ -690,21 +690,21 @@
     "wall-door": {
       "kind": "wall",
       "role": "door",
-      "tiles": 7,
+      "tiles": 9,
       "scale": [
-        1.2679,
-        1.2392
+        1.6302,
+        1.5697
       ],
-      "alignErrorPx": 5.2,
-      "heightPx": 720,
+      "alignErrorPx": 6.6,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 3006
+        "rim": 3944
       },
       "size": [
-        766,
-        1024
+        985,
+        1303
       ],
       "sourceBorder": 0
     },
@@ -791,21 +791,21 @@
     "wall-entrance-b": {
       "kind": "wall",
       "role": "entrance",
-      "tiles": 9,
+      "tiles": 12,
       "scale": [
-        1.2186,
-        1.2457
+        1.6248,
+        1.5779
       ],
-      "alignErrorPx": 6.7,
-      "heightPx": 720,
+      "alignErrorPx": 8.7,
+      "heightPx": 912,
       "leftover": {
         "magenta": 0,
-        "halo": 0,
-        "rim": 3286
+        "halo": 1,
+        "rim": 4429
       },
       "size": [
-        946,
-        1108
+        1261,
+        1429
       ],
       "sourceBorder": 0
     },
@@ -928,15 +928,17 @@
       "leftover": {
         "magenta": 0,
         "halo": 0,
-        "rim": 2034
+        "rim": 2430
       },
       "size": [
         288,
-        932
+        1122
       ]
     }
   },
   "flags": [
-    "wall-window-wide: wall base off the 1:2 line by 7.2 px"
+    "wall-door-tall: wall base off the 1:2 line by 9.3 px",
+    "wall-window-wide: wall base off the 1:2 line by 9.3 px",
+    "wall-entrance-b: wall base off the 1:2 line by 8.7 px"
   ]
 }

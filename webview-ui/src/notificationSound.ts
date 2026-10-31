@@ -24,17 +24,17 @@ let volumeScale = 1;
 let audioCtx: AudioContext | null = null;
 
 /** E2E test hook: append every (attempted) sound invocation to a window-side log
- *  under window.__pixelAgentsTestHooks.playedSounds (namespace and type
+ *  under window.__agentTycoonTestHooks.playedSounds (namespace and type
  *  declared by testHooks.ts). Records BEFORE the soundEnabled gate so tests
  *  verify dispatch independent of user audio prefs. Gated on the e2e harness
  *  flag so this unbounded log never grows in a real session. */
 function recordSoundForTests(kind: 'done' | 'permission' | 'job'): void {
   if (!isE2E || typeof window === 'undefined') return;
-  if (!window.__pixelAgentsTestHooks) window.__pixelAgentsTestHooks = {};
-  if (!window.__pixelAgentsTestHooks.playedSounds) {
-    window.__pixelAgentsTestHooks.playedSounds = [];
+  if (!window.__agentTycoonTestHooks) window.__agentTycoonTestHooks = {};
+  if (!window.__agentTycoonTestHooks.playedSounds) {
+    window.__agentTycoonTestHooks.playedSounds = [];
   }
-  window.__pixelAgentsTestHooks.playedSounds.push({ kind, at: Date.now() });
+  window.__agentTycoonTestHooks.playedSounds.push({ kind, at: Date.now() });
 }
 
 export function setSoundEnabled(enabled: boolean): void {
@@ -136,6 +136,19 @@ export async function playJobSound(): Promise<void> {
     JOB_NOTES_HZ.forEach((hz, i) =>
       playNote(ctx, hz, i * JOB_NOTE_STEP_SEC, JOB_NOTE_DURATION_SEC, JOB_VOLUME),
     );
+  } catch {
+    // Audio may not be available
+  }
+}
+
+/** cld-gui (C1): run a synth graph (cld/director/sounds.ts) on the shared context, only while the
+ *  sound setting is on; `level` is the user's volume. */
+export async function playSynth(build: (ctx: AudioContext, level: number) => void): Promise<void> {
+  if (!soundEnabled || volumeScale <= 0) return;
+  try {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    build(audioCtx, volumeScale);
   } catch {
     // Audio may not be available
   }

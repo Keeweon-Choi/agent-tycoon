@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/standalone';
-import { preToolUseBash } from '../../helpers/hooks';
+import { officeFile, preToolUseBash } from '../../helpers/hooks';
 import {
   arrangeNextClaudeInvocation,
   claudeScenario,
@@ -133,7 +133,7 @@ test.describe('Standalone / user-defined Directories', () => {
 
     // Machine-wide persistence, not page state: it comes back from the shared
     // config in the isolated HOME.
-    const configPath = path.join(standalone.tmpHome, '.pixel-agents', 'config.json');
+    const configPath = officeFile(standalone.tmpHome, 'config.json');
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
       directories?: Array<{ name: string; path: string }>;
     };
@@ -214,7 +214,7 @@ test.describe('Standalone / Directory validation', () => {
     await expect(modal).toBeVisible();
     await expect(modal.getByRole('alert')).toContainText(missing);
 
-    const configPath = path.join(standalone.tmpHome, '.pixel-agents', 'config.json');
+    const configPath = officeFile(standalone.tmpHome, 'config.json');
     const cfg = fs.existsSync(configPath)
       ? (JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
           directories?: Array<{ name: string }>;
@@ -350,7 +350,7 @@ test.describe('Standalone / permission posture', () => {
     await setSettings(page, { bypassPermissions: true });
 
     // It is the host's persisted posture, in its own namespace.
-    const configPath = path.join(standalone.tmpHome, '.pixel-agents', 'config.json');
+    const configPath = officeFile(standalone.tmpHome, 'config.json');
     await expect
       .poll(
         () => {
@@ -404,7 +404,7 @@ test.describe('Standalone / permission posture', () => {
  */
 const MANY_DIRECTORIES = Array.from({ length: 33 }, (_, i) => ({
   name: `Project ${String(i + 1).padStart(2, '0')}`,
-  path: `/pixel-agents-e2e/project-${String(i + 1)}`,
+  path: `/agent-tycoon-e2e/project-${String(i + 1)}`,
 }));
 
 /** The drawer sits wholly inside the viewport, `+ Directory` included, and the

@@ -191,6 +191,9 @@ function rig(
     return fs.existsSync(dir)
       ? fs
           .readdirSync(dir)
+          // Only finished notices: a `*.json.<pid>.<rand>.tmp` being written may be renamed away
+          // between readdir and read (as messenger.ts reads the queue).
+          .filter((f) => f.endsWith('.json'))
           .sort()
           .map(
             (f) =>
@@ -288,6 +291,19 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         await r.start({ worktree: true, cwd: path.join(r.repo.root, 'pofol-evil') }),
       ).toMatchObject(refused);
       expect(fs.existsSync(path.join(r.repo.folder, '.worktrees'))).toBe(false);
+    });
+
+    it('-d: the run is titled by its description (cards and notices); without it, by the spec heading', async () => {
+      const r = rig('success');
+      const res = await r.start({ desc: '앱 알림 UI 개선' });
+      expect(res.ok).toBe(true);
+      const done = await r.until(res.id as string, (x) => x.state === 'done');
+      expect(done.title).toBe('앱 알림 UI 개선');
+      expect(r.events()[0]).toMatchObject({ type: 'codex_start', title: '앱 알림 UI 개선' });
+      const plain = rig('success');
+      const res2 = await plain.start();
+      const done2 = await plain.until(res2.id as string, (x) => x.state === 'done');
+      expect(done2.title).toBe('Task'); // the spec's first heading
     });
 
     it('success in a new worktree: codex exec with the spec as is, a commit, codex_start/end, one notice', async () => {

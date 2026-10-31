@@ -41,6 +41,7 @@ import { type ApprovalNetwork, DeviceApprovals, isTailscaleAddress } from './dev
 import { cldHooks } from './hooks.js';
 import { LOGIN_ERRORS, type LoginPageOptions, pageLanguage, sendEnterPage, sendLoginPage } from './loginPage.js';
 import type { RelyingParty } from './passkeys.js';
+import { PUSH_IMAGE_PATH } from './pushImage.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
 
 export interface StandaloneAuthRouteOptions {
@@ -999,7 +1000,8 @@ function requestNetwork(request: FastifyRequest): ApprovalNetwork {
  * What a client with no session may load: the health check, the login page
  * with its script, style, font and login calls, and what a browser fetches
  * without cookies to install the web app (manifest, icons, the push service
- * worker, T-0039: its update check may come without a session). Everything else --
+ * worker, T-0039: its update check may come without a session), and a push
+ * notification's picture link (pushImage.ts: signed, one image, 10 minutes). Everything else --
  * the app, `/ws`, `/api/*`, `/cld/*` -- answers 401.
  */
 function standaloneRouteIsPublic(pathname: string): boolean {
@@ -1021,6 +1023,7 @@ function standaloneRouteIsPublic(pathname: string): boolean {
       '/favicon.ico',
       '/sw.js',
     ].includes(pathname) ||
+    PUSH_IMAGE_PATH.test(pathname) ||
     /^\/apple-touch-icon(-precomposed)?\.png$/.test(pathname) ||
     /^\/icons\/[A-Za-z0-9_-]+\.png$/.test(pathname) ||
     /^\/fonts\/galmuri\/Galmuri[0-9]+(-Bold)?\.woff2$/.test(pathname)

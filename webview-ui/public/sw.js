@@ -12,6 +12,13 @@ function pushBody(data) {
   return body.replace('{time}', new Date(data.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 }
 
+// A picture link is a same-origin path the daemon signed; a browser whose notifications have no
+// `image` (iOS Safari, Firefox) shows none, and says "[사진]" in the body instead.
+function pushImage(data) {
+  const ok = typeof data.image === 'string' && data.image.startsWith('/') && !data.image.startsWith('//');
+  return ok && 'image' in Notification.prototype ? data.image : null;
+}
+
 self.addEventListener('push', (event) => {
   let data = {};
   try {
@@ -27,9 +34,14 @@ self.addEventListener('push', (event) => {
       : agentId === null
         ? '/'
         : `/?agent=${agentId}`;
+  const image = pushImage(data);
+  let body = pushBody(data);
+  if (!image && typeof data.imageLabel === 'string' && !body.includes(data.imageLabel))
+    body = body ? `${body}\n${data.imageLabel}` : data.imageLabel;
   event.waitUntil(
     self.registration.showNotification(typeof data.title === 'string' ? data.title : 'Agent Tycoon', {
-      body: pushBody(data),
+      body,
+      ...(image && { image }),
       // The daemon's tag: the same event again replaces the one shown instead of stacking.
       // renotify: the replacement still alerts (a new ask must not arrive silently).
       tag: typeof data.tag === 'string' && data.tag ? data.tag : agentId === null ? 'cld' : `agent-${agentId}`,

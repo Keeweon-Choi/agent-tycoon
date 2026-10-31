@@ -12,11 +12,10 @@ import { installInputPolicy } from './cld/inputPolicy.js';
 import { isCldMock } from './cld/mock.js';
 import { PIXEL_FONT_PRELOAD, PIXEL_FONT_PRELOAD_TEXT } from './constants.js';
 import { getLanguage, subscribeLanguage, t } from './i18n/index.js';
-import { isBrowserRuntime } from './runtime';
 
 async function main() {
   installInputPolicy(); // G1: game areas get no browser menu / drag
-  if (isBrowserRuntime) installExternalLinks(); // G2: another origin never replaces the app
+  installExternalLinks(); // G2: another origin never replaces the app
   // The page's name in its language (index.html and the manifest carry the English one).
   const nameThePage = () => {
     document.title = t('srv.app_name');
@@ -31,7 +30,7 @@ async function main() {
       document.fonts.load(face, PIXEL_FONT_PRELOAD_TEXT).catch(() => undefined);
   // Browser fixtures serve Vite development and the explicit ?cldMock=1 demo.
   // Otherwise assets arrive from the standalone server over WebSocket.
-  if (isBrowserRuntime && (import.meta.env.DEV || isCldMock)) {
+  if (import.meta.env.DEV || isCldMock) {
     const { initBrowserMock } = await import('./browserMock.js');
     await initBrowserMock();
   }

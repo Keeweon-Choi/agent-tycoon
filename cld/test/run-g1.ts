@@ -90,7 +90,7 @@ function session(home: string, name: string, cwd: string) {
 
 /** Every contextmenu event as the page's last (bubbling) listener saw it. */
 const RECORDER = `
-  globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;
+  globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;
   window.__ctx = [];
   document.addEventListener('contextmenu', (e) => {
     const el = e.target;
@@ -128,9 +128,9 @@ async function main() {
     const scale = await page.evaluate(() => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: { getTileCenter: (c: number, r: number) => { x: number } | null };
+          __agentTycoonTestHooks: { getTileCenter: (c: number, r: number) => { x: number } | null };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       return (h.getTileCenter(1, 0)!.x - h.getTileCenter(0, 0)!.x) / 16;
     });
     return { x: box.x + box.width / 2, y: (ez ? box.y + box.height : box.y + 34) + 20 * scale };
@@ -237,12 +237,12 @@ async function main() {
     const target = await page.evaluate(() => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: {
+          __agentTycoonTestHooks: {
             getTiles: () => { cols: number; rows: number; tiles: number[] };
             getTileCenter: (c: number, r: number) => { x: number; y: number } | null;
           };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       const { cols, rows, tiles } = h.getTiles();
       const canvas = document
         .querySelector('[data-testid="office-canvas"]')!
@@ -271,9 +271,9 @@ async function main() {
         ([col, row]) => {
           const t = (
             window as unknown as {
-              __pixelAgentsTestHooks: { getTiles: () => { cols: number; tiles: number[] } };
+              __agentTycoonTestHooks: { getTiles: () => { cols: number; tiles: number[] } };
             }
-          ).__pixelAgentsTestHooks.getTiles();
+          ).__agentTycoonTestHooks.getTiles();
           return t.tiles[row * t.cols + col];
         },
         [target!.col, target!.row],
@@ -365,9 +365,9 @@ async function main() {
       page.evaluate(() => {
         const h = (
           window as unknown as {
-            __pixelAgentsTestHooks: { getTileCenter: (c: number, r: number) => { x: number } };
+            __agentTycoonTestHooks: { getTileCenter: (c: number, r: number) => { x: number } };
           }
-        ).__pixelAgentsTestHooks;
+        ).__agentTycoonTestHooks;
         return Math.round((h.getTileCenter(1, 0).x - h.getTileCenter(0, 0).x) * devicePixelRatio);
       });
     await page.mouse.move(spot.x, spot.y);
@@ -382,11 +382,11 @@ async function main() {
     const panned = await page.evaluate(() => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: {
+          __agentTycoonTestHooks: {
             getTileCenter: (c: number, r: number) => { x: number; y: number };
           };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       return h.getTileCenter(0, 0);
     });
     await page.reload();
@@ -395,11 +395,11 @@ async function main() {
     const back = await page.evaluate(() => {
       const h = (
         window as unknown as {
-          __pixelAgentsTestHooks: {
+          __agentTycoonTestHooks: {
             getTileCenter: (c: number, r: number) => { x: number; y: number };
           };
         }
-      ).__pixelAgentsTestHooks;
+      ).__agentTycoonTestHooks;
       return h.getTileCenter(0, 0);
     });
     check((await zoomOf()) === zoomed, `desktop: the zoom survives a refresh (${zoomed})`);

@@ -46,6 +46,7 @@ import {
   showMessengerList,
   showRoom,
   sortConversations,
+  startsEarlierSession,
   unreadCount,
 } from './messengerStore.js';
 
@@ -116,6 +117,11 @@ it('places a divider after an earlier session and chooses a jump target', () => 
   expect(dividerAfter(rows, 0)).toBeUndefined();
   expect(dividerAfter(rows, 1)).toBe(T0);
   expect(dividerAfter(rows, 2)).toBeUndefined();
+  // The band that opens the earlier session: its first item; a cut-off first item only at the start.
+  expect(startsEarlierSession(rows, 0, false)).toBe(false);
+  expect(startsEarlierSession(rows, 0, true)).toBe(true);
+  expect(startsEarlierSession(rows, 1, true)).toBe(false);
+  expect(startsEarlierSession(rows, 2, true)).toBe(false);
   expect(jumpTarget(rows, T0 + 2_500)?.text).toBe('old reply');
   expect(jumpTarget(rows, T0 + 3_000, rows[0].id)?.text).toBe('old');
 });

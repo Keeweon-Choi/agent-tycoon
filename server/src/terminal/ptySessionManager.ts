@@ -36,6 +36,8 @@ export interface CreatePtySessionOptions {
   replaceEnv?: boolean;
   cols?: number;
   rows?: number;
+  /** cld-gui TERM-P2: Windows, node-pty's own conpty.dll (the PTY host's agents only). */
+  useConptyDll?: boolean;
 }
 
 export interface PtyExit {
@@ -56,7 +58,7 @@ export class PtySession {
    *  overlapping-fragments glitch on reload). The mirror parses every byte as a
    *  real terminal would, so serializing it reproduces the CURRENT screen
    *  (scrollback, colors, cursor) faithfully at any attach point. */
-  private readonly mirror: HeadlessTerminal;
+  readonly mirror: HeadlessTerminal;
   private readonly serializeAddon: SerializeAddon;
   private readonly dataListeners = new Set<DataListener>();
   private readonly exitListeners = new Set<ExitListener>();
@@ -66,7 +68,13 @@ export class PtySession {
   cols: number;
   rows: number;
 
-  constructor(agentId: number, pty: IPty, cols: number, rows: number) {
+  constructor(
+    agentId: number,
+    pty: IPty,
+    cols: number,
+    rows: number,
+    scrollback: number = TERMINAL_MIRROR_SCROLLBACK_LINES,
+  ) {
     this.agentId = agentId;
     this.pty = pty;
     this.cols = cols;
@@ -74,7 +82,7 @@ export class PtySession {
     this.mirror = new HeadlessTerminal({
       cols,
       rows,
-      scrollback: TERMINAL_MIRROR_SCROLLBACK_LINES,
+      scrollback,
       allowProposedApi: true,
     });
     this.serializeAddon = new SerializeAddon();
@@ -165,7 +173,7 @@ export class PtySession {
       this.pty.resize(cols, rows);
     } catch (err) {
       // Resizing races process exit; a dead PTY throwing here is expected.
-      console.warn(`[Pixel Agents] Terminal: agent ${this.agentId} resize failed: ${String(err)}`);
+      console.warn(`[Agent Tycoon] Terminal: agent ${this.agentId} resize failed: ${String(err)}`);
     }
   }
 
@@ -328,7 +336,7 @@ export class PtySessionManager {
   }
 }
 
-function spawnPty(
+export function spawnPty(
   module: PtyModule,
   options: CreatePtySessionOptions,
   cols: number,
@@ -348,5 +356,6 @@ function spawnPty(
     rows,
     cwd: options.cwd,
     env,
+    ...(options.useConptyDll && { useConptyDll: true }),
   });
 }

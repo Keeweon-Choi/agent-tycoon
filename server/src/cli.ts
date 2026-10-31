@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Standalone CLI entry point: `npx pixel-agents`
+ * Standalone daemon entry point (`dist/cli.js`, started by `agty`)
  *
  * Starts the Fastify server in standalone mode with SPA serving and WebSocket.
  * Loads all assets (PNGs -> SpriteData) on startup and caches in memory.
@@ -42,8 +42,9 @@ import {
   WILDCARD_HOSTNAMES,
 } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
+import { migrateOfficeFolder } from './officeFolder.js';
 import { claudeProvider } from './providers/index.js';
-import { PixelAgentsServer } from './server.js';
+import { AgentTycoonServer } from './server.js';
 import { PtySessionManager } from './terminal/ptySessionManager.js';
 import { normalizeHostname } from './wsAuth.js';
 
@@ -201,7 +202,7 @@ export function parseArgs(argv: string[]): CliArgs {
       // separate trusted-device shell opt-in.
       args.terminal = false;
     } else if (argv[i] === '--help') {
-      console.log(`Usage: pixel-agents [options]
+      console.log(`Usage: node dist/cli.js [options]  (the Agent Tycoon daemon; agty starts it)
 
 Options:
   --port, -p <number>   Port to listen on (default: OS-assigned ephemeral port)
@@ -263,11 +264,11 @@ function reportTerminalStatus(
   _enabledByFlag: boolean,
 ): void {
   void ptyManager;
-  console.log('[Pixel Agents] Terminal disabled in cld-gui.');
+  console.log('[Agent Tycoon] Terminal disabled in cld-gui.');
 }
 
 async function issueLoginCode(
-  server: PixelAgentsServer,
+  server: AgentTycoonServer,
   config: { port: number; token: string },
 ): Promise<{ code: string; expiresIn: number }> {
   const local = server.createLoginCode();
@@ -300,9 +301,12 @@ async function main(): Promise<void> {
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`[Pixel Agents] ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[Agent Tycoon] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
+
+  // Our office files leave ~/.pixel-agents (2026-11) before anything reads them.
+  migrateOfficeFolder();
 
   // dist/ contains both the CLI bundle and the assets/ + webview/ directories
   const distRoot = __dirname;
@@ -312,7 +316,7 @@ async function main(): Promise<void> {
   // External asset directories are merged at startup too, so directories added
   // in a previous session survive a restart. buildAssetCache is the shared
   // loader used by both the standalone server and the VS Code adapter.
-  console.log('[Pixel Agents] Loading assets...');
+  console.log('[Agent Tycoon] Loading assets...');
   // CH-6b: the user's redrawn furniture is always an asset folder of the daemon.
   const customFurniture = customFurnitureDir();
   const assetCache: AssetCache = await buildAssetCache(
@@ -324,7 +328,7 @@ async function main(): Promise<void> {
   const petCount = assetCache.pets?.pets.length ?? 0;
   const furnitureCount = assetCache.furniture?.catalog.length ?? 0;
   console.log(
-    `[Pixel Agents] Assets loaded: ${charCount} characters, ${petCount} pets, ${furnitureCount} furniture items`,
+    `[Agent Tycoon] Assets loaded: ${charCount} characters, ${petCount} pets, ${furnitureCount} furniture items`,
   );
 
   // ── Store + adapter (shared settings + standalone-scoped agents/seats) ──
@@ -333,7 +337,7 @@ async function main(): Promise<void> {
   store.setAdapter(adapter);
 
   // ── Create server ──
-  const server = new PixelAgentsServer();
+  const server = new AgentTycoonServer();
 
   // Terminals for agents this server launches. Construction is cheap -- the
   // native module is resolved (and probed) lazily on first use, so a user who
@@ -382,6 +386,8 @@ async function main(): Promise<void> {
       pushFile: path.join(configDirectory(os.homedir()), 'push.json'),
       pushHost: args.allowedHosts[0],
     });
+    // TERM-P1: the chat joins PTY-host agents' terminals in the host, not with `claude attach`.
+    attach?.usePtyHost(office?.engine?.pty ?? null);
 
     // AGENT-CLI: no Claude Code at start: the plain office tells its viewers to install it, and
     // restarts the daemon once a look (a viewer connecting, the button) finds it.
@@ -437,7 +443,7 @@ async function main(): Promise<void> {
           sprites: Object.fromEntries(furniture.sprites),
         });
       }
-      console.log('[Pixel Agents] Assets reloaded (external directory change)');
+      console.log('[Agent Tycoon] Assets reloaded (external directory change)');
     };
 
     // cld-gui remote (T-0024): LAN and public listeners, invitations' address.
@@ -499,7 +505,7 @@ async function main(): Promise<void> {
     hostToken.current = config.token;
     if (args.rotateToken) {
       console.log(
-        '[Pixel Agents] Server token rotated: URLs carrying the old token no longer grant access. Open the new URL below on each device.',
+        '[Agent Tycoon] Server token rotated: URLs carrying the old token no longer grant access. Open the new URL below on each device.',
       );
     }
 
@@ -509,9 +515,9 @@ async function main(): Promise<void> {
     // runtime's single hooksEnabled ref follows the Claude provider until the
     // scanners grow per-provider awareness alongside the Settings UI.
     runtime.hooksEnabled.current = false;
-    runtime.watchAllSessions.current = adapter.getSetting('pixel-agents.watchAllSessions', false);
+    runtime.watchAllSessions.current = adapter.getSetting('agent-tycoon.watchAllSessions', false);
 
-    console.log('[Pixel Agents] Hooks disabled in cld-gui.');
+    console.log('[Agent Tycoon] Hooks disabled in cld-gui.');
 
     // Start scanning for external sessions (Claude running in user's terminal)
     const cwd = process.cwd();
@@ -521,7 +527,7 @@ async function main(): Promise<void> {
       // cld-gui: the office's providers own the characters; adopting the cwd's
       // sessions as well would duplicate them.
       if (!office) {
-        console.log(`[Pixel Agents] Scanning project dir: ${projectDir}`);
+        console.log(`[Agent Tycoon] Scanning project dir: ${projectDir}`);
         runtime.startProjectScan(projectDir);
       }
       runtime.startExternalScanning(projectDir);
@@ -537,11 +543,11 @@ async function main(): Promise<void> {
         args.host === '0.0.0.0' || args.host === '::' || args.host === '' ? '127.0.0.1' : args.host;
       const login = await issueLoginCode(server, config);
       console.log(
-        `\n  Pixel Agents login: http://${displayHost}:${config.port}/login?code=${login.code}\n`,
+        `\n  Agent Tycoon login: http://${displayHost}:${config.port}/login?code=${login.code}\n`,
       );
     } else {
       console.log(
-        '[Pixel Agents] Login link not printed: stdout is not a terminal (POST /api/login-code with the server token mints one).',
+        '[Agent Tycoon] Login link not printed: stdout is not a terminal (POST /api/login-code with the server token mints one).',
       );
     }
 

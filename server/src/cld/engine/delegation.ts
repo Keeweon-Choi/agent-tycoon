@@ -33,6 +33,7 @@
 import { randomBytes } from 'crypto';
 import * as path from 'path';
 
+import { fixJosa } from '../../../../core/src/cld/josa.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type { BoardTask } from '../../../../core/src/messages.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
@@ -133,7 +134,7 @@ export class ApprovalStore {
         newWorkers: Array.isArray(raw.newWorkers) ? raw.newWorkers : [],
       };
     } catch (err) {
-      this.problem = `${file} 을(를) 읽지 못했습니다(${err instanceof Error ? err.message : String(err)}). 파일은 그대로 두었고 승인 요청을 저장하지 않습니다`;
+      this.problem = fixJosa(`${file}을(를) 읽지 못했습니다(${err instanceof Error ? err.message : String(err)}). 파일은 그대로 두었고 승인 요청을 저장하지 않습니다`);
       console.warn(`[cld] ${this.problem}`);
     }
   }
@@ -860,7 +861,7 @@ export class Delegator {
     const sent = await this.d.send({
       to: lead.name,
       text: [
-        `Task ${task.id} 제안: ${me.name} 이(가) 위임을 제안했어요 (${why}).`,
+        fixJosa(`Task ${task.id} 제안: ${me.name}이(가) 위임을 제안했어요 (${why}).`),
         `제목: ${task.title}`,
         `대상: ${'newWorker' in s.target ? `새 Worker (${target})` : target}`,
         `받아들이려면 delegate_task({ idempotencyKey, task: { id: "${task.id}" } }) 를 부르세요. 대상을 바꾸려면 target 을 함께 주세요.`,
@@ -1010,7 +1011,7 @@ export class Delegator {
     if (key) this.remember(`${p.caller}\0${key}`, result);
     void this.d.send({
       to: p.caller,
-      text: `[위임 제안 결과] ${lead.name} 이(가) Task ${p.id} 를 맡겼어요: ${String(result.status)}`,
+      text: fixJosa(`[위임 제안 결과] ${lead.name}이(가) Task ${p.id} 를 맡겼어요: ${String(result.status)}`),
       ifIdle: false,
       from: null,
       source: 'engine',
@@ -1222,8 +1223,8 @@ function deliveryText(task: BoardTask, from: string, c: Call, parent?: BoardTask
       .join(' · '),
     // D5: a Codex Worker has no agent tools; its run's last message is its report.
     provider === 'codex'
-      ? `${from} 이(가) 맡긴 일이에요. 끝나면 마지막 메시지에 결과·커밋·남은 일을 짧게 적어 주세요. 그 글이 Lead 에게 그대로 가요.`
-      : `${from} 이(가) 맡긴 일이에요. 진행과 결과는 update_task({ taskId: "${task.id}" }) 로 보고해 주세요.`,
+      ? fixJosa(`${from}이(가) 맡긴 일이에요. 끝나면 마지막 메시지에 결과·커밋·남은 일을 짧게 적어 주세요. 그 글이 Lead 에게 그대로 가요.`)
+      : fixJosa(`${from}이(가) 맡긴 일이에요. 진행과 결과는 update_task({ taskId: "${task.id}" }) 로 보고해 주세요.`),
   ]
     .filter(Boolean)
     .join('\n\n');

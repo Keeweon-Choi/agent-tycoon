@@ -6,6 +6,7 @@ import Fastify from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { FRAME_SRC_LOOPBACK } from '../../core/src/cld/devUrl.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import { isLocalRequest, redactLoginCode, sessionIdFromCookie, StandaloneAuth } from './cld/auth.js';
@@ -214,7 +215,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
         name && allowedHostnames.has(name) && host ? ` wss://${host} ws://${host}` : '';
       reply.header(
         'content-security-policy',
-        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'${sockets}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'${sockets}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; object-src 'none'; frame-src ${FRAME_SRC_LOOPBACK}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
       );
       return payload;
     });
@@ -459,7 +460,7 @@ function registerWebSocketRoute(
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
         // The page's 10 s looking beat (U-49) is not worth a log line each.
         if (!options.embedded && msg.type && msg.type !== 'viewerVisibility') {
-          console.log('[Pixel Agents] WS client message:', msg.type);
+          console.log('[Agent Tycoon] WS client message:', msg.type);
         }
         handleClientMessage(msg, send, {
           store,

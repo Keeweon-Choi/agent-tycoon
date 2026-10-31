@@ -4,12 +4,11 @@ import type {
   GpuTicket,
   HwSample,
   OfficeOrchestrator,
-  UsageWindow,
+  UsageProvider,
 } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
 import { t } from '../../i18n/index.js';
 import type { ToolActivity } from '../../office/types.js';
-import { isBrowserRuntime } from '../../runtime.js';
 import { transport } from '../../transport/index.js';
 import { AddDeviceButton } from '../auth/AddDevice.js';
 import { SecurityButton } from '../auth/SecurityPanel.js';
@@ -21,6 +20,7 @@ import { ActivityLegend } from '../ez/ActivityLegend.js';
 import { ringSprite } from '../ez/drawVisuals.js';
 import { FatigueBar, RestBubble } from '../ez/Fatigue.js';
 import { PixelSprite } from '../ez/PixelSprite.js';
+import { openStatDetail } from '../ez/statDetail.js';
 import { type RingState, ringWord } from '../ez/visuals.js';
 import { openProjectFiles } from '../files/explorerState.js';
 import { FileExplorer } from '../files/FileExplorer.js';
@@ -31,13 +31,12 @@ import {
   hwSections,
   hwSensorsHint,
   isOff,
-  modelName,
-  modelTag,
   type OfficePanel,
   percentTone,
   resetCountdown,
   stateLabel,
   timeAgo,
+  usageWindows,
   usageWindowText,
 } from '../format.js';
 import { GameOptions } from '../GameOptions.js';
@@ -45,7 +44,7 @@ import { HostClock } from '../HostClock.js';
 import { RefreshGlyph } from '../hud/glyphs.js';
 import { Movable } from '../hud/Movable.js';
 import { cpuCoreRows, cpuFigures, ramFigures } from '../hwDetail.js';
-import { type HwViewKind, hwViewModel, setHwPrefs, useHwPrefs } from '../hwView.js';
+import { type HwViewKind, hwViewModel, openHwView, setHwPrefs, useHwPrefs } from '../hwView.js';
 import { eventIcon, isFeedNoise } from '../notify/newsList.js';
 import {
   codexUsageCheckStarted,
@@ -268,7 +267,7 @@ function OrchestratorNode({
           )}
           <DutyMark id={agentId} />
           <span className="ml-auto" />
-          {isBrowserRuntime && !open && (
+          {!open && (
             <Button
               size="sm"
               onClick={(event) => {
@@ -320,14 +319,15 @@ function OrchestratorNode({
           )}
           <div className="flex flex-wrap gap-8">
             <ChatAction agentId={agentId} variant="card" />
+            <Button size="sm" data-testid="stat-open" onClick={() => openStatDetail(agentId)}>
+              {t('stat.open')}
+            </Button>
             <Button size="sm" onClick={() => openWorkbench(orchestrator.name)}>
               {t('status.workbench')}
             </Button>
-            {isBrowserRuntime && (
-              <Button size="sm" onClick={() => openProjectFiles(orchestrator.name)}>
-                {t('status.files')}
-              </Button>
-            )}
+            <Button size="sm" onClick={() => openProjectFiles(orchestrator.name)}>
+              {t('status.files')}
+            </Button>
             {engine && <EngineCardButtons project={engine} />}
           </div>
         </div>
@@ -443,11 +443,11 @@ function HardwarePanel() {
   const prefs = useHwPrefs();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    transport.send({ type: 'hwView', on: true });
+    const close = openHwView((msg) => transport.send(msg));
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => {
       window.clearInterval(timer);
-      transport.send({ type: 'hwView', on: false });
+      close();
     };
   }, []);
   return (
@@ -616,42 +616,25 @@ export function OfficePanelContent({
   return <HardwarePanel />;
 }
 
-export function UsagePair({
-  provider,
-  name,
-  now,
-}: {
-  provider: UsageWindow | null | undefined;
-  name: string;
-  now: number;
-}) {
-  if (!provider) return <span className={muted}>{t('usage.noInfo', { name })}</span>;
+export function UsagePair({ provider, now }: { provider: UsageProvider; now: number }) {
+  const windows = usageWindows(provider);
+  if (!windows.length)
+    return <span className={muted}>{t('usage.noInfo', { name: provider.name })}</span>;
   return (
     <div className="flex flex-wrap gap-x-12 gap-y-4 items-center text-xs min-w-0">
-      <strong className="text-accent-text">{name}</strong>
-      {(
-        [
-          ['5h', provider.fiveHourPct, provider.fiveHourReset, provider.fiveHourIsReset],
-          ['7d', provider.sevenDayPct, provider.sevenDayReset, provider.sevenDayIsReset],
-          ...(provider.models ?? []).map(
-            (m) => [modelTag(m.family), m.pct, m.reset ?? null, null] as const,
-          ),
-        ] as const
-      ).map(([window, pct, reset, isReset], i) => (
+      <strong className="text-accent-text">{provider.name}</strong>
+      {windows.map((w) => (
         <span
-          key={window}
-          className={`${toneClass[percentTone(pct)]} whitespace-nowrap`}
+          key={w.id}
+          className={`${toneClass[percentTone(w.pct)]} whitespace-nowrap`}
           title={
-            i > 1
-              ? t('usage.modelWeekly', {
-                  name: modelName(provider.models?.[i - 2]?.family ?? ''),
-                  reset: resetCountdown(reset, now),
-                })
-              : resetCountdown(reset, now)
+            w.title
+              ? t('usage.modelWeekly', { name: w.title, reset: resetCountdown(w.resetAt, now) })
+              : resetCountdown(w.resetAt, now)
           }
         >
-          {window} {usageWindowText(pct, isReset)}
-          {!isReset && <span className="text-text-muted"> · {resetCountdown(reset, now)}</span>}
+          {w.label} {usageWindowText(w.pct, w.isReset)}
+          {!w.isReset && <span className="text-text-muted"> · {resetCountdown(w.resetAt, now)}</span>}
         </span>
       ))}
     </div>
@@ -725,29 +708,27 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
     >
       <Chevron open={false} />
       <span className="min-w-0">
-        {(
-          [
-            ['Claude', usageState.claude],
-            ['Codex', usageState.codex],
-          ] as const
-        ).map(([name, provider], i) => (
-          // A phone wraps between the providers, never inside one.
-          <Fragment key={name}>
-            {i > 0 && ' '}
-            <span className="whitespace-nowrap mr-12">
-              <strong className="text-accent-text">{name}</strong>
-              {provider ? (
-                foldedFigures(provider).map((f, j) => (
-                  <Fragment key={f.text.slice(0, 2)}>
-                    {j > 0 && ' ·'} <span className={toneClass[percentTone(f.pct)]}>{f.text}</span>
-                  </Fragment>
-                ))
-              ) : (
-                <span className="text-text-muted"> {t('usage.unknown')}</span>
-              )}
-            </span>
-          </Fragment>
-        ))}
+        {usageState.providers.map((provider, i) => {
+          const figures = foldedFigures(provider);
+          return (
+            // A phone wraps between the providers, never inside one.
+            <Fragment key={provider.id}>
+              {i > 0 && ' '}
+              <span className="whitespace-nowrap mr-12">
+                <strong className="text-accent-text">{provider.name}</strong>
+                {figures.length ? (
+                  figures.map((f, j) => (
+                    <Fragment key={f.text.split(' ')[0]}>
+                      {j > 0 && ' ·'} <span className={toneClass[percentTone(f.pct)]}>{f.text}</span>
+                    </Fragment>
+                  ))
+                ) : (
+                  <span className="text-text-muted"> {t('usage.none')}</span>
+                )}
+              </span>
+            </Fragment>
+          );
+        })}
       </span>
     </button>
   ) : (
@@ -762,28 +743,30 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
         <Chevron open />
       </Button>
       <div className="flex flex-wrap gap-x-20 gap-y-4 flex-1 min-w-0" aria-label={t('usage.label')}>
-        <UsagePair provider={usageState.claude} name="Claude" now={now} />
-        <div className="flex items-center gap-8">
-          <UsagePair provider={usageState.codex} name="Codex" now={now} />
-          {!officeReadOnly && (
-            <Button
-              size="icon_md"
-              title={t('usage.checkCodexTitle')}
-              aria-label={t(codexUsageChecking ? 'usage.checkingCodex' : 'usage.checkCodex')}
-              aria-busy={codexUsageChecking}
-              data-testid="usage-refresh"
-              disabled={codexUsageChecking}
-              onClick={() => {
-                codexUsageCheckStarted();
-                transport.send({ type: 'codexUsageCheck' });
-              }}
-            >
-              <span className={codexUsageChecking ? 'animate-spin' : 'flex'}>
-                <RefreshGlyph />
-              </span>
-            </Button>
-          )}
-        </div>
+        {usageState.providers.map((provider) => (
+          <div key={provider.id} className="flex items-center gap-8">
+            <UsagePair provider={provider} now={now} />
+            {/* ponytail: the one provider whose usage can be re-read on demand is Codex; a provider with its own refresh would add a flag to the message. */}
+            {provider.id === 'codex' && !officeReadOnly && (
+              <Button
+                size="icon_md"
+                title={t('usage.checkCodexTitle')}
+                aria-label={t(codexUsageChecking ? 'usage.checkingCodex' : 'usage.checkCodex')}
+                aria-busy={codexUsageChecking}
+                data-testid="usage-refresh"
+                disabled={codexUsageChecking}
+                onClick={() => {
+                  codexUsageCheckStarted();
+                  transport.send({ type: 'codexUsageCheck' });
+                }}
+              >
+                <span className={codexUsageChecking ? 'animate-spin' : 'flex'}>
+                  <RefreshGlyph />
+                </span>
+              </Button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

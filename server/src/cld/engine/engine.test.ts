@@ -1755,26 +1755,45 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
   });
 
   it('3 deaths in 10 minutes: left down and marked, one log line, one notice; a manual start clears it', async () => {
-    const r = rig();
+    const r = rig({ ...WATCH, watchMs: 0 });
     const e = r.boot();
+    const watch = () => (e as unknown as { watch(): Promise<void> }).watch();
+    const waitForDeath = () => waitFor(() => expect(readLiveSessions(r.home)).toEqual([]), WAIT);
+    const watchAfterDeath = async () => {
+      const exits = r.events.filter((event) => event.type === 'orch_exit').length;
+      await watch(); // Starts the bounded same-conversation adoption look.
+      await waitFor(
+        () => expect(r.events.filter((event) => event.type === 'orch_exit')).toHaveLength(exits + 1),
+        WAIT,
+      );
+      await watch(); // The completed look found no replacement, so revive it now.
+    };
     await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
     await r.act(e, 'start', 'alpha');
+    await waitFor(() => expect(r.project(e, 'alpha')!.live).toBe(true), WAIT);
     for (let n = 1; n <= 2; n++) {
       killFakeSessions(r.home);
+      await waitForDeath();
       r.clock.t += 60_000;
-      await waitFor(() => expect(r.bgCalls()).toHaveLength(1 + n), WAIT);
+      await watchAfterDeath();
+      expect(r.bgCalls()).toHaveLength(1 + n);
       await waitFor(() => expect(r.project(e, 'alpha')!.live).toBe(true), WAIT);
     }
     killFakeSessions(r.home); // the third death
-    await waitFor(() => expect(r.project(e, 'alpha')!.downNote).toBeDefined(), WAIT);
+    await waitForDeath();
+    await watchAfterDeath();
     expect(r.project(e, 'alpha')).toMatchObject({
       live: false,
       wantRunning: true,
       downNote: expect.stringContaining('자꾸 꺼져서 다시 띄우지 않아요'),
     });
     const calls = engineCalls(r.home).length;
-    await pause(500); // left down: no further tries, no further lines or notices
+    const logs = r.logs.length;
+    const events = r.events.length;
+    await watch(); // a later watch pass leaves the crash-loop marker alone
     expect(engineCalls(r.home)).toHaveLength(calls);
+    expect(r.logs).toHaveLength(logs);
+    expect(r.events).toHaveLength(events);
     expect(r.logs.filter((l) => l.includes('left down'))).toHaveLength(1);
     expect(r.events.filter((x) => x.type === 'orch_giveup')).toEqual([
       { type: 'orch_giveup', source: 'engine', name: 'alpha', error: expect.any(String), reason: 'crash_loop' },
@@ -1800,7 +1819,9 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
     expect(r.project(e, 'alpha')!.live).toBe(true);
     const again = r.bgCalls().length;
     killFakeSessions(r.home);
-    await waitFor(() => expect(r.bgCalls().length).toBeGreaterThan(again), WAIT); // revived again
+    await waitForDeath();
+    await watchAfterDeath();
+    expect(r.bgCalls().length).toBeGreaterThan(again); // revived again
   });
 
   it('deaths older than the window do not count', async () => {

@@ -6,6 +6,10 @@ import { excludeLine } from '../engine/codex.js';
 import { FileAccessError } from './roots.js';
 
 export const ATTACH_MAX = 20 * 1024 * 1024;
+/** Videos are larger than other attachments; they stream to disk, so the limit is not held in memory. */
+export const VIDEO_ATTACH_MAX = 300 * 1024 * 1024;
+/** The bytes read before the first one is written: enough for every stored type's signature (tar's is at 257). */
+const HEAD_BYTES = 512;
 const RETAIN_MS = 30 * 24 * 60 * 60 * 1000;
 export const TEXT_EXT = new Set([
   '.txt',
@@ -56,6 +60,9 @@ const begins = (signature: number[]) => (body: Buffer) =>
   body.subarray(0, signature.length).every((byte, index) => byte === signature[index]);
 const zipFile = begins([0x50, 0x4b, 0x03, 0x04]);
 const oleFile = begins([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const isoBox = (body: Buffer) =>
+  ['ftyp', 'moov', 'mdat', 'wide', 'free', 'skip'].includes(body.subarray(4, 8).toString('latin1'));
+const ebml = begins([0x1a, 0x45, 0xdf, 0xa3]);
 
 /** Binary files stored for the lead to inspect, rather than opened by the server. */
 export const STORED_TYPES: Record<string, StoredType> = {
@@ -91,7 +98,18 @@ export const STORED_TYPES: Record<string, StoredType> = {
   '.ppt': { type: 'application/vnd.ms-powerpoint', magic: oleFile },
   '.hwp': { type: 'application/x-hwp', magic: oleFile },
   '.rtf': { type: 'application/rtf', magic: begins([0x7b, 0x5c, 0x72, 0x74, 0x66]) },
+  '.mp4': { type: 'video/mp4', magic: isoBox },
+  '.m4v': { type: 'video/mp4', magic: isoBox },
+  '.mov': { type: 'video/quicktime', magic: isoBox },
+  '.webm': { type: 'video/webm', magic: ebml },
 };
+
+/** The size limit of an attachment by its name: a video's own, everything else's. */
+export function attachMax(name: string): number {
+  return STORED_TYPES[path.extname(name).toLowerCase()]?.type.startsWith('video/')
+    ? VIDEO_ATTACH_MAX
+    : ATTACH_MAX;
+}
 
 /** Whether a stored binary file's content has the signature its extension requires. */
 export function hasStoredMagic(name: string, body: Buffer): boolean {
@@ -166,53 +184,65 @@ export function cleanOldAttachments(root: string, now = Date.now()): void {
   }
 }
 
-export function storeAttachment(
+/** The file is created only once the first bytes have passed the type check; a refusal or an
+ *  aborted upload removes what was written, so a failed upload leaves no partial file. */
+export async function storeAttachment(
   root: string,
   name: string,
   type: string,
-  body: Buffer,
+  body: AsyncIterable<Uint8Array>,
+  declaredLength?: number,
   now = Date.now(),
 ) {
   const safe = safeAttachmentName(name);
   const accepted = attachmentType(safe, type);
-  if (body.length > ATTACH_MAX)
-    throw new FileAccessError(koText('attach_too_large'), 413);
-  if (STORED_TYPES[path.extname(safe).toLowerCase()] && !hasStoredMagic(safe, body))
-    throw new FileAccessError(koText('attach_type_mismatch'), 415);
-  const dir = inbox(root, true);
+  const max = attachMax(safe);
+  const tooLarge = () =>
+    new FileAccessError(koText(max === VIDEO_ATTACH_MAX ? 'attach_video_too_large' : 'attach_too_large'), 413);
+  if (declaredLength !== undefined && declaredLength > max) throw tooLarge();
   const date = new Date(now);
   const stamp = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}-${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
+  let head = Buffer.alloc(0);
+  let size = 0;
   let file = '';
-  for (let n = 0; n < 100; n++) {
-    const suffix = n ? `-${n}` : '';
-    file = path.join(dir, `${stamp}-${suffix}${safe}`);
-    try {
-      const fd = fs.openSync(
-        file,
-        fs.constants.O_WRONLY |
-          fs.constants.O_CREAT |
-          fs.constants.O_EXCL |
-          fs.constants.O_NOFOLLOW,
-        0o600,
-      );
-      let writeError: unknown;
+  let handle: fs.promises.FileHandle | undefined;
+  const begin = async () => {
+    if (STORED_TYPES[path.extname(safe).toLowerCase()] && !hasStoredMagic(safe, head))
+      throw new FileAccessError(koText('attach_type_mismatch'), 415);
+    const dir = inbox(root, true);
+    for (let n = 0; n < 100; n++) {
+      file = path.join(dir, `${stamp}-${n ? `-${n}` : ''}${safe}`);
       try {
-        fs.writeFileSync(fd, body);
+        handle = await fs.promises.open(
+          file,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+          0o600,
+        );
+        return handle.writeFile(head);
       } catch (error) {
-        writeError = error;
-      } finally {
-        fs.closeSync(fd);
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       }
-      if (writeError) {
-        fs.unlinkSync(file);
-        throw writeError;
-      }
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      if (n === 99) throw new FileAccessError(koText('attach_name_failed'), 409);
     }
+    file = '';
+    throw new FileAccessError(koText('attach_name_failed'), 409);
+  };
+  try {
+    for await (const part of body) {
+      size += part.length;
+      if (size > max) throw tooLarge();
+      if (handle) await handle.writeFile(part);
+      else {
+        head = Buffer.concat([head, part]);
+        if (head.length >= HEAD_BYTES) await begin();
+      }
+    }
+    if (!handle) await begin();
+    await handle!.close();
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    if (handle) await fs.promises.unlink(file).catch(() => undefined);
+    throw error;
   }
   excludeLine(root, '.cld-inbox/');
-  return { path: file, name: safe, size: body.length, type: accepted };
+  return { path: file, name: safe, size, type: accepted };
 }

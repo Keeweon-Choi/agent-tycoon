@@ -18,5 +18,6 @@ export function managerFiles(root) {
     'core/src/exposureLedger.mjs',
     'core/src/remoteSetupPlan.mjs',
     'core/src/cld/configPath.cjs',
+    'core/src/cld/controlIdentity.cjs',
   ];
 }

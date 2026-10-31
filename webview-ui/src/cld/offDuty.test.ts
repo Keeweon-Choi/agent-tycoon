@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { OfficeJob, OfficeOrchestrator } from '../../../core/src/messages.js';
+import type { OfficeOrchestrator } from '../../../core/src/messages.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 
 const staff = vi.hoisted(() => ({ away: {} as Record<number, { x: number; y: number }> }));
 vi.mock('./staff.js', () => ({ staffSnapshot: () => ({ away: staff.away }) }));
 
-import { offDutyFacts, offDutyId, openOffDuty, recentJobs, selectOrOpenInfo } from './offDuty.js';
+import { openStatDetail, statDetailId } from './ez/statDetail.js';
+import { offDutyFacts, selectOrOpenInfo } from './offDuty.js';
 
 const row = (over: Partial<OfficeOrchestrator> = {}): OfficeOrchestrator => ({
   name: 'alpha',
@@ -24,7 +25,7 @@ const row = (over: Partial<OfficeOrchestrator> = {}): OfficeOrchestrator => ({
 
 afterEach(() => {
   staff.away = {};
-  openOffDuty(null);
+  openStatDetail(null);
 });
 
 describe('selectOrOpenInfo (a card tap)', () => {
@@ -32,27 +33,33 @@ describe('selectOrOpenInfo (a card tap)', () => {
 
   it('selects a visible character and opens nothing', () => {
     expect(selectOrOpenInfo(os(true), 7)).toBe(true);
-    expect(offDutyId()).toBeNull();
+    expect(statDetailId()).toBeNull();
   });
 
-  it('a character off duty (resting in the lounge) is followed and opens its sheet too', () => {
+  it('a character off duty (resting in the lounge) is followed, its menu opens, no stats view', () => {
     staff.away = { 7: { x: 1, y: 2 } };
     let followed = 0;
     const resting = { selectAndFollow: () => ++followed > 0 } as unknown as OfficeState;
     expect(selectOrOpenInfo(resting, 7)).toBe(false); // the caller does not go on to its terminal
     expect(followed).toBe(1);
-    expect(offDutyId()).toBe(7);
+    expect(statDetailId()).toBeNull();
   });
 
-  it('a character that went home opens its sheet instead', () => {
+  it('one off duty whose character cannot be selected opens its stats view', () => {
     staff.away = { 7: { x: 1, y: 2 } };
     expect(selectOrOpenInfo(os(false), 7)).toBe(false);
-    expect(offDutyId()).toBe(7);
+    expect(statDetailId()).toBe(7);
+  });
+
+  it('a character that went home opens its stats view instead', () => {
+    staff.away = { 7: { x: 1, y: 2 } };
+    expect(selectOrOpenInfo(os(false), 7)).toBe(false);
+    expect(statDetailId()).toBe(7);
   });
 
   it('a character that is merely absent (not home) opens nothing', () => {
     expect(selectOrOpenInfo(os(false), 9)).toBe(false);
-    expect(offDutyId()).toBeNull();
+    expect(statDetailId()).toBeNull();
   });
 });
 
@@ -63,14 +70,13 @@ describe('offDutyFacts', () => {
       off: true,
       room: 'orch-alpha',
       folder: null,
-      model: null,
       session: null,
       downNote: null,
       needsTrust: false,
     });
   });
 
-  it('adds the engine project model, effort, session and the reason it stays down', () => {
+  it('adds the engine project session and the reason it stays down', () => {
     const project = {
       name: 'alpha',
       folder: '/work/alpha',
@@ -84,26 +90,9 @@ describe('offDutyFacts', () => {
     };
     expect(offDutyFacts(row({ sessionId: 'abcdef123456' }), project, true)).toMatchObject({
       away: true,
-      model: 'opus · high',
       session: 'abcdef12',
       downNote: 'died 3 times',
       needsTrust: true,
     });
-  });
-});
-
-describe('recentJobs', () => {
-  const job = (id: string, project: string, started: string): OfficeJob =>
-    ({ id, project, started, label: id }) as OfficeJob;
-  it('newest first, this project only, at most three', () => {
-    const jobs = [
-      job('a', 'alpha', '2026-10-24T01:00:00Z'),
-      job('b', 'beta', '2026-10-24T05:00:00Z'),
-      job('c', 'alpha', '2026-10-24T03:00:00Z'),
-      job('d', 'alpha', '2026-10-24T02:00:00Z'),
-      job('e', 'alpha', '2026-10-24T04:00:00Z'),
-    ];
-    expect(recentJobs(jobs, 'alpha').map((j) => j.id)).toEqual(['e', 'c', 'd']);
-    expect(recentJobs(undefined, 'alpha')).toEqual([]);
   });
 });

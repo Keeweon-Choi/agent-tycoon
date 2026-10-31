@@ -19,7 +19,7 @@ import type { ChatAttachment } from '../../../../core/src/messages.js';
 import { normalizeProjectPath } from '../../../../core/src/normalizeProjectPath.js';
 import { excludeLine } from '../engine/codex.js';
 import {
-  ATTACH_MAX,
+  attachMax,
   IMAGE_TYPES,
   inbox,
   safeAttachmentName,
@@ -32,6 +32,7 @@ import { forbiddenAbsolutePath } from './security.js';
 export const OUTBOX = '.cld-outbox';
 /** Files one message may carry. */
 export const SENT_MAX = 10;
+const COPY_CHUNK = 1024 * 1024;
 
 export function typeOf(name: string): string {
   const ext = path.extname(name).toLowerCase();
@@ -125,11 +126,10 @@ export function sendOutbox(dir: string, source: string): ChatAttachment {
       from,
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
     );
-    let body: Buffer;
     let mtimeMs: number;
     try {
       const stat = fs.fstatSync(fd);
-      if (!stat.isFile() || stat.size > ATTACH_MAX) return gone(from);
+      if (!stat.isFile() || stat.size > attachMax(name)) return gone(from);
       // Checked on the file actually opened: its real path (a symlinked folder
       // anywhere on the way is resolved) is the same inode, outside every
       // protected folder and inside the project's own places.
@@ -151,9 +151,7 @@ export function sendOutbox(dir: string, source: string): ChatAttachment {
       );
       const held = reuse(dir, copy);
       if (held !== null) return made(copy, name, held);
-      body = fs.readFileSync(fd);
-      if (body.length > ATTACH_MAX) return gone(from);
-      return made(copy, name, write(dir, copy, body));
+      return made(copy, name, write(dir, copy, fd, attachMax(name)));
     } finally {
       fs.closeSync(fd);
     }
@@ -180,8 +178,10 @@ function reuse(dir: string, copy: string): number | null {
   }
 }
 
-/** Write via a temp name and rename, so a crash never leaves a half copy under the final name. */
-function write(dir: string, copy: string, body: Buffer): number {
+/** Copy the opened source via a temp name and rename, so a crash never leaves a half copy under the
+ *  final name. Chunk by chunk: a video is never held whole in memory.
+ *  ponytail: synchronous, a 300 MB copy blocks the daemon for about a second; async if that is felt. */
+function write(dir: string, copy: string, source: number, max: number): number {
   inbox(dir, true, OUTBOX);
   const tmp = path.join(
     path.dirname(copy),
@@ -192,8 +192,15 @@ function write(dir: string, copy: string, body: Buffer): number {
     fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
     0o600,
   );
+  let total = 0;
   try {
-    fs.writeFileSync(fd, body);
+    const chunk = Buffer.allocUnsafe(COPY_CHUNK);
+    for (let n = fs.readSync(source, chunk, 0, chunk.length, null); n > 0; ) {
+      total += n;
+      if (total > max) throw new Error('source grew past the limit');
+      fs.writeSync(fd, chunk, 0, n);
+      n = fs.readSync(source, chunk, 0, chunk.length, null);
+    }
   } catch (error) {
     fs.closeSync(fd);
     fs.unlinkSync(tmp);
@@ -202,7 +209,7 @@ function write(dir: string, copy: string, body: Buffer): number {
   fs.closeSync(fd);
   fs.renameSync(tmp, copy);
   excludeLine(dir, `${OUTBOX}/`);
-  return body.length;
+  return total;
 }
 
 /** A lead's text without its `[첨부] <path>` lines, and those paths (an optional `(type, N KB)` tail is dropped). */

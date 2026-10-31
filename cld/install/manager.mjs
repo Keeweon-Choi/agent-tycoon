@@ -26,6 +26,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import configPathModule from '../../core/src/cld/configPath.cjs';
+// SEC-CONTROL: stop-agents is the owner's; the owner token goes only where no agent or job of this daemon is in the line.
+import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
 import { extractBundle, sha256File, verifyBundle } from '../release/bundle/verify.mjs';
 import { encodePowerShell } from './hwSensors.mjs';
 import { configPath, daemonArgs, defaults, detectPlatform, exposurePath, hostToken, mergeConfig, NODE_FLAGS, pathWith, pathWithout, renderLaunchAgent, renderSystemdUnit, revertLedger, rotateLog, shellQuote, winPath } from './install.mjs';
@@ -517,7 +519,7 @@ export function realDeps(overrides = {}) {
     let text = '';
     client.setTimeout(3_000);
     client.setEncoding('utf8');
-    client.on('connect', () => client.write(`${JSON.stringify({ v: 1, cmd, cwd: process.cwd(), source: 'manager', token: env.CLD_AGENT_TOKEN || undefined, args: {} })}\n`));
+    client.on('connect', () => client.write(`${JSON.stringify({ v: 1, cmd, cwd: process.cwd(), source: 'manager', ...controlIdentity.callerIdentity(home, env), args: {} })}\n`));
     client.on('data', (data) => {
       text += data;
       const nl = text.indexOf('\n');
@@ -835,6 +837,13 @@ export function sideOf(record, os, distro = null) {
   return { os, distro: distro ?? record.wslDistro ?? null, port: Number.isInteger(record.port) ? record.port : null, besides: record.besides ?? null };
 }
 
+/**
+ * A Windows environment variable read from WSL. `cmd /c echo %VAR%` prints in the console code page (cp949 for a Korean
+ * Windows), which Node decodes as UTF-8 and so mangles a Korean user folder; PowerShell with UTF-8 output does not.
+ */
+export const winEnvCommand = (name) => ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8;$env:${name}`];
+export const winEnvValue = (stdout) => stdout.replace(/^\uFEFF/, '').trim();
+
 /** Real lookups of the other side's record (read only). Windows: each WSL distro's through wsl.exe; WSL: the Windows one under /mnt/c. */
 export const sideRecords = {
   async win32(run) {
@@ -850,9 +859,9 @@ export const sideRecords = {
     return out;
   },
   async wsl(run) {
-    const local = await run(['cmd.exe', '/d', '/c', 'echo %LOCALAPPDATA%'], { optional: true, timeout: 15_000, cwd: '/mnt/c' });
-    const win = local.stdout.trim();
-    if (!local.ok || !win || win.includes('%')) return [];
+    const local = await run(winEnvCommand('LOCALAPPDATA'), { optional: true, timeout: 15_000, cwd: '/mnt/c' });
+    const win = winEnvValue(local.stdout);
+    if (!local.ok || !win) return [];
     const unix = await run(['wslpath', '-u', win], { optional: true, timeout: 15_000 });
     if (!unix.ok) return [];
     try { const side = sideOf(JSON.parse(await fs.readFile(path.join(unix.stdout.trim(), 'AgentTycoon', 'install.json'), 'utf8')), 'win32'); return side ? [side] : []; } catch { return []; }

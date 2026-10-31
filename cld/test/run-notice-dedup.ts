@@ -145,7 +145,7 @@ async function main() {
       tap: (l: Locator) => Promise<void>,
     ) => {
       const ctx = await browser!.newContext(opts);
-      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
       await ctx.route('**/__nd/*.ttf', (route) =>
         route.fulfill({
           body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,

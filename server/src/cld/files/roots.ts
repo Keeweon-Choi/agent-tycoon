@@ -5,6 +5,7 @@ import { projectPathKey } from '../../../../core/src/cld/projectPath.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type { HostInfo } from '../../../../core/src/messages.js';
 import type { ProjectFolder } from '../engine/git/repoRead.js';
+import { TASK_PATTERN, WORKTREES_DIR } from '../engine/git/worktrees.js';
 import { detectHostInfo, folderRoots } from '../folders.js';
 import { forbiddenAbsolutePath, forbiddenFilePath } from './security.js';
 
@@ -64,6 +65,33 @@ export function projectRoot(projects: readonly ProjectFolder[], name: string): s
     return root;
   } catch {
     throw new FileAccessError(koText('project_folder_unreadable'), 404);
+  }
+}
+
+/** A task worktree of a registered project: `<project>/.worktrees/<task>`, named by the task only
+ * (never a client path). ponytail: found on disk (a real folder with its own `.git` file, inside the
+ * project's `.worktrees`), not read from worktrees.json; the records file lives with the engine. */
+export function worktreeRoot(
+  projects: readonly ProjectFolder[],
+  name: string,
+  task: string,
+): string {
+  const top = projectRoot(projects, name);
+  if (typeof task !== 'string' || !TASK_PATTERN.test(task))
+    throw new FileAccessError(koText('task_name_invalid'), 400);
+  try {
+    const parent = fs.realpathSync(path.join(top, WORKTREES_DIR));
+    const real = fs.realpathSync(path.join(parent, task));
+    if (
+      path.dirname(real) !== parent ||
+      !fs.statSync(real).isDirectory() ||
+      !fs.statSync(path.join(real, '.git')).isFile() ||
+      forbiddenAbsolutePath(real)
+    )
+      throw new Error('not a task worktree');
+    return real;
+  } catch {
+    throw new FileAccessError(koText('worktree_missing'), 404);
   }
 }
 

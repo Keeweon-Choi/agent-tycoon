@@ -1,0 +1,227 @@
+// Fake interactive `claude -n NAME [--resume SID] [flags]` for our PTY host (TERM-P1, ADR-0018),
+// required by ./engine.cjs in the PTY's own process (its pid is the one the host spawned).
+// What cld-gui reads from the real one (ADR-0018 P0 table):
+//   - ESC]7501;? BEL and ESC[c in ONE write; OSC 7501 reports start only when the terminal
+//     answered the probe before DA1 (state=idle at start, working during a turn, done after it,
+//     clear at exit); $HOME/fake-pty-osc.log gets one line per report or `noreport`.
+//   - ~/.claude/sessions/<pid>.json, kind interactive, status idle|busy, removed at exit.
+//   - the transcript ~/.claude/projects/<cwd>/<sid>.jsonl: a user record per submitted input,
+//     an assistant reply FAKE_TURN_MS (300) later.
+//   - --resume SID keeps SID (flags too), --session-id SID starts SID; otherwise a new id.
+// Input: a bracketed paste or typing fills the line, Enter (\r) submits it, ctrl+x ctrl+s too
+// (`now`); each submit is one JSON line {name, sessionId, text, now?} in $HOME/fake-claude-typed.log.
+// SIGHUP/SIGTERM (the PTY closing) end it like Claude: session file gone.
+// TERM-P3: a submit containing FAKE-PERMISSION asks a permission as Claude does (P0 b): status
+// waiting, OSC blocked:kind=permission, and the PermissionRequest hook from --settings run through
+// `sh -c` with the hook's JSON on stdin; its decision (or `dialog` when it gave none) is one line
+// {sessionId, behavior} in $HOME/fake-claude-perm.log and the turn's reply.
+'use strict';
+const { spawn } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+module.exports = function run(args) {
+  const HOME = process.env.HOME;
+  const turnMs = Number(process.env.FAKE_TURN_MS || 300);
+  const arg = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+  const name = arg('-n') || arg('--name') || 'fake';
+  const sessionId = arg('--resume') || arg('--session-id') || crypto.randomUUID();
+  const cwd = process.cwd();
+  const sessDir = path.join(HOME, '.claude', 'sessions');
+  const sessFile = path.join(sessDir, `${process.pid}.json`);
+  const transcript = path.join(HOME, '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9-]/g, '-'), `${sessionId}.jsonl`);
+  const out = (s) => process.stdout.write(s);
+  const oscLog = (line) => fs.appendFileSync(path.join(HOME, 'fake-pty-osc.log'), `${process.pid} ${line}\n`);
+  let reporting = false;
+  let status = 'idle';
+  let input = '';
+  let pasting = false;
+  let chordX = false;
+  let last = '';
+
+  const procStart = () => {
+    try {
+      const s = fs.readFileSync(`/proc/${process.pid}/stat`, 'utf8');
+      return s.slice(s.lastIndexOf(')') + 2).split(' ')[19];
+    } catch {
+      return undefined;
+    }
+  };
+  const writeSession = () => {
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(
+      sessFile,
+      JSON.stringify({
+        pid: process.pid,
+        sessionId,
+        cwd,
+        startedAt,
+        procStart: procStart(),
+        kind: 'interactive',
+        name,
+        nameSource: 'user',
+        status,
+        statusUpdatedAt: Date.now(),
+      }),
+    );
+  };
+  const osc = (state) => {
+    if (!reporting) return;
+    out(`\x1b]7501;state=${state}${state === 'idle' ? ':app=claude-code' : ''}\x07`);
+    oscLog(state);
+  };
+  const record = (role, text) => {
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.appendFileSync(
+      transcript,
+      `${JSON.stringify(
+        role === 'user'
+          ? { type: 'user', uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, message: { role, content: text } }
+          : { type: 'assistant', uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, message: { role, content: [{ type: 'text', text }] } },
+      )}\n`,
+    );
+  };
+  const draw = () => {
+    out('\x1b[H\x1b[2J');
+    out(` fake Claude Code (pty) · ${name} · ${sessionId.slice(0, 8)}\r\n\r\n`);
+    out(` last: ${last.slice(0, 60)}\r\n`);
+    out(status === 'busy' ? ' ✻ Working…\r\n' : '\r\n');
+    out(`${'─'.repeat(40)}\r\n❯ ${input.replaceAll('\r', '⏎')}`);
+  };
+  const askPermission = () => {
+    let hook;
+    try {
+      hook = JSON.parse(arg('--settings') || '{}').hooks.PermissionRequest[0].hooks[0];
+    } catch {
+      hook = null;
+    }
+    status = 'waiting';
+    writeSession();
+    osc('blocked:kind=permission');
+    draw();
+    const decided = (behavior) => {
+      fs.appendFileSync(path.join(HOME, 'fake-claude-perm.log'), `${JSON.stringify({ sessionId, behavior })}\n`);
+      record('assistant', `permission: ${behavior}`);
+      status = 'idle';
+      writeSession();
+      osc('done');
+      draw();
+    };
+    if (!hook) return decided('dialog');
+    const child = spawn('sh', ['-c', hook.command], { stdio: ['pipe', 'pipe', 'ignore'] });
+    let said = '';
+    child.stdout.on('data', (d) => (said += d));
+    child.on('close', () => {
+      let behavior = 'dialog';
+      try {
+        behavior = JSON.parse(said).hookSpecificOutput.decision.behavior;
+      } catch {
+        /* no decision: Claude would show its own dialog */
+      }
+      decided(behavior);
+    });
+    child.stdin.end(
+      JSON.stringify({
+        session_id: sessionId,
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'Bash',
+        tool_input: { command: 'rm -rf fake-build', description: 'Fake permission check' },
+      }),
+    );
+  };
+  const submit = (now) => {
+    const text = input;
+    input = '';
+    if (!text) return draw();
+    fs.appendFileSync(path.join(HOME, 'fake-claude-typed.log'), `${JSON.stringify({ name, sessionId, text: text.replaceAll('\r', '\n'), ...(now && { now }) })}\n`);
+    record('user', text.replaceAll('\r', '\n'));
+    last = text.replaceAll('\r', ' ');
+    status = 'busy';
+    writeSession();
+    osc('working');
+    draw();
+    if (text.includes('FAKE-PERMISSION')) return askPermission();
+    setTimeout(() => {
+      record('assistant', `ok: ${last.slice(0, 40)}`);
+      status = 'idle';
+      writeSession();
+      osc('done');
+      draw();
+    }, turnMs);
+  };
+  const bye = (code) => {
+    fs.rmSync(sessFile, { force: true });
+    try {
+      osc('clear'); // a hung-up terminal (SIGHUP) takes no more output
+    } catch {
+      /* gone */
+    }
+    process.exit(code);
+  };
+  process.stdout.on('error', () => bye(129));
+
+  const startedAt = Date.now();
+  process.on('SIGHUP', () => bye(129));
+  process.on('SIGTERM', () => bye(143));
+  process.stdin.setRawMode(true);
+  // The probe, as Claude Code sends it: OSC 7501 query and DA1 in one write.
+  let probe = '';
+  let probing = true;
+  const endProbe = () => {
+    if (!probing) return;
+    probing = false;
+    oscLog(reporting ? 'answered' : 'noreport');
+    writeSession();
+    osc('idle');
+    draw();
+  };
+  setTimeout(endProbe, 1_000);
+  out('\x1b]7501;?\x07\x1b[c');
+  // A long paste comes in several reads: a character or an escape split between two waits for the next.
+  process.stdin.setEncoding('utf8');
+  let carry = '';
+  process.stdin.on('data', (chunk) => {
+    let s = carry + chunk;
+    carry = '';
+    const cut = s.lastIndexOf('\x1b');
+    if (cut >= 0 && /^\x1b(\[[\d;?]*)?$/.test(s.slice(cut))) {
+      carry = s.slice(cut);
+      s = s.slice(0, cut);
+    }
+    if (probing) {
+      probe += s;
+      const a = probe.indexOf('\x1b]7501;?');
+      const d = probe.search(/\x1b\[\?[\d;]*c/);
+      if (d < 0) return;
+      reporting = a >= 0 && a < d;
+      s = probe.replace(/\x1b\]7501;[^\x07\x1b]*(\x07|\x1b\\)/g, '').replace(/\x1b\[\?[\d;]*c/g, '');
+      endProbe();
+    }
+    while (s) {
+      if (s.startsWith('\x1b[200~')) {
+        pasting = true;
+        s = s.slice(6);
+      } else if (s.startsWith('\x1b[201~')) {
+        pasting = false;
+        s = s.slice(6);
+      } else if (s.startsWith('\x1b[')) {
+        // A terminal answer or a key we do not draw (CPR, arrows): dropped.
+        const m = /^\x1b\[[\d;?]*[A-Za-z~]/.exec(s);
+        s = s.slice(m ? m[0].length : 2);
+      } else {
+        const ch = s[0];
+        s = s.slice(1);
+        if (ch === '\x18') chordX = true;
+        else if (ch === '\x13' && chordX) {
+          chordX = false;
+          submit(true);
+        } else if (ch === '\r' && !pasting) submit(false);
+        else if (ch === '\x7f') input = input.slice(0, -1);
+        else if (ch === '\x03') bye(0);
+        else if (ch >= ' ' || ch === '\r' || ch === '\n' || ch === '\t') input += ch;
+      }
+    }
+    if (!probing) draw();
+  });
+};

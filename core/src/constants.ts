@@ -9,9 +9,7 @@
 // ── Hook API ─────────────────────────────────────────────────
 
 export const HOOK_API_PREFIX = '/api/hooks';
-export const SERVER_JSON_DIR = '.pixel-agents';
 export const SERVER_JSON_NAME = 'server.json';
-export const HOOK_SCRIPTS_DIR = '.pixel-agents/hooks';
 
 // ── Display ──────────────────────────────────────────────────
 
@@ -44,6 +42,8 @@ export const TRANSPORT_STATE_DISCONNECTED = 'disconnected';
 
 /** The same notice kind for the same target at most once in this window (FR-NTF-003). */
 export const NOTICE_COOLDOWN_MS = 5 * 60_000;
+/** The longest task title or activity line a turn-end notice names (characters). */
+export const NOTICE_WHAT_MAX = 40;
 /** Web Push: a repeated question or permission ask is never held back for 5 minutes (it replaces the one shown, same tag). */
 export const PUSH_ATTENTION_COOLDOWN_MS = 60_000;
 /** U-49: a device counts as looking only through a page that reported "showing" this recently (the page repeats it

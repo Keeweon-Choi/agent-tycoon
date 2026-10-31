@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect } from 'react';
 
+import { closeDevroomPage, devroomGetSnapshot, useDevroom } from '../cld/devroom/devroomStore.js';
 import { hudGetSnapshot, pressBack, pressTab, showOffice, useHud } from '../cld/hud/hudStore.js';
 import { activeTab, type Tab } from '../cld/hud/windowModel.js';
 import {
@@ -26,6 +27,7 @@ function atRoot(tab: Tab): boolean {
   }
   if (tab === 'workbench') return workbenchGetSnapshot().tab === WORKBENCH_TABS[0];
   if (tab === 'board') return hudGetSnapshot().officeTab === 'status';
+  if (tab === 'devroom') return devroomGetSnapshot().page === null;
   return true;
 }
 
@@ -33,6 +35,7 @@ function toRoot(tab: Tab | undefined): void {
   if (tab === 'messenger') showMessengerList();
   else if (tab === 'workbench') setWorkbenchTab(WORKBENCH_TABS[0]);
   else if (tab === 'board') showOffice('status');
+  else if (tab === 'devroom') closeDevroomPage();
 }
 
 /** The history entry that holds one Back press for us while the phone is away from home. */
@@ -54,6 +57,7 @@ export function usePhoneTabs(phone: boolean): { tab: Tab; pick: (tab: Tab) => vo
   // Re-render on the sub-routes too: whether Back has a step to take inside the tab.
   useMessenger();
   useWorkbench();
+  useDevroom();
   const away = isAway(tab);
 
   // Away from home, one entry of ours sits on top: Back pops it and we take one step. Landing on

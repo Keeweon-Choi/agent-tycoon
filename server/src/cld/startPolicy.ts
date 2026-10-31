@@ -6,7 +6,7 @@
  * The manager refuses any caller with CLD_AGENT_TOKEN in its environment (agent sessions). The daemon
  * runs it without one, so the owner's request passes and agents' own `agty start-policy` still does not.
  * The HTTP side takes a logged-in browser session only: the host's Bearer token sits in
- * ~/.pixel-agents/server.json, which every agent session can read. A remote device needs a fresh
+ * the office server.json (officeFolder.ts), which every agent session can read. A remote device needs a fresh
  * step-up. Nothing here stops the daemon or a session (INSTALL-16: the manager never does).
  */
 import { execFile } from 'node:child_process';

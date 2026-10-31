@@ -17,7 +17,6 @@ export type AgentStateInit = Pick<AgentState, RequiredInit> &
  */
 export function createAgentState(init: AgentStateInit): AgentState {
   return {
-    terminalRef: undefined,
     fileOffset: 0,
     lineBuffer: '',
     activeToolIds: new Set(),

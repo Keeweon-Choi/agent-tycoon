@@ -6,6 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
+import { t } from '../../i18n/index.js';
 import { engineGetSnapshot } from '../engineStore.js';
 import { useCldStore } from '../officeStore.js';
 import { parseSaved, projectOfAgent, type WorkbenchSaved, type WorkbenchTab } from './workbenchState.js';
@@ -48,6 +49,35 @@ export const setWorkbenchTab = (tab: WorkbenchTab) => set({ tab });
 export function openWorkbench(project?: string): void {
   if (project) set({ project: projectOfAgent(project, engineGetSnapshot().state?.projects) });
   window.dispatchEvent(new Event(OPEN_WORKBENCH_EVENT));
+}
+
+// ── 검토: a task worktree's review shown in the 작업실 (title `작업실 / <project> · 검토`) ──
+export interface ReviewOpen {
+  project: string;
+  task: string;
+}
+/** Not remembered across reloads: a review page is a visit, not a place. */
+let review: ReviewOpen | null = null;
+const reviewListeners = new Set<() => void>();
+const reviewSubscribe = (l: () => void) => {
+  reviewListeners.add(l);
+  return () => void reviewListeners.delete(l);
+};
+const setReview = (next: ReviewOpen | null) => {
+  review = next;
+  reviewListeners.forEach((l) => l());
+};
+export const useWorkbenchReview = () => useSyncExternalStore(reviewSubscribe, () => review);
+export const closeReview = () => setReview(null);
+/** The task card's 검토: the 작업실 opens on that worktree's review. */
+export function openReview(project: string, task: string): void {
+  setReview({ project, task });
+  openWorkbench(project);
+}
+/** The window's title: `작업실`, or `작업실 / <project> · 검토` while a review is open. */
+export function useWorkbenchTitle(): string {
+  const open = useWorkbenchReview();
+  return open ? t('review.windowTitle', { project: open.project }) : t('nav.workbench');
 }
 
 /** D3b: only a connection that may act sees the 에이전트 tab's actions (the server refuses

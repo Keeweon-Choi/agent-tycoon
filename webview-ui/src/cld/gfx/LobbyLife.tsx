@@ -17,7 +17,7 @@ import { LOBBY_ART } from '../../constants.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
 import { getCharacterSprites } from '../../office/sprites/spriteData.js';
 import { Direction } from '../../office/types.js';
-import { lookByName, useLooksUi } from '../characters/looks.js';
+import { lookByName, ownerChoice, useLooksUi } from '../characters/looks.js';
 import { reducedMotion } from '../floors.js';
 import { useCldStore } from '../officeStore.js';
 import tall from './art/title-tall.webp';
@@ -27,9 +27,6 @@ import { exactDevicePx, type LobbyArtKind, lobbyCover, snapExact } from './title
 
 type Art = LobbyArtKind;
 const SRC: Record<Art, string> = { wide, tall };
-/** The look the owner keeps for themself (assignments.owner), else the HD sample preset. */
-const OWNER_LOOK_KEY = 'owner';
-const OWNER_FALLBACK_PRESET = 'bunny-hd-sample';
 const TORI: CharacterChoice = { v: 2, kind: 'mascot', species: 'tori' };
 
 function useCover() {
@@ -130,11 +127,7 @@ function LobbyCast({ art, s }: { art: Art; s: number }) {
     presets: [],
     assignments: {},
   };
-  const owner =
-    presets.assignments[OWNER_LOOK_KEY] ??
-    (presets.presets.some((p) => p.id === OWNER_FALLBACK_PRESET)
-      ? { preset: OWNER_FALLBACK_PRESET }
-      : null);
+  const owner = ownerChoice(presets);
   const looks = [TORI, owner].map((choice, i) =>
     choice
       ? lookByName(`lobby:${i}`, { ...presets, assignments: { [`lobby:${i}`]: choice } })

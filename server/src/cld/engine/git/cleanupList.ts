@@ -1,0 +1,88 @@
+/**
+ * P4 (개발실, W3 작업 폴더 정리): the task worktrees worth cleaning up (merged, or no new commit
+ * for a day), with each folder's size measured for this one answer.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+
+import type { RepoCleanupRow, RepoWorktree } from '../../../../../core/src/messages.js';
+import type { GitRunner } from './gitRun.js';
+import { READ_ENV } from './gitRun.js';
+
+/** A worktree with no new commit for this long is listed as idle. */
+export const CLEANUP_IDLE_MS = 24 * 60 * 60_000;
+/** The size walk of one folder stops after this (the row then says `sizeCapped`). */
+export const SIZE_WALK_MS = 3_000;
+
+/** Every local branch's tip: its commit and when it was made. One git call per repository. */
+export async function branchTips(run: GitRunner, top: string): Promise<Map<string, { sha: string; at: string }>> {
+  const r = await run(top, ['for-each-ref', '--format=%(refname:short)%00%(objectname)%00%(committerdate:iso-strict)', 'refs/heads/'], {
+    env: READ_ENV,
+  });
+  const out = new Map<string, { sha: string; at: string }>();
+  if (r.code !== 0) return out;
+  for (const line of r.stdout.toString('utf-8').split('\n')) {
+    const [name, sha, at] = line.split('\0');
+    if (name && sha && at) out.set(name, { sha, at });
+  }
+  return out;
+}
+
+/** The bytes under `dir` (no link followed), stopping at `deadline`. */
+export async function folderSize(dir: string, deadline: number): Promise<{ bytes: number; capped: boolean }> {
+  let bytes = 0;
+  const stack = [dir];
+  while (stack.length) {
+    if (Date.now() > deadline) return { bytes, capped: true };
+    const d = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(d, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile())
+        try {
+          bytes += (await fs.promises.lstat(p)).size;
+        } catch {
+          /* gone meanwhile */
+        }
+    }
+  }
+  return { bytes, capped: false };
+}
+
+export interface CleanupInput {
+  worktree: RepoWorktree;
+  mergedAt?: string;
+  /** Files changed against the base (asked only for an unmerged one). */
+  changedFiles: () => Promise<number>;
+}
+
+/** The rows of the 정리 view, sizes measured one folder after another (`ponytail:` no cache). */
+export async function cleanupRows(list: readonly CleanupInput[], now = Date.now()): Promise<RepoCleanupRow[]> {
+  const rows: RepoCleanupRow[] = [];
+  for (const { worktree: w, mergedAt, changedFiles } of list) {
+    const last = w.lastChange ? Date.parse(w.lastChange) : NaN;
+    const idle = Number.isFinite(last) && now - last >= CLEANUP_IDLE_MS;
+    if (!w.merged && !idle) continue;
+    const size = w.exists ? await folderSize(w.path, Date.now() + SIZE_WALK_MS) : { bytes: 0, capped: false };
+    rows.push({
+      task: w.task,
+      ...(w.taskId && { taskId: w.taskId }),
+      ...(w.assignee && { assignee: w.assignee }),
+      branch: w.branch,
+      merged: w.merged,
+      ...(mergedAt && { mergedAt }),
+      ...(w.lastChange && { lastChange: w.lastChange }),
+      sizeBytes: size.bytes,
+      ...(size.capped && { sizeCapped: true }),
+      unmergedFiles: w.merged ? 0 : await changedFiles().catch(() => 0),
+      dirty: w.dirty,
+    });
+  }
+  return rows;
+}

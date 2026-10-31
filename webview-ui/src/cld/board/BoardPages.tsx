@@ -5,7 +5,7 @@
  */
 import { memo, useContext, useEffect, useRef, useState } from 'react';
 
-import type { GpuTicket, HwSample } from '../../../../core/src/messages.js';
+import type { DiskUsage, GpuTicket, HwSample } from '../../../../core/src/messages.js';
 import {
   ACTIVITY_RING_COLORS,
   BOARD_AREA_ALPHA,
@@ -20,6 +20,8 @@ import { t, useLanguage } from '../../i18n/index.js';
 import { getCharacterSprites } from '../../office/sprites/spriteData.js';
 import type { ToolActivity } from '../../office/types.js';
 import { Direction } from '../../office/types.js';
+import { transport } from '../../transport/index.js';
+import { diskBytes, diskMeasuredAt } from '../diskCard.js';
 import { useEngineStore } from '../engineStore.js';
 import { ringWord } from '../ez/visuals.js';
 import { percentTone, tempTone } from '../format.js';
@@ -41,6 +43,7 @@ import {
   type HwViewModel,
   hwViewModel,
   openDetail,
+  openHwView,
   setHwPrefs,
   useHwPrefs,
 } from '../hwView.js';
@@ -214,6 +217,11 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
   const hw = snap.hwSample;
   const prefs = useHwPrefs();
   const mode = useContext(BoardModeContext);
+  // The wall's copy turns pages by itself: only an opened board counts as a viewer (no disk walk per turn).
+  useEffect(
+    () => (mode === 'mini' ? undefined : openHwView((msg) => transport.send(msg))),
+    [mode],
+  );
   if (!hw) return <p className="led-empty">{t('board.waitingHardware')}</p>;
   const points = hwHistory.toArray();
   const m = hwViewModel(hw, prefs.view);
@@ -261,7 +269,7 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
         {open ? (
           <HwOpenDetail hw={hw} m={m} open={open} mode={mode} />
         ) : (
-          <HwOverview hw={hw} m={m} mode={mode} />
+          <HwOverview hw={hw} m={m} mode={mode} diskUsage={snap.diskUsage} />
         )}
         {hw.stale && <p className="led-warn">{t('hardware.stale')}</p>}
       </div>
@@ -270,7 +278,17 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
 }
 
 /** The usage donuts, then the temperature bars; each opens its item's detail. */
-function HwOverview({ hw, m, mode }: { hw: HwSample; m: HwViewModel; mode: BoardMode }) {
+function HwOverview({
+  hw,
+  m,
+  mode,
+  diskUsage,
+}: {
+  hw: HwSample;
+  m: HwViewModel;
+  mode: BoardMode;
+  diskUsage: DiskUsage | null;
+}) {
   const mini = mode === 'mini';
   const donuts = capSlots(hwDonuts(m), mini ? BOARD_HW_MINI_DONUTS : null);
   const bars = capSlots(hwBars(hw, m), mini ? BOARD_HW_MINI_BARS : null);
@@ -310,7 +328,44 @@ function HwOverview({ hw, m, mode }: { hw: HwSample; m: HwViewModel; mode: Board
         {bars.more > 0 && <More count={bars.more} className="led-temp" testId="board-temp-more" />}
         {!bars.shown.length && <p className="led-muted">{t('hardware.noTemperature')}</p>}
       </div>
+      {diskUsage && !mini && <DiskCard usage={diskUsage} />}
     </>
+  );
+}
+
+function DiskCard({ usage }: { usage: DiskUsage }) {
+  const language = useLanguage();
+  const labels = {
+    claude: t('diskCard.claude'),
+    worktrees: t('diskCard.worktrees'),
+    logs: t('diskCard.logs'),
+    hostLog: t('diskCard.hostLog'),
+    delivered: t('diskCard.delivered'),
+    roomLogs: t('diskCard.roomLogs'),
+    office: t('diskCard.office'),
+  } as const;
+  return (
+    <section className="led-diskcard" aria-label={t('diskCard.title')}>
+      <h3>{t('diskCard.title')}</h3>
+      <dl>
+        {usage.rows.map((row) => (
+          <div key={row.kind}>
+            <dt>{labels[row.kind]}</dt>
+            <dd>
+              {diskBytes(row.bytes)}
+              {row.partial && <small>{t('diskCard.partial')}</small>}
+            </dd>
+          </div>
+        ))}
+        <div className="led-disk-total">
+          <dt>{t('diskCard.total')}</dt>
+          <dd>{diskBytes(usage.total)}</dd>
+        </div>
+      </dl>
+      <p>
+        {t('diskCard.measuredAt')} {diskMeasuredAt(usage.measuredAt, language)}
+      </p>
+    </section>
   );
 }
 

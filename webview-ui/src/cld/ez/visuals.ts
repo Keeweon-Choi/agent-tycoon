@@ -136,7 +136,13 @@ export function characterVisual(activity: ActivityDescription, off = false): Cha
 // looks as upstream draws it (자세히 mode, or no cld office).
 const published = new Map<number, CharacterVisual>();
 
+/** Character id -> the words of its newest working activity: what its turn end names when no Task does. */
+const lastWork = new Map<number, string>();
+
+export const lastWorkOf = (id: number): string | undefined => lastWork.get(id);
+
 export function publishCharacterVisual(id: number, visual: CharacterVisual | undefined): void {
+  if (visual?.ring === 'working') lastWork.set(id, visual.text);
   if (visual) published.set(id, visual);
   else published.delete(id);
 }

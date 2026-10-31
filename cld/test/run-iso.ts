@@ -107,13 +107,13 @@ const hooks =
   (page: Page) =>
   <T, A>(fn: (h: Hooks, a: A) => T, arg: A): Promise<T> =>
     page.evaluate(
-      `(${fn.toString()})(window.__pixelAgentsTestHooks, ${JSON.stringify(arg)})`,
+      `(${fn.toString()})(window.__agentTycoonTestHooks, ${JSON.stringify(arg)})`,
     ) as Promise<T>;
 
 /** The e2e hooks; a frame counter (clearRect(0,0,...) on the office canvas = one drawn frame). */
 const INIT = `
   globalThis.__name = (fn) => fn;
-  window.__PIXEL_AGENTS_E2E = true;
+  window.__AGENT_TYCOON_E2E = true;
   window.__frames = 0;
   const clear = CanvasRenderingContext2D.prototype.clearRect;
   CanvasRenderingContext2D.prototype.clearRect = function (x, y, w, h) {
@@ -496,7 +496,9 @@ async function main() {
     const hp = hooks(ph.page);
     await ph.page.screenshot({ path: path.join(OUT, 'phone-building-2F.png') });
     const pf = (await hp((x) => x.getIso(), null)).floors[2];
-    const tp = await hp((x, f) => x.isoPoint(10 * 16, (f.row + 8) * 16), pf);
+    // Near 3F's front edge: the phone frames 2F, and 3F's back rows are above the screen
+    // (ISO-FLOORS: taller storeys); its slab is drawn over 2F's back wall there and takes the tap.
+    const tp = await hp((x, f) => x.isoPoint(10 * 16, (f.row + f.rows - 4) * 16), pf);
     const pb = await canvasBox(ph.page);
     if (tp) await ph.page.touchscreen.tap(pb.x + tp.x, pb.y + tp.y);
     await until(

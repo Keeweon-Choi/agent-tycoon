@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { codexDir, ID_RE as CODEX_ID_RE } from './codex.js';
+import { configDir } from './events.js';
 import { ID_RE as JOB_ID_RE, jobsDir } from './jobs.js';
 import { LOG_DIR_CAP_BYTES, LOG_KEEP_DAYS } from './logPolicy.js';
 
@@ -22,6 +23,8 @@ export interface Tally {
 export interface PruneResult {
   jobs: Tally;
   codex: Tally;
+  /** Processed messenger messages (inbox/<agent>/delivered/). */
+  delivered: Tally;
 }
 export interface PruneOptions {
   home: string;
@@ -132,6 +135,50 @@ function pruneFolder(dir: string, found: Finished[], o: Required<PruneOptions>):
   return tally;
 }
 
+/** The folders `inbox/<agent>/delivered/` (real directories only, never a link). */
+export function deliveredDirs(home: string): string[] {
+  const inbox = path.join(configDir(home), 'inbox');
+  try {
+    return fs
+      .readdirSync(inbox)
+      .map((agent) => path.join(inbox, agent, 'delivered'))
+      .filter((dir) => {
+        try {
+          return fs.lstatSync(dir).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+/** Processed inbox messages (and their sidecars) not touched for `keepDays` go; plain files only. */
+function pruneDelivered(o: Required<PruneOptions>): Tally {
+  const tally: Tally = { count: 0, bytes: 0 };
+  for (const dir of deliveredDirs(o.home)) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      try {
+        const st = fs.lstatSync(path.join(dir, name));
+        if (!st.isFile() || o.now - st.mtimeMs <= o.keepDays * DAY) continue;
+        o.unlink(path.join(dir, name));
+        tally.count++;
+        tally.bytes += st.size;
+      } catch (err) {
+        o.log(`log prune: ${name}: ${err instanceof Error ? err.message : String(err)} (skipped)`);
+      }
+    }
+  }
+  return tally;
+}
+
 export function pruneLogs(opts: PruneOptions): PruneResult {
   const o: Required<PruneOptions> = {
     platform: process.platform,
@@ -143,7 +190,7 @@ export function pruneLogs(opts: PruneOptions): PruneResult {
     ...opts,
   };
   const none = (): Tally => ({ count: 0, bytes: 0 });
-  const result: PruneResult = { jobs: none(), codex: none() };
+  const result: PruneResult = { jobs: none(), codex: none(), delivered: none() };
   try {
     const jobs = jobsDir(o.home, o.platform);
     // A job is finished once the engine recorded its end (a running job's record has none).
@@ -165,10 +212,11 @@ export function pruneLogs(opts: PruneOptions): PruneResult {
       ),
       o,
     );
+    result.delivered = pruneDelivered(o);
   } catch (err) {
     o.log(`log prune: ${err instanceof Error ? err.message : String(err)}`);
   }
   const mb = (t: Tally) => `${t.count} (${(t.bytes / 1024 / 1024).toFixed(1)} MB)`;
-  o.log(`log prune: jobs ${mb(result.jobs)}, codex ${mb(result.codex)} removed`);
+  o.log(`log prune: jobs ${mb(result.jobs)}, codex ${mb(result.codex)}, delivered ${mb(result.delivered)} removed`);
   return result;
 }

@@ -25,7 +25,7 @@ export type IntroStep = 'welcome' | 'claude' | 'consent' | 'bypass' | 'remote' |
 
 /**
  * Which steps this tour has. A person who already finished the original tour has no hooks ask, so they see only
- * the new steps, once; `closing` (the Discord note) belongs to the original tour and is not repeated for them.
+ * the new steps, once; `closing` (the farewell note) belongs to the original tour and is not repeated for them.
  */
 export function introSteps(hasConsent: boolean, onboarding: boolean): IntroStep[] {
   return [

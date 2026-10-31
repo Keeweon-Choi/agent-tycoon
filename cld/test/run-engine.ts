@@ -172,7 +172,7 @@ async function main() {
     if (insets) {
       await page.addStyleTag({
         // This injected test overlay deliberately distinguishes the unsafe area from app UI.
-        // eslint-disable-next-line pixel-agents/no-inline-colors
+        // eslint-disable-next-line agent-tycoon/no-inline-colors
         content: `:root { --cld-safe-top: ${insets.top}px !important; --cld-safe-bottom: ${insets.bottom}px !important; }
           .t0018-strip { position: fixed; left: 0; right: 0; z-index: 2147483647; pointer-events: none; background: rgba(255, 0, 64, 0.3); }`,
       });

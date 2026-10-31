@@ -2,8 +2,19 @@ import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { UsageState, UsageWindow } from '../../../core/src/messages.js';
+import type {
+  UsageLimitWindow,
+  UsageProvider as UsageProviderState,
+  UsageState,
+} from '../../../core/src/messages.js';
 import {
+  CLAUDE_KEYCHAIN_SERVICE,
+  CLAUDE_KEYCHAIN_TIMEOUT_MS,
+  CLAUDE_USAGE_BETA,
+  CLAUDE_USAGE_MIN_GAP_MS,
+  CLAUDE_USAGE_TIMEOUT_MS,
+  CLAUDE_USAGE_URL,
+  CLAUDE_USAGE_USER_AGENT,
   USAGE_EARLY_RESET_MIN_FUTURE_MS,
   USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS,
   USAGE_REFRESH_MS,
@@ -11,174 +22,222 @@ import {
 import { configDirectory } from './configPath.js';
 import { rateLimitsIn } from './engine/codex.js';
 
-const VERSION = /^\d+(?:\.\d+)*$/;
-
-function newer(a: string, b: string): boolean {
-  const left = a.split('.').map(Number);
-  const right = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0);
-    if (diff !== 0) return diff > 0;
-  }
-  return false;
-}
-
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+const obj = (x: unknown): Record<string, unknown> | null =>
+  typeof x === 'object' && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
 
-function usageWindow(x: unknown): UsageWindow | null {
-  if (typeof x !== 'object' || x === null || Array.isArray(x)) return null;
-  const w = x as Record<string, unknown>;
-  return {
-    fiveHourPct: num(w.fiveHourPercent),
-    sevenDayPct: num(w.sevenDayPercent),
-    fiveHourReset: str(w.fiveHourReset),
-    sevenDayReset: str(w.sevenDayReset),
-  };
-}
+const providerNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' };
+const providerName = (id: string): string => providerNames[id] ?? id;
 
-/** claude-dashboard's raw `--json` -> the known fields only. */
-export function parseUsage(raw: unknown, ts: string): Omit<UsageState, 'type'> {
-  const u = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
-  return { ts, claude: usageWindow(u.claude), codex: usageWindow(u.codex) };
-}
-
-/** The newest installed Claude Dashboard usage script, if its cache exists (an optional source). */
-export function usageScript(home: string): string | null {
-  const root = path.join(
-    home,
-    '.claude',
-    'plugins',
-    'cache',
-    'claude-dashboard',
-    'claude-dashboard',
-  );
-  let versions: string[];
-  try {
-    versions = fs
-      .readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && VERSION.test(entry.name))
-      .map((entry) => entry.name);
-  } catch {
-    return null;
-  }
-  const version = versions
-    .filter((next) => fs.existsSync(path.join(root, next, 'dist', 'check-usage.js')))
-    .reduce<string | null>((best, next) => (!best || newer(next, best) ? next : best), null);
-  if (!version) return null;
-  return path.join(root, version, 'dist', 'check-usage.js');
+function provider(
+  id: string,
+  name: string,
+  windows: UsageLimitWindow[],
+  models?: UsageProviderState['models'],
+): UsageProviderState {
+  return { id, name, windows, ...(models?.length ? { models } : {}) };
 }
 
 type Usage = Omit<UsageState, 'type'>;
-export type UsageProvider = 'claude' | 'codex';
-export type UsagePeriod = 'fiveHour' | 'sevenDay';
+export type UsageProvider = string;
+export type UsagePeriod = '5h' | '7d';
 export interface EarlyUsageReset {
   provider: UsageProvider;
+  name: string;
   period: UsagePeriod;
 }
 
 /** One source-reported window: retain an elapsed reset as a marker, never as invented zero use. */
 function slot(
+  id: string,
   pct: unknown,
   resetsAtSec: unknown,
   now: number,
-): [number | null, string | null, boolean | null] {
+): UsageLimitWindow | null {
   const p = num(pct);
   const at = num(resetsAtSec);
-  if (p === null) return [null, null, null];
-  if (at !== null && at * 1000 <= now) return [null, null, true];
-  return [p, at === null ? null : new Date(at * 1000).toISOString(), null];
+  if (p === null) return null;
+  if (at !== null && at * 1000 <= now) return { id, pct: null, resetAt: null, isReset: true };
+  return {
+    id,
+    pct: p,
+    resetAt: at === null ? null : new Date(Math.round(at * 1000)).toISOString(),
+  };
 }
-
-const known = (w: UsageWindow | null | undefined): w is UsageWindow =>
-  !!w &&
-  (typeof w.fiveHourPct === 'number' ||
-    typeof w.sevenDayPct === 'number' ||
-    w.fiveHourIsReset === true ||
-    w.sevenDayIsReset === true);
 
 export function earlyResets(previous: Usage | null, next: Usage, now: number): EarlyUsageReset[] {
   if (!previous) return [];
   const out: EarlyUsageReset[] = [];
-  for (const provider of ['claude', 'codex'] as const) {
-    const before = previous[provider];
-    const after = next[provider];
-    if (!before || !after) continue;
-    for (const [period, pct, reset] of [
-      ['fiveHour', 'fiveHourPct', 'fiveHourReset'],
-      ['sevenDay', 'sevenDayPct', 'sevenDayReset'],
+  for (const after of next.providers) {
+    const before = previous.providers.find((provider) => provider.id === after.id);
+    if (!before) continue;
+    for (const [period, minShift] of [
+      ['5h', USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS.fiveHour],
+      ['7d', USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS.sevenDay],
     ] as const) {
-      const beforePct = before[pct];
-      const afterPct = after[pct];
-      const beforeReset = before[reset];
-      const afterReset = after[reset];
-      const beforeAt = beforeReset ? Date.parse(beforeReset) : Number.NaN;
-      const afterAt = afterReset ? Date.parse(afterReset) : Number.NaN;
+      const beforeWindow = before.windows.find((window) => window.id === period);
+      const afterWindow = after.windows.find((window) => window.id === period);
+      if (!beforeWindow || !afterWindow) continue;
+      const beforeAt = beforeWindow.resetAt ? Date.parse(beforeWindow.resetAt) : Number.NaN;
+      const afterAt = afterWindow.resetAt ? Date.parse(afterWindow.resetAt) : Number.NaN;
       if (
-        typeof beforePct === 'number' &&
-        typeof afterPct === 'number' &&
-        afterPct < beforePct &&
+        typeof beforeWindow.pct === 'number' &&
+        typeof afterWindow.pct === 'number' &&
+        afterWindow.pct < beforeWindow.pct &&
         Number.isFinite(beforeAt) &&
         Number.isFinite(afterAt) &&
         beforeAt >= now + USAGE_EARLY_RESET_MIN_FUTURE_MS &&
-        afterAt - beforeAt > USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS[period]
+        afterAt - beforeAt > minShift
       )
-        out.push({ provider, period });
+        out.push({ provider: after.id, name: after.name, period });
     }
   }
   return out;
 }
 
-type UsageModel = NonNullable<UsageWindow['models']>[number];
+type UsageModel = NonNullable<UsageProviderState['models']>[number];
 
 /**
- * Per-model weekly windows from the newest claude-dashboard raw cache
- * (`~/.cache/claude-dashboard/cache-*.json`, `data.seven_day_<family>` with
- * `utilization` and `resets_at`): only those fields, never anything else in the
- * cache. A cache without `data.five_hour`, an unreadable one, an object without a
- * numeric utilization or a window whose reset has passed contributes nothing.
+ * Claude's account usage as the endpoint answers it: `five_hour` / `seven_day`
+ * (`utilization`, `resets_at` ISO) and the per-model weekly windows, from
+ * `limits[]` (`kind: 'weekly_scoped'`, `percent`, `scope.model.display_name`,
+ * e.g. Fable) or a flat `seven_day_<family>`. Only what it
+ * reported (Ultra has no five_hour); null when it reported nothing we know.
  */
-export function claudeModelUsage(home: string, now = Date.now()): UsageModel[] {
-  const dir = path.join(home, '.cache', 'claude-dashboard');
-  let names: string[];
+export function claudeApiUsage(data: unknown, now = Date.now()): UsageProviderState | null {
+  const d = obj(data);
+  if (!d) return null;
+  const window = (id: string, key: string) => {
+    const w = obj(d[key]);
+    const at = Date.parse(str(w?.resets_at) ?? '');
+    return w ? slot(id, w.utilization, Number.isFinite(at) ? at / 1000 : null, now) : null;
+  };
+  const windows = [window('5h', 'five_hour'), window('7d', 'seven_day')].filter(
+    (w): w is UsageLimitWindow => w !== null,
+  );
+  const models: UsageModel[] = [];
+  const model = (family: string, pct: unknown, reset: unknown) => {
+    const p = num(pct);
+    const r = str(reset);
+    const at = Date.parse(r ?? '');
+    if (p === null || models.some((m) => m.family === family)) return;
+    if (Number.isFinite(at) && at <= now) return; // an elapsed week: no stale percent
+    models.push({ family, pct: p, reset: Number.isFinite(at) ? r : null });
+  };
+  for (const raw of Array.isArray(d.limits) ? d.limits : []) {
+    const limit = obj(raw);
+    const name = str(obj(obj(limit?.scope)?.model)?.display_name);
+    if (limit?.kind === 'weekly_scoped' && name)
+      model(name.toLowerCase(), limit.percent, limit.resets_at);
+  }
+  // ponytail: any flat seven_day_<word> with a number is read as a model's week; a non-model one would show too.
+  for (const [key, value] of Object.entries(d)) {
+    const family = /^seven_day_([a-z]+)$/.exec(key)?.[1];
+    const w = obj(value);
+    if (family && w) model(family, w.utilization, w.resets_at);
+  }
+  return windows.length || models.length
+    ? provider('claude', providerName('claude'), windows, models)
+    : null;
+}
+
+/** Claude Code's credentials JSON (file or Keychain item) -> its OAuth access token, unless expired. */
+export function oauthToken(text: string | null, now = Date.now()): string | null {
+  if (!text) return null;
   try {
-    names = fs.readdirSync(dir).filter((n) => /^cache-.*\.json$/.test(n));
+    const oauth = obj(obj(JSON.parse(text))?.claudeAiOauth);
+    const token = str(oauth?.accessToken);
+    const expires = num(oauth?.expiresAt);
+    return token && (expires === null || expires > now) ? token : null;
   } catch {
-    return [];
+    return null; // never rethrown: a parse error can quote the text
   }
-  const files = names
-    .map((n) => {
-      try {
-        return { file: path.join(dir, n), mtime: fs.statSync(path.join(dir, n)).mtimeMs };
-      } catch {
-        return null;
-      }
-    })
-    .filter((f): f is { file: string; mtime: number } => f !== null)
-    .sort((a, b) => b.mtime - a.mtime);
-  for (const { file } of files) {
-    let data: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      data = raw?.data;
-      if (typeof data !== 'object' || data === null || !data.five_hour) continue;
-    } catch {
-      continue;
-    }
-    const out: UsageModel[] = [];
-    for (const [key, w] of Object.entries(data)) {
-      const family = /^seven_day_([a-z]+)$/.exec(key)?.[1];
-      if (!family || typeof w !== 'object' || w === null) continue;
-      const pct = num((w as Record<string, unknown>).utilization);
-      if (pct === null) continue;
-      const reset = str((w as Record<string, unknown>).resets_at);
-      const at = reset === null ? Number.NaN : Date.parse(reset);
-      if (Number.isFinite(at) && at <= now) continue;
-      out.push({ family, pct, reset: Number.isFinite(at) ? reset : null });
-    }
-    return out; // ponytail: only the newest valid cache is read (one per account, newest wins)
+}
+
+/** The Keychain item's JSON, or null. */
+export type ReadKeychain = () => Promise<string | null>;
+
+/** macOS: Claude Code's Keychain item; a missing item, a denial or a dialog left open gives null. */
+export const readMacKeychain: ReadKeychain = () =>
+  new Promise((resolve) => {
+    execFile(
+      'security',
+      ['find-generic-password', '-s', CLAUDE_KEYCHAIN_SERVICE, '-w'],
+      { timeout: CLAUDE_KEYCHAIN_TIMEOUT_MS },
+      (error, stdout) => resolve(error ? null : String(stdout).trim() || null),
+    );
+  });
+
+/** The usage endpoint, or a loopback stand-in a test daemon names (never a remote one). */
+export function claudeUsageUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const test = env.CLD_GUI_TEST_CLAUDE_USAGE_URL;
+  try {
+    if (test && new URL(test).protocol === 'http:' && new URL(test).hostname === '127.0.0.1')
+      return test;
+  } catch {
+    // not a URL: the real endpoint
   }
-  return [];
+  return CLAUDE_USAGE_URL;
+}
+
+interface Reply {
+  status: number;
+  body: unknown;
+}
+
+/** curl with everything (the token too) on stdin, so nothing shows in the process list. */
+function curlUsage(url: string, token: string): Promise<Reply | null> {
+  // The token goes inside a quoted config line: anything but token characters could add options.
+  if (!/^[\w.~+/=-]+$/.test(token)) return Promise.resolve(null);
+  const config = [
+    `url = "${url}"`,
+    `header = "Authorization: Bearer ${token}"`,
+    `header = "anthropic-beta: ${CLAUDE_USAGE_BETA}"`,
+    'header = "Accept: application/json"',
+    `user-agent = "${CLAUDE_USAGE_USER_AGENT}"`,
+    'silent',
+    'write-out = "\\n%{http_code}"',
+    '',
+  ].join('\n');
+  return new Promise((resolve) => {
+    const child = execFile(
+      'curl',
+      ['-K', '-'],
+      { timeout: CLAUDE_USAGE_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) return resolve(null);
+        const cut = stdout.lastIndexOf('\n');
+        const status = Number(stdout.slice(cut + 1));
+        let body: unknown = null;
+        try {
+          body = JSON.parse(stdout.slice(0, cut));
+        } catch {
+          // a non-JSON body: no figures
+        }
+        resolve(Number.isInteger(status) ? { status, body } : null);
+      },
+    );
+    child.on('error', () => resolve(null));
+    child.stdin?.on('error', () => undefined); // curl missing: EPIPE
+    child.stdin?.end(config);
+  });
+}
+
+async function requestUsage(url: string, token: string): Promise<Reply> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'anthropic-beta': CLAUDE_USAGE_BETA,
+      'User-Agent': CLAUDE_USAGE_USER_AGENT,
+    },
+    signal: AbortSignal.timeout(CLAUDE_USAGE_TIMEOUT_MS),
+  });
+  const body: unknown = await response.json().catch(() => null);
+  // Some Linux Node builds get 403 for their TLS fingerprint where curl gets through (claude-dashboard's finding).
+  if (response.status === 403) return (await curlUsage(url, token)) ?? { status: 403, body: null };
+  return { status: response.status, body };
 }
 
 /** Where cld/bin/cld-gui-statusline.js keeps Claude Code's own rate_limits. */
@@ -187,37 +246,23 @@ export const claudeUsageFile = (home: string): string =>
 
 /**
  * Claude Code's own 5-hour and 7-day windows, as the status line of an engine
- * session last saw them (`used_percentage`, `resets_at` in epoch seconds); null
- * when there is no such file or nothing in it was source-reported. A passed
+ * session last saw them (`used_percentage`, `resets_at` in epoch seconds), only
+ * the windows it reported (an Ultra plan has no 5-hour one); empty when there is
+ * no such file or nothing in it was source-reported. A passed
  * source reset remains visible as a reset marker until a fresh reading arrives.
  */
-export function claudeOwnUsage(file: string, now = Date.now()): UsageWindow | null {
+export function claudeOwnUsage(file: string, now = Date.now()): UsageLimitWindow[] {
   let raw: Record<string, { used_percentage?: unknown; resets_at?: unknown } | undefined>;
   try {
     raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch {
-    return null;
+    return [];
   }
-  if (!raw || typeof raw !== 'object') return null;
-  const [fiveHourPct, fiveHourReset, fiveHourIsReset] = slot(
-    raw.five_hour?.used_percentage,
-    raw.five_hour?.resets_at,
-    now,
-  );
-  const [sevenDayPct, sevenDayReset, sevenDayIsReset] = slot(
-    raw.seven_day?.used_percentage,
-    raw.seven_day?.resets_at,
-    now,
-  );
-  const w = {
-    fiveHourPct,
-    fiveHourReset,
-    fiveHourIsReset,
-    sevenDayPct,
-    sevenDayReset,
-    sevenDayIsReset,
-  };
-  return known(w) ? w : null;
+  if (!raw || typeof raw !== 'object') return [];
+  return [
+    slot('5h', raw.five_hour?.used_percentage, raw.five_hour?.resets_at, now),
+    slot('7d', raw.seven_day?.used_percentage, raw.seven_day?.resets_at, now),
+  ].filter((window): window is UsageLimitWindow => window !== null);
 }
 
 /** Up to `n` newest `.jsonl` files under `dir` (Codex's sessions/YYYY/MM/DD/rollout-<time>-…). */
@@ -241,13 +286,21 @@ function newestLogs(dir: string, n: number): string[] {
 }
 
 const TAIL_BYTES = 256 * 1024;
+const DAY_MINUTES = 24 * 60;
+
+const windowId = (minutes: number): string =>
+  minutes % DAY_MINUTES === 0
+    ? `${minutes / DAY_MINUTES}d`
+    : minutes % 60 === 0
+      ? `${minutes / 60}h`
+      : `${minutes}m`;
 
 /**
  * Codex's own windows from its newest session logs (`rate_limits` with
  * `primary`/`secondary`: `used_percent`, `window_minutes`, `resets_at` in epoch
- * seconds), the same records the engine's limit wait reads; null when none.
+ * seconds), the same records the engine's limit wait reads; empty when none.
  */
-export function codexOwnUsage(codexHome: string, now = Date.now()): UsageWindow | null {
+export function codexOwnUsage(codexHome: string, now = Date.now()): UsageLimitWindow[] {
   for (const file of newestLogs(path.join(codexHome, 'sessions'), 5)) {
     let text: string;
     try {
@@ -274,14 +327,7 @@ export function codexOwnUsage(codexHome: string, now = Date.now()): UsageWindow 
       }
       if (!rl) continue;
       if (typeof rl.limit_id === 'string' && rl.limit_id !== 'codex') continue;
-      const w: UsageWindow = {
-        fiveHourPct: null,
-        sevenDayPct: null,
-        fiveHourReset: null,
-        sevenDayReset: null,
-        fiveHourIsReset: null,
-        sevenDayIsReset: null,
-      };
+      const windows: UsageLimitWindow[] = [];
       for (const [key, fallback] of [
         ['primary', '5h'],
         ['secondary', '7d'],
@@ -289,37 +335,45 @@ export function codexOwnUsage(codexHome: string, now = Date.now()): UsageWindow 
         const x = rl[key] as Record<string, unknown> | undefined;
         if (!x || typeof x !== 'object') continue;
         const minutes = num(x.window_minutes);
-        const which =
-          minutes === 300 ? '5h' : minutes === 10080 ? '7d' : minutes === null ? fallback : null;
-        const [pct, reset, isReset] = slot(x.used_percent, x.resets_at, now);
-        if (which === '5h')
-          [w.fiveHourPct, w.fiveHourReset, w.fiveHourIsReset] = [pct, reset, isReset];
-        if (which === '7d')
-          [w.sevenDayPct, w.sevenDayReset, w.sevenDayIsReset] = [pct, reset, isReset];
+        // Its length names it (300 min is 5h, 10080 is 7d), so a window a new plan adds shows by itself.
+        const which = minutes === null ? fallback : minutes > 0 ? windowId(minutes) : null;
+        if (!which) continue;
+        const window = slot(which, x.used_percent, x.resets_at, now);
+        if (window) windows.push(window);
       }
-      return known(w) ? w : null;
+      return windows;
     }
   }
-  return null;
+  return [];
 }
 
 /**
- * Usage for the office's bar, viewer-gated: Claude from its own status-line
- * data (engine sessions), Codex from its own session logs, and the Claude
- * Dashboard plugin when it happens to be installed (live, so it wins where it
- * answers). A provider nobody reports is null: shown as unknown, never guessed.
+ * Usage for the office's bar, viewer-gated: Claude from its account usage
+ * endpoint with Claude Code's own OAuth token (at most once per refresh
+ * interval), else from its status-line data (engine sessions); Codex from its
+ * own session logs. A provider nobody reports has no windows: shown as unknown, never guessed.
  */
 export class UsageSource {
   usage: Usage | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private viewing = false;
   private refreshing: Promise<void> | null = null;
-  private plugin: Usage | null = null;
   private previous: Usage | null = null;
+  /** The last endpoint request: when, and what it gave (null: nothing usable). */
+  private live: { at: number; claude: UsageProviderState | null } | null = null;
+  private keychainOff = false;
   private readonly warned = new Set<string>();
 
   constructor(
-    readonly opts: { home: string; codexHome: string; script: string | null },
+    readonly opts: {
+      home: string;
+      codexHome: string;
+      /** $CLAUDE_CONFIG_DIR or ~/.claude: where Claude Code keeps `.credentials.json`. */
+      claudeConfigDir: string;
+      /** macOS: Claude Code's Keychain item, tried before the file; null elsewhere. */
+      keychain?: ReadKeychain | null;
+      usageUrl?: string;
+    },
     private readonly onChange: (usage: Usage) => void,
     private readonly onEarlyReset: (reset: EarlyUsageReset) => void = () => undefined,
   ) {}
@@ -357,44 +411,71 @@ export class UsageSource {
   }
 
   private async read(): Promise<void> {
-    if (this.opts.script) await this.runPlugin(this.opts.script);
     const now = Date.now();
-    const models = claudeModelUsage(this.opts.home, now);
-    const pick = (live: UsageWindow | null | undefined, own: UsageWindow | null) =>
-      known(live) ? live : own;
-    let claude = pick(this.plugin?.claude, claudeOwnUsage(claudeUsageFile(this.opts.home), now));
-    if (models.length) {
-      claude = { ...(claude ?? { fiveHourPct: null, sevenDayPct: null }), models };
-    }
-    const usage = {
-      ts: new Date(now).toISOString(),
-      claude,
-      codex: pick(this.plugin?.codex, codexOwnUsage(this.opts.codexHome, now)),
-    };
+    const live = await this.claudeLive(now);
+    const claude =
+      live ??
+      provider(
+        'claude',
+        providerName('claude'),
+        claudeOwnUsage(claudeUsageFile(this.opts.home), now),
+      );
+    const codex = provider('codex', providerName('codex'), codexOwnUsage(this.opts.codexHome, now));
+    // ponytail: Claude and Codex by name; an agent added later (ACP) brings its own reading.
+    const usage = { ts: new Date(now).toISOString(), providers: [claude, codex] };
     for (const reset of earlyResets(this.previous, usage, now)) this.onEarlyReset(reset);
     this.previous = usage;
     this.usage = usage;
     this.onChange(usage);
   }
 
-  /** The plugin's answer; on failure the last one stands (warned once per message). */
-  private async runPlugin(script: string): Promise<void> {
-    try {
-      const stdout = await new Promise<string>((resolve, reject) => {
-        execFile(
-          process.execPath,
-          [script, '--json'],
-          { timeout: 30_000, maxBuffer: 64 * 1024 },
-          (error, output) => (error ? reject(error) : resolve(output)),
-        );
-      });
-      this.plugin = parseUsage(JSON.parse(stdout), new Date().toISOString());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!this.warned.has(message)) {
-        this.warned.add(message);
-        console.warn(`[cld usage] ${message}`);
-      }
+  /**
+   * The token, read fresh each time and held only for this call: the Keychain
+   * (macOS) first, then `.credentials.json`. Never logged, stored or sent on.
+   */
+  private async claudeToken(now: number): Promise<string | null> {
+    if (this.opts.keychain && !this.keychainOff) {
+      const item = await this.opts.keychain();
+      // ponytail: one failed Keychain read (or a dialog that timed out) stops them until restart, so no dialog repeats.
+      if (item === null) this.keychainOff = true;
+      const token = oauthToken(item, now);
+      if (token) return token;
     }
+    try {
+      const file = path.join(this.opts.claudeConfigDir, '.credentials.json');
+      return oauthToken(await fs.promises.readFile(file, 'utf-8'), now);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Claude's reading from the usage endpoint; null (the status-line file decides) when unavailable. */
+  private async claudeLive(now: number): Promise<UsageProviderState | null> {
+    if (this.live && now - this.live.at < CLAUDE_USAGE_MIN_GAP_MS) return this.live.claude;
+    // An expired or missing token makes no request: Claude Code refreshes it on its next turn.
+    const token = await this.claudeToken(now);
+    if (!token) {
+      this.live = null;
+      return null;
+    }
+    this.live = { at: now, claude: null };
+    try {
+      const reply = await requestUsage(this.opts.usageUrl ?? CLAUDE_USAGE_URL, token);
+      if (reply.status < 200 || reply.status >= 300) this.warnOnce(`HTTP ${reply.status}`);
+      else {
+        this.live.claude = claudeApiUsage(reply.body, now);
+        if (!this.live.claude) this.warnOnce('an answer without any known window');
+      }
+    } catch (err) {
+      this.warnOnce(`request failed (${err instanceof Error ? err.name : 'error'})`);
+    }
+    return this.live.claude;
+  }
+
+  /** Never with the token: only a status, an error's name or a fixed text. */
+  private warnOnce(kind: string): void {
+    if (this.warned.has(kind)) return;
+    this.warned.add(kind);
+    console.warn(`[Agent Tycoon] Claude usage endpoint: ${kind}; using the status-line reading`);
   }
 }

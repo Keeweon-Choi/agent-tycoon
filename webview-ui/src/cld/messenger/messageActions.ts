@@ -57,3 +57,9 @@ export const findReplied = <T extends Pick<ChatItem, 'kind' | 'id' | 'messageId'
   items: readonly T[],
   id: string,
 ): T | undefined => items.find((item) => replyIdOf(item) === id || item.id === id);
+
+/** The quote preserved by the queued message currently open in the composer. */
+export const pendingReplyForEdit = <T extends { requestId: string; replyTo?: ChatReply }>(
+  pending: readonly T[],
+  requestId: string | undefined,
+): ChatReply | undefined => pending.find((item) => item.requestId === requestId)?.replyTo;

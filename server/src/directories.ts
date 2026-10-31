@@ -175,29 +175,6 @@ export function removeUserDirectory(rawPath: string): DirectoryRemoveResult {
   return { ok: true };
 }
 
-/**
- * The name of the Directory sitting at `launchPath`, or undefined when the
- * launch went somewhere that isn't one.
- *
- * This is what an agent wears as its origin label, and — because Area mappings
- * are keyed by Directory name — what steers it towards the seats mapped to its
- * project. Both have to be the name the USER gave the Directory: a Directory
- * called "Side Project" pointing at ~/code/side-project must label its agents
- * "Side Project", or the mapping it was assigned in the modal would never match.
- *
- * Renaming a Directory therefore only affects launches made after the rename;
- * agents already in the office keep the label they were born with.
- */
-export function directoryNameForLaunch(
-  launchPath: string,
-  hostDirectories: HostDirectoryEntry[],
-): string | undefined {
-  const key = normalizeDirectoryPath(launchPath);
-  return listDirectories(hostDirectories).find(
-    (directory) => normalizeDirectoryPath(directory.path) === key,
-  )?.name;
-}
-
 /** What a host must supply to dispatch the Directory client messages. */
 export interface DirectoryMessageDeps {
   /** This host's own contributions, read at dispatch time. */

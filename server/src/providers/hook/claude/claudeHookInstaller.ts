@@ -3,11 +3,19 @@ import * as os from 'os';
 import * as path from 'path';
 import { isDeepStrictEqual } from 'util';
 
-import { HOOK_SCRIPTS_DIR } from '../../../constants.js';
+import {
+  LEGACY_OFFICE_FOLDER,
+  OFFICE_FOLDER,
+  officeDirectory,
+  SETTINGS_FOLDERS,
+} from '../../../cld/configPath.js';
+import { HOOK_SCRIPTS_SUBDIR } from '../../../constants.js';
 import {
   CLAUDE_HOOK_EVENTS,
   CLAUDE_HOOK_SCRIPT_NAME,
+  EDITOR_EXTENSION_DIRS,
   LEGACY_HOOK_SCRIPT_NAME,
+  PIXEL_AGENTS_EXTENSION_PREFIX,
   SETTINGS_BACKUP_SUFFIX,
   SETTINGS_FRESH_FILE_MODE,
   SETTINGS_MUTATE_ATTEMPTS,
@@ -36,9 +44,9 @@ function getClaudeSettingsPath(): string {
   return path.join(os.homedir(), '.claude', 'settings.json');
 }
 
-/** Returns the destination path for the hook script (~/.pixel-agents/hooks/claude-hook.js). */
+/** Returns the destination path for the hook script (<office folder>/hooks/claude-hook.js). */
 function getHookScriptPath(): string {
-  return path.join(os.homedir(), HOOK_SCRIPTS_DIR, CLAUDE_HOOK_SCRIPT_NAME);
+  return path.join(officeDirectory(os.homedir()), HOOK_SCRIPTS_SUBDIR, CLAUDE_HOOK_SCRIPT_NAME);
 }
 
 /** Surfaced to the user when settings.json exists but cannot be parsed. The
@@ -156,9 +164,9 @@ async function mutateClaudeSettings(
   throw lastError ?? new Error(SETTINGS_UNPARSEABLE_MESSAGE);
 }
 
-/** One-time safety net: before Pixel Agents' first-ever modification of
+/** One-time safety net: before Agent Tycoon's first-ever modification of
  *  settings.json, copy it aside. Never overwritten after that, so even a future
- *  installer bug leaves the user a recoverable copy of their pre-Pixel-Agents
+ *  installer bug leaves the user a recoverable copy of their pre-Agent-Tycoon
  *  file.
  *
  *  COPYFILE_EXCL makes "create only if absent" one syscall instead of an
@@ -182,7 +190,7 @@ function backupClaudeSettingsOnce(settingsPath: string): void {
   const backupPath = settingsPath + SETTINGS_BACKUP_SUFFIX;
   try {
     fs.copyFileSync(settingsPath, backupPath, fs.constants.COPYFILE_EXCL);
-    console.log(`[Pixel Agents] Backed up Claude settings to ${backupPath}`);
+    console.log(`[Agent Tycoon] Backed up Claude settings to ${backupPath}`);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
     if (!isRegularFile(backupPath)) {
@@ -234,7 +242,7 @@ function writeClaudeSettings(settings: ClaudeSettings, expectedRaw: string | nul
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  // The backup preserves the user's pre-Pixel-Agents file; when the content
+  // The backup preserves the user's pre-Agent-Tycoon file; when the content
   // being replaced is entirely of our own writing (typical after our install
   // CREATED settings.json in a fresh home), there is nothing to preserve and
   // the copy is skipped. The decision reads expectedRaw — the same content the
@@ -289,13 +297,43 @@ function removeIfPresent(filePath: string): void {
   }
 }
 
-/** Legacy script name (before rename to claude-hook.js), as a path suffix. */
-const LEGACY_HOOK_PATH_SUFFIX = `/${LEGACY_HOOK_SCRIPT_NAME}`;
+/** The path suffixes we own: `/.config/<settings folder>/office/hooks/claude-hook.js`, for both
+ *  names the settings folder has (configPath.cjs). The leading separator is load-bearing —
+ *  without it `/opt/evil.config/...` and `my-claude-hook.js` match by substring. */
+const HOOK_PATH_SUFFIXES = SETTINGS_FOLDERS.map(
+  (folder) =>
+    `/.config/${folder}/${OFFICE_FOLDER}/${HOOK_SCRIPTS_SUBDIR}/${CLAUDE_HOOK_SCRIPT_NAME}`,
+);
 
-/** The path suffix we own: `/.pixel-agents/hooks/claude-hook.js`. The leading
- *  separator is load-bearing — without it `/opt/evil.pixel-agents/hooks/...`
- *  and `my-pixel-agents-hook.js` match by substring. */
-const HOOK_PATH_SUFFIX = `/${HOOK_SCRIPTS_DIR}/${CLAUDE_HOOK_SCRIPT_NAME}`;
+/** Where the script lived until 2026-11 (`/.pixel-agents/hooks/claude-hook.js`), and its name
+ *  before the rename to claude-hook.js. The upstream Pixel Agents extension writes exactly the same
+ *  entry (same path, same shape, the same script until our 2026-11 rename), so the text cannot say
+ *  whose it is: these count as ours only while no Pixel Agents extension shares the home
+ *  (legacyEntriesAreOurs). ponytail: for the one release after the move (officeFolder.ts). */
+const LEGACY_HOOK_PATH_SUFFIXES = [
+  `/${LEGACY_OFFICE_FOLDER}/${HOOK_SCRIPTS_SUBDIR}/${CLAUDE_HOOK_SCRIPT_NAME}`,
+  `/${LEGACY_HOOK_SCRIPT_NAME}`,
+];
+
+/**
+ * Whether an entry at the old ~/.pixel-agents path is ours to rewrite or remove: no editor in this
+ * home has a Pixel Agents extension installed. While one is, that entry also feeds the extension
+ * (its script fans out to every server registered in ~/.pixel-agents/servers), so we leave it, and
+ * install ours beside it. Ceiling: an editor whose extensions folder is not in
+ * EDITOR_EXTENSION_DIRS reads as "none"; the extension then re-adds its entry on its next start.
+ */
+function legacyEntriesAreOurs(): boolean {
+  const home = os.homedir();
+  return !EDITOR_EXTENSION_DIRS.some((dir) => {
+    try {
+      return fs
+        .readdirSync(path.join(home, dir))
+        .some((name) => name.toLowerCase().startsWith(PIXEL_AGENTS_EXTENSION_PREFIX));
+    } catch {
+      return false;
+    }
+  });
+}
 
 /** Characters that end a path token in a shell command line. A path we own is
  *  either the whole token or ends at one of these; anything else after it
@@ -356,10 +394,13 @@ const PATH_TERMINATORS = new Set([' ', '\t', '"', "'", ';', '&', '|', '>', '<', 
 function isOurHookCommand(command: string): boolean {
   const token = firstCommandToken(command);
   if (token === null) return false;
-  // Both suffix constants are lower-case, so folding the token is the whole
-  // normalization.
+  // Every suffix is lower-case, so folding the token is the whole normalization.
   const normalized = token.toLowerCase();
-  return normalized.endsWith(HOOK_PATH_SUFFIX) || normalized.endsWith(LEGACY_HOOK_PATH_SUFFIX);
+  if (HOOK_PATH_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) return true;
+  return (
+    LEGACY_HOOK_PATH_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) &&
+    legacyEntriesAreOurs()
+  );
 }
 
 /**
@@ -491,7 +532,7 @@ function settingsHoldOnlyOurHooks(settings: ClaudeSettings): boolean {
  *  A unique symbol, never `null`: `null` is a value a user's settings.json can
  *  legitimately contain inside a hooks array, and using it as the sentinel made
  *  us DELETE it. Observed: `{"hooks":{"Stop":[null,"third-party-junk"]}}` — a
- *  file with no Pixel Agents command anywhere — came back rewritten as
+ *  file with no Agent Tycoon command anywhere — came back rewritten as
  *  `{"hooks":{"Stop":["third-party-junk"]}}` and logged "Hooks removed". A
  *  sentinel that can collide with user data is a sentinel that eats user data;
  *  a symbol cannot appear in parsed JSON. */
@@ -547,7 +588,7 @@ function makeHookEntry(): ClaudeHookEntry {
 }
 
 /**
- * Whether ANY Pixel Agents hook command is present in ~/.claude/settings.json.
+ * Whether ANY Agent Tycoon hook command is present in ~/.claude/settings.json.
  *
  * "Any", not "all 12", and the difference is the whole point. Every caller asks
  * this question for one of two reasons — "are our hooks firing right now?"
@@ -586,9 +627,9 @@ export function areHooksInstalled(): boolean {
 }
 
 /**
- * Install Pixel Agents hook entries into ~/.claude/settings.json for
+ * Install Agent Tycoon hook entries into ~/.claude/settings.json for
  * Notification, Stop, and PermissionRequest events. Idempotent: removes
- * any existing Pixel Agents entries before adding fresh ones.
+ * any existing Agent Tycoon entries before adding fresh ones.
  *
  * Rejects (before any write) when settings.json exists but cannot be parsed or
  * keeps changing concurrently — callers surface the error to the user instead
@@ -604,7 +645,7 @@ export async function installHooks(): Promise<void> {
     });
   }
   if (wrote) {
-    console.log('[Pixel Agents] Hooks installed in ~/.claude/settings.json');
+    console.log('[Agent Tycoon] Hooks installed in ~/.claude/settings.json');
   }
 }
 
@@ -665,7 +706,7 @@ function installEntries(): Promise<boolean> {
         throw new Error(settingsNonArrayEventMessage(event));
       }
       const entries = hooks[event];
-      // Remove any existing Pixel Agents commands (in case the script path changed)
+      // Remove any existing Agent Tycoon commands (in case the script path changed)
       const filtered = (withoutOurEntries(entries) ?? entries).concat(makeHookEntry());
       if (JSON.stringify(filtered) !== JSON.stringify(entries)) {
         hooks[event] = filtered;
@@ -676,7 +717,7 @@ function installEntries(): Promise<boolean> {
   });
 }
 
-/** Remove all Pixel Agents hook entries from ~/.claude/settings.json. Cleans up empty objects.
+/** Remove all Agent Tycoon hook entries from ~/.claude/settings.json. Cleans up empty objects.
  *  Rejects (before any write) when the file cannot be parsed — same protection
  *  as install: never rewrite a file we could not read. Callers surface the
  *  error; claiming success after an aborted uninstall is how a "removed"
@@ -717,11 +758,11 @@ export async function uninstallHooks(): Promise<void> {
     });
   }
   if (wrote) {
-    console.log('[Pixel Agents] Hooks removed from ~/.claude/settings.json');
+    console.log('[Agent Tycoon] Hooks removed from ~/.claude/settings.json');
   }
 }
 
-/** Copy the shipped hook script from the extension to ~/.pixel-agents/hooks/.
+/** Copy the shipped hook script from the install to <office folder>/hooks/.
  *  Returns true if the script was copied, false if the source was missing or the
  *  copy failed, so callers can report the failure instead of logging a false
  *  success (issue #333: a path regression silently installed nothing). */
@@ -735,15 +776,15 @@ export function copyHookScript(extensionPath: string): boolean {
       fs.mkdirSync(dstDir, { recursive: true, mode: 0o700 });
     }
     if (!fs.existsSync(src)) {
-      console.warn(`[Pixel Agents] Hook script not found at ${src}`);
+      console.warn(`[Agent Tycoon] Hook script not found at ${src}`);
       return false;
     }
     fs.copyFileSync(src, dst);
     fs.chmodSync(dst, 0o700);
-    console.log(`[Pixel Agents] Hook script installed at ${dst}`);
+    console.log(`[Agent Tycoon] Hook script installed at ${dst}`);
     return true;
   } catch (e) {
-    console.error(`[Pixel Agents] Failed to copy hook script: ${e}`);
+    console.error(`[Agent Tycoon] Failed to copy hook script: ${e}`);
     return false;
   }
 }

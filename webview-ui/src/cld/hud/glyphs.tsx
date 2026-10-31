@@ -79,6 +79,24 @@ export const WorkbenchGlyph = () => (
   </Glyph>
 );
 
+/** P4 개발실: the command key, four loops round a square (⌘). */
+export const CommandGlyph = ({ px = 2 }: { px?: number }) => (
+  <Glyph px={px}>
+    <path
+      fillRule="evenodd"
+      d="M2 2h5v5H2z M3 3v3h3V3z M9 2h5v5H9z M10 3v3h3V3z M2 9h5v5H2z M3 10v3h3v-3z M9 9h5v5H9z M10 10v3h3v-3z"
+    />
+    <path d="M6 7h1v2H6z M9 7h1v2H9z M7 6h2v1H7z M7 9h2v1H7z" />
+  </Glyph>
+);
+
+/** P4 개발실: a git branch, a stem with a fork hooked off it (ᚠ), at 1 px per cell. */
+export const BranchGlyph = () => (
+  <Glyph px={1}>
+    <path d="M3 1h2v14H3z M11 2h2v4h-2z M9 6h2v2H9z M5 8h4v2H5z" />
+  </Glyph>
+);
+
 /** 지금 확인: a circular arrow, drawn at 1 px per grid cell to sit in a line of text. */
 export const RefreshGlyph = () => (
   <Glyph px={1}>

@@ -116,12 +116,12 @@ const hooks =
   (page: Page) =>
   <T, A>(fn: (h: Hooks, a: A) => T, arg: A): Promise<T> =>
     page.evaluate(
-      `(${fn.toString()})(window.__pixelAgentsTestHooks, ${JSON.stringify(arg)})`,
+      `(${fn.toString()})(window.__agentTycoonTestHooks, ${JSON.stringify(arg)})`,
     ) as Promise<T>;
 
 const INIT = `
   globalThis.__name = (fn) => fn;
-  window.__PIXEL_AGENTS_E2E = true;`;
+  window.__AGENT_TYCOON_E2E = true;`;
 
 function makeHome() {
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });

@@ -27,6 +27,7 @@ import {
   TERMINAL_SWAP_RELEASE_SETTLE_MS,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import { readClipboardText } from '../../terminal/clipboard.js';
 import type { TerminalConnectionStatus } from '../../terminal/terminalClient.js';
 import { transport } from '../../transport/index.js';
 import { authFetch, type Me, passkeyError, stepUpText } from '../auth/authApi.js';
@@ -792,6 +793,11 @@ export function TerminalWorkspace({
       {mobile && keyboardOpen && focusedKeyNow && (
         <MobileKeyBar
           onKey={(seq) => inputs.current.get(focusedKeyNow)?.send(seq)}
+          onPaste={() => {
+            void readClipboardText(t('upstream.paste')).then((text) => {
+              if (text) inputs.current.get(focusedKeyNow)?.paste(text);
+            });
+          }}
           onSend={() => {
             const input = inputs.current.get(focusedKeyNow);
             if (input) submitTerminalLine(input);

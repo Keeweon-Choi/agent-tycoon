@@ -5,7 +5,12 @@ export const ADMIN_SETUP_COMMAND = 'run_admin_setup';
 
 // ── Messenger ───────────────────────────────────────────────
 export const ATTACH_ACCEPT =
-  'image/*,.pdf,.txt,.md,.csv,.json,.log,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.go,.rs,.java,.kt,.swift,.c,.h,.cpp,.hpp,.cs,.sh,.bash,.zsh,.css,.html,.xml,.yaml,.yml,.sql,.toml,.zip,.7z,.tar,.gz,.tgz,.docx,.xlsx,.pptx,.odt,.ods,.odp,.doc,.xls,.ppt,.hwp,.hwpx,.rtf';
+  'image/*,video/*,.mp4,.mov,.m4v,.webm,.pdf,.txt,.md,.csv,.json,.log,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.go,.rs,.java,.kt,.swift,.c,.h,.cpp,.hpp,.cs,.sh,.bash,.zsh,.css,.html,.xml,.yaml,.yml,.sql,.toml,.zip,.7z,.tar,.gz,.tgz,.docx,.xlsx,.pptx,.odt,.ods,.odp,.doc,.xls,.ppt,.hwp,.hwpx,.rtf';
+
+/** A video is held on the daemon's disk, not in memory: its own, larger limit (the daemon's VIDEO_ATTACH_MAX). */
+export const ATTACH_VIDEO_MAX_BYTES = 300 * 1024 * 1024;
+/** A video whose ticket the server refused (it ran out) is asked for again this many times. */
+export const ATTACH_VIDEO_TICKET_RETRIES = 1;
 
 // ── Grid & Layout ────────────────────────────────────────────
 export const TILE_SIZE = 16;
@@ -125,27 +130,6 @@ export const LIGHT_WARM_POOL = {
     { at: 0.4, color: '#FFE3A44D' },
   ],
 } as const;
-/** 2.5D PILOT walls: the navy of the owner's converted wall pieces (wall-dark-panel,
- *  wall-top-thin), the face heights (world px above the tile's bottom: an outside wall, nothing
- *  behind it to hide, stands twice as tall and holds windows), and every how many columns an
- *  inside wall carries a lit wood panel with a lamp. */
-export const WALL_25D = {
-  // The top a shade lighter than the faces: lit from above, it reads apart from the void.
-  cap: '#233755',
-  capEdge: '#3B4C6C',
-  lip: '#3B4C6C',
-  lip2: '#233755',
-  face: '#1A273E',
-  seam: '#233755',
-  shadow: '#0C1426',
-  frame: '#0C1426',
-  capPx: 16,
-  insideFacePx: 16,
-  outsideFacePx: 32,
-  lampEvery: 4,
-} as const;
-/** 2.5D PILOT: how far below a wall lamp its light pool lies on the floor (world px). */
-export const WALL_LAMP_POOL_DY = 5;
 /** GFX e2e: the one-sprite-px marker of the synthetic HD character (testHooks makeHdCharacter). */
 export const HD_TEST_MARKER_COLOR = '#FFFFFF';
 /** GFX title scene: over the HUD (48-49), under the dialogs (50+) its menu opens. */
@@ -189,8 +173,9 @@ export const OFFICE_CANVAS_TEST_ID = 'office-canvas';
 export const GHOST_BORDER_NO_HOVER_TILE = -999;
 
 // ── Layout Import/Export (browser-native, standalone) ────────
-/** Suggested filename when exporting the office layout from the standalone browser. */
-export const LAYOUT_EXPORT_FILENAME = 'pixel-agents-layout.json';
+/** Suggested filename when exporting the office layout from the standalone browser.
+ *  Import takes any JSON file, so files saved under the old pixel-agents-layout.json name still load. */
+export const LAYOUT_EXPORT_FILENAME = 'agent-tycoon-layout.json';
 /** MIME type for the exported layout Blob. */
 export const LAYOUT_EXPORT_MIME = 'application/json';
 export const DEFAULT_FLOOR_COLOR: ColorValue = { h: 35, s: 30, b: 15, c: 0 };
@@ -349,6 +334,9 @@ export const BOARD_PROJECT_ROWS = 8;
 /** H/W graphs cover the last 60 s (hwSample comes every 2 s while anyone views). */
 export const BOARD_HISTORY_MS = 60_000;
 export const BOARD_HISTORY_SAMPLES = 40;
+/** Disk-card sizes use binary steps while displaying the familiar KB/MB/GB suffixes. */
+export const DISK_BYTES_PER_KIB = 1_024;
+export const DISK_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 /** A GPU ticket's ending stays on the board this long, fading out. */
 export const BOARD_RECENT_MS = 3 * 60_000;
 /** The board's colours: an LED screen on near black. The series hues pass the
@@ -399,6 +387,8 @@ export const FURNITURE_ANIM_INTERVAL_SEC = 0.2;
 // ── Version Notice ──────────────────────────────────────────
 export const WHATS_NEW_AUTO_CLOSE_MS = 20000;
 export const WHATS_NEW_FADE_MS = 1000;
+/** The tycoon office keeps "seen the update log of this version" per browser (a read-only viewer cannot save it on the host). */
+export const CHANGELOG_SEEN_STORAGE_KEY = 'cld.changelogSeen';
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
@@ -429,6 +419,11 @@ export const TOOL_OVERLAY_VERTICAL_OFFSET = 32;
 /** Reserved character id for the Intro's greeter. Far outside both real agent
  *  ids (positive) and sub-agent ids (small negatives from -1 down). */
 export const GREETER_ID = -1_000_000_000;
+/** OWNER-AVATAR: the owner's own walking character (not an agent). Below every virtual id
+ *  (officeStore.virtualAgentId counts down from -1_000_000_000). */
+export const OWNER_CHARACTER_ID = -2_000_000_000;
+/** Where it starts: tiles from the lobby board's anchor, in front of the board's middle. */
+export const OWNER_SPAWN_FROM_BOARD = { col: 14, row: 11 } as const;
 /** Stacking order for the Intro's bubble. Deliberately BELOW the modal stack
  *  (ui/Modal defaults to 50, ChangelogModal 51, the migration notice z-100): the
  *  Intro is diegetic furniture over the office, not a modal, so a modal opened
@@ -1052,14 +1047,47 @@ export const DRAWER_EDIT_LONG_PRESS_MS = 500;
 export const DRAWER_EDIT_LONG_PRESS_MAX_MOVE_PX = 10;
 /** MSG-ACTIONS: holding a messenger bubble this long opens its action sheet (복사 · 답글) on a phone. */
 export const MESSAGE_ACTIONS_LONG_PRESS_MS = 500;
+/** MSG-POLISH: the quote peek over the composer is at most this tall (px), less where the list is shorter. */
+export const QUOTE_PEEK_MAX_PX = 256;
+/** MSG-SPLIT: the desktop messenger's width from which 2 or 2×2 conversations fit beside its list. */
+export const MESSENGER_SPLIT_MIN_PX = 960;
 /** Gap a viewport-fitted Dropdown (the launch drawer) keeps from the top of
  *  the viewport when its content is taller than the room above its anchor. */
 export const DROPDOWN_VIEWPORT_MARGIN_PX = 8;
 /** localStorage key for the mobile bar's custom card order (per device — a
  *  presentation preference, deliberately not synced through the server). */
-export const MOBILE_CARD_ORDER_STORAGE_KEY = 'pixel-agents.mobileCardOrder';
+export const MOBILE_CARD_ORDER_STORAGE_KEY = 'agent-tycoon.mobileCardOrder';
+/** The same key before the 2026-11 rename, still read when the new one is unset. */
+export const LEGACY_MOBILE_CARD_ORDER_STORAGE_KEY = 'pixel-agents.mobileCardOrder';
 /** localStorage key: this device opened the mobile bar's full cards (compact otherwise). */
 export const MOBILE_CARDS_EXPANDED_STORAGE_KEY = 'cld.mobile-cards-expanded';
+/** localStorage key: this viewer's three-state mobile roster presentation. */
+export const MOBILE_ROSTER_STATE_STORAGE_KEY = 'cld.mobile-roster-state';
+/** The phone roster can show compact cards, full cards, or only its restore handle. */
+export const MOBILE_ROSTER_STATES = {
+  HIDDEN: 'hidden',
+  COMPACT: 'compact',
+  EXPANDED: 'expanded',
+} as const;
+/** A full phone roster card is deliberately wide enough for its centered face and one-line chips. */
+export const MOBILE_ROSTER_CARD_WIDTH_PX = 96;
+/** Full phone roster cards make the orchestrator's face more prominent than the compact strip. */
+export const MOBILE_ROSTER_FACE_PX = 48;
+/** localStorage key: this viewer opened the character detail's full list (the big tiles otherwise). */
+export const STAT_DETAIL_FULL_STORAGE_KEY = 'cld.stat-detail-full';
+/** The summary popover's face, and the detail view's (CSS px). */
+export const STAT_SUMMARY_FACE_PX = 48;
+/** The summary popover never grows wider than this, however long the activity line (it wraps, 2 lines). */
+export const STAT_SUMMARY_MAX_PX = 300;
+/** The summary's fatigue bar: a fixed length, halfway between the old short bar and the stretched one. */
+export const STAT_SUMMARY_BAR_PX = 100;
+/** The rebirth mark's pixels (a soul flame): outer, inner and the sparkle (at 0 the mark is dimmed by opacity). */
+export const REBIRTH_COLORS = { outer: '#e8742a', inner: '#ffd84a', spark: '#fff6a0' } as const;
+export const STAT_DETAIL_FACE_PX = 64;
+/** The open detail view looks at its character again this often (ms). */
+export const STAT_REFRESH_MS = 500;
+/** The level ring on the detail view's growth tile: its size and number (CSS px). */
+export const STAT_TILE_RING = { ring: 34, level: 13 } as const;
 /** Breathing room kept between a card and the scroller edge when the bar
  *  auto-scrolls the focused agent's card into view. */
 export const CARD_SCROLL_INTO_VIEW_MARGIN_PX = 8;
@@ -1089,6 +1117,24 @@ export type MobileKeyModifier = 'ctrl' | 'shift';
 /** Height of one key-bar key. Kept compact on purpose (two rows over a terminal the owner tuned
  *  10-24): the bar opts out of the 44 px phone touch rule with `data-touch-compact`. */
 export const MOBILE_KEY_HEIGHT_PX = 30;
+/** The phone's walking joystick (JOYSTICK): the pad's side, a thumb-sized square. */
+export const JOYSTICK_SIZE_PX = 120;
+/** The knob's side. */
+export const JOYSTICK_KNOB_PX = 48;
+/** Drag shorter than this share of the pad's radius is no direction yet. */
+export const JOYSTICK_DEAD_ZONE = 0.3;
+/** Idle time before the pad fades, and how long the fade takes. */
+export const JOYSTICK_FADE_DELAY_MS = 3000;
+export const JOYSTICK_FADE_MS = 400;
+/** The pad's opacity while in use and once faded (nearly gone, still findable). */
+export const JOYSTICK_OPACITY = 0.75;
+export const JOYSTICK_FADED_OPACITY = 0.15;
+/** Above the lobby's mini board (BOARD_Z_INDEX), which can sit where the pad does. */
+export const JOYSTICK_Z_INDEX = BOARD_Z_INDEX + 1;
+/** Gap to the office's left edge (plus the safe inset), CSS px. */
+export const JOYSTICK_MARGIN_PX = 8;
+/** Gap to the office's bottom edge: above the hidden roster's 44 px handle at the same left edge, plus 8. */
+export const JOYSTICK_BOTTOM_PX = 52;
 /** Width of the arrow keys (and Tab / paste beside the up arrow) at the bar's right end. */
 export const MOBILE_ARROW_KEY_WIDTH_PX = 40;
 /** Finger travel per emitted arrow while sliding from an arrow key (the old trackpad gesture). */
@@ -1103,6 +1149,8 @@ export const VISUAL_VIEWPORT_FULL_EPSILON_PX = 1;
  *  (with an editable focused) = the software keyboard is up. Well above an
  *  address bar collapsing (~56 px), well below any on-screen keyboard. */
 export const KEYBOARD_MIN_HEIGHT_PX = 150;
+/** A Home-Screen app's short viewport counts when its gap to the screen matches the top inset within this many px. */
+export const STANDALONE_VIEWPORT_TOLERANCE_PX = 3;
 /** A messenger history/search request the daemon never answers is given up after this. */
 export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
 
@@ -1112,25 +1160,57 @@ export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
 export const ISO_HALF_W = 8;
 export const ISO_HALF_H = 4;
 /** A tall back wall (iso px above its floor at the building's back corner: the owner 10-26 01:48
- *  asked for taller storeys), a cut-away wall, a floor slab, and the gap left between a floor's
- *  wall tops and the slab of the floor above (none: the floors sit flush, one structure). The
+ *  and 11-01 02:06 asked for taller storeys), a cut-away wall, a floor slab, and the gap between
+ *  a floor's wall tops and the slab of the floor above (negative: the slab of the floor above
+ *  covers the top of the wall below, so the floors read as one tower, owner 11-01 02:08). The
  *  wall pieces (gen-iso-objects.ts) are made this tall: regenerate them when it changes. */
-export const ISO_WALL_H = 52;
+export const ISO_WALL_H = 68;
 export const ISO_LOW_WALL_H = 5;
 export const ISO_SLAB_H = 6;
-export const ISO_FLOOR_GAP = 0;
+export const ISO_FLOOR_GAP = -58;
+/** The lobby's board in the isometric view (owner 11-01 02:08: the LED board shows there): the
+ *  slab's height (gen-iso-art.ts draws it), where its screen starts above the floor, and how tall
+ *  the webview's copy of the board is laid over the screen (iso px), then its width in tiles
+ *  (the board's 3:1 shape at the screen's own pixel scale, along the wall at its angle). */
+export const ISO_BOARD_H = 64;
+export const ISO_BOARD_FACE_Z = 10;
+export const ISO_BOARD_FACE_H = 48;
+export const ISO_BOARD_FACE_TILES = 18;
+/** The slab's screen plane: tiles in from its footprint's back edge (gen-iso-art.ts). */
+export const ISO_BOARD_PLANE = 0.5;
+/** The copy's own size: the board's em width in CSS px before the wall's transform, and the least
+ *  em (CSS px, as drawn) at which its pages turn (a smaller one keeps a still frame). */
+export const ISO_BOARD_EM_PX = 12;
+export const ISO_BOARD_MIN_EM_PX = 6;
 /** The art's master density: picture px per world px of the owner's pieces (a 16 px tile is a
  *  192×96 diamond), each drawn at every zoom from its one master. */
 export const ISO_MASTER_DENSITY = 12;
 /** Margin (iso px) around the building in the whole-building framing. */
 export const ISO_FRAME_MARGIN = 12;
-/** A floor not in focus: drawn from its cache darkened by this wash, at this opacity. */
-export const ISO_DIM_WASH = 'rgba(14, 18, 38, 0.5)';
-export const ISO_DIM_ALPHA = 0.82;
+/** PHONE-ZOOM: the isometric first view on a phone frames the floor's occupied rooms, never
+ *  farther than this zoom: an iso character is ~16 iso px tall, so at 6 it is ~96 device px
+ *  (32 CSS px at dpr 3), readable, with its name tag clear of the next one's. */
+export const PHONE_ISO_ZOOM_MIN = 6;
+/** ...and never closer than this (one small room), so the room around the agents still shows. */
+export const PHONE_ISO_ZOOM_MAX = 8;
+/** Seconds the phone view waits for the agents to arrive after the first frame (the layout comes
+ *  before the characters) before it settles on the floor's rooms. */
+export const PHONE_ISO_SETTLE_S = 4;
+/** A floor not in focus (owner 11-01 02:06: the focused one must clearly stand out): its cache
+ *  keeps this share of each channel's colour (grey pulled in by ISO_DIM_DESATURATE), a touch
+ *  bluer (ISO_DIM_BLUE added to blue), and is drawn at this opacity. */
+export const ISO_DIM_GAIN = [0.34, 0.36, 0.44] as const;
+export const ISO_DIM_DESATURATE = 0.5;
+export const ISO_DIM_BLUE = 6;
+export const ISO_DIM_ALPHA = 0.62;
+/** A floor above the focus covers part of it (the floors nest), so it is drawn fainter still. */
+export const ISO_DIM_ABOVE_ALPHA = 0.4;
 /** How often a dimmed floor checks whether its characters moved (ms; redrawn only then). */
 export const ISO_DIM_REFRESH_MS = 1000;
 /** Half-extent (tiles) of the depth box a character stands in. */
 export const ISO_CHARACTER_BOX = 0.3;
+/** An isometric object covering a character it is painted after is drawn at this opacity. */
+export const ISO_OCCLUSION_ALPHA = 0.45;
 /** World px a seated character's feet move towards its desk. */
 export const ISO_SIT_FORWARD_PX = 3;
 /** The elevator shaft between the floors' doors: its glass, its frame posts (iso px wide), and
@@ -1143,3 +1223,146 @@ export const ISO_CAR_AT_FLOOR = 0.04;
 export const ISO_LIFT_LEVELS_PER_S = 2.5;
 /** World px a picture hung on a wall drops when that wall is cut away (it rests on its top). */
 export const ISO_LOW_WALL_ITEM_DROP = 5;
+
+// ── BACKGROUND: the isometric office's surroundings (cld/gfx/bg) ─────
+/** The sky is day from this hour to this one by the host's clock (hours, 0-24). */
+export const BG_DAY_START_HOUR = 6;
+export const BG_DAY_END_HOUR = 18;
+/** The ground in tiles of the building's floor grid: the main plot is the floor plate plus this
+ *  many tiles of plaza and pavement on every side; a road this wide runs round each plot; every
+ *  other plot is this many tiles square (its outermost tile is pavement). */
+export const BG_PAD_TILES = 2;
+export const BG_ROAD_TILES = 3;
+export const BG_BLOCK_TILES = 14;
+/** A lamp stands on a plot's pavement at each corner and at the middle of each side. */
+export const BG_LAMP_HEIGHT = 14;
+/** Footprint (tiles) and height (iso px) of what stands on a plot. */
+export const BG_TOWER_TILES = 6;
+export const BG_TOWER_H_MIN = 70;
+export const BG_TOWER_H_MAX = 210;
+export const BG_HOUSE_TILES = 3;
+export const BG_HOUSE_H = 22;
+export const BG_HOUSE_ROOF_STEPS = 4;
+/** The horizon sits this far (iso px) above the back corner of the building's first floor; the
+ *  sky above it fades over BG_SKY_H, and the haze over the ground just under it is BG_HAZE_H. */
+export const BG_HORIZON_ABOVE = 70;
+export const BG_SKY_H = 520;
+export const BG_HAZE_H = 36;
+/** Far skyline: one building per slot of this width (iso px) on each of three layers (far first). */
+export const BG_SKYLINE_SLOTS = [16, 22, 30] as const;
+/** The background is painted in square pieces of this many iso px, each when first in view. */
+export const BG_CHUNK = 256;
+/** At most this many pieces are kept (the least recently shown go first). */
+export const BG_CHUNKS_KEPT = 80;
+/** A piece also paints what stands this far (iso px) beyond its edge: glows, crowns, a tower's
+ *  ground below the piece its top is in. */
+export const BG_OBJECT_REACH = { x: 56, y: 40 } as const;
+/** The far skyline's building heights (iso px) per layer, far first, before the surroundings
+ *  scale them (BG_SKYLINE_SCALE: houses, towers, mixed). */
+export const BG_SKYLINE_H = [
+  [28, 80],
+  [44, 120],
+  [60, 170],
+] as const;
+export const BG_SKYLINE_SCALE = { houses: 0.45, towers: 1.25, mixed: 0.85 } as const;
+/** Sky pieces in iso px: where the sun and moon hang (from the building's centre, up from the
+ *  horizon), a star's cell, a cloud's cell, hill height and wavelength. */
+export const BG_SUN = { dx: -290, up: 260, r: 9 } as const;
+export const BG_MOON = { dx: 290, up: 250, r: 9 } as const;
+export const BG_STAR_CELL = 12;
+export const BG_CLOUD_CELL = { w: 120, h: 80, up: 70, rows: 4, chance: 0.4 } as const;
+export const BG_HILLS = [
+  { base: 34, amp: 38, freq: 0.012 },
+  { base: 10, amp: 24, freq: 0.021 },
+] as const;
+/** An empty glow sprite's cache holds at most this many entries. */
+export const BG_SPRITE_CACHE_MAX = 32;
+/** A canvas colour from an "r,g,b" triplet and an alpha (the background's glows and haze). */
+export const rgbaOf = (triplet: string, alpha: number): string => `rgba(${triplet},${alpha})`;
+
+// ── C1 (cld/director): character moments, a coffee break and a rebirth ─────
+/** Moments that may wait behind the one playing, per character. */
+export const FX_QUEUE_MAX = 3;
+/** Each rebirth variant's length (s): A light pillar, B star orbit and nova, C fireworks. */
+export const FX_REBIRTH_SEC = { rebirthA: 3, rebirthB: 3.2, rebirthC: 3.5 } as const;
+/** The variants a live 환생 picks from at random (owner 11-01: all three; theme packs add theirs later). */
+export const FX_REBIRTH_LIVE = ['rebirthA', 'rebirthB', 'rebirthC'] as const;
+/** prefers-reduced-motion: the still badge shows this long (s). */
+export const FX_STILL_SEC = 2.5;
+/** The "+1" rest pop rises and fades in this long (s), this far (world px). */
+export const FX_PLUS_SEC = 1.2;
+export const FX_PLUS_RISE_PX = 10;
+/** A coffee break that has not come back by then ends where it is (s). */
+export const FX_COFFEE_MAX_SEC = 45;
+/** The rebirth's big title: device px per zoom step, rounded to the pixel font's crisp step. */
+export const FX_TITLE_PX_PER_ZOOM = 18;
+export const FX_SUB_PX_PER_ZOOM = 9;
+/** Words and bubbles keep this far (CSS px, the nameplate's height) above the nameplate's foot. */
+export const FX_PLATE_CLEAR_PX = 34;
+/** Text outline thickness in device px. */
+export const FX_TEXT_OUTLINE_PX = 2;
+export const FX_COLORS = {
+  ink: '#1b1430',
+  white: '#ffffff',
+  gold: '#ffd84a',
+  goldDeep: '#e89a1c',
+  paleGold: 'rgba(255, 236, 150, 0.35)',
+  core: 'rgba(255, 255, 240, 0.85)',
+  cyan: '#5ef2ff',
+  magenta: '#ff5ed2',
+  violet: '#8a6bff',
+  green: '#58d46a',
+  coral: '#ff7a59',
+  flash: 'rgba(255, 255, 255, 0.9)',
+  bubble: '#f4f1e6',
+  cup: '#ffffff',
+  coffee: '#6b3b1e',
+  steam: 'rgba(255, 255, 255, 0.7)',
+} as const;
+/** Firework and confetti colours, in turn. */
+export const FX_SPARK_COLORS = [
+  '#ffd84a',
+  '#ff5ed2',
+  '#5ef2ff',
+  '#58d46a',
+  '#ff7a59',
+  '#ffffff',
+] as const;
+/** Synth: the jingle's loudness (times the user's volume), and the coffee pop's. */
+export const FX_JINGLE_VOLUME = 0.32;
+export const FX_POP_VOLUME = 0.16;
+/** The offline render of a jingle (dev runner): sample rate and length (s). */
+export const FX_WAV_RATE = 44100;
+export const FX_WAV_SEC = 4;
+
+// ── P4 개발실 (dev room, mockups-1101/devroom-W1b, W5) ───────────────
+/** A worktree card's mug shot in the rail, and on the phone's list. */
+export const DEVROOM_FACE_PX = 22;
+export const DEVROOM_PHONE_FACE_PX = 24;
+/** The `…` menu: its width, and the height kept clear under it before it flips up. */
+export const DEVROOM_MENU_W_PX = 300;
+export const DEVROOM_MENU_H_PX = 216;
+/** The gap between the `…` button and its menu. */
+export const DEVROOM_MENU_GAP_PX = 4;
+
+// ── P4 개발실 병합 tab (mockups-1101/devroom-W2, W3, mockups-1028/orca-tools-K) ──
+/** How long a write's answer is awaited before the step is called lost. */
+export const MERGE_ACT_TIMEOUT_MS = 60_000;
+/** Lines of the file shown around a conflict block. */
+export const MERGE_CONTEXT_LINES = 2;
+/** K's card, W2's file column, W3's table columns (checkbox, status, merged, changed, size). */
+export const MERGE_CARD_W_PX = 440;
+export const MERGE_FILES_W_PX = 210;
+export const MERGE_TABLE_COLS = '44px minmax(0,1fr) 120px 150px 140px 100px';
+/** W3's checkbox. */
+export const MERGE_CHECK_PX = 20;
+/** The size text's steps. */
+export const MERGE_KIB = 1024;
+export const MERGE_SIZE_DECIMALS = 1;
+// ── P4 검토 (review-loop R2/R4) ──────────────────────────────────────
+/** While a Worker fixes sent notes, the open review re-reads its notes (`fixed`) and diffs this often (ms). */
+export const REVIEW_REFRESH_MS = 5_000;
+
+// ── Explorer editor (P4 S5) ──────────────────────────────────
+/** While a file is open for editing, its disk hash is read this often (only while the page is visible). */
+export const EDIT_POLL_MS = 5_000;

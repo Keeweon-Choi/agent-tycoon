@@ -188,8 +188,8 @@ const stats = (page: Page): Promise<Stats> =>
   page.evaluate(
     () =>
       (
-        window as unknown as { __pixelAgentsTestHooks: { getNameplateStats: () => Stats } }
-      ).__pixelAgentsTestHooks.getNameplateStats(),
+        window as unknown as { __agentTycoonTestHooks: { getNameplateStats: () => Stats } }
+      ).__agentTycoonTestHooks.getNameplateStats(),
   );
 
 /** Dimmed = overlapping and not focused; the focused plate is never dimmed. */
@@ -244,7 +244,7 @@ async function main() {
   const pageErrors: string[] = [];
   const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     const page = await ctx.newPage();
     page.on('pageerror', (err) => pageErrors.push(String(err)));
     return { ctx, page };
@@ -280,8 +280,8 @@ async function main() {
   const select = (page: Page, id: number | null) =>
     page.evaluate((id) => {
       (
-        window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }
-      ).__pixelAgentsTestHooks.selectAgent(id as number);
+        window as unknown as { __agentTycoonTestHooks: { selectAgent: (id: number | null) => void } }
+      ).__agentTycoonTestHooks.selectAgent(id as number);
     }, id);
   /** Bring alpha's room (its first session) to the middle of the screen. */
   const focusAlpha = async (page: Page) => {
@@ -372,12 +372,12 @@ async function main() {
         page.evaluate((id) => {
           const h = (
             window as unknown as {
-              __pixelAgentsTestHooks: {
+              __agentTycoonTestHooks: {
                 getTileCenter: (c: number, r: number) => { x: number; y: number } | null;
                 getCharacterPosition: (id: number) => { x: number; y: number } | null;
               };
             }
-          ).__pixelAgentsTestHooks;
+          ).__agentTycoonTestHooks;
           const a = h.getTileCenter(0, 0)!;
           const b = h.getTileCenter(1, 0)!;
           const k = (b.x - a.x) / 16; // CSS px per world px

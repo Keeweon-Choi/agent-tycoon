@@ -29,7 +29,7 @@ export function bearerTokenValid(authorization: string | undefined, expected: st
 
 /**
  * Whether a standalone handshake proves PRIVILEGE -- the right to send messages
- * that reach outside `~/.pixel-agents/` (the hooks toggle, which grants durable
+ * that reach outside the office folder (the hooks toggle, which grants durable
  * consent to modify `~/.claude/settings.json`), to launch an agent, or to attach
  * to its terminal (a shell running as the operator).
  *
@@ -50,7 +50,7 @@ export function bearerTokenValid(authorization: string | undefined, expected: st
  * gate must ride something the channel never carries — an out-of-band secret
  * the operator's own URL delivers and the forwarded attacker never sees.
  *
- * A tokenless client is not locked out of Pixel Agents — it connects and
+ * A tokenless client is not locked out of Agent Tycoon — it connects and
  * watches the office exactly as before (the connection gate,
  * isAllowedWebSocketOrigin, is separate and unchanged). It simply cannot act
  * on this machine.
@@ -85,7 +85,7 @@ export function standaloneTokenValid(url: string | undefined, expected: string):
  * correctly (a browser derives both headers from the URL that loaded the SPA).
  *
  * A missing Origin still connects: non-browser local clients send none (and can
- * already read ~/.pixel-agents/server.json off disk), and the standalone
+ * already read the office server.json off disk), and the standalone
  * server's read surface is deliberately open to whatever address it was told
  * to bind (`--host 0.0.0.0` exposes the SPA to the LAN by design).
  *

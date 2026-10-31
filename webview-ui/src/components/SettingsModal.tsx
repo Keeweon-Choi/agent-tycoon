@@ -3,7 +3,6 @@ import { useRef, useState } from 'react';
 import { setPerfOn, usePerfOn } from '../cld/perf.js';
 import { t } from '../i18n/index.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
-import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
 import { Button } from './ui/Button.js';
 import { Checkbox } from './ui/Checkbox.js';
@@ -18,8 +17,6 @@ interface SettingsModalProps {
   alwaysShowOverlay: boolean;
   onToggleAlwaysShowOverlay: () => void;
   /** Whether headless agents (adopted, no terminal to focus) render translucent. */
-  ghostHeadlessAgents: boolean;
-  onToggleGhostHeadlessAgents: () => void;
   externalAssetDirectories: string[];
   watchAllSessions: boolean;
   onToggleWatchAllSessions: () => void;
@@ -53,8 +50,6 @@ export function SettingsModal({
   onToggleDebugMode,
   alwaysShowOverlay,
   onToggleAlwaysShowOverlay,
-  ghostHeadlessAgents,
-  onToggleGhostHeadlessAgents,
   externalAssetDirectories,
   watchAllSessions,
   onToggleWatchAllSessions,
@@ -77,24 +72,9 @@ export function SettingsModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('settings.title')}>
-      {/* Open Sessions Folder opens an OS file manager — impossible in the browser. */}
-      {!isBrowserRuntime && (
-        <MenuItem
-          onClick={() => {
-            transport.send({ type: 'openSessionsFolder' });
-            onClose();
-          }}
-        >
-          {t('upstream.openSessions')}
-        </MenuItem>
-      )}
       <MenuItem
         onClick={() => {
-          if (isBrowserRuntime) {
-            onExportLayout();
-          } else {
-            transport.send({ type: 'exportLayout' });
-          }
+          onExportLayout();
           onClose();
         }}
       >
@@ -102,68 +82,50 @@ export function SettingsModal({
       </MenuItem>
       <MenuItem
         onClick={() => {
-          if (isBrowserRuntime) {
-            // Open the native file picker; the import is applied in onChange below.
-            fileInputRef.current?.click();
-          } else {
-            transport.send({ type: 'importLayout' });
-            onClose();
-          }
+          // Open the native file picker; the import is applied in onChange below.
+          fileInputRef.current?.click();
         }}
       >
         {t('upstream.importLayout')}
       </MenuItem>
-      {isBrowserRuntime && (
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            // Reset the value so re-selecting the same file fires change again.
-            e.target.value = '';
-            if (file) {
-              onImportLayout(file);
-              onClose();
-            }
-          }}
-        />
-      )}
-      {/* Browser has no native directory picker, so accept a typed absolute path. */}
-      {isBrowserRuntime ? (
-        <div className="flex items-center gap-4 py-4 px-10">
-          <input
-            type="text"
-            value={assetDirDraft}
-            placeholder={t('upstream.assetDirectoryPath')}
-            onChange={(e) => setAssetDirDraft(e.target.value)}
-            className="flex-1 min-w-0 text-xs py-2 px-4 bg-bg border-2 border-border rounded-none text-text"
-          />
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => {
-              const path = assetDirDraft.trim();
-              if (!path) return;
-              transport.send({ type: 'addExternalAssetDirectory', path });
-              setAssetDirDraft('');
-            }}
-            className="shrink-0"
-          >
-            {t('upstream.add')}
-          </Button>
-        </div>
-      ) : (
-        <MenuItem
-          onClick={() => {
-            transport.send({ type: 'addExternalAssetDirectory' });
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          // Reset the value so re-selecting the same file fires change again.
+          e.target.value = '';
+          if (file) {
+            onImportLayout(file);
             onClose();
+          }
+        }}
+      />
+      {/* Browser has no native directory picker, so accept a typed absolute path. */}
+      <div className="flex items-center gap-4 py-4 px-10">
+        <input
+          type="text"
+          value={assetDirDraft}
+          placeholder={t('upstream.assetDirectoryPath')}
+          onChange={(e) => setAssetDirDraft(e.target.value)}
+          className="flex-1 min-w-0 text-xs py-2 px-4 bg-bg border-2 border-border rounded-none text-text"
+        />
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => {
+            const path = assetDirDraft.trim();
+            if (!path) return;
+            transport.send({ type: 'addExternalAssetDirectory', path });
+            setAssetDirDraft('');
           }}
+          className="shrink-0"
         >
-          {t('upstream.addAssetDirectory')}
-        </MenuItem>
-      )}
+          {t('upstream.add')}
+        </Button>
+      </div>
       {externalAssetDirectories.map((dir) => (
         <div key={dir} className="flex items-center justify-between py-4 px-10 gap-8">
           <span
@@ -207,15 +169,6 @@ export function SettingsModal({
         checked={alwaysShowOverlay}
         onChange={onToggleAlwaysShowOverlay}
       />
-      {/* Headless agents are the office's only terminal-less citizens in VS Code.
-          Standalone has no terminals at all, so nothing there would ever ghost. */}
-      {!isBrowserRuntime && (
-        <Checkbox
-          label={t('upstream.headlessGhosts')}
-          checked={ghostHeadlessAgents}
-          onChange={onToggleGhostHeadlessAgents}
-        />
-      )}
       {/* HD64-SAMPLE: the owner's own check of frame time on their phone */}
       <Checkbox label={t('perf.toggle')} checked={perfOn} onChange={() => setPerfOn(!perfOn)} />
       {showAreasAvailable && (
@@ -237,11 +190,9 @@ export function SettingsModal({
         checked={bypassPermissions}
         onChange={onToggleBypassPermissions}
       />
-      {/* The host's own Directories in the launch drawer, named for what each
-          host contributes: VS Code its workspace folders, standalone the
-          directory the server was started from. */}
+      {/* The host's own Directories in the launch drawer: the directory the server was started from. */}
       <Checkbox
-        label={isBrowserRuntime ? t('upstream.showStartDirectory') : t('upstream.showWorkspaceFolders')}
+        label={t('upstream.showStartDirectory')}
         checked={showHostDirectories}
         onChange={onToggleShowHostDirectories}
       />

@@ -13,7 +13,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   return {
     id: 1,
     sessionId: 'sess-1',
-    terminalRef: undefined,
     isExternal: true,
     projectDir: '/test',
     jsonlFile: '/test/session.jsonl',

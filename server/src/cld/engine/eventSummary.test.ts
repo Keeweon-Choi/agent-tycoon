@@ -26,7 +26,9 @@ describe('event summaries', () => {
     expect(fromApp.summary).toBe('나(windows) → b 메시지');
     // The boss's other ways (the messenger, the terminal) read as the boss; the engine's own as the daemon.
     for (const source of ['cli', 'messenger:phone'])
-      expect(summarizeEvent({ type: 'send', ts: 't', source, to: 'b' })!.summary).toBe('사장 → b 메시지');
+      expect(summarizeEvent({ type: 'send', ts: 't', source, to: 'b' })!.summary).toBe(
+        '사장 → b 메시지',
+      );
     expect(summarizeEvent({ type: 'send', ts: 't', source: 'engine', to: 'b' })!.summary).toBe(
       'cld-gui → b 메시지',
     );
@@ -61,6 +63,18 @@ describe('event summaries', () => {
         error: '세션을 켜지 못했어요',
       })!.summary,
     ).toBe('alpha: 자꾸 꺼져서 다시 띄우지 않아요 (세션을 켜지 못했어요)');
+    // TERM-P3 move-all: one line per agent and a summary.
+    expect(summarizeEvent({ type: 'pty_move', ts: 't', name: 'alpha', result: 'moved' })!.summary).toBe(
+      'alpha: 새 터미널로 옮겼어요',
+    );
+    expect(
+      summarizeEvent({ type: 'pty_move', ts: 't', name: 'alpha', result: 'rolled_back', why: '쉬는 상태로 안 보였어요' })!
+        .summary,
+    ).toBe('alpha: 옮기지 못해 되돌렸어요 (쉬는 상태로 안 보였어요)');
+    expect(
+      summarizeEvent({ type: 'pty_move_all', ts: 't', total: 4, moved: 2, skipped: 1, rolledBack: 1, stopped: true })!
+        .summary,
+    ).toBe('모두 새 터미널로 옮기기를 멈췄어요: 옮김 2, 건너뜀 1, 되돌림 1 (모두 4)');
     expect(summarizeEvent({ type: 'turn_end', ts: 't', name: 'alpha' })!.summary).toBe(
       'alpha 턴 끝',
     );
@@ -100,14 +114,32 @@ describe('event summaries', () => {
     ).toMatchObject({
       summary: 'Codex 주간 사용량이 예정보다 일찍 초기화됐어요',
       provider: 'codex',
-      period: 'sevenDay',
+      period: '7d',
+    });
+    // Newer events carry the window id and the provider's name.
+    expect(
+      summarizeEvent({
+        type: 'usage_reset_early',
+        ts: 't',
+        provider: 'acp',
+        providerName: 'ACP',
+        period: '5h',
+      }),
+    ).toMatchObject({
+      summary: 'ACP 5시간 사용량이 예정보다 일찍 초기화됐어요',
+      provider: 'acp',
+      providerName: 'ACP',
+      period: '5h',
     });
     expect(summarizeEvent({ ts: 't' })).toBeNull();
   });
 
   it('D5: a Codex Worker’s run is its own; only a failed end stays codex_end (a notice and a push)', () => {
     const w = { ts: 't', id: 'c1', project: 'alpha', agent: 'alpha-w1', title: 'T-1 로그인' };
-    expect(summarizeEvent({ ...w, type: 'codex_start' })).toMatchObject({ kind: 'codex_start', name: 'alpha-w1' });
+    expect(summarizeEvent({ ...w, type: 'codex_start' })).toMatchObject({
+      kind: 'codex_start',
+      name: 'alpha-w1',
+    });
     for (const state of ['done', 'stopped'])
       expect(summarizeEvent({ ...w, type: 'codex_end', state })).toMatchObject({
         kind: WORKER_RUN_END,
@@ -115,12 +147,29 @@ describe('event summaries', () => {
         ref: 'c1',
         summary: expect.stringMatching(/^alpha-w1 · /),
       });
-    expect(summarizeEvent({ ...w, type: 'codex_end', state: 'failed' })).toMatchObject({ kind: 'codex_end', name: 'alpha-w1', ref: 'c1' });
+    expect(summarizeEvent({ ...w, type: 'codex_end', state: 'failed' })).toMatchObject({
+      kind: 'codex_end',
+      name: 'alpha-w1',
+      ref: 'c1',
+    });
     // Its engine job's end is not a second line (nor a notice).
-    expect(summarizeEvent({ type: 'job_end', ts: 't', id: 'c1', kind: 'codex', agent: 'alpha-w1', exit: 0 })).toBeNull();
-    expect(summarizeEvent({ type: 'job_end', ts: 't', id: 'c2', kind: 'codex', exit: 0 })).toMatchObject({ kind: 'job_end' });
+    expect(
+      summarizeEvent({
+        type: 'job_end',
+        ts: 't',
+        id: 'c1',
+        kind: 'codex',
+        agent: 'alpha-w1',
+        exit: 0,
+      }),
+    ).toBeNull();
+    expect(
+      summarizeEvent({ type: 'job_end', ts: 't', id: 'c2', kind: 'codex', exit: 0 }),
+    ).toMatchObject({ kind: 'job_end' });
     // A `cld-gui codex` task is as before.
-    expect(summarizeEvent({ type: 'codex_end', ts: 't', id: 'c2', project: 'alpha', state: 'done' })).toMatchObject({ kind: 'codex_end', name: 'alpha' });
+    expect(
+      summarizeEvent({ type: 'codex_end', ts: 't', id: 'c2', project: 'alpha', state: 'done' }),
+    ).toMatchObject({ kind: 'codex_end', name: 'alpha' });
   });
 
   it('a job or Codex end names which one (ref) for its notice to open (T-0043)', () => {

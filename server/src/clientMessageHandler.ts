@@ -27,7 +27,6 @@ import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
 import { claudeProvider, hookProviderById, hookProviders } from './providers/index.js';
 import type { PtySessionManager } from './terminal/ptySessionManager.js';
-import { launchStandaloneAgent } from './terminal/standaloneAgentLauncher.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -86,16 +85,16 @@ export interface ClientMessageContext {
   webBuild?: string;
 }
 
-// ── Setting key constants (mirror adapters/vscode/constants.ts) ──
-const KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
-const KEY_LAST_SEEN_VERSION = 'pixel-agents.lastSeenVersion';
-const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
-const KEY_GHOST_HEADLESS_AGENTS = 'pixel-agents.ghostHeadlessAgents';
-const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
-const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
-const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
-const KEY_BYPASS_PERMISSIONS = 'pixel-agents.bypassPermissions';
-const KEY_SHOW_HOST_DIRECTORIES = 'pixel-agents.showHostDirectories';
+// ── Setting key constants ──
+const KEY_SOUND_ENABLED = 'agent-tycoon.soundEnabled';
+const KEY_LAST_SEEN_VERSION = 'agent-tycoon.lastSeenVersion';
+const KEY_ALWAYS_SHOW_LABELS = 'agent-tycoon.alwaysShowLabels';
+const KEY_GHOST_HEADLESS_AGENTS = 'agent-tycoon.ghostHeadlessAgents';
+const KEY_WATCH_ALL_SESSIONS = 'agent-tycoon.watchAllSessions';
+const KEY_HOOKS_INFO_SHOWN = 'agent-tycoon.hooksInfoShown';
+const KEY_SHOW_AREAS = 'agent-tycoon.showAreas';
+const KEY_BYPASS_PERMISSIONS = 'agent-tycoon.bypassPermissions';
+const KEY_SHOW_HOST_DIRECTORIES = 'agent-tycoon.showHostDirectories';
 
 /**
  * This host's own Directory contribution: the directory the server was started
@@ -136,7 +135,7 @@ export function handleClientMessage(
   const adapter = store.getAdapter();
 
   if (ctx.standalone && disabledInStandalone(msg.type)) {
-    console.warn(`[Pixel Agents] ${String(msg.type)} disabled in cld-gui`);
+    console.warn(`[Agent Tycoon] ${String(msg.type)} disabled in cld-gui`);
     return;
   }
 
@@ -152,25 +151,6 @@ export function handleClientMessage(
     case 'webviewReady':
       handleWebviewReady(send, ctx);
       break;
-
-    case 'launchAgent': {
-      // Standalone can launch: the agent runs in a server-side PTY streamed to
-      // the browser drawer (a shell running as the operator -- privileged, like
-      // every message past the read-only gate above).
-      if (!runtime || !ctx.ptyManager) break;
-      // Permission posture is a persisted per-host setting, never a per-launch
-      // field: the client sends only where to launch. Every launch comes from a
-      // drawer row and carries its Directory's path; no directoryPath falls
-      // back to the server cwd (launchStandaloneAgent's own default).
-      launchStandaloneAgent(
-        { store, runtime, ptyManager: ctx.ptyManager, provider: claudeProvider },
-        {
-          directoryPath: msg.directoryPath as string | undefined,
-          bypassPermissions: adapter?.getSetting(KEY_BYPASS_PERMISSIONS, false) ?? false,
-        },
-      );
-      break;
-    }
 
     case 'closeAgent': {
       // Two shapes now: a PTY-backed agent we launched (kill the process -- the
@@ -414,7 +394,7 @@ async function applyHooksPreference(
     // not outcome (the installer refuses to touch an unparseable file).
     send({ type: 'hooksStatus', providerId: provider.id, installed });
   } catch (err) {
-    console.error('[Pixel Agents] Applying the hooks preference failed:', err);
+    console.error('[Agent Tycoon] Applying the hooks preference failed:', err);
   }
 }
 
@@ -437,7 +417,7 @@ function standaloneConsentEffects(
       try {
         await ctx.onSetHooksEnabled?.(provider.id, false);
       } catch (err) {
-        console.error('[Pixel Agents] Hook uninstall failed:', err);
+        console.error('[Agent Tycoon] Hook uninstall failed:', err);
       }
     },
     areHooksInstalled: () => provider.areHooksInstalled(),
@@ -564,7 +544,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     void provider
       .areHooksInstalled()
       .catch((err: unknown) => {
-        console.error(`[Pixel Agents] hooks status check failed for provider ${provider.id}:`, err);
+        console.error(`[Agent Tycoon] hooks status check failed for provider ${provider.id}:`, err);
         return false;
       })
       .then((installed) => {
@@ -701,7 +681,8 @@ function settingsSnapshot(adapter: StateAdapter | undefined) {
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
     lastSeenVersion: adapter?.getSetting(KEY_LAST_SEEN_VERSION, '') ?? '',
-    extensionVersion: process.env.PIXEL_AGENTS_VERSION ?? '',
+    // The product's own version (cld/release/version.json); the upstream package version only as a fallback.
+    extensionVersion: process.env.CLD_GUI_VERSION || (process.env.AGENT_TYCOON_VERSION ?? ''),
     watchAllSessions: adapter?.getSetting(KEY_WATCH_ALL_SESSIONS, false) ?? false,
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
     ghostHeadlessAgents: adapter?.getSetting(KEY_GHOST_HEADLESS_AGENTS, false) ?? false,
@@ -736,7 +717,7 @@ function refuseReadOnly(
   if (!reportedRefusals.has(type)) {
     reportedRefusals.add(type);
     console.warn(
-      `[Pixel Agents] Ignoring ${type} from a read-only client. Changes need the tokened URL the CLI printed (at localhost or an --allowed-host name).`,
+      `[Agent Tycoon] Ignoring ${type} from a read-only client. Changes need the tokened URL the CLI printed (at localhost or an --allowed-host name).`,
     );
   }
   switch (msg.type) {

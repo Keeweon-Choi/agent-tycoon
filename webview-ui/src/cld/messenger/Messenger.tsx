@@ -27,13 +27,20 @@ import type {
 import type { AgentAppearance, TabStatus } from '../../components/AgentCard.js';
 import { CharacterMugShot } from '../../components/CharacterMugShot.js';
 import { Button } from '../../components/ui/Button.js';
-import { ATTACH_ACCEPT, JUMP_WAIT_MS, MESSAGE_ACTIONS_LONG_PRESS_MS } from '../../constants.js';
+import {
+  ATTACH_ACCEPT,
+  JUMP_WAIT_MS,
+  MESSAGE_ACTIONS_LONG_PRESS_MS,
+  MESSENGER_SPLIT_MIN_PX,
+  QUOTE_PEEK_MAX_PX,
+} from '../../constants.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { t } from '../../i18n/index.js';
 import { writeClipboardText } from '../../terminal/clipboard.js';
 import { withinTapSlop } from '../../touch/touchPrimitives.js';
 import { transport } from '../../transport/index.js';
 import { CHAT_SEND_MAX, chatTarget, readOnlyNote, requestChat } from '../chat.js';
+import { DevroomLink } from '../devroom/DevRoom.js';
 import { useEngineStore } from '../engineStore.js';
 import { FatigueBar } from '../ez/Fatigue.js';
 import { contextPct } from '../ez/fatigueState.js';
@@ -64,20 +71,23 @@ import {
   type AttachmentChip,
   composeAttachmentText,
   fileChip,
+  isVideoType,
   MAX_ATTACHMENTS,
   splitAttachmentText,
   updateChip,
   uploadAttachment,
 } from './attachments.js';
+import { AttachmentVideo } from './AttachmentVideo.js';
 import { AttachmentGallery } from './AttachmentViewer.js';
 import { keepPhoneComposerFocus } from './composerFocus.js';
 import { composerHeight } from './composerGrow.js';
 import { FACE_COLUMN, FACE_GAP, FACE_GUTTER_LEFT, FACE_GUTTER_RIGHT, OwnerFace, SenderFace } from './Faces.js';
-import { messageCharacterCount, prepareMessage } from './longMessage.js';
+import { foldBubble, messageCharacterCount, prepareMessage } from './longMessage.js';
 import { MessengerLooks } from './looksContext.js';
 import {
   copyText,
   findReplied,
+  pendingReplyForEdit,
   replyChipText,
   replyDraft,
   replyIdOf,
@@ -88,12 +98,14 @@ import {
   clearPendingJump,
   closeConversation,
   closeMessenger,
+  closeMessengerPane,
   closeRoomTab,
   contactKey,
   conversationSections,
   dismissSend,
   dividerAfter,
   draftKey,
+  focusMessengerPane,
   heldNote,
   jumpStep,
   jumpTarget,
@@ -125,13 +137,18 @@ import {
   setAttachments,
   setGroupAttachments,
   setJumpLoading,
+  setMessengerLayout,
+  setMessengerWide,
   showConversation,
   showMessengerList,
   showRoom,
+  startsEarlierSession,
   unreadCount,
   useMessenger,
 } from './messengerStore.js';
+import { PANE_LAYOUTS, panesShown, paneTarget } from './panes.js';
 import { PermissionCard } from './PermissionCard.js';
+import { type Peek, type PeekAction, peekShown, peekStep, type PeekView,peekView } from './quotePeek.js';
 import {
   canonicalizeMentions,
   chooseMention,
@@ -149,9 +166,6 @@ import { filterSlashCommands, slashComplete, slashMenuKey } from './slashMenu.js
 import { toolLineLabel } from './toolLine.js';
 import { useKeepPlace } from './useKeepPlace.js';
 
-/** A reply longer than this many lines folds (더 보기). */
-const FOLD_LINES = 12;
-const FOLD_CHARS = 1200;
 const MUG_PX = 32;
 const NO_CHIPS: AttachmentChip[] = [];
 let requestSeq = 0;
@@ -218,6 +232,7 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
   const pageStyle = usePageStyle('messenger');
   const subs = m.open.map((id) => <Subscription key={id} agentId={id} />);
   const room = m.rooms.find((item) => item.id === m.activeRoom);
+  const wideRef = useSplitWide();
   if (mobile) {
     return (
       <section
@@ -278,8 +293,10 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
     );
   }
   // T-0077: the window's title bar (HudWindow) carries the title and the × now.
+  const shown = panesShown(m.split, m.splitWide);
   return (
     <section
+      ref={wideRef}
       aria-label={t('messenger.title')}
       className="flex-1 min-h-0 flex flex-col border-2 border-border"
     >
@@ -289,20 +306,57 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
           <Contacts statusFor={statusFor} getAppearance={getAppearance} />
         </div>
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          {m.open.length + m.openRooms.length > 0 && (
-            <nav
-              className="shrink-0 flex gap-4 px-8 py-4 border-b border-border overflow-x-auto"
-              aria-label={t('messenger.openConversations')}
-            >
-              {m.open.map((id) => (
-                <Tab key={id} agentId={id} />
-              ))}
-              {m.openRooms.map((id) => (
-                <RoomTab key={id} roomId={id} />
-              ))}
-            </nav>
+          {(m.splitWide || (m.open.length + m.openRooms.length > 0)) && (
+            <div className="shrink-0 flex items-center gap-4 px-8 py-4 border-b border-border">
+              {shown === 1 && (
+                <nav
+                  className="flex-1 min-w-0 flex gap-4 overflow-x-auto"
+                  aria-label={t('messenger.openConversations')}
+                >
+                  {m.open.map((id) => (
+                    <Tab key={id} agentId={id} />
+                  ))}
+                  {m.openRooms.map((id) => (
+                    <RoomTab key={id} roomId={id} />
+                  ))}
+                </nav>
+              )}
+              {/* MSG-SPLIT: 1 · 2 · 2×2, only where the panes fit (never on the phone). */}
+              {m.splitWide && (
+                <div className="ml-auto shrink-0 flex gap-4" role="group" aria-label={t('msgSplit.layout')}>
+                  {PANE_LAYOUTS.map((n) => (
+                    <Button
+                      key={n}
+                      size="sm"
+                      variant={m.split.layout === n ? 'active' : 'default'}
+                      aria-pressed={m.split.layout === n}
+                      data-testid={`split-layout-${n}`}
+                      onClick={() => setMessengerLayout(n)}
+                    >
+                      {t(`msgSplit.layout${n}`)}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
-          {m.active === null && !room ? (
+          {shown > 1 ? (
+            <div
+              className={`flex-1 min-h-0 grid grid-cols-2 ${shown === 4 ? 'grid-rows-2' : 'grid-rows-1'}`}
+            >
+              {m.split.panes.slice(0, shown).map((key, i) => (
+                <Pane
+                  key={i}
+                  index={i}
+                  convKey={key}
+                  focused={m.split.focus === i}
+                  visualViewportHeight={visualViewportHeight}
+                  statusFor={statusFor}
+                  getAppearance={getAppearance}
+                />
+              ))}
+            </div>
+          ) : m.active === null && !room ? (
             <p className="text-sm text-text-muted p-12">{t('messenger.chooseLead')}</p>
           ) : room ? (
             <RoomConversation key={room.id} room={room} />
@@ -318,6 +372,81 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
         </div>
       </div>
     </section>
+  );
+}
+
+/** MSG-SPLIT: whether the desktop messenger is wide enough for panes; reported to the store
+ *  (resize events only, no polling), and false again when it leaves the screen. */
+function useSplitWide() {
+  const observer = useRef<ResizeObserver | null>(null);
+  useEffect(() => () => setMessengerWide(false), []);
+  return useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    observer.current = new ResizeObserver(() =>
+      setMessengerWide(el.clientWidth >= MESSENGER_SPLIT_MIN_PX),
+    );
+    observer.current.observe(el);
+  }, []);
+}
+
+/** MSG-SPLIT: one pane: the single conversation view of its lead or room, or a hint when empty.
+ *  A press or focus inside gives it the focus (the accent border). */
+function Pane({
+  index,
+  convKey,
+  focused,
+  visualViewportHeight,
+  statusFor,
+  getAppearance,
+}: { index: number; convKey: string | null; focused: boolean } & Omit<MessengerProps, 'mobile'>) {
+  const m = useMessenger();
+  const target = paneTarget(convKey, m.contacts, m.rooms);
+  const room = target && 'room' in target ? m.rooms.find((r) => r.id === target.room) : undefined;
+  const close = () => closeMessengerPane(index);
+  const take = () => {
+    if (!focused) focusMessengerPane(index);
+  };
+  return (
+    <div
+      className={`min-w-0 min-h-0 flex flex-col border-2 ${focused ? 'border-accent' : 'border-border'}`}
+      data-testid={`split-pane-${index}`}
+      data-focused={focused || undefined}
+      onPointerDownCapture={take}
+      onFocusCapture={take}
+    >
+      {room ? (
+        <RoomConversation key={room.id} room={room} onClose={close} />
+      ) : target && 'agentId' in target ? (
+        <Conversation
+          key={target.agentId}
+          agentId={target.agentId}
+          visualViewportHeight={visualViewportHeight}
+          statusFor={statusFor}
+          getAppearance={getAppearance}
+          onClose={close}
+        />
+      ) : (
+        <p className="text-sm text-text-muted p-12">{t('msgSplit.emptyPane')}</p>
+      )}
+    </div>
+  );
+}
+
+/** MSG-SPLIT: a pane's × in its conversation header. */
+function PaneClose({ onClose }: { onClose: () => void }) {
+  return (
+    <Button
+      size="icon_md"
+      variant="ghost"
+      aria-label={t('msgSplit.closePane')}
+      title={t('msgSplit.closePane')}
+      data-testid="split-pane-close"
+      onClick={onClose}
+    >
+      ×
+    </Button>
   );
 }
 
@@ -540,7 +669,7 @@ function GroupRooms() {
   );
 }
 
-function RoomConversation({ room }: { room: GroupRoom }) {
+function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?: () => void }) {
   const { rooms, contacts } = useMessenger();
   const allMembers = roomCandidates(rooms, contacts);
   const { list, content, onScroll } = useKeepPlace();
@@ -561,6 +690,11 @@ function RoomConversation({ room }: { room: GroupRoom }) {
         >
           {t('messenger.memberPill', { count: room.members.length })}
         </Button>
+        {onClose && (
+          <span className="ml-auto">
+            <PaneClose onClose={onClose} />
+          </span>
+        )}
       </header>
       {showMembers && <RoomMemberList members={room.members} />}
       <div
@@ -1429,7 +1563,8 @@ function Conversation({
   visualViewportHeight,
   statusFor,
   getAppearance,
-}: { agentId: number } & Omit<MessengerProps, 'mobile'>) {
+  onClose,
+}: { agentId: number; onClose?: () => void } & Omit<MessengerProps, 'mobile'>) {
   const store = useCldStore();
   const m = useMessenger();
   const row = useRow(agentId);
@@ -1685,8 +1820,40 @@ function Conversation({
     saveDraftReply(draft, value);
     if (value) requestAnimationFrame(() => box.current?.focus());
   };
+  // MSG-POLISH: the peek of the message the draft answers; it never touches the draft or the focus.
+  const [peek, setPeek] = useState<Peek>(null);
   const editRestore = useRef<string | null>(null);
   const pendingEdit = m.editing?.agentId === agentId ? m.editing : null;
+  const peekOn = !pendingEdit && peekShown(peek, reply);
+  const peekDo = (action: PeekAction) => {
+    const step = peekStep(reply, action);
+    setPeek(step.peek);
+    if (step.seek) openQuote(step.seek);
+    box.current?.focus({ preventScroll: true }); // the keyboard stays up
+  };
+  useEffect(() => {
+    if (!reply) setPeek(null);
+  }, [reply]);
+  useEffect(() => {
+    if (!peekOn) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      setPeek(null);
+    };
+    const onDown = (event: PointerEvent) => {
+      // The chip toggles the peek itself.
+      if (!(event.target as Element).closest('[data-quote-peek],[data-testid="reply-chip"]'))
+        setPeek(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onDown, true);
+    };
+  }, [peekOn]);
+  const pendingReply = pendingReplyForEdit(pending, pendingEdit?.requestId);
   const editActive = useRef(false);
   const edit = (value: string) => {
     setText(value);
@@ -2082,6 +2249,7 @@ function Conversation({
           >
             ⌕
           </Button>
+          <DevroomLink name={name} />
           {target?.kind === 'background' && (
             <Button
               size="icon_md"
@@ -2098,6 +2266,7 @@ function Conversation({
               <TerminalGlyph px={1} />
             </Button>
           )}
+          {onClose && <PaneClose onClose={onClose} />}
         </header>
         {searchOpen && (
           <section
@@ -2237,8 +2406,17 @@ function Conversation({
                   key={item.id}
                   data-chat-id={item.id}
                   data-message-id={item.messageId}
-                  className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                  data-previous-session={item.session ? 'true' : undefined}
+                  className={`data-[focused=true]:outline-2 data-[focused=true]:outline-accent${item.session ? ' previous-session' : ''}`}
                 >
+                  {startsEarlierSession(items, index, historyDone) && (
+                    <p
+                      className="previous-band text-center text-2xs py-4 px-8 mb-6"
+                      data-testid="session-start"
+                    >
+                      {t('messenger.sessionStart', { time: sessionClock(item.sessionStart ?? item.at) })}
+                    </p>
+                  )}
                   <Line
                     item={item}
                     received={received.includes(item.id)}
@@ -2259,12 +2437,10 @@ function Conversation({
                   />
                   {dividerAfter(items, index) !== undefined && (
                     <p
-                      className="text-center text-2xs text-text-muted py-8"
+                      className="previous-band text-center text-2xs py-4 px-8 mt-6"
                       data-testid="session-divider"
                     >
-                      {t('messenger.sessionDivider', {
-                        time: sessionClock(dividerAfter(items, index)!),
-                      })}
+                      {t('messenger.sessionDivider', { time: sessionClock(item.at) })}
                     </p>
                   )}
                 </div>
@@ -2293,6 +2469,7 @@ function Conversation({
                 }
                 editingHere={pendingEdit?.requestId === p.requestId}
                 permissionWait={!!contact?.permission}
+                onQuote={openQuote}
               />
             ))}
             {typing && (
@@ -2422,6 +2599,7 @@ function Conversation({
               </button>
             </div>
           )}
+          {pendingEdit && pendingReply && <ReplyChip reply={pendingReply} open={openQuote} />}
           {m.editLost?.agentId === agentId && (
             <div
               className="mb-6 border-2 border-danger bg-bg-dark px-8 py-6 text-xs flex flex-wrap items-center gap-8"
@@ -2458,7 +2636,22 @@ function Conversation({
               </button>
             </div>
           )}
-          {!pendingEdit && reply && <ReplyChip reply={reply} cancel={() => setReply(null)} />}
+          {!pendingEdit && reply && (
+            <ReplyChip
+              reply={reply}
+              cancel={() => setReply(null)}
+              peek={() => peekDo(peekOn ? 'close' : 'open')}
+              peekOpen={peekOn}
+            />
+          )}
+          {peekOn && reply && (
+            <QuotePeek
+              view={peekView(items, reply, name)}
+              maxHeight={Math.min(QUOTE_PEEK_MAX_PX, list.current?.clientHeight ?? QUOTE_PEEK_MAX_PX)}
+              jump={() => peekDo('jump')}
+              close={() => peekDo('close')}
+            />
+          )}
           {!pendingEdit && chips.length > 0 && (
             <div className="flex flex-wrap gap-4 pb-6" aria-label={t('messenger.attachments')}>
               {chips.map((chip) => (
@@ -2485,6 +2678,7 @@ function Conversation({
               agentId={agentId}
               card={contact.permission}
               canAnswer={canSend && !store.officeReadOnly}
+              visualViewportHeight={visualViewportHeight}
               openTerminal={
                 target?.kind === 'background' ? () => requestChat(agentId, target.id) : null
               }
@@ -2776,6 +2970,7 @@ function BubbleAttachmentsBody({
   );
   const [urls, setUrls] = useState<Record<string, string>>({});
   const targetFor = useAttachmentTarget(project, projectRoot);
+  const ticketFor = useTicketFor(project, projectRoot);
   const openViewer = useOpenAttachment();
   useEffect(() => {
     let live = true;
@@ -2802,21 +2997,47 @@ function BubbleAttachmentsBody({
       )}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-4 mt-4">
-          {attachments.map((file) => (
-            <button
-              key={file.path}
-              type="button"
-              title={file.path}
-              className="border border-border px-4 py-2 text-xs max-w-160 truncate"
-              onClick={() => openViewer?.(file.path)}
-            >
-              {file.type.startsWith('image/') && urls[file.path] ? (
-                <img src={urls[file.path]} alt={file.name} className="w-64 h-64 object-contain" />
-              ) : (
-                <>▤ {file.name}</>
-              )}
-            </button>
-          ))}
+          {attachments.map((file) => {
+            const chip = (
+              <button
+                key={file.path}
+                type="button"
+                title={file.path}
+                className="border border-border px-4 py-2 text-xs max-w-160 truncate"
+                onClick={() => openViewer?.(file.path)}
+              >
+                {file.type.startsWith('image/') && urls[file.path] ? (
+                  <img src={urls[file.path]} alt={file.name} className="w-64 h-64 object-contain" />
+                ) : (
+                  <>▤ {file.name}</>
+                )}
+              </button>
+            );
+            // A video plays in place; the button under it opens the large viewer.
+            return isVideoType(file.type) && targetFor(file.path) ? (
+              <div key={file.path} className="min-w-0 max-w-full flex-1 basis-full">
+                <AttachmentVideo
+                  path={file.path}
+                  ticketFor={ticketFor}
+                  className="attach-inline-video"
+                  testId="bubble-video"
+                  fallback={chip}
+                />
+                <button
+                  type="button"
+                  className="text-xs text-text-muted truncate max-w-full"
+                  data-testid="bubble-video-open"
+                  title={file.path}
+                  aria-label={t('attachment.video.open', { name: file.name })}
+                  onClick={() => openViewer?.(file.path)}
+                >
+                  ⤢ {file.name}
+                </button>
+              </div>
+            ) : (
+              chip
+            );
+          })}
         </div>
       )}
     </>
@@ -2864,7 +3085,7 @@ function useLongPress(fire: () => void) {
       fired.current = false;
       if (e.pointerType !== 'touch') return;
       const target = e.target as Element;
-      if (target.closest('a,img,input,textarea,button:not([data-press-through])')) return;
+      if (target.closest('a,img,video,input,textarea,button:not([data-press-through])')) return;
       if (claimed.has(e.nativeEvent)) return;
       claimed.add(e.nativeEvent);
       origin.current = { x: e.clientX, y: e.clientY };
@@ -2984,8 +3205,88 @@ function ReplyQuote({ reply, open }: { reply: ChatReply; open?: (id: string) => 
   );
 }
 
+/** MSG-POLISH: the original of the draft's reply, over the composer: its whole text (scrolls inside
+ *  itself), its files by name, who wrote it and when. A button press keeps the box focused. */
+function QuotePeek({
+  view,
+  maxHeight,
+  jump,
+  close,
+}: {
+  view: PeekView;
+  maxHeight: number;
+  jump: () => void;
+  close: () => void;
+}) {
+  // No preventDefault on pointerdown: WebKit then drops the click of a touch. The mouse-down
+  // default (a focus change) is cancelled instead, and the conversation refocuses the box.
+  const keep = { onMouseDown: (event: ReactMouseEvent) => event.preventDefault() };
+  return (
+    <section
+      data-quote-peek
+      data-testid="quote-peek"
+      role="dialog"
+      aria-label={t('messenger.peekTitle')}
+      className="absolute bottom-full left-12 right-12 mb-6 flex flex-col border-2 border-accent bg-bg shadow-pixel z-10"
+      style={{ maxHeight }}
+    >
+      <header className="flex shrink-0 items-center gap-8 border-b-2 border-border px-8 py-2 text-2xs text-text-muted">
+        <strong className="min-w-0 truncate text-text">
+          {view.sender ? serverLine(view.sender) : t('messenger.replyYou')}
+        </strong>
+        {view.at !== undefined && <time dateTime={new Date(view.at).toISOString()}>{bubbleClock(view.at)}</time>}
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="shrink-0 underline text-accent-text pointer-coarse:min-h-44"
+          {...keep}
+          onClick={jump}
+        >
+          {t('messenger.peekGoto')}
+        </button>
+        <button
+          type="button"
+          aria-label={t('common.close')}
+          className="shrink-0 px-4 pointer-coarse:min-h-44 pointer-coarse:min-w-44"
+          {...keep}
+          onClick={close}
+        >
+          ✕
+        </button>
+      </header>
+      <div data-testid="quote-peek-text" className="min-h-0 flex-1 overflow-y-auto px-8 py-4 text-sm">
+        <p className="whitespace-pre-wrap break-words">{view.text}</p>
+        {view.files.length > 0 && (
+          <p className="flex flex-wrap gap-4 pt-4" aria-label={t('messenger.attachments')}>
+            {view.files.map((name, i) => (
+              <span key={i} className="border border-border px-4 text-2xs break-all">
+                {name}
+              </span>
+            ))}
+          </p>
+        )}
+        {!view.loaded && <p className="pt-4 text-2xs text-text-muted">{t('messenger.peekNotLoaded')}</p>}
+      </div>
+    </section>
+  );
+}
+
 /** The composer's reply chip: `↩ <sender> · <text…>` and ✕. */
-function ReplyChip({ reply, cancel }: { reply: ChatReply; cancel: () => void }) {
+function ReplyChip({
+  reply,
+  cancel,
+  open,
+  peek,
+  peekOpen,
+}: {
+  reply: ChatReply;
+  cancel?: () => void;
+  open?: (id: string) => void;
+  /** MSG-POLISH: a tap shows the original over the composer (the draft's own chip). */
+  peek?: () => void;
+  peekOpen?: boolean;
+}) {
+  const text = replyChipText(reply, t('messenger.replyYou'));
   return (
     <div
       className="mb-6 flex items-center gap-8 border-l-2 border-accent bg-bg-dark px-8 py-2 text-xs"
@@ -2993,17 +3294,39 @@ function ReplyChip({ reply, cancel }: { reply: ChatReply; cancel: () => void }) 
       aria-label={t('messenger.replyChip')}
       data-testid="reply-chip"
     >
-      <span className="flex-1 min-w-0 truncate">
-        {replyChipText(reply, t('messenger.replyYou'))}
-      </span>
-      <button
-        type="button"
-        aria-label={t('messenger.replyCancel')}
-        className="shrink-0 px-4 pointer-coarse:min-h-44 pointer-coarse:min-w-44"
-        onClick={cancel}
-      >
-        ✕
-      </button>
+      {peek ? (
+        <button
+          type="button"
+          className="flex-1 min-w-0 truncate text-left enabled:hover:text-text pointer-coarse:min-h-44"
+          aria-label={t('messenger.peekOpen', { text })}
+          aria-expanded={!!peekOpen}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={peek}
+        >
+          {text}
+        </button>
+      ) : open ? (
+        <button
+          type="button"
+          className="flex-1 min-w-0 truncate text-left enabled:hover:text-text"
+          aria-label={t('messenger.replyQuote', { text })}
+          onClick={() => open(reply.id)}
+        >
+          {text}
+        </button>
+      ) : (
+        <span className="flex-1 min-w-0 truncate">{text}</span>
+      )}
+      {cancel && (
+        <button
+          type="button"
+          aria-label={t('messenger.replyCancel')}
+          className="shrink-0 px-4 pointer-coarse:min-h-44 pointer-coarse:min-w-44"
+          onClick={cancel}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -3173,10 +3496,7 @@ export function Line({
   }
   const peer = user && item.from === 'peer';
   const visibleText = user ? splitAttachmentText(item.text).body : item.text;
-  const lines = visibleText.split('\n');
-  const long = lines.length > FOLD_LINES || visibleText.length > FOLD_CHARS;
-  const shown =
-    long && !open ? `${lines.slice(0, FOLD_LINES).join('\n').slice(0, FOLD_CHARS)}…` : visibleText;
+  const { long, shown } = foldBubble(visibleText, open);
   const quote = user && item.replyTo && <ReplyQuote reply={item.replyTo} open={onQuote} />;
   const faced = face && (peer || !user) ? face : null;
   // MSG-UI3: the boss gets the mirror column, so every bubble has one width.
@@ -3264,15 +3584,7 @@ export function Line({
         />
       )}
       </BubbleBox>
-      {long && (
-        <button
-          type="button"
-          className="text-2xs text-accent-text mt-2"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? t('messenger.collapse') : t('messenger.showMore')}
-        </button>
-      )}
+      {long && <FoldToggle open={open} toggle={() => setOpen((v) => !v)} />}
       <span className="text-2xs text-text-muted">
         {/* The boss's side mirrors the lead's: copy/답글 sit left of the time (MSG-ALIGN). */}
         {user && !peer && <ActionRow actions={actions} before />}
@@ -3323,6 +3635,21 @@ export function Line({
   );
 }
 
+/** 더 보기 on a folded bubble, 접기 on an opened one (MSG-SPLIT: the owner's queued ones too). */
+function FoldToggle({ open, toggle }: { open: boolean; toggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="text-2xs text-accent-text mt-2 pointer-coarse:min-h-44"
+      aria-expanded={open}
+      data-testid="fold-toggle"
+      onClick={toggle}
+    >
+      {open ? t('messenger.collapse') : t('messenger.showMore')}
+    </button>
+  );
+}
+
 function Pending({
   p,
   agentId,
@@ -3334,6 +3661,7 @@ function Pending({
   project,
   projectRoot,
   permissionWait,
+  onQuote,
 }: {
   p: PendingSend;
   /** PERM-PROMPT: its lead waits on a permission dialog: a waiting message says why. */
@@ -3347,20 +3675,30 @@ function Pending({
   cancel: () => void;
   project?: string;
   projectRoot?: string;
+  onQuote: (id: string) => void;
 }) {
   const failed = p.state === 'failed';
   const cancelled = p.state === 'cancelled';
   const waiting = p.state === 'queued' || p.state === 'sending';
   const actions = p.state === 'queued' && p.queueId && !p.editing && !p.cancelling;
+  const [open, setOpen] = useState(false);
+  // Fold the words only; the attachment lines after them always show (as a sent bubble does).
+  const body = splitAttachmentText(p.text).body;
+  const fold = foldBubble(body, open);
   return (
     <div className={`${FACE_GUTTER_LEFT} flex items-start ${FACE_GAP}`} data-testid="pending" data-state={p.state}>
       <div className="min-w-0 flex-1 flex flex-col items-end">
       <div
-        className={`text-sm whitespace-pre-wrap [overflow-wrap:anywhere] min-w-0 max-w-full px-8 py-4 border border-dashed ${failed ? 'border-danger' : cancelled ? 'border-border text-text-muted opacity-60' : 'border-accent'}`}
+        className={`text-sm whitespace-pre-wrap [overflow-wrap:anywhere] min-w-0 max-w-full px-8 py-4 border-2 border-dashed ${failed ? 'border-danger' : cancelled ? 'border-border text-text-muted opacity-60' : 'border-accent'}`}
       >
-        {p.replyTo && <ReplyQuote reply={p.replyTo} />}
-        <BubbleAttachments text={p.text} project={project} projectRoot={projectRoot} />
+        {p.replyTo && <ReplyQuote reply={p.replyTo} open={onQuote} />}
+        <BubbleAttachments
+          text={p.text === body ? fold.shown : `${fold.shown}${p.text.slice(body.length)}`}
+          project={project}
+          projectRoot={projectRoot}
+        />
       </div>
+      {fold.long && <FoldToggle open={open} toggle={() => setOpen((v) => !v)} />}
       <span className={`text-2xs ${failed ? 'text-danger' : 'text-text-muted'}`} role="status">
         {failed ? (p.error ?? sendLabel('failed')) : sendLabel(p.state)}
         {p.edited && !cancelled && t('messenger.editedSuffix')}

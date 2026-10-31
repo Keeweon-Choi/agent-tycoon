@@ -44,9 +44,9 @@ async function main(): Promise<void> {
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     await ctx.addInitScript(() => {
-      const w = window as unknown as { __name: (v: unknown) => unknown; __PIXEL_AGENTS_E2E: boolean };
+      const w = window as unknown as { __name: (v: unknown) => unknown; __AGENT_TYCOON_E2E: boolean };
       w.__name = (v) => v;
-      w.__PIXEL_AGENTS_E2E = true; // upstream's test hooks, read only
+      w.__AGENT_TYCOON_E2E = true; // upstream's test hooks, read only
     });
     await warmUpOffice(ctx, daemon);
     const page = await ctx.newPage();
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     const shot = (name: string) => page.screenshot({ path: path.join(OUT, `${TAG}-${name}.png`) });
     const hooks = <T>(fn: (h: Hooks) => T) =>
       page.evaluate(
-        `(${fn.toString()})(window.__pixelAgentsTestHooks)`,
+        `(${fn.toString()})(window.__agentTycoonTestHooks)`,
       ) as Promise<T>;
     const pets = () => hooks((h) => h.getPets());
 

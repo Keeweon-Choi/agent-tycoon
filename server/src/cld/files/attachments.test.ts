@@ -7,7 +7,14 @@ import Fastify from 'fastify';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { StandaloneAuth } from '../auth.js';
-import { cleanOldAttachments, hasStoredMagic, STORED_TYPES } from './attachments.js';
+import {
+  ATTACH_MAX,
+  cleanOldAttachments,
+  hasStoredMagic,
+  storeAttachment,
+  STORED_TYPES,
+  VIDEO_ATTACH_MAX,
+} from './attachments.js';
 import { registerProjectFileRoutes } from './routes.js';
 
 let root: string;
@@ -77,6 +84,7 @@ const TAR = (() => {
   body.write('ustar', 257);
   return body;
 })();
+const MP4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom')]);
 const storedBodies: Record<string, Buffer> = {
   '.zip': ZIP,
   '.7z': Buffer.from([0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]),
@@ -95,6 +103,10 @@ const storedBodies: Record<string, Buffer> = {
   '.ppt': OLE,
   '.hwp': OLE,
   '.rtf': Buffer.from('{\\rtf1'),
+  '.mp4': MP4,
+  '.m4v': MP4,
+  '.mov': MP4,
+  '.webm': Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01]),
 };
 
 it('stores signed archive and office files with their canonical types regardless of declaration', async () => {
@@ -243,4 +255,65 @@ it('keeps the 20 MB octet-stream parser to the upload route', async () => {
   });
   expect(reply.statusCode).toBe(415);
   await other.close();
+});
+
+/** A body that arrives in 1 MiB parts, `total` bytes in all, starting with `first`. */
+async function* parts(total: number, first = Buffer.alloc(0)) {
+  const chunk = Buffer.alloc(1024 * 1024);
+  if (first.length) {
+    yield first;
+    total -= first.length;
+  }
+  for (; total > 0; total -= chunk.length) yield chunk.subarray(0, Math.min(total, chunk.length));
+}
+const inboxFiles = () =>
+  fs.existsSync(path.join(root, '.cld-inbox')) ? fs.readdirSync(path.join(root, '.cld-inbox')) : [];
+
+it('stores a video above the general limit and refuses other files there', async () => {
+  const video = await upload('clip.mp4', 'video/mp4', Buffer.concat([MP4, Buffer.alloc(ATTACH_MAX)]));
+  expect(video.statusCode).toBe(200);
+  expect(video.json()).toMatchObject({ type: 'video/mp4', size: MP4.length + ATTACH_MAX });
+  expect(fs.statSync(video.json().path).size).toBe(MP4.length + ATTACH_MAX);
+  const other = await upload('big.txt', 'text/plain', Buffer.alloc(ATTACH_MAX + 1));
+  expect(other.statusCode).toBe(413);
+  expect(other.json().error).toBe('파일은 20 MB 이하만 첨부할 수 있어요');
+  expect(inboxFiles()).toHaveLength(1);
+});
+
+it('refuses a video body whose first bytes are not a video', async () => {
+  const reply = await upload('clip.mp4', 'video/mp4', Buffer.from('not a video at all'));
+  expect(reply.statusCode).toBe(415);
+  expect(inboxFiles()).toEqual([]);
+});
+
+it('refuses an over-limit video from its declared length without reading it', async () => {
+  const body = parts(0);
+  await expect(
+    storeAttachment(root, 'clip.mp4', 'video/mp4', body, VIDEO_ATTACH_MAX + 1),
+  ).rejects.toMatchObject({ status: 413, message: '동영상은 300 MB 이하만 첨부할 수 있어요' });
+  await expect(
+    storeAttachment(root, 'note.txt', 'text/plain', parts(0), ATTACH_MAX + 1),
+  ).rejects.toMatchObject({ status: 413, message: '파일은 20 MB 이하만 첨부할 수 있어요' });
+  expect(inboxFiles()).toEqual([]);
+});
+
+it('streams to disk and leaves no partial file when a video passes the limit mid-stream', async () => {
+  await expect(
+    storeAttachment(root, 'clip.mp4', 'video/mp4', parts(VIDEO_ATTACH_MAX + 1, MP4)),
+  ).rejects.toMatchObject({ status: 413 });
+  expect(inboxFiles()).toEqual([]);
+  // The same video within the limit is stored whole.
+  const saved = await storeAttachment(root, 'clip.mp4', 'video/mp4', parts(5 * 1024 * 1024, MP4));
+  expect(fs.statSync(saved.path).size).toBe(5 * 1024 * 1024);
+  expect(inboxFiles()).toHaveLength(1);
+});
+
+it('leaves no partial file when the upload is cut off', async () => {
+  async function* cut() {
+    yield MP4;
+    yield Buffer.alloc(2 * 1024 * 1024);
+    throw new Error('aborted');
+  }
+  await expect(storeAttachment(root, 'clip.mp4', 'video/mp4', cut())).rejects.toThrow('aborted');
+  expect(inboxFiles()).toEqual([]);
 });

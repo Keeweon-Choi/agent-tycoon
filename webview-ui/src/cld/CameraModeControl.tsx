@@ -1,9 +1,10 @@
 /** GFX2: one toggle, 자동 / 자유 시점, and the way back to the title scene, in the office's
- *  bottom-right corner. */
+ *  bottom-right corner. OWNER-AVATAR: in the free camera, '내 캐릭터' follows the owner's again. */
 import { Button } from '../components/ui/Button.js';
 import { t } from '../i18n/index.js';
 import { setCameraMode, useCameraMode } from './cameraMode.js';
 import { showTitleScene } from './gfx/titleSceneState.js';
+import { followOwner } from './useGameControls.js';
 
 export function CameraModeControl() {
   const mode = useCameraMode();
@@ -26,6 +27,16 @@ export function CameraModeControl() {
       >
         {t(free ? 'gfx.camera.free' : 'gfx.camera.auto')}
       </Button>
+      {free && (
+        <Button
+          size="sm"
+          title={t('owner.followHint')}
+          data-testid="owner-follow"
+          onClick={followOwner}
+        >
+          {t('owner.me')}
+        </Button>
+      )}
       <Button
         size="sm"
         title={t('gfx.title.openHint')}

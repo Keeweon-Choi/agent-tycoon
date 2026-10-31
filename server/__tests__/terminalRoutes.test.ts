@@ -34,7 +34,7 @@ vi.mock('os', async () => {
 });
 
 // Imported after the os mock is registered, so server.ts picks up the temp HOME.
-const { PixelAgentsServer } = await import('../src/server.js');
+const { AgentTycoonServer } = await import('../src/server.js');
 const { AgentStateStore } = await import('../src/agentStateStore.js');
 
 /** Minimal fake PTY -- no real process is ever spawned by these tests. */
@@ -120,7 +120,7 @@ function attach(
 
 // ADR-0009: standalone /terminal/* is removed (404); see src/cld/standaloneSecurity.test.ts.
 describe.skip('terminal WebSocket auth', () => {
-  let server: InstanceType<typeof PixelAgentsServer>;
+  let server: InstanceType<typeof AgentTycoonServer>;
   let ptyManager: PtySessionManager;
   let port: number;
   let token: string;
@@ -128,7 +128,7 @@ describe.skip('terminal WebSocket auth', () => {
   beforeEach(async () => {
     tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-terminal-test-'));
     fs.mkdirSync(path.join(tmpBase, '.pixel-agents'), { recursive: true });
-    server = new PixelAgentsServer();
+    server = new AgentTycoonServer();
     ptyManager = fakeManager();
     const config = await server.start({
       store: new AgentStateStore(),
@@ -203,7 +203,7 @@ describe.skip('terminal WebSocket auth', () => {
     expect(refused.code).toBe(WS_CLOSE_FORBIDDEN_ORIGIN);
 
     server.stop();
-    server = new PixelAgentsServer();
+    server = new AgentTycoonServer();
     const config = await server.start({
       store: new AgentStateStore(),
       embedded: false,

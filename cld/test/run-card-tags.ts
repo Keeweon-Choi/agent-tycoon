@@ -153,7 +153,7 @@ async function main() {
       deviceScaleFactor: 1,
       timezoneId: 'UTC',
     });
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__ct/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,
@@ -205,7 +205,7 @@ async function main() {
     for (const name of ['i1', 'lead', 'i2']) {
       await cardFor(page, name).click();
       await page.waitForTimeout(2_500);
-      const sheet = page.getByTestId('off-duty-sheet');
+      const sheet = page.getByTestId('stat-detail');
       if (await sheet.count()) {
         await page.getByRole('button', { name: 'x', exact: true }).click();
         await sheet.waitFor({ state: 'detached' });

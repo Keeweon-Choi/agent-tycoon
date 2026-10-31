@@ -7,12 +7,11 @@
 # that's expected and harmless until Modelina catches up.
 asyncapi: 3.0.0
 info:
-  title: Pixel Agents Protocol
+  title: Agent Tycoon Protocol
   version: 1.0.0
   description: |
-    Bidirectional WebSocket protocol between the Pixel Agents server and any UI client
-    (the bundled VS Code webview, the standalone browser SPA, or future third-party
-    clients). The server watches AI-coding-agent transcripts, parses tool activity, 
+    Bidirectional WebSocket protocol between the Agent Tycoon daemon and any UI client
+    (the browser SPA, the desktop app, or future third-party clients). The server watches AI-coding-agent transcripts, parses tool activity, 
     owns office layout, and streams events to all connected clients. 
     Clients send commands to launch agents, save layout, and toggle settings.
 
@@ -22,14 +21,14 @@ info:
   license:
     name: MIT
   contact:
-    name: Pixel Agents
-    url: https://github.com/pablodelucca/pixel-agents
+    name: Agent Tycoon
+    url: https://github.com/Keeweon-Choi/agent-tycoon
 
 servers:
   local:
     host: 127.0.0.1:3100
     protocol: ws
-    description: Local Pixel Agents server (default port 3100)
+    description: Local Agent Tycoon daemon (default port 3100)
     pathname: /ws
 
 channels:
@@ -155,12 +154,23 @@ components:
         - $ref: '#/components/schemas/RepoDiff'
         - $ref: '#/components/schemas/RepoWorktreeDetail'
         - $ref: '#/components/schemas/RepoActionResult'
+        - $ref: '#/components/schemas/ReviewNotes'
+        - $ref: '#/components/schemas/ReviewNoteResult'
+        - $ref: '#/components/schemas/ReviewSendResult'
+        # cld-gui: the dev room (P4 S1)
+        - $ref: '#/components/schemas/RepoMergeCheckResult'
+        - $ref: '#/components/schemas/RepoConflictsResult'
+        - $ref: '#/components/schemas/RepoCleanupListResult'
+        - $ref: '#/components/schemas/DevroomStats'
+        - $ref: '#/components/schemas/DevroomSettings'
+        - $ref: '#/components/schemas/PreviewOpen'
         # cld-gui: the office's data (cld/docs/design/protocol.md)
         - $ref: '#/components/schemas/OfficeSnapshot'
         - $ref: '#/components/schemas/CodexTasks'
         - $ref: '#/components/schemas/TempStaff'
         - $ref: '#/components/schemas/OfficeJobs'
         - $ref: '#/components/schemas/HwSample'
+        - $ref: '#/components/schemas/DiskUsage'
         - $ref: '#/components/schemas/UsageState'
         - $ref: '#/components/schemas/CodexUsageCheckResult'
         # cld-gui: the agent CLI notice (AGENT-CLI)
@@ -187,6 +197,7 @@ components:
         # cld-gui: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineState'
         - $ref: '#/components/schemas/EngineActionResult'
+        - $ref: '#/components/schemas/EngineMoveAllResult'
         - $ref: '#/components/schemas/ProjectScanResult'
         - $ref: '#/components/schemas/ProjectImportResult'
         - $ref: '#/components/schemas/ProjectImportSuggestion'
@@ -205,6 +216,8 @@ components:
         - $ref: '#/components/schemas/WhiteboardMemos'
         # cld-gui: pinned conversations (U-30)
         - $ref: '#/components/schemas/PinnedConversations'
+        # cld-gui: the isometric office's background (BACKGROUND)
+        - $ref: '#/components/schemas/OfficeBackground'
         # cld-gui: 작업 현황 (DEV-BOARD)
         - $ref: '#/components/schemas/TaskBoard'
         # cld-gui: delegation approvals (C6)
@@ -251,6 +264,16 @@ components:
         - $ref: '#/components/schemas/RepoDiffRequest'
         - $ref: '#/components/schemas/RepoWorktreeRequest'
         - $ref: '#/components/schemas/RepoAction'
+        - $ref: '#/components/schemas/ReviewNotesRequest'
+        - $ref: '#/components/schemas/ReviewNoteWrite'
+        - $ref: '#/components/schemas/ReviewSend'
+        # cld-gui: the dev room (P4 S1)
+        - $ref: '#/components/schemas/DevroomView'
+        - $ref: '#/components/schemas/DevroomSettingsSet'
+        - $ref: '#/components/schemas/RepoMergeCheck'
+        - $ref: '#/components/schemas/RepoConflicts'
+        - $ref: '#/components/schemas/RepoCleanupList'
+        - $ref: '#/components/schemas/PreviewAsk'
         # cld-gui: the office's data
         - $ref: '#/components/schemas/StatusView'
         - $ref: '#/components/schemas/ChatView'
@@ -270,6 +293,7 @@ components:
         # cld-gui: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineAction'
         - $ref: '#/components/schemas/EngineChoicesRefresh'
+        - $ref: '#/components/schemas/EngineMoveAll'
         - $ref: '#/components/schemas/ProjectScan'
         - $ref: '#/components/schemas/ProjectImport'
         - $ref: '#/components/schemas/ProjectImportUndo'
@@ -296,6 +320,8 @@ components:
         - $ref: '#/components/schemas/SetWhiteboardMemo'
         # cld-gui: pinned conversations (U-30)
         - $ref: '#/components/schemas/SetConversationPin'
+        # cld-gui: the isometric office's background (BACKGROUND)
+        - $ref: '#/components/schemas/SetOfficeBackground'
         # cld-gui: 작업 현황 (DEV-BOARD)
         - $ref: '#/components/schemas/TaskEdit'
         - $ref: '#/components/schemas/CodexUsageCheck'
@@ -2452,6 +2478,19 @@ components:
           type: boolean
         merge:
           $ref: '#/components/schemas/RepoMerge'
+        conflicts:
+          description: |
+            P4: the files a merge into `base` would conflict on, from a dry
+            run the daemon makes only while the dev room (or the project's
+            panel) is open and only when the branch is both ahead and behind;
+            cached per (base commit, branch commit). Absent: not checked yet
+            or nothing to check; empty: checked, it merges cleanly.
+          type: array
+          items:
+            type: string
+        lastChange:
+          description: P4 - when the branch's newest commit was made (ISO 8601).
+          type: string
 
     RepoMerge:
       description: |
@@ -2505,7 +2544,9 @@ components:
         200 KB. W4: with `task` (a task worktree), the file is one of that
         worktree's changed files (`repoWorktreeDetail`) and the diff is the
         worktree against the commit its branch left its base at; `staged`
-        is then false.
+        is then false. P4: with `task` and `since` (a full commit id, the
+        `sentHead` of its review notes), the worktree against that commit
+        instead: what changed since the last review.
       type: object
       additionalProperties: false
       required: [type, requestId, project, path, staged]
@@ -2517,6 +2558,8 @@ components:
         project:
           type: string
         task:
+          type: string
+        since:
           type: string
         path:
           type: string
@@ -2543,6 +2586,8 @@ components:
           type: string
         task:
           type: string
+        since:
+          type: string
         path:
           type: string
         staged:
@@ -2566,6 +2611,8 @@ components:
       description: |
         W4: ask for what one task worktree changed: its changed files and its
         recent commits. Answered with `repoWorktreeDetail` to the sender only.
+        P4: `since` (a full commit id, the review notes' `sentHead`): the
+        files changed since that commit instead of since the base.
       type: object
       additionalProperties: false
       required: [type, requestId, project, task]
@@ -2577,6 +2624,8 @@ components:
         project:
           type: string
         task:
+          type: string
+        since:
           type: string
 
     RepoChangedFile:
@@ -2649,6 +2698,219 @@ components:
         guard:
           type: string
 
+    # ── cld-gui: task-worktree review notes (REVIEW-1) ──────────
+    # Notes are a small, separately persisted review layer. Every request is
+    # privileged: unprivileged sockets receive neither a reply nor broadcasts.
+    ReviewNote:
+      description: |
+        A note anchored to the new side of a task-worktree diff. `line` is
+        one-based; zero means file-level. `startLine`, when present, starts an
+        inclusive range ending at `line`. `stale` is calculated when the note
+        is listed by comparing `diffIdentity` to the file's current hash.
+      type: object
+      additionalProperties: false
+      required: [id, file, side, line, body, createdAt, diffIdentity, by]
+      properties:
+        id:
+          type: string
+        file:
+          type: string
+        side:
+          const: new
+        startLine:
+          type: integer
+        line:
+          type: integer
+        body:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        sentAt:
+          type: string
+        diffIdentity:
+          type: string
+        by:
+          type: string
+        stale:
+          type: boolean
+        sentHead:
+          description: P4 - the worktree's commit (its uncommitted work included) when this note was sent.
+          type: string
+        fixed:
+          description: |
+            P4, sent notes only: true when the anchored lines (a file-level
+            note: the file) differ now from what they were when it was sent.
+            A heuristic: a fix made elsewhere in the file reads as not fixed.
+          type: boolean
+
+    ReviewNotesRequest:
+      description: |
+        List and subscribe to one task worktree's review notes. The answer is
+        `reviewNotes`; subsequent writes to that task broadcast it again to
+        this privileged client.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task]
+      properties:
+        type:
+          const: reviewNotesRequest
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+
+    ReviewNotes:
+      description: |
+        The current notes for one task worktree. The request response includes
+        `requestId`; broadcasts do not. Stale notes stay present so their
+        author can see that the file changed.
+      type: object
+      additionalProperties: false
+      required: [type, project, task, ok, notes]
+      properties:
+        type:
+          const: reviewNotes
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        ok:
+          type: boolean
+        sentHead:
+          description: P4 - the `sentHead` of the notes sent last (for `since` diffs); absent before any send.
+          type: string
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewNote'
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    ReviewNoteWrite:
+      description: |
+        Add, edit, or delete a persisted review note. Adds carry the anchor
+        and body; edits carry `id` and a replacement `body`; deletes carry
+        only `id`. The server sets authorship, times, and diff identity.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, op]
+      properties:
+        type:
+          const: reviewNoteWrite
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        op:
+          type: string
+          enum: [add, edit, delete]
+        id:
+          type: string
+        file:
+          type: string
+        side:
+          const: new
+        startLine:
+          type: integer
+        line:
+          type: integer
+        body:
+          type: string
+
+    ReviewSend:
+      description: |
+        Send one task worktree's unsent review notes, as one message, to the
+        agent that made the change (the worktree's assignee, else its Task's,
+        else the project Lead) through the boss's messenger queue. On success
+        the notes get `sentAt`, a Task in `review` moves to `doing`, and the
+        Lead's rooms get one line. Privileged.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task]
+      properties:
+        type:
+          const: reviewSend
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+
+    ReviewSendResult:
+      description: |
+        Result of one `reviewSend`: `to` the agent it went to, `count` the
+        notes sent, `delivered` the queue's answer (pane, queued, inbox),
+        `moved` true when the Task went from review to doing.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, ok]
+      properties:
+        type:
+          const: reviewSendResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        ok:
+          type: boolean
+        to:
+          type: string
+        count:
+          type: integer
+        delivered:
+          type: string
+        moved:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    ReviewNoteResult:
+      description: Result of one `reviewNoteWrite`; a successful write also broadcasts `reviewNotes` to its subscribers.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, op, ok]
+      properties:
+        type:
+          const: reviewNoteResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        op:
+          type: string
+          enum: [add, edit, delete]
+        id:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
     RepoActionKind:
       description: |
         `stage` / `unstage`: `paths` (entries of the latest `git status`; none
@@ -2662,9 +2924,27 @@ components:
         per repository; fast-forward, else a merge commit; a conflict changes
         nothing. A protected base (main, master, a remote's default, the
         owner's list) needs a fresh step-up from a remote device (`error:
-        stepup`).
+        stepup`). After a successful merge, with `autoCleanupAfterMerge` on
+        (the default), a clean merged worktree is removed (`cleaned`).
+        P4: `worktreeRemove` with `force` on a worktree with uncommitted work
+        first commits that work to its branch (a WIP commit), so the branch
+        keeps it; an unmerged branch is never deleted.
+        `sync` (P4): merge the base into the task branch inside the task
+        worktree; refused while its agent works or the worktree has
+        uncommitted changes; a conflict leaves the merge in progress there
+        (`conflicts`, then `repoConflicts`). `resolve`: `path` (one of the
+        conflicted files) and `choices` (one per conflict block of the file
+        as `repoConflicts` listed it: ours = the task branch, theirs = the
+        base, both = ours then theirs, keep = leave that block); refused when
+        the file's block count changed; a file with no block left is staged.
+        `mergeContinue`: commit the finished sync merge (refused while any
+        file is unresolved). `mergeAbort`: abort the sync merge, the worktree
+        back as before it. `conflictHandoff`: one message to the worktree's
+        agent asking it to merge the base and resolve the conflicts itself,
+        one line in its Lead's rooms, its Task back to doing. Never a side
+        picked automatically.
       type: string
-      enum: [stage, unstage, commit, push, worktreeRemove, worktreeNew, merge]
+      enum: [stage, unstage, commit, push, worktreeRemove, worktreeNew, merge, sync, resolve, mergeContinue, mergeAbort, conflictHandoff]
 
     RepoAction:
       description: |
@@ -2703,6 +2983,14 @@ components:
           type: string
         base:
           type: string
+        path:
+          description: P4 resolve - the conflicted file.
+          type: string
+        choices:
+          description: P4 resolve - one per conflict block, in file order.
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoConflictChoice'
 
     RepoActionResult:
       description: |
@@ -2735,6 +3023,354 @@ components:
           $ref: '#/components/schemas/ErrorParams'
         needsForce:
           type: boolean
+        conflicts:
+          description: P4 sync - the files left in conflict (the merge stays in progress in the task worktree).
+          type: array
+          items:
+            type: string
+        cleaned:
+          description: P4 merge - the worktree was removed after the merge (auto-cleanup).
+          type: boolean
+
+    # ── cld-gui: the dev room (P4 S1, 개발실) ───────────────────
+    # Every client message here is privileged (refused for a read-only
+    # client like every message but webviewReady).
+    DevroomView:
+      description: |
+        The client opened (on=true) or closed the dev room. While any client
+        has it open the daemon sends it `repoState` for every project (as if
+        it had sent `repoView` for each, same 10 s poll), `devroomSettings`
+        once, and `devroomStats` at once and every 10 s. Nobody: nothing runs.
+      type: object
+      additionalProperties: false
+      required: [type, on]
+      properties:
+        type:
+          const: devroomView
+        on:
+          type: boolean
+
+    PreviewOpen:
+      description: |
+        P4 S6: a phone asked (`previewAsk`) for the preview of task worktree
+        `task` to be opened on the PC. Sent to every screen; one that can show
+        the preview (the page's own host is loopback) makes a notice of it,
+        the others ignore it. `url` is a loopback URL, or empty when the phone
+        knew none.
+      type: object
+      additionalProperties: false
+      required: [type, project, task, url]
+      properties:
+        type:
+          const: previewOpen
+        project:
+          type: string
+        task:
+          type: string
+        url:
+          type: string
+
+    DevroomStats:
+      description: |
+        The dev room's footer: `terminals` the agent terminals our PTY host
+        holds now (login shells and the old attach mode not counted),
+        `rssMib` the daemon's resident memory, `hostRssMib` the PTY host's
+        when it is known.
+      type: object
+      additionalProperties: false
+      required: [type, terminals, rssMib]
+      properties:
+        type:
+          const: devroomStats
+        terminals:
+          type: integer
+        rssMib:
+          type: integer
+        hostRssMib:
+          type: integer
+
+    DevroomSettingsSet:
+      description: The owner's dev room settings; answered with `devroomSettings` to every dev room viewer.
+      type: object
+      additionalProperties: false
+      required: [type, autoCleanupAfterMerge]
+      properties:
+        type:
+          const: devroomSettingsSet
+        autoCleanupAfterMerge:
+          type: boolean
+
+    DevroomSettings:
+      description: |
+        `autoCleanupAfterMerge` (default true): after any successful merge
+        (a click or the automatic one) a merged, clean task worktree is
+        removed and its merged branch deleted.
+      type: object
+      additionalProperties: false
+      required: [type, autoCleanupAfterMerge]
+      properties:
+        type:
+          const: devroomSettings
+        autoCleanupAfterMerge:
+          type: boolean
+
+    RepoMergeCheck:
+      description: |
+        Before the 병합 button: can task worktree `task` merge into its base
+        now? Answered with `repoMergeCheckResult` to the sender. Nothing
+        changes (a dry run: `git merge-tree --write-tree` on git 2.38+, else a
+        merge in a temporary worktree that is thrown away).
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task]
+      properties:
+        type:
+          const: repoMergeCheck
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+
+    RepoMergeCheckResult:
+      description: |
+        `clean` false: `conflicts` lists the files. `behind`/`ahead` against
+        the base, `dirty` uncommitted entries (they would not be merged),
+        `kind` ff (the base moves to the branch), merge (a merge commit whose
+        subject is `subject`) or already. `reviewNotes` the Task's notes,
+        `notesFixing` the sent ones not fixed yet (a Task with notes merges
+        only on the owner's click). `target` the base branch.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, ok]
+      properties:
+        type:
+          const: repoMergeCheckResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+        target:
+          type: string
+        clean:
+          type: boolean
+        conflicts:
+          type: array
+          items:
+            type: string
+        behind:
+          type: integer
+        ahead:
+          type: integer
+        dirty:
+          type: integer
+        kind:
+          $ref: '#/components/schemas/RepoMergeKind'
+        subject:
+          type: string
+        reviewNotes:
+          type: integer
+        notesFixing:
+          type: integer
+
+    RepoMergeKind:
+      type: string
+      enum: [ff, merge, already]
+
+    RepoConflictChoice:
+      description: ours = the task branch's side, theirs = the base's, both = ours then theirs, keep = leave the block.
+      type: string
+      enum: [ours, theirs, both, keep]
+
+    RepoConflicts:
+      description: |
+        The conflicts of the sync merge in progress in task worktree `task`
+        (after `repoAction sync`). Answered with `repoConflictsResult`.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task]
+      properties:
+        type:
+          const: repoConflicts
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+
+    RepoConflictBlock:
+      description: |
+        One conflict block: lines `startLine`..`endLine` (1-based, the marker
+        lines included) of the file's `text`; `ours` the task branch's side,
+        `theirs` the base's.
+      type: object
+      additionalProperties: false
+      required: [startLine, endLine, ours, theirs]
+      properties:
+        startLine:
+          type: integer
+        endLine:
+          type: integer
+        ours:
+          type: string
+        theirs:
+          type: string
+
+    RepoConflictFile:
+      description: |
+        A file git lists as unmerged. `text` the file now, markers included
+        (absent over 1 MB or not text); `blocks` its conflict blocks in order
+        (none left: resolved but not staged yet, or a conflict without
+        markers such as a deleted file, which `resolve` cannot pick).
+      type: object
+      additionalProperties: false
+      required: [path, blocks]
+      properties:
+        path:
+          type: string
+        text:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoConflictBlock'
+
+    RepoConflictsResult:
+      description: |
+        `merging` true while the sync merge is in progress; `files` the
+        files still unmerged (empty: `mergeContinue` can commit).
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, ok]
+      properties:
+        type:
+          const: repoConflictsResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+        merging:
+          type: boolean
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoConflictFile'
+
+    RepoCleanupList:
+      description: |
+        The 작업 폴더 정리 view: the project's task worktrees that are merged
+        or have been idle (no new commit) for a day. Answered with
+        `repoCleanupListResult`; sizes are measured for this answer only.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project]
+      properties:
+        type:
+          const: repoCleanupList
+        requestId:
+          type: string
+        project:
+          type: string
+
+    RepoCleanupRow:
+      description: |
+        `merged` its branch has no commit the base lacks; `mergedAt` its last
+        successful merge; `lastChange` its newest commit's time;
+        `sizeBytes` the folder's size (`sizeCapped`: the walk stopped at its
+        time limit, so at least that); `unmergedFiles` files changed against
+        the base when not merged (0 when merged); `dirty` uncommitted
+        entries. Removing an unmerged one (`worktreeRemove` with `force`)
+        keeps its work on its branch.
+      type: object
+      additionalProperties: false
+      required: [task, merged, sizeBytes, unmergedFiles, dirty]
+      properties:
+        task:
+          type: string
+        taskId:
+          type: string
+        assignee:
+          type: string
+        branch:
+          type: string
+        merged:
+          type: boolean
+        mergedAt:
+          type: string
+        lastChange:
+          type: string
+        sizeBytes:
+          type: integer
+        sizeCapped:
+          type: boolean
+        unmergedFiles:
+          type: integer
+        dirty:
+          type: integer
+
+    RepoCleanupListResult:
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, ok]
+      properties:
+        type:
+          const: repoCleanupListResult
+        requestId:
+          type: string
+        project:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoCleanupRow'
+
+    PreviewAsk:
+      description: |
+        P4 S6: from a phone, ask the owner's PC to open the preview of task
+        worktree `task` at `url` (a loopback URL): one notice to the owner's
+        other screens.
+      type: object
+      additionalProperties: false
+      required: [type, project, task, url]
+      properties:
+        type:
+          const: previewAsk
+        project:
+          type: string
+        task:
+          type: string
+        url:
+          type: string
 
     # ── cld-gui: the office's data ───────────────────────────────
     # Contract for the cld-gui fork (cld/docs/design/protocol.md, IR-UI-001).
@@ -2747,7 +3383,7 @@ components:
         `chat` is true when it runs with --allow-chat: a background session's
         character offers its terminal (`claude attach`, `/cld/attach/:id`).
         Every row of `orchestrators` is bound to exactly one character:
-        `agentId` is that pixel-agents agent id.
+        `agentId` is that office agent id.
       type: object
       additionalProperties: false
       required: [type, readOnly, tabs, orchestrators]
@@ -3298,58 +3934,101 @@ components:
           description: True when temperatures are missing and the installer's `--hw-sensors` step can add them.
           type: [boolean, 'null']
 
-    UsageWindow:
+    DiskUsage:
+      description: A disk-card snapshot measured only when an allowed viewer opens the hardware page. Rows can be partial when the bounded walk reaches its time cap.
       type: object
       additionalProperties: false
+      required: [type, measuredAt, rows, total]
       properties:
-        fiveHourPct:
-          type: [number, 'null']
-        sevenDayPct:
-          type: [number, 'null']
-        fiveHourReset:
-          type: [string, 'null']
-        fiveHourIsReset:
-          description: The source's last reading has passed this window's known reset time; its old percentage is intentionally withheld until a fresh reading arrives.
-          type: [boolean, 'null']
-        sevenDayReset:
-          type: [string, 'null']
-        sevenDayIsReset:
-          description: The source's last reading has passed this window's known reset time; its old percentage is intentionally withheld until a fresh reading arrives.
-          type: [boolean, 'null']
-        models:
-          description: Claude only, optional. The per-model weekly windows (Fable today; Sonnet or Opus when the plan has them) read from claude-dashboard's raw cache (`data.seven_day_<family>`).
+        type:
+          const: diskUsage
+        measuredAt:
+          type: string
+        rows:
           type: array
           items:
-            type: object
-            additionalProperties: false
-            required: [family, pct]
-            properties:
-              family:
-                description: Lowercase model family, e.g. fable.
-                type: string
-              pct:
-                type: number
-              reset:
-                type: [string, 'null']
+            $ref: '#/components/schemas/DiskUsageRow'
+        total:
+          type: number
 
-    UsageState:
-      description: Claude and Codex usage, read by the daemon while anyone views (Claude Code's own status-line rate_limits from engine sessions, Codex's own session logs, the optional claude-dashboard plugin). A null provider is unknown.
+    DiskUsageRow:
       type: object
       additionalProperties: false
-      required: [type]
+      required: [kind, bytes, partial]
+      properties:
+        kind:
+          type: string
+          enum: [claude, worktrees, logs, hostLog, delivered, roomLogs, office]
+        bytes:
+          type: number
+        partial:
+          type: boolean
+
+    UsageLimitWindow:
+      type: object
+      additionalProperties: false
+      required: [id, pct, resetAt]
+      properties:
+        id:
+          description: Provider-defined limit identifier, e.g. 5h or 7d.
+          type: string
+        pct:
+          type: [number, 'null']
+        resetAt:
+          type: [string, 'null']
+        isReset:
+          description: The source's last reading has passed this window's known reset time; its old percentage is intentionally withheld until a fresh reading arrives.
+          type: boolean
+
+    UsageModel:
+      type: object
+      additionalProperties: false
+      required: [family, pct]
+      properties:
+        family:
+          description: Lowercase model family, e.g. fable.
+          type: string
+        pct:
+          type: number
+        reset:
+          type: [string, 'null']
+
+    UsageProvider:
+      type: object
+      additionalProperties: false
+      required: [id, name, windows]
+      properties:
+        id:
+          description: Stable provider identifier, e.g. claude or codex.
+          type: string
+        name:
+          description: Provider display name.
+          type: string
+        windows:
+          description: Only the usage windows actually reported by this provider.
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageLimitWindow'
+        models:
+          description: Optional per-model weekly windows reported by this provider.
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageModel'
+
+    UsageState:
+      description: Provider usage, read by the daemon while anyone views (Claude's account usage endpoint with Claude Code's own OAuth token, else Claude Code's status-line rate_limits from engine sessions; Codex's own session logs). A provider with no windows has no reported usage information.
+      type: object
+      additionalProperties: false
+      required: [type, providers]
       properties:
         type:
           const: usageState
         ts:
           type: [string, 'null']
-        claude:
-          oneOf:
-            - $ref: '#/components/schemas/UsageWindow'
-            - type: 'null'
-        codex:
-          oneOf:
-            - $ref: '#/components/schemas/UsageWindow'
-            - type: 'null'
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageProvider'
 
     CodexUsageCheck:
       description: A privileged user explicitly asks the daemon to make one minimal Codex turn so its own session log refreshes. Never automatic.
@@ -3624,11 +4303,12 @@ components:
         provider:
           description: usage_reset_early's source provider; clients must not infer it from summary text.
           type: [string, 'null']
-          enum: [claude, codex, null]
-        period:
-          description: usage_reset_early's usage window.
+        providerName:
+          description: usage_reset_early's provider display name.
           type: [string, 'null']
-          enum: [fiveHour, sevenDay, null]
+        period:
+          description: usage_reset_early's usage window id as the provider reported it (5h, 7d, ...).
+          type: [string, 'null']
 
     GitSummary:
       type: object
@@ -4490,6 +5170,10 @@ components:
         its command's first line). `asker` is the staff name id of the
         sub-agent that asks, when one does. An answer names `toolId`; the
         daemon presses a key only when the dialog on screen is the card's.
+        TERM-P3: an agent in our PTY host asks through its PermissionRequest
+        hook instead: `toolId` is `hook:<n>`, `tool` and `detail` come from
+        the hook's tool call (its description and whole command), and the
+        answer is the hook's decision (no screen is read or typed into).
       type: object
       additionalProperties: false
       required: [toolId]
@@ -4876,6 +5560,19 @@ components:
             type: string
         agentChoices:
           $ref: '#/components/schemas/InstalledAgentChoices'
+        moveAll:
+          $ref: '#/components/schemas/EngineMoveAllProgress'
+
+    EngineMoveAllProgress:
+      description: |
+        Present in `engineState` while the owner's "move every agent to the new terminal"
+        queue runs: `done` of `total` agents have had their turn (moved, skipped or rolled back).
+      type: object
+      additionalProperties: false
+      required: [done, total]
+      properties:
+        done: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
 
     AgentChoices:
       type: object
@@ -5079,6 +5776,34 @@ components:
       properties:
         type:
           const: engineChoicesRefresh
+
+    EngineMoveAll:
+      description: |
+        TERM-P3: start the queue that moves every Claude agent into our PTY host, one at a
+        time (off agents, Workers, Leads, then Leads with Workers); `stop: true` ends a
+        running queue after the agent being moved. Answered with `engineMoveAllResult` to the
+        sender; each agent's result is a feed line (`pty_move`), then one summary (`pty_move_all`).
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: engineMoveAll
+        stop:
+          type: boolean
+
+    EngineMoveAllResult:
+      description: Answer to `engineMoveAll`; `error` (Korean) is the refusal, e.g. already running.
+      type: object
+      additionalProperties: false
+      required: [type, ok]
+      properties:
+        type:
+          const: engineMoveAllResult
+        ok:
+          type: boolean
+        error:
+          type: string
 
     ProjectScan:
       type: object
@@ -5385,6 +6110,43 @@ components:
         type: { const: setWhiteboardMemo }
         uid: { type: string }
         text: { type: string }
+
+    BackgroundTime:
+      description: 'BACKGROUND: when the sky is day: with the host clock, always, never.'
+      type: string
+      enum: [clock, day, night]
+
+    BackgroundMix:
+      description: 'BACKGROUND: what stands around the building: houses, towers or both.'
+      type: string
+      enum: [houses, towers, mixed]
+
+    OfficeBackground:
+      description: |
+        BACKGROUND: the look of the isometric office's surroundings, the same on every screen: when the
+        sky is day or night (`clock`: the host's clock decides), what stands around the building, and the
+        seed that places it. Sent at `webviewReady` and to everyone when it changes, so phone and PC agree.
+      type: object
+      additionalProperties: false
+      required: [type, time, mix, seed]
+      properties:
+        type: { const: officeBackground }
+        time: { $ref: '#/components/schemas/BackgroundTime' }
+        mix: { $ref: '#/components/schemas/BackgroundMix' }
+        seed: { type: integer, minimum: 0, maximum: 2147483647 }
+
+    SetOfficeBackground:
+      description: |
+        Change the isometric office's background (all three fields, the whole look). Privileged; answered
+        by `officeBackground` to everyone (the sender gets the stored one back when refused).
+      type: object
+      additionalProperties: false
+      required: [type, time, mix, seed]
+      properties:
+        type: { const: setOfficeBackground }
+        time: { $ref: '#/components/schemas/BackgroundTime' }
+        mix: { $ref: '#/components/schemas/BackgroundMix' }
+        seed: { type: integer, minimum: 0, maximum: 2147483647 }
 
     PinnedConversations:
       description: |

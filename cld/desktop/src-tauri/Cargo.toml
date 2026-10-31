@@ -1,6 +1,6 @@
 [package]
-# Renamed from pixel-office (T2+P5). The bundle identifier in tauri.conf.json stays
-# dev.cldgui.pixeloffice: the app data dir (config, SSH keys) is named after it.
+# Renamed from pixel-office (T2+P5). The bundle identifier in tauri.conf.json is dev.agenttycoon.app
+# (dev.cldgui.pixeloffice until 11-01; src/appdata.rs copies the old app data folders over).
 name = "agent-tycoon"
 version = "0.1.0"
 description = "Agent Tycoon desktop app (the cld-gui office)"

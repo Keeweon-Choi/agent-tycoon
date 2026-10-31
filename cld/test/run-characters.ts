@@ -156,7 +156,7 @@ async function pinAcrossRestarts(): Promise<void> {
     JSON.stringify(
       {
         beta: { palette: 5, hueShift: 120 },
-        // eslint-disable-next-line pixel-agents/no-inline-colors -- a stored look's colour
+        // eslint-disable-next-line agent-tycoon/no-inline-colors -- a stored look's colour
         eta: { v: 2, kind: 'humanoid', base: 2, colors: { hair: '#101010' }, acc: ['cap'] },
       },
       null,

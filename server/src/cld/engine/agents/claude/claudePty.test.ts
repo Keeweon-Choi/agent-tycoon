@@ -1,0 +1,306 @@
+// TERM-P1 (ADR-0018): Claude in our PTY host. Its argv and environment, what it lists from the
+// host's terminals.json and Claude's session files, held(), and deliver()'s paste-then-Enter
+// sequence, against a fake host client (no process, no PTY).
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import type { PtyHostClient } from '../../../ptyhost/client.js';
+import type { ProgramStatus } from '../../../ptyhost/programStatus.js';
+import { ptyhostPaths } from '../../../ptyhost/protocol.js';
+import type { ProjectRecord } from '../../registry.js';
+import { ClaudeAgent } from './claude.js';
+import { ClaudePtyAgent, folderTrusted, ptyArgs, ptyEnv } from './claudePty.js';
+
+const homes: string[] = [];
+afterEach(() => {
+  for (const h of homes.splice(0)) fs.rmSync(h, { recursive: true, force: true });
+});
+
+const lead: ProjectRecord = {
+  projectId: 'p_aaaaaaaaaa',
+  leadAssignmentId: 'a_lead',
+  name: 'alpha',
+  folder: '/work/alpha',
+  wantRunning: true,
+  model: 'claude-opus-5-5',
+};
+
+/** A fake host: writes are recorded with their time; status is set by the test. */
+function fakeHost() {
+  const writes: Array<{ t: string; data: string; at: number }> = [];
+  const spawns: Array<{ args: string[]; meta: Record<string, string> }> = [];
+  const status = new Map<string, ProgramStatus>();
+  let onWrite: (data: string) => void = () => undefined;
+  const client = {
+    status,
+    connected: true,
+    connect: () => Promise.resolve(),
+    onChange: () => () => undefined,
+    viewers: () => 0,
+    call: () => Promise.resolve({ ok: true }),
+    write: (t: string, data: string) => {
+      writes.push({ t, data, at: Date.now() });
+      onWrite(data);
+      return Promise.resolve({ ok: true });
+    },
+    spawn: (spec: { args: string[]; meta: Record<string, string> }) => {
+      spawns.push(spec);
+      return Promise.resolve({ ok: true, id: 'abcd1234', pid: 1 });
+    },
+  };
+  return { client: client as unknown as PtyHostClient, writes, spawns, status, react: (f: (d: string) => void) => (onWrite = f) };
+}
+
+/** A temp HOME where our host runs terminal `abcd1234` = this process, with its session file. */
+function rig(fileStatus: string, platform: NodeJS.Platform = 'linux') {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-claudepty-'));
+  homes.push(home);
+  const pid = process.pid;
+  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+  const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  const sessions = path.join(home, '.claude/sessions');
+  fs.mkdirSync(sessions, { recursive: true });
+  const writeSession = (status: string) =>
+    fs.writeFileSync(
+      path.join(sessions, `${pid}.json`),
+      JSON.stringify({ pid, procStart, sessionId: 's-1', cwd: '/work/alpha', kind: 'interactive', name: 'alpha', status }),
+    );
+  writeSession(fileStatus);
+  fs.mkdirSync(ptyhostPaths(home).dir, { recursive: true });
+  fs.writeFileSync(
+    ptyhostPaths(home).terminals,
+    JSON.stringify([{ id: 'abcd1234', pid, cwd: '/work/alpha', startedAt: 1, meta: { assignment: 'a_lead' } }]),
+  );
+  const host = fakeHost();
+  const agent = new ClaudePtyAgent({
+    claudePath: '/usr/bin/claude',
+    home,
+    env: {},
+    systemdRun: null,
+    cldBin: null,
+    hostScript: '/x/cld-ptyhost.js',
+    log: () => undefined,
+    client: host.client,
+    timing: { enterMs: 50, submitMs: 300, pollMs: 10 },
+    platform,
+  });
+  return { home, agent, host, writeSession };
+}
+
+describe('claude-pty argv and environment', () => {
+  it('always names the permission mode; no --bg, no worktree isolation; resume keeps its flags', () => {
+    expect(ptyArgs(lead, 's-1', null, null)).toEqual([
+      '-n', 'alpha', '--resume', 's-1', '--model', 'claude-opus-5-5', '--permission-mode', 'default',
+    ]);
+    const args = ptyArgs({ ...lead, permissionMode: 'bypassPermissions' }, undefined, '/c/bin/cld-gui', '/m.json');
+    expect(args).toContain('bypassPermissions');
+    expect(args).not.toContain('--bg');
+    const settings = JSON.parse(args[args.indexOf('--settings') + 1]) as Record<string, unknown>;
+    // TERM-P3: the PermissionRequest hook rides in --settings (this session only), the CLI beside CLD_BIN.
+    expect(settings).toEqual({
+      hooks: {
+        PermissionRequest: [
+          {
+            matcher: '*',
+            hooks: [
+              {
+                type: 'command',
+                command: `"${process.execPath}" "/c/bin/cld-gui" permission-hook`,
+                timeout: expect.any(Number),
+              },
+            ],
+          },
+        ],
+      },
+      statusLine: expect.objectContaining({ type: 'command' }),
+      promptSuggestionEnabled: false,
+    });
+  });
+
+  it('TERM-P3: closeAll kills every terminal of the assignment, one with no session file too, and waits for it to leave', async () => {
+    const { home, agent, host } = rig('idle');
+    fs.rmSync(path.join(home, '.claude/sessions', `${process.pid}.json`)); // not up yet
+    const kills: unknown[] = [];
+    (host.client as unknown as { call: (op: string, a: unknown) => Promise<unknown> }).call = (op, a) => {
+      if (op === 'kill') {
+        kills.push(a);
+        setTimeout(() => fs.writeFileSync(ptyhostPaths(home).terminals, '[]'), 50); // it exits
+      }
+      return Promise.resolve({ ok: true });
+    };
+    expect(await agent.closeAll({ ...lead, leadAssignmentId: 'a_other' })).toBe(true);
+    expect(kills).toEqual([]);
+    expect(await agent.closeAll(lead)).toBe(true);
+    expect(kills).toEqual([{ t: 'abcd1234' }]);
+  });
+
+  it('TERM-P3: closeAll is false while a terminal of the assignment stays', async () => {
+    const { agent } = rig('idle');
+    const stuck = new ClaudePtyAgent({ ...(agent as unknown as { o: ConstructorParameters<typeof ClaudePtyAgent>[0] }).o, timing: { pollMs: 10, closeMs: 100 } });
+    expect(await stuck.closeAll(lead)).toBe(false);
+  });
+
+  it('TERM-P3: a start hands the hook over in argv only; no settings file is written', async () => {
+    const { home, agent, host } = rig('idle');
+    const cldAgent = new ClaudePtyAgent({
+      ...(agent as unknown as { o: ConstructorParameters<typeof ClaudePtyAgent>[0] }).o,
+      cldBin: path.join(home, 'bin', 'cld-gui'),
+      client: host.client,
+    });
+    fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: { '/work': { hasTrustDialogAccepted: true } } }));
+    const files = () => fs.readdirSync(path.join(home, '.claude'), { recursive: true }).map(String).sort();
+    const before = files();
+    expect(await cldAgent.start({ ...lead, name: 'beta', leadAssignmentId: 'a_beta' }, { token: () => 't' })).toMatchObject({ ok: true });
+    const args = host.spawns[0].args;
+    expect(JSON.parse(args[args.indexOf('--settings') + 1])).toHaveProperty('hooks.PermissionRequest');
+    expect(files()).toEqual(before);
+    expect(fs.existsSync(path.join(home, '.claude', 'settings.json'))).toBe(false);
+  });
+
+  it('strips CLAUDE* and AI_AGENT, keeps the rest, adds ours', () => {
+    expect(
+      ptyEnv(
+        { HOME: '/h', PATH: '/p', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_PID: '9', AI_AGENT: 'x', LANG: 'C' },
+        { CLD_AGENT_TOKEN: 't' },
+      ),
+    ).toEqual({ HOME: '/h', PATH: '/p', LANG: 'C', CLD_AGENT_TOKEN: 't' });
+  });
+
+  it('folder trust is inherited from a trusted folder above; unreadable is unknown', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-trust-'));
+    homes.push(home);
+    expect(folderTrusted(home, '/work/alpha')).toBeNull();
+    fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: { '/work': { hasTrustDialogAccepted: true } } }));
+    expect(folderTrusted(home, '/work/alpha/sub')).toBe(true);
+    expect(folderTrusted(home, '/other')).toBe(false);
+  });
+});
+
+describe('claude-pty live sessions', () => {
+  it("joins the host's terminal to Claude's session file: held by the engine, its assignment", () => {
+    const { agent, host } = rig('idle');
+    expect(agent.live()).toEqual([
+      expect.objectContaining({ id: 'abcd1234', pid: process.pid, kind: 'background', sessionId: 's-1', status: 'idle', assignmentId: 'a_lead' }),
+    ]);
+    expect(agent.pids()).toEqual(new Set([process.pid]));
+    host.status.set('abcd1234', { state: 'blocked', kind: 'permission' });
+    expect(agent.live()[0].status).toBe('waiting');
+  });
+
+  it("the --bg provider leaves out the host's pids (one conversation, one holder)", () => {
+    const { agent, home } = rig('idle');
+    const o = { claudePath: '/usr/bin/claude', home, env: {}, systemdRun: null, cldBin: null, sessionPath: null, startMs: 1, stopMs: 1, log: () => undefined };
+    expect(new ClaudeAgent(o).live().map((s) => s.pid)).toEqual([process.pid]);
+    expect(new ClaudeAgent({ ...o, exclude: () => agent.pids() }).live()).toEqual([]);
+  });
+
+  it('held: a permission the session file or OSC names', async () => {
+    const { agent, host } = rig('waiting');
+    expect(await agent.held(agent.live()[0])).toBe(true);
+    const idle = rig('idle');
+    expect(await idle.agent.held(idle.agent.live()[0])).toBe(false);
+    idle.host.status.set('abcd1234', { state: 'blocked', kind: 'question' });
+    expect(await idle.agent.held({ ...idle.agent.live()[0], status: 'idle' })).toBe(true);
+    void host;
+  });
+});
+
+describe('claude-pty deliver', () => {
+  it('idle: a bracketed paste, Enter on its own after the paste delay, confirmed by the turn starting', async () => {
+    const { agent, host, writeSession } = rig('idle');
+    host.react((d) => {
+      if (d === '\r') host.status.set('abcd1234', { state: 'working' });
+    });
+    expect(await agent.deliver(lead, 'hi\nthere\x07', { messageId: 'abcdefgh' })).toBe('typed');
+    expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~hi\rthere\x1b[201~', '\r']);
+    expect(host.writes[1].at - host.writes[0].at).toBeGreaterThanOrEqual(45);
+    writeSession('busy');
+    host.status.set('abcd1234', { state: 'working' });
+    // A running turn takes no ordinary message...
+    expect(await agent.deliver(lead, 'later', {})).toBe('notReady');
+    // ...but a `now` one goes in with chat:sendNow, not Enter.
+    host.writes.length = 0;
+    expect(await agent.deliver(lead, 'now', { now: true })).toBe('typed');
+    expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~now\x1b[201~', '\x18', '\x13']);
+  });
+
+  it('a session waiting on a permission, or none at all, takes nothing', async () => {
+    const { agent, host } = rig('waiting');
+    expect(await agent.deliver(lead, 'x', {})).toBe('notReady');
+    expect(await agent.deliver({ ...lead, leadAssignmentId: 'a_other' }, 'x', {})).toBe('notReady');
+    expect(host.writes).toEqual([]);
+  });
+
+  it('OSC done counts as ready when the session file has no status yet', async () => {
+    const { agent, host, writeSession } = rig('idle');
+    writeSession(''); // no status
+    host.status.set('abcd1234', { state: 'done' });
+    expect(agent.live()[0].status).toBe('idle');
+    expect(await agent.deliver(lead, 'x', {})).toBe('typed');
+  });
+});
+
+describe('claude-pty on Windows and macOS (TERM-P2)', () => {
+  it("waits for ConPTY's slower paste ingest before Enter on Windows (Orca: 50 ms + 64 B/ms there, 4 KB/ms elsewhere)", async () => {
+    const text = 'x'.repeat(6_400); // 100 ms of ConPTY ingest, under 2 ms elsewhere
+    const gap = async (platform: NodeJS.Platform) => {
+      const { agent, host } = rig('idle', platform);
+      host.react((d) => {
+        if (d === '\r') host.status.set('abcd1234', { state: 'working' });
+      });
+      expect(await agent.deliver(lead, text, {})).toBe('typed');
+      return host.writes[1].at - host.writes[0].at;
+    };
+    expect(await gap('win32')).toBeGreaterThanOrEqual(145);
+    expect(await gap('darwin')).toBeLessThan(140);
+  });
+
+  it('any install starts (a .cmd launcher too); every start names its conversation for the join (--session-id, or the resumed id)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-win-'));
+    homes.push(dir);
+    const o = { home: dir, env: {}, systemdRun: null, cldBin: null, hostScript: '/x/cld-ptyhost.js', log: () => undefined, platform: 'win32' as const };
+    for (const f of ['claude.exe', 'claude.cmd']) fs.writeFileSync(path.join(dir, f), '');
+    for (const f of ['claude.exe', 'claude.cmd']) expect(new ClaudePtyAgent({ ...o, claudePath: path.join(dir, f) }).ready()).toBeNull();
+    const host = fakeHost();
+    const agent = new ClaudePtyAgent({ ...o, claudePath: path.join(dir, 'claude.cmd'), client: host.client });
+    const token = () => null;
+    expect(await agent.start(lead, { token })).toEqual(expect.objectContaining({ ok: true }));
+    expect(await agent.start(lead, { resume: 's-old', token })).toEqual(expect.objectContaining({ ok: true }));
+    const [fresh, resumed] = host.spawns;
+    const id = fresh.args[fresh.args.indexOf('--session-id') + 1];
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(fresh.args[0]).toBe('-n'); // Claude reads its flags anywhere; -n first as before
+    expect(fresh.meta).toEqual({ assignment: 'a_lead', session: id });
+    expect(resumed.args).not.toContain('--session-id');
+    expect(resumed.meta).toEqual({ assignment: 'a_lead', session: 's-old' });
+  });
+
+  it('a host that ended with its agents (Windows: the Task Scheduler task) is logged once; its terminals count as gone', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-gone-'));
+      homes.push(home);
+      fs.mkdirSync(ptyhostPaths(home).dir, { recursive: true });
+      // A pid that cannot be alive (above Linux's pid_max) left in the list by a killed host.
+      const dead = 2 ** 22 + 1;
+      fs.writeFileSync(
+        ptyhostPaths(home).terminals,
+        JSON.stringify([{ id: 'dead0001', pid: dead, cwd: '/w', startedAt: 1, meta: { assignment: 'a_lead' } }]),
+      );
+      const host = fakeHost();
+      (host.client as unknown as { connected: boolean }).connected = false;
+      const logs: string[] = [];
+      const agent = new ClaudePtyAgent({
+        claudePath: '/usr/bin/claude', home, env: {}, systemdRun: null, cldBin: null,
+        hostScript: '/x/cld-ptyhost.js', log: (l) => logs.push(l), client: host.client, platform,
+      });
+      expect(agent.live()).toEqual([]);
+      expect(agent.terminals()).toEqual([]);
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatch(/--resume/);
+      if (platform === 'win32') expect(logs[0]).toMatch(/Task Scheduler/);
+      else expect(logs[0]).not.toMatch(/Task Scheduler/);
+    }
+  });
+});

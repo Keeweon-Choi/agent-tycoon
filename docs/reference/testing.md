@@ -17,7 +17,6 @@ Three tiers, each with its own framework.
 | `sessionRouter.test.ts`        | session_id mapping, pending sessions, buffer flush                                                                                             |
 | `fileWatcherDismissal.test.ts` | DismissalTracker integration                                                                                                                   |
 | `fileStateAdapter.test.ts`     | Namespaced persistence, allowlist, settings round-trip                                                                                         |
-| `migrateVsCodeState.test.ts`   | Verify-before-clear, partial migration                                                                                                         |
 | `teamUtils.test.ts`            | Inline-teammate helpers                                                                                                                        |
 | `claudeTeamProvider.test.ts`   | Discovery, membership, metadata extraction                                                                                                     |
 | `claude.test.ts`               | `normalizeHookEvent` per Claude event, file fallback                                                                                           |
@@ -38,18 +37,13 @@ Run: `npm run test:webview`.
 
 ## End-to-end (Playwright)
 
-`e2e/` contains Playwright tests against a real VS Code Electron instance and a standalone Fastify server. CI runs the suite on Linux, macOS, and Windows in three shards at `--workers=1`. The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs, scenarios, and `@area:` coverage.
+`e2e/` contains Playwright tests against the standalone daemon in a headless browser (`e2e/tests/standalone/**`). CI runs the suite on Linux, macOS, and Windows in three shards at `--workers=1` (manual runs and tags only). The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs, scenarios, and `@area:` coverage.
 
-**Running VS Code e2e locally needs explicit approval.** The VS Code specs (`e2e/tests/claude/**`) launch real VS Code windows one after another, which cover the screen and steal keyboard focus from whatever the user is typing in. Ask the user before running any of them, and when approved:
-
-- Run them **once, at the end of an implementation** — never as an intermediate check.
-- **Never from a subagent**: delegated work verifies with typecheck, lint, unit tests, and the standalone specs (`e2e/tests/standalone/**`, headless browser, no windows).
-
-**Mock claude**: Tests never invoke real `claude`. A bash script (`e2e/fixtures/mock-claude`) is copied into an isolated `bin/` and prepended to `PATH`. The scenario runner (`mock-claude-runner.cjs`) honors `claudeScenario(...).at(ms).appendJsonl(record).emitHook(event).holdOpenFor(ms).build()` to drive timed JSONL writes and hook events.
+**Mock claude**: Tests never invoke real `claude`. A bash script (`e2e/fixtures/mock-claude`) is copied into an isolated `mock-bin/` and prepended to the daemon's `PATH`. The scenario runner (`mock-claude-runner.cjs`) honors `claudeScenario(...).at(ms).appendJsonl(record).emitHook(event).holdOpenFor(ms).build()` to drive timed JSONL writes and hook events.
 
 **Authoring rules (normative)**: before writing a new spec, read `e2e/README.md` → "Mocking model & rules". It is the single source of truth for the process-boundary principle, the append-only transcript rule, the assert-on-visible-outcomes discipline, and the one standalone-server exception. New tests must follow that model.
 
-**Isolation**: each test gets its own `tmpHome`, workspace directory, VS Code `--user-data-dir`, and mock-log file. No state leaks between tests.
+**Isolation**: each test gets its own `tmpHome`, workspace directory, server, and mock-log file. No state leaks between tests.
 
 **Auto-fixtures**: `_allureLabels` (auto: true) reads `@area:<tag>` from `testInfo.tags` and applies the corresponding Allure epic.
 
@@ -72,6 +66,6 @@ npm run test:report:open                       # serve Allure locally (file:// c
 
 ## Manual Hook Testing
 
-`server/manual-hook-events.http` (REST-Client format) drives the local hook server while the extension is running. Copy `port` and `token` from `~/.pixel-agents/server.json`, set `cwd` to a workspace folder opened in the Extension Development Host. Covers `SessionStart` → `PreToolUse` → `PermissionRequest`/`Notification`/`Stop` → `SessionEnd`.
+`server/manual-hook-events.http` (REST-Client format) drives the local hook server while the daemon is running. Copy `port` and `token` from `<office folder>/server.json` (`~/.config/agent-tycoon/office/`, or `~/.config/cld-gui/office/` on a pre-rename install), set `cwd` to the folder the daemon was started from. Covers `SessionStart` → `PreToolUse` → `PermissionRequest`/`Notification`/`Stop` → `SessionEnd`.
 
 If `cwd` is outside the current workspace, enable **Watch All Sessions** first.

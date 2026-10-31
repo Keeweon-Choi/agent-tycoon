@@ -40,7 +40,7 @@ describe('iso projection', () => {
     }
   });
 
-  it('sits every floor flush on the wall tops of the one below, whatever its depth', () => {
+  it('nests every floor over the wall tops of the one below, whatever its depth', () => {
     // Floor 1's back walls stand on its row `top`; the floor above is `rows` deep. Its front-left
     // edge (row = rows) and slab, and the lower back wall's top, meet at the same screen x.
     for (const [top, rows] of [
@@ -57,11 +57,23 @@ describe('iso projection', () => {
         // The upper floor's front-left edge at the same x: its slab's bottom is under it.
         const upper = isoAt(c + 1 - top - 1 + rows, rows, 1, [0, rise]);
         expect(upper.x).toBe(wallTop.x);
+        // The slab's bottom is this far below the wall's top (a negative gap: it covers it).
         expect(upper.y + ISO_SLAB_H - wallTop.y, `top ${top} rows ${rows} col ${c}`).toBe(
-          ISO_FLOOR_GAP,
+          -ISO_FLOOR_GAP,
         );
       }
     }
+  });
+
+  it('lifts a storey by far less than its depth once the floors nest (one tower, not apart)', () => {
+    // The owner 11-01: much less space between storeys. The upper slab covers the top
+    // |ISO_FLOOR_GAP| of the lower back walls, and the rise stays under the old flush one.
+    expect(ISO_FLOOR_GAP).toBeLessThan(0);
+    expect(-ISO_FLOOR_GAP).toBeLessThan(ISO_WALL_H);
+    const flush = (rows: number) => rows * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H;
+    for (const rows of [22, 24, 30]) expect(levelRise(0, rows)).toBe(flush(rows) + ISO_FLOOR_GAP);
+    // Still above a floor's own wall height plus its slab: floors never swap places.
+    expect(levelRise(0, 22)).toBeGreaterThan(ISO_WALL_H + ISO_SLAB_H);
   });
 
   it('stacks the daemon floors bottom up, one level for an office of one floor', () => {

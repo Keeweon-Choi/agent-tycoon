@@ -10,7 +10,8 @@ import zlib from 'node:zlib';
 
 import { PUB, SIG, SUMS, writeSumsAndSign } from '../release/bundle/sign.mjs';
 import { currentOs, sha256File } from '../release/bundle/verify.mjs';
-import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, newRecord, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
+import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, newRecord, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, servicePlan, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
+import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `manager-${name}-`));
 const key = crypto.generateKeyPairSync('ed25519').privateKey;
@@ -94,6 +95,15 @@ test('current pointer: a relative symlink switched atomically (POSIX), a pointer
   await switchCurrent(root, '1.0.0', 'win32', record);
   assert.equal(await readCurrent(root, 'win32'), '1.0.0');
   await assert.rejects(switchCurrent(root, '9.9.9', 'linux', record), /missing/);
+});
+
+test('macOS: the LaunchAgent lets the PTY host outlive the daemon; install and update load a changed one again, uninstall unloads it', () => {
+  const s = renderService({ platform: 'darwin', home: '/Users/u', root: '/Users/u/Library/Application Support/AgentTycoon', version: '1.0.0', manifest: { node: { path: 'node/bin/node' }, entry: 'dist/cli.js' }, config: { port: 1, readOnly: true, engine: 'off', allowedHosts: [], tailscaleUsers: [] } });
+  assert.match(s.content, /<key>AbandonProcessGroup<\/key><true\/>/);
+  assert.match(s.file, /Library\/LaunchAgents\/.+\.plist$/);
+  // kickstart -k would restart the job with the plist launchd already holds: install and update activate (TERM-P2).
+  assert.deepEqual(servicePlan('launchd', 'activate', s, 501).map((x) => x.cmd.slice(0, 2).join(' ')), ['launchctl bootout', 'launchctl bootstrap']);
+  assert.deepEqual(servicePlan('launchd', 'deactivate', s, 501).map((x) => x.cmd.slice(0, 2).join(' ')), ['launchctl bootout']);
 });
 
 test('service and launchers run the private Node of current; PATH carries the user Node, never ours', () => {
@@ -584,6 +594,8 @@ test('uninstall reset removes only our data, never Claude/Codex or projects', as
   const home = tmp('uninstall-reset'); await managerRecord(home);
   fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
   fs.writeFileSync(path.join(home, '.config/agent-tycoon', 'data'), 'ours');
+  fs.mkdirSync(path.join(home, '.config/agent-tycoon/office/servers'), { recursive: true }); // the office folder (2026-11)
+  fs.writeFileSync(path.join(home, '.config/agent-tycoon/office/standalone-token'), 'token');
   fs.mkdirSync(path.join(home, '.pixel-agents'), { recursive: true });
   fs.writeFileSync(path.join(home, '.pixel-agents', 'standalone-state.json'), '{}');
   fs.writeFileSync(path.join(home, '.pixel-agents', 'standalone-token'), 'token');
@@ -846,6 +858,11 @@ test('the manager forwards CLD_AGENT_TOKEN in its control request', async () => 
   assert.equal(seen[0].token, 'agent-token-1');
   assert.equal(seen[0].cmd, 'status');
   assert.equal(seen[1].token, undefined);
+  assert.equal(seen[1].owner, undefined); // no owner-token yet
+  // SEC-CONTROL: with the daemon's owner token (and no agent of this home in the line) it goes along.
+  const owner = controlIdentity.ensureOwnerToken(home);
+  await realDeps({ home, createControlConnection, env: {} }).control('stop-agents');
+  assert.equal(seen[2].owner, owner);
 });
 
 test('uninstall cancels when only the status poll after stop-agents goes unanswered', async () => {

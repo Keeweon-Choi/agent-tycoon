@@ -104,12 +104,12 @@ describe('CH-6 sheets the editor starts from pass the daemon check', () => {
 
 describe('CH-6b: the editor on one furniture sprite', () => {
   it('reads a sprite of any size as RGBA, its own width wide', () => {
-    /* eslint-disable pixel-agents/no-inline-colors -- sprite pixels are data here */
+    /* eslint-disable agent-tycoon/no-inline-colors -- sprite pixels are data here */
     const sprite = [
       ['#102030', '', '#40506080'],
       ['', '#FFFFFF', ''],
     ];
-    /* eslint-enable pixel-agents/no-inline-colors */
+    /* eslint-enable agent-tycoon/no-inline-colors */
     const rgba = spriteRgba(sprite);
     expect(rgba.length).toBe(3 * 2 * 4);
     expect([...rgba.subarray(0, 4)]).toEqual([0x10, 0x20, 0x30, 255]);

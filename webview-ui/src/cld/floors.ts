@@ -15,6 +15,7 @@ import { mapOffset } from '../office/projection.js';
 import type { Character } from '../office/types.js';
 import { TILE_SIZE } from '../office/types.js';
 import type { MapPart } from './camera.js';
+import { askFraming } from './cameraMode.js';
 import { cldGetSnapshot, virtualAgentId } from './officeStore.js';
 
 /** A floor's rows in the stacked layout (the daemon's `cldFloors`). */
@@ -286,6 +287,7 @@ export const useFloors = () => useSyncExternalStore(floorsSubscribe, floorsSnaps
 
 export function setStackedView(on: boolean): void {
   set({ stacked: on, doors: null });
+  askFraming(); // the view toggle is an ask: it frames even after a manual pan or zoom
   if (doorTimer) clearTimeout(doorTimer);
   doorTimer = null;
   queued = null;

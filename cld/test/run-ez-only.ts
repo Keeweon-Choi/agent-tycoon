@@ -2,7 +2,7 @@
  * EZ-ONLY + LINKS: dist/cli.js in a temp HOME on a spare port, headless Chromium (no GPU).
  *  - no EZ button anywhere (desktop top bar, phone 설정 row), no `cld.ez-activity-mode` written;
  *  - the host's date and time in the top bars (daemon on Seoul time, page on UTC), HH:MM only on a narrow phone;
- *  - a character's details keep the raw status as a tooltip and the context numbers as a line;
+ *  - a character's summary keeps the raw status as a tooltip, and its detail view keeps the context numbers as a line;
  *  - a sub-agent works (🤝 dots from its lead), the lead's turn ends, it walks out of the door: while it
  *    leaves, and once it is gone, no dots run to it (canvas pixels of the dot colour, against the baseline).
  * Office hours are off but the linger time is 0, so the walk-out follows the turn end at once.
@@ -107,7 +107,7 @@ async function main() {
     const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
       const ctx = await browser.newContext({ ...opts, timezoneId: 'UTC' });
       await ctx.addInitScript(
-        `globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true; try { localStorage.setItem('cld.office-hours', '{"on":false,"lingerMin":0}'); } catch {}`,
+        `globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true; try { localStorage.setItem('cld.office-hours', '{"on":false,"lingerMin":0}'); } catch {}`,
       );
       await ctx.route('**/__ez/*.ttf', (route) =>
         route.fulfill({
@@ -142,7 +142,7 @@ async function main() {
       const m = clockRe.exec(clock);
       check(m && [seoul(0), seoul(1)].includes(`${m[1]}:${m[2]}`), `desktop: the top bar reads the host's date and time (${clock}, Seoul ${seoul(0)})`);
 
-      // The details of the lead keep the raw status and the context numbers.
+      // The lead's summary keeps the raw status; its detail view keeps the context numbers.
       append([said([call('tu-fix', 'Task', { description: 'fix login', prompt: 'x', model: 'sonnet' })]), sub('tu-fix', said([call('tu-fix-1', 'Grep', { pattern: 'login' })]))]);
       const staff = async (): Promise<Array<{ id: number; phase?: string; seat?: string; state?: string }>> =>
         JSON.parse(await page.evaluate(() => JSON.stringify(Reflect.get(window, '__cldStaff') ?? [])));
@@ -167,17 +167,24 @@ async function main() {
         ns.map((n) => Number(n.getAttribute('data-agent-id'))).filter((id) => id > 0),
       ))[0];
       await page.evaluate((id) => {
-        (window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }).__pixelAgentsTestHooks.selectAgent(id);
+        (window as unknown as { __agentTycoonTestHooks: { selectAgent: (id: number | null) => void } }).__agentTycoonTestHooks.selectAgent(id);
       }, leadId);
       await page.waitForTimeout(500);
       const lead = page.locator(`[data-testid="agent-overlay"][data-agent-id="${leadId}"]`);
       const tip = await lead.getByTestId('activity-text').getAttribute('title');
-      check(!!tip && tip.length > 0, `desktop: the activity line's tooltip carries the raw status (${tip})`);
-      const ctxLine = (await lead.getByTestId('context-numbers').textContent()) ?? '';
-      check(/컨텍스트/.test(ctxLine) && /4[01]k/.test(ctxLine), `desktop: the details keep the context numbers (${ctxLine})`);
+      check(!!tip && tip.length > 0, `desktop: the summary activity line's tooltip carries the raw status (${tip})`);
+      const openDetail = page.locator('[data-testid="stat-open"]');
+      await openDetail.waitFor({ timeout: 5_000 });
+      await openDetail.click();
+      const detail = page.locator(`[data-testid="stat-detail"][data-agent-id="${leadId}"]`);
+      await detail.waitFor({ timeout: 5_000 });
+      const ctxLine = (await detail.getByTestId('stat-fatigue').textContent()) ?? '';
+      check(/피로도/.test(ctxLine) && /\(4[01]k \/ 1000k\)/.test(ctxLine), `desktop: the detail keeps the context numbers (opus window 1000k; ${ctxLine})`);
       await shot(page, 'desktop-working-dots-details');
+      await page.locator('[data-modal-title] button').click();
+      await detail.waitFor({ state: 'detached' });
       await page.evaluate(() => {
-        (window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }).__pixelAgentsTestHooks.selectAgent(null);
+        (window as unknown as { __agentTycoonTestHooks: { selectAgent: (id: number | null) => void } }).__agentTycoonTestHooks.selectAgent(null);
       });
 
       // The lead's turn ends: the sub-agent leaves (no linger time) and walks out of the door.
@@ -239,7 +246,12 @@ async function main() {
     started.child.kill('SIGTERM');
     proc.kill('SIGKILL');
     killFakeSessions(home);
-    fs.rmSync(home, { recursive: true, force: true });
+    // Cleanup must not mask the real error (a lingering child can make rmSync fail with ENOTEMPTY).
+    try {
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch (e) {
+      console.log(`cleanup of ${home} failed: ${(e as Error).message}`);
+    }
   }
 }
 

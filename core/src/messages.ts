@@ -58,11 +58,21 @@ export type ServerMessage =
   | RepoDiff
   | RepoWorktreeDetail
   | RepoActionResult
+  | ReviewNotes
+  | ReviewNoteResult
+  | ReviewSendResult
+  | RepoMergeCheckResult
+  | RepoConflictsResult
+  | RepoCleanupListResult
+  | DevroomStats
+  | DevroomSettings
+  | PreviewOpen
   | OfficeSnapshot
   | CodexTasks
   | TempStaff
   | OfficeJobs
   | HwSample
+  | DiskUsage
   | UsageState
   | CodexUsageCheckResult
   | AgentCliState
@@ -86,6 +96,7 @@ export type ServerMessage =
   | EzRules
   | EngineState
   | EngineActionResult
+  | EngineMoveAllResult
   | ProjectScanResult
   | ProjectImportResult
   | ProjectImportSuggestion
@@ -97,6 +108,7 @@ export type ServerMessage =
   | PushState
   | WhiteboardMemos
   | PinnedConversations
+  | OfficeBackground
   | TaskBoard
   | DelegationApprovals
   | TrackedItems
@@ -135,6 +147,15 @@ export type ClientMessage =
   | RepoDiffRequest
   | RepoWorktreeRequest
   | RepoAction
+  | ReviewNotesRequest
+  | ReviewNoteWrite
+  | ReviewSend
+  | DevroomView
+  | DevroomSettingsSet
+  | RepoMergeCheck
+  | RepoConflicts
+  | RepoCleanupList
+  | PreviewAsk
   | StatusView
   | ChatView
   | ChatHistory
@@ -152,6 +173,7 @@ export type ClientMessage =
   | SlashCommands
   | EngineAction
   | EngineChoicesRefresh
+  | EngineMoveAll
   | ProjectScan
   | ProjectImport
   | ProjectImportUndo
@@ -170,6 +192,7 @@ export type ClientMessage =
   | PushUnsubscribe
   | SetWhiteboardMemo
   | SetConversationPin
+  | SetOfficeBackground
   | TaskEdit
   | CodexUsageCheck
   | AgentCliRecheck
@@ -774,6 +797,8 @@ export interface RepoWorktree {
   dirty: number;
   merged: boolean;
   merge?: RepoMerge;
+  conflicts?: string[];
+  lastChange?: string;
 }
 
 export interface RepoMerge {
@@ -797,6 +822,7 @@ export interface RepoDiff {
   requestId: string;
   project: string;
   task?: string;
+  since?: string;
   path: string;
   staged: boolean;
   ok: boolean;
@@ -847,10 +873,176 @@ export interface RepoActionResult {
   errorCode?: string;
   errorParams?: Record<string, string | number>;
   needsForce?: boolean;
+  conflicts?: string[];
+  cleaned?: boolean;
 }
 
 export type RepoActionKind =
-  'stage' | 'unstage' | 'commit' | 'push' | 'worktreeRemove' | 'worktreeNew' | 'merge';
+  | 'stage'
+  | 'unstage'
+  | 'commit'
+  | 'push'
+  | 'worktreeRemove'
+  | 'worktreeNew'
+  | 'merge'
+  | 'sync'
+  | 'resolve'
+  | 'mergeContinue'
+  | 'mergeAbort'
+  | 'conflictHandoff';
+
+export interface ReviewNotes {
+  type: 'reviewNotes';
+  requestId?: string;
+  project: string;
+  task: string;
+  ok: boolean;
+  sentHead?: string;
+  notes: ReviewNote[];
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface ReviewNote {
+  id: string;
+  file: string;
+  side: 'new';
+  startLine?: number;
+  line: number;
+  body: string;
+  createdAt: string;
+  updatedAt?: string;
+  sentAt?: string;
+  diffIdentity: string;
+  by: string;
+  stale?: boolean;
+  sentHead?: string;
+  fixed?: boolean;
+}
+
+export interface ReviewNoteResult {
+  type: 'reviewNoteResult';
+  requestId: string;
+  project: string;
+  task: string;
+  op: AnonymousSchema_449;
+  id?: string;
+  ok: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export type AnonymousSchema_449 = 'add' | 'edit' | 'delete';
+
+export interface ReviewSendResult {
+  type: 'reviewSendResult';
+  requestId: string;
+  project: string;
+  task: string;
+  ok: boolean;
+  to?: string;
+  count?: number;
+  delivered?: string;
+  moved?: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface RepoMergeCheckResult {
+  type: 'repoMergeCheckResult';
+  requestId: string;
+  project: string;
+  task: string;
+  ok: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+  target?: string;
+  clean?: boolean;
+  conflicts?: string[];
+  behind?: number;
+  ahead?: number;
+  dirty?: number;
+  kind?: RepoMergeKind;
+  subject?: string;
+  reviewNotes?: number;
+  notesFixing?: number;
+}
+
+export type RepoMergeKind = 'ff' | 'merge' | 'already';
+
+export interface RepoConflictsResult {
+  type: 'repoConflictsResult';
+  requestId: string;
+  project: string;
+  task: string;
+  ok: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+  merging?: boolean;
+  files?: RepoConflictFile[];
+}
+
+export interface RepoConflictFile {
+  path: string;
+  text?: string;
+  blocks: RepoConflictBlock[];
+}
+
+export interface RepoConflictBlock {
+  startLine: number;
+  endLine: number;
+  ours: string;
+  theirs: string;
+}
+
+export interface RepoCleanupListResult {
+  type: 'repoCleanupListResult';
+  requestId: string;
+  project: string;
+  ok: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+  rows?: RepoCleanupRow[];
+}
+
+export interface RepoCleanupRow {
+  task: string;
+  taskId?: string;
+  assignee?: string;
+  branch?: string;
+  merged: boolean;
+  mergedAt?: string;
+  lastChange?: string;
+  sizeBytes: number;
+  sizeCapped?: boolean;
+  unmergedFiles: number;
+  dirty: number;
+}
+
+export interface DevroomStats {
+  type: 'devroomStats';
+  terminals: number;
+  rssMib: number;
+  hostRssMib?: number;
+}
+
+export interface DevroomSettings {
+  type: 'devroomSettings';
+  autoCleanupAfterMerge: boolean;
+}
+
+export interface PreviewOpen {
+  type: 'previewOpen';
+  project: string;
+  task: string;
+  url: string;
+}
 
 export interface OfficeSnapshot {
   type: 'officeSnapshot';
@@ -1085,24 +1277,43 @@ export type HwDiskView = 'wsl' | 'windows';
 
 export type HwReadingSource = 'lhm' | 'sysfs' | 'nvidia-smi' | 'os';
 
+export interface DiskUsage {
+  type: 'diskUsage';
+  measuredAt: string;
+  rows: DiskUsageRow[];
+  total: number;
+}
+
+export interface DiskUsageRow {
+  kind: AnonymousSchema_678;
+  bytes: number;
+  partial: boolean;
+}
+
+export type AnonymousSchema_678 =
+  'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
+
 export interface UsageState {
   type: 'usageState';
   ts?: string | null;
-  claude?: UsageWindow | null;
-  codex?: UsageWindow | null;
+  providers: UsageProvider[];
 }
 
-export interface UsageWindow {
-  fiveHourPct?: number | null;
-  sevenDayPct?: number | null;
-  fiveHourReset?: string | null;
-  fiveHourIsReset?: boolean | null;
-  sevenDayReset?: string | null;
-  sevenDayIsReset?: boolean | null;
-  models?: AnonymousSchema_574[];
+export interface UsageProvider {
+  id: string;
+  name: string;
+  windows: UsageLimitWindow[];
+  models?: UsageModel[];
 }
 
-export interface AnonymousSchema_574 {
+export interface UsageLimitWindow {
+  id: string;
+  pct: number | null;
+  resetAt: string | null;
+  isReset?: boolean;
+}
+
+export interface UsageModel {
   family: string;
   pct: number;
   reset?: string | null;
@@ -1118,16 +1329,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_586;
+  state: AnonymousSchema_701;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_586 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_701 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_590;
+  language: AnonymousSchema_705;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1136,15 +1347,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_590 = 'ko' | 'en';
+export type AnonymousSchema_705 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_597;
+  mode: AnonymousSchema_712;
   error?: string;
 }
 
-export type AnonymousSchema_597 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_712 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1187,13 +1398,10 @@ export interface OfficeEvent {
   name?: string | null;
   summary: string;
   ref?: string | null;
-  provider?: AnonymousSchema_626;
-  period?: AnonymousSchema_627;
+  provider?: string | null;
+  providerName?: string | null;
+  period?: string | null;
 }
-
-export type AnonymousSchema_626 = 'claude' | 'codex' | 'null';
-
-export type AnonymousSchema_627 = 'fiveHour' | 'sevenDay' | 'null';
 
 export interface StatusOutput {
   type: 'statusOutput';
@@ -1509,6 +1717,7 @@ export interface EngineState {
   projects: EngineProject[];
   warnings?: string[];
   agentChoices?: InstalledAgentChoices;
+  moveAll?: EngineMoveAllProgress;
 }
 
 export interface EngineProject {
@@ -1551,6 +1760,11 @@ export interface AgentChoices {
   defaultEffort?: string;
 }
 
+export interface EngineMoveAllProgress {
+  done: number;
+  total: number;
+}
+
 export interface EngineActionResult {
   type: 'engineActionResult';
   requestId: string;
@@ -1566,6 +1780,12 @@ export interface EngineActionResult {
 }
 
 export type EngineActionKind = 'add' | 'edit' | 'remove' | 'start' | 'stop' | 'restart' | 'promote';
+
+export interface EngineMoveAllResult {
+  type: 'engineMoveAllResult';
+  ok: boolean;
+  error?: string;
+}
 
 export interface ProjectScanResult {
   type: 'projectScanResult';
@@ -1599,13 +1819,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_876;
+  status: AnonymousSchema_997;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_876 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_997 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1636,10 +1856,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_890;
+  state: AnonymousSchema_1011;
 }
 
-export type AnonymousSchema_890 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1011 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -1740,6 +1960,17 @@ export interface PinnedConversations {
   type: 'pinnedConversations';
   keys: string[];
 }
+
+export interface OfficeBackground {
+  type: 'officeBackground';
+  time: BackgroundTime;
+  mix: BackgroundMix;
+  seed: number;
+}
+
+export type BackgroundTime = 'clock' | 'day' | 'night';
+
+export type BackgroundMix = 'houses' | 'towers' | 'mixed';
 
 export interface TaskBoard {
   type: 'taskBoard';
@@ -2129,6 +2360,7 @@ export interface RepoDiffRequest {
   requestId: string;
   project: string;
   task?: string;
+  since?: string;
   path: string;
   staged: boolean;
   offset?: number;
@@ -2139,6 +2371,7 @@ export interface RepoWorktreeRequest {
   requestId: string;
   project: string;
   task: string;
+  since?: string;
 }
 
 export interface RepoAction {
@@ -2153,6 +2386,77 @@ export interface RepoAction {
   taskId?: string;
   assignee?: string;
   base?: string;
+  path?: string;
+  choices?: RepoConflictChoice[];
+}
+
+export type RepoConflictChoice = 'ours' | 'theirs' | 'both' | 'keep';
+
+export interface ReviewNotesRequest {
+  type: 'reviewNotesRequest';
+  requestId: string;
+  project: string;
+  task: string;
+}
+
+export interface ReviewNoteWrite {
+  type: 'reviewNoteWrite';
+  requestId: string;
+  project: string;
+  task: string;
+  op: AnonymousSchema_1281;
+  id?: string;
+  file?: string;
+  side?: 'new';
+  startLine?: number;
+  line?: number;
+  body?: string;
+}
+
+export type AnonymousSchema_1281 = 'add' | 'edit' | 'delete';
+
+export interface ReviewSend {
+  type: 'reviewSend';
+  requestId: string;
+  project: string;
+  task: string;
+}
+
+export interface DevroomView {
+  type: 'devroomView';
+  on: boolean;
+}
+
+export interface DevroomSettingsSet {
+  type: 'devroomSettingsSet';
+  autoCleanupAfterMerge: boolean;
+}
+
+export interface RepoMergeCheck {
+  type: 'repoMergeCheck';
+  requestId: string;
+  project: string;
+  task: string;
+}
+
+export interface RepoConflicts {
+  type: 'repoConflicts';
+  requestId: string;
+  project: string;
+  task: string;
+}
+
+export interface RepoCleanupList {
+  type: 'repoCleanupList';
+  requestId: string;
+  project: string;
+}
+
+export interface PreviewAsk {
+  type: 'previewAsk';
+  project: string;
+  task: string;
+  url: string;
 }
 
 export interface StatusView {
@@ -2253,14 +2557,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1201;
+  action: AnonymousSchema_1366;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1201 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1366 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2294,6 +2598,11 @@ export type EngineOldLead = 'worker' | 'stop';
 
 export interface EngineChoicesRefresh {
   type: 'engineChoicesRefresh';
+}
+
+export interface EngineMoveAll {
+  type: 'engineMoveAll';
+  stop?: boolean;
 }
 
 export interface ProjectScan {
@@ -2393,12 +2702,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1277;
+  lang?: AnonymousSchema_1444;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1277 = 'en' | 'ko';
+export type AnonymousSchema_1444 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2414,6 +2723,13 @@ export interface SetConversationPin {
   type: 'setConversationPin';
   key: string;
   pinned: boolean;
+}
+
+export interface SetOfficeBackground {
+  type: 'setOfficeBackground';
+  time: BackgroundTime;
+  mix: BackgroundMix;
+  seed: number;
 }
 
 export interface TaskEdit {
@@ -2441,19 +2757,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1294;
+  language: AnonymousSchema_1463;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1294 = 'ko' | 'en';
+export type AnonymousSchema_1463 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1298;
+  mode: AnonymousSchema_1467;
 }
 
-export type AnonymousSchema_1298 = 'ask' | 'bypass';
+export type AnonymousSchema_1467 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

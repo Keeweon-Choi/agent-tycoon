@@ -129,7 +129,7 @@ async function waitForTerm(page: Page, text: string): Promise<number> {
 
 const hooks = (page: Page) =>
   page.evaluate(() => {
-    const h = (window as unknown as { __pixelAgentsTestHooks: Hooks }).__pixelAgentsTestHooks;
+    const h = (window as unknown as { __agentTycoonTestHooks: Hooks }).__agentTycoonTestHooks;
     const a = h.getTileCenter?.(0, 0);
     const b = h.getTileCenter?.(1, 0);
     return { scale: a && b ? (b.x - a.x) / 16 : 2, followed: h.getCameraFollowId?.() ?? null };
@@ -273,7 +273,7 @@ async function main() {
     // Upstream's e2e flag: exposes canvas geometry (getTileCenter) and the
     // followed character, nothing that drives the app.
     await ctx.addInitScript(() => {
-      (window as unknown as { __PIXEL_AGENTS_E2E: boolean }).__PIXEL_AGENTS_E2E = true;
+      (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
     });
     const page = await ctx.newPage();
     // A click on the character that lands on the lobby's board opens it full screen (T-0046) and it

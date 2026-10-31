@@ -10,12 +10,14 @@ import * as path from 'node:path';
 
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { HOST_LOG_KEEP, HOST_LOG_MAX_BYTES } from '../constants.js';
 import {
   AUDIT_FILE,
   AUDIT_MAX_BYTES,
   AUDIT_STEPUP_WINDOW_MS,
   type AuditLine,
   AuditLog,
+  rotateFile,
 } from './audit.js';
 import { NEW_DEVICE_NOTICE_MS } from './auth.js';
 import {
@@ -50,6 +52,25 @@ const lines = (name = file()): AuditLine[] =>
     .split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l) as AuditLine);
+
+describe('rotateFile', () => {
+  it('rotates past the limit, keeps `keep` old files and drops the oldest (the terminal host log: 5 MB, 3)', () => {
+    expect([HOST_LOG_MAX_BYTES, HOST_LOG_KEEP]).toEqual([5 * 1024 * 1024, 3]);
+    const f = path.join(dir, 'host.log');
+    for (const gen of ['g1', 'g2', 'g3', 'g4', 'g5']) {
+      fs.writeFileSync(f, gen.repeat(10));
+      rotateFile(f, 1, 10, HOST_LOG_KEEP); // 20 + 1 > 10
+    }
+    expect(fs.existsSync(f)).toBe(false);
+    expect(fs.readdirSync(dir).sort()).toEqual(['host.log.1', 'host.log.2', 'host.log.3']);
+    expect(fs.readFileSync(`${f}.1`, 'utf8')).toBe('g5'.repeat(10));
+    expect(fs.readFileSync(`${f}.3`, 'utf8')).toBe('g3'.repeat(10));
+    // Under the limit: untouched.
+    fs.writeFileSync(f, 'small');
+    rotateFile(f, 1, 10, HOST_LOG_KEEP);
+    expect(fs.readFileSync(f, 'utf8')).toBe('small');
+  });
+});
 
 describe('the file', () => {
   it('appends one JSON line per event, 0600 on create, masked and cut labels', () => {

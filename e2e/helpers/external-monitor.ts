@@ -1,7 +1,7 @@
 import path from 'path';
 
 /**
- * External mock-claude sessions are detached processes Pixel Agents ADOPTS
+ * External mock-claude sessions are detached processes the daemon ADOPTS
  * (never launches), so unlike internal agents they have no terminal of their
  * own. Their stdout (magenta `[external·tag]` narration) is appended to a
  * per-test log by spawnExternalClaudeScenario (see helpers/mock-claude.ts).

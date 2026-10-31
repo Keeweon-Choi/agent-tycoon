@@ -1,11 +1,12 @@
 /**
- * USAGE-FABLE check: Claude's usage shows the per-model weekly window from claude-dashboard's raw
- * cache (`F 7d 18%` after Claude's 7d, folded and open, desktop 1280 and phone 393), the tooltip
- * names Fable, and Codex gets none.
+ * USAGE-FABLE + USAGE-GENERIC check: each provider shows exactly the windows it reported. Claude
+ * (an Ultra plan: 7-day only) reads `Claude 7d 16% · F 7d 18%` (the per-model weekly window from
+ * the account usage endpoint's limits[]), with no 5h slot and no "not reported"; Codex reads `5h 35% · 7d 6%`.
+ * Folded and open, desktop 1280 and phone 393; the tooltip names Fable.
  *
- * dist/cli.js in a temp HOME with a fake claude-dashboard usage script and a fake cache file
- * (`~/.cache/claude-dashboard/cache-fake.json`), spare port, headless Chromium (--disable-gpu).
- * Screenshots: cld/artifacts/usage-fable/.
+ * dist/cli.js in a temp HOME with a fake OAuth token and a loopback stand-in for the usage endpoint
+ * (testHome's fakeUsage), spare port, headless Chromium (--disable-gpu).
+ * Screenshots: cld/artifacts/usage-generic/.
  *
  *   npx tsx cld/test/run-usage-fable.ts <port 18256-18259>
  */
@@ -16,6 +17,7 @@ import * as path from 'path';
 
 import {
   assertPortFree,
+  fakeUsage,
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
@@ -26,7 +28,7 @@ import {
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/usage-fable');
+const OUT = path.join(REPO_ROOT, 'cld/artifacts/usage-generic');
 const FONTS = {
   malgun: '/mnt/c/Windows/Fonts/malgun.ttf',
   emoji: '/mnt/c/Windows/Fonts/seguiemj.ttf',
@@ -56,40 +58,12 @@ async function main() {
     path.join(configDirectory(home), 'config.json'),
     JSON.stringify({ accessChosen: true, port }),
   );
-  const plugin = path.join(
-    home,
-    '.claude/plugins/cache/claude-dashboard/claude-dashboard/9.9.9/dist/check-usage.js',
-  );
-  fs.mkdirSync(path.dirname(plugin), { recursive: true });
-  fs.writeFileSync(
-    plugin,
-    `const at = (h) => new Date(Date.now() + h * 3600_000).toISOString();
-console.log(JSON.stringify({
-  claude: { fiveHourPercent: 42, sevenDayPercent: 16, fiveHourReset: at(2), sevenDayReset: at(60) },
-  codex: { fiveHourPercent: 35, sevenDayPercent: 6, fiveHourReset: at(3), sevenDayReset: at(100) },
-}));\n`,
-  );
-  const cacheDir = path.join(home, '.cache/claude-dashboard');
-  fs.mkdirSync(cacheDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(cacheDir, 'cache-fake.json'),
-    JSON.stringify({
-      data: {
-        five_hour: { utilization: 42, resets_at: new Date(Date.now() + 7_200_000).toISOString() },
-        seven_day: { utilization: 16 },
-        seven_day_fable: {
-          utilization: 18,
-          resets_at: new Date(Date.now() + 5 * 86_400_000).toISOString(),
-        },
-        seven_day_sonnet: null,
-      },
-    }),
-  );
+  const usage = await fakeUsage(home, { sevenDay: 16, fable: 18 }, { fiveHour: 35, sevenDay: 6 });
   const daemon = startDaemon(
     { home, claudePath: path.join(bin, 'claude') },
     port,
     ['--engine', 'on', '--no-terminal', '--allow-actions'],
-    { FAKE_TURN_MS: '600' },
+    { FAKE_TURN_MS: '600', ...usage.env },
   );
   const cleanup = () => {
     killFakeSessions(home);
@@ -109,7 +83,7 @@ console.log(JSON.stringify({
   const pageErrors: string[] = [];
   const open = async (opts: BrowserContextOptions) => {
     const ctx = await browser.newContext(opts);
-    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+    await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
     await ctx.route('**/__bx/*.ttf', (route) =>
       route.fulfill({
         body: route.request().url().endsWith('emoji.ttf') ? fonts.emoji : fonts.malgun,
@@ -157,7 +131,12 @@ console.log(JSON.stringify({
       { timeout: 30_000 },
     );
     const text = (await folded.innerText()).replace(/\s+/g, ' ');
-    check(/Claude 5h 42% · 7d 16% · F 7d 18%/.test(text), `desktop folded: "${text}"`);
+    check(/Claude 7d 16% · F 7d 18%/.test(text), `desktop folded: "${text}"`);
+    check(
+      !/Claude 5h/.test(text) && !text.includes('알려 주지'),
+      'desktop folded: no 5h slot for Claude',
+    );
+    check(/Codex 5h 35% · 7d 6%/.test(text), 'desktop folded: Codex shows both windows');
     check(!/Codex[^C]*F 7d/.test(text), 'desktop folded: Codex has no model window');
     await shot(desk, 'desktop-folded');
     await state('open');
@@ -183,7 +162,7 @@ console.log(JSON.stringify({
       timeout: 30_000,
     });
     const body = (await phone.locator('body').innerText()).replace(/\s+/g, ' ');
-    check(/Claude 5h 42% · 7d 16% · F 7d 18%/.test(body), 'phone: Claude strip shows F 7d 18%');
+    check(/Claude 7d 16% · F 7d 18%/.test(body), 'phone: Claude strip shows 7d and F 7d');
     check(
       !(await phone.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
       'phone: no sideways scroll',

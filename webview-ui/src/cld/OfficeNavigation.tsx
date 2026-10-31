@@ -7,6 +7,9 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import type { ToolActivity } from '../office/types.js';
 import { closeLooks, looksTitle, useLooksUi } from './characters/looks.js';
 import { LooksBody } from './characters/LooksWindow.js';
+import { DevRoom } from './devroom/DevRoom.js';
+import { DevroomLooks, useDevroomTitle } from './devroom/devroomData.js';
+import { DevRoomPhone } from './devroom/DevRoomPhone.js';
 import { desktopTabs, panelTitle } from './format.js';
 import { closeWindow, leaveNoticesWindow, showOffice, useHud, usePageStyle } from './hud/hudStore.js';
 import { HudWindow } from './hud/HudWindow.js';
@@ -17,6 +20,7 @@ import { NoticePanel, type OpenTarget } from './notify/NoticeLayer.js';
 import { OfficePanelContent } from './panels/OfficePanels.js';
 import { TerminalWorkspace } from './terminal/TerminalWorkspace.js';
 import { Workbench } from './workbench/Workbench.js';
+import { useWorkbenchTitle } from './workbench/workbenchStore.js';
 
 interface PanelProps {
   agentTools: Record<number, ToolActivity[]>;
@@ -66,6 +70,8 @@ export function DesktopWindows({
 }: DesktopWindowsProps) {
   const hud = useHud();
   const looksFor = useLooksUi().picker;
+  const devroomTitle = useDevroomTitle();
+  const workbenchTitle = useWorkbenchTitle();
   const terminalMounted = useRef(false);
   if (hud.open.terminal) terminalMounted.current = true;
   return (
@@ -90,11 +96,13 @@ export function DesktopWindows({
       {hud.open.workbench && (
         <HudWindow
           id="workbench"
-          title={t('nav.workbench')}
+          title={workbenchTitle}
           closeLabel={t('nav.workbenchClose')}
           onClose={() => closeWindow('workbench')}
         >
-          <Workbench />
+          <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
+            <Workbench />
+          </DevroomLooks.Provider>
         </HudWindow>
       )}
       {hud.open.looks && looksFor !== null && (
@@ -132,6 +140,20 @@ export function DesktopWindows({
           />
         </HudWindow>
       )}
+      {hud.open.devroom && (
+        <HudWindow
+          id="devroom"
+          title={devroomTitle}
+          closeLabel={t('devroom.close')}
+          onClose={() => closeWindow('devroom')}
+        >
+          <DevRoom
+            onScreen={!hud.minimized.devroom}
+            getAppearance={getAppearance}
+            statusFor={statusFor}
+          />
+        </HudWindow>
+      )}
       {/* Mounted from its first opening on and then only hidden: the shells' sockets and tabs stay. */}
       {terminalMounted.current && (
         <HudWindow
@@ -153,6 +175,8 @@ export function DesktopWindows({
 
 interface MobileProps extends PanelProps {
   keyboardOpen?: boolean;
+  statusFor: (agentId: number) => TabStatus | null;
+  getAppearance: (agentId: number) => AgentAppearance;
 }
 
 /** The phone's full-screen page chrome: a title and 사무실, the way back to the office (the page is kept,
@@ -210,9 +234,10 @@ export function MobilePage({
  * HUD's windows, full-screen, one Dock tab each (WINMODEL). The terminal stays mounted from its first
  * opening on, as on the desktop, so its tabs and sockets survive a switch.
  */
-export function MobileOfficePanel({ agentTools, keyboardOpen }: MobileProps) {
+export function MobileOfficePanel({ agentTools, keyboardOpen, statusFor, getAppearance }: MobileProps) {
   const hud = useHud();
   const looksFor = useLooksUi().picker;
+  const workbenchTitle = useWorkbenchTitle();
   const terminalMounted = useRef(false);
   if (hud.open.terminal) terminalMounted.current = true;
   const panel = hud.officeTab;
@@ -249,15 +274,26 @@ export function MobileOfficePanel({ agentTools, keyboardOpen }: MobileProps) {
       {hud.open.workbench && (
         <MobilePage
           id="workbench"
-          title={t('nav.workbench')}
+          title={workbenchTitle}
           onClose={() => closeWindow('workbench')}
         >
-          <Workbench mobile />
+          <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
+            <Workbench mobile />
+          </DevroomLooks.Provider>
         </MobilePage>
       )}
       {hud.open.looks && looksFor !== null && (
         <MobilePage id="looks" title={looksTitle(looksFor)} onClose={closeLooks}>
           <LooksBody key={looksFor} name={looksFor} />
+        </MobilePage>
+      )}
+      {hud.open.devroom && (
+        <MobilePage id="devroom" title={t('hud.devroom')} onClose={() => closeWindow('devroom')} bare>
+          <DevRoomPhone
+            onScreen={!hud.minimized.devroom}
+            getAppearance={getAppearance}
+            statusFor={statusFor}
+          />
         </MobilePage>
       )}
       {terminalMounted.current && (

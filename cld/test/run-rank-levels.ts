@@ -132,7 +132,7 @@ async function iconSheet(browser: Awaited<ReturnType<typeof launchBrowser>>): Pr
   await page.evaluate(
     ({ sprites, names, styleNames }) => {
       const S = 8;
-      // eslint-disable-next-line pixel-agents/no-inline-colors -- the sheet page is not UI
+      // eslint-disable-next-line agent-tycoon/no-inline-colors -- the sheet page is not UI
       document.head.insertAdjacentHTML('beforeend', `<style>@font-face{font-family:F;src:url(/f.ttf)}body{margin:0;background:#1e1e2e;color:#e8e8f0;font:14px F,sans-serif}
         table{border-collapse:collapse;margin:16px}td,th{padding:6px 8px;text-align:center;border:1px solid #3a3a52;min-width:84px}th{font-weight:normal;font-size:12px;color:#b8b8c8}
         td.s{text-align:left;font-weight:bold;min-width:100px}canvas{image-rendering:pixelated}</style>`);
@@ -196,7 +196,7 @@ async function main() {
     await iconSheet(browser);
     const open = async (opts: Parameters<typeof browser.newContext>[0]) => {
       const ctx = await browser.newContext(opts);
-      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__PIXEL_AGENTS_E2E = true;');
+      await ctx.addInitScript('globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;');
       await ctx.route('**/__st/malgun.ttf', (route) => route.fulfill({ body: fs.readFileSync(FONT), contentType: 'font/ttf' }));
       const page = await ctx.newPage();
       page.on('pageerror', (err) => pageErrors.push(String(err)));
@@ -243,7 +243,7 @@ async function main() {
     // The orchestrator's details write its rank (과장 at Lv 45); a temp's details write its own.
     const lp = (await plates(page)).find((x) => x.kind === 'orchestrator')!;
     const select = (id: number | null) =>
-      page.evaluate((id) => (window as unknown as { __pixelAgentsTestHooks: { selectAgent: (id: number | null) => void } }).__pixelAgentsTestHooks.selectAgent(id as number), id);
+      page.evaluate((id) => (window as unknown as { __agentTycoonTestHooks: { selectAgent: (id: number | null) => void } }).__agentTycoonTestHooks.selectAgent(id as number), id);
     await select(lp.id);
     const leadRank = page.locator(`[data-testid="agent-overlay"][data-agent-id="${lp.id}"] [data-testid="rank-text"]`);
     await leadRank.waitFor({ timeout: 5_000 });

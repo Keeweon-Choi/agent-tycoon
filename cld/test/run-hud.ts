@@ -167,7 +167,7 @@ async function main(): Promise<void> {
       await ctx.addInitScript(() => {
         (window as unknown as Record<string, unknown>).__name = (f: unknown) => f;
         // Upstream's read-only test hooks (chatOpenFor: what notices count as looked at).
-        (window as unknown as Record<string, unknown>).__PIXEL_AGENTS_E2E = true;
+        (window as unknown as Record<string, unknown>).__AGENT_TYCOON_E2E = true;
       });
       const page = await ctx.newPage();
       page.on('pageerror', (err) => pageErrors.push(String(err)));
@@ -368,12 +368,12 @@ async function main(): Promise<void> {
       page.evaluate(() => {
         const h = (
           window as unknown as {
-            __pixelAgentsTestHooks?: {
+            __agentTycoonTestHooks?: {
               getCharacters?: () => Array<{ id: number }>;
               chatOpenFor?: (id: number) => boolean;
             };
           }
-        ).__pixelAgentsTestHooks;
+        ).__agentTycoonTestHooks;
         return (h?.getCharacters?.() ?? []).filter((c) => h?.chatOpenFor?.(c.id)).length;
       });
     const seen = await looking();

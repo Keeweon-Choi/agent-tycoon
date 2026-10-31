@@ -139,6 +139,9 @@ export interface Rest {
   next: number;
   kind?: PantryKind;
   machine?: { uid: string; stand: Tile };
+  /** C1: a coffee break from work (cld/director), not an off-duty rest: the agent's real
+   *  activity never sends it back to its desk while it walks; the director ends it at its desk. */
+  brk?: true;
 }
 
 export const nextDrinkIn = (rand: () => number = Math.random): number =>
@@ -434,6 +437,49 @@ export function restStep(
       break;
   }
   return true;
+}
+
+// ── A coffee break from work (C1) ────────────────────────────
+
+/**
+ * C1: the character walks to the nearest machine of `kind` on its floor it can reach (one nobody
+ * else stands at), and back to its desk after the drink; restStep plays it like an off-duty
+ * drink. Null: no such machine on its floor (the caller shows the drink in place).
+ */
+export function startBreak(os: OfficeState, ch: Character, kind: PantryKind): Rest | null {
+  if (ch.cldRest) return null; // off duty already: its own rest goes on
+  const from = here(ch);
+  const seat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
+  const spot: RestSpot = seat
+    ? { tile: { col: seat.seatCol, row: seat.seatRow }, seat: ch.seatId }
+    : { tile: from, seat: null };
+  const taken = claimedBy(os, ch.id);
+  const list = machinesOn(os, band(os, from.row))
+    .filter((m) => m.kind === kind && !taken.tiles.has(key(m.stand)))
+    .sort((a, b) => dist(from, a.stand) - dist(from, b.stand));
+  for (const m of list) {
+    if (!same(from, m.stand) && !walkTo(os, ch, m.stand)) continue;
+    const rest: Rest = {
+      phase: 'fetch',
+      t: 0,
+      spot,
+      next: Infinity,
+      kind,
+      machine: { uid: m.uid, stand: m.stand },
+      brk: true,
+    };
+    ch.cldRest = rest;
+    return rest;
+  }
+  return null;
+}
+
+/** C1: the break is over (back at its desk, skipped or timed out): the FSM has the character again. */
+export function endBreak(os: OfficeState, ch: Character, rest: Rest): void {
+  if (ch.cldRest !== rest) return; // someone else's rest now (off duty, dragged): not ours to end
+  const home = same(here(ch), rest.spot.tile);
+  endRest(os, ch);
+  if (!home) os.sendToSeat(ch.id);
 }
 
 // ── Dropping a resting character ─────────────────────────────

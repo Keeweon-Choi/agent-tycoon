@@ -4,7 +4,7 @@
 
 ## Architecture and directory map
 
-Strict layering: `core/` depends on nothing; `server/` depends only on `core/`; `webview-ui/` depends only on `core/`; `adapters/vscode/` depends on `core/` and `server/`. The standalone CLI never imports `adapters/vscode/` and vice versa.
+Strict layering: `core/` depends on nothing; `server/` depends only on `core/`; `webview-ui/` depends only on `core/`. (The VS Code adapter, `adapters/vscode/`, was removed on 2026-11-01.)
 
 ```
 core/                                Protocol + interface definitions (zero runtime side effects)
@@ -16,7 +16,6 @@ core/                                Protocol + interface definitions (zero runt
     teamProvider.ts                  Optional TeamProvider (semantic queries for Lead + Teammates)
     transport.ts                     MessageTransport interface, TransportState
     adapter.ts                       StateAdapter, AssetCache, PersistedAgent, AgentSeat
-    terminalAdapter.ts               TerminalAdapter (editor-driven terminal management)
     normalizeProjectPath.ts
     constants.ts
 
@@ -25,7 +24,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     providers/hook/claude/           Reference HookProvider — only place that knows Claude specifics
       claude.ts                      normalizeHookEvent for 11 Claude events, formatToolStatus, file fallback
       claudeTeamProvider.ts          TeamProvider: reads ~/.claude/teams/<name>/config.json
-      claudeHookInstaller.ts         Consent-gated install/uninstall in ~/.claude/settings.json (abort on unparseable file or non-array hooks.<Event>; one-time .pixel-agents.backup, exclusive-create, no backup ⇒ no write — but skipped when the replaced content is entirely our own install's output, since backing up our own file masquerades as the user's original (`settingsHoldOnlyOurHooks`, compared against makeHookEntry — the WRITER — so a field added to what we write can't silently revive the bug; only `command`/`timeout` may differ, they vary across installs); every write failure THROWS; mode preserved, 0600 on create; re-read verify immediately before rename + retry; hook identity = `/.pixel-agents/hooks/claude-hook.js` suffix anchored at both ends of the command's first token, case-insensitive; `areHooksInstalled` = ANY of our commands on ANY event)
+      claudeHookInstaller.ts         Consent-gated install/uninstall in ~/.claude/settings.json (abort on unparseable file or non-array hooks.<Event>; one-time .pixel-agents.backup, exclusive-create, no backup ⇒ no write — but skipped when the replaced content is entirely our own install's output, since backing up our own file masquerades as the user's original (`settingsHoldOnlyOurHooks`, compared against makeHookEntry — the WRITER — so a field added to what we write can't silently revive the bug; only `command`/`timeout` may differ, they vary across installs); every write failure THROWS; mode preserved, 0600 on create; re-read verify immediately before rename + retry; hook identity = `/.config/<settings folder>/office/hooks/claude-hook.js` suffix (the old `/.pixel-agents/hooks/claude-hook.js` only while no Pixel Agents extension shares the home) anchored at both ends of the command's first token, case-insensitive; `areHooksInstalled` = ANY of our commands on ANY event)
       consentCopy.ts                 Claude's first-run consent disclosure text (scope/data/undo), served through consentDisclosure()
       constants.ts                   Claude hook event names, script path
       hooks/claude-hook.ts           Hook script (CJS+shebang, bundled to dist/hooks/claude-hook.js)
@@ -40,11 +39,12 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     httpServer.ts                    Fastify: POST /api/hooks/:providerId, GET /api/health, GET /ws, SPA (standalone)
     clientMessageHandler.ts          Single dispatch point for ClientMessage from webview
     server.ts                        Top-level composition
-    cli.ts                           npx pixel-agents entry (npm bin)
-    fileStateAdapter.ts              Namespaced ~/.pixel-agents/ persistence
+    cli.ts                           daemon entry (dist/cli.js)
+    fileStateAdapter.ts              Namespaced office-folder persistence
+    officeFolder.ts                  The office folder (<settings directory>/office): paths, the ~/.pixel-agents read fallback, the one-time copy
     configPersistence.ts             { vscode, standalone, externalAssetDirectories, hooksConsent: {providerId: granted|declined}, hooksEnabled: {providerId: boolean} }
-    layoutPersistence.ts             ~/.pixel-agents/layout.json with atomic tmp+rename
-    fileWatcher.ts                   Hybrid fs.watch + 500ms polling, JSONL line buffering, /clear detection
+    layoutPersistence.ts             <office folder>/layout.json with atomic tmp+rename
+    fileWatcher.ts                   Hybrid fs.watch + 500ms polling, JSONL line buffering
     transcriptParser.ts              JSONL parsing for heuristic / file-fallback mode
     timerManager.ts                  Waiting / permission timers
     assetLoader.ts                   PNG → SpriteData via pngjs
@@ -54,23 +54,13 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
   __tests__/                         28 Vitest files
   manual-hook-events.http            Manual hook testing helper (REST-Client format)
 
-adapters/vscode/                     VS Code surface — composes core + server
-  extension.ts                       activate() / deactivate()
-  PixelAgentsViewProvider.ts         WebviewViewProvider, thin bridge to AgentRuntime
-  agentManager.ts                    Terminal lifecycle (claude --session-id <uuid>), restore, persist
-  vscodeTerminalAdapter.ts           TerminalAdapter implementation
-  uninstall.ts                       vscode:uninstall hook — removes hook entries + factory-resets hooks config after extension removal
-  migrateVsCodeState.ts              One-time legacy state migration (verify-before-clear)
-  constants.ts                       VS Code IDs, command names, key names
-
 webview-ui/                          React 19 + Canvas UI (depends only on core/)
   src/
     transport/
       index.ts                       createTransport() — single runtime branching point
-      postMessageTransport.ts        VS Code mode (acquireVsCodeApi)
       webSocketTransport.ts          Standalone mode (exponential backoff, send queue)
       types.ts                       Re-exports MessageTransport from core
-    runtime.ts                       isBrowserRuntime detection
+    runtime.ts                       isE2E flag (test-only diagnostics)
     browserMock.ts                   Standalone-browser asset fetch + message injection
     testHooks.ts                     window globals exposed for e2e (officeState, helpers)
     main.tsx                         React entry (StrictMode + createRoot)
@@ -81,7 +71,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
     components/                      React UI (toolbars, modals, settings)
       BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
       Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
-      AgentCard.tsx, AgentCardBar.tsx  Agent cards (mug shot + status dot); the right-edge bar on desktop/VS Code
+      AgentCard.tsx, AgentCardBar.tsx  Agent cards (mug shot + status dot); the right-edge bar on desktop
       cardBar.ts                     Pure card-bar rules: cardVariant, mergeOrder, reorderByPointer (Node-tested)
       TerminalDrawer.tsx             Desktop standalone: right-docked panel, cards as tabs
       TerminalPaneStack.tsx          Every agent's TerminalPane mounted, the shown one visible (both shells)
@@ -117,7 +107,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       introTourState.ts              Intro tour wire-state machine (pure reducer, Node-runner tested)
       useIntroTour.ts                Wires the reducer to React + transport (snapshot, verdict, choices)
       useTerminalDrawer.ts           Terminal-pane model for both shells: active/shown pane, socket status, card lookups
-      useIsMobile.ts                 Mobile breakpoint — always false in the VS Code webview
+      useIsMobile.ts                 Mobile breakpoint
       useKeyboardViewport.ts         Samples the viewport: keyboard open (key bar) + iOS shell clamp height
     office/
       types.ts                       OfficeLayout, Character, etc. + re-exports constants
@@ -150,16 +140,14 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
         useCanvasTouchGestures.ts    Touch pan / pinch zoom / tap on the canvas
         ToolOverlay.tsx              Activity label + speech bubbles (DOM, above the labels) per character
 
-e2e/                                 Playwright suite (real VS Code + mock-claude scenarios)
+e2e/                                 Playwright suite (standalone daemon + mock-claude scenarios)
   playwright.config.ts
   global-setup.ts
   fixtures/
-    pixel-agents.ts                  VS Code fixture: launch Electron, wait for panel
     standalone.ts                    Standalone CLI fixture: spawn server + browser page
     mock-claude, mock-claude.cmd     Bash + cmd wrapper invoked instead of real claude
     mock-claude-runner.cjs           Scenario runner: appendJsonl, emitHook, holdOpen
   helpers/
-    launch.ts                        Electron app + isolated HOME/workspace
     mock-claude.ts                   claudeScenario() builder
     office.ts                        Overlay locators + assertions
     webview.ts                       Settings/modal helpers
@@ -192,12 +180,9 @@ webview-ui/                          npm workspace
 
 ## Distribution
 
-Two artifacts from one source tree:
+One artifact:
 
-- **VS Code extension** (`.vsix`) — `pablodelucca.pixel-agents` on VS Code Marketplace and Open VSX. Bundles VS Code adapter + webview SPA + assets + hook scripts.
-- **npm package** (`pixel-agents`) — `npx pixel-agents [--port 3100]` runs the Fastify server and serves the SPA on the same port. Bundles CLI + webview SPA + assets + hook scripts + `core/asyncapi.yaml` (so third-party clients can regenerate from it).
-
-`package.json:files` allowlist controls the npm tarball: `dist/cli.js{,.map}`, `dist/webview/`, `dist/assets/`, `dist/hooks/`, `core/asyncapi.yaml`, `icon.png`. `dist/extension.js` is intentionally excluded since the VS Code entry ships through the `.vsix`.
+- **Daemon bundle** — `node dist/cli.js [--port 3100]` runs the Fastify server and serves the SPA on the same port. It ships through our own installers (`agty`, built by `.github/workflows/release-bundles.yml`) and the desktop app (`cld/desktop`), never as an npm package (the root `package.json` is `private`, kept only for the npm workspace build).
 
 ## Communication Flow
 
@@ -216,11 +201,11 @@ JSONL transcripts ─FileWatcher─→ TranscriptParser ┤
                                                    ↓
                                               StoreEvents → broadcast
                                                    ↓
-                          PostMessageTransport ──┤├── WebSocketTransport
-                                 (VS Code)      (standalone browser)
+                                          WebSocketTransport
+                                         (standalone browser)
 ```
 
-The VS Code adapter wires `PostMessageTransport` against `acquireVsCodeApi()`. The standalone CLI exposes the same protocol over WebSocket at `/ws` with the webview SPA served from the same Fastify instance. **The protocol shape is identical; only the wire differs.**
+The standalone daemon exposes the protocol over WebSocket at `/ws` with the webview SPA served from the same Fastify instance.
 
 Adding a new CLI integration is one subdirectory under `server/src/providers/hook/<id>/`: provider, optional `TeamProvider`, installer, hook scripts. Zero changes to the runtime, the UI, or any existing provider.
 
@@ -249,7 +234,7 @@ export interface MessageTransport {
 export type TransportState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 ```
 
-`PostMessageTransport` reports `connected` for its entire lifetime. `WebSocketTransport` reconnects with exponential backoff (250 ms, 500 ms, 1 s, 2 s, 4 s, capped) and queues sends while disconnected.
+`WebSocketTransport` reconnects with exponential backoff (250 ms, 500 ms, 1 s, 2 s, 4 s, capped) and queues sends while disconnected.
 
 `createTransport()` in `webview-ui/src/transport/index.ts` is the **only branching point** in the UI codebase. Everything downstream uses the `MessageTransport` interface and never knows which transport is active.
 
@@ -258,7 +243,7 @@ export type TransportState = 'connecting' | 'connected' | 'reconnecting' | 'disc
 `HookProvider` (`core/src/provider.ts`) is the integration boundary. Today only Claude Code is implemented; the Claude provider supports every transcript/hook format up to **Claude Code v2.1.220** (current as of 2026-07-30 — Task-era `agent_progress` records, explicit and implicit teams, background-by-default Agent spawns, sidecar-backed background agents). Newer CLI releases may add formats that need provider updates. The interface:
 
 - **Required**: `normalizeHookEvent(raw)` → `{ sessionId, event: AgentEvent } | null`; `installHooks` / `uninstallHooks` / `areHooksInstalled`; `formatToolStatus`; `permissionExemptTools`, `subagentToolNames`, `readingTools` sets.
-- **Optional file fallback**: `getSessionDirs(workspace)`, `getAllSessionRoots()`, `sessionFilePattern`, `parseTranscriptLine(line)`, `buildLaunchCommand(sessionId, cwd, opts)`. Used when hooks aren't installed.
+- **Optional file fallback**: `getSessionDirs(workspace)`, `getAllSessionRoots()`, `sessionFilePattern`, `parseTranscriptLine(line)`. Used when hooks aren't installed.
 - **Optional team extension**: `team?: TeamProvider` for Lead + Teammates support.
 
 `AgentEvent.kind` values: `toolStart`, `toolEnd`, `turnEnd`, `subagentStart`, `subagentEnd`, `subagentTurnEnd`, `progress`, `permissionRequest`, `sessionStart`, `sessionEnd`. The runtime dispatches on `kind`, never on CLI-specific tool names.

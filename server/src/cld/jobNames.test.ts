@@ -37,7 +37,7 @@ describe('human work names', () => {
   });
   it('finds the first heading once, with a file-name fallback', () => {
     expect(codexTitle('/tmp/T-0065.md', 'text\n# T-0065: whiteboard\n## later')).toBe(
-      'T-0065: whiteboard',
+      'whiteboard', // the leading id is the team's number, not words
     );
     expect(codexTitle('/tmp/T-0065.md', 'text')).toBe('T-0065.md');
   });

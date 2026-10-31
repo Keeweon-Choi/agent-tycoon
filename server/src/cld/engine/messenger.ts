@@ -206,7 +206,7 @@ export interface MessengerEngine {
   deliver?(
     name: string,
     text: string,
-    o: { task?: string; group?: QueuedSend['group']; messageId?: string },
+    o: { task?: string; group?: QueuedSend['group']; messageId?: string; now?: boolean },
   ): Promise<TypeResult> | null;
 }
 
@@ -1126,6 +1126,7 @@ export class Messenger {
       ...(item.task && { task: item.task }),
       ...(item.group && { group: item.group }),
       ...(item.messageId && { messageId: item.messageId }),
+      ...(item.now && !item.raw && { now: true }),
     });
     if (own) {
       for (const i of items) this.typingItems.add(i);
