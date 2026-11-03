@@ -56,7 +56,6 @@ const DEFAULT_OPEN: HudOpenState = {
   messenger: false,
   notices: false,
   terminal: false,
-  workbench: false,
   devroom: false,
 };
 
@@ -79,11 +78,11 @@ function loadSavedOpen(): HudOpenState {
     }
     const state = saved as Partial<HudOpenState>;
     return {
-      office: typeof state.office === 'boolean' ? state.office : false,
+      // UI-DASH: a saved open 작업실 is the 현황판 now (its 개발 tab).
+      office: state.office === true || (state as { workbench?: unknown }).workbench === true,
       messenger: typeof state.messenger === 'boolean' ? state.messenger : false,
       notices: typeof state.notices === 'boolean' ? state.notices : false,
       terminal: typeof state.terminal === 'boolean' ? state.terminal : false,
-      workbench: typeof state.workbench === 'boolean' ? state.workbench : false,
       devroom: typeof state.devroom === 'boolean' ? state.devroom : false,
     };
   } catch {
@@ -132,7 +131,7 @@ let snapshot: HudSnapshot = {
   open: { ...savedOpen, messenger: false, looks: false },
   officeTab: 'status',
   boardTab: 'status',
-  order: ['office', 'messenger', 'notices', 'terminal', 'workbench', 'looks', 'devroom'],
+  order: ['office', 'messenger', 'notices', 'terminal', 'looks', 'devroom'],
   minimized: {},
 };
 const listeners = new Set<() => void>();
@@ -199,7 +198,7 @@ export function usePageStyle(id: WindowId): CSSProperties {
 }
 
 /** UI-C1: the tabs the window still has; a name from an older saved state (jobs, codex) is 현황판. */
-export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'hw', 'files'];
+export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'hw', 'files'];
 export const normalizeOfficeTab = (tab: unknown): OfficeTab =>
   OFFICE_TABS.find((id) => id === tab) ?? 'status';
 
@@ -216,7 +215,6 @@ export function closePages(): void {
       messenger: false,
       notices: false,
       terminal: false,
-      workbench: false,
       looks: false,
       devroom: false,
     },

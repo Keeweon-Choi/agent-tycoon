@@ -6,7 +6,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { PtyHostClient } from '../../../ptyhost/client.js';
+import { transcriptPath } from '../../../providers/claudeProvider.js';
+import { PtyHostClient } from '../../../ptyhost/client.js';
 import type { ProgramStatus } from '../../../ptyhost/programStatus.js';
 import { ptyhostPaths } from '../../../ptyhost/protocol.js';
 import type { ProjectRecord } from '../../registry.js';
@@ -49,12 +50,14 @@ function fakeHost() {
       spawns.push(spec);
       return Promise.resolve({ ok: true, id: 'abcd1234', pid: 1 });
     },
+    screen: () => Promise.resolve(null), // no screen: the box check finds nothing to refuse
+    typing: <T>(_t: string, fn: () => Promise<T>) => fn(),
   };
   return { client: client as unknown as PtyHostClient, writes, spawns, status, react: (f: (d: string) => void) => (onWrite = f) };
 }
 
 /** A temp HOME where our host runs terminal `abcd1234` = this process, with its session file. */
-function rig(fileStatus: string, platform: NodeJS.Platform = 'linux') {
+function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: PtyHostClient) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-claudepty-'));
   homes.push(home);
   const pid = process.pid;
@@ -82,11 +85,20 @@ function rig(fileStatus: string, platform: NodeJS.Platform = 'linux') {
     cldBin: null,
     hostScript: '/x/cld-ptyhost.js',
     log: () => undefined,
-    client: host.client,
+    client: client ?? host.client,
     timing: { enterMs: 50, submitMs: 300, pollMs: 10 },
     platform,
   });
-  return { home, agent, host, writeSession };
+  const transcript = transcriptPath('/work/alpha', 's-1', home);
+  fs.mkdirSync(path.dirname(transcript), { recursive: true });
+  fs.writeFileSync(transcript, '');
+  /** Claude writing a submitted prompt (a person's: origin human). */
+  const submit = (text: string) =>
+    fs.appendFileSync(
+      transcript,
+      `${JSON.stringify({ type: 'user', uuid: `u-${Math.random()}`, origin: { kind: 'human' }, message: { role: 'user', content: text } })}\n`,
+    );
+  return { home, agent, host, writeSession, submit };
 }
 
 describe('claude-pty argv and environment', () => {
@@ -209,21 +221,32 @@ describe('claude-pty live sessions', () => {
 
 describe('claude-pty deliver', () => {
   it('idle: a bracketed paste, Enter on its own after the paste delay, confirmed by the turn starting', async () => {
-    const { agent, host, writeSession } = rig('idle');
+    const { agent, host, writeSession, submit } = rig('idle');
     host.react((d) => {
-      if (d === '\r') host.status.set('abcd1234', { state: 'working' });
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' });
+      submit('[사장 · 메신저 · 11-01 14:50] ⟨m:abcdefgh⟩\nhi\nthere');
     });
     expect(await agent.deliver(lead, 'hi\nthere\x07', { messageId: 'abcdefgh' })).toBe('typed');
     expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~hi\rthere\x1b[201~', '\r']);
     expect(host.writes[1].at - host.writes[0].at).toBeGreaterThanOrEqual(45);
     writeSession('busy');
     host.status.set('abcd1234', { state: 'working' });
-    // A running turn takes no ordinary message...
-    expect(await agent.deliver(lead, 'later', {})).toBe('notReady');
-    // ...but a `now` one goes in with chat:sendNow, not Enter.
+    // A busy session (the messenger hands over only when its main turn is over) takes an ordinary message with Enter...
+    host.writes.length = 0;
+    expect(await agent.deliver(lead, 'later', {})).toBe('typed');
+    expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~later\x1b[201~', '\r']);
+    // ...and a `now` one goes in with chat:sendNow, not Enter.
     host.writes.length = 0;
     expect(await agent.deliver(lead, 'now', { now: true })).toBe('typed');
     expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~now\x1b[201~', '\x18', '\x13']);
+  });
+
+  it('a busy session waiting on a permission (held by OSC) takes nothing', async () => {
+    const { agent, host } = rig('busy');
+    host.status.set('abcd1234', { state: 'blocked' });
+    expect(await agent.deliver(lead, 'x', {})).toBe('notReady');
+    expect(host.writes).toEqual([]);
   });
 
   it('a session waiting on a permission, or none at all, takes nothing', async () => {
@@ -239,6 +262,159 @@ describe('claude-pty deliver', () => {
     host.status.set('abcd1234', { state: 'done' });
     expect(agent.live()[0].status).toBe('idle');
     expect(await agent.deliver(lead, 'x', {})).toBe('typed');
+  });
+});
+
+const RULE = '─'.repeat(60);
+/** Claude Code's input box between its rules; a multi-line paste shows as its placeholder. */
+const claudeScreen = (box: string) =>
+  `\x1b[2J\x1b[H${RULE}\r\n❯ ${box.includes('\n') ? `[Pasted text #1 +${box.split('\n').length - 1} lines]` : box}\r\n${RULE}\r\n  ? for shortcuts`;
+
+/**
+ * MSG-RECALL: our real host client (its viewer gate) over a fake Claude Code: a bracketed paste
+ * fills the input box, Up recalls the last prompt over it (Claude's history, 11-01 14:51), Enter
+ * submits what the box holds, and the box is on the screen the host's mirror serves.
+ */
+function claudeHost() {
+  const client = new PtyHostClient({ home: '/nonexistent', launch: () => undefined, log: () => undefined });
+  const writes: string[] = [];
+  const history: string[] = [];
+  let box = '';
+  let onSubmit: (text: string) => void = () => undefined;
+  let onPaste: () => void = () => undefined;
+  const o = client as unknown as Record<string, unknown>;
+  o.connect = () => Promise.resolve();
+  o.call = (op: string, f: { data?: string }) => {
+    const d = f.data;
+    if (op === 'write' && d !== undefined) {
+      writes.push(d);
+      if (d.startsWith('\x1b[200~')) {
+        box += d.slice(6, -6).replaceAll('\r', '\n');
+        onPaste();
+      } else if (d === '\x1b[A') box = history.at(-1) ?? box;
+      else if (d === '\r') {
+        history.push(box);
+        onSubmit(box);
+        box = '';
+      } else box += d;
+    }
+    return Promise.resolve({ ok: true });
+  };
+  o.screen = () => Promise.resolve({ snapshot: claudeScreen(box), cols: 80, rows: 24 });
+  return {
+    client,
+    writes,
+    history,
+    setBox: (b: string) => (box = b),
+    onSubmit: (f: (text: string) => void) => (onSubmit = f),
+    onPaste: (f: () => void) => (onPaste = f),
+  };
+}
+
+describe('MSG-RECALL: a delivery never submits a prompt that is not its own (11-01 14:51)', () => {
+  const OLD = '[사장 · 메신저 · 11-01 13:30] ⟨m:3i6ukaoc⟩\n오 fx=1에서 확인하는 거 좋당\n[첨부] /x.png';
+  const NEW = '[사장 · 메신저 · 11-01 14:50] ⟨m:xpjaixhk⟩\n> cld-gui: 유령 연출을…\n피로도 말이야';
+
+  it("a viewer's Up between the paste and Enter waits for Enter: our prompt goes in, then the Up", async () => {
+    const h = claudeHost();
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.history.push(OLD);
+    h.onSubmit(submit);
+    // The owner on the phone presses Up while the paste settles.
+    h.onPaste(() => setTimeout(() => void h.client.viewerWrite('abcd1234', '\x1b[A'), 10));
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+    expect(h.history.at(-1)).toContain('⟨m:xpjaixhk⟩');
+    expect(h.writes.map((w) => w.slice(0, 6))).toEqual(['\x1b[200~', '\r', '\x1b[A']);
+  });
+
+  it('a recalled prompt (or a draft) already in the box: nothing is written, the message waits', async () => {
+    const h = claudeHost();
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.setBox(OLD); // Up pressed before the delivery
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('inputBusy');
+    h.setBox('내가 쓰던 글');
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('inputBusy');
+    expect(h.writes).toEqual([]);
+    // An empty box (the hint line only) takes it.
+    h.setBox('');
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+  });
+
+  it('지금 보내기 (force) on a taken box: no box check, the box\'s text goes in with ours, confirmed by our mark', async () => {
+    const h = claudeHost();
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.setBox('내가 쓰던 글 ');
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk', force: true })).toBe('typed');
+    expect(h.history.at(-1)).toMatch(/^내가 쓰던 글 \[사장/);
+  });
+
+  it('a session that turns busy after our Enter (a task notification, a Stop hook, a slow hook) is not lost: unconfirmed', async () => {
+    const { agent, host, writeSession } = rig('idle');
+    host.react((d) => {
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' }); // its turn, ours queued behind it
+      writeSession('busy');
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('unconfirmed');
+  });
+
+  it('a busy session that takes ours at its next tool step (attachment queued_command): typed', async () => {
+    const { agent, host, home } = rig('busy');
+    const file = transcriptPath('/work/alpha', 's-1', home);
+    host.react((d) => {
+      if (d !== '\r') return;
+      fs.appendFileSync(file, `${JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: NEW })}\n`);
+      setTimeout(
+        () =>
+          fs.appendFileSync(
+            file,
+            `${JSON.stringify({ isSidechain: false, type: 'attachment', uuid: 'q1', attachment: { type: 'queued_command', prompt: NEW, commandMode: 'prompt', origin: { kind: 'human' } } })}\n`,
+          ),
+        50,
+      );
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+  });
+
+  it("another queued prompt (the owner typed one into the terminal) taken by a working session just before ours: unconfirmed, not lost", async () => {
+    const { agent, host, home } = rig('busy');
+    const file = transcriptPath('/work/alpha', 's-1', home);
+    host.react((d) => {
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' });
+      fs.appendFileSync(
+        file,
+        `${JSON.stringify({ isSidechain: false, type: 'attachment', uuid: 'q0', attachment: { type: 'queued_command', prompt: '터미널에서 친 말', commandMode: 'prompt' } })}\n`,
+      );
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('unconfirmed');
+  });
+
+  it("the prompt that went in carries another message's mark: lost, though the turn started", async () => {
+    const { agent, host, submit } = rig('idle');
+    host.react((d) => {
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' });
+      submit(OLD);
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('lost');
+  });
+
+  it('a task notification meanwhile is no lost paste; an idle session with no prompt of ours is; a busy one is unconfirmed', async () => {
+    const { agent, host, submit, writeSession, home } = rig('idle');
+    const file = transcriptPath('/work/alpha', 's-1', home);
+    host.react((d) => {
+      if (d !== '\r') return;
+      fs.appendFileSync(file, `${JSON.stringify({ type: 'user', uuid: 'n1', origin: { kind: 'task-notification' }, message: { content: '<task-notification>' } })}\n`);
+      setTimeout(() => submit(NEW), 30);
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+    host.react(() => undefined);
+    expect(await agent.deliver(lead, NEW, { messageId: 'zzzzzzzz' })).toBe('lost');
+    writeSession('busy');
+    expect(await agent.deliver(lead, NEW, { messageId: 'yyyyyyyy' })).toBe('unconfirmed');
   });
 });
 

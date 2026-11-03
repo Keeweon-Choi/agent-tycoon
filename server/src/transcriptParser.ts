@@ -8,6 +8,7 @@ import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from './constants.js';
 import { updateContextUsage } from './contextUsage.js';
 import { readEnv } from './env.js';
 import { applyPermissionMode } from './permissionMode.js';
+import { endQuestion, settleQuestion } from './question.js';
 import { hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import {
   cancelPermissionTimer,
@@ -160,6 +161,11 @@ export function processTranscriptLine(
     // Resilient content extraction: support both record.message.content and record.content
     // Claude Code may change the JSONL structure across versions
     const assistantContent = record.message?.content ?? record.content;
+    // WAITING-PERSIST: the main chain's newest assistant text, read at the turn's end.
+    if (record.type === 'assistant' && record.isSidechain !== true) {
+      const said = assistantText(assistantContent);
+      if (said) agent.lastAssistantText = said;
+    }
 
     if (record.type === 'assistant' && Array.isArray(assistantContent)) {
       const blocks = assistantContent as Array<{
@@ -173,6 +179,7 @@ export function processTranscriptLine(
       if (hasToolUse) {
         cancelWaitingTimer(agentId, waitingTimers);
         agent.isWaiting = false;
+        endQuestion(agent);
         agent.hadToolsInTurn = true;
         agents.broadcast({ type: 'agentStatus', id: agentId, status: 'active' });
         let hasNonExemptTool = false;
@@ -544,14 +551,16 @@ export function processTranscriptLine(
       agent.isWaiting = true;
       agent.permissionSent = false;
       agent.hadToolsInTurn = false;
-      // Skip status post when hooks already handled it
-      if (!agent.hookDelivered) {
+      const asked = settleQuestion(agent);
+      // Skip status post when hooks already handled it (unless the question changed)
+      if (!agent.hookDelivered || asked) {
         agents.broadcast({
           type: 'agentStatus',
           id: agentId,
           status: 'waiting',
           // turn_duration = the turn completed, so this is "Done".
           awaitingInput: false,
+          ...(agent.questionOffset !== undefined && { question: true }),
         });
       }
     } else if (record.type === 'permission-mode') {
@@ -785,4 +794,14 @@ function isAsyncAgentResult(block: Record<string, unknown>): boolean {
     return content.startsWith('Async agent launched successfully.');
   }
   return false;
+}
+
+/** The text an assistant record says (its last text block), if any. */
+function assistantText(content: unknown): string | undefined {
+  if (typeof content === 'string') return content.trim() || undefined;
+  if (!Array.isArray(content)) return undefined;
+  const block = (content as Array<{ type?: unknown; text?: unknown }>)
+    .filter((b) => b.type === 'text' && typeof b.text === 'string' && b.text.trim())
+    .at(-1);
+  return block?.text as string | undefined;
 }

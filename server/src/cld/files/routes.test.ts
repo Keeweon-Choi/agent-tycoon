@@ -12,6 +12,7 @@ import { registerProjectFileRoutes } from './routes.js';
 let app: FastifyInstance;
 let temp: string;
 let cookie: string;
+let auth: StandaloneAuth;
 const headers = () => ({ host: 'office.test', cookie });
 const postHeaders = () => ({ ...headers(), origin: 'http://office.test' });
 
@@ -26,7 +27,7 @@ beforeEach(async () => {
   fs.writeFileSync(path.join(temp, 'report.html'), '<script>alert(1)</script>');
   fs.writeFileSync(path.join(temp, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   fs.symlinkSync(path.join(process.cwd(), 'package.json'), path.join(temp, 'outside'));
-  const auth = new StandaloneAuth();
+  auth = new StandaloneAuth();
   cookie = `cld_session=${auth.createSession('link', 'phone').id}`;
   app = Fastify();
   // The temp folder stands in for home, the root a chosen folder must stay under.
@@ -237,6 +238,43 @@ it('requires Origin for ticket creation and consumes a same-session URL once', a
   expect(console.log).toHaveBeenCalledWith(expect.stringContaining('device="phone"'));
 });
 
+it('an open ticket (the desktop app hands it to the default browser) works once without the cookie', async () => {
+  const mint = (path: string, mode: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/cld/files/p/ticket',
+      headers: postHeaders(),
+      payload: { path, mode },
+    });
+  const open = (await mint('image.svg', 'open')).json().url as string;
+  const shown = await app.inject({ url: open });
+  expect(shown.statusCode).toBe(200);
+  expect(shown.headers['content-disposition']).toContain('inline');
+  expect(shown.headers['content-security-policy']).toContain('sandbox');
+  // Used up: without a cookie it is just a refused request now.
+  expect((await app.inject({ url: open })).statusCode).toBe(401);
+  expect((await app.inject({ url: open, headers: headers() })).statusCode).toBe(404);
+  // A plain preview ticket still needs this session's cookie, and stays good for it.
+  const preview = (await mint('image.svg', 'preview')).json().url as string;
+  expect((await app.inject({ url: preview })).statusCode).toBe(401);
+  expect((await app.inject({ url: preview, headers: headers() })).statusCode).toBe(200);
+  expect((await mint('hello.md', 'open')).statusCode).toBe(415);
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('device="phone"'));
+});
+
+it('an open ticket stops working once its session is revoked', async () => {
+  const minted = await app.inject({
+    method: 'POST',
+    url: '/api/cld/files/p/ticket',
+    headers: postHeaders(),
+    payload: { path: 'image.svg', mode: 'open' },
+  });
+  const url = minted.json().url as string;
+  const id = cookie.slice(cookie.indexOf('=') + 1);
+  expect(auth.revoke(auth.session(id)!.handle)).toBe(true);
+  expect((await app.inject({ url })).statusCode).toBe(401);
+});
+
 it('allows SVG image tickets, sandboxes inline HTML, and scopes the sensitive switch to the session', async () => {
   const image = await app.inject({
     method: 'POST',
@@ -349,7 +387,7 @@ it('serves a project whose registered folder is itself a symlink, confined to it
   const link = `${temp}-link`;
   fs.symlinkSync(temp, link);
   try {
-    const auth = new StandaloneAuth();
+    auth = new StandaloneAuth();
     const own = `cld_session=${auth.createSession('link', 'x').id}`;
     const linked = Fastify();
     registerProjectFileRoutes(linked, auth, () => [{ name: 'q', folder: link }]);

@@ -129,11 +129,12 @@ export class PtySession {
    * queue: the empty flush write's callback fires only after every chunk
    * received before this call has been parsed, so none are missing from the
    * snapshot (and any chunk arriving after it is exactly the live stream).
+   * `scrollback: 0`: the visible screen only (a look at it, not a replay).
    */
-  snapshot(): Promise<string> {
+  snapshot(o?: { scrollback: number }): Promise<string> {
     return new Promise((resolve) => {
       this.mirror.write('', () => {
-        resolve(this.serializeAddon.serialize());
+        resolve(this.serializeAddon.serialize(o));
       });
     });
   }

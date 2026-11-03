@@ -5,8 +5,9 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { EXTERNAL_TICKET_MAX_MS } from '../../constants.js';
 import { sensitiveFile } from './denylist.js';
-import { DownloadTickets } from './downloads.js';
+import { DownloadTickets, REUSABLE_TICKET_IDLE_MS } from './downloads.js';
 import { gitIgnoredPaths, isGitIgnored } from './ignored.js';
 import { listFiles } from './listing.js';
 import { DOWNLOAD_BYTES, previewFile, previewKind, sameFile } from './preview.js';
@@ -291,6 +292,28 @@ it('uses a ticket once, binds it to one session, and expires after 60 seconds', 
   const third = tickets.mint({ session: 'one', project: 'p', path: 'a.txt', mode: 'download' });
   now += 60_001;
   expect(tickets.consume(third, 'one')).toBeNull();
+});
+
+it('an external reusable ticket dies at its hard maximum age, however often it is read', () => {
+  let now = 1000;
+  const tickets = new DownloadTickets(() => now);
+  const mint = (external: boolean) =>
+    tickets.mint({ session: 'one', project: 'p', path: 'a.pdf', mode: 'preview', reusable: true, external });
+  const open = mint(true);
+  const inApp = mint(false);
+  expect(tickets.externalSession(open)).toBe('one');
+  expect(tickets.externalSession(inApp)).toBeUndefined();
+  const step = REUSABLE_TICKET_IDLE_MS - 60_000; // first read within the minute, then every 9 minutes
+  for (let t = 30_000; t < EXTERNAL_TICKET_MAX_MS; t += step) {
+    now = 1000 + t;
+    expect(tickets.consume(open, 'one')).not.toBeNull();
+    expect(tickets.consume(inApp, 'one')).not.toBeNull();
+  }
+  now = 1000 + EXTERNAL_TICKET_MAX_MS;
+  expect(tickets.consume(open, 'one')).toBeNull();
+  expect(tickets.externalSession(open)).toBeUndefined();
+  // An in-app video or PDF keeps the idle extension it always had.
+  expect(tickets.consume(inApp, 'one')).not.toBeNull();
 });
 
 it('limits a client independently within one minute', () => {

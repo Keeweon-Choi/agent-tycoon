@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OfficeEvent } from '../../../../core/src/messages.js';
-import { filterNews, isFeedNoise, mergeNews } from './newsList.js';
+import { filterNews, isFeedNoise, mergeNews, newsDay } from './newsList.js';
 import type { Notice } from './notices.js';
 
 const T0 = 1_800_000_000_000;
@@ -168,5 +168,15 @@ describe('the shared feed-noise filter', () => {
   it('drops sends and queue plumbing, keeps real news', () => {
     expect(['send', 'send_hold', 'inbox_deliver'].every(isFeedNoise)).toBe(true);
     expect(['job_end', 'token_guard', 'send_stuck'].some(isFeedNoise)).toBe(false);
+  });
+});
+
+describe('day separators (NOTICE-B)', () => {
+  it('names today and yesterday, and an older day by its midnight', () => {
+    const now = new Date(2026, 10, 3, 10, 30).getTime();
+    expect(newsDay(new Date(2026, 10, 3, 0, 5).getTime(), now)).toBe('today');
+    expect(newsDay(new Date(2026, 10, 2, 23, 59).getTime(), now)).toBe('yesterday');
+    expect(newsDay(new Date(2026, 10, 1, 8, 0).getTime(), now)).toBe(new Date(2026, 10, 1).getTime());
+    expect(newsDay(now + 60_000, now)).toBe('today');
   });
 });

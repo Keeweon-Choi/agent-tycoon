@@ -11,7 +11,7 @@
  */
 import './board.css';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -35,10 +35,12 @@ import { TILE_SIZE } from '../../office/types.js';
 import { DRAG_THRESHOLD_PX } from '../camera.js';
 import { isOfficeCanvasTarget } from '../canvasTarget.js';
 import { currentRect, onFloor } from '../floors.js';
+import { showOffice } from '../hud/hudStore.js';
 import { isoBoardQuad } from '../iso/render.js';
+import { characterName } from '../kinds.js';
 import { useCldStore, virtualAgentId } from '../officeStore.js';
 import { closeOverlay } from '../overlayHistory.js';
-import { type BoardPage, pickPage, rotate, startRotation } from './board.js';
+import { type BoardPage, inQuad, pickPage, type Quad, rotate, startRotation } from './board.js';
 import { type BoardMode, BoardModeContext } from './boardMode.js';
 import { BoardView, type LookOf } from './BoardPages.js';
 
@@ -50,6 +52,10 @@ interface LobbyBoardProps {
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
   agentTools: Record<number, ToolActivity[]>;
+  /** UI-PHONE: the wall's copy shows two columns, name and state (the board is wider than a phone). */
+  phone?: boolean;
+  /** 나를 기다림: the agents waiting on the user (cld/waiting.ts), in office order. */
+  waiting: readonly number[];
 }
 
 interface Rect {
@@ -115,11 +121,27 @@ export function LobbyBoard({
   zoom,
   panRef,
   agentTools,
+  phone = false,
+  waiting,
 }: LobbyBoardProps) {
   const snap = useCldStore();
   const lookOf = useLookOf(officeState);
+  // WAITING-PERSIST: the board says who, not only how many.
+  const waitingNames = waiting
+    .map((id) => {
+      const ch = officeState.characters.get(id);
+      return ch ? characterName(ch, snap.officeSnapshot, snap.codexTasks) : null;
+    })
+    .filter((n): n is string => !!n);
   const [full, setFull] = useState(false);
   const close = useCallback(() => setFull(false), []);
+  // The 나를 기다림 count: the 현황판 on its 오케스트레이터 tab (the full view closes first).
+  const fullRef = useRef(full);
+  fullRef.current = full;
+  const onWaiting = useCallback(() => {
+    if (fullRef.current) closeOverlay('cldBoard', close);
+    showOffice('status');
+  }, [close]);
   // Follow the camera on the canvas's frames: re-rendered only when the board moved on screen.
   const where = useRef({ iso, zoom });
   where.current = { iso, zoom };
@@ -159,6 +181,18 @@ export function LobbyBoard({
   // Only the pages of a board big enough to read turn (as drawn: the wall's scale counts).
   const live =
     (inView && em * (placed?.scale ?? 1) >= (iso ? ISO_BOARD_MIN_EM_PX : BOARD_MIN_EM_PX)) || full;
+  // UI-PHONE: the part of the wall's board inside the window, in em, measured as drawn after
+  // each render (it renders whenever the board moves): the phone's table is laid in it.
+  const wallRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = wallRef.current;
+    if (!el || !phone || iso || !(em > 0)) return;
+    const b = el.getBoundingClientRect();
+    const l = Math.max(0, -b.left);
+    const r = Math.min(b.width, window.innerWidth - b.left);
+    el.style.setProperty('--led-vis-l', `${l / em}em`);
+    el.style.setProperty('--led-vis-w', `${Math.max(0, r - l) / em}em`);
+  });
   // A mouse over the board (or the full view) holds its page.
   const hovering = useRef({ mini: false, full: false });
   const { page, onPage, nowSec } = usePages(live, hovering);
@@ -166,10 +200,15 @@ export function LobbyBoard({
     hovering.current.full = on;
   }, []);
 
-  // A tap on the board (not a drag) opens the full view; the canvas below still gets it.
-  const rectRef = useRef<Rect | null>(null);
-  // ponytail: the isometric copy is not tappable (a slanted face); the full view opens from the 2D board.
-  rectRef.current = inView && !iso ? rect : null;
+  // A tap on the board (not a drag) opens the full view; the canvas below still gets it. The
+  // board's face as drawn: the rectangle, or the wall's slanted face in the isometric view.
+  const quadRef = useRef<Quad | null>(null);
+  quadRef.current =
+    !inView || !placed
+      ? null
+      : iso
+        ? isoBoardQuad(window.devicePixelRatio || 1)
+        : rectQuad(placed.rect);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -182,12 +221,7 @@ export function LobbyBoard({
     const onDown = (e: PointerEvent) => {
       down = e.isPrimary && e.button === 0 ? local(e) : null;
     };
-    const inside = (p: { x: number; y: number }) => {
-      const r = rectRef.current;
-      return (
-        !!r && p.x >= r.left && p.x < r.left + r.width && p.y >= r.top && p.y < r.top + r.height
-      );
-    };
+    const inside = (p: { x: number; y: number }) => !!quadRef.current && inQuad(p, quadRef.current);
     const onUp = (e: PointerEvent) => {
       const p = local(e);
       const tap = down && Math.hypot(p.x - down.x, p.y - down.y) <= DRAG_THRESHOLD_PX;
@@ -224,6 +258,8 @@ export function LobbyBoard({
         nowSec={nowSec}
         lookOf={lookOf}
         frozen={frozen}
+        waiting={waitingNames}
+        onWaiting={onWaiting}
       />
     </BoardModeContext.Provider>
   );
@@ -231,7 +267,8 @@ export function LobbyBoard({
     <>
       {inView && rect && (
         <div
-          className={`led-board led-mini ${live ? '' : 'led-frozen'}`}
+          ref={wallRef}
+          className={`led-board led-mini ${live ? '' : 'led-frozen'} ${phone ? 'led-phone' : ''}`}
           data-testid="lobby-board"
           data-live={live}
           style={{
@@ -254,6 +291,15 @@ export function LobbyBoard({
     </>
   );
 }
+
+const rectQuad = (r: Rect): Quad => ({
+  x: r.left,
+  y: r.top,
+  ux: r.width,
+  uy: 0,
+  vx: 0,
+  vy: r.height,
+});
 
 const flatPlaced = (rect: Rect | null): Placed | null =>
   rect && { rect, bounds: rect, scale: 1, alpha: 1 };

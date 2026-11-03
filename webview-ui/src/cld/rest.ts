@@ -6,6 +6,7 @@
  */
 import {
   ACTIVITY_PROP_FRAME_SEC,
+  ISO8_DRINK_CELLS,
   REST_ANIM_SEC,
   REST_LIFT_SEC,
   REST_SETTLE_MS,
@@ -29,12 +30,34 @@ export const REST_SPRITES = Object.fromEntries(
   ]),
 ) as Record<Drink, { at: [number, number]; frames: SpriteData[] }>;
 
+/** The stage `sec` into a drink of `total` s: 0 lifted (and lowered for the last
+ *  REST_LIFT_SEC), 1 and 2 the two sips in turn. */
+export function sipStage(sec: number, total: number = REST_ANIM_SEC): 0 | 1 | 2 {
+  if (sec < REST_LIFT_SEC || sec >= total - REST_LIFT_SEC) return 0;
+  return (1 + (Math.floor(sec / ACTIVITY_PROP_FRAME_SEC) % 2)) as 1 | 2;
+}
+
 /** The drink's frame \`sec\` into a rest moment: lifted, sipped (two frames), lowered. */
 export function restFrame(drink: Drink, sec: number): SpriteData {
-  const { frames } = REST_SPRITES[drink];
-  if (sec < REST_LIFT_SEC || sec >= REST_ANIM_SEC - REST_LIFT_SEC) return frames[0];
-  return frames[1 + (Math.floor(sec / ACTIVITY_PROP_FRAME_SEC) % 2)];
+  return REST_SPRITES[drink].frames[sipStage(sec)];
 }
+
+/** C1: a sheet's drinking poses (an iso8 sheet's 6th row) by the palette of its three-quarter
+ *  view: `cells` coffee lifted, sipping, sipping with eyes closed, then the same with a can;
+ *  `steam` where a held cup's steam rises in each (px of the sheet's cell, or null: no cup's
+ *  surface shows, or a can). */
+export interface DrinkCells {
+  cells: SpriteData[];
+  steam: ReadonlyArray<readonly [number, number] | null>;
+}
+const drinkCells = new Map<number, DrinkCells>();
+export const setDrinkCells = (palette: number, d: DrinkCells) => void drinkCells.set(palette, d);
+export const drinkCellsOf = (palette: number): DrinkCells | undefined => drinkCells.get(palette);
+
+/** C1: the drink row's cell (0-5) `sec` into a drink of `total` s: the rest moment's
+ *  lifted, sipped, lowered (sipStage), the coffee's three cells or the can's. */
+export const drinkCell = (drink: 'coffee' | 'can', sec: number, total: number): number =>
+  (drink === 'can' ? ISO8_DRINK_CELLS / 2 : 0) + sipStage(sec, total);
 
 const sips = new Map<number, readonly [number, number]>();
 /** The mouth of a composed look's palette (looks.ts), for the drink. */
@@ -81,3 +104,8 @@ export class RestWatch {
 export const restWatch = new RestWatch();
 /** C1: the 환생 count (the stats view's rebirth flames), watched the same way. */
 export const rebirthWatch = new RestWatch();
+/** C1-FX2: the Lv (a level-up burst), watched the same way. */
+export const levelWatch = new RestWatch();
+/** COMPACT-COFFEE: the characters whose agent compacts its conversation now (their coffee break
+ *  drinks on meanwhile, actions.ts); officeStore refills it from each snapshot. */
+export const compactHolds = new Set<number>();

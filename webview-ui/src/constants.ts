@@ -2,6 +2,8 @@ import type { ColorValue } from './components/ui/types.js';
 
 // ── Desktop bridge ──────────────────────────────────────────
 export const ADMIN_SETUP_COMMAND = 'run_admin_setup';
+/** DESKTOP-ACTIONS: the window event the desktop app fires when a download ends (lib.rs on_download). */
+export const APP_DOWNLOAD_EVENT = 'agent-tycoon-download';
 
 // ── Messenger ───────────────────────────────────────────────
 export const ATTACH_ACCEPT =
@@ -24,7 +26,10 @@ export const WALK_SPEED_PX_PER_SEC = 48;
 export const WALK_FRAME_DURATION_SEC = 0.15;
 /** Keyboard walking gets game-like input response without changing wandering pace. */
 export const KEY_WALK_SPEED_PX_PER_SEC = 96;
-export const KEY_WALK_FRAME_DURATION_SEC = 0.08;
+/** WALK-FIX: a walk frame lasts this many world px walked (half a tile), counted over a
+ *  character's whole life, so a one-tile tap shows one step and the next tap the other
+ *  (a timer reset at every walk start showed the same step every tap, owner 11-01 20:59). */
+export const WALK_STRIDE_PX = 8;
 export const TYPE_FRAME_DURATION_SEC = 0.3;
 export const WANDER_PAUSE_MIN_SEC = 2.0;
 export const WANDER_PAUSE_MAX_SEC = 20.0;
@@ -285,6 +290,8 @@ export const NOTICE_PULSE_COLOR = '#ffd84a';
 /** Feed events this soon after a connection's snapshot began are its replay, not news. */
 export const NOTICE_FEED_REPLAY_MS = 2_000;
 export const NOTICE_DEFAULT_VOLUME = 0.8;
+/** NOTICE-B: the sender's face in a 알림 row (inside a 2px frame, so the slot is 36). */
+export const NOTICE_FACE_PX = 32;
 
 // ── The lobby board (cld-gui T-0046) ─────────────────────────
 /** The board's furniture type (server/src/cld/layout.ts BOARD_TYPE). */
@@ -422,6 +429,8 @@ export const GREETER_ID = -1_000_000_000;
 /** OWNER-AVATAR: the owner's own walking character (not an agent). Below every virtual id
  *  (officeStore.virtualAgentId counts down from -1_000_000_000). */
 export const OWNER_CHARACTER_ID = -2_000_000_000;
+/** FX-ALL: the key (by position) that has the owner's character drink at the machine it stands by. */
+export const OWNER_DRINK_KEY = 'KeyE';
 /** Where it starts: tiles from the lobby board's anchor, in front of the board's middle. */
 export const OWNER_SPAWN_FROM_BOARD = { col: 14, row: 11 } as const;
 /** Stacking order for the Intro's bubble. Deliberately BELOW the modal stack
@@ -551,6 +560,9 @@ export const NAMEPLATE_SIZES = {
 export const UI_SCALE_FACTORS = { small: 0.875, medium: 1, large: 1.25 } as const;
 /** A plate that overlaps another (and is neither selected nor hovered) shows at this opacity. */
 export const NAMEPLATE_OVERLAP_OPACITY = 0.6;
+/** UI-PHONE: while an agent's summary card is open on the phone, every other plate is drawn at
+ *  this opacity, so the card and its menu row read clearly over them. */
+export const PHONE_CARD_OTHERS_ALPHA = 0.3;
 /** Plates overlapping by this much or less (their borders and padding) count as apart: no text is covered. */
 export const NAMEPLATE_OVERLAP_SLOP_PX = 4;
 /** The overlap pass runs at most this often (and at once on selection, hover and resize). */
@@ -644,6 +656,28 @@ export const LOUNGE_ZZZ_FRAME_SEC = 1.4;
 /** A classic 16x32 figure is this tall (px, feet to the top of its head): the unit the drink's
  *  positions are written in (cld/lounge.ts drinkPose), scaled to a taller figure's drawn height. */
 export const LOUNGE_FIGURE_PX = 26;
+/** C1 (owner 11-01 "김 모락모락"): hot coffee's steam, drawn in code (cld/steam.ts): `STEAM_WISPS`
+ *  wisps side by side (`STEAM_SPREAD_PX` apart), each a stream of `STEAM_PUFFS` soft puffs that
+ *  rise `STEAM_RISE_PX` in `STEAM_PERIOD_SEC`, sway up to `STEAM_SWAY_PX` (`STEAM_SWAY_WAVES` half
+ *  waves on the way up), grow `STEAM_GROW` times their `STEAM_RADIUS_PX` and fade in and out
+ *  (at most `STEAM_ALPHA`). World px. */
+export const STEAM_WISPS = 3;
+export const STEAM_SPREAD_PX = 2.4;
+export const STEAM_PUFFS = 6;
+export const STEAM_RISE_PX = 14;
+export const STEAM_PERIOD_SEC = 2.6;
+export const STEAM_SWAY_PX = 1.4;
+export const STEAM_SWAY_WAVES = 2;
+/** Each wisp sways this much of a half wave after the one before it. */
+export const STEAM_WISP_PHASE = 0.7;
+export const STEAM_RADIUS_PX = 2;
+export const STEAM_GROW = 1.8;
+export const STEAM_ALPHA = 0.8;
+export const STEAM_COLOR = 'rgba(255, 255, 255, 1)';
+export const STEAM_CLEAR = 'rgba(255, 255, 255, 0)';
+/** A held cup's steam drifts this far sideways over its rise, away from the figure's middle (the
+ *  face over the cup), every wisp starting on that side. World px. */
+export const STEAM_HELD_LEAN_PX = 10;
 /** Temp rows shown before "외 N" (the 현황판 and the "+N" list). */
 export const TEMP_ROWS_MAX = 5;
 /** Model badges at a temp's feet: Claude's in cool tones, Codex's in warm ones. */
@@ -735,6 +769,9 @@ export const CONTEXT_GAUGE_COLOR_WARN = '#ffcc00';
 export const CONTEXT_GAUGE_COLOR_DANGER = '#ff8800';
 export const CONTEXT_GAUGE_COLOR_CRITICAL = '#ff2222';
 export const CONTEXT_GAUGE_BG = '#222';
+/** The owner's "나" plate (a hot pink-orange fill, dark text) so it never reads as an agent's plate. */
+export const OWNER_PLATE_BG = '#ff7a2f';
+export const OWNER_PLATE_FG = '#1a1020';
 
 // ── Agent Teams ─────────────────────────────────────────────
 export const TEAM_LEAD_COLOR = '#ffd700';
@@ -861,6 +898,10 @@ export const IMPORT_PROXY_DENSITY = 4;
  *  times their 16×32 world size, as tall as an imported one). */
 export const IMPORT_WORLD_W = 24;
 export const IMPORT_WORLD_H = 44;
+/** C1: an iso8 sheet with the drinking poses has a 6th row (5 without); its first 6 cells are
+ *  coffee lifted, sipping, sipping with eyes closed, then the same with a can. */
+export const ISO8_DRINK_ROWS = 6;
+export const ISO8_DRINK_CELLS = 6;
 export const HD64_DRAW_DENSITY = 3;
 /** A classic figure's head is this many world px over its feet: a taller character's labels,
  *  bubbles, icons and hit box rise by what its own figure stands over it. */
@@ -889,6 +930,8 @@ export const PIXEL_EDITOR_DEFAULT_COLOR = '#000000';
  *  unicode-range). Canvas text must use this too, and the CSS `--font-pixel`
  *  token in index.css lists the same two families. */
 export const PIXEL_FONT_FAMILY = "'FS Pixel Sans', 'Galmuri11'";
+/** UI-FONT 읽기 쉬움: Galmuri11 answers for printable ASCII first (fonts.css 'Galmuri11 ASCII'). */
+export const PIXEL_FONT_FAMILY_READABLE = `'Galmuri11 ASCII', ${PIXEL_FONT_FAMILY}`;
 /** Canvas text sizes snap to multiples of this: Galmuri11 at its 66.667% size-adjust
  *  (fonts.css) has whole device pixels per font pixel at 18, 36, 54 ... */
 export const PIXEL_FONT_CRISP_STEP_PX = 18;
@@ -963,6 +1006,9 @@ export const MOBILE_VIEW_TRANSITION_MS = 300;
  *  edge in office view (swipe left → terminal), left edge in terminal view
  *  (swipe right → office). */
 export const MOBILE_EDGE_SWIPE_ZONE_PX = 24;
+/** MOBILE-SWIPE: a touch starting this close to either side edge would be iOS's Back/Forward
+ *  swipe, so its touchstart is cancelled (mobile/phoneHistory.ts). */
+export const MOBILE_HISTORY_EDGE_PX = 16;
 /** Horizontal movement that claims an armed edge touch as a view swipe; it
  *  must also dominate the vertical axis, or the touch is handed back. */
 export const MOBILE_EDGE_SWIPE_SLOP_PX = 8;
@@ -1088,6 +1134,8 @@ export const STAT_DETAIL_FACE_PX = 64;
 export const STAT_REFRESH_MS = 500;
 /** The level ring on the detail view's growth tile: its size and number (CSS px). */
 export const STAT_TILE_RING = { ring: 34, level: 13 } as const;
+/** OWNER-STATS: how often the page reports the owner's steps and shown time (the daemon's cap is 60 s). */
+export const OWNER_REPORT_MS = 30_000;
 /** Breathing room kept between a card and the scroller edge when the bar
  *  auto-scrolls the focused agent's card into view. */
 export const CARD_SCROLL_INTO_VIEW_MARGIN_PX = 8;
@@ -1131,6 +1179,8 @@ export const JOYSTICK_OPACITY = 0.75;
 export const JOYSTICK_FADED_OPACITY = 0.15;
 /** Above the lobby's mini board (BOARD_Z_INDEX), which can sit where the pad does. */
 export const JOYSTICK_Z_INDEX = BOARD_Z_INDEX + 1;
+/** The camera buttons (an owner's way back to their character) stay tappable where the mini board sits. */
+export const CAMERA_CONTROL_Z_INDEX = BOARD_Z_INDEX + 1;
 /** Gap to the office's left edge (plus the safe inset), CSS px. */
 export const JOYSTICK_MARGIN_PX = 8;
 /** Gap to the office's bottom edge: above the hidden roster's 44 px handle at the same left edge, plus 8. */
@@ -1280,13 +1330,42 @@ export const BG_SPRITE_CACHE_MAX = 32;
 /** A canvas colour from an "r,g,b" triplet and an alpha (the background's glows and haze). */
 export const rgbaOf = (triplet: string, alpha: number): string => `rgba(${triplet},${alpha})`;
 
-// ── C1 (cld/director): character moments, a coffee break and a rebirth ─────
+// ── C1 (cld/director): character moments, a coffee break, a level-up and a rebirth ─────
 /** Moments that may wait behind the one playing, per character. */
 export const FX_QUEUE_MAX = 3;
-/** Each rebirth variant's length (s): A light pillar, B star orbit and nova, C fireworks. */
-export const FX_REBIRTH_SEC = { rebirthA: 3, rebirthB: 3.2, rebirthC: 3.5 } as const;
-/** The variants a live 환생 picks from at random (owner 11-01: all three; theme packs add theirs later). */
-export const FX_REBIRTH_LIVE = ['rebirthA', 'rebirthB', 'rebirthC'] as const;
+/** Each level-up variant's length (s): A light pillar, B star orbit and nova, C fireworks. */
+export const FX_LEVELUP_SEC = { levelUpA: 3, levelUpB: 3.2, levelUpC: 3.5 } as const;
+/** The variants a live level-up picks from at random (owner 11-01: all three; theme packs add theirs later). */
+export const FX_LEVELUP_LIVE = ['levelUpA', 'levelUpB', 'levelUpC'] as const;
+/** C1-FX2: the grand rebirths' lengths (s): R1 ascension, R2 phoenix, R3 constellation. */
+export const FX_REBIRTH_SEC = { rebirthR1: 6, rebirthR2: 6.2, rebirthR3: 6.5 } as const;
+/** When each candidate's gathering charge bursts (s). */
+export const FX_REBIRTH_BURST_SEC = { rebirthR1: 1.8, rebirthR2: 2, rebirthR3: 2.6 } as const;
+/** The grand rebirths a live 환생 picks from at random (owner 11-01 11:31: all three). */
+export const FX_REBIRTH_LIVE = ['rebirthR1', 'rebirthR2', 'rebirthR3'] as const;
+/** The grand rebirth: how dark the screen around the character gets, the clear disc round it
+ *  (world px, its edge one half-dim step wider), and the white flash at the burst (s, peak alpha). */
+export const FX_DIM_ALPHA = 0.8;
+export const FX_DIM_RX = 40;
+export const FX_DIM_RY = 46;
+export const FX_DIM_EDGE = 1.35;
+export const FX_FLASH_SEC = 0.28;
+export const FX_FLASH_ALPHA = 0.75;
+/** Its title, bigger than the level-up's (device px per zoom, crisp steps). */
+export const FX_GRAND_TITLE_PX_PER_ZOOM = 28;
+export const FX_GRAND_SUB_PX_PER_ZOOM = 11;
+/** INHERIT (계승): its length and beats (s): the ghost comes in, raises the flame, hands it over,
+ *  the flame arrives in the heir, the title stamps in. */
+export const FX_INHERIT_SEC = 5.2;
+export const FX_INHERIT_BEATS = { ghost: 0.9, raise: 1.7, pass: 2.5, title: 2.9 } as const;
+/** The ghost stands this far beside the heir (world px); the clear disc is this much wider. */
+export const FX_INHERIT_GHOST_DX = 24;
+export const FX_INHERIT_DIM_WIDEN = 1.45;
+/** The ghost: its alpha, and the canvas filter that pales it into a spirit (none where unsupported). */
+export const FX_INHERIT_GHOST_ALPHA = 0.55;
+export const FX_INHERIT_GHOST_FILTER = 'grayscale(1) brightness(1.6) sepia(0.4) hue-rotate(115deg)';
+/** The add dialog asks for a folder's removed agents this long after its folder stops changing (ms). */
+export const INHERIT_ASK_MS = 300;
 /** prefers-reduced-motion: the still badge shows this long (s). */
 export const FX_STILL_SEC = 2.5;
 /** The "+1" rest pop rises and fades in this long (s), this far (world px). */
@@ -1294,6 +1373,11 @@ export const FX_PLUS_SEC = 1.2;
 export const FX_PLUS_RISE_PX = 10;
 /** A coffee break that has not come back by then ends where it is (s). */
 export const FX_COFFEE_MAX_SEC = 45;
+/** COMPACT-COFFEE: a break held while its agent compacts drinks on at most this long (s). */
+export const FX_COFFEE_HOLD_MAX_SEC = 300;
+/** COMPACT-COFFEE: after the Compacting spinner went, the 휴식 count's rise this soon is the same
+ *  compaction (its break played already); a later one is a compaction of its own (ms). */
+export const COMPACT_COFFEE_DEDUPE_MS = 120_000;
 /** The rebirth's big title: device px per zoom step, rounded to the pixel font's crisp step. */
 export const FX_TITLE_PX_PER_ZOOM = 18;
 export const FX_SUB_PX_PER_ZOOM = 9;
@@ -1318,6 +1402,15 @@ export const FX_COLORS = {
   cup: '#ffffff',
   coffee: '#6b3b1e',
   steam: 'rgba(255, 255, 255, 0.7)',
+  dim: '#05030f',
+  flame: '#e8402a',
+  orange: '#ff8a1c',
+  starLine: '#9fd8ff',
+  night: '#2a2f8a',
+  /** INHERIT: the 계승's spirit flame and its links. */
+  spirit: '#7ff5d8',
+  spiritDeep: '#1fa889',
+  spiritPale: 'rgba(127, 245, 216, 0.28)',
 } as const;
 /** Firework and confetti colours, in turn. */
 export const FX_SPARK_COLORS = [
@@ -1333,17 +1426,41 @@ export const FX_JINGLE_VOLUME = 0.32;
 export const FX_POP_VOLUME = 0.16;
 /** The offline render of a jingle (dev runner): sample rate and length (s). */
 export const FX_WAV_RATE = 44100;
-export const FX_WAV_SEC = 4;
+export const FX_WAV_SEC = 7;
 
 // ── P4 개발실 (dev room, mockups-1101/devroom-W1b, W5) ───────────────
 /** A worktree card's mug shot in the rail, and on the phone's list. */
 export const DEVROOM_FACE_PX = 22;
 export const DEVROOM_PHONE_FACE_PX = 24;
+/** DEVROOM-NAMES: a phone file tab shows this many characters of its file name before the ellipsis. */
+export const FILE_TAB_CH = 16;
+/** Phone: a worktree with no Task and nobody on it folds into `쉬는 작업 N개` after this many quiet days. */
+export const DEVROOM_RESTING_DAYS = 3;
 /** The `…` menu: its width, and the height kept clear under it before it flips up. */
 export const DEVROOM_MENU_W_PX = 300;
 export const DEVROOM_MENU_H_PX = 216;
 /** The gap between the `…` button and its menu. */
 export const DEVROOM_MENU_GAP_PX = 4;
+/** DEVROOM-FIX: the graph's left edge of a top card (rail, phone), one step in per branch level, and the deepest step drawn. */
+export const DEVROOM_CARD_LEFT_PX = 40;
+export const DEVROOM_PHONE_CARD_LEFT_PX = 14;
+export const DEVROOM_GRAPH_STEP_PX = 18;
+export const DEVROOM_PHONE_GRAPH_STEP_PX = 12;
+export const DEVROOM_GRAPH_MAX_DEPTH = 3;
+/** DEVROOM-SUBVIEW: the 터미널 board. A card's width in the status strip; a tool result's lines before
+ *  `더 보기`; the finished sub-agents remembered; the clock of the elapsed times. */
+export const DEVROOM_CARD_W_PX = 230;
+export const DEVROOM_RESULT_LINES = 4;
+export const DEVROOM_SUBS_DONE_MAX = 20;
+export const DEVROOM_BOARD_TICK_MS = 15_000;
+/** DEVROOM-BOARD2 (Orca's Done/Idle): after its turn an agent is 끝남 until its last news is this old, then 쉬는 중. */
+export const DEVROOM_DONE_MS = 30 * 60_000;
+/** Under this, a 끝남 / 쉬는 중 agent's last news reads 방금 (elapsedDuration's 방금 시작 is for work). */
+export const DEVROOM_JUST_NOW_MS = 60_000;
+/** The free panes (Orca-style): a drop this close to a pane's edge (share of its size) splits it;
+ *  a divider never makes a pane narrower or shorter than this. */
+export const DEVROOM_DROP_EDGE = 0.25;
+export const DEVROOM_PANE_MIN_PX = 220;
 
 // ── P4 개발실 병합 tab (mockups-1101/devroom-W2, W3, mockups-1028/orca-tools-K) ──
 /** How long a write's answer is awaited before the step is called lost. */
@@ -1360,9 +1477,25 @@ export const MERGE_CHECK_PX = 20;
 export const MERGE_KIB = 1024;
 export const MERGE_SIZE_DECIMALS = 1;
 // ── P4 검토 (review-loop R2/R4) ──────────────────────────────────────
-/** While a Worker fixes sent notes, the open review re-reads its notes (`fixed`) and diffs this often (ms). */
-export const REVIEW_REFRESH_MS = 5_000;
+/** DEVROOM-PERF: the open review's changed-file list is asked again this often while it is on screen (ms). */
+export const DEVROOM_CHANGES_POLL_MS = 1_000;
 
 // ── Explorer editor (P4 S5) ──────────────────────────────────
 /** While a file is open for editing, its disk hash is read this often (only while the page is visible). */
 export const EDIT_POLL_MS = 5_000;
+
+// ── Text zoom (editor, preview, dev room diff) ───────────────
+/** The −/+ buttons and Ctrl+wheel move along these scales; the first is the floor, the last the ceiling. */
+export const TEXT_ZOOM_STEPS: readonly number[] = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
+export const TEXT_ZOOM_DEFAULT = 1;
+/** One mouse-wheel notch (100) moves a step; a trackpad pinch's fine deltas are summed to this much first. */
+export const TEXT_ZOOM_WHEEL_NOTCH = 100;
+/** Key in the browser's localStorage per surface: `${prefix}${surface}`. */
+export const TEXT_ZOOM_STORAGE_PREFIX = 'cld.textzoom.';
+/** An image preview fits the pane's width and this much of the screen's height (vh) at 100%. */
+export const IMAGE_FIT_MAX_VH = 70;
+
+// ── Explorer 최근 산출물 ─────────────────────────────────────
+/** A long list shows this many of the newest first, 더 보기 adds as many again. */
+export const RECENT_OUTPUTS_SHOWN = 8;
+export const RECENT_FOLD_STORAGE_KEY = 'cld.recentFolded';

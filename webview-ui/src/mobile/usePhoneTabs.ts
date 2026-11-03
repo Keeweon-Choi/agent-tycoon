@@ -1,31 +1,21 @@
 /**
  * WINMODEL: the phone's Dock is a tab bar (rules: cld/hud/windowModel.ts). This wires it to the
- * tabs' own stores (where each tab's sub-route lives) and to the browser's Back.
+ * tabs' own stores (where each tab's sub-route lives) and to the browser's Back and Forward.
  */
 import { useCallback, useEffect } from 'react';
 
-import { closeDevroomPage, devroomGetSnapshot, useDevroom } from '../cld/devroom/devroomStore.js';
+import { closeDevroomPage, devroomGetSnapshot } from '../cld/devroom/devroomStore.js';
 import { hudGetSnapshot, pressBack, pressTab, showOffice, useHud } from '../cld/hud/hudStore.js';
 import { activeTab, type Tab } from '../cld/hud/windowModel.js';
-import {
-  messengerGetSnapshot,
-  showMessengerList,
-  useMessenger,
-} from '../cld/messenger/messengerStore.js';
-import { WORKBENCH_TABS } from '../cld/workbench/workbenchState.js';
-import {
-  setWorkbenchTab,
-  useWorkbench,
-  workbenchGetSnapshot,
-} from '../cld/workbench/workbenchStore.js';
+import { messengerGetSnapshot, showMessengerList } from '../cld/messenger/messengerStore.js';
+import { blocksEdgeSwipe, EDGE_TAP_TARGETS, GUARD, landing } from './phoneHistory.js';
 
-/** The tab is on its root: the messenger's list, the 작업실's first tab, the 현황판's own tab. */
+/** The tab is on its root: the messenger's list, the 현황판's own tab (오케스트레이터). */
 function atRoot(tab: Tab): boolean {
   if (tab === 'messenger') {
     const m = messengerGetSnapshot();
     return m.active === null && m.activeRoom === null;
   }
-  if (tab === 'workbench') return workbenchGetSnapshot().tab === WORKBENCH_TABS[0];
   if (tab === 'board') return hudGetSnapshot().officeTab === 'status';
   if (tab === 'devroom') return devroomGetSnapshot().page === null;
   return true;
@@ -33,20 +23,13 @@ function atRoot(tab: Tab): boolean {
 
 function toRoot(tab: Tab | undefined): void {
   if (tab === 'messenger') showMessengerList();
-  else if (tab === 'workbench') setWorkbenchTab(WORKBENCH_TABS[0]);
   else if (tab === 'board') showOffice('status');
   else if (tab === 'devroom') closeDevroomPage();
 }
 
-/** The history entry that holds one Back press for us while the phone is away from home. */
-const GUARD = 'cldTab';
-
-const isAway = (tab: Tab): boolean => tab !== 'office' || !atRoot(tab);
-
 function pushGuard(): void {
   try {
-    if ((history.state as Record<string, unknown> | null)?.[GUARD] !== true)
-      history.pushState({ [GUARD]: true }, '');
+    if (landing(history.state) !== 'guard') history.pushState({ [GUARD]: true }, '');
   } catch {
     // A webview without history: Back keeps leaving the page.
   }
@@ -54,28 +37,36 @@ function pushGuard(): void {
 
 export function usePhoneTabs(phone: boolean): { tab: Tab; pick: (tab: Tab) => void } {
   const tab = activeTab(useHud());
-  // Re-render on the sub-routes too: whether Back has a step to take inside the tab.
-  useMessenger();
-  useWorkbench();
-  useDevroom();
-  const away = isAway(tab);
 
-  // Away from home, one entry of ours sits on top: Back pops it and we take one step. Landing on
-  // it means an overlay above it (an attachment, the board's full view) was popped: not ours.
-  // ponytail: reaching home without Back leaves the entry, costing one Back press that does
-  // nothing; taking it back (history.back()) raced the next push before (owner 10-24).
-  useEffect(() => {
-    if (phone && away) pushGuard();
-  }, [phone, away]);
+  // MOBILE-SWIPE: one guard entry on top from load on (phoneHistory.ts has the rules).
+  // ponytail: the guard outlives a phone-to-desktop resize, costing the desktop one Back press.
   useEffect(() => {
     if (!phone) return;
+    pushGuard();
     const onPop = (e: PopStateEvent) => {
-      if ((e.state as Record<string, unknown> | null)?.[GUARD] === true) return;
+      const at = landing(e.state);
+      // An overlay above the guard was popped: it closes itself.
+      if (at === 'guard') return;
+      // A Forward onto a closed overlay's entry: back down to the guard (nothing pushes meanwhile).
+      if (at === 'overlay') {
+        history.back();
+        return;
+      }
       toRoot(pressBack(atRoot(activeTab(hudGetSnapshot()))));
-      if (isAway(activeTab(hudGetSnapshot()))) pushGuard(); // a step inside the tab: still away
+      pushGuard();
+    };
+    const onTouch = (e: TouchEvent) => {
+      const touch = e.touches.length === 1 ? e.touches[0] : undefined;
+      if (!touch || !e.cancelable) return;
+      const onTap = e.target instanceof Element && e.target.closest(EDGE_TAP_TARGETS) !== null;
+      if (blocksEdgeSwipe(touch.clientX, window.innerWidth, onTap)) e.preventDefault();
     };
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    document.addEventListener('touchstart', onTouch, { capture: true, passive: false });
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      document.removeEventListener('touchstart', onTouch, { capture: true });
+    };
   }, [phone]);
 
   const pick = useCallback((next: Tab) => toRoot(pressTab(next)), []);

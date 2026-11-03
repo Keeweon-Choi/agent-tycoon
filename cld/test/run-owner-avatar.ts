@@ -6,7 +6,7 @@
  * Desktop (1280x800): the owner's character is there and followed with nothing selected; D walks
  * it right, two keys walk a diagonal; a card selects an agent and the camera goes there, Esc comes
  * back; the free camera pans with the keys (the character stays) and '내 캐릭터' follows again; a
- * click on it opens its menu (꾸미기 only), whose 꾸미기 saves a look under the `owner` key; 설정 →
+ * click on it opens its menu (꾸미기 and its own 스탯, OWNER-STATS), whose 꾸미기 saves a look under the `owner` key; 설정 →
  * 내 캐릭터 opens the same 꾸미기. Phone (390x844 touch): the pad shows with nothing selected and
  * walks it (a diagonal drag walks a diagonal); in the free camera the pad pans.
  * Video and screenshots go to cld/artifacts/owner-avatar/ (mp4 H.264 + GIF by ffmpeg).
@@ -318,7 +318,7 @@ async function main() {
       ),
       'a click on it opens its menu',
     );
-    check((await menu.getByRole('menuitem').count()) === 1, 'its menu has 꾸미기 only');
+    check((await menu.getByRole('menuitem').count()) === 2, 'its menu has 꾸미기 and 스탯');
     await shot(page, 'desktop-5-menu');
     await menu.getByRole('menuitem').first().click();
     const looks = page.locator('[data-testid="looks-window"][data-name="owner"]');

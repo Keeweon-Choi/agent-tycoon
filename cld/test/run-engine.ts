@@ -333,8 +333,8 @@ async function main() {
     await dialog.waitFor();
     check(
       /alpha-app[을를] 삭제할까요\?/.test((await dialog.textContent()) ?? '') &&
-        (await dialog.textContent())?.includes('대화 기록은 남아요'),
-      'delete says the conversation stays',
+        (await dialog.textContent())?.includes('같은 이름으로 새로 만들어도 기록·레벨은 이어지지 않아요'),
+      'delete says a new one of the same name starts afresh',
     );
     await shot(page, 'desktop-remove-confirm');
     await dialog.getByRole('button', { name: '삭제', exact: true }).click();

@@ -124,7 +124,7 @@ export async function previewRootFile(root: FileRoot, relative: string) {
 export async function rootFileTicket(
   root: FileRoot,
   relative: string,
-  mode: 'preview' | 'download',
+  mode: 'preview' | 'download' | 'open',
 ) {
   const result = await response<{ url: string }>(
     await fetch(`${base(rootProject(root))}/ticket`, {

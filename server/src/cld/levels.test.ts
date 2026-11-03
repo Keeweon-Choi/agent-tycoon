@@ -4,7 +4,22 @@ import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { appendEvent, eventsPath } from './engine/events.js';
-import { levelFloor, levelOf, LevelStore, levelView, XP_JOB, XP_TOOL, XP_TURN } from './levels.js';
+import {
+  levelFloor,
+  levelOf,
+  LevelStore,
+  levelView,
+  OWNER_REPORT_MAX_SEC,
+  OWNER_STEPS_PER_SEC_MAX,
+  ownerActionOf,
+  XP_APPROVAL,
+  XP_INSTRUCTION,
+  XP_JOB,
+  XP_MERGE,
+  XP_TASK,
+  XP_TOOL,
+  XP_TURN,
+} from './levels.js';
 import { ROSTER, startEngineOffice } from './officeTestKit.js';
 
 const dirs: string[] = [];
@@ -198,5 +213,79 @@ describe('the office keeps and shows them', () => {
     appendEvent(eventsPath(home), 'orch_renew', 'engine', { name: 'alpha', ok: true });
     await vi.waitFor(() => expect(rebirths()).toBe(1));
     stop();
+  });
+});
+
+describe('owner stats (OWNER-STATS)', () => {
+  const ok = { ok: true };
+  it('counts only what the owner\'s privileged session did and got done', () => {
+    expect(ownerActionOf({ type: 'chatSend' }, { type: 'chatSendResult', ...ok }, true)).toBe('instructions');
+    expect(ownerActionOf({ type: 'groupPost' }, { type: 'groupActionResult', ...ok }, true)).toBe('instructions');
+    expect(
+      ownerActionOf({ type: 'permissionAnswer', allow: true }, { type: 'permissionAnswerResult', ok: true, result: 'answered' }, true),
+    ).toBe('approvals');
+    expect(ownerActionOf({ type: 'repoAction' }, { type: 'repoActionResult', ok: true, action: 'merge' }, true)).toBe('merges');
+    // not the owner's session, refused, a denial, a gone card, not a merge, a room change
+    expect(ownerActionOf({ type: 'chatSend' }, { type: 'chatSendResult', ...ok }, false)).toBeNull();
+    expect(ownerActionOf({ type: 'chatSend' }, { type: 'chatSendResult', ok: false }, true)).toBeNull();
+    expect(
+      ownerActionOf({ type: 'permissionAnswer', allow: false }, { type: 'permissionAnswerResult', ok: true, result: 'answered' }, true),
+    ).toBeNull();
+    expect(
+      ownerActionOf({ type: 'permissionAnswer', allow: true }, { type: 'permissionAnswerResult', ok: true, result: 'gone' }, true),
+    ).toBeNull();
+    expect(ownerActionOf({ type: 'repoAction' }, { type: 'repoActionResult', ok: true, action: 'push' }, true)).toBeNull();
+    expect(ownerActionOf({ type: 'groupAction' }, { type: 'groupActionResult', ...ok }, true)).toBeNull();
+  });
+
+  it('gives XP per action, keeps today and the total, and an agent\'s work never counts', () => {
+    const f = file();
+    const s = new LevelStore(f);
+    const now = new Date(2026, 10, 1, 12).getTime();
+    s.ownerDid('instructions', now);
+    s.ownerDid('approvals', now);
+    s.ownerDid('merges', now);
+    s.ownerDid('tasks', now);
+    // an agent's turn, tool and job
+    s.observe(1, 'engine:a', { type: 'agentStatus', status: 'active' });
+    s.observe(1, 'engine:a', { type: 'agentStatus', status: 'waiting' });
+    s.observeEvent({ type: 'job_end', project: 'a', exit: 0 });
+    const v = s.ownerView(now);
+    expect(v.level.xp).toBe(XP_INSTRUCTION + XP_APPROVAL + XP_MERGE + XP_TASK);
+    expect(v.today).toMatchObject({ instructions: 1, approvals: 1, merges: 1, tasks: 1 });
+    expect(v.total).toEqual(v.today);
+    s.flush();
+    expect(new LevelStore(f).ownerView(now)).toEqual(v); // persisted
+  });
+
+  it('starts today over on a new day; the total keeps going', () => {
+    const s = new LevelStore(file());
+    const day1 = new Date(2026, 10, 1, 23, 59).getTime();
+    const day2 = new Date(2026, 10, 2, 0, 1).getTime();
+    s.ownerDid('instructions', day1);
+    s.ownerDid('instructions', day1);
+    expect(s.ownerView(day2).today.instructions).toBe(0); // nothing yet today
+    s.ownerDid('instructions', day2);
+    expect(s.ownerView(day2).today.instructions).toBe(1);
+    expect(s.ownerView(day2).total.instructions).toBe(3);
+    s.dispose();
+  });
+
+  it('clamps steps and connected time to what the elapsed time allows', () => {
+    const s = new LevelStore(file());
+    const t0 = new Date(2026, 10, 1, 12).getTime();
+    s.ownerActivity(1e9, 1e9, t0); // the first report: at most OWNER_REPORT_MAX_SEC
+    expect(s.ownerView(t0).today).toMatchObject({
+      seconds: OWNER_REPORT_MAX_SEC,
+      steps: OWNER_REPORT_MAX_SEC * OWNER_STEPS_PER_SEC_MAX,
+    });
+    s.ownerActivity(30, 10, t0 + 5_000); // only 5 s went by (a second tab, or a lie)
+    expect(s.ownerView(t0).today).toMatchObject({
+      seconds: OWNER_REPORT_MAX_SEC + 5,
+      steps: OWNER_REPORT_MAX_SEC * OWNER_STEPS_PER_SEC_MAX + 30,
+    });
+    s.ownerActivity(-5, Number.NaN, t0 + 60_000);
+    expect(s.ownerView(t0).total.seconds).toBe(OWNER_REPORT_MAX_SEC + 5);
+    s.dispose();
   });
 });

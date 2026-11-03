@@ -14,6 +14,7 @@ import {
   staysOnFloor,
   WALK_QUEUE_MAX,
   walkDecision,
+  walkFrameAt,
   walkRoute,
   walkStepOf,
   walkStepTarget,
@@ -199,6 +200,37 @@ describe('walking the selected character', () => {
   const tick = (office: OfficeState, seconds: number) => {
     for (let t = 0; t < seconds; t += 0.05) office.update(0.05);
   };
+
+  // WALK-FIX: the walk frame is read off the distance walked, never reset by a walk start
+  const framesSeen = (office: OfficeState, ch: ReturnType<typeof room>['ch'], seconds: number) => {
+    const seen = new Set<number>();
+    for (let t = 0; t < seconds; t += 0.01) {
+      office.update(0.01);
+      if (ch.state === CharacterState.WALK) seen.add(ch.frame);
+    }
+    return [...seen].sort();
+  };
+
+  it('WALK-FIX: a tap per tile shows one step, the next tap the other step', () => {
+    const { office, ch } = room();
+    expect(office.walkSelectedStep('right')).toBe('walked');
+    expect(framesSeen(office, ch, 0.3)).toEqual([0, 1]); // step A and the neutral
+    expect(ch.path).toHaveLength(0);
+    expect(office.walkSelectedStep('right')).toBe('walked');
+    expect(framesSeen(office, ch, 0.3)).toEqual([2, 3]); // step B and the neutral
+    expect(ch.tileCol).toBe(3);
+  });
+
+  it('WALK-FIX: a frame per half tile walked; negative control: a counter reset per walk', () => {
+    expect([0, 7.9, 8, 16, 24, 31.9, 32, 48].map(walkFrameAt)).toEqual([0, 0, 1, 2, 3, 3, 0, 2]);
+    const { office, ch } = room();
+    office.walkSelectedStep('right');
+    framesSeen(office, ch, 0.3);
+    expect(ch.cldWalkPx).toBeCloseTo(16, 5);
+    ch.cldWalkPx = 0; // what a per-walk reset (the old timer) amounts to
+    office.walkSelectedStep('right');
+    expect(framesSeen(office, ch, 0.3)).toEqual([0, 1]); // the same step again
+  });
 
   it('three presses walk three tiles right and the camera follows', () => {
     const { office, ch } = room();

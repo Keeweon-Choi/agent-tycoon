@@ -17,6 +17,7 @@ import { createAgentState } from '../agentState.js';
 import type { AgentStateStore } from '../agentStateStore.js';
 import { startFileWatching } from '../fileWatcher.js';
 import { assignPaletteIfNeeded } from '../paletteAssigner.js';
+import { restoreQuestion } from '../question.js';
 import { cancelWaitingTimer, clearAgentActivity } from '../timerManager.js';
 import type { AgentState } from '../types.js';
 
@@ -118,6 +119,12 @@ export class CharacterBinder {
       agent.fileOffset = 0; // not written yet: read it from the start once it is
     }
     agent.lastDataAt = Date.now();
+    // WAITING-PERSIST: these characters are re-created, not restored: a question saved for this
+    // transcript (questions.json) comes back here, unless it was answered meanwhile.
+    restoreQuestion(agent);
+    // A browser connected before this bind saw the character without it: show it, never notify.
+    if (agent.questionOffset !== undefined)
+      this.store.broadcast({ type: 'agentStatus', id, status: 'waiting', question: true, restored: true });
     const r = this.runtime;
     r.knownJsonlFiles.add(transcript);
     startFileWatching(

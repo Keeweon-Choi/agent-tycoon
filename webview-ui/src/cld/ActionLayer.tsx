@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { createPortal } from 'react-dom';
 
 import { transport } from '../transport/index.js';
+import { listenForAppDownloads } from './desktopApp.js';
 import { EngineLayer } from './EngineControls.js';
 import { FloatingToast } from './FloatingToast.js';
 import {
@@ -23,6 +23,7 @@ export function ActionLayer() {
       }),
     [],
   );
+  useEffect(listenForAppDownloads, []);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => cldDismissToast(toast.id), actionToastDuration(toast));
@@ -30,13 +31,11 @@ export function ActionLayer() {
   }, [toast]);
   return (
     <>
-      {toast &&
-        createPortal(
-          <>
-            {/* z-85 clears the attachment viewer (80), while security step-up (90) and file explorer (100) modals remain above it. */}
+      {toast && (
             <FloatingToast
               key={toast.id}
-              className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[85] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+              over={toast.own === true}
+              className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
               frameClassName={`px-12 py-8 text-sm break-words ${toast.tone === 'error' ? 'text-red-400' : toast.tone === 'info' ? 'text-yellow-300' : 'text-text'}`}
               onDismiss={() => cldDismissToast(toast.id)}
               onTap={() => cldDismissToast(toast.id)}
@@ -44,9 +43,7 @@ export function ActionLayer() {
               <strong className="mr-8">{toast.name}</strong>
               {toast.text}
             </FloatingToast>
-          </>,
-          document.body,
-        )}
+      )}
       <EngineLayer />
     </>
   );

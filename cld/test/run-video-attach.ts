@@ -268,7 +268,7 @@ async function main(): Promise<void> {
         await conv0.locator('input[type="file"]').first().setInputFiles([mp4, webm]);
         await conv0.getByTestId('draft-open').first().waitFor();
         await shot(page, `${name}-composer`);
-        await conv0.getByRole('button', { name: '보내기' }).click();
+        await conv0.getByRole('button', { name: '보내기', exact: true }).click();
         const stored = () =>
           fs.existsSync(inbox)
             ? fs.readdirSync(inbox).map((f) => ({ f, size: fs.statSync(path.join(inbox, f)).size }))

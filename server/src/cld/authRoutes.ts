@@ -160,7 +160,7 @@ export function registerStandaloneAuth(
       return reply.code(404).send();
     if (isDirectRequest(request.socket) && DIRECT_REFUSED.test(pathname))
       return reply.code(404).send();
-    if (standaloneRouteIsPublic(pathname)) return;
+    if (standaloneRouteIsPublic(pathname) || fileTicketPassesGate(request.method, pathname)) return;
     if (standaloneRequestAuthorized(request, token, auth)) return;
     // A wrong Bearer token is a guess at the host credential: rate-limited.
     if (request.headers.authorization !== undefined) {
@@ -1004,6 +1004,17 @@ function requestNetwork(request: FastifyRequest): ApprovalNetwork {
  * notification's picture link (pushImage.ts: signed, one image, 10 minutes). Everything else --
  * the app, `/ws`, `/api/*`, `/cld/*` -- answers 401.
  */
+const FILE_TICKET_PATH = /^\/api\/cld\/files\/content\/[A-Za-z0-9_-]+$/;
+
+/**
+ * DESKTOP-ACTIONS: reading a file ticket's bytes (GET or HEAD, that exact path) goes past the gate
+ * to the files route, which wants the login cookie or an 'open' ticket standing for a live session
+ * (the desktop app's default browser has no cookie; files/routes.ts).
+ */
+export function fileTicketPassesGate(method: string, pathname: string): boolean {
+  return (method === 'GET' || method === 'HEAD') && FILE_TICKET_PATH.test(pathname);
+}
+
 function standaloneRouteIsPublic(pathname: string): boolean {
   return (
     [

@@ -41,9 +41,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { OWNER_LOOK_KEY } from '../../../../core/src/cld/looks.js';
 import type { PathHost } from '../../../../core/src/cld/projectPath.js';
 import { sameProjectPath } from '../../../../core/src/cld/projectPath.js';
 import { koText, refused } from '../../../../core/src/cld/serverText.js';
+import { CLI_NAME } from '../cliName.js';
 import { configDirectory } from '../configPath.js';
 import { findFolder } from '../folders.js';
 
@@ -87,6 +89,9 @@ export interface ProjectRecord {
    *  it only as a copy under its own name, flags and token, never a bare wake. Cleared by
    *  the first start that records a conversation of its own. */
   resumeAsCopy?: boolean;
+  /** DEVROOM-PROJECT: a Lead added from a repository the dev room cloned: the engine never
+   *  answers Claude's folder trust question for the project (Lead or Workers) by itself. */
+  cloned?: true;
 }
 
 export type WorkerRole = 'worker' | 'reviewer';
@@ -97,7 +102,7 @@ type ProjectSaveRecord = Omit<ProjectRecord, 'projectId'> &
   Partial<Pick<ProjectRecord, 'projectId'>>;
 
 /** The project's own part, kept in projects.json v2. */
-const PROJECT_KEYS = ['projectId', 'name', 'folder', 'room', 'leadAssignmentId'] as const;
+const PROJECT_KEYS = ['projectId', 'name', 'folder', 'room', 'leadAssignmentId', 'cloned'] as const;
 /** The agent's part, kept in its assignment (assignments.json). */
 const AGENT_KEYS = [
   'title',
@@ -165,8 +170,16 @@ function real(p: string): string {
 export const samePath = (a: string, b: string, host: PathHost): boolean =>
   sameProjectPath(real(a), real(b), host);
 
+/** PROJECT-DATA: names with a meaning of their own, never an agent's: the owner's look key
+ *  (characters.json), the boss's and the system's sender names in rooms and messages. */
+export const RESERVED_NAMES: readonly string[] = [OWNER_LOOK_KEY, '사장', CLI_NAME, 'cld-gui'];
+
 export const checkName = (name: string): string | null =>
-  NAME_RE.test(name) ? null : koText('name_rule');
+  !NAME_RE.test(name)
+    ? koText('name_rule')
+    : RESERVED_NAMES.some((r) => r.toLowerCase() === name.toLowerCase())
+      ? koText('name_reserved', { name })
+      : null;
 
 export function checkRoom(room: string): string | null {
   const r = room.trim();
@@ -245,6 +258,7 @@ function validRecord(r: unknown, requireProjectId: boolean): r is ProjectRecord 
     optional(p.backgroundId, (v) => BACKGROUND_ID_RE.test(v)) &&
     (p.idleRetired === undefined || typeof p.idleRetired === 'boolean') &&
     (p.resumeAsCopy === undefined || p.resumeAsCopy === true) &&
+    (p.cloned === undefined || p.cloned === true) &&
     (p.compactionNudge === undefined ||
       (Number.isInteger(p.compactionNudge) && p.compactionNudge >= 1 && p.compactionNudge <= 99)) &&
     (p.role === undefined || WORKER_ROLES.includes(p.role)) &&
@@ -295,6 +309,7 @@ const KEYS: Array<keyof ProjectRecord> = [
   'compactionNudge',
   'provider',
   'resumeAsCopy',
+  'cloned',
 ];
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';

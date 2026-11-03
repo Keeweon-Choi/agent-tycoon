@@ -157,6 +157,10 @@ declare global {
         rideT: number | null;
         hidden: boolean;
         visit: string | null;
+        /** WALK-FIX: what the walk draws: the facing, the frame (0-3) and the diagonal row step. */
+        dir: number;
+        frame: number;
+        diagRow: number | null;
         /** LOUNGE: its rest phase (go, rest, fetch, use, drink), the seat and the drink. */
         rest: string | null;
         restSeat: string | null;
@@ -393,6 +397,9 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
           rideT: ch.cldRide?.t ?? null,
           hidden: !!ch.cldRide?.hidden,
           visit: ch.cldVisit?.floor ?? null,
+          dir: ch.dir,
+          frame: ch.frame,
+          diagRow: ch.cldDiagRow ?? null,
           rest: ch.cldRest?.phase ?? null,
           restSeat: ch.cldRest?.spot.seat ?? null,
           restKind: ch.cldRest?.kind ?? null,

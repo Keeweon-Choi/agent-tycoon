@@ -65,7 +65,6 @@ const FREE_WINDOWS: ReadonlySet<string> = new Set<WindowId>([
   'terminal',
   'office',
   'notices',
-  'workbench',
   'looks',
   'devroom',
 ]);
@@ -304,7 +303,6 @@ export type WindowId =
   | 'messenger'
   | 'notices'
   | 'terminal'
-  | 'workbench'
   | 'looks'
   | 'devroom';
 /** Icon column: one icon (40 px at 보통) plus its gap, so a window opens beside it. */
@@ -315,7 +313,6 @@ const DEFAULT_WIDTH: Record<WindowId, number> = {
   messenger: 680,
   notices: 420,
   terminal: 900,
-  workbench: 560,
   looks: 480, // the pixel editor: a 192 px canvas and its 224 px tool column side by side
   devroom: 1232, // P4 W1b: the worktree rail and the agents' terminals side by side
 };
@@ -329,7 +326,6 @@ const CASCADE_ORDER: readonly WindowId[] = [
   'messenger',
   'notices',
   'terminal',
-  'workbench',
   'looks',
   'devroom',
 ];
@@ -482,7 +478,7 @@ export function applyPreset(
 }
 
 /** Icons added after layouts were saved (owner 10-24: 파일). */
-export const NEW_ICONS: readonly string[] = ['files', 'workbench', 'devroom'];
+export const NEW_ICONS: readonly string[] = ['files', 'devroom'];
 
 /**
  * A saved 아래 가로 row predates `ids`: each missing one takes the next slot after the
@@ -547,8 +543,9 @@ export function parseLayout(raw: string | null | undefined): Layout {
     const preset = (data as { preset?: unknown }).preset;
     if (PRESETS.some((p) => p.id === preset)) out.preset = preset as Preset;
     for (const [savedId, value] of Object.entries(items).slice(0, MAX_ENTRIES)) {
-      const id = savedId === LEGACY_OFFICE_ID ? 'office' : savedId;
-      if (savedId === LEGACY_OFFICE_ID && Object.hasOwn(items, 'office')) continue;
+      // UI-DASH: the 작업실 window became the 현황판's 개발 tab; its saved place opens the 현황판.
+      const id = savedId === LEGACY_OFFICE_ID || savedId === 'workbench' ? 'office' : savedId;
+      if (id !== savedId && (Object.hasOwn(items, 'office') || Object.hasOwn(out.items, 'office'))) continue;
       const entry = parseEntry(value);
       if (entry) out.items[id] = entry;
     }

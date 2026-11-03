@@ -87,6 +87,37 @@ export class RosterStore {
     this.now = opts.now ?? Date.now;
     this.random = opts.random ?? Math.random;
     this.newId = opts.newId ?? (() => crypto.randomUUID());
+    this.read();
+    // A daemon start: whatever was left running has no end signal coming.
+    const at = this.now();
+    for (const p of Object.values(this.projects)) {
+      for (const b of Object.values(p.executions)) {
+        if (b.ended !== null) continue;
+        b.ended = at;
+        b.endedBy = 'restart';
+        this.dirty = true;
+      }
+      // Nothing runs across a start: every employee is idle (also one whose binding was lost).
+      for (const e of p.employees)
+        if (e.execution !== null) {
+          e.execution = null;
+          e.lastReleasedAt = at;
+          this.dirty = true;
+        }
+    }
+    if (this.dirty) this.flush();
+  }
+
+  /** Read the file again (after projectData changed it; flushIfDirty first). Running bindings
+   *  stay as the file has them (nothing is released, unlike a start). */
+  reload(): void {
+    this.projects = {};
+    this.read();
+    if (this.dirty) this.flush();
+  }
+
+  private read(): void {
+    const file = this.file;
     let raw: unknown;
     try {
       raw = readJson(file);
@@ -132,24 +163,6 @@ export class RosterStore {
       console.warn(`[cld] roster: records of the wrong shape left out, the file kept as ${aside}`);
       this.dirty = true;
     }
-    // A daemon start: whatever was left running has no end signal coming.
-    const at = this.now();
-    for (const p of Object.values(this.projects)) {
-      for (const b of Object.values(p.executions)) {
-        if (b.ended !== null) continue;
-        b.ended = at;
-        b.endedBy = 'restart';
-        this.dirty = true;
-      }
-      // Nothing runs across a start: every employee is idle (also one whose binding was lost).
-      for (const e of p.employees)
-        if (e.execution !== null) {
-          e.execution = null;
-          e.lastReleasedAt = at;
-          this.dirty = true;
-        }
-    }
-    if (this.dirty) this.flush();
   }
 
   /**

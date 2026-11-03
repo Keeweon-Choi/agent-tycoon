@@ -85,7 +85,7 @@ export function within(file: string, root: string): boolean {
 export function seal(d: WorkDelta): WorkDelta {
   const out: WorkDelta = {
     ...d,
-    items: d.items.map((i) => ({ ...i, text: maskText(i.text) })),
+    items: d.items.map((i) => ({ ...i, text: maskText(i.text), ...(i.args !== undefined && { args: maskText(i.args) }) })),
   };
   if (d.title !== undefined) out.title = maskText(d.title);
   return out;
@@ -225,7 +225,13 @@ export class WorkViews {
       this.release(send, key);
       return;
     }
-    if (entry?.sends.has(send)) return;
+    // DEVROOM-SUBVIEW: the same client opening it again (the dev room beside the work sheet) gets it whole.
+    // ponytail: one subscription per client, so either closing stops both; count per client if that bites.
+    if (entry?.sends.has(send)) {
+      entry.fresh.add(send);
+      void this.poll();
+      return;
+    }
     const refuse = (why: Refused) =>
       send({ type: 'workContent', ...echo(target), items: [], ...why });
     const mine = [...this.open.values()].filter((o) => o.sends.has(send));

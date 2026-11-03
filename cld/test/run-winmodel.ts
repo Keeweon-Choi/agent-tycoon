@@ -164,7 +164,7 @@ async function main() {
       const active = () => page.getByTestId('mobile-dock').locator('[aria-current="page"]').getAttribute('data-dock');
       const messenger = page.getByRole('region', { name: '메신저', exact: true });
       const conv = messenger.getByRole('region', { name: 'alpha 대화' });
-      const workbench = page.locator('[aria-label="작업실 화면"]');
+      const workbench = page.locator('[aria-label="현황판 화면"]');
 
       // 1. A notice opens the messenger, and it stays (10-24: it closed at once).
       turnEnd();
@@ -180,7 +180,7 @@ async function main() {
       // 2. Switching tabs keeps every tab.
       const top = await draftAndScroll(page, conv);
       await tap('workbench');
-      await workbench.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
+      await workbench.getByRole('combobox', { name: '개발 프로젝트' }).selectOption('alpha');
       await workbench.getByRole('button', { name: 'Task', exact: true }).tap();
       await page.waitForTimeout(500);
       await shot('2-workbench');
@@ -193,7 +193,7 @@ async function main() {
       await tap('workbench');
       await page.waitForTimeout(500);
       check(
-        (await workbench.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'alpha' &&
+        (await workbench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'alpha' &&
           (await workbench.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
         'phone 2: the 작업실 kept its project and tab',
       );
@@ -220,7 +220,7 @@ async function main() {
       await tap('workbench');
       await page.waitForTimeout(500);
       check(
-        (await workbench.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'alpha',
+        (await workbench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'alpha',
         'phone 4: Back closed nothing (the 작업실 is still on alpha)',
       );
       await ctx.close();

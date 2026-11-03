@@ -14,8 +14,8 @@
  * socket is typed under the owner's header.
  *
  * Owner (SEC-CONTROL, security.md §8): `owner` is the token in `<config>/owner-token`
- * (controlIdentity.cjs). Only it unlocks the owner's commands (worker, trust, stop-agents,
- * `task mode <m>`, renew of any project); task writes and worktree need it or an agent token. An
+ * (controlIdentity.cjs). Only it unlocks the owner's commands (worker, project remove, trust,
+ * stop-agents, `task mode <m>`, renew and rename of any project; an agent renames only itself); task writes and worktree need it or an agent token. An
  * agent token wins over it. A caller with neither is unidentified and gets the least: never more
  * than an agent. Before
  * this, a missing token meant the owner's power, so an agent that dropped CLD_AGENT_TOKEN had it.
@@ -39,13 +39,15 @@ import { configDir } from './events.js';
 import { CLAUDE_PTY_PROVIDER } from './registry.js';
 
 const WORKER_OPS: EngineActionKind[] = ['add', 'edit', 'remove', 'start', 'stop', 'restart', 'promote'];
-const WORKER_FIELDS = ['project', 'role', 'folder', 'model', 'permissionMode', 'effort', 'title', 'provider'] as const;
+const WORKER_FIELDS = ['project', 'role', 'folder', 'model', 'permissionMode', 'effort', 'title', 'provider', 'inheritFrom'] as const;
 const WORKER_USAGE =
-  `사용법: ${CLI_NAME} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] | worker edit <이름> [같은 옵션] | worker remove|start|stop|restart <이름> | worker promote <이름> [--old stop]`;
+  `사용법: ${CLI_NAME} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] [--inherit ~<지운 에이전트>] | worker edit <이름> [같은 옵션] | worker remove <이름> [--purge] | worker start|stop|restart <이름> | worker promote <이름> [--old stop]`;
 
 /** SEC-CONTROL: what an unidentified caller hears when it asks for an owner command. */
 export const OWNER_NEEDED = `주인 확인이 안 돼요: 에이전트·작업 밖의 터미널에서 ${CLI_NAME} 를 실행하세요(owner-token)`;
 
+const RENAME_USAGE = `사용법: ${CLI_NAME} rename [--project <지금 이름>] <새 이름>`;
+const PROJECT_USAGE = `사용법: ${CLI_NAME} project remove <프로젝트> [--purge]`;
 const MOVE_PTY_USAGE = `사용법: ${CLI_NAME} move-pty <이름> | move-pty --all | move-pty --stop`;
 const TRUST_USAGE = `사용법: ${CLI_NAME} trust [--start] <프로젝트 이름 또는 폴더>`;
 
@@ -171,6 +173,8 @@ export interface ControlDeps {
   stopAgents?(): Promise<Reply> | Reply;
   stop(target: string, source: string): Reply;
   renew(name: string, handoff: string, file: string | null, source: string): Reply;
+  /** RENAME: `agty rename`, applied once the agent's turn is over (Engine.rename). */
+  rename?(name: string, to: string, source: string): Reply;
   /** C5a: one MCP tool call by `agent` (always the token's agent: mcpTools.ts). */
   mcp?(agent: string, tool: string, input: unknown): Promise<Record<string, unknown>>;
   /** W2: `cld-gui worktree new|list` (taskWorktree.ts); an agent's token keeps it to its project. */
@@ -357,6 +361,38 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         );
       return d.renew(name, str(a.text) ?? '', str(a.file), req.source);
     }
+    case 'rename': {
+      // An agent renames itself (its token); the owner anyone; nobody else.
+      const to = str(a.to);
+      if (!to) return refuse('usage', RENAME_USAGE);
+      if (!owner && !agent) return ownerOnly('');
+      let name = agent;
+      if (has('project')) {
+        name = given('project');
+        if (!name || !d.names().includes(name)) return unknown(String(a.project));
+      }
+      if (!name) return refuse('no_project', `어느 에이전트인지 모릅니다: --project <지금 이름>을 주세요`);
+      if (!owner && name !== agent) return ownerOnly('에이전트는 다른 에이전트의 이름을 바꿀 수 없어요');
+      if (!d.rename) return refuse('daemon_error', '이름을 바꿀 수 없어요');
+      const r = d.rename(name, to, req.source);
+      return r.ok ? { ok: true, name, to, rename: 'pending' } : r;
+    }
+    case 'project': {
+      // The owner's: a project (its Lead and its Workers) out of the list; --purge its data too.
+      if (!owner) return ownerOnly('에이전트는 프로젝트를 지울 수 없어요');
+      if (!d.engineAction || !d.workers) return refuse('daemon_error', '프로젝트를 다룰 수 없어요');
+      const name = projectName(a.name);
+      if (a.op !== 'remove' || !name) return refuse('usage', PROJECT_USAGE);
+      if (!d.names().includes(name) || d.workers().some((w) => w.name === name)) return unknown(name);
+      const r = await d.engineAction({
+        type: 'engineAction',
+        requestId: `cli-${Date.now()}`,
+        action: 'remove',
+        name,
+        ...(a.purge === true && { purge: true }),
+      });
+      return r.ok ? { ok: true, name, action: 'remove', ...(r.note && { note: r.note }) } : refuse('refused', r.error ?? '');
+    }
     case 'mcp': {
       // C5a: the MCP adapter's calls. Identity is the token's agent only: no cwd, no --from.
       if (!agent)
@@ -451,6 +487,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         ...fields,
         // D3b: what the old Lead becomes (worker unless --old stop).
         ...(op === 'promote' && { oldLead: a.oldLead === 'stop' ? 'stop' : 'worker' }),
+        ...(op === 'remove' && a.purge === true && { purge: true }),
       });
       return r.ok
         ? { ok: true, name, action: op, ...(r.note && { note: r.note }) }

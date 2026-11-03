@@ -4,8 +4,10 @@
  * branch the project is on. Jobs and Codex (E2, E4) call `create`; the UI
  * lists them and removes them. Every worktree the daemon makes is recorded in
  * `worktrees.json` (project, task, path, branch, base, created, status);
- * the record names what is ours, but a path is always rebuilt from the
- * project folder and the task name, never taken from the file.
+ * the record names what is ours. Its path is used only when git has that folder registered as a
+ * worktree inside the project's repository and named after the task (one made from inside another
+ * worktree, `.worktrees/integ/.worktrees/<task>`); else it is rebuilt from the project folder and
+ * the task name (folderOf).
  *
  * Removal never loses work quietly: `git worktree remove` without --force
  * unless the caller says the user confirmed, and the branch goes only when it
@@ -26,6 +28,7 @@ import type { GitRunner } from './gitRun.js';
 import { READ_ENV, RepoError } from './gitRun.js';
 import type { ProjectFolder } from './repoRead.js';
 import { gitMessage, readStatus, repoRoot } from './repoRead.js';
+import type { WorktreeSpec } from './worktreeRead.js';
 
 export const TASK_PATTERN = /^[a-z0-9][a-z0-9-]{0,40}$/;
 export const WORKTREES_DIR = '.worktrees';
@@ -146,6 +149,17 @@ async function registeredWorktrees(run: GitRunner, top: string): Promise<Set<str
     if (line.startsWith('worktree ')) out.add(realOrSame(line.slice('worktree '.length)));
   }
   return out;
+}
+
+/**
+ * Where record `rec` lives: its recorded folder when git has it registered inside the repository's
+ * folder `top` under the task's own name (made from inside another worktree), else the folder
+ * rebuilt from the project and the task name.
+ */
+export function folderOf(top: string, rec: Pick<WorktreeRecord, 'path' | 'task'>, registered: Set<string>): string {
+  const p = path.resolve(rec.path);
+  const inside = p.startsWith(top + path.sep) && path.basename(p) === rec.task;
+  return inside && registered.has(realOrSame(p)) ? p : worktreePath(top, rec.task);
 }
 
 async function commitExists(run: GitRunner, top: string, ref: string): Promise<boolean> {
@@ -432,6 +446,34 @@ export class Worktrees {
       await run(top, ['branch', '-D', branch]);
   }
 
+  /**
+   * P4 직접 풀기 / 에이전트에게 맡기기 on an active record whose folder is gone but whose branch is
+   * kept (an old Codex run's): the folder is checked out again at `.worktrees/<task>` on the same
+   * branch (`git worktree add`, never --force) and the record points at it. A folder that is there
+   * is left as it is. Throws a RepoError when it cannot.
+   */
+  async reopen(project: ProjectFolder, task: string): Promise<void> {
+    return this.serial(async () => {
+      const { run } = this.o;
+      const top = await repoRoot(run, project.folder);
+      const records = readRecords(this.o.file);
+      const rec = records.find((r) => r.project === project.name && r.task === task && r.status === 'active');
+      if (!rec) throw new RepoError(koText('worktree_missing'));
+      const st = await this.inspect(top, rec, await registeredWorktrees(run, top));
+      if (st.exists) return;
+      if (!st.branchOk) throw new RepoError(koText('worktree_missing'));
+      const wt = worktreePath(top, task);
+      if (lexists(wt)) throw new RepoError(koText('worktree_folder_exists', { dir: WORKTREES_DIR, name: task }), 'exists');
+      await this.ensureIgnored(top);
+      const add = await run(top, ['worktree', 'add', wt, rec.branch], { timeoutMs: WORKTREE_TIMEOUT_MS });
+      if (add.code !== 0)
+        throw new RepoError(koText('worktree_make_failed', { why: add.timedOut ? koText('timed_out') : gitMessage(add.stderr) }));
+      await this.o.guard?.(top, project.name);
+      writeRecords(this.o.file, records.map((r) => (r === rec ? { ...r, path: wt } : r)));
+      this.log(`reopen ${JSON.stringify(project.name)} ${task}: ok`);
+    });
+  }
+
   /** W2: every record (active and the last removed ones). */
   all(): WorktreeRecord[] {
     return readRecords(this.o.file);
@@ -490,7 +532,7 @@ export class Worktrees {
     registered: Set<string>,
   ): Promise<Inspected> {
     const { run } = this.o;
-    const wt = worktreePath(top, rec.task);
+    const wt = folderOf(top, rec, registered);
     const dirExists = fs.existsSync(wt);
     const isRegistered = dirExists && registered.has(realOrSame(wt));
     const branchRef = `refs/heads/${rec.branch}`;
@@ -559,6 +601,18 @@ export class Worktrees {
     return all.map(({ dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, ...wire }) => wire);
   }
 
+  /** Active task worktree `task`'s folder, branch and base, and whether git has the folder as a
+   *  worktree: two git calls, not list()'s few per worktree of the project. */
+  async spec(project: ProjectFolder, task: string): Promise<WorktreeSpec | undefined> {
+    const rec = readRecords(this.o.file).find((r) => r.project === project.name && r.task === task && r.status === 'active');
+    if (!rec) return undefined;
+    const top = await repoRoot(this.o.run, project.folder);
+    const registered = await registeredWorktrees(this.o.run, top);
+    const wt = folderOf(top, rec, registered); // a nested (integ/.worktrees/…) folder too, like list()
+    const exists = fs.existsSync(wt) && registered.has(realOrSame(wt));
+    return { path: wt, branch: rec.branch, base: rec.base, exists };
+  }
+
   async status(project: ProjectFolder, task: string): Promise<RepoWorktree | undefined> {
     return (await this.list(project)).find((w) => w.task === task);
   }
@@ -585,7 +639,7 @@ export class Worktrees {
       );
       if (!rec) return { ok: false, error: koText('worktree_missing') };
       const st = await this.inspect(top, rec, await registeredWorktrees(run, top));
-      const wt = worktreePath(top, task);
+      const wt = st.path;
       if (st.dirExists && !st.registered) {
         return { ok: false, ...refused('worktree_unregistered') };
       }

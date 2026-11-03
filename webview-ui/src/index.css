@@ -14,6 +14,19 @@
   src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
 }
 
+/* UI-FONT 읽기 쉬움: the same Galmuri11 file for printable ASCII, as its own family so the setting
+   can put it first in the stack (--pixel-font-stack below, constants.ts PIXEL_FONT_FAMILY_READABLE); the app only, the login page keeps its own.
+   Only fetched when that mode draws a digit or a letter. */
+@font-face {
+  font-family: 'Galmuri11 ASCII';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/galmuri/Galmuri11.woff2') format('woff2');
+  size-adjust: 66.667%;
+  unicode-range: U+0021-007E;
+}
+
 :root {
   /* Core palette */
   --color-bg: #1e1e2e;
@@ -149,17 +162,30 @@
   --cld-safe-top: env(safe-area-inset-top, 0px);
   --cld-safe-right: env(safe-area-inset-right, 0px);
   --cld-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* UI-FIX 2: the one place for pop-up notices, under the clock bar (the bar's measured bottom replaces this). */
+  --cld-toast-top: calc(var(--cld-safe-top) + 56px * var(--ui-scale));
   --cld-toast-bottom: calc(var(--cld-safe-bottom) + 112px * var(--ui-scale));
   /* UI-SCALE 화면 크기 (cld/uiScale.ts sets it on <html>): spacing and text sizes follow it. */
   --ui-scale: 1;
+  /* NOTICE-B: the least a finger target measures, whatever the button draws (WCAG 2.5.5, Apple HIG). */
+  --cld-touch-min: 44px;
   --cld-safe-left: env(safe-area-inset-left, 0px);
+
+  /* UI-FONT 글꼴 (cld/uiFont.ts sets data-ui-font on <html>): 픽셀 감성 is FS Pixel Sans for Latin,
+     읽기 쉬움 puts Galmuri11 first for printable ASCII (fonts.css), the face that draws the Hangul. */
+  --pixel-font-stack: 'FS Pixel Sans', 'Galmuri11', sans-serif;
+}
+:root[data-ui-font='readable'] {
+  --pixel-font-stack: 'Galmuri11 ASCII', 'FS Pixel Sans', 'Galmuri11', sans-serif;
 }
 
 @theme inline {
   /* 1px base so Tailwind spacing maps directly to pixels (pixel-art project) */
   --spacing: calc(1px * var(--ui-scale));
 
-  --font-pixel: 'FS Pixel Sans', 'Galmuri11', sans-serif;
+  --font-pixel: var(--pixel-font-stack);
+  /* DEVROOM-SUBVIEW: a sub-agent's transcript reads like a terminal; Galmuri draws the Hangul a mono face lacks. */
+  --font-transcript: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Galmuri11', monospace;
 
   /* Text sizes (pixel-art scale, base = 22px) */
   --text-*: initial;
@@ -572,6 +598,25 @@
      in a Home-Screen PWA with viewport-fit=cover the page starts under the
      iOS status bar, so the usual 8px top offset lands beneath the clock.
      env() is 0 in browser tabs and on desktop, where this equals top-8. */
+  .cld-toast-slot {
+    position: fixed;
+    top: calc(var(--cld-toast-top) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 47; /* over the office labels (41-43) and doors (46), under the HUD windows (48) and dialogs (50+) */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: min(420px, calc(100vw - 32px));
+    pointer-events: none;
+  }
+
+  /* The answer to the user's own action: over the attachment viewer (80) and the full-screen file explorer (100). */
+  .cld-toast-slot-over {
+    z-index: 110;
+  }
+
   .mobile-safe-top {
     top: calc(var(--cld-safe-top) + 8px);
   }

@@ -7,8 +7,21 @@ import {
   fileActions,
   imageActions,
   prepareClipboardPng,
+  shareKind,
   shouldConvertImageToPng,
 } from './attachmentActions.js';
+
+describe('save or share in a browser and in the desktop app', () => {
+  it('shares in a browser that can, and saves through a dialog in the desktop app', () => {
+    const kind = (desktopApp: boolean, canShare: boolean, canPickSave: boolean) =>
+      shareKind({ desktopApp, canShare, canPickSave });
+    expect(kind(false, true, true)).toBe('share');
+    expect(kind(false, false, true)).toBeNull(); // a browser never swaps its share for a save dialog
+    // WebView2 may claim it can share; the app saves instead, or offers nothing.
+    expect(kind(true, true, true)).toBe('save');
+    expect(kind(true, true, false)).toBeNull();
+  });
+});
 
 describe('image attachment actions', () => {
   it('keeps download, copy, and a new tab available while gating sharing by browser support', () => {

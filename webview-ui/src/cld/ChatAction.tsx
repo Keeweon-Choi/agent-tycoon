@@ -11,11 +11,14 @@ export function ChatAction({
   agentId,
   variant,
   onOpen,
+  className = 'block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover',
 }: {
   agentId: number;
   variant: 'menu' | 'card';
   /** Called as the chat opens (a modal that holds this button closes itself). */
   onOpen?: () => void;
+  /** The menu item's look (a row in the phone's summary card has its own). */
+  className?: string;
 }) {
   const { officeSnapshot: officeState } = useCldStore();
   if (!chatTarget(agentId, officeState)) return null;
@@ -29,7 +32,7 @@ export function ChatAction({
       <button
         type="button"
         role="menuitem"
-        className="block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover"
+        className={className}
         onClick={open}
       >
         {t('chat.action.menu')}

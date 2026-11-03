@@ -38,12 +38,20 @@ describe('hudStore load (owner 10-24: the files icon)', () => {
   });
 });
 
+describe('UI-DASH: the workbench is the status board dev tab', () => {
+  it('a desktop saved with the workbench open opens the status board', async () => {
+    seedStorage({ [LAYOUT_KEY]: JSON.stringify({ v: 1, items: {}, open: { workbench: true } }) });
+    const { hudGetSnapshot } = await import('./hudStore.js');
+    expect(hudGetSnapshot().open.office).toBe(true);
+  });
+});
+
 describe('UI-C1: the status board window has status board, HW and (from the folder icon) files', () => {
   it('a tab name from an older saved state (jobs, codex) opens the status board', async () => {
     seedStorage({});
     const { hudGetSnapshot, showOffice, normalizeOfficeTab } = await import('./hudStore.js');
     for (const old of ['jobs', 'codex', 'nope', undefined]) expect(normalizeOfficeTab(old)).toBe('status');
-    for (const tab of ['status', 'hw', 'files'] as const) expect(normalizeOfficeTab(tab)).toBe(tab);
+    for (const tab of ['status', 'dev', 'hw', 'files'] as const) expect(normalizeOfficeTab(tab)).toBe(tab);
     showOffice('codex' as never);
     expect(hudGetSnapshot()).toMatchObject({ officeTab: 'status', boardTab: 'status' });
   });
@@ -74,11 +82,11 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
       './hudStore.js'
     );
     showOffice('hw');
-    openWindow('workbench');
+    openWindow('devroom');
     minimizeWindow('office');
     openWindow('notices');
     expect(hudGetSnapshot()).toMatchObject({
-      open: { office: true, workbench: true, notices: true },
+      open: { office: true, devroom: true, notices: true },
       minimized: { office: true },
     });
     openWindow('office');
@@ -87,7 +95,7 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
     expect(snap.officeTab).toBe('hw');
     expect(snap.order.at(-1)).toBe('office');
     closeWindow('office');
-    expect(hudGetSnapshot().open).toMatchObject({ office: false, workbench: true, notices: true });
+    expect(hudGetSnapshot().open).toMatchObject({ office: false, devroom: true, notices: true });
   });
 
   it('a notice opening the messenger as the notice window closes keeps the messenger open', async () => {
@@ -112,7 +120,7 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
     );
     setPhone(true);
     openMessenger(7);
-    expect(pressTab('workbench')).toBeUndefined();
+    expect(pressTab('devroom')).toBeUndefined();
     expect(messengerShowing(7)).toBe(false); // out of sight: not being read
     expect(hudGetSnapshot()).toMatchObject({ open: { messenger: true }, minimized: { messenger: true } });
     expect(pressTab('messenger')).toBeUndefined();

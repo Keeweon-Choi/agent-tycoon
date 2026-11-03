@@ -791,6 +791,8 @@ describe('cld-gui CLI', () => {
       'jobs',
       'stop',
       'renew',
+      'rename',
+      'project',
       'login',
       'codex',
       'gpu',

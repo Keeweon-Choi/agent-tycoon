@@ -104,6 +104,7 @@ sh scripts/makensis.test.sh                       # 래퍼가 NSIS 3.09 미만�
 rustc --edition 2021 --test src-tauri/src/connect.rs -o "$CARGO_TARGET_DIR/connect-tests" && "$CARGO_TARGET_DIR/connect-tests"
 rustc --edition 2021 --test src-tauri/src/owner.rs -o "$CARGO_TARGET_DIR/owner-tests" && "$CARGO_TARGET_DIR/owner-tests"   # 포트 주인 조회(Linux 쪽)
 rustc --edition 2021 --test src-tauri/src/appdata.rs -o "$CARGO_TARGET_DIR/appdata-tests" && "$CARGO_TARGET_DIR/appdata-tests"   # 옛 식별자 폴더 복사(처음, 이미 옮김, 반쯤 옮김)
+rustc --edition 2021 --test src-tauri/src/downloads.rs -o "$CARGO_TARGET_DIR/downloads-tests" && "$CARGO_TARGET_DIR/downloads-tests"   # 내려받기 이름(Windows 금지 글자, 장치 이름 CONIN$·COM¹ 포함, 길이, 겹치지 않는 이름, 다 차면 거절)
 # local.rs는 serde_json을 씁니다: 호스트용 serde_json을 한 번 빌드해 링크합니다.
 (cd src-tauri && cargo build -q -p serde_json --target-dir "$CARGO_TARGET_DIR/host-json")
 rustc --edition 2021 --test src-tauri/src/local.rs -L dependency="$CARGO_TARGET_DIR/host-json/debug/deps" \
@@ -210,6 +211,9 @@ macOS에서는 Ctrl 대신 Cmd입니다(Cmd+R, Cmd+Shift+T, Cmd+,). 키와 버�
 오피스 밖 링크(예: claude.ai **대화 열기**, 문서 링크, 새 탭 링크, `window.open`)는 앱 안이 아니라 기본 브라우저에서 열립니다.
 새 창으로 여는 링크와 `window.open`은 페이지 안의 스크립트가 바로 앱에 넘기고, 같은 창 링크는 탐색 단계에서, 나머지 새 창 요청은 WebView2의 새 창 이벤트에서 받습니다.
 어느 길로 오든 로그에 `외부 링크 열기: https://claude.ai`처럼 출처만 남습니다. 웹 주소가 아닌 링크(`mailto:`, `file:` 등)는 열지 않고 `링크 막음: <스킴>`을 남깁니다.
+메신저 첨부의 **새 탭에서 열기**도 기본 브라우저로 갑니다: 그 브라우저에는 로그인 쿠키가 없으므로 오피스가 쿠키 없이 쓰는 일회용 `open` 주소(60초)를 만들어 넘깁니다.
+내려받기는 어느 페이지에서 하든 사용자의 다운로드 폴더에 Windows에서 안전한 이름으로, 같은 이름이 있으면 `이름 (1).확장자`로 저장되고(`src/downloads.rs`), 끝나면 오피스가 「다운로드 폴더에 저장했어요」를 띄웁니다. 로그에는 `내려받기 시작/끝/실패`만 남고 파일 이름은 남지 않습니다.
+**저장·공유**는 앱에서 저장 위치를 고르는 창(WebView2의 `showSaveFilePicker`)입니다. WebView2에는 쓸 수 있는 공유 시트가 없습니다.
 
 ## 파일 위치
 

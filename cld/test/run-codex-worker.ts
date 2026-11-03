@@ -35,6 +35,7 @@ import {
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
+  openWorkbenchTab,
   REPO_ROOT,
   sparePort,
   startDaemon,
@@ -205,13 +206,9 @@ async function main() {
     };
     const shot = (p: Page, name: string) => p.screenshot({ path: path.join(OUT, `${name}.png`) });
     const { p: desk } = await newPage({ viewport: { width: 1280, height: 800 } });
-    const wb = desk.locator('[data-hud-window="workbench"]');
-    const icon = desk.locator('[data-hud-id="icon:workbench"] button');
-    await icon.waitFor();
-    if (!(await wb.isVisible())) await icon.click();
-    await wb.waitFor();
-    await wb.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
-    await wb.getByRole('button', { name: '에이전트', exact: true }).click();
+    // UI-DASH: the old 작업실 is the 현황판's 개발 tab.
+    const wb = desk.locator('[data-hud-window="office"]');
+    await openWorkbenchTab(desk, '에이전트', { project: 'alpha' });
     await wb.getByTestId('workbench-agent').first().waitFor();
 
     // '+ Worker' with Codex.
@@ -356,13 +353,8 @@ async function main() {
 
     // The phone.
     const { p: phone } = await newPage({ ...devices['iPhone 13'] });
-    const dockWb = phone.locator('[aria-label="작업실 화면"]');
-    const dockIcon = phone.locator('[data-hud-id="icon:workbench"] button').first();
-    await dockIcon.waitFor();
-    if (!(await dockWb.isVisible())) await dockIcon.tap();
-    await dockWb.waitFor();
-    await dockWb.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
-    await dockWb.getByRole('button', { name: '에이전트', exact: true }).tap();
+    const dockWb = phone.locator('[aria-label="현황판 화면"]');
+    await openWorkbenchTab(phone, '에이전트', { project: 'alpha', tap: true });
     await dockWb.locator('[data-testid="workbench-agent"][data-name="alpha-w1"]').waitFor({ timeout: 20_000 });
     await phone.waitForTimeout(500);
     await shot(phone, 'phone-agents-codex');

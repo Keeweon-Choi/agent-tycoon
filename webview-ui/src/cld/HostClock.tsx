@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { t, type TranslationKey } from '../i18n/index.js';
 import { hostTime } from './officeHours.js';
 import { useCldStore } from './officeStore.js';
+import { useUiFont } from './uiFont.js';
 
 /** Stands in for the weekday while the date line is split around it. */
 const WEEKDAY_MARK = '\u0001';
@@ -14,6 +15,7 @@ const toNextMinute = (now: number): number => 60_000 - (now % 60_000);
 /** The top bar's clock: "10.24 (금) 22:28" in the HOST's time (the one office hours use), ticking once a minute.
  *  The bars centre it (owner 10-24) and pass the Tailwind text size their height allows. */
 export function HostClock({ size = 'text-2xl' }: { size?: string }) {
+  const readable = useUiFont() === 'readable';
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -44,8 +46,9 @@ export function HostClock({ size = 'text-2xl' }: { size?: string }) {
       <span className="max-[359px]:hidden">
         {before}
         {/* The pixel font's digits are about half the height of a Hangul syllable (Galmuri, 1.4x
-            the Latin cap height): the weekday is drawn smaller so the clock reads evenly. */}
-        <span className={HANGUL.test(weekday) ? 'text-[0.7em]' : undefined}>{weekday}</span>
+            the Latin cap height): the weekday is drawn smaller so the clock reads evenly. 읽기 쉬움
+            draws the digits in Galmuri too (UI-FONT), so the weekday keeps the clock's size. */}
+        <span className={HANGUL.test(weekday) && !readable ? 'text-[0.7em]' : undefined}>{weekday}</span>
         {after}{' '}
       </span>
       {time}

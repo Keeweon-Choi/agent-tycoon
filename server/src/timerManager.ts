@@ -1,5 +1,6 @@
 import type { AgentStateStore } from './agentStateStore.js';
 import { PERMISSION_MODE_BYPASS, PERMISSION_TIMER_DELAY_MS } from './constants.js';
+import { endQuestion, settleQuestion } from './question.js';
 import { hasPromotedBackgroundAgent } from './teamUtils.js';
 import type { AgentState } from './types.js';
 
@@ -32,6 +33,8 @@ export function clearAgentActivity(
   }
 
   agent.isWaiting = false;
+  agent.lastAssistantText = undefined; // a new turn
+  endQuestion(agent);
   agent.permissionSent = false;
   cancelPermissionTimer(agentId, permissionTimers);
   agents.broadcast({ type: 'agentToolsClear', id: agentId });
@@ -82,6 +85,7 @@ export function startWaitingTimer(
     const agent = agents.get(agentId);
     if (agent) {
       agent.isWaiting = true;
+      settleQuestion(agent); // a text-only turn (no turn_duration) that ends asking
     }
     agents.broadcast({
       type: 'agentStatus',
@@ -90,6 +94,7 @@ export function startWaitingTimer(
       // Heuristic text-idle timer: the turn ended without a clear idle signal,
       // so this is "Done", not "Waiting for input".
       awaitingInput: false,
+      ...(agent?.questionOffset !== undefined && { question: true }),
     });
   }, delayMs);
   waitingTimers.set(agentId, timer);

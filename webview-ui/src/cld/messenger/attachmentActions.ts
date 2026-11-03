@@ -13,6 +13,21 @@ export interface FileActionCapabilities extends ImageActionCapabilities {
   opensInline: boolean;
 }
 
+/**
+ * What 저장·공유 does. A browser: its share sheet, when it can share the file. The desktop app
+ * (DESKTOP-ACTIONS): WebView2 has no working share sheet, so a save dialog, when the page can open one.
+ */
+export type ShareKind = 'share' | 'save' | null;
+export const shareKind = ({
+  desktopApp,
+  canShare,
+  canPickSave,
+}: {
+  desktopApp: boolean;
+  canShare: boolean;
+  canPickSave: boolean;
+}): ShareKind => (desktopApp ? (canPickSave ? 'save' : null) : canShare ? 'share' : null);
+
 /** Download, copy, and a new tab are always useful; only sharing needs browser support. */
 export function imageActions({ canShare }: ImageActionCapabilities): ImageAction[] {
   return [

@@ -1,10 +1,11 @@
 /**
- * Our own tmux server for trusted-device shells (T-0069, T-0078): a shell
- * runs in a detached tmux session so a deploy (the daemon restarting) does
- * not kill it. Every call names `-L <socket> -f /dev/null`: a private socket
- * and no user config, never the default server. The only way
- * to another socket is `CLD_GUI_SHELL_TMUX_SOCKET` with a `cld-test-` name
- * (the tests'), so nothing an environment says can point this at a real server.
+ * ponytail: compatibility for one release, delete this file with registry.ts's legacy restore in
+ * the next one. Before shells moved to our PTY host (ADR-0018) they ran in our own tmux server;
+ * the ones still running there when this version starts stay listed and attachable until they
+ * close. Nothing here creates a session. Every call names `-L <socket> -f /dev/null`: a private
+ * socket and no user config, never the default server. The only way to another socket is
+ * `CLD_GUI_SHELL_TMUX_SOCKET` with a `cld-test-` name (the tests'), so nothing an environment
+ * says can point this at a real server.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -42,22 +43,6 @@ const runSync: TmuxRun = (bin, argv, env) => {
   return { status: r.status, stdout: r.stdout ?? '' };
 };
 
-export interface NewSession {
-  cols: number;
-  rows: number;
-  cwd: string;
-  command: string;
-  args: string[];
-  /** The login environment: the whole environment of the shell and of the server it may start. */
-  env: Record<string, string>;
-}
-
-/**
- * `s` as tmux reads it literally: `-c` is expanded as a format (a folder named
- * `#(cmd)` would run cmd), and an argument ending in `;` ends the command.
- */
-export const tmuxLiteral = (s: string): string => s.replace(/#/g, '##').replace(/;$/, '\\;');
-
 export class Tmux {
   constructor(
     readonly bin: string,
@@ -71,81 +56,12 @@ export class Tmux {
   }
 
   /** Without the daemon's environment: a stray $TMUX must not matter. */
-  private exec(rest: string[], env: Record<string, string> = {}): TmuxResult {
-    return this.run(this.bin, this.argv(...rest), env);
+  private exec(rest: string[]): TmuxResult {
+    return this.run(this.bin, this.argv(...rest), {});
   }
 
   /** `=` makes the target an exact name, not a prefix. */
   private target = (id: string) => `=${id}`;
-
-  /** A detached session named `id` running the login shell; false when tmux refused. */
-  newSession(id: string, o: NewSession): boolean {
-    const set = Object.entries(o.env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
-    const ok = this.exec(
-      [
-        'new-session',
-        '-d',
-        '-s',
-        id,
-        '-x',
-        String(o.cols),
-        '-y',
-        String(o.rows),
-        '-c',
-        tmuxLiteral(o.cwd),
-        ...set,
-        '--',
-        o.command,
-        ...o.args,
-        // A terminal, not a tmux window: no prefix key (Ctrl+B is the shell's),
-        // no status line, no half-second ESC wait, 24-bit colour passes
-        // through, the wheel scrolls tmux's history.
-        ';',
-        'set-option',
-        '-g',
-        'prefix',
-        'None',
-        ';',
-        'set-option',
-        '-g',
-        'prefix2',
-        'None',
-        ';',
-        'set-option',
-        '-s',
-        'escape-time',
-        '0',
-        ';',
-        'set-option',
-        '-sa',
-        'terminal-features',
-        ',xterm*:RGB',
-        ';',
-        'set-option',
-        '-t',
-        `${this.target(id)}:`,
-        'status',
-        'off',
-        ';',
-        'set-option',
-        '-t',
-        `${this.target(id)}:`,
-        'mouse',
-        'on',
-        // Right-click opens tmux's pane menu (Kill, Respawn, Split): not ours.
-        ';',
-        'unbind-key',
-        '-n',
-        'MouseDown3Pane',
-        ';',
-        'unbind-key',
-        '-n',
-        'M-MouseDown3Pane',
-      ],
-      o.env,
-    );
-    return ok.status === 0;
-  }
 
   hasSession(id: string): boolean {
     return this.exec(['has-session', '-t', this.target(id)]).status === 0;

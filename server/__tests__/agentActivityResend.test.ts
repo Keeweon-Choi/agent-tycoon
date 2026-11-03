@@ -179,6 +179,23 @@ describe('resendAgentActivity', () => {
     expect(sent.filter((m) => m.type === 'agentTeamInfo')).toHaveLength(0);
   });
 
+  it('replays a pending permission after the tools, only when one is pending', () => {
+    const store = new AgentStateStore();
+    const tools = {
+      activeToolStatuses: new Map([['tool-1', 'Running']]),
+      activeToolNames: new Map([['tool-1', 'Bash']]),
+    };
+    store.set(1, createTestAgent({ id: 1, ...tools, permissionSent: true }));
+    store.set(2, createTestAgent({ id: 2, ...tools }));
+    const sent: Array<Record<string, unknown>> = [];
+    resendAgentActivity((msg) => sent.push(msg), store);
+    expect(sent.map((m) => `${m.type}:${m.id}`)).toEqual([
+      'agentToolStart:1',
+      'agentToolPermission:1',
+      'agentToolStart:2',
+    ]);
+  });
+
   it('sends waiting status only when agent is waiting', () => {
     let store = new AgentStateStore();
     store.set(1, createTestAgent({ id: 1, isWaiting: true }));

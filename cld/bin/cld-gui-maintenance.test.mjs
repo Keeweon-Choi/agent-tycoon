@@ -81,6 +81,32 @@ test('status reports a down daemon and the next recovery command', async () => {
   assert.deepEqual(maintenance.statusLines(result), ['✖ 데몬: 꺼짐', '다음: agty restart']);
 });
 
+const upStatus = (extra) => maintenance.status({
+  platform: 'linux', home, config: { port: 18255, connector: 'local' }, health: async () => true,
+  readFile: () => '{}', request: async () => ({ ok: true, projects: [], jobs: [], tasks: [], ...extra }),
+});
+
+test('status shows the Claude weekly usage (5-hour only when known) and the sub-agents per project', async () => {
+  const resetsAt = new Date(2026, 10, 5, 9, 30).toISOString();
+  const result = await upStatus({ claudeUsage: { weekPct: 84, resetsAt, fiveHourPct: 12 }, subagents: { total: 4, byProject: { 'cld-gui': 3, neus: 1, idle: 0 } } });
+  const lines = maintenance.statusLines(result);
+  assert.ok(lines.includes('Claude 사용량: 주간 84% (초기화 11-05 09:30) · 5시간 12%'));
+  assert.ok(lines.includes('Claude 서브에이전트: 합계 4 (cld-gui 3, neus 1)'));
+  assert.deepEqual(result.claudeUsage, { weekPct: 84, resetsAt, fiveHourPct: 12 });
+  assert.equal(result.subagents.byProject['cld-gui'], 3);
+  const no5h = maintenance.statusLines(await upStatus({ claudeUsage: { weekPct: 40, resetsAt } }));
+  assert.ok(no5h.includes('Claude 사용량: 주간 40% (초기화 11-05 09:30)'));
+});
+
+test('status with no usage known and no sub-agents says so; json fields are null and zero', async () => {
+  const result = await upStatus({});
+  const lines = maintenance.statusLines(result);
+  assert.ok(lines.includes('Claude 사용량: 아직 알 수 없습니다'));
+  assert.ok(lines.includes('Claude 서브에이전트: 합계 0'));
+  assert.equal(result.claudeUsage, null);
+  assert.deepEqual(result.subagents, { total: 0, byProject: {} });
+});
+
 test('logs plans use the service-specific command on every OS', () => {
   assert.deepEqual(maintenance.logs({ platform: 'linux', home }, { n: 12 }).command, ['journalctl', '--user', '-u', 'cld-gui', '-n', '12', '--no-pager']);
   assert.deepEqual(maintenance.logs({ platform: 'darwin', home }, { n: 12, follow: true }).command, ['tail', '-n', '12', '-f', `${home}/.config/agent-tycoon/daemon.log`]);

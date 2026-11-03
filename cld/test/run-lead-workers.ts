@@ -43,6 +43,7 @@ import {
   launchBrowser,
   makeEngineHome,
   openOfficeWindow,
+  openWorkbenchTab,
   REPO_ROOT,
   sparePort,
   startDaemon,
@@ -342,7 +343,8 @@ async function main() {
     await alphaCard.waitFor();
     if ((await alphaCard.getByRole('button', { name: 'alpha' }).first().getAttribute('aria-expanded')) !== 'true')
       await alphaCard.getByRole('button', { name: 'alpha' }).first().click();
-    const wbButton = alphaCard.getByRole('button', { name: '작업실', exact: true });
+    // UI-DASH: the card's button opens the 현황판's 개발 tab (the old 작업실).
+    const wbButton = alphaCard.getByRole('button', { name: '개발 현황', exact: true });
     await wbButton.waitFor();
     check(
       (await alphaCard.getByRole('button', { name: '저장소' }).count()) === 0 &&
@@ -351,17 +353,18 @@ async function main() {
       'W1: the 현황판 card has a 작업실 button and no repository button or panel',
     );
     await shotW1(desk, 'desktop-card');
-    const bench = desk.locator('[data-hud-window="workbench"]');
-    check((await bench.count()) === 0, 'W1: the 작업실 is closed until asked for');
+    const bench = desk.locator('[data-hud-window="office"]');
+    const devPicker = bench.getByRole('combobox', { name: '개발 프로젝트' });
+    check((await devPicker.count()) === 0, 'W1: the 개발 tab is not shown until asked for');
     await wbButton.click();
     await bench.waitFor();
-    const picker = bench.getByRole('combobox', { name: '작업실 프로젝트' });
+    const picker = bench.getByRole('combobox', { name: '개발 프로젝트' });
     check((await picker.inputValue()) === 'alpha', 'W1: the 작업실 opens on the project the button belongs to');
     check(
       (await picker.locator('option').allInnerTexts()).join() === 'alpha,beta',
       'W1: the picker lists the projects, not their Workers',
     );
-    const tab = (p: Page, name: string) => p.locator('[data-hud-window="workbench"], [aria-label="작업실 화면"]').getByRole('button', { name, exact: true });
+    const tab = (p: Page, name: string) => p.locator('[data-hud-window="office"], [aria-label="현황판 화면"]').getByRole('button', { name, exact: true });
     // 에이전트
     const agents = bench.getByTestId('workbench-agent');
     await agents.first().waitFor();
@@ -424,19 +427,18 @@ async function main() {
     await tab(desk, 'Task').click();
     await desk.reload();
     await desk.addStyleTag({ content: FONT_CSS });
-    const bench2 = desk.locator('[data-hud-window="workbench"]');
-    const benchIcon = desk.locator('[data-hud-id="icon:workbench"] button');
-    await benchIcon.waitFor(); // the icons and the restored windows render in the same commit
-    if (!(await bench2.isVisible())) await benchIcon.click(); // (the open flag is remembered too)
-    await bench2.waitFor();
+    const bench2 = desk.locator('[data-hud-window="office"]');
+    // The 현황판 opens on its 오케스트레이터 tab after a reload; the 개발 tab keeps project and tab.
+    await openOfficeWindow(desk);
+    await bench2.getByRole('button', { name: '개발', exact: true }).click();
     check(
-      (await bench2.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'beta' &&
+      (await bench2.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'beta' &&
         (await bench2.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
       'W1: the project and the tab are remembered per device (a reload reopens beta / Task)',
     );
     await shotW1(desk, 'desktop-remembered');
     // D3b: the 현황판 lists the projects (= their Leads): no Worker card, their characters stay.
-    await bench2.getByRole('button', { name: '작업실 닫기' }).click(); // it covers the board
+    await bench2.getByRole('button', { name: '정보 창 닫기' }).click(); // reopened on the board below
     await bench2.waitFor({ state: 'detached' });
     await openOfficeWindow(desk);
     const boardCards = desk.locator('[data-hud-window="office"] article');
@@ -456,8 +458,8 @@ async function main() {
     const { ctx: phoneCtx, p: ph } = await newPage({ ...devices['iPhone 13'] });
     const dockOrder = await ph.getByTestId('mobile-dock').locator('button[data-dock]').evaluateAll((els) => els.map((el) => el.getAttribute('data-dock')));
     check(
-      dockOrder.indexOf('workbench') === dockOrder.indexOf('board') + 1 && dockOrder.indexOf('messenger') === dockOrder.indexOf('workbench') + 1,
-      `W1: the Dock lists 작업실 between 현황판 and 메신저 (${dockOrder.join(', ')})`,
+      !dockOrder.includes('workbench') && dockOrder.indexOf('messenger') === dockOrder.indexOf('board') + 1,
+      `UI-DASH: the Dock has no 작업실 tab; 메신저 follows 현황판 (${dockOrder.join(', ')})`,
     );
     await ph.locator('[data-dock="board"]').tap();
     const pBoard = ph.getByLabel('현황판 화면');
@@ -466,17 +468,17 @@ async function main() {
     if ((await pAlpha.getByRole('button', { name: 'alpha' }).first().getAttribute('aria-expanded')) !== 'true')
       await pAlpha.getByRole('button', { name: 'alpha' }).first().tap();
     check(
-      (await pAlpha.getByRole('button', { name: '저장소' }).count()) === 0 && (await pAlpha.getByRole('button', { name: '작업실', exact: true }).count()) === 1,
-      'W1: phone: the 현황판 card has the 작업실 button, no repository button',
+      (await pAlpha.getByRole('button', { name: '저장소' }).count()) === 0 && (await pAlpha.getByRole('button', { name: '개발 현황', exact: true }).count()) === 1,
+      'W1: phone: the 현황판 card has the 개발 현황 button, no repository button',
     );
     await shotW1(ph, 'phone-card');
-    await pAlpha.getByRole('button', { name: '작업실', exact: true }).tap();
-    const page2 = ph.getByLabel('작업실 화면');
+    await pAlpha.getByRole('button', { name: '개발 현황', exact: true }).tap();
+    const page2 = ph.getByLabel('현황판 화면');
     await page2.waitFor();
     check(
-      (await ph.getByTestId('mobile-dock').locator('[aria-current="page"]').getAttribute('data-dock')) === 'workbench' &&
-        (await page2.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'alpha',
-      'W1: phone: the button opens the 작업실 page on alpha (the Dock shows it)',
+      (await ph.getByTestId('mobile-dock').locator('[aria-current="page"]').getAttribute('data-dock')) === 'board' &&
+        (await page2.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'alpha',
+      'W1: phone: the button opens the 현황판 개발 tab on alpha (the Dock marks 현황판)',
     );
     await page2.getByTestId('workbench-agent').first().waitFor();
     check((await page2.getByTestId('workbench-agent').count()) === 3, 'W1: phone: 에이전트 lists the Lead and both Workers');
@@ -533,13 +535,8 @@ async function main() {
       return () => (clearInterval(timer), seenMax);
     };
     const { ctx: d3Ctx, p: d3 } = await newPage({ viewport: { width: 1280, height: 800 } });
-    const wb = d3.locator('[data-hud-window="workbench"]');
-    const benchIcon3 = d3.locator('[data-hud-id="icon:workbench"] button');
-    await benchIcon3.waitFor();
-    if (!(await wb.isVisible())) await benchIcon3.click();
-    await wb.waitFor();
-    await wb.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
-    await wb.getByRole('button', { name: '에이전트', exact: true }).click();
+    const wb = d3.locator('[data-hud-window="office"]');
+    await openWorkbenchTab(d3, '에이전트', { project: 'alpha' });
     await wb.getByTestId('workbench-agent').first().waitFor();
 
     // "+ Worker": a refusal in the form (the name check, then the engine's), then alpha-c.

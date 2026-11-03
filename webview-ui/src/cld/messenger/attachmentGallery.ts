@@ -15,7 +15,8 @@ export interface ViewerFile {
   linked?: boolean;
   line?: number;
 }
-type Mode = 'preview' | 'download';
+/** 'open': a preview the default browser may fetch without the login cookie (the desktop app). */
+type Mode = 'preview' | 'download' | 'open';
 export type TicketFor = (path: string, mode: Mode) => Promise<string>;
 
 /** Which project and relative path an absolute attachment path belongs to (null: not under a known folder). */

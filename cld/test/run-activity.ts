@@ -902,7 +902,8 @@ async function main() {
       if (label === 'phone') {
         // The phone's top bar keeps the floor and 설정; 범례 is the first row of 설정 (run-mobile-dock).
         await p.getByTestId('mobile-top-bar').getByRole('button', { name: '설정' }).click();
-        await p.getByTestId('settings-quick').getByRole('button', { name: '범례' }).click();
+        await p.getByTestId('settings-tabs').getByRole('tab', { name: '화면', exact: true }).click();
+        await p.getByTestId('legend-option').getByRole('button', { name: '범례' }).click();
       } else await p.getByRole('button', { name: '범례' }).click();
       const legend = p.getByTestId('activity-legend');
       await legend.waitFor();

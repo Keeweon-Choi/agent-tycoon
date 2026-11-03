@@ -1,20 +1,29 @@
 /**
- * P4 개발실 on the phone (mockups-1101/devroom-W5, left): the worktrees stacked full width on a
- * 4 px trunk rail. A tap shows a card's 터미널 / 변경 / 병합 / 미리보기; each opens a full-screen sub-page
- * with ‹ 뒤로. `합쳐진 작업 정리` at the bottom opens S4's view the same way.
+ * P4 개발실 on the phone (mockups-1101/devroom-W5, left; owner 11-01 13:30): a project chip row,
+ * then per project its trunk and compact Task cards (face, title, one chip) on a 4 px rail: what
+ * needs the owner first, then work, then resting; old worktrees with no Task and nobody on them
+ * fold into one `쉬는 작업 N개` row. A tap shows a card's 터미널 / 변경 / 병합 (plus 미리보기 and
+ * 탐색기); each opens a full-screen sub-page with ‹ 뒤로. `합쳐진·쉬는 작업 정리` closes each group.
  */
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
+
 import type { AgentAppearance, TabStatus } from '../../components/AgentCard.js';
-import { DEVROOM_PHONE_FACE_PX } from '../../constants.js';
+import { DEVROOM_PHONE_CARD_LEFT_PX, DEVROOM_PHONE_FACE_PX, DEVROOM_PHONE_GRAPH_STEP_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import type { ToolActivity } from '../../office/types.js';
+import { openExplorer } from '../files/explorerState.js';
 import { timeAgo } from '../format.js';
 import { BranchGlyph } from '../hud/glyphs.js';
 import { closeWindow } from '../hud/hudStore.js';
+import { useCanAct } from '../workbench/workbenchStore.js';
+import { AddProjectDialog } from './AddProject.js';
+import { PhoneTerminal } from './AgentColumns.js';
 import { ChangesTab } from './ChangesTab.js';
-import { TerminalSlot } from './DevRoom.js';
 import {
   BIG,
   BODY,
   DevroomLooks,
+  DevroomTools,
   type Group,
   type Row,
   SMALL,
@@ -22,196 +31,356 @@ import {
   useCurrentPick,
   useDevroomGroups,
   useDevroomView,
+  whoName,
 } from './devroomData.js';
-import { shownProject } from './devroomState.js';
+import { codexStamp, graphLeft, shownProject } from './devroomState.js';
 import {
   closeDevroomPage,
-  type DevroomTab,
   expandCard,
   openDevroomPage,
   pickKey,
+  setDevroomFilter,
   toggleMenu,
   useDevroom,
 } from './devroomStore.js';
+import { GRAPH_NODE, useFoldedGraph } from './graphFold.js';
+import { sizeText, totalBytes } from './mergeState.js';
+import { requestCleanup, useMergeStore } from './mergeStore.js';
 import { MergeTab } from './MergeTab.js';
 import { PreviewTab } from './PreviewTab.js';
-import { Face, FilterBox, RepoWatch, StatusChip, WorktreeMenu } from './WorktreeRail.js';
+import { BranchLine, DevroomLoading, FoldToggle, NewTaskDialog, RepoWatch, RestingRow, RowFace, StatusChip, WorktreeMenu } from './WorktreeRail.js';
 
-const PAGES: readonly Exclude<DevroomTab, 'cleanup'>[] = ['terminal', 'changes', 'merge', 'preview'];
-const button = `flex-1 min-h-44 border-2 shadow-pixel justify-center ${BIG}`;
+const HINT_KEY = 'cld.devroom.phoneHint.v1';
+const MAIN: readonly ('terminal' | 'changes' | 'merge')[] = ['terminal', 'changes', 'merge'];
+const button = `flex-1 min-h-40 border-2 shadow-pixel justify-center ${BIG}`;
+const small = `px-8 py-3 border-2 border-border bg-btn-bg ${SMALL}`;
 
-function PhoneCard({ group, row }: { group: Group; row: Row }) {
-  const { expanded, menu, tab } = useDevroom();
+/** The card's title: its Task's; a Codex run's folder as `<who> · 10-22 13:02` (`Codex 작업 · …` when nobody is known); else the folder. */
+function phoneTitle(row: Row): string {
+  const stamp = codexStamp(row.wt.task);
+  if (row.task || !stamp) return row.title;
+  const name = whoName(row.wt);
+  return name ? t('devroomNames.codexTitle', { name, when: stamp }) : t('devroom.phone.codexTitle', { when: stamp });
+}
+
+function PhoneCard({ group, row, depth, fold }: { group: Group; row: Row; depth: number; fold?: ReactNode }) {
+  const { expanded, menu } = useDevroom();
   const key = pickKey(group.project, row.wt.task);
   const open = expanded === key;
+  const title = phoneTitle(row);
+  const page = (p: 'terminal' | 'changes' | 'merge' | 'preview') => openDevroomPage(group.project, row.wt.task, p);
   return (
     <div
-      className={`mx-12 my-8 px-10 py-9 border-2 ${open ? 'border-devroom-blue bg-devroom-pick shadow-pixel' : 'border-devroom-card-line bg-devroom-card'} ${row.chip === 'merged' ? 'opacity-55' : ''}`}
+      className={`relative mr-10 mt-6 px-8 py-6 border-2 ${open ? 'border-devroom-blue bg-devroom-pick shadow-pixel' : 'border-devroom-card-line bg-devroom-card'} ${row.chip === 'merged' ? 'opacity-55' : ''}`}
+      style={{ marginLeft: graphLeft(depth, DEVROOM_PHONE_CARD_LEFT_PX, DEVROOM_PHONE_GRAPH_STEP_PX) }}
       data-testid="devroom-card"
+      data-depth={depth}
       data-project={group.project}
       data-task={row.wt.task}
       data-open={open || undefined}
     >
-      <div className="flex items-center gap-8 min-w-0" onClick={() => expandCard(key)}>
-        <Face agentId={row.agentId} name={row.wt.assignee} size={DEVROOM_PHONE_FACE_PX} />
-        <b className={`flex-1 min-w-0 truncate font-normal text-devroom-title ${BIG}`}>{row.title}</b>
-        <button
-          type="button"
-          aria-label={t('devroom.more', { title: row.title })}
-          aria-expanded={menu === key}
-          data-testid="devroom-more"
-          className={`shrink-0 w-24 h-22 grid place-items-center border-2 leading-none ${SMALL} ${menu === key || open ? 'bg-active-bg border-accent-text' : 'bg-btn-bg border-border'}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleMenu(key);
-          }}
-        >
-          …
-        </button>
+      <div className="mr-36 flex items-center gap-8 min-w-0" onClick={() => expandCard(key)}>
+        <RowFace row={row} size={DEVROOM_PHONE_FACE_PX} />
+        <b className={`flex-1 min-w-0 truncate font-normal leading-tight text-devroom-title ${BIG}`}>{title}</b>
       </div>
-      <div className={`mt-4 flex items-center gap-6 text-text-muted ${TINY}`} onClick={() => expandCard(key)}>
-        <span className="truncate">{row.wt.assignee ?? t('devroom.nobody')}</span>
-        <StatusChip row={row} />
+      <div className={`mr-36 mt-4 flex items-center gap-6 min-w-0 text-text-muted ${TINY}`} onClick={() => expandCard(key)}>
+        <span className="min-w-0 truncate">{row.wt.assignee ?? row.wt.branch}</span>
+        <span className="shrink-0">
+          <StatusChip row={row} />
+        </span>
+        {fold && <span className="ml-auto shrink-0">{fold}</span>}
       </div>
+      {/* The phone's 44 px touch target (mobile/touchTargets.css) around W5's small `…` box. */}
+      <button
+        type="button"
+        aria-label={t('devroom.more', { title })}
+        aria-expanded={menu === key}
+        data-testid="devroom-more"
+        className="absolute top-0 right-0 grid place-items-center"
+        onClick={() => toggleMenu(key)}
+      >
+        <span className={`w-24 h-20 grid place-items-center border-2 leading-none ${TINY} ${menu === key || open ? 'bg-active-bg border-accent-text' : 'bg-btn-bg border-border'}`}>…</span>
+      </button>
       {menu === key && (
         <div className="mt-8 bg-devroom-menu border-2 border-devroom-main-line">
           <WorktreeMenu project={group.project} row={row} base={row.wt.base} />
         </div>
       )}
       {open && (
-        <div className="mt-9 grid grid-cols-4 gap-6">
-          {PAGES.map((page) => (
-            <button
-              key={page}
-              type="button"
-              data-page={page}
-              className={`${button} ${page === tab ? 'bg-accent border-accent text-white' : 'bg-btn-bg border-border'}`}
-              onClick={() => openDevroomPage(group.project, row.wt.task, page)}
-            >
-              {t(`devroom.tab.${page}`)}
+        <>
+          <div className="mt-8 grid grid-cols-3 gap-6">
+            {MAIN.map((p) => (
+              <button key={p} type="button" data-page={p} className={`${button} ${p === 'terminal' ? 'bg-accent border-accent text-white' : 'bg-btn-bg border-border'}`} onClick={() => page(p)}>
+                {t(`devroom.tab.${p}`)}
+              </button>
+            ))}
+          </div>
+          <div className="mt-6 flex gap-6">
+            <button type="button" data-page="preview" className={small} onClick={() => page('preview')}>
+              {t('devroom.tab.preview')}
             </button>
-          ))}
-        </div>
+            <button type="button" data-testid="devroom-explorer" className={small} onClick={() => openExplorer(group.project, row.wt.task)}>
+              {t('devroom.menu.explorer')}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-function PhoneGroup({ group }: { group: Group }) {
+function PhoneGroup({ group, all }: { group: Group; all: boolean }) {
+  const [restOpen, setRestOpen] = useState(false);
+  const { cleanup } = useMergeStore();
   const base = group.repo?.branch ?? 'main';
-  const open = group.rows.filter((r) => r.chip !== 'merged').length;
   const last = group.repo?.merges?.[0]?.at;
-  return (
-    <section data-testid="devroom-group" data-project={group.project}>
-      <p className={`px-16 pt-8 pb-4 text-text-muted ${SMALL}`}>{t('devroom.phone.count', { base, count: open })}</p>
-      {!group.repo ? (
-        <p className={`px-16 text-text-muted ${SMALL}`}>{t('devroom.loading')}</p>
-      ) : !group.repo.ok ? (
-        <p className={`px-16 text-text-muted ${SMALL}`}>{t('devroom.noRepo')}</p>
+  const ok = group.repo?.ok === true;
+  const asked = cleanup[group.project] !== undefined;
+  // One cleanup list per project (sizes are measured then); the 정리 view asks again when it opens.
+  useEffect(() => {
+    if (ok && !asked) requestCleanup(group.project);
+  }, [ok, asked, group.project]);
+  const active = group.shown.filter((r) => r.chip !== 'merged').length;
+  const list = cleanup[group.project];
+  const rows = list && list !== 'loading' && list.ok ? (list.rows ?? []) : null;
+  const merged = group.rows.filter((r) => r.chip === 'merged').length;
+  const { expanded } = useDevroom();
+  const mine = `${group.project}\0`;
+  const g = useFoldedGraph(
+    group.project,
+    base,
+    group.shown,
+    group.resting,
+    restOpen,
+    expanded?.startsWith(mine) ? expanded.slice(mine.length) : null,
+    () => setRestOpen(true),
+  );
+  const left = (depth: number) => graphLeft(depth, DEVROOM_PHONE_CARD_LEFT_PX, DEVROOM_PHONE_GRAPH_STEP_PX);
+  const toggle = (l: { id: string; count: number; open: boolean }) =>
+    l.count > 0 ? <FoldToggle open={l.open} count={l.count} name={l.id} onToggle={() => g.toggle(l.id)} /> : undefined;
+  const lines = g.lines.map((l, i) => (
+    <Fragment key={`${i < g.restingFrom ? 's' : 'r'}:${l.id}`}>
+      {l.line.kind === 'branch' ? (
+        <BranchLine name={l.line.name} className="mr-10 mt-6" style={{ marginLeft: left(l.line.depth) }} fold={toggle(l)} />
       ) : (
-        <div className="relative">
-          <span className="absolute left-4 top-0 bottom-0 w-4 bg-devroom-trunk" aria-hidden="true" />
+        <PhoneCard group={group} row={l.line.row} depth={l.line.depth} fold={toggle(l)} />
+      )}
+    </Fragment>
+  ));
+  return (
+    <section data-testid="devroom-group" data-project={group.project} className="pb-8">
+      {all && <p className={`px-12 pt-10 text-devroom-title ${BODY}`}>{group.project}</p>}
+      <div className="px-12 pt-6 flex items-center gap-8">
+        <p className={`min-w-0 text-text-muted ${SMALL}`} data-testid="devroom-count">
+          {t('devroom.phone.count', { base, count: active })}
+        </p>
+        {ok && <FoldToggle open={g.graphOpen} count={group.rows.length} name={t('devroom.graph')} onToggle={() => g.toggle(GRAPH_NODE)} className="ml-auto" />}
+      </div>
+      {!group.repo ? (
+        <p className={`px-12 text-text-muted ${SMALL}`}>{t('devroom.loading')}</p>
+      ) : !ok ? (
+        <p className={`px-12 text-text-muted ${SMALL}`}>{t('devroom.noRepo')}</p>
+      ) : (
+        <>
+          {g.graphOpen && (
+            <div className="relative pb-2" data-testid="devroom-graph">
+              <span className="absolute left-6 top-6 bottom-0 w-4 bg-devroom-trunk" aria-hidden="true" />
+              <div className="ml-14 mr-10 mt-6 flex items-stretch gap-6">
+                <button
+                  type="button"
+                  className={`flex-1 min-w-0 flex items-center gap-8 px-8 py-6 border-2 border-devroom-main-line bg-devroom-main text-devroom-title text-left ${BIG}`}
+                  data-testid="devroom-trunk"
+                  data-project={group.project}
+                  onClick={() => openDevroomPage(group.project, null, 'terminal')}
+                >
+                  <span className="text-accent-text flex">
+                    <BranchGlyph />
+                  </span>
+                  <span className="truncate">{base}</span>
+                  <small className={`ml-auto text-text-muted ${TINY}`}>
+                    {last ? t('devroom.baseSince', { time: timeAgo(last) }) : t('devroom.base')}
+                  </small>
+                </button>
+                {toggle(g.trunk)}
+              </div>
+              {lines.slice(0, g.restingFrom)}
+              {g.trunk.open && group.resting.length > 0 && (
+                <RestingRow count={group.resting.length} open={restOpen} onToggle={() => setRestOpen(!restOpen)} className="ml-14 mr-10 mt-6 w-[calc(100%-24px)]" />
+              )}
+              {lines.slice(g.restingFrom)}
+              {group.rows.length === 0 && <p className={`px-16 py-8 text-text-muted ${SMALL}`}>{t('devroom.noWorktrees')}</p>}
+            </div>
+          )}
           <button
             type="button"
-            className={`mx-12 my-8 w-[calc(100%-24px)] flex items-center gap-8 px-10 py-8 border-2 border-devroom-main-line bg-devroom-main text-devroom-title text-left ${BIG}`}
-            data-testid="devroom-trunk"
-            data-project={group.project}
-            onClick={() => openDevroomPage(group.project, null, 'terminal')}
+            className={`mx-12 mt-10 w-[calc(100%-24px)] py-10 border-2 border-border bg-btn-bg shadow-pixel ${BODY}`}
+            data-testid="devroom-cleanup"
+            onClick={() => openDevroomPage(group.project, null, 'cleanup')}
           >
-            <span className="text-accent-text flex">
-              <BranchGlyph />
-            </span>
-            <span className="truncate">{base}</span>
-            <small className={`ml-auto text-text-muted ${TINY}`}>
-              {last ? t('devroom.baseSince', { time: timeAgo(last) }) : t('devroom.base')}
-            </small>
+            {rows
+              ? t('devroom.phone.cleanup', { count: rows.length, size: rows.some((r) => r.sizePending) ? t('devroomFix.sizeMeasuring') : sizeText(totalBytes(rows)) })
+              : t('devroom.cleanup', { count: merged })}
           </button>
-          {group.rows.map((row) => (
-            <PhoneCard key={row.wt.task} group={group} row={row} />
-          ))}
-          {group.rows.length === 0 && <p className={`px-16 py-8 text-text-muted ${SMALL}`}>{t('devroom.noWorktrees')}</p>}
-        </div>
+        </>
       )}
     </section>
   );
 }
 
-function Header({ title, onBack }: { title: string; onBack: () => void }) {
+/** The project filter as one row of chips (W5's header names the project). */
+/** The project chips (with more than one project) and, for an owner, `+ 프로젝트 추가`. */
+function ProjectChips({ projects, onAdd }: { projects: string[]; onAdd?: () => void }) {
+  const { filter } = useDevroom();
+  const shown = shownProject(projects, filter);
+  return (
+    <div className="flex gap-6 px-12 pt-8 overflow-x-auto" role="radiogroup" aria-label={t('devroom.filter')} data-testid="devroom-filter">
+      {(projects.length > 1 ? [null, ...projects] : []).map((p) => (
+        <button
+          key={p ?? ''}
+          type="button"
+          role="radio"
+          aria-checked={p === shown}
+          data-project={p ?? ''}
+          className={`shrink-0 px-10 py-4 border-2 whitespace-nowrap ${SMALL} ${p === shown ? 'bg-accent border-accent text-white' : 'bg-btn-bg border-border'}`}
+          onClick={() => setDevroomFilter(p)}
+        >
+          {p ?? t('devroom.allProjects')}
+        </button>
+      ))}
+      {onAdd && (
+        <button
+          type="button"
+          data-testid="devroom-add"
+          className={`shrink-0 px-10 py-4 border-2 border-dashed border-border bg-btn-bg whitespace-nowrap ${SMALL}`}
+          onClick={onAdd}
+        >
+          {t('devroom.add.button')}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** First visit: one line on what a card is and what its buttons do (kept per device). */
+function FirstVisitHint() {
+  const [seen, setSeen] = useState(() => {
+    try {
+      return localStorage.getItem(HINT_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  if (seen) return null;
+  return (
+    <div className={`mx-12 mt-8 flex items-start gap-8 px-10 py-6 border-2 border-devroom-box-line bg-devroom-box ${SMALL}`} data-testid="devroom-hint">
+      <p className="flex-1 min-w-0">{t('devroom.phone.hint')}</p>
+      <button
+        type="button"
+        className={`shrink-0 ${small}`}
+        onClick={() => {
+          try {
+            localStorage.setItem(HINT_KEY, '1');
+          } catch {
+            // Private mode: hidden for this visit.
+          }
+          setSeen(true);
+        }}
+      >
+        {t('devroom.phone.hintOk')}
+      </button>
+    </div>
+  );
+}
+
+function Header({ title, onBack, children }: { title: string; onBack: () => void; children?: ReactNode }) {
   return (
     <div className="shrink-0 h-46 flex items-center gap-8 px-8 bg-bg-dark border-b-2 border-border">
       <button type="button" className={`shrink-0 px-9 py-5 border-2 border-border bg-btn-bg shadow-pixel min-h-36 ${SMALL}`} onClick={onBack} data-testid="devroom-back">
         {t('devroom.back')}
       </button>
-      <span className={`min-w-0 truncate text-text-muted ${BIG}`}>{title}</span>
+      <span className={`flex-1 min-w-0 truncate text-text-muted ${BIG}`}>{title}</span>
+      {children}
     </div>
   );
 }
 
 export function DevRoomPhone({
   onScreen,
+  keyboardOpen,
   getAppearance,
   statusFor,
+  agentTools,
+  subagentTools,
 }: {
   onScreen: boolean;
+  keyboardOpen: boolean;
   getAppearance: (agentId: number) => AgentAppearance;
   statusFor: (agentId: number) => TabStatus | null;
+  agentTools: Record<number, ToolActivity[]>;
+  subagentTools: Record<number, Record<string, ToolActivity[]>>;
 }) {
   return (
     <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
-      <PhoneBody onScreen={onScreen} />
+      <DevroomTools.Provider value={{ agentTools, subagentTools }}>
+        <PhoneBody onScreen={onScreen} keyboardOpen={keyboardOpen} />
+      </DevroomTools.Provider>
     </DevroomLooks.Provider>
   );
 }
 
-function PhoneBody({ onScreen }: { onScreen: boolean }) {
+function PhoneBody({ onScreen, keyboardOpen }: { onScreen: boolean; keyboardOpen: boolean }) {
   useDevroomView(onScreen);
+  const canAct = useCanAct();
+  const [asking, setAsking] = useState(false);
+  const [adding, setAdding] = useState(false);
   const { projects, groups } = useDevroomGroups();
   const { filter, page } = useDevroom();
   const name = shownProject(projects, filter) ?? t('devroom.allProjects');
-  const merged = groups.reduce((n, g) => n + g.rows.filter((r) => r.chip === 'merged').length, 0);
   const pick = useCurrentPick(groups);
+  const row = pick?.task ? groups.find((g) => g.project === pick.project)?.rows.find((r) => r.wt.task === pick.task) : undefined;
+  const wt = pick?.task ? row?.wt : null;
   return (
-    <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-phone">
+    <div className="relative flex-1 min-h-0 flex flex-col" data-testid="devroom-phone">
+      <DevroomLoading groups={groups} />
       {groups.map((g) => (
         <RepoWatch key={g.project} project={g.project} />
       ))}
       {page !== null && pick ? (
         <>
-          <Header title={`${pick.task ?? pick.project} · ${t(`devroom.tab.${page}`)}`} onBack={closeDevroomPage} />
+          <Header title={`${row ? phoneTitle(row) : (pick.task ?? pick.project)} · ${t(`devroom.tab.${page}`)}`} onBack={closeDevroomPage} />
           <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-page" data-page={page}>
             {page === 'changes' && pick.task ? (
-              <ChangesTab project={pick.project} task={pick.task} />
+              <ChangesTab project={pick.project} task={pick.task} on={onScreen} />
             ) : page === 'merge' && pick.task ? (
               <MergeTab project={pick.project} task={pick.task} view="merge" phone />
             ) : page === 'preview' && pick.task ? (
               <PreviewTab project={pick.project} task={pick.task} phone />
             ) : page === 'cleanup' ? (
               <MergeTab project={pick.project} task={pick.task} view="cleanup" />
-            ) : (
-              <TerminalSlot />
-            )}
+            ) : wt !== undefined ? (
+              <PhoneTerminal project={pick.project} wt={wt} on={onScreen} keyboardOpen={keyboardOpen} />
+            ) : null}
           </div>
         </>
       ) : (
         <>
-          <Header title={t('devroom.phone.title', { name })} onBack={() => closeWindow('devroom')} />
-          <div className="flex-1 min-h-0 overflow-y-auto pb-12">
-            {projects.length > 1 && <FilterBox projects={projects} className="mx-12 mt-8" />}
-            {groups.length === 0 && <p className={`p-16 text-text-muted ${BODY}`}>{t('devroom.noProjects')}</p>}
-            {groups.map((g) => (
-              <PhoneGroup key={g.project} group={g} />
-            ))}
-            {pick && (
-              <button
-                type="button"
-                className={`mx-12 mt-12 w-[calc(100%-24px)] py-12 border-2 border-border bg-btn-bg shadow-pixel ${BIG}`}
-                data-testid="devroom-cleanup"
-                onClick={() => openDevroomPage(pick.project, pick.task, 'cleanup')}
-              >
-                {t('devroom.cleanup', { count: merged })}
+          <Header title={t('devroom.phone.title', { name })} onBack={() => closeWindow('devroom')}>
+            {canAct && projects.length > 0 && (
+              <button type="button" className={`shrink-0 ${small} shadow-pixel min-h-36`} data-testid="devroom-new" onClick={() => setAsking(true)}>
+                {t('devroom.phone.newTask')}
               </button>
             )}
+          </Header>
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-12">
+            {(projects.length > 1 || canAct) && <ProjectChips projects={projects} onAdd={canAct ? () => setAdding(true) : undefined} />}
+            <FirstVisitHint />
+            {groups.length === 0 && <p className={`p-16 text-text-muted ${BODY}`}>{t('devroom.noProjects')}</p>}
+            {groups.map((g) => (
+              <PhoneGroup key={g.project} group={g} all={groups.length > 1} />
+            ))}
           </div>
+          {asking && <NewTaskDialog projects={projects} onClose={() => setAsking(false)} />}
+          {adding && <AddProjectDialog onClose={() => setAdding(false)} />}
         </>
       )}
     </div>

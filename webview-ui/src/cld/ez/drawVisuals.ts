@@ -23,7 +23,7 @@ import {
   LOUNGE_ZZZ_FRAME_SEC,
   NOTICE_PULSE_COLOR,
   NOTICE_PULSE_PERIOD_MS,
-  PIXEL_FONT_FAMILY,
+  REST_ANIM_SEC,
   STATUS_ICON_BLINK_DIM_ALPHA,
   STATUS_ICON_BOX_BG,
   STATUS_ICON_BOX_BORDER,
@@ -46,12 +46,13 @@ import type { Character, SpriteData } from '../../office/types.js';
 import { CharacterState, Direction } from '../../office/types.js';
 import { isE2E } from '../../runtime.js';
 import { FRAME_H as CHAR_H, FRAME_W as CHAR_W } from '../characters/compose.js';
-import { director } from '../director/director.js';
-import { drinkPose, type Rest } from '../lounge.js';
+import { director, type FxSpot } from '../director/director.js';
+import { DRINK_SEC, drinkPose, type Rest } from '../lounge.js';
 import { noticePulse } from '../notify/notices.js';
 import { REST_SPRITES, restFrame, restWatch, sipAnchorOf } from '../rest.js';
 import { sameFloor, tempLeaving } from '../staff.js';
 import { THEME } from '../theme.js';
+import { pixelFontFamily } from '../uiFont.js';
 import pantryData from './pantryProps.json';
 import propData from './props.json';
 import {
@@ -118,6 +119,7 @@ function restDrawables(
   zoom: number,
   zY: number,
   alpha: number,
+  drinkDrawn: boolean,
 ): Drawable[] {
   const out: Drawable[] = [];
   const h = figureHeight(ch);
@@ -134,6 +136,7 @@ function restDrawables(
       ),
     });
   if (rest.phase === 'drink' && rest.kind) {
+    if (drinkDrawn) return out; // C1: the sheet's own drinking pose shows it
     const pose = drinkPose(rest.kind, rest.t);
     if (pose.prop) put(PANTRY_SPRITES[pose.prop.name][0], pose.prop.at);
     if (pose.hiss) put(PANTRY_SPRITES.hiss[0], pose.hiss);
@@ -298,9 +301,28 @@ function drawAt(img: HTMLCanvasElement, x: number, y: number, alpha: number) {
 }
 
 /**
+ * C1: what a character drinks now and how far in: the lounge's drink from a coffee machine
+ * (coffee) or a vending machine (a can), else a coffee break's drink at the mouth with no
+ * machine (the theme's). Null: none (water has no drinking pose).
+ */
+export function drinkingNow(
+  ch: Character,
+): { drink: 'coffee' | 'can'; sec: number; total: number } | null {
+  const r = ch.cldRest;
+  if (r?.phase === 'drink' && (r.kind === 'coffee' || r.kind === 'vending'))
+    return { drink: r.kind === 'coffee' ? 'coffee' : 'can', sec: r.t, total: DRINK_SEC };
+  const sec = restWatch.progress(ch.id, performance.now());
+  if (sec === null) return null;
+  return { drink: HELD[THEME.rest.prop], sec, total: REST_ANIM_SEC };
+}
+/** The theme's drink as a drink row holds it. */
+const HELD = { coffee: 'coffee', energy: 'can' } as const;
+
+/**
  * The ring and prop of one character, for the renderer's z-sorted pass.
  * `feetX`/`feetY` is the bottom centre of the character's own drawn sprite
- * (integer device px), so ring, body and prop move as one.
+ * (integer device px), so ring, body and prop move as one. `drinkDrawn` (C1): the sprite is
+ * the sheet's own drinking pose, so the drink props are not drawn over it.
  */
 export function cldCharacterDrawables(
   ch: Character,
@@ -309,12 +331,14 @@ export function cldCharacterDrawables(
   zoom: number,
   zY: number,
   alpha: number,
+  drinkDrawn = false,
+  figure?: FxSpot['figure'],
 ): Drawable[] {
   if (ch.matrixEffect) return [];
   const pulsed = pulseDrawable(ch.id, feetX, feetY, zoom, zY);
   // REST-ANIM: the theme's drink at the mouth while a live 휴식 plays (a Map lookup otherwise)
   const resting = restWatch.progress(ch.id, performance.now());
-  if (resting !== null) {
+  if (resting !== null && !drinkDrawn) {
     const sprite = restFrame(THEME.rest.prop, resting);
     const [sx, sy] = sipAnchorOf(ch.palette);
     const dx = REST_SPRITES[THEME.rest.prop].at[0];
@@ -330,10 +354,11 @@ export function cldCharacterDrawables(
       ),
     });
   }
-  if (ch.cldRest) pulsed.push(...restDrawables(ch, ch.cldRest, feetX, feetY, zoom, zY, alpha));
+  if (ch.cldRest)
+    pulsed.push(...restDrawables(ch, ch.cldRest, feetX, feetY, zoom, zY, alpha, drinkDrawn));
   // C1: a coffee break's bubble or a rebirth burst (the director; one Map lookup otherwise)
   if (director.playing(ch.id))
-    pulsed.push(...director.drawables(ch, { x: feetX, y: feetY, zoom, h: figureHeight(ch) }, zY));
+    pulsed.push(...director.drawables(ch, { x: feetX, y: feetY, zoom, h: figureHeight(ch), figure }, zY));
   const visual = characterVisualOf(ch.id);
   if (!visual) return pulsed;
   const t = animationClock();
@@ -462,7 +487,7 @@ function drawStatusIcon(
       ctx.fillRect(x, y, side, side);
       ctx.fillStyle = STATUS_ICON_BOX_BG;
       ctx.fillRect(x + zoom, y + zoom, side - 2 * zoom, side - 2 * zoom);
-      ctx.font = `${STATUS_ICON_EMOJI_PX * zoom}px ${PIXEL_FONT_FAMILY}, sans-serif`;
+      ctx.font = `${STATUS_ICON_EMOJI_PX * zoom}px ${pixelFontFamily()}, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(emoji, x + side / 2, y + side / 2 + zoom / 2);

@@ -15,100 +15,63 @@
  * is sampled every 2 s. `claude agents --json` is only ClaudeSessions' fallback.
  */
 import { type ChildProcess, spawn, type SpawnOptions } from 'child_process';
-import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 
+import { isGoneName } from '../../../core/src/cld/goneAgent.js';
 import { OWNER_LOOK_KEY } from '../../../core/src/cld/looks.js';
 import { doingTaskTitle } from '../../../core/src/cld/notices.js';
-import { type Coded, CodedError, koText, pickRefusal, type Refused, refused, refusedOf, type WithError } from '../../../core/src/cld/serverText.js';
+import { type Coded, CodedError, koText, refused, refusedOf } from '../../../core/src/cld/serverText.js';
 import type {
   BuildingState,
-  ChatCancel,
-  ChatEdit,
-  ChatHold,
-  ChatPendingResult,
-  ChatSend,
-  ChatSendNow,
-  ChatSendResult,
   CodexTask,
   CodexTasks as CodexTasksMsg,
   FolderList,
   HostInfo,
   HwSample,
-  JobActionKind,
-  JobActionResult,
   ListFolders,
   OfficeJob,
   OfficeSnapshot,
-  PermissionAnswerResult,
-  PermissionWait,
-  SlashCommand,
-  SlashCommandsList,
 } from '../../../core/src/messages.js';
 import { pickDiversePalette } from '../../../core/src/paletteUtils.js';
 import type { AgentRuntime } from '../agentRuntime.js';
 import type { AgentStateStore } from '../agentStateStore.js';
-import { readConfig, setAdapterSettingDefaults } from '../configPersistence.js';
+import { setAdapterSettingDefaults } from '../configPersistence.js';
 import {
   CODEX_USAGE_PROBE_COOLDOWN_MS,
   CODEX_USAGE_PROBE_KILL_GRACE_MS,
   CODEX_USAGE_PROBE_TIMEOUT_MS,
 } from '../constants.js';
-import { PALETTE_COUNT, PTY_PERMISSION_WAIT_MS } from '../constants.js';
-import { readLayoutFromFile } from '../layoutPersistence.js';
-import { hookProviders } from '../providers/index.js';
+import { PALETTE_COUNT } from '../constants.js';
 import { findClaude } from './agentCli.js';
 import type { StandaloneAuth } from './auth.js';
 import { BackgroundStore } from './background.js';
-import type { BuildingData, Change } from './building.js';
-import {
-  addFloor,
-  BuildingStore,
-  floorName,
-  floorOfCharacter,
-  floorOfRoom,
-  isLayout,
-  moveCharacter,
-  moveRoom,
-  placeNewRooms,
-  removeFloor,
-  renameFloor,
-  setPerProject,
-} from './building.js';
+import { BuildingStore, loadBuilding, placeNewRooms } from './building.js';
 import { CharacterPartStore, registerPartRoutes } from './characterParts.js';
 import { CharacterPresets, registerCharacterRoutes } from './characterPresets.js';
 import type { CharacterSpec } from './characters.js';
 import { CharacterBinder } from './characters.js';
-import {
-  parseChatCancel,
-  parseChatEdit,
-  parseChatHold,
-  parseChatSend,
-  parseChatSendNow,
-  sendTextRefusal,
-} from './chatSend.js';
 import { configDirectory } from './configPath.js';
 import { ensureOwnerToken, ownerTokenMatches } from './controlIdentity.js';
 import type { Lead } from './conversations.js';
-import { Conversations, listedText, readOptions } from './conversations.js';
-import type { BaseFloor, FloorLayout, Footprints } from './decor.js';
-import { composeOffice, decorFromSave, DecorStore, resetDecorRoom } from './decor.js';
+import { Conversations } from './conversations.js';
+import type { Footprints } from './decor.js';
+import { DecorStore } from './decor.js';
 import { deviceLabel, deviceSource } from './device.js';
 import { Devroom } from './devroom.js';
 import type { AgentChoicesReader } from './engine/agentCapabilities.js';
 import { AgentChoicesCache } from './engine/agentCapabilities.js';
 import { handleAgentRules, rulesDirFor } from './engine/agentRules.js';
-import { CodexAgent, runReport } from './engine/agents/codex/codex.js';
+import { CodexAgent } from './engine/agents/codex/codex.js';
 import type { CodexRecord } from './engine/codex.js';
 import { codexJson, CodexTasks, readCodex } from './engine/codex.js';
 import type { Reply } from './engine/control.js';
 import { answerControl, controlPath, listenControl, refuse } from './engine/control.js';
 import { answerDecision, answerMode, approvalsPath, ApprovalStore } from './engine/delegation.js';
 import type { EngineMode } from './engine/engine.js';
-import { CLD_BIN_DIR, cleanEnv, Engine, engineOn, nudgeText, renewText } from './engine/engine.js';
+import { Engine, engineOn, nudgeText, renewText } from './engine/engine.js';
 import {
   appendEvent,
   EngineEvents,
@@ -123,7 +86,6 @@ import { RepoManager } from './engine/git/repoManager.js';
 import type { ProjectFolder } from './engine/git/repoRead.js';
 import type { ReviewSendDeps } from './engine/git/reviewNotes.js';
 import { deliverToWorker, sendReview } from './engine/git/reviewNotes.js';
-import { TASK_PATTERN, worktreePath } from './engine/git/worktrees.js';
 import {
   defaultLocks,
   gpuDir,
@@ -132,21 +94,20 @@ import {
   writeCollectorGpuHw,
 } from './engine/gpu.js';
 import { GpuBoardFold } from './engine/gpuBoard.js';
-import { GroupMessages, roomEvents, roomTranscript } from './engine/groupMessages.js';
+import { GroupMessages } from './engine/groupMessages.js';
 import { GroupStore } from './engine/groups.js';
-import type { JobRecord } from './engine/jobs.js';
 import { Jobs } from './engine/jobs.js';
 import { leadTermBefore, readLeadHistory } from './engine/leadSwap.js';
 import { LOG_PRUNE_INTERVAL_MS } from './engine/logPolicy.js';
 import { pruneLogs } from './engine/logPrune.js';
 import { McpTools } from './engine/mcpTools.js';
 import type { MESSENGER_TIMING, Typist } from './engine/messenger.js';
-import { Messenger, writeAtomic } from './engine/messenger.js';
-import { cliOf, loadRegistry, registryPath } from './engine/registry.js';
+import { Messenger } from './engine/messenger.js';
+import { loadRegistry, registryPath } from './engine/registry.js';
+import { CLD_BIN_DIR, cleanEnv } from './engine/sessionEnv.js';
 import { buildSessionPath } from './engine/sessionPath.js';
 import { answerTask, startForTask, tasksPath, TaskStore } from './engine/tasks.js';
-import type { TaskWorktreeDeps } from './engine/taskWorktree.js';
-import { answerWorktree, mergeNewlyDone, worktreeForTask } from './engine/taskWorktree.js';
+import { answerWorktree, worktreeForTask } from './engine/taskWorktree.js';
 import { TurnLedger } from './engine/turnLedger.js';
 import { EzRulesFile, ezRulesPath } from './ezRules.js';
 import { detectHostInfo, listFolders, parseListFolders } from './folders.js';
@@ -154,32 +115,21 @@ import type { SocketStepUp, WsSend } from './hooks.js';
 import { cldHooks } from './hooks.js';
 import { DiskUsageSource } from './hw/diskUsage.js';
 import { hasHwReadings, HwSource, readTopProcesses, withoutDetail } from './hw/hwSource.js';
-import type { RoomRect, RoomSpec } from './layout.js';
-import {
-  codexLabel,
-  contractorSeatUid,
-  floorPrefix,
-  generateLayout,
-  LOUNGE_ROOM,
-  PANTRY_ROOM,
-  stackFloors,
-  WHITEBOARD_TYPE,
-} from './layout.js';
-import { LevelStore } from './levels.js';
-import { ENV_DUMP_NOTE, maskText } from './mask.js';
+import { codexLabel, WHITEBOARD_TYPE } from './layout.js';
+import { LevelStore, OWNER_COUNTED, ownerActionOf } from './levels.js';
 import { MemoStore } from './memos.js';
 import { handleNewAgentPermission, newAgentPermissionMessage } from './newAgentPermission.js';
+import { OfficeChat } from './office/chat.js';
+import { engineRoutes } from './office/engineRoutes.js';
+import { type FloorPlan, OfficeFloors } from './office/floors.js';
+import { OfficePermissions } from './office/permissions.js';
+import { OfficeRooms } from './office/rooms.js';
+import { WorkerRuns } from './office/workerRuns.js';
 import { registerOwnerProfileRoutes } from './ownerProfile.js';
 import { builtInPacksDir, PackStore } from './packs.js';
-import {
-  dialogCard,
-  type OpenToolCall,
-  parsePermissionAnswer,
-  PermissionWaits,
-  subjectCall,
-  toolCall,
-} from './permissionWait.js';
 import { PinStore } from './pins.js';
+import { aliasOf, deleteGoneConversation, type FormerName, readNameHistory } from './projectData.js';
+import { parseProjectRepo, ProjectRepos } from './projectRepo.js';
 import type { ClaudeSession } from './providers/claudeProvider.js';
 import {
   ClaudeAgentsSource,
@@ -187,16 +137,14 @@ import {
   entriesFromSessions,
   findOnPath,
   transcriptPath,
-  waitsForPermission,
 } from './providers/claudeProvider.js';
 import type { AgentEntry, World } from './providers/types.js';
-import { PushService, PushStore, type TurnInfo } from './push.js';
+import { PushService, PushStore } from './push.js';
 import { registerPushImageRoute } from './pushImage.js';
-import { RoomSizer } from './roomSizer.js';
-import { applyRoomReplies, RoomSummaries, type RoomSummary } from './roomUnread.js';
 import { RosterStore } from './roster.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
-import { SlashCatalogue, slashRefusal } from './slashCommands.js';
+import { SlashCatalogue } from './slashCommands.js';
+import { staffFacts } from './staffStatus.js';
 import {
   realStartPolicyDeps,
   registerStartPolicyRoutes,
@@ -207,25 +155,11 @@ import { engineJobsOutput, localStatusReport } from './statusReport.js';
 import { TempStaff } from './tempStaff.js';
 import { TrackingFeed } from './tracking/feed.js';
 import { leadHistoryHop } from './transcriptHistory.js';
-import { currentTurn, type RoomRef } from './transcriptView.js';
+import { senderAlias } from './transcriptView.js';
 import { managedInstall, registerUpdateRoutes, UpdateNotice } from './updateNotice.js';
 import { claudeUsageUrl, type EarlyUsageReset, readMacKeychain, UsageSource } from './usage.js';
-import type { WorkReader, WorkTarget } from './workView.js';
-import { echo, fileReader, parseWorkView, subagentReader, WorkViews } from './workView.js';
-
-/** PERM-PROMPT: a confirmed permission wait of an engine lead, as the office keeps it. */
-interface PermissionEntry {
-  /** Which wait (a new episode gets a new one): a screen read answers only its own. */
-  wait: number;
-  asker?: string;
-  /** The card from the transcripts, and the words an answer must find in the dialog. */
-  transcript: PermissionWait & { match: string[] };
-  /** The screen read of this wait: under way, or done (`dialog` when it found the whole dialog). */
-  screen?: 'reading' | 'done';
-  dialog?: string;
-  /** TERM-P3: a PTY agent's PermissionRequest hook waits on this card: 허용/거부 is its decision. */
-  hook?: (decision: 'allow' | 'deny' | null) => void;
-}
+import { WorktreeWho } from './worktreeWho.js';
+import { WorkViews } from './workView.js';
 
 export const CLAUDE_POLL_MS = 30_000;
 export const SESSIONS_DEBOUNCE_MS = 1_000;
@@ -235,6 +169,9 @@ const REPORT_MS = 10_000;
 /** While anyone watches, the messenger's transcript tails (T-0043) look for appended lines this often. */
 export const CHAT_VIEW_POLL_MS = 1_500;
 const CODEX_GRACE_MS = 5_000;
+/** COMPACT-COFFEE: while anyone watches, the working PTY agents' screens are looked at this often
+ *  for Claude Code's Compacting spinner (the visible screen only, ~2 ms each). */
+const COMPACT_LOOK_MS = 2_000;
 /** While anyone views: dead wrappers' tickets are swept this often (their end events fold the board). */
 const GPU_SWEEP_MS = 30_000;
 /** dist/cld-worker.js (T-0021): beside dist/cli.js, or the checkout's dist/ from the sources. */
@@ -262,18 +199,6 @@ const CODEX_USAGE_PROBE_ERROR = {
   timeout: refused('usage_timeout'),
 };
 type ClaudeData = ReturnType<typeof entriesFromSessions>;
-
-/** Every floor's generated office (T-0027). */
-interface FloorPlan {
-  stamp: string;
-  floors: Array<{ id: string; own: boolean; rooms: RoomRect[] }>;
-  /** Floor 1 first. */
-  layouts: Array<Record<string, unknown>>;
-  /** Character key -> seat (chair uid). */
-  seats: Record<string, string>;
-  /** Character key -> the room (area label) it sits in on its floor. */
-  areaOf: Map<string, string>;
-}
 
 export interface OfficeOptions {
   runtime: AgentRuntime;
@@ -335,17 +260,15 @@ export class Office {
   readonly groupStore: GroupStore | null;
   readonly groupMessages: GroupMessages | null;
   private readonly slash: SlashCatalogue;
-  /** Catalogue refresh subscriptions, keyed by the client and its open lead. */
-  private readonly slashViews = new Map<WsSend, Map<number, () => void>>();
+  /** The messenger's chat routes: sends, holds, slash commands, chat and work views. */
+  private readonly chat: OfficeChat;
+  /** The messenger's group-room routes, room list and timelines. */
+  private readonly rooms: OfficeRooms;
   readonly jobs: Jobs | null;
   /** T-0021: Codex tasks the engine runs, and the GPU reservation queue. */
   readonly codex: CodexTasks | null;
   /** D5: the Codex provider (Codex Workers' runs on `codex`). */
   private readonly codexAgent: CodexAgent | null;
-  /** D5: Worker runs whose end or limit is being told to their Lead right now. */
-  private readonly telling = new Set<string>();
-  /** D5: Worker runs whose end was told (read once from <id>.told, never again). */
-  private readonly toldEnd = new Set<string>();
   /** Filled after the HTTP listener selects its port; control status reports it
    * so the install manager never confuses a source daemon for this install. */
   private daemonPort: number | null = null;
@@ -366,6 +289,8 @@ export class Office {
   readonly repos: RepoManager;
   /** P4: the dev room's viewers, stats and settings. */
   readonly devroom: Devroom;
+  /** DEVROOM-PROJECT: 프로젝트 추가's check, git init and clone. */
+  private readonly projectRepos: ProjectRepos;
   /** P3a: the released-version notice; null for a source install (nothing to update from here). */
   private readonly updates: UpdateNotice | null;
   /** R3: the start policy and its facts, in 설정. */
@@ -389,12 +314,8 @@ export class Office {
   >();
   /** The office messenger (T-0043, the chat view of T-0014): transcript tails and open conversations. */
   private readonly conversations: Conversations;
-  /** Open room timelines are the only reason to read member transcripts for replies. */
-  private readonly groupViews = new Map<WsSend, Set<string>>();
   /** C3: what the messenger typed, which turn is whose (read by the DM view, contacts and push). */
   private readonly turnLedger = new TurnLedger();
-  /** C3: each room's list summary, kept incrementally (roomUnread.ts). */
-  private readonly roomSummaries = new RoomSummaries((room) => this.buildRoomSummary(room));
   /** The read-only work view of a temp (T-0056): readers open only while someone looks. */
   private readonly work: WorkViews;
   /** Latest message per type (JSON), for change detection and snapshots. */
@@ -409,10 +330,6 @@ export class Office {
   private claudeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Loads in flight: recompute() waits until every provider answered. */
   private loading = 0;
-  private gen: { key: string; value: FloorPlan } | null = null;
-  private readonly bases = new Map<string, FloorPlan>();
-  /** Spare desks for temps per room (T-0041). */
-  private readonly sizer = new RoomSizer();
   /** T-0027: the floors, which rooms and characters are on which. */
   readonly building: BuildingStore;
   readonly decor: DecorStore;
@@ -425,10 +342,14 @@ export class Office {
   /** TEMP-PLATES: the per-project staff rosters and the temporary work bound to them. */
   private readonly roster: RosterStore;
   private readonly temps: TempStaff;
+  /** DEVROOM-NAMES: who did a Codex run's worktree (its Worker or temp employee). */
+  private readonly worktreeWho: WorktreeWho;
   /** TEMP-PLATES: looks picked for employees hired this run, until characters.json has them. */
   private readonly hireLooks = new Map<string, { palette: number; hueShift: number }>();
   /** U-30: the pinned conversations. */
   readonly pins: PinStore;
+  /** PROJECT-DATA: name-history.json as last read (the messenger's aliases and gone contacts). */
+  private nameHistory: FormerName[] = [];
   /** BACKGROUND: the isometric office's surroundings. */
   readonly background: BackgroundStore;
   /** 작업 현황 (DEV-BOARD): the reported tasks; everyone gets them as they change. */
@@ -440,17 +361,6 @@ export class Office {
   private readonly cwdProjects = new Map<string, string | null>();
   /** D6: the removed assignees the task board last went out with (JSON). */
   private sentRemoved = '[]';
-  /** D6: the agents' assignment ids by name, read from the engine's registry while its files stay the same. */
-  private assignmentCache: {
-    sig: string;
-    map: Map<string, string> | null;
-    /** CH-3: each registry name's agent provider (its first look's mascot). */
-    providers: Map<string, string>;
-  } | null = null;
-  /** The office last broadcast after a building change (JSON). */
-  private sentLayout = '';
-  /** The floors last given to a client: they list the live world's rooms and characters. */
-  private sentFloors = '';
   private lastBuildingError = '';
   private lastClaudeError = '';
   private started = false;
@@ -458,12 +368,24 @@ export class Office {
   /** T-0039: Web Push to devices that are not looking. */
   readonly push: PushService | null;
   /** PERM-PROMPT: engine sessions held by a permission dialog, and what each card shows. */
-  private readonly permissionWaits: PermissionWaits | null;
-  private readonly permissions = new Map<number, PermissionEntry>();
-  private permissionSerial = 0;
+  private readonly permission: OfficePermissions;
+  /** The floors, layout and seats (T-0027). */
+  private readonly floors: OfficeFloors;
+  /** Worker runs and Task worktrees: assignments, the worktree an agent starts in, the end of a run told to its Lead. */
+  private readonly workerRuns: WorkerRuns;
 
   constructor(private readonly opts: OfficeOptions) {
     const home = opts.home ?? os.homedir();
+    this.workerRuns = new WorkerRuns({
+      opts,
+      tasks: () => this.tasks,
+      repos: () => this.repos,
+      engine: () => this.engine,
+      codex: () => this.codex,
+      jobs: () => this.jobs,
+      messenger: () => this.messenger,
+      groupMessages: () => this.groupMessages,
+    });
     this.slash = new SlashCatalogue({ home });
     this.host = detectHostInfo(opts.home ?? os.homedir());
     this.binder = new CharacterBinder(opts.runtime, opts.store);
@@ -492,7 +414,7 @@ export class Office {
           ? this.messenger.send(r)
           : Promise.resolve({ ok: false as const, ...refused('not_engine_project') }),
       names: () => this.engine?.names() ?? [],
-      nameOf: (id) => this.nameOfAssignment(id),
+      nameOf: (id) => this.workerRuns.nameOfAssignment(id),
       leadOf: (name) => this.engine?.projectOf(name) ?? undefined,
       task: (id) => this.tasks.get(id),
       setStatus: (id, status, by) => {
@@ -509,7 +431,7 @@ export class Office {
       // W2: the 작업실's "worktree 만들기" (the owner's: createdBy user).
       taskWorktree: (req, privileged, source) =>
         worktreeForTask(
-          this.taskWorktreeDeps(),
+          this.workerRuns.taskWorktreeDeps(),
           {
             taskId: req.taskId ?? '',
             assignee: req.assignee || null,
@@ -520,7 +442,8 @@ export class Office {
           privileged,
           source,
         ),
-      nameOf: (id) => this.nameOfAssignment(id),
+      nameOf: (id) => this.workerRuns.nameOfAssignment(id),
+      whoDid: (project, wtPath) => this.worktreeWho.of(project, wtPath),
       // Step ④ of the review loop: the boss's queue to the agent, the Task back to doing, a Lead line.
       reviewSend: (input) => sendReview(reviewDeps, input),
       // P4 에이전트에게 맡기기: the same delivery; a Task in review or done goes back to doing.
@@ -531,6 +454,7 @@ export class Office {
           koText('conflict_handoff_header', {
             task: input.taskId ?? input.worktree,
             worktree: input.worktree,
+            path: input.path,
             base: input.base,
             files: input.files.join(', '),
           }),
@@ -539,6 +463,11 @@ export class Office {
         ),
       agentBusy: (name) => this.engine?.roster().find((a) => a.name === name)?.busy === true,
       autoCleanup: () => this.devroom.autoCleanupAfterMerge,
+    });
+    this.projectRepos = new ProjectRepos({
+      host: this.host,
+      readOnly: !!opts.readOnly,
+      log: (line) => console.log(`[cld] projectRepo: ${line}`),
     });
     this.devroom = new Devroom({
       file: path.join(configDirectory(opts.home ?? os.homedir()), 'devroom.json'),
@@ -580,6 +509,7 @@ export class Office {
       this.publish(this.temps.message());
     });
     this.roster = new RosterStore(path.join(configDirectory(home), 'roster.json'));
+    this.worktreeWho = new WorktreeWho({ dir: () => this.codex?.dir ?? null, roster: this.roster });
     this.levels.beforeWrite = () => this.roster.flushIfDirty();
     this.temps = new TempStaff({
       roster: this.roster,
@@ -608,20 +538,20 @@ export class Office {
       tasksPath(home),
       () => {
         this.opts.store.broadcast({ ...this.tasks.message() });
-        this.mergeDoneTasks();
+        this.workerRuns.mergeDoneTasks();
       },
       undefined,
       {
         readOnly: opts.readOnly,
         live: () => {
-          const map = this.assignments();
+          const map = this.workerRuns.assignments();
           return map && new Set(map.values());
         },
         // D3b: a Task's assignee shows under the name its assignment answers to now.
-        nameOf: (id) => this.nameOfAssignment(id),
+        nameOf: (id) => this.workerRuns.nameOfAssignment(id),
       },
     );
-    this.doneTasks = new Set(this.tasks.list({ status: 'done' }).map((t) => t.id));
+    this.workerRuns.seedDoneTasks();
     this.tracking = new TrackingFeed({
       home,
       watching: () => this.watching(),
@@ -661,8 +591,8 @@ export class Office {
           },
           taskTitle: (task) => this.tasks.get(task)?.title,
           // W2: the Task's recorded worktree, when it is this Worker's or nobody's.
-          taskWorktree: (project, task, assignmentId) => this.codexTaskWorktree(project, task, assignmentId),
-          mayUse: (project, dir, assignmentId) => this.codexMayUse(project, dir, assignmentId),
+          taskWorktree: (project, task, assignmentId) => this.workerRuns.codexTaskWorktree(project, task, assignmentId),
+          mayUse: (project, dir, assignmentId) => this.workerRuns.codexMayUse(project, dir, assignmentId),
           stopJob: (job) => {
             const r = this.jobs?.stop(job, 'manager');
             return r?.ok ? { ok: true } : { ok: false, error: r && !r.ok ? r.error : undefined };
@@ -715,14 +645,23 @@ export class Office {
             ],
             events: new EventsTail(eventsPath(home), () => undefined).primeLast(2_000),
           }),
+          projectData: (change, names) => this.projectDataChange(change, names),
           swapped: ([lead, worker]) => {
             this.messenger?.resync([lead, worker]);
             this.mcp?.forget([lead, worker]);
-            this.leadProposals(lead, worker);
+            this.workerRuns.leadProposals(lead, worker);
             this.opts.store.broadcast({ ...this.tasks.message() });
           },
         })
       : null;
+    // RENAME: a peer header's name as it is called now; a removed agent's as "(알 수 없음)".
+    this.nameHistory = readNameHistory(home);
+    senderAlias.of = this.engine
+      ? (name, at) => {
+          const a = aliasOf(this.nameHistory, name, at);
+          return a === undefined ? undefined : isGoneName(a) ? koText('gone_agent') : a;
+        }
+      : undefined;
     // D3b: a Lead contact's history scrolls back into the old Leads' terms (lead-history.json).
     leadHistoryHop.hop = this.engine
       ? (file, start) =>
@@ -746,11 +685,13 @@ export class Office {
             typist: opts.typist ?? { type: () => Promise.resolve('failed' as const) },
             events: this.engineEvents,
             ledger: this.turnLedger,
+            noticeLive: (item) =>
+              !!item.group && !!this.groupStore?.find(item.group.roomId)?.members.includes(item.to),
             onDelivery: (item, delivered) => {
               this.groupMessages?.observe(item, delivered);
               // PERM-PROMPT: a message held for its session's terminal is a trigger to look.
               const id = delivered === 'held' ? this.agentIdOfName(item.to) : null;
-              if (id !== null) this.permissionWaits?.suspect(id);
+              if (id !== null) this.permission.waits?.suspect(id);
             },
             ...(opts.messengerTiming && { timing: opts.messengerTiming }),
           })
@@ -761,7 +702,7 @@ export class Office {
             home,
             store: this.groupStore,
             messenger: this.messenger,
-            changed: (roomId) => this.publishGroups(roomId),
+            changed: (roomId) => this.rooms.publishGroups(roomId),
           })
         : null;
     this.jobs =
@@ -772,7 +713,7 @@ export class Office {
             env: () => this.engine!.jobEnv(),
             systemdRun: this.engine.scopeRunner,
             changed: () => {
-              this.observeExecutions();
+              this.workerRuns.observeExecutions();
               this.publishJobs();
             },
             worker: opts.worker === undefined ? CLD_WORKER : opts.worker,
@@ -796,7 +737,7 @@ export class Office {
             folderOf: (name) => this.engine!.folders().find((f) => f.name === name)?.folder ?? null,
             changed: () => {
               this.codexAgent?.changed();
-              this.observeExecutions();
+              this.workerRuns.observeExecutions();
               this.reportWorkerRuns();
               this.recompute();
             },
@@ -828,7 +769,31 @@ export class Office {
     );
     // A turn can end within one poll: the contacts say which room it is in the moment it starts.
     this.turnLedger.onChange = () => this.conversations.republish();
-    this.work = new WorkViews((t) => this.workReader(t));
+    this.rooms = new OfficeRooms({
+      opts,
+      groupStore: this.groupStore,
+      groupMessages: this.groupMessages,
+      conversations: this.conversations,
+      turnLedger: this.turnLedger,
+      entryOf: (id) => this.entryOf(id),
+      leads: () => this.leads(),
+      noticeEmployee: (execution) => this.noticeEmployee(execution),
+      publish: (m) => this.publish(m),
+    });
+    this.work = new WorkViews((t) => this.chat.workReader(t));
+    this.chat = new OfficeChat({
+      opts,
+      engine: this.engine,
+      messenger: this.messenger,
+      slash: this.slash,
+      conversations: this.conversations,
+      work: this.work,
+      entryOf: (id) => this.entryOf(id),
+      leads: () => this.leads(),
+      readScreen: (id) => this.permission.readScreen(id),
+      publish: (m) => this.publish(m),
+      officeState: () => this.officeState(),
+    });
     this.push = opts.pushFile
       ? new PushService({
           store: new PushStore(opts.pushFile, opts.pushHost),
@@ -859,10 +824,33 @@ export class Office {
           },
           agentIdOf: (name) => this.agentIdOfName(name),
           // C3: only a lead with a conversation has room turns (the room posts go to those).
-          turn: (id) => this.turnOf(id),
+          turn: (id) => this.rooms.turnOf(id),
         })
       : null;
-    this.permissionWaits = this.engine ? this.makePermissionWaits(opts.engineClaude!) : null;
+    this.permission = new OfficePermissions({
+      claudePath: this.engine ? opts.engineClaude! : null,
+      store: opts.store,
+      conversations: this.conversations,
+      typist: opts.typist,
+      chat: opts.chat,
+      entryOf: (id) => this.entryOf(id),
+      agentIdOfName: (name) => this.agentIdOfName(name),
+      agents: () => this.world.agents,
+      idOf: (key) => this.binder.idOf(key),
+      employeeOf: (key) => this.roster.employeeOf(key),
+      inPty: (name) => this.engine?.inPty(name),
+    });
+    this.floors = new OfficeFloors({
+      opts,
+      building: this.building,
+      decor: this.decor,
+      world: () => this.world,
+      hasCodex: () => !!this.codex,
+      keyOf: (id) => this.binder.keyOf(id),
+      codexKeyOf: (id) => this.codexBinder.keyOf(id),
+      codexTasks: () => this.codexTasks(),
+      codexRoom: (project) => this.codexRoom(project),
+    });
   }
 
   /** The character of a project or session name, or null. */
@@ -872,211 +860,11 @@ export class Office {
   }
 
   /**
-   * PERM-PROMPT (permissionWait.ts): an engine session held by a permission dialog notifies
-   * through the existing path (the lead's permission bubble, its sub-agent's, the 🔐 notice and
-   * Web Push naming the asking sub-agent) and its messenger card shows what is asked.
-   */
-  private makePermissionWaits(claudePath: string): PermissionWaits {
-    const agents = new ClaudeAgentsSource(claudePath);
-    const engineEntry = (id: number) => {
-      const e = this.entryOf(id);
-      return e?.key.startsWith('engine:') && e.bg?.id ? e : null;
-    };
-    const waits = new PermissionWaits({
-      // TERM-P3: a PTY agent's prompts come from its PermissionRequest hook (askPermission).
-      isEngineLead: (id) => {
-        const e = engineEntry(id);
-        return !!e && !this.engine?.inPty(e.name);
-      },
-      exempt: new Set(hookProviders.flatMap((p) => [...p.permissionExemptTools])),
-      check: async () => {
-        const rows = (await agents.list()).filter(waitsForPermission);
-        const ids = new Set<number>();
-        for (const a of this.world.agents) {
-          const id = a.key.startsWith('engine:') ? this.binder.idOf(a.key) : null;
-          if (id !== null && rows.some((r) => r.id === a.bg?.id || r.sessionId === a.sessionId)) ids.add(id);
-        }
-        return ids;
-      },
-      started: (id, subject, again) => {
-        const e = engineEntry(id);
-        const call: OpenToolCall | null =
-          subject && e?.transcript ? subjectCall(e.transcript, subject) : null;
-        const asker = subject?.parentToolId
-          ? this.roster.employeeOf(`claude:${subject.parentToolId}`)?.nameId
-          : undefined;
-        // The same wait keeps its screen read (once per wait) and, once read, its screen card.
-        const before = again ? this.permissions.get(id) : undefined;
-        this.permissions.set(id, {
-          wait: before?.wait ?? ++this.permissionSerial,
-          ...((asker ?? before?.asker) && { asker: asker ?? before?.asker }),
-          transcript: {
-            // Answerable only with words its dialog must show.
-            toolId: call?.match.length ? subject!.toolId : '',
-            ...(call && { tool: call.tool }),
-            ...(call?.detail && { detail: maskText(call.detail) }),
-            match: call?.match ?? [],
-          },
-          ...(before?.screen && { screen: before.screen }),
-          ...(before?.dialog && { dialog: before.dialog }),
-        });
-        this.readPermissionScreen(id);
-        if (!again) {
-          console.log(`[cld engine] "${e?.name ?? id}" waits on a permission dialog`);
-          this.opts.store.broadcast({ type: 'agentToolPermission', id, ...(asker && { asker }) });
-          if (subject?.parentToolId)
-            this.opts.store.broadcast({
-              type: 'subagentToolPermission',
-              id,
-              parentToolId: subject.parentToolId,
-            });
-        }
-        this.conversations.republish();
-      },
-      cleared: (id) => {
-        this.permissions.delete(id);
-        this.opts.store.broadcast({ type: 'agentToolPermissionClear', id });
-        this.conversations.republish();
-      },
-    });
-    this.opts.store.on('broadcast', (m) => waits.observe(m));
-    this.opts.store.on('agentRemoved', (id) => {
-      waits.forget(id);
-      this.permissions.get(id)?.hook?.(null);
-      this.permissions.delete(id);
-    });
-    return waits;
-  }
-
-  /**
-   * TERM-P3 (ADR-0018): a PTY agent's PermissionRequest hook (control `permission-hook`, with the
-   * asking session's own token). The same card, bubble, 🔐 notice and Web Push as a PERM-PROMPT
-   * wait, made from the hook's tool and input (its description and whole command: 허용 approves
-   * exactly that call); 허용/거부 is the hook's decision. No answer in PTY_PERMISSION_WAIT_MS, the
-   * character gone, or no such PTY agent: no decision, and Claude shows its own dialog in the
-   * agent's terminal. Nothing is read off a screen.
+   * TERM-P3 (ADR-0018): a PTY agent's PermissionRequest hook (control `permission-hook`); the card
+   * logic is OfficePermissions.ask.
    */
   askPermission(name: string, ask: { tool: string; input: Record<string, unknown> }): Promise<'allow' | 'deny' | null> {
-    const id = this.agentIdOfName(name);
-    const e = id === null ? undefined : this.entryOf(id);
-    if (id === null || !e?.key.startsWith('engine:') || !e.bg?.id || !this.engine?.inPty(name))
-      return Promise.resolve(null);
-    // ponytail: one card per agent; a second ask while one is up sends the first to its terminal.
-    this.permissions.get(id)?.hook?.(null);
-    const call = toolCall(ask.tool, ask.input);
-    const detail = call.match.length ? call.match.join('\n') : call.detail;
-    const wait = ++this.permissionSerial;
-    return new Promise((resolve) => {
-      const done = (decision: 'allow' | 'deny' | null) => {
-        clearTimeout(timer);
-        if (this.permissions.get(id)?.wait === wait) {
-          this.permissions.delete(id);
-          this.opts.store.broadcast({ type: 'agentToolPermissionClear', id });
-          this.conversations.republish();
-        }
-        resolve(decision);
-      };
-      const timer = setTimeout(() => done(null), PTY_PERMISSION_WAIT_MS);
-      timer.unref?.();
-      this.permissions.set(id, {
-        wait,
-        transcript: { toolId: `hook:${wait}`, tool: call.tool, ...(detail && { detail: maskText(detail) }), match: [] },
-        screen: 'done',
-        hook: done,
-      });
-      console.log(`[cld engine] "${name}" asks a permission (${call.tool}) through its hook`);
-      this.opts.store.broadcast({ type: 'agentToolPermission', id });
-      this.conversations.republish();
-    });
-  }
-
-  /**
-   * PERM-PROMPT: while a wait is confirmed and someone views its conversation, read the dialog off
-   * the session's screen, once per wait (one attach, read, detach: ~150 MB for a few seconds), and
-   * make it the card: what the dialog itself says, and exactly what an answer must find on screen.
-   * Unreadable (no attach, a dialog taller than the screen): the transcript card stays.
-   */
-  private readPermissionScreen(id: number): void {
-    const p = this.permissions.get(id);
-    const bg = this.entryOf(id)?.bg?.id;
-    const read = this.opts.typist?.readPermissionDialog;
-    if (!p || p.screen || !bg || !read || !this.conversations.viewing(id)) return;
-    p.screen = 'reading';
-    const done = (dialog: string | null) => {
-      const cur = this.permissions.get(id);
-      if (cur?.wait !== p.wait) return; // that wait is over
-      cur.screen = 'done';
-      if (dialog === null) delete cur.dialog;
-      else cur.dialog = dialog;
-      this.conversations.republish();
-    };
-    void read.call(this.opts.typist, bg).then(done, () => done(null));
-  }
-
-  /** PERM-PROMPT: the card a contact carries (never the words an answer matches against). */
-  private permissionCard(p: PermissionEntry): PermissionWait {
-    const screen = p.dialog ? dialogCard(p.dialog) : null;
-    const detail = screen?.detail && maskText(screen.detail);
-    const shown = screen
-      ? {
-          // Masking that dropped whole lines (an env-style block) hid part of what 허용 approves:
-          // then the card offers only the terminal.
-          toolId: detail?.includes(ENV_DUMP_NOTE)
-            ? ''
-            : `screen:${createHash('sha256').update(p.dialog!).digest('hex').slice(0, 16)}`,
-          tool: maskText(screen.tool),
-          ...(detail && { detail }),
-        }
-      : (({ match: _match, ...card }) => card)(p.transcript);
-    return { ...shown, ...(p.asker && { asker: p.asker }) };
-  }
-
-  /** PERM-PROMPT: 허용/거부 on a card: privileged like typing into that session's terminal; a key
-   *  only when its dialog is on screen and about the card's call (chat.ts answerPermission). */
-  private async answerPermission(
-    msg: Record<string, unknown>,
-    privileged: boolean,
-    device: string,
-  ): Promise<PermissionAnswerResult | null> {
-    const req = parsePermissionAnswer(msg);
-    if (!req) return null;
-    const reply = (o: Partial<PermissionAnswerResult>): PermissionAnswerResult => ({
-      type: 'permissionAnswerResult',
-      requestId: req.requestId,
-      agentId: req.agentId,
-      ok: true,
-      ...o,
-    });
-    const e = this.entryOf(req.agentId);
-    const refusal = !this.opts.chat
-      ? refused('chat_off')
-      : !privileged
-        ? refused('no_permission')
-        : !e?.key.startsWith('engine:') || !e.bg?.id
-          ? refused('not_engine_project')
-          : null;
-    const what = `permission ${req.allow ? 'allow' : 'deny'} ${JSON.stringify(e?.name ?? req.agentId).slice(0, 66)} gui:${device}`;
-    if (refusal || !e?.bg?.id) {
-      console.log(`[cld engine] ${what}: refused (${refusal?.error})`);
-      return reply({ ok: false, ...refusal });
-    }
-    const p = this.permissions.get(req.agentId);
-    const card = p && this.permissionCard(p);
-    const match = p?.dialog !== undefined ? { dialog: p.dialog } : p?.transcript.match;
-    const result =
-      !card?.toolId || card.toolId !== req.toolId || !match
-        ? ('gone' as const)
-        : p?.hook
-          ? (p.hook(req.allow ? 'allow' : 'deny'), 'answered' as const) // TERM-P3: the hook's decision
-          : ((await this.opts.typist?.answerPermission?.(e.bg.id, match, req.allow)) ?? 'failed');
-    console.log(`[cld engine] ${what}: ${result}`);
-    if (result === 'answered') this.permissionWaits?.answered(req.agentId);
-    // Another dialog is up than the card says: read the screen again (the owner asked, once).
-    if (result === 'otherDialog' && this.permissions.get(req.agentId) === p && p?.screen === 'done') {
-      delete p.screen;
-      this.readPermissionScreen(req.agentId);
-    }
-    return reply({ result });
+    return this.permission.ask(name, ask);
   }
 
   /** The managed install this daemon runs from, with the folder holding its cld/; null for a source install. */
@@ -1161,8 +949,8 @@ export class Office {
     this.messenger?.start();
     this.jobs?.start();
     this.codex?.start();
-    this.attachWorkerRuns();
-    this.observeExecutions(); // runs that ended while the daemon was down
+    this.workerRuns.attachWorkerRuns();
+    this.workerRuns.observeExecutions(); // runs that ended while the daemon was down
     this.reportWorkerRuns(); // and their Leads not told yet
     if (this.jobs) {
       // U-42: once now, then daily; an error is logged and skipped, never the daemon's.
@@ -1173,7 +961,7 @@ export class Office {
     if (this.gpuQueue) this.gpuHwTimer = setInterval(() => void this.tickGpuHw(), 2_000);
     await this.startControl();
     await this.load();
-    this.migrateLayoutJson();
+    this.floors.migrateLayoutJson();
     this.publishJobs();
     // Room names are the point of this office: on unless the user said
     // otherwise. Character names stay upstream's default, off (T-0036): the
@@ -1230,7 +1018,7 @@ export class Office {
     this.roster.flushIfDirty();
     this.started = false;
     this.push?.dispose();
-    this.permissionWaits?.dispose();
+    this.permission.dispose();
     this.viewers.clear();
     this.hidden.clear();
     this.lookedAt.clear();
@@ -1340,19 +1128,19 @@ export class Office {
     }
     // 프로젝트마다 층 (T-0027): a new room gets its floor before anyone sees it.
     if (this.building.data.perProject) {
-      const { error, changed } = this.building.apply((b) => placeNewRooms(b, this.roomLabels()));
+      const { error, changed } = this.building.apply((b) => placeNewRooms(b, this.floors.roomLabels()));
       if (error && error !== this.lastBuildingError) console.warn(`[cld] building: ${error}`);
       this.lastBuildingError = error ?? '';
-      if (changed) this.publishBuilding();
+      if (changed) this.floors.publishBuilding();
     }
     // After a restart the first clients get their floors before the world loads.
     // A client got its floors before the world loaded (a restart): re-send the list, who
     // sits in which room and the office itself when it changed (ELEVATOR: it was left out, so a
     // room drawn only once its characters came back stayed missing there, and they sat at
     // whatever desk was free, on another floor).
-    if (this.sentFloors && JSON.stringify(this.floorRows()) !== this.sentFloors) {
-      this.publishBuilding();
-      this.opts.store.broadcast(this.mappingsMessage());
+    if (this.floors.sentFloors && JSON.stringify(this.floors.floorRows()) !== this.floors.sentFloors) {
+      this.floors.publishBuilding();
+      this.opts.store.broadcast(this.floors.mappingsMessage());
     }
   }
 
@@ -1362,7 +1150,7 @@ export class Office {
       const id = this.binder.idOf(a.key);
       const agent = id === null ? undefined : this.opts.store.get(id);
       if (agent?.palette === undefined) return [];
-      const provider = a.provider === 'engine' ? this.providerOfName(a.name) : 'claude';
+      const provider = a.provider === 'engine' ? this.workerRuns.providerOfName(a.name) : 'claude';
       return [{ name: a.name, palette: agent.palette, hueShift: agent.hueShift ?? 0, provider }];
     });
     // TEMP-PLATES: every employee's look, keyed by its id (a new hire gets the least-used palette).
@@ -1385,12 +1173,6 @@ export class Office {
     this.characters.pin(live, () =>
       loadRegistry(registryPath(this.opts.home ?? os.homedir())).projects.map((p) => p.name),
     );
-  }
-
-  /** CH-3: an engine name's agent provider from the registry (null: unknown). */
-  private providerOfName(name: string): string | null {
-    this.assignments();
-    return this.assignmentCache?.providers.get(name) ?? null;
   }
 
   /** MSG-ALIGN: the employee a run was bound to, ever (the roster keeps every run's), for a chat item. */
@@ -1439,276 +1221,45 @@ export class Office {
         provider: key.startsWith('engine:') ? ('engine' as const) : ('claude' as const),
         level: this.levels.view(key),
         ...(key.startsWith('engine:') && this.engine?.renewPending(o.name) && { renewing: true }),
-        ...(key.startsWith('engine:') && this.heldEdits(o.name)),
+        ...(key.startsWith('engine:') && this.engine?.compacting(o.name) && { compacting: true }),
+        ...(key.startsWith('engine:') && this.chat.heldEdits(o.name)),
       })),
+      owner: this.levels.ownerView(),
     };
   }
 
-  /**
-   * D6: every agent's assignment id by name (a Lead's and a Worker's), from the
-   * engine's registry files (the engine writes them on each change); null when
-   * the engine is off or its registry cannot be read.
-   */
-  /** The name assignment `id` answers to now. */
-  private nameOfAssignment(id: string): string | undefined {
-    for (const [name, a] of this.assignments() ?? []) if (a === id) return name;
-    return undefined;
-  }
+  // ── Worker runs and Task worktrees (office/workerRuns.ts) ───
 
-  /** W3: the Tasks seen done (null until the store is read): a newly done one merges. */
-  private doneTasks: Set<string> | null = null;
-
-  /** W3: a Task newly done: its worktree's branch merges into its base, automatically (never into
-   *  a protected branch, never a Task with review notes: those wait for the owner's click in the
-   *  작업실). The merges never reject; their outcome is in the merge history. */
-  private mergeDoneTasks(): void {
-    if (this.opts.readOnly) return;
-    this.doneTasks = mergeNewlyDone(this.tasks, this.repos, this.doneTasks).seen;
-  }
-
-  /** W2 (N6): worktrees just given, until their agent starts (taskWorktree.ts CLAIM_MS). */
-  private readonly worktreeClaims = new Map<string, { assignmentId: string; until: number }>();
-
-  /** W2: what "a worktree for a Task" works with (taskWorktree.ts). */
-  private taskWorktreeDeps(): TaskWorktreeDeps {
-    return {
-      tasks: this.tasks,
-      repos: this.repos,
-      roster: () => this.engine?.roster() ?? [],
-      holds: (a, taskId) => this.holdsWorktree(a, taskId),
-      claims: this.worktreeClaims,
-    };
-  }
-
-  /** W2 (N5, N6): agent `a` may be working in Task `taskId`'s worktree: running; a Claude agent
-   *  that is on (down sessions are started again); a resting Codex Worker whose last run, which
-   *  a follow-up continues, is that Task's. */
   holdsWorktree(a: { role: string; assignmentId: string | null; provider: string; live: boolean; wantRunning: boolean }, taskId: string): boolean {
-    if (a.role === 'lead') return false; // its folder is the project's: it holds no worktree
-    if (a.live) return true;
-    if (a.provider !== 'codex') return a.wantRunning;
-    return a.wantRunning && !!a.assignmentId && this.codex?.runsOf(a.assignmentId).at(-1)?.task === taskId;
+    return this.workerRuns.holdsWorktree(a, taskId);
   }
 
-  /** W2 (N5): the folder of a Codex Worker's last run is still its own: not one of the daemon's
-   *  worktrees that is now another agent's or removed. */
   codexMayUse(project: { name: string; folder: string }, dir: string, assignmentId: string): boolean {
-    let top: string;
-    try {
-      top = fs.realpathSync(project.folder);
-    } catch {
-      return true;
-    }
-    const at = path.resolve(dir);
-    const recs = this.repos.worktrees
-      .all()
-      .filter((r) => r.project === project.name && TASK_PATTERN.test(r.task) && worktreePath(top, r.task) === at);
-    if (!recs.length) return true;
-    const active = recs.find((r) => r.status === 'active');
-    return !!active && (!active.assignmentId || active.assignmentId === assignmentId);
+    return this.workerRuns.codexMayUse(project, dir, assignmentId);
   }
 
-  /** W2: `.worktrees/<task>` of the repository at `folder` (rebuilt, never the file's path), if it is there. */
-  private worktreeFolder(folder: string, task: string): string | null {
-    try {
-      const at = worktreePath(fs.realpathSync(folder), task);
-      return TASK_PATTERN.test(task) && fs.statSync(at).isDirectory() ? at : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /** W2: where a Codex Worker's new run for Task `task` goes: the Task's recorded worktree when
-   *  it is this Worker's or nobody's (another Worker's is never shared), and it is there. */
   codexTaskWorktree(
     project: { name: string; folder: string },
     task: string,
     assignmentId: string,
   ): { path: string; branch: string } | null {
-    const rec = this.repos.worktrees.forTask(project.name, task);
-    if (!rec || (rec.assignmentId && rec.assignmentId !== assignmentId)) return null;
-    const at = this.worktreeFolder(project.folder, rec.task);
-    return at ? { path: at, branch: rec.branch } : null;
+    return this.workerRuns.codexTaskWorktree(project, task, assignmentId);
   }
 
-  /**
-   * W2: where a Claude Worker starts next (Engine's `assignedFolder`): the worktree last given
-   * to it (and there); else, when its folder is one of the daemon's worktrees that is no longer
-   * its own (given to another agent, or removed), its project's folder again; otherwise null
-   * (no change: a folder the user gave it stays).
-   */
   assignedFolder(p: { name: string; assignmentId?: string; workFolder?: string }): string | null {
-    const project = p.assignmentId && this.engine?.projectOf(p.name);
-    const folder = project ? this.engine?.folders().find((f) => f.name === project)?.folder : undefined;
-    if (!project || !folder) return null;
-    const recs = this.repos.worktrees.all().filter((r) => r.project === project);
-    const when = (r: { assignedAt?: string; created: string }) => r.assignedAt ?? r.created;
-    const mine = recs
-      .filter((r) => r.status === 'active' && r.assignmentId === p.assignmentId)
-      .sort((a, b) => when(b).localeCompare(when(a)))[0];
-    const at = mine && this.worktreeFolder(folder, mine.task);
-    if (at) return at;
-    if (!p.workFolder) return null;
-    let top: string;
-    try {
-      top = fs.realpathSync(folder);
-    } catch {
-      return null;
-    }
-    const own = path.resolve(p.workFolder);
-    return recs.some((r) => TASK_PATTERN.test(r.task) && worktreePath(top, r.task) === own) ? folder : null;
+    return this.workerRuns.assignedFolder(p);
   }
 
-  private assignments(): Map<string, string> | null {
-    if (!this.engine) return null;
-    const file = registryPath(this.opts.home ?? os.homedir());
-    const stamp = (f: string) => {
-      try {
-        const st = fs.statSync(f);
-        return `${st.mtimeMs}:${st.size}`;
-      } catch {
-        return '-';
-      }
-    };
-    const sig = `${stamp(file)}|${stamp(path.join(path.dirname(file), 'assignments.json'))}`;
-    if (this.assignmentCache?.sig !== sig) {
-      const loaded = loadRegistry(file);
-      this.assignmentCache = {
-        sig,
-        map:
-          loaded.broken || loaded.migrated
-            ? null
-            : new Map(
-                loaded.projects.flatMap((p) => {
-                  const id = p.role ? p.assignmentId : p.leadAssignmentId;
-                  return id ? [[p.name, id] as const] : [];
-                }),
-              ),
-        providers: new Map(loaded.projects.map((p) => [p.name, cliOf(p)])),
-      };
-    }
-    return this.assignmentCache.map;
-  }
-
-  /**
-   * D3b + C6: a proposal (a Worker's Task proposed to its Lead) is assigned to the Lead's
-   * assignment. After a swap that assignment is the Worker `worker`; the project's open
-   * proposals go to the new Lead, which decides them now (the Lead seat, like the project's
-   * queued messages). Other Tasks keep their assignee (they follow the agent).
-   */
-  private leadProposals(lead: string, worker: string): void {
-    const ids = this.assignments();
-    const newLead = ids?.get(lead);
-    const oldLead = ids?.get(worker);
-    if (!newLead || !oldLead) return;
-    for (const t of this.tasks.list({ project: lead, status: 'proposed' }))
-      if (t.assignee?.assignmentId === oldLead) {
-        const r = this.tasks.update(t.id, { assignee: { assignmentId: newLead, name: lead } }, 'engine');
-        if (!r.ok) console.warn(`[cld] lead swap: proposal ${t.id} not moved to the new Lead (${String(r.error)})`);
-      }
-  }
-
-  /** D6: the tasks' open Executions, settled from the Codex and job records. */
-  private observeExecutions(): void {
-    const jobs = this.jobs;
-    const codex = this.codex;
-    if (!jobs) return;
-    let all: JobRecord[] | null = null;
-    this.tasks.observe({
-      codex: (id) => (codex ? readCodex(codex.dir, id) : null),
-      job: (id) => (all ??= jobs.list(true, true)).find((j) => j.id === id) ?? null,
-    });
-  }
-
-  /** D5: a Worker run with a Task is that Task's Execution, also when the daemon died between
-   *  starting it and attaching it (the same id attaches once). */
-  private attachWorkerRuns(): void {
-    for (const r of this.codex?.workerRecords() ?? [])
-      if (r.task && r.agent && !this.tasks.get(r.task)?.executions?.some((e) => e.id === `codex:${r.id}`))
-        this.tasks.attach(r.task, { kind: 'codex', ref: r.id, log: r.log }, r.agent);
-  }
-
-  /** D5 (design §2.4): a Worker run that ended, or waits on a usage limit, is told to its Lead
-   *  once, under the Worker's name; a room post's end goes to the room too. What was told is in
-   *  <id>.told beside the record (the worker rewrites the record whole: never written here). */
   private reportWorkerRuns(): void {
-    const codex = this.codex;
-    if (!codex || !this.messenger || !this.engine || this.opts.readOnly) return;
-    for (const r of codex.workerRecords()) {
-      const mark = r.state === 'limit' ? `limit:${r.resetAt ?? ''}` : r.ended ? 'end' : null;
-      if (!mark || !r.agent || this.telling.has(r.id) || this.toldEnd.has(r.id)) continue;
-      const file = path.join(codex.dir, `${r.id}.told`);
-      let told = '';
-      try {
-        told = fs.readFileSync(file, 'utf-8').trim();
-      } catch {
-        /* not told yet */
-      }
-      if (told === 'end') this.toldEnd.add(r.id);
-      if (told === mark || told === 'end') continue;
-      this.telling.add(r.id);
-      void this.tellWorkerRun(r, mark, file)
-        .catch((err) => console.warn(`[cld] codex ${r.id}: ${String(err)}`))
-        .finally(() => this.telling.delete(r.id));
-    }
+    this.workerRuns.reportWorkerRuns();
   }
 
-  /** C4: a delegation event as a room's one line: a Task given out, a Worker's report. */
   private systemLine(type: string, f: Record<string, unknown>): void {
-    const task = typeof f.task === 'string' ? f.task : null;
-    const from = typeof f.from === 'string' ? f.from : null;
-    if (!task || !from || !this.groupMessages) return;
-    if (type === 'delegate' && typeof f.to === 'string')
-      this.groupMessages.system({ kind: 'assigned', task, from, to: f.to, detail: this.tasks.get(task)?.title });
-    else if (type === 'task_report')
-      this.groupMessages.system({
-        kind: 'reported',
-        task,
-        from,
-        to: this.engine?.projectOf(from) ?? undefined,
-        detail: typeof f.status === 'string' ? f.status : undefined,
-      });
+    this.workerRuns.systemLine(type, f);
   }
 
-  private async tellWorkerRun(r: CodexRecord, mark: string, file: string): Promise<void> {
-    const text = runReport(r, shortStamp);
-    const lead = this.engine?.projectOf(r.agent!) ?? r.project;
-    if (text && lead && this.engine?.names().includes(lead)) {
-      const sent = await this.messenger!.send({
-        to: lead,
-        text,
-        ifIdle: false,
-        from: r.agent!,
-        source: 'codex',
-        ...(r.task && { task: r.task }),
-        // K1: a finished run is the Lead's to decide on; a usage-limit wait resumes by itself.
-        notice: mark === 'end' ? 'action' : 'fyi',
-      });
-      if (!sent.ok) {
-        console.warn(`[cld] codex ${r.id}: ${lead} not told (${sent.error}); tried again on the next change`);
-        return;
-      }
-    }
-    // C4: the report as one line in the rooms that hold the Worker and its Lead (not the run's own
-    // room: the summary below says it there).
-    if (mark === 'end' && r.task && lead && lead !== r.agent)
-      this.groupMessages?.system({ kind: 'reported', task: r.task, from: r.agent!, to: lead, detail: r.state, except: r.room?.id });
-    if (mark === 'end' && r.room && this.groupMessages) {
-      const post = await this.groupMessages.post({
-        room: r.room.id,
-        text: r.summary?.trim() || '(마지막 메시지가 없어요)',
-        from: r.agent!,
-        source: 'codex',
-        quiet: true, // TOKEN-GUARD (TG-02b): the Lead is told above; the room copy wakes nobody
-      });
-      if (!post.ok) console.warn(`[cld] codex ${r.id}: room ${r.room.id} not posted (${post.error})`);
-    }
-    try {
-      writeAtomic(file, `${mark}\n`);
-      if (mark === 'end') this.toldEnd.add(r.id);
-    } catch (err) {
-      console.warn(`[cld] codex ${r.id}: ${String(err)}`);
-    }
+  tellWorkerRun(r: CodexRecord, mark: string, file: string): Promise<void> {
+    return this.workerRuns.tellWorkerRun(r, mark, file);
   }
 
   /** The engine's Codex tasks (T-0021); null when the engine is off. */
@@ -1829,7 +1380,7 @@ export class Office {
         // W2: worktree 'new' through the same operation as the 작업실 and the CLI.
         taskWorktree: (r) =>
           worktreeForTask(
-            this.taskWorktreeDeps(),
+            this.workerRuns.taskWorktreeDeps(),
             { taskId: r.taskId, assignee: r.assignee, scope: r.project, by: r.by, createdBy: `agent:${r.by}`, reuse: true },
             true,
             `mcp:${r.by}`,
@@ -1896,6 +1447,7 @@ export class Office {
                 entry: path.resolve(process.argv[1] ?? ''),
               },
               ...(hw.ok && 'hw' in hw ? { hw: hw.hw } : {}),
+              ...staffFacts(this.usage.usage, this.temps.message().staff, this.usage.opts.home),
             };
           },
           stopAgents: async () => {
@@ -1941,14 +1493,15 @@ export class Office {
               : Promise.resolve({ ok: false, code: 'daemon_error', error: '엔진이 꺼져 있습니다' }),
           codexList: (all) => ({ ok: true, tasks: (this.codex?.list(all) ?? []).map(codexJson) }),
           worktree: (args, who) =>
-            answerWorktree({ ...this.taskWorktreeDeps(), projects: () => engine.projectNames() }, args, who),
+            answerWorktree({ ...this.workerRuns.taskWorktreeDeps(), projects: () => engine.projectNames() }, args, who),
           task: (args, who) =>
             args.op === 'mode'
               ? answerMode(this.approvals, args, who, engine.projectNames())
               : answerTask(this.tasks, args, who, {
-                  assignmentOf: (name) => this.assignments()?.get(name) ?? null,
+                  assignmentOf: (name) => this.workerRuns.assignments()?.get(name) ?? null,
                   names: () => engine.names(),
                 }),
+          rename: (name, to, source) => engine.rename(name, to, source),
           renew: (name, text, from, source) => {
             const r = engine.renew(name, renewText(text, from, shortStamp()), source);
             return r.ok ? { ok: true, name, renew: 'pending' } : r;
@@ -1994,40 +1547,6 @@ export class Office {
   /** The HTTP server may receive an OS-assigned port, so it reports the actual listener. */
   setDaemonPort(port: number): void {
     this.daemonPort = port;
-  }
-
-  /** The job panel (T-0019): read an engine job's log, or stop it (actions on, after the client's confirmation). */
-  private jobAction(
-    msg: Record<string, unknown>,
-    send: WsSend,
-    privileged: boolean,
-    device: string,
-  ): void {
-    const { requestId, action, id } = msg;
-    if (typeof requestId !== 'string' || !requestId || requestId.length > 128) return;
-    if (action !== 'log' && action !== 'stop') return;
-    if (typeof id !== 'string' || id.length > 128) return;
-    const reply = (r: Partial<JobActionResult> & { ok: boolean }) =>
-      send({ type: 'jobActionResult', requestId, action: action as JobActionKind, id, ...r });
-    if (!this.jobs) return reply({ ok: false, ...refused('engine_off') });
-    if (!privileged) return reply({ ok: false, ...refused('no_permission') });
-    if (action === 'log') {
-      const log = this.jobs.readLog(id);
-      return reply(
-        log
-          ? {
-              ok: true,
-              log: log.text,
-              truncated: log.truncated,
-              digest: log.digest,
-              logPath: log.path,
-            }
-          : { ok: false, ...refused('job_unknown') },
-      );
-    }
-    if (this.opts.readOnly) return reply({ ok: false, ...refused('read_only_mode') });
-    const r = this.jobs.stop(id, `gui:${device}`);
-    reply(r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode && { errorCode: r.errorCode, errorParams: r.errorParams }) });
   }
 
   private publishUsage(): void {
@@ -2243,304 +1762,28 @@ export class Office {
 
   // ── Layout, floors and seats ────────────────────────────────
 
-  private everyone(): AgentEntry[] {
-    return this.world.agents;
-  }
-
-  roomSpecs(): RoomSpec[] {
-    const all = this.everyone();
-    const engineCodex = !!this.codex;
-    return this.world.rooms.map((r) => {
-      const members = all.filter((a) => a.tab === r.name).sort((a, b) => a.order - b.order);
-      return {
-        label: r.name,
-        members: members.map((a) => a.key),
-        contractorDesk:
-          r.kind === 'orch' && members.some((a) => engineCodex && a.key.startsWith('engine:')),
-        spare: this.sizer.spareFor(r.name),
-      };
-    });
-  }
-
-  /** The rooms the office draws (with a character or a contractor desk), in order. */
-  private roomLabels(): string[] {
-    return this.roomSpecs()
-      .filter((r) => r.members.length || r.contractorDesk)
-      .map((r) => r.label);
-  }
-
-  /**
-   * Every floor's generated office (T-0027): a room on its floor with its
-   * contractor desk; its characters placed on another floor sit in an annex
-   * there ("2층 <room>"), and each floor has a lounge ("2층 휴게실" above the
-   * first; floor 1 also has the 로비, T-0046), so no area label is on two floors. Seats stay `seat:<key>`
-   * whichever floor a character is on.
-   */
   plan(): FloorPlan {
-    const b = this.building.data;
-    const specs = this.roomSpecs();
-    const names = new Map(this.everyone().map((a) => [a.key, a.name]));
-    const key = JSON.stringify([
-      specs,
-      b.floors.map((f) => [f.id, f.rooms, f.characters, f.layout]),
-      [...names],
-    ]);
-    if (this.gen?.key === key) return this.gen.value;
-    const seats: Record<string, string> = {};
-    const areaOf = new Map<string, string>();
-    const overflow: Array<[string, number]> = [];
-    const floorPlans: FloorPlan['floors'] = [];
-    const layouts = b.floors.map((floor, k) => {
-      const rooms: RoomSpec[] = specs.map((spec) => {
-        const home = floorOfRoom(b, spec.label).id === floor.id;
-        const label = home ? spec.label : `${floorName(k + 1)} ${spec.label}`;
-        const members = spec.members.filter(
-          (m) => floorOfCharacter(b, names.get(m) ?? m, spec.label).id === floor.id,
-        );
-        for (const m of members) areaOf.set(m, label);
-        return {
-          label,
-          members,
-          contractorDesk: home && spec.contractorDesk,
-          spare: home && members.length ? spec.spare : 0,
-        };
-      });
-      const floor1 = k === 0;
-      const gen = generateLayout(
-        rooms,
-        floor1 ? LOUNGE_ROOM : koText('room_lounge_floor', { floor: floorName(k + 1) }),
-        floor1,
-        floor1 ? PANTRY_ROOM : koText('room_pantry_floor', { floor: floorName(k + 1) }),
-      );
-      const own = k > 0 && isLayout(floor.layout);
-      floorPlans.push({ id: floor.id, own, rooms: own ? [] : gen.rooms });
-      Object.assign(seats, gen.seats);
-      for (const label of gen.overflow) overflow.push([label, k]);
-      return own ? floor.layout! : (gen.layout as unknown as Record<string, unknown>);
-    });
-    const stamp = createHash('sha1').update(key).digest('hex').slice(0, 12);
-    this.gen = { key, value: { stamp, floors: floorPlans, layouts, seats, areaOf } };
-    this.bases.delete(stamp);
-    this.bases.set(stamp, this.gen.value);
-    if (this.bases.size > 16) this.bases.delete(this.bases.keys().next().value!);
-    if (overflow.length) queueMicrotask(() => this.spill(overflow));
-    return this.gen.value;
+    return this.floors.plan();
   }
 
-  /**
-   * Rooms a floor had no room for (64 rows) go to the next floor, a new one
-   * when it was the last: never shrunk (T-0041). Only a room on its home
-   * floor moves; an annex follows its room.
-   */
-  private spill(overflow: Array<[string, number]>): void {
-    const { changed } = this.building.apply((b) => {
-      let next: BuildingData = b;
-      for (const [label, k] of overflow) {
-        if (floorOfRoom(next, label).id !== next.floors[k]?.id) continue;
-        if (!next.floors[k + 1]) {
-          const grown = addFloor(next);
-          if ('error' in grown) return next; // at the most floors: as it is
-          next = grown;
-        }
-        const moved = moveRoom(next, label, next.floors[k + 1].id);
-        if (!('error' in moved)) next = moved;
-      }
-      return next;
-    });
-    if (changed) {
-      console.log(`[cld] building: ${overflow.length} room(s) spilled to the next floor`);
-      this.publishBuilding();
-    }
-  }
-
-  /** Temps per room now: sub-agent spawns and teammates under their lead,
-   *  running Codex tasks in their project's room (T-0041). */
-  private tempCounts(): Map<string, number> {
-    const roomOf = new Map(this.everyone().map((a) => [a.key, a.tab]));
-    const counts = new Map<string, number>();
-    const add = (id: number, n: number) => {
-      const room = roomOf.get(this.binder.keyOf(id) ?? '');
-      if (room && n) counts.set(room, (counts.get(room) ?? 0) + n);
-    };
-    for (const a of this.opts.store.values()) {
-      if (a.leadAgentId !== undefined) {
-        add(a.leadAgentId, 1);
-        continue;
-      }
-      const spawns = new Set([
-        ...a.activeSubagentToolNames.keys(),
-        ...a.backgroundAgentToolIds,
-        ...[...a.activeToolNames]
-          .filter(([, n]) => n === 'Task' || n === 'Agent')
-          .map(([id]) => id),
-      ]);
-      add(a.id, spawns.size);
-    }
-    for (const t of this.codexTasks() ?? []) {
-      const room = this.codexRoom(t.project);
-      if (room && (t.state === 'running' || t.state === 'limit'))
-        counts.set(room, (counts.get(room) ?? 0) + 1);
-    }
-    return counts;
-  }
-
-  /** Count the temps; when a room's need crossed a step (at most every few
-   *  minutes), the office is drawn again with its spare desks. */
-  private sampleRooms(now = Date.now()): void {
-    this.sizer.note(this.tempCounts(), now);
-    if (this.sizer.resize(now)) this.publishBuilding();
-  }
-
-  private baseFloors(p: FloorPlan): BaseFloor[] {
-    return p.floors.map((f, k) => ({ ...f, layout: p.layouts[k] as FloorLayout }));
-  }
-
-  /** The user's decor first, the generated plan around it (T-0066), per floor. */
   layoutFor(): Record<string, unknown> {
-    const p = this.plan();
-    const { layouts, seats } = composeOffice(
-      this.baseFloors(p),
-      this.decor.data,
-      this.opts.catalog?.() ?? [],
-    );
-    const office =
-      layouts.length === 1
-        ? layouts[0]
-        : stackFloors(
-            p.floors.map((f, k) => ({
-              id: f.id,
-              prefix: floorPrefix(f.id, k),
-              layout: layouts[k],
-            })),
-          );
-    // A chair the user removed: the webview seats its member at the chair named here (null: none).
-    // Our tiles are the current format (VOID 255): without a revision the webview reads tile 8,
-    // a floor pattern, as the old VOID and a painted floor came back as a hole.
-    return {
-      ...office,
-      layoutRevision: Math.max(1, Number(office.layoutRevision) || 0),
-      cldBase: p.stamp,
-      ...(Object.keys(seats).length && { cldSeats: seats }),
-    };
+    return this.floors.layoutFor();
   }
 
   saveLayout(layout: Record<string, unknown>, send: WsSend): true {
-    const base = typeof layout.cldBase === 'string' ? this.bases.get(layout.cldBase) : this.plan();
-    if (!base) {
-      console.warn('[cld] decor: an edit of an office no longer known; not kept');
-      send({ type: 'layoutLoaded', layout: this.layoutFor() });
-      return true;
-    }
-    const next = decorFromSave(
-      layout,
-      this.baseFloors(base),
-      this.decor.data,
-      this.opts.catalog?.() ?? [],
-    );
-    if (typeof next === 'string') {
-      console.warn(`[cld] decor: ${next}; not kept`);
-      return true;
-    }
-    const error = this.decor.save(next);
-    if (error) {
-      console.warn(`[cld] decor: ${error}`);
-      return true;
-    }
-    send({ type: 'layoutLoaded', layout: this.layoutFor() });
-    this.publishBuilding();
-    return true;
-  }
-
-  private migrateLayoutJson(): void {
-    if (this.decor.exists()) return;
-    const saved = readLayoutFromFile(this.opts.home);
-    const def = this.opts.defaultLayout;
-    const isDefault =
-      !!saved &&
-      !!def &&
-      JSON.stringify(saved.tiles) === JSON.stringify(def.tiles) &&
-      JSON.stringify(saved.furniture) === JSON.stringify(def.furniture);
-    if (!saved || !isLayout(saved) || isDefault) return;
-    const next = decorFromSave(
-      saved,
-      this.baseFloors(this.plan()),
-      { version: 1, rooms: {} },
-      this.opts.catalog?.() ?? [],
-    );
-    const unrelated = typeof next === 'string';
-    const data = unrelated ? { version: 1 as const, rooms: {} } : next;
-    const error = this.decor.save(data);
-    if (error) console.warn(`[cld] decor: migration: ${error}`);
-    else if (unrelated) console.log('[cld] decor: layout.json is not a cld office; no longer used');
-    else
-      console.log(`[cld] decor: layout.json converted (${Object.keys(data.rooms).length} rooms)`);
+    return this.floors.saveLayout(layout, send);
   }
 
   seatFor(agentId: number): string | undefined {
-    const key = this.binder.keyOf(agentId);
-    if (key) return this.plan().seats[key];
-    // A contractor prefers its project's contractor desk.
-    const task = this.codexTasks()?.find(
-      (t) => `codex:${t.id}` === this.codexBinder.keyOf(agentId),
-    );
-    const room = task && this.codexRoom(task.project);
-    return room ? contractorSeatUid(room) : undefined;
+    return this.floors.seatFor(agentId);
   }
 
-  /** Character label -> its room on its floor (contractors `codex·<project>`
-   *  -> the project's room, where the contractor desk is). */
   areaMappings(): Record<string, string[]> {
-    const out: Record<string, string[]> = {};
-    const { areaOf } = this.plan();
-    for (const a of this.everyone()) {
-      out[a.name] = [areaOf.get(a.key) ?? a.tab];
-      if (this.codex && a.key.startsWith('engine:')) out[codexLabel(a.name)] = [a.tab];
-    }
-    return out;
+    return this.floors.areaMappings();
   }
 
-  /** The floors, floor 1 first, with the rooms and characters on each (T-0027). */
-  private floorRows(): BuildingState['floors'] {
-    const b = this.building.data;
-    const rooms = this.roomLabels();
-    const names = new Set(this.everyone().map((a) => a.name));
-    return b.floors.map((f) => ({
-      id: f.id,
-      name: f.name,
-      rooms: rooms.filter((r) => floorOfRoom(b, r).id === f.id),
-      characters: f.characters.filter((c) => names.has(c)),
-    }));
-  }
-
-  /** Who sits in which room; the user's own mappings win, as at connect. */
-  private mappingsMessage(): Record<string, unknown> {
-    return {
-      type: 'areaMappingsLoaded',
-      mappings: { ...this.areaMappings(), ...(readConfig().standalone.areaMappings ?? {}) },
-    };
-  }
-
-  /** The floor list with the 보관함 counts; the floors it gives out are remembered. */
   buildingState(why?: Coded & { error?: string }): BuildingState {
-    const { stored, held } = composeOffice(
-      this.baseFloors(this.plan()),
-      this.decor.data,
-      this.opts.catalog?.() ?? [],
-    );
-    // 보관함: the user's items that do not fit, and generator items with no room left.
-    const decorRows = Object.keys(this.decor.data.rooms).map((room) => ({
-      room,
-      stored: (stored[room]?.furniture.length ?? 0) + (held[room]?.length ?? 0),
-    }));
-    const floors = this.floorRows();
-    this.sentFloors = JSON.stringify(floors);
-    return {
-      type: 'buildingState',
-      floors,
-      perProject: this.building.data.perProject,
-      ...(decorRows.length && { decor: decorRows }),
-      ...(why?.error && { error: why.error, ...(why.errorCode && { errorCode: why.errorCode, ...(why.errorParams && { errorParams: why.errorParams }) }) }),
-    };
+    return this.floors.buildingState(why);
   }
 
   /** setWhiteboardMemo (T-0065): a whiteboard of the current office; everyone gets the memos. */
@@ -2578,91 +1821,9 @@ export class Office {
       : typeof msg.id === 'string'
         ? this.tasks.update(msg.id, pick(['status', 'owner', 'priority', 'note']), by)
         : this.tasks.add(pick(['project', 'title', 'status', 'owner', 'priority', 'note']), by);
+    if (r.ok && privileged && typeof msg.id !== 'string') this.levels.ownerDid('tasks'); // OWNER-STATS
     // Saved, everyone already has it (the store's broadcast); refused, the sender gets why.
     if (!r.ok) send({ ...this.tasks.message(), error: String(r.error) });
-  }
-
-  /** A building change reaches every client: the office first when it
-   *  changed (it says which rows are which floor; a re-sent office seats every
-   *  character anew, so a rename sends none), then the floor list. */
-  private publishBuilding(forceLayout = false): void {
-    const store = this.opts.store;
-    const layout = this.layoutFor();
-    const json = JSON.stringify(layout);
-    if (forceLayout || json !== this.sentLayout) {
-      this.sentLayout = json;
-      store.broadcast({ type: 'layoutLoaded', layout });
-      store.broadcast(this.mappingsMessage());
-    }
-    store.broadcast({ ...this.buildingState() });
-  }
-
-  /** addFloor, renameFloor, removeFloor, moveToFloor, setFloorRule (T-0027).
-   *  Cosmetic: any logged-in client, also on a read-only daemon. */
-  private onBuildingMessage(
-    msg: Record<string, unknown>,
-    send: WsSend,
-    privileged: boolean,
-  ): boolean {
-    const id = typeof msg.floorId === 'string' ? msg.floorId : '';
-    let change: (b: BuildingData) => Change;
-    if (msg.type === 'addFloor') change = (b) => addFloor(b, msg.name);
-    else if (msg.type === 'renameFloor') change = (b) => renameFloor(b, id, msg.name);
-    else if (msg.type === 'removeFloor') change = (b) => removeFloor(b, id);
-    else if (msg.type === 'moveToFloor') change = (b) => this.moveToFloor(b, msg, id);
-    else if (msg.type === 'setFloorRule')
-      change = (b) =>
-        typeof msg.perProject === 'boolean'
-          ? setPerProject(b, msg.perProject, this.roomLabels())
-          : refused('floor_choose_toggle');
-    else return false;
-    if (!privileged) return true; // upstream refuses a read-only client before this
-    const { changed, ...failure } = this.building.apply((b) => {
-      const next = change(b);
-      return 'error' in next ? next : this.tidy(next);
-    });
-    if (failure.error) {
-      console.warn(`[cld] ${msg.type}: ${failure.error}`);
-      send({ ...this.buildingState(failure) });
-    } else if (changed) {
-      console.log(`[cld] building: ${msg.type} (${this.building.data.floors.length} floors)`);
-      this.publishBuilding();
-    }
-    return true;
-  }
-
-  /** A character placed on its own room's floor just follows its room. */
-  private tidy(b: BuildingData): BuildingData {
-    const roomOf = new Map(this.everyone().map((a) => [a.name, a.tab]));
-    return {
-      ...b,
-      floors: b.floors.map((f) => ({
-        ...f,
-        characters: f.characters.filter((c) => {
-          const room = roomOf.get(c);
-          return room === undefined || floorOfRoom(b, room).id !== f.id;
-        }),
-      })),
-    };
-  }
-
-  private moveToFloor(b: BuildingData, msg: Record<string, unknown>, floorId: string): Change {
-    const { room, character } = msg;
-    if (typeof room === 'string' && character === undefined) {
-      if (!this.roomLabels().includes(room)) return refused('office_unknown');
-      const members = this.everyone().filter((a) => a.tab === room);
-      return moveRoom(
-        b,
-        room,
-        floorId,
-        members.map((a) => a.name),
-      );
-    }
-    if (typeof character === 'string' && room === undefined) {
-      const entry = this.everyone().find((a) => a.name === character);
-      return entry ? moveCharacter(b, entry.name, entry.tab, floorId) : refused('character_unknown');
-    }
-    return refused('office_or_character');
   }
 
   /** The projects the daemon manages, for the repository panel: the engine registry (E1). */
@@ -2727,7 +1888,7 @@ export class Office {
     if (background) send({ ...background });
     send({ ...this.tasks.message() });
     for (const m of this.tracking.snapshot()) send({ ...m });
-    if (this.groupStore) send({ type: 'groupRooms', rooms: this.groupRooms() });
+    if (this.groupStore) send({ type: 'groupRooms', rooms: this.rooms.groupRooms() });
     for (const json of this.latest.values()) send(JSON.parse(json) as Record<string, unknown>);
     const ez = this.ezRules.message(); // only when the user wrote valid ez-rules.json rules
     if (ez) send({ ...ez });
@@ -2741,7 +1902,7 @@ export class Office {
     // MSG-HOLD2: a closed page (a reload, a dropped socket) never releases an edit hold.
     this.devroom.onClientClosed(send);
     this.repos.onClientClosed(send);
-    this.unwatchSlash(send);
+    this.chat.onClientClosed(send);
     this.hwViewers.delete(send);
     this.updateHwCadence();
     this.lookedAt.delete(send);
@@ -2749,7 +1910,7 @@ export class Office {
     const wasLooking = !this.hidden.delete(send);
     for (const name of [...this.views.keys()]) this.unview(name, send);
     this.conversations.drop(send);
-    this.groupViews.delete(send);
+    this.rooms.onClientClosed(send);
     this.work.drop(send);
     console.log(`[cld] viewer left (${this.watching()} watching)`);
     if (wasLooking && this.watching() === 0) this.sleep();
@@ -2768,13 +1929,13 @@ export class Office {
       this.timers.push(
         setInterval(() => {
           this.conversations.poll();
-          this.publishRoomActivity();
-          this.pollGroupViews();
+          this.rooms.poll();
         }, CHAT_VIEW_POLL_MS),
       );
       this.timers.push(setInterval(() => void this.work.poll(), CHAT_VIEW_POLL_MS));
     }
-    this.timers.push(setInterval(() => this.sampleRooms(), ROOM_SAMPLE_MS));
+    this.timers.push(setInterval(() => this.floors.sampleRooms(), ROOM_SAMPLE_MS));
+    if (this.engine) this.timers.push(setInterval(() => void this.lookForCompacting(), COMPACT_LOOK_MS));
     if (this.gpuQueue) {
       this.sweepGpu();
       this.timers.push(setInterval(() => this.sweepGpu(), GPU_SWEEP_MS));
@@ -2797,6 +1958,21 @@ export class Office {
     }
   }
 
+  private lookingForCompacting = false;
+  /** COMPACT-COFFEE: a row's `compacting` changed: the office hears it at once. */
+  private async lookForCompacting(): Promise<void> {
+    if (!this.engine || this.lookingForCompacting) return;
+    this.lookingForCompacting = true;
+    try {
+      if ((await this.engine.lookForCompacting()) && this.watching() > 0)
+        this.publish<OfficeSnapshot>(this.officeState());
+    } catch (err) {
+      console.log(`[Agent Tycoon] compacting look: ${oneLineError(err)}`);
+    } finally {
+      this.lookingForCompacting = false;
+    }
+  }
+
   /** The last viewer left: no process and no sampling until the next one. */
   private sleep(): void {
     if (this.hwFastTimer) clearInterval(this.hwFastTimer);
@@ -2809,6 +1985,7 @@ export class Office {
     this.claudeTimer = null;
     this.usage.setViewing(false);
     this.characters.setViewing(false);
+    void this.engine?.lookForCompacting(true);
     this.tracking.clear();
     this.cwdProjects.clear();
   }
@@ -2823,6 +2000,21 @@ export class Office {
     userAgent?: string,
     stepUp?: SocketStepUp,
   ): void {
+    if (privileged && OWNER_COUNTED.has(String(msg.type))) {
+      // OWNER-STATS: the owner's own instruction, approval or merge, counted from the answer it got
+      // (only these requests: other routes key their subscriptions by `send` itself).
+      const reply = send;
+      send = (m) => {
+        const did = ownerActionOf(msg, m, privileged);
+        if (did) this.levels.ownerDid(did);
+        reply(m);
+      };
+    }
+    if (msg.type === 'ownerActivity') {
+      if (privileged && typeof msg.steps === 'number' && typeof msg.seconds === 'number')
+        this.levels.ownerActivity(msg.steps, msg.seconds);
+      return;
+    }
     if (msg.type === 'hwView') {
       if (this.viewers.has(send) && typeof msg.on === 'boolean') {
         if (msg.on) this.hwViewers.add(send);
@@ -2871,15 +2063,7 @@ export class Office {
       if (msg.character === null) this.pinLooks();
       return;
     }
-    if (this.onBuildingMessage(msg, send, privileged)) return;
-    if (msg.type === 'resetRoomDecor') {
-      if (privileged && typeof msg.room === 'string') {
-        const error = this.decor.save(resetDecorRoom(this.decor.data, msg.room));
-        if (error) console.warn(`[cld] decor: ${error}`);
-        else this.publishBuilding(true);
-      }
-      return;
-    }
+    if (this.floors.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (msg.type === 'taskEdit') {
       this.editTask(msg, send, privileged, deviceLabel(userAgent));
       return;
@@ -2894,6 +2078,22 @@ export class Office {
     }
     if (msg.type === 'setWhiteboardMemo') {
       this.setMemo(msg, send, privileged, deviceLabel(userAgent));
+      return;
+    }
+    if (msg.type === 'goneConversationDelete') {
+      const requestId = typeof msg.requestId === 'string' ? msg.requestId.slice(0, 128) : '';
+      const r = !privileged || this.opts.readOnly || typeof msg.name !== 'string' ? null : this.deleteGone(msg.name);
+      send({
+        type: 'goneConversationDeleteResult',
+        requestId,
+        ...(!privileged || this.opts.readOnly
+          ? { ok: false, ...refused('no_permission') }
+          : r === null
+            ? { ok: false, ...refused('gone_conversation_unknown') }
+            : { ok: true, deleted: r.deleted, ...(r.failed.length && refused('data_not_moved', { stores: r.failed.join(', ') })) }),
+      });
+      if (r !== null)
+        console.log(`[cld] gone conversation ${String(msg.name)}: ${r.deleted} conversation file(s) deleted${r.failed.length ? `; kept: ${r.failed.join(', ')}` : ''}`);
       return;
     }
     if (msg.type === 'setConversationPin') {
@@ -2916,101 +2116,35 @@ export class Office {
       else this.opts.store.broadcast({ ...this.background.current() });
       return;
     }
-    if (msg.type === 'engineAction') {
-      this.engine?.handle(msg, send, privileged, deviceLabel(userAgent), stepUp);
-      return;
-    }
-    if (msg.type === 'engineMoveAll') {
-      if (this.engine) this.engine.handleMoveAll(msg, send, privileged);
-      return;
-    }
-    if (msg.type === 'projectScan') {
-      if (
-        typeof msg.requestId !== 'string' ||
-        (msg.folder !== undefined && typeof msg.folder !== 'string')
+    if (
+      engineRoutes(
+        msg,
+        { send, privileged, userAgent, stepUp },
+        {
+          engine: this.engine,
+          jobs: this.jobs,
+          readOnly: this.opts.readOnly,
+          home: this.host.home,
+        },
       )
-        return;
-      try {
-        const candidates =
-          this.engine?.scanImport(
-            msg.folder ?? path.join(this.host.home, 'projects'),
-            privileged,
-          ) ?? [];
-        send({
-          type: 'projectScanResult',
-          requestId: msg.requestId,
-          ok: !!this.engine,
-          candidates,
-        });
-      } catch (e) {
-        send({
-          type: 'projectScanResult',
-          requestId: msg.requestId,
-          ok: false,
-          candidates: [],
-          ...refusedOf(e, (err) => (err instanceof Error ? err.message : refused('folder_unreadable').error)),
-        });
-      }
+    )
       return;
-    }
-    if (msg.type === 'projectImport') {
-      if (
-        typeof msg.requestId !== 'string' ||
-        typeof msg.folder !== 'string' ||
-        !Array.isArray(msg.rows) ||
-        msg.rows.length > 100 ||
-        !msg.rows.every(
-          (r: unknown) =>
-            typeof r === 'object' &&
-            r !== null &&
-            typeof (r as Record<string, unknown>).folder === 'string' &&
-            typeof (r as Record<string, unknown>).name === 'string' &&
-            typeof (r as Record<string, unknown>).room === 'string' &&
-            typeof (r as Record<string, unknown>).resume === 'boolean' &&
-            typeof (r as Record<string, unknown>).start === 'boolean',
-        )
-      )
-        return;
-      if (this.engine)
-        void this.engine
-          .importProjects(
-            msg.requestId,
-            msg.folder,
-            msg.rows as import('../../../core/src/messages.js').ProjectImportRow[],
-            privileged,
-          )
-          .then((result) => send({ ...result }));
-      return;
-    }
-    if (msg.type === 'projectImportUndo') {
-      if (typeof msg.requestId === 'string' && typeof msg.batchId === 'string' && this.engine)
-        send({ ...this.engine.undoImport(msg.requestId, msg.batchId, privileged) });
-      return;
-    }
-    if (msg.type === 'projectImportDismiss') {
-      if (privileged && !this.opts.readOnly) {
-        const file = path.join(configDirectory(this.host.home), 'import-suggestion.json');
-        try {
-          fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-          fs.writeFileSync(file, '{}\n', { mode: 0o600 });
-        } catch {
-          /* next launch may suggest again */
-        }
-      }
-      return;
-    }
-    if (msg.type === 'engineChoicesRefresh') {
-      // Runs the CLIs (synchronously): not for a read-only viewer.
-      if (this.engine && privileged)
-        send(this.engine.refreshAgentChoices() as unknown as Record<string, unknown>);
-      return;
-    }
-    if (msg.type === 'jobAction') {
-      this.jobAction(msg, send, privileged, deviceLabel(userAgent));
-      return;
-    }
     if (this.devroom.onClientMessage(msg, send, privileged)) return;
     if (this.repos.onClientMessage(msg, send, privileged, deviceSource(deviceLabel(userAgent)), stepUp)) {
+      return;
+    }
+    if (msg.type === 'projectRepoCancel') {
+      if (typeof msg.requestId === 'string') this.projectRepos.cancel(msg.requestId, privileged);
+      return;
+    }
+    if (msg.type === 'projectRepo') {
+      const req = parseProjectRepo(msg);
+      if (!req) console.warn('[cld] malformed projectRepo dropped');
+      else
+        void this.projectRepos.handle(req, privileged, stepUp, (p) => send({ ...p })).then(
+          (r) => send({ ...r }),
+          (err: unknown) => console.warn(`[cld] projectRepo: ${String(err)}`),
+        );
       return;
     }
     if (msg.type === 'listFolders') {
@@ -3019,187 +2153,15 @@ export class Office {
       else send({ ...this.folderList(req, privileged) });
       return;
     }
-    if (msg.type === 'chatSend' || msg.type === 'chatSendNow') {
-      const req = msg.type === 'chatSend' ? parseChatSend(msg) : parseChatSendNow(msg);
-      if (!req) console.warn(`[cld] malformed ${msg.type} dropped`);
-      else
-        void this.chatSend(req, privileged, deviceLabel(userAgent)).then(
-          (result) => send({ ...result }),
-          (err: unknown) => console.warn(`[cld] send: ${String(err)}`),
-        );
-      return;
-    }
-    if (msg.type === 'chatCancel' || msg.type === 'chatEdit') {
-      const req = msg.type === 'chatCancel' ? parseChatCancel(msg) : parseChatEdit(msg);
-      if (!req) console.warn(`[cld] malformed ${msg.type} dropped`);
-      else
-        void this.chatPending(req, privileged, deviceLabel(userAgent)).then(
-          (result) => send({ ...result }),
-          (err: unknown) => console.warn(`[cld] pending message: ${String(err)}`),
-        );
-      return;
-    }
+    if (this.chat.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (msg.type === 'permissionAnswer') {
-      void this.answerPermission(msg, privileged, deviceLabel(userAgent)).then(
+      void this.permission.answer(msg, privileged, deviceLabel(userAgent)).then(
         (result) => (result ? send({ ...result }) : console.warn('[cld] malformed permissionAnswer dropped')),
         (err: unknown) => console.warn(`[cld] permission answer: ${String(err)}`),
       );
       return;
     }
-    if (msg.type === 'chatHold') {
-      const req = parseChatHold(msg);
-      if (!req) console.warn('[cld] malformed chatHold dropped');
-      else this.chatHold(req, privileged);
-      return;
-    }
-    if (msg.type === 'groupView') {
-      // Like chatView: reading a member's transcript needs the chat feature.
-      if (!this.opts.chat || typeof msg.room !== 'string' || typeof msg.on !== 'boolean') return;
-      const room = this.groupStore?.find(msg.room);
-      if (!room || !this.groupMessages) return;
-      const mine = this.groupViews.get(send) ?? new Set<string>();
-      if (msg.on) {
-        mine.add(room.id);
-        this.groupViews.set(send, mine);
-        send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
-      } else {
-        mine.delete(room.id);
-        if (!mine.size) this.groupViews.delete(send);
-      }
-      return;
-    }
-    if (msg.type === 'groupPost') {
-      const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
-      const room = typeof msg.room === 'string' ? msg.room : '';
-      const text = typeof msg.text === 'string' ? msg.text : '';
-      if (!this.opts.chat || !privileged || !requestId || !this.groupMessages) {
-        send({
-          type: 'groupActionResult',
-          requestId,
-          ok: false,
-          ...(!this.opts.chat ? refused('chat_off') : refused('no_permission')),
-        });
-        return;
-      }
-      void this.groupMessages
-        .post({
-          room,
-          text,
-          from: null,
-          source: `messenger:${deviceLabel(userAgent)}`,
-          replyTo: msg.replyTo,
-        })
-        .then((result) => {
-          send({
-            type: 'groupActionResult',
-            requestId,
-            ok: result.ok,
-            ...(!result.ok && pickRefusal(result)),
-          });
-          if (result.ok) this.publishGroups(room);
-        });
-      return;
-    }
-    if (msg.type === 'groupAction') {
-      const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
-      const action = typeof msg.action === 'string' ? msg.action : '';
-      const id = typeof msg.id === 'string' ? msg.id : '';
-      const name = typeof msg.name === 'string' ? msg.name : '';
-      const members =
-        Array.isArray(msg.members) && msg.members.every((x) => typeof x === 'string')
-          ? msg.members
-          : [];
-      let result: { ok: boolean } & Partial<WithError> = { ok: false, ...refused('bad_request') };
-      if (!privileged) result = { ok: false, ...refused('no_permission') };
-      else if (this.groupStore) {
-        if (action === 'create') result = this.groupStore.create(name, members);
-        else if (action === 'rename') result = this.groupStore.rename(id, name);
-        else if (action === 'delete') result = this.groupStore.remove(id);
-        else if (action === 'setMembers') result = this.groupStore.setMembers(id, members);
-        else if (action === 'systemLines' && typeof msg.on === 'boolean')
-          result = this.groupStore.setSystemLines(id, msg.on);
-      }
-      send({
-        type: 'groupActionResult',
-        requestId,
-        ok: result.ok,
-        ...(!result.ok && (result.error ? pickRefusal(result as WithError) : refused('group_change_failed'))),
-      });
-      if (result.ok) this.publishGroups();
-      return;
-    }
-    if (msg.type === 'slashCommands') {
-      if (!Number.isInteger(msg.agentId) || typeof msg.requestId !== 'string') return;
-      this.sendSlashCommands(msg.agentId as number, msg.requestId, send, privileged);
-      return;
-    }
-    if (msg.type === 'chatView') {
-      if (!this.opts.chat || typeof msg.agentId !== 'number' || typeof msg.on !== 'boolean') return;
-      this.conversations.view(send, msg.agentId, msg.on);
-      if (!msg.on) this.unwatchSlash(send, msg.agentId);
-      else this.readPermissionScreen(msg.agentId); // PERM-PROMPT: a card someone now looks at
-      return;
-    }
-    if (msg.type === 'chatHistory' || msg.type === 'chatSearch') {
-      if (!this.opts.chat || !Number.isInteger(msg.agentId) || typeof msg.requestId !== 'string')
-        return;
-      const agentId = msg.agentId as number;
-      if (!privileged) {
-        send(
-          msg.type === 'chatHistory'
-            ? {
-                type: 'chatHistoryResult',
-                requestId: msg.requestId,
-                agentId,
-                items: [],
-                done: false,
-                ...refused('no_permission'),
-              }
-            : {
-                type: 'chatSearchResult',
-                requestId: msg.requestId,
-                agentId,
-                hits: [],
-                truncated: false,
-                ...refused('no_permission'),
-              },
-        );
-        return;
-      }
-      if (msg.type === 'chatHistory') {
-        if (msg.before !== undefined && typeof msg.before !== 'string') return;
-        if (
-          msg.until !== undefined &&
-          (typeof msg.until !== 'number' || !Number.isFinite(msg.until))
-        )
-          return;
-        this.conversations.history(
-          send,
-          agentId,
-          msg.requestId,
-          msg.before as string | undefined,
-          msg.until as number | undefined,
-        );
-      } else if (typeof msg.query === 'string') {
-        this.conversations.search(send, agentId, msg.requestId, msg.query);
-      }
-      return;
-    }
-    if (msg.type === 'workView') {
-      const req = this.opts.chat ? parseWorkView(msg) : null;
-      if (!req) return;
-      if (req.on && !privileged) {
-        send({
-          type: 'workContent',
-          ...echo(req.target),
-          items: [],
-          ...refused('no_permission'),
-        });
-        return;
-      }
-      this.work.view(send, req.target, req.on);
-      return;
-    }
+    if (this.rooms.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (msg.type !== 'statusView' || typeof msg.name !== 'string') return;
     const name = msg.name;
     if (msg.on !== true) {
@@ -3239,113 +2201,65 @@ export class Office {
     return (key && this.world.agents.find((a) => a.key === key)) || null;
   }
 
-  /** C3: a member's reply to a room post lands in its transcript, not in the room's record. The
-   *  replies the tails read are added to the room list's summaries (no transcript is read) and the
-   *  rooms that changed are sent, each at most once per ROOM_PUBLISH_MS. */
-  private publishRoomActivity(): void {
-    if (!this.groupStore) return;
-    const groups = this.groupStore;
-    const rebuilt = applyRoomReplies(this.roomSummaries, this.conversations.takeRoomReplies(), (room) =>
-      groups.find(room),
-    );
-    if (rebuilt || this.roomSummaries.due().length)
-      this.publish({ type: 'groupRooms', rooms: this.groupRooms() });
+  /**
+   * RENAME / remove: projectData changes the stores' files between a flush of the ones this
+   * daemon keeps in memory and their reload; the stores that did not follow.
+   */
+  private projectDataChange(change: () => string[], names: string[]): string[] {
+    this.levels.flush();
+    this.roster.flushIfDirty();
+    const failed = change();
+    this.nameHistory = readNameHistory(this.opts.home ?? os.homedir());
+    this.levels.reload();
+    this.approvals.reload();
+    this.tracking.settings.reload();
+    this.repos.reviewNotes.reload();
+    this.roster.reload();
+    this.pins.reload();
+    this.characters.reload();
+    this.building.data = loadBuilding(this.building.file);
+    this.groupStore?.load();
+    this.tasks.reload();
+    this.messenger?.resync(names);
+    // The sessions list read before the stop still names them: shown as plain sessions until the
+    // next read, they would get a look pinned again under the freed name.
+    if (this.claudeData)
+      this.claudeData = { ...this.claudeData, agents: this.claudeData.agents.filter((a) => !names.includes(a.name)) };
+    this.opts.store.broadcast({ ...this.pins.message() });
+    this.floors.publishBuilding();
+    this.rooms.publishGroups();
+    this.recompute();
+    return failed;
   }
 
-  /** C3 + U-49: the room the newest turn of character `id` belongs to, and the text it ended with,
-   *  for a turn end's push. What the messenger typed answers the room at once; the transcript is
-   *  read (async, and only when push has someone to tell) for the text and for a turn it did not type. */
-  private async turnOf(id: number): Promise<TurnInfo> {
-    const name = this.entryOf(id)?.name;
-    if (!name) return { room: null, text: null };
-    const typed = this.turnLedger.current(name); // asked now: a later post must not change this turn's room
-    const lead = this.leads().find((l) => l.agentId === id);
-    // The lead's sent files are read as the messenger reads them (copied once into its outbox).
-    const read = await currentTurn(
-      this.entryOf(id)?.transcript ?? null,
-      lead ? readOptions(lead, (x) => this.noticeEmployee(x)) : {},
-    );
-    const files = read.attachments ? { attachments: read.attachments } : {};
-    if (!this.groupStore) return { room: null, text: read.text, ...files };
-    const withId = (ref: RoomRef | null): RoomRef | null =>
-      ref && !ref.id ? { ...ref, id: this.groupStore?.find(ref.name)?.id } : ref;
-    return {
-      room: withId(typed !== undefined ? typed : read.room ? { name: read.room } : null),
-      text: read.text,
-      ...files,
-    };
+  /** PROJECT-DATA: 대화방 지우기 (the owner's): a removed agent's conversation records deleted;
+   *  null when `name` is no removed agent with a conversation. */
+  private deleteGone(name: string): { deleted: number; failed: string[] } | null {
+    const home = this.opts.home ?? os.homedir();
+    if (!this.nameHistory.some((e) => e.as === name && e.gone && !e.gone.deleted)) return null;
+    let r: { deleted: number; failed: string[] } | null = null;
+    this.projectDataChange(() => {
+      r = deleteGoneConversation(home, name, (l) => console.warn(`[cld] ${l}`), this.engine?.registeredSessionIds() ?? []);
+      return r?.failed ?? [];
+    }, [name]);
+    return r;
   }
 
-  /** A room change has a small global list update; open clients request/read its timeline. */
-  private publishGroups(roomName?: string): void {
-    if (!this.groupStore) return;
-    const room = roomName ? this.groupStore.find(roomName) : null;
-    if (room) this.roomSummaries.invalidate(room.id); // a post or delivery changed it: read it again
-    this.publish({ type: 'groupRooms', rooms: this.groupRooms() });
-    if (room && this.groupMessages)
-      for (const [send, viewed] of this.groupViews)
-        if (viewed.has(room.id))
-          send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
-  }
-
-  /** Small room-list summaries: enough to sort, preview and count unseen room
-   * activity without making the client open every room conversation. */
-  private groupRooms() {
-    const rooms = this.groupStore!.list();
-    this.roomSummaries.retain(rooms);
-    return rooms.map((room) => {
-      const { updates, ...rest } = this.roomSummaries.get(room);
-      return { ...room, ...rest, ...(updates.length && { updates }) };
-    });
-  }
-
-  /** One room's summary, read from the transcripts (the expensive one: RoomSummaries keeps it). */
-  private buildRoomSummary(room: import('./engine/groups.js').GroupRoom): RoomSummary {
-    const posts = this.groupMessages ? this.roomTimeline(room) : [];
-    const events = roomEvents(posts);
-    const last = events.reduce<(typeof events)[number] | undefined>(
-      (newest, event) => (!newest || event.at >= newest.at ? event : newest),
-      undefined,
-    );
-    return {
-      ...(last && { preview: `${last.sender ? `${last.sender}: ` : ''}${listedText(last.text)}` }),
-      ...(last && { lastAt: last.at }),
-      updates: events.filter((event) => event.counts).map((event) => event.id),
-    };
-  }
-
-  /** Read reply turns only for room viewers; a room record itself never copies a transcript. */
-  private roomTimeline(room: import('./engine/groups.js').GroupRoom) {
-    const lead = (member: string) => this.leads().find((l) => l.name === member);
-    return this.groupMessages!.timelineWithReplies(
-      room,
-      (member, since) => {
-        const transcript = lead(member)?.transcript;
-        return transcript ? roomTranscript(transcript, since) : null; // its end, never the whole file
-      },
-      undefined,
-      (member) => {
-        const found = lead(member);
-        return found ? readOptions(found, (x) => this.noticeEmployee(x)) : {};
-      },
-    );
-  }
-
-  private pollGroupViews(): void {
-    if (!this.groupStore || !this.groupMessages || !this.groupViews.size) return;
-    for (const [send, rooms] of this.groupViews)
-      for (const id of rooms) {
-        const room = this.groupStore.find(id);
-        if (room) send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
-      }
-  }
-
-  /** Every lead the messenger lists: the engine's projects and the Claude sessions. */
+  /** Every lead the messenger lists: the engine's projects and the Claude sessions, then the
+   *  removed agents with a conversation (read-only, shown as "(알 수 없음)"; their agentId is
+   *  negative, never a character's, and stays with its name-history entry). */
   private leads(): Lead[] {
     const out: Lead[] = [];
+    const gone: Lead[] = [];
+    if (this.engine)
+      this.nameHistory.forEach((e, i) => {
+        if (e.gone?.transcript && !e.gone.deleted)
+          gone.push({ agentId: -(i + 1), key: e.as, name: e.as, transcript: e.gone.transcript, dir: e.gone.folder, canSend: false });
+      });
     for (const a of this.world.agents) {
       const agentId = this.binder.idOf(a.key);
       if (agentId === null) continue;
+      const permission = this.permission.cardFor(agentId);
       // D3: a Worker is listed under its project (a Lead's project is its own name).
       const project = a.key.startsWith('engine:') ? this.engine?.projectOf(a.name) : null;
       out.push({
@@ -3355,207 +2269,16 @@ export class Office {
         ...(project && project !== a.name && { project }),
         transcript: a.transcript,
         dir: a.dir,
-        canSend: this.canSend(a.key, a.name),
+        canSend: this.chat.canSend(a.key, a.name),
         ...(this.messenger &&
           a.key.startsWith('engine:') && {
             queued: this.messenger.queuedFor(a.name),
             held: this.messenger.held(a.name),
           }),
-        ...(this.permissions.has(agentId) && {
-          permission: this.permissionCard(this.permissions.get(agentId)!),
-        }),
+        ...(permission && { permission }),
       });
     }
-    return out;
-  }
-
-  /** chatSend reaches an engine project (the engine messenger). */
-  private canSend(key: string, name: string): boolean {
-    if (!this.opts.chat || !key.startsWith('engine:')) return false;
-    return !!this.messenger && !!this.engine?.names().includes(name);
-  }
-
-  /** The daemon owns the allow-list; raw commands exist only for engine leads. */
-  private sendSlashCommands(
-    agentId: number,
-    requestId: string,
-    send: WsSend,
-    privileged: boolean,
-  ): void {
-    const reply = (commands: SlashCommand[], why?: Refused): SlashCommandsList => ({
-      type: 'slashCommandsList',
-      requestId,
-      agentId,
-      commands,
-      ...why,
-    });
-    const entry = this.entryOf(agentId);
-    if (!this.opts.chat) return void send({ ...reply([], refused('chat_off')) });
-    if (!privileged) return void send({ ...reply([], refused('no_permission')) });
-    if (!entry?.key.startsWith('engine:') || !this.engine?.names().includes(entry.name)) {
-      return void send({ ...reply([], refused('not_engine_project')) });
-    }
-    send({ ...reply(this.slash.list(entry.dir)) });
-    this.unwatchSlash(send, agentId);
-    const stop = this.slash.watch(entry.dir, (commands) => send({ ...reply(commands) }));
-    let views = this.slashViews.get(send);
-    if (!views) {
-      views = new Map();
-      this.slashViews.set(send, views);
-    }
-    views.set(agentId, stop);
-  }
-
-  private unwatchSlash(send: WsSend, agentId?: number): void {
-    const views = this.slashViews.get(send);
-    if (!views) return;
-    if (agentId !== undefined) {
-      views.get(agentId)?.();
-      views.delete(agentId);
-    } else {
-      for (const stop of views.values()) stop();
-      views.clear();
-    }
-    if (!views.size) this.slashViews.delete(send);
-  }
-
-  /** A reader for a temp's work view, or why there is none. */
-  private workReader(t: WorkTarget): WorkReader | Refused {
-    const none = refused('work_record_missing');
-    const store = this.opts.store;
-    if (t.kind === 'subagent') {
-      const lead =
-        store.get(t.agentId!)?.jsonlFile ||
-        this.leads().find((l) => l.agentId === t.agentId)?.transcript;
-      return lead ? subagentReader(lead, t.id!) : none;
-    }
-    const id = t.agentId!;
-    if (!store.get(id)?.jsonlFile) return none;
-    const root = path.join(this.opts.home ?? os.homedir(), '.claude/projects');
-    return fileReader(() => store.get(id)?.jsonlFile ?? null, root);
-  }
-
-  /**
-   * A messenger message to an engine project, through the engine messenger
-   * (typed in when idle, else queued; header `[사장 · 메신저 · time]`). A
-   * catalogue-listed `/` command from the privileged boss goes through the
-   * engine without that header. `now` and chatSendNow (지금 보내기 on a waiting
-   * one): the engine messenger may type it in while the session works. Never rejects.
-   */
-  private async chatSend(
-    req: ChatSend | ChatSendNow,
-    privileged: boolean,
-    device: string,
-  ): Promise<ChatSendResult> {
-    const engine = !!this.messenger && !!this.engine?.names().includes(req.name);
-    const reply = (o: Omit<ChatSendResult, 'type' | 'requestId' | 'name'>): ChatSendResult => ({
-      type: 'chatSendResult',
-      requestId: req.requestId,
-      name: req.name,
-      ...o,
-    });
-    const folder = this.engine?.folderOf(req.name); // a Worker's own (its slash commands)
-    const rawRefusal =
-      req.type === 'chatSend' && req.text.startsWith('/') && folder
-        ? slashRefusal(this.slash.list(folder), req.text)
-        : null;
-    const refusal = !this.opts.chat
-      ? refused('chat_off')
-      : !privileged
-        ? refused('no_permission')
-        : !engine || !this.messenger
-          ? refused('not_engine_project')
-          : req.type === 'chatSend'
-            ? (sendTextRefusal(req.text) ?? rawRefusal)
-            : null;
-    const what = `${req.type === 'chatSend' ? 'send' : 'send now'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}`;
-    if (refusal || !this.messenger) {
-      console.log(`[cld engine] ${what}: refused (${refusal?.error})`);
-      return reply({ ok: false, ...(refusal ?? { error: '' }) });
-    }
-    // The boss's words wait for the session as long as it lives: never into the
-    // inbox (read only at the next start) because it stayed busy for 10 minutes.
-    const r =
-      req.type === 'chatSendNow'
-        ? this.messenger.promote(req.name, req.id)
-        : await this.messenger.send({
-            to: req.name,
-            text: req.text,
-            ifIdle: false,
-            from: null,
-            source: `messenger:${device}`,
-            ...(req.now && { now: true }),
-            ...(req.replyTo && { replyTo: req.replyTo }),
-            ...(req.text.startsWith('/') ? { raw: true } : {}),
-          });
-    console.log(`[cld engine] ${what}: ${r.ok ? r.delivered : `failed (${r.code})`}`);
-    return r.ok
-      ? reply({
-          ok: true,
-          delivered: r.delivered,
-          ...(r.id && { queueId: r.id }),
-          ...(r.messageId && { messageId: r.messageId }),
-        })
-      : reply({ ok: false, ...pickRefusal(r) });
-  }
-
-  /** Change or remove a boss message that has not reached the Typist yet. */
-  private async chatPending(
-    req: ChatCancel | ChatEdit,
-    privileged: boolean,
-    device: string,
-  ): Promise<ChatPendingResult> {
-    const engine = !!this.messenger && !!this.engine?.names().includes(req.name);
-    const reply = (o: Omit<ChatPendingResult, 'type' | 'requestId' | 'name' | 'id'>) => ({
-      type: 'chatPendingResult' as const,
-      requestId: req.requestId,
-      name: req.name,
-      id: req.id,
-      ...o,
-    });
-    const refusal = !this.opts.chat
-      ? refused('chat_off')
-      : !privileged
-        ? refused('no_permission')
-        : !engine || !this.messenger
-          ? refused('not_engine_project')
-          : req.type === 'chatEdit'
-            ? sendTextRefusal(req.text)
-            : null;
-    if (refusal || !this.messenger) return reply({ ok: false, ...(refusal ?? { error: '' }) });
-    const r =
-      req.type === 'chatCancel'
-        ? this.messenger.cancel(req.name, req.id)
-        : this.messenger.edit(req.name, req.id, req.text);
-    console.log(
-      `[cld engine] ${req.type === 'chatCancel' ? 'cancel' : 'edit'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}: ${r.ok ? 'ok' : `failed (${r.code})`}`,
-    );
-    // The queue is part of every open conversation's snapshot. Poll now so
-    // another screen sees the edited/cancelled bubble without waiting 1.5 s.
-    if (r.ok) {
-      this.conversations.poll();
-      this.publish<OfficeSnapshot>(this.officeState()); // a saved or cancelled edit ends its hold
-    }
-    return r.ok
-      ? reply({ ok: true })
-      : reply({ ok: false, ...pickRefusal(r), ...((r.code === 'not_queued' || r.code === 'typing') && { gone: true }) });
-  }
-
-  /** MSG-HOLD2: the office row's mark for edits left held (a forgotten edit cannot hide). */
-  private heldEdits(name: string): { heldEdits?: number } {
-    const n = this.messenger?.queuedFor(name).filter((q) => q.held).length ?? 0;
-    return n ? { heldEdits: n } : {};
-  }
-
-  /** Keep a browser's queued message in place while that browser edits it. */
-  private chatHold(req: ChatHold, privileged: boolean): void {
-    const engine = !!this.messenger && !!this.engine?.names().includes(req.name);
-    if (!this.opts.chat || !privileged || !engine || !this.messenger) return;
-    // Every open messenger shows the held state (MSG-HOLD2: a reloaded page finds it with its choices).
-    if (this.messenger.hold(req.name, req.id, req.on)) {
-      this.conversations.poll();
-      this.publish<OfficeSnapshot>(this.officeState()); // the row's heldEdits
-    }
+    return [...out, ...gone];
   }
 
   /** Everyone on this view has their page hidden: it is not polled meanwhile. */

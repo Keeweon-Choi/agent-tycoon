@@ -1,8 +1,9 @@
 /**
  * C1 dev trigger: open the office with `?fx=1` and a small bar (bottom left) plays each moment on
- * the selected character (else the followed one, else the first agent). The same page also gets
- * `window.__agtyFx` for the recording runner: `play(kind, id?, count?)` and `wav(kind)` (the
- * jingle rendered offline, mono samples). Nothing of this exists without the flag.
+ * the selected character (else the followed one, else the first agent), a sub-agent or the
+ * owner's own too (FX-ALL; the owner's never does 환생 or 계승). The same page also gets
+ * `window.__agtyFx` for the recording runner: `play(kind, id?, count?, drink?)`, `wav(kind)` (the
+ * jingle rendered offline, mono samples) and `playing()` (who has a moment now). Nothing of this exists without the flag.
  */
 import { Button } from '../../components/ui/Button.js';
 import { FX_WAV_RATE } from '../../constants.js';
@@ -18,8 +19,16 @@ const fxDevOn =
 declare global {
   interface Window {
     __agtyFx?: {
-      play: (kind: FxKind, id?: number, count?: number) => number | null;
+      play: (
+        kind: FxKind,
+        id?: number,
+        count?: number,
+        drink?: 'coffee' | 'energy',
+      ) => number | null;
       wav: (kind: FxKind) => Promise<{ rate: number; samples: number[] }>;
+      /** The character a moment plays on now (a live one too, the 계승's runner), or null; with
+       *  `id`, that one only. */
+      playing: (id?: number) => number | null;
     };
   }
 }
@@ -31,18 +40,30 @@ function target(os: OfficeState): number | null {
   return null;
 }
 
-function play(os: OfficeState, kind: FxKind, id?: number, count?: number): number | null {
+function play(
+  os: OfficeState,
+  kind: FxKind,
+  id?: number,
+  count?: number,
+  drink?: 'coffee' | 'energy',
+): number | null {
   const who = id ?? target(os);
   if (who === null) return null;
-  director.play(who, kind === 'coffee' ? { kind } : { kind, count: count ?? 1 });
-  return who;
+  // FX-ALL: any character, sub-agents and the owner's own too (never its 환생 or 계승: ownerMay)
+  return director.play(who, kind === 'coffee' ? { kind, drink } : { kind, count: count ?? 1 })
+    ? who
+    : null;
 }
 
 export function DevFxBar({ getOfficeState }: { getOfficeState: () => OfficeState }) {
   if (!fxDevOn) return null;
   window.__agtyFx ??= {
-    play: (kind, id, count) => play(getOfficeState(), kind, id, count),
+    play: (kind, id, count, drink) => play(getOfficeState(), kind, id, count, drink),
     wav: async (kind) => ({ rate: FX_WAV_RATE, samples: Array.from(await renderJingle(kind)) }),
+    playing: (only) =>
+      [...getOfficeState().characters.keys()].find(
+        (id) => (only === undefined || id === only) && director.playing(id),
+      ) ?? null,
   };
   return (
     <div

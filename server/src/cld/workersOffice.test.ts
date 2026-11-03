@@ -113,6 +113,30 @@ describe('D3: a Lead and Workers in the office and the messenger', () => {
   }, 60_000);
 });
 
+// NEWWORKER-FIX: delegate_task notes the new Worker in approvals.json (the daily count) before
+// the engine adds it; that entry must not make the add refuse the name (name_data_exists).
+describe('delegate_task with a new Worker through the office', () => {
+  it('makes the Worker (the daily-count entry is not data under its name)', async () => {
+    const t = await startEngineOffice({ readOnly: false, chat: true });
+    const folder = path.join(t.home, 'work', 'alpha');
+    fs.mkdirSync(folder, { recursive: true });
+    const engine = t.office.engine!;
+    const act = (action: string, name: string, f: Record<string, unknown> = {}) =>
+      engine.run({ type: 'engineAction', requestId: `r-${action}-${name}`, action: action as 'add', name, ...f }, true);
+    expect(await act('add', 'alpha', { folder })).toMatchObject({ ok: true });
+    expect(await act('start', 'alpha')).toMatchObject({ ok: true });
+    const mcp = (t.office as unknown as { mcp: McpTools }).mcp;
+    const r = await mcp.call('alpha', 'delegate_task', {
+      idempotencyKey: 'nw-1',
+      task: { title: '새 Worker 에게' },
+      target: { newWorker: { name: 'alpha-n', provider: 'claude', reason: '긴 변경' } },
+    });
+    expect(r).toMatchObject({ status: 'accepted' });
+    expect(engine.roster().find((a) => a.name === 'alpha-n')).toMatchObject({ project: 'alpha' });
+    t.stop();
+  }, 60_000);
+});
+
 // D3b, EX-3j style: after a Lead swap every name-keyed store keeps its keys (names are slots).
 describe('D3b: after promoting a Worker', () => {
   it('contacts, rooms, pins and characters keep their keys; the first prompt is typed first; the project chat scrolls into the old Lead', async () => {

@@ -3,9 +3,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ROOM_NOTICE_LINE } from '../../../../core/src/cld/serverText.js';
 import { ChatManager } from '../chat.js';
 import { killFakeSessions, makeEngineHome, removeTestHome } from '../testHome.js';
-import { chatItems } from '../transcriptView.js';
+import { chatItems, lineItems, RoomTurnFilter } from '../transcriptView.js';
 import { Engine } from './engine.js';
 import { EngineEvents, eventsPath } from './events.js';
 import type {
@@ -16,6 +17,7 @@ import type {
   TypeResult,
 } from './messenger.js';
 import {
+  alreadyTyped,
   answeredSince,
   cleanText,
   header,
@@ -23,6 +25,7 @@ import {
   Messenger,
   newMessageId,
   parseQueued,
+  pasteOf,
   replyRef,
   TEXT_MAX,
   turnOver,
@@ -611,6 +614,31 @@ describe('messages', () => {
     expect(r.queueFiles()).toHaveLength(1); // the agent's still waits for idle
   });
 
+  // 11-01 08:54: a miss paused the target for retryMs; 지금 보내기 then waited the pause out (58 s).
+  it('즉시 skips the pause after a miss: a promoted waiting message', async () => {
+    const r = rig({ typed: 'notReady', timing: { retryMs: 600_000 } });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    const queued = await r.m.send(boss('alpha', 'normal'));
+    if (!queued.ok || !queued.id) throw new Error('message was not queued');
+    await vi.waitFor(() => expect(r.typed).toHaveLength(1)); // the miss: paused
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    r.setResult('typed');
+    expect(r.m.promote('alpha', queued.id)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(bodies(r.typed)).toEqual(['normal', 'normal']));
+    expect(r.typed[1].whileWorking).toBe(true);
+  });
+
+  it('즉시 skips the pause after a miss: a new now message', async () => {
+    const r = rig({ typed: 'notReady', timing: { retryMs: 600_000 } });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send(boss('alpha', 'normal'));
+    await vi.waitFor(() => expect(r.typed).toHaveLength(1)); // the miss: paused
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    r.setResult('typed');
+    await r.m.send(boss('alpha', 'urgent', true));
+    await vi.waitFor(() => expect(bodies(r.typed)).toEqual(['normal', 'urgent']));
+  });
+
   it('the boss can edit or cancel a queued message in place; a peer cannot', async () => {
     const r = rig();
     r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
@@ -1008,14 +1036,18 @@ describe('messages', () => {
         JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '둘 다 했어요' }] } }),
       ].join('\n'),
     );
+    // MSG-SPLIT (11-01): one bubble per message, each with its own id; an unmarked part (the
+    // handoff) has none; the reply still binds to the turn's last message.
     expect(items.map((i) => [i.kind, i.messageId])).toEqual([
+      ...(handoff ? [['user', undefined]] : []),
+      ['user', ids[0]],
       ['user', ids[1]],
       ['assistant', ids[1]],
     ]);
     // Our header lines lose their mark; what the boss typed in a body stays, its opener defanged (F1).
-    expect(items[0].text).not.toMatch(/⟨m:[a-z2-7]{8}⟩$/m);
-    expect(items[0].text).toContain('둘째 글 〈m:zzzzzzzz⟩ 그대로');
-    expect(items[0].text).toMatch(/\[사장 · 메신저 · 10-21 23:05\]\n둘째 글/);
+    const second = items.find((i) => i.kind === 'user' && i.messageId === ids[1])!;
+    expect(second.text).not.toMatch(/⟨m:[a-z2-7]{8}⟩$/m);
+    expect(second.text).toContain('둘째 글 〈m:zzzzzzzz⟩ 그대로');
     expect(items[0].text.startsWith(handoff ? '[cld-gui renew] 이어서 할 일' : '첫 글')).toBe(true);
   });
 
@@ -1990,5 +2022,383 @@ describe('K1: quiet notices (F-12)', () => {
     // A plain agent message (no class) is typed at once too, as before K1.
     await r.m.send(send('alpha', 'plain'));
     expect(bodies(r.typed)).toEqual(['do it', 'plain']);
+  });
+});
+
+describe('ROOM-MODES: a room 공지 rides with the member\'s next message', () => {
+  const group = { roomId: 'room0001', roomName: '출시팀', messageId: 'post0001' };
+  const notice = (to: string, text: string, from: string | null = null) => ({
+    to,
+    text,
+    ifIdle: false,
+    from,
+    source: from ? 'mcp' : 'messenger:mac',
+    group,
+    notice: 'fyi' as const,
+  });
+  const turn = (text: string) =>
+    JSON.stringify({ type: 'user', uuid: 'u1', timestamp: '2026-10-21T14:06:00Z', message: { content: `<pasted_content id="p1">\n${text}\n</pasted_content id="p1">` } });
+
+  it('queues, wakes nobody, then goes after the owner\'s words; the DM view cuts it', async () => {
+    const ledger = new TurnLedger();
+    const r = rig({ ledger });
+    const wake = vi.fn(() => Promise.resolve(true));
+    r.engine.wake = wake;
+    expect(await r.m.send(notice('alpha', '배포는 3시'))).toMatchObject({ delivered: 'queued' });
+    expect(wake).not.toHaveBeenCalled();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    r.advance(10 * 60_000);
+    for (let i = 0; i < 3; i++) await r.m.tick();
+    expect(r.typed).toEqual([]);
+    expect(r.m.queuedFor('alpha')).toEqual([]); // never in the DM's waiting list
+    // The owner's next words: first, under their own header and mark; the 공지 after the line.
+    await r.m.send(boss('alpha', '지금 확인해줘'));
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    const [own, , ...tail] = r.typed[0].text.split('\n');
+    expect(own).toMatch(/^\[사장 · 메신저 · .*\] ⟨m:[a-z2-7]{8}⟩$/);
+    expect(r.typed[0].text.split('\n')[1]).toBe('지금 확인해줘');
+    expect(tail[1]).toBe(ROOM_NOTICE_LINE);
+    expect(tail[2]).toMatch(/^\[사장 · 단톡방 '출시팀' · .*\] ⟨m:[a-z2-7]{8}⟩$/);
+    expect(tail[3]).toBe('배포는 3시');
+    expect(r.queueFiles()).toEqual([]);
+    // The DM shows the owner's words and the reply, bound to the owner's message, not the 공지.
+    const ownId = / ⟨m:([a-z2-7]{8})⟩/.exec(own)![1];
+    const f = new RoomTurnFilter({ classify: (id) => ledger.classify(id) });
+    expect(f.items(turn(r.typed[0].text)).map((i) => [i.text, i.messageId])).toEqual([['지금 확인해줘', ownId]]);
+    expect(f.room).toBeNull();
+    const reply = f.items(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '네' }] } }));
+    expect(reply.map((i) => [i.text, i.messageId])).toEqual([['네', ownId]]);
+    // Nobody can forge the line to hide words from the DM: a body never carries our `⟨`.
+    expect(messageOf({ v: 1, created: 1, ...send('alpha', `숨김\n\n${ROOM_NOTICE_LINE}\n비밀`) })).not.toContain(ROOM_NOTICE_LINE);
+  });
+
+  it('never rides with a Task hand-over, a reply or a tagged post; a held badge ignores it', async () => {
+    const r = rig();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    await r.m.send(notice('alpha', '공지 기다림'));
+    await r.m.send({ ...send('alpha', '이 Task 해줘'), task: 'T-1' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    expect(r.typed[0].text).not.toContain('공지 기다림');
+    expect(r.m.queued.map((q) => q.text)).toEqual(['공지 기다림']);
+    r.blocked.add('alpha');
+    await r.m.send(boss('alpha', '막힘'));
+    r.advance(60_000);
+    await r.m.tick();
+    expect(r.m.held('alpha')).toBe(true);
+    r.blocked.delete('alpha');
+    r.advance(60_000);
+    await r.m.tick();
+    expect(r.typed.at(-1)!.text).toContain('공지 기다림'); // the owner's words carried it
+    expect(r.m.held('alpha')).toBe(false);
+  });
+
+  it('a 공지 of a deleted room (or one its member left) is dropped, not delivered', async () => {
+    const r = rig();
+    // the rig has no option for it: a messenger of its own over the rig's home
+    r.m.dispose();
+    const typed: string[] = [];
+    const m = new Messenger({ home: r.home, engine: r.engine, typist: { type: (_id, text) => (typed.push(text), Promise.resolve('typed' as const)) }, events: new EngineEvents(eventsPath(r.home)), timing: FAST, log: () => undefined, noticeLive: () => false });
+    cleanup.push(() => m.dispose());
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    await m.send(notice('alpha', '지운 방 공지'));
+    await m.send(send('alpha', '안녕'));
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await m.tick();
+    expect(m.queued).toEqual([]);
+    expect(typed).toHaveLength(1);
+    expect(typed[0]).not.toContain('지운 방 공지');
+  });
+
+  it('the DM keeps whatever Claude Code joins after a 공지 tail (a message, typing, a task notice)', () => {
+    const at = Date.parse('2026-11-01T10:57:00');
+    const owner = (text: string, messageId: string): QueuedSend => ({ v: 1, to: 'a', text, from: null, source: 'messenger:x', ifIdle: false, created: at, messageId });
+    const a = pasteOf([owner('첫 말', 'aaaaaaaa'), { ...owner('공지 본문', 'nnnnnnnn'), group, notice: 'fyi' }]);
+    const b = pasteOf([owner('둘째 말', 'bbbbbbbb')]);
+    const wrap = (t: string, id: string) => `<pasted_content id="${id}">\n${t}\n</pasted_content id="${id}">`;
+    const rec = (content: string) => JSON.stringify({ type: 'user', uuid: 'abcdef12', timestamp: '2026-11-01T01:58:00Z', message: { content } });
+    const texts = (c: string) => lineItems(rec(c)).map((i) => i.text);
+    for (const c of [`${a}\n\n${b}`, `${a}\n${b}`, `${wrap(a, 'p1')}\n${wrap(b, 'p2')}`])
+      expect(texts(c)).toEqual(['첫 말', '둘째 말']);
+    expect(texts(`${a}\n\n직접 친 말`)).toEqual(['첫 말', '직접 친 말']);
+    expect(texts(`${a}\n<task-notification>\n<summary>done</summary>\n</task-notification>`)).toEqual(['첫 말', '**done**']);
+    expect(texts(a)).toEqual(['첫 말']);
+  });
+
+  it('rides with an agent\'s message, never with a command; a tagged post still wakes', async () => {
+    const r = rig();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    await r.m.send(notice('alpha', '공지 하나', 'beta'));
+    await r.m.send(notice('alpha', '공지 둘\n\n둘째 줄'));
+    await r.m.send({ ...boss('alpha', '/compact'), raw: true });
+    await r.m.send(send('alpha', '이거 봐'));
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.tick();
+    await r.m.tick();
+    expect(r.typed.map((t) => t.text.includes(ROOM_NOTICE_LINE))).toEqual([false, true]);
+    expect(r.typed[0].text).toBe('/compact');
+    // Both 공지 in one tail, one line apart (a blank line in a body is closed up).
+    expect(r.typed[1].text.split(`${ROOM_NOTICE_LINE}\n`)[1].split('\n').filter((l) => !/^[[⟨]/.test(l))).toEqual([
+      '공지 하나',
+      '공지 둘',
+      '둘째 줄',
+    ]);
+    expect(r.queueFiles()).toEqual([]);
+    // A tagged post is typed at once (it wakes), as before.
+    const tagged = await r.m.send({ ...boss('alpha', '@alpha 지금'), group, messageId: newMessageId() });
+    expect(tagged).toMatchObject({ delivered: 'pane' });
+  });
+});
+
+describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () => {
+  const parseMark = (text: string) => /⟨m:([a-z2-7]{8})⟩/.exec(text)![1];
+  const userTurn = (text: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: text } });
+
+  it('lost once: told and tried once more; lost again: 전달 실패 (failed) until 다시 보내기, never 대기 중 forever', async () => {
+    const r = rig({ typed: 'lost' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    const sent = await r.m.send(boss('alpha', '새 메시지'));
+    expect(sent).toMatchObject({ ok: true, delivered: 'queued' });
+    expect(r.typed).toHaveLength(1);
+    expect(r.m.queuedFor('alpha')).toEqual([expect.not.objectContaining({ failed: true })]);
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(2); // the one retry
+    expect(r.events().filter((e) => e.type === 'send_lost').map((e) => e.again)).toEqual([true, false]);
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ failed: true })]);
+    // It is not typed again by itself...
+    for (let i = 0; i < 5; i++) {
+      r.advance(FAST.retryMs * 8);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(2);
+    // ...and survives a restart as failed (the queue file says so).
+    expect(parseQueued(fs.readFileSync(path.join(r.m.queueDir, r.queueFiles()[0]), 'utf-8'))?.failed).toBe(true);
+    // 다시 보내기 (the 지금 보내기 request) sends it again as it was, with no miss pause first
+    // (the clock stands still from here: a pause left in place would hold it).
+    r.setResult('typed');
+    expect(r.m.promote('alpha', r.m.queuedFor('alpha')[0].id)).toMatchObject({ ok: true });
+    for (let i = 0; i < 100 && r.queueFiles().length; i++) await new Promise((res) => setTimeout(res, 5));
+    expect(r.typed).toHaveLength(3);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('다시 보내기 right after the second loss goes at once: the miss pause (60 s by then) is cleared', async () => {
+    const r = rig({ typed: 'lost', timing: { retryMs: 30_000 } });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send(boss('alpha', '두 번 엇갈린 메시지'));
+    r.advance(30_000);
+    await r.m.tick();
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ failed: true })]);
+    r.setResult('typed');
+    expect(r.m.promote('alpha', r.m.queuedFor('alpha')[0].id)).toMatchObject({ ok: true });
+    for (let i = 0; i < 100 && r.queueFiles().length; i++) await new Promise((res) => setTimeout(res, 5));
+    expect(r.typed).toHaveLength(3);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('unconfirmed (Enter went in while the session works): confirmed by its mark at the turn end, never typed twice', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({ typed: 'unconfirmed' });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '바쁠 때 들어간 메시지'))).toMatchObject({ delivered: 'queued' });
+    // A task notification's turn took the session; ours waits in Claude's queue.
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    fs.appendFileSync(transcript(r), `${JSON.stringify({ type: 'user', origin: { kind: 'task-notification' }, message: { content: 'n' } })}\n${TOOL_CALL}\n`);
+    for (let i = 0; i < 3; i++) {
+      r.advance(FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    // It cannot be cancelled meanwhile: it is in Claude's hands.
+    expect(r.m.queuedFor('alpha')).toHaveLength(1);
+    // The turn ends and Claude takes ours: its mark settles it.
+    fs.appendFileSync(transcript(r), `${TURN_END}\n${userTurn(r.typed[0].text)}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    await r.m.tick();
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.typed).toHaveLength(1);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('unconfirmed with no mark once the turn has been over a while: lost (told, tried once more)', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({ typed: 'unconfirmed' });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    await r.m.send(boss('alpha', '사라진 메시지'));
+    await r.m.tick(); // the turn is over: seen once, not yet lost (Claude writes a queued prompt as it takes it)
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+    r.advance(FAST.quietMs);
+    await r.m.tick();
+    expect(r.events().filter((e) => e.type === 'send_lost').map((e) => e.again)).toEqual([true]);
+    r.setResult('typed');
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(2);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('지금 보내기 on a message waiting for the input box: delivered without the box check; the wait says why after 2 min', async () => {
+    const r = rig();
+    const calls: Array<{ force?: boolean }> = [];
+    r.engine.deliver = (_name, _text, o) => {
+      calls.push({ ...(o.force && { force: true }) });
+      return Promise.resolve(o.force ? 'typed' : 'inputBusy');
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    expect(await r.m.send(boss('alpha', '입력칸 대기'))).toMatchObject({ delivered: 'queued' });
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ inputWait: true })]);
+    expect(r.m.queuedFor('alpha')[0].inputWaitLong).toBeUndefined();
+    r.advance(2 * 60_000);
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ inputWait: true, inputWaitLong: true })]);
+    expect(r.m.promote('alpha', r.m.queuedFor('alpha')[0].id)).toMatchObject({ ok: true });
+    for (let i = 0; i < 100 && r.queueFiles().length; i++) await new Promise((res) => setTimeout(res, 5));
+    expect(calls).toEqual([{}, { force: true }]);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  /** Claude Code 2.1.316's record of a prompt a busy session took mid-turn (no `user` record);
+   *  `humanTurn` comes only under its remote flag tengu_parsed_willow. */
+  const queuedTurn = (prompt: string, humanTurn = true) =>
+    [
+      JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: '2026-11-01T05:51:23.000Z', sessionId: 's', content: prompt }),
+      JSON.stringify({
+        parentUuid: 'p',
+        isSidechain: false,
+        attachment: { type: 'queued_command', prompt, source_uuid: 'x', delivery_id: 'd', commandMode: 'prompt', origin: { kind: 'human' }, ...(humanTurn && { humanTurn }) },
+        type: 'attachment',
+        uuid: 'q1',
+        timestamp: '2026-11-01T05:51:30.000Z',
+        renderedRole: 'system',
+      }),
+    ].join('\n');
+
+  it('a busy session takes ours mid-turn (an attachment queued_command, no user record): delivered once, never typed again', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({ typed: 'unconfirmed' });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '바쁠 때 보낸 말', true))).toMatchObject({ delivered: 'queued' });
+    // Its next tool step picks it up, then the turn goes on and ends.
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${queuedTurn(r.typed[0].text)}\n${TOOL_CALL}\n${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    for (let i = 0; i < 4; i++) {
+      r.advance(FAST.quietMs + FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+    // After a restart the queue check reads it so too.
+    expect(alreadyTyped(fs.readFileSync(transcript(r), 'utf-8'), parseMark(r.typed[0].text))).toBe(true);
+  });
+
+  it('the same queued_command without humanTurn (its remote flag off) still confirms; a task notification never does', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({ typed: 'unconfirmed' });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    await r.m.send(boss('alpha', '플래그 꺼진 때', true));
+    const id = parseMark(r.typed[0].text);
+    const notice = JSON.stringify({ type: 'attachment', attachment: { type: 'queued_command', commandMode: 'task-notification', prompt: `x ⟨m:${id}⟩` } });
+    expect(alreadyTyped(notice, id)).toBe(false);
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${queuedTurn(r.typed[0].text, false)}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    for (let i = 0; i < 4; i++) {
+      r.advance(FAST.quietMs + FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('an unconfirmed paste never confirmed (no status, no transcript yet): taken as delivered after 10 minutes, the session free again', async () => {
+    const r = rig({ typed: 'unconfirmed' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send(boss('alpha', '확인 안 되는 메시지', true));
+    // Then its session file says nothing and its transcript is not there yet.
+    r.sessions.set('alpha', { id: 'a1b2c3d4' });
+    await r.m.send(boss('alpha', '그 다음 메시지', true));
+    for (let i = 0; i < 3; i++) {
+      r.advance(60_000);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1); // the next waits behind it, even once the session is idle
+    r.setResult('typed');
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    r.sessions.set('alpha', { id: 'a1b2c3d4' });
+    r.advance(10 * 60_000);
+    await r.m.tick(); // settled at the cap
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.tick();
+    expect(r.typed).toHaveLength(2); // the first settled as delivered (not typed again), the next went in
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('a 지금 보내기 that found the session not ready keeps its force for the next try', async () => {
+    const r = rig();
+    const calls: Array<{ force?: boolean }> = [];
+    let busyOnce = true;
+    r.engine.deliver = (_name, _text, o) => {
+      calls.push({ ...(o.force && { force: true }) });
+      if (!o.force) return Promise.resolve('inputBusy');
+      if (busyOnce) {
+        busyOnce = false;
+        return Promise.resolve('notReady');
+      }
+      return Promise.resolve('typed');
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send(boss('alpha', '입력칸 대기'));
+    r.m.promote('alpha', r.m.queuedFor('alpha')[0].id);
+    for (let i = 0; i < 100 && calls.length < 2; i++) await new Promise((res) => setTimeout(res, 5));
+    r.advance(FAST.retryMs * 4);
+    await r.m.tick();
+    expect(calls).toEqual([{}, { force: true }, { force: true }]);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('lost, but it did arrive after all: the retry finds its mark and types nothing twice', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        fs.appendFileSync(transcript(r), `${userTurn(text)}\n${TURN_END}\n`); // it went in, late
+        return Promise.resolve('lost');
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '한 번만'))).toMatchObject({ delivered: 'queued' });
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('a draft or a recalled prompt in the box: the message waits (inputWait), with no miss counted, then goes in', async () => {
+    const r = rig({ typed: 'inputBusy' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    expect(await r.m.send(boss('alpha', '기다릴 메시지'))).toMatchObject({ delivered: 'queued' });
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ inputWait: true })]);
+    for (let i = 0; i < 6; i++) {
+      r.advance(FAST.retryMs);
+      await r.m.tick();
+    }
+    // A fixed pause, never the miss backoff or its stuck report: the owner's box is no stuck session.
+    expect(r.typed).toHaveLength(7);
+    expect(r.events().filter((e) => e.type === 'send_stuck')).toEqual([]);
+    r.setResult('typed');
+    r.advance(FAST.retryMs);
+    await r.m.tick();
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.m.queuedFor('alpha')).toEqual([]);
   });
 });

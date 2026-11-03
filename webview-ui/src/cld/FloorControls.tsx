@@ -13,7 +13,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   TouchEvent,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { BuildingFloor } from '../../../core/src/messages.js';
@@ -42,6 +42,7 @@ import {
   wanderTiles,
 } from './floors.js';
 import { HudPanel } from './hud/fixedPanels.js';
+import { useHud } from './hud/hudStore.js';
 import { Movable } from './hud/Movable.js';
 import { useIsoView } from './iso/isoView.js';
 import { useCldStore } from './officeStore.js';
@@ -184,6 +185,32 @@ function ElevatorPanel({
   const { building, current, doors, badges, dragging, editing } = useFloors();
   const [over, setOver] = useState<string | null>(null);
   const [carrying, setCarrying] = useState(false);
+  // UI-FIX 4: an open window over the panel folds it to its lamp (a click on the lamp unfolds it).
+  // The fold hides, it never resizes, so the overlap test cannot flip back and forth.
+  const nav = useRef<HTMLElement>(null);
+  const hud = useHud();
+  const [covered, setCovered] = useState(false);
+  const [peek, setPeek] = useState(false);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const box = nav.current?.getBoundingClientRect();
+      if (!box) return;
+      setCovered(
+        [...document.querySelectorAll<HTMLElement>('[data-hud-window]')].some((win) => {
+          if (win.offsetParent === null) return false;
+          const w = win.getBoundingClientRect();
+          return w.left < box.right && w.right > box.left && w.top < box.bottom && w.bottom > box.top;
+        }),
+      );
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [hud]);
+  useEffect(() => {
+    if (!covered) setPeek(false);
+  }, [covered]);
+  const folded = covered && !peek && !editing;
   // One floor: nothing to ride, so only the way to 층 추가 (none for a viewer).
   if (!building || (building.floors.length < 2 && !canEdit)) return null;
   const floors = building.floors;
@@ -194,7 +221,8 @@ function ElevatorPanel({
     <Movable id="floors" label={t('floor.panel')} className="cld-elevator-slot" z={47}>
       <div className="cld-elevator">
         <nav
-          className="cld-elevator-panel"
+          ref={nav}
+          className={`cld-elevator-panel ${folded ? 'cld-folded' : ''}`}
           aria-label={t('floor.elevator')}
           onDragEnter={(e) => isOurs(e) && setCarrying(true)}
           onDragLeave={(e) => {
@@ -202,7 +230,13 @@ function ElevatorPanel({
           }}
           onDrop={() => setCarrying(false)}
         >
-          <div className="cld-elevator-display" data-testid="elevator-display" aria-live="polite">
+          <div
+            className="cld-elevator-display"
+            data-testid="elevator-display"
+            aria-live="polite"
+            title={folded ? t('uiFix.elevatorPeek') : undefined}
+            onClick={() => folded && setPeek(true)}
+          >
             <Arrow down={doors?.dir === -1} className={doors ? 'cld-moving' : ''} />
             <span>{shown + 1}F</span>
           </div>

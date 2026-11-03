@@ -1,6 +1,6 @@
 /**
  * C1: the moments' sounds, synthesized (oscillators, filtered noise, envelopes) from the scores in
- * jingles.json: one jingle per rebirth variant and a soft pop for the coffee "+1". Nothing is
+ * jingles.json: one jingle per level-up variant, rebirth candidate and the 계승, and a soft pop for the coffee "+1". Nothing is
  * sampled. `scheduleJingle` works on any BaseAudioContext, so the dev runner renders the very
  * same graph offline (renderJingle) to put it under the recorded video.
  */
@@ -17,6 +17,7 @@ interface ToneNote {
   d: number;
   v: number;
   vib?: number;
+  rise?: number;
 }
 interface NoiseNote {
   t: 'noise';
@@ -24,6 +25,7 @@ interface NoiseNote {
   d: number;
   v: number;
   band: number[];
+  rise?: number;
 }
 type Note = ToneNote | NoiseNote;
 
@@ -34,17 +36,18 @@ const VIB_DEPTH = 0.012; // of the pitch
 const NOISE_Q = 1.2;
 const NOISE_SEED = 0x2f6b;
 
-/** One envelope: a quick rise, an exponential fall to silence at `at + d`. */
+/** One envelope: a quick rise (or a slow `rise` s swell), an exponential fall to silence at `at + d`. */
 function envelope(
   ctx: BaseAudioContext,
   out: AudioNode,
   at: number,
   d: number,
   v: number,
+  rise = ATTACK_SEC,
 ): GainNode {
   const g = ctx.createGain();
   g.gain.setValueAtTime(SILENT, at);
-  g.gain.linearRampToValueAtTime(v, at + ATTACK_SEC);
+  g.gain.linearRampToValueAtTime(v, at + rise);
   g.gain.exponentialRampToValueAtTime(SILENT, at + d);
   g.connect(out);
   return g;
@@ -75,7 +78,7 @@ export function scheduleJingle(
   let noise: AudioBuffer | null = null;
   for (const n of SCORES[kind]) {
     const t0 = at + n.at;
-    const g = envelope(ctx, master, t0, n.d, n.v);
+    const g = envelope(ctx, master, t0, n.d, n.v, n.rise);
     if (n.t === 'tone') {
       const osc = ctx.createOscillator();
       osc.type = n.w;

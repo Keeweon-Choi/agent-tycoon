@@ -17,7 +17,6 @@ import {
   FolderGlyph,
   HomeGlyph,
   TerminalGlyph,
-  WorkbenchGlyph,
 } from './glyphs.js';
 import { Badge } from './HudIcons.js';
 import type { Tab } from './windowModel.js';
@@ -47,7 +46,8 @@ export function MobileDock({
   const messages = useUnreadTotal();
   const notices = unreadCount(useNotices().items);
   const nav = useRef<HTMLElement>(null);
-  // A Dock that does not fit scrolls sideways: the current page's button stays in view.
+  // UI-DASH: seven tabs fit from 360 px at 44 px each (7x44 + 6x4 gaps + 2x4 sides = 340), none cut
+  // at the edge. A wider set would scroll sideways: the current page's button stays in view.
   useEffect(() => {
     nav.current
       ?.querySelector('[aria-current="page"]')
@@ -56,12 +56,6 @@ export function MobileDock({
   const items: Item[] = [
     { screen: 'office', name: t('dock.office'), glyph: <HomeGlyph /> },
     { screen: 'board', hudId: 'office', name: t('hud.office'), glyph: <BoardGlyph /> },
-    {
-      screen: 'workbench',
-      hudId: 'workbench',
-      name: t('hud.workbench'),
-      glyph: <WorkbenchGlyph />,
-    },
     ...(store.officeSnapshot?.chat
       ? [
           {
@@ -107,7 +101,7 @@ export function MobileDock({
       ref={nav}
       aria-label={t('dock.label')}
       data-testid="mobile-dock"
-      className="flex gap-6 overflow-x-auto overscroll-x-contain [scrollbar-width:none] border-t-2 border-border pt-6 pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]"
+      className="flex gap-4 overflow-x-auto overscroll-x-contain [scrollbar-width:none] border-t-2 border-border pt-6 pl-[calc(var(--cld-safe-left)+4px)] pr-[calc(var(--cld-safe-right)+4px)]"
     >
       {items.map((item) => {
         const on = item.screen === active;

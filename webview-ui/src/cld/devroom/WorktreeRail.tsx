@@ -5,28 +5,35 @@
  * "+ 새 작업 맡기기" (a message to the Lead) and "합쳐진 작업 정리". The data hook and the small
  * pieces (Face, StatusChip, the menu) are shared with the phone's list (DevRoomPhone.tsx).
  */
-import { type MouseEvent, useContext, useState } from 'react';
+import { type CSSProperties, Fragment, type MouseEvent, type ReactNode, useContext, useState } from 'react';
 
+import type { ChatEmployee } from '../../../../core/src/messages.js';
 import { CharacterMugShot } from '../../components/CharacterMugShot.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import {
+  DEVROOM_CARD_LEFT_PX,
   DEVROOM_FACE_PX,
+  DEVROOM_GRAPH_STEP_PX,
   DEVROOM_MENU_GAP_PX,
   DEVROOM_MENU_H_PX,
   DEVROOM_MENU_W_PX,
+  DEVROOM_RESTING_DAYS,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
+import { lookByName } from '../characters/looks.js';
 import { openExplorer } from '../files/explorerState.js';
-import { BranchGlyph } from '../hud/glyphs.js';
+import { BranchGlyph, TerminalGlyph } from '../hud/glyphs.js';
 import { messengerSend } from '../messenger/messengerStore.js';
+import { employeePalette } from '../messenger/senderFace.js';
 import { cldToast, useCldStore } from '../officeStore.js';
 import { repoAsk, useRepoStore } from '../repo/repoStore.js';
 import { useRepoView } from '../repo/useRepoView.js';
 import { useCanAct } from '../workbench/workbenchStore.js';
-import { BIG, BODY, DevroomLooks, type Group, type Row, SMALL, TINY } from './devroomData.js';
-import { type Chip, shownProject } from './devroomState.js';
+import { AddProjectDialog } from './AddProject.js';
+import { BIG, BODY, DevroomLooks, type Group, type Row, SMALL, TINY, whoName } from './devroomData.js';
+import { type Chip, codexStamp, graphLeft, shownProject } from './devroomState.js';
 import {
   pickKey,
   pickWorktree,
@@ -37,6 +44,27 @@ import {
   toggleMenu,
   useDevroom,
 } from './devroomStore.js';
+import { GRAPH_NODE, useFoldedGraph } from './graphFold.js';
+
+/**
+ * DEVROOM-PERF (owner 11-03 10:38): the dev room's first opening, until every project's repository
+ * has been read: which ones are in, as a bar. After that the cards and each 변경 come at once.
+ */
+export function DevroomLoading({ groups }: { groups: readonly Group[] }) {
+  const done = groups.filter((g) => g.repo).length;
+  if (done === groups.length) return null;
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-bg" data-testid="devroom-loading" role="status">
+      <div className={`w-280 max-w-[calc(100%-32px)] border-2 border-devroom-main-line bg-devroom-box p-16 shadow-pixel ${BODY}`}>
+        <p>{t('devroom.loadingRoom')}</p>
+        <div className="mt-10 h-14 border-2 border-border bg-bg-dark">
+          <div className="h-full bg-accent" style={{ width: `${Math.round((done / groups.length) * 100)}%` }} />
+        </div>
+        <p className={`mt-8 text-text-muted ${SMALL}`}>{t('devroom.loadingRepos', { done, total: groups.length })}</p>
+      </div>
+    </div>
+  );
+}
 
 /** Watch one project's repository while the dev room shows it. */
 // ponytail: one repoView per project until the daemon's devroomView handler (S1) watches them all; then delete.
@@ -45,13 +73,44 @@ export function RepoWatch({ project }: { project: string }) {
   return null;
 }
 
-/** An agent's mug shot, or its initial in the same square. */
-export function Face({ agentId, name, size = DEVROOM_FACE_PX }: { agentId: number | null; name?: string; size?: number }) {
+/** An agent's mug shot (a temp employee's as the messenger draws it), or its initial in the same square. */
+export function Face({
+  agentId,
+  name,
+  employee,
+  size = DEVROOM_FACE_PX,
+}: {
+  agentId: number | null;
+  name?: string;
+  employee?: ChatEmployee;
+  size?: number;
+}) {
   const looks = useContext(DevroomLooks);
-  const look = agentId !== null && looks ? looks.getAppearance(agentId) : null;
+  const { characterPresets } = useCldStore();
+  const look =
+    agentId !== null && looks
+      ? looks.getAppearance(agentId)
+      : employee
+        ? (lookByName(`emp:${employee.employeeId}`, characterPresets) ?? { palette: employeePalette(employee.employeeId), hueShift: 0 })
+        : null;
   return (
-    <span className="shrink-0 flex items-center justify-center text-text-muted" style={{ width: size, height: size }} aria-hidden="true">
+    <span className="shrink-0 flex items-center justify-center text-text-muted" style={{ width: size, height: size }} aria-hidden="true" data-employee={employee?.employeeId}>
       {look ? <CharacterMugShot palette={look.palette} hueShift={look.hueShift} size={size} /> : [...(name ?? '?')][0]}
+    </span>
+  );
+}
+
+/** The assignee's mug shot (or initial); with nobody on it, a Codex terminal or a branch mark, never a bare `?`. */
+export function RowFace({ row, size }: { row: Row; size: number }) {
+  if (row.agentId !== null || row.wt.assignee || row.wt.employee)
+    return <Face agentId={row.agentId} name={row.wt.assignee} employee={row.wt.employee} size={size} />;
+  return (
+    <span
+      className="shrink-0 grid place-items-center border-2 border-border bg-bg-dark text-text-muted"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      {codexStamp(row.wt.task) ? <TerminalGlyph px={1} /> : <BranchGlyph />}
     </span>
   );
 }
@@ -59,6 +118,7 @@ export function Face({ agentId, name, size = DEVROOM_FACE_PX }: { agentId: numbe
 const CHIP_LOOK: Record<Chip, string> = {
   conflict: 'text-devroom-conf border-devroom-conf-line bg-devroom-conf-bg',
   approve: 'text-devroom-conf border-devroom-conf-line bg-devroom-conf-bg',
+  question: 'text-devroom-conf border-devroom-conf-line bg-devroom-conf-bg',
   review: 'text-devroom-review border-devroom-review-line bg-devroom-review-bg',
   fixing: 'text-devroom-review border-devroom-review-line bg-devroom-review-bg',
   working: 'text-devroom-blue border-devroom-work-line bg-devroom-work-bg',
@@ -75,6 +135,24 @@ export function StatusChip({ row }: { row: Row }) {
     >
       {t(`devroom.chip.${row.chip}`, { count: row.wt.conflicts?.length ?? 0 })}
     </span>
+  );
+}
+
+/** `쉬는 작업 N개 · 펼치기`: the resting worktrees folded into one row (rail and phone). */
+export function RestingRow({ count, open, onToggle, className }: { count: number; open: boolean; onToggle: () => void; className: string }) {
+  return (
+    <button
+      type="button"
+      className={`flex items-center gap-8 px-8 py-6 border-2 border-dashed border-border bg-bg-dark text-left text-text-muted ${SMALL} ${className}`}
+      data-testid="devroom-resting"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      <span className="shrink-0 text-devroom-title">
+        {t(open ? 'devroom.phone.restingOpen' : 'devroom.phone.resting', { count })}
+      </span>
+      <small className={`ml-auto min-w-0 truncate ${TINY}`}>{t('devroom.phone.restingWhy', { days: DEVROOM_RESTING_DAYS })}</small>
+    </button>
   );
 }
 
@@ -143,15 +221,60 @@ function menuSpot(e: MouseEvent<HTMLButtonElement>, key: string): MenuSpot | nul
   return { key, x, y };
 }
 
-function Card({ group, row, onMenu }: { group: Group; row: Row; onMenu: (spot: MenuSpot | null) => void }) {
+/** A branch cards were made from that is not a card itself (`integ/1024-1815`): a dashed line in the graph. */
+export function BranchLine({ name, style, className = '', fold }: { name: string; style: CSSProperties; className?: string; fold?: ReactNode }) {
+  return (
+    <div
+      className={`relative flex items-center gap-6 min-w-0 px-8 py-4 border-2 border-dashed border-devroom-main-line bg-devroom-main text-devroom-title ${SMALL} ${className}`}
+      style={style}
+      data-testid="devroom-branch"
+      data-branch={name}
+      title={t('devroomFix.branchHint', { branch: name })}
+    >
+      <span className="text-accent-text flex shrink-0" aria-hidden="true">
+        <BranchGlyph />
+      </span>
+      <span className="min-w-0 truncate">{name}</span>
+      <small className={`ml-auto shrink-0 text-text-muted ${TINY}`}>{t('devroomFix.branch')}</small>
+      {fold}
+    </div>
+  );
+}
+
+/** DEVROOM-GRAPH2: a node's fold toggle, `▾ n` open and `▸ n` folded (n: the cards under it); a button, so Enter and Space work. */
+export function FoldToggle({ open, count, name, onToggle, className = '' }: { open: boolean; count: number; name: string; onToggle: () => void; className?: string }) {
+  const label = t(open ? 'devroomGraph2.fold' : 'devroomGraph2.unfold', { name, count });
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-label={label}
+      title={label}
+      data-testid="devroom-fold"
+      data-node={name}
+      className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 border-2 leading-none ${open ? 'border-border bg-btn-bg text-text-muted' : 'border-accent-text bg-active-bg text-white'} ${TINY} ${className}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+      <span>{count}</span>
+    </button>
+  );
+}
+
+function Card({ group, row, depth, onMenu, fold }: { group: Group; row: Row; depth: number; onMenu: (spot: MenuSpot | null) => void; fold?: ReactNode }) {
   const { picked, menu } = useDevroom();
   const key = pickKey(group.project, row.wt.task);
   const on = picked?.project === group.project && picked.task === row.wt.task;
   const done = row.chip === 'merged';
   return (
     <div
-      className={`relative ml-40 mt-8 h-68 px-8 py-6 border-2 flex flex-col justify-center gap-4 cursor-pointer ${on ? 'border-devroom-blue bg-devroom-pick shadow-pixel' : 'border-devroom-card-line bg-devroom-card'} ${done ? 'opacity-55' : ''}`}
+      className={`relative mt-8 h-68 px-8 py-6 border-2 flex flex-col justify-center gap-4 cursor-pointer ${on ? 'border-devroom-blue bg-devroom-pick shadow-pixel' : 'border-devroom-card-line bg-devroom-card'} ${done ? 'opacity-55' : ''}`}
+      style={{ marginLeft: graphLeft(depth, DEVROOM_CARD_LEFT_PX, DEVROOM_GRAPH_STEP_PX) }}
       data-testid="devroom-card"
+      data-depth={depth}
       data-project={group.project}
       data-task={row.wt.task}
       data-picked={on || undefined}
@@ -161,10 +284,11 @@ function Card({ group, row, onMenu }: { group: Group; row: Row; onMenu: (spot: M
       <span className="absolute -left-26 top-30 w-24 h-4 bg-devroom-trunk" aria-hidden="true" />
       <span className="absolute -left-32 top-26 w-10 h-10 bg-accent-text border-2 border-devroom-rail" aria-hidden="true" />
       <span className="flex items-center gap-6 min-w-0">
-        <Face agentId={row.agentId} name={row.wt.assignee} />
+        <RowFace row={row} size={DEVROOM_FACE_PX} />
         <b className={`flex-1 min-w-0 truncate font-normal text-devroom-title ${SMALL}`} title={row.title}>
           {row.title}
         </b>
+        {fold}
         <button
           type="button"
           aria-label={t('devroom.more', { title: row.title })}
@@ -181,7 +305,7 @@ function Card({ group, row, onMenu }: { group: Group; row: Row; onMenu: (spot: M
         </button>
       </span>
       <span className={`flex items-center gap-6 min-w-0 text-text-muted ${TINY}`}>
-        <span className="truncate">{row.wt.assignee ?? t('devroom.nobody')}</span>
+        <span className="truncate" data-testid="devroom-who">{whoName(row.wt) ?? t('devroom.nobody')}</span>
         <StatusChip row={row} />
       </span>
     </div>
@@ -189,14 +313,15 @@ function Card({ group, row, onMenu }: { group: Group; row: Row; onMenu: (spot: M
 }
 
 /** The trunk: the base branch, standing for the project's Lead. */
-function Trunk({ group }: { group: Group }) {
+function Trunk({ group, fold }: { group: Group; fold: ReactNode }) {
   const { picked } = useDevroom();
   const on = picked?.project === group.project && picked.task === null;
   const base = group.repo?.branch ?? 'main';
   return (
+    <div className="flex items-center gap-6 pr-8">
     <button
       type="button"
-      className={`relative w-full flex items-center gap-6 h-34 pl-30 pr-8 text-left text-devroom-title ${BIG} ${on ? 'outline-2 outline-devroom-blue -outline-offset-2' : ''}`}
+      className={`relative flex-1 min-w-0 flex items-center gap-6 h-34 pl-30 pr-8 text-left text-devroom-title ${BIG} ${on ? 'outline-2 outline-devroom-blue -outline-offset-2' : ''}`}
       data-testid="devroom-trunk"
       data-project={group.project}
       aria-pressed={on}
@@ -209,13 +334,38 @@ function Trunk({ group }: { group: Group }) {
       <span className="ml-8 truncate">{base}</span>
       <small className={`ml-auto text-text-muted ${TINY}`}>{t('devroom.base')}</small>
     </button>
+    {fold}
+    </div>
   );
 }
 
 function ProjectGroup({ group, all, onMenu }: { group: Group; all: boolean; onMenu: (spot: MenuSpot | null) => void }) {
-  const { folded } = useDevroom();
+  const { folded, picked } = useDevroom();
+  const [restOpen, setRestOpen] = useState(false);
   const shut = all && folded[group.project];
   const repo = group.repo;
+  const trunkName = repo?.branch ?? 'main';
+  const g = useFoldedGraph(
+    group.project,
+    trunkName,
+    group.shown,
+    group.resting,
+    restOpen,
+    picked?.project === group.project ? picked.task : null,
+    () => setRestOpen(true),
+  );
+  const left = (depth: number) => graphLeft(depth, DEVROOM_CARD_LEFT_PX, DEVROOM_GRAPH_STEP_PX);
+  const toggle = (l: { id: string; count: number; open: boolean }) =>
+    l.count > 0 ? <FoldToggle open={l.open} count={l.count} name={l.id} onToggle={() => g.toggle(l.id)} /> : undefined;
+  const lines = g.lines.map((l, i) => (
+    <Fragment key={`${i < g.restingFrom ? 's' : 'r'}:${l.id}`}>
+      {l.line.kind === 'branch' ? (
+        <BranchLine name={l.line.name} className="mt-8" style={{ marginLeft: left(l.line.depth) }} fold={toggle(l)} />
+      ) : (
+        <Card group={group} row={l.line.row} depth={l.line.depth} onMenu={onMenu} fold={toggle(l)} />
+      )}
+    </Fragment>
+  ));
   return (
     <section data-testid="devroom-group" data-project={group.project} className="mb-12">
       {all && (
@@ -230,24 +380,33 @@ function ProjectGroup({ group, all, onMenu }: { group: Group; all: boolean; onMe
       )}
       {!shut && (
         <>
-          <p className={`mt-6 mb-6 ml-2 text-accent-text ${SMALL}`}>{t('devroom.graph')}</p>
+          <div className="mt-6 mb-6 ml-2 flex items-center gap-6">
+            <p className={`text-accent-text ${SMALL}`}>{t('devroom.graph')}</p>
+            {repo?.ok && (
+              <FoldToggle open={g.graphOpen} count={group.rows.length} name={t('devroom.graph')} onToggle={() => g.toggle(GRAPH_NODE)} className="ml-auto mr-8" />
+            )}
+          </div>
           {!repo ? (
-            <p className={`text-text-muted ${SMALL}`}>{t('devroom.loading')}</p>
+            <p className={`text-text-muted ${SMALL}`}>{t('devroom.loadingRoom')}</p>
           ) : !repo.ok ? (
             <p className={`text-text-muted ${SMALL}`}>{t('devroom.noRepo')}</p>
           ) : (
-            <div className="relative pl-2">
-              {group.rows.length > 0 && (
-                <span className="absolute left-14 top-16 bottom-36 w-4 bg-devroom-trunk" aria-hidden="true" />
-              )}
-              <Trunk group={group} />
-              {group.rows.map((row) => (
-                <Card key={row.wt.task} group={group} row={row} onMenu={onMenu} />
-              ))}
-              {group.rows.length === 0 && (
-                <p className={`ml-40 mt-8 text-text-muted ${SMALL}`}>{t('devroom.noWorktrees')}</p>
-              )}
-            </div>
+            g.graphOpen && (
+              <div className="relative pl-2" data-testid="devroom-graph">
+                {group.rows.length > 0 && g.lines.length > 0 && (
+                  <span className="absolute left-14 top-16 bottom-36 w-4 bg-devroom-trunk" aria-hidden="true" />
+                )}
+                <Trunk group={group} fold={toggle(g.trunk)} />
+                {lines.slice(0, g.restingFrom)}
+                {g.trunk.open && group.resting.length > 0 && (
+                  <RestingRow count={group.resting.length} open={restOpen} onToggle={() => setRestOpen(!restOpen)} className="ml-40 mt-8 w-[calc(100%-40px)]" />
+                )}
+                {lines.slice(g.restingFrom)}
+                {group.rows.length === 0 && (
+                  <p className={`ml-40 mt-8 text-text-muted ${SMALL}`}>{t('devroom.noWorktrees')}</p>
+                )}
+              </div>
+            )
           )}
         </>
       )}
@@ -368,6 +527,7 @@ export function WorktreeRail({ projects, groups, onMenu }: { projects: string[];
   const canAct = useCanAct();
   const { filter, tab } = useDevroom();
   const [asking, setAsking] = useState(false);
+  const [adding, setAdding] = useState(false);
   const all = shownProject(projects, filter) === null;
   const merged = groups.reduce((n, g) => n + g.rows.filter((r) => r.chip === 'merged').length, 0);
   return (
@@ -376,9 +536,28 @@ export function WorktreeRail({ projects, groups, onMenu }: { projects: string[];
       aria-label={t('devroom.graph')}
       data-testid="devroom-rail"
     >
-      <FilterBox projects={projects} />
+      <div className="flex gap-6">
+        <FilterBox projects={projects} className="flex-1 min-w-0" />
+        {canAct && (
+          <button
+            type="button"
+            aria-label={t('devroom.add.title')}
+            title={t('devroom.add.title')}
+            data-testid="devroom-add"
+            className={`shrink-0 w-34 border-2 border-devroom-box-line bg-devroom-box text-devroom-title hover:bg-active-bg ${BIG}`}
+            onClick={() => setAdding(true)}
+          >
+            +
+          </button>
+        )}
+      </div>
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden mt-6">
         {groups.length === 0 && <p className={`text-text-muted ${SMALL}`}>{t('devroom.noProjects')}</p>}
+        {groups.length === 0 && canAct && (
+          <button type="button" className={`${footButton} mt-8`} data-testid="devroom-add-empty" onClick={() => setAdding(true)}>
+            {t('devroom.add.button')}
+          </button>
+        )}
         {groups.map((g) => (
           <ProjectGroup key={g.project} group={g} all={all} onMenu={onMenu} />
         ))}
@@ -401,6 +580,7 @@ export function WorktreeRail({ projects, groups, onMenu }: { projects: string[];
         </button>
       </div>
       {asking && <NewTaskDialog projects={projects} onClose={() => setAsking(false)} />}
+      {adding && <AddProjectDialog onClose={() => setAdding(false)} />}
     </aside>
   );
 }

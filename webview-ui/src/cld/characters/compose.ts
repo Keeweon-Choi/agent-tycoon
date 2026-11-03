@@ -443,8 +443,10 @@ export function sheetProblem(sheet: DenseSheet): string | null {
   const d = densityOf(sheet);
   for (const view of VIEWS) {
     const frames = sheet[view];
-    if (frames?.length !== FRAMES) return `${view}: ${frames?.length ?? 0} frames, not ${FRAMES}`;
-    for (let i = 0; i < FRAMES; i++) {
+    // CHAR-ISO-1: an imported sheet may carry an 8th column (the walking neutral)
+    if (frames?.length !== FRAMES && frames?.length !== FRAMES + 1)
+      return `${view}: ${frames?.length ?? 0} frames, not ${FRAMES}`;
+    for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
       // SHEET-IMPORT: an imported sheet's frames are 24×44 world px
       const [w, h] =

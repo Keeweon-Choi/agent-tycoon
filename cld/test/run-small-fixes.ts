@@ -31,7 +31,7 @@ import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/small-fixes');
+const OUT = path.join(REPO_ROOT, 'cld/artifacts/compose-preview');
 const DEADLINE_MS = 240_000;
 const FONT = '/mnt/c/Windows/Fonts/malgun.ttf';
 const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__sf/malgun.ttf');
@@ -204,6 +204,50 @@ async function main(): Promise<void> {
       );
       await shot(page, `${label}-after-chip`);
 
+      // 2b. COMPOSE-PREVIEW: the viewer over the composer closes with its own buttons (a press
+      // outside the footer) and the composer comes back as it was: draft text, chip, height.
+      const focusState = () =>
+        box.evaluate((el) => ({
+          focused: document.activeElement === el,
+          caret: (el as HTMLTextAreaElement).selectionStart,
+        }));
+      for (const [how, hadFocus] of [
+        ['close', true],
+        ['back', true],
+        ['esc', true],
+        ['close-unfocused', false],
+      ] as const) {
+        await box.evaluate((el, focus) => {
+          const area = el as HTMLTextAreaElement;
+          if (focus) {
+            area.focus();
+            area.setSelectionRange(4, 4);
+          } else area.blur();
+        }, hadFocus);
+        await (touch ? chip.tap() : chip.click());
+        await viewer.waitFor({ timeout: 5_000 });
+        await shot(page, `${label}-viewer-${how}`);
+        if (how.startsWith('close')) {
+          const x = page.locator('[data-testid="attach-close"]');
+          await (touch ? x.tap() : x.click());
+        } else if (how === 'back') await page.goBack();
+        else await page.keyboard.press('Escape');
+        await viewer.waitFor({ state: 'detached' });
+        await page.waitForTimeout(300);
+        check(
+          (await box.inputValue()) === '쓰던 글\n둘째 줄\n셋째 줄' &&
+            (await chip.count()) === 1 &&
+            (await height()) === typing,
+          `${label}: after ${how}, the draft, the chip and the input height (${typing}) are intact`,
+        );
+        const after = await focusState();
+        check(
+          after.focused === hadFocus && (!hadFocus || after.caret === 4),
+          `${label}: after ${how}, focus ${hadFocus ? 'returns with the caret at 4' : 'stays off'} (${JSON.stringify(after)})`,
+        );
+        await shot(page, `${label}-after-${how}`);
+      }
+
       // 3. a press outside the composer shrinks it again
       const list = messenger.getByRole('region', { name: 'alpha 대화' }).getByText('반가워요');
       await (touch ? list.tap() : list.click());
@@ -270,7 +314,7 @@ async function main(): Promise<void> {
     await desk.ctx.close();
 
     // ── Phone ──
-    const ph = await open({ ...IPHONE13, viewport: { width: 393, height: 852 } });
+    const ph = await open({ ...IPHONE13, viewport: { width: 390, height: 844 } });
     await composer(ph.page, true, 'phone');
     await board(ph.page, true, 'phone');
     await ph.page.reload();

@@ -7,6 +7,7 @@ import type { Browser, LaunchOptions, Page } from '@playwright/test';
 import { chromium, webkit } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
 import { execFileSync, spawn } from 'child_process';
+import { buildSync } from 'esbuild';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
@@ -17,6 +18,7 @@ import { normalizeProjectPath } from '../../../core/src/normalizeProjectPath.js'
 import { configDirectory, officeDirectory } from './configPath.js';
 import { registryPath, saveRegistry } from './engine/registry.js';
 import { findOnPath } from './providers/claudeProvider.js';
+import { ptyhostPaths } from './ptyhost/protocol.js';
 
 export const REPO_ROOT = path.resolve(__dirname, '../../..');
 export const FAKE_CLAUDE = path.join(REPO_ROOT, 'cld/test/fake-claude');
@@ -159,25 +161,31 @@ export async function openOfficeWindow(page: Page): Promise<void> {
   await win.waitFor();
 }
 
-/** UI-C1: the 작업실 (desktop window or the phone's Dock page) on `tab` (its button's name:
- *  '에이전트', 'Task', ...), and on `project` when given ('?none' is 프로젝트 없음). Opens it
- *  through its icon only while it is not showing, so the icon never toggles it shut. */
+/** UI-DASH: the 현황판 (desktop window or the phone's Dock page), whose 개발 tab is the old 작업실. */
+export const DEV_WINDOW = '[data-hud-window="office"], [aria-label="현황판 화면"]';
+
+/** UI-C1: the 현황판's 개발 tab (the old 작업실) on `tab` (its button's name: '에이전트', 'Task',
+ *  ...), and on `project` when given ('?none' is 프로젝트 없음). Opens the 현황판 through its icon
+ *  only while it is not showing, so the icon never toggles it shut. */
 export async function openWorkbenchTab(
   page: Page,
   tab: string,
   opts: { project?: string; tap?: boolean } = {},
 ): Promise<void> {
-  const win = page.locator('[data-hud-window="workbench"], [aria-label="작업실 화면"]');
-  const icon = page.locator('[data-hud-id="icon:workbench"] button').first();
+  const press = (l: ReturnType<Page['locator']>) => (opts.tap ? l.tap() : l.click());
+  const win = page.locator(DEV_WINDOW);
+  const icon = page.locator('[data-hud-id="icon:office"] button').first();
   if (!(await win.isVisible())) {
     await icon.waitFor();
-    await (opts.tap ? icon.tap() : icon.click());
+    await press(icon);
     await win.waitFor();
   }
-  if (opts.project)
-    await win.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption(opts.project);
-  const button = win.getByRole('button', { name: tab, exact: true });
-  await (opts.tap ? button.tap() : button.click());
+  const dev = win.getByRole('button', { name: '개발', exact: true });
+  if ((await dev.getAttribute('aria-pressed')) !== 'true') await press(dev);
+  const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
+  await picker.waitFor();
+  if (opts.project) await picker.selectOption(opts.project);
+  await press(win.getByRole('button', { name: tab, exact: true }));
 }
 
 /** The one way tests start Chromium: always --disable-gpu (the GPU belongs to
@@ -721,4 +729,39 @@ export function seedJob(
     }),
   );
   return id;
+}
+
+/**
+ * Our PTY host built from the sources into a temp folder (as ptyhost.test.ts does), and a launcher
+ * for a client in `home`. Tests kill the hosts in `started` (their own ChildProcess handles) at the end.
+ */
+export function testPtyHost(): { launch: (home: string) => () => void; started: ChildProcess[]; done: () => void } {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-ptyhost-'));
+  const hostJs = path.join(out, 'cld-ptyhost.js');
+  buildSync({
+    entryPoints: [path.join(REPO_ROOT, 'server/src/cld/ptyhost/hostMain.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: hostJs,
+    external: ['@lydell/node-pty', 'node-pty'],
+    logLevel: 'silent',
+  });
+  const started: ChildProcess[] = [];
+  return {
+    started,
+    launch: (home) => () => {
+      const child = spawn(process.execPath, [hostJs, ptyhostPaths(home).dir], {
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, NODE_PATH: path.join(REPO_ROOT, 'node_modules') },
+      });
+      child.unref();
+      started.push(child);
+    },
+    done: () => {
+      for (const h of started) if (h.exitCode === null) h.kill('SIGKILL');
+      fs.rmSync(out, { recursive: true, force: true });
+    },
+  };
 }

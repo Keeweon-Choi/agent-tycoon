@@ -5,6 +5,8 @@ import type { AgentStateStore } from './agentStateStore.js';
 import { toolDescription } from './cld/transcriptView.js';
 import { SESSION_END_GRACE_MS } from './constants.js';
 import { readEnv } from './env.js';
+import { readNewLines } from './fileWatcher.js';
+import { endQuestion, settleQuestion } from './question.js';
 import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
@@ -437,6 +439,7 @@ export class HookEventHandler {
     // Cancel waiting, mark active
     cancelWaitingTimer(agentId, this.waitingTimers);
     agent.isWaiting = false;
+    endQuestion(agent);
     agent.permissionSent = false;
     agent.hadToolsInTurn = true;
 
@@ -640,6 +643,15 @@ export class HookEventHandler {
 
   /** Handle Stop: Claude finished responding, mark agent as waiting. */
   private handleStop(agent: AgentState, agentId: number, awaitingInput = false): void {
+    // WAITING-PERSIST: a Stop can come before the 500 ms poll has read the turn's last text, and a
+    // hooked text-only turn has no turn_duration or text-idle timer to decide later: read what the
+    // transcript has now, with the poll's own reader, so the question is decided on the real text.
+    if (!awaitingInput && agent.jsonlFile) {
+      for (let before = -1; agent.fileOffset !== before; ) {
+        before = agent.fileOffset;
+        readNewLines(agentId, this.agents, this.waitingTimers, this.permissionTimers);
+      }
+    }
     this.markAgentWaiting(agent, agentId, awaitingInput);
   }
 
@@ -769,6 +781,9 @@ export class HookEventHandler {
     }
 
     agent.isWaiting = true;
+    // WAITING-PERSIST: a turn end asks when its last text does; idle_prompt (awaitingInput, 60 s
+    // without input after any turn) leaves the question as it is.
+    if (!awaitingInput) settleQuestion(agent);
     agent.permissionSent = false;
     agent.hadToolsInTurn = false;
     agent.currentHookToolId = undefined;
@@ -777,6 +792,7 @@ export class HookEventHandler {
       id: agentId,
       status: 'waiting',
       awaitingInput,
+      ...(agent.questionOffset !== undefined && { question: true }),
     });
   }
 

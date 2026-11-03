@@ -232,7 +232,7 @@ describe('office with the Claude provider only (no engine)', () => {
   it('characters from `claude agents --json`, rooms by project, no engine data', async () => {
     const { office, last, store } = await startOffice({ claude: 'C-4' });
     const hs = last('officeSnapshot') as unknown as OfficeSnapshot;
-    expect(Object.keys(hs).sort()).toEqual(['orchestrators', 'readOnly', 'tabs', 'type']);
+    expect(Object.keys(hs).sort()).toEqual(['orchestrators', 'owner', 'readOnly', 'tabs', 'type']);
     expect(hs.tabs.map((t) => t.name)).toEqual(['alpha', 'beta', 'delta', 'gamma']);
     expect(hs.orchestrators).toHaveLength(5);
     expect(hs.orchestrators.every((o) => o.provider === 'claude')).toBe(true);
@@ -321,7 +321,7 @@ describe('office with the built-in engine', () => {
   it('engine projects are the characters: rooms by project room, the 관리실 is an ops room without a contractor desk', async () => {
     const { office, last, store, agentId } = await startEngineOffice({ projects: ROSTER });
     const hs = last('officeSnapshot') as unknown as OfficeSnapshot;
-    expect(Object.keys(hs).sort()).toEqual(['orchestrators', 'readOnly', 'tabs', 'type']);
+    expect(Object.keys(hs).sort()).toEqual(['orchestrators', 'owner', 'readOnly', 'tabs', 'type']);
     expect(hs.tabs.map((r) => [r.name, r.kind])).toEqual([
       ['orch-alpha', 'orch'],
       ['orch-beta', 'orch'],

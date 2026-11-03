@@ -15,7 +15,15 @@ import {
   useRepoStore,
 } from './repoStore.js';
 import type { DiffKind } from './repoText.js';
-import { branchLine, diffRows, fileLetter, groupFiles, pushBlocked } from './repoText.js';
+import {
+  branchLine,
+  diffRows,
+  fileLetter,
+  groupFiles,
+  gutterCols,
+  gutterTemplate,
+  pushBlocked,
+} from './repoText.js';
 import { useRepoView } from './useRepoView.js';
 
 const button =
@@ -43,6 +51,8 @@ const LETTER_CLASS: Record<string, string> = {
 function DiffBlock({ view, onMore }: { view: DiffView; onMore: () => void }) {
   if (view.loading && !view.text) return <p className={`${muted} mt-4`}>{t('repo.diffLoading')}</p>;
   if (view.error && !view.text) return <p className="text-xs text-red-400 mt-4">{view.error}</p>;
+  const rows = diffRows(view.text);
+  const cols = gutterCols(rows);
   return (
     <div className="mt-4 min-w-0">
       <pre
@@ -50,10 +60,10 @@ function DiffBlock({ view, onMore }: { view: DiffView; onMore: () => void }) {
         aria-label="diff"
       >
         {view.text === '' && t('repo.diffEmpty')}
-        {diffRows(view.text).map((row) => (
-          <span key={row.key} className="grid grid-cols-[3rem_3rem_1fr] min-w-max">
-            <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">{row.oldNo ?? ''}</span>
-            <span className="font-pixel text-right pr-8 text-text-muted tabular-nums">{row.newNo ?? ''}</span>
+        {rows.map((row) => (
+          <span key={row.key} className="grid min-w-max" style={{ gridTemplateColumns: gutterTemplate(cols) }}>
+            {cols.old > 0 && <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">{row.oldNo ?? ''}</span>}
+            {cols.new > 0 && <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">{row.newNo ?? ''}</span>}
             <span className={DIFF_CLASS[row.kind]}>
               {row.text}
             </span>

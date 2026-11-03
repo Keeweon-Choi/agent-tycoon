@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import type { CodexTask } from '../../../../core/src/messages.js';
+import type { ChatEmployee, CodexTask } from '../../../../core/src/messages.js';
 import { CLI_NAME } from '../cliName.js';
 import { codexShownTitle, codexTitle } from '../jobNames.js';
 import { findOnPath } from '../providers/claudeProvider.js';
@@ -142,6 +142,8 @@ export interface CodexRecord {
   /** TOKEN-GUARD: the limit wait the orchestrator was last told of (`limit:<resetAt>`): the same
    *  wait is never told twice, also by a worker started again after a daemon restart. */
   told?: string;
+  /** DEVROOM-NAMES: a temporary run's employee, written once it ended (worktreeWho.ts). */
+  employee?: ChatEmployee;
 }
 
 export const codexDir = (home = os.homedir(), platform = process.platform, env = process.env) =>

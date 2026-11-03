@@ -355,3 +355,40 @@ export function officeBox<T>(tileMap: T[][], empty: T, rows?: MapPart | null): B
     h: (maxR - top + 1) * TILE_SIZE,
   };
 }
+
+/** UI-PHONE: the rooms (area labels) on `rows` that hold one of the `working` characters, in world
+ *  px, plus one tile above for the top row's wall tops; a character in no room counts its own
+ *  tile. null when none of them is on those rows (the phone's first view then goes to the owner). */
+export function workRoomsBox(
+  layout: { cols: number; rows: number; areaTiles?: ReadonlyArray<string | null> },
+  rows: MapPart | null,
+  working: ReadonlyArray<{ tileCol: number; tileRow: number }>,
+): Box | null {
+  const r0 = rows?.row ?? 0;
+  const r1 = rows ? rows.row + rows.rows : layout.rows;
+  const label = (c: number, r: number) => layout.areaTiles?.[r * layout.cols + c] ?? null;
+  const used = new Set<string>();
+  let [c0, rr0, c1, rr1] = [Infinity, Infinity, -1, -1];
+  const take = (c: number, r: number) =>
+    ([c0, rr0, c1, rr1] = [Math.min(c0, c), Math.min(rr0, r), Math.max(c1, c), Math.max(rr1, r)]);
+  for (const w of working) {
+    if (w.tileRow < r0 || w.tileRow >= r1) continue;
+    const l = label(w.tileCol, w.tileRow);
+    if (l === null) take(w.tileCol, w.tileRow);
+    else used.add(l);
+  }
+  if (used.size)
+    for (let r = r0; r < r1; r++)
+      for (let c = 0; c < layout.cols; c++) {
+        const l = label(c, r);
+        if (l !== null && used.has(l)) take(c, r);
+      }
+  if (c1 < 0) return null;
+  const top = Math.max(r0, rr0 - 1);
+  return {
+    x: c0 * TILE_SIZE,
+    y: top * TILE_SIZE,
+    w: (c1 - c0 + 1) * TILE_SIZE,
+    h: (rr1 - top + 1) * TILE_SIZE,
+  };
+}

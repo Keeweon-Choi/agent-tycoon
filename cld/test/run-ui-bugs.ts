@@ -174,7 +174,7 @@ async function main() {
     const active = () => phone.getByTestId('mobile-dock').locator('[aria-current="page"]').getAttribute('data-dock');
     const messenger = phone.getByRole('region', { name: '메신저', exact: true });
     const conv = messenger.getByRole('region', { name: 'alpha 대화' });
-    const workbench = phone.locator('[aria-label="작업실 화면"]');
+    const workbench = phone.locator('[aria-label="현황판 화면"]');
     const openConversation = async () => {
       await tap('messenger');
       await messenger.getByRole('list', { name: '연락처' }).waitFor({ timeout: 5000 }).catch(() => undefined);
@@ -248,7 +248,7 @@ async function main() {
     await phone.locator('[data-testid="agent-overlay"]').first().waitFor();
     await phone.waitForTimeout(800);
     await tap('workbench');
-    await workbench.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
+    await workbench.getByRole('combobox', { name: '개발 프로젝트' }).selectOption('alpha');
     await workbench.getByRole('button', { name: 'Task', exact: true }).tap();
     await workbench.locator('[data-testid="task-card"]').first().waitFor({ timeout: 20_000 });
     const scroller = () =>
@@ -270,7 +270,7 @@ async function main() {
     await phone.waitForTimeout(600);
     const wbTop2 = await (await scroller()).evaluate((el) => (el as HTMLElement).scrollTop);
     expectFixed(
-      (await workbench.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'alpha' &&
+      (await workbench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'alpha' &&
         (await workbench.locator('[data-testid="task-card"]').count()) > 5 &&
         Math.abs(wbTop2 - wbTop) <= 2 &&
         wbTop > 0,
@@ -287,7 +287,7 @@ async function main() {
       const cr = chip?.getBoundingClientRect();
       const kr = card?.getBoundingClientRect();
       let widest = 0;
-      for (const el of document.querySelectorAll<HTMLElement>('[aria-label="작업실 화면"] *'))
+      for (const el of document.querySelectorAll<HTMLElement>('[aria-label="현황판 화면"] *'))
         widest = Math.max(widest, el.getBoundingClientRect().right);
       return {
         W,

@@ -495,7 +495,7 @@ export class McpTools {
       return fail(String(r.code ?? 'post_failed'), String(r.error ?? ''));
     }
     const post = r.post as GroupPost;
-    return { status: 'posted', room: room.name, postId: post.id, mentioned: post.targets };
+    return { status: 'posted', room: room.name, postId: post.id, mentioned: post.notice ? [] : post.targets }; // a 공지 wakes nobody
   }
 
   private groupContext(me: RosterAgent, input: Record<string, unknown>): Result {
@@ -518,7 +518,7 @@ export class McpTools {
         at: new Date(p.at).toISOString(),
         sender: p.sender ?? 'user',
         text: p.text,
-        mentioned: p.targets,
+        mentioned: p.notice ? [] : p.targets,
       })),
       ...(next < all.length && { cursor: String(next) }),
     };

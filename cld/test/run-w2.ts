@@ -193,7 +193,7 @@ async function main() {
     };
     const shot = (p: Page, name: string) => p.screenshot({ path: path.join(OUT, `${name}.png`) });
     const desk = await newPage({ viewport: { width: 1280, height: 800 } });
-    const wb = desk.locator('[data-hud-window="workbench"]');
+    const wb = desk.locator('[data-hud-window="office"]');
     await openWorkbenchTab(desk, 'Task', { project: 'alpha' });
     const card = (id: string) => wb.locator(`[data-testid="task-card"][data-task-id="${id}"]`);
     await card('T-1').waitFor({ timeout: 20_000 });
@@ -292,7 +292,7 @@ async function main() {
     // The phone.
     const phone = await newPage({ ...devices['iPhone 13'] });
     await openWorkbenchTab(phone, 'Task', { project: 'alpha', tap: true });
-    const dock = phone.locator('[aria-label="작업실 화면"]');
+    const dock = phone.locator('[aria-label="현황판 화면"]');
     const pcard = dock.locator('[data-testid="task-card"][data-task-id="T-1"]');
     await pcard.getByTestId('task-worktree').waitFor({ timeout: 20_000 });
     await pcard.locator('button[aria-expanded]').first().tap();

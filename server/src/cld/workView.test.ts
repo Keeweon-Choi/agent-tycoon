@@ -4,7 +4,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import { refused } from '../../../core/src/cld/serverText.js';
-import { lineItems, RESULT_MAX, spawnLineItems } from './transcriptView.js';
+import { ARGS_MAX, lineItems, RESULT_MAX, spawnLineItems, toolArgs } from './transcriptView.js';
 import {
   fileReader,
   MAX_OPEN_PER_CLIENT,
@@ -134,7 +134,7 @@ describe('sidechain extraction by tool_use id', () => {
     const line = JSON.stringify({
       type: 'user',
       isSidechain: true,
-      message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'z'.repeat(1000) }] },
+      message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'z'.repeat(RESULT_MAX + 500) }] },
     });
     expect(lineItems(line)).toEqual([]); // sidechain: left out
     expect(lineItems(line, 0, { sidechain: true })).toEqual([]); // no results unless asked
@@ -316,6 +316,43 @@ describe('WorkViews', () => {
     expect(text).not.toContain('abc123XYZ');
     expect(text).not.toContain('hunter2hunter2');
     expect(text).toContain('token=***');
+  });
+
+  it('DEVROOM-SUBVIEW: a tool call carries its arguments (work view only), masked', async () => {
+    const line = JSON.stringify({
+      type: 'assistant',
+      isSidechain: true,
+      message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'curl -H "Authorization: Bearer hunter2hunter2" x', timeout: 5 } }] },
+    });
+    expect(lineItems(line, 0, { sidechain: true })[0].args).toBeUndefined();
+    const [tool] = lineItems(line, 0, { sidechain: true, results: true });
+    expect(tool.args).toContain('curl -H');
+    const sent: Array<Record<string, unknown>> = [];
+    const views = new WorkViews(() => ({ poll: async () => null, full: () => ({ items: [tool] }) }));
+    views.view((m) => sent.push(m), { kind: 'teammate', agentId: 1 }, true);
+    await views.poll();
+    expect(JSON.stringify(sent)).not.toContain('hunter2hunter2');
+  });
+
+  it('toolArgs: the main argument, a search with its path, else the short scalars; capped', () => {
+    expect(toolArgs({ command: 'npm test', timeout: 9 })).toBe('npm test');
+    expect(toolArgs({ file_path: '/a/b.ts', old_string: 'x', new_string: 'y' })).toBe('/a/b.ts');
+    expect(toolArgs({ pattern: 'TODO', path: 'src' })).toBe('TODO in src');
+    expect(toolArgs({ subagent_type: 'Explore', description: 'look', prompt: 'long' })).toBe('subagent_type: Explore');
+    expect(toolArgs({})).toBeUndefined();
+    expect(toolArgs({ command: 'x'.repeat(ARGS_MAX + 9) })?.length).toBe(ARGS_MAX + 1);
+  });
+
+  it('the same client opening a view again gets it whole (the dev room beside the work sheet)', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const views = new WorkViews(() => fixed(['a']));
+    const send = (m: Record<string, unknown>) => sent.push(m);
+    views.view(send, { kind: 'teammate', agentId: 1 }, true);
+    await views.poll();
+    views.view(send, { kind: 'teammate', agentId: 1 }, true);
+    await settle();
+    expect(sent).toHaveLength(2);
+    expect(sent[1].append).toBeUndefined();
   });
 
   it('seal masks the title too', () => {

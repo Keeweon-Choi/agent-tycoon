@@ -1,4 +1,7 @@
+import { useState } from 'react';
+
 import type { ProjectFilePreview } from '../../../../core/src/cld/projectFiles.js';
+import { IMAGE_FIT_MAX_VH } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { Markdown } from '../markdown.js';
 
@@ -33,13 +36,47 @@ function csvRows(text: string): string[][] {
   return rows;
 }
 
-export function Preview({ file, url }: { file: ProjectFilePreview; url: string | null }) {
-  if (file.kind === 'image')
-    return url ? (
-      <img src={url} alt={file.path} className="max-w-full max-h-[70vh] object-contain" />
-    ) : (
-      <p>{t('files.loadingImage')}</p>
-    );
+/** `zoom` scales the whole preview (text, tables) with CSS zoom; 1 leaves it untouched. An image
+ *  grows from its fitted size instead: under CSS zoom its fit-to-the-pane limits grow with it, so
+ *  it never got past the pane's width (owner 11-03 13:04). */
+export function Preview({
+  file,
+  url,
+  zoom = 1,
+}: {
+  file: ProjectFilePreview;
+  url: string | null;
+  zoom?: number;
+}) {
+  if (file.kind === 'image') return <ZoomedImage key={url ?? ''} url={url} alt={file.path} zoom={zoom} />;
+  return (
+    <div style={zoom === 1 ? undefined : { zoom }}>
+      <PreviewBody file={file} url={url} />
+    </div>
+  );
+}
+
+/** The image at `zoom` times its fitted size: the pane's width or IMAGE_FIT_MAX_VH of the screen's
+ *  height, never above its own size (what the old fit classes did). Past the pane, the pane scrolls. */
+function ZoomedImage({ url, alt, zoom }: { url: string | null; alt: string; zoom: number }) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  if (!url) return <p>{t('files.loadingImage')}</p>;
+  const fit = size && `min(100%, ${size.w}px, ${IMAGE_FIT_MAX_VH * (size.w / size.h)}vh)`;
+  return (
+    <img
+      src={url}
+      alt={alt}
+      onLoad={(e) => {
+        const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+        if (w > 0 && h > 0) setSize({ w, h });
+      }}
+      className={fit ? 'max-w-none' : 'max-w-full max-h-[70vh] object-contain'}
+      style={fit ? { width: `calc(${fit} * ${zoom})` } : undefined}
+    />
+  );
+}
+
+function PreviewBody({ file, url }: { file: ProjectFilePreview; url: string | null }) {
   if (file.kind === 'pdf')
     return url ? (
       <iframe src={url} title={file.path} className="w-full h-[70vh] border border-border" />

@@ -4,7 +4,7 @@ import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 
 import { ISO_MASTER_DENSITY, ISO_WALL_H } from '../../constants.js';
-import { artDensity, ISO_MANIFEST, neededFiles } from './art.js';
+import { artDensity, ISO_MANIFEST, neededFiles, playingFrame } from './art.js';
 import manifest from './art/manifest.json';
 import ownerReport from './art/report-owner.json';
 
@@ -139,5 +139,27 @@ describe("the owner's pieces (gen-iso-objects.ts)", () => {
     // A spare variant nothing uses is not decoded.
     expect(needed.has('o-wall-window-wide.png')).toBe(false);
     expect(needed.has('o-rug-round.png')).toBe(false);
+  });
+});
+
+describe('C1: machines that play frames', () => {
+  const coffee = ['COFFEE_MACHINE_1', 'COFFEE_MACHINE_2', 'COFFEE_MACHINE_3'];
+
+  it('shows frame 0 idle and frame k+1 while the furniture plays its on-state k', () => {
+    expect(playingFrame(undefined, coffee, 4)).toBe(0);
+    expect(coffee.map((t) => playingFrame(t, coffee, 4))).toEqual([1, 2, 3]);
+    expect(playingFrame('SOMETHING_ELSE', coffee, 4)).toBe(0);
+    expect(playingFrame('COFFEE_MACHINE_3', coffee, 2)).toBe(1); // fewer pictures: the last
+  });
+
+  it('maps the pantry machines to pieces whose frames exist at one size and are decoded', () => {
+    const needed = neededFiles();
+    for (const type of ['COFFEE_MACHINE', 'VENDING_MACHINE']) {
+      const p = ISO_MANIFEST.pieces[ISO_MANIFEST.types[type].piece];
+      expect(p.frames?.length, type).toBe(4);
+      const sizes = new Set(p.frames!.map((f) => `${read(f).width}x${read(f).height}`));
+      expect(sizes.size, type).toBe(1);
+      for (const f of p.frames!) expect(needed.has(f), f).toBe(true);
+    }
   });
 });

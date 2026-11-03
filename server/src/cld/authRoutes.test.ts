@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { moveTarget } from './authRoutes.js';
+import { fileTicketPassesGate, moveTarget } from './authRoutes.js';
 import {
   type AuthServer,
   funnel,
@@ -70,6 +70,34 @@ describe('S-22 CORS', () => {
       headers: { ...funnel(), origin: 'https://evil.example' },
     });
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
+describe('DESKTOP-ACTIONS file ticket URLs', () => {
+  it('pass the gate to the files route, which still refuses them without the cookie', async () => {
+    server = await startAuthServer(dist.staticDir);
+    const ticket = await server.app.inject({ url: '/api/cld/files/content/AAAA', headers: funnel() });
+    expect(ticket.statusCode).toBe(401);
+    expect(ticket.body).not.toBe('unauthorized'); // the route's own refusal, not the gate's
+  });
+
+  it('pass only for GET or HEAD of exactly /api/cld/files/content/<ticket>', () => {
+    const ticket = 'Ab-9_cDeFgHiJkLmNoPqRsTuVwXyZ01234';
+    expect(fileTicketPassesGate('GET', `/api/cld/files/content/${ticket}`)).toBe(true);
+    expect(fileTicketPassesGate('HEAD', `/api/cld/files/content/${ticket}`)).toBe(true);
+    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+      expect(fileTicketPassesGate(method, `/api/cld/files/content/${ticket}`)).toBe(false);
+    for (const pathname of [
+      '/api/cld/files/content/',
+      '/api/cld/files/content/a/b',
+      '/api/cld/files/content/a.b',
+      '/api/cld/files/content/a%2Fb',
+      '/api/cld/files/contentX/abc',
+      '/api/cld/files/p/list',
+      '/x/api/cld/files/content/abc',
+      '/api/cld/files/content/abc/',
+    ])
+      expect(fileTicketPassesGate('GET', pathname), pathname).toBe(false);
   });
 });
 

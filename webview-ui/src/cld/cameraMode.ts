@@ -74,6 +74,17 @@ export function setCameraMode(mode: CameraMode): void {
   }
   askFraming();
 }
+/** What '내 캐릭터' does to the selection, the camera mode and the follow request. */
+export function askOwnerFollow(
+  office: { selectedAgentId: number | null; hoveredAgentId: number | null },
+  want: { wantOwner: boolean | 'first' },
+): void {
+  office.selectedAgentId = null;
+  office.hoveredAgentId = null;
+  setCameraMode('auto'); // asks again: the owner's character is followed
+  want.wantOwner = true;
+}
+
 /** G1 restore: a saved view the user had moved by hand stays theirs after a refresh. */
 export function restoreManual(on: boolean): void {
   manual = on;

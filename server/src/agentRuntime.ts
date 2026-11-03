@@ -38,6 +38,7 @@ import type { HookEvent } from './hookEventHandler.js';
 import { HookEventHandler } from './hookEventHandler.js';
 import { assignPaletteIfNeeded } from './paletteAssigner.js';
 import { PathSet, pathsMatch } from './pathKey.js';
+import { restoreQuestion } from './question.js';
 import { SessionRouter } from './sessionRouter.js';
 import { SubagentWatch } from './subagentWatch.js';
 import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
@@ -515,6 +516,7 @@ export class AgentRuntime {
         palette: p.palette,
         hueShift: p.hueShift,
       });
+      restoreQuestion(agent); // WAITING-PERSIST
 
       assignPaletteIfNeeded(agent, this.store);
       this.store.set(p.id, agent);

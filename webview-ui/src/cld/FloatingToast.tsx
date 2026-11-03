@@ -1,8 +1,10 @@
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { t } from '../i18n/index.js';
 import { withinTapSlop } from '../touch/touchPrimitives.js';
+import { toastSlot } from './toastSlot.js';
 import { swipeDismiss } from './toastSwipe.js';
 
 interface StartPoint {
@@ -19,9 +21,11 @@ interface FloatingToastProps extends Omit<ComponentPropsWithoutRef<'div'>, 'chil
   onDismiss: () => void;
   onTap?: () => void;
   testId?: string;
+  /** Over every window and the viewer: the answer to the user's own action (see toastSlot). */
+  over?: boolean;
 }
 
-/** The one frame for short-lived floating notices: closeable on every device and swipeable on touch. */
+/** The one frame for short-lived floating notices (all in the one slot under the clock bar, see toastSlot): closeable on every device and swipeable on touch. */
 export function FloatingToast({
   children,
   className,
@@ -29,6 +33,7 @@ export function FloatingToast({
   onDismiss,
   onTap,
   testId,
+  over = false,
   ...rest
 }: FloatingToastProps) {
   const start = useRef<StartPoint | null>(null);
@@ -43,12 +48,12 @@ export function FloatingToast({
     setDragY(0);
   };
 
-  return (
+  return createPortal(
     <div
       {...rest}
       role="status"
       data-testid={testId}
-      className={className}
+      className={`pointer-events-auto ${className}`}
       onClick={() => {
         if (skipTap.current) {
           skipTap.current = false;
@@ -112,6 +117,7 @@ export function FloatingToast({
         </button>
         <div className="relative z-[1] pr-20 pointer-coarse:pr-48">{children}</div>
       </div>
-    </div>
+    </div>,
+    toastSlot(over),
   );
 }

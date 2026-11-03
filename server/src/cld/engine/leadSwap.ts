@@ -65,6 +65,7 @@ export function promotePair(
     name: l.name,
     folder: l.folder,
     ...(l.room !== undefined && { room: l.room }),
+    ...(l.cloned && { cloned: true as const }),
     ...pick(w, AGENT_OWN),
     ...pick(l, LEAD_SEAT),
     wantRunning: true,

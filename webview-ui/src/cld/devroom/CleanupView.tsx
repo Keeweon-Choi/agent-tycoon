@@ -33,9 +33,13 @@ export function CleanupView({ project }: { project: string }) {
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => requestCleanup(project), [project]);
+  // Once per question: the second answer (the sizes, measured after) keeps the owner's ticks.
+  const answer = data && data !== 'loading' && data.ok ? data.requestId : null;
   useEffect(() => {
-    if (data && data !== 'loading' && data.ok) setChecked(defaultChecked(data.rows ?? []));
-  }, [data]);
+    if (answer && data && data !== 'loading') setChecked(defaultChecked(data.rows ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answer]);
+  const measuring = rows.some((r) => r.sizePending);
 
   const picked = rows.filter((r) => checked.has(r.task));
   const kept = picked.filter((r) => !r.merged || r.dirty > 0).length;
@@ -73,7 +77,7 @@ export function CleanupView({ project }: { project: string }) {
     <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-cleanup-view">
       <div className={`h-56 shrink-0 flex items-center gap-10 px-12 bg-devroom-bar border-b-2 border-border ${BODY}`}>
         <span className="flex-1 text-devroom-title">
-          {t('merge.cleanup.head', { count: rows.length, size: sizeText(totalBytes(rows)) })}
+          {t('merge.cleanup.head', { count: rows.length, size: measuring ? t('devroomFix.sizeMeasuring') : sizeText(totalBytes(rows)) })}
         </span>
         <div className="text-right leading-snug">
           <div className="flex items-center justify-end gap-8">
@@ -104,7 +108,7 @@ export function CleanupView({ project }: { project: string }) {
           <p className={`m-auto text-text-muted ${BODY}`}>{t('merge.cleanup.empty')}</p>
         ) : (
           <>
-            <div className={`grid items-center h-32 pr-10 bg-devroom-th text-accent-text ${SMALL}`} style={{ gridTemplateColumns: MERGE_TABLE_COLS }}>
+            <div className={`shrink-0 grid items-center h-32 pr-10 bg-devroom-th text-accent-text ${SMALL}`} style={{ gridTemplateColumns: MERGE_TABLE_COLS }}>
               <span />
               <span>{t('merge.cleanup.col.task')}</span>
               <span>{t('merge.cleanup.col.status')}</span>
@@ -119,7 +123,7 @@ export function CleanupView({ project }: { project: string }) {
               return (
                 <div
                   key={r.task}
-                  className={`grid items-center min-h-54 pr-10 border-b-2 border-devroom-menu-line last:border-b-0 ${on ? 'bg-devroom-mine-bg' : ''}`}
+                  className={`shrink-0 grid items-center min-h-54 pr-10 border-b-2 border-devroom-menu-line last:border-b-0 ${on ? 'bg-devroom-mine-bg' : ''}`}
                   style={{ gridTemplateColumns: MERGE_TABLE_COLS }}
                   data-testid="merge-row"
                   data-task={r.task}
@@ -161,8 +165,7 @@ export function CleanupView({ project }: { project: string }) {
                   <span className={cell}>{r.merged ? dayLabel(r.mergedAt) : t('merge.cleanup.notMerged')}</span>
                   <span className={`${cell} text-text-muted`}>{dayLabel(r.lastChange)}</span>
                   <span className={`text-right ${BODY}`}>
-                    {sizeText(r.sizeBytes)}
-                    {r.sizeCapped ? '+' : ''}
+                    {r.sizePending ? t('devroomFix.sizeMeasuring') : `${sizeText(r.sizeBytes)}${r.sizeCapped ? '+' : ''}`}
                   </span>
                 </div>
               );
@@ -193,7 +196,7 @@ export function CleanupView({ project }: { project: string }) {
         >
           {running
             ? t('merge.cleanup.running', running)
-            : t('merge.cleanup.run', { count: picked.length, size: sizeText(totalBytes(picked)) })}
+            : t('merge.cleanup.run', { count: picked.length, size: picked.some((r) => r.sizePending) ? t('devroomFix.sizeMeasuring') : sizeText(totalBytes(picked)) })}
         </button>
       </div>
     </div>

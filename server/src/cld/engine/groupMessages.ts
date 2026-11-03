@@ -34,6 +34,11 @@ export interface GroupPost {
   replyTo?: ChatReply;
   /** C4: a one-line system event (systemLine), delivered to nobody. */
   system?: true;
+  /** ROOM-MODES: an untagged post, a 공지: `targets` are every member but its sender, each
+   *  delivered with that member's next message (Messenger roomNotice), never waking anyone.
+   *  Absent: tagged (바로: wakes the targets), or a record-only one (an untagged post from before
+   *  ROOM-MODES, a Worker's summary): those stay as recorded. */
+  notice?: true;
 }
 export interface GroupReply {
   member: string;
@@ -56,6 +61,7 @@ export interface GroupMessenger {
     group?: QueuedSend['group'];
     messageId?: string;
     replyTo?: ChatReply;
+    notice?: 'fyi';
   }): Promise<SendResult>;
   /** TOKEN-GUARD: record a delivery the room refused (Messenger.guard). */
   guard?(fields: Record<string, unknown>): void;
@@ -258,7 +264,7 @@ export function roomEvents(posts: GroupTimelinePost[]): Array<{
   ]);
 }
 
-/** Tagged names only. A bare room post stays readable but interrupts no lead. */
+/** Tagged names only (a bare room post is a 공지: GroupMessages.post). */
 export function roomMentions(
   text: string,
   members: string[],
@@ -328,7 +334,8 @@ export class GroupMessages {
     readFor: (member: string) => LineOptions = () => ({}),
   ): GroupTimelinePost[] {
     const posts = this.timeline(room, limit);
-    const since = Math.min(...posts.filter((post) => post.targets.length).map((post) => post.at));
+    // A 공지 is never answered (no reply is bound to it): it reads no transcript.
+    const since = Math.min(...posts.filter((post) => post.targets.length && !post.notice).map((post) => post.at));
     const readers = new Map<string, ReturnType<typeof roomReplyReader> | null>();
     const readerFor = (member: string) => {
       if (!readers.has(member)) {
@@ -339,7 +346,7 @@ export class GroupMessages {
     };
     return posts.map(({ roomName, messageIds, ...post }) => ({
       ...post,
-      replies: post.targets.flatMap((member) => {
+      replies: (post.notice ? [] : post.targets).flatMap((member) => {
         const reader = readerFor(member);
         if (reader === null) return [];
         const messageId = messageIds?.[member];
@@ -380,9 +387,11 @@ export class GroupMessages {
       return { ok: false, ...refused('message_too_long', { kb: TEXT_MAX / 1024 }) };
     const mentioned = roomMentions(text, room.members);
     if (mentioned.error) return { ok: false, ...pickRefusal(mentioned) };
+    // ROOM-MODES: no tag = 공지 for every member but the sender (rides with each one's next message).
+    const notice = !req.quiet && mentioned.targets.length === 0;
     // TOKEN-GUARD (TG-02a): a post never comes back to its own sender (@전체, a self-mention).
-    let targets = mentioned.targets.filter((member) => member !== req.from);
-    if (req.from && targets.length < mentioned.targets.length && !req.quiet)
+    let targets = (notice ? room.members : mentioned.targets).filter((member) => member !== req.from);
+    if (req.from && !notice && targets.length < mentioned.targets.length && !req.quiet)
       this.opts.messenger.guard?.({ trigger: 'room', room: room.id, to: req.from, from: req.from, allowed: false, reason: 'room_echo' });
     if (req.quiet && mentioned.targets.length) {
       this.opts.messenger.guard?.({ trigger: 'room_summary', room: room.id, from: req.from, targets: mentioned.targets.length, allowed: false, reason: 'summary_post' });
@@ -403,6 +412,7 @@ export class GroupMessages {
         messageIds: Object.fromEntries(targets.map((member) => [member, newMessageId()])),
       }),
       ...(replyTo && { replyTo }),
+      ...(notice && targets.length > 0 && { notice: true as const }),
     };
     if (!this.append(room.id, { v: 1, kind: 'post', post }))
       return { ok: false, ...refused('room_log_failed') };
@@ -419,6 +429,7 @@ export class GroupMessages {
           group: { roomId: room.id, roomName: room.name, messageId: post.id },
           messageId: post.messageIds?.[to],
           ...(replyTo && { replyTo }),
+          ...(post.notice && { notice: 'fyi' as const }),
         });
         if (result.ok)
           this.delivery(

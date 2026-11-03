@@ -97,8 +97,9 @@ export class OfficeState {
   cldLinks: FloorLinks | null = null;
   private cldDoorsMoving = false;
   /** cld-gui (LOUNGE): a pantry machine's picture while somebody uses it (furniture uid -> the
-   *  catalog type of its current state); absent: the idle picture the layout names. */
-  private cldPantry = new Map<string, string>();
+   *  catalog type of its current state); absent: the idle picture the layout names. Read by the
+   *  isometric view (C1: its machines play the same states). */
+  readonly cldPantry = new Map<string, string>();
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */

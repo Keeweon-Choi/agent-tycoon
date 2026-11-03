@@ -1,8 +1,9 @@
 /**
- * UI-C1 check: the 현황판 window keeps 현황판 and HW; jobs and Codex runs live in the 작업실.
+ * UI-C1 check: the 현황판 window keeps 현황판 and HW; jobs and Codex runs live in the 작업실, which is
+ * the 현황판's 개발 tab since UI-DASH (오케스트레이터 · 개발 · HW).
  * dist/cli.js with an isolated HOME on a spare port, headless Chromium (--disable-gpu fixed by
  * launchBrowser), fake claude/codex only. Desktop 1280x800 and phone 393x852:
- * - the 현황판 window has two tabs (현황판, HW); the folder icon opens the explorer as 파일
+ * - the 현황판 window has three tabs (오케스트레이터, 개발, HW); the folder icon opens the explorer as 파일
  *   (no tab strip, titled 파일) and the 현황판 icon leads back to the board;
  * - the 작업실 에이전트 tab lists the Lead, then the project's Codex runs as cards (live ones
  *   first, the newest 3 finished ones after, the rest behind one fold);
@@ -166,21 +167,21 @@ async function main() {
   /** One viewport's whole walk. `tap`: the phone. */
   async function walk(page: Page, view: string, tap: boolean) {
     const click = (l: ReturnType<Page['locator']>) => (tap ? l.tap() : l.click());
-    const win = page.locator('[data-hud-window="workbench"], [aria-label="작업실 화면"]');
-    const picker = win.getByRole('combobox', { name: '작업실 프로젝트' });
+    const win = page.locator('[data-hud-window="office"], [aria-label="현황판 화면"]');
+    const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
     const noHorizontalScroll = async (what: string) =>
       check(
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         `${view}: no horizontal scroll (${what})`,
       );
 
-    // ── 1. The 현황판 window: two tabs; the folder icon is its 파일 mode ──
+    // ── 1. The 현황판 window: three tabs; the folder icon is its 파일 mode ──
     if (tap) await click(page.locator('[data-hud-id="icon:office"] button').first());
     else await openOfficeWindow(page);
     const nav = page.getByRole('navigation', { name: tap ? '작업 메뉴' : '사무실 메뉴' });
     await nav.waitFor();
     const tabs = (await nav.getByRole('button').allInnerTexts()).map((x) => x.trim());
-    check(JSON.stringify(tabs) === JSON.stringify(['현황판', 'HW']), `${view}: the 현황판 has the tabs ${tabs.join(' | ')}`);
+    check(JSON.stringify(tabs) === JSON.stringify(['오케스트레이터', '개발', 'HW']), `${view}: the 현황판 has the tabs ${tabs.join(' | ')}`);
     await shot(page, `${view}-board-two-tabs`);
     await click(page.locator('[data-hud-id="icon:files"] button'));
     const explorer = page.locator('section[aria-label="파일 탐색"]');
@@ -265,7 +266,7 @@ async function main() {
     check(
       (await picker.inputValue()) === B &&
         (await win.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
-      `${view}: the job notice opens the 작업실 on ${B}, Task tab, at its card`,
+      `${view}: the job notice opens the 현황판's 개발 tab on ${B}, Task tab, at its card`,
     );
     await shot(page, `${view}-notice-job`);
 

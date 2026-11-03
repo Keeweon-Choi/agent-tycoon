@@ -25,7 +25,7 @@
 import * as fs from 'fs';
 
 import { parseQuote } from '../../../core/src/cld/reply.js';
-import { koText } from '../../../core/src/cld/serverText.js';
+import { koText, ROOM_NOTICE_END, ROOM_NOTICE_LINE } from '../../../core/src/cld/serverText.js';
 import type { ChatAttachment, ChatEmployee, ChatItem, ChatReply } from '../../../core/src/messages.js';
 import { formatToolStatus } from '../providers/hook/claude/claude.js';
 import { SENT_MAX, sentLines } from './files/outbox.js';
@@ -41,6 +41,12 @@ const TEXT_MAX = 4000;
 /** The boss's own messages are shown whole up to the chat's send limit (U-37). */
 const USER_TEXT_MAX = 24_000;
 const TOOL_DESC_MAX = 200;
+/** DEVROOM-SUBVIEW: a tool call's arguments in the work view (a long heredoc is cut). */
+export const ARGS_MAX = 600;
+/** The argument a terminal shows for a call, first found; with none, every short scalar one as `key: value`. */
+const MAIN_ARGS = ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query'];
+/** Long or already shown elsewhere (desc, the prompt item, a diff). */
+const SKIP_ARGS = new Set(['description', 'prompt', 'content', 'old_string', 'new_string', 'new_source', 'edits', 'todos']);
 /** Prompt-side wrappers Claude Code writes as user text (slash commands, hooks). */
 const WRAPPER = /^<(command-|local-command|system-reminder|bash-|user-prompt-submit-hook)/;
 /** The header line of a message the boss sent through the app: the engine
@@ -113,7 +119,13 @@ export const turnMessageId = (prompt: string): string | undefined =>
  * end goes to the room instead of the lead (currentTurn). Not a second guess anywhere else.
  */
 export const roomOfPrompt = (prompt: string): string | null =>
-  ROOM_HEADER.exec(unmark(prompt).text)?.[1] ?? null;
+  // A multi-line post typed into our PTY host arrives inside Claude's <pasted_content> wrapper (11-01).
+  ROOM_HEADER.exec(unmark(prompt.replace(PASTED, '$1').trim()).text)?.[1] ?? null;
+
+/** A part of a joined turn (turnParts) that stays out of the DM: a room post, or the room 공지
+ *  that rode in this paste (ROOM-MODES: ROOM_NOTICE_LINE and everything the messenger put after it). */
+export const roomPart = (part: string): boolean =>
+  part.startsWith(ROOM_NOTICE_LINE) || roomOfPrompt(part) !== null;
 
 /** A user turn's prompt (userTurnText) starts a room turn (one that stays out of the DM). */
 const isRoomPrompt = (prompt: string): boolean => roomOfPrompt(prompt) !== null;
@@ -175,6 +187,58 @@ function sender(
  *  Real transcripts close it with the id too, `</pasted_content id="…">`, and put a newline
  *  inside each tag (10-22 04:5x), so both are optional here. */
 const PASTED = /<pasted_content\b[^>]*>\n?([\s\S]*?)\n?<\/pasted_content\b[^>]*>/g;
+
+/** MSG-SPLIT: a header line of ours (marks and all) that starts a message in a joined turn. */
+const PART_START =
+  /(?:^|\n\n)(\[[^\n]*\](?: ⟨m:[a-z2-7]{8}⟩(?: ⟨re:[A-Za-z0-9._:-]{1,64}⟩)?)?)(?=\n)/g;
+
+/**
+ * MSG-SPLIT: Claude Code joins the messages that queue up while it is busy into ONE user prompt
+ * (the owner's words and an engine notice, each under its own header, each maybe in its own
+ * `<pasted_content>`). The messages of such a turn: wrappers unwrapped, cut at each of our header
+ * lines at the start of the text or right after a blank line. A header anywhere else (quoted
+ * mid-line, in the next line of a body) cuts nothing. An UNMARKED header splits only when it
+ * is a peer's or the engine's (the notice has no mark); the owner's must carry its mark, which
+ * messenger.ts defang keeps a peer from forging. One part (or none) = not a joined turn.
+ */
+export function turnParts(prompt: string): string[] {
+  const text = prompt.replace(PASTED, '\n\n$1\n\n').trim();
+  const starts: number[] = [];
+  for (const m of text.matchAll(PART_START)) {
+    const head = m[1].replace(/ ⟨m:.*$/, '');
+    // The owner's (and a room's) header splits only with its mark: defang keeps a peer from forging it.
+    const marked = head !== m[1];
+    const ours = marked ? OUR_HEADERS : [PEER_HEADER, SYSTEM_HEADER];
+    if (ours.some((h) => h.test(`${head}\n`))) starts.push(m.index + m[0].indexOf('['));
+  }
+  // ROOM-MODES: the 공지 tail (messenger pasteOf) is one part of its own, exactly from its line to
+  // its closing line (no body can carry either: defang); whatever follows is a part again.
+  for (let i = text.indexOf(ROOM_NOTICE_LINE); i >= 0; i = text.indexOf(ROOM_NOTICE_LINE, i + 1)) {
+    if (i > 0 && text[i - 1] !== '\n') continue;
+    const end = text.indexOf(ROOM_NOTICE_END, i);
+    if (end < 0) continue; // ponytail: no closing line, no cut (a paste we did not make)
+    const inside = starts.filter((s) => s > i && s <= end);
+    starts.splice(0, starts.length, ...starts.filter((s) => !inside.includes(s)), i);
+    const after = end + ROOM_NOTICE_END.length;
+    if (text.slice(after).trim()) starts.push(after);
+  }
+  starts.sort((a, b) => a - b);
+  if (starts.length === 0 || (starts.length === 1 && starts[0] === 0)) return [text];
+  if (starts[0] > 0) starts.unshift(0);
+  return starts.map((from, i) => text.slice(from, starts[i + 1]).trim());
+}
+
+/** The time in a header line (`MM-DD HH:MM`, local, no year): the latest such moment not after
+ *  `ref` (the record's time, which is when the turn was typed), or null when it has none. */
+function headerAt(part: string, ref: number): number | null {
+  const m = /^\[[^\n]* · (\d{2})-(\d{2}) (\d{2}):(\d{2})\]/.exec(part);
+  if (!m || !ref) return null;
+  const d = new Date(ref);
+  const at = new Date(d.getFullYear(), +m[1] - 1, +m[2], +m[3], +m[4]);
+  if (at.getTime() > ref + HEADER_SKEW_MS) at.setFullYear(d.getFullYear() - 1);
+  return at.getTime();
+}
+const HEADER_SKEW_MS = 60_000;
 
 type Block = {
   type?: unknown;
@@ -304,11 +368,19 @@ export class RoomTurnFilter {
               ...(this.bound && { deliveryId: this.bound }),
               item,
             });
-      return [];
+      // MSG-SPLIT: a joined turn holding a DM and a room post shows its DM part.
+      return prompt !== null && turnParts(prompt).length > 1 ? this.bind(lineItems(line, n, opts), true) : [];
     }
-    const items = lineItems(line, n, opts);
+    return this.bind(lineItems(line, n, opts), prompt !== null && turnParts(prompt).length > 1);
+  }
+
+  /** The turn's message id on every item that has none of its own (a split part keeps its own). A
+   *  joined turn's user parts keep exactly their own: an unmarked one (a handoff, a notice) has none. */
+  private bind(items: ChatItem[], joined = false): ChatItem[] {
     const messageId = this.bound;
-    return messageId ? items.map((item) => ({ ...item, messageId })) : items;
+    return messageId
+      ? items.map((item) => (item.messageId || (joined && item.kind === 'user') ? item : { ...item, messageId }))
+      : items;
   }
 }
 
@@ -384,6 +456,10 @@ export async function currentTurn(
 }
 
 /** What a reader wants beyond the messenger's view (T-0056's work view of a temp). */
+/** RENAME: who a peer header's name (`[… from <name>]`) at `at` is now: its new name, the
+ *  removed-agent label, or undefined (itself). Set by the office (projectData's name history). */
+export const senderAlias: { of?: (name: string, at: number) => string | undefined } = {};
+
 export interface LineOptions {
   /** A temp's own transcript is sidechain top to bottom: keep those records. */
   sidechain?: boolean;
@@ -402,7 +478,7 @@ export interface LineOptions {
 }
 
 /** A tool result's text in the work view: trimmed, it is a hint of what came back. */
-export const RESULT_MAX = 300;
+export const RESULT_MAX = 2000;
 
 /** The text of a tool_result block's content (a string, or text blocks). */
 function resultText(content: unknown): string {
@@ -419,6 +495,21 @@ export function toolDescription(input: unknown): string | undefined {
   if (typeof description !== 'string') return undefined;
   const trimmed = description.trim();
   return trimmed ? trimmed.slice(0, TOOL_DESC_MAX) : undefined;
+}
+
+/** DEVROOM-SUBVIEW: a tool call's arguments as a terminal shows them: `npm test`, `src/a.ts`, `path: src, glob: *.ts`. */
+export function toolArgs(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const o = input as Record<string, unknown>;
+  const main = MAIN_ARGS.find((k) => typeof o[k] === 'string' && o[k] !== '');
+  const line = main
+    ? [String(o[main]), typeof o.path === 'string' && main === 'pattern' ? `in ${o.path}` : ''].filter(Boolean).join(' ')
+    : Object.entries(o)
+        .filter(([k, v]) => !SKIP_ARGS.has(k) && ['string', 'number', 'boolean'].includes(typeof v) && v !== '')
+        .map(([k, v]) => `${k}: ${String(v)}`)
+        .join(', ');
+  const t = line.trim();
+  return t ? (t.length > ARGS_MAX ? `${t.slice(0, ARGS_MAX)}…` : t) : undefined;
 }
 
 /** A `SendUserFile` call's files (the first SENT_MAX) and caption; null when it names no file. */
@@ -461,32 +552,50 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
   const at = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) || 0 : 0;
   const base = `${at}-${typeof r.uuid === 'string' ? r.uuid.slice(0, 8) : `n${n}`}`;
   const items: ChatItem[] = [];
-  const add = (item: Omit<ChatItem, 'id' | 'at'>) =>
-    items.push({ ...item, id: `${base}-${items.length}`, at });
+  const add = (item: Omit<ChatItem, 'id' | 'at'> & { at?: number }) =>
+    items.push({ at, ...item, id: `${base}-${items.length}` });
   const text = (kind: 'user' | 'assistant', value: unknown, taskNotification = false) => {
     if (typeof value !== 'string') return;
-    let t = value.trim();
-    if (!t || WRAPPER.test(t)) return;
-    let who: Pick<ChatItem, 'from' | 'fromName' | 'replyTo' | 'execution' | 'employee'> = {};
-    if (kind === 'user') {
-      ({ text: t, ...who } = sender(t.replace(PASTED, '$1').trim(), taskNotification));
-      const employee = who.execution ? opts.employeeOf?.(who.execution) : undefined;
-      if (employee) who = { ...who, employee };
+    // MSG-SPLIT: a joined user turn is several messages; a lone one keeps the old path.
+    const parts = kind === 'user' && !taskNotification ? turnParts(value) : [value];
+    const joined = parts.length > 1;
+    for (const part of parts) {
+      let t = part.trim();
+      if (!t || WRAPPER.test(t)) continue;
+      let who: Pick<ChatItem, 'from' | 'fromName' | 'replyTo' | 'execution' | 'employee'> = {};
+      let own: Pick<ChatItem, 'messageId'> & { at?: number } = {};
+      if (kind === 'user') {
+        // A room post (and a 공지 that rode along) stays out of the DM, message by message.
+        if (joined && roomPart(t)) continue;
+        if (joined) {
+          const messageId = unmark(t).messageId;
+          const when = headerAt(t, at);
+          own = { ...(messageId && { messageId }), ...(when !== null && { at: when }) };
+        }
+        ({ text: t, ...who } = sender(t.replace(PASTED, '$1').trim(), taskNotification));
+        // RENAME: the name an agent's message was sent under, as it is called now (or "(알 수 없음)"),
+        // at this message's own time (a joined turn's part carries its header's).
+        const alias = who.fromName ? senderAlias.of?.(who.fromName, own.at ?? at) : undefined;
+        if (alias) who = { ...who, fromName: alias };
+        const employee = who.execution ? opts.employeeOf?.(who.execution) : undefined;
+        if (employee) who = { ...who, employee };
+      }
+      let files: ChatAttachment[] = [];
+      if (kind === 'assistant' && opts.outbox) {
+        const sent = sentLines(t);
+        t = sent.text;
+        files = sent.paths.slice(0, SENT_MAX).map(opts.outbox);
+      }
+      const max = kind === 'user' ? USER_TEXT_MAX : TEXT_MAX;
+      if (t || files.length)
+        add({
+          kind,
+          text: t.length > max ? `${t.slice(0, max)}…` : t,
+          ...who,
+          ...own,
+          ...(files.length && { attachments: files }),
+        });
     }
-    let files: ChatAttachment[] = [];
-    if (kind === 'assistant' && opts.outbox) {
-      const sent = sentLines(t);
-      t = sent.text;
-      files = sent.paths.slice(0, SENT_MAX).map(opts.outbox);
-    }
-    const max = kind === 'user' ? USER_TEXT_MAX : TEXT_MAX;
-    if (t || files.length)
-      add({
-        kind,
-        text: t.length > max ? `${t.slice(0, max)}…` : t,
-        ...who,
-        ...(files.length && { attachments: files }),
-      });
   };
   const content = (r.message as { content?: unknown } | undefined)?.content;
   const blocks = Array.isArray(content) ? (content as Block[]) : [];
@@ -516,11 +625,13 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
           continue;
         }
         const desc = toolDescription(b.input);
+        const args = opts.results ? toolArgs(b.input) : undefined;
         add({
           kind: 'tool',
           toolName: b.name,
           text: formatToolStatus(b.name, b.input),
           ...(desc ? { desc } : {}),
+          ...(args ? { args } : {}),
         });
       }
     }

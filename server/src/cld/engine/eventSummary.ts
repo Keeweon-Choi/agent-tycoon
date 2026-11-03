@@ -66,6 +66,8 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
   // D5: the engine job under a Codex Worker's run: its codex_end is the feed's line (and the
   // only notice, when it failed).
   if (type === 'job_end' && e.kind === 'codex' && str(e.agent)) return null;
+  // PROJECT-DATA: which conversation an agent's own came from (대화방 지우기 follows it): no news.
+  if (type === 'orch_follow') return null;
   // D5: a Codex Worker's run that ended other than failed is its Lead's news, not a notice
   // or a push (design-d5 §2.6): the feed shows it under its own kind.
   const kind =
@@ -99,6 +101,9 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
       break;
     case 'send_stuck':
       summary = koText('ev_send_stuck', { to: str(e.to) ?? '?' });
+      break;
+    case 'send_lost':
+      summary = koText(e.again === false ? 'ev_send_lost_final' : 'ev_send_lost', { to: str(e.to) ?? '?' });
       break;
     case 'token_guard':
       summary = koText('ev_token_guard', { to: str(e.to) ?? '?' });
@@ -180,6 +185,12 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
       break;
     case 'renew_done':
       summary = koText('ev_renew_done', { who });
+      break;
+    case 'orch_rename':
+      summary =
+        e.ok === false
+          ? koText('ev_orch_rename_failed', { who, code: str(e.code) ?? '?' })
+          : koText('ev_orch_rename', { who, to: str(e.to) ?? '?' });
       break;
     case 'orch_renew':
       summary = e.ok === false ? koText('ev_orch_renew_failed', { who, code: str(e.code) ?? '?' }) : koText('ev_orch_renew', { who });

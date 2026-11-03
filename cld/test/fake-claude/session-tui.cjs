@@ -17,7 +17,8 @@
 // line stays usable under it: Claude Code takes input during a turn.
 // A bracketed paste longer than FAKE_FOLD_CHARS (800, Claude Code's own) is shown as
 // `[Pasted text #1 +12 lines]` (`[Pasted text #1]` on one line), as in the real one; the
-// submitted text (the log line) is still the whole of it.
+// submitted text (the log line) is still the whole of it. So is one with more lines than the
+// screen can show under the header (FAKE_FOLD_LINES, default rows - 8): Claude Code folds those too.
 // Ctrl+Z detaches (exit 0), as in the real one.
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -38,6 +39,7 @@ try {
 }
 let pasting = false;
 const foldChars = Number(process.env.FAKE_FOLD_CHARS || 800);
+const foldLines = () => Number(process.env.FAKE_FOLD_LINES || 0) || Math.max(2, (process.stdout.rows || 24) - 8);
 /** Pastes shown as a placeholder: [start, end) of `input`, and the running `#n`. */
 let folds = [];
 let pasteStart = 0;
@@ -197,7 +199,8 @@ process.stdin.on('data', (buf) => {
     }
     if (s.startsWith('\x1b[201~')) {
       pasting = false;
-      if (input.length - pasteStart > foldChars)
+      const pasted = input.slice(pasteStart);
+      if (pasted.length > foldChars || pasted.split('\r').length > foldLines())
         folds.push({ start: pasteStart, end: input.length, n: ++pasteCount });
       s = s.slice(6);
       continue;

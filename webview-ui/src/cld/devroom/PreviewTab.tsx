@@ -6,7 +6,7 @@
  * frame is sandboxed with no referrer. Elsewhere than the PC the tab is P2: a button that asks the PC.
  *
  * ponytail: the address is typed or pasted (a `Local: http://…` line works) and kept per worktree; the
- * scan of the agent's terminal pane waits for the pane (devroom/DevRoom.tsx TerminalSlot, after P3).
+ * scan of the agent's terminal output (devroom/AgentColumns.tsx) is not built; add it if asked.
  */
 import { useEffect, useState } from 'react';
 

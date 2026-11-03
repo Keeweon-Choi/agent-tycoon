@@ -49,6 +49,7 @@ import {
 } from '../../../core/src/cld/sheetCheck.js';
 import type {
   CharacterChoice,
+  CharacterDrinkSteam,
   CharacterPresets as PresetsMessage,
   CharacterRefusalReason,
 } from '../../../core/src/messages.js';
@@ -97,10 +98,17 @@ const HD_SHEET_W8 = HD_SHEET_W + IMPORT_FRAME_W;
 /** The width an imported sheet file must have: 8 columns when it says so, else 7. */
 const hdWidth = (file: string): number =>
   pngSize(file).w === HD_SHEET_W8 ? HD_SHEET_W8 : HD_SHEET_W;
-const HD_SHEET_H: Record<SheetFormat, number> = {
+/** CHAR-8DIR: an expansion pack's hand-made 5-row sheet (three-quarter front, three-quarter back,
+ *  front, back, right side): both views in one file, 8 directions in the isometric view. */
+type PresetFormat = SheetFormat | 'iso8';
+const HD_SHEET_H: Record<PresetFormat, number> = {
   top: IMPORT_FRAME_H * 3,
   iso: IMPORT_FRAME_H * 2,
+  iso8: IMPORT_FRAME_H * 5,
 };
+/** C1: an iso8 sheet may carry a 6th row, the drinking poses (columns 1-3 coffee, 4-6 a can). */
+const ISO8_DRINK_H = IMPORT_FRAME_H * 6;
+const DRINK_CELLS = 6;
 /** How an imported sheet walks: 'steps' left, together, right, together (its columns 2, 1, 3, 1);
  *  'two' its two steps alone (2, 3). The owner picks by eye in the import preview. */
 const WALKS = ['steps', 'two'] as const;
@@ -168,10 +176,14 @@ function pngSize(file: string): { w: number; h: number } {
 }
 
 /** A preset sheet's kind by its size: classic 112×96, HD 224×192 (CHAR-FACTORY), or an imported
- *  sheet at density 12 (top view 1344×1152, isometric 1344×768). */
-function sheetKind({ w, h }: { w: number; h: number }): { density: Density; format: SheetFormat } {
+ *  sheet at density 12 by its rows (top view 3, isometric 2, CHAR-8DIR 5). */
+function sheetKind({ w, h }: { w: number; h: number }): { density: Density; format: PresetFormat } {
   if (w === HD_SHEET_W || w === HD_SHEET_W8)
-    return { density: IMPORT_DENSITY, format: h === HD_SHEET_H.iso ? 'iso' : 'top' };
+    return {
+      density: IMPORT_DENSITY,
+      format:
+        h === HD_SHEET_H.iso ? 'iso' : h === HD_SHEET_H.iso8 || h === ISO8_DRINK_H ? 'iso8' : 'top',
+    };
   return { density: w === SHEET_W * 2 ? 2 : 1, format: 'top' };
 }
 
@@ -428,19 +440,22 @@ type Density = 1 | 2 | typeof IMPORT_DENSITY;
 interface Preset {
   id: string;
   label: string;
-  png: Buffer;
-  mug: Buffer | null;
+  /** The files stay on disk (`<id>.png`, `<id>.mug.png`, `<id>.iso.png`): memory keeps only
+   *  which exist, not their bytes. */
+  mug: boolean;
   version: string;
   /** CHAR-FACTORY: 2 for an HD sheet (224×192); SHEET-IMPORT: 12 for an imported one. */
   density: Density;
-  /** SHEET-IMPORT: what `png` shows (an isometric sheet: front and back three-quarter rows). */
-  format: SheetFormat;
+  /** SHEET-IMPORT: what `<id>.png` shows (an isometric sheet: front and back three-quarter rows). */
+  format: PresetFormat;
   /** SHEET-IMPORT: an isometric sheet beside a top-view one (`<id>.iso.png`). */
-  iso: Buffer | null;
+  iso: boolean;
   /** SHEET-IMPORT (from `<id>.json`): the columns are the owner's prompt order (standing, left
    *  foot, right foot, ...), and how it walks. */
   standFirst: boolean;
   walk: Walk;
+  /** C1 (from `<id>.json`): where a held cup's steam rises in the drink row's cells. */
+  drinkSteam: CharacterDrinkSteam[];
 }
 
 export interface CharacterPresetOptions {
@@ -529,22 +544,29 @@ export class CharacterPresets {
         url: `cld/characters/${p.id}.png?v=${p.version}`,
         mugshotUrl: p.mug ? `cld/characters/${p.id}.mug.png?v=${p.version}` : null,
         ...(p.density !== 1 && { density: p.density }),
-        ...(p.format === 'iso' && { format: 'iso' as const }),
+        ...(p.format !== 'top' && { format: p.format }),
         ...(p.iso && { isoUrl: `cld/characters/${p.id}.iso.png?v=${p.version}` }),
         ...(p.standFirst && { columns: 'standFirst' as const }),
         ...(p.walk !== 'steps' && { walk: p.walk }),
+        ...(p.drinkSteam.length > 0 && { drinkSteam: p.drinkSteam }),
       })),
       assignments: { ...this.assignments },
     };
   }
 
-  /** `<id>.png`, `<id>.mug.png` or `<id>.iso.png` as checked by the last scan, else null. */
-  file(name: string): Buffer | null {
+  /** `<id>.png`, `<id>.mug.png` or `<id>.iso.png` as checked by the last scan: its path and size
+   *  (the route streams it from disk), else null. */
+  file(name: string): { path: string; size: number } | null {
     const m = /^([a-z0-9][a-z0-9_-]{0,40})(\.mug|\.iso)?\.png$/.exec(name);
     const preset = m ? this.presets.get(m[1]) : undefined;
-    return (
-      (m?.[2] === '.mug' ? preset?.mug : m?.[2] === '.iso' ? preset?.iso : preset?.png) ?? null
-    );
+    if (!m || !preset || (m[2] === '.mug' && !preset.mug) || (m[2] === '.iso' && !preset.iso))
+      return null;
+    try {
+      const file = path.join(this.dir, name);
+      return { path: file, size: fs.statSync(file).size };
+    } catch {
+      return null; // deleted since the scan; the next scan drops the preset
+    }
   }
 
   /** Re-read the folder when anything in it changed (names, sizes, mtimes). */
@@ -572,22 +594,24 @@ export class CharacterPresets {
       h: number,
       opaqueOk = false,
       maxBytes = MAX_PRESET_BYTES,
-    ): Buffer | null => {
+      hash?: crypto.Hash,
+    ): boolean => {
       const st = stats.get(name)!;
       let problem: string | null = null;
-      let buf: Buffer | null = null;
       if (!st.isFile()) problem = 'not a regular file';
       else if (st.size > maxBytes) problem = `too big (${st.size} bytes)`;
       else {
         try {
-          buf = fs.readFileSync(path.join(this.dir, name));
+          // the bytes are checked and hashed here, then dropped: they are served from disk
+          const buf = fs.readFileSync(path.join(this.dir, name));
           problem = pngProblem(buf, w, h, opaqueOk, maxBytes);
+          if (!problem) hash?.update(buf);
         } catch (err) {
           problem = err instanceof Error ? err.message : String(err);
         }
       }
       if (problem) this.ignore(name, st, problem);
-      return problem ? null : buf;
+      return !problem;
     };
     const next = new Map<string, Preset>();
     for (const [name, st] of stats) {
@@ -613,42 +637,47 @@ export class CharacterPresets {
         : sheetKind({ w: 0, h: 0 }); // never open a non-file
       const { density, format } = kind;
       const imported = density === IMPORT_DENSITY;
-      const png = imported
+      // C1: an iso8 sheet with its drink row is one row taller
+      const drinkRow = format === 'iso8' && pngSize(path.join(this.dir, name)).h === ISO8_DRINK_H;
+      const hash = crypto.createHash('sha1');
+      const ok = imported
         ? read(
             name,
             hdWidth(path.join(this.dir, name)),
-            HD_SHEET_H[format],
+            drinkRow ? ISO8_DRINK_H : HD_SHEET_H[format],
             false,
             MAX_HD_SHEET_BYTES,
+            hash,
           )
-        : read(name, SHEET_W * density, SHEET_H * density);
-      if (!png) continue;
+        : read(name, SHEET_W * density, SHEET_H * density, false, MAX_PRESET_BYTES, hash);
+      if (!ok) continue;
       const mug =
-        stats.has(`${id}.mug.png`) && !imported
-          ? read(`${id}.mug.png`, MUGSHOT_SIDE * density, MUGSHOT_SIDE * density, true)
-          : null;
+        stats.has(`${id}.mug.png`) &&
+        !imported &&
+        read(
+          `${id}.mug.png`,
+          MUGSHOT_SIDE * density,
+          MUGSHOT_SIDE * density,
+          true,
+          MAX_PRESET_BYTES,
+          hash,
+        );
       const iso =
-        stats.has(`${id}.iso.png`) && format === 'top'
-          ? read(
-              `${id}.iso.png`,
-              hdWidth(path.join(this.dir, `${id}.iso.png`)),
-              HD_SHEET_H.iso,
-              false,
-              MAX_HD_SHEET_BYTES,
-            )
-          : null;
-      const version = crypto
-        .createHash('sha1')
-        .update(png)
-        .update(mug ?? '')
-        .update(iso ?? '')
-        .digest('hex')
-        .slice(0, 10);
+        stats.has(`${id}.iso.png`) &&
+        format === 'top' &&
+        read(
+          `${id}.iso.png`,
+          hdWidth(path.join(this.dir, `${id}.iso.png`)),
+          HD_SHEET_H.iso,
+          false,
+          MAX_HD_SHEET_BYTES,
+          hash,
+        );
+      const version = hash.digest('hex').slice(0, 10);
       const meta = this.metaOf(id, stats);
       next.set(id, {
         id,
         label: meta.label,
-        png,
         mug,
         version,
         density,
@@ -656,6 +685,7 @@ export class CharacterPresets {
         iso,
         standFirst: imported && meta.standFirst,
         walk: imported ? meta.walk : 'steps',
+        drinkSteam: drinkRow ? meta.drinkSteam : [],
       });
     }
     this.presets = next;
@@ -777,7 +807,8 @@ export class CharacterPresets {
         ? b.label.trim().slice(0, MAX_LABEL_LENGTH)
         : koText('sheet_label');
     const attach = typeof b.attach === 'string' ? this.presets.get(b.attach) : undefined;
-    if (b.attach !== undefined && attach?.density !== IMPORT_DENSITY)
+    // CHAR-8DIR: a 5-row sheet already holds both views
+    if (b.attach !== undefined && (attach?.density !== IMPORT_DENSITY || attach.format === 'iso8'))
       return refused('sheet_import_attach', { id: String(b.attach).slice(0, MAX_LABEL_LENGTH) });
     let id = attach?.id ?? `sheet-${Date.now()}`;
     for (let n = 1; !attach && fs.existsSync(path.join(this.dir, `${id}.png`)); n++)
@@ -792,7 +823,7 @@ export class CharacterPresets {
       else if (cut.format === 'iso') this.writeAtomic(`${id}.iso.png`, sheet);
       else {
         // the isometric sheet moves beside the new top view
-        this.writeAtomic(`${id}.iso.png`, attach.png);
+        this.writeAtomic(`${id}.iso.png`, fs.readFileSync(path.join(this.dir, `${attach.id}.png`)));
         this.writeAtomic(`${id}.png`, sheet);
       }
     } catch (err) {
@@ -961,6 +992,18 @@ export class CharacterPresets {
     return true;
   }
 
+  /** Read characters.json again (after projectData changed it) and publish. */
+  reload(): void {
+    this.assignments = {};
+    this.foreign = {};
+    this.meta = null;
+    this.auto = new Map();
+    this.storeUnreadable = false;
+    this.stored = { count: 0, bytes: 0 };
+    this.loadAssignments();
+    this.publish();
+  }
+
   /** The built-in palette of the name's look, for the character made under it. */
   paletteOf(name: string): { palette: number; hueShift: number } | null {
     return paletteOfLook(this.assignments[name]);
@@ -1014,14 +1057,16 @@ export class CharacterPresets {
       if (!matchesAutoPin(raw[name], pin)) this.auto.delete(name);
   }
 
-  /** `<id>.json`: its label (else the id) and, for an imported sheet, its column order and walk. */
+  /** `<id>.json`: its label (else the id) and, for an imported sheet, its column order and walk;
+   *  C1: `drinkSteam` `[{col, x, y}]`, the steam of a held cup in the drink row (bad entries are
+   *  dropped). */
   private metaOf(
     id: string,
     stats: Map<string, fs.Stats>,
-  ): { label: string; standFirst: boolean; walk: Walk } {
+  ): { label: string; standFirst: boolean; walk: Walk; drinkSteam: CharacterDrinkSteam[] } {
     const name = `${id}.json`;
     const st = stats.get(name);
-    const none = { label: id, standFirst: false, walk: 'steps' as Walk };
+    const none = { label: id, standFirst: false, walk: 'steps' as Walk, drinkSteam: [] };
     if (!st) return none;
     try {
       if (!st.isFile() || st.size > 4096) throw new Error('not a small file');
@@ -1029,6 +1074,7 @@ export class CharacterPresets {
         label?: unknown;
         columns?: unknown;
         walk?: unknown;
+        drinkSteam?: unknown;
       };
       const label = json?.label;
       if (typeof label !== 'string' || !label.trim()) throw new Error('no "label" text');
@@ -1036,6 +1082,21 @@ export class CharacterPresets {
         label: label.trim().slice(0, MAX_LABEL_LENGTH),
         standFirst: json.columns === 'standFirst',
         walk: WALKS.includes(json.walk as Walk) ? (json.walk as Walk) : 'steps',
+        drinkSteam: (Array.isArray(json.drinkSteam) ? json.drinkSteam : [])
+          .filter(
+            (e: unknown): e is CharacterDrinkSteam =>
+              isObject(e) &&
+              onlyKeys(e, ['col', 'x', 'y']) &&
+              intIn(e.col, 1, DRINK_CELLS) &&
+              typeof e.x === 'number' &&
+              e.x >= 0 &&
+              e.x <= IMPORT_FRAME_W &&
+              typeof e.y === 'number' &&
+              e.y >= 0 &&
+              e.y <= IMPORT_FRAME_H,
+          )
+          .slice(0, DRINK_CELLS)
+          .map(({ col, x, y }) => ({ col, x, y })),
       };
     } catch (err) {
       this.ignore(name, st, err instanceof Error ? err.message : String(err));
@@ -1077,9 +1138,14 @@ export function registerCharacterRoutes(
     '/cld/characters/:file',
     { preHandler: auth },
     async (request, reply) => {
-      const png = presets.file(request.params.file);
-      if (!png) return reply.code(404).send();
-      return reply.type('image/png').header('cache-control', 'private, max-age=86400').send(png);
+      const file = presets.file(request.params.file);
+      if (!file) return reply.code(404).send();
+      // streamed from disk: the daemon never holds a sheet's bytes
+      return reply
+        .type('image/png')
+        .header('content-length', file.size)
+        .header('cache-control', 'private, max-age=86400')
+        .send(fs.createReadStream(file.path));
     },
   );
   app.post(

@@ -816,6 +816,50 @@
       ],
       "faces": "+row",
       "from": "derived from the owner's elevator wall: the doors slid open on the car"
+    },
+    "o-coffee-machine": {
+      "file": "o-coffee-machine-0.png",
+      "density": 20,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        240,
+        450
+      ],
+      "faces": "+row",
+      "frames": [
+        "o-coffee-machine-0.png",
+        "o-coffee-machine-1.png",
+        "o-coffee-machine-2.png",
+        "o-coffee-machine-3.png"
+      ],
+      "steam": [
+        325,
+        304
+      ],
+      "from": "C1 coffee machine (v2 art)"
+    },
+    "o-vending": {
+      "file": "o-vending-0.png",
+      "density": 20,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        240,
+        670
+      ],
+      "faces": "+row",
+      "frames": [
+        "o-vending-0.png",
+        "o-vending-1.png",
+        "o-vending-2.png",
+        "o-vending-3.png"
+      ],
+      "from": "C1 vending (v2 art)"
     }
   },
   "types": {
@@ -896,6 +940,12 @@
     },
     "WHITEBOARD": {
       "piece": "o-whiteboard-a"
+    },
+    "COFFEE_MACHINE": {
+      "piece": "o-coffee-machine"
+    },
+    "VENDING_MACHINE": {
+      "piece": "o-vending"
     }
   },
   "facings": {

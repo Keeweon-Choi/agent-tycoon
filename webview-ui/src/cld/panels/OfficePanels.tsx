@@ -57,6 +57,9 @@ import { serverLine } from '../serverText.js';
 import { useStaff } from '../staff.js';
 import { DutyMark, TempSummary } from '../TempList.js';
 import { TerminalWorkspace } from '../terminal/TerminalWorkspace.js';
+import { useToastTop } from '../toastSlot.js';
+import { useWaitReasons } from '../waiting.js';
+import { WaitMark } from '../WaitMark.js';
 import { openWorkbench } from '../workbench/workbenchStore.js';
 import {
   FILTERS,
@@ -266,6 +269,7 @@ function OrchestratorNode({
             </span>
           )}
           <DutyMark id={agentId} />
+          <WaitMark agentId={orchestrator.agentId} />
           <span className="ml-auto" />
           {!open && (
             <Button
@@ -323,7 +327,7 @@ function OrchestratorNode({
               {t('stat.open')}
             </Button>
             <Button size="sm" onClick={() => openWorkbench(orchestrator.name)}>
-              {t('status.workbench')}
+              {t('dash.openDev')}
             </Button>
             <Button size="sm" onClick={() => openProjectFiles(orchestrator.name)}>
               {t('status.files')}
@@ -347,6 +351,7 @@ function StatusPanel({
   const store = useCldStore();
   const { officeSnapshot: officeState } = store;
   const tree = useStatusTree();
+  const reasons = useWaitReasons();
   const engineProjects = useEngineStore().state?.projects;
   const workers = useMemo(
     () => new Set((engineProjects ?? []).filter((p) => p.role).map((p) => p.name)),
@@ -357,7 +362,12 @@ function StatusPanel({
   const looks = new Map(
     officeState.orchestrators.map((o) => [
       o.name,
-      rowLook(o, o.agentId != null ? agentTools[o.agentId] : undefined, ctx),
+      rowLook(
+        o,
+        o.agentId != null ? agentTools[o.agentId] : undefined,
+        ctx,
+        o.agentId != null && reasons[o.agentId] === 'question',
+      ),
     ]),
   );
   const ring = (o: OfficeOrchestrator) => looks.get(o.name)!.ring;
@@ -602,7 +612,7 @@ export function OfficePanelContent({
   mobile = false,
   keyboardOpen = false,
 }: {
-  panel: OfficePanel;
+  panel: Exclude<OfficePanel, 'dev'>;
   agentTools: Record<number, ToolActivity[]>;
   /** The phone's panel (T-0052: the terminal's key bar). */
   mobile?: boolean;
@@ -658,11 +668,14 @@ function usageFolded(): boolean | null {
  *  one line, "Claude 5h 1% · 7d 66%   Codex 5h 73% · 7d 27%"; a phone wraps it
  *  between the providers, on a row of its own above the buttons. */
 export function UsageBar() {
+  const bar = useToastTop<HTMLDivElement>();
   return (
     <Movable id="usage" label={t('usage.bar')} z={49}>
       {/* Three tracks, the sides equal: the clock sits in the bar's exact horizontal centre
           and neither side can run under it (owner 10-24). */}
-      <div className="pixel-panel grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-12 gap-y-8 min-w-0 pb-8 pt-[calc(var(--cld-safe-top)+8px)] pl-[calc(var(--cld-safe-left)+12px)] pr-[calc(var(--cld-safe-right)+12px)]">
+      <div
+        ref={bar}
+        className="pixel-panel grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-12 gap-y-8 min-w-0 pb-8 pt-[calc(var(--cld-safe-top)+8px)] pl-[calc(var(--cld-safe-left)+12px)] pr-[calc(var(--cld-safe-right)+12px)]">
         <div className="flex min-w-0">
           <UsageLine />
         </div>
@@ -684,10 +697,10 @@ export function UsageBar() {
  * carries it beside its buttons; the phone shows it alone at the bottom, folded
  * until the viewer opens it (owner 10-24: the usage goes to the bottom space).
  */
-export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boolean }) {
+export function UsageLine({ phone = false }: { phone?: boolean }) {
   const { usageState, officeReadOnly, codexUsageChecking } = useCldStore();
   const now = useNow();
-  const [folded, setFolded] = useState(() => usageFolded() ?? foldedByDefault);
+  const [folded, setFolded] = useState(() => usageFolded() ?? phone);
   const fold = (next: boolean) => {
     setFolded(next);
     try {
@@ -697,7 +710,12 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
     }
   };
   if (!usageState) return null;
-  return folded ? (
+  // UI-FIX 6: a phone leaves out a provider with no figures, and the whole line when none has any.
+  const providers = phone
+    ? usageState.providers.filter((provider) => foldedFigures(provider).length > 0)
+    : usageState.providers;
+  if (phone && providers.length === 0) return null;
+  const line = folded ? (
     <button
       type="button"
       className="flex items-center gap-8 flex-[1_1_240px] min-w-0 text-left text-xs pointer-coarse:min-h-44"
@@ -708,7 +726,7 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
     >
       <Chevron open={false} />
       <span className="min-w-0">
-        {usageState.providers.map((provider, i) => {
+        {providers.map((provider, i) => {
           const figures = foldedFigures(provider);
           return (
             // A phone wraps between the providers, never inside one.
@@ -743,7 +761,7 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
         <Chevron open />
       </Button>
       <div className="flex flex-wrap gap-x-20 gap-y-4 flex-1 min-w-0" aria-label={t('usage.label')}>
-        {usageState.providers.map((provider) => (
+        {providers.map((provider) => (
           <div key={provider.id} className="flex items-center gap-8">
             <UsagePair provider={provider} now={now} />
             {/* ponytail: the one provider whose usage can be re-read on demand is Codex; a provider with its own refresh would add a flag to the message. */}
@@ -770,15 +788,27 @@ export function UsageLine({ foldedByDefault = false }: { foldedByDefault?: boole
       </div>
     </div>
   );
+  // The phone's line is the last row of its page, above the tab bar, and only exists with figures. A phone on its
+  // side is too short for it (the top bar, page header and tab bar already take half the screen).
+  return phone ? (
+    <div className="flex border-t-2 border-border pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)] [@media(orientation:landscape)_and_(max-height:500px)]:hidden">
+      {line}
+    </div>
+  ) : (
+    line
+  );
 }
 
 /**
  * The phone's top bar (owner 10-24): only the floor, the clock and 설정 stay on top. 기기 추가,
- * 보안 and 범례 moved into 설정 (its first row), two taps away.
+ * 보안 and 범례 moved into 설정, two taps away: 기기 추가 under 연결, 범례 under 화면, 보안 is
+ * its own tab (UI-FONT: they were a second row that looked like the tab row).
  */
 export function MobileTopBar() {
+  const bar = useToastTop<HTMLDivElement>();
   return (
     <div
+      ref={bar}
       className="pixel-panel shrink-0 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-8 min-w-0 pt-[calc(var(--cld-safe-top)+4px)] pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]"
       data-testid="mobile-top-bar"
     >
@@ -789,13 +819,10 @@ export function MobileTopBar() {
       {/* 44×44 for the thumb; the bar has no bottom padding, so it is no taller than before. */}
       <div className="flex justify-end [&>button]:min-h-44 [&>button]:min-w-44 [&>button]:justify-center">
         <GameOptions
-          quick={
-            <>
-              <AddDeviceButton zIndex={62} />
-              <SecurityButton />
-              <ActivityLegend zIndex={62} />
-            </>
-          }
+          phoneRows={{
+            access: <AddDeviceButton zIndex={62} />,
+            display: <ActivityLegend zIndex={62} />,
+          }}
         />
       </div>
     </div>

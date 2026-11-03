@@ -23,12 +23,14 @@ import { findClaude } from './cld/agentCli.js';
 import { ChatManager } from './cld/chat.js';
 import { configDirectory } from './cld/configPath.js';
 import { customFurnitureDir, registerFurnitureRoutes } from './cld/customFurniture.js';
-import { CLD_BIN_DIR, type EngineMode } from './cld/engine/engine.js';
+import type { EngineMode } from './cld/engine/engine.js';
 import { readGpuConfig } from './cld/engine/gpu.js';
+import { CLD_BIN_DIR, cleanEnv, findSystemdRun } from './cld/engine/sessionEnv.js';
 import { cldHooks } from './cld/hooks.js';
 import { findNvidiaSmi } from './cld/hw/nvidiaSmi.js';
-import { startOffice } from './cld/office.js';
+import { CLD_PTYHOST, startOffice } from './cld/office.js';
 import { PlainOffice, restartDaemon } from './cld/plainOffice.js';
+import { hostLauncher, PtyHostClient } from './cld/ptyhost/client.js';
 import { type Connector, isConnector, startRemote, testRemoteDeps } from './cld/remote/index.js';
 import { runSelfTest } from './cld/selfTest.js';
 import type { AssetCache, ReloadAssetsSideEffect } from './clientMessageHandler.js';
@@ -44,6 +46,7 @@ import {
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { migrateOfficeFolder } from './officeFolder.js';
 import { claudeProvider } from './providers/index.js';
+import { useQuestionStore } from './question.js';
 import { AgentTycoonServer } from './server.js';
 import { PtySessionManager } from './terminal/ptySessionManager.js';
 import { normalizeHostname } from './wsAuth.js';
@@ -335,6 +338,7 @@ async function main(): Promise<void> {
   const store = new AgentStateStore();
   const adapter = new FileStateAdapter({ namespace: 'standalone' });
   store.setAdapter(adapter);
+  useQuestionStore(); // WAITING-PERSIST: open questions survive a restart (office/questions.json)
 
   // ── Create server ──
   const server = new AgentTycoonServer();
@@ -499,6 +503,22 @@ async function main(): Promise<void> {
       rotateToken: args.rotateToken,
       chat,
       allowTerminal: args.allowTerminal,
+      // ADR-0018: shells in the PTY host, through the engine's client (one of their own with the engine off).
+      shellHost:
+        args.allowTerminal && CLD_PTYHOST
+          ? (office?.engine?.pty.host ??
+            new PtyHostClient({
+              home: os.homedir(),
+              launch: hostLauncher({
+                home: os.homedir(),
+                hostScript: CLD_PTYHOST,
+                env: cleanEnv(process.env, os.homedir()),
+                systemdRun: findSystemdRun(),
+                log: (line) => console.log(`[cld shell] ${line}`),
+              }),
+              log: (line) => console.log(`[cld shell] ${line}`),
+            }))
+          : null,
       allowApprovalRequests: args.approvalRequests,
     });
     office?.setDaemonPort(config.port);

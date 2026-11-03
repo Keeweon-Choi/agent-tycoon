@@ -15,7 +15,9 @@ export const PTYHOST_VERSION = 1;
 /** A longer line is a broken or hostile peer: it is dropped. */
 export const LINE_MAX = 8 * 1024 * 1024;
 
-export type Op = 'hello' | 'spawn' | 'write' | 'resize' | 'subscribe' | 'unsubscribe' | 'kill' | 'list';
+/** `screen`: terminal `t`'s visible screen only, serialized (no scrollback, no subscription); a
+ *  host from before it answers `unknown op` (the client then takes a subscription's snapshot). */
+export type Op = 'hello' | 'spawn' | 'write' | 'resize' | 'subscribe' | 'unsubscribe' | 'kill' | 'list' | 'screen';
 
 /** One terminal as the host lists it (and writes to terminals.json). */
 export interface TerminalInfo {
@@ -23,10 +25,14 @@ export interface TerminalInfo {
   pid: number;
   cwd: string;
   startedAt: number;
-  /** What the daemon attached at spawn (the assignment id): the host never reads it. */
+  /** What the daemon attached at spawn (an agent's assignment, or a shell's kind and id): the host never reads it. */
   meta: Record<string, string>;
   status?: ProgramStatus;
 }
+
+/** `meta.kind` of an app shell (T-0069) in the host: never an agent (`meta.shell` is its shell id). */
+export const SHELL_KIND = 'shell';
+export const isShellTerminal = (t: Pick<TerminalInfo, 'meta'>): boolean => t.meta.kind === SHELL_KIND;
 
 export const frame = (o: object): string => `${JSON.stringify(o)}\n`;
 

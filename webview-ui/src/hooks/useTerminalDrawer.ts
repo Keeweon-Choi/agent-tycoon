@@ -1,7 +1,8 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { selectOrOpenInfo } from '../cld/offDuty.js';
+import { publishWaiting, type WaitReason, waitReasons } from '../cld/waiting.js';
 import type { AgentActivity, AgentAppearance, TabStatus } from '../components/AgentCard.js';
 import {
   TERMINAL_DRAWER_DEFAULT_WIDTH_PX,
@@ -22,7 +23,8 @@ interface TerminalDrawerInputs {
   getOfficeState: () => OfficeState;
   agentTools: Record<number, ToolActivity[]>;
   agentStatuses: Record<number, string>;
-  agentAwaitingInput: Record<number, boolean>;
+  /** WAITING-PERSIST: agents stopped on a question (server `question`). */
+  agentQuestion: Record<number, boolean>;
   agentSeenActivity: Record<number, boolean>;
 }
 
@@ -52,6 +54,8 @@ export interface TerminalDrawerController {
   /** Card status dot: 'disconnected' (red) for a terminal whose socket
    *  dropped, otherwise the agent's activity; null before its first activity. */
   statusFor: (agentId: number) => TabStatus | null;
+  /** Who waits for the person and why (cld/waiting.ts). */
+  reasons: Record<number, WaitReason>;
   /** Each TerminalPane reports its socket state here. */
   onStatusChange: (agentId: number, status: TerminalConnectionStatus) => void;
 }
@@ -80,7 +84,7 @@ export function useTerminalDrawer({
   getOfficeState,
   agentTools,
   agentStatuses,
-  agentAwaitingInput,
+  agentQuestion,
   agentSeenActivity,
 }: TerminalDrawerInputs): TerminalDrawerController {
   const [activeAgentId, setActiveAgentId] = useState<number | null>(null);
@@ -176,19 +180,21 @@ export function useTerminalDrawer({
     [getOfficeState],
   );
 
+  // WAITING-PERSIST: who waits for the person and why (cld/waiting.ts), for every surface.
+  const reasons = useMemo(() => waitReasons(agentTools, agentQuestion), [agentTools, agentQuestion]);
+  useEffect(() => publishWaiting(reasons), [reasons]);
+
   // Activity for the tab status dot (green idle / blue working / yellow needs
   // attention). null until the agent's first activity, so the dot stays empty.
   const getActivity = useCallback(
     (id: number): AgentActivity | null => {
       if (!agentSeenActivity[id]) return null;
-      const tools = agentTools[id];
-      if (tools?.some((t) => t.permissionWait && !t.done)) return 'attention';
-      if (tools?.some((t) => !t.done)) return 'working';
-      if (agentAwaitingInput[id]) return 'attention';
+      if (reasons[id]) return 'attention';
+      if (agentTools[id]?.some((t) => !t.done)) return 'working';
       if (agentStatuses[id] === 'waiting') return 'idle';
       return 'working';
     },
-    [agentSeenActivity, agentTools, agentStatuses, agentAwaitingInput],
+    [agentSeenActivity, agentTools, agentStatuses, reasons],
   );
 
   const onStatusChange = useCallback((agentId: number, status: TerminalConnectionStatus) => {
@@ -219,6 +225,7 @@ export function useTerminalDrawer({
     onResizeStart,
     getAppearance,
     statusFor,
+    reasons,
     onStatusChange,
   };
 }

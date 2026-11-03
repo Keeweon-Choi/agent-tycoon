@@ -185,6 +185,26 @@ describe('AUTO-TRUST: a person answers through the office, nobody else', () => {
     expect(s.trustRuns()).toHaveLength(0);
   });
 
+  it('DEVROOM-PROJECT: a project added from a clone is never answered by itself, first start or later; agty trust still is', async () => {
+    const s = setup();
+    const f = s.folder('cloned');
+    expect(await s.office('add', 'cloned', { folder: f, cloned: true })).toMatchObject({ ok: false, error: TRUST_NEEDED });
+    expect(s.project('cloned')!.needsTrust).toBe(true);
+    // A later 켜기 on the marked project: still the person's question.
+    expect(await s.office('start', 'cloned')).toMatchObject({ ok: false, error: TRUST_NEEDED });
+    expect(s.trustRuns()).toHaveLength(0);
+    expect(fs.existsSync(path.join(f, '.fake-untrusted'))).toBe(true);
+    // Kept with the project (projects.json), and its Workers' starts are gated by it too.
+    const projects = JSON.parse(fs.readFileSync(path.join(s.home, '.config/agent-tycoon/projects.json'), 'utf8')) as { projects: Array<{ name: string; cloned?: boolean }> };
+    expect(projects.projects.find((p) => p.name === 'cloned')?.cloned).toBe(true);
+    expect(await s.office('add', 'helper', { role: 'worker', project: 'cloned' })).toMatchObject({ ok: true });
+    for (let i = 0; i < 2; i++) expect(await s.office('start', 'helper')).toMatchObject({ ok: false, error: TRUST_NEEDED });
+    expect(s.trustRuns()).toHaveLength(0);
+    // The owner's explicit command answers it.
+    expect(await s.engine.trustProject({ name: 'cloned' }, true)).toMatchObject({ ok: true, trust: { outcome: 'trusted' }, start: { ok: true } });
+    expect(s.trustRuns()).toHaveLength(1);
+  });
+
   it('agty trust: the owner’s command answers it for a registered folder and can start it', async () => {
     const s = setup();
     const f = s.folder('alpha');

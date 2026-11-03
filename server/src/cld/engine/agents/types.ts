@@ -9,6 +9,13 @@
  */
 import type { ProjectRecord } from '../registry.js';
 
+/** What a delivery found: typed (its own mark in the transcript, or a turn start where nothing
+ *  better can be seen), not ready, failed to write, MSG-RECALL `inputBusy` (the input box holds
+ *  something not ours: nothing written), `lost` (another prompt went in instead of ours) or
+ *  `unconfirmed` (Enter went in while the session works: Claude writes the prompt when it takes it,
+ *  so its mark is looked for at the turn's end). */
+export type DeliverResult = 'typed' | 'notReady' | 'failed' | 'inputBusy' | 'lost' | 'unconfirmed';
+
 export type Protocol = 'claude' | 'codex' | 'acp' | 'pty';
 
 /**
@@ -123,11 +130,20 @@ export interface AgentProvider {
   deliver?(
     p: ProjectRecord,
     text: string,
-    o: { task?: string; group?: { id: string; messageId?: string }; messageId?: string; now?: boolean },
-  ): Promise<'typed' | 'notReady' | 'failed'>;
+    o: {
+      task?: string;
+      group?: { id: string; messageId?: string };
+      messageId?: string;
+      now?: boolean;
+      /** MSG-RECALL: the owner's 지금 보내기 on a message waiting for the input box: no box check. */
+      force?: boolean;
+    },
+  ): Promise<DeliverResult>;
   /** TERM-P1: a provider whose idle sessions nobody else retires (our PTY host): the engine stops
    *  one idle for idleStopMs itself, unless this says someone watches its terminal. */
   viewed?(s: LiveSession): boolean;
+  /** COMPACT-COFFEE: one look at whether `s` compacts its conversation now (a screen we keep). */
+  compacting?(s: LiveSession): Promise<boolean>;
   /** TERM-P3: close every session of `p`'s assignment, one not up yet too; true once none is left. */
   closeAll?(p: ProjectRecord): Promise<boolean>;
 }

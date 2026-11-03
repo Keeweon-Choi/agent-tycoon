@@ -24,6 +24,7 @@ import {
   stepZoom,
   usableView,
   wheelZoom,
+  workRoomsBox,
   zoomAround,
 } from './camera.js';
 
@@ -390,5 +391,36 @@ describe('GFX framing', () => {
     expect(panelInset(c, { x: 1110, y: 280, w: 44, h: 190 })).toEqual({ side: 'right', px: 170 });
     expect(panelInset(c, { x: 300, y: 4, w: 600, h: 60 })).toEqual({ side: 'top', px: 64 });
     expect(panelInset(c, { x: 2000, y: 4, w: 60, h: 60 })).toBeNull(); // off the canvas
+  });
+});
+
+describe('workRoomsBox (UI-PHONE: the phone opens on the rooms where agents work)', () => {
+  // 6 x 4 map, two floors of 2 rows; floor 0: room A cols 0-1, room B cols 3-5.
+  const A = 'A';
+  const B = 'B';
+  const layout = {
+    cols: 6,
+    rows: 4,
+    areaTiles: [A, A, null, B, B, B, A, A, null, B, B, B, null, null, null, null, null, null, null, null, null, null, null, null],
+  };
+  const floor0 = { row: 0, rows: 2, cols: 6 };
+  it('frames the whole room a working character sits in', () => {
+    expect(workRoomsBox(layout, floor0, [{ tileCol: 4, tileRow: 1 }])).toEqual({
+      x: 3 * TILE_SIZE,
+      y: 0,
+      w: 3 * TILE_SIZE,
+      h: 2 * TILE_SIZE,
+    });
+  });
+  it('joins two rooms and counts a character in no room by its tile', () => {
+    const box = workRoomsBox(layout, floor0, [
+      { tileCol: 0, tileRow: 0 },
+      { tileCol: 2, tileRow: 1 },
+    ]);
+    expect(box).toEqual({ x: 0, y: 0, w: 3 * TILE_SIZE, h: 2 * TILE_SIZE });
+  });
+  it('is null when nobody works on those rows', () => {
+    expect(workRoomsBox(layout, floor0, [{ tileCol: 1, tileRow: 3 }])).toBeNull();
+    expect(workRoomsBox(layout, floor0, [])).toBeNull();
   });
 });

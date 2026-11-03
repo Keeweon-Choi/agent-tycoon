@@ -24,37 +24,34 @@
  * 7. (T-0078) The workspace on a desktop: two shells side by side
  *    (split right), each with its own pid; x on a tab only detaches (both
  *    shells stay in the daemon) and 닫은 터미널 reopens it with the SAME pid.
- * 8. (T-0069) The daemon restarts (a deploy): both panes say "서버가 다시
- *    시작돼 다시 연결하는 중…" and come back with the same pids; the screen
- *    never shows "exited with code". shells.json is 0600.
+ * 8. (T-0069, ADR-0018) The daemon restarts (a deploy): both panes say "서버가 다시
+ *    시작돼 다시 연결하는 중…" and come back with the same pids, typing and output
+ *    work again; the screen never shows "exited with code". shells.json is 0600.
+ *    The shells run in our PTY host (its own process, here started by the daemon with
+ *    the engine off), not in tmux.
  * 9. (T-0078) Korean through the browser's IME (CDP imeSetComposition then
  *    insertText) reaches the shell as composed syllables.
  *    Fast typing reaches it whole: ASCII at no delay, and Korean whose Enter
  *    goes down before the IME's commit (10-22: the guard held that key).
  *    A pane draws with WebGL when the browser has it and falls back to the
  *    DOM renderer on a lost context.
- * 10. Negative controls: with persistence off (CLD_GUI_SHELL_PERSIST=off)
- *    a restart loses the shell and a new one has another pid; with the old
- *    input path (?imeLegacy=1) the same Korean arrives as jamo.
+ * 10. Negative control: with the old input path (the IME guard off) the same
+ *    Korean arrives as jamo.
  *
- * Screenshots go to cld/artifacts/t0078/. The daemons are stopped with
- * SIGTERM and only processes whose cwd is inside this run's temp HOME are
- * killed after that. Shells run in a tmux server on a test-only socket
- * (CLD_GUI_SHELL_TMUX_SOCKET=cld-test-<random>), killed at the end: the
- * host's cld-gui-shell server is never touched.
+ * Screenshots go to cld/artifacts/t0078/ (T0052_OUT names another folder). The daemons are
+ * stopped with SIGTERM and only processes whose cwd is inside this run's temp HOME (the
+ * shells and the PTY host the daemon started there) are killed after that.
  *
- *   npx tsx cld/test/run-terminal.ts <port> <port>   (two of 18256-18259; 18258 18259)
+ *   npx tsx cld/test/run-terminal.ts <port> <port>   (two of 18256-18269; 18258 18259)
  */
 import type { Browser, BrowserContextOptions, Page } from '@playwright/test';
 import { devices } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
-import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
 import { configDirectory } from '../../server/src/cld/configPath.js';
-import { findTmux, Tmux } from '../../server/src/cld/shell/tmux.js';
 import {
   assertPortFree,
   daemonLoginUrl,
@@ -70,15 +67,12 @@ import {
 
 const port = sparePort(2);
 const offPort = sparePort(3);
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0078');
+const OUT = path.join(REPO_ROOT, process.env.T0052_OUT ?? 'cld/artifacts/t0078');
 const CHROME =
   process.env.T0052_CHROME ??
   FULL_CHROME;
 const DEADLINE_MS = 540_000;
 const MARKER = 'T0052-TYPED-MARKER';
-const TMUX_SOCKET = `cld-test-${randomBytes(6).toString('hex')}`;
-const tmuxBin = findTmux();
-const testTmux = tmuxBin ? new Tmux(tmuxBin, TMUX_SOCKET) : null;
 const HANGUL = 'unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7A3;';
 const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__t0078/malgun.ttf'); ${HANGUL} }
 @font-face { font-family: 'Menlo'; src: url('/__t0078/malgun.ttf'); ${HANGUL} }`;
@@ -118,8 +112,6 @@ async function startDaemon(
 ): Promise<Daemon> {
   const d = launchDaemon(fake, p, ['--engine', 'off', '--no-terminal', ...extra], {
     SHELL: '/bin/sh',
-    // Shells run in a tmux server of this run's own (never the host's cld-gui-shell).
-    CLD_GUI_SHELL_TMUX_SOCKET: TMUX_SOCKET,
     ...env,
   });
   await waitForDaemon(p, d.child.pid!, 30_000, fake.home);
@@ -136,7 +128,7 @@ async function stopDaemon(d: Daemon): Promise<void> {
   clearTimeout(killer);
 }
 
-/** Processes still running in this run's temp HOME: only shells this check made. */
+/** Processes still running in this run's temp HOME: only shells (and the PTY host) this check made. */
 function leftovers(home: string): number[] {
   const pids: number[] = [];
   // Only under a real temp HOME, never init or the kernel (these pids get SIGKILL).
@@ -153,9 +145,18 @@ function leftovers(home: string): number[] {
   return pids;
 }
 
+/** Our PTY host among them (it outlives a daemon on purpose). */
+const isHost = (pid: number): boolean => {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('cld-ptyhost');
+  } catch {
+    return false;
+  }
+};
+const shellsLeft = (home: string): number[] => leftovers(home).filter((pid) => !isHost(pid));
+
 async function main() {
-  if (port === offPort) throw new Error('ports: two different ones of 18256-18259');
-  if (!testTmux) throw new Error('this check needs tmux (shells run in it)');
+  if (port === offPort) throw new Error('ports: two different ones of 18256-18269');
   await assertPortFree(port, offPort);
   fs.mkdirSync(OUT, { recursive: true });
   // The fake claude on PATH: the daemon never runs the real one.
@@ -167,7 +168,6 @@ async function main() {
   const cleanup = () => {
     for (const d of daemons)
       if (d.process.exitCode === null && d.process.signalCode === null) d.process.kill('SIGKILL');
-    testTmux?.killServer();
     for (const pid of leftovers(fake.home)) process.kill(pid, 'SIGKILL');
     fs.rmSync(fake.home, { recursive: true, force: true });
     fs.rmSync(offFake.home, { recursive: true, force: true });
@@ -710,7 +710,7 @@ async function main() {
         .filter((l) => l.includes('[cld shell]'))
         .join('\n') + '\n',
     );
-    check(leftovers(fake.home).length === 0, 'no shell left running in the temp HOME');
+    check(shellsLeft(fake.home).length === 0, 'no shell left running in the temp HOME');
 
     // ── 7. The workspace: two shells side by side; x only detaches ──
     const w1 = await startDaemon(port, fake, ['--allow-terminal']);
@@ -803,6 +803,16 @@ async function main() {
       w2.log.join('').includes('2 shell(s) restored'),
       'the new daemon says it restored 2 shells',
     );
+    await typeIn(d, 'echo BACK$((6*7))OK', id2);
+    await until(
+      async () => (await screenText(d, id2)).includes('BACK42OK'),
+      'D: after the restart a pane takes input and shows its output',
+    );
+    check(true, 'D: after the restart a pane takes input and shows its output');
+    check(
+      !w2.log.join('').includes('tmux'),
+      'the daemon never mentions tmux: the shells are in the PTY host',
+    );
     const saved = path.join(configDirectory(fake.home), 'shells.json');
     check(
       (fs.statSync(saved).mode & 0o777) === 0o600 &&
@@ -851,7 +861,7 @@ async function main() {
     );
     await shot(d, 'desktop-korean');
 
-    // ── Keys are the shell's (no tmux prefix), no status line, copy with the mouse ──
+    // ── Keys are the shell's, no status line, copy with the mouse ──
     const keysFile = path.join(fake.home, 'keys-ctrl-b.txt');
     await typeIn(d, `cat > ${keysFile}`, id1);
     await sleep(500);
@@ -866,37 +876,32 @@ async function main() {
         return false;
       }
     }, 'D: the Ctrl+B line');
-    check(ctrlB === '\x02x\n', `D: Ctrl+B reaches the shell, not tmux (${JSON.stringify(ctrlB)})`);
-    check(!(await screenText(d, id1)).includes(id1!), 'D: no tmux status line in the pane');
+    check(ctrlB === '\x02x\n', `D: Ctrl+B reaches the shell (${JSON.stringify(ctrlB)})`);
+    check(!(await screenText(d, id1)).includes(id1!), 'D: no status line in the pane');
     await d.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: local });
-    const copied = async (shift: boolean) => {
+    const copied = async () => {
       await d.evaluate(() => navigator.clipboard.writeText('-'));
       const row = paneOf(d, id1).locator('.xterm-rows > div', { hasText: 'CPY42MARK' }).last();
       const box = (await row.boundingBox())!;
       const y = box.y + box.height / 2;
-      if (shift) await d.keyboard.down('Shift');
       await d.mouse.move(box.x + 2, y);
       await d.mouse.down();
       await d.mouse.move(box.x + box.width / 2, y, { steps: 5 });
       await d.mouse.move(box.x + box.width - 3, y, { steps: 5 });
       await d.mouse.up();
-      if (shift) await d.keyboard.up('Shift');
-      if (shift) await d.keyboard.press('Control+c');
+      await d.keyboard.press('Control+c');
       await sleep(1_000);
       return d.evaluate(() => navigator.clipboard.readText());
     };
     await typeIn(d, 'echo CPY$((6*7))MARK', id1);
     await sleep(500);
-    // tmux `mouse on` (the wheel scrolls its history): a drag selects in tmux,
-    // which copies through OSC 52; Shift+drag is xterm's own selection.
-    const plain = await copied(false);
-    check(plain === 'CPY42MARK', `D: a drag copies (tmux, OSC 52: ${JSON.stringify(plain)})`);
-    const shifted = await copied(true);
-    check(shifted === 'CPY42MARK', `D: Shift+drag and Ctrl+C copy (${JSON.stringify(shifted)})`);
+    // xterm's own selection: a drag, then Ctrl+C.
+    const dragged = await copied();
+    check(dragged === 'CPY42MARK', `D: a drag and Ctrl+C copy (${JSON.stringify(dragged)})`);
     const after = path.join(fake.home, 'after-copy.txt');
     await typeIn(d, `echo ok > ${after}`, id1);
     await until(async () => fs.existsSync(after), 'D: typing after the drags reaches the shell');
-    check(true, 'D: typing after the drags reaches the shell (tmux left copy mode)');
+    check(true, 'D: typing after the drag reaches the shell');
 
     // The old input path (the guard off, as the page had it before): the same keys, jamo.
     const { page: e } = await open(
@@ -948,74 +953,12 @@ async function main() {
     );
     check(violations.length === 0, `no CSP violation (${violations.join('; ')})`);
     await stopDaemon(w2);
-    testTmux.killServer();
-    check(leftovers(fake.home).length === 0, 'no shell left running after the tmux server is gone');
-
-    // ── 10. Negative control: persistence off ──
-    const negFake = makeFakeHome({ claude: 'S-8' });
-    fs.mkdirSync(path.join(negFake.home, 'work'));
-    const neg1 = await startDaemon(offPort, negFake, ['--allow-terminal'], {
-      CLD_GUI_SHELL_PERSIST: 'off',
-    });
-    daemons.push(neg1);
-    const negLocal = `http://localhost:${offPort}`;
-    const negLogin = async () =>
-      (await daemonLoginUrl(negFake.home, offPort, daemons.at(-1)!.process.pid!)).replace(
-        'http://127.0.0.1:',
-        'http://localhost:',
-      );
-    const { page: n } = await open(
-      { viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA },
-      'persistence-off',
-    );
-    await n.goto(await negLogin());
-    await n.waitForURL(`${negLocal}/`);
-    await waitLoggedInWithKey(n, 'persistence-off desktop');
-    await desktopTab(n);
-    await pickWork(n);
-    await paneOf(n).locator('.xterm-rows').waitFor();
-    check(
-      neg1.log.join('').includes('no tmux: shells end with the daemon'),
-      'persistence off: the daemon runs shells without tmux',
-    );
-    const negFile = (name: string) => path.join(negFake.home, `pid-${name}`);
-    const negPid = async (name: string) => {
-      for (const end = Date.now() + 60_000; Date.now() < end; await sleep(1_500)) {
-        try {
-          const v = fs.readFileSync(negFile(name), 'utf8').trim();
-          if (/^\d+$/.test(v)) return v;
-        } catch {
-          // not yet
-        }
-        await typeIn(n, `echo $$ > ${negFile(name)}`).catch(() => undefined);
-      }
-      throw new Error(`no pid from ${name}`);
-    };
-    const offPid = await negPid('before');
-    await stopDaemon(neg1);
-    const neg2 = await startDaemon(offPort, negFake, ['--allow-terminal'], {
-      CLD_GUI_SHELL_PERSIST: 'off',
-    });
-    daemons.push(neg2);
-    await until(
-      async () => (await everything(n)).includes('터미널이 닫혔어요. 다시 열어 주세요.'),
-      'persistence off: after the restart the shell is gone and the pane says so',
-      60_000,
-    );
-    check(
-      !(await everything(n)).includes('exited with code'),
-      'persistence off: even then no exit code (the shell is gone, said in Korean)',
-    );
-    await pickWork(n);
-    await until(async () => (await shells(n)).length === 1, 'a new shell opened');
-    const offAfter = await negPid('after');
-    check(
-      offAfter !== offPid,
-      `negative control: with persistence off the pid changes (${offPid} -> ${offAfter})`,
-    );
-    await stopDaemon(neg2);
-    fs.rmSync(negFake.home, { recursive: true, force: true });
-    check(leftovers(negFake.home).length === 0, 'persistence off: no shell left over');
+    // The shells outlive the daemon in the PTY host; ending the host (ours, in this temp HOME) ends them.
+    const hosts = leftovers(fake.home).filter(isHost);
+    check(hosts.length === 1 && shellsLeft(fake.home).length >= 2, 'with the daemon stopped the host still holds the shells');
+    for (const pid of hosts) process.kill(pid, 'SIGTERM');
+    await until(async () => leftovers(fake.home).length === 0, 'the shells end with the host');
+    check(true, 'no shell left running after the PTY host is gone');
   } finally {
     clearTimeout(deadline);
     await browser?.close();

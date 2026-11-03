@@ -86,8 +86,11 @@ export function registerProjectFileRoutes(
       : task !== undefined
         ? worktreeRoot(projects(), project, task)
         : projectRoot(projects(), project);
-  const session = (request: FastifyRequest, reply: FastifyReply): Session | undefined => {
-    const found = auth.session(sessionIdFromCookie(request.headers.cookie));
+  const session = (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    found = auth.session(sessionIdFromCookie(request.headers.cookie)),
+  ): Session | undefined => {
     if (!found) {
       reply.code(401).send({ ...refused('login_needed') });
       return;
@@ -329,23 +332,29 @@ export function registerProjectFileRoutes(
       if (!who) return reply;
       if (
         typeof request.body?.path !== 'string' ||
-        !['preview', 'download'].includes(String(request.body.mode))
+        !['preview', 'download', 'open'].includes(String(request.body.mode))
       )
         return reply.code(400).send({ error: koText('file_request_invalid') });
       try {
         const task = typeof request.body.task === 'string' ? request.body.task : undefined;
         const root = rootFor(request.params.project, request.body.root as string | undefined, task);
         const file = fileForContent(root, request.body.path, sensitive.has(who.hash));
-        if (request.body.mode === 'preview' && !INLINE.includes(file.kind))
+        // 'open' (DESKTOP-ACTIONS): a preview for the default browser, see Ticket.external.
+        const external = request.body.mode === 'open';
+        if (request.body.mode !== 'download' && !INLINE.includes(file.kind))
           throw new FileAccessError(koText('preview_unsupported'), 415);
         const ticket = tickets.mint({
-          reusable: request.body.mode === 'preview' && file.kind === 'video',
+          // A browser's PDF viewer asks for ranges too; a PDF in this tab is fetched by the page once.
+          reusable:
+            request.body.mode !== 'download' &&
+            (file.kind === 'video' || (external && file.kind === 'pdf')),
+          ...(external && { external: true }),
           session: who.hash,
           project: request.params.project,
           ...(request.params.project === FOLDER_PROJECT && { root }),
           ...(task !== undefined && { task }),
           path: request.body.path,
-          mode: request.body.mode as 'preview' | 'download',
+          mode: request.body.mode === 'download' ? 'download' : 'preview',
         });
         return { url: `/api/cld/files/content/${ticket}`, expiresIn: 60 };
       } catch (error) {
@@ -357,7 +366,16 @@ export function registerProjectFileRoutes(
   app.get<{ Params: { ticket: string } }>(
     '/api/cld/files/content/:ticket',
     async (request, reply) => {
-      const who = session(request, reply);
+      // An external ticket stands for its minting session only while that session is live
+      // (signed out, revoked or expired: 401); any other ticket needs this request's cookie.
+      const external = tickets.externalSession(request.params.ticket);
+      const who = session(
+        request,
+        reply,
+        external !== undefined
+          ? auth.liveSessionByHash(external)
+          : auth.session(sessionIdFromCookie(request.headers.cookie)),
+      );
       if (!who) return reply;
       const ticket = tickets.consume(request.params.ticket, who.hash);
       if (!ticket) return reply.code(404).send({ ...refused('link_expired') });

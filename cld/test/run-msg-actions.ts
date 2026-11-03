@@ -400,7 +400,7 @@ async function main() {
       `phone: the chip quotes the boss as 나 (${await pchip.innerText()})`,
     );
     await shot(phone, 'phone-reply-chip');
-    await pconv.getByRole('button', { name: '보내기' }).tap();
+    await pconv.getByRole('button', { name: '보내기', exact: true }).tap();
     const pprompt = await waitTyped('이 계획대로 해 줘');
     check(
       / ⟨m:[a-z2-7]{8}⟩ ⟨re:bbbb3333⟩\n> 사장: 계획 봐 줘 plan\.png\n이 계획대로 해 줘$/.test(
@@ -528,7 +528,7 @@ async function main() {
       await p2.keyboard.press('Escape');
       await viewer.first().waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
       if (await viewer.count()) await viewer.first().getByRole('button', { name: /닫기/ }).first().tap();
-      await m2.getByRole('button', { name: '보내기' }).tap();
+      await m2.getByRole('button', { name: '보내기', exact: true }).tap();
       const pend = m2.getByTestId('pending').last();
       await pend.waitFor();
       await p2.waitForTimeout(700);
@@ -559,7 +559,7 @@ async function main() {
       // A long unbreakable word (a path, a URL) must not make the box wider than its column: it
       // used to push the box out to the left, past the edge it is clipped at.
       await box2.fill(`경로 /tmp/example-home/projects/cld-gui/webview-ui/src/cld/messenger/${'x'.repeat(70)}.tsx 이 파일 봐 줘`);
-      await m2.getByRole('button', { name: '보내기' }).tap();
+      await m2.getByRole('button', { name: '보내기', exact: true }).tap();
       await m2.getByTestId('pending').nth(1).waitFor();
       await bottom(m2);
       await p2.waitForTimeout(500);

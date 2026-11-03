@@ -5,8 +5,12 @@
  * read the office's token. Pure, no runtime side effects.
  */
 const LOOPBACK = ['localhost', '127.0.0.1', '[::1]'];
-/** The office page's CSP `frame-src`: the preview's iframe may load loopback pages and nothing else. */
-export const FRAME_SRC_LOOPBACK = LOOPBACK.flatMap((h) => [`http://${h}:*`, `https://${h}:*`]).join(' ');
+/** The office page's CSP `frame-src`: the preview's iframe may load loopback pages and nothing else.
+ *  CSP host sources have no IPv6 literal (Chrome logs `http://[::1]:*` as invalid and drops it), so
+ *  `[::1]` is left out here: such a dev server still opens in its own window. */
+export const FRAME_SRC_LOOPBACK = LOOPBACK.filter((h) => !h.startsWith('['))
+  .flatMap((h) => [`http://${h}:*`, `https://${h}:*`])
+  .join(' ');
 const URL_AT = /https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?![\w.@-])(?::\d{1,5})?(?:\/[^\s"'<>]*)?/gi;
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 /** A `Network:` line (Vite, Next, CRA): the dev server is reachable from the LAN. */

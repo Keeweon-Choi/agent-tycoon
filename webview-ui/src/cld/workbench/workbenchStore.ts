@@ -1,8 +1,8 @@
 /**
- * W1: the 작업실's own memory. The project and the tab it was left on are
+ * W1: the 작업실's own memory (UI-DASH: the 작업실 is the 현황판's 개발 tab now). The project and the tab it was left on are
  * kept per device in localStorage (never on the server); the window's open
  * flag is the HUD's (hudStore). `openWorkbench` is how any button asks for it:
- * App listens for the event and opens the window, or the phone's Dock page.
+ * App listens for the event and opens the 현황판 on its 개발 tab (window or Dock page).
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
@@ -45,13 +45,13 @@ export const useWorkbench = () => useSyncExternalStore(subscribe, workbenchGetSn
 export const setWorkbenchProject = (project: string) => set({ project });
 export const setWorkbenchTab = (tab: WorkbenchTab) => set({ tab });
 
-/** Open the 작업실, on `project` when given (the 현황판 card's button; a Worker's card means its project), else where it was left. */
+/** Open the 현황판's 개발 tab, on `project` when given (the 현황판 card's button; a Worker's card means its project), else where it was left. */
 export function openWorkbench(project?: string): void {
   if (project) set({ project: projectOfAgent(project, engineGetSnapshot().state?.projects) });
   window.dispatchEvent(new Event(OPEN_WORKBENCH_EVENT));
 }
 
-// ── 검토: a task worktree's review shown in the 작업실 (title `작업실 / <project> · 검토`) ──
+// ── 검토: a task worktree's review shown in the 개발 tab (title `현황판 / <project> · 검토`) ──
 export interface ReviewOpen {
   project: string;
   task: string;
@@ -69,15 +69,15 @@ const setReview = (next: ReviewOpen | null) => {
 };
 export const useWorkbenchReview = () => useSyncExternalStore(reviewSubscribe, () => review);
 export const closeReview = () => setReview(null);
-/** The task card's 검토: the 작업실 opens on that worktree's review. */
+/** The task card's 검토: the 개발 tab opens on that worktree's review. */
 export function openReview(project: string, task: string): void {
   setReview({ project, task });
   openWorkbench(project);
 }
-/** The window's title: `작업실`, or `작업실 / <project> · 검토` while a review is open. */
-export function useWorkbenchTitle(): string {
+/** The 현황판's title while a review is open on its 개발 tab: `현황판 / <project> · 검토`. */
+export function useReviewTitle(): string | null {
   const open = useWorkbenchReview();
-  return open ? t('review.windowTitle', { project: open.project }) : t('nav.workbench');
+  return open ? t('dash.reviewTitle', { project: open.project }) : null;
 }
 
 /** D3b: only a connection that may act sees the 에이전트 tab's actions (the server refuses

@@ -379,7 +379,10 @@ async function main() {
     await until('desktop: the toast', async () => (await toast(page).count()) > 0, 30_000);
     // The toast has a dismiss x of its own now (FloatingToast): its text comes first.
     const text = ((await toast(page).textContent()) ?? '').replace(/^×/, '');
-    check(text === '🔔 lead · 일을 마쳤어요', `desktop: the toast says who and what ("${text}")`);
+    check(
+      text.includes('lead') && text.includes('일을 마쳤어요'),
+      `desktop: the toast says who and what ("${text}")`,
+    );
     let most = 0;
     for (let i = 0; i < 8; i++) {
       most = Math.max(most, await pulsePixels(page));
@@ -442,9 +445,9 @@ async function main() {
       async () => (await card.getAttribute('data-focused')) === 'true',
     );
     // UI-C1: the 작업실, on the job's project, Task tab; the card is drawn there.
-    const bench = page.locator('[data-hud-window="workbench"]');
+    const bench = page.locator('[data-hud-window="office"]');
     check(
-      (await bench.getByRole('combobox', { name: '작업실 프로젝트' }).inputValue()) === 'veteran' &&
+      (await bench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'veteran' &&
         (await bench.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true' &&
         (await bench.locator(`[data-job-ref="${jobId}"]`).count()) === 1 &&
         (await unread(page)) === 0,

@@ -3,6 +3,8 @@
 mod appdata;
 mod connect;
 #[cfg(desktop)]
+mod downloads;
+#[cfg(desktop)]
 mod local;
 #[cfg(desktop)]
 mod owner;
@@ -75,6 +77,11 @@ const LINKS_JS: &str = r#"
   });
 })();
 "#;
+
+/// DESKTOP-ACTIONS: the page event that tells the office how a download ended (the web side's
+/// APP_DOWNLOAD_EVENT in webview-ui/src/constants.ts), detail `{ name, ok }`.
+#[cfg(desktop)]
+const DOWNLOAD_EVENT: &str = "agent-tycoon-download";
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -2311,6 +2318,54 @@ fn open_in_browser(app: &AppHandle, url: &Url) {
     });
 }
 
+/// Every download of the window (내려받기 in the office, an a[download], a blob) lands in the user's
+/// Downloads folder under a safe, unused name (`downloads`), never where the page or WebView2 said;
+/// when it ends the page hears it (DOWNLOAD_EVENT) and says where it went. The log keeps no names.
+#[cfg(desktop)]
+fn on_download(webview: tauri::Webview, event: tauri::webview::DownloadEvent<'_>) -> bool {
+    use tauri::webview::DownloadEvent;
+    let tell = |name: Option<String>, ok: bool| {
+        let detail = serde_json::json!({ "name": name, "ok": ok });
+        let _ = webview.eval(format!(
+            "window.dispatchEvent(new CustomEvent('{DOWNLOAD_EVENT}', {{ detail: {detail} }}))"
+        ));
+    };
+    match event {
+        DownloadEvent::Requested { destination, .. } => {
+            let app = webview.app_handle();
+            let Ok(dir) = app.path().download_dir() else {
+                log(app, "내려받기 폴더를 찾지 못해 내려받기를 멈췄습니다");
+                tell(None, false);
+                return false;
+            };
+            let suggested = destination
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let Some(free) = downloads::unique(&dir, &downloads::safe_name(&suggested)) else {
+                log(app, "같은 이름의 파일이 너무 많아 내려받기를 멈췄습니다");
+                tell(None, false);
+                return false;
+            };
+            *destination = free;
+            log(app, "내려받기 시작");
+        }
+        DownloadEvent::Finished { path, success, .. } => {
+            let name = path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned());
+            log(
+                webview.app_handle(),
+                if success { "내려받기 끝" } else { "내려받기 실패" },
+            );
+            tell(name, success);
+        }
+        _ => {}
+    }
+    true
+}
+
 /// The app data dirs come from the bundle identifier `dev.agenttycoon.app` (tauri.conf.json);
 /// `carry_over_app_data` brings the folders of the old identifier along on the first launch.
 fn config_path(app: &AppHandle) -> Option<PathBuf> {
@@ -2482,6 +2537,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 open_in_browser(&app, &url);
                 tauri::webview::NewWindowResponse::Deny
             })
+            .on_download(on_download)
     };
     let window = builder.build()?;
     let on_top = config.is_some_and(|c| c.always_on_top);

@@ -98,8 +98,11 @@ export type ServerMessage =
   | EngineActionResult
   | EngineMoveAllResult
   | ProjectScanResult
+  | EngineInheritableResult
   | ProjectImportResult
   | ProjectImportSuggestion
+  | ProjectRepoResult
+  | ProjectRepoProgress
   | JobActionResult
   | ViewerVisibilityAck
   | BuildingState
@@ -108,6 +111,7 @@ export type ServerMessage =
   | PushState
   | WhiteboardMemos
   | PinnedConversations
+  | GoneConversationDeleteResult
   | OfficeBackground
   | TaskBoard
   | DelegationApprovals
@@ -175,12 +179,16 @@ export type ClientMessage =
   | EngineChoicesRefresh
   | EngineMoveAll
   | ProjectScan
+  | EngineInheritable
   | ProjectImport
   | ProjectImportUndo
   | ProjectImportDismiss
+  | ProjectRepo
+  | ProjectRepoCancel
   | JobAction
   | ViewerVisibility
   | HwView
+  | OwnerActivity
   | AddFloor
   | RenameFloor
   | RemoveFloor
@@ -192,6 +200,7 @@ export type ClientMessage =
   | PushUnsubscribe
   | SetWhiteboardMemo
   | SetConversationPin
+  | GoneConversationDelete
   | SetOfficeBackground
   | TaskEdit
   | CodexUsageCheck
@@ -246,6 +255,8 @@ export interface AgentStatus {
   id: number;
   status: AgentActivityStatus;
   awaitingInput?: boolean;
+  question?: boolean;
+  restored?: boolean;
 }
 
 export type AgentActivityStatus = 'active' | 'waiting';
@@ -541,15 +552,22 @@ export interface CharacterPreset {
   isoUrl?: string;
   columns?: CharacterColumns;
   walk?: CharacterWalk;
+  drinkSteam?: CharacterDrinkSteam[];
 }
 
 export type CharacterDensity = 1 | 2 | 12;
 
-export type CharacterSheetFormat = 'iso';
+export type CharacterSheetFormat = 'iso' | 'iso8';
 
 export type CharacterColumns = 'standFirst';
 
 export type CharacterWalk = 'two';
+
+export interface CharacterDrinkSteam {
+  col: number;
+  x: number;
+  y: number;
+}
 
 export interface CharacterChoice {
   preset?: string;
@@ -663,7 +681,7 @@ export interface PackPreset {
 export interface CharacterPart {
   id: string;
   slot: CharacterPartSlot;
-  kind: AnonymousSchema_288;
+  kind: AnonymousSchema_294;
   gender?: CharacterGender;
   name?: string;
   ramp: string[];
@@ -692,7 +710,7 @@ export type CharacterPartSlot =
   | 'hair'
   | 'acc';
 
-export type AnonymousSchema_288 = 'sheet' | 'head';
+export type AnonymousSchema_294 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
   density?: CharacterPartDensity;
@@ -799,6 +817,7 @@ export interface RepoWorktree {
   merge?: RepoMerge;
   conflicts?: string[];
   lastChange?: string;
+  employee?: ChatEmployee;
 }
 
 export interface RepoMerge {
@@ -815,6 +834,11 @@ export interface RepoMerge {
   error?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
+}
+
+export interface ChatEmployee {
+  employeeId: string;
+  nameId: string;
 }
 
 export interface RepoDiff {
@@ -847,6 +871,7 @@ export interface RepoWorktreeDetail {
   filesTruncated?: boolean;
   commits?: RepoCommit[];
   guard?: string;
+  stamp?: string;
 }
 
 export interface RepoChangedFile {
@@ -926,7 +951,7 @@ export interface ReviewNoteResult {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_449;
+  op: AnonymousSchema_458;
   id?: string;
   ok: boolean;
   error?: string;
@@ -934,7 +959,7 @@ export interface ReviewNoteResult {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_449 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_458 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSendResult {
   type: 'reviewSendResult';
@@ -1021,6 +1046,7 @@ export interface RepoCleanupRow {
   lastChange?: string;
   sizeBytes: number;
   sizeCapped?: boolean;
+  sizePending?: boolean;
   unmergedFiles: number;
   dirty: number;
 }
@@ -1050,6 +1076,7 @@ export interface OfficeSnapshot {
   chat?: boolean;
   tabs: OfficeRoom[];
   orchestrators: OfficeOrchestrator[];
+  owner?: OwnerStats;
 }
 
 export interface OfficeRoom {
@@ -1078,6 +1105,7 @@ export interface OfficeOrchestrator {
   provider?: OrchestratorProvider;
   level?: OfficeLevel;
   renewing?: boolean;
+  compacting?: boolean;
   heldEdits?: number;
 }
 
@@ -1103,6 +1131,22 @@ export interface OfficeLevel {
   floor: number;
   next: number;
   rebirths: number;
+  inherit?: number;
+}
+
+export interface OwnerStats {
+  level: OfficeLevel;
+  today: OwnerCounts;
+  total: OwnerCounts;
+}
+
+export interface OwnerCounts {
+  instructions: number;
+  approvals: number;
+  merges: number;
+  tasks: number;
+  steps: number;
+  seconds: number;
 }
 
 export interface CodexTasks {
@@ -1285,12 +1329,12 @@ export interface DiskUsage {
 }
 
 export interface DiskUsageRow {
-  kind: AnonymousSchema_678;
+  kind: AnonymousSchema_696;
   bytes: number;
   partial: boolean;
 }
 
-export type AnonymousSchema_678 =
+export type AnonymousSchema_696 =
   'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
 
 export interface UsageState {
@@ -1329,16 +1373,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_701;
+  state: AnonymousSchema_719;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_701 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_719 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_705;
+  language: AnonymousSchema_723;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1347,15 +1391,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_705 = 'ko' | 'en';
+export type AnonymousSchema_723 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_712;
+  mode: AnonymousSchema_730;
   error?: string;
 }
 
-export type AnonymousSchema_712 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_730 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1440,6 +1484,7 @@ export interface ChatItem {
   text: string;
   toolName?: string;
   desc?: string;
+  args?: string;
   id: string;
   at: number;
   session?: string;
@@ -1456,11 +1501,6 @@ export interface ChatItem {
 export type ChatItemKind = 'user' | 'assistant' | 'tool' | 'result';
 
 export type ChatSender = 'peer' | 'system';
-
-export interface ChatEmployee {
-  employeeId: string;
-  nameId: string;
-}
 
 export interface ChatAttachment {
   name: string;
@@ -1484,6 +1524,9 @@ export interface ChatQueued {
   edited?: boolean;
   cancelled?: boolean;
   held?: boolean;
+  inputWait?: boolean;
+  inputWaitLong?: boolean;
+  failed?: boolean;
   messageId?: string;
   replyTo?: ChatReply;
 }
@@ -1662,6 +1705,7 @@ export interface GroupPostItem {
   delivery: Record<string, GroupDelivery>;
   replyTo?: ChatReply;
   system?: boolean;
+  notice?: boolean;
   replies: GroupReply[];
 }
 
@@ -1809,6 +1853,23 @@ export interface ProjectImportCandidate {
   already: boolean;
 }
 
+export interface EngineInheritableResult {
+  type: 'engineInheritableResult';
+  requestId: string;
+  folder: string;
+  agents: InheritableAgent[];
+}
+
+export interface InheritableAgent {
+  key: string;
+  name: string;
+  removedAt: number;
+  level: number;
+  rebirths: number;
+  inherit: number;
+  conversations: number;
+}
+
 export interface ProjectImportResult {
   type: 'projectImportResult';
   requestId: string;
@@ -1819,18 +1880,46 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_997;
+  status: AnonymousSchema_1029;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_997 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1029 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
   folder: string;
 }
+
+export interface ProjectRepoResult {
+  type: 'projectRepoResult';
+  requestId: string;
+  action: ProjectRepoAction;
+  ok: boolean;
+  folder?: string;
+  repo?: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export type ProjectRepoAction = 'check' | 'init' | 'clone';
+
+export interface ProjectRepoProgress {
+  type: 'projectRepoProgress';
+  requestId: string;
+  phase: CloneProgressPhase;
+  percent?: number;
+  done?: number;
+  total?: number;
+  size?: string;
+  speed?: string;
+}
+
+export type CloneProgressPhase =
+  'enumerating' | 'counting' | 'compressing' | 'receiving' | 'resolving' | 'updating';
 
 export interface JobActionResult {
   type: 'jobActionResult';
@@ -1856,10 +1945,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1011;
+  state: AnonymousSchema_1057;
 }
 
-export type AnonymousSchema_1011 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1057 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -1959,6 +2048,16 @@ export interface WhiteboardMemo {
 export interface PinnedConversations {
   type: 'pinnedConversations';
   keys: string[];
+}
+
+export interface GoneConversationDeleteResult {
+  type: 'goneConversationDeleteResult';
+  requestId: string;
+  ok: boolean;
+  deleted?: number;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
 }
 
 export interface OfficeBackground {
@@ -2404,7 +2503,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1281;
+  op: AnonymousSchema_1333;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2413,7 +2512,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1281 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1333 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2557,14 +2656,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1366;
+  action: AnonymousSchema_1418;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1366 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1418 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2589,9 +2688,12 @@ export interface EngineAction {
   alwaysOn?: boolean;
   title?: string;
   mkdir?: boolean;
+  purge?: boolean;
   compactionNudge?: number;
   oldLead?: EngineOldLead;
   provider?: string;
+  inheritFrom?: string;
+  cloned?: boolean;
 }
 
 export type EngineOldLead = 'worker' | 'stop';
@@ -2609,6 +2711,12 @@ export interface ProjectScan {
   type: 'projectScan';
   requestId: string;
   folder?: string;
+}
+
+export interface EngineInheritable {
+  type: 'engineInheritable';
+  requestId: string;
+  folder: string;
 }
 
 export interface ProjectImport {
@@ -2636,6 +2744,20 @@ export interface ProjectImportDismiss {
   type: 'projectImportDismiss';
 }
 
+export interface ProjectRepo {
+  type: 'projectRepo';
+  requestId: string;
+  action: ProjectRepoAction;
+  folder: string;
+  url?: string;
+  name?: string;
+}
+
+export interface ProjectRepoCancel {
+  type: 'projectRepoCancel';
+  requestId: string;
+}
+
 export interface JobAction {
   type: 'jobAction';
   requestId: string;
@@ -2651,6 +2773,12 @@ export interface ViewerVisibility {
 export interface HwView {
   type: 'hwView';
   on: boolean;
+}
+
+export interface OwnerActivity {
+  type: 'ownerActivity';
+  steps: number;
+  seconds: number;
 }
 
 export interface AddFloor {
@@ -2702,12 +2830,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1444;
+  lang?: AnonymousSchema_1512;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1444 = 'en' | 'ko';
+export type AnonymousSchema_1512 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2723,6 +2851,12 @@ export interface SetConversationPin {
   type: 'setConversationPin';
   key: string;
   pinned: boolean;
+}
+
+export interface GoneConversationDelete {
+  type: 'goneConversationDelete';
+  requestId: string;
+  name: string;
 }
 
 export interface SetOfficeBackground {
@@ -2757,19 +2891,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1463;
+  language: AnonymousSchema_1534;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1463 = 'ko' | 'en';
+export type AnonymousSchema_1534 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1467;
+  mode: AnonymousSchema_1538;
 }
 
-export type AnonymousSchema_1467 = 'ask' | 'bypass';
+export type AnonymousSchema_1538 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

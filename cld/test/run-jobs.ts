@@ -210,7 +210,7 @@ async function main() {
     await hangul(page);
     // UI-C1: the job cards are the 작업실's Task tab (alpha's), the 실행 half.
     await openWorkbenchTab(page, 'Task', { project: 'alpha' });
-    const drawer = page.locator('[data-hud-window="workbench"]');
+    const drawer = page.locator('[data-hud-window="office"]');
     // DEV-BOARD: Task opens on 업무; the job cards are its 실행 half.
     await drawer
       .getByRole('group', { name: '작업 보기' })
@@ -300,7 +300,7 @@ async function main() {
       .getByRole('group', { name: '작업 보기' })
       .getByRole('button', { name: '실행', exact: true })
       .tap();
-    const panel = phone.getByLabel('작업실 화면');
+    const panel = phone.getByLabel('현황판 화면');
     const phoneCard = panel.getByTestId('job-card').filter({ hasText: 'echo 작업' });
     await phoneCard.getByRole('button', { name: /로그/ }).tap();
     await phoneCard

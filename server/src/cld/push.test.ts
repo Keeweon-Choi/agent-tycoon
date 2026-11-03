@@ -865,6 +865,45 @@ describe('U-49: a message from an agent is a push with its text', () => {
   const turnEnd = (t: ReturnType<typeof setup>, id: number) =>
     t.agents.broadcast({ type: 'agentStatus', id, status: 'waiting' });
 
+  it('WAITING-PERSIST: a question turn is one push carrying what was asked, opening its chat or room', async () => {
+    const { t, b } = subscribed();
+    t.texts[10] = '카드 결제를 먼저 할까요, 계좌 이체를 먼저 할까요?';
+    // Stop says it, turn_duration says it again, idle_prompt follows a minute later: one buzz.
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting', question: true });
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting', awaitingInput: false, question: true });
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting', awaitingInput: true, question: true });
+    await flush();
+    const [p, ...more] = payloads(t, b);
+    expect(more).toEqual([]);
+    expect(p.body).toBe('카드 결제를 먼저 할까요, 계좌 이체를 먼저 할까요?');
+    expect(p.title).toContain('✋'); // worded as a question, not a reply
+    expect(parseNoticeUrl(p.url)).toMatchObject({ open: 'chat', lead: 'boss' });
+    // A turn end already pushed for this turn: its question adds no second buzz.
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'active' });
+    t.texts[10] = '다음은요?';
+    turnEnd(t, 10);
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting', question: true });
+    await flush();
+    expect(payloads(t, b)).toHaveLength(2);
+    // In a room: the room's thread, as a turn end would.
+    const room = subscribed();
+    room.t.rooms[11] = { id: 'g-1', name: '배포방', post: 'p-1' };
+    room.t.texts[11] = '지금 배포할까요?';
+    room.t.agents.broadcast({ type: 'agentStatus', id: 11, status: 'waiting', question: true });
+    await flush();
+    const [r] = payloads(room.t, room.b);
+    expect(r.body).toBe('지금 배포할까요?');
+    expect(parseNoticeUrl(r.url)).toMatchObject({ open: 'room', room: 'g-1' });
+  });
+
+  it('WAITING-PERSIST: a question given back after a restart is never pushed', async () => {
+    const { t, b } = subscribed();
+    t.texts[10] = '어느 쪽이요?';
+    t.agents.broadcast({ type: 'agentStatus', id: 10, status: 'waiting', question: true, restored: true });
+    await flush();
+    expect(payloads(t, b)).toEqual([]);
+  });
+
   it('a Lead turn with text: one push, titled by the Lead, with a masked preview, opening its chat', async () => {
     const { t, b } = subscribed();
     t.texts[10] =

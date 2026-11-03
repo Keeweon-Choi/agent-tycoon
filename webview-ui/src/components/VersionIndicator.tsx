@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { toMajorMinor } from '../changelogData.ts';
 import { FloatingToast } from '../cld/FloatingToast.js';
@@ -95,9 +94,9 @@ export function VersionIndicator({
 
   if (floating) {
     if (!showUpdateNotice) return null;
-    return createPortal(
+    return (
       <FloatingToast
-        className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[85] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+        className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
         frameClassName="px-12 py-8 text-sm break-words"
         style={{
           opacity: fading ? 0 : 1,
@@ -115,8 +114,7 @@ export function VersionIndicator({
           {t('changelog.updated', { version: currentMajorMinor })}
         </strong>
         {t('changelog.see')}
-      </FloatingToast>,
-      document.body,
+      </FloatingToast>
     );
   }
 

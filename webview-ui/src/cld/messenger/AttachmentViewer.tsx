@@ -18,8 +18,9 @@ import {
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { writeClipboardImage } from '../../terminal/clipboard.js';
+import { isDesktopApp } from '../desktopApp.js';
 import { Markdown } from '../markdown.js';
-import { cldToast } from '../officeStore.js';
+import { cldOwnToast } from '../officeStore.js';
 import { closeOverlay } from '../overlayHistory.js';
 import {
   ATTACHMENT_ACTION_ERROR_DURATION,
@@ -33,6 +34,8 @@ import {
   type ImageAction,
   type ImageActionCapabilities,
   prepareClipboardPng,
+  type ShareKind,
+  shareKind,
 } from './attachmentActions.js';
 import { Gallery, type TicketFor, type ViewerFile } from './attachmentGallery.js';
 import { isVideoType, linkedFileType } from './attachments.js';
@@ -76,7 +79,17 @@ export function AttachmentGallery({
   children: ReactNode;
 }) {
   const [at, setAt] = useState<{ path: string; line?: number } | null>(null);
-  const open = useCallback((path: string, line?: number) => setAt({ path, line }), []);
+  // COMPOSE-PREVIEW: a text box that had focus when the viewer opened gets it back (caret kept)
+  // when it closes; its keyboard hides meanwhile so the viewer's arrow keys work.
+  const returnTo = useRef<HTMLElement | null>(null);
+  const open = useCallback((path: string, line?: number) => {
+    const held = document.activeElement;
+    if (!returnTo.current && (held instanceof HTMLTextAreaElement || held instanceof HTMLInputElement)) {
+      returnTo.current = held;
+      held.blur();
+    }
+    setAt({ path, line });
+  }, []);
   const index = at === null ? -1 : files.findIndex((file) => file.path === at.path);
   const linked =
     at && index < 0
@@ -91,7 +104,12 @@ export function AttachmentGallery({
       : null;
   const viewerFiles = index >= 0 ? files : linked ? [linked] : [];
   const viewerIndex = index >= 0 ? index : 0;
-  const close = useCallback(() => setAt(null), []);
+  const close = useCallback(() => {
+    setAt(null);
+    const back = returnTo.current;
+    returnTo.current = null;
+    if (back?.isConnected) back.focus({ preventScroll: true });
+  }, []);
   return (
     <Gallery.Provider value={open}>
       {children}
@@ -674,7 +692,7 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
       capabilities: ImageActionCapabilities = fileActionCapabilities(file, true),
     ) => {
       const next = attachmentActionToast(action, outcome, capabilities);
-      cldToast(t('attachment.viewer.title'), t(next.key, next.values), next.tone, next.duration);
+      cldOwnToast(t('attachment.viewer.title'), t(next.key, next.values), next.tone, next.duration);
     },
     [file],
   );
@@ -700,6 +718,22 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
     }
   }, [fail, file.name, file.path, report, ticketFor]);
   const openTab = useCallback(async () => {
+    if (isDesktopApp()) {
+      // The app has no second window and the default browser has no login cookie: an 'open'
+      // ticket, which the app's link script hands to that browser (lib.rs LINKS_JS, open_external).
+      try {
+        const url = new URL(await ticketFor(file.path, 'open'), location.href);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          report('open', { kind: 'failed', reason: t('desktopActions.openDraft') });
+          return;
+        }
+        window.open(url.href, '_blank', 'noopener');
+        report('open', { kind: 'opened' });
+      } catch (error) {
+        fail('open', error);
+      }
+      return;
+    }
     // Open within the tap, then point it at the ticket: a home-screen app can refuse it
     // without navigating this viewer away.
     const tab = window.open('about:blank', '_blank');
@@ -725,6 +759,16 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
   }, [file.path, ticketFor]);
   const share = useCallback(async () => {
     try {
+      if (shareKindFor(file) === 'save') {
+        // The dialog first, while the click still counts as a user gesture; the bytes after.
+        const handle = await (window as SaveWindow).showSaveFilePicker!({ suggestedName: file.name });
+        const blob = await fileBlob();
+        const out = await handle.createWritable();
+        await out.write(blob);
+        await out.close();
+        report('share', { kind: 'saved' });
+        return;
+      }
       const blob = await fileBlob();
       await navigator.share({ files: [new File([blob], file.name, { type: file.type })] });
       report('share', { kind: 'saved' });
@@ -733,7 +777,7 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
       if (error instanceof DOMException && error.name === 'AbortError') return;
       fail('share', error);
     }
-  }, [fail, file.name, file.type, fileBlob, report]);
+  }, [fail, file, fileBlob, report]);
   const copyImage = useCallback(async () => {
     const capabilities = fileActionCapabilities(file, true);
     if (!capabilities.canCopy) {
@@ -761,7 +805,7 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
           selection.removeAllRanges();
           selection.addRange(range);
         }
-        cldToast(
+        cldOwnToast(
           t('attachment.viewer.title'),
           t('attachment.viewer.copyManual'),
           'error',
@@ -771,7 +815,7 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
       }
       try {
         await navigator.clipboard.writeText(content);
-        cldToast(
+        cldOwnToast(
           t('attachment.viewer.title'),
           t('attachment.viewer.copiedText'),
           'ok',
@@ -786,10 +830,14 @@ function useAttachmentActions(file: ViewerFile, ticketFor: TicketFor): Attachmen
   return { download, openTab, share, copyImage, copyText };
 }
 
-function fileActionCapabilities(
-  file: Pick<ViewerFile, 'name' | 'type'>,
-  canOfferActions: boolean,
-): FileActionCapabilities {
+/** The File System Access save dialog (Chromium, WebView2), not in every TypeScript DOM lib yet. */
+type SaveWindow = Window & {
+  showSaveFilePicker?: (options: { suggestedName: string }) => Promise<{
+    createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+  }>;
+};
+
+function shareKindFor(file: Pick<ViewerFile, 'name' | 'type'>): ShareKind {
   let canShare = false;
   try {
     canShare =
@@ -797,9 +845,20 @@ function fileActionCapabilities(
   } catch {
     // An unknown image MIME type may make a browser refuse the capability probe.
   }
+  return shareKind({
+    desktopApp: isDesktopApp(),
+    canShare,
+    canPickSave: typeof (window as SaveWindow).showSaveFilePicker === 'function',
+  });
+}
+
+function fileActionCapabilities(
+  file: Pick<ViewerFile, 'name' | 'type'>,
+  canOfferActions: boolean,
+): FileActionCapabilities {
   return {
     canOfferActions,
-    canShare,
+    canShare: shareKindFor(file) !== null,
     canCopy: window.isSecureContext === true && !!window.ClipboardItem && !!navigator.clipboard?.write,
     opensInline: opensInline(file.type),
   };

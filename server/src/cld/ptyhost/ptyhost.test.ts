@@ -165,6 +165,21 @@ describe('OSC 7501', () => {
   });
 });
 
+describe('screen (COMPACT-COFFEE)', () => {
+  it('a host from before the screen op: a subscription snapshot, dropped at once; another failure: null', async () => {
+    const c = new PtyHostClient({ home: os.tmpdir(), launch: () => undefined, log: () => undefined });
+    const offs: string[] = [];
+    let reply: Record<string, unknown> = { ok: false, error: 'unknown op' };
+    c.call = () => Promise.resolve(reply as never);
+    c.subscribe = () => Promise.resolve({ snapshot: 'S', cols: 80, rows: 24, off: () => void offs.push('off') });
+    expect(await c.screen('t1')).toMatchObject({ snapshot: 'S', cols: 80, rows: 24 });
+    expect(offs).toEqual(['off']);
+    reply = { ok: false, error: 'no terminal' };
+    expect(await c.screen('t1')).toBeNull();
+    expect(offs).toEqual(['off']);
+  });
+});
+
 describe('the host', () => {
   let hostJs = '';
   let home = '';
@@ -251,6 +266,11 @@ describe('the host', () => {
     await until('typed', () => read(path.join(home, 'fake-claude-typed.log')).includes('hello 한글'));
     await until('done', () => client.status.get(id)?.state === 'done');
     expect(seen.join('')).toContain('hello');
+    // COMPACT-COFFEE: the visible screen alone, no subscription, no scrollback.
+    const scr = await client.screen(id);
+    expect(scr?.snapshot).toContain('fake Claude Code (pty)');
+    expect(client.viewers(id)).toBe(1); // the subscription above only
+    expect(await client.screen('nope')).toBeNull();
 
     // A second daemon (a restart): the same terminal, its status from the host's list.
     client.dispose();

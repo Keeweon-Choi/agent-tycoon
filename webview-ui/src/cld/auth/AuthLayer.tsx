@@ -123,7 +123,7 @@ export function AuthLayer() {
         <FloatingToast
           key={toast.text}
           testId="auth-toast"
-          className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[75] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+          className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
           frameClassName="px-12 py-8 text-sm"
           onDismiss={() => setToast(null)}
           onTap={() => setToast(null)}

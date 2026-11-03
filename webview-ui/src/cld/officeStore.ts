@@ -24,14 +24,14 @@ import type {
   TrackedItems,
   UsageState,
 } from '../../../core/src/messages.js';
-import { FX_REBIRTH_LIVE } from '../constants.js';
+import { FX_LEVELUP_LIVE, FX_REBIRTH_LIVE, OWNER_CHARACTER_ID, REST_SETTLE_MS } from '../constants.js';
 import { getLanguage, subscribeLanguage, t } from '../i18n/index.js';
 import { recordHw } from './board/hwHistory.js';
 import { whiteboardHandleMessage } from './board/whiteboard.js';
 import { bypassHandleMessage } from './bypass.js';
-import { devroomHandleResult } from './devroom/devroomStore.js';
+import { devroomHandleResult, devroomSetStats } from './devroom/devroomStore.js';
 import { mergeHandleMessage, mergeHandleResult } from './devroom/mergeStore.js';
-import { director } from './director/director.js';
+import { CompactBreakWatch, director, InheritWatch, TempStaffWatch } from './director/director.js';
 import { engineGetSnapshot, engineHandleMessage } from './engineStore.js';
 import { type EzContext, PLAIN_CONTEXT } from './ez/activity.js';
 import {
@@ -50,7 +50,7 @@ import { messengerConnectionLost, messengerHandleMessage } from './messenger/mes
 import { cldNoticeEvent, cldNoticeReplay, cldPreviewOpen, cldPushState } from './notify/notices.js';
 import { repoHandleMessage } from './repo/repoStore.js';
 import { newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
-import { rebirthWatch, restWatch } from './rest.js';
+import { compactHolds, levelWatch, rebirthWatch, restWatch } from './rest.js';
 import { serverLine, serverText } from './serverText.js';
 import { docSourcesHandleMessage } from './taskboard/taskBoardState.js';
 import { workHandleMessage } from './work/workStore.js';
@@ -62,6 +62,8 @@ export interface ActionToast {
   text: string;
   tone: 'ok' | 'info' | 'error';
   duration?: number;
+  /** The answer to the user's own click (cldOwnToast): drawn over every window and the viewer. */
+  own?: boolean;
 }
 
 export interface CldSnapshot {
@@ -274,6 +276,7 @@ export function cldHandleMessage(msg: ServerMessage): void {
       break;
     case 'tempStaff':
       snapshot = { ...snapshot, tempStaff: msg.staff };
+      noteTemps();
       break;
     case 'ezRules':
       snapshot = { ...snapshot, ezRules: msg };
@@ -313,6 +316,9 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'officeAccess':
       restWatch.connected(performance.now()); // the handshake: what follows is replay (REST-ANIM)
       rebirthWatch.connected(performance.now());
+      levelWatch.connected(performance.now());
+      inheritWatch.connected(performance.now(), REST_SETTLE_MS);
+      tempWatch.connected(performance.now(), REST_SETTLE_MS);
       snapshot = {
         ...snapshot,
         agentCli: null, // a full office never sends one; a plain one sends it again after this
@@ -342,6 +348,7 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'groupTimeline':
     case 'groupActionResult':
     case 'pinnedConversations':
+    case 'goneConversationDeleteResult':
       messengerHandleMessage(msg); // the office messenger (T-0043) keeps its own store
       return;
     case 'officeBackground':
@@ -380,6 +387,9 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'repoCleanupListResult':
     case 'devroomSettings':
       mergeHandleMessage(msg); // the dev room's 병합 tab keeps its own state
+      return;
+    case 'devroomStats':
+      devroomSetStats(msg); // the dev room's footer
       return;
     case 'reviewNotes':
     case 'reviewNoteResult':
@@ -421,9 +431,27 @@ export function cldToast(
   text: string,
   tone: ActionToast['tone'],
   duration?: number,
+  own?: boolean,
 ): void {
-  snapshot = { ...snapshot, toast: { id: ++toastSeq, name, text, tone, duration } };
+  snapshot = {
+    ...snapshot,
+    toast: { id: ++toastSeq, name, text, tone, duration, ...(own && { own }) },
+  };
   emit();
+}
+
+/**
+ * DESKTOP-ACTIONS: the answer to the user's own click (복사, 내려받기, ...). Only this goes over the
+ * windows and the attachment viewer (owner 11-01); a notice the server pushes or a later result keeps
+ * the slot under the windows (UI-FIX 2).
+ */
+export function cldOwnToast(
+  name: string,
+  text: string,
+  tone: ActionToast['tone'],
+  duration?: number,
+): void {
+  cldToast(name, text, tone, duration, true);
 }
 
 /** Existing callers keep their familiar four-second notices and eight-second errors. */
@@ -462,19 +490,56 @@ export function cldResetForTests(): void {
   listeners.forEach((listener) => listener());
 }
 
+const pick = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
+
 /** REST-ANIM + C1: every row's 휴식 count as fatigueFor counts it (the daemon's, or the drops
- *  seen) and its 환생 count; one that went up live plays a coffee break or a rebirth (director). */
+ *  seen), its Lv and its 환생 count; one that went up live plays a coffee break, a level-up or a
+ *  rebirth (director). */
+const inheritWatch = new InheritWatch();
+const compactWatch = new CompactBreakWatch();
+
 function noteRests(): void {
   const now = performance.now();
+  compactHolds.clear();
   for (const o of snapshot.officeSnapshot?.orchestrators ?? []) {
     const id = o.agentId ?? virtualAgentId(`orch:${o.name}`);
-    if (restWatch.observe(id, Math.max(o.compactions, snapshot.contexts[id]?.drops ?? 0), now))
-      director.play(id, { kind: 'coffee' });
-    if (o.level && rebirthWatch.observe(id, o.level.rebirths, now))
-      director.play(id, {
-        kind: FX_REBIRTH_LIVE[Math.floor(Math.random() * FX_REBIRTH_LIVE.length)],
-        count: o.level.rebirths,
-      });
+    // COMPACT-COFFEE: the break starts with the compaction and drinks on while it lasts; the
+    // boundary's 휴식 +1 of the same compaction plays no second one.
+    const rose = restWatch.observe(id, Math.max(o.compactions, snapshot.contexts[id]?.drops ?? 0), now);
+    if (o.compacting) compactHolds.add(id);
+    if (compactWatch.observe(id, o.compacting === true, rose, now)) director.play(id, { kind: 'coffee' });
+    if (!o.level) continue;
+    if (levelWatch.observe(id, o.level.level, now))
+      director.play(id, { kind: pick(FX_LEVELUP_LIVE), count: o.level.level });
+    if (rebirthWatch.observe(id, o.level.rebirths, now))
+      director.play(id, { kind: pick(FX_REBIRTH_LIVE), count: o.level.rebirths });
+    // INHERIT: a new agent that took a removed one's records over, once it has its character
+    if (inheritWatch.observe(o.name, o.level.inherit ?? 0, o.agentId !== null, now))
+      director.play(id, { kind: 'inherit', count: o.level.inherit });
+  }
+  const owner = snapshot.officeSnapshot?.owner?.level.level; // OWNER-STATS: the owner levels up too
+  if (owner !== undefined && levelWatch.observe(OWNER_CHARACTER_ID, owner, now))
+    director.play(OWNER_CHARACTER_ID, { kind: pick(FX_LEVELUP_LIVE), count: owner });
+}
+
+/** FX-ALL: the character of a temp execution on screen now, or null (staff.ts knows the office). */
+let tempCharacter: (execution: string) => number | null = () => null;
+export function setTempCharacterLookup(fn: (execution: string) => number | null): void {
+  tempCharacter = fn;
+}
+const tempWatch = new TempStaffWatch();
+
+/** FX-ALL: the temp staff (sub-agents, Codex temporaries) level up and take coffee breaks too,
+ *  on the execution's character while it is on screen (none now: skipped). */
+function noteTemps(): void {
+  const rules = fatigueRules(snapshot.ezRules?.fatigue);
+  for (const m of tempWatch.observe(snapshot.tempStaff, rules, performance.now())) {
+    const id = tempCharacter(m.execution);
+    if (id === null) continue;
+    director.play(
+      id,
+      m.kind === 'coffee' ? { kind: 'coffee' } : { kind: pick(FX_LEVELUP_LIVE), count: m.count },
+    );
   }
 }
 

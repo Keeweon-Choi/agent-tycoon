@@ -19,9 +19,11 @@
 import type { BackgroundSettings } from '../../../../core/src/cld/background.js';
 import { elevatorState } from '../../cld/elevator.js';
 import {
+  animationClock,
   cldCharacterDrawables,
   cldCharacterSprite,
   dimmedSprite,
+  drinkingNow,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { reducedMotion } from '../../cld/floors.js';
@@ -33,6 +35,8 @@ import {
   ELEVATOR_RIDE_SEC,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
+  IMPORT_DENSITY,
+  IMPORT_WORLD_W,
   ISO_BOARD_FACE_H,
   ISO_BOARD_FACE_TILES,
   ISO_BOARD_FACE_Z,
@@ -55,12 +59,17 @@ import {
   ISO_SLAB_H,
   ISO_WALL_H,
   SELECTED_OUTLINE_ALPHA,
+  STEAM_HELD_LEAN_PX,
 } from '../../constants.js';
 import { getCharacterSprite } from '../../office/engine/characters.js';
 import { renderMatrixEffect } from '../../office/engine/matrixEffect.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from '../../office/engine/renderer.js';
-import { getCatalogEntry } from '../../office/layout/furnitureCatalog.js';
+import {
+  getAnimationFrames,
+  getCatalogEntry,
+  getOnStateType,
+} from '../../office/layout/furnitureCatalog.js';
 import type { OverlayProjection } from '../../office/projection.js';
 import { drawSmooth, isSmooth, smoothSize } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite, getOutlineSprite } from '../../office/sprites/spriteCache.js';
@@ -71,8 +80,10 @@ import {
 } from '../../office/sprites/spriteData.js';
 import { warmCharacter } from '../../office/sprites/warm.js';
 import type { Character, SpriteData } from '../../office/types.js';
-import { CharacterState, TILE_SIZE } from '../../office/types.js';
+import { CharacterState, Direction, TILE_SIZE } from '../../office/types.js';
 import { drawIsoBackground } from '../gfx/bg/draw.js';
+import { drinkCell, drinkCellsOf } from '../rest.js';
+import { drawSteam } from '../steam.js';
 import {
   artDensity,
   ISO_MANIFEST,
@@ -80,6 +91,7 @@ import {
   isoArt,
   type IsoImage,
   isoImages,
+  playingFrame,
   type WallUse,
 } from './art.js';
 import { fadesForCharacter, type IsoScreenBox } from './occlusion.js';
@@ -98,7 +110,7 @@ import {
 import { buildScene, type IsoFloorScene, type IsoItem } from './scene.js';
 import { facingOf, seatPieceFor } from './seats.js';
 import { doorFronts, frontAt, LIFT_TILES, shaftBands } from './shaft.js';
-import { isoFacing, mirrorSprite, rowDirection } from './sprites.js';
+import { characterView, mirrorSprite } from './sprites.js';
 
 /** Read-only counters for the runner: cache redraws, frames and the time they took. */
 export const isoStats = { groundRenders: 0, dimRenders: 0, frames: 0, ms: 0 };
@@ -405,10 +417,27 @@ function itemDrawns(
         artLift: lift,
         artMirror: mirror,
         draw: (t) => {
-          const a = isoArt(imgs, piece, t.d);
+          // C1: a machine in use plays its frames (the states the top-down office shows)
+          const def = ISO_MANIFEST.pieces[piece];
+          const n = def?.frames?.length ?? 0;
+          const k = n
+            ? playingFrame(os.cldPantry.get(it.uid), getAnimationFrames(getOnStateType(it.type)), n)
+            : 0;
+          const a = isoArt(imgs, piece, t.d, k);
           if (!a) return;
           const at = artAt(a, front, lift, mirror);
           drawArt(t, a, at, mirror);
+          // its full cup steams (the last frame)
+          if (def?.steam && k === n - 1) {
+            const sx = mirror ? a.img.w - def.steam[0] : def.steam[0];
+            drawSteam(
+              t.ctx,
+              t.o.x + (at.x + sx / a.d) * t.s,
+              t.o.y + (at.y + def.steam[1] / a.d) * t.s,
+              t.s,
+              animationClock(),
+            );
+          }
           d.hit = {
             kind: 'item',
             item: it,
@@ -488,8 +517,10 @@ function characterDrawns(
       if (seat) [feet.x, feet.y] = [feet.x + seat.x, feet.y + seat.y];
       else feet.y += CHARACTER_SITTING_OFFSET_PX / 2;
     }
-    // SHEET-IMPORT: a preset's own isometric sheet when it has one beside its top view
-    const all = getCharacterSprites(isoPaletteOf(ch.palette), ch.hueShift);
+    // SHEET-IMPORT: a preset's own isometric sheet when it has one beside its top view; CHAR-8DIR:
+    // with both, the top view's front, back and sides for the screen's straight directions
+    const view = characterView(ch, true, isoPaletteOf(ch.palette));
+    const all = getCharacterSprites(view.palette, ch.hueShift);
     const sprites = spritesAtZoom(all, s);
     warmCharacter(
       sprites,
@@ -497,13 +528,14 @@ function characterDrawns(
       (f) => [f, mirrorSprite(f), dimmedSprite(f), dimmedSprite(mirrorSprite(f))],
       ch.id,
     );
-    // The front or back row as the facing asks, mirrored for the other diagonal (sprites.ts).
-    const facing = isoFacing(ch.dir);
-    const frame = getCharacterSprite({ ...ch, dir: rowDirection(facing.row) }, sprites);
-    const sprite: SpriteData = cldCharacterSprite(
-      ch.id,
-      facing.mirror ? mirrorSprite(frame) : frame,
-    );
+    // C1: drinking in the three-quarter front view, a sheet with a drink row shows its own pose
+    const drinking = drinkingNow(ch);
+    const cells = drinking && view.dir === Direction.DOWN ? drinkCellsOf(view.palette) : undefined;
+    const cell = cells && drinking ? drinkCell(drinking.drink, drinking.sec, drinking.total) : -1;
+    const steam = cells?.steam[cell] ?? null;
+    // The row the facing asks, mirrored for the other diagonal (sprites.ts).
+    const frame = cells ? cells.cells[cell] : getCharacterSprite({ ...ch, dir: view.dir }, sprites);
+    const sprite: SpriteData = cldCharacterSprite(ch.id, view.mirror ? mirrorSprite(frame) : frame);
     const scale = s / sprites.density;
     const w = (sprite[0]?.length ?? 0) / sprites.density;
     const h = sprite.length / sprites.density;
@@ -542,7 +574,10 @@ function characterDrawns(
           return;
         }
         // The status ring and activity props the top-down office draws, at these feet.
-        const extras = cldCharacterDrawables(ch, dx + cw / 2, dy + chh, t.s, 0, alpha);
+        // INHERIT: the 계승's ghost is this frame again, shifted
+        const figure = (c: CanvasRenderingContext2D, ox: number, oy: number) =>
+          cached ? c.drawImage(cached, dx + ox, dy + oy) : drawSmooth(c, sprite, scale, dx + ox, dy + oy);
+        const extras = cldCharacterDrawables(ch, dx + cw / 2, dy + chh, t.s, 0, alpha, !!cells, figure);
         for (const e of extras) if (e.zY < 0) e.draw(ctx);
         if (focused) {
           const ol = getCachedSprite(getOutlineSprite(sprite), scale);
@@ -559,6 +594,14 @@ function characterDrawns(
           put();
           ctx.restore();
         } else put();
+        if (steam) {
+          // the held cup's steam (cell px at the imported sheet's density)
+          const k = t.s / IMPORT_DENSITY;
+          const cellW = IMPORT_WORLD_W * IMPORT_DENSITY;
+          const sx = view.mirror ? cellW - steam[0] : steam[0];
+          const lean = Math.sign(sx - cellW / 2) * STEAM_HELD_LEAN_PX; // away from the face
+          drawSteam(ctx, dx + sx * k, dy + steam[1] * k, t.s, animationClock(), lean);
+        }
         for (const e of extras) if (e.zY >= 0) e.draw(ctx);
       },
       hit: {

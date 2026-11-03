@@ -33,6 +33,7 @@ import {
 import { FloatingToast } from './FloatingToast.js';
 import { FolderPicker } from './FolderPicker.js';
 import { ImportProjects } from './ImportProjects.js';
+import { InheritChoice } from './InheritChoice.js';
 import { useCldStore } from './officeStore.js';
 import { serverLine } from './serverText.js';
 import { useCanAct } from './useCanAct.js';
@@ -174,10 +175,16 @@ function EngineFormModal({
   project,
   adding,
   newOffice,
+  startFolder,
+  cloned,
 }: {
   project: EngineProject | null;
   adding: boolean;
   newOffice: boolean;
+  /** The add form's folder, given (the dev room's 프로젝트 추가); its name the folder's. */
+  startFolder?: string;
+  /** That folder is a fresh clone: the engine never answers its trust question by itself. */
+  cloned?: boolean;
 }) {
   const { hostInfo, officeSnapshot } = useCldStore();
   const { state } = useEngineStore();
@@ -191,7 +198,8 @@ function EngineFormModal({
     );
     return {
       ...form,
-      folder: defaultProjectFolder(hostInfo),
+      folder: startFolder ?? defaultProjectFolder(hostInfo),
+      ...(startFolder && { name: baseName(startFolder) }),
       model: d.model ?? '',
       effort: d.effort ?? '',
     };
@@ -215,6 +223,8 @@ function EngineFormModal({
       ),
   );
   const [nameTouched, setNameTouched] = useState(false);
+  /** INHERIT: the removed agent of this folder whose records the new one takes over. */
+  const [inheritFrom, setInheritFrom] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 직접 입력 picked: the select keeps showing it while the typed value is still empty. */
   const [custom, setCustom] = useState<{ model?: boolean; effort?: boolean }>({});
@@ -348,7 +358,12 @@ function EngineFormModal({
       transport.state === 'connected',
       adding ? 'add' : 'edit',
       adding ? f.name.trim() : project!.name,
-      { ...formFields(f, project), ...(adding && newFolder && { mkdir: true }) },
+      {
+        ...formFields(f, project),
+        ...(adding && newFolder && { mkdir: true }),
+        ...(adding && inheritFrom && { inheritFrom }),
+        ...(adding && cloned && { cloned: true }),
+      },
     );
   };
   return (
@@ -389,6 +404,7 @@ function EngineFormModal({
           </p>
         ))}
         {newFolder && <p className="text-xs text-text-muted">{t('engine.newFolderHelp')}</p>}
+        {adding && <InheritChoice folder={f.folder} who="lead" value={inheritFrom} onChange={setInheritFrom} />}
         {adding && <p className="text-xs text-text-muted">{t('autoTrust.addHelp')}</p>}
         {typed &&
           !('error' in typed) &&
@@ -558,6 +574,10 @@ function EngineFormModal({
 /** The engine's form, confirmation and toast; mounted once at the top level. */
 export function EngineLayer() {
   const { confirm, toast, form, state } = useEngineStore();
+  // PROJECT-DATA: remove's "also delete its related data" box, off for every new question.
+  const [purge, setPurge] = useState(false);
+  useEffect(() => setPurge(false), [confirm]);
+  const purgeShown = confirm?.action === 'remove' && !confirm.mkdir;
   useEffect(
     () =>
       transport.onStateChange((s) => {
@@ -598,6 +618,8 @@ export function EngineLayer() {
           project={project}
           adding={!form.name}
           newOffice={form.newOffice === true}
+          startFolder={form.folder}
+          cloned={form.cloned}
         />
       )}
       <Modal isOpen={!!text} onClose={engineCancel} title={confirm?.name} zIndex={62}>
@@ -605,12 +627,32 @@ export function EngineLayer() {
           <div className="px-10 pb-8" role="alertdialog" aria-label={text.question}>
             <p className="text-base">{text.question}</p>
             {text.note && <p className="text-sm text-text-muted mt-4 break-all">{text.note}</p>}
+            {purgeShown && (
+              <label className="flex gap-4 items-start text-sm mt-8">
+                <input
+                  type="checkbox"
+                  className="mt-2"
+                  checked={purge}
+                  onChange={(e) => setPurge(e.target.checked)}
+                />
+                <span>{t('projectData.purge')}</span>
+              </label>
+            )}
+            {purgeShown && purge && (
+              <p className="text-sm text-red-400 mt-4" role="alert">
+                {t('projectData.purgeWarn')}
+              </p>
+            )}
             <div className="flex justify-end gap-8 mt-16">
               <Button
                 variant="accent"
                 size="sm"
                 onClick={() =>
-                  engineConfirm((m) => transport.send(m), transport.state === 'connected')
+                  engineConfirm(
+                    (m) => transport.send(m),
+                    transport.state === 'connected',
+                    purgeShown && purge ? { purge: true } : {},
+                  )
                 }
               >
                 {confirm.mkdir ? t('common.create') : engineLabel(confirm.action)}
@@ -625,7 +667,7 @@ export function EngineLayer() {
       {toast && (
         <FloatingToast
           key={toast.id}
-          className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[70] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+          className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
           frameClassName={`px-12 py-8 text-sm break-words ${toast.tone === 'error' ? 'text-red-400' : toast.tone === 'info' ? 'text-yellow-300' : 'text-text'}`}
           onDismiss={() => engineDismissToast(toast.id)}
           onTap={() => engineDismissToast(toast.id)}

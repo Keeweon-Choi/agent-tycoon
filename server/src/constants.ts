@@ -15,6 +15,13 @@ export const CLAUDE_USAGE_TIMEOUT_MS = 10_000;
 /** At most one usage request per refresh interval, whatever asks (a reconnect, the refresh icon); the
  *  slack keeps a timer tick that fires a hair early from skipping a whole interval. */
 export const CLAUDE_USAGE_MIN_GAP_MS = USAGE_REFRESH_MS - 5_000;
+/** After a 429, a 5xx or a network error the next usage request waits USAGE_REFRESH_MS doubled per failure
+ *  in a row (4, 8, 16 min ...), or the server's Retry-After; either way at most this long. */
+export const CLAUDE_USAGE_BACKOFF_MAX_MS = 30 * 60_000;
+/** While backing off, the last good endpoint reading (per-model figures included) stays shown until it is this old. */
+export const CLAUDE_USAGE_STALE_MS = 6 * 3_600_000;
+/** The last good endpoint reading, kept next to usage-claude.json (the status line's) so a restart still shows per-model windows. */
+export const CLAUDE_USAGE_API_FILE = 'usage-claude-api.json';
 /** macOS: the Keychain item Claude Code keeps its OAuth credentials in. */
 export const CLAUDE_KEYCHAIN_SERVICE = 'Claude Code-credentials';
 /** A Keychain read that would wait on a permission dialog is given up after this. */
@@ -166,6 +173,8 @@ export const WS_CLOSE_FORBIDDEN_ORIGIN = 4003;
 /** Terminal socket: the agent has no PTY on this server (never spawned, or
  *  already exited). The route only ever attaches; it cannot start one. */
 export const WS_CLOSE_NO_SESSION = 4004;
+/** A terminal stream ended while its terminal lives (the PTY host connection went): not 4xxx, so the pane reconnects. */
+export const WS_CLOSE_STREAM_ENDED = 1011;
 
 export const HOOK_EVENT_BUFFER_MS = 5_000;
 /** Grace period after SessionEnd(reason=clear/resume) before triggering onSessionEnd.
@@ -315,3 +324,20 @@ export const CONTROL_LONG_MS = 5 * 60_000;
 // ── P4 dev room (cld/devroom.ts) ──
 /** The dev room footer's stats (daemon and PTY host memory, terminals) while anyone has it open. */
 export const DEVROOM_STATS_MS = 10_000;
+/** A review's changed-file list is reused this long by its per-file diffs (RepoManager.changesOf). */
+export const DEVROOM_CHANGES_KEEP_MS = 10_000;
+/** 프로젝트 추가's `git clone` (projectRepo.ts): a big repository over a slow line, then it stops. */
+export const PROJECT_CLONE_TIMEOUT_MS = 10 * 60_000;
+/** CLONE-PROGRESS: at most one progress report to the dialog this often (a new phase at once). */
+export const PROJECT_CLONE_PROGRESS_MS = 250;
+
+// ── WAITING-PERSIST (server/src/question.ts) ──
+/** On restart, a transcript grown more than this past an open question counts as answered (not read). */
+export const QUESTION_RECONCILE_MAX_BYTES = 1024 * 1024;
+/** The saved open questions (office folder), and at most this many of them. */
+export const QUESTIONS_FILE_NAME = 'questions.json';
+export const QUESTIONS_MAX = 100;
+// ── Project files: tickets ──────────────────────────────────
+/** DESKTOP-ACTIONS: an 'open' ticket (handed to the default browser) dies this long after its mint,
+ *  however often a PDF or video viewer reads it: enough to read or watch, never a lasting link. */
+export const EXTERNAL_TICKET_MAX_MS = 30 * 60_000;

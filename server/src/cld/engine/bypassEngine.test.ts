@@ -85,6 +85,18 @@ describe('BYPASS-ACCEPT through the engine', () => {
     expect(fs.existsSync(path.join(folder, '.fake-bypass-needed'))).toBe(false);
   });
 
+  it('DEVROOM-PROJECT: a cloned bypass project gets no trust answer from the bypass step', async () => {
+    const s = setup();
+    const folder = s.folder('alpha');
+    fs.writeFileSync(path.join(folder, '.fake-untrusted'), '');
+    fs.writeFileSync(path.join(folder, '.fake-bypass-needed'), '');
+    expect(
+      await s.action('add', 'alpha', { folder, permissionMode: 'bypassPermissions', cloned: true }),
+    ).toMatchObject({ ok: false });
+    expect(await s.action('start', 'alpha')).toMatchObject({ ok: false });
+    expect(fs.existsSync(path.join(folder, '.fake-untrusted'))).toBe(true);
+  });
+
   it('a non-bypass project never reaches the dialog, even when the start output names it', async () => {
     const s = setup();
     const folder = s.folder('alpha');

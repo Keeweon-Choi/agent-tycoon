@@ -3,7 +3,8 @@
  * ISO-PILOT / ISO-2: the isometric pieces (./art) and their manifests. Two sets:
  *  - the owner's individual objects (gen-iso-objects.ts, `o-*.png`, owner-manifest.json): one
  *    master PNG each at density 12 (picture px per world px; a 16 px tile is a 192×96
- *    diamond), drawn at every zoom from that master (smooth when it is shrunk);
+ *    diamond), drawn at every zoom from that master (smooth when it is shrunk); C1: a piece
+ *    that plays (a pantry machine) lists its `frames`, masters too, at their own density;
  *  - what the pilot still draws from its starter pack or its script (gen-iso-art.ts,
  *    manifest.json): density 4 with copies at 2 and 1 (`name@2.png`, `name@1.png`), nearest.
  * The manifests are merged: a piece says its footprint (and the slot the game blocks), the
@@ -37,6 +38,11 @@ export interface PieceDef {
   wall?: { along: 'row' | 'col'; n: number; start: [number, number]; role: string };
   /** Stands on the floor even on a wall tile (a mobile whiteboard hangs on nothing). */
   stands?: boolean;
+  /** C1: its pictures while it plays (a pantry machine in use), `file` first: frame 0 is idle,
+   *  frame k+1 shows the furniture's "on" state k (`playingFrame`). */
+  frames?: string[];
+  /** C1: where the steam of a full cup rises (px of `file`) on its last frame. */
+  steam?: [number, number];
 }
 
 /** A wall piece in use: `mirror` draws it flipped (a wall running the other way). */
@@ -102,13 +108,33 @@ export function artDensity(s: number): number {
   return DENSITIES.find((d) => Number.isInteger(s / d)) ?? DENSITIES[DENSITIES.length - 1];
 }
 
-/** Piece `name` at density `d` (null: unknown, or not loaded). */
-export function isoArt(images: Map<string, IsoImage>, name: string, d: number): IsoArt | null {
+/** A master (density 12 or finer): one picture for every zoom, no copies. */
+const isMaster = (p: PieceDef) => p.density >= ISO_MASTER_DENSITY;
+
+/** C1: the frame a playing piece of `n` frames shows: the furniture shows `shown` (its "on"
+ *  state's catalog type while it plays, the same signal the top-down office draws; undefined:
+ *  idle), one of `states` (that state group's frames). Frame 0 when idle. */
+export function playingFrame(
+  shown: string | undefined,
+  states: readonly string[] | null,
+  n: number,
+): number {
+  const k = shown && states ? states.indexOf(shown) : -1;
+  return k < 0 ? 0 : Math.min(n - 1, k + 1);
+}
+
+/** Piece `name` at density `d`, its frame `frame` (null: unknown, or not loaded). */
+export function isoArt(
+  images: Map<string, IsoImage>,
+  name: string,
+  d: number,
+  frame = 0,
+): IsoArt | null {
   const piece = ISO_MANIFEST.pieces[name];
   if (!piece) return null;
-  if (piece.density === ISO_MASTER_DENSITY) {
+  if (isMaster(piece)) {
     // One master for every zoom: drawn scaled by device px per picture px (art.ts callers).
-    const img = images.get(piece.file);
+    const img = images.get(piece.frames?.[frame] ?? piece.file);
     return img ? { img, d: piece.density, ax: piece.anchor[0], ay: piece.anchor[1] } : null;
   }
   const k = piece.density / d;
@@ -155,14 +181,14 @@ export function neededFiles(m: IsoManifest = ISO_MANIFEST): Set<string> {
   ]);
   const files = new Set<string>();
   for (const [name, p] of Object.entries(m.pieces)) {
-    if (p.density !== ISO_MASTER_DENSITY) {
+    if (!isMaster(p)) {
       for (const f of [
         p.file,
         p.file.replace(/\.png$/, '@2.png'),
         p.file.replace(/\.png$/, '@1.png'),
       ])
         files.add(f);
-    } else if (names.has(name)) files.add(p.file);
+    } else if (names.has(name)) for (const f of p.frames ?? [p.file]) files.add(f);
   }
   return files;
 }

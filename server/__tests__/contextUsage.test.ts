@@ -173,6 +173,36 @@ describe('updateContextUsage', () => {
     expect(agent.maxContextTokens).toBe(1_000_000);
   });
 
+  describe('compact_boundary', () => {
+    const boundary = (postTokens?: number): Record<string, unknown> => ({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compactMetadata: { trigger: 'auto', preTokens: 345_417, ...(postTokens && { postTokens }) },
+    });
+
+    it('drops the gauge to postTokens when no turn follows (idle compaction)', () => {
+      updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 345_304 }));
+      expect(agent.contextTokens).toBe(345_306);
+      updateContextUsage(1, agent, agents, boundary(15_972));
+      expect(agent.contextTokens).toBe(15_972);
+      expect(messages.at(-1)).toMatchObject({ type: 'agentContextUsage', contextTokens: 15_972 });
+      // the window learned from the pre-compaction turn stays put
+      expect(agent.maxContextTokens).toBe(1_000_000);
+    });
+
+    it('is 0 when the boundary carries no postTokens', () => {
+      updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 100_000 }));
+      updateContextUsage(1, agent, agents, boundary());
+      expect(agent.contextTokens).toBe(0);
+    });
+
+    it('is replaced by the next assistant usage', () => {
+      updateContextUsage(1, agent, agents, boundary(15_972));
+      updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 19_998 }));
+      expect(agent.contextTokens).toBe(20_000);
+    });
+  });
+
   it('leaves the gauge alone for records that report nothing', () => {
     updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 50_000 }));
     updateContextUsage(1, agent, agents, { type: 'user', message: { content: 'next prompt' } });
@@ -288,6 +318,38 @@ describe('seedContextUsage', () => {
 
     expect(agent.contextTokens).toBe(90_002);
     expect(messages).toHaveLength(1);
+  });
+
+  it('seeds a boundary newer than the last turn as its postTokens, in the emptied turn window', () => {
+    const file = writeTranscript('idle.jsonl', [
+      assistantRecord({ cacheRead: 345_304 }),
+      { type: 'system', subtype: 'compact_boundary', compactMetadata: { postTokens: 15_972 } },
+      { type: 'user', isCompactSummary: true, message: { content: 'summary' } },
+    ]);
+
+    const agent = seedAgent(file);
+
+    expect(agent.contextTokens).toBe(15_972);
+    expect(agent.maxContextTokens).toBe(1_000_000);
+  });
+
+  it('seeds a boundary without postTokens as 0, and ignores an older boundary under a newer turn', () => {
+    const boundary = { type: 'system', subtype: 'compact_boundary' };
+    expect(
+      seedAgent(writeTranscript('a.jsonl', [assistantRecord({ cacheRead: 99_998 }), boundary]), {
+        id: 3,
+      }).contextTokens,
+    ).toBe(0);
+    expect(
+      seedAgent(
+        writeTranscript('b.jsonl', [
+          assistantRecord({ cacheRead: 300_000 }),
+          { ...boundary, compactMetadata: { postTokens: 15_972 } },
+          assistantRecord({ cacheRead: 40_000 }),
+        ]),
+        { id: 4 },
+      ).contextTokens,
+    ).toBe(40_002);
   });
 
   it('prefers the main chain over a sub-agent turn recorded after it', () => {

@@ -1,6 +1,6 @@
 /**
  * Mobile Dock check (owner's request 10-24 02:16): on a phone the office,
- * 현황판, 작업실, 파일, 메신저, 알림 and 터미널 share one Dock outside the sliding track,
+ * 현황판 (its 개발 tab the old 작업실, UI-DASH), 파일, 메신저, 알림, 개발실 and 터미널 share one Dock outside the sliding track,
  * the agent cards are compact until expanded, the top keeps only the floor and
  * 설정, the usage line sits at the bottom, and nothing leaves an empty band.
  *
@@ -71,11 +71,13 @@ function check(ok: unknown, what: string): void {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-type Screen = 'office' | 'board' | 'workbench' | 'files' | 'messenger' | 'notices' | 'terminal';
+/** 'dev': the 현황판's 개발 tab (UI-DASH: the old 작업실 page), under the 현황판's Dock button. */
+type Screen = 'office' | 'board' | 'dev' | 'files' | 'messenger' | 'notices' | 'terminal';
+const dockOf = (screen: Screen) => (screen === 'dev' ? 'board' : screen);
 /** The page each screen shows as (its accessible name); the office has none. */
 const PAGE_LABEL: Record<Exclude<Screen, 'office'>, string> = {
   board: '현황판 화면',
-  workbench: '작업실 화면',
+  dev: '현황판 화면',
   files: '파일 화면',
   messenger: '메신저',
   notices: '알림 화면',
@@ -214,17 +216,18 @@ async function afterChecks(
     `header: only the floor picker and 설정 on top (${topButtons.join(' | ')})`,
   );
   await top.getByRole('button', { name: '설정' }).tap();
-  const quick = phone.getByTestId('settings-quick');
-  const quickNames = await quick
-    .getByRole('button')
-    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''));
+  // UI-FONT: no second row over the tabs; 기기 추가 sits under 접속, 범례 under 화면, 보안 is a tab.
+  check((await phone.getByTestId('settings-quick').count()) === 0, 'header: 설정 has no second row over its tabs');
+  const tabNames = await phone.getByTestId('settings-tabs').getByRole('tab').allTextContents();
   check(
-    ['기기 추가', '보안', '범례'].every((n) => quickNames.includes(n)) &&
-      !quickNames.includes('EZ'),
-    `header: 기기 추가, 보안 and 범례 are the first row of 설정, no EZ button (${quickNames.join(' | ')})`,
+    tabNames.filter((n) => n.trim() === '보안').length === 1,
+    `header: 보안 appears once in 설정 (${tabNames.join(' | ')})`,
   );
+  await phone.getByTestId('settings-tabs').getByRole('tab', { name: '접속', exact: true }).tap();
+  check(await phone.getByTestId('add-device-option').getByRole('button', { name: '기기 추가' }).isVisible(), 'header: 기기 추가 is under 접속');
+  await phone.getByTestId('settings-tabs').getByRole('tab', { name: '화면', exact: true }).tap();
   await phone.screenshot({ path: path.join(OUT, 'after-settings-quick.png') });
-  await quick.getByRole('button', { name: '범례' }).tap();
+  await phone.getByTestId('legend-option').getByRole('button', { name: '범례' }).tap();
   const legend = phone.getByTestId('activity-legend');
   await legend.waitFor();
   const onTop = await legend.evaluate((el) => {
@@ -465,7 +468,7 @@ async function afterChecks(
   // ── Layers: a dialog covers the Dock ──
   await tap('messenger');
   await phone.getByTestId('mobile-top-bar').getByRole('button', { name: '설정' }).tap();
-  await phone.getByTestId('settings-quick').waitFor();
+  await phone.getByTestId('settings-tabs').waitFor();
   const dockBox = (await phone.getByTestId('mobile-dock').boundingBox())!;
   const covered = await phone.evaluate(
     ({ x, y }) =>
@@ -638,6 +641,16 @@ async function main() {
     /** The Dock's button (after), or the floating icon / tab that opened the screen before. */
     const dockButton = (page: Page, screen: Screen) => page.locator(`[data-dock="${screen}"]`);
     const go = async (page: Page, screen: Screen) => {
+      if (!BEFORE && screen === 'dev') {
+        await dockButton(page, 'board').tap();
+        // A DOM click, not tap(): Playwright's scroll-into-view moved the office region's
+        // overflow-hidden track 160 px sideways (a finger does not), and the hidden-roster
+        // geometry check then measured the joystick off screen.
+        return page
+          .getByRole('navigation', { name: '작업 메뉴' })
+          .getByRole('button', { name: '개발', exact: true })
+          .evaluate((el) => (el as HTMLElement).click());
+      }
       if (!BEFORE) return dockButton(page, screen).tap();
       if (screen === 'office') {
         // Before: each page had its own way back (사무실 in its title bar).
@@ -670,9 +683,24 @@ async function main() {
         .locator('[aria-current="page"]')
         .evaluateAll((els) => els.map((el) => el.getAttribute('data-dock')));
       check(
-        (await dock.isVisible()) && current.length === 1 && current[0] === screen,
-        `${label} ${screen}: the Dock shows and marks ${screen} (${current.join(',')})`,
+        (await dock.isVisible()) && current.length === 1 && current[0] === dockOf(screen),
+        `${label} ${screen}: the Dock shows and marks ${dockOf(screen)} (${current.join(',')})`,
       );
+      // UI-DASH: from 360 px every tab is whole on screen (none cut at the edge, no sideways scroll).
+      if (m.viewport.w >= 360) {
+        const fit = await dock.evaluate((nav) => ({
+          scrolls: nav.scrollWidth > nav.clientWidth + 1,
+          out: [...nav.querySelectorAll('button')].filter((b) => {
+            const r = b.getBoundingClientRect();
+            return r.left < 0 || r.right > window.innerWidth + 0.5 || r.width < 44;
+          }).length,
+          count: nav.querySelectorAll('button').length,
+        }));
+        check(
+          !fit.scrolls && fit.out === 0 && fit.count === 7,
+          `${label} ${screen}: all ${fit.count} Dock tabs whole on screen, each >= 44 px, no sideways scroll`,
+        );
+      }
       check(m.scrollFits, `${label} ${screen}: scrollWidth <= innerWidth`);
       // The last row ends at the inset's edge (nothing tappable in the strip, T-0008): the
       // gap under it is the inset itself plus the band's own few pixels, nothing more.
@@ -735,10 +763,10 @@ async function main() {
     await phone.locator(`[aria-label="${PAGE_LABEL.files}"]`).waitFor();
     await shotAndMeasure(phone, 'files');
     if (!BEFORE) {
-      // W1: the 작업실 is a page of its own in the Dock.
-      await go(phone, 'workbench');
-      await phone.locator(`[aria-label="${PAGE_LABEL.workbench}"]`).waitFor();
-      await shotAndMeasure(phone, 'workbench');
+      // UI-DASH: the old 작업실 is the 현황판's 개발 tab.
+      await go(phone, 'dev');
+      await phone.getByRole('combobox', { name: '개발 프로젝트' }).waitFor();
+      await shotAndMeasure(phone, 'dev');
     }
     await go(phone, 'office');
 
@@ -764,7 +792,7 @@ async function main() {
         'messenger',
         'terminal',
         'board',
-        'workbench',
+        'dev',
         'files',
       ] as const) {
         if (screen !== 'office') await go(android, screen);
@@ -901,7 +929,7 @@ async function main() {
         'messenger',
         'terminal',
         'board',
-        'workbench',
+        'dev',
         'files',
       ] as const) {
         if (screen !== 'office') await go(narrow, screen);

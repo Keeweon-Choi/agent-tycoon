@@ -20,9 +20,12 @@ import {
   lineNumbers,
 } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { useEffect, useRef } from 'react';
+import { type CSSProperties, useEffect, useRef } from 'react';
 
-const EDITOR_FONT = "'FS Pixel Sans', 'Galmuri11', monospace";
+import { useIsMobile } from '../../hooks/useIsMobile.js';
+
+// UI-FIX 3: the preview's own monospace font and size (Preview.tsx: font-mono text-xs), not the pixel font.
+const EDITOR_FONT = 'var(--font-mono, monospace)';
 
 const setMarks = StateEffect.define<number[]>();
 const agentLine = Decoration.line({ class: 'cm-agent-line' });
@@ -62,7 +65,10 @@ const highlight = HighlightStyle.define([
 const theme = EditorView.theme({
   '&': { backgroundColor: 'var(--color-code-bg)', color: 'var(--color-text)', height: '100%' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: EDITOR_FONT, lineHeight: '1.5' },
+  // `*` in index.css sets the pixel font on every element, so the scroller's children need it too.
+  '.cm-scroller, .cm-scroller *': { fontFamily: EDITOR_FONT },
+  // --editor-zoom is the owner's text zoom (ZoomBar), set on the host element.
+  '.cm-scroller': { fontSize: 'calc(var(--text-xs) * var(--editor-zoom, 1))', lineHeight: '1.5' },
   '.cm-content': { caretColor: 'var(--color-text)' },
   '.cm-cursor': { borderLeftColor: 'var(--color-text)' },
   '.cm-gutters': {
@@ -99,6 +105,7 @@ export default function Editor({
   docKey,
   marks,
   label,
+  zoom = 1,
   onChange,
 }: {
   path: string;
@@ -106,8 +113,10 @@ export default function Editor({
   docKey: number;
   marks: readonly number[];
   label: string;
+  zoom?: number;
   onChange: (text: string) => void;
 }) {
+  const wrap = useIsMobile(); // a phone wraps long lines, as the preview does
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const change = useRef(onChange);
@@ -135,6 +144,7 @@ export default function Editor({
         marksField,
         theme,
         language(path),
+        ...(wrap ? [EditorView.lineWrapping] : []),
       ],
     });
     view.current = created;
@@ -142,7 +152,7 @@ export default function Editor({
       created.destroy();
       view.current = null;
     };
-  }, [path, label]);
+  }, [path, label, wrap]);
 
   // A reload (or the first text): replace the whole text, keep the marks the owner passes.
   useEffect(() => {
@@ -157,5 +167,17 @@ export default function Editor({
     view.current?.dispatch({ effects: setMarks.of([...marks]) });
   }, [marks]);
 
-  return <div ref={host} className="h-full min-h-0 overflow-hidden" data-testid="code-editor" />;
+  // The new font size changes line heights and widths: CodeMirror measures again.
+  useEffect(() => {
+    view.current?.requestMeasure();
+  }, [zoom]);
+
+  return (
+    <div
+      ref={host}
+      className="h-full min-h-0 overflow-hidden"
+      style={{ '--editor-zoom': zoom } as CSSProperties}
+      data-testid="code-editor"
+    />
+  );
 }

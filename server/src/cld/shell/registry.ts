@@ -1,3 +1,12 @@
+/**
+ * Trusted-device shells (T-0069, T-0078). Each shell is a terminal of our PTY host (ADR-0018),
+ * marked `meta.kind: 'shell'` so the engine never takes it for an agent: it outlives a deploy
+ * (the daemon restarting) the way agents do, on every OS, and the daemon finds it again from
+ * shells.json joined to the host's terminals.json. The registry keeps one subscription per shell
+ * (output is activity, the end is its exit); each viewer gets its own (snapshot, then live).
+ * Without a host (a server built by a test, a build with no host script) a shell is a plain PTY
+ * in the daemon and ends with it.
+ */
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -14,16 +23,17 @@ import { type PtySession, PtySessionManager } from '../../terminal/ptySessionMan
 import { loginEnvFrom } from '../chat.js';
 import { configDirectory } from '../configPath.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
+import { processAlive } from '../providers/claudeProvider.js';
+import { listedTerminals, type PtyHostClient, type Subscription } from '../ptyhost/client.js';
+import { isShellTerminal, SHELL_KIND } from '../ptyhost/protocol.js';
 import { findTmux, Tmux } from './tmux.js';
 
 export const SHELL_IDLE_MS = 30 * 60_000;
-/** Said in the terminal when there is no tmux: the shell ends with the daemon. */
-export const NO_TMUX_NOTICE = '이 PC에는 tmux가 없어 배포하면 터미널이 끊겨요';
-/** Test seam (the browser runner's negative control): `off` runs shells without tmux, as before T-0069. */
-export const SHELL_PERSIST_ENV = 'CLD_GUI_SHELL_PERSIST';
 /** Our own ids: 18 random bytes, base64url. Anything else in shells.json is not ours. */
 const SHELL_ID = /^[A-Za-z0-9_-]{16,64}$/;
-/** A re-attach after the tmux client died while its session lives, before giving up. */
+/** The host's terminal ids (protocol.ts: 4 random bytes, hex). */
+const TERMINAL_ID = /^[0-9a-f]{8}$/;
+/** Watching (or a legacy tmux client) again after it dropped while the shell lives, before giving up. */
 const MAX_REATTACH = 3;
 /** lastActivity reaches disk this long after it changes. */
 const FLUSH_MS = 60_000;
@@ -36,36 +46,56 @@ export interface ShellView {
   openedAt: number;
 }
 
-/** One line of shells.json. */
+/** One line of shells.json. `terminal`: the host's; absent on a row a tmux version wrote. */
 interface PersistedShell extends ShellView {
   sessionHandle: string;
   lastActivity: number;
+  terminal?: string;
 }
 
+/** host: a host terminal. tmux: a shell an older version left in tmux (one release). plain: a daemon PTY. */
+type Backing = 'host' | 'tmux' | 'plain';
+
 interface ShellEntry extends PersistedShell {
-  /** The daemon's PTY: a tmux client, or the shell itself without tmux. */
-  pty: PtySession;
-  ptyId: number;
-  /** Runs in our tmux server: survives the daemon. */
-  backed: boolean;
+  backing: Backing;
+  /** tmux and plain: the daemon's PTY (a tmux client, or the shell itself). */
+  pty?: PtySession;
+  ptyId?: number;
+  /** host: the registry's own subscription. */
+  watch?: Subscription;
+  exitCode?: number;
   reattaches: number;
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface ShellExtras {
-  /** Absent: shells are plain PTYs (tests, a machine without tmux). */
-  tmux?: Tmux | null;
-  /** shells.json (0600): the open shells, to find them after a restart. */
-  file?: string;
+/** A viewer's view of one shell: its screen now, then live output (to the callback given to join). */
+export interface ShellStream {
+  snapshot: string;
+  cols: number;
+  rows: number;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  off(): void;
 }
 
-/** Owns only shells created by the shell API; no upstream agent PTY is shared. */
+export interface ShellExtras {
+  /** Our PTY host. Absent: shells are plain PTYs that end with the daemon. */
+  host?: PtyHostClient | null;
+  /** shells.json (0600): the open shells, to find them after a restart. */
+  file?: string;
+  /** ponytail: one release only. The tmux of shells a version before the PTY host left; looked up only at restore. */
+  legacyTmux?: () => Tmux | null;
+}
+
+/** Owns only shells created by the shell API; agent terminals in the same host are not its. */
 export class ShellRegistry {
   private readonly shells = new Map<string, ShellEntry>();
-  private readonly closeListeners = new Map<string, Set<(reason: string) => void>>();
+  private readonly closeListeners = new Map<string, Set<(reason: string, exitCode?: number) => void>>();
   private nextPtyId = 1;
-  private readonly tmux: Tmux | null;
+  private readonly host: PtyHostClient | null;
   private readonly file: string | undefined;
+  private readonly legacyTmux: () => Tmux | null;
+  private tmux: Tmux | null = null;
   private shuttingDown = false;
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -76,14 +106,9 @@ export class ShellRegistry {
     private readonly idleMs = SHELL_IDLE_MS,
     extras: ShellExtras = {},
   ) {
-    this.tmux = extras.tmux ?? null;
+    this.host = extras.host ?? null;
     this.file = extras.file;
-  }
-
-  /** The line a client is told on attach when the shell is not in tmux. */
-  noticeFor(id: string): string | undefined {
-    const entry = this.shells.get(id);
-    return entry && !entry.backed ? NO_TMUX_NOTICE : undefined;
+    this.legacyTmux = extras.legacyTmux ?? (() => null);
   }
 
   count(deviceId: string): number {
@@ -100,12 +125,8 @@ export class ShellRegistry {
     }));
   }
 
-  get(id: string): PtySession | undefined {
-    return this.shells.get(id)?.pty;
-  }
-
-  /** `listener(reason)` runs when the shell closes: 'exit' (it ended itself), 'idle', 'requested', 'revoked'. */
-  onClose(id: string, listener: (reason: string) => void): () => void {
+  /** `listener(reason, exitCode)` runs when the shell closes: 'exit' (it ended itself, with its code), 'idle', 'requested', 'revoked'. */
+  onClose(id: string, listener: (reason: string, exitCode?: number) => void): () => void {
     const listeners = this.closeListeners.get(id) ?? new Set();
     listeners.add(listener);
     this.closeListeners.set(id, listeners);
@@ -120,25 +141,9 @@ export class ShellRegistry {
     return !!entry && entry.deviceId === deviceId && entry.sessionHandle === sessionHandle;
   }
 
-  /** Synchronous so a concurrent open cannot pass the cap before it is recorded. */
-  open(deviceId: string, sessionHandle: string, label: string, cwd: string): ShellView {
+  /** Recorded before anything awaits, so a concurrent open cannot pass the cap. */
+  async open(deviceId: string, sessionHandle: string, label: string, cwd: string): Promise<ShellView> {
     const id = crypto.randomBytes(18).toString('base64url');
-    const command = loginShell();
-    const env = loginEnv();
-    let backed = false;
-    if (this.tmux) {
-      backed = this.tmux.newSession(id, {
-        cols: TERMINAL_DEFAULT_COLS,
-        rows: TERMINAL_DEFAULT_ROWS,
-        cwd,
-        command: command.file,
-        args: command.args,
-        env,
-      });
-      if (!backed) this.tmux.killSession(id); // half made
-      if (!backed)
-        console.warn('[cld shell] tmux would not start a session: a plain shell instead');
-    }
     const at = this.now();
     const entry = {
       id,
@@ -148,31 +153,88 @@ export class ShellRegistry {
       cwd,
       openedAt: at,
       lastActivity: at,
-      backed,
+      backing: this.host ? 'host' : 'plain',
       reattaches: 0,
       timer: setTimeout(() => this.close(id, 'idle'), this.idleMs),
     } as ShellEntry;
     entry.timer.unref?.();
+    this.shells.set(id, entry);
     try {
-      this.attach(entry);
+      if (this.host) await this.spawnInHost(this.host, entry);
+      else this.attachLocal(entry, loginShell());
     } catch (err) {
       clearTimeout(entry.timer);
-      if (backed) this.tmux?.killSession(id);
+      if (this.shells.get(id) === entry) this.shells.delete(id);
       throw err;
     }
-    this.shells.set(id, entry);
+    // Revoked while the host started it: closed already, its terminal goes too.
+    if (this.shells.get(id) !== entry) {
+      this.killTerminal(entry);
+      throw new Error('closed while opening');
+    }
     this.persist();
     this.audit('open', entry);
     return { id, deviceId, label, cwd, openedAt: entry.openedAt };
   }
 
-  /** The PTY the daemon holds for `entry`: the tmux client, or the shell itself. */
-  private attach(entry: ShellEntry): void {
-    const login = loginShell();
-    const run =
-      entry.backed && this.tmux
-        ? this.tmux.attachCommand(entry.id)
-        : { file: login.file, args: login.args };
+  private async spawnInHost(host: PtyHostClient, entry: ShellEntry): Promise<void> {
+    const shell = loginShell();
+    const r = await host.spawn({
+      file: shell.file,
+      args: shell.args,
+      cwd: entry.cwd,
+      env: loginEnv(),
+      cols: TERMINAL_DEFAULT_COLS,
+      rows: TERMINAL_DEFAULT_ROWS,
+      meta: { kind: SHELL_KIND, shell: entry.id },
+    });
+    if (!r.ok || typeof r.id !== 'string') throw new Error(r.error ?? 'the PTY host started no terminal');
+    entry.terminal = r.id;
+    if (!(await this.watch(entry))) {
+      this.killTerminal(entry);
+      throw new Error('the PTY host terminal ended at once');
+    }
+  }
+
+  /** The registry's own subscription to a host shell: output is activity, its end is the shell's. */
+  private async watch(entry: ShellEntry): Promise<boolean> {
+    const sub = await this.host!.subscribe(
+      entry.terminal!,
+      () => {
+        entry.reattaches = 0;
+        this.touch(entry.id);
+      },
+      (code) => this.watchEnded(entry, code),
+    );
+    if (!sub) return false;
+    if (this.shells.get(entry.id) !== entry) {
+      sub.off();
+      return false;
+    }
+    entry.watch = sub;
+    return true;
+  }
+
+  private watchEnded(entry: ShellEntry, code: number | undefined): void {
+    entry.watch = undefined;
+    if (this.shuttingDown || this.shells.get(entry.id) !== entry) return;
+    if (code !== undefined) {
+      entry.exitCode = code;
+      this.close(entry.id, 'exit');
+      return;
+    }
+    // The connection to the host went; the shell may still run there.
+    if (entry.reattaches++ >= MAX_REATTACH) {
+      this.close(entry.id, 'exit');
+      return;
+    }
+    void this.watch(entry).then((ok) => {
+      if (!ok && this.shells.get(entry.id) === entry) this.close(entry.id, 'exit');
+    });
+  }
+
+  /** The daemon's PTY for `entry`: a legacy tmux client, or the shell itself. */
+  private attachLocal(entry: ShellEntry, run: { file: string; args: string[] }): void {
     const ptyId = this.nextPtyId++;
     const pty = this.manager.create({
       agentId: ptyId,
@@ -193,18 +255,63 @@ export class ShellRegistry {
 
   private exited(entry: ShellEntry, pty: PtySession): void {
     if (this.shuttingDown || this.shells.get(entry.id) !== entry || entry.pty !== pty) return;
-    // The tmux client died but the shell is still there (the client was killed
-    // from outside): attach again before calling the shell ended.
-    if (entry.backed && entry.reattaches < MAX_REATTACH && this.tmux?.hasSession(entry.id)) {
+    // ponytail: legacy tmux. Its client died but the shell is still there (killed from outside): attach again.
+    if (
+      entry.backing === 'tmux' &&
+      entry.reattaches < MAX_REATTACH &&
+      this.tmux?.hasSession(entry.id)
+    ) {
       entry.reattaches++;
       try {
-        this.attach(entry);
+        this.attachLocal(entry, this.tmux.attachCommand(entry.id));
         return;
       } catch {
         /* closed below */
       }
     }
+    entry.exitCode = pty.exitStatus?.exitCode ?? 0;
     this.close(entry.id, 'exit');
+  }
+
+  /**
+   * A viewer of shell `id`: `data` gets live output after the snapshot (it may run before join
+   * resolves: hold it until the snapshot is shown), `end` when the stream ends without the shell
+   * closing (the registry's onClose says that). Null when there is no such shell to show.
+   */
+  async join(id: string, data: (d: string) => void, end: () => void): Promise<ShellStream | null> {
+    const entry = this.shells.get(id);
+    if (!entry) return null;
+    if (entry.backing === 'host') {
+      const host = this.host;
+      const t = entry.terminal;
+      if (!host || !t) return null;
+      const sub = await host.subscribe(t, data, () => end());
+      if (!sub) return null;
+      return {
+        snapshot: sub.snapshot,
+        cols: sub.cols,
+        rows: sub.rows,
+        write: (d) => void host.write(t, d),
+        resize: (cols, rows) => void host.call('resize', { t, cols, rows }),
+        off: () => sub.off(),
+      };
+    }
+    const pty = entry.pty;
+    if (!pty) return null;
+    const offData = pty.onData(data);
+    const offExit = pty.onExit(() => end());
+    const snapshot = await pty.snapshot();
+    return {
+      snapshot,
+      cols: pty.cols,
+      rows: pty.rows,
+      write: (d) => pty.write(d),
+      resize: (cols, rows) => pty.resize(cols, rows),
+      off: () => {
+        offData();
+        offExit();
+      },
+    };
   }
 
   touch(id: string): void {
@@ -223,13 +330,25 @@ export class ShellRegistry {
     if (!entry) return false;
     this.shells.delete(id);
     clearTimeout(entry.timer);
-    if (entry.backed) this.tmux?.killSession(id);
-    for (const listener of this.closeListeners.get(id) ?? []) listener(reason);
+    this.killTerminal(entry);
+    for (const listener of this.closeListeners.get(id) ?? []) listener(reason, entry.exitCode);
     this.closeListeners.delete(id);
-    this.manager.dispose(entry.ptyId);
     this.persist();
     this.audit('close', entry, by === undefined ? reason : `${reason} by=${JSON.stringify(by)}`);
     return true;
+  }
+
+  /** The shell's process goes (one that already ended is no matter). */
+  private killTerminal(entry: ShellEntry): void {
+    if (entry.backing === 'host') {
+      entry.watch?.off();
+      entry.watch = undefined;
+      if (entry.terminal && entry.exitCode === undefined)
+        void this.host?.call('kill', { t: entry.terminal });
+      return;
+    }
+    if (entry.backing === 'tmux') this.tmux?.killSession(entry.id);
+    if (entry.ptyId !== undefined) this.manager.dispose(entry.ptyId);
   }
 
   closeForRow(rowId: string): void {
@@ -239,13 +358,12 @@ export class ShellRegistry {
   }
 
   /**
-   * After a restart: the shells of shells.json whose tmux session is still
-   * there come back (the daemon's PTY attaches again, ownership as before);
-   * the rest are dropped from the file, and a session idle past its time is
-   * killed. Returns how many came back.
+   * After a restart: the shells of shells.json still running in the host come back (watched
+   * again, ownership as before); a host shell no row names, or one idle past its time, is
+   * killed; the other rows are dropped from the file. Returns how many came back.
    */
   restore(): number {
-    if (!this.tmux || !this.file) return 0;
+    if (!this.file) return 0;
     let saved: unknown = null;
     try {
       saved = readJson(this.file);
@@ -254,27 +372,66 @@ export class ShellRegistry {
         `[cld shell] shells.json unreadable: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    const live = this.tmux.sessions();
+    const rows = parseShells(saved).filter((row) => !this.shells.has(row.id));
     let kept = 0;
-    for (const row of parseShells(saved)) {
-      if (!live.has(row.id) || this.shells.has(row.id)) continue;
+    const host = this.host;
+    if (host) {
+      const live = listedTerminals(host.home).filter((t) => isShellTerminal(t) && processAlive(t.pid));
+      for (const t of live) {
+        const row = rows.find((r) => r.terminal === t.id && r.id === t.meta.shell);
+        const left = row ? this.idleMs - (this.now() - row.lastActivity) : 0;
+        if (!row || left <= 0) {
+          void host.call('kill', { t: t.id });
+          if (row) console.log(`[cld shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
+          continue;
+        }
+        const entry = {
+          ...row,
+          backing: 'host',
+          reattaches: 0,
+          timer: setTimeout(() => this.close(row.id, 'idle'), left),
+        } as ShellEntry;
+        entry.timer.unref?.();
+        this.shells.set(row.id, entry);
+        void this.watch(entry).then((ok) => {
+          if (!ok && this.shells.get(row.id) === entry) this.close(row.id, 'exit');
+        });
+        kept++;
+        this.restored(row);
+      }
+    }
+    kept += this.restoreLegacy(rows.filter((row) => !row.terminal));
+    this.persist();
+    return kept;
+  }
+
+  /**
+   * ponytail: compatibility for one release, delete with tmux.ts in the next. Shells a version
+   * before the PTY host left in tmux: attached as before until they close; new ones never go there.
+   */
+  private restoreLegacy(rows: PersistedShell[]): number {
+    if (!rows.length) return 0;
+    const tmux = (this.tmux = this.legacyTmux());
+    if (!tmux) return 0;
+    const live = tmux.sessions();
+    let kept = 0;
+    for (const row of rows) {
+      if (!live.has(row.id)) continue;
       const left = this.idleMs - (this.now() - row.lastActivity);
       if (left <= 0) {
-        this.tmux.killSession(row.id);
-        console.log(
-          `[cld shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`,
-        );
+        tmux.killSession(row.id);
+        console.log(`[cld shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
         continue;
       }
       const entry = {
         ...row,
-        backed: true,
+        backing: 'tmux',
         reattaches: 0,
         timer: setTimeout(() => this.close(row.id, 'idle'), left),
       } as ShellEntry;
       entry.timer.unref?.();
       try {
-        this.attach(entry);
+        this.attachLocal(entry, tmux.attachCommand(row.id));
       } catch (err) {
         clearTimeout(entry.timer);
         console.warn(
@@ -284,28 +441,32 @@ export class ShellRegistry {
       }
       this.shells.set(row.id, entry);
       kept++;
-      console.log(
-        `[cld shell] restored device=${JSON.stringify(row.label)} cwd=${JSON.stringify(row.cwd)} id=${row.id}`,
-      );
+      this.restored(row);
     }
-    this.persist();
     return kept;
   }
 
+  private restored(row: PersistedShell): void {
+    console.log(
+      `[cld shell] restored device=${JSON.stringify(row.label)} cwd=${JSON.stringify(row.cwd)} id=${row.id}`,
+    );
+  }
+
   /**
-   * Shutdown. Shells in tmux keep running: only the daemon's attach goes
-   * (their sockets just drop, and the clients attach again after the restart).
-   * Plain shells end with it.
+   * Shutdown. Shells in the host (and legacy tmux) keep running: only the daemon's side goes
+   * (viewers' sockets drop, and the panes attach again after the restart). Plain shells end with it.
    */
   async disposeAll(): Promise<void> {
     this.flushNow();
     this.shuttingDown = true;
-    const exited = [...this.shells.values()].map(
-      (entry) => new Promise<void>((resolve) => entry.pty.onExit(() => resolve())),
+    const local = [...this.shells.values()].filter((e) => e.pty);
+    const exited = local.map(
+      (entry) => new Promise<void>((resolve) => entry.pty!.onExit(() => resolve())),
     );
     for (const entry of [...this.shells.values()]) {
       clearTimeout(entry.timer);
-      if (entry.backed) this.manager.dispose(entry.ptyId);
+      if (entry.backing === 'host') entry.watch?.off();
+      else if (entry.backing === 'tmux') this.manager.dispose(entry.ptyId!);
       else this.close(entry.id, 'shutdown');
     }
     if (!exited.length) return;
@@ -321,8 +482,8 @@ export class ShellRegistry {
 
   private snapshot(): PersistedShell[] {
     return [...this.shells.values()]
-      .filter((e) => e.backed)
-      .map(({ id, deviceId, sessionHandle, label, cwd, openedAt, lastActivity }) => ({
+      .filter((e) => e.backing === 'tmux' || (e.backing === 'host' && e.terminal))
+      .map(({ id, deviceId, sessionHandle, label, cwd, openedAt, lastActivity, terminal }) => ({
         id,
         deviceId,
         sessionHandle,
@@ -330,11 +491,12 @@ export class ShellRegistry {
         cwd,
         openedAt,
         lastActivity,
+        ...(terminal && { terminal }),
       }));
   }
 
   private persist(): void {
-    if (!this.tmux || !this.file || this.shuttingDown) return;
+    if (!this.file || this.shuttingDown) return;
     clearTimeout(this.flushTimer);
     this.flushTimer = undefined;
     try {
@@ -375,14 +537,21 @@ export class ShellRegistry {
   }
 }
 
-/** The shell registry of this host: tmux when there is one (and persistence is not switched off). */
-export function hostShellRegistry(broadcast: (notice: ShellNotice) => void): ShellRegistry {
+/** The shell registry of this daemon: in `host` when there is one (else plain PTYs), listed in shells.json. */
+export function hostShellRegistry(
+  broadcast: (notice: ShellNotice) => void,
+  host: PtyHostClient | null,
+): ShellRegistry {
   const home = os.homedir();
-  const bin = process.env[SHELL_PERSIST_ENV] === 'off' ? null : findTmux(process.env, home);
-  if (!bin) console.log('[cld shell] no tmux: shells end with the daemon');
+  if (!host) console.log('[cld shell] no PTY host: shells end with the daemon');
   return new ShellRegistry(undefined, broadcast, Date.now, SHELL_IDLE_MS, {
-    tmux: bin ? new Tmux(bin) : null,
+    host,
     file: path.join(configDirectory(home), 'shells.json'),
+    // ponytail: one release only (tmux.ts).
+    legacyTmux: () => {
+      const bin = findTmux(process.env, home);
+      return bin ? new Tmux(bin) : null;
+    },
   });
 }
 
@@ -404,7 +573,8 @@ function parseShells(value: unknown): PersistedShell[] {
       typeof r.label === 'string' &&
       text(r.cwd) &&
       num(r.openedAt) &&
-      num(r.lastActivity)
+      num(r.lastActivity) &&
+      (r.terminal === undefined || (typeof r.terminal === 'string' && TERMINAL_ID.test(r.terminal)))
     )
       out.push({
         id: r.id,
@@ -414,6 +584,7 @@ function parseShells(value: unknown): PersistedShell[] {
         cwd: r.cwd,
         openedAt: r.openedAt,
         lastActivity: r.lastActivity,
+        ...(typeof r.terminal === 'string' && { terminal: r.terminal }),
       });
   }
   return out;

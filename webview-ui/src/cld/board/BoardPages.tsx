@@ -49,6 +49,7 @@ import {
 } from '../hwView.js';
 import type { CldSnapshot } from '../officeStore.js';
 import { capRows } from '../temps.js';
+import { useWaitReasons } from '../waiting.js';
 import {
   BOARD_PAGES,
   type BoardPage,
@@ -81,11 +82,24 @@ export interface BoardViewProps {
   lookOf: LookOf;
   /** Too small or off the camera: show the last frame, change nothing. */
   frozen: boolean;
+  /** 나를 기다림: the names of the agents waiting on the user (a permission or a question). */
+  waiting: readonly string[];
+  /** The 나를 기다림 count pressed: the 현황판's 오케스트레이터 tab. */
+  onWaiting: () => void;
 }
 
 /** The board: page tabs and the page. Frozen, it keeps its last frame. */
 export const BoardView = memo(
-  function BoardView({ snap, agentTools, page, onPage, nowSec, lookOf }: BoardViewProps) {
+  function BoardView({
+    snap,
+    agentTools,
+    page,
+    onPage,
+    nowSec,
+    lookOf,
+    waiting,
+    onWaiting,
+  }: BoardViewProps) {
     useLanguage();
     const now = nowSec * 1000;
     return (
@@ -107,6 +121,21 @@ export const BoardView = memo(
               {pageTitle(p)}
             </button>
           ))}
+          <button
+            type="button"
+            className={`led-wait ${waiting.length > 0 ? 'led-wait-on' : ''}`}
+            data-testid="board-waiting"
+            data-count={waiting.length}
+            aria-label={t('board.waiting.open', { count: waiting.length })}
+            title={waiting.join(', ') || undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              onWaiting();
+            }}
+          >
+            {t('board.waiting.count', { count: waiting.length })}
+            {waiting.length > 0 && <span className="led-wait-who"> · {waiting.join(', ')}</span>}
+          </button>
           <span className="led-clock" aria-hidden="true">
             {new Date(now).toTimeString().slice(0, 5)}
           </span>
@@ -120,13 +149,16 @@ export const BoardView = memo(
       </>
     );
   },
+  // Frozen keeps its frame, but the 나를 기다림 count stays true (it changes seldom).
   (a, b) =>
-    b.frozen ||
+    (b.frozen && a.waiting.join() === b.waiting.join()) ||
     (a.snap === b.snap &&
       a.agentTools === b.agentTools &&
       a.page === b.page &&
       a.nowSec === b.nowSec &&
-      a.lookOf === b.lookOf),
+      a.lookOf === b.lookOf &&
+      a.waiting.join() === b.waiting.join() &&
+      a.onWaiting === b.onWaiting),
 );
 
 // ── 프로젝트 ─────────────────────────────────────────────────
@@ -142,7 +174,8 @@ function ProjectsPage({
 }) {
   const engineProjects = useEngineStore().state?.projects;
   const workers = new Set((engineProjects ?? []).filter((p) => p.role).map((p) => p.name));
-  const { shown, more } = projectRows(snap, agentTools, now, BOARD_PROJECT_ROWS, workers);
+  const reasons = useWaitReasons();
+  const { shown, more } = projectRows(snap, agentTools, now, BOARD_PROJECT_ROWS, workers, reasons);
   if (!shown.length) return <p className="led-empty">{t('board.noProjects')}</p>;
   return (
     <ol className="led-rows">

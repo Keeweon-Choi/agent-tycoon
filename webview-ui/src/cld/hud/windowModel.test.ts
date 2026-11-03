@@ -27,12 +27,11 @@ const pc: WinState = {
     messenger: false,
     notices: false,
     terminal: false,
-    workbench: false,
     devroom: false,
     looks: false,
   },
   minimized: {},
-  order: ['office', 'messenger', 'notices', 'terminal', 'workbench', 'looks'],
+  order: ['office', 'messenger', 'notices', 'terminal', 'devroom', 'looks'],
   officeTab: 'status',
   boardTab: 'status',
 };
@@ -54,10 +53,10 @@ describe('PC: window states', () => {
   });
 
   it('opening one window keeps every other one as it was (owner 10-24: switching closed others)', () => {
-    const s = openOrFocus(minimize(openOrFocus(pc, 'workbench'), 'workbench'), 'messenger');
+    const s = openOrFocus(minimize(openOrFocus(pc, 'devroom'), 'devroom'), 'messenger');
     const t = openOrFocus(s, 'notices');
-    expect(t.open).toMatchObject({ workbench: true, messenger: true, notices: true });
-    expect(t.minimized).toEqual({ workbench: true });
+    expect(t.open).toMatchObject({ devroom: true, messenger: true, notices: true });
+    expect(t.minimized).toEqual({ devroom: true });
     expect(status(t, 'messenger')).toBe('behind');
   });
 
@@ -97,7 +96,7 @@ describe('PC: the icons are a Windows taskbar', () => {
 
   it('no icon press ever closes a window', () => {
     let s = pc;
-    for (const icon of ['office', 'files', 'messenger', 'notices', 'terminal', 'workbench'] as const)
+    for (const icon of ['office', 'files', 'messenger', 'notices', 'terminal', 'devroom'] as const)
       for (let i = 0; i < 4; i++) {
         s = iconPress(s, icon);
         expect(s.open[icon === 'files' ? 'office' : icon]).toBe(true);
@@ -121,19 +120,19 @@ describe('PC: the icons are a Windows taskbar', () => {
 
 describe('phone: the Dock is a tab bar', () => {
   it('one page shows at a time; the others stay open, minimized, as they were', () => {
-    const s = tabs(phone, 'messenger', 'workbench');
-    expect(activeTab(s)).toBe('workbench');
-    expect(s.open).toMatchObject({ messenger: true, workbench: true });
+    const s = tabs(phone, 'messenger', 'devroom');
+    expect(activeTab(s)).toBe('devroom');
+    expect(s.open).toMatchObject({ messenger: true, devroom: true });
     expect(s.minimized).toEqual({ messenger: true });
     const t = tabs(s, 'messenger');
     expect(activeTab(t)).toBe('messenger');
-    expect(t.minimized).toEqual({ workbench: true });
+    expect(t.minimized).toEqual({ devroom: true });
   });
 
   it('the shown tab pressed again goes to its root (like iOS); its state is the store`s to reset', () => {
     const s = tabs(phone, 'messenger');
     expect(tabPress(s, 'messenger')).toEqual({ state: s, root: 'messenger' });
-    expect(tabPress(s, 'workbench').root).toBeUndefined();
+    expect(tabPress(s, 'devroom').root).toBeUndefined();
   });
 
   it('the office tab is home: every page out of sight, none closed', () => {
@@ -238,9 +237,9 @@ describe('NOTICE-STACK: opening from the notice window', () => {
     expect(status(t, 'notices')).toBe('behind');
     expect(status(t, 'messenger')).toBe('front');
     expect(windowZ(t, 'messenger', false)).toBeGreaterThan(windowZ(t, 'notices', false));
-    const w = openOrFocus(leaveNotices(openOrFocus(pc, 'notices')), 'workbench'); // a closed target opens
+    const w = openOrFocus(leaveNotices(openOrFocus(pc, 'notices')), 'devroom'); // a closed target opens
     expect(status(w, 'notices')).toBe('behind');
-    expect(status(w, 'workbench')).toBe('front');
+    expect(status(w, 'devroom')).toBe('front');
   });
 
   it('phone: the page goes out of sight as it was and the target shows alone', () => {

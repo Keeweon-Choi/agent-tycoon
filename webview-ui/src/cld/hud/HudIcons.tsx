@@ -3,13 +3,14 @@
  * replace the text buttons and the phone's tab bar. Square pixel buttons with
  * a badge each; every one can be moved and sized (Movable).
  */
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { HUD_PANELS_Z } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { useUnreadTotal } from '../messenger/messengerStore.js';
 import { unreadCount, useNotices } from '../notify/notices.js';
 import { panelAvailable, useCldStore } from '../officeStore.js';
+import { toastSlot } from '../toastSlot.js';
 import { measurePanels, setFixedPanels, setPanelSlot } from './fixedPanels.js';
 import {
   BellGlyph,
@@ -18,7 +19,6 @@ import {
   CommandGlyph,
   FolderGlyph,
   TerminalGlyph,
-  WorkbenchGlyph,
 } from './glyphs.js';
 import { pressIcon, setHudBounds, useHud } from './hudStore.js';
 import { EDGE_GAP_PX, RAIL_PX } from './layout.js';
@@ -105,10 +105,6 @@ export function HudIcons({
       <IconButton id="office" name={t('hud.office')}>
         <BoardGlyph />
       </IconButton>
-      {/* W1: the 작업실, right after the 현황판 it was split from. */}
-      <IconButton id="workbench" name={t('hud.workbench')}>
-        <WorkbenchGlyph />
-      </IconButton>
       {store.officeSnapshot?.chat && (
         <IconButton
           id="messenger"
@@ -167,6 +163,18 @@ export function HudLayer({ dock, children }: { dock: ReactNode; children: ReactN
   const ref = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const bottomDock = useHud().layout.preset === 'bottom';
+  // UI-FIX 2: the pop-up notices' slot lives in the layer at z 0, so open windows (1..n) draw over a notice.
+  useLayoutEffect(() => {
+    const layer = ref.current;
+    if (!layer) return;
+    const toasts = toastSlot();
+    toasts.style.zIndex = '0';
+    layer.prepend(toasts);
+    return () => {
+      toasts.style.zIndex = '';
+      document.body.append(toasts);
+    };
+  }, []);
   // The layer fills its parent: presets (설정) place things for this size.
   const bounds = useBounds(ref);
   useEffect(() => {

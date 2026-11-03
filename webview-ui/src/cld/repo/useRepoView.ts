@@ -27,8 +27,8 @@ export function useRepoView(project: string | null): void {
 }
 
 /** Follow one worktree's review notes while its review is open (again after a dropped socket). */
-/** `tick` asks again (the daemon answers `fixed` when asked, it does not push a worktree's edits). */
-export function useReviewNotes(project: string, task: string, canWrite: boolean, tick = 0): void {
+/** A new `stamp` (the worktree changed) asks again: the daemon answers `fixed` when asked, it does not push a worktree's edits. */
+export function useReviewNotes(project: string, task: string, canWrite: boolean, stamp?: string): void {
   useEffect(() => {
     if (!canWrite) return;
     const ask = () => reviewOpen(project, task, (msg) => transport.send(msg));
@@ -36,5 +36,5 @@ export function useReviewNotes(project: string, task: string, canWrite: boolean,
     return transport.onStateChange((state) => {
       if (state === 'connected') ask();
     });
-  }, [project, task, canWrite, tick]);
+  }, [project, task, canWrite, stamp]);
 }

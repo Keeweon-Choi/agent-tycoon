@@ -312,6 +312,21 @@ function doctorLines(result) {
 
 function doctorExitCode(result) { return result.ok ? 0 : 1; }
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/** The two lines orchestrators read before starting a sub-agent: the Claude weekly usage and the running sub-agents. */
+function staffLines(result) {
+  const u = result.claudeUsage;
+  const at = u?.resetsAt ? new Date(u.resetsAt) : null;
+  const reset = at && !Number.isNaN(at.getTime()) ? ` (초기화 ${pad2(at.getMonth() + 1)}-${pad2(at.getDate())} ${pad2(at.getHours())}:${pad2(at.getMinutes())})` : '';
+  const sub = result.subagents ?? { total: 0, byProject: {} };
+  const per = Object.entries(sub.byProject).filter(([, n]) => n > 0).map(([name, n]) => `${name} ${n}`);
+  return [
+    u ? `Claude 사용량: 주간 ${u.weekPct}%${reset}${typeof u.fiveHourPct === 'number' ? ` · 5시간 ${u.fiveHourPct}%` : ''}` : 'Claude 사용량: 아직 알 수 없습니다',
+    `Claude 서브에이전트: 합계 ${sub.total}${per.length ? ` (${per.join(', ')})` : ''}`,
+  ];
+}
+
 function statusLines(result) {
   if (!result.daemon.up)
     return ['✖ 데몬: 꺼짐', `다음: ${result.next}`];
@@ -330,6 +345,7 @@ function statusLines(result) {
     `실행 중 작업: Codex ${tasks.length}${tasks.length ? ` (${tasks.map((t) => t.id).join(', ')})` : ''} · 작업 ${jobs.length}${jobs.length ? ` (${jobs.map((j) => j.id ?? j.pid).join(', ')})` : ''}`,
     `원격 연결: ${remote.connector ?? 'local'} · 바깥 접속 확인됨: ${last}`,
     result.hwLine || 'HW: 아직 측정값이 없습니다',
+    ...staffLines(result),
   ];
 }
 
@@ -348,6 +364,8 @@ async function status(dependencies = {}) {
     next: health ? null : `${CLI_NAME} doctor`,
     projects: snapshot.projects ?? [], jobs: snapshot.jobs ?? [], tasks: snapshot.tasks ?? [],
     connector: { connector: config.connector ?? 'local', checkedAt: remote?.ok ? remote.checkedAt : null },
+    claudeUsage: snapshot.claudeUsage ?? null,
+    subagents: snapshot.subagents ?? { total: 0, byProject: {} },
     hwLine: snapshot.hwLine ?? (snapshot.hw && typeof deps.hwLine === 'function' ? deps.hwLine(snapshot.hw) : null),
   };
 }

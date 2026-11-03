@@ -49,11 +49,13 @@ export interface RowLook {
 }
 
 /** A row read like its office character: the live tool, else the last one;
- *  no tool and not busy reads as idle. */
+ *  no tool and not busy reads as idle; a turn that ended asking (`question`, cld/waiting.ts)
+ *  reads as waiting for the user. */
 export function rowLook(
   o: OfficeOrchestrator,
   tools: ToolActivity[] | undefined,
   ctx: EzContext,
+  question = false,
 ): RowLook {
   const tool = tools && ([...tools].reverse().find((t) => !t.done) ?? tools.at(-1));
   const activity = describeActivity(
@@ -62,6 +64,7 @@ export function rowLook(
       status: tool?.status,
       desc: tool?.desc,
       permission: !!tool?.permissionWait && !tool.done,
+      waitingInput: question,
       idle: !tool,
       busy: o.busy === true,
     },

@@ -138,10 +138,12 @@ export interface Rest {
   /** Resting: seconds to its next drink. */
   next: number;
   kind?: PantryKind;
-  machine?: { uid: string; stand: Tile };
+  machine?: { uid: string; stand: Tile; face: Direction };
   /** C1: a coffee break from work (cld/director), not an off-duty rest: the agent's real
    *  activity never sends it back to its desk while it walks; the director ends it at its desk. */
   brk?: true;
+  /** COMPACT-COFFEE: its agent compacts meanwhile: the drink goes on (its sips again) until it is over. */
+  hold?: boolean;
 }
 
 export const nextDrinkIn = (rand: () => number = Math.random): number =>
@@ -261,18 +263,46 @@ export function restSpotFor(os: OfficeState, ch: Character): RestSpot {
 interface Machine {
   kind: PantryKind;
   uid: string;
-  /** The tile it is used from: the one below it. */
+  /** The tile it is used from (machineStand), and the way its user faces. */
   stand: Tile;
+  face: Direction;
 }
-/** The pantry machines on a floor that can be used (a free walkable tile in front). */
+
+/**
+ * C1 (owner 11-01: the machine's animation must show): where a machine of footprint height `h` at
+ * (col, row) is used from, facing it. A tile beside its front tile as the isometric view shows it,
+ * at the same depth so its user never stands between the camera and it: screen left (facing it,
+ * the three-quarter front facing the lower right), else screen right (the lower left). Machines
+ * side by side take both: then a diagonal-front tile, the screen-left neighbour of the tile in
+ * front of it (facing up), else its screen-right one (facing left). Last, the tile in front of it
+ * (below, facing up), as before. Null: none is `free`. One simulation for both views: the
+ * top-down office uses the same tile.
+ */
+export function machineStand(
+  f: Tile,
+  h: number,
+  free: (t: Tile) => boolean,
+): { stand: Tile; face: Direction } | null {
+  const front = f.row + h - 1;
+  const choices = [
+    { stand: { col: f.col - 1, row: front + 1 }, face: Direction.RIGHT },
+    { stand: { col: f.col + 1, row: front - 1 }, face: Direction.DOWN },
+    { stand: { col: f.col - 1, row: front + 2 }, face: Direction.UP },
+    { stand: { col: f.col + 1, row: front }, face: Direction.LEFT },
+    { stand: { col: f.col, row: front + 1 }, face: Direction.UP },
+  ];
+  return choices.find((c) => free(c.stand)) ?? null;
+}
+/** The pantry machines on a floor that can be used (a free walkable tile to use them from). */
 export function machinesOn(os: OfficeState, b: { top: number; bottom: number }): Machine[] {
   const out: Machine[] = [];
   for (const f of os.layout.furniture) {
     const kind = KIND_OF.get(f.type);
     if (!kind || f.row < b.top || f.row >= b.bottom) continue;
-    const stand = { col: f.col, row: f.row + (getCatalogEntry(f.type)?.footprintH ?? 2) };
-    if (isWalkable(stand.col, stand.row, os.tileMap, os.blockedTiles))
-      out.push({ kind, uid: f.uid, stand });
+    const use = machineStand(f, getCatalogEntry(f.type)?.footprintH ?? 2, (t) =>
+      isWalkable(t.col, t.row, os.tileMap, os.blockedTiles),
+    );
+    if (use) out.push({ kind, uid: f.uid, ...use });
   }
   return out;
 }
@@ -345,7 +375,7 @@ function startDrink(os: OfficeState, ch: Character, r: Rest, rand: () => number)
       phase: 'fetch',
       t: 0,
       kind: m.kind,
-      machine: { uid: m.uid, stand: m.stand },
+      machine: { uid: m.uid, stand: m.stand, face: m.face },
     });
     return;
   }
@@ -410,7 +440,8 @@ export function restStep(
         goBack(os, ch, r);
         return ch.state !== CharacterState.WALK;
       }
-      ch.dir = Direction.UP; // the machine is above it
+      ch.dir = r.machine.face; // facing the machine
+      ch.cldDiagRow = undefined; // facing right: the three-quarter view, not the side
       ch.state = CharacterState.IDLE;
       ch.frame = 0;
       r.phase = 'use';
@@ -430,7 +461,9 @@ export function restStep(
       }
       break;
     case 'drink':
-      if (r.t >= DRINK_SEC) {
+      if (r.t >= DRINK_SEC && r.hold)
+        r.t = LOUNGE_DRINK_STEP_SEC; // the cup up again, from "hold"
+      else if (r.t >= DRINK_SEC) {
         goBack(os, ch, r);
         return ch.state !== CharacterState.WALK;
       }
@@ -446,7 +479,13 @@ export function restStep(
  * else stands at), and back to its desk after the drink; restStep plays it like an off-duty
  * drink. Null: no such machine on its floor (the caller shows the drink in place).
  */
-export function startBreak(os: OfficeState, ch: Character, kind: PantryKind): Rest | null {
+export function startBreak(
+  os: OfficeState,
+  ch: Character,
+  kind: PantryKind,
+  /** FX-ALL: this machine only (the owner's tap on it). */
+  uid?: string,
+): Rest | null {
   if (ch.cldRest) return null; // off duty already: its own rest goes on
   const from = here(ch);
   const seat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
@@ -455,7 +494,7 @@ export function startBreak(os: OfficeState, ch: Character, kind: PantryKind): Re
     : { tile: from, seat: null };
   const taken = claimedBy(os, ch.id);
   const list = machinesOn(os, band(os, from.row))
-    .filter((m) => m.kind === kind && !taken.tiles.has(key(m.stand)))
+    .filter((m) => m.kind === kind && (!uid || m.uid === uid) && !taken.tiles.has(key(m.stand)))
     .sort((a, b) => dist(from, a.stand) - dist(from, b.stand));
   for (const m of list) {
     if (!same(from, m.stand) && !walkTo(os, ch, m.stand)) continue;
@@ -465,13 +504,35 @@ export function startBreak(os: OfficeState, ch: Character, kind: PantryKind): Re
       spot,
       next: Infinity,
       kind,
-      machine: { uid: m.uid, stand: m.stand },
+      machine: { uid: m.uid, stand: m.stand, face: m.face },
       brk: true,
     };
     ch.cldRest = rest;
     return rest;
   }
   return null;
+}
+
+/**
+ * FX-ALL: the coffee or vending machine character `ch` stands next to (within a tile of its
+ * footprint, or on the tile it is used from; the nearest), on its floor; with `tile`, only the machine whose
+ * footprint holds that tile (a tap on it). Null: none.
+ */
+export function pantryNear(os: OfficeState, ch: Character, tile?: Tile): Machine | null {
+  let best: { m: Machine; d: number } | null = null;
+  for (const m of machinesOn(os, band(os, ch.tileRow))) {
+    if (m.kind === 'water') continue;
+    const f = os.layout.furniture.find((x) => x.uid === m.uid);
+    if (!f) continue;
+    const e = getCatalogEntry(f.type);
+    const [c1, r1] = [f.col + (e?.footprintW ?? 1) - 1, f.row + (e?.footprintH ?? 2) - 1];
+    if (tile && (tile.col < f.col || tile.col > c1 || tile.row < f.row || tile.row > r1)) continue;
+    const dc = Math.max(f.col - ch.tileCol, 0, ch.tileCol - c1);
+    const dr = Math.max(f.row - ch.tileRow, 0, ch.tileRow - r1);
+    const d = same(here(ch), m.stand) ? 0 : dc + dr; // the nearest of two side by side
+    if ((d === 0 || Math.max(dc, dr) <= 1) && (!best || d < best.d)) best = { m, d };
+  }
+  return best?.m ?? null;
 }
 
 /** C1: the break is over (back at its desk, skipped or timed out): the FSM has the character again. */

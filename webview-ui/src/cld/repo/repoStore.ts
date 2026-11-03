@@ -44,6 +44,8 @@ export interface DetailView {
   commits: NonNullable<RepoWorktreeDetail['commits']>;
   filesTruncated: boolean;
   guard?: string;
+  /** Moves when the worktree's changes do (repoWorktreeDetail.stamp). */
+  stamp?: string;
   loading: boolean;
   error?: string;
 }
@@ -77,9 +79,19 @@ export const repoSubscribe = (listener: () => void) => {
 export const repoGetSnapshot = () => snapshot;
 export const useRepoStore = () => useSyncExternalStore(repoSubscribe, repoGetSnapshot);
 
+let drawQueued = false;
+/** The snapshot changes at once, the views hear of it once a frame: a review's 30 diff answers in
+ *  a row redraw the dev room a few times, not 30. */
 function set(next: Partial<RepoSnapshot>): void {
   snapshot = { ...snapshot, ...next };
-  listeners.forEach((listener) => listener());
+  if (drawQueued) return;
+  drawQueued = true;
+  const notify = () => {
+    drawQueued = false;
+    listeners.forEach((listener) => listener());
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(notify);
+  else setTimeout(notify, 0);
 }
 
 /**
@@ -114,8 +126,12 @@ export function repoHandleMessage(
       const key = pendingDetails.get(msg.requestId); // its own key: a since list differs from the whole one
       if (key === undefined) return;
       pendingDetails.delete(msg.requestId);
+      const before = snapshot.details[key];
+      if (!before) return; // closed meanwhile
+      // The second-by-second ask finds the same: nothing to draw again.
+      if (msg.ok && msg.stamp && before.stamp === msg.stamp && !before.error) return;
       const view: DetailView = msg.ok
-        ? { files: msg.files ?? [], commits: msg.commits ?? [], filesTruncated: !!msg.filesTruncated, ...(msg.guard && { guard: serverLine(msg.guard) }), loading: false }
+        ? { files: msg.files ?? [], commits: msg.commits ?? [], filesTruncated: !!msg.filesTruncated, ...(msg.guard && { guard: serverLine(msg.guard) }), ...(msg.stamp && { stamp: msg.stamp }), loading: false }
         : { files: [], commits: [], filesTruncated: false, loading: false, error: serverText(msg, t('repo.loadFailed')) };
       set({ details: { ...snapshot.details, [key]: view } });
       return;
@@ -209,14 +225,14 @@ export function repoRequestDiff(
   });
 }
 
-/** W4: ask what task worktree `task` changed (again when it changed; the old answer stays shown meanwhile). */
+/** W4: ask what task worktree `task` changed (again every second while its review is shown: one ask
+ *  in flight per view, and the answer shown stays until a different one comes, without a loading flag). */
 export function repoRequestDetail(project: string, task: string, send: (msg: RepoWorktreeRequest) => void, since?: string): void {
   const key = detailKey(project, task, since);
-  const before = snapshot.details[key];
-  if (before?.loading) return;
+  if ([...pendingDetails.values()].includes(key)) return;
   const requestId = newRequestId();
   pendingDetails.set(requestId, key);
-  set({ details: { ...snapshot.details, [key]: { ...(before ?? { files: [], commits: [], filesTruncated: false }), loading: true } } });
+  if (!snapshot.details[key]) set({ details: { ...snapshot.details, [key]: { files: [], commits: [], filesTruncated: false, loading: true } } });
   send({ type: 'repoWorktreeRequest', requestId, project, task, ...(since ? { since } : {}) });
 }
 
@@ -273,8 +289,9 @@ export function repoConfirmNow(
   send(msg);
 }
 
-/** The socket dropped: results of running writes can no longer arrive here. */
+/** The socket dropped: results of running writes (and of asks in flight) can no longer arrive here. */
 export function repoConnectionLost(toast: ToastSink): void {
+  pendingDetails.clear();
   const projects = Object.keys(snapshot.busy);
   if (!projects.length) return;
   set({ busy: {} });

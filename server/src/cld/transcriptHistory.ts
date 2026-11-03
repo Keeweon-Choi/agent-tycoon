@@ -13,6 +13,7 @@ import {
   lineItems,
   type LineOptions,
   turnMessageId,
+  turnParts,
   userTurnText,
 } from './transcriptView.js';
 
@@ -47,7 +48,8 @@ function roomTurnOffsets(file: string): TurnOffsets {
       hiding = isRoomPromptLine(line);
       bound = turnMessageId(prompt);
     }
-    if (hiding) turns.hidden.add(offset);
+    // A joined turn (MSG-SPLIT) stays: lineItems drops its room parts and keeps its DM parts.
+    if (hiding && !(prompt !== null && turnParts(prompt).length > 1)) turns.hidden.add(offset);
     else if (bound) turns.bound.set(offset, bound);
     offset += Buffer.byteLength(line) + 1;
   }
@@ -283,7 +285,7 @@ async function readPage(
       }
       items.push({
         ...item,
-        ...(messageId && { messageId }),
+        ...(messageId && !item.messageId && { messageId }),
         ...(entry.session && { session: entry.session, sessionStart: entry.sessionStart }),
       });
       seen++;

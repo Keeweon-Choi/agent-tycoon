@@ -260,6 +260,11 @@ export interface Character {
    *  per-consumer guard reads this flag. It exists for the render/e2e snapshot
    *  (testHooks.getCharacters) to tell the greeter from agents. */
   isGreeter?: boolean;
+  /** CHAR-8DIR: the row step (-1 or 1) of its last step when that was diagonal (`dir`, RIGHT or
+   *  LEFT, holds its column step), else undefined: an 8-direction sheet draws it from that. */
+  cldDiagRow?: -1 | 1;
+  /** WALK-FIX: world px walked in its life; the walk frame is read off it (walkFrameAt). */
+  cldWalkPx?: number;
   /** OWNER-AVATAR: the owner's own character (OWNER_CHARACTER_ID): walked by the keys and the
    *  joystick, followed by default; no seat, no wander, no status, no staff rules. */
   cldOwner?: boolean;

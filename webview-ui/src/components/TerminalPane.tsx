@@ -160,9 +160,15 @@ export function TerminalPane({
           // resize-first so the snapshot lays out at its own geometry. The fit
           // then reconciles with the actual container — if that's a real change,
           // the PTY gets a SIGWINCH and the TUI repaints itself.
+          // DEVROOM-BOARD2 (owner 11-03 11:51): the fit runs the moment the
+          // snapshot is parsed, before any output queued behind it. The server
+          // applies this pane's size right after the replay, so the TUI's repaint
+          // at that size follows it; a debounced fit let the repaint be parsed at
+          // the snapshot's old size (its columns clamped, wrapped), and with the
+          // PTY then already at the new size no SIGWINCH came to clean it up: the
+          // left-edge leftovers after switching the dev room's 1 / 2 / 2x2.
           term.resize(cols, rows);
-          term.write(`\x1bc${data}`);
-          scheduleFit();
+          term.write(`\x1bc${data}`, () => applyFit());
         },
         onExit: (exitCode) => {
           const ended = messagesRef.current?.ended;

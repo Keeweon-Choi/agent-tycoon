@@ -64,6 +64,7 @@ import {
 import { StaleBuildBanner } from './cld/StaleBuildBanner.js';
 import { TerminalWorkspace } from './cld/terminal/TerminalWorkspace.js';
 import { OPEN_TERMINAL_EVENT } from './cld/terminal/workspaceStore.js';
+import { waitingIds } from './cld/waiting.js';
 import { WorkSheet } from './cld/work/WorkSheet.js';
 import { OPEN_WORKBENCH_EVENT } from './cld/workbench/workbenchStore.js';
 import { AgentCardBar } from './components/AgentCardBar.js';
@@ -275,7 +276,7 @@ function App() {
     selectedAgent,
     agentTools,
     agentStatuses,
-    agentAwaitingInput,
+    agentQuestion,
     agentSeenActivity,
     subagentTools,
     subagentCharacters,
@@ -382,7 +383,7 @@ function App() {
     getOfficeState,
     agentTools,
     agentStatuses,
-    agentAwaitingInput,
+    agentQuestion,
     agentSeenActivity,
   });
 
@@ -437,9 +438,9 @@ function App() {
     window.addEventListener(OPEN_TERMINAL_EVENT, openTerminal);
     return () => window.removeEventListener(OPEN_TERMINAL_EVENT, openTerminal);
   }, [cldMode, handleOfficePanel]);
-  // W1: a 작업실 button (the 현황판 card's) opens the window, or on a phone the Dock page.
+  // UI-DASH: a link that opened the 작업실 opens the 현황판 on its 개발 tab (window or Dock page).
   useEffect(() => {
-    const openWorkbench = () => openWindow('workbench');
+    const openWorkbench = () => showOffice('dev');
     window.addEventListener(OPEN_WORKBENCH_EVENT, openWorkbench);
     return () => window.removeEventListener(OPEN_WORKBENCH_EVENT, openWorkbench);
   }, []);
@@ -460,10 +461,10 @@ function App() {
     },
     [goToAgent],
   );
-  // The terminal icon's badge: agent terminals waiting on an answer.
-  const terminalWaiting = paneAgentIds.filter(
-    (id) => terminalDrawer.statusFor(id) === 'attention',
-  ).length;
+  // The terminal icon's badge: agent terminals waiting on an answer; the lobby board's
+  // 나를 기다림: every agent waiting on one.
+  const terminalWaiting = waitingIds(paneAgentIds, terminalDrawer.reasons).length;
+  const agentsWaiting = waitingIds(agents, terminalDrawer.reasons);
 
   const currentMajorMinor = toMajorMinor(extensionVersion);
 
@@ -951,8 +952,10 @@ function App() {
             panRef={editor.panRef}
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
+            phone={isMobile}
+            cardMenu={cldMode && isMobile && !officeReadOnly && !editor.isEditMode && !isDebugMode}
           />
-          {cldMode && <CameraModeControl />}
+          {cldMode && <CameraModeControl phone={isMobile} />}
           {/* JOYSTICK: the direction keys (walk the selected or the owner's character, or pan the
               free camera); the phone's office page only. */}
           {cldMode && isMobile && (
@@ -1092,6 +1095,8 @@ function App() {
           zoom={editor.zoom}
           panRef={editor.panRef}
           agentTools={agentTools}
+          phone={isMobile}
+          waiting={agentsWaiting}
         />
       )}
       {/* cld-gui (T-0065): the memos on the whiteboards; a tap opens one (not while decorating). */}
@@ -1122,6 +1127,7 @@ function App() {
           containerRef={containerRef}
           zoom={editor.zoom}
           panRef={editor.panRef}
+          phone={isMobile}
         />
       )}
 
@@ -1130,6 +1136,7 @@ function App() {
         <HudLayer dock={<HudIcons terminalWaiting={terminalWaiting} />}>
           <DesktopWindows
             agentTools={agentTools}
+            subagentTools={subagentTools}
             statusFor={terminalDrawer.statusFor}
             getAppearance={terminalDrawer.getAppearance}
             getOfficeState={getOfficeState}
@@ -1183,6 +1190,7 @@ function App() {
                   {cldMode && (
                     <MobileOfficePanel
                       agentTools={agentTools}
+                      subagentTools={subagentTools}
                       keyboardOpen={keyboard.keyboardOpen}
                       statusFor={terminalDrawer.statusFor}
                       getAppearance={terminalDrawer.getAppearance}
@@ -1232,11 +1240,8 @@ function App() {
                 cldMode ? (
                   <>
                     {/* The usage, folded to one line (owner 10-24), is the last row of the page, above the tab
-                        bar: a tab bar is the bottom-most thing on a phone, nothing sits under it. A phone on its side is
-                        too short for it (the top bar, page header and tab bar already take half the screen). */}
-                    <div className="flex border-t-2 border-border pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)] [@media(orientation:landscape)_and_(max-height:500px)]:hidden">
-                      <UsageLine foldedByDefault />
-                    </div>
+                        bar: nothing sits under a phone's tab bar. */}
+                    <UsageLine phone />
                     <MobileDock
                       active={phoneTabs.tab}
                       onPick={phoneTabs.pick}

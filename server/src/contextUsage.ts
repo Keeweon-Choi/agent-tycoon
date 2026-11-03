@@ -27,6 +27,9 @@ interface UsageBlock {
 
 /** Shape we care about; transcripts carry far more per record. */
 interface TranscriptRecord {
+  type?: string;
+  subtype?: string;
+  compactMetadata?: { postTokens?: number };
   isSidechain?: boolean;
   message?: { model?: string; usage?: UsageBlock };
 }
@@ -48,6 +51,19 @@ export function extractContextTokens(record: unknown): number {
     (usage.cache_read_input_tokens ?? 0) +
     (usage.output_tokens ?? 0);
   return Number.isFinite(sum) && sum > 0 ? sum : 0;
+}
+
+/**
+ * The context a compaction left behind: `compactMetadata.postTokens` of a
+ * `compact_boundary` record (0 when absent), or null for any other record. The
+ * boundary arrives with no assistant turn after it (Claude compacts while idle
+ * too), so without it the gauge would keep the context the compaction emptied.
+ */
+export function extractCompactionTokens(record: unknown): number | null {
+  const r = record as TranscriptRecord | null;
+  if (r?.type !== 'system' || r.subtype !== 'compact_boundary') return null;
+  const post = r.compactMetadata?.postTokens;
+  return typeof post === 'number' && Number.isFinite(post) && post > 0 ? post : 0;
 }
 
 /**
@@ -108,8 +124,9 @@ export function updateContextUsage(
   record: unknown,
   provider?: HookProvider | null,
 ): void {
-  const tokens = extractContextTokens(record);
-  if (tokens <= 0) return;
+  const compacted = extractCompactionTokens(record);
+  const tokens = compacted ?? extractContextTokens(record);
+  if (tokens <= 0 && compacted === null) return;
   const isSidechain = (record as TranscriptRecord | null)?.isSidechain === true;
   if (isSidechain && agent.sawMainChainUsage) return;
   applyContextTokens(agentId, agent, agents, tokens, !isSidechain, windowFor(record, provider));
@@ -181,6 +198,9 @@ export function seedContextUsage(
   // teammate transcripts (sidechain-only files) work.
   const lines = text.split('\n');
   let sidechain: { tokens: number; window: number | undefined } | null = null;
+  // A compaction newer than every turn: the gauge shows what it left, measured
+  // in the window of the turn it emptied (the boundary record names no model).
+  let compacted: number | null = null;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line) continue;
@@ -190,16 +210,29 @@ export function seedContextUsage(
     } catch {
       continue;
     }
+    const post = extractCompactionTokens(record);
+    if (post !== null) {
+      compacted ??= post;
+      continue;
+    }
     const tokens = extractContextTokens(record);
     if (tokens <= 0) continue;
     if ((record as TranscriptRecord).isSidechain === true) {
       sidechain ??= { tokens, window: windowFor(record, provider) };
       continue;
     }
-    applyContextTokens(agentId, agent, agents, tokens, true, windowFor(record, provider));
+    const window = windowFor(record, provider);
+    if (compacted === null) {
+      applyContextTokens(agentId, agent, agents, tokens, true, window);
+    } else {
+      const widest = window ?? widenContextWindow(tokens, agent.maxContextTokens);
+      applyContextTokens(agentId, agent, agents, compacted, true, widest);
+    }
     return;
   }
-  if (sidechain) {
+  if (compacted !== null) {
+    applyContextTokens(agentId, agent, agents, compacted, false, undefined);
+  } else if (sidechain) {
     applyContextTokens(agentId, agent, agents, sidechain.tokens, false, sidechain.window);
   }
 }

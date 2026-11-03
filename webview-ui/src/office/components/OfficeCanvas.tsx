@@ -8,7 +8,7 @@ import {
   noteManualCamera,
   setCameraMode,
 } from '../../cld/cameraMode.js';
-import { director } from '../../cld/director/actions.js';
+import { director, ownerDrink } from '../../cld/director/actions.js';
 import { visitFloor } from '../../cld/elevator.js';
 import {
   cameraRect,
@@ -987,6 +987,10 @@ export function OfficeCanvas({
         onClick(hitId); // still focus terminal
         return;
       }
+
+      // cld-gui (FX-ALL): a tap on the coffee or vending machine the owner's character stands by: it drinks.
+      const tapped = screenToTile(clientX, clientY);
+      if (tapped && ownerDrink(officeState, tapped)) return;
 
       // Pet hit: toggle the heart bubble.
       const petId = pos ? officeState.getPetAt(pos.worldX, pos.worldY) : null;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messages.js';
+import type { BoardTask, OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messages.js';
 import { setLanguage } from '../i18n/index.js';
 import { engineHandleMessage, engineResetForTests } from './engineStore.js';
 import { describeActivity } from './ez/activity.js';
@@ -10,6 +10,7 @@ import {
   cldConnectionLost,
   cldGetSnapshot,
   cldHandleMessage,
+  cldOwnToast,
   cldResetForTests,
   cldToast,
   codexUsageCheckStarted,
@@ -36,6 +37,26 @@ it('the \ud130\ubbf8\ub110 tab shows only when the host allows terminals (T-0052
   expect(panelAvailable('terminal')).toBe(true);
   cldHandleMessage({ type: 'officeAccess', readOnly: false });
   expect(panelAvailable('terminal')).toBe(false);
+});
+
+it('only the answer to a click goes over the windows; pushed notices stay under them', () => {
+  cldResetForTests();
+  const task = (id: string, status: BoardTask['status']) => ({ id, project: 'p', status }) as BoardTask;
+  cldHandleMessage({ type: 'taskBoard', tasks: [task('T-1', 'doing')] });
+  const under = (tone: string) => {
+    expect(cldGetSnapshot().toast).toMatchObject({ tone });
+    expect(cldGetSnapshot().toast).not.toHaveProperty('own');
+  };
+  cldHandleMessage({ type: 'taskBoard', tasks: [task('T-1', 'review')] }); // review waiting
+  under('info');
+  cldHandleMessage({ type: 'taskBoard', tasks: [task('T-1', 'review')], error: 'refused' });
+  under('error');
+  cldHandleMessage({ type: 'characterRefused', key: 'alpha', reason: 'full' });
+  under('error');
+  cldToast('name', 'a later result', 'ok');
+  under('ok');
+  cldOwnToast('name', 'copied', 'ok');
+  expect(cldGetSnapshot().toast?.own).toBe(true);
 });
 
 it('a refused look is told in a toast, in the viewer language (CH-1)', () => {

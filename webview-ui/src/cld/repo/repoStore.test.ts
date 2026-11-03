@@ -344,4 +344,29 @@ describe('W4 task worktree detail', () => {
     repoHandleMessage({ type: 'repoWorktreeDetail', requestId: 'zz', project: 'alpha', task: 't2', ok: true }, toast);
     expect(repoGetSnapshot().details['alpha\0t2']).toBeUndefined();
   });
+
+  it('DEVROOM-PERF: the every-second ask keeps one in flight, draws nothing for the same stamp, the new list for a new one', () => {
+    const toast = vi.fn();
+    const sent: Array<{ requestId: string }> = [];
+    const answer = (stamp: string, files: Array<{ path: string; status: string }>) =>
+      repoHandleMessage({ type: 'repoWorktreeDetail', requestId: sent.at(-1)!.requestId, project: 'alpha', task: 't1', ok: true, files, commits: [], stamp }, toast);
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m));
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m)); // still in flight: not asked twice
+    expect(sent).toHaveLength(1);
+    answer('s1', [{ path: 'a', status: 'M' }]);
+    const first = repoGetSnapshot().details['alpha\0t1'];
+    expect(first).toMatchObject({ stamp: 's1', loading: false });
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m));
+    expect(repoGetSnapshot().details['alpha\0t1']).toBe(first); // no loading flash while it asks
+    answer('s1', [{ path: 'a', status: 'M' }]);
+    expect(repoGetSnapshot().details['alpha\0t1']).toBe(first);
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m));
+    answer('s2', [{ path: 'a', status: 'M' }, { path: 'b', status: '?' }]);
+    expect(repoGetSnapshot().details['alpha\0t1']).toMatchObject({ stamp: 's2', files: [{ path: 'a' }, { path: 'b' }] });
+    // A dropped socket forgets the ask in flight, so the next one goes out.
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m));
+    repoConnectionLost(toast);
+    repoRequestDetail('alpha', 't1', (m) => sent.push(m));
+    expect(sent).toHaveLength(5);
+  });
 });

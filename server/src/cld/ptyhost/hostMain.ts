@@ -211,6 +211,9 @@ export function runHost(dir: string, o: { idleMs?: number; pty?: PtyModule } = {
         });
         return { ok: true, s, snapshot, cols: t.session.cols, rows: t.session.rows };
       }
+      case 'screen':
+        if (!t) return { ok: false, error: 'no terminal' };
+        return { ok: true, snapshot: await t.session.snapshot({ scrollback: 0 }), cols: t.session.cols, rows: t.session.rows };
       case 'unsubscribe':
         if (isStr(m.s)) {
           c.subs.get(m.s)?.();

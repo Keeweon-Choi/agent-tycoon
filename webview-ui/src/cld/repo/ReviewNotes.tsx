@@ -6,7 +6,7 @@
  * dev room's 변경 tab and the 작업실. Restyled to mockups-1101/review-loop-R1/R2 (P4-S3).
  */
 import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { ReviewNote } from '../../../../core/src/messages.js';
@@ -14,9 +14,11 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { enterSends, isTouchDevice } from '../messenger/sendKey.js';
+import { scaledSize } from '../zoomState.js';
+import { useTextZoom } from '../zoomStore.js';
 import type { DiffView } from './repoStore.js';
 import type { DiffKind, DiffRow } from './repoText.js';
-import { diffCounts, diffRows } from './repoText.js';
+import { diffCounts, diffRows, gutterCols, gutterTemplate } from './repoText.js';
 import {
   inRange,
   lineRange,
@@ -192,7 +194,8 @@ function sheetBottom(): number {
 }
 
 /** One file of a task worktree's diff, as rows that take notes (its header bar first, R1). */
-export function ReviewDiff({
+/** Memo'd: a review of many files redraws only the file whose diff (or notes) changed. */
+export const ReviewDiff = memo(function ReviewDiff({
   project,
   task,
   file,
@@ -220,6 +223,7 @@ export function ReviewDiff({
 }) {
   const { notes } = useReviewStore();
   const phone = useIsMobile();
+  const { zoom } = useTextZoom('diff');
   const [sel, setSel] = useState<Sel | null>(null);
   const [anchor, setAnchor] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
@@ -236,6 +240,8 @@ export function ReviewDiff({
   const rows = diffRows(view.text);
   const { byRow, loose } = placeNotes(rows, (notes[reviewKey(project, task)]?.notes ?? []).filter((n) => !hideSent || !n.sentAt), file);
   const counts = diffCounts(view.text);
+  const cols = gutterCols(rows);
+  const gutter = gutterTemplate(cols);
   const close = () => {
     setSel(null);
     setAnchor(null);
@@ -294,7 +300,12 @@ export function ReviewDiff({
       )}
       {view.loading && !view.text && <p className={`${muted} p-8`}>{t('repo.diffLoading')}</p>}
       {view.error && <p className="text-xs text-devroom-bad p-8">{view.error}</p>}
-      <div className={`whitespace-pre bg-devroom-term py-2 leading-[1.55] ${phone ? 'text-2xs' : 'text-xs'}`} aria-label="diff" data-testid="review-diff">
+      <div
+        className={`whitespace-pre bg-devroom-term py-2 leading-[1.55] ${phone ? 'text-2xs' : 'text-xs'}`}
+        style={{ fontSize: scaledSize(phone ? 'var(--text-2xs)' : 'var(--text-xs)', zoom) }}
+        aria-label="diff"
+        data-testid="review-diff"
+      >
         {view.text === '' && !view.loading && !view.error && <p className={`${muted} p-8`}>{t('repo.diffEmpty')}</p>}
         {rows.map((row) => {
           if (row.kind === 'meta') return null;
@@ -303,7 +314,8 @@ export function ReviewDiff({
           return (
             <div key={row.key}>
               <div
-                className={`grid grid-cols-[3rem_3rem_1fr] min-w-max px-4 ${ROW_CLASS[row.kind]} ${clickable ? 'cursor-pointer hover:bg-active-bg' : ''} ${marked ? 'outline-2 outline-accent-text -outline-offset-2' : ''}`}
+                className={`grid min-w-max px-4 ${ROW_CLASS[row.kind]} ${clickable ? 'cursor-pointer hover:bg-active-bg' : ''} ${marked ? 'outline-2 outline-accent-text -outline-offset-2' : ''}`}
+                style={{ gridTemplateColumns: gutter }}
                 data-testid="review-row"
                 data-new={row.newNo ?? ''}
                 {...(clickable && {
@@ -319,12 +331,16 @@ export function ReviewDiff({
                   },
                 })}
               >
-                <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">
-                  {row.oldNo ?? ''}
-                </span>
-                <span className="font-pixel text-right pr-8 text-text-muted tabular-nums">
-                  {row.newNo ?? ''}
-                </span>
+                {cols.old > 0 && (
+                  <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">
+                    {row.oldNo ?? ''}
+                  </span>
+                )}
+                {cols.new > 0 && (
+                  <span className="font-pixel text-right pr-4 text-text-muted tabular-nums">
+                    {row.newNo ?? ''}
+                  </span>
+                )}
                 <span className={ROW_CLASS[row.kind]}>{row.text}</span>
               </div>
               {byRow.get(row.key)?.map((note) => (
@@ -391,4 +407,4 @@ export function ReviewDiff({
         )}
     </div>
   );
-}
+});

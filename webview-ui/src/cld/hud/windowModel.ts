@@ -10,7 +10,7 @@
  * mounted and minimized, so a page comes back as it was (conversation, scroll, draft, tab).
  * There is no close: closing a page goes home, keeping it. Pressing the shown tab, and Back,
  * step inside the tab to its root first (the tab's own store knows its sub-route: the
- * messenger's conversation, the 작업실's tab, the 현황판's tab).
+ * messenger's conversation, the 현황판's tab).
  */
 import { HUD_MAXIMIZED_Z } from '../../constants.js';
 import type { OfficePanel } from '../format.js';
@@ -39,7 +39,6 @@ export type WinStatus = 'closed' | 'front' | 'behind' | 'minimized';
 export type Tab =
   | 'office'
   | 'board'
-  | 'workbench'
   | 'messenger'
   | 'files'
   | 'notices'

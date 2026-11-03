@@ -24,6 +24,8 @@ interface CharacterMenuProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
+  /** The phone: an agent's menu is in its summary card (only the owner's stays here). */
+  phone?: boolean;
 }
 
 /** The selected character's menu, under its feet (T-0014: 대화, CH-4: 꾸미기). */
@@ -33,6 +35,7 @@ export function CharacterMenu({
   containerRef,
   zoom,
   panRef,
+  phone = false,
 }: CharacterMenuProps) {
   const { officeSnapshot } = useCldStore();
   const name = agentId !== null && officeSnapshot ? lookNameOf(agentId, officeSnapshot) : undefined;
@@ -62,7 +65,10 @@ export function CharacterMenu({
   // ISO-PILOT: beside the character where the isometric building drew it.
   const project = isoOverlayFor(ch, window.devicePixelRatio || 1, base)?.project ?? base;
   const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-  const owner = ch.cldOwner === true; // OWNER-AVATAR: no chat, no 스탯: only 꾸미기
+  const owner = ch.cldOwner === true; // OWNER-AVATAR: no chat; its 스탯 is the owner's own (OWNER-STATS)
+  // UI-PHONE: on a phone an agent's menu is a row of its summary card (CharacterLabel), not a
+  // second box under its feet that the card and the other plates overlapped.
+  if (phone && !owner) return null;
   return (
     <div
       className="absolute -translate-x-1/2 pixel-panel p-2"
@@ -75,11 +81,34 @@ export function CharacterMenu({
       aria-label={t('character.menu', { name: owner ? t('owner.me') : name })}
       data-testid={owner ? 'owner-menu' : undefined}
     >
-      {!owner && <ChatAction agentId={agentId!} variant="menu" />}
+      <CharacterMenuItems agentId={agentId!} name={name} owner={owner} />
+    </div>
+  );
+}
+
+/** The menu's buttons (대화 when chat is on, 꾸미기, 스탯): stacked under the feet, or `row` in a
+ *  summary card. */
+export function CharacterMenuItems({
+  agentId,
+  name,
+  owner,
+  row = false,
+}: {
+  agentId: number;
+  name: string;
+  owner: boolean;
+  row?: boolean;
+}) {
+  const item = row
+    ? 'flex-1 text-sm whitespace-nowrap px-8 py-2 border-2 border-border hover:bg-btn-hover pointer-events-auto'
+    : 'block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover';
+  return (
+    <>
+      {!owner && <ChatAction agentId={agentId} variant="menu" className={item} />}
       <button
         type="button"
         role="menuitem"
-        className="text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover"
+        className={item}
         onClick={(e) => {
           e.stopPropagation();
           openLooks(name);
@@ -87,20 +116,18 @@ export function CharacterMenu({
       >
         {t('looks.open')}
       </button>
-      {!owner && (
-        <button
-          type="button"
-          role="menuitem"
-          className="block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover"
-          data-testid="stat-open"
-          onClick={(e) => {
-            e.stopPropagation();
-            openStatDetail(agentId);
-          }}
-        >
-          {t('stat.open')}
-        </button>
-      )}
-    </div>
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        data-testid={owner ? 'owner-stats-open' : 'stat-open'}
+        onClick={(e) => {
+          e.stopPropagation();
+          openStatDetail(agentId);
+        }}
+      >
+        {t('stat.open')}
+      </button>
+    </>
   );
 }

@@ -14,7 +14,7 @@ You run as a Claude Code background session started by Agent Tycoon's engine. Yo
 ## Messages
 - A message from the owner that starts with `(correction)` corrects the message they sent just before it: follow the corrected text.
 - To one other agent: `"$CLD_BIN" send <name> '<message>'`.
-- To several at once, post once in the 전체 room instead of sending the same text many times: `"$CLD_BIN" send --group 전체 '<message>'`. Choose who gets woken with @ tags in the message; a post without tags is only for the record and wakes nobody.
+- To several at once, post once in the 전체 room instead of sending the same text many times: `"$CLD_BIN" send --group 전체 '<message>'`. Choose who gets woken with @ tags in the message; a post without tags is a notice: it wakes nobody and goes along with each member's next message (for things they only need to know). Never answer the notices you get under a `⟨공지 · 답장 불필요⟩` line.
 - `"$CLD_BIN" groups` lists the room and member names. Never tag yourself, and never tag a name that is not in the room (the post is dropped).
 - When you explain the tag syntax in writing, do not put the @ sign in front of a name: a name directly after the at sign anywhere in the text becomes a tag and wakes that agent.
 

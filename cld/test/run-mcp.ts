@@ -1,6 +1,6 @@
 /**
  * C5a: the MCP adapter end to end with the fake claude. dist/cli.js in a temp
- * HOME, one project with its Lead and a Worker (added and started through
+ * HOME, one project with its Lead and a registered Worker (started through
  * `cld-gui worker`); the adapter started the way Claude Code starts it from the
  * generated --mcp-config (its command and args, the session's environment with
  * the token the engine handed that session). Checks: the argv carries
@@ -27,6 +27,7 @@ import { spawn, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -34,11 +35,12 @@ import {
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
+  openWorkbenchTab,
+  removeTestHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const DEADLINE_MS = 300_000;
@@ -122,7 +124,13 @@ async function main() {
     path.join(cfg, 'assignments.json'),
     JSON.stringify({
       v: 1,
-      assignments: [{ assignmentId: 'a_aaaaaaaaaa', projectId: 'p_aaaaaaaaaa', role: 'lead', provider: 'claude', wantRunning: true }],
+      assignments: [
+        { assignmentId: 'a_aaaaaaaaaa', projectId: 'p_aaaaaaaaaa', role: 'lead', provider: 'claude', wantRunning: true },
+        // Registered, not added by the run: a Worker added now would run in the PTY host (TERM-P3),
+        // and this runner drives the background sessions (typed text, --settings token). The add
+        // refuses a name with data left in a store, so the room below holds only registered names.
+        { assignmentId: 'a_bbbbbbbbbb', projectId: 'p_aaaaaaaaaa', role: 'worker', name: 'alpha-a', folder, provider: 'claude', wantRunning: false },
+      ],
     }),
   );
   fs.writeFileSync(
@@ -166,7 +174,6 @@ async function main() {
     };
     await daemon.loginUrl(); // up
     await eventually('the Lead revived', () => !!session('alpha'));
-    check(json(cli('worker', 'add', 'alpha', 'alpha-a')).ok === true, 'cld-gui worker add alpha alpha-a');
     check(json(cli('worker', 'start', 'alpha-a')).ok === true, 'cld-gui worker start alpha-a');
     await eventually('the Worker session', () => !!session('alpha-a'));
 
@@ -236,7 +243,7 @@ async function main() {
 
     const lead = await open('alpha');
     const tools = (await lead.request('tools/list')).result.tools as Array<{ name: string }>;
-    check(tools.length === 8 && tools.some((t) => t.name === 'post_to_group'), `tools/list: ${tools.map((t) => t.name).join(', ')}`);
+    check(tools.length === 9 && tools.some((t) => t.name === 'post_to_group'), `tools/list: ${tools.map((t) => t.name).join(', ')}`);
     const listed = await lead.call('list_agents');
     const workerRef = (listed.agents as Array<Record<string, any>>).find((a) => a.name === 'alpha-a');
     check(
@@ -376,11 +383,9 @@ async function main() {
     const names = page.locator('[data-testid="agent-overlay"] [data-testid="agent-name"]');
     await names.getByText('alpha-rev', { exact: true }).first().waitFor({ timeout: 30_000 });
     check(true, 'the new Worker’s character is in the office');
-    await page.locator('[data-hud-id="icon:workbench"] button').click();
-    const bench = page.locator('[data-hud-window="workbench"]');
-    await bench.waitFor();
-    await bench.getByRole('combobox', { name: '작업실 프로젝트' }).selectOption('alpha');
-    await bench.getByRole('button', { name: 'Task', exact: true }).click();
+    // UI-DASH: the old 작업실 is the 현황판's 개발 tab.
+    await openWorkbenchTab(page, 'Task', { project: 'alpha' });
+    const bench = page.locator('[data-hud-window="office"]');
     const parentCard = bench.locator(`[data-testid="task-card"][data-task-id="${parent.taskId as string}"]`);
     const childCard = parentCard.locator(`[data-testid="task-children"] [data-task-id="${d1.taskId as string}"]`);
     await childCard.waitFor({ timeout: 20_000 });
@@ -456,7 +461,7 @@ async function main() {
     clearTimeout(deadline);
     await daemon.stop();
     killFakeSessions(home);
-    fs.rmSync(home, { recursive: true, force: true });
+    removeTestHome(home); // a fake session may still write while the home goes
   }
 }
 

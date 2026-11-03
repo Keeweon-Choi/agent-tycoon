@@ -74,12 +74,19 @@ export function resendAgentActivity(
       send({ type: 'subagentToolStart', id, toolId, ...sub });
     }
 
-    // 4. Waiting status
+    // 3c. A pending permission (hook or timer), on the tools just sent: a browser that
+    // connects later counts the agent as waiting on the user too (the lobby board's
+    // waiting count, the terminal badge).
+    if (agent.permissionSent) send({ type: 'agentToolPermission', id });
+
+    // 4. Waiting status; WAITING-PERSIST: a turn that ended on a question says so, so a browser
+    // that connects later (or after a daemon restart) shows it too.
     if (agent.isWaiting) {
       send({
         type: 'agentStatus',
         id,
         status: 'waiting',
+        ...(agent.questionOffset !== undefined && { question: true }),
       });
     }
 

@@ -1,8 +1,8 @@
 /**
  * P4 개발실 (dev room, mockups-1101/devroom-W1b): the desktop window's body. Left, the worktree
  * rail (WorktreeRail.tsx); right, the picked worktree's tabs 터미널 | 변경 | 병합 and a footer.
- * The 변경 tab is S3's (ChangesTab), 병합 and the 작업 폴더 정리 view S4's (MergeTab). The agents'
- * terminal columns and the memory line wait for the new terminal (P3): their places are marked.
+ * The 터미널 tab is AgentColumns.tsx, 변경 S3's (ChangesTab), 병합 and the 작업 폴더 정리 view S4's
+ * (MergeTab); the footer's right end is the daemon's devroomStats.
  */
 import { useState } from 'react';
 
@@ -10,11 +10,23 @@ import type { AgentAppearance, TabStatus } from '../../components/AgentCard.js';
 import { Button } from '../../components/ui/Button.js';
 import { DEVROOM_MENU_W_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import type { ToolActivity } from '../../office/types.js';
 import { useEngineStore } from '../engineStore.js';
 import { CommandGlyph } from '../hud/glyphs.js';
 import { projectOfAgent } from '../workbench/workbenchState.js';
+import { TerminalColumns } from './AgentColumns.js';
 import { ChangesTab } from './ChangesTab.js';
-import { BODY, DevroomLooks, SMALL, useCurrentPick, useDevroomGroups, useDevroomView } from './devroomData.js';
+import {
+  BODY,
+  DevroomLooks,
+  DevroomTools,
+  SMALL,
+  terminalCount,
+  useCurrentPick,
+  useDevroomGroups,
+  useDevroomView,
+  useTerminalColumns,
+} from './devroomData.js';
 import {
   type DevroomTab,
   openDevRoom,
@@ -25,19 +37,7 @@ import {
 } from './devroomStore.js';
 import { MergeTab } from './MergeTab.js';
 import { PreviewTab } from './PreviewTab.js';
-import { type MenuSpot, RepoWatch, WorktreeMenu, WorktreeRail } from './WorktreeRail.js';
-
-/** The terminal tab's place: the agent's live terminal and one column per sub-agent come here after P3. */
-export function TerminalSlot() {
-  return (
-    <div className="flex-1 min-h-0 bg-devroom-term p-12 flex" data-testid="devroom-terminal-slot">
-      <div className="flex-1 border-2 border-dashed border-border flex flex-col items-center justify-center gap-6 text-center p-12">
-        <p className={`text-text-muted ${BODY}`}>{t('devroom.terminalSlot')}</p>
-        <p className={`text-text-muted ${SMALL}`}>{t('devroom.terminalSlotHint')}</p>
-      </div>
-    </div>
-  );
-}
+import { DevroomLoading, type MenuSpot, RepoWatch, WorktreeMenu, WorktreeRail } from './WorktreeRail.js';
 
 /** Mock-up I: a conversation's header button, `⌘` → the dev room on that agent's project (its trunk). */
 export function DevroomLink({ name }: { name: string }) {
@@ -63,14 +63,20 @@ export function DevRoom({
   onScreen,
   getAppearance,
   statusFor,
+  agentTools,
+  subagentTools,
 }: {
   onScreen: boolean;
   getAppearance: (agentId: number) => AgentAppearance;
   statusFor: (agentId: number) => TabStatus | null;
+  agentTools: Record<number, ToolActivity[]>;
+  subagentTools: Record<number, Record<string, ToolActivity[]>>;
 }) {
   return (
     <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
-      <DevRoomBody onScreen={onScreen} />
+      <DevroomTools.Provider value={{ agentTools, subagentTools }}>
+        <DevRoomBody onScreen={onScreen} />
+      </DevroomTools.Provider>
     </DevroomLooks.Provider>
   );
 }
@@ -78,7 +84,7 @@ export function DevRoom({
 function DevRoomBody({ onScreen }: { onScreen: boolean }) {
   useDevroomView(onScreen);
   const { projects, groups } = useDevroomGroups();
-  const { tab, menu } = useDevroom();
+  const { tab, menu, stats } = useDevroom();
   const [spot, setSpot] = useState<MenuSpot | null>(null);
   const pick = useCurrentPick(groups);
   const group = pick ? groups.find((g) => g.project === pick.project) : undefined;
@@ -86,6 +92,7 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
   const menuRow = spot && menu === spot.key ? groups.flatMap((g) => g.rows.map((r) => ({ g, r }))).find(({ g, r }) => pickKey(g.project, r.wt.task) === spot.key) : undefined;
   const trunk = pick !== null && pick.task === null;
   const passed = row?.task?.testsPassed?.value === true;
+  const term = useTerminalColumns(pick && (trunk || row) ? pick.project : null, row?.wt ?? null);
   return (
     <div
       data-devroom-root
@@ -98,6 +105,7 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
       {groups.map((g) => (
         <RepoWatch key={g.project} project={g.project} />
       ))}
+      <DevroomLoading groups={groups} />
       <WorktreeRail projects={projects} groups={groups} onMenu={setSpot} />
       <section className="flex-1 min-w-0 flex flex-col min-h-0">
         <nav className="h-36 shrink-0 flex items-end gap-4 px-10 bg-bg border-b-2 border-border" aria-label={t('devroom.tabs')}>
@@ -121,6 +129,11 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
               </button>
             );
           })}
+          {tab === 'terminal' && pick && (
+            <span className={`ml-auto pb-8 text-text-muted truncate ${SMALL}`} data-testid="devroom-term-count">
+              {terminalCount(term.cols, term.subs)}
+            </span>
+          )}
         </nav>
         <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-body" data-tab={tab}>
           {!pick ? (
@@ -128,13 +141,13 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
           ) : tab === 'cleanup' ? (
             <MergeTab project={pick.project} task={pick.task} view="cleanup" />
           ) : tab === 'changes' && pick.task ? (
-            <ChangesTab project={pick.project} task={pick.task} />
+            <ChangesTab project={pick.project} task={pick.task} on={onScreen} />
           ) : tab === 'merge' && pick.task ? (
             <MergeTab project={pick.project} task={pick.task} view="merge" />
           ) : tab === 'preview' && pick.task ? (
             <PreviewTab project={pick.project} task={pick.task} />
           ) : (
-            <TerminalSlot />
+            <TerminalColumns project={pick.project} cols={term.cols} subs={term.subs} focus={term.focus} on={onScreen} />
           )}
         </div>
         <footer className={`h-46 shrink-0 flex items-center gap-10 px-12 bg-devroom-foot border-t-2 border-border ${SMALL}`} data-testid="devroom-footer">
@@ -145,8 +158,15 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
           )}
           {passed && <span className="text-devroom-ok shrink-0">{t('devroom.tests')}</span>}
           <span className="flex-1" />
-          {/* After P3: `터미널 N개 · 데몬 메모리 약 X MB` from devroomStats. */}
-          <span data-testid="devroom-stats-slot" />
+          {stats && (
+            <span className="shrink-0 text-text-muted" data-testid="devroom-stats">
+              {t(stats.hostRssMib === undefined ? 'devroom.stats' : 'devroom.statsHost', {
+                terminals: stats.terminals,
+                rss: stats.rssMib,
+                host: stats.hostRssMib ?? 0,
+              })}
+            </span>
+          )}
         </footer>
       </section>
       {menuRow && spot && (

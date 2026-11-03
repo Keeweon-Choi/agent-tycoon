@@ -8,6 +8,7 @@ import {
   linkedFileType,
   splitAttachmentText,
   updateChip,
+  uploadChips,
 } from './attachments.js';
 
 beforeEach(() => setLanguage('ko'));
@@ -146,5 +147,62 @@ describe('messenger attachments', () => {
       { path: '/p/a.txt', type: 'text/plain\r' },
     ])
       expect(composeAttachmentText('hi', [{ ...chip, ...bad }])).toBeNull();
+  });
+
+  describe('uploadChips', () => {
+    const pending = (id: string) =>
+      fileChip(new File(['x'], `${id}.txt`, { type: 'text/plain' }), id);
+    const saved = (name: string) => ({
+      path: `/p/.cld-inbox/${name}`,
+      name,
+      size: 1,
+      type: 'text/plain',
+    });
+
+    it('a DM shares one batch and maps relative; a room takes one batch per chip', async () => {
+      const chips = [pending('a'), pending('b'), { ...pending('c'), state: 'ready' as const }];
+      const seen: string[] = [];
+      let n = 0;
+      const run = (batchOf: () => string, relative?: (p: string) => string) =>
+        uploadChips(chips, {
+          upload: async (chip, progress) => {
+            seen.push(batchOf());
+            progress(50);
+            return saved(chip.name);
+          },
+          onChange: () => {},
+          relative,
+        });
+      const dm = await run(
+        () => 'one',
+        (p) => `rel:${p.split('/').at(-1)}`,
+      );
+      expect(dm.ok).toBe(true);
+      expect(seen).toEqual(['one', 'one']);
+      expect(dm.chips.map((c) => c.relative)).toEqual(['rel:a.txt', 'rel:b.txt', undefined]);
+      seen.length = 0;
+      const room = await run(() => `batch-${n++}`);
+      expect(seen).toEqual(['batch-0', 'batch-1']);
+      expect(room.chips.every((c) => !('relative' in c))).toBe(true);
+      expect(room.chips.map((c) => c.state)).toEqual(['ready', 'ready', 'ready']);
+    });
+
+    it('stops at the first failure and marks only that chip failed', async () => {
+      const calls: string[] = [];
+      const changes: string[][] = [];
+      const result = await uploadChips([pending('a'), pending('b'), pending('c')], {
+        upload: async (chip) => {
+          calls.push(chip.id);
+          if (chip.id === 'b') throw new Error('boom');
+          return saved(chip.name);
+        },
+        onChange: (next) => changes.push(next.map((c) => c.state)),
+      });
+      expect(result.ok).toBe(false);
+      expect(calls).toEqual(['a', 'b']);
+      expect(result.chips.map((c) => c.state)).toEqual(['ready', 'failed', 'pending']);
+      expect(result.chips[1].error).toBe('boom');
+      expect(changes.at(-1)).toEqual(['ready', 'failed', 'pending']);
+    });
   });
 });

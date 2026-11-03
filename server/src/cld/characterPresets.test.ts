@@ -1,3 +1,5 @@
+import * as crypto from 'crypto';
+import Fastify from 'fastify';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -10,7 +12,11 @@ import {
   paletteOfLook,
   randomLook,
 } from '../../../core/src/cld/looks.js';
-import { checkSheetPng, MAX_IMPORT_BYTES } from '../../../core/src/cld/sheetCheck.js';
+import {
+  checkSheetPng,
+  MAX_HD_SHEET_BYTES,
+  MAX_IMPORT_BYTES,
+} from '../../../core/src/cld/sheetCheck.js';
 import type { CharacterPresets as PresetsMessage } from '../../../core/src/messages.js';
 import { AgentRuntime } from '../agentRuntime.js';
 import { AgentStateStore } from '../agentStateStore.js';
@@ -107,7 +113,7 @@ describe('ids and paths', () => {
   it('serves only checked presets, by exact name', () => {
     put('ok.png', CHAR_0);
     presets.scan();
-    expect(presets.file('ok.png')).toEqual(CHAR_0);
+    expect(fs.readFileSync(presets.file('ok.png')!.path)).toEqual(CHAR_0);
     for (const name of ['../ok.png', '..%2Fok.png', 'ok.png/..', 'OK.png', 'ok', 'README.md'])
       expect(presets.file(name)).toBeNull();
   });
@@ -159,17 +165,105 @@ describe('presets folder', () => {
     });
     expect(byId.robot.density).toBeUndefined();
     expect(byId.odd).toBeUndefined();
-    expect(presets.file('bunny.png')).toEqual(sample);
+    expect(fs.readFileSync(presets.file('bunny.png')!.path)).toEqual(sample);
   });
 
-  it('CHAR-ISO-1: an imported isometric sheet with an 8th column (the walking neutral) is a preset; 9 columns are not', () => {
+  it('CHAR-ISO-1: an imported isometric sheet with an 8th column (the walking neutral) is a preset; 9 columns are not; CHAR-8DIR: 5 rows are iso8', () => {
     put('boss.png', png(288 * 8, 528 * 2));
     put('boss.json', JSON.stringify({ label: 'Boss', columns: 'standFirst' }));
     put('wide.png', png(288 * 9, 528 * 2));
+    put('eight.png', png(288 * 8, 528 * 5));
+    put('top.png', png(288 * 8, 528 * 3));
     presets.scan();
     expect(last().presets.map((p) => [p.id, p.format, p.columns])).toEqual([
       ['boss', 'iso', 'standFirst'],
+      ['eight', 'iso8', undefined],
+      ['top', undefined, undefined],
     ]);
+  });
+
+  it('C1: an iso8 sheet with a 6th row (the drinking poses) is iso8 and brings its steam origins; 7 rows are not', () => {
+    put('drink.png', png(288 * 8, 528 * 6));
+    put(
+      'drink.json',
+      JSON.stringify({
+        label: 'Drink',
+        drinkSteam: [
+          { col: 1, x: 141, y: 177 },
+          { col: 9, x: 1, y: 1 },
+          { col: 2, x: -1, y: 0 },
+        ],
+      }),
+    );
+    put('seven.png', png(288 * 8, 528 * 7));
+    put('eight.png', png(288 * 8, 528 * 5));
+    put('eight.json', JSON.stringify({ label: 'Eight', drinkSteam: [{ col: 1, x: 1, y: 1 }] }));
+    presets.scan();
+    expect(last().presets.map((p) => [p.id, p.format, p.drinkSteam])).toEqual([
+      ['drink', 'iso8', [{ col: 1, x: 141, y: 177 }]],
+      ['eight', 'iso8', undefined], // no drink row: no steam
+    ]);
+  });
+
+  describe('PRESET-MEM: sheets live on disk, memory keeps no bytes', () => {
+    /** A valid isometric-sheet PNG of random (incompressible) pixels: about w*h*4 bytes. */
+    const noisy = (w: number, h: number) => {
+      const img = new PNG({ width: w, height: h });
+      crypto.randomFillSync(img.data);
+      return PNG.sync.write(img, { colorType: 6, deflateLevel: 1 });
+    };
+    const MiB = 1024 * 1024;
+    // 2304 x 1056 (iso) is ~9.7 MB, 2304 x 1584 (iso8) is ~14.6 MB
+    const big = noisy(288 * 8, 528 * 2);
+    const huge = noisy(288 * 8, 528 * 5);
+
+    it('the test sheets sit where the caps need them', () => {
+      expect(big.length).toBeGreaterThan(MAX_IMPORT_BYTES);
+      expect(big.length).toBeLessThan(MAX_HD_SHEET_BYTES);
+      expect(huge.length).toBeGreaterThan(MAX_HD_SHEET_BYTES);
+      expect(MAX_HD_SHEET_BYTES).toBe(12 * MiB);
+    });
+
+    it('a sheet between 6 and 12 MiB loads; one over 12 MiB is refused', () => {
+      put('mid.png', big);
+      put('over.png', huge);
+      presets.scan();
+      expect(last().presets.map((p) => p.id)).toEqual(['mid']);
+      expect(warn.mock.calls.flat().join('\n')).toMatch(/over\.png.*too big/);
+    });
+
+    it('serves the file bytes from disk (route), with the version in the url and strong caching', async () => {
+      put('mid.png', big);
+      presets.scan();
+      const app = Fastify();
+      registerCharacterRoutes(app, async () => undefined, presets);
+      const ok = await app.inject({ method: 'GET', url: '/cld/characters/mid.png' });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.headers['cache-control']).toBe('private, max-age=86400');
+      expect(ok.headers['content-length']).toBe(String(big.length));
+      expect(ok.rawPayload.equals(big)).toBe(true);
+      // negative control: a name that is not a checked preset serves nothing
+      expect(
+        (await app.inject({ method: 'GET', url: '/cld/characters/nope.png' })).statusCode,
+      ).toBe(404);
+      expect(
+        (await app.inject({ method: 'GET', url: '/cld/characters/over.png' })).statusCode,
+      ).toBe(404);
+      await app.close();
+    });
+
+    it('a changed file changes the version; an untouched rescan does not', () => {
+      put('mid.png', big);
+      presets.scan();
+      const v1 = last().presets[0].url;
+      expect(v1).toMatch(/^cld\/characters\/mid\.png\?v=[0-9a-f]{10}$/);
+      put('mid.json', JSON.stringify({ label: 'Renamed' }));
+      presets.scan();
+      expect(last().presets[0].url).toBe(v1); // control: metadata is not the picture
+      put('mid.png', noisy(288 * 8, 528 * 2));
+      presets.scan();
+      expect(last().presets[0].url).not.toBe(v1);
+    });
   });
 
   it('ignores anything else with one log line per file', () => {
@@ -483,9 +577,9 @@ describe('SHEET-IMPORT routes', () => {
     ).toBe(401);
     const hugeIhdr = generated(2);
     hugeIhdr.writeUInt32BE(100_000, 16); // Must be refused before pngjs can inflate it.
-    expect(
-      presets.importSheet({ png: b64(hugeIhdr) }, false),
-    ).toMatchObject({ errorCode: 'sheet_import_png' });
+    expect(presets.importSheet({ png: b64(hugeIhdr) }, false)).toMatchObject({
+      errorCode: 'sheet_import_png',
+    });
     expect(
       presets.importSheet({ png: b64(Buffer.alloc(MAX_IMPORT_BYTES + 1)) }, false),
     ).toMatchObject({ errorCode: 'sheet_import_png' });
@@ -525,7 +619,7 @@ describe('SHEET-IMPORT routes', () => {
     expect(both).toMatchObject({ label: '달빛', density: 12, columns: 'standFirst' });
     expect(both.format).toBeUndefined();
     expect(both.isoUrl).toMatch(new RegExp(`^cld/characters/${id}\\.iso\\.png\\?v=`));
-    expect(presets.file(`${id}.iso.png`)).toEqual(iso);
+    expect(fs.readFileSync(presets.file(`${id}.iso.png`)!.path)).toEqual(iso);
     // the classic preset beside it: unchanged
     expect(last().presets.find((p) => p.id === 'ok')).toEqual({
       id: 'ok',

@@ -1,4 +1,3 @@
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -18,8 +17,10 @@ import {
   startAuthServer,
   stopAuthServer,
 } from '../authTestKit.js';
+import { PtyHostClient } from '../ptyhost/client.js';
+import { ptyhostPaths } from '../ptyhost/protocol.js';
+import { testPtyHost } from '../testHome.js';
 import { ShellRegistry } from './registry.js';
-import { findTmux, Tmux } from './tmux.js';
 
 const dist = makeFakeDist();
 afterAll(() => fs.rmSync(dist.root, { recursive: true, force: true }));
@@ -59,7 +60,7 @@ class FakePty implements IPty {
 
 /** `real`: node-pty and a real /bin/sh (only in a temp dir); otherwise fake PTYs. */
 async function start(
-  options: { allowTerminal?: boolean; real?: boolean; listen?: boolean; tmux?: Tmux } = {},
+  options: { allowTerminal?: boolean; real?: boolean; listen?: boolean; host?: PtyHostClient } = {},
 ) {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-shell-test-'));
   home = path.join(root, 'home');
@@ -81,7 +82,7 @@ async function start(
     (m) => notices.push({ ...m }),
     Date.now,
     30 * 60_000,
-    { tmux: options.tmux, file: path.join(root, 'config', 'shells.json') },
+    { host: options.host, file: path.join(root, 'config', 'shells.json') },
   );
   server = await startAuthServer(dist.staticDir, {
     configDir: path.join(root, 'config'),
@@ -199,7 +200,7 @@ describe('the host opt-in', () => {
     expect(fakes).toHaveLength(0);
   });
 
-  it('a server built without a registry gets a plain one: no tmux, no shells.json (tests share the machine with the daemon)', async () => {
+  it('a server built without a registry gets a plain one: no PTY host, no shells.json (tests share the machine with the daemon)', async () => {
     // A spy, not a temp HOME: os.homedir() in a worker thread ignores a stubbed HOME.
     const seen: unknown[] = [];
     vi.spyOn(ShellRegistry.prototype, 'restore').mockImplementation(function (this: unknown) {
@@ -209,8 +210,8 @@ describe('the host opt-in', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-shell-plain-'));
     server = await startAuthServer(dist.staticDir, { allowTerminal: true });
     expect(seen).toHaveLength(1);
-    const made = seen[0] as { tmux: unknown; file: unknown };
-    expect(made.tmux).toBeNull();
+    const made = seen[0] as { host: unknown; file: unknown };
+    expect(made.host).toBeNull();
     expect(made.file).toBeUndefined();
   });
 });
@@ -470,27 +471,39 @@ describe('shells', () => {
   });
 });
 
-const tmuxBin = findTmux();
-(tmuxBin ? describe : describe.skip)('shells in tmux, over the socket', () => {
-  const tmux = tmuxBin
-    ? new Tmux(tmuxBin, `cld-test-${crypto.randomBytes(6).toString('hex')}`)
-    : undefined;
+(process.platform === 'win32' ? describe.skip : describe)('shells in the PTY host, over the socket', () => {
+  const kit = testPtyHost();
+  const hostHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-shell-host-'));
+  const clients: PtyHostClient[] = [];
   const saved = { HOME: process.env.HOME, SHELL: process.env.SHELL };
   afterAll(() => {
-    tmux?.killServer();
+    for (const c of clients) c.dispose();
+    kit.done();
+    fs.rmSync(hostHome, { recursive: true, force: true });
     for (const [k, v] of Object.entries(saved))
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
   });
 
-  it('x detaches only: the shell, its pid and its session stay; 닫기 and a typed exit end them', async () => {
-    await start({ real: true, listen: true, tmux });
+  it('x detaches only: the shell, its pid and its terminal stay; a typed exit ends them', async () => {
+    const host = new PtyHostClient({ home: hostHome, launch: kit.launch(hostHome), log: () => undefined });
+    clients.push(host);
+    await start({ real: true, listen: true, host });
     process.env.HOME = home;
     process.env.SHELL = '/bin/sh';
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const terminals = () => {
+      try {
+        return (JSON.parse(fs.readFileSync(ptyhostPaths(hostHome).terminals, 'utf8')) as unknown[]).length;
+      } catch {
+        return 0;
+      }
+    };
     const { cookie } = await trusted();
-    const id = (await post(cookie, path.join(home, 'work'))).json().id as string;
-    expect(tmux!.hasSession(id)).toBe(true);
+    const reply = await post(cookie, path.join(home, 'work'));
+    expect(reply.statusCode).toBe(201);
+    const id = reply.json().id as string;
+    expect(terminals()).toBe(1);
 
     const first = await attach(server!.port, id, cookie);
     first.ws.send(JSON.stringify({ type: 'input', data: 'echo "pid:$$:end"\r' }));
@@ -500,7 +513,7 @@ const tmuxBin = findTmux();
     await until(() => first.closed() !== undefined);
     await new Promise((r) => setTimeout(r, 200));
     expect(registry.list()).toHaveLength(1);
-    expect(tmux!.hasSession(id)).toBe(true);
+    expect(terminals()).toBe(1);
 
     const again = await attach(server!.port, id, cookie); // reopened from 닫은 터미널
     again.ws.send(JSON.stringify({ type: 'input', data: 'echo "again:$$:end"\r' }));
@@ -511,6 +524,6 @@ const tmuxBin = findTmux();
     await until(() => again.closed() !== undefined);
     expect(again.closed()).toBe(WS_CLOSE_NO_SESSION);
     expect(registry.list()).toHaveLength(0);
-    expect(tmux!.hasSession(id)).toBe(false);
+    await until(() => terminals() === 0);
   });
 });

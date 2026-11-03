@@ -233,7 +233,7 @@ async function main() {
       check(box && box.width <= w + 1, `phone ${w}: the top bar fits the screen (${box?.width})`);
       await shot(page, `phone-${w}-top-bar`);
       await bar.getByRole('button', { name: '설정' }).tap();
-      const quick = await page.getByTestId('settings-quick').getByRole('button').evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''));
+      const quick = await page.getByRole('dialog').last().getByRole('button').evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''));
       check(!quick.includes('EZ'), `phone ${w}: no EZ button in 설정 (${quick.join(' | ')})`);
       await shot(page, `phone-${w}-settings`);
       await ctx.close();

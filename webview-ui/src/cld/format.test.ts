@@ -184,6 +184,6 @@ describe('formatters', () => {
   });
 });
 
-it("UI-C1: the status board window's tab strip is status board and HW; files is the folder icon's mode", () => {
-  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'hw']);
+it("UI-DASH: the dashboard's tab strip is orchestrators, development and HW; files is the folder icon's mode", () => {
+  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'dev', 'hw']);
 });

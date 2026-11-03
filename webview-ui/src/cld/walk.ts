@@ -1,3 +1,4 @@
+import { WALK_STRIDE_PX } from '../constants.js';
 import { isWalkable } from '../office/layout/tileMap.js';
 import { TileType, type TileType as TileTypeValue } from '../office/types.js';
 import type { CameraKey } from './camera.js';
@@ -15,6 +16,11 @@ export const floorIndexAt = (rects: FloorRows[], row: number): number =>
 
 /** Steps a character may have queued from separate key presses. */
 export const WALK_QUEUE_MAX = 8;
+
+/** WALK-FIX: the walk frame (0-3: step, neutral, other step, neutral) after `px` world px
+ *  walked in all: one frame per WALK_STRIDE_PX, so the legs alternate across walks however
+ *  short each one is, and a step on screen is always the same length. */
+export const walkFrameAt = (px: number): number => Math.floor(px / WALK_STRIDE_PX) % 4;
 
 export interface WalkTile {
   col: number;

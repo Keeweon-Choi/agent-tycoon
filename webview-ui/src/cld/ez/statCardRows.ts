@@ -126,6 +126,7 @@ export function statSections(f: StatFacts): StatSection[] {
           : []),
         ...row('rank', t('stat.rank'), f.rank),
         ...(level ? row('rebirth', t('stat.rebirth'), t('stat.rebirthCount', { count: level.rebirths })) : []),
+        ...(level?.inherit ? row('inherit', t('inherit.stat'), t('inherit.statCount', { count: level.inherit })) : []),
       ],
     },
     {

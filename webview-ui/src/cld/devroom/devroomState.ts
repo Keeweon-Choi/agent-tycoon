@@ -1,18 +1,22 @@
 /**
  * P4 개발실 (dev room), its pure rules: which chip a task worktree's card wears, the order of the
- * rail, the remembered filter. devroomStore.ts keeps the state, WorktreeRail.tsx and
+ * rail, the remembered filter, the 터미널 tab's columns. devroomStore.ts keeps the state, WorktreeRail.tsx and
  * DevRoomPhone.tsx draw it.
  */
-import type { BoardTask, RepoWorktree } from '../../../../core/src/messages.js';
+import type { BoardTask, EngineProject, OfficeOrchestrator, RepoWorktree } from '../../../../core/src/messages.js';
+import { DEVROOM_GRAPH_MAX_DEPTH } from '../../constants.js';
+import type { ToolActivity } from '../../office/types.js';
+import { PTY_PROVIDER } from '../engine.js';
+import type { WaitReason } from '../waiting.js';
 
 /** The rail's chips, strongest first (plan 1.1). */
-export type Chip = 'conflict' | 'approve' | 'review' | 'fixing' | 'working' | 'idle' | 'merged';
+export type Chip = 'conflict' | 'approve' | 'question' | 'review' | 'fixing' | 'working' | 'idle' | 'merged';
 
 export interface ChipInput {
   wt: RepoWorktree;
   task?: Pick<BoardTask, 'status'>;
-  /** The assignee waits on a permission (its card's yellow dot). */
-  attention: boolean;
+  /** The assignee waits for the person: a permission (! 승인) or a question (cld/waiting.ts). */
+  wait: WaitReason | null;
   /** The assignee is in a turn. */
   busy: boolean;
   /** Review notes on this worktree were sent to its Worker. */
@@ -29,22 +33,14 @@ export const conflictsOf = (wt: RepoWorktree): number => wt.conflicts?.length ??
 export const isMerged = (wt: RepoWorktree, task?: Pick<BoardTask, 'status'>): boolean =>
   wt.merged && (wt.merge?.ok === true || task?.status === 'done');
 
-export function chipOf({ wt, task, attention, busy, notesSent }: ChipInput): Chip {
+export function chipOf({ wt, task, wait, busy, notesSent }: ChipInput): Chip {
   if (isMerged(wt, task)) return 'merged';
   if (conflictsOf(wt) > 0) return 'conflict';
-  if (attention) return 'approve';
+  if (wait) return wait === 'permission' ? 'approve' : 'question';
   if (task?.status === 'review') return 'review';
   if (task?.status === 'doing' && notesSent) return 'fixing';
   if (busy) return 'working';
   return 'idle';
-}
-
-/** The rail's order: the open ones as they were made, the merged ones (dimmed) last. */
-export function railOrder<T extends { chip: Chip; wt: RepoWorktree }>(rows: readonly T[]): T[] {
-  const open = rows.filter((r) => r.chip !== 'merged');
-  const done = rows.filter((r) => r.chip === 'merged');
-  const byCreated = (a: T, b: T) => a.wt.created.localeCompare(b.wt.created);
-  return [...open.sort(byCreated), ...done.sort(byCreated)];
 }
 
 /** The card's title: its Task's, else the worktree's folder name. */
@@ -71,3 +67,169 @@ export const shownProjects = (all: readonly string[], filter: string | null): st
   const one = shownProject(all, filter);
   return one ? [one] : [...all];
 };
+
+// ── 터미널 tab: one column per agent on the pick, one per running sub-agent of theirs ──
+
+/** live: its PTY-host terminal; codex: no terminal; old: not in our PTY host; off: not running. */
+export type AgentColumn =
+  | { kind: 'live'; name: string; agentId: number | null; bgId: string }
+  | { kind: 'codex' | 'old' | 'off'; name: string; agentId: number | null };
+
+export interface SubColumn {
+  key: string;
+  /** 서브 n, counted across the pick's agents. */
+  n: number;
+  desc: string;
+  lines: readonly ToolActivity[];
+  /** Its lead and the spawn's tool_use id: what the work view reads (DEVROOM-SUBVIEW). */
+  agentId: number;
+  parent: string;
+  /** The spawn's own call came back: the sub-agent finished. */
+  done: boolean;
+}
+
+const samePath = (a: string, b: string) => a.replace(/[\\/]+$/, '') === b.replace(/[\\/]+$/, '');
+
+/**
+ * The agents on a pick: the trunk (wt null) has the project's Lead; a task worktree its assignee
+ * Worker, then every Reviewer whose folder or open Task points at that worktree.
+ */
+export function agentsOn(
+  project: string,
+  wt: RepoWorktree | null,
+  engine: readonly EngineProject[],
+  tasks: readonly Pick<BoardTask, 'status' | 'assignee' | 'worktree'>[],
+): EngineProject[] {
+  if (!wt) return engine.filter((p) => p.name === project && !p.role);
+  const here = (path: string) => samePath(path, wt.path) || path === wt.task;
+  const reviews = (p: EngineProject) =>
+    p.role === 'reviewer' &&
+    (here(p.folder) ||
+      tasks.some((x) => x.status !== 'done' && x.assignee?.name === p.name && !!x.worktree && here(x.worktree)));
+  return [
+    ...engine.filter((p) => p.name === wt.assignee),
+    ...engine.filter((p) => p.name !== wt.assignee && reviews(p)),
+  ];
+}
+
+export function columnOf(p: EngineProject, orchs: readonly Pick<OfficeOrchestrator, 'name' | 'agentId'>[]): AgentColumn {
+  const agentId = orchs.find((o) => o.name === p.name)?.agentId ?? null;
+  if (p.provider === 'codex') return { kind: 'codex', name: p.name, agentId };
+  if (p.provider !== PTY_PROVIDER) return { kind: 'old', name: p.name, agentId };
+  if (!p.live || !p.bgId) return { kind: 'off', name: p.name, agentId };
+  return { kind: 'live', name: p.name, agentId, bgId: p.bgId };
+}
+
+/**
+ * The running sub-agents of the pick's Claude agents (subagentTool* rows; a subagentClear removes
+ * one). Its title is the spawning tool's own description; the selected one's transcript comes
+ * through the work view (AgentColumns.tsx).
+ */
+export function subColumns(
+  cols: readonly AgentColumn[],
+  subs: Readonly<Record<number, Record<string, ToolActivity[]>>>,
+  tools: Readonly<Record<number, ToolActivity[]>>,
+): SubColumn[] {
+  let n = 0;
+  return cols.flatMap((c) => {
+    const id = c.agentId;
+    if (id === null || c.kind === 'codex') return [];
+    return Object.entries(subs[id] ?? {}).map(([parent, lines]) => {
+      const spawn = tools[id]?.find((x) => x.toolId === parent);
+      return { key: `${id}:${parent}`, n: ++n, desc: spawn?.desc ?? spawn?.status ?? '', lines, agentId: id, parent, done: spawn?.done === true };
+    });
+  });
+}
+
+// ── The phone's list (W5; owner 11-01 13:30: 143 old Codex folders buried the real work) ──
+
+const DAY_MS = 86_400_000;
+
+/** The phone's order: what needs the owner (a conflict, an approval, a review), then work under way, then resting; merged last. */
+const PHONE_RANK: Record<Chip, number> = { conflict: 0, approve: 0, question: 0, review: 0, fixing: 1, working: 1, idle: 2, merged: 3 };
+
+/** A worktree's last sign of life: its branch's last commit or its making, whichever is later (NaN: unknown). */
+export const lastActivity = (wt: Pick<RepoWorktree, 'created' | 'lastChange'>): number =>
+  Math.max(Date.parse(wt.created), wt.lastChange ? Date.parse(wt.lastChange) : -Infinity);
+
+/** Resting = no Task, nobody on it, nothing to do (idle or merged) and no activity for `days`. */
+export const isResting = (row: { chip: Chip; wt: RepoWorktree }, now: number, days: number): boolean =>
+  !row.wt.taskId &&
+  !row.wt.assignee &&
+  (row.chip === 'idle' || row.chip === 'merged') &&
+  now - lastActivity(row.wt) >= days * DAY_MS;
+
+/** The phone's cards in order, the resting ones apart (folded into one `쉬는 작업 N개` row). */
+export function phoneRows<T extends { chip: Chip; wt: RepoWorktree }>(
+  rows: readonly T[],
+  now: number,
+  days: number,
+): { shown: T[]; resting: T[] } {
+  const sorted = [...rows].sort(
+    (a, b) => PHONE_RANK[a.chip] - PHONE_RANK[b.chip] || a.wt.created.localeCompare(b.wt.created),
+  );
+  return {
+    shown: sorted.filter((r) => !isResting(r, now, days)),
+    resting: sorted.filter((r) => isResting(r, now, days)),
+  };
+}
+
+/** A Codex run's folder (`codex-MMDD-HHMMSS`, engine/codex.ts taskName) as `MM-DD HH:MM`; null for any other name. */
+export function codexStamp(task: string): string | null {
+  const m = /^codex-(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}$/.exec(task);
+  return m ? `${m[1]}-${m[2]} ${m[3]}:${m[4]}` : null;
+}
+
+// ── The rail's graph (owner 11-03 10:38: every worktree hung off main, integ/… was missing) ──
+
+/** One line of the graph: a card, or a branch cards were made from that is not a card itself. */
+export type GraphLine<T> = { kind: 'row'; row: T; depth: number } | { kind: 'branch'; name: string; depth: number };
+
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+/**
+ * Each card under the branch it was made from (its recorded `base`): the trunk's cards at depth 0;
+ * a base that is another card's branch nests under that card; any other base (`integ/1024-1815`)
+ * is a branch line under the trunk with its cards one step in. Order: `rows`' own, a branch line
+ * where its first card would be. `ponytail:` such a branch hangs off the trunk; its own parent is
+ * not looked up (git has no record of it) until a repository needs a deeper picture.
+ */
+export function graphLines<T extends { wt: Pick<RepoWorktree, 'branch' | 'base'> }>(rows: readonly T[], trunk: string): GraphLine<T>[] {
+  const cards = new Set(rows.map((r) => r.wt.branch));
+  const kids = new Map<string, T[]>();
+  const tops: Array<T | string> = [];
+  for (const r of rows) {
+    const b = r.wt.base;
+    if (b === trunk || b === r.wt.branch || SHA_RE.test(b)) {
+      tops.push(r);
+      continue;
+    }
+    const list = kids.get(b);
+    if (list) list.push(r);
+    else {
+      kids.set(b, [r]);
+      if (!cards.has(b)) tops.push(b);
+    }
+  }
+  const out: GraphLine<T>[] = [];
+  const seen = new Set<T>();
+  const emit = (r: T, depth: number) => {
+    if (seen.has(r)) return;
+    seen.add(r);
+    out.push({ kind: 'row', row: r, depth });
+    for (const k of kids.get(r.wt.branch) ?? []) emit(k, depth + 1);
+  };
+  for (const top of tops) {
+    if (typeof top !== 'string') emit(top, 0);
+    else {
+      out.push({ kind: 'branch', name: top, depth: 0 });
+      for (const k of kids.get(top) ?? []) emit(k, 1);
+    }
+  }
+  // Bases in a circle (a from b, b from a) reach no top: they stand at the top.
+  for (const r of rows) emit(r, 0);
+  return out;
+}
+
+/** The graph's left edge at `depth`; the steps past DEVROOM_GRAPH_MAX_DEPTH are drawn at the same place. */
+export const graphLeft = (depth: number, left: number, step: number): number => left + Math.min(depth, DEVROOM_GRAPH_MAX_DEPTH) * step;

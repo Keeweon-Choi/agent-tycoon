@@ -68,7 +68,7 @@ describe('engine card and texts', () => {
     expect(sessionActions(project({ live: true }))).toEqual([]);
   });
 
-  it('T-0010’s confirmations, and a delete that keeps the conversation', () => {
+  it('T-0010’s confirmations, and a delete that says a new one of the name starts afresh', () => {
     expect(engineConfirmText('start', 'alpha')).toEqual({ question: 'alpha\ub97c \ucf24\uae4c\uc694?' });
     expect(engineConfirmText('stop', '\uc5f0\uad6c')).toEqual({
       question: '\uc5f0\uad6c\ub97c \ub04c\uae4c\uc694?',
@@ -77,7 +77,7 @@ describe('engine card and texts', () => {
     expect(engineConfirmText('restart', 'alpha').question).toBe('alpha\ub97c \uc7ac\uc2dc\uc791\ud560\uae4c\uc694?');
     expect(engineConfirmText('remove', 'beta')).toEqual({
       question: 'beta\ub97c \uc0ad\uc81c\ud560\uae4c\uc694?',
-      note: '\uc138\uc158\uc744 \ub044\uace0 \ubaa9\ub85d\uc5d0\uc11c \ube7c\uc694. \ub300\ud654 \uae30\ub85d\uc740 \ub0a8\uc544\uc694.',
+      note: '\uc138\uc158\uc744 \ub044\uace0 \ubaa9\ub85d\uc5d0\uc11c \ube7c\uc694. \uac19\uc740 \uc774\ub984\uc73c\ub85c \uc0c8\ub85c \ub9cc\ub4e4\uc5b4\ub3c4 \uae30\ub85d\u00b7\ub808\ubca8\uc740 \uc774\uc5b4\uc9c0\uc9c0 \uc54a\uc544\uc694.',
     });
   });
 

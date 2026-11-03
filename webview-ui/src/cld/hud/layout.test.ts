@@ -428,21 +428,29 @@ describe('icons newer than a saved layout (owner 10-24: the files icon)', () => 
     for (const id of old) expect(loaded.items[`icon:${id}`]).toEqual(saved.items[`icon:${id}`]);
   });
 
-  it('W1: the workbench icon follows the files icon in a row saved without it', () => {
+  it('W1: the devroom icon follows the files icon in a row saved without it', () => {
     const saved = applyPreset({ v: 1, items: {} }, 'bottom', screen, [...old, 'files']).layout;
     const loaded = withNewIcons(saved);
-    expect(loaded.items['icon:workbench']?.place).toEqual({
+    expect(loaded.items['icon:devroom']?.place).toEqual({
       corner: 'bl',
       dx: saved.items['icon:files']!.place!.dx + 48,
       dy: saved.items['icon:files']!.place!.dy,
     });
   });
 
+  it('UI-DASH: a saved workbench window place opens the status board; a saved board place wins', () => {
+    const place = { corner: 'tr', dx: 10, dy: 20, w: 500, h: 400 } as const;
+    expect(parseLayout(JSON.stringify({ v: 1, items: { workbench: { place } } })).items).toEqual({
+      office: { place },
+    });
+    const both = { v: 1, items: { workbench: { place }, office: { place: { ...place, dx: 99 } } } };
+    expect(parseLayout(JSON.stringify(both)).items).toEqual({ office: { place: { ...place, dx: 99 } } });
+  });
+
   it('a row that has it already, the right column and no preset are left alone (the icon flows in the column)', () => {
     const withFiles = applyPreset({ v: 1, items: {} }, 'bottom', screen, [
       ...old,
       'files',
-      'workbench',
       'devroom',
     ]).layout;
     expect(withNewIcons(withFiles)).toEqual(withFiles);

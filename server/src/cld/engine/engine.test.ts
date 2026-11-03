@@ -21,20 +21,15 @@ import {
   TRUST_NEEDED,
 } from './agents/claude/claude.js';
 import { readLiveSessions } from './agents/claude/sessions.js';
+import type { AgentProvider } from './agents/types.js';
 import type { EngineOptions } from './engine.js';
-import {
-  CLD_BIN_DIR,
-  cldBinPath,
-  cleanEnv,
-  Engine,
-  engineOn,
-  findSystemdRun,
-  parseEngineAction,
-} from './engine.js';
+import { Engine, engineOn } from './engine.js';
+import { parseEngineAction } from './engineAction.js';
 import { EngineEvents, eventsPath } from './events.js';
 import { Messenger } from './messenger.js';
 import type { ProjectRecord } from './registry.js';
 import { loadRegistry, PROJECT_ID_RE, registryPath, saveRegistry } from './registry.js';
+import { CLD_BIN_DIR, cldBinPath, cleanEnv, findSystemdRun } from './sessionEnv.js';
 
 const FAST = {
   pollMs: 20,
@@ -1346,8 +1341,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     }
     e.refresh();
     expect(r.nudges).toEqual([]);
-    // beta is intentionally not opted in: checkCompactions skips it before
-    // opening or tail-reading its transcript.
+    // beta is not opted in: its compactions are counted (휴식) but it never nudges.
     fs.appendFileSync(t('alpha'), mark);
     e.refresh();
     // Negative control: the former count >= N rule would nudge here.
@@ -1360,7 +1354,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       Object.fromEntries(
         e.apply({ rooms: [], agents: [] }).agents.map((a) => [a.name, a.compactions]),
       );
-    expect(counts()).toEqual({ alpha: 2, beta: 0 });
+    expect(counts()).toEqual({ alpha: 2, beta: 1 });
     fs.appendFileSync(t('alpha'), usage(100));
     e.refresh();
     expect(r.nudges).toEqual([]);
@@ -1386,6 +1380,40 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       ['alpha', 2, 85],
       ['alpha', 2, 85],
     ]);
+  });
+
+  it('COMPACT-COFFEE: a row is compacting from the spinner seen until it goes or the boundary is counted', async () => {
+    const r = rig();
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e, 'start', 'alpha');
+    const t = transcriptPath(r.folder('alpha'), r.project(e, 'alpha')!.sessionId!, r.home);
+    fs.mkdirSync(path.dirname(t), { recursive: true });
+    fs.writeFileSync(t, '{}\n');
+    e.refresh();
+    let spinner = false;
+    for (const a of (e as unknown as { agents: Map<string, AgentProvider> }).agents.values())
+      a.compacting = () => Promise.resolve(spinner);
+    // Negative control: no spinner, no compacting.
+    expect(await e.lookForCompacting()).toBe(false);
+    expect(e.compacting('alpha')).toBe(false);
+    spinner = true;
+    expect(await e.lookForCompacting()).toBe(true);
+    expect(e.compacting('alpha')).toBe(true);
+    expect(await e.lookForCompacting()).toBe(false); // no change, no news
+    // The boundary ends it, even while the screen still shows the spinner a moment longer.
+    fs.appendFileSync(t, '{"type":"system","subtype":"compact_boundary"}\n');
+    e.refresh();
+    expect(e.compacting('alpha')).toBe(false);
+    expect(await e.lookForCompacting()).toBe(false);
+    expect(e.compacting('alpha')).toBe(false);
+    // The spinner gone, then a new compaction: compacting again; nobody watching forgets it.
+    spinner = false;
+    await e.lookForCompacting();
+    spinner = true;
+    expect(await e.lookForCompacting()).toBe(true);
+    expect(await e.lookForCompacting(true)).toBe(true);
+    expect(e.compacting('alpha')).toBe(false);
   });
 
   it('compaction nudge: the fill from before the Mth boundary, or a sub-agent, is not a refill', async () => {

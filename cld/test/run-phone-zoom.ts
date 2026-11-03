@@ -76,9 +76,14 @@ async function open(
   daemon: ReturnType<typeof startDaemon>,
   opts: BrowserContextOptions,
   store: Record<string, string>,
+  /** Set even over launchBrowser's defaults (its camera mode is 'off'). */
+  force: Record<string, string> = {},
 ) {
   const ctx = await browser.newContext(opts);
   await ctx.addInitScript(INIT);
+  await ctx.addInitScript((pairs) => {
+    for (const [k, v] of pairs) localStorage.setItem(k, v);
+  }, Object.entries(force));
   await ctx.addInitScript((pairs) => {
     for (const [k, v] of pairs)
       try {
@@ -141,6 +146,29 @@ async function main() {
     console.log(`phone 2D: ${show(await camera(flat.page))}`);
     await shot(flat.page, 'phone-2d');
     await flat.ctx.close();
+
+    // UI-PHONE: with the real camera ('auto'), the 2D phone opens on the rooms where agents work,
+    // not on the owner's character.
+    const auto = await open(browser, daemon, PHONE, FLAT, { 'cld.camera-mode': 'auto' });
+    const canvas = (await auto.page.getByTestId('office-canvas').boundingBox())!;
+    const workers = await auto.page
+      .locator('[data-testid="status-icon-anchor"][data-ring="working"]')
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x, y: r.y })));
+    const inView = workers.filter(
+      (p) =>
+        p.x >= canvas.x &&
+        p.x <= canvas.x + canvas.width &&
+        p.y >= canvas.y &&
+        p.y <= canvas.y + canvas.height,
+    );
+    const followed = await auto.page.evaluate(
+      `window.__agentTycoonTestHooks.getCameraFollowId()`,
+    );
+    console.log(`phone 2D auto: ${show(await camera(auto.page))}, ${inView.length}/${workers.length} at work in view, follow ${followed}`);
+    check(workers.length > 0 && inView.length === workers.length, 'the first view shows every agent at work');
+    check(followed === null, 'the first view does not follow the owner while agents work');
+    await shot(auto.page, 'phone-2d-auto');
+    await auto.ctx.close();
 
     const iso = await open(browser, daemon, PHONE, ISO);
     const first = await camera(iso.page);

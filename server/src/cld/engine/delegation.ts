@@ -115,13 +115,26 @@ const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Dat
 export class ApprovalStore {
   private doc: ApprovalDoc = { v: APPROVALS_VERSION, approvals: [], modes: {}, newWorkers: [] };
   /** Why the file is not written (it could not be read); approvals then cannot be stored. */
-  readonly problem: string | null = null;
+  problem: string | null = null;
 
   constructor(
     readonly file: string,
     private readonly changed: () => void = () => undefined,
     private readonly now: () => number = Date.now,
   ) {
+    this.load();
+  }
+
+  /** Read approvals.json again (after projectData changed it) and announce it. */
+  reload(): void {
+    this.doc = { v: APPROVALS_VERSION, approvals: [], modes: {}, newWorkers: [] };
+    this.problem = null;
+    this.load();
+    this.changed();
+  }
+
+  private load(): void {
+    const { file } = this;
     try {
       const raw = readJson(file) as Partial<ApprovalDoc> | null;
       if (raw === null) return;

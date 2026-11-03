@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { goneName } from '../../../../core/src/cld/goneAgent.js';
 import { leadDefaults } from '../../../../core/src/cld/leadDefaults.js';
 import type { PathHost } from '../../../../core/src/cld/projectPath.js';
 import { normalizeProjectPath } from '../../../../core/src/cld/projectPath.js';
@@ -24,11 +25,9 @@ import { koText } from '../../../../core/src/cld/serverText.js';
 import type {
   BoardTask,
   EngineAction,
-  EngineActionKind,
   EngineActionResult,
-  EngineProject,
   EngineState,
-  OfficeRoom,
+  InheritableAgent,
   ProjectImportResult,
   ProjectImportRow,
 } from '../../../../core/src/messages.js';
@@ -37,26 +36,44 @@ import {
   PTY_MOVE_ALL_POLL_MS,
   PTY_MOVE_ALL_WAIT_MS,
   PTY_MOVE_IDLE_MS,
-  RENEW_FILL_PCT,
 } from '../../constants.js';
-import { windowsLogonEnv,type WindowsLogonEnvironment } from '../agentCli.js';
-import { WINDOWS_LOGIN_ENV } from '../chat.js';
 import { detectHostInfo } from '../folders.js';
 import type { SocketStepUp, WsSend } from '../hooks.js';
 import { seededPermission } from '../newAgentPermission.js';
-import { findOnPath, turnEnded } from '../providers/claudeProvider.js';
-import type { AgentEntry, World } from '../providers/types.js';
-import { ENTRY_DEFAULTS } from '../providers/types.js';
+import {
+  clearRenameJournal,
+  inheritable,
+  moveProjectData,
+  NameTaken,
+  purgeProjectData,
+  readRenameJournal,
+  recordFormerName,
+  takenBy,
+  writeRenameJournal,
+} from '../projectData.js';
+import { turnEnded } from '../providers/claudeProvider.js';
+import type { World } from '../providers/types.js';
 import { STEPUP_REQUIRED } from '../shell/gate.js';
 import type { SpawnFn } from '../spawnJson.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
 import { ClaudePtyAgent } from './agents/claude/claudePty.js';
-import type { AgentProvider, LiveSession } from './agents/types.js';
+import type { AgentProvider, DeliverResult } from './agents/types.js';
 import { AgentTokens } from './agentTokens.js';
 import type { BypassResult } from './bypass.js';
 import { acceptBypass, BYPASS_ARGS, BYPASS_TIMING } from './bypass.js';
-import { CODEX_EFFORTS, isCodexEffort } from './codex.js';
+import { CompactionWatch } from './compactions.js';
+import {
+  fail,
+  MOVE_BUSY,
+  MOVE_ROLLED_BACK,
+  type Outcome,
+  parseEngineAction,
+  warned,
+} from './engineAction.js';
+import type { StateCtx } from './engineView.js';
+import { applyEngine, engineState, TurnCache } from './engineView.js';
+import { EngineWatch } from './engineWatch.js';
 import { configDir, shortStamp } from './events.js';
 import { loadOrCreateHost } from './host.js';
 import { scanProjects } from './importProjects.js';
@@ -71,8 +88,8 @@ import {
   writeJournal,
 } from './leadSwap.js';
 import type { RosterAgent } from './mcpTools.js';
-import { MESSENGER_TIMING, tail, turnOver, writeAtomic } from './messenger.js';
-import type { ProjectRecord, WorkerRole } from './registry.js';
+import { ProjectEdits } from './projectEdits.js';
+import type { ProjectRecord } from './registry.js';
 import {
   CHECK,
   checkFolder,
@@ -88,18 +105,26 @@ import {
   migrateRegistry,
   registryPath,
   registryTexts,
-  roomOf,
   samePath,
   saveRegistry,
   sessionName,
-  WORKER_ROLES,
 } from './registry.js';
+import { Renewals } from './renewals.js';
+import { ReviveGuard } from './reviveGuard.js';
+import { CLD_BIN_DIR, cldBinPath, cleanEnv, findSystemdRun } from './sessionEnv.js';
+import {
+  claims,
+  claimsName,
+  collide,
+  contested,
+  holderOf,
+  type Live,
+  type MatchCtx,
+  newest,
+} from './sessionMatch.js';
 import { appendMissing } from './sessionPath.js';
 import type { TrustResult } from './trust.js';
 import { TRUST_ARGS, TRUST_TIMING, trustFolder } from './trust.js';
-
-/** A live session and the provider that listed it. */
-type Live = LiveSession & { agent: AgentProvider };
 
 export type EngineMode = 'auto' | 'on' | 'off';
 
@@ -142,7 +167,6 @@ export const ENGINE_TIMING = {
   /** ...and the k-th of them waits this * 2^(k-1) after the one before. */
   reviveBackoffMs: 60_000,
 };
-const DAY_MS = 86_400_000;
 
 /** TOKEN-GUARD provenance: who a start was for. The engine's own (a revive, a message waking a
  *  resting session), an agent's delegation (MCP), the CLI, or a person in the office. */
@@ -155,8 +179,6 @@ export const startedBy = (source: string): 'engine' | 'agent' | 'cli' | 'person'
         ? 'cli'
         : 'person';
 
-/** compactionNudge's upper bound (0 = off). */
-export const NUDGE_MAX = 99;
 /** D3b: why the engine refuses every change after a promote that could not write the registry (a restart finishes the swap). */
 export const SWAP_UNFINISHED =
   koText('swap_unfinished');
@@ -181,228 +203,6 @@ export function renewText(handoff: string, file: string | null, when: string): s
   const head = `[cld-gui renew · ${when}] 컨텍스트가 포화돼 새 대화로 이어 간다.`;
   if (!handoff.trim()) return `${head} 하던 일을 이어서 해 달라.`;
   return `${head} 아래 인수인계${file ? `(${file})` : ''}를 먼저 읽고 하던 일을 이어서 해 달라.\n\n${handoff.trim()}`;
-}
-
-/** RENEW-STUCK: an accepted renewal, on disk until it is over, so a daemon restart resumes it.
- *  `queued`: the handoff is already in the inbox (a resume does not write it twice). */
-interface RenewRecord {
-  name: string;
-  message: string;
-  source: string;
-  requestedAt: number;
-  queued?: boolean;
-}
-const renewDir = (home: string): string => path.join(configDir(home), 'renewals');
-/** TOKEN-GUARD: the engine's own revives and give-ups per project, kept across daemon restarts. */
-const reviveGuardFile = (home: string): string => path.join(configDir(home), 'revive-guard.json');
-const renewFile = (home: string, name: string): string =>
-  path.join(renewDir(home), `${encodeURIComponent(name)}.json`);
-
-const ACTIONS: EngineActionKind[] = ['add', 'edit', 'remove', 'start', 'stop', 'restart', 'promote'];
-const TEXT_FIELDS = ['room', 'rulesFile', 'model', 'permissionMode', 'effort', 'title'] as const;
-const LAUNCH_FIELDS = [
-  'rulesFile',
-  'model',
-  'permissionMode',
-  'effort',
-  'title',
-  'remoteControl',
-] as const;
-const REQUEST_ID_MAX = 128;
-/** D5: what only a Claude session takes; a Codex Worker refuses them (nothing saved quietly). */
-const CLAUDE_ONLY = ['permissionMode', 'rulesFile', 'remoteControl', 'alwaysOn', 'title', 'compactionNudge'] as const;
-const WORKER_ROOM = koText('worker_room');
-const WORKER_FOLDER =
-  koText('worker_folder');
-
-function realPath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-}
-
-/** The git repository holding `folder`: its nearest folder with a .git, or null. */
-function repoRoot(folder: string): string | null {
-  for (let d = realPath(folder); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, '.git'))) return d;
-    if (path.dirname(d) === d) return null;
-  }
-}
-
-/** Where a Worker's own folder may be: inside its project's folder, or in the .worktrees/
- *  folder of the repository holding it (a project folder may be a subfolder of its repo). */
-function workerRoots(projectFolder: string): string[] {
-  const repo = repoRoot(projectFolder);
-  return [realPath(projectFolder), ...(repo ? [path.join(repo, '.worktrees')] : [])];
-}
-
-/** Kept from the daemon's environment: the user's, never a session's. */
-const ENV_KEEP = ['HOME', 'PATH', 'LANG', 'USER', 'SHELL', 'TERM', 'XDG_RUNTIME_DIR'];
-/** Not session state either, but nothing starts without them there. */
-const ENV_KEEP_OS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
-  darwin: ['TMPDIR', 'LOGNAME'],
-  win32: WINDOWS_LOGIN_ENV,
-};
-
-/** This checkout's cld/bin (the `cld-gui` CLI, T-0019): from dist/ or from server/src/cld/engine/. */
-export const CLD_BIN_DIR: string | null =
-  [path.resolve(__dirname, '..'), path.resolve(__dirname, '../../../..')]
-    .map((root) => path.join(root, 'cld', 'bin'))
-    .find((dir) => fs.existsSync(path.join(dir, 'cld-gui'))) ?? null;
-
-export const cldBinPath = (dir: string, platform: NodeJS.Platform = process.platform): string =>
-  path.join(dir, platform === 'win32' ? 'cld-gui.cmd' : 'cld-gui');
-
-/**
- * The environment of everything the engine starts. With `binDir`, agents find
- * the cld-gui CLI whatever the user's shell config: CLD_BIN is its absolute
- * path and its folder comes first on PATH (T-0019). The CLI is a Node script
- * (`#!/usr/bin/env node`), so the daemon's own Node folder goes LAST (ENV-1):
- * a machine whose only Node is the one we ship still runs it, and a user's
- * own Node, when there is one, keeps coming first.
- */
-export function cleanEnv(
-  base: NodeJS.ProcessEnv,
-  home: string,
-  platform: NodeJS.Platform = process.platform,
-  binDir: string | null = CLD_BIN_DIR,
-  nodeDir: string = path.dirname(process.execPath),
-  readWindowsLogonEnv: (env: NodeJS.ProcessEnv) => WindowsLogonEnvironment | null = windowsLogonEnv,
-): NodeJS.ProcessEnv {
-  const keep = new Set(
-    [...ENV_KEEP, ...(ENV_KEEP_OS[platform] ?? [])].map((key) =>
-      platform === 'win32' ? key.toUpperCase() : key,
-    ),
-  );
-  const out: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) {
-    const key = platform === 'win32' ? k.toUpperCase() : k;
-    if (v !== undefined && (keep.has(key) || key.startsWith('LC_'))) out[k] = v;
-  }
-  if (platform === 'win32') {
-    const logon = readWindowsLogonEnv(base);
-    if (logon) {
-      // System, then user, then the session's own values (kept above) win, as a Windows logon builds it;
-      // PATH is the registry's machine + user PATH (the machine's USERNAME is SYSTEM, so it must not win).
-      for (const [key, value] of Object.entries(logon)) {
-        const isPath = key.toUpperCase() === 'PATH';
-        const kept = Object.keys(out).filter((existing) => existing.toUpperCase() === key.toUpperCase());
-        if (kept.length && !isPath) continue;
-        for (const existing of kept) delete out[existing];
-        out[key] = value;
-      }
-    }
-  }
-  if (platform === 'win32')
-    for (const key of Object.keys(out)) if (key.toUpperCase() === 'HOME') delete out[key];
-  out.HOME = home;
-  if (binDir) {
-    if (platform === 'win32')
-      for (const key of Object.keys(out)) if (key.toUpperCase() === 'CLD_BIN') delete out[key];
-    out.CLD_BIN = cldBinPath(binDir, platform);
-    const key = Object.keys(out).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
-    const sep = platform === 'win32' ? ';' : ':';
-    out[key] = appendMissing(out[key] ? `${binDir}${sep}${out[key]}` : binDir, nodeDir, sep);
-  }
-  return out;
-}
-
-/** systemd-run when a user manager runs (Linux), else null. */
-export function findSystemdRun(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string | null {
-  if (platform !== 'linux' || !env.XDG_RUNTIME_DIR) return null;
-  if (!fs.existsSync(path.join(env.XDG_RUNTIME_DIR, 'systemd', 'private'))) return null;
-  return findOnPath('systemd-run', env.PATH);
-}
-
-/** An agent's assignment id: a Worker's own, a Lead's lead assignment. */
-const assignmentOf = (p: ProjectRecord): string | undefined => (p.role ? p.assignmentId : p.leadAssignmentId);
-
-const newest = (xs: Live[]): Live | null =>
-  [...xs].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0] ?? null;
-
-export function parseEngineAction(msg: Record<string, unknown>): EngineAction | null {
-  const { requestId, action, name } = msg;
-  if (typeof requestId !== 'string' || !requestId || requestId.length > REQUEST_ID_MAX) return null;
-  if (typeof action !== 'string' || !(ACTIONS as string[]).includes(action)) return null;
-  if (typeof name !== 'string' || name.length > 64) return null;
-  const out: EngineAction = {
-    type: 'engineAction',
-    requestId,
-    action: action as EngineActionKind,
-    name,
-  };
-  // D3: a Worker of a project (add).
-  const { role, project } = msg;
-  if (role !== undefined) {
-    if (!(WORKER_ROLES as unknown[]).includes(role)) return null;
-    out.role = role as WorkerRole;
-  }
-  if (project !== undefined) {
-    if (typeof project !== 'string' || project.length > 64) return null;
-    out.project = project;
-  }
-  for (const k of ['folder', ...TEXT_FIELDS] as const) {
-    const v = msg[k];
-    if (v === undefined) continue;
-    if (typeof v !== 'string' || v.length > 4096) return null;
-    out[k] = v;
-  }
-  for (const k of ['remoteControl', 'alwaysOn', 'mkdir'] as const) {
-    const v = msg[k];
-    if (v === undefined) continue;
-    if (typeof v !== 'boolean') return null;
-    out[k] = v;
-  }
-  // D5: a new Worker's provider.
-  const { provider } = msg;
-  if (provider !== undefined) {
-    if (typeof provider !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(provider)) return null;
-    out.provider = provider;
-  }
-  // D3b: what the old Lead becomes on promote.
-  const { oldLead } = msg;
-  if (oldLead !== undefined) {
-    if (oldLead !== 'worker' && oldLead !== 'stop') return null;
-    out.oldLead = oldLead;
-  }
-  // T-0019: compactions before the renew nudge; 0 turns it off.
-  const nudge = msg.compactionNudge;
-  if (nudge !== undefined) {
-    if (!Number.isInteger(nudge) || (nudge as number) < 0 || (nudge as number) > NUDGE_MAX)
-      return null;
-    out.compactionNudge = nudge as number;
-  }
-  return out;
-}
-
-interface Outcome {
-  ok: boolean;
-  bgId?: string;
-  note?: string;
-  error?: string;
-  /** Claude's own words, for the client only (never logged). */
-  detail?: string;
-  folderMissing?: boolean;
-  /** T-0019: a machine-readable reason (renew). */
-  code?: string;
-}
-const fail = (error: string, detail?: string): Outcome => ({ ok: false, error, detail });
-/** TERM-P3: moveToPty's refusals the move-all queue reacts to (wait, or report as rolled back). */
-const MOVE_BUSY = 'move_busy';
-const MOVE_ROLLED_BACK = 'move_rolled_back';
-/** What the user should know although it worked (a slow folder, T-0032). */
-const warned = (notes: string[]): Pick<Outcome, 'note'> =>
-  notes.length ? { note: notes.join(' · ') } : {};
-
-/** The identities Claude preserves when its daemon respawns a background worker. */
-interface Adoption {
-  sessionId?: string;
-  backgroundId?: string;
 }
 
 export interface EngineOptions {
@@ -455,6 +255,9 @@ export interface EngineOptions {
   tick?: () => void;
   /** D3b: a Lead swap committed: forget in-memory state kept for these names (the messenger). */
   swapped?: (names: string[]) => void;
+  /** RENAME / remove: runs `change` (projectData, on disk) between the office's flush of its
+   *  in-memory stores and their reload; `names` are the agents concerned. Unset: `change` alone. */
+  projectData?: (change: () => string[], names: string[]) => string[];
   /** AUTO-TRUST: the trust step's waits (tests shorten them). */
   trustTiming?: Partial<typeof TRUST_TIMING>;
   /** BYPASS-ACCEPT: the Bypass Permissions warning step's waits (tests shorten them). */
@@ -507,53 +310,28 @@ export class Engine {
   readonly tokens: AgentTokens;
   /** The PATH every session and job gets, or null when the service's own stands. */
   private sessionPath: string | null = null;
-  /** Projects in a renew, from the caller's turn end until the new conversation. */
-  private readonly renewals = new Set<string>();
-  /** TOKEN-GUARD (S-04): when each always-on project was last resumed after an idle retirement. */
-  private readonly idleResumedAt = new Map<string, number>();
-  /** TOKEN-GUARD (S-02): pending renewals a person stopped: they end without a new conversation. */
-  private readonly renewCancel = new Set<string>();
+  /** RENEW-STUCK: pending renewals (renewals.ts). */
+  private readonly renewals: Renewals;
   /** D3b: the two names a promote holds, until it is done. */
   private readonly swapping = new Set<string>();
   /** Projects live at the last refresh (orch_exit when one goes). */
   private liveNames = new Set<string>();
   /** contested() conflicts already logged (agent + session). */
   private readonly contestedLogged = new Set<string>();
-  /** T-0126: a vanished worker may be Claude's own daemon takeover, not a dead conversation. */
-  private readonly pendingAdoptions = new Map<string, Adoption>();
   /** apply(): per transcript, its size and mtime when last read, and whether the main turn was over. */
-  private readonly turnSeen = new Map<string, { sig: string; over: boolean; at: number }>();
+  private readonly turns = new TurnCache();
   /** Compactions and the one renew nudge seen per project's conversation. */
-  private readonly compactions = new Map<
-    string,
-    {
-      sessionId: string;
-      offset: number;
-      count: number;
-      carry: string;
-      nudged: boolean;
-      /** Already refilled when first seen (a daemon restart): it may have been
-       *  nudged before, so only the next compaction's fallback reminds it. */
-      fullAtFirstLook: boolean;
-    }
-  >();
-  /** Why revive finds sessions off: the machine booted again, or only cld-gui did. */
-  private reviveCause: 'reboot' | 'restart' = 'reboot';
-  /** T-0091: when the engine last revived each project on its own (24 h; revive-guard.json). */
-  private readonly attempts = new Map<string, number[]>();
-  /** T-0091: projects the engine gave up on (crash loop), with the last error (revive-guard.json). */
-  private readonly gaveUp = new Map<string, string>();
-  /** revive() or a watch pass is running: the watch does not start another. */
-  private watching = false;
-  // ponytail: one flag for the one provider with a daemon (Claude); per provider when D5 adds another.
-  private daemonWasUp = false;
+  private readonly compactions: CompactionWatch;
+  /** COMPACT-COFFEE: projects whose Claude Code shows its Compacting spinner, by the compaction
+   *  count when it was first seen (the boundary that raises the count ends it). */
+  private readonly compactingSeen = new Map<string, number>();
+  /** TOKEN-GUARD: revive counts and give-ups per project (revive-guard.json). */
+  private readonly guard: ReviveGuard;
+  /** Revive at start, the watch, idle retirement and adoption (engineWatch.ts). */
+  private readonly watcher: EngineWatch;
+  /** E8: add, addWorker, edit and their checks (projectEdits.ts). */
+  private readonly edits: ProjectEdits;
   private hostIdentity: string | null = null;
-  /** The last start error of the watch's revives, for the mark when it gives up. */
-  private readonly lastError = new Map<string, string>();
-  /** D5 (6.3): agents revive and the watch skipped (no provider, or it is not ready), logged once. */
-  private readonly skipLogged = new Set<string>();
-  /** TERM-P1: since when each PTY-host agent has been idle with no viewer (idleStops). */
-  private readonly idleSince = new Map<string, number>();
 
   constructor(private readonly opts: EngineOptions) {
     this.agentChoices = opts.agentChoices ?? { discover: () => ({}) };
@@ -570,7 +348,88 @@ export class Engine {
     }
     this.scope = opts.systemdRun !== undefined ? opts.systemdRun : findSystemdRun(opts.env);
     this.t = { ...ENGINE_TIMING, ...opts.timing };
-    this.loadReviveGuard();
+    this.compactions = new CompactionWatch({
+      event: (...a) => this.opts.event?.(...a),
+      nudge: (...a) => this.opts.nudge?.(...a),
+    });
+    this.guard = new ReviveGuard({
+      home: this.home,
+      timing: this.t,
+      now: () => this.now(),
+      log: (l) => this.log(l),
+      event: (...a) => this.opts.event?.(...a),
+      changed: () => this.opts.changed?.(),
+    });
+    this.renewals = new Renewals({
+      home: this.home,
+      timing: this.t,
+      running: this.running,
+      disposed: () => this.disposed,
+      broken: () => this.broken,
+      find: (name) => this.find(name),
+      rereadLive: () => {
+        this.live = this.readLive();
+      },
+      holder: (p) => this.holder(p),
+      refresh: () => this.refresh(),
+      sleep: (ms) => this.sleep(ms),
+      renaming: (name) => [...this.renames.values()].some((r) => r.from === name),
+      enqueue: (fn) => this.enqueue(fn),
+      stopSession: (h) => this.stopSession(h),
+      startProject: (p, source, newConversation) => this.startProject(p, source, newConversation),
+      log: (l) => this.log(l),
+      event: (...a) => this.opts.event?.(...a),
+      writeInbox: (...a) => this.opts.writeInbox?.(...a),
+    });
+    this.watcher = new EngineWatch({
+      timing: this.t,
+      file: this.file,
+      running: this.running,
+      untrusted: this.untrusted,
+      guard: this.guard,
+      projects: () => this.projects,
+      live: () => this.live,
+      agents: () => this.agents.values(),
+      disposed: () => this.disposed,
+      broken: () => this.broken,
+      readOnly: () => this.opts.readOnly,
+      now: () => this.now(),
+      find: (name) => this.find(name),
+      holder: (p) => this.holder(p),
+      agentOf: (p) => this.agentOf(p),
+      notReady: (p) => this.notReady(p),
+      renewing: (name) => this.renewals.has(name),
+      reviveBudget: (name, backoff) => this.reviveBudget(name, backoff),
+      reviveOne: (p, cause, firstPrompt) => this.reviveOne(p, cause, firstPrompt),
+      patch: (name, fields) => this.patch(name, fields),
+      enqueue: (fn) => this.enqueue(fn),
+      stopSession: (h, accepted) => this.stopSession(h, accepted),
+      refresh: () => this.refresh(),
+      dropLive: (name) => this.liveNames.delete(name),
+      waitFor: (fn, ms) => this.waitFor(fn, ms),
+      sleep: (ms) => this.sleep(ms),
+      changed: () => this.opts.changed?.(),
+      event: (...a) => this.opts.event?.(...a),
+      log: (l) => this.log(l),
+    });
+    this.edits = new ProjectEdits({
+      host: this.host,
+      home: this.home,
+      projects: () => this.projects,
+      agents: () => this.agents,
+      find: (name) => this.find(name),
+      holder: (p) => this.holder(p),
+      collide: (a, b) => this.collide(a, b),
+      agentOf: (p) => this.agentOf(p),
+      leads: () => this.leads(),
+      leadLaunch: (req) => this.leadLaunch(req),
+      newClaude: (provider) => this.newClaude(provider),
+      inheritable: (folder) => this.inheritable(folder),
+      refresh: () => this.refresh(),
+      commit: (next) => this.commit(next),
+      dataChange: (change, names) => this.dataChange(change, names),
+      log: (l) => this.log(l),
+    });
     // TERM-P1 (ADR-0018): Claude in our own PTY host, for agents whose provider is `claude-pty`.
     this.pty = new ClaudePtyAgent({
       claudePath: opts.claudePath,
@@ -652,8 +511,8 @@ export class Engine {
   deliver(
     name: string,
     text: string,
-    o: { task?: string; group?: { roomId: string; messageId: string }; messageId?: string; now?: boolean },
-  ): Promise<'typed' | 'notReady' | 'failed'> | null {
+    o: { task?: string; group?: { roomId: string; messageId: string }; messageId?: string; now?: boolean; force?: boolean },
+  ): Promise<DeliverResult> | null {
     const p = this.find(name);
     const agent = p && this.agentOf(p);
     if (!p || !agent?.deliver) return null;
@@ -661,22 +520,9 @@ export class Engine {
       ...(o.task && { task: o.task }),
       ...(o.messageId && { messageId: o.messageId }),
       ...(o.now && { now: true }),
+      ...(o.force && { force: true }),
       ...(o.group && { group: { id: o.group.roomId, messageId: o.group.messageId } }),
     });
-  }
-
-  /** revive and the watch leave an agent that cannot start alone: no inbox notice, no count. */
-  private skipped(p: ProjectRecord): boolean {
-    const why = this.notReady(p);
-    if (!why) {
-      this.skipLogged.delete(p.name);
-      return false;
-    }
-    if (!this.skipLogged.has(p.name)) {
-      this.skipLogged.add(p.name);
-      this.log(`"${p.name}": ${why}; not revived`);
-    }
-    return true;
   }
 
   /** Every provider's live sessions now. */
@@ -717,7 +563,8 @@ export class Engine {
     // bookkeeping (revive, conversation ids), which must be saved. A failed migration leaves the
     // registry unwritable, and nothing revived, until the next start.
     if (!this.broken) this.broken = migrateRegistry(this.file, loaded, (line) => this.log(line));
-    this.reviveCause = this.bootChanged() ? 'reboot' : 'restart';
+    this.watcher.reviveCause = this.bootChanged() ? 'reboot' : 'restart';
+    if (!this.broken) this.recoverRename();
     if (!this.broken) this.resumeRenewals();
     this.refresh(false);
     for (const agent of this.agents.values())
@@ -765,14 +612,14 @@ export class Engine {
       if (live.has(name)) continue;
       const p = this.find(name);
       if (p?.wantRunning && !this.running.has(name) && !this.renewals.has(name)) {
-        this.lookForAdoption(p);
+        this.watcher.lookForAdoption(p);
         continue;
       }
-      this.pendingAdoptions.delete(name);
+      this.watcher.dropAdoption(name);
       this.opts.event?.('orch_exit', 'engine', { name, code: null });
     }
-    this.liveNames = new Set([...live, ...this.pendingAdoptions.keys()]);
-    this.checkCompactions();
+    this.liveNames = new Set([...live, ...this.watcher.adoptionNames()]);
+    this.compactions.check(this.projects, (p) => this.holder(p));
     const warnings = [...this.agents.values()]
       .map((a) => a.warning?.() ?? null)
       .filter((w): w is string => w !== null);
@@ -780,13 +627,13 @@ export class Engine {
     this.daemonWarnings = warnings;
     // Keep the office running until the bounded re-look decides whether this
     // was a death or Claude Code's own daemon moving the same session to a new pid.
-    if (this.pendingAdoptions.size) return;
+    if (this.watcher.adoptionNames().length) return;
     // A turn starting or ending (the files' status) changes the office's busy (T-0043).
     const sig = JSON.stringify([
       this.state(),
       this.live.map((l) => [l.sessionId, l.status]),
-      [...this.renewals],
-      [...this.compactions].map(([name, c]) => [name, c.count]),
+      this.renewals.names(),
+      this.compactions.sigPart(),
     ]);
     if (sig === this.sig) return;
     this.sig = sig;
@@ -818,6 +665,13 @@ export class Engine {
           ...(bg.id && { backgroundId: bg.id }),
           idleRetired: false,
         });
+        // PROJECT-DATA: a /clear or a resume's copy: the link 대화방 지우기 follows back.
+        if (p.sessionId && bg.sessionId !== p.sessionId)
+          this.opts.event?.('orch_follow', 'engine', {
+            name: p.name,
+            old_session_id: p.sessionId,
+            session_id: bg.sessionId,
+          });
       } catch (err) {
         this.log(`could not save ${this.file}: ${String(err)}`);
       }
@@ -951,6 +805,38 @@ export class Engine {
     return this.renewals.has(name);
   }
 
+  /** COMPACT-COFFEE: `name` compacts its conversation now (the office row's `compacting`): its
+   *  spinner was on the screen at the last look, and no compact_boundary came since. */
+  compacting(name: string): boolean {
+    const at = this.compactingSeen.get(name);
+    const p = at === undefined ? undefined : this.find(name);
+    const h = p ? this.holder(p) : null;
+    return !!h && this.compactions.countFor(name, h.sessionId) === at;
+  }
+
+  /**
+   * COMPACT-COFFEE: one look at the screens we keep (agents with `compacting`, working ones only),
+   * while someone watches the office (its caller's timer); true when what the rows say changed.
+   * `off`: nobody watches any more, forget them.
+   */
+  async lookForCompacting(off = false): Promise<boolean> {
+    const before = JSON.stringify(this.projects.map((p) => this.compacting(p.name)));
+    if (off) this.compactingSeen.clear();
+    for (const p of off ? [] : this.projects) {
+      const h = this.holder(p);
+      let on = false;
+      try {
+        on = !!h && h.kind === 'background' && !h.resting && ((await h.agent.compacting?.(h)) ?? false);
+      } catch {
+        // a look that failed is no compaction
+      }
+      if (!on || !h) this.compactingSeen.delete(p.name);
+      else if (!this.compactingSeen.has(p.name))
+        this.compactingSeen.set(p.name, this.compactions.countFor(p.name, h.sessionId));
+    }
+    return JSON.stringify(this.projects.map((p) => this.compacting(p.name))) !== before;
+  }
+
   /** A messenger message wakes only a project Claude retired for idleness.
    * The caller then types that original message into the resumed session, so
    * there is no automatic recovery turn in front of it. */
@@ -961,7 +847,7 @@ export class Engine {
       return false;
     }
     let p = this.find(name);
-    if (!p || !p.wantRunning || !this.retiredForIdleness(p) || this.running.has(name)) return false;
+    if (!p || !p.wantRunning || !this.watcher.retiredForIdleness(p) || this.running.has(name)) return false;
     this.running.add(name);
     let out: Outcome;
     try {
@@ -969,7 +855,7 @@ export class Engine {
         this.refresh();
         p = this.find(name);
         if (!p || !p.wantRunning || this.holder(p)) return { ok: false, error: 'already live' };
-        if (!this.retiredForIdleness(p)) return { ok: false, error: 'not resting' };
+        if (!this.watcher.retiredForIdleness(p)) return { ok: false, error: 'not resting' };
         return this.startProject(p, 'messenger');
       });
     } catch (err) {
@@ -996,8 +882,8 @@ export class Engine {
     if (
       !p ||
       p.wantRunning ||
-      this.retiredForIdleness(p) ||
-      this.gaveUp.has(name) ||
+      this.watcher.retiredForIdleness(p) ||
+      this.guard.gaveUp(name) !== undefined ||
       this.running.has(name) ||
       this.renewals.has(name)
     )
@@ -1011,8 +897,8 @@ export class Engine {
         if (
           !p ||
           p.wantRunning ||
-          this.retiredForIdleness(p) ||
-          this.gaveUp.has(name) ||
+          this.watcher.retiredForIdleness(p) ||
+          this.guard.gaveUp(name) !== undefined ||
           this.holder(p)
         )
           return { ok: false, error: 'not ordinarily off' };
@@ -1053,153 +939,210 @@ export class Engine {
     message: string,
     source: string,
   ): { ok: true } | { ok: false; code: string; error: string } {
+    return this.renewals.request(name, message, source);
+  }
+
+  /** RENAME: the pending renames by assignment id (a rename is for that agent, whatever answers
+   *  to its name meanwhile): its name when asked, and the new one. */
+  private readonly renames = new Map<string, { from: string; to: string }>();
+  /** RENAME: the last rename's run (tests await it). */
+  renameRun: Promise<void> = Promise.resolve();
+
+  /** An agent's own assignment id (a Lead's is its project's lead assignment). */
+  private static assignmentOf(p: ProjectRecord): string | undefined {
+    return p.role ? p.assignmentId : p.leadAssignmentId;
+  }
+
+  private byAssignment(id: string): ProjectRecord | undefined {
+    return this.projects.find((x) => Engine.assignmentOf(x) === id);
+  }
+
+  /**
+   * RENAME: `agty rename`. Accepted at once (an agent renames itself mid-turn); applied once the
+   * agent's turn is over, like renew: its session stopped, the registry and every store keyed by
+   * the name moved (projectData, never onto a name that has data of its own), then started again
+   * as `-n <to> --resume <its conversation>` (our PTY host keeps the id; `claude --bg` continues
+   * it in a copy). The rename is bound to the agent's assignment: if that agent is gone or answers
+   * to another name by then, it is dropped. A journal (rename-journal.json) makes a crash after
+   * the registry roll forward at the next start. One orch_rename event says how it went, with the
+   * stores that did not follow. ponytail: a rename still waiting for its turn lives in memory; a
+   * daemon restart before the turn ends forgets it (no orch_rename line): ask again.
+   */
+  rename(
+    name: string,
+    to: string,
+    source: string,
+  ): { ok: true } | { ok: false; code: string; error: string } {
+    const no = (code: string, error: string) => ({ ok: false as const, code, error });
+    if (this.opts.readOnly) return no('read_only', koText('read_only_mode'));
+    if (this.broken) return no('daemon_error', koText('registry_unreadable'));
     const p = this.find(name);
-    if (!p) return { ok: false, code: 'unknown_project', error: koText('project_unknown', { name }) };
-    if (this.broken)
-      return {
-        ok: false,
-        code: 'daemon_error',
-        error: koText('registry_unreadable'),
-      };
-    if (this.renewals.has(name))
-      return {
-        ok: false,
-        code: 'renew_pending',
-        error: koText('renew_pending', { name }),
-      };
-    if (this.running.has(name))
-      return { ok: false, code: 'busy', error: koText('project_busy_quoted', { name }) };
-    const r: RenewRecord = { name, message, source, requestedAt: Date.now() };
-    this.saveRenewal(r);
-    this.launchRenewal(p, r);
-    this.refresh(); // the office row's `renewing`
+    const id = p && Engine.assignmentOf(p);
+    if (!p || !id) return no('unknown_project', koText('project_unknown', { name }));
+    const bad = checkName(to);
+    if (bad) return no('usage', bad);
+    if (to === name) return no('usage', koText('rename_same', { name }));
+    if (this.find(to) || this.projectNames().includes(to) || [...this.renames.values()].some((r) => r.to === to))
+      return no('name_taken', koText('name_taken'));
+    if (this.renames.has(id)) return no('rename_pending', koText('rename_pending', { name }));
+    if (this.running.has(name) || this.swapping.has(name)) return no('busy', koText('project_busy_quoted', { name }));
+    if (this.renewals.has(name)) return no('renew_pending', koText('project_renewing', { name }));
+    const taken = takenBy(this.home, to);
+    if (taken.length) return no('name_taken', koText('rename_data_exists', { name: to, stores: taken.join(', ') }));
+    const clash = this.sessionClash(this.renamedList(p, to), [to]);
+    if (clash) return no('session_clash', clash);
+    this.renames.set(id, { from: name, to });
+    this.renameRun = this.renameWhenIdle(id, name, to, source).finally(() => this.renames.delete(id));
+    this.log(`rename "${name}" -> "${to}": waiting for the turn to end`);
     return { ok: true };
   }
 
-  private launchRenewal(p: ProjectRecord, r: RenewRecord): void {
-    this.renewals.add(p.name);
-    void this.renewRun(p, r).finally(() => {
-      this.renewals.delete(p.name);
-      this.renewCancel.delete(p.name); // a run that threw must not cancel the next renewal
-    });
+  /** The registry with `p` under `to` (a title that was only its name goes: -n follows the name). */
+  private renamedList(p: ProjectRecord, to: string): ProjectRecord[] {
+    const next: ProjectRecord = { ...p, name: to };
+    if (next.title === p.name) delete next.title;
+    return this.projects.map((x) => (x === p ? next : x));
   }
 
-  /** Write a pending renewal's record; a failed write leaves it in memory only (logged). */
-  private saveRenewal(r: RenewRecord): void {
-    try {
-      writeAtomic(renewFile(this.home, r.name), JSON.stringify(r));
-    } catch (err) {
-      this.log(`renew "${r.name}": not saved, a restart would lose it (${String(err)})`);
+  /** The agent of assignment `id`, while it still answers to `from`. */
+  private renameTarget(id: string, from: string): ProjectRecord | undefined {
+    const p = this.byAssignment(id);
+    return p?.name === from ? p : undefined;
+  }
+
+  private async renameWhenIdle(id: string, from: string, to: string, source: string): Promise<void> {
+    const end = Date.now() + this.t.renewWaitMs;
+    let oldSession: string | undefined;
+    const finish = (out: Outcome & { notMoved?: string[] }) => {
+      this.log(`rename "${from}" -> "${to}": ${out.ok ? 'ok' : `failed (${out.error})`}${out.notMoved?.length ? `; not moved: ${out.notMoved.join(', ')}` : ''}`);
+      const now = this.byAssignment(id)?.sessionId;
+      this.opts.event?.('orch_rename', source, {
+        name: from,
+        to,
+        ok: out.ok,
+        ...(out.ok && now && { session_id: now }),
+        // 대화방 지우기 follows a copy back to the conversation it continued.
+        ...(out.ok && now && oldSession && now !== oldSession && { old_session_id: oldSession }),
+        ...(out.notMoved?.length && { not_moved: out.notMoved }),
+        ...(!out.ok && { code: out.code ?? 'failed', error: out.error }),
+      });
+      this.refresh();
+    };
+    const gone = () => finish({ ...fail(koText('project_unknown', { name: from })), code: 'gone' });
+    // 1. The turn ends (as renew waits for it).
+    for (;;) {
+      if (this.disposed) return;
+      this.live = this.readLive();
+      const p = this.renameTarget(id, from);
+      if (!p) return gone();
+      const h = this.holder(p);
+      if (h && h.kind !== 'background') return finish({ ...fail(koText('rename_terminal')), code: 'terminal' });
+      if (!h || turnEnded(h.status)) break;
+      if (Date.now() >= end) return finish({ ...fail(koText('rename_not_idle')), code: 'not_idle' });
+      await this.sleep(this.t.renewPollMs);
     }
+    // 2. Stopped, moved, started again under the new name (one action at a time; both names held).
+    const held = [from, to];
+    held.forEach((n) => (this.running.add(n), this.swapping.add(n)));
+    let out: Outcome & { notMoved?: string[] };
+    try {
+      out = await this.enqueue(async () => {
+        oldSession = this.renameTarget(id, from)?.sessionId;
+        return this.renameNow(id, from, to, source);
+      });
+    } catch (err) {
+      out = fail(err instanceof Error ? err.message : String(err));
+    } finally {
+      held.forEach((n) => (this.running.delete(n), this.swapping.delete(n)));
+    }
+    finish(out);
+  }
+
+  private async renameNow(id: string, from: string, to: string, source: string): Promise<Outcome & { notMoved?: string[] }> {
+    this.refresh();
+    const p = this.renameTarget(id, from);
+    if (!p) return { ...fail(koText('project_unknown', { name: from })), code: 'gone' };
+    // A renew and a rename of one agent are exclusive (each refuses the other when asked).
+    if (this.renewals.has(from)) return { ...fail(koText('project_renewing', { name: from })), code: 'renew_pending' };
+    if (this.find(to)) return fail(koText('name_taken'));
+    const taken = takenBy(this.home, to);
+    if (taken.length) return fail(koText('rename_data_exists', { name: to, stores: taken.join(', ') }));
+    const list = this.renamedList(p, to);
+    const clash = this.sessionClash(list, [to]);
+    if (clash) return fail(clash);
+    const h = this.holder(p);
+    const wasOn = !!h;
+    if (h) {
+      const r = await this.stopSession(h);
+      if (!r.ok) return r;
+    }
+    const at = Date.now();
+    try {
+      writeRenameJournal(this.home, { v: 1, from, to, assignmentId: id, at });
+      this.commit(list);
+    } catch (err) {
+      // Nothing moved: the old session comes back as it was.
+      clearRenameJournal(this.home);
+      if (wasOn) await this.startProject(p, source);
+      return fail(koText('registry_save_failed', { why: err instanceof Error ? err.message : String(err) }));
+    }
+    this.tokens.drop(from); // its session's token; the start issues one for the new name
+    this.forgetSession(from);
+    const notMoved = this.finishRename(from, to, at, false);
+    if (!wasOn) return { ok: true, notMoved };
+    // `flags`: -n <to>, its options and a fresh token with --resume <its conversation>.
+    const started = await this.startProject(this.find(to)!, source, false, true);
+    return { ...started, notMoved };
+  }
+
+  /** After the registry: the name history, then the stores (`force`: a roll-forward, some may
+   *  have moved already), then the journal goes. The stores that did not follow. */
+  private finishRename(from: string, to: string, at: number, force: boolean): string[] {
+    const notMoved: string[] = [];
+    try {
+      recordFormerName(this.home, { name: from, until: at, as: to });
+    } catch (err) {
+      notMoved.push('name-history.json');
+      this.log(`rename "${from}": name-history.json: ${String(err)}`);
+    }
+    try {
+      notMoved.push(...this.dataChange(() => moveProjectData(this.home, from, to, (l) => this.log(l), force), [from, to]));
+    } catch (err) {
+      // NameTaken: something wrote data under the new name since the check; nothing was moved.
+      notMoved.push(...(err instanceof NameTaken ? err.stores : ['projectData']));
+      this.log(`rename "${from}" -> "${to}": stores not moved (${String(err)})`);
+    }
+    clearRenameJournal(this.home);
+    return notMoved;
+  }
+
+  /** start(): a rename the last daemon committed but did not finish rolls forward; one cut short
+   *  before its registry write is dropped (nothing had moved). */
+  private recoverRename(): void {
+    if (this.opts.readOnly) return;
+    const j = readRenameJournal(this.home);
+    if (!j) return;
+    const p = this.byAssignment(j.assignmentId);
+    if (p?.name === j.to) {
+      const notMoved = this.finishRename(j.from, j.to, j.at, true);
+      this.log(`rename "${j.from}" -> "${j.to}": finished at start${notMoved.length ? `; not moved: ${notMoved.join(', ')}` : ''}`);
+    } else {
+      clearRenameJournal(this.home);
+      this.log(`rename "${j.from}" -> "${j.to}": cut short before the registry; dropped`);
+    }
+  }
+
+  /** projectData's change between the office's flush and reload (opts.projectData), then the
+   *  engine's own copy of revive-guard.json read again. The stores that did not follow. */
+  private dataChange(change: () => string[], names: string[]): string[] {
+    const failed = this.opts.projectData ? this.opts.projectData(change, names) : change();
+    this.guard.reload();
+    return failed;
   }
 
   /** start(): every renewal a stopped daemon left pending goes on where it was. */
   private resumeRenewals(): void {
-    let files: string[];
-    try {
-      files = fs.readdirSync(renewDir(this.home)).filter((f) => f.endsWith('.json'));
-    } catch {
-      return; // none
-    }
-    for (const f of files) {
-      const file = path.join(renewDir(this.home), f);
-      let r: RenewRecord;
-      try {
-        r = JSON.parse(fs.readFileSync(file, 'utf-8')) as RenewRecord;
-        if (typeof r.name !== 'string' || typeof r.message !== 'string') throw new Error('bad record');
-      } catch (err) {
-        this.log(`${file}: unreadable, not resumed (${String(err)})`);
-        continue;
-      }
-      const p = this.find(r.name);
-      if (!p) {
-        this.log(`${file}: no project "${r.name}", not resumed (its handoff stays in the file)`);
-        continue;
-      }
-      this.log(`renew "${r.name}": resumed after a restart (asked ${shortStamp(r.requestedAt)})`);
-      this.launchRenewal(p, r);
-    }
-  }
-
-  private async renewRun(p: ProjectRecord, r: RenewRecord): Promise<void> {
-    const { message, source } = r;
-    const oldId = p.sessionId ?? null;
-    const file = renewFile(this.home, p.name);
-    let queued = r.queued === true;
-    const finish = (ok: boolean, sessionId: string | null, code?: string, error?: string) => {
-      // Over: the record goes. A handoff that never reached the inbox is kept beside it.
-      try {
-        if (queued) fs.rmSync(file, { force: true });
-        else {
-          fs.renameSync(file, `${file}.failed`);
-          this.log(`renew "${p.name}": its handoff is kept in ${file}.failed`);
-        }
-      } catch (err) {
-        this.log(`renew "${p.name}": ${file}: ${String(err)}`);
-      }
-      this.renewals.delete(p.name);
-      this.renewCancel.delete(p.name);
-      this.log(`renew "${p.name}": ${ok ? `ok ${sessionId?.slice(0, 8)}` : `failed (${error})`}`);
-      this.opts.event?.('orch_renew', source, {
-        name: p.name,
-        old_session_id: oldId,
-        session_id: sessionId,
-        ok,
-        ...(code && { code, error }),
-      });
-      this.refresh();
-    };
-    // 1. The caller's turn ends (counted from the request, across a restart). `shell` is an
-    // ended turn whose run_in_background shell lives on: stopping the session ends it anyway.
-    const end = r.requestedAt + this.t.renewWaitMs;
-    let h: Live | null;
-    const cancelled = 'cancelled';
-    const why = '사용자가 멈춰 새 대화로 넘기지 않았어요';
-    for (;;) {
-      if (this.disposed) return;
-      if (this.renewCancel.has(p.name)) return finish(false, null, cancelled, why);
-      this.live = this.readLive();
-      h = this.holder(p);
-      if (h && h.kind !== 'background')
-        return finish(false, null, 'terminal', '터미널에서 열린 대화는 여기서 넘길 수 없어요');
-      if (!h || turnEnded(h.status)) {
-        this.log(`renew "${p.name}": turn over (${h ? `status ${h.status}` : 'no live session'})`);
-        break;
-      }
-      if (Date.now() >= end)
-        return finish(false, null, 'not_idle', '턴이 끝나지 않아 새 대화로 넘기지 않았어요');
-      await this.sleep(this.t.renewPollMs);
-    }
-    // 2. The handoff waits in the inbox for the new conversation.
-    if (!queued) {
-      if (!(this.opts.writeInbox?.(p.name, message) ?? false))
-        return finish(false, null, 'queue_failed', '인수인계를 inbox에 쓰지 못했어요');
-      queued = true;
-      this.saveRenewal({ ...r, queued });
-    }
-    // 3, 4. Stop the old one until it is gone, then a new conversation (one action at a time).
-    this.running.add(p.name);
-    let out: Outcome;
-    try {
-      out = await this.enqueue(async (): Promise<Outcome> => {
-        if (this.renewCancel.has(p.name)) return { ...fail(why), code: cancelled };
-        this.refresh();
-        const live = this.holder(p);
-        if (live) {
-          const r = await this.stopSession(live);
-          if (!r.ok) return { ...r, code: 'stop_failed' };
-        }
-        const r = await this.startProject(this.find(p.name) ?? p, source, true);
-        return r.ok ? r : { ...r, code: 'start_failed' };
-      });
-    } catch (err) {
-      out = { ...fail(err instanceof Error ? err.message : String(err)), code: 'start_failed' };
-    } finally {
-      this.running.delete(p.name);
-    }
-    const now = this.find(p.name)?.sessionId ?? null;
-    if (out.ok) finish(true, now);
-    else finish(false, null, out.code, out.error);
+    this.renewals.resume();
   }
 
   /** Did the machine boot since the last daemon start? (The marker is rewritten.) */
@@ -1226,229 +1169,69 @@ export class Engine {
     return before !== boot;
   }
 
-  /**
-   * Compactions of the projects with a nudge (opt-in): Claude writes a
-   * compact_boundary record into the transcript each time (the count of
-   * same). After the configured count, renew waits for the post-compaction
-   * context to refill. Read only a changed tail for opted-in projects; a
-   * conversation first seen is only counted, so a restart never nudges again.
-   */
-  private checkCompactions(): void {
-    for (const p of this.projects) {
-      if (!p.compactionNudge) continue;
-      const h = this.holder(p);
-      if (h?.kind !== 'background' || !h.agent.compaction) continue;
-      const { mark, fillPct: fillOf } = h.agent.compaction;
-      const file = h.agent.transcript(h);
-      let size: number;
-      try {
-        size = fs.statSync(file).size;
-      } catch {
-        continue;
-      }
-      let c = this.compactions.get(p.name);
-      const first = !c || c.sessionId !== h.sessionId;
-      if (!c || first || size < c.offset)
-        this.compactions.set(
-          p.name,
-          (c = {
-            sessionId: h.sessionId,
-            offset: 0,
-            count: 0,
-            carry: '',
-            nudged: false,
-            fullAtFirstLook: false,
-          }),
-        );
-      if (size === c.offset) continue;
-      let found = 0;
-      try {
-        const fd = fs.openSync(file, 'r');
-        try {
-          const buf = Buffer.alloc(1024 * 1024);
-          for (let at = c.offset; at < size;) {
-            const n = fs.readSync(fd, buf, 0, Math.min(buf.length, size - at), at);
-            if (n <= 0) break;
-            const text = c.carry + buf.toString('latin1', 0, n);
-            found += text.split(mark).length - 1;
-            c.carry = text.slice(-(mark.length - 1));
-            at += n;
-          }
-        } finally {
-          fs.closeSync(fd);
-        }
-      } catch {
-        continue;
-      }
-      c.offset = size;
-      c.count += found;
-      if (found && !first)
-        this.opts.event?.('compacted', 'engine', { name: p.name, count: c.count });
-      if (c.nudged || c.count < p.compactionNudge) continue;
-      // The tail is read only here: an opted-in conversation past M, not yet
-      // nudged, whose transcript grew.
-      const fillPct = fillOf(file) ?? 0; // unknown: never "full"
-      const full = fillPct >= RENEW_FILL_PCT;
-      if (first) {
-        c.fullAtFirstLook = full;
-        continue;
-      }
-      // A later boundary proves that a refill passed between checks. Do not let
-      // a fourth compaction silently replace the renew the user asked for.
-      const fallback = found > 0 && c.count > p.compactionNudge;
-      if (full && !c.fullAtFirstLook) {
-        c.nudged = true;
-        this.opts.nudge?.(p.name, c.count, fillPct);
-      } else if (fallback) {
-        c.nudged = true;
-        this.opts.nudge?.(p.name, c.count, RENEW_FILL_PCT);
-      }
-    }
-  }
-
   private find(name: string): ProjectRecord | undefined {
     return this.projects.find((p) => p.name === name);
   }
 
-  /** The live session that is this project's (of its provider): its conversation (any
-   *  kind), or a background session with its name in its folder. Background first. */
+  /** The live session that is this project's (see holderOf in sessionMatch.ts). */
   private holder(p: ProjectRecord): Live | null {
-    const agent = this.agentOf(p);
-    const assignment = assignmentOf(p);
-    const mine = this.live.filter(
-      (s) =>
-        s.agent === agent &&
-        ((s.assignmentId !== undefined && s.assignmentId === assignment) ||
-          (p.sessionId !== undefined && s.sessionId === p.sessionId) ||
-          (this.claims(p, s) && !this.contested(p, (q) => this.claims(q, s), s.name, s.sessionId))),
-    );
-    const found = mine.find((s) => s.kind === 'background') ?? mine[0] ?? null;
-    if (found || !agent || agent.capabilities.lifetime !== 'run' || !p.wantRunning || agent.ready?.())
-      return found;
-    // D5: an on assignment of a 'run' provider with no run is resting (never in this.live, so
-    // followConversations and the rest never see it).
-    return {
-      id: `rest:${assignment ?? p.name}`,
-      pid: 0,
-      cwd: p.folder,
-      kind: 'background',
-      sessionId: '',
-      name: p.name,
-      status: 'idle',
-      resting: true,
-      agent,
-      ...(assignment && { assignmentId: assignment }),
-    };
+    return holderOf(this.matchCtx(), p);
   }
 
-  /** A background session of `q`'s provider with `q`'s session name in `q`'s folder. */
   private claims(q: ProjectRecord, s: Live): boolean {
-    return s.kind === 'background' && s.agent === this.agentOf(q) && this.claimsName(q, s.name, s.cwd);
+    return claims(this.matchCtx(), q, s);
   }
 
-  /** A session named as `q`'s (its provider's rule: Claude's `<name> (N)`) in `q`'s folder. */
   private claimsName(q: ProjectRecord, name: string | null | undefined, dir: string): boolean {
-    const agent = this.agentOf(q);
-    return !!agent && agent.nameMatches(name, sessionName(q)) && samePath(dir, q.folder, this.host);
+    return claimsName(this.matchCtx(), q, name, dir);
   }
 
-  /** D3: two agents of one provider in one folder whose session names match either way: a
-   *  live session of one could be taken for the other's (neither then takes it). */
   private collide(a: ProjectRecord, b: ProjectRecord): boolean {
-    const agent = this.agentOf(a);
-    return (
-      !!agent &&
-      agent === this.agentOf(b) &&
-      samePath(a.folder, b.folder, this.host) &&
-      (agent.nameMatches(sessionName(a), sessionName(b)) ||
-        agent.nameMatches(sessionName(b), sessionName(a)))
-    );
+    return collide(this.matchCtx(), a, b);
   }
 
-  /**
-   * Another agent in the same folder claims this session by name too (a store carried
-   * over from D2, or edited by hand): it is never guessed to be `p`'s (only its own
-   * conversation id makes it so). Logged once per agent and session.
-   */
   private contested(
     p: ProjectRecord,
     claimedBy: (q: ProjectRecord) => boolean,
     name: string | null | undefined,
     sessionId: string | null | undefined,
   ): boolean {
-    const others = this.projects.filter((q) => q !== p && claimedBy(q));
-    if (!others.length) return false;
-    const key = `${p.name}\0${sessionId ?? name}`;
-    if (!this.contestedLogged.has(key)) {
-      this.contestedLogged.add(key);
-      this.log(
-        `"${p.name}": live session "${name}" (${sessionId?.slice(0, 8) ?? '-'}) also matches ${others.map((q) => `"${q.name}"`).join(', ')} in the same folder; not followed (give them different names or titles)`,
-      );
-    }
-    return true;
+    return contested(this.matchCtx(), p, claimedBy, name, sessionId);
+  }
+
+  /** What the sessionMatch functions read, taken fresh each call (projects and live are reassigned). */
+  private matchCtx(): MatchCtx {
+    return {
+      projects: this.projects,
+      live: this.live,
+      agentOf: (p) => this.agentOf(p),
+      host: this.host,
+      logged: this.contestedLogged,
+      log: (line) => this.log(line),
+    };
   }
 
   state(): EngineState {
-    const warnings = [
-      this.broken &&
-        (this.broken === SWAP_UNFINISHED
-          ? SWAP_UNFINISHED
-          : koText('registry_broken', { file: this.file, why: this.broken })),
-      ...this.daemonWarnings,
-    ].filter((w): w is string => !!w);
-    const choices = this.agentChoices.discover();
+    return engineState(this.stateCtx());
+  }
+
+  /** What engineState() reads, taken fresh each call (projects and the registry state are reassigned). */
+  private stateCtx(): StateCtx {
     return {
-      type: 'engineState',
-      projects: this.projects.map((p): EngineProject => {
-        const h = this.holder(p);
-        const {
-          name,
-          folder,
-          wantRunning,
-          room: _r,
-          sessionId: _s,
-          backgroundId: _b,
-          idleRetired,
-          role,
-          assignmentId: _a,
-          workFolder: _w,
-          provider,
-          resumeAsCopy: _copy,
-          ...launch
-        } = p;
-        const project = role ? this.projectOf(name) : null;
-        const sessionId = h?.sessionId || p.sessionId;
-        const gave = !h && wantRunning ? this.gaveUp.get(name) : undefined;
-        const agent = this.agentOf(p);
-        const cannot = !agent
-          ? unknownProvider(provider ?? DEFAULT_PROVIDER)
-          : !h
-            ? (agent.ready?.() ?? null)
-            : null;
-        return {
-          name,
-          ...(role && { role }),
-          ...(project && { project }),
-          folder,
-          room: roomOf(p),
-          ...launch,
-          wantRunning,
-          live: h !== null,
-          ...(h?.kind === 'background' && h.id && !h.resting && { bgId: h.id }),
-          ...(provider && provider !== DEFAULT_PROVIDER && { provider }),
-          ...(sessionId && { sessionId }),
-          ...(!h && this.untrusted.has(name) && { needsTrust: true }),
-          ...(this.trusting.has(name) && { trusting: true }),
-          ...(cannot
-            ? { downNote: cannot }
-            : !h && wantRunning && idleRetired
-              ? { downNote: koText('down_idle') }
-              : gave !== undefined && { downNote: koText('down_gave_up', { why: gave }) }),
-        };
-      }),
-      ...(Object.keys(choices).length > 0 && { agentChoices: choices }),
-      ...(warnings.length > 0 && { warnings }),
-      ...(this.moveAllRun && { moveAll: { done: this.moveAllRun.done, total: this.moveAllRun.total } }),
+      projects: this.projects,
+      file: this.file,
+      broken: this.broken,
+      daemonWarnings: this.daemonWarnings,
+      swapUnfinished: SWAP_UNFINISHED,
+      agentChoices: this.agentChoices,
+      holder: (p) => this.holder(p),
+      projectOf: (name) => this.projectOf(name),
+      gaveUp: (name) => this.guard.gaveUp(name),
+      agentOf: (p) => this.agentOf(p),
+      unknownProvider,
+      untrusted: this.untrusted,
+      trusting: this.trusting,
+      moveAllRun: this.moveAllRun,
     };
   }
 
@@ -1599,33 +1382,8 @@ export class Engine {
     return result;
   }
 
-  /**
-   * Is the project's session working? Its file's status, as the messenger reads
-   * it (the typing indicator and 보냄(대기 중) agree); else the provider row's.
-   * `busy` also holds while only a background task runs (a sleep loop, a
-   * sub-agent): a main turn that ended by its transcript (the messenger's
-   * turnOver) is rest, not "thinking".
-   */
   private busyOf(h: Live, fallback: boolean | null, rowTranscript?: string | null) {
-    const busy = h.status === 'busy' ? true : turnEnded(h.status) ? false : fallback;
-    if (busy !== true) return busy;
-    const file = rowTranscript ?? h.agent.transcript(h);
-    let sig: string;
-    try {
-      const st = fs.statSync(file);
-      sig = `${st.size}:${st.mtimeMs}`;
-    } catch {
-      return busy;
-    }
-    const now = Date.now();
-    let seen = this.turnSeen.get(file);
-    // An unchanged file settles a finished turn for good; a running one is read
-    // again soon (a text-only reply ends its turn only once it is quiet).
-    if (!seen || seen.sig !== sig || (!seen.over && now - seen.at >= MESSENGER_TIMING.quietMs)) {
-      seen = { sig, over: turnOver(tail(file), now, MESSENGER_TIMING.quietMs), at: now };
-      this.turnSeen.set(file, seen);
-    }
-    return !seen.over;
+    return this.turns.busyOf(h, fallback, rowTranscript);
   }
 
   /**
@@ -1634,69 +1392,15 @@ export class Engine {
    * pid-less rows `claude agents --json` keeps after a reboot).
    */
   apply(world: World): World {
-    const absorbed = new Set<AgentEntry>();
-    const entries = this.projects.map((p): AgentEntry => {
-      const h = this.holder(p);
-      const ids = new Set([p.sessionId, h?.sessionId].filter(Boolean));
-      const rows = world.agents.filter(
-        (a) =>
-          (a.sessionId !== null && a.sessionId !== undefined && ids.has(a.sessionId)) ||
-          (a.bg !== null &&
-            this.claimsName(p, a.name, a.dir) &&
-            !this.contested(p, (q) => this.claimsName(q, a.name, a.dir), a.name, a.sessionId)),
-      );
-      rows.forEach((a) => absorbed.add(a));
-      const row = h ? (rows.find((a) => a.sessionId === h.sessionId) ?? rows[0]) : undefined;
-      const c = this.compactions.get(p.name);
-      return {
-        ...ENTRY_DEFAULTS,
-        // The count the board's 컴팩션 N회 shows: the stat's 압축 N/M must agree (10-22 18:26).
-        compactions: h && c?.sessionId === h.sessionId ? c.count : 0,
-        key: `engine:${p.name}`,
-        name: p.name,
-        dir: p.folder,
-        title: p.title ?? null,
-        tab: roomOf(p),
-        order: 0,
-        state: h ? 'running' : 'off',
-        // The session file's status, as the messenger reads it to queue (T-0043:
-        // the typing indicator and 보냄(대기 중) agree); else the provider row's.
-        busy: !h ? null : this.busyOf(h, row?.busy ?? null, row?.transcript),
-        // D5: a resting session has no process, conversation or job to show.
-        pid: h?.pid || null,
-        sessionId: h?.sessionId || p.sessionId || null,
-        bg:
-          h?.kind === 'background' && !h.resting
-            ? {
-                id: h.id ?? h.sessionId.slice(0, 8),
-                state: row?.bg?.state ?? 'unknown',
-                sessionId: h.sessionId,
-                started: h.startedAt ? new Date(h.startedAt).toISOString() : null,
-              }
-            : null,
-        remoteControl: { on: !!h && p.remoteControl === true, url: null },
-        alive: h !== null,
-        transcript: h ? (row?.transcript ?? h.agent.transcript(h)) || null : null,
-      };
+    return applyEngine(world, {
+      projects: this.projects,
+      holder: (p) => this.holder(p),
+      claimsName: (q, name, dir) => this.claimsName(q, name, dir),
+      contested: (p, claimedBy, name, sessionId) => this.contested(p, claimedBy, name, sessionId),
+      compactionsFor: (name, sessionId) => this.compactions.countFor(name, sessionId),
+      busyOf: (h, fallback, rowTranscript) => this.busyOf(h, fallback, rowTranscript),
+      opsRoom: OPS_ROOM,
     });
-    const kept = world.agents.filter((a) => !absorbed.has(a));
-    const agents = [...kept, ...entries];
-    // After the room's other members.
-    const last = new Map<string, number>();
-    for (const a of kept) last.set(a.tab, Math.max(last.get(a.tab) ?? 0, a.order));
-    for (const e of entries) {
-      e.order = (last.get(e.tab) ?? 0) + 1;
-      last.set(e.tab, e.order);
-    }
-    const used = (all: AgentEntry[], room: string) => all.some((a) => a.tab === room);
-    // A room the folded rows leave empty goes.
-    const rooms: OfficeRoom[] = world.rooms.filter(
-      (r) => !used(world.agents, r.name) || used(agents, r.name),
-    );
-    for (const e of entries)
-      if (!rooms.some((r) => r.name === e.tab))
-        rooms.push({ name: e.tab, kind: e.tab === OPS_ROOM ? 'ops' : 'orch', order: 0 });
-    return { agents, rooms: rooms.map((r, i) => ({ ...r, order: i + 1 })) };
   }
 
   /** An `engineMoveAll` from a client (privileged only, checked again here): start or stop the queue. */
@@ -1778,7 +1482,7 @@ export class Engine {
     // D3b: a promote holds its project's Lead too (nothing else starts either session meanwhile).
     const lead = action === 'promote' ? this.leadOf(this.find(name)) : undefined;
     const held = [name, ...(lead ? [lead.name] : [])];
-    if (action === 'stop' && this.renewals.has(name)) this.renewCancel.add(name);
+    if (action === 'stop' && this.renewals.has(name)) this.renewals.cancel(name);
     for (const n of held) this.running.add(n);
     if (action === 'promote') held.forEach((n) => this.swapping.add(n));
     if (action === 'start' || action === 'restart' || action === 'stop' || action === 'promote')
@@ -1803,80 +1507,11 @@ export class Engine {
 
   /** A person acted on the project: the watch's crash-loop count and mark start over. */
   private forgive(name: string): void {
-    const had = this.attempts.delete(name) || this.gaveUp.has(name);
-    this.gaveUp.delete(name);
-    this.lastError.delete(name);
-    if (had) this.saveReviveGuard();
+    this.guard.forgive(name);
   }
 
-  private loadReviveGuard(): void {
-    let o: Record<string, { attempts?: unknown; gaveUp?: unknown }>;
-    try {
-      o = JSON.parse(fs.readFileSync(reviveGuardFile(this.home), 'utf-8')) as typeof o;
-    } catch {
-      return; // none yet (or unreadable: the counts start over, as before TOKEN-GUARD)
-    }
-    for (const [name, g] of Object.entries(o ?? {})) {
-      if (Array.isArray(g?.attempts))
-        this.attempts.set(name, g.attempts.filter((t): t is number => typeof t === 'number'));
-      if (typeof g?.gaveUp === 'string') this.gaveUp.set(name, g.gaveUp);
-    }
-  }
-
-  // ponytail: keyed by name, so a rename starts its count over; key by assignmentId if that matters.
-  private saveReviveGuard(): void {
-    const o: Record<string, { attempts: number[]; gaveUp?: string }> = {};
-    for (const name of new Set([...this.attempts.keys(), ...this.gaveUp.keys()]))
-      o[name] = {
-        attempts: this.attempts.get(name) ?? [],
-        ...(this.gaveUp.has(name) && { gaveUp: this.gaveUp.get(name) }),
-      };
-    try {
-      writeAtomic(reviveGuardFile(this.home), JSON.stringify(o));
-    } catch (err) {
-      this.log(`${reviveGuardFile(this.home)}: ${String(err)}; revive counts kept in memory only`);
-    }
-  }
-
-  /**
-   * TOKEN-GUARD (TG-03): may the engine revive `name` on its own now? Every revive is a resumed
-   * conversation and its 자동 복구 turn, so they are bounded: the reviveLimit-th inside
-   * reviveWindowMs, or one past reviveDayLimit in 24 h, leaves it down (marked, one log line,
-   * one orch_giveup), and each watch revive waits reviveBackoffMs * 2^(k-1) after the one before
-   * (a daemon start's revive is the recovery a restart or reboot is for: counted, not delayed).
-   * Counts and the give-up survive a daemon restart; a person's start or stop clears them.
-   */
   private reviveBudget(name: string, backoff = true): 'go' | 'wait' | 'stop' {
-    if (this.gaveUp.has(name)) return 'stop';
-    const now = this.now();
-    const day = (this.attempts.get(name) ?? []).filter((t) => now - t < DAY_MS);
-    const burst = day.filter((t) => now - t < this.t.reviveWindowMs).length + 1 >= this.t.reviveLimit;
-    if (burst || day.length >= this.t.reviveDayLimit) {
-      this.attempts.set(name, day);
-      const error =
-        this.lastError.get(name) ??
-        (burst ? koText('stopped_n_times', { count: this.t.reviveLimit }) : koText('stopped_n_per_day', { count: day.length + 1 }));
-      this.gaveUp.set(name, error);
-      this.saveReviveGuard();
-      this.log(
-        burst
-          ? `watch "${name}": died ${this.t.reviveLimit} times within ${Math.round(this.t.reviveWindowMs / 60_000)} min; left down (${error})`
-          : `watch "${name}": revived ${day.length} times in 24 h; left down (${error})`,
-      );
-      this.opts.event?.('orch_giveup', 'engine', {
-        name,
-        error,
-        reason: burst ? 'crash_loop' : 'day_cap',
-      });
-      this.opts.changed?.();
-      return 'stop';
-    }
-    const last = day.at(-1);
-    if (backoff && last !== undefined && now - last < this.t.reviveBackoffMs * 2 ** (day.length - 1))
-      return 'wait';
-    this.attempts.set(name, [...day, now]);
-    this.saveReviveGuard();
-    return 'go';
+    return this.guard.budget(name, backoff);
   }
 
   private refusal(req: EngineAction, privileged: boolean): string | null {
@@ -1910,7 +1545,7 @@ export class Engine {
     for (const n of held ? [w.name, lead.name] : []) {
       if (this.running.has(n)) return koText('project_busy', { name: n });
       if (this.renewals.has(n)) return koText('project_renewing', { name: n });
-      if (this.pendingAdoptions.has(n)) return koText('project_readopting', { name: n });
+      if (this.watcher.adopting(n)) return koText('project_readopting', { name: n });
     }
     const target = promotePair(this.projects, w.name, 'worker');
     if ('error' in target) return target.error;
@@ -1924,6 +1559,8 @@ export class Engine {
   }
 
   private exec(req: EngineAction, source: string, person = false): Promise<Outcome> | Outcome {
+    // INHERIT: the owner's choice in the add dialog or the owner's CLI, never an agent's delegation.
+    if (req.inheritFrom !== undefined && startedBy(source) === 'agent') return fail(koText('inherit_owner_only'));
     if (req.action === 'add' && (req.role || req.project)) return this.addWorker(req);
     if (req.action === 'add') {
       const added = this.add(req);
@@ -1948,7 +1585,7 @@ export class Engine {
         return e.ok ? { ...e, ...(m.bgId && { bgId: m.bgId }), ...warned([m.note, e.note].filter((n): n is string => !!n)) } : e;
       });
     if (req.action === 'edit') return this.edit(p, req);
-    if (req.action === 'remove') return this.remove(p);
+    if (req.action === 'remove') return this.remove(p, req.purge === true);
     if (req.action === 'promote') return this.promote(p, req.oldLead ?? 'worker', source);
     if (req.action === 'stop') return this.stopProject(p);
     if (req.action === 'restart') return this.restartProject(p, source);
@@ -1957,249 +1594,52 @@ export class Engine {
 
   // ── Registry actions ────────────────────────────────────────
 
-  /** add/edit's optional fields: validated values to set, and keys to clear. */
-  private fields(
-    req: EngineAction,
-  ): { set: Partial<ProjectRecord>; clear: Array<keyof ProjectRecord> } | { error: string } {
-    const set: Partial<ProjectRecord> = {};
-    const clear: Array<keyof ProjectRecord> = [];
-    for (const key of TEXT_FIELDS) {
-      const raw = req[key];
-      if (raw === undefined) continue;
-      if (raw.trim() === '') {
-        clear.push(key);
-        continue;
-      }
-      let value = raw.trim();
-      if (key === 'rulesFile') {
-        const n = normalizeProjectPath(value, this.host);
-        if ('error' in n) return { error: koText('rules_path_absolute') };
-        value = n.path;
-      }
-      const error = CHECK[key](value);
-      if (error) return { error };
-      set[key] = value;
-    }
-    if (req.remoteControl === true) set.remoteControl = true;
-    if (req.remoteControl === false) clear.push('remoteControl');
-    if (req.alwaysOn === true) set.alwaysOn = true;
-    if (req.alwaysOn === false) clear.push('alwaysOn');
-    if (req.compactionNudge) set.compactionNudge = req.compactionNudge;
-    else if (req.compactionNudge === 0) clear.push('compactionNudge');
-    return { set, clear };
-  }
-
   private add(req: EngineAction): Outcome {
-    const bad = checkName(req.name);
-    if (bad) return fail(bad);
-    // D5: a Lead is a Claude session (a Codex Lead is the app-server one, after the MVP).
-    if (req.provider !== undefined && req.provider !== DEFAULT_PROVIDER && req.provider !== CLAUDE_PTY_PROVIDER)
-      return fail(koText('lead_claude_only'));
-    if (this.find(req.name)) return fail(koText('name_taken'));
-    const provider = this.newClaude();
-    const n = normalizeProjectPath(req.folder ?? '', this.host);
-    if ('error' in n) return fail(n.error);
-    const fields = this.fields(req);
-    if ('error' in fields) return fail(fields.error);
-    const f = checkFolder(n.path, this.host, req.mkdir === true);
-    if (f.missing) return { ok: false, error: koText('folder_missing'), folderMissing: true };
-    if (!f.path) return fail(f.error ?? koText('folder_missing'));
-    const next = [
-      ...this.projects,
-      {
-        projectId: createProjectId(),
-        leadAssignmentId: createAssignmentId(),
-        name: req.name,
-        folder: f.path,
-        // O4: the owner's default for new agents, unless the request names a mode (even an empty one).
-        ...(req.permissionMode === undefined && seededPermission(this.home)),
-        ...this.leadLaunch(req),
-        ...fields.set,
-        ...(provider !== DEFAULT_PROVIDER && { provider }),
-        wantRunning: false,
-      },
-    ];
-    const clash = this.sessionClash(next, [req.name]);
-    if (clash) return fail(clash);
-    this.commit(next);
-    return { ok: true, ...warned(n.warnings) };
+    return this.edits.add(req);
   }
 
-  /**
-   * D3: a Worker of a project, under its own name (unique among every project
-   * and agent), stopped. Its folder is the project's unless given: a worktree,
-   * inside the project's repository.
-   */
+  /** The conversations the registered agents resume now (대화방 지우기 never deletes those). */
+  registeredSessionIds(): string[] {
+    return this.projects.flatMap((p) => (p.sessionId ? [p.sessionId] : []));
+  }
+
+  /** INHERIT: the add dialog's list for `folder` (normalized the way add does). */
+  inheritable(folder: string): InheritableAgent[] {
+    const n = normalizeProjectPath(folder, this.host);
+    if ('error' in n) return [];
+    try {
+      return inheritable(this.home, n.path, (a, b) => samePath(a, b, this.host));
+    } catch (err) {
+      this.log(`inheritable ${n.path}: ${String(err)}`);
+      return [];
+    }
+  }
+
   private addWorker(req: EngineAction): Outcome {
-    const bad = checkName(req.name);
-    if (bad) return fail(bad);
-    if (this.find(req.name)) return fail(koText('name_taken'));
-    if (!req.role || !WORKER_ROLES.includes(req.role))
-      return fail(koText('worker_role'));
-    const lead = req.project !== undefined ? this.find(req.project) : undefined;
-    if (!lead || lead.role) return fail(koText('project_unknown_short'));
-    if (req.room !== undefined) return fail(WORKER_ROOM);
-    const provider = this.newClaude(req.provider);
-    const agent = this.agents.get(provider);
-    if (!agent) return fail(koText('agent_unknown', { provider }));
-    const why = this.providerFields(agent, req) ?? agent.ready?.();
-    if (why) return fail(why);
-    const fields = this.fields(req);
-    if ('error' in fields) return fail(fields.error);
-    const own = this.workerFolder(lead, req.folder, req.mkdir === true);
-    if ('ok' in own) return own;
-    const next = [
-      ...this.projects,
-      {
-        projectId: lead.projectId,
-        assignmentId: createAssignmentId(),
-        role: req.role,
-        name: req.name,
-        folder: own.path ?? lead.folder,
-        ...(own.path && { workFolder: own.path }),
-        ...(cliOf({ provider }) === DEFAULT_PROVIDER && req.permissionMode === undefined && seededPermission(this.home)),
-        ...fields.set,
-        ...(provider !== DEFAULT_PROVIDER && { provider }),
-        wantRunning: false,
-      },
-    ];
-    const clash = this.sessionClash(next, [req.name]);
-    if (clash) return fail(clash);
-    this.commit(next);
-    return { ok: true, ...warned(own.warnings) };
+    return this.edits.addWorker(req);
   }
 
-  /** D5: why `req` does not fit a 'run' provider's agent (Claude-only options, Codex's effort
-   *  words), or null. */
-  private providerFields(agent: AgentProvider, req: EngineAction): string | null {
-    if (agent.capabilities.lifetime !== 'run') return null;
-    const claudeOnly = CLAUDE_ONLY.filter((k) => req[k] !== undefined && req[k] !== '' && req[k] !== false && req[k] !== 0);
-    if (claudeOnly.length) return koText('codex_no_setting', { names: claudeOnly.join(', ') });
-    if (req.effort?.trim() && !isCodexEffort(req.effort.trim()))
-      return koText('codex_effort', { values: CODEX_EFFORTS.join(' ') });
-    return null;
-  }
-
-  /** A Worker's own folder: none (the project's), or an existing (or, with `mkdir`, new)
-   *  folder inside the project's folder or its repository's .worktrees/ (a worktree). */
   private workerFolder(
     lead: ProjectRecord,
     raw: string | undefined,
     mkdir: boolean,
   ): { path?: string; warnings: string[] } | Outcome {
-    if (raw === undefined || raw.trim() === '') return { warnings: [] };
-    const n = normalizeProjectPath(raw.trim(), this.host);
-    if ('error' in n) return fail(n.error);
-    if (samePath(n.path, lead.folder, this.host)) return { warnings: n.warnings };
-    const roots = workerRoots(lead.folder);
-    const inside = (dir: string) => {
-      const d = realPath(dir);
-      return roots.some((r) => d === r || d.startsWith(r.endsWith(path.sep) ? r : r + path.sep));
-    };
-    // Checked before and after it may be created: never a folder made outside the repository.
-    if (!inside(n.path)) return fail(WORKER_FOLDER);
-    const c = checkFolder(n.path, this.host, mkdir);
-    if (c.missing) return { ok: false, error: koText('folder_missing'), folderMissing: true };
-    if (!c.path) return fail(c.error ?? koText('folder_missing'));
-    if (!inside(c.path)) return fail(WORKER_FOLDER);
-    return { path: c.path, warnings: n.warnings };
+    return this.edits.workerFolder(lead, raw, mkdir);
   }
 
   private edit(p: ProjectRecord, req: EngineAction): Outcome {
-    if (p.role && req.room !== undefined) return fail(WORKER_ROOM);
-    // ADR-0016 decision 2: an agent's provider is fixed when it is made. TERM-P1: a Claude agent
-    // may move between `claude --bg` and our PTY host (same CLI, same conversation) while it is off.
-    const was = p.provider ?? DEFAULT_PROVIDER;
-    if (req.provider !== undefined && req.provider !== was) {
-      const claudeKinds = [DEFAULT_PROVIDER, CLAUDE_PTY_PROVIDER];
-      if (!claudeKinds.includes(was) || !claudeKinds.includes(req.provider)) return fail(koText('agent_kind_fixed'));
-      this.refresh();
-      if (this.holder(p)) return fail(koText('pty_switch_running'));
-    }
-    const agent = this.agentOf(p);
-    const notFit = agent && this.providerFields(agent, req);
-    if (notFit) return fail(notFit);
-    if (req.role !== undefined || req.project !== undefined)
-      return fail(koText('role_project_fixed'));
-    const fields = this.fields(req);
-    if ('error' in fields) return fail(fields.error);
-    let folder = p.folder;
-    let workFolder = p.workFolder;
-    let warnings: string[] = [];
-    if (req.folder !== undefined) {
-      const lead = p.role ? this.leads().find((l) => l.projectId === p.projectId) : undefined;
-      let want: string;
-      if (lead) {
-        const own = this.workerFolder(lead, req.folder, req.mkdir === true);
-        if ('ok' in own) return own;
-        want = own.path ?? lead.folder;
-        workFolder = own.path;
-        warnings = own.warnings;
-      } else {
-        const n = normalizeProjectPath(req.folder, this.host);
-        if ('error' in n) return fail(n.error);
-        want = n.path;
-        warnings = n.warnings;
-      }
-      if (!samePath(want, p.folder, this.host)) {
-        this.refresh();
-        // A Worker without a folder of its own moves with its project.
-        const moving = this.projects.filter(
-          (x) => x === p || (!p.role && x.role && x.projectId === p.projectId && !x.workFolder),
-        );
-        if (moving.some((x) => this.holder(x)))
-          return fail(koText('folder_change_running'));
-        if (!lead) {
-          const c = checkFolder(want, this.host, req.mkdir === true);
-          if (c.missing) return { ok: false, error: koText('folder_missing'), folderMissing: true };
-          if (!c.path) return fail(c.error ?? koText('folder_missing'));
-          want = c.path;
-        }
-        folder = want;
-      } else warnings = [];
-    }
-    const next: ProjectRecord = { ...p, folder, ...fields.set };
-    if (req.provider === CLAUDE_PTY_PROVIDER) next.provider = CLAUDE_PTY_PROVIDER;
-    else if (req.provider === DEFAULT_PROVIDER) delete next.provider;
-    if (workFolder) next.workFolder = workFolder;
-    else delete next.workFolder;
-    for (const k of fields.clear) delete next[k];
-    const list = this.projects.map((x) => (x.name === p.name ? next : x));
-    // Only a change of session name or folder is checked: an existing clash still saves other edits.
-    const moves = !samePath(next.folder, p.folder, this.host);
-    if (moves || sessionName(next) !== sessionName(p)) {
-      // A Lead's move takes its Workers without a folder of their own along.
-      const moved = list.filter(
-        (x) =>
-          x === next ||
-          (moves && !p.role && x.role && x.projectId === p.projectId && !x.workFolder),
-      );
-      const clash = this.sessionClash(
-        list,
-        moved.map((x) => x.name),
-      );
-      if (clash) return fail(clash);
-    }
-    this.commit(list);
-    const launchChanged = LAUNCH_FIELDS.some((k) => next[k] !== p[k]);
-    return launchChanged && p.sessionId
-      ? { ok: true, ...warned([koText('launch_options_next'), ...warnings]) }
-      : { ok: true, ...warned(warnings) };
+    return this.edits.edit(p, req);
   }
 
-  /** Why `next` cannot be saved: one of `changed` would share a session name with another
-   *  agent in its folder (collide), or null. */
   private sessionClash(next: ProjectRecord[], changed: string[]): string | null {
-    const linked = linkWorkers(next);
-    for (const a of linked.filter((x) => changed.includes(x.name)))
-      for (const b of linked)
-        if (b.name !== a.name && this.collide(a, b))
-          return koText('session_name_clash', { other: b.name, a: sessionName(a), b: sessionName(b) });
-    return null;
+    return this.edits.sessionClash(next, changed);
   }
 
-  /** A Worker, or a project with its Workers (D3): their background sessions stopped first. */
-  private async remove(p: ProjectRecord): Promise<Outcome> {
+  /** A Worker, or a project with its Workers (D3): their background sessions stopped first.
+   *  Every remove detaches what was kept under each name (projectData, to its gone name, so a
+   *  new agent of that name inherits nothing; the messenger shows the old one as "(알 수 없음)");
+   *  `purge` deletes it instead. The conversation files are never touched. */
+  private async remove(p: ProjectRecord, purge = false): Promise<Outcome> {
     this.refresh();
     const gone = this.projects.filter(
       (x) => x === p || (!p.role && x.role && x.projectId === p.projectId),
@@ -2213,16 +1653,51 @@ export class Engine {
       if (!r.ok) return r;
     }
     this.commit(this.projects.filter((x) => !gone.includes(x)));
+    const notMoved: string[] = [];
     for (const x of gone) {
       this.tokens.drop(x.name);
       this.forgive(x.name);
+      this.forgetSession(x.name);
+      const id = x.role ? x.assignmentId : x.leadAssignmentId;
+      if (!id) continue;
+      const tomb = goneName(id);
+      let transcript: string | undefined;
+      try {
+        const agent = this.agentOf(x);
+        if (x.sessionId && agent) transcript = agent.transcript({ cwd: x.folder, sessionId: x.sessionId });
+      } catch {
+        /* no transcript: the contact is not listed */
+      }
+      try {
+        recordFormerName(this.home, {
+          name: x.name,
+          until: Date.now(),
+          as: tomb,
+          gone: {
+            folder: x.folder,
+            ...(transcript && { transcript }),
+            ...(x.sessionId && { sessionId: x.sessionId }),
+            ...(purge && { purged: true as const }),
+          },
+        });
+      } catch (err) {
+        notMoved.push('name-history.json');
+        this.log(`remove "${x.name}": name-history.json: ${String(err)}`);
+      }
+      const log = (l: string) => this.log(l);
+      notMoved.push(
+        ...this.dataChange(
+          // A gone name is new: no check needed (force).
+          () => (purge ? purgeProjectData(this.home, x.name, tomb, log) : moveProjectData(this.home, x.name, tomb, log, true)),
+          [x.name],
+        ),
+      );
     }
-    return {
-      ok: true,
-      note: terminal
-        ? koText('removed_terminal_kept')
-        : koText('removed_history_kept'),
-    };
+    const notes = [
+      koText(terminal ? 'removed_terminal_kept' : purge ? 'removed_purged' : 'removed_history_kept'),
+      ...(notMoved.length ? [koText('data_not_moved', { stores: [...new Set(notMoved)].join(', ') })] : []),
+    ];
+    return { ok: true, note: notes.join(' · ') };
   }
 
   /**
@@ -2391,8 +1866,8 @@ export class Engine {
   private forgetSession(name: string): void {
     this.forgive(name);
     this.untrusted.delete(name);
-    this.compactions.delete(name);
-    this.pendingAdoptions.delete(name);
+    this.compactions.forget(name);
+    this.watcher.dropAdoption(name);
     for (const k of this.contestedLogged) if (k.startsWith(`${name}\0`)) this.contestedLogged.delete(k);
   }
 
@@ -2491,11 +1966,13 @@ export class Engine {
     const copy = flags || p.resumeAsCopy === true;
     const startOnce = () => agent.start(p, { resume, token: () => this.tokens.issue(p.name), flags: copy });
     let r = await startOnce();
-    // AUTO-TRUST: only for a project the person added here or saw marked (needsTrust), one try.
+    // AUTO-TRUST: only for a project the person added here or saw marked (needsTrust), one try;
+    // never for a cloned one (DEVROOM-PROJECT: the person answers, or `agty trust`).
     if (
       !r.ok &&
       r.needsTrust &&
       trust &&
+      !this.cloned(p) &&
       (agent.protocol === 'claude' || agent.protocol === 'pty') &&
       (this.untrusted.has(p.name) || this.consented.has(p.name))
     ) {
@@ -2561,10 +2038,15 @@ export class Engine {
       by: startedBy(source),
       ...(r.playbook && { role: p.role ?? 'lead', playbook: r.playbook }), // C7a
       ...(newConversation && { new_conversation: true }),
-      ...(source === 'revive' && { revives_24h: this.attempts.get(p.name)?.length ?? 0 }),
+      ...(source === 'revive' && { revives_24h: this.guard.count(p.name) }),
     });
     this.opts.started?.(p.name);
     return { ok: true, bgId: s.id ?? printed ?? undefined, ...(note && { note }) };
+  }
+
+  /** DEVROOM-PROJECT: `p`'s project was added from a fresh clone (a Worker: its Lead's flag). */
+  private cloned(p: ProjectRecord): boolean {
+    return !!(p.role ? this.leads().find((l) => l.projectId === p.projectId)?.cloned : p.cloned);
   }
 
   /** AUTO-TRUST: Claude's folder trust question for `p`'s folder, answered in our own PTY
@@ -2603,7 +2085,7 @@ export class Engine {
       cwd: p.folder,
       env: this.env,
       log: (l) => this.log(`"${p.name}": ${l}`),
-      answerTrust: true,
+      answerTrust: !this.cloned(p),
       timing: this.opts.bypassTiming,
     });
   }
@@ -2875,7 +2357,7 @@ export class Engine {
       if (!p) return { result: 'skipped', why: koText('project_unknown_short') };
       if ((p.provider ?? DEFAULT_PROVIDER) !== DEFAULT_PROVIDER)
         return { result: 'skipped', why: koText('pty_move_all_already') };
-      if (!(this.running.has(name) || this.renewals.has(name) || this.pendingAdoptions.has(name))) {
+      if (!(this.running.has(name) || this.renewals.has(name) || this.watcher.adopting(name))) {
         this.running.add(name);
         let out: Outcome;
         try {
@@ -2907,39 +2389,18 @@ export class Engine {
     return gone ? { ok: true } : fail(koText('session_not_stopped'));
   }
 
-  /**
-   * At daemon start: every project with wantRunning that is not live, one at
-   * a time, 2 s apart, one log line each (the engine's revive).
-   */
-  async revive(): Promise<void> {
-    this.watching = true;
-    try {
-      const retired = this.idleLooks();
-      for (const name of this.projects.filter((p) => p.wantRunning).map((p) => p.name)) {
-        const p = this.find(name);
-        if (this.disposed) return;
-        // A pending renewal (resumed by start()) starts its own new conversation.
-        if (!p?.wantRunning || this.running.has(name) || this.renewals.has(name)) continue;
-        if (this.skipped(p)) continue;
-        this.refresh();
-        if (this.holder(p)) {
-          this.log(`revive "${name}": already live`);
-          continue;
-        }
-        if (this.retiredForIdleness(p, retired)) {
-          await this.idleRetired(p);
-          continue;
-        }
-        // TOKEN-GUARD: a restart's revive counts too; one left down stays down.
-        if (this.reviveBudget(name, false) !== 'go') continue;
-        const out = await this.reviveOne(p, this.reviveCause);
-        if (out.ok) this.lastError.delete(name);
-        else this.lastError.set(name, out.error ?? '');
-        await this.sleep(this.t.reviveGapMs);
-      }
-    } finally {
-      this.watching = false;
-    }
+  /** At daemon start: every wantRunning project that is not live (EngineWatch.revive). */
+  revive(): Promise<void> {
+    return this.watcher.revive();
+  }
+
+  private watch(): Promise<void> {
+    return this.watcher.watch();
+  }
+
+  /** The watch's last look at Claude's daemon (engine.test reads it; a private one would be unused). */
+  get daemonWasUp(): boolean {
+    return this.watcher.daemonWasUp;
   }
 
   /** One revive through the action queue, with its log line; normally the first message says why. */
@@ -2967,191 +2428,6 @@ export class Engine {
     return out;
   }
 
-  /** A persisted marker also survives a log rotation before the daemon restarts. */
-  private retiredForIdleness(p: ProjectRecord, retired = this.idleLooks()): boolean {
-    return p.idleRetired || retired(p);
-  }
-
-  /** One look per provider at what its daemon retired for idleness (Claude's daemon log),
-   *  shared by one revive or watch pass. */
-  private idleLooks(): (p: ProjectRecord) => boolean {
-    const looks = new Map<AgentProvider, (ids: Array<string | undefined>) => boolean>();
-    return (p) => {
-      const agent = this.agentOf(p);
-      if (!agent?.idleRetired) return false;
-      let look = looks.get(agent);
-      if (!look) looks.set(agent, (look = agent.idleRetired()));
-      return look([p.backgroundId, p.sessionId]);
-    };
-  }
-
-  /** Leave ordinary projects resting; always-on projects resume without a prompt or model turn. */
-  private async idleRetired(p: ProjectRecord): Promise<void> {
-    if (!p.idleRetired) {
-      this.patch(p.name, { idleRetired: true });
-      this.log(`watch "${p.name}": Claude retired its idle session; left resting`);
-      this.opts.changed?.();
-    }
-    if (!p.alwaysOn || this.gaveUp.has(p.name)) return;
-    // TOKEN-GUARD (S-04): Claude retires a session after hours of idleness. A "retirement" within
-    // minutes of our resume is an old daemon-log line over a crash: that goes through the budget.
-    const now = this.now();
-    const last = this.idleResumedAt.get(p.name);
-    if (last !== undefined && now - last < this.t.reviveWindowMs && this.reviveBudget(p.name) !== 'go')
-      return;
-    this.idleResumedAt.set(p.name, now);
-    const out = await this.reviveOne(this.find(p.name) ?? p, 'died', false);
-    if (!out.ok) this.lastError.set(p.name, out.error ?? '');
-  }
-
-  /** Start one bounded re-look for the same conversation; it never runs Claude or writes a prompt. */
-  private lookForAdoption(p: ProjectRecord): void {
-    if (this.pendingAdoptions.has(p.name)) return;
-    const adoption: Adoption = {
-      ...(p.sessionId && { sessionId: p.sessionId }),
-      ...(p.backgroundId && { backgroundId: p.backgroundId }),
-    };
-    if (!adoption.sessionId && !adoption.backgroundId) return;
-    this.pendingAdoptions.set(p.name, adoption);
-    void this.waitFor(() => this.adoptionHolder(adoption), this.t.adoptMs).then((session) => {
-      if (this.disposed || this.pendingAdoptions.get(p.name) !== adoption) return;
-      this.pendingAdoptions.delete(p.name);
-      const current = this.find(p.name);
-      if (session && current?.wantRunning && !this.running.has(p.name)) {
-        try {
-          this.patch(p.name, {
-            sessionId: session.sessionId,
-            ...(session.id && { backgroundId: session.id }),
-            idleRetired: false,
-          });
-        } catch (err) {
-          this.log(`could not save ${this.file}: ${String(err)}`);
-        }
-        this.log(`watch "${p.name}": adopted Claude daemon respawn pid=${session.pid}`);
-        this.opts.event?.('orch_start', 'engine', {
-          name: p.name,
-          session_id: session.sessionId,
-          resumed: true,
-          remote_control: current.remoteControl === true,
-        });
-      } else {
-        this.liveNames.delete(p.name);
-        this.opts.event?.('orch_exit', 'engine', { name: p.name, code: null });
-      }
-      this.refresh();
-    });
-  }
-
-  /** A replacement must be a live background worker for the tracked conversation or job. */
-  private adoptionHolder(adoption: Adoption): Live | null {
-    return (
-      this.live.find(
-        (s) =>
-          s.kind === 'background' &&
-          ((adoption.sessionId !== undefined && s.sessionId === adoption.sessionId) ||
-            (adoption.backgroundId !== undefined && s.id === adoption.backgroundId)),
-      ) ?? null
-    );
-  }
-
-  /**
-   * T-0091: every watchMs, a wantRunning project whose session died while the
-   * daemon runs is revived. The look is the sessions directory refresh() reads
-   * anyway (a live session file and its pid): nothing is spawned unless a
-   * session is found dead, and startProject then re-reads before it acts. A
-   * project the user turned off (no wantRunning), one with an action or renew
-   * in flight, or one waiting on a trust answer is left alone. The Nth dead
-   * check inside the window is not revived: the project stays down, marked
-   * (state().downNote), with one log line and one notice event.
-   */
-  private async watch(): Promise<void> {
-    if (this.watching || this.disposed || this.broken || this.opts.readOnly) return;
-    this.watching = true;
-    try {
-      this.refresh();
-      for (const agent of this.agents.values()) {
-        if (!agent.daemonUp) continue;
-        const daemon = agent.daemonUp();
-        if (this.daemonWasUp && daemon === false)
-          this.log(`${agent.id} daemon is gone; its background sessions are revived below`);
-        this.daemonWasUp = daemon === true;
-      }
-      await this.idleStops();
-      const retired = this.idleLooks();
-      for (const name of this.projects.filter((p) => p.wantRunning).map((p) => p.name)) {
-        const p = this.find(name);
-        if (this.disposed) return;
-        if (!p?.wantRunning) continue;
-        if (this.pendingAdoptions.has(name)) continue;
-        if (this.holder(p)) {
-          // Live again (a person started it elsewhere): the mark goes.
-          if (this.gaveUp.delete(name)) this.saveReviveGuard();
-          continue;
-        }
-        // D5 (F5): one left down while its CLI was missing comes back as revive would have.
-        const waited = this.skipLogged.has(name);
-        if (this.skipped(p)) continue;
-        if (this.retiredForIdleness(p, retired)) {
-          await this.idleRetired(p);
-          continue;
-        }
-        if (
-          this.running.has(name) ||
-          this.renewals.has(name) ||
-          this.untrusted.has(name) ||
-          this.gaveUp.has(name)
-        )
-          continue;
-        // A live file read mid-write or of a newer shape: this one may be alive. Next pass.
-        if (this.agentOf(p)?.liveUnsure()) continue;
-        if (this.reviveBudget(name) !== 'go') continue;
-        const out = await this.reviveOne(p, waited ? this.reviveCause : 'died');
-        if (out.ok) this.lastError.delete(name);
-        else this.lastError.set(name, out.error ?? '');
-        await this.sleep(this.t.reviveGapMs);
-      }
-    } finally {
-      this.watching = false;
-    }
-  }
-
-  /**
-   * TERM-P1: nobody retires an idle session in our PTY host but us. A session whose turn has been
-   * over for idleStopMs (since the later of its first idle look and its transcript's last write),
-   * with no one watching its terminal, is stopped and marked idleRetired: the wantRunning agent
-   * then rests until a message wakes it (wake: `--resume`). An always-on agent is never stopped.
-   */
-  private async idleStops(): Promise<void> {
-    for (const p of this.projects) {
-      const h = this.holder(p);
-      const watched = !h?.agent.viewed || h.agent.viewed(h);
-      if (!h || watched || !turnEnded(h.status) || p.alwaysOn || this.running.has(p.name) || this.renewals.has(p.name)) {
-        this.idleSince.delete(p.name);
-        continue;
-      }
-      let wrote = 0;
-      try {
-        wrote = fs.statSync(h.agent.transcript(h)).mtimeMs;
-      } catch {
-        /* no transcript yet */
-      }
-      const since = Math.max(this.idleSince.get(p.name) ?? this.now(), wrote);
-      this.idleSince.set(p.name, since);
-      if (this.now() - since < this.t.idleStopMs) continue;
-      this.idleSince.delete(p.name);
-      this.running.add(p.name);
-      try {
-        const out = await this.enqueue(() =>
-          this.stopSession(h, () => this.patch(p.name, { idleRetired: true })),
-        );
-        this.log(`watch "${p.name}": idle ${Math.round((this.now() - since) / 60_000)} min, no viewer: ${out.ok ? 'stopped, resting' : `not stopped (${out.error})`}`);
-        if (out.ok) this.opts.event?.('orch_idle_stop', 'engine', { name: p.name, session_id: h.sessionId });
-      } finally {
-        this.running.delete(p.name);
-      }
-    }
-  }
-
   private async waitFor<T>(fn: () => T | null, ms: number): Promise<T | null> {
     const end = Date.now() + ms;
     for (;;) {
@@ -3164,7 +2440,12 @@ export class Engine {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const t = setTimeout(resolve, ms);
+      // Kept only while pending (dispose clears it): every poll used to stay in the list for good.
+      const t = setTimeout(() => {
+        const i = this.timers.indexOf(t);
+        if (i >= 0) this.timers.splice(i, 1);
+        resolve();
+      }, ms);
       this.timers.push(t);
     });
   }

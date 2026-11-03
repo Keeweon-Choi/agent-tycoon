@@ -213,6 +213,13 @@ export class ReviewNotes {
     this.save(next);
   }
 
+  /** Read the file again at the next use (after projectData changed it). */
+  reload(): void {
+    this.loaded = false;
+    this.loadError = undefined;
+    this.data = { v: REVIEW_NOTES_VERSION, notes: {} };
+  }
+
   private load(): ReviewNotesFile {
     if (this.loadError) throw this.loadError;
     if (this.loaded) return this.data;

@@ -93,6 +93,21 @@ export const SERVER_TEXT = {
   folder_not_found: { ko: '없는 폴더예요', en: 'This folder does not exist.' },
   folder_unreadable: { ko: '폴더를 열 수 없어요', en: 'Could not open the folder.' },
   root_home: { ko: '홈', en: 'Home' },
+  // -- the dev room's 프로젝트 추가 (projectRepo.ts) --
+  clone_url_bad: {
+    ko: '복제할 주소가 올바르지 않아요 (https://, ssh://, git@호스트:경로 또는 폴더 경로)',
+    en: 'That is not a repository address to clone (https://, ssh://, git@host:path or a folder path).',
+  },
+  clone_exists: { ko: '폴더가 이미 있어요: {folder}', en: 'The folder already exists: {folder}' },
+  clone_running: { ko: '이 폴더로 이미 복제하고 있어요', en: 'A clone into this folder is already running.' },
+  clone_failed: { ko: '복제하지 못했어요: {why}', en: 'Could not clone: {why}' },
+  clone_cancelled: { ko: '복제를 멈추고 받던 폴더를 지웠어요', en: 'The clone was stopped and its half-made folder removed.' },
+  clone_timeout: { ko: '복제가 너무 오래 걸려 멈췄어요', en: 'The clone took too long and was stopped.' },
+  git_init_root: {
+    ko: '홈 폴더나 드라이브 맨 위에는 git init 할 수 없어요',
+    en: 'git init is not allowed on the home folder or the top of a drive.',
+  },
+  git_init_failed: { ko: 'git init 하지 못했어요: {why}', en: 'git init failed: {why}' },
   // -- every surface: who may do what --
   no_permission: {
     ko: '이 접속에는 조작 권한이 없어요',
@@ -481,8 +496,8 @@ export const SERVER_TEXT = {
   conflict_blocks_left: { ko: '남은 충돌 {count}개', en: '{count} conflicts left.' },
   conflict_file_resolved: { ko: '이 파일의 충돌을 다 풀었어요', en: 'All conflicts in this file are resolved.' },
   conflict_handoff_header: {
-    ko: '[충돌] Task {task} · 작업 폴더 {worktree} 가 {base} 와 겹쳐서 아직 합칠 수 없어요 (파일: {files}). 작업 폴더에서 git merge {base} 를 실행해 충돌을 풀어 커밋한 뒤 update_task 로 status 를 review 로 알려 주세요.',
-    en: '[Conflict] Task {task} (worktree {worktree}) conflicts with {base} and cannot be merged yet (files: {files}). In the worktree, run git merge {base}, resolve the conflicts, commit, then report status review with update_task.',
+    ko: '[충돌] Task {task} · 작업 폴더 {worktree} ({path}) 가 {base} 와 겹쳐서 아직 합칠 수 없어요 (파일: {files}). 그 폴더에서 git merge {base} 를 실행해 충돌을 풀어 커밋한 뒤 update_task 로 status 를 review 로 알려 주세요 (Task 가 없으면 리드에게 알려 주세요). 리드가 받았다면 직접 풀거나 워커에게 맡겨 주세요.',
+    en: '[Conflict] Task {task} (worktree {worktree}, {path}) conflicts with {base} and cannot be merged yet (files: {files}). In that folder, run git merge {base}, resolve the conflicts, commit, then report status review with update_task (no Task: tell the Lead). A Lead receiving this resolves it or hands it to a Worker.',
   },
   sys_conflict_handoff: {
     ko: '사장님이 {worker} 에게 {base} 와의 충돌을 풀어 달라고 맡겼어요 (Task {task})',
@@ -985,6 +1000,67 @@ export const SERVER_TEXT = {
     ko: '대화 기록은 남아요',
     en: 'The conversation history stays.',
   },
+  removed_purged: {
+    ko: "관련 데이터(환생 이력 등)도 지웠어요. 메신저 대화 내역은 '(알 수 없음)'으로 남아요",
+    en: "Its related data (rebirths and the like) was deleted too. Its messenger history stays, shown as '(unknown)'.",
+  },
+  data_not_moved: {
+    ko: '따라오지 못한 데이터: {stores}',
+    en: 'Data that did not follow: {stores}',
+  },
+  gone_agent: { ko: '(알 수 없음)', en: '(unknown)' },
+  name_reserved: {
+    ko: "'{name}' 은(는) 따로 쓰이는 이름이라 쓸 수 없어요",
+    en: "'{name}' has a meaning of its own and cannot be used.",
+  },
+  name_data_exists: {
+    ko: "'{name}' 이름으로 남아 있는 데이터가 있어 쓸 수 없어요(지운 에이전트의 것이면 대화방을 지우거나 다른 이름을 쓰세요): {stores}",
+    en: "Data is still kept under '{name}', so it cannot be used (from a removed agent: delete its chat, or pick another name): {stores}",
+  },
+  inherit_owner_only: {
+    ko: '계승은 사장님만 할 수 있어요',
+    en: 'Only the owner can inherit a removed agent.',
+  },
+  inherit_other_folder: {
+    ko: '그 기록은 다른 폴더의 에이전트 것이라 계승할 수 없어요',
+    en: "That record belongs to an agent of another folder, so it cannot be inherited.",
+  },
+  inherit_gone: {
+    ko: '계승할 기록이 남아 있지 않아요(데이터나 대화방을 지웠어요)',
+    en: 'There is no record left to inherit (its data or its chat was deleted).',
+  },
+  inherit_not_moved: {
+    ko: '에이전트는 추가했지만 이전 기록을 옮기지 못했어요: {why}',
+    en: 'The agent was added, but the old records could not be moved: {why}',
+  },
+  inherited: {
+    ko: "'{name}' 의 기록을 계승했어요 · 계승 {count}대째",
+    en: "Inherited '{name}''s records · generation {count}",
+  },
+  rename_data_exists: {
+    ko: "'{name}' 이름으로 남아 있는 데이터가 있어 바꿀 수 없어요: {stores}",
+    en: "Data is still kept under '{name}', so the name cannot be used: {stores}",
+  },
+  gone_conversation_unknown: {
+    ko: '지울 대화방을 찾지 못했어요',
+    en: 'That conversation could not be found.',
+  },
+  rename_same: {
+    ko: "'{name}': 지금 이름과 같아요",
+    en: "'{name}': that is already its name.",
+  },
+  rename_pending: {
+    ko: "'{name}': 이미 이름을 바꾸는 중이에요",
+    en: "'{name}': a rename is already waiting.",
+  },
+  rename_terminal: {
+    ko: '터미널에서 열린 대화는 여기서 이름을 바꿀 수 없어요',
+    en: 'A conversation open in a terminal cannot be renamed from here.',
+  },
+  rename_not_idle: {
+    ko: '턴이 끝나지 않아 이름을 바꾸지 않았어요',
+    en: 'The turn did not end, so the name was not changed.',
+  },
   swap_stop_failed: {
     ko: '{name}: {why} — 아무것도 바꾸지 않았어요',
     en: '{name}: {why} — nothing was changed.',
@@ -1240,6 +1316,14 @@ export const SERVER_TEXT = {
     ko: '{to}에게 입력이 안 들어가서 천천히 다시 시도해요',
     en: 'Typing into {to} keeps failing; retrying less often',
   },
+  ev_send_lost: {
+    ko: '{to}에게 보낸 메시지 대신 다른 입력이 들어가서 한 번 더 보내요',
+    en: 'Another prompt went into {to} instead of the message; sending it once more',
+  },
+  ev_send_lost_final: {
+    ko: '{to}에게 메시지를 전달하지 못했어요 · 대화방에서 다시 보내기',
+    en: 'The message to {to} did not go in · resend it from the chat',
+  },
   ev_token_guard: { ko: '{to} 쪽 입력 하나를 막았어요', en: 'Blocked an input for {to}' },
   ev_send_cancel: { ko: '{to} 대기 메시지 취소', en: 'Cancelled a queued message to {to}' },
   ev_delegate: { ko: '{from} → {to} 위임 {task}', en: '{from} → {to} delegated {task}' },
@@ -1317,6 +1401,11 @@ export const SERVER_TEXT = {
   ev_renew_request: { ko: '{who} 교대 요청', en: 'Handoff requested for {who}' },
   ev_renew_done: { ko: '{who} 교대 완료', en: 'Handoff done for {who}' },
   ev_orch_renew: { ko: '{who} 새 대화로 교대', en: '{who} handed off to a new conversation' },
+  ev_orch_rename: { ko: "{who} 이름을 '{to}'(으)로 바꿈", en: "{who} renamed to '{to}'" },
+  ev_orch_rename_failed: {
+    ko: '{who} 이름 바꾸기 실패 ({code})',
+    en: '{who} could not be renamed ({code})',
+  },
   ev_orch_renew_failed: {
     ko: '{who} 새 대화로 교대 실패 ({code})',
     en: '{who} could not hand off to a new conversation ({code})',
@@ -2629,3 +2718,12 @@ export function textIn(lang: TextLang, text: string): string {
     : undefined;
   return fillText(SERVER_TEXT[hit.code][lang], params);
 }
+
+/** ROOM-MODES: the one line the messenger types before a room's 공지 riding in another message's
+ *  paste (the agent's words, never shown in the app: the DM view cuts from it, transcriptView
+ *  turnParts). It starts with our mark opener `⟨`, which no sender's body can carry (messenger.ts
+ *  defang), so nobody can forge it to hide words from the DM. */
+export const ROOM_NOTICE_LINE = '⟨공지 · 답장 불필요⟩ 아래는 단톡방 공지예요. 참고만 하고 답하지 마세요.';
+/** ROOM-MODES: the line that closes that tail, so the DM view cuts exactly the 공지 and nothing
+ *  Claude Code joins after them (another message, terminal text, a task notice). */
+export const ROOM_NOTICE_END = '⟨공지 끝⟩';

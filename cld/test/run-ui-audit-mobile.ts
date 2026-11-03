@@ -644,7 +644,7 @@ async function main() {
       });
       await step(size, 'workbench', async () => {
         await tapDock('workbench');
-        const wb = page.locator('[aria-label="작업실 화면"]');
+        const wb = page.locator('[aria-label="현황판 화면"]');
         await wb.waitFor();
         await A('workbench');
         await eachTab(wb, 'workbench');
@@ -741,25 +741,25 @@ async function main() {
         await tapDock('office');
         const gear = page.getByTestId('mobile-top-bar').getByRole('button', { name: '설정' });
         await gear.tap();
-        await page.getByTestId('settings-quick').waitFor();
-        await A('settings-quick');
+        await page.getByTestId('settings-tabs').waitFor();
         const tabs = page.getByTestId('settings-tabs').getByRole('tab');
         for (const name of (await tabs.allTextContents()).map((s) => s.trim())) {
           await page.getByTestId('settings-tabs').getByRole('tab', { name, exact: true }).tap();
           await A(`settings-${name}`);
         }
-        for (const [name, label] of [
-          ['보안', 'security'],
-          ['기기 추가', 'add-device'],
-          ['범례', 'legend'],
+        for (const [tab, testId, name, label] of [
+          ['보안', 'security-open-option', '보안', 'security'],
+          ['접속', 'add-device-option', '기기 추가', 'add-device'],
+          ['화면', 'legend-option', '범례', 'legend'],
         ] as const) {
-          await page.getByTestId('settings-quick').getByRole('button', { name, exact: true }).tap();
+          await page.getByTestId('settings-tabs').getByRole('tab', { name: tab, exact: true }).tap();
+          await page.getByTestId(testId).getByRole('button', { name, exact: true }).tap();
           await page.waitForTimeout(label === 'security' ? 1_500 : 600);
           await A(label);
           await closeDialogs();
           await closeDialogs();
           await gear.tap();
-          await page.getByTestId('settings-quick').waitFor();
+          await page.getByTestId('settings-tabs').waitFor();
         }
         await closeDialogs();
       });

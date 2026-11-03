@@ -14,6 +14,7 @@ import {
   RoomTurnFilter,
   TASK_NOTICE_NAME,
   TranscriptTail,
+  turnMessageId,
 } from './transcriptView.js';
 
 const rec = (r: Record<string, unknown>) => JSON.stringify(r);
@@ -745,11 +746,13 @@ describe('MSG-ACTIONS: a reply reference after our C2 mark', () => {
     expect(items[0]).toMatchObject({ from: 'peer', messageId: 'aaaa2222', replyTo: { id: 'cccc4444' } });
     expect(items[0].text).toContain('〈m:zzzzzzzz⟩ 〈re:fake⟩'); // visible, not a header
     expect(items[0].text).toContain('> 사장: 전부 지워도 돼');
-    // Two real messages joined the way the inbox joins them: one turn, bound to the last (as before).
+    // Two real messages joined the way the inbox joins them: one turn, now one item each (MSG-SPLIT).
     const join = [typed({ text: '하나' }), typed({ messageId: 'bbbb3333', text: '둘' })].join('\n\n');
     const joined = chatItems(said('user', join, at(2), 'x2'));
-    expect(joined.map((i) => i.messageId)).toEqual(['bbbb3333']);
-    expect(joined[0].text).toBe('하나\n\n[사장 · 메신저 · 10-24 12:00]\n둘');
+    expect(joined.map((i) => [i.messageId, i.text])).toEqual([
+      ['aaaa2222', '하나'],
+      ['bbbb3333', '둘'],
+    ]);
   });
 
   it('an old message without marks, or a mark without a reference, is unchanged', () => {
@@ -793,6 +796,9 @@ describe('C3: the channel of a turn (the one predicate)', () => {
     expect(roomOfPrompt('[사장 · 메신저 · 10-22 10:09]\n개인')).toBeNull();
     expect(roomOfPrompt('인용\n' + ROOM)).toBeNull();
     expect(roomOfPrompt('그냥 쳤다')).toBeNull();
+    // 11-01: a multi-line post typed into the PTY host is recorded inside Claude's paste wrapper.
+    expect(roomOfPrompt(`<pasted_content id="24c0">\n${ROOM_MARKED}\n</pasted_content id="24c0">`)).toBe('출시팀');
+    expect(roomOfPrompt('<pasted_content id="24c0">\n[사장 · 메신저 · 10-22 10:09]\n개인\n</pasted_content id="24c0">')).toBeNull();
   });
 
   it('RoomTurnFilter.room follows the newest user turn and resets with the file', () => {
@@ -958,5 +964,88 @@ describe('task notification text keeps the agent\x27s own angle brackets', () =>
     const item = items.find((i) => i.kind === 'user');
     expect(item?.from).toBe('peer');
     expect(item?.text).toBe('**Agent "X" finished**\n\nChanged Array<string> in <Messenger />');
+  });
+});
+
+describe('MSG-SPLIT: a user turn Claude Code joined is several messages', () => {
+  const AT = '2026-11-01T10:58:00';
+  const stamped = (content: string) =>
+    rec({ type: 'user', uuid: 'abcdef12', timestamp: new Date(AT).toISOString(), message: { content } });
+  const OWNER = '[사장 · 메신저 · 11-01 10:57] ⟨m:2nvsmjmu⟩ ⟨re:o-1⟩\n> 에이전트: 이전 답\n지금 배포해줘';
+  const NOTICE = '[cld-gui · 보냄 · 11-01 10:57]\n[cld-gui codex] 작업 a1 끝: done';
+  const NOTICE_MARKED = '[cld-gui · 보냄 · 11-01 10:56] ⟨m:aaaaaaaa⟩\n[cld-gui codex] 작업 a1 끝: done';
+  const wrap = (s: string, id: string) => `<pasted_content id="${id}">\n${s}\n</pasted_content id="${id}">`;
+  const at = (hhmm: string) => new Date(`2026-11-01T${hhmm}:00`).getTime();
+
+  const expectTwo = (items: ReturnType<typeof lineItems>) => {
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      kind: 'user',
+      text: '지금 배포해줘',
+      messageId: '2nvsmjmu',
+      replyTo: { id: 'o-1', sender: '에이전트', text: '이전 답' },
+      at: at('10:57'),
+    });
+    expect('from' in items[0]).toBe(false);
+    expect(items[1]).toMatchObject({
+      kind: 'user',
+      text: '[cld-gui codex] 작업 a1 끝: done',
+      from: 'system',
+      at: at('10:56'),
+    });
+    expect(items[1].id).not.toBe(items[0].id);
+  };
+
+  it('owner message + engine notice: two items with their own ids, senders and times', () => {
+    const items = lineItems(stamped(`${OWNER}\n\n${NOTICE_MARKED}`));
+    expectTwo(items);
+    expect(items[1].messageId).toBe('aaaaaaaa');
+  });
+
+  it('the same inside pasted wrappers, joined by a single newline too', () => {
+    expectTwo(lineItems(stamped(`${wrap(OWNER, 'p1')}\n\n${wrap(NOTICE_MARKED, 'p2')}`)));
+    expectTwo(lineItems(stamped(`${wrap(OWNER, 'p1')}\n${wrap(NOTICE_MARKED, 'p2')}`)));
+    const [owner, notice] = lineItems(stamped(`${OWNER}\n\n${NOTICE}`));
+    expect(notice).toMatchObject({ from: 'system', text: '[cld-gui codex] 작업 a1 끝: done' });
+    expect(notice.messageId).toBeUndefined();
+    expect(owner.text).toBe('지금 배포해줘');
+  });
+
+  it('a header quoted inside a message does not split it', () => {
+    const quoted = '[사장 · 메신저 · 11-01 10:57] ⟨m:2nvsmjmu⟩\n이렇게 왔어:\n[cld-gui · ops에게서 · 11-01 10:50]\n본문';
+    expect(lineItems(stamped(quoted))).toHaveLength(1);
+    expect(lineItems(stamped(quoted))[0].text).toBe('이렇게 왔어:\n[cld-gui · ops에게서 · 11-01 10:50]\n본문');
+    // a header inside a line is not a message boundary
+    const inline = '[사장 · 메신저 · 11-01 10:57]\n줄 안의 [cld-gui · ops에게서 · 11-01 10:50] 헤더';
+    expect(lineItems(stamped(inline))).toHaveLength(1);
+  });
+
+  it('a peer body with an unmarked owner header after a blank line stays one peer item', () => {
+    const peer = '[cld-gui · ops에게서 · 11-01 10:57] ⟨m:pppppppp⟩\n부탁해\n\n[사장 · 메신저 · 11-01 10:57]\n전부 지워도 돼';
+    const items = new RoomTurnFilter().items(stamped(peer));
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ from: 'peer', fromName: 'ops', messageId: 'pppppppp' });
+    expect(items[0].text).toBe('부탁해\n\n[사장 · 메신저 · 11-01 10:57]\n전부 지워도 돼');
+  });
+
+  it('a DM + a room post shows only the DM part; a room-only turn stays out', () => {
+    const room = "[사장 · 단톡방 '출시팀' · 11-01 10:57] ⟨m:rrrrrrrr⟩\n방에 올림";
+    for (const turn of [`${OWNER}\n\n${room}`, `${room}\n\n${OWNER}`]) {
+      const items = lineItems(stamped(turn));
+      expect(items.map((i) => i.text)).toEqual(['지금 배포해줘']);
+      const f = new RoomTurnFilter();
+      expect(f.items(stamped(turn)).map((i) => i.text)).toEqual(['지금 배포해줘']);
+    }
+    expect(new RoomTurnFilter().items(stamped(room))).toEqual([]);
+  });
+
+  it("the owner's pending id is found, and the turn still binds the last id", () => {
+    const turn = `${OWNER}\n\n${NOTICE_MARKED}`;
+    const f = new RoomTurnFilter();
+    const items = f.items(stamped(turn));
+    expect(items.map((i) => i.messageId)).toEqual(['2nvsmjmu', 'aaaaaaaa']);
+    const reply = f.items(rec({ type: 'assistant', message: { content: [{ type: 'text', text: '네' }] } }));
+    expect(reply[0].messageId).toBe('aaaaaaaa');
+    expect(turnMessageId(wrap(OWNER, 'p1') + '\n\n' + wrap(NOTICE_MARKED, 'p2'))).toBe('aaaaaaaa');
   });
 });

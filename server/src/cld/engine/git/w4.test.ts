@@ -203,4 +203,36 @@ describe.skipIf(!GIT_AVAILABLE)('W5 protected-branch guard hook', () => {
     const d = await ask<RepoWorktreeDetail>({ type: 'repoWorktreeRequest', project: 'alpha', task: a.task });
     expect(d.guard).toContain('hooksPath');
   });
+
+  it('DEVROOM-PERF: the diffs after a list reuse it (one git each), and the stamp moves on one more edit', async () => {
+    const { r, mgr, configDir, proj, task } = setup();
+    const a = await task('T-9');
+    fs.writeFileSync(path.join(a.path, 'a.txt'), 'one\nedit 1\n');
+    const calls: string[][] = [];
+    const counting = new RepoManager({
+      projects: () => [proj],
+      readOnly: false,
+      configDir,
+      run: (cwd, args, o) => (calls.push(args), r.run(cwd, args, o)),
+      log: () => undefined,
+    });
+    managers.push(counting, mgr);
+    const sent: Msg[] = [];
+    const ask = async <T>(msg: Msg): Promise<T> => {
+      const requestId = `s${sent.length}-${Math.random()}`;
+      counting.onClientMessage({ requestId, ...msg }, (m) => void sent.push(m), true);
+      await waitFor(() => expect(sent.find((m) => m.requestId === requestId)).toBeTruthy());
+      return sent.find((m) => m.requestId === requestId) as T;
+    };
+    const detail = () => ask<RepoWorktreeDetail>({ type: 'repoWorktreeRequest', project: 'alpha', task: a.task });
+    const one = await detail();
+    expect(one.stamp).toMatch(/^[0-9a-f]{40}$/);
+    calls.length = 0;
+    const d = await ask<RepoDiff>({ type: 'repoDiffRequest', project: 'alpha', task: a.task, path: 'a.txt', staged: false });
+    expect(d.text).toContain('+edit 1');
+    expect(calls.map((c) => c.find((x) => !x.startsWith('-') && !x.includes('=')))).toEqual(['diff']);
+    expect((await detail()).stamp).toBe(one.stamp);
+    fs.writeFileSync(path.join(a.path, 'a.txt'), 'one\nedit 2 longer\n'); // still M, one file: only its size/time tell
+    expect((await detail()).stamp).not.toBe(one.stamp);
+  });
 });

@@ -30,6 +30,9 @@ export const userRulesPath = (home: string): string => path.join(configDir(home)
 const languagePath = (home: string): string => path.join(configDir(home), 'ui-language');
 const builtInRulesPath = (home: string): string => path.join(configDir(home), 'use-built-in-rules');
 const combinedDir = (home: string): string => path.join(configDir(home), 'rules-combined');
+/** The rules file an agent's session starts with, written again at each start (named after the agent). */
+export const combinedRulesFile = (home: string, name: string): string =>
+  path.join(combinedDir(home), `${name.replace(/[^\w.-]/g, '_').slice(0, 40)}-${createHash('sha1').update(name).digest('hex').slice(0, 6)}.md`);
 export const USER_RULES_MAX_CHARS = 32_000;
 
 /** cld/rules next to cld/bin (a checkout and an installed bundle share this layout). */
@@ -128,8 +131,7 @@ export function writeCombinedRules(
 ): { file: string; playbook: string | null } | null {
   const { text, playbook } = composeWithPlaybook(o);
   if (!text) return null;
-  const hash = createHash('sha1').update(o.name).digest('hex').slice(0, 6);
-  const file = path.join(combinedDir(o.home), `${o.name.replace(/[^\w.-]/g, '_').slice(0, 40)}-${hash}.md`);
+  const file = combinedRulesFile(o.home, o.name);
   try {
     if (read(file) !== `${text}\n`) writeAtomic(file, `${text}\n`);
     return { file, playbook };

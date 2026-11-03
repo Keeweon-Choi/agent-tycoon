@@ -266,6 +266,34 @@ describe.skipIf(!GIT_AVAILABLE)('worktree status (temp repos)', () => {
     expect(r.git(['branch', '--list', 'task/x'])).toContain('task/x');
   });
 
+  it('one made from inside another worktree (main → integ → codex): its own folder and base, found and removed', async () => {
+    const { r, wt, project, dir, file } = setup();
+    await wt.create(project, 'integ');
+    const rec = await wt.create({ name: project.name, folder: dir('integ') }, 'codex-1');
+    const nested = path.join(dir('integ'), '.worktrees', 'codex-1');
+    expect(rec).toMatchObject({ path: nested, base: 'task/integ' });
+    fs.writeFileSync(path.join(nested, 'loose.txt'), 'l\n');
+    expect(await wt.status(project, 'codex-1')).toMatchObject({ path: nested, exists: true, dirty: 1, base: 'task/integ' });
+    // A record pointing anywhere else (not a registered worktree of this repository) is not taken.
+    const records = JSON.parse(fs.readFileSync(file, 'utf-8')) as WorktreeRecord[];
+    fs.writeFileSync(file, JSON.stringify(records.map((x) => (x.task === 'integ' ? { ...x, path: r.root } : x))));
+    expect(await wt.status(project, 'integ')).toMatchObject({ path: dir('integ'), exists: true });
+    expect(await wt.cleanup(project, 'codex-1', { force: true })).toMatchObject({ ok: true });
+    expect(fs.existsSync(nested)).toBe(false);
+  });
+
+  it('reopen: a gone folder is checked out again on its branch, the record pointed at it', async () => {
+    const { r, wt, project, dir, work, records } = setup();
+    await wt.create(project, 'x');
+    work('x');
+    fs.rmSync(dir('x'), { recursive: true });
+    r.git(['worktree', 'prune']);
+    await wt.reopen(project, 'x');
+    expect(await wt.status(project, 'x')).toMatchObject({ exists: true, ahead: 1, dirty: 0 });
+    expect(fs.readFileSync(path.join(dir('x'), 'work.txt'), 'utf-8')).toBe('work.txt\n');
+    expect(records()[0].path).toBe(dir('x'));
+  });
+
   it('lists only the project’s own active worktrees', async () => {
     const { wt, project, file } = setup();
     await wt.create(project, 'x');

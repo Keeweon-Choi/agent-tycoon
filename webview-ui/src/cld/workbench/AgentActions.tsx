@@ -12,6 +12,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { engineSubmit, useEngineStore } from '../engineStore.js';
+import { InheritChoice } from '../InheritChoice.js';
 import {
   emptyWorkerForm,
   workerFields,
@@ -97,6 +98,8 @@ export function AddWorker({ project }: { project: string }) {
   const [f, setF] = useState<WorkerForm>(() => emptyWorkerForm(folder));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  /** INHERIT: the removed agent of the Worker's folder whose records it takes over. */
+  const [inheritFrom, setInheritFrom] = useState<string | null>(null);
   // The answer: a refusal shows here; success closes the form.
   useEffect(() => {
     if (!pending || busy[pending]) return;
@@ -131,7 +134,7 @@ export function AddWorker({ project }: { project: string }) {
     const name = f.name.trim();
     setError(null);
     setPending(name);
-    send('add', name, workerFields(f, project, folder));
+    send('add', name, { ...workerFields(f, project, folder), ...(inheritFrom && { inheritFrom }) });
   };
   return (
     <>
@@ -221,6 +224,9 @@ export function AddWorker({ project }: { project: string }) {
               {t(codex ? 'workbench.worker.folderHelpCodex' : 'workbench.worker.folderHelp')}
             </span>
           </label>
+          {open && (
+            <InheritChoice folder={f.folder.trim() || folder} who="worker" value={inheritFrom} onChange={setInheritFrom} />
+          )}
           {choice('model', t('workbench.worker.model'), choices?.models)}
           {choice('effort', t('workbench.worker.effort'), choices?.efforts)}
           {!codex && choice('permissionMode', t('workbench.worker.permissionMode'), choices?.permissionModes)}

@@ -355,7 +355,7 @@ async function main() {
         'phone: Enter inserts a newline and sends nothing',
       );
       await shot(phone, 'phone-multiline-input');
-      await ph.conv.getByRole('button', { name: '보내기' }).tap();
+      await ph.conv.getByRole('button', { name: '보내기', exact: true }).tap();
       for (const end = Date.now() + 20_000; !sent('폰 셋째줄') && Date.now() < end;)
         await new Promise((r) => setTimeout(r, 200));
       check(

@@ -15,10 +15,16 @@
  * (else the account's default applies, P0).
  *
  * Messages (deliver): a bracketed paste, then Enter as its own write once the paste had time to
- * land, only when the session is ready (session file idle, or OSC idle/done); a `now` message
- * into a running turn goes with Claude's chat:sendNow chord instead of Enter. Nothing is read
- * off the screen: the turn starting (OSC working, session busy) or the transcript holding the
- * message confirms it.
+ * land, unless the session waits on a permission or question (held). The messenger hands over an
+ * ordinary message only when the session is idle or busy with background work alone (its main
+ * turn over), so a busy session file takes it too (Claude Code starts a new turn, or queues it);
+ * a `now` message into a running turn goes with Claude's chat:sendNow chord instead of Enter.
+ * MSG-RECALL (11-01 14:51: the owner's Up in this terminal recalled an older prompt, and our Enter
+ * submitted it instead of the new message): the input box is read off the host's mirror first, and
+ * a draft or a recalled prompt there makes the message wait (`inputBusy`); viewers' keys wait from
+ * that look to Enter (PtyHostClient.typing); and only the transcript's prompt carrying the
+ * message's own mark confirms it: another prompt, or none from an idle session, is `lost`. A
+ * message without a mark (an inbox delivery) is confirmed by the turn starting, as before.
  *
  * Any install of Claude (TERM-P2): the terminal's pid is Claude's own for the native binary and a
  * launcher that execs (npm's Unix symlink, nvm/asdf/mise, Homebrew), but not for one that starts
@@ -35,7 +41,7 @@
  * the manager) may end the host and its agents with it: accepted, the engine starts them again
  * with `--resume`, and the first daemon to see their terminals gone logs it once.
  */
-import { spawn } from 'child_process';
+import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -49,21 +55,21 @@ import {
   PTY_PERMISSION_HOOK_S,
   PTY_SUBMIT_MS,
 } from '../../../../constants.js';
+import { compactingOnScreen, inputBoxTaken } from '../../../chat.js';
 import { readJson, writeJsonAtomic } from '../../../jsonFile.js';
 import { processAlive, sessionFromFile, transcriptPath, turnEnded } from '../../../providers/claudeProvider.js';
-import { PtyHostClient } from '../../../ptyhost/client.js';
+import { hostLauncher, listedTerminals, PtyHostClient } from '../../../ptyhost/client.js';
 import { readyToType } from '../../../ptyhost/programStatus.js';
 import type { TerminalInfo } from '../../../ptyhost/protocol.js';
-import { ptyhostPaths } from '../../../ptyhost/protocol.js';
+import { isShellTerminal, ptyhostPaths } from '../../../ptyhost/protocol.js';
 import { rulesDirFor, writeCombinedRules } from '../../agentRules.js';
 import { AGENT_TOKEN_ENV } from '../../agentTokens.js';
-import { alreadyTyped, cleanText, tail } from '../../messenger.js';
+import { alreadyTyped, cleanText, lastPrompt, tail } from '../../messenger.js';
 import type { ProjectRecord } from '../../registry.js';
 import { CLAUDE_PTY_PROVIDER } from '../../registry.js';
-import type { AgentProvider, LiveSession, StartResult, StopResult } from '../types.js';
+import type { AgentProvider, DeliverResult, LiveSession, StartResult, StopResult } from '../types.js';
 import {
   CLAUDE_CAPABILITIES,
-  claudeCommand,
   COMPACT_MARK,
   nameMatches,
   sessionFlags,
@@ -175,7 +181,6 @@ export class ClaudePtyAgent implements AgentProvider {
   readonly capabilities = CLAUDE_CAPABILITIES;
   readonly compaction = { mark: COMPACT_MARK, fillPct: transcriptFillPct };
   readonly host: PtyHostClient;
-  private scope: string | null;
   private readonly t: typeof PTY_TIMING;
   private readonly platform: NodeJS.Platform;
   /** The dead terminals last logged (a host that ended without writing their exit). */
@@ -184,53 +189,23 @@ export class ClaudePtyAgent implements AgentProvider {
   private found: Record<string, number> | null = null;
 
   constructor(private readonly o: ClaudePtyOptions) {
-    this.scope = o.systemdRun;
     this.platform = o.platform ?? process.platform;
     // Orca's measured paste ingest: ConPTY takes a paste in far slower than a Unix PTY.
     const bytesPerMs = this.platform === 'win32' ? PTY_PASTE_BYTES_PER_MS_WINDOWS : PTY_PASTE_BYTES_PER_MS;
     this.t = { ...PTY_TIMING, bytesPerMs, ...o.timing };
-    this.host = o.client ?? new PtyHostClient({ home: o.home, launch: () => this.launch(), log: o.log });
+    this.host =
+      o.client ??
+      new PtyHostClient({
+        home: o.home,
+        launch: hostLauncher({ home: o.home, hostScript: o.hostScript ?? '', env: o.env, systemdRun: o.systemdRun, log: o.log }),
+        log: o.log,
+      });
   }
 
-  /** Start the host outside our service's cgroup (its own systemd user scope, else setsid), as
-   *  claude.ts runs `claude --bg`: a redeploy of the daemon must not take the agents with it. */
-  private launch(retry = true): void {
-    const dir = ptyhostPaths(this.o.home).dir;
-    const cmd = claudeCommand(process.execPath, ['--max-semi-space-size=1', this.o.hostScript ?? '', dir], this.scope);
-    try {
-      const child = spawn(cmd.file, cmd.args, {
-        cwd: dir,
-        env: this.o.env,
-        stdio: 'ignore',
-        detached: true,
-        windowsHide: true, // detached on Windows would open a console window
-      });
-      child.on('error', (err) => this.o.log(`PTY host: ${err.message}`));
-      child.on('exit', (code) => {
-        if (code === 0 || !this.scope || !retry) return;
-        // A host that left because one already listens exits 0; systemd-run failing does not.
-        this.o.log(`PTY host in a systemd scope exited ${code}; starting it with setsid from now on`);
-        this.scope = null;
-        this.launch(false);
-      });
-      child.unref();
-    } catch (err) {
-      this.o.log(`PTY host: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /** The host's terminals whose process is alive (terminals.json; a killed host leaves dead ones). */
+  /** The host's agent terminals whose process is alive (terminals.json; a killed host leaves dead ones). */
   terminals(): TerminalInfo[] {
-    let list: unknown;
-    try {
-      list = readJson(ptyhostPaths(this.o.home).terminals);
-    } catch {
-      return [];
-    }
-    if (!Array.isArray(list)) return [];
-    const valid = (list as TerminalInfo[]).filter(
-      (t) => t && typeof t.id === 'string' && Number.isInteger(t.pid) && t.pid > 0,
-    );
+    // The app's shells live in the same host: never agents.
+    const valid = listedTerminals(this.o.home).filter((t) => !isShellTerminal(t));
     const out = valid.filter((t) => processAlive(t.pid));
     this.noteGone(valid.filter((t) => !out.includes(t)));
     // Status (OSC 7501) lives in the host: connect once there is a terminal to hear about.
@@ -454,42 +429,106 @@ export class ClaudePtyAgent implements AgentProvider {
     return !!s.id && this.host.viewers(s.id) > 0;
   }
 
+  /** MSG-RECALL: terminal `id`'s visible screen as the host's mirror has it now (no scrollback:
+   *  COMPACT-COFFEE looks every 2 s), or null (no host). */
+  private async screen(id: string): Promise<HeadlessTerminal | null> {
+    const sub = await this.host.screen(id);
+    if (!sub) return null;
+    const term = new HeadlessTerminal({ cols: sub.cols, rows: sub.rows, scrollback: 0, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(sub.snapshot, r));
+    return term;
+  }
+
+  /** MSG-RECALL: the input box holds a draft or a recalled prompt (never ours to submit). */
+  private async boxTaken(id: string): Promise<boolean> {
+    return this.onScreen(id, inputBoxTaken);
+  }
+
+  private async onScreen(id: string, look: (term: HeadlessTerminal) => boolean): Promise<boolean> {
+    const term = await this.screen(id);
+    if (!term) return false;
+    try {
+      return look(term);
+    } finally {
+      term.dispose();
+    }
+  }
+
+  /** COMPACT-COFFEE: Claude Code compacts the conversation now (its spinner line on the mirror).
+   *  Only a working session is looked at: a compaction is always part of a turn. */
+  compacting(s: LiveSession): Promise<boolean> {
+    if (!s.id || (this.host.status.get(s.id)?.state !== 'working' && s.status !== 'busy'))
+      return Promise.resolve(false);
+    return this.onScreen(s.id, compactingOnScreen);
+  }
+
   async deliver(
     p: ProjectRecord,
     text: string,
-    o: { messageId?: string; now?: boolean },
-  ): Promise<'typed' | 'notReady' | 'failed'> {
+    o: { messageId?: string; now?: boolean; force?: boolean },
+  ): Promise<DeliverResult> {
     const assignment = assignmentOf(p) ?? p.name;
     const s = this.live().find((x) => x.assignmentId === assignment);
     if (!s?.id) return 'notReady';
     const id = s.id;
     const osc = () => this.host.status.get(id);
     const fileStatus = () => this.live().find((x) => x.id === id)?.status;
-    const ready = turnEnded(s.status) || (s.status === undefined && readyToType(osc()));
+    const working = () => osc()?.state === 'working' || fileStatus() === 'busy';
+    // busy: the messenger only hands over an ordinary message when the main turn is over (background work only).
+    const ready = turnEnded(s.status) || s.status === 'busy' || (s.status === undefined && readyToType(osc()));
     const now = !!o.now && s.status === 'busy';
-    if ((!ready && !now) || (await this.held(s))) return 'notReady';
+    if (!ready || (await this.held(s))) return 'notReady';
     const clean = cleanText(text);
-    const pasted = await this.host.write(id, `\x1b[200~${clean.replaceAll('\n', '\r')}\x1b[201~`);
-    if (!pasted.ok) return 'failed';
-    // Enter on its own, once the paste had time to land (Orca: a 500 ms settle + ingest, 64 B/ms on Windows).
-    await sleep(this.t.enterMs + Math.ceil(Buffer.byteLength(clean) / this.t.bytesPerMs));
-    if (now) {
-      await this.host.write(id, SEND_NOW[0]);
-      await sleep(SEND_NOW_GAP_MS);
-      await this.host.write(id, SEND_NOW[1]);
-    } else await this.host.write(id, '\r');
     const file = this.transcript(s);
+    const before = lastPrompt(tail(file));
+    // MSG-RECALL: from the box check to Enter, no viewer key goes in (they follow Enter).
+    const typed = await this.host.typing(id, async () => {
+      // Never onto a draft or a recalled prompt: Enter would submit it, and no key clears a box
+      // safely (Esc twice opens the rewind menu, Ctrl+U clears one line), so the message waits;
+      // unless the owner said 지금 보내기 on it (force): then a draft there goes in with it.
+      if (!o.force && (await this.boxTaken(id))) return 'inputBusy' as const;
+      const pasted = await this.host.write(id, `\x1b[200~${clean.replaceAll('\n', '\r')}\x1b[201~`);
+      if (!pasted.ok) return 'failed' as const;
+      // Enter on its own, once the paste had time to land (Orca: a 500 ms settle + ingest, 64 B/ms on Windows).
+      await sleep(this.t.enterMs + Math.ceil(Buffer.byteLength(clean) / this.t.bytesPerMs));
+      if (now) {
+        await this.host.write(id, SEND_NOW[0]);
+        await sleep(SEND_NOW_GAP_MS);
+        await this.host.write(id, SEND_NOW[1]);
+      } else await this.host.write(id, '\r');
+      return null;
+    });
+    if (typed) return typed;
     const end = Date.now() + this.t.submitMs;
     for (;;) {
-      if (
-        (!now && (osc()?.state === 'working' || fileStatus() === 'busy')) ||
-        (o.messageId && alreadyTyped(tail(file), o.messageId))
-      )
-        return 'typed';
+      const got = tail(file);
+      // MSG-RECALL: only the prompt with this message's own mark is ours; another one that went in
+      // meanwhile (a recalled history item) is a lost delivery, never a typed one.
+      if (o.messageId && alreadyTyped(got, o.messageId)) return 'typed';
+      const last = lastPrompt(got);
+      if (o.messageId && last?.key !== before?.key) {
+        // Another prompt a working session took from its queue (the owner typed one into the terminal
+        // just before our Enter): ours may sit behind it in that queue, so wait for our mark.
+        if (last?.queued && working()) return 'unconfirmed';
+        // A person's prompt record instead of ours: the history-recall swap (11-01 14:51).
+        this.o.log(`"${p.name}": a prompt without ⟨m:${o.messageId}⟩ went in instead of it`);
+        return 'lost';
+      }
+      if (!o.messageId && !now && working()) return 'typed';
       if (Date.now() >= end) break;
       await sleep(this.t.pollMs);
     }
-    // The paste and Enter went in; a turn that has not shown yet still has them (as the Typist does).
+    // An idle session that stays idle writes the prompt at once: none with our mark is a lost
+    // paste. One working now (it was busy, or turned busy after our Enter: a task notification's
+    // turn, a Stop hook going on, a slow UserPromptSubmit hook) writes ours when it takes it: the
+    // messenger looks for the mark at the turn's end. Read live, never the status before the paste.
+    if (o.messageId) {
+      if (!now && turnEnded(s.status) && !working()) {
+        this.o.log(`"${p.name}": no prompt with ⟨m:${o.messageId}⟩ in ${this.t.submitMs} ms`);
+        return 'lost';
+      }
+      return 'unconfirmed';
+    }
     this.o.log(`typed into "${p.name}"; no turn start seen in ${this.t.submitMs} ms`);
     return 'typed';
   }

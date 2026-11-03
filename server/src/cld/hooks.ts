@@ -16,6 +16,14 @@ export interface SocketStepUp {
 
 export type WsSend = (message: Record<string, unknown>) => void;
 
+/** The connection context the office's client-message routes receive. */
+export interface ClientMessageContext {
+  send: WsSend;
+  privileged: boolean;
+  userAgent?: string;
+  stepUp?: SocketStepUp;
+}
+
 export interface CldHooks {
   /** Current registered engine project folders for the file browser. */
   projectFolders?(): ProjectFolder[];

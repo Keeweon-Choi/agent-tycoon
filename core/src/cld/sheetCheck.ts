@@ -146,8 +146,10 @@ export function artIssue(rgba: ArrayLike<number>): SheetIssue | null {
 
 /** CHAR-HUMAN: an image to import as a part (any size, big-block or 1:1) is at most this big. */
 export const MAX_IMPORT_BYTES = 6 * 1024 * 1024;
-/** SHEET-IMPORT: an imported sheet as stored (192×384 frames, smooth art) is at most this big. */
-export const MAX_HD_SHEET_BYTES = MAX_IMPORT_BYTES;
+/** SHEET-IMPORT: a preset sheet as stored is at most this big. Isometric sheets (2304×3168 RGBA,
+ *  6×8 frames) come out at 7-7.5 MB even optimised, and an 8-frame walk makes them wider; the
+ *  UI import (MAX_IMPORT_BYTES, 6 MiB) stays small, a sheet it writes is never bigger than that. */
+export const MAX_HD_SHEET_BYTES = 12 * 1024 * 1024;
 export const MAX_IMPORT_SIDE = 4096;
 export const MAX_IMPORT_PIXELS = 4_200_000;
 

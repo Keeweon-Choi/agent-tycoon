@@ -10,7 +10,7 @@ import { LooksBody } from './characters/LooksWindow.js';
 import { DevRoom } from './devroom/DevRoom.js';
 import { DevroomLooks, useDevroomTitle } from './devroom/devroomData.js';
 import { DevRoomPhone } from './devroom/DevRoomPhone.js';
-import { desktopTabs, panelTitle } from './format.js';
+import { desktopTabs, officeTabLabel, panelTitle } from './format.js';
 import { closeWindow, leaveNoticesWindow, showOffice, useHud, usePageStyle } from './hud/hudStore.js';
 import { HudWindow } from './hud/HudWindow.js';
 import type { WindowId } from './hud/layout.js';
@@ -20,18 +20,32 @@ import { NoticePanel, type OpenTarget } from './notify/NoticeLayer.js';
 import { OfficePanelContent } from './panels/OfficePanels.js';
 import { TerminalWorkspace } from './terminal/TerminalWorkspace.js';
 import { Workbench } from './workbench/Workbench.js';
-import { useWorkbenchTitle } from './workbench/workbenchStore.js';
+import { useReviewTitle } from './workbench/workbenchStore.js';
 
 interface PanelProps {
   agentTools: Record<number, ToolActivity[]>;
 }
 
+interface LooksProps {
+  statusFor: (agentId: number) => TabStatus | null;
+  getAppearance: (agentId: number) => AgentAppearance;
+}
+
+/** UI-DASH: the 현황판's 개발 tab is the old 작업실 (project, 에이전트 · Task · 변경, 검토). */
+function DevSection({ mobile = false, getAppearance, statusFor }: LooksProps & { mobile?: boolean }) {
+  return (
+    <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
+      <Workbench mobile={mobile} />
+    </DevroomLooks.Provider>
+  );
+}
+
 /** The 현황판 window's body: its tabs, then the open tab. */
-function OfficeWindowBody({ agentTools }: PanelProps) {
+function OfficeWindowBody({ agentTools, ...looks }: PanelProps & LooksProps) {
   const { officeTab } = useHud();
   return (
     <>
-      {/* UI-C1: the 파일 mode (the folder icon) has no tab strip; the 현황판 has 현황판 and HW. */}
+      {/* UI-C1: the 파일 mode (the folder icon) has no tab strip; the 현황판 has 오케스트레이터, 개발 and HW. */}
       {officeTab !== 'files' && (
         <nav className="flex gap-4 overflow-x-auto pb-8 shrink-0" aria-label={t('nav.officeMenu')}>
           {desktopTabs.map((tab) => (
@@ -39,30 +53,38 @@ function OfficeWindowBody({ agentTools }: PanelProps) {
               key={tab.id}
               size="sm"
               variant={officeTab === tab.id ? 'active' : 'default'}
+              aria-pressed={officeTab === tab.id}
               onClick={() => showOffice(tab.id)}
             >
-              {t(`nav.tab.${tab.id}`)}
+              {officeTabLabel(tab.id)}
             </Button>
           ))}
         </nav>
       )}
-      <div className="overflow-y-auto min-h-0 flex-1">
-        <OfficePanelContent panel={officeTab} agentTools={agentTools} />
-      </div>
+      {officeTab === 'dev' ? (
+        <DevSection {...looks} />
+      ) : (
+        <div className="overflow-y-auto min-h-0 flex-1">
+          <OfficePanelContent panel={officeTab} agentTools={agentTools} />
+        </div>
+      )}
     </>
   );
 }
 
-interface DesktopWindowsProps extends PanelProps {
-  statusFor: (agentId: number) => TabStatus | null;
-  getAppearance: (agentId: number) => AgentAppearance;
+/** The 개발실's sub-agent columns read these (useExtensionMessages). */
+type SubagentTools = Record<number, Record<string, ToolActivity[]>>;
+
+interface DesktopWindowsProps extends PanelProps, LooksProps {
+  subagentTools: SubagentTools;
   getOfficeState: () => OfficeState;
   onOpenNotice: OpenTarget;
 }
 
-/** The desktop's floating windows (T-0077): 현황판, 메신저, 알림 and 터미널, each only while open. */
+/** The desktop's floating windows (T-0077): 현황판, 메신저, 알림, 개발실 and 터미널, each only while open. */
 export function DesktopWindows({
   agentTools,
+  subagentTools,
   statusFor,
   getAppearance,
   getOfficeState,
@@ -71,7 +93,7 @@ export function DesktopWindows({
   const hud = useHud();
   const looksFor = useLooksUi().picker;
   const devroomTitle = useDevroomTitle();
-  const workbenchTitle = useWorkbenchTitle();
+  const reviewTitle = useReviewTitle();
   const terminalMounted = useRef(false);
   if (hud.open.terminal) terminalMounted.current = true;
   return (
@@ -84,25 +106,21 @@ export function DesktopWindows({
       {hud.open.office && (
         <HudWindow
           id="office"
-          title={hud.officeTab === 'files' ? t('nav.tab.files') : t('nav.officeInfo')}
+          title={
+            hud.officeTab === 'files'
+              ? t('nav.tab.files')
+              : ((hud.officeTab === 'dev' && reviewTitle) || t('nav.officeInfo'))
+          }
           landmark
           closeLabel={t('nav.officeClose')}
           onClose={() => closeWindow('office')}
           wide={hud.officeTab === 'files'}
         >
-          <OfficeWindowBody agentTools={agentTools} />
-        </HudWindow>
-      )}
-      {hud.open.workbench && (
-        <HudWindow
-          id="workbench"
-          title={workbenchTitle}
-          closeLabel={t('nav.workbenchClose')}
-          onClose={() => closeWindow('workbench')}
-        >
-          <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
-            <Workbench />
-          </DevroomLooks.Provider>
+          <OfficeWindowBody
+            agentTools={agentTools}
+            getAppearance={getAppearance}
+            statusFor={statusFor}
+          />
         </HudWindow>
       )}
       {hud.open.looks && looksFor !== null && (
@@ -151,6 +169,8 @@ export function DesktopWindows({
             onScreen={!hud.minimized.devroom}
             getAppearance={getAppearance}
             statusFor={statusFor}
+            agentTools={agentTools}
+            subagentTools={subagentTools}
           />
         </HudWindow>
       )}
@@ -173,10 +193,9 @@ export function DesktopWindows({
   );
 }
 
-interface MobileProps extends PanelProps {
+interface MobileProps extends PanelProps, LooksProps {
+  subagentTools: SubagentTools;
   keyboardOpen?: boolean;
-  statusFor: (agentId: number) => TabStatus | null;
-  getAppearance: (agentId: number) => AgentAppearance;
 }
 
 /** The phone's full-screen page chrome: a title and 사무실, the way back to the office (the page is kept,
@@ -230,14 +249,13 @@ export function MobilePage({
 }
 
 /**
- * The 현황판 (with its tabs, 파일 among them) and the 터미널 as pages of the phone: the
+ * The 현황판 (with its tabs: 오케스트레이터, 개발, HW, and 파일) and the 터미널 as pages of the phone: the
  * HUD's windows, full-screen, one Dock tab each (WINMODEL). The terminal stays mounted from its first
  * opening on, as on the desktop, so its tabs and sockets survive a switch.
  */
-export function MobileOfficePanel({ agentTools, keyboardOpen, statusFor, getAppearance }: MobileProps) {
+export function MobileOfficePanel({ agentTools, subagentTools, keyboardOpen, statusFor, getAppearance }: MobileProps) {
   const hud = useHud();
   const looksFor = useLooksUi().picker;
-  const workbenchTitle = useWorkbenchTitle();
   const terminalMounted = useRef(false);
   if (hud.open.terminal) terminalMounted.current = true;
   const panel = hud.officeTab;
@@ -249,10 +267,11 @@ export function MobileOfficePanel({ agentTools, keyboardOpen, statusFor, getAppe
           <button
             key={tab.id}
             type="button"
+            aria-pressed={panel === tab.id}
             className={`text-xs whitespace-nowrap px-8 py-4 border pointer-coarse:min-h-44 ${panel === tab.id ? 'border-accent text-accent-text' : 'border-border text-text-muted'}`}
             onClick={() => showOffice(tab.id)}
           >
-            {t(`nav.tab.${tab.id}`)}
+            {officeTabLabel(tab.id)}
           </button>
         ))}
       </nav>
@@ -266,20 +285,13 @@ export function MobileOfficePanel({ agentTools, keyboardOpen, statusFor, getAppe
           tabs={officeTabs}
           onClose={() => closeWindow('office')}
         >
-          <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
-            <OfficePanelContent panel={panel} agentTools={agentTools} mobile />
-          </div>
-        </MobilePage>
-      )}
-      {hud.open.workbench && (
-        <MobilePage
-          id="workbench"
-          title={workbenchTitle}
-          onClose={() => closeWindow('workbench')}
-        >
-          <DevroomLooks.Provider value={{ getAppearance, statusFor }}>
-            <Workbench mobile />
-          </DevroomLooks.Provider>
+          {panel === 'dev' ? (
+            <DevSection mobile getAppearance={getAppearance} statusFor={statusFor} />
+          ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
+              <OfficePanelContent panel={panel} agentTools={agentTools} mobile />
+            </div>
+          )}
         </MobilePage>
       )}
       {hud.open.looks && looksFor !== null && (
@@ -291,8 +303,11 @@ export function MobileOfficePanel({ agentTools, keyboardOpen, statusFor, getAppe
         <MobilePage id="devroom" title={t('hud.devroom')} onClose={() => closeWindow('devroom')} bare>
           <DevRoomPhone
             onScreen={!hud.minimized.devroom}
+            keyboardOpen={keyboardOpen ?? false}
             getAppearance={getAppearance}
             statusFor={statusFor}
+            agentTools={agentTools}
+            subagentTools={subagentTools}
           />
         </MobilePage>
       )}

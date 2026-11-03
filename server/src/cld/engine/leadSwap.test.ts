@@ -152,6 +152,14 @@ describe('D3b promotePair (§3.1)', () => {
     expect(promotePair(records, 'nobody', 'worker')).toHaveProperty('error');
   });
 
+  it('DEVROOM-PROJECT: a cloned project stays cloned under its new Lead', () => {
+    const { records } = home();
+    const cloned = records.map((x) => (!x.role && x.name === 'alpha' ? { ...x, cloned: true as const } : x));
+    const r = promotePair(cloned, 'alpha-b', 'worker');
+    if ('error' in r) throw new Error(r.error);
+    expect(r.lead.cloned).toBe(true);
+  });
+
   it('promoting back restores the original names, roles and seat fields', () => {
     const { records } = home();
     const once = promotePair(records, 'alpha-a', 'worker');

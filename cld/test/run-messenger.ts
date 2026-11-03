@@ -49,13 +49,14 @@ const OUT_T0060 = path.join(REPO_ROOT, 'cld/artifacts/t0060');
 const OUT_T0067 = path.join(REPO_ROOT, 'cld/artifacts/t0067');
 const OUT_T0087 = path.join(REPO_ROOT, 'cld/artifacts/t0087');
 const OUT_UIA = path.join(REPO_ROOT, 'cld/artifacts/ui-a');
+const OUT_PENDING_REPLY = path.join(REPO_ROOT, 'cld/artifacts/pending-reply');
 const OUT_B1 = path.join(REPO_ROOT, 'cld/artifacts/ui-b1');
 const PNG_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=',
   'base64',
 );
 /** Full Chromium for the service worker (as in run-notices.ts). */
-const FULL_CHROME =
+const CHROME =
   process.env.T0039_CHROME ??
   FULL_CHROME;
 const FONT = '/mnt/c/Windows/Fonts/malgun.ttf';
@@ -702,7 +703,7 @@ async function main() {
     );
     await box.fill('첨부 테스트');
     await page.screenshot({ path: path.join(OUT_T0067, 'desktop-chips.png') });
-    await alpha.getByRole('button', { name: '보내기' }).click();
+    await alpha.getByRole('button', { name: '보내기', exact: true }).click();
     for (const end = Date.now() + 20_000; !typed().some((t) => t.text.includes('첨부 테스트'));) {
       if (Date.now() > end) throw new Error('attachment send did not reach fake session');
       await page.waitForTimeout(200);
@@ -744,7 +745,7 @@ async function main() {
     });
     await box.fill('큰 첨부는 전송하지 않음');
     const beforeLarge = typed().length;
-    await alpha.getByRole('button', { name: '보내기' }).click();
+    await alpha.getByRole('button', { name: '보내기', exact: true }).click();
     await page.waitForTimeout(700);
     check(
       (await alpha.getByText('파일은 20 MB 이하만 첨부할 수 있어요').count()) === 1 &&
@@ -781,7 +782,7 @@ async function main() {
       `thinking dots show 0, 1, 2 and 3 dots (${new Set(dotClips).size} looks over ${dotClips.length} samples)`,
     );
     await beta.getByRole('textbox', { name: '보낼 글' }).fill('끝나면 테스트도 돌려줘');
-    await beta.getByRole('button', { name: '보내기' }).click();
+    await beta.getByRole('button', { name: '보내기', exact: true }).click();
     await beta.getByText('보냄(대기 중)').waitFor({ timeout: 10_000 });
     check(
       !typed().some((t) => t.text.endsWith('끝나면 테스트도 돌려줘')),
@@ -802,6 +803,29 @@ async function main() {
       'after a reload: the waiting message is back as 보냄(대기 중) with 지금 보내기',
     );
     await shot(page, 'desktop-queued-after-reload');
+    // PENDING-REPLY: the PC offers 답글 on a waiting message too (the phone's hold does).
+    await waiting.hover();
+    await waiting.getByRole('button', { name: '답글', exact: true }).click();
+    const chip = beta.getByTestId('reply-chip');
+    await chip.waitFor({ timeout: 10_000 });
+    check(
+      (await chip.innerText()).includes('끝나면 테스트도 돌려줘'),
+      'waiting message: 답글 puts it in the composer as the quoted message',
+    );
+    await beta.getByRole('textbox', { name: '보낼 글' }).fill('답글 시험');
+    await beta.getByRole('button', { name: '보내기', exact: true }).click();
+    const replyPending = beta.locator('[data-testid="pending"]', { hasText: '답글 시험' });
+    await replyPending.getByText('보냄(대기 중)').waitFor({ timeout: 10_000 });
+    check(
+      (await replyPending.getByTestId('reply-quote').innerText()).includes('끝나면 테스트도 돌려줘') &&
+        (await chip.count()) === 0,
+      'the reply sent while both wait carries the quote of the waiting message, the chip is gone',
+    );
+    fs.mkdirSync(OUT_PENDING_REPLY, { recursive: true });
+    await page.screenshot({ path: path.join(OUT_PENDING_REPLY, 'desktop-reply-to-waiting.png') });
+    await replyPending.hover();
+    await replyPending.getByRole('button', { name: '취소', exact: true }).click();
+    await replyPending.waitFor({ state: 'detached', timeout: 10_000 });
     // 지금 보내기: it goes in while the turn still runs (the fake draws esc to interrupt).
     await waiting.getByRole('button', { name: '지금 보내기' }).click();
     await beta.getByText('알겠어요: 끝나면 테스트도 돌려줘').waitFor({ timeout: 20_000 });
@@ -1376,6 +1400,16 @@ async function main() {
     {
       const pbox = pbeta.getByRole('textbox', { name: '보낼 글' });
       const h1 = (await pbox.boundingBox())!.height;
+      // UI-PHONE: the text box has the row (보내기 beside it); 첨부 and 즉시 보내기 sit under it.
+      const boxW = (await pbox.boundingBox())!.width;
+      const screenW = await phone.evaluate(() => window.innerWidth);
+      const sendNow = (await pbeta.getByTestId('send-now').boundingBox())!;
+      check(
+        boxW >= screenW * 0.7 &&
+          sendNow.height >= 44 &&
+          /즉시 보내기/.test(await pbeta.getByTestId('send-now').innerText()),
+        `phone: the text box takes most of the row (${Math.round(boxW)} of ${screenW}) and 즉시 보내기 is a labelled ${Math.round(sendNow.height)} px button`,
+      );
       await pbox.fill(Array.from({ length: 60 }, (_, i) => `줄 ${i + 1}`).join('\n'));
       const h60 = (await pbox.boundingBox())!.height;
       const screenH = await phone.evaluate(() => window.innerHeight);
@@ -1404,7 +1438,7 @@ async function main() {
       await pbox.fill('');
     }
     await pbeta.getByRole('textbox', { name: '보낼 글' }).fill('폰에서 보냄');
-    await pbeta.getByRole('button', { name: '보내기' }).tap();
+    await pbeta.getByRole('button', { name: '보내기', exact: true }).tap();
     await pbeta.getByText('알겠어요: 폰에서 보냄').waitFor({ timeout: 20_000 });
     const top = await pm.evaluate((el) => el.getBoundingClientRect().top);
     check(
@@ -1419,7 +1453,7 @@ async function main() {
     ).setFiles({ name: 'phone.png', mimeType: 'image/png', buffer: PNG_BYTES });
     await pbeta.getByRole('textbox', { name: '보낼 글' }).fill('폰 첨부');
     await phone.screenshot({ path: path.join(OUT_T0067, 'phone-chips.png') });
-    await pbeta.getByRole('button', { name: '보내기' }).tap();
+    await pbeta.getByRole('button', { name: '보내기', exact: true }).tap();
     await pbeta
       .locator('[data-chat-id]', { hasText: '폰 첨부' })
       .locator('img')
@@ -1514,7 +1548,7 @@ async function main() {
     // The click is dispatched in the service worker as the OS would deliver it;
     // a synthetic event may not open a window, so with no page open the worker's
     // openWindow is recorded and that url opened, as the OS then does.
-    pushBrowser = await launchBrowser({ executablePath: FULL_CHROME });
+    pushBrowser = await launchBrowser({ executablePath: CHROME });
     const pctx = await pushBrowser.newContext({ viewport: { width: 1400, height: 900 } });
     await pctx.route('**/__t0043/malgun.ttf', (route) =>
       route.fulfill({ body: font, contentType: 'font/ttf' }),

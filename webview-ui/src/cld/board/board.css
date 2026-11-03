@@ -127,8 +127,27 @@
 .led-amber {
   color: var(--led-amber);
 }
-.led-clock {
+.led-wait {
   margin-left: auto;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0.05em 0.5em;
+  color: var(--led-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.led-mini .led-wait {
+  pointer-events: auto;
+}
+.led-wait-on {
+  color: var(--led-screen);
+  background: var(--led-critical);
+  text-shadow: none;
+}
+.led-clock {
   color: var(--led-amber);
   letter-spacing: 0.1em;
 }
@@ -257,6 +276,24 @@
 }
 .led-last {
   color: var(--led-muted);
+}
+
+/* UI-PHONE: the wall's copy on a phone, wider than the screen: two columns, name and state, laid
+   in the part of the board on screen (--led-vis-l / --led-vis-w, LobbyBoard), the tabs too. */
+.led-phone .led-head,
+.led-phone .led-rows {
+  margin-left: var(--led-vis-l, 0);
+  width: var(--led-vis-w, auto);
+  padding: 0 0.4em;
+}
+.led-phone .led-rows {
+  margin-left: calc(var(--led-vis-l, 0.5em) - 0.5em); /* inside .led-body's 0.5em padding */
+}
+.led-phone .led-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.led-phone .led-row > :nth-child(n + 3) {
+  display: none;
 }
 
 /* ── H/W ── */

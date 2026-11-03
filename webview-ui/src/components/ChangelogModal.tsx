@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { CHANGELOG_REPO_URL, changelogEntries, toMajorMinor } from '../changelogData.ts';
 import { FloatingToast } from '../cld/FloatingToast.js';
@@ -106,17 +105,16 @@ export function ChangelogModal({ isOpen, onClose, currentVersion }: ChangelogMod
       </Modal>
       {isOpen &&
         discordNote &&
-        createPortal(
+        (
           <FloatingToast
-            className="fixed left-1/2 -translate-x-1/2 bottom-[calc(var(--cld-toast-bottom)+8px)] z-[85] w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
+            className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
             frameClassName="px-12 py-8 text-sm break-words text-yellow-300"
             onDismiss={() => setDiscordNote(false)}
             onTap={() => setDiscordNote(false)}
             testId="changelog-discord-note"
           >
             {t('changelog.discordSoon')}
-          </FloatingToast>,
-          document.body,
+          </FloatingToast>
         )}
     </>
   );

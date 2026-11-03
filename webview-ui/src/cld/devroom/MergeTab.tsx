@@ -10,14 +10,14 @@ import type { RepoActionResult } from '../../../../core/src/messages.js';
 import { MERGE_CARD_W_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
-import { cldToast } from '../officeStore.js';
+import { cldToast, useCldStore } from '../officeStore.js';
 import { repoAsk, repoConfirmNow } from '../repo/repoStore.js';
 import { resultToast } from '../repo/repoText.js';
 import { serverText } from '../serverText.js';
 import { useCanAct } from '../workbench/workbenchStore.js';
 import { CleanupView } from './CleanupView.js';
 import { ResolvePanel } from './ConflictView.js';
-import { BIG, BODY, SMALL, useDevroomGroups } from './devroomData.js';
+import { BIG, BODY, SMALL, useDevroomGroups, whoName } from './devroomData.js';
 import { setDevroomTab, syncWorktree } from './devroomStore.js';
 import { fixingLock, preChecks } from './mergeState.js';
 import { act, bindMergeWire, requestCheck, requestConflicts, taskKey, useMergeStore } from './mergeStore.js';
@@ -57,6 +57,10 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
   const confl = conflicts[taskKey(project, task)];
   const base = check?.target ?? group?.repo?.branch ?? 'main';
   const worker = row?.wt.assignee ?? '';
+  // Nobody on it (an old Codex run, a worktree made by hand): the daemon hands it to the project's
+  // Lead, who resolves it or gives it to a Worker; with neither here the button says so.
+  const { officeSnapshot } = useCldStore();
+  const lead = officeSnapshot?.orchestrators.some((o) => o.name === project && o.agentId != null) ? project : '';
   const wt = row?.wt;
   // Ask again whenever the worktree moved (a merge, a sync, the agent's commit).
   const sig = wt ? [wt.ahead, wt.behind, wt.dirty, wt.merged, wt.merge?.at, wt.conflicts?.length].join() : '';
@@ -127,41 +131,61 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
         await requestConflicts(project, task);
         setManual(true);
       });
+    const handoffButton = canAct && (
+      <button
+        type="button"
+        data-testid="merge-handoff"
+        disabled={working || (!worker && !lead)}
+        title={!worker && !lead ? t('devroomFix.handoffNobody') : undefined}
+        className={`${phone ? 'w-full' : 'max-w-220'} flex flex-col items-center gap-2 px-18 py-10 border-2 shadow-pixel disabled:opacity-(--btn-disabled-opacity) ${accent} ${BIG}`}
+        onClick={handoff}
+      >
+        {t('merge.conflict.handoff')}
+        <small className={`text-devroom-tab-on ${SMALL}`}>
+          {worker
+            ? t('merge.conflict.handoffSub', { worker })
+            : lead
+              ? t('devroomFix.handoffLead', { lead })
+              : t('devroomFix.handoffNobody')}
+        </small>
+      </button>
+    );
     return (
       <div className="flex-1 min-h-0 flex flex-col" data-testid="merge-conflict">
-        <div className={`m-12 shrink-0 flex items-center gap-14 px-12 py-10 border-2 border-devroom-conf-line bg-devroom-banner-bg ${phone ? 'flex-wrap' : ''}`}>
-          <Face agentId={row?.agentId ?? null} name={worker} size={40} />
-          <div className="flex-1 min-w-0 leading-normal text-devroom-conf-text">
-            <p className={BIG}>{t('merge.conflict.title', { base })}</p>
-            <p className={`text-text-muted ${SMALL}`}>
-              {t('merge.conflict.sub', { count, task: row?.title ?? task })}
-            </p>
+        {phone ? (
+          // The phone stacks it: face and title, the explanation, then the button, each full width.
+          <div className="m-12 shrink-0 flex flex-col gap-10 px-12 py-10 border-2 border-devroom-conf-line bg-devroom-banner-bg leading-normal text-devroom-conf-text">
+            <div className="flex items-center gap-10 min-w-0">
+              <Face agentId={row?.agentId ?? null} name={worker} employee={row?.wt.employee} size={40} />
+              <p className={`min-w-0 ${BIG}`}>{t('merge.conflict.title', { base })}</p>
+            </div>
+            <p className={`text-text-muted ${SMALL}`}>{t('merge.conflict.sub', { count, task: row?.title ?? task })}</p>
+            {handoffButton}
           </div>
-          {canAct && (
-            <button
-              type="button"
-              data-testid="merge-handoff"
-              disabled={working || !worker}
-              className={`flex flex-col items-center gap-2 px-18 py-10 border-2 shadow-pixel disabled:opacity-(--btn-disabled-opacity) ${accent} ${BIG}`}
-              onClick={handoff}
-            >
-              {t('merge.conflict.handoff')}
-              {worker && <small className={`text-devroom-tab-on ${SMALL}`}>{t('merge.conflict.handoffSub', { worker })}</small>}
-            </button>
-          )}
-          {canAct && !phone && (
-            <button
-              type="button"
-              data-testid="merge-manual"
-              aria-expanded={open}
-              disabled={working}
-              className={`${button} px-14 py-10`}
-              onClick={() => (open ? setManual(false) : resolveMyself())}
-            >
-              {t('merge.conflict.manual')} {open ? '▴' : '▾'}
-            </button>
-          )}
-        </div>
+        ) : (
+          <div className="m-12 shrink-0 flex items-center gap-14 px-12 py-10 border-2 border-devroom-conf-line bg-devroom-banner-bg">
+            <Face agentId={row?.agentId ?? null} name={worker} employee={row?.wt.employee} size={40} />
+            <div className="flex-1 min-w-0 leading-normal text-devroom-conf-text">
+              <p className={BIG}>{t('merge.conflict.title', { base })}</p>
+              <p className={`text-text-muted ${SMALL}`}>
+                {t('merge.conflict.sub', { count, task: row?.title ?? task })}
+              </p>
+            </div>
+            {handoffButton}
+            {canAct && (
+              <button
+                type="button"
+                data-testid="merge-manual"
+                aria-expanded={open}
+                disabled={working}
+                className={`${button} px-14 py-10`}
+                onClick={() => (open ? setManual(false) : resolveMyself())}
+              >
+                {t('merge.conflict.manual')} {open ? '▴' : '▾'}
+              </button>
+            )}
+          </div>
+        )}
         {phone && <p className={`mx-12 text-text-muted ${SMALL}`}>{t('merge.conflict.phone')}</p>}
         {working && !open && <p className={`mx-12 text-text-muted ${SMALL}`}>{t('merge.conflict.syncing', { base })}</p>}
         {open && !phone && (
@@ -170,7 +194,7 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
             project={project}
             task={task}
             files={confl?.files ?? []}
-            worker={worker}
+            worker={worker || (wt && whoName(wt)) || task}
             base={base}
             canAct={canAct}
             merging={merging}
@@ -238,7 +262,7 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
         <p className={`mt-8 text-text-muted ${SMALL}`}>{t('merge.confirm.preview')}</p>
         <div className={`mt-4 px-8 py-6 border-2 border-border bg-bg-dark leading-normal ${BODY}`} data-testid="merge-subject">
           <div className="break-words">{subject}</div>
-          <div className="text-text-muted break-words">{t('merge.confirm.by', { task, worker: worker || t('devroom.nobody') })}</div>
+          <div className="text-text-muted break-words">{t('merge.confirm.by', { task, worker: worker || (wt && whoName(wt)) || t('devroom.nobody') })}</div>
         </div>
         <div className="mt-10 flex items-center gap-8">
           {canAct && (

@@ -20,19 +20,44 @@ describe('room mentions', () => {
 });
 
 describe('GroupMessages', () => {
-  it('keeps an untagged post as a record and fans tagged members out with room headers', async () => {
+  it('ROOM-MODES: no tag = a 공지 for every member but its sender (queued, wakes nobody); a tag wakes its targets', async () => {
     const h = home();
     const store = new GroupStore(h, () => ['alpha', 'beta'], () => 'room0001');
     store.create('출시팀', ['alpha', 'beta']);
     const calls: Parameters<GroupMessenger['send']>[0][] = [];
-    const messenger: GroupMessenger = { send: async (request) => { calls.push(request); return { ok: true, delivered: 'pane' }; } };
-    const groups = new GroupMessages({ home: h, store, messenger, now: () => 1_700_000_000_000, ids: () => 'post0001' });
-    expect(await groups.post({ room: '출시팀', text: 'FYI: 배포 예정', from: null, source: 'messenger:test' })).toMatchObject({ ok: true });
-    expect(calls).toEqual([]);
+    const guard: unknown[] = [];
+    const messenger: GroupMessenger = {
+      send: async (request) => {
+        calls.push(request);
+        return { ok: true, delivered: request.notice ? 'queued' : 'pane' };
+      },
+      guard: (fields) => guard.push(fields),
+    };
+    let n = 0;
+    const groups = new GroupMessages({ home: h, store, messenger, now: () => 1_700_000_000_000, ids: () => `post000${++n}` });
+    expect(await groups.post({ room: '출시팀', text: 'FYI: 배포 예정', from: null, source: 'messenger:test' })).toMatchObject({
+      ok: true,
+      post: { notice: true, targets: ['alpha', 'beta'], delivery: { alpha: 'pending', beta: 'pending' } },
+    });
+    expect(calls.map((call) => [call.to, call.notice])).toEqual([['alpha', 'fyi'], ['beta', 'fyi']]);
+    // An agent's 공지 skips its sender, and that is no echo.
+    calls.length = 0;
+    expect(await groups.post({ room: '출시팀', text: '참고만', from: 'alpha', source: 'mcp' })).toMatchObject({ post: { targets: ['beta'] } });
+    expect(calls.map((call) => call.to)).toEqual(['beta']);
+    expect(guard).toEqual([]);
+    calls.length = 0;
     const sent = await groups.post({ room: '출시팀', text: '@alpha, @beta 준비', from: null, source: 'messenger:test' });
     expect(sent).toMatchObject({ ok: true, post: { targets: ['alpha', 'beta'], delivery: { alpha: 'delivered', beta: 'delivered' } } });
-    expect(calls.map((call) => call.to)).toEqual(['alpha', 'beta']);
-    expect(calls[0].group).toEqual({ roomId: 'room0001', roomName: '출시팀', messageId: 'post0001' });
+    expect(sent.ok && sent.post.notice).toBeFalsy();
+    expect(calls.map((call) => [call.to, call.notice])).toEqual([['alpha', undefined], ['beta', undefined]]);
+    expect(calls[0].group).toEqual({ roomId: 'room0001', roomName: '출시팀', messageId: 'post0003' });
+    // Old logs: an untagged post from before stays a record (no targets, never delivered); a tagged one is 바로.
+    fs.appendFileSync(
+      path.join(groupTimelineDir(h), fs.readdirSync(groupTimelineDir(h)).find((f) => f.startsWith('room0001'))!),
+      JSON.stringify({ v: 1, kind: 'post', post: { id: 'old1', at: 1, sender: null, text: '예전 글', targets: [], delivery: {} } }) + '\n',
+    );
+    const old = groups.timeline(store.find('출시팀')!).find((p) => p.id === 'old1')!;
+    expect([old.targets, old.notice]).toEqual([[], undefined]);
   });
 
   it('MSG-ACTIONS: a reply post keeps its reference and every tagged member receives it', async () => {

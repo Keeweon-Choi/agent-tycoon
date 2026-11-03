@@ -39,6 +39,8 @@ describe('event summaries', () => {
       ['send_edit', {}],
       ['send_cancel', {}],
       ['send_stuck', {}],
+      ['send_lost', { again: true }],
+      ['send_lost', { again: false }],
       ['token_guard', {}],
     ] as const) {
       const hold = summarizeEvent({ type, ts: 't', source: 'cli', to: 'b', ...fields })!;

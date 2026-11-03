@@ -245,13 +245,14 @@ async function main() {
       'the 현황판 has no 작업 or Codex tab any more',
     );
     await openWorkbenchTab(page, 'Task');
-    const bench = page.locator('[data-hud-window="workbench"]');
+    const bench = page.locator('[data-hud-window="office"]');
     check(
       (await bench.getByRole('button', { name: 'Task', exact: true }).count()) === 1 &&
         (await bench.getByRole('button', { name: '에이전트', exact: true }).count()) === 1,
       "the engine's jobs and Codex runs are the 작업실's Task and 에이전트 tabs (no office needed)",
     );
-    await page.locator('[data-hud-id="icon:workbench"] button').click(); // closes it again
+    // UI-DASH: the 작업실 is the 현황판's 개발 tab; back to its 오케스트레이터 tab.
+    await bench.getByRole('button', { name: '오케스트레이터', exact: true }).click();
     // T-0070: no 소식 tab; its events are in the 알림 list, empty here, no error.
     check(
       (await drawer.getByRole('button', { name: '소식', exact: true }).count()) === 0,

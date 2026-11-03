@@ -71,14 +71,6 @@ export const TerminalGlyph = ({ px = 2 }: { px?: number }) => (
 );
 
 /** 작업실: a toolbox with its handle. */
-export const WorkbenchGlyph = () => (
-  <Glyph>
-    <path d="M6 2h4v1H6z M5 3h1v2H5z M10 3h1v2h-1z" />
-    <path fillRule="evenodd" d="M1 5h14v9H1z M2 6v3h12V6z M2 10v3h12v-3z" />
-    <path d="M7 8h2v3H7z" />
-  </Glyph>
-);
-
 /** P4 개발실: the command key, four loops round a square (⌘). */
 export const CommandGlyph = ({ px = 2 }: { px?: number }) => (
   <Glyph px={px}>

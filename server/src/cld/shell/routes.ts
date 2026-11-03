@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { koText, refused } from '../../../../core/src/cld/serverText.js';
 import { encodeTerminalFrame, parseClientFrame } from '../../../../core/src/terminalFrames.js';
-import { WS_CLOSE_NO_SESSION, WS_CLOSE_UNAUTHORIZED } from '../../constants.js';
+import { WS_CLOSE_NO_SESSION, WS_CLOSE_STREAM_ENDED, WS_CLOSE_UNAUTHORIZED } from '../../constants.js';
 import { isAllowedWebSocketOrigin, normalizeHostname } from '../../wsAuth.js';
 import {
   clientAddress,
@@ -16,7 +16,7 @@ import {
 import { sameOriginRequest } from '../authRoutes.js';
 import { detectHostInfo, listFolders } from '../folders.js';
 import { type ShellRefusal, shellRefusal } from './gate.js';
-import { ShellRegistry } from './registry.js';
+import type { ShellRegistry, ShellStream } from './registry.js';
 
 interface ShellSocket {
   readyState: number;
@@ -137,7 +137,7 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
     )
       return reply.code(403).send({ error: koText('folder_not_allowed') });
     try {
-      const shell = registry.open(device(s!), s!.handle, s!.label, canonical);
+      const shell = await registry.open(device(s!), s!.handle, s!.label, canonical);
       return reply.code(201).send(shell);
     } catch (error) {
       console.warn(
@@ -178,7 +178,6 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
         socket.close(WS_CLOSE_NO_SESSION, 'no shell');
         return;
       }
-      const pty = registry.get(id)!;
       const unbind = auth.bindSocket(sessionIdFromCookie(request.headers.cookie), () =>
         socket.close(WS_CLOSE_UNAUTHORIZED, 'signed out'),
       );
@@ -187,58 +186,62 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
       };
       // The shell ended itself (`exit`): say so, so the pane can tell that
       // from a shell closed from elsewhere. The close reason says it too.
-      const offClose = registry.onClose(id, (reason) => {
-        if (reason === 'exit')
-          send(encodeTerminalFrame({ type: 'exit', exitCode: pty.exitStatus?.exitCode ?? 0 }));
+      const offClose = registry.onClose(id, (reason, exitCode) => {
+        if (reason === 'exit') send(encodeTerminalFrame({ type: 'exit', exitCode: exitCode ?? 0 }));
         socket.close(WS_CLOSE_NO_SESSION, reason === 'exit' ? 'exited' : 'shell closed');
       });
-      let replaySent = false;
-      const pending: string[] = [];
-      const forward = (frame: string) => {
-        if (replaySent) send(frame);
-        else pending.push(frame);
+      // Snapshot-then-live: output that comes before the replay is sent waits behind it.
+      let queue: string[] | null = [];
+      const early: string[] = [];
+      let stream: ShellStream | null = null;
+      let gone = false;
+      const input = (raw: Buffer | string) => {
+        const frame = parseClientFrame(raw.toString());
+        if (!frame || !stream) return;
+        if (frame.type === 'input') {
+          registry.touch(id);
+          stream.write(frame.data);
+        } else stream.resize(frame.cols, frame.rows);
       };
-      const offData = pty.onData((data) => {
-        registry.touch(id);
-        forward(encodeTerminalFrame({ type: 'output', data }));
-      });
-      const offExit = pty.onExit((exit) =>
-        forward(
-          encodeTerminalFrame({ type: 'exit', exitCode: exit.exitCode, signal: exit.signal }),
-        ),
-      );
-      void pty.snapshot().then((data) => {
-        if (socket.readyState !== 1) return;
-        send(encodeTerminalFrame({ type: 'replay', data, cols: pty.cols, rows: pty.rows }));
-        replaySent = true;
-        const notice = registry.noticeFor(id);
-        if (notice)
-          send(encodeTerminalFrame({ type: 'output', data: `\r\n\x1b[33m${notice}\x1b[0m\r\n` }));
-        for (const frame of pending) send(frame);
-        pending.length = 0;
-      });
       socket.on('message', (raw) => {
         if (raw.length > 65_536) {
           socket.close(1009, 'frame too large');
           return;
         }
-        const frame = parseClientFrame(raw.toString());
-        if (!frame) return;
-        if (frame.type === 'input') {
-          registry.touch(id);
-          pty.write(frame.data);
-        } else pty.resize(frame.cols, frame.rows);
+        if (stream) input(raw);
+        else early.push(raw.toString());
       });
       socket.on('close', () => {
-        offData();
-        offExit();
+        gone = true;
+        stream?.off();
         offClose();
         unbind();
       });
+      void registry
+        .join(
+          id,
+          (data) => {
+            registry.touch(id);
+            const frame = encodeTerminalFrame({ type: 'output', data });
+            if (queue) queue.push(frame);
+            else send(frame);
+          },
+          // The stream went while the shell lives (the host connection): the pane reconnects.
+          () => socket.close(WS_CLOSE_STREAM_ENDED, 'stream ended'),
+        )
+        .then((joined) => {
+          if (!joined) return socket.close(WS_CLOSE_NO_SESSION, 'no shell');
+          if (gone) return joined.off();
+          stream = joined;
+          send(encodeTerminalFrame({ type: 'replay', data: joined.snapshot, cols: joined.cols, rows: joined.rows }));
+          for (const frame of queue ?? []) send(frame);
+          queue = null;
+          for (const raw of early.splice(0)) input(raw);
+        });
     },
   );
 
-  // Shells that outlived the last daemon (in tmux) are ours again.
+  // Shells that outlived the last daemon (in the PTY host) are ours again.
   const restored = registry.restore();
   if (restored) console.log(`[cld shell] ${restored} shell(s) restored after the restart`);
   // Compose with push subscription cleanup and other auth lifecycle observers.

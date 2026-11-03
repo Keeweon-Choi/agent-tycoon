@@ -9,6 +9,10 @@
  * C3 (the room post `@alpha @beta`, both reply): the room shows the unread, the
  * two DMs show none, and the fake push service gets ONE push, for the room.
  * Two ports: the daemon's, and the fake push service's (a different one).
+ *
+ * ROOM-MODES: an untagged post is a 공지 (nothing typed, 0/2 전달됨) that rides with the
+ * owner's next DM to alpha, after ROOM_NOTICE_LINE, and is absent from alpha's DM view (1/2);
+ * a tagged post says 바로 전달. Desktop and phone shots in cld/artifacts/room-modes/.
  */
 import type { Browser, Page } from '@playwright/test';
 import { devices } from '@playwright/test';
@@ -18,6 +22,8 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as path from 'path';
 
+import { ROOM_NOTICE_LINE } from '../../core/src/cld/serverText.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -28,7 +34,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 if (process.argv.length < 4 || process.argv[2] === process.argv[3])
   throw new Error(
@@ -37,6 +42,9 @@ if (process.argv.length < 4 || process.argv[2] === process.argv[3])
 const port = sparePort();
 const pushPort = sparePort(3);
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0088');
+const OUT_RM = path.join(REPO_ROOT, 'cld/artifacts/room-modes');
+/** A delivery of a room post: the room header is its FIRST line (a 공지 riding in a DM is not one). */
+const roomFirst = (text: string) => text.replaceAll('\r', '\n').split('\n', 1)[0].includes("단톡방 '출시팀'");
 const FIXTURES = path.join(REPO_ROOT, 'cld/test/fixtures/t0088');
 const FONT = '/mnt/c/Windows/Fonts/malgun.ttf';
 const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__t0088/malgun.ttf'); unicode-range: U+1100-11FF, U+3130-318F, U+AC00-D7A3; }`;
@@ -235,7 +243,7 @@ async function main() {
         // Only a room post gets the room reply: the engine's own turns (its recovery notice, typed
         // when a session starts) are one-to-one turns, and answering them with a room reply
         // lands a reply in the DM (and a 💬 notice) at a time that depends on the start order.
-        if (fixture.replies[name] && item.text.includes("단톡방 '출시팀'"))
+        if (fixture.replies[name] && roomFirst(item.text))
           say(name, 'assistant', fixture.replies[name]);
       }
       seen = all.length;
@@ -341,7 +349,7 @@ async function main() {
       'a later unrelated turn is not gathered as a room reply',
     );
     // Tagged delivery only: `@alpha` reaches alpha alone, an untagged post reaches nobody.
-    const groupTyped = () => typed().filter((item) => item.text.includes("단톡방 '출시팀'"));
+    const groupTyped = () => typed().filter((item) => roomFirst(item.text));
     const before = groupTyped().length;
     await composer.fill('@alpha 혼자 확인해줘');
     await room.getByRole('button', { name: '보내기', exact: true }).click();
@@ -355,10 +363,19 @@ async function main() {
     await composer.fill('공지: 점검은 내일입니다');
     await room.getByRole('button', { name: '보내기', exact: true }).click();
     await room.getByText('공지: 점검은 내일입니다').waitFor({ timeout: 20_000 });
-    await wait(1_500);
+    await wait(3_000);
+    const noticePost = room.getByTestId('room-thread').filter({ hasText: '공지: 점검은 내일입니다' });
+    const tagged = room.getByTestId('room-thread').filter({ hasText: '혼자 확인해줘' });
     check(
-      groupTyped().length === before + 1 && (await room.getByText('기록만 남김').count()) === 1,
-      'an untagged post is recorded and delivered to nobody',
+      groupTyped().length === before + 1 &&
+        !typed().some((item) => item.text.includes('공지: 점검은 내일입니다')) &&
+        (await noticePost.getByText('공지 · 다음에 일할 때 함께 전달 · 0/2 전달됨').count()) === 1,
+      'ROOM-MODES: an untagged post is a 공지: nothing typed yet, 0/2 delivered',
+    );
+    check(
+      (await tagged.getByText('바로 전달 · 깨움').count()) === 1 &&
+        (await tagged.getByText('alpha: 전달됨').count()) === 1,
+      'ROOM-MODES: a tagged post says 바로 전달 · 깨움 with its member chip',
     );
     await composer.fill('@없는사람 안녕');
     await room.getByRole('button', { name: '보내기', exact: true }).click();
@@ -486,7 +503,68 @@ async function main() {
       (await messenger.getByText('출시 준비를 알려줘', { exact: true }).count()) === 0,
       'the tagged member DM does not show the room post',
     );
+    // ROOM-MODES: the owner's next DM to alpha carries the waiting 공지 after the line; the DM cuts it.
+    const conv = messenger.getByRole('region', { name: 'alpha 대화' });
+    await conv.getByRole('textbox', { name: '보낼 글' }).fill('공지 붙는지 볼게');
+    await conv.getByRole('textbox', { name: '보낼 글' }).press('Enter');
+    const dmTyped = () =>
+      typed().find((item) => item.id === session('alpha')!.jobId && item.text.includes('공지 붙는지 볼게'));
+    await eventually('the DM with its 공지 is typed', () => !!dmTyped()).catch((error: unknown) => {
+      console.log(daemon.log.filter((l) => /alpha|messages wait|type|not (ready|submitted)/.test(l)).slice(-15).join(''));
+      throw error;
+    });
+    const dm = dmTyped()!.text.replaceAll('\r', '\n');
+    check(
+      dm.startsWith('[사장 · 메신저 ·') &&
+        dm.indexOf('공지 붙는지 볼게') < dm.indexOf(ROOM_NOTICE_LINE) &&
+        dm.indexOf(ROOM_NOTICE_LINE) < dm.indexOf('공지: 점검은 내일입니다'),
+      "ROOM-MODES: the 공지 rides with the owner's DM, after its words and the notice line",
+    );
+    await conv.getByText('공지 붙는지 볼게', { exact: true }).last().waitFor({ timeout: 10_000 });
+    await wait(1_500);
+    check(
+      (await conv.getByText('공지: 점검은 내일입니다').count()) === 0 &&
+        (await conv.getByText(/공지 · 답장 불필요/).count()) === 0,
+      "ROOM-MODES: alpha's DM view shows the owner's words, not the 공지",
+    );
+    fs.mkdirSync(OUT_RM, { recursive: true });
+    await page.screenshot({ path: path.join(OUT_RM, 'desktop-dm.png') });
     await rooms.getByRole('button', { name: /^출시팀/ }).click();
+    await room.waitFor();
+    await noticePost.getByText('공지 · 다음에 일할 때 함께 전달 · 1/2 전달됨').waitFor({ timeout: 10_000 });
+    check(true, 'ROOM-MODES: the room counts it delivered to alpha (1/2)');
+    await noticePost.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(OUT_RM, 'desktop-room.png') });
+    {
+      const phone = await browser.newContext({ ...devices['iPhone 13'] });
+      const p = await phone.newPage();
+      await p.goto(await daemon.loginUrl());
+      await p.addStyleTag({ content: FONT_CSS });
+      await p.getByRole('button', { name: /^메신저/ }).click();
+      await p.getByRole('region', { name: '단톡방' }).getByRole('button', { name: /^출시팀/ }).click();
+      const proom = p.getByTestId(/group-room-screen-/);
+      const pnotice = proom.getByTestId('room-thread').filter({ hasText: '공지: 점검은 내일입니다' });
+      await pnotice.getByText('1/2 전달됨', { exact: false }).waitFor({ timeout: 10_000 });
+      await pnotice.scrollIntoViewIfNeeded();
+      check(
+        (await proom.getByTestId('room-thread').filter({ hasText: '혼자 확인해줘' }).getByText('바로 전달 · 깨움').count()) === 1,
+        'ROOM-MODES phone: the 공지 and the tagged post read the same',
+      );
+      await p.screenshot({ path: path.join(OUT_RM, 'phone-room.png') });
+      const d = await phone.newPage();
+      await d.goto(`http://127.0.0.1:${port}/`);
+      await d.addStyleTag({ content: FONT_CSS });
+      await d.getByRole('button', { name: /^메신저/ }).click();
+      await d.getByRole('button', { name: /^alpha/ }).first().click();
+      const pconv = d.getByRole('region', { name: 'alpha 대화' });
+      await pconv.getByText('공지 붙는지 볼게', { exact: true }).last().waitFor({ timeout: 10_000 });
+      check(
+        (await pconv.getByText('공지: 점검은 내일입니다').count()) === 0,
+        "ROOM-MODES phone: alpha's DM view has no 공지",
+      );
+      await d.screenshot({ path: path.join(OUT_RM, 'phone-dm.png') });
+      await phone.close();
+    }
     await messenger.getByRole('button', { name: '출시팀 방 닫기' }).click();
     const cli = spawnSync(
       process.execPath,
@@ -573,7 +651,7 @@ async function main() {
       (await secondRooms.getByRole('button', { name: '+ 방 만들기' }).count()) === 0 &&
         (await secondRoom.getByRole('textbox').count()) === 0 &&
         (await secondRoom
-          .getByRole('button', { name: /^(보내기|방 삭제|이름 바꾸기|구성원)$/ })
+          .getByRole('button', { name: /^(보내기|방 관리|방 삭제|이름 바꾸기|구성원)$/ })
           .count()) === 0,
       'a read-only context reads the room but has no composer, create, rename, members or delete',
     );
@@ -581,6 +659,7 @@ async function main() {
     // Rename keeps the gathered replies; a user room can be deleted.
     await messenger.getByRole('button', { name: '전체 방 닫기' }).click();
     await rooms.getByRole('button', { name: /^출시팀/ }).click();
+    await room.getByRole('button', { name: '방 관리' }).click();
     await room.getByRole('button', { name: '이름 바꾸기' }).click();
     await room.getByRole('textbox', { name: '방 이름' }).fill('출시팀2');
     await room.getByRole('button', { name: '저장' }).click();

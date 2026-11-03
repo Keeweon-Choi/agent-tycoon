@@ -110,16 +110,23 @@ export function isOff(orchestrator: OfficeOrchestrator): boolean {
   return orchestrator.state === 'off';
 }
 
-export type OfficePanel = 'status' | 'files' | 'hw' | 'terminal';
-/** The 현황판 window's tab strip (UI-C1: jobs and Codex live in the 작업실; 파일 is the window's own
- *  mode, opened by the folder icon). The 터미널 has its own window and icon (T-0077). */
+export type OfficePanel = 'status' | 'dev' | 'files' | 'hw' | 'terminal';
+/** The 현황판 window's tab strip (UI-DASH, owner 11-01 14:54: the orchestrators' and the development
+ *  status in one dashboard, the old 작업실 being its 개발 tab; 파일 is the window's own mode, opened by
+ *  the folder icon). The 터미널 has its own window and icon (T-0077). */
 export const desktopTabs: { id: Exclude<OfficePanel, 'terminal' | 'files'> }[] = [
   { id: 'status' },
+  { id: 'dev' },
   { id: 'hw' },
 ];
 
+/** A tab's name in the strip. */
+export const officeTabLabel = (tab: Exclude<OfficePanel, 'terminal'>): string =>
+  tab === 'status' || tab === 'dev' ? t(`dash.tab.${tab}`) : t(`nav.tab.${tab}`);
+
+/** A page's title: the dashboard is 현황판 on both its sections. */
 export const panelTitle = (panel: OfficePanel): string =>
-  panel === 'terminal' ? t('nav.terminal') : t(`nav.tab.${panel}`);
+  panel === 'terminal' ? t('nav.terminal') : t(`nav.tab.${panel === 'dev' ? 'status' : panel}`);
 
 /** T-0030: shown while temperatures are missing and the installer can add a sensor tool. */
 export const hwSensorsHint = (): string => t('format.hwSensorsHint');

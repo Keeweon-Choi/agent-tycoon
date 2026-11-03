@@ -15,6 +15,11 @@
 // waiting, OSC blocked:kind=permission, and the PermissionRequest hook from --settings run through
 // `sh -c` with the hook's JSON on stdin; its decision (or `dialog` when it gave none) is one line
 // {sessionId, behavior} in $HOME/fake-claude-perm.log and the turn's reply.
+// COMPACT-COFFEE: a submit containing FAKE-COMPACT compacts as Claude Code does: its spinner line
+// "✻ Compacting conversation… (Ns · esc to interrupt)" for 8 s ("FAKE-COMPACT 40": 40 s; the
+// engine's clean environment drops FAKE_* variables), redrawn each second, then a compact_boundary
+// record in the transcript and the turn's reply.
+// DEVROOM-BOARD2: a resize (SIGWINCH) redraws the screen, row 2 ending in `|` at the PTY's last column.
 'use strict';
 const { spawn } = require('child_process');
 const crypto = require('crypto');
@@ -39,6 +44,7 @@ module.exports = function run(args) {
   let pasting = false;
   let chordX = false;
   let last = '';
+  let compactingSince = 0;
 
   const procStart = () => {
     try {
@@ -86,9 +92,19 @@ module.exports = function run(args) {
     out('\x1b[H\x1b[2J');
     out(` fake Claude Code (pty) · ${name} · ${sessionId.slice(0, 8)}\r\n\r\n`);
     out(` last: ${last.slice(0, 60)}\r\n`);
-    out(status === 'busy' ? ' ✻ Working…\r\n' : '\r\n');
+    const spin = compactingSince
+      ? `✻ Compacting conversation… (${Math.round((Date.now() - compactingSince) / 1000)}s · esc to interrupt)`
+      : ' ✻ Working…';
+    out(status === 'busy' ? `${spin}\r\n` : '\r\n');
     out(`${'─'.repeat(40)}\r\n❯ ${input.replaceAll('\r', '⏎')}`);
+    // DEVROOM-BOARD2: a row drawn by column like a real TUI's status line, ` cols=N` and `|` in the
+    // last column (cursor kept): a viewer that parses this at another width than the PTY's shows
+    // the `|` somewhere else (run-devroom-board2.ts checks it). Row 2 is blank and above the input box:
+    // below it the row would be a draft to the input-box check (inputBoxTaken: every message 'inputBusy').
+    const cols = process.stdout.columns || 80;
+    out(`\x1b7\x1b[2;1H\x1b[2K cols=${cols}\x1b[2;${cols}H|\x1b8`);
   };
+  process.stdout.on('resize', () => draw()); // after Node read the new size (a SIGWINCH listener runs before)
   const askPermission = () => {
     let hook;
     try {
@@ -142,6 +158,25 @@ module.exports = function run(args) {
     osc('working');
     draw();
     if (text.includes('FAKE-PERMISSION')) return askPermission();
+    const compact = /FAKE-COMPACT(?: (\d+))?/.exec(text);
+    if (compact) {
+      compactingSince = Date.now();
+      draw();
+      const tick = setInterval(draw, 1_000);
+      return setTimeout(() => {
+        clearInterval(tick);
+        compactingSince = 0;
+        fs.appendFileSync(
+          transcript,
+          `${JSON.stringify({ type: 'system', subtype: 'compact_boundary', uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, compactMetadata: { trigger: 'manual' } })}\n`,
+        );
+        record('assistant', 'compacted');
+        status = 'idle';
+        writeSession();
+        osc('done');
+        draw();
+      }, Number(compact[1] || 8) * 1000);
+    }
     setTimeout(() => {
       record('assistant', `ok: ${last.slice(0, 40)}`);
       status = 'idle';

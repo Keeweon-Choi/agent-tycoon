@@ -430,6 +430,9 @@ interface Piece {
   seats?: Array<[number, number]>;
   /** A wall: tiles of run, where the run starts on its base (the strips are cut from there). */
   wall?: { along: 'row' | 'col'; n: number; start: [number, number]; role: string };
+  /** C1: a piece that plays: its frames (hand-made art, not cut here), and its cup's steam. */
+  frames?: string[];
+  steam?: [number, number];
   from: string;
 }
 const pieces: Record<string, Piece> = {};
@@ -907,6 +910,26 @@ function liftOpen(): void {
 lowWall();
 liftOpen();
 
+/** C1: the pantry machines, four frames each (idle, then the furniture's "on" states), copied in
+ *  as `o-coffee-machine-{0..3}.png` (480×480, front corner 240,450) and `o-vending-{0..3}.png`
+ *  (480×720, front corner 240,670); drawn to a 320×160 tile, so density 20. Not cut here. */
+for (const [id, anchor, steam] of [
+  ['coffee-machine', [240, 450], [325, 304]],
+  ['vending', [240, 670], undefined],
+] as const) {
+  const frames = [0, 1, 2, 3].map((k) => `o-${id}-${k}.png`);
+  pieces[`o-${id}`] = {
+    file: frames[0],
+    density: 20,
+    footprint: [1, 1],
+    anchor: [...anchor],
+    faces: '+row',
+    frames,
+    ...(steam && { steam: [...steam] }),
+    from: `C1 ${id.replace('-', ' ')} (v2 art)`,
+  };
+}
+
 // ── The manifest ─────────────────────────────────────────────
 
 /** Where a facing's mirror faces: the picture flipped swaps the two lower (and the two upper) ones. */
@@ -946,6 +969,8 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   'SOFA_SIDE:left': { piece: 'o-sofa-b' },
   COFFEE_TABLE: { piece: 'o-coffee-table' },
   WHITEBOARD: { piece: 'o-whiteboard-a' },
+  COFFEE_MACHINE: { piece: 'o-coffee-machine' },
+  VENDING_MACHINE: { piece: 'o-vending' },
 };
 
 /** Seating by facing: the piece whose picture faces that way, the other facing by its mirror.

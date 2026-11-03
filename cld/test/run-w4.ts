@@ -121,7 +121,7 @@ async function main() {
       .filter({ has: page.getByRole('heading', { name: 'alpha', exact: true }) })
       .getByRole('button', { name: '작업실', exact: true })
       .click();
-    const bench = page.locator('[data-hud-window="workbench"], [aria-label="작업실 화면"]');
+    const bench = page.locator('[data-hud-window="office"], [aria-label="현황판 화면"]');
     await bench.waitFor();
     await bench.getByRole('button', { name: 'worktree', exact: true }).click();
     const panel = bench.getByLabel('alpha 저장소');

@@ -70,6 +70,31 @@
   box-shadow: var(--shadow-pixel);
 }
 
+/* UI-FIX 4: folded, only the lamp shows (and takes clicks); the rest keeps its room, invisible. */
+.cld-elevator-panel.cld-folded {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+.cld-elevator-slot:has(.cld-folded) {
+  pointer-events: none;
+}
+.cld-elevator-panel.cld-folded > :not(.cld-elevator-display) {
+  visibility: hidden;
+}
+.cld-elevator-panel.cld-folded .cld-elevator-display {
+  pointer-events: auto;
+  cursor: pointer;
+  width: 32px; /* a small tab on the screen's edge: the windows start right of it */
+  height: 24px;
+  padding: 0;
+  font-size: 16px;
+}
+.cld-elevator-panel.cld-folded .cld-elevator-display .cld-arrow {
+  display: none;
+}
+
 /* The lamp display over the buttons: the way the car goes, and the floor. */
 .cld-elevator-display {
   display: flex;
@@ -552,4 +577,13 @@
 }
 .cld-floor-list .cld-floor-badge {
   position: static;
+}
+
+/* UI-FONT 읽기 쉬움: Galmuri11's digits are bigger than FS Pixel Sans' at the same size (they were
+   tuned for 48 and 32); 36 px is two whole pixels per font pixel, so the lamp takes it too. */
+:root[data-ui-font='readable'] .cld-floor-button {
+  font-size: 36px;
+}
+:root[data-ui-font='readable'] .cld-elevator-display {
+  font-size: 36px;
 }

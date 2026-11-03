@@ -28,6 +28,7 @@ import { SettingRow } from './SettingRow.js';
 import { setSettingsOpener, type SettingsTab } from './settingsOpen.js';
 import { StartPolicyOption } from './StartPolicyOption.js';
 import { AttachCapOption } from './terminal/AttachCapOption.js';
+import { setUiFont, UI_FONTS, useUiFont } from './uiFont.js';
 import { setUiScale, UI_SCALES, useUiScale } from './uiScale.js';
 import { isEdgeScrollOn, setEdgeScroll } from './useGameControls.js';
 
@@ -357,7 +358,6 @@ function LayoutPresets() {
   const [picked, setPicked] = useState<Preset | null>(null);
   const icons = [
     'office',
-    'workbench',
     ...(store.officeSnapshot?.chat ? ['messenger'] : []),
     'notices',
     'devroom',
@@ -413,10 +413,17 @@ function BackdropOptions() {
   );
 }
 
+/** What left the phone's top bar (owner 10-24), as rows of the tab it belongs to (UI-FONT: one tab row, no second one). */
+export interface PhoneRows {
+  access: ReactNode;
+  display: ReactNode;
+}
+
 /** The top bar settings: office hours, floor view, and mouse edge scrolling. */
-export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
+export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
   const language = useLanguage();
   const uiScale = useUiScale();
+  const uiFont = useUiFont();
   const [open, setOpen] = useState(false);
   const [edge, setEdge] = useState(isEdgeScrollOn);
   const [plates, setPlates] = useState(nameplatesOn);
@@ -503,17 +510,6 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
         {showHint && mobile && (
           <div className={bar} role="status" data-testid="install-hint">
             {hintBody}
-          </div>
-        )}
-        {/* The phone's top bar keeps only the floor and 설정: what left it is here (owner 10-24). */}
-        {quick && (
-          <div
-            className={`${bar} flex-wrap *:min-h-44`}
-            role="group"
-            aria-label={t('settings.quick')}
-            data-testid="settings-quick"
-          >
-            {quick}
           </div>
         )}
         <div
@@ -603,6 +599,23 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
               ))}
             </div>
           </SettingRow>
+          {/* UI-FONT: 감성이냐 가독성이냐, per browser (owner 11-01 14:54). */}
+          <SettingRow testId="ui-font-option" title={t('uiFont.title')} help={t('uiFont.help')} stacked>
+            <div className="flex flex-wrap gap-4" role="group" aria-label={t('uiFont.title')}>
+              {UI_FONTS.map((choice) => (
+                <Button
+                  key={choice}
+                  size="sm"
+                  variant={uiFont === choice ? 'active' : 'default'}
+                  aria-pressed={uiFont === choice}
+                  data-ui-font={choice}
+                  onClick={() => setUiFont(choice)}
+                >
+                  {t(`uiFont.${choice}`)}
+                </Button>
+              ))}
+            </div>
+          </SettingRow>
           <SettingRow testId="floor-view-option" title={t('settings.floors.title')} help={t('settings.floors.help')} stacked>
             <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.floors.title')}>
               <Button
@@ -626,6 +639,15 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
           <BackdropOptions />
           <BackgroundOptions />
           <IsoOption />
+          {phoneRows && (
+            <SettingRow
+              testId="legend-option"
+              title={t('settabs.legend.title')}
+              help={t('settabs.legend.help')}
+            >
+              {phoneRows.display}
+            </SettingRow>
+          )}
           <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
             <Button
               size="sm"
@@ -694,6 +716,15 @@ export function GameOptions({ quick }: { quick?: ReactNode } = {}) {
             <AccessButton />
           </SettingRow>
           <StartPolicyOption />
+          {phoneRows && (
+            <SettingRow
+              testId="add-device-option"
+              title={t('settabs.addDevice.title')}
+              help={t('settabs.addDevice.help')}
+            >
+              {phoneRows.access}
+            </SettingRow>
+          )}
         </div>
         <div
           role="tabpanel"

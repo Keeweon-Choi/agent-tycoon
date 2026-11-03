@@ -47,6 +47,7 @@ import {
   lookProvider,
   OWNER_LOOK_KEY,
   ownerChoice,
+  presetColumns,
   presetSheet,
   useLooksUi,
 } from './looks.js';
@@ -863,7 +864,8 @@ function CustomOptions({
                   width: FRAME_W * THUMB_ZOOM,
                   height: FRAME_H * THUMB_ZOOM,
                   backgroundImage: `url(${p.url})`,
-                  backgroundSize: `${FRAME_W * 7 * THUMB_ZOOM}px ${FRAME_H * (p.format === 'iso' ? 2 : 3) * THUMB_ZOOM}px`,
+                  // an iso8 sheet has 5 rows, or 6 with its drinks (C1): its own aspect then
+                  backgroundSize: `${FRAME_W * presetColumns(p) * THUMB_ZOOM}px ${p.format === 'iso8' ? 'auto' : `${FRAME_H * (p.format === 'iso' ? 2 : 3) * THUMB_ZOOM}px`}`,
                   // an imported sheet (192×384 frames) shrinks smoothly; pixel art stays crisp
                   imageRendering: p.density === IMPORT_DENSITY ? 'auto' : 'pixelated',
                 }}

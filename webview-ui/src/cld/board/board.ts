@@ -22,6 +22,7 @@ import { codexWord, jobWord, spanText } from '../panels/jobs.js';
 import { rowLook } from '../panels/statusTree.js';
 import { serverLine } from '../serverText.js';
 import { capRows } from '../temps.js';
+import type { WaitReason } from '../waiting.js';
 
 // ── Donuts ───────────────────────────────────────────────────
 
@@ -115,6 +116,8 @@ export function projectRows(
   now: number,
   max = BOARD_PROJECT_ROWS,
   workers: ReadonlySet<string> = new Set(),
+  /** Who waits for the user and why (cld/waiting.ts). */
+  reasons: Readonly<Record<number, WaitReason>> = {},
 ): { shown: ProjectRow[]; more: number } {
   const office = snap.officeSnapshot;
   if (!office) return { shown: [], more: 0 };
@@ -134,7 +137,12 @@ export function projectRows(
       row: {
         name: o.name,
         agentId,
-        ring: rowLook(o, o.agentId != null ? agentTools[o.agentId] : undefined, ctx).ring,
+        ring: rowLook(
+          o,
+          o.agentId != null ? agentTools[o.agentId] : undefined,
+          ctx,
+          o.agentId != null && reasons[o.agentId] === 'question',
+        ).ring,
         context: sample ? Math.round(contextPct(sample)) : null,
         jobs: (snap.officeJobs?.jobs ?? []).filter((j) => j.project === o.name && !j.ended).length,
         codex: (snap.codexTasks?.tasks ?? []).filter(
@@ -212,3 +220,29 @@ export function recentEnds(
     .map(({ end, age }) => ({ end, fade: 1 - Math.max(0, age) / BOARD_RECENT_MS }))
     .reverse();
 }
+
+// ── Where the board is, who waits ───────────────────────────
+
+/** A parallelogram on screen: a corner and its two edges (the flat board: a rectangle; the
+ *  isometric one: the wall's slanted face, isoBoardQuad). */
+export interface Quad {
+  x: number;
+  y: number;
+  ux: number;
+  uy: number;
+  vx: number;
+  vy: number;
+}
+
+/** Whether point `p` is on quad `q` (the board's tap target in either view). */
+export function inQuad(p: { x: number; y: number }, q: Quad): boolean {
+  const det = q.ux * q.vy - q.vx * q.uy;
+  if (!det) return false;
+  const dx = p.x - q.x;
+  const dy = p.y - q.y;
+  const a = (dx * q.vy - q.vx * dy) / det;
+  const b = (q.ux * dy - dx * q.uy) / det;
+  return a >= 0 && a < 1 && b >= 0 && b < 1;
+}
+
+

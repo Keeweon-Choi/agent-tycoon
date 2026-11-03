@@ -221,3 +221,50 @@ export function uploadAttachment(
     inFlightUploads--;
   });
 }
+
+/** The one upload loop of a direct-message send and a room post: uploads every chip that is not
+ *  ready, one after the other, reporting each change through `onChange`. The first failure marks
+ *  that chip failed and stops (ok false). `upload` picks the batch (a DM shares one per message,
+ *  a room takes one per chip); `relative` (DM only) maps the saved path to the chip's relative path. */
+export async function uploadChips(
+  chips: AttachmentChip[],
+  opts: {
+    upload: (
+      chip: AttachmentChip,
+      progress: (value: number) => void,
+    ) => Promise<UploadedAttachment>;
+    onChange: (chips: AttachmentChip[]) => void;
+    relative?: (savedPath: string) => string;
+  },
+): Promise<{ chips: AttachmentChip[]; ok: boolean }> {
+  let uploaded = chips;
+  for (const chip of chips) {
+    if (chip.state === 'ready') continue;
+    uploaded = updateChip(uploaded, chip.id, { state: 'uploading', progress: 0 });
+    opts.onChange(uploaded);
+    try {
+      const saved = await opts.upload(chip, (progress) => {
+        uploaded = updateChip(uploaded, chip.id, { progress });
+        opts.onChange(uploaded);
+      });
+      uploaded = updateChip(uploaded, chip.id, {
+        state: 'ready',
+        progress: 100,
+        path: saved.path,
+        ...(opts.relative && { relative: opts.relative(saved.path) }),
+        name: saved.name,
+        type: saved.type,
+        size: saved.size,
+      });
+      opts.onChange(uploaded);
+    } catch (error) {
+      uploaded = updateChip(uploaded, chip.id, {
+        state: 'failed',
+        error: (error as Error).message,
+      });
+      opts.onChange(uploaded);
+      return { chips: uploaded, ok: false };
+    }
+  }
+  return { chips: uploaded, ok: true };
+}

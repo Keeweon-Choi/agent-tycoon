@@ -93,8 +93,9 @@ interface ExtensionMessageState {
   selectedAgent: number | null;
   agentTools: Record<number, ToolActivity[]>;
   agentStatuses: Record<number, string>;
-  /** Agents whose last turn ended awaiting user input (vs a plain done). */
-  agentAwaitingInput: Record<number, boolean>;
+  /** WAITING-PERSIST: agents whose main turn ended on a question to the person (the server's
+   *  `question`; idle_prompt's awaitingInput is only the "Waiting for input" label). */
+  agentQuestion: Record<number, boolean>;
   /** Latch: true once an agent has had any activity (first tool or status). */
   agentSeenActivity: Record<number, boolean>;
   subagentTools: Record<number, Record<string, ToolActivity[]>>;
@@ -185,7 +186,7 @@ export function useExtensionMessages(
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [agentTools, setAgentTools] = useState<Record<number, ToolActivity[]>>({});
   const [agentStatuses, setAgentStatuses] = useState<Record<number, string>>({});
-  const [agentAwaitingInput, setAgentAwaitingInput] = useState<Record<number, boolean>>({});
+  const [agentQuestion, setAgentQuestion] = useState<Record<number, boolean>>({});
   const [agentSeenActivity, setAgentSeenActivity] = useState<Record<number, boolean>>({});
   const markSeenActivity = (id: number) =>
     setAgentSeenActivity((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
@@ -452,7 +453,7 @@ export function useExtensionMessages(
         setTerminalAgentIds((prev) => prev.filter((a) => a !== id));
         setAgentTools((prev) => omitKey(prev, id));
         setAgentStatuses((prev) => omitKey(prev, id));
-        setAgentAwaitingInput((prev) => omitKey(prev, id));
+        setAgentQuestion((prev) => omitKey(prev, id));
         setAgentSeenActivity((prev) => omitKey(prev, id));
         setSubagentTools((prev) => omitKey(prev, id));
         // Remove all sub-agent characters belonging to this agent
@@ -650,17 +651,18 @@ export function useExtensionMessages(
           if (status === 'active') return omitKey(prev, id);
           return { ...prev, [id]: status };
         });
-        setAgentAwaitingInput((prev) => {
-          const awaiting = status === 'waiting' && msg.awaitingInput === true;
-          if ((prev[id] ?? false) === awaiting) return prev;
-          return { ...prev, [id]: awaiting };
+        setAgentQuestion((prev) => {
+          const asks = status === 'waiting' && msg.question === true;
+          if ((prev[id] ?? false) === asks) return prev;
+          return { ...prev, [id]: asks };
         });
         os.setAgentActive(id, status === 'active');
         if (status === 'waiting') {
           os.showWaitingBubble(id, msg.awaitingInput === true);
           // cld-gui (T-0039): the cld office says who and why (toast, pulse, bell).
-          const cause = msg.awaitingInput === true ? 'question' : 'turnEnd';
-          if (Date.now() >= quietUntil && !cldNotice(id, cause)) playDoneSound();
+          const cause = msg.awaitingInput === true || msg.question === true ? 'question' : 'turnEnd';
+          // WAITING-PERSIST: a question given back after a restart is shown, not announced.
+          if (msg.restored !== true && Date.now() >= quietUntil && !cldNotice(id, cause)) playDoneSound();
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
@@ -975,7 +977,7 @@ export function useExtensionMessages(
     selectedAgent,
     agentTools,
     agentStatuses,
-    agentAwaitingInput,
+    agentQuestion,
     agentSeenActivity,
     subagentTools,
     subagentCharacters,

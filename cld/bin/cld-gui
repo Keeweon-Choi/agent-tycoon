@@ -8,6 +8,8 @@
 //   cld-gui jobs [--all]
 //   cld-gui stop <job id|pid>
 //   cld-gui renew [--project <name>] [<handoff file> | -]
+//   cld-gui rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
+//   cld-gui project remove <name> [--purge]
 //   cld-gui codex [-m <model>] [-e <effort>] [-d <description>] [--worktree] [--project <name>] <spec file> | codex [--all]
 //   cld-gui gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
 //   cld-gui hw [--json]
@@ -34,7 +36,7 @@ const maintenance = require('./cld-gui-maintenance');
 
 const HOME = os.homedir();
 const CONFIG = configDirectory(HOME);
-const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
+const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'rename', 'project', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'revert-adopt', 'start', 'start-policy'];
 /** The manager (cld/install/manager.mjs, H §2): install, update, open, and the install part of status. */
 const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
 /** The GPU wrapper and Codex worker of this checkout (built with the daemon). */
@@ -53,12 +55,14 @@ const NAME_RE = /^[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,40}$/;
 const EXIT = { usage: 2, unknown_command: 2, not_yet: 2, daemon_off: 3 };
 const USAGE = `사용법:
   ${CLI} send [--if-idle] [--from <이름>] <프로젝트> <메시지>
-  ${CLI} send --group <방> [--from <이름>] <메시지>
+  ${CLI} send --group <방> [--from <이름>] <메시지>   @이름: 바로 깨워 전달 · 태그 없음: 공지(아무도 안 깨우고 각자 다음 메시지와 함께 전달)
   ${CLI} groups | groups read <방> [-n N]
   ${CLI} job [-t] [-d|--desc <작업 설명>] [--project <이름>] [--task <작업 id>] [--gpu [--vram GiB] [--exclusive] [--label 설명]] <명령>
   ${CLI} jobs [--all]
   ${CLI} stop <작업 id 또는 pid>
   ${CLI} renew [--project <이름>] [<인수인계 파일> | -]
+  ${CLI} rename [--project <지금 이름>] <새 이름>   턴이 끝나면 이름을 바꿔 같은 대화로 다시 켬(기록·모습·레벨이 따라감)
+  ${CLI} project remove <프로젝트> [--purge]   프로젝트(와 Worker)를 목록에서 뺌, --purge: 관련 데이터(환생 이력 등)도 지움
   ${CLI} codex [-m <모델>] [-e <강도>] [-d|--desc <작업 설명>] [--worktree] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
   ${CLI} gpu [--json] | gpu run [--vram GiB] [--exclusive] [--wait 분] [--label 설명] -- <명령>
   ${CLI} gpu cancel <id> | gpu move <id> <순서>
@@ -69,7 +73,7 @@ const USAGE = `사용법:
   ${CLI} task list [--project P] [--status S] [--json] | task import <파일.json>
   ${CLI} task mode [auto|reuse|off] [--project P]
   ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E]
-  ${CLI} worker edit <이름> [--folder F] [--model M] [--permission-mode P] [--effort E] | worker remove|start|stop|restart <이름>
+  ${CLI} worker edit <이름> [--folder F] [--model M] [--permission-mode P] [--effort E] | worker remove <이름> [--purge] | worker start|stop|restart <이름>
   ${CLI} worker promote <이름> [--old stop]   그 Worker 를 프로젝트의 Lead 로(이름을 맞바꿈, 이전 Lead 는 그 Worker 이름으로)
   ${CLI} trust [--start] <프로젝트 이름 또는 폴더>   그 프로젝트 폴더에서 claude 를 켜 폴더 신뢰 질문에 대신 답함(--start: 답한 뒤 켜기)
   ${CLI} move-pty --all     모든 에이전트를 하나씩 새 터미널로(일하는 중이면 턴이 끝나길 기다림, 최대 30분); --stop 으로 멈춤
@@ -653,6 +657,28 @@ async function main(argv) {
           `턴이 끝나면 '${r.name}' 을 같은 이름의 새 대화로 이어 갑니다(인수인계는 새 대화의 첫 메시지로 갑니다)`,
       );
     }
+    case 'rename': {
+      const o = options(rest, [], ['--project']);
+      if (o.error) return failWith('usage', o.error);
+      const usage = `사용법: ${CLI} rename [--project <지금 이름>] <새 이름>`;
+      if (rest.length !== 1 || rest[0].startsWith('-')) return failWith('usage', usage);
+      const r = await request('rename', { project: o['--project'] ?? null, to: rest[0] });
+      if (r === null) return off();
+      return finish(
+        r,
+        r.ok && `턴이 끝나면 '${r.name}' 을 '${r.to}' 로 바꿔 같은 대화로 다시 켭니다(결과는 알림 목록에 떠요)`,
+      );
+    }
+    case 'project': {
+      const usage = `사용법: ${CLI} project remove <프로젝트> [--purge]`;
+      const [op, ...args] = rest;
+      const purge = args.includes('--purge');
+      const words = args.filter((a) => a !== '--purge');
+      if (op !== 'remove' || words.length !== 1 || words[0].startsWith('-')) return failWith('usage', usage);
+      const r = await request('project', { op, name: words[0], ...(purge && { purge: true }) });
+      if (r === null) return off();
+      return finish(r, r.ok && `'${r.name}' 프로젝트를 지웠습니다${r.note ? ` (${r.note})` : ''}`);
+    }
     case 'login': {
       if (process.platform === 'win32') return failWith('not_yet', 'Windows 에서는 아직 없습니다');
       const r = spawnSync(path.join(__dirname, 'cld-gui-login'), rest, { stdio: 'inherit' });
@@ -964,7 +990,7 @@ const WORKER_FLAGS = {
   '--provider': 'provider',
 };
 const WORKER_USAGE =
-  `사용법: ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] | worker edit <이름> [옵션] | worker remove|start|stop|restart <이름> | worker promote <이름> [--old stop]`;
+  `사용법: ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] [--inherit ~<지운 에이전트>] | worker edit <이름> [옵션] | worker remove <이름> [--purge] | worker start|stop|restart <이름> | worker promote <이름> [--old stop]`;
 
 async function worker(rest) {
   const [op, ...args] = rest;
@@ -975,6 +1001,12 @@ async function worker(rest) {
     if (op === 'promote' && a === '--old') {
       if (args[i + 1] !== 'stop' && args[i + 1] !== 'worker') return failWith('usage', '--old 는 stop 이나 worker 예요');
       fields.oldLead = args[++i];
+    } else if (op === 'remove' && a === '--purge') {
+      fields.purge = true;
+    } else if (op === 'add' && a === '--inherit') {
+      // INHERIT: a removed agent of the same folder (its ~<id> gone name) whose records it takes over.
+      if (i + 1 >= args.length) return failWith('usage', `${a} 에 값이 없습니다`);
+      fields.inheritFrom = args[++i];
     } else if (WORKER_FLAGS[a]) {
       if (i + 1 >= args.length) return failWith('usage', `${a} 에 값이 없습니다`);
       fields[WORKER_FLAGS[a]] = args[++i];

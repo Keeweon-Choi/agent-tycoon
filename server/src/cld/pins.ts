@@ -10,6 +10,13 @@ const KEY_MAX = 200;
 export class PinStore {
   private keys: string[] = [];
   constructor(readonly file: string) {
+    this.reload();
+  }
+
+  /** Read the file again (after projectData changed it). */
+  reload(): void {
+    const file = this.file;
+    this.keys = [];
     try {
       const raw = (readJson(file) as { keys?: unknown } | null)?.keys;
       if (Array.isArray(raw)) this.keys = raw.filter((k): k is string => typeof k === 'string');

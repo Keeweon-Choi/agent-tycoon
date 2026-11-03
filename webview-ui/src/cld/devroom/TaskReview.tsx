@@ -6,11 +6,11 @@
  * notes themselves are repo/ReviewNotes.tsx's. A task with notes merges only by the owner's 병합:
  * the button is locked while its Worker fixes, and the footer says why.
  */
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BoardTask, RepoWorktree, ReviewNote } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
-import { REVIEW_REFRESH_MS } from '../../constants.js';
+import { DEVROOM_CHANGES_POLL_MS, FILE_TAB_CH } from '../../constants.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
@@ -32,7 +32,9 @@ import { ReviewDiff } from '../repo/ReviewNotes.js';
 import { reviewKey, reviewSendNotes, unsentNotes, useReviewStore } from '../repo/reviewStore.js';
 import { useReviewNotes } from '../repo/useRepoView.js';
 import { teamOf } from '../workbench/workbenchState.js';
-import { BODY, SMALL } from './devroomData.js';
+import { ZoomBar } from '../Zoom.js';
+import { useZoomHost } from '../zoomStore.js';
+import { BODY, SMALL, whoName } from './devroomData.js';
 import { REVIEW_STEPS, reviewStep } from './reviewSteps.js';
 import { Face } from './WorktreeRail.js';
 
@@ -62,6 +64,60 @@ function useReviewTarget(project: string, task: string) {
     lead,
     canWrite: !!officeSnapshot && !officeSnapshot.readOnly && !officeReadOnly,
   };
+}
+
+/**
+ * DEVROOM-NAMES (owner 11-01 16:23): the phone's file tabs, one row that scrolls sideways (a swipe, the
+ * wheel) instead of squeezing every tab to a letter. Each shows its file name up to FILE_TAB_CH characters,
+ * its unsent note count outside the cut; the picked one scrolls into view.
+ */
+function FileTabs({
+  files,
+  file,
+  notes,
+  onPick,
+}: {
+  files: readonly string[];
+  file: string | undefined;
+  notes: readonly ReviewNote[];
+  onPick: (path: string) => void;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.querySelector('[data-on]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [file]);
+  return (
+    <nav
+      ref={ref}
+      className="shrink-0 flex overflow-x-auto overscroll-x-contain bg-devroom-foot border-b-2 border-border"
+      aria-label={t('review.files', { count: files.length })}
+      data-testid="review-file-tabs"
+      // A mouse wheel turns the row (a trackpad's sideways swipe already does).
+      onWheel={(e) => {
+        if (ref.current && e.deltaY !== 0 && e.deltaX === 0) ref.current.scrollLeft += e.deltaY;
+      }}
+    >
+      {files.map((path) => {
+        const count = unsentNotes(notes.filter((n) => n.file === path)).length;
+        return (
+          <button
+            key={path}
+            type="button"
+            title={path}
+            data-testid="review-file-tab"
+            data-on={path === file || undefined}
+            className={`shrink-0 flex items-center px-8 py-8 border-r-2 border-border last:border-r-0 ${SMALL} ${path === file ? 'bg-active-bg text-devroom-tab-on' : 'text-text-muted'}`}
+            onClick={() => onPick(path)}
+          >
+            <span className="truncate" style={{ maxWidth: `${FILE_TAB_CH}ch` }}>
+              {path.split('/').pop()}
+            </span>
+            {count > 0 && <span className="shrink-0 ml-4 text-devroom-ok">({count})</span>}
+          </button>
+        );
+      })}
+    </nav>
+  );
 }
 
 function Chip({ kind, children }: { kind: 'review' | 'fixing' | 'merged'; children: ReactNode }) {
@@ -163,15 +219,18 @@ function FileList({ project, wt, files, picked, onPick, testsOk }: { project: st
   );
 }
 
-/** One file's diff (the whole of it, or only what changed since `since`), fetched while mounted. */
-function FileDiff({ project, wt, file, since, tick, canWrite, face, onCompose }: { project: string; wt: RepoWorktree; file: string; since?: string; tick: number; canWrite: boolean; face: (a: string | null) => ReactNode; onCompose: (file: string, open: boolean) => void }) {
+/** One file's diff (the whole of it, or only what changed since `since`), fetched while mounted and
+ *  again when the list's `stamp` moves (something in the worktree changed). */
+function FileDiff({ project, wt, file, since, stamp, canWrite, face, onCompose }: { project: string; wt: RepoWorktree; file: string; since?: string; stamp: string | undefined; canWrite: boolean; face: (a: string | null) => ReactNode; onCompose: (file: string, open: boolean) => void }) {
   const { diffs } = useRepoStore();
   const key = diffKey(project, file, false, wt.task, since);
-  // ponytail: refreshed when the counts move (every 10 s poll); an edit that keeps them equal waits for the next move.
   useEffect(() => {
     repoRequestDiff(project, file, false, send, false, wt.task, since);
-  }, [project, wt.task, file, since, wt.ahead, wt.behind, wt.dirty, tick]);
+  }, [project, wt.task, file, since, stamp]);
   useEffect(() => () => repoCloseDiff(project, file, false, wt.task, since), [project, wt.task, file, since]);
+  // Steady callbacks: ReviewDiff is memo'd, so one file's answer redraws that file only.
+  const compose = useCallback((open: boolean) => onCompose(file, open), [onCompose, file]);
+  const more = useCallback(() => repoRequestDiff(project, file, false, send, true, wt.task, since), [project, file, wt.task, since]);
   const view = diffs[key];
   if (!view) return null;
   // 다시 보기 lists only the files that changed since the send.
@@ -184,8 +243,8 @@ function FileDiff({ project, wt, file, since, tick, canWrite, face, onCompose }:
       view={view}
       canWrite={canWrite}
       face={face}
-      onCompose={(open) => onCompose(file, open)}
-      onMore={() => repoRequestDiff(project, file, false, send, true, wt.task, since)}
+      onCompose={compose}
+      onMore={more}
       {...(since && { caption: t('review.sinceTitle'), hideSent: true })}
     />
   );
@@ -271,11 +330,14 @@ function LeadRoom({ lead, worker, sent }: { lead: { name: string; agentId: numbe
 export function TaskReview({
   project,
   task,
+  live = true,
   onMerge,
   onBack,
 }: {
   project: string;
   task: string;
+  /** On screen (its window not minimized): only then is the list asked for every second. */
+  live?: boolean;
   /** 병합: the dev room opens its 병합 tab, the 작업실 asks the usual confirmation. */
   onMerge: (wt: RepoWorktree) => void;
   onBack?: () => void;
@@ -287,31 +349,51 @@ export function TaskReview({
   const [again, setAgain] = useState(false);
   const [picked, setPicked] = useState<string>();
   const [composing, setComposing] = useState<ReadonlySet<string>>(new Set());
-  const [tick, setTick] = useState(0);
-  const mainRef = useRef<HTMLDivElement>(null);
-  useReviewNotes(project, task, canWrite, tick);
-  // The file list: what the worktree changed against its base (refreshed as the poll moves the counts).
+  const mainRef = useRef<HTMLDivElement | null>(null);
+  // Ctrl/Cmd + wheel or +/-/0 over the diff, and a pinch on the phone, zoom its text (ZoomBar in the footer).
+  const zoomHost = useZoomHost('diff');
+  const mainHost = useCallback(
+    (el: HTMLDivElement | null) => {
+      mainRef.current = el;
+      zoomHost(el);
+    },
+    [zoomHost],
+  );
+  // The file list: what the worktree changed against its base, asked again every second while shown
+  // (the daemon reads it in ~30 ms; the diffs are read again only when its stamp moved).
   const sentHead = allNotes[reviewKey(project, task)]?.sentHead;
   const sinceHead = again ? sentHead : undefined;
+  const found = wt !== undefined;
   useEffect(() => {
-    if (wt) repoRequestDetail(project, task, send, sinceHead);
-  }, [project, task, sinceHead, tick, wt?.ahead, wt?.behind, wt?.dirty]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => repoCloseDetail(project, task, sinceHead), [project, task, sinceHead]);
-  const fixingNow = (allNotes[reviewKey(project, task)]?.notes ?? []).some((n) => n.sentAt && !n.fixed);
-  // ponytail: while sent notes are not yet fixed, ask again every few seconds; no push for a worktree's edits.
-  useEffect(() => {
-    if (!fixingNow) return;
-    const id = setInterval(() => setTick((n) => n + 1), REVIEW_REFRESH_MS);
+    if (!found || !live) return;
+    const ask = () => repoRequestDetail(project, task, send, sinceHead);
+    ask();
+    const id = setInterval(() => document.visibilityState === 'visible' && ask(), DEVROOM_CHANGES_POLL_MS);
     return () => clearInterval(id);
-  }, [fixingNow]);
-  const onCompose = (file: string, open: boolean) =>
-    setComposing((cur) => {
-      if (cur.has(file) === open) return cur;
-      const next = new Set(cur);
-      if (open) next.add(file);
-      else next.delete(file);
-      return next;
-    });
+  }, [project, task, sinceHead, found, live]);
+  useEffect(() => () => repoCloseDetail(project, task, sinceHead), [project, task, sinceHead]);
+  const detail = details[detailKey(project, task, sinceHead)];
+  // The notes' 고침 / stale follow the files: read again whenever the list's stamp moves.
+  useReviewNotes(project, task, canWrite, detail?.stamp);
+  const onCompose = useCallback(
+    (file: string, open: boolean) =>
+      setComposing((cur) => {
+        if (cur.has(file) === open) return cur;
+        const next = new Set(cur);
+        if (open) next.add(file);
+        else next.delete(file);
+        return next;
+      }),
+    [],
+  );
+  // A Lead's note shows its face; the owner's note keeps ReviewNotes' own mark.
+  const leadName = lead?.name;
+  const leadId = lead?.agentId ?? null;
+  const face = useCallback(
+    (author: string | null) =>
+      author ? <Face agentId={leadName === author ? leadId : null} name={author} size={SMALL_FACE_PX} /> : undefined,
+    [leadName, leadId],
+  );
 
   if (!wt) return <p className={`m-auto text-text-muted ${BODY}`}>{t('review.noWorktree')}</p>;
   const view = allNotes[reviewKey(project, task)];
@@ -326,12 +408,8 @@ export function TaskReview({
   const rereview = again && !!sentHead;
   const worker = wt.assignee;
   const title = board?.title ?? wt.task;
-  const detail = details[detailKey(project, task, sinceHead)];
   const files = (detail?.files ?? []).map((f) => f.path);
   const file = files.includes(picked ?? '') ? picked : files[0];
-  // A Lead's note shows its face; the owner's note keeps ReviewNotes' own mark.
-  const face = (author: string | null) =>
-    author ? <Face agentId={lead?.name === author ? lead.agentId : null} name={author} size={SMALL_FACE_PX} /> : undefined;
   const lockWhy = fixing ? t('review.mergeLocked', { name: worker ?? '' }) : undefined;
   const canMerge = canWrite && !merged && wt.ahead > 0 && !fixing;
   const done = sent.filter((n) => n.fixed).length;
@@ -366,11 +444,11 @@ export function TaskReview({
     </>
   );
   const agentFace = (
-    <Face agentId={assignee?.agentId ?? null} name={worker ?? title} size={phone ? 30 : FACE_PX} />
+    <Face agentId={assignee?.agentId ?? null} name={worker ?? title} employee={wt.employee} size={phone ? 30 : FACE_PX} />
   );
   const fileDiffs = (list: string[], since?: string) =>
     list.map((path) => (
-      <FileDiff key={`${path}@${since ?? ''}`} project={project} wt={wt} file={path} {...(since && { since })} tick={tick} canWrite={canWrite} face={face} onCompose={onCompose} />
+      <FileDiff key={`${path}@${since ?? ''}`} project={project} wt={wt} file={path} {...(since && { since })} stamp={detail?.stamp} canWrite={canWrite} face={face} onCompose={onCompose} />
     ));
   const writing = rereview && fixing && (
     <p className={`px-12 py-6 text-text-muted ${BODY}`}>{t('review.writing', { name: worker ?? '' })}</p>
@@ -408,8 +486,8 @@ export function TaskReview({
             {title}
           </b>
           <span className={`block truncate text-text-muted ${SMALL}`}>
-            {worker
-              ? t('review.madeBy', { name: worker, folder: wt.task, ago: timeAgo(wt.lastChange ?? wt.created) })
+            {whoName(wt)
+              ? t('review.madeBy', { name: whoName(wt)!, folder: wt.task, ago: timeAgo(wt.lastChange ?? wt.created) })
               : t('review.madeByNobody', { folder: wt.task, ago: timeAgo(wt.lastChange ?? wt.created) })}
           </span>
         </div>
@@ -428,24 +506,8 @@ export function TaskReview({
       </header>
       {phone ? (
         <div className="flex-1 min-h-0 flex flex-col">
-          <nav className="shrink-0 flex bg-devroom-foot border-b-2 border-border" aria-label={t('review.files', { count: files.length })}>
-            {files.map((path) => {
-              const count = unsentNotes(notes.filter((n) => n.file === path)).length;
-              return (
-                <button
-                  key={path}
-                  type="button"
-                  data-testid="review-file-tab"
-                  className={`flex-1 min-w-0 truncate px-4 py-8 border-r-2 border-border last:border-r-0 ${SMALL} ${path === file ? 'bg-active-bg text-devroom-tab-on' : 'text-text-muted'}`}
-                  onClick={() => setPicked(path)}
-                >
-                  {path.split('/').pop()}
-                  {count > 0 && <span className="ml-4 text-devroom-ok">({count})</span>}
-                </button>
-              );
-            })}
-          </nav>
-          <div ref={mainRef} className="flex-1 min-h-0 overflow-auto bg-devroom-term">
+          <FileTabs files={files} file={file} notes={notes} onPick={setPicked} />
+          <div ref={mainHost} tabIndex={-1} className="flex-1 min-h-0 overflow-auto bg-devroom-term outline-none touch-pan-x touch-pan-y">
             {files.length === 0 && <p className={`p-12 ${detail?.error ? 'text-devroom-bad' : 'text-text-muted'} ${BODY}`}>{detail?.error ?? (detail?.loading ? t('messenger.loading') : t('repo.noChangedFilesWt'))}</p>}
             {file && fileDiffs([file], rereview ? sentHead : undefined)}
             {writing}
@@ -469,7 +531,7 @@ export function TaskReview({
               }}
             />
           )}
-          <div ref={mainRef} className="flex-1 min-w-0 overflow-auto bg-devroom-term" data-testid="review-main">
+          <div ref={mainHost} tabIndex={-1} className="flex-1 min-w-0 overflow-auto bg-devroom-term outline-none" data-testid="review-main">
             {files.length === 0 && <p className={`p-12 ${detail?.error ? 'text-devroom-bad' : 'text-text-muted'} ${BODY}`}>{detail?.error ?? (detail?.loading ? t('messenger.loading') : t('repo.noChangedFilesWt'))}</p>}
             {rereview ? (
               <>
@@ -487,6 +549,7 @@ export function TaskReview({
         <footer className={`shrink-0 flex items-center gap-10 px-14 h-40 bg-devroom-foot border-t-2 border-border ${SMALL}`} data-testid="review-footer">
           {footLeft}
           <span className="flex-1" />
+          <ZoomBar surface="diff" />
           <span className="text-text-muted">{footRight}</span>
         </footer>
       )}

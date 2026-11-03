@@ -14,7 +14,7 @@ import { waitFor } from '../../waitKit.js';
 import { applyChoices, parseConflicts } from './conflicts.js';
 import { RepoManager } from './repoManager.js';
 import type { ReviewSendDeps } from './reviewNotes.js';
-import { sendReview } from './reviewNotes.js';
+import { deliverToWorker, sendReview } from './reviewNotes.js';
 import type { TempRepo } from './testRepo.js';
 import { GIT_AVAILABLE, makeTempRepo } from './testRepo.js';
 
@@ -55,6 +55,7 @@ function setup() {
     log: () => undefined,
     nameOf: deps.nameOf,
     reviewSend: (input) => sendReview(deps, input),
+    conflictHandoff: (input) => deliverToWorker(deps, input, `${input.path} ${input.files.join(',')}`, (to) => to, ['review', 'done']),
     agentBusy: () => flags.busy,
     autoCleanup: () => flags.auto,
   });
@@ -171,7 +172,7 @@ describe.skipIf(!GIT_AVAILABLE)('dev room git (P4 S1)', () => {
   });
 
   it('auto-cleanup only takes merged, clean worktrees, and only while on; the cleanup list sizes them', async () => {
-    const { flags, project, mgr, act, ask, wtDir, r } = setup();
+    const { flags, project, mgr, act, ask, sent, wtDir, r } = setup();
     for (const t of ['dirty', 'off']) {
       await mgr.worktrees.create(project, t);
       fs.writeFileSync(path.join(wtDir(t), `${t}.txt`), `${t}\n`);
@@ -191,7 +192,46 @@ describe.skipIf(!GIT_AVAILABLE)('dev room git (P4 S1)', () => {
     expect(list).toMatchObject({ ok: true });
     const rows = list.rows as Array<Record<string, unknown>>;
     expect(rows.map((x) => [x.task, x.merged, x.dirty])).toEqual([['dirty', true, 1], ['off', true, 0]]);
-    expect(rows.every((x) => (x.sizeBytes as number) > 0 && typeof x.mergedAt === 'string' && typeof x.lastChange === 'string')).toBe(true);
+    expect(rows.every((x) => typeof x.mergedAt === 'string' && typeof x.lastChange === 'string')).toBe(true);
+    // The answer comes at once; the sizes follow in a second answer to the same request.
+    expect(rows.every((x) => x.sizePending === true && x.sizeBytes === 0)).toBe(true);
+    await waitFor(() => expect(sent.filter((m) => m.requestId === list.requestId)).toHaveLength(2));
+    const sized = sent.filter((m) => m.requestId === list.requestId)[1].rows as Array<Record<string, unknown>>;
+    expect(sized.every((x) => (x.sizeBytes as number) > 0 && x.sizePending === undefined)).toBe(true);
+    // Known now: the next list has them in its first answer.
+    const again = await ask({ type: 'repoCleanupList' });
+    expect((again.rows as Array<Record<string, unknown>>).every((x) => (x.sizeBytes as number) > 0)).toBe(true);
+  });
+
+  it('a worktree made inside another (no Task, nobody on it): 직접 풀기 and 에이전트에게 맡기기 work; a gone folder comes back', async () => {
+    const { mgr, project, act, ask, delivered, wtDir, r } = setup();
+    await mgr.worktrees.create(project, 'integ');
+    await mgr.worktrees.create({ name: 'alpha', folder: wtDir('integ') }, 'codex-1');
+    const nested = path.join(wtDir('integ'), '.worktrees', 'codex-1');
+    fs.writeFileSync(path.join(nested, 'a.txt'), 'codex\n');
+    r.git(['commit', '-qam', 'codex'], nested);
+    fs.writeFileSync(path.join(wtDir('integ'), 'a.txt'), 'integ\n');
+    r.git(['commit', '-qam', 'integ'], wtDir('integ'));
+    // Checked against its own base (task/integ), not main.
+    expect(await ask({ type: 'repoMergeCheck', task: 'codex-1' })).toMatchObject({ ok: true, target: 'task/integ', conflicts: ['a.txt'] });
+    const handed = await act('conflictHandoff', { task: 'codex-1' });
+    expect(handed).toMatchObject({ ok: true });
+    expect(delivered.at(-1)).toMatchObject({ to: 'alpha' }); // nobody on it: the project's Lead
+    expect(delivered.at(-1)?.text).toContain(nested);
+    expect(await act('sync', { task: 'codex-1' })).toMatchObject({ ok: true, conflicts: ['a.txt'] });
+    expect(await ask({ type: 'repoConflicts', task: 'codex-1' })).toMatchObject({ ok: true, merging: true });
+    expect(await act('mergeAbort', { task: 'codex-1' })).toMatchObject({ ok: true });
+
+    // An old run whose folder was deleted (its branch kept): 직접 풀기 checks it out again first.
+    await mgr.worktrees.create(project, 'old');
+    fs.writeFileSync(path.join(wtDir('old'), 'a.txt'), 'old\n');
+    r.git(['commit', '-qam', 'old'], wtDir('old'));
+    fs.rmSync(wtDir('old'), { recursive: true });
+    r.git(['worktree', 'prune']);
+    r.write('a.txt', 'main moved\n');
+    r.git(['commit', '-qam', 'main moved']);
+    expect(await act('sync', { task: 'old' })).toMatchObject({ ok: true, conflicts: ['a.txt'] });
+    expect(fs.existsSync(path.join(wtDir('old'), 'a.txt'))).toBe(true);
   });
 
   it("the Lead's note goes to the Worker at once with a Lead line, and locks the automatic merge (control: no note merges)", async () => {

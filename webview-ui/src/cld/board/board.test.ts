@@ -13,6 +13,7 @@ import {
   donutArc,
   donutFrac,
   endWords,
+  inQuad,
   moreText,
   pctText,
   pickPage,
@@ -315,5 +316,24 @@ describe('the ticker', () => {
       2,
     );
     expect(items).toEqual(['2\ubd84 \uc804 \ubc30\ud3ec\uac00 \ub05d\ub0ac\uc5b4\uc694', '10\ubd84 \uc804 GPU \ucc28\ub840 \uc634: p']);
+  });
+});
+
+describe('the board as a tap target', () => {
+  it('a flat rectangle: inside, outside, the far edges excluded', () => {
+    const q = { x: 10, y: 20, ux: 100, uy: 0, vx: 0, vy: 30 };
+    expect(inQuad({ x: 10, y: 20 }, q)).toBe(true);
+    expect(inQuad({ x: 109, y: 49 }, q)).toBe(true);
+    expect(inQuad({ x: 110, y: 30 }, q)).toBe(false);
+    expect(inQuad({ x: 50, y: 19 }, q)).toBe(false);
+  });
+
+  it("the isometric wall's slanted face: the sheared box, not its bounding box", () => {
+    // Top edge going down-right at the wall's 2:1, sides straight down.
+    const q = { x: 0, y: 0, ux: 100, uy: 50, vx: 0, vy: 40 };
+    expect(inQuad({ x: 50, y: 45 }, q)).toBe(true); // middle of the face
+    expect(inQuad({ x: 90, y: 10 }, q)).toBe(false); // in the bounding box, above the face
+    expect(inQuad({ x: 10, y: 80 }, q)).toBe(false); // in the bounding box, below the face
+    expect(inQuad({ x: 5, y: 5 }, { ...q, ux: 0, uy: 0 })).toBe(false); // degenerate
   });
 });

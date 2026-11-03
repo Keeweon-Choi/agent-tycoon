@@ -28,6 +28,8 @@ import type {
   ChatSendNow,
   ChatSendResult,
   ChatTranscript,
+  GoneConversationDelete,
+  GoneConversationDeleteResult,
   GroupActionResult,
   GroupRoom,
   GroupRooms,
@@ -45,8 +47,10 @@ import { CHAT_REQUEST_TIMEOUT_MS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { closeWindow, hudSubscribe, openWindow, windowShown } from '../hud/hudStore.js';
 import { type Presence, presenceWord } from '../officeHours.js';
+// Called only when a result arrives (officeStore imports this module too).
 import { serverLine, serverText } from '../serverText.js';
 import type { AttachmentChip } from './attachments.js';
+import { shownRoom, shownTimeline } from './goneNames.js';
 import {
   closePane,
   keepOpen,
@@ -102,6 +106,12 @@ export interface PendingSend {
   /** MSG-HOLD2: the decision this device made last: the edit cancelled or the original approved
    *  (both let the original go; a saved edit shows as `edited`). */
   holdNote?: 'editCancelled' | 'approved';
+  /** MSG-RECALL: it waits for the lead's input box to empty (a draft or a recalled prompt in it). */
+  inputWait?: boolean;
+  /** MSG-RECALL: that wait passed two minutes: the bubble says why and that 지금 보내기 goes. */
+  inputWaitLong?: boolean;
+  /** MSG-RECALL: lost to another prompt twice: it waits for 다시 보내기 (the 지금 보내기 request). */
+  lost?: boolean;
 }
 /** MSG-HOLD2: an edit whose message went in first (the hold came too late, another device let it
  *  go): its text is kept here, to be sent as a follow-up correction or taken back to the composer. */
@@ -170,6 +180,9 @@ export interface MessengerSnapshot {
   groupAttachments: Record<string, AttachmentChip[]>;
   /** The newest refused room write (a post, create, rename...), by its requestId. */
   groupError: { requestId: string; error: string } | null;
+  /** PROJECT-DATA: the 대화방 지우기 waiting for its answer, and why the last one failed. */
+  goneDelete: { requestId: string; agentId: number } | null;
+  goneDeleteError: string | null;
   /** PERM-PROMPT: the last 허용/거부 of a lead's permission card: on its way, or what it did. */
   permissionAnswers: Record<number, PermissionAnswerState>;
   /** MSG-SPLIT: the panes (per viewer); the focused one mirrors `active`/`activeRoom`. */
@@ -231,6 +244,8 @@ const initial = (): MessengerSnapshot => ({
   groupTimelines: {},
   groupAttachments: {},
   groupError: null,
+  goneDelete: null,
+  goneDeleteError: null,
   permissionAnswers: {},
   split: loadPanes(),
   splitWide: false,
@@ -451,6 +466,9 @@ export function mergeQueued(pending: PendingSend[], queued: ChatQueued[]): Pendi
         state: q.cancelled ? 'cancelled' : 'queued',
         now: out[i].now || q.now,
         held: !!q.held,
+        inputWait: !!q.inputWait,
+        inputWaitLong: !!q.inputWaitLong,
+        lost: !!q.failed,
         ...(q.messageId && { messageId: q.messageId }),
         ...(q.edited && { edited: true }),
         ...(q.cancelled && { cancelling: false }),
@@ -467,6 +485,9 @@ export function mergeQueued(pending: PendingSend[], queued: ChatQueued[]): Pendi
         ...(q.now && { now: true }),
         ...(q.edited && { edited: true }),
         ...(q.held && { held: true }),
+        ...(q.inputWait && { inputWait: true }),
+        ...(q.inputWaitLong && { inputWaitLong: true }),
+        ...(q.failed && { lost: true }),
         ...(q.replyTo && { replyTo: q.replyTo }),
       });
   }
@@ -670,10 +691,31 @@ export function messengerHandleMessage(
     | GroupTimeline
     | GroupActionResult
     | PinnedConversations
+    | GoneConversationDeleteResult
     | SlashCommandsList
     | PermissionAnswerResult
     | { type: 'messengerContacts'; contacts: MessengerContact[] },
 ): void {
+  // PROJECT-DATA: a removed agent's gone name reads "(알 수 없음)" in the rooms; a contact keeps
+  // its gone name as its key (read state, pin) and is shown through shownName where drawn.
+  if (msg.type === 'groupRooms') msg = { ...msg, rooms: msg.rooms.map(shownRoom) };
+  else if (msg.type === 'groupTimeline') msg = shownTimeline(msg);
+  if (msg.type === 'goneConversationDeleteResult') {
+    const asked = snapshot.goneDelete;
+    if (asked?.requestId !== msg.requestId) return;
+    set({ goneDelete: null, goneDeleteError: msg.ok ? null : serverText(msg, t('messenger.error.room')) });
+    if (msg.ok) {
+      closeConversation(asked.agentId);
+      // What was really deleted (its conversation files), and what could not be.
+      const kept = msg.error ? ` ${serverText(msg)}` : '';
+      const text = `${t('projectData.deletedFiles', { count: msg.deleted ?? 0 })}${kept}`;
+      // Loaded here, not at the top: officeStore -> notices -> this module is a load-time cycle.
+      void import('../officeStore.js').then(({ cldToast }) =>
+        cldToast(t('projectData.unknown'), text, msg.error ? 'error' : 'ok'),
+      );
+    }
+    return;
+  }
   if (msg.type === 'pinnedConversations') {
     set({ pinned: msg.keys });
     return;
@@ -857,7 +899,10 @@ export function messengerHandleMessage(
     if (list[i].promoting) {
       // 지금 보내기's answer: refused (typed meanwhile, say) leaves the bubble as it was.
       const next = [...list];
-      next[i] = { ...list[i], promoting: false, now: msg.ok };
+      // MSG-RECALL: 다시 보내기 on a lost one sends it again as it was (not as a 즉시 one).
+      next[i] = list[i].lost
+        ? { ...list[i], promoting: false, lost: !msg.ok }
+        : { ...list[i], promoting: false, now: msg.ok };
       set({ pending: { ...snapshot.pending, [id]: next } });
       return;
     }
@@ -1126,6 +1171,17 @@ export function messengerAnswerPermission(
 }
 
 /** 지금 보내기 on a queued bubble: it may go in while the lead works. */
+/** PROJECT-DATA: 대화방 지우기 of a removed agent's conversation (the owner's; it was confirmed). */
+export function messengerDeleteGone(
+  send: (m: GoneConversationDelete) => void,
+  agentId: number,
+  name: string,
+): void {
+  const requestId = `gone-${Date.now().toString(36)}`;
+  set({ goneDelete: { requestId, agentId }, goneDeleteError: null });
+  send({ type: 'goneConversationDelete', requestId, name });
+}
+
 export function messengerSendNow(
   send: (m: ChatSendNow) => void,
   agentId: number,

@@ -10,8 +10,11 @@ import type {
 import {
   CLAUDE_KEYCHAIN_SERVICE,
   CLAUDE_KEYCHAIN_TIMEOUT_MS,
+  CLAUDE_USAGE_API_FILE,
+  CLAUDE_USAGE_BACKOFF_MAX_MS,
   CLAUDE_USAGE_BETA,
   CLAUDE_USAGE_MIN_GAP_MS,
+  CLAUDE_USAGE_STALE_MS,
   CLAUDE_USAGE_TIMEOUT_MS,
   CLAUDE_USAGE_URL,
   CLAUDE_USAGE_USER_AGENT,
@@ -184,6 +187,16 @@ export function claudeUsageUrl(env: NodeJS.ProcessEnv = process.env): string {
 interface Reply {
   status: number;
   body: unknown;
+  /** The raw Retry-After header, when the server sent one. */
+  retryAfter?: string | null;
+}
+
+/** Retry-After as milliseconds from `now`: delta-seconds or an HTTP date; null when absent or unreadable. */
+export function retryAfterMs(header: string | null | undefined, now: number): number | null {
+  const text = header?.trim();
+  if (!text) return null;
+  const ms = /^\d+$/.test(text) ? Number(text) * 1000 : Date.parse(text) - now;
+  return Number.isFinite(ms) ? Math.max(0, ms) : null;
 }
 
 /** curl with everything (the token too) on stdin, so nothing shows in the process list. */
@@ -237,12 +250,15 @@ async function requestUsage(url: string, token: string): Promise<Reply> {
   const body: unknown = await response.json().catch(() => null);
   // Some Linux Node builds get 403 for their TLS fingerprint where curl gets through (claude-dashboard's finding).
   if (response.status === 403) return (await curlUsage(url, token)) ?? { status: 403, body: null };
-  return { status: response.status, body };
+  return { status: response.status, body, retryAfter: response.headers.get('retry-after') };
 }
 
 /** Where cld/bin/cld-gui-statusline.js keeps Claude Code's own rate_limits. */
 export const claudeUsageFile = (home: string): string =>
   path.join(configDirectory(home), 'usage-claude.json');
+
+const claudeApiFile = (home: string): string =>
+  path.join(configDirectory(home), CLAUDE_USAGE_API_FILE);
 
 /**
  * Claude Code's own 5-hour and 7-day windows, as the status line of an engine
@@ -359,8 +375,12 @@ export class UsageSource {
   private viewing = false;
   private refreshing: Promise<void> | null = null;
   private previous: Usage | null = null;
-  /** The last endpoint request: when, and what it gave (null: nothing usable). */
-  private live: { at: number; claude: UsageProviderState | null } | null = null;
+  /** No endpoint request before this (epoch ms): the refresh interval, or longer while backing off. */
+  private nextRequestAt = 0;
+  /** Failures in a row that call for backing off (429, 5xx, network); a success resets it. */
+  private failures = 0;
+  /** The last usable endpoint reading; shown while backing off until CLAUDE_USAGE_STALE_MS. */
+  private good: { at: number; claude: UsageProviderState } | null = null;
   private keychainOff = false;
   private readonly warned = new Set<string>();
 
@@ -376,7 +396,24 @@ export class UsageSource {
     },
     private readonly onChange: (usage: Usage) => void,
     private readonly onEarlyReset: (reset: EarlyUsageReset) => void = () => undefined,
-  ) {}
+  ) {
+    // A restart keeps the last endpoint reading (the per-model windows the status line never has);
+    // a fresh one also holds off the first request, which would draw a 429 right after a deploy.
+    try {
+      const saved = JSON.parse(fs.readFileSync(claudeApiFile(opts.home), 'utf-8')) as {
+        at?: unknown;
+        claude?: UsageProviderState;
+      };
+      if (typeof saved.at === 'number' && saved.claude?.id === 'claude') {
+        this.good = { at: saved.at, claude: saved.claude };
+        const age = Date.now() - saved.at;
+        if (age >= 0 && age < CLAUDE_USAGE_MIN_GAP_MS)
+          this.nextRequestAt = saved.at + CLAUDE_USAGE_MIN_GAP_MS;
+      }
+    } catch {
+      // no file or an unreadable one: the first request decides
+    }
+  }
 
   setViewing(on: boolean): void {
     if (on === this.viewing) return;
@@ -451,31 +488,68 @@ export class UsageSource {
 
   /** Claude's reading from the usage endpoint; null (the status-line file decides) when unavailable. */
   private async claudeLive(now: number): Promise<UsageProviderState | null> {
-    if (this.live && now - this.live.at < CLAUDE_USAGE_MIN_GAP_MS) return this.live.claude;
+    if (now < this.nextRequestAt) return this.shown(now);
     // An expired or missing token makes no request: Claude Code refreshes it on its next turn.
     const token = await this.claudeToken(now);
     if (!token) {
-      this.live = null;
+      this.nextRequestAt = 0;
+      this.good = null;
       return null;
     }
-    this.live = { at: now, claude: null };
+    this.nextRequestAt = now + CLAUDE_USAGE_MIN_GAP_MS;
+    let backOff = false;
+    let wait: number | null = null;
     try {
       const reply = await requestUsage(this.opts.usageUrl ?? CLAUDE_USAGE_URL, token);
-      if (reply.status < 200 || reply.status >= 300) this.warnOnce(`HTTP ${reply.status}`);
-      else {
-        this.live.claude = claudeApiUsage(reply.body, now);
-        if (!this.live.claude) this.warnOnce('an answer without any known window');
+      if (reply.status < 200 || reply.status >= 300) {
+        this.warnOnce(`HTTP ${reply.status}`);
+        backOff = reply.status === 429 || reply.status >= 500; // 401/403: no figures, no extra wait
+        wait = retryAfterMs(reply.retryAfter, now);
+        if (!backOff) this.good = null;
+      } else {
+        const claude = claudeApiUsage(reply.body, now);
+        this.good = claude && { at: now, claude };
+        if (this.good) this.keep(this.good);
+        this.failures = 0;
+        if (!claude) this.warnOnce('an answer without any known window');
       }
     } catch (err) {
       this.warnOnce(`request failed (${err instanceof Error ? err.name : 'error'})`);
+      backOff = true;
     }
-    return this.live.claude;
+    if (backOff) {
+      this.failures++;
+      const own = USAGE_REFRESH_MS * 2 ** this.failures;
+      this.nextRequestAt =
+        now + Math.min(Math.max(wait ?? own, CLAUDE_USAGE_MIN_GAP_MS), CLAUDE_USAGE_BACKOFF_MAX_MS);
+    }
+    return this.shown(now);
+  }
+
+  /** Only the parsed state and its time, never the token or a header; atomic like the other config files. */
+  private keep(good: { at: number; claude: UsageProviderState }): void {
+    const file = claudeApiFile(this.opts.home);
+    const tmp = `${file}.${process.pid}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(good));
+      fs.renameSync(tmp, file);
+    } catch {
+      // ponytail: a failed save only loses the reading across a restart
+    }
+  }
+
+  /** The last good reading unless it is older than CLAUDE_USAGE_STALE_MS. */
+  private shown(now: number): UsageProviderState | null {
+    return this.good && now - this.good.at < CLAUDE_USAGE_STALE_MS ? this.good.claude : null;
   }
 
   /** Never with the token: only a status, an error's name or a fixed text. */
   private warnOnce(kind: string): void {
     if (this.warned.has(kind)) return;
     this.warned.add(kind);
-    console.warn(`[Agent Tycoon] Claude usage endpoint: ${kind}; using the status-line reading`);
+    console.warn(
+      `[Agent Tycoon] Claude usage endpoint: ${kind}; using the last or status-line reading`,
+    );
   }
 }

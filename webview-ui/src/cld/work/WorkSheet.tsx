@@ -12,7 +12,7 @@ import { TITLE_BAR, WINDOW_PAD } from '../../components/ui/windowChrome.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { kindLabel } from '../kinds.js';
-import { Line } from '../messenger/Messenger.js';
+import { Line } from '../messenger/Line.js';
 import { staffFocus } from '../staff.js';
 import { ModelBadge } from '../TempList.js';
 import { closeWork, useWork } from './workStore.js';

@@ -301,13 +301,13 @@ function turnRunning(term: HeadlessTerminal): boolean {
 }
 
 /**
- * The input line is empty: it holds nothing, or only dim text (the
- * suggestion) and the cursor, down to the rule under it (a draft's later
- * lines count too).
+ * The input box's rows from the `❯` row down to the rule under it: `none` (no input line),
+ * `empty` (nothing, or only dim text, the suggestion and the cursor; a draft's later lines
+ * count too), `taken`, or `unclosed` (blank, but no rule under it: not the shape we know).
  */
-export function inputLineEmpty(term: HeadlessTerminal, whileWorking = false): boolean {
+function inputBox(term: HeadlessTerminal, whileWorking: boolean): 'none' | 'empty' | 'taken' | 'unclosed' {
   const i = inputRow(term, whileWorking);
-  if (i < 0) return false;
+  if (i < 0) return 'none';
   const b = term.buffer.active;
   const line = (r: number) => b.getLine(b.viewportY + r);
   const row = line(i)!;
@@ -316,12 +316,41 @@ export function inputLineEmpty(term: HeadlessTerminal, whileWorking = false): bo
   // Claude's placeholder suggestion comes dim on Linux, but a Windows ConPTY re-sends it as plain grey text
   // (10-28 laptop: '› Try "how does <filepath> work?"' was taken for a draft and every message waited).
   if (!blankFrom(row, x + 1, term.cols) && !SUGGESTION_ONLY.test(row.translateToString(true, x + 1).trim()))
-    return false;
+    return 'taken';
   for (let r = i + 1; r < term.rows; r++) {
-    if (line(r)?.translateToString().trimStart().startsWith('─')) return true;
-    if (!blankFrom(line(r)!, 0, term.cols)) return false;
+    if (line(r)?.translateToString().trimStart().startsWith('─')) return 'empty';
+    if (!blankFrom(line(r)!, 0, term.cols)) return 'taken';
   }
-  return false; // no rule under it: not the shape we know
+  return 'unclosed';
+}
+
+/** The input line is empty (inputBox; a box with no rule under it is not the shape we know). */
+export function inputLineEmpty(term: HeadlessTerminal, whileWorking = false): boolean {
+  return inputBox(term, whileWorking) === 'empty';
+}
+
+/**
+ * MSG-RECALL: the input box holds something that is not ours to submit (the owner's draft, or a
+ * prompt Up recalled from history, 11-01 14:51). False when no input line is found or its shape
+ * is not ours to judge (a dialog, another screen): the mark check after Enter still catches a
+ * wrong prompt.
+ */
+export function inputBoxTaken(term: HeadlessTerminal): boolean {
+  return inputBox(term, true) === 'taken';
+}
+
+/** Claude Code 2.1.31x's spinner line while it compacts: a spinner glyph (its frames `·✢✳✶✻✽`, `*`
+ *  on some terminals) at the row's start, then "Compacting conversation…" ("Compacting…" in older
+ *  builds, "..." where the ellipsis falls back). An answer's `●`/`⏺` line or a tool's `⎿` output
+ *  that mentions compacting is not it. */
+const COMPACTING = /^ ?[·✢✳✶✻✽*] +Compacting(?: conversation)?(?:…|\.\.\.)/;
+
+/** COMPACT-COFFEE: Claude Code is compacting the conversation (its spinner line is on the screen). */
+export function compactingOnScreen(term: HeadlessTerminal): boolean {
+  const b = term.buffer.active;
+  for (let i = 0; i < term.rows; i++)
+    if (COMPACTING.test(b.getLine(b.viewportY + i)?.translateToString() ?? '')) return true;
+  return false;
 }
 
 /**
@@ -1040,7 +1069,7 @@ export class ChatManager implements Typist {
         if (frame.type === 'resize') void host.call('resize', { t: id, cols: frame.cols, rows: frame.rows });
         else {
           const data = withoutTerminalReplies(filterInput(frame.data, false));
-          if (data) void host.write(id, data);
+          if (data) void host.viewerWrite(id, data);
         }
       };
       for (const raw of early) input(raw);

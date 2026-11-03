@@ -3,8 +3,12 @@
  * filters off): its changed files against the commit its branch left its base at (committed and
  * uncommitted together, plus files git does not track yet), its commits the base lacks, and one
  * file's diff, paged like the project's own (repoRead.pageDiff). Every path a client names has to
- * be an entry of the list read now.
+ * be an entry of a list git gave (readWorktreeChanges; the dev room keeps its last one a few seconds).
  */
+import { createHash } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
 import { koText } from '../../../../../core/src/cld/serverText.js';
 import type { RepoChangedFile, RepoCommit } from '../../../../../core/src/messages.js';
 import type { GitRunner } from './gitRun.js';
@@ -30,12 +34,23 @@ export interface WorktreeDetail {
   files: RepoChangedFile[];
   filesTruncated: boolean;
   commits: RepoCommit[];
+  /** Moves when the changes do (a file, a commit, also one more edit of a file already changed). */
+  stamp: string;
+  /** What the per-file diffs need (kept off the wire). */
+  changes: WorktreeChanges;
+}
+
+/** A task worktree's changed files now and where their diffs run. */
+export interface WorktreeChanges {
+  basis: Basis;
+  files: RepoChangedFile[];
+  truncated: boolean;
 }
 
 const text = (b: Buffer) => b.toString('utf-8').trim();
 
 /** Where the diff runs: the worktree itself, else (folder gone) the repository against the branch. */
-interface Basis {
+export interface Basis {
   mb: string;
   cwd: string;
   /** The extra revision to diff against `mb`; none: the work tree. */
@@ -84,14 +99,35 @@ async function changedFiles(
   return { files: list.slice(0, MAX_FILES), truncated: list.length > MAX_FILES || r.capped };
 }
 
+/** What task worktree `spec` changed (since its base, or since commit `since`) and where to diff it. */
+export async function readWorktreeChanges(run: GitRunner, top: string, spec: WorktreeSpec, since?: string): Promise<WorktreeChanges> {
+  const b = await basis(run, top, spec, since);
+  return { basis: b, ...(await changedFiles(run, spec, b)) };
+}
+
+/** Each changed file's size and time in the folder: an edit of a file already listed moves the stamp. */
+function fileTimes(spec: WorktreeSpec, files: readonly RepoChangedFile[]): string {
+  if (!spec.exists) return '';
+  return files
+    .map((f) => {
+      try {
+        const st = fs.lstatSync(path.join(spec.path, f.path));
+        return `${st.mtimeMs}:${st.size}`;
+      } catch {
+        return '-';
+      }
+    })
+    .join(',');
+}
+
 export async function readWorktreeDetail(
   run: GitRunner,
   top: string,
   spec: WorktreeSpec,
   since?: string,
 ): Promise<WorktreeDetail> {
-  const b = await basis(run, top, spec, since);
-  const { files, truncated } = await changedFiles(run, spec, b);
+  const changes = await readWorktreeChanges(run, top, spec, since);
+  const { files, truncated } = changes;
   const baseRef = FULL_SHA.test(spec.base) ? spec.base : `refs/heads/${spec.base}`;
   const log = await run(
     top,
@@ -104,18 +140,21 @@ export async function readWorktreeDetail(
       const [sha, author, at, ...subject] = rec.trim().split('\x1f');
       if (sha && FULL_SHA.test(sha)) commits.push({ sha, author: author ?? '', at: at ?? '', subject: subject.join('\x1f').slice(0, 300) });
     }
-  return { files, filesTruncated: truncated, commits };
+  const stamp = createHash('sha1')
+    .update(JSON.stringify([changes.basis.mb, files, fileTimes(spec, files)]))
+    .update(log.stdout)
+    .digest('hex');
+  return { files, filesTruncated: truncated, commits, stamp, changes };
 }
 
 /** One page of a changed file's diff (the work tree against where the branch left its base). */
 export async function readWorktreeDiff(
   run: GitRunner,
-  top: string,
-  spec: WorktreeSpec,
-  q: { path: string; offset?: number; since?: string },
+  changes: WorktreeChanges,
+  q: { path: string; offset?: number },
 ): Promise<DiffPage> {
-  const b = await basis(run, top, spec, q.since);
-  const file = (await changedFiles(run, spec, b)).files.find((f) => f.path === q.path);
+  const b = changes.basis;
+  const file = changes.files.find((f) => f.path === q.path);
   if (!file) throw new RepoError(koText('file_not_changed'));
   if (file.status === '?') {
     if (file.path.endsWith('/')) return { text: NEW_FOLDER_NOTE };

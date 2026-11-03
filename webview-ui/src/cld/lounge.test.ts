@@ -6,6 +6,7 @@ import {
   LOUNGE_DRINK_STEP_SEC,
   LOUNGE_DRINK_STEPS,
   LOUNGE_USE_SEC,
+  OWNER_CHARACTER_ID,
 } from '../constants.js';
 import { OfficeState } from '../office/engine/officeState.js';
 import type { LoadedAssetData } from '../office/layout/furnitureCatalog.js';
@@ -18,7 +19,7 @@ import {
   TILE_SIZE,
   TileType,
 } from '../office/types.js';
-import { makeAction } from './director/actions.js';
+import { director, makeAction, ownerDrink } from './director/actions.js';
 import { Director } from './director/director.js';
 import { visitFloor } from './elevator.js';
 import {
@@ -28,7 +29,9 @@ import {
   endBreak,
   endRest,
   LOUNGE_SUFFIX,
+  machineStand,
   nextDrinkIn,
+  pantryNear,
   playSec,
   playState,
   restDropAt,
@@ -316,19 +319,42 @@ describe('resting in the lounge (LOUNGE)', () => {
     const r = ch.cldRest!;
     r.next = 0.01;
     const phases: string[] = [r.phase];
-    let facingUp = 0;
-    let standRow = -1;
+    let facing = 0;
+    let stand: number[] | null = null;
     run(os, 80, () => {
       if (phases.at(-1) !== r.phase) phases.push(r.phase);
       if (r.phase === 'use') {
-        standRow = ch.tileRow;
-        if (ch.dir === Direction.UP) facingUp++;
+        stand = at(ch);
+        if (ch.dir === Direction.RIGHT) facing++;
       }
     });
     expect(phases).toEqual(['rest', 'fetch', 'use', 'drink', 'go', 'rest']);
-    expect(standRow).toBe(3); // below the machines' two rows
-    expect(facingUp).toBeGreaterThan(0); // facing the machine
+    // C1: beside the machine it uses (screen left of its front tile), never in front of it
+    expect(stand![1]).toBe(3);
+    expect([6, 7, 8]).toContain(stand![0]); // one column left of the vending, coffee or water
+    expect(facing).toBeGreaterThan(0); // facing the machine
     expect(at(ch)).toEqual([spot.col, spot.row]); // back where it sat
+  });
+
+  it('C1: uses a machine from beside its front tile (screen left, then right), then diagonally in front, else from in front', () => {
+    const m = { col: 8, row: 1 }; // two rows tall: its front tile is (8, 2)
+    const all = () => true;
+    expect(machineStand(m, 2, all)).toEqual({ stand: { col: 7, row: 3 }, face: Direction.RIGHT });
+    const noLeft = (t: { col: number; row: number }) => !(t.col === 7 && t.row === 3);
+    expect(machineStand(m, 2, noLeft)).toEqual({ stand: { col: 9, row: 1 }, face: Direction.DOWN });
+    // side by side (both side tiles taken): the diagonal-front tiles, left then right
+    const sides = (t: { col: number; row: number }) =>
+      !(t.col === 7 && t.row === 3) && !(t.col === 9 && t.row === 1);
+    expect(machineStand(m, 2, sides)).toEqual({ stand: { col: 7, row: 4 }, face: Direction.UP });
+    const noFrontLeft = (t: { col: number; row: number }) =>
+      sides(t) && !(t.col === 7 && t.row === 4);
+    expect(machineStand(m, 2, noFrontLeft)).toEqual({
+      stand: { col: 9, row: 2 },
+      face: Direction.LEFT,
+    });
+    const below = (t: { col: number; row: number }) => t.col === 8 && t.row === 3;
+    expect(machineStand(m, 2, below)).toEqual({ stand: { col: 8, row: 3 }, face: Direction.UP });
+    expect(machineStand(m, 2, () => false)).toBeNull();
   });
 
   it('shows the machine in its state while it is used, and idle before and after', () => {
@@ -546,5 +572,48 @@ describe('a coffee break from work (C1)', () => {
     expect(ch.cldRest).toBeUndefined();
     run(os, 10);
     expect(at(ch)).toEqual([2, 3]);
+  });
+});
+
+describe('FX-ALL: every character takes the coffee break', () => {
+  it("a sub-agent walks to the machine, drinks and walks back to its spot by its parent; the owner's walk command still cannot move it", () => {
+    const os = office(oneFloor(), [1]);
+    const sub = os.characters.get(os.addSubagent(1, 'tu-a'))!;
+    run(os, 1);
+    const spot = at(sub);
+    expect(os.walkToTile(sub.id, 9, 8)).toBe(false); // the right-click walk: still refused
+    const d = new Director(() => false, makeAction);
+    d.play(sub.id, { kind: 'coffee' });
+    const phases: string[] = [];
+    let used: number[] | null = null;
+    for (let t = 0; t < 60 && d.playing(sub.id); t += 0.05) {
+      os.update(0.05);
+      d.step(os, 0.05);
+      const r = sub.cldRest;
+      if (r && phases.at(-1) !== r.phase) phases.push(r.phase);
+      if (r?.phase === 'use') used = at(sub);
+    }
+    expect(phases).toEqual(['fetch', 'use', 'drink', 'go']);
+    expect(used).toEqual([7, 3]); // at the coffee machine
+    expect(at(sub)).toEqual(spot);
+    expect(sub.cldRest).toBeUndefined();
+  });
+
+  it("the owner's character drinks at the machine it stands by (the nearest, or the one tapped), not from afar or at the water cooler", () => {
+    const os = office(oneFloor(), []);
+    const owner = os.spawnOwner()!;
+    place(os, OWNER_CHARACTER_ID, 8, 3); // below the coffee machine, diagonal to the vending one
+    expect(pantryNear(os, owner)?.kind).toBe('coffee');
+    expect(pantryNear(os, owner, { col: 7, row: 2 })?.kind).toBe('vending'); // tapped
+    expect(pantryNear(os, owner, { col: 9, row: 2 })).toBeNull(); // the water cooler
+    expect(pantryNear(os, owner, { col: 3, row: 3 })).toBeNull(); // not a machine
+    place(os, OWNER_CHARACTER_ID, 3, 7); // across the room
+    expect(pantryNear(os, owner)).toBeNull();
+    expect(ownerDrink(os)).toBe(false);
+    place(os, OWNER_CHARACTER_ID, 8, 3);
+    expect(ownerDrink(os, { col: 7, row: 1 })).toBe(true);
+    expect(director.playing(OWNER_CHARACTER_ID)).toBe(true);
+    expect(ownerDrink(os)).toBe(false); // one at a time
+    director.skip(os, OWNER_CHARACTER_ID);
   });
 });

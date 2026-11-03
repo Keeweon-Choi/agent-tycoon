@@ -31,7 +31,13 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import { findPath, isWalkable } from '../office/layout/tileMap.js';
 import { type Character, CharacterState, TILE_SIZE, TileType } from '../office/types.js';
 import { isE2E } from '../runtime.js';
-import { employeeBusyElsewhere, employeeName, employeeOf, setSpawnLookup } from './employees.js';
+import {
+  employeeBusyElsewhere,
+  employeeName,
+  employeeOf,
+  executionOf,
+  setSpawnLookup,
+} from './employees.js';
 import { characterRingOf, characterVisualOf } from './ez/visuals.js';
 import { floorIndexAt, floorRects } from './floors.js';
 import { isOff } from './format.js';
@@ -39,7 +45,12 @@ import { characterKind, characterName } from './kinds.js';
 import { beginRest, endRest, isLoungeZone as isLounge } from './lounge.js';
 import { modelBadge } from './modelBadges.js';
 import { dutyFor, isOfficeOpen, officeHours } from './officeHours.js';
-import { cldGetSnapshot, cldLocalEvent, virtualAgentId } from './officeStore.js';
+import {
+  cldGetSnapshot,
+  cldLocalEvent,
+  setTempCharacterLookup,
+  virtualAgentId,
+} from './officeStore.js';
 import {
   codexTaskLine,
   homeLine,
@@ -118,6 +129,13 @@ const codexLooks = new Map<number, { palette: number; hueShift: number }>();
 let office: OfficeState | null = null;
 /** TEMP-PLATES: a sub-agent character's spawn, for its roster employee. */
 setSpawnLookup((id) => office?.subagentMeta.get(id)?.parentToolId);
+/** FX-ALL: the temp character of an execution, while it is in sight (its moments play on it). */
+setTempCharacterLookup((exec) => {
+  const tasks = cldGetSnapshot().codexTasks;
+  for (const ch of office?.characters.values() ?? [])
+    if (!ch.cldAway && !ch.cldOwner && executionOf(ch.id, tasks) === exec) return ch.id;
+  return null;
+});
 /** Game time (s, the loop's dt: a fake page clock leaves it running) and when the office came up. */
 let clock = 0;
 let sinceStep = STAFF_STEP_SEC;
@@ -604,6 +622,8 @@ function stepTemp(
   now: number,
   settling: boolean,
 ): void {
+  // FX-ALL: on a coffee break (cld/director) it is the break's until it is back at its spot.
+  if (ch.cldRest?.brk) return;
   const t = (rec.temp ??= newTemp(kind, now));
   const fresh = !t.placed;
   t.placed = true;

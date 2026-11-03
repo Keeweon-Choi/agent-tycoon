@@ -62,6 +62,13 @@ export class TrackingSettingsStore {
   private projects = new Map<string, TrackingProjectSettings>();
 
   constructor(readonly file: string) {
+    this.reload();
+  }
+
+  /** Read tracking.json again (after projectData changed it). */
+  reload(): void {
+    const { file } = this;
+    this.projects = new Map();
     let raw: unknown;
     try {
       raw = readJson(file);

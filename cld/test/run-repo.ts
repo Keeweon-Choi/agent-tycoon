@@ -280,7 +280,7 @@ async function main() {
   const openBench = async (page: Page, scope: Locator, tap = false) => {
     const button = card(scope, page, 'alpha').getByRole('button', { name: '작업실', exact: true });
     await (tap ? button.tap() : button.click());
-    const bench = page.locator('[data-hud-window="workbench"], [aria-label="작업실 화면"]');
+    const bench = page.locator('[data-hud-window="office"], [aria-label="현황판 화면"]');
     await bench.waitFor();
     const go = async (name: '변경' | 'worktree') => {
       const tab = bench.getByRole('button', { name, exact: true });

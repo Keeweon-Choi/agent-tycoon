@@ -17,6 +17,7 @@ import {
   CHAT_IDLE_MS,
   CHAT_TEXT,
   ChatManager,
+  compactingOnScreen,
   dialogMatches,
   filterInput,
   foldsWhenPasted,
@@ -646,6 +647,37 @@ describe('chat: the permission dialog an answer from the messenger may press (PE
       await read(DIALOG.replace('❯ 1. Yes', "❯ 1. Yes, and don't ask again for rm commands")),
     ).toBeNull();
     expect(await read(DIALOG)).toContain('rm -rf build');
+  });
+});
+
+describe('chat: Claude Code compacting its conversation, from its screen (COMPACT-COFFEE)', () => {
+  const compacting = async (above: string) => {
+    const term = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(screenOf([SUGGESTION], above), r));
+    const out = compactingOnScreen(term);
+    term.dispose();
+    return out;
+  };
+  it('the spinner line: every glyph frame, the long and the short words, both ellipses', async () => {
+    for (const g of ['·', '✢', '✳', '✶', '✻', '✽', '*'])
+      expect(await compacting(`${g} Compacting conversation… (12s · esc to interrupt)`)).toBe(true);
+    expect(await compacting('✻ Compacting…')).toBe(true);
+    expect(await compacting(' ✶ Compacting conversation... (3s)')).toBe(true);
+    // a dim, shimmering spinner word is still its text
+    expect(await compacting('\x1b[2m✻\x1b[22m \x1b[38;5;174mCompac\x1b[39mting conversation…')).toBe(true);
+  });
+  it('negative: a turn running, answers and tool output that mention compacting, the user typing it', async () => {
+    expect(await compacting(WORKING)).toBe(false);
+    expect(await compacting('● Compacting conversation… is what /compact does')).toBe(false);
+    expect(await compacting('⏺ Compacting the logs now.')).toBe(false);
+    expect(await compacting('  ⎿  Compacting… done')).toBe(false);
+    expect(await compacting('   * Compacting conversation… (a list item in an answer)')).toBe(false);
+    expect(await compacting('✻ Compacted conversation')).toBe(false);
+    expect(await compacting('✻ Compacting at auto window (160k tokens) · /autocompact to configure')).toBe(false);
+    const term = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
+    await new Promise<void>((r) => term.write(screenOf(['❯ ✻ Compacting conversation…']), r));
+    expect(compactingOnScreen(term)).toBe(false);
+    term.dispose();
   });
 });
 

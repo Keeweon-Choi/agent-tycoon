@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import {
   FATIGUE_BAR_COLORS,
+  OWNER_CHARACTER_ID,
   STAT_DETAIL_FACE_PX,
   STAT_REFRESH_MS,
   STAT_TILE_RING,
@@ -34,6 +35,7 @@ import { useCanAct } from '../useCanAct.js';
 import { LevelRing } from './Fatigue.js';
 import { fatigueRules } from './fatigueState.js';
 import { ringOf } from './nameplate.js';
+import { OwnerStatBody } from './OwnerStatCard.js';
 import {
   canStartProject,
   fatigueLine,
@@ -152,6 +154,12 @@ function StatTiles({ f }: { f: StatFacts }) {
             <div className={`${TILE} flex-row items-center justify-between`} data-testid="stat-rebirth">
               <span className={LABEL}>{t('stat.rebirth')}</span>
               <span className="text-lg leading-none">{t('stat.rebirthCount', { count: f.level.rebirths })}</span>
+            </div>
+          )}
+          {!!f.level?.inherit && (
+            <div className={`${TILE} flex-row items-center justify-between`} data-testid="stat-inherit">
+              <span className={LABEL}>{t('inherit.stat')}</span>
+              <span className="text-lg leading-none">{t('inherit.statCount', { count: f.level.inherit })}</span>
             </div>
           )}
         </Section>
@@ -309,7 +317,11 @@ export function StatDetailSheet({ officeState }: { officeState: OfficeState }) {
   if (id === null) return null;
   return (
     <Modal isOpen onClose={() => openStatDetail(null)} title={t('stat.open')} className="w-[min(640px,100%)]">
-      <StatBody id={id} officeState={officeState} readOnly={officeReadOnly} />
+      {id === OWNER_CHARACTER_ID ? (
+        <OwnerStatBody officeState={officeState} />
+      ) : (
+        <StatBody id={id} officeState={officeState} readOnly={officeReadOnly} />
+      )}
     </Modal>
   );
 }

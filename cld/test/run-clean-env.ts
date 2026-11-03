@@ -207,7 +207,7 @@ async function main() {
     }
     await panel.getByRole('button', { name: '현황판', exact: true }).first().click();
     // UI-C1: the jobs and Codex lists live in the 작업실 (Task and 에이전트 tabs).
-    const bench = page.locator('[data-hud-window="workbench"]');
+    const bench = page.locator('[data-hud-window="office"]');
     for (const tab of ['Task', '에이전트']) {
       await openWorkbenchTab(page, tab);
       await page.waitForTimeout(700);

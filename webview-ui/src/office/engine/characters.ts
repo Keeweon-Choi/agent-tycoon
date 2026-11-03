@@ -1,11 +1,10 @@
+import { walkFrameAt } from '../../cld/walk.js';
 import {
   DEFAULT_MAX_CONTEXT_TOKENS,
-  KEY_WALK_FRAME_DURATION_SEC,
   KEY_WALK_SPEED_PX_PER_SEC,
   SEAT_REST_MAX_SEC,
   SEAT_REST_MIN_SEC,
   TYPE_FRAME_DURATION_SEC,
-  WALK_FRAME_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
   WANDER_MOVES_BEFORE_REST_MAX,
   WANDER_MOVES_BEFORE_REST_MIN,
@@ -218,13 +217,7 @@ export function updateCharacter(
     }
 
     case CharacterState.WALK: {
-      // Walk animation
-      const frameDuration = ch.keyboardWalk ? KEY_WALK_FRAME_DURATION_SEC : WALK_FRAME_DURATION_SEC;
-      if (ch.frameTimer >= frameDuration) {
-        ch.frameTimer -= frameDuration;
-        ch.frame = (ch.frame + 1) % 4;
-      }
-
+      // WALK-FIX: the walk frame is read off the distance walked (below), not a timer
       if (ch.path.length === 0) {
         // Path complete — snap to tile center and transition
         ch.keyboardWalk = undefined;
@@ -285,13 +278,18 @@ export function updateCharacter(
       const walkSpeed = ch.keyboardWalk ? KEY_WALK_SPEED_PX_PER_SEC : WALK_SPEED_PX_PER_SEC;
       // cld-gui (OWNER-AVATAR): a diagonal step is a longer way, walked at the same pace.
       const diagonal = nextTile.col !== ch.tileCol && nextTile.row !== ch.tileRow;
+      ch.cldDiagRow = diagonal ? (nextTile.row > ch.tileRow ? 1 : -1) : undefined;
       ch.moveProgress += (walkSpeed / TILE_SIZE / (diagonal ? Math.SQRT2 : 1)) * dt;
+      // WALK-FIX: the frame for the distance walked so far, then this tick's way is added
+      ch.frame = walkFrameAt(ch.cldWalkPx ?? 0);
 
       const fromCenter = tileCenter(ch.tileCol, ch.tileRow);
       const toCenter = tileCenter(nextTile.col, nextTile.row);
       const t = Math.min(ch.moveProgress, 1);
+      const [x0, y0] = [ch.x, ch.y];
       ch.x = fromCenter.x + (toCenter.x - fromCenter.x) * t;
       ch.y = fromCenter.y + (toCenter.y - fromCenter.y) * t;
+      ch.cldWalkPx = (ch.cldWalkPx ?? 0) + Math.hypot(ch.x - x0, ch.y - y0);
 
       if (ch.moveProgress >= 1) {
         // Arrived at next tile

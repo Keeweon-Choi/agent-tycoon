@@ -6,7 +6,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { loopbackUrl } from '../../../../core/src/cld/devUrl.js';
-import type { RepoAction, RepoActionResult } from '../../../../core/src/messages.js';
+import type { DevroomStats, RepoAction, RepoActionResult } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import { openWindow } from '../hud/hudStore.js';
 import { resultToast } from '../repo/repoText.js';
@@ -40,6 +40,8 @@ export interface DevroomSnapshot {
   page: DevroomTab | null;
   /** 미리보기: the dev server address of each worktree (pickKey -> a loopback URL), kept per device. */
   previews: Readonly<Record<string, string>>;
+  /** The footer's `터미널 N개 · 데몬 메모리 약 X MB` (the daemon sends it while the dev room is viewed). */
+  stats: DevroomStats | null;
 }
 
 export const pickKey = (project: string, task: string | null): string => `${project}\0${task ?? ''}`;
@@ -74,6 +76,7 @@ let snapshot: DevroomSnapshot = {
   expanded: null,
   page: null,
   previews: readPreviews(),
+  stats: null,
 };
 const listeners = new Set<() => void>();
 
@@ -125,6 +128,8 @@ export function setPreviewUrl(project: string, task: string, url: string): void 
   }
   set({ previews });
 }
+
+export const devroomSetStats = (stats: DevroomStats) => set({ stats });
 
 /** Phone: a tap on a card shows (or folds) its three buttons. */
 export const expandCard = (key: string) =>

@@ -22,6 +22,7 @@ export const NEWS_FILTERS: { id: NewsFilter; label: TranslationKey }[] = [
 export interface NewsItem {
   id: string;
   at: number;
+  /** The kind icon (a system emoji). */
   icon: string;
   /** Who: the character, or the event's name/source. */
   name: string;
@@ -48,6 +49,24 @@ const EVENT_ICON: Record<string, string> = {
   start: '▶',
   temp: '⌂',
 };
+/** UI-FIX 5: the notice list's kind icons, drawn by the system emoji (the pixel glyphs above read as dots). */
+const EVENT_EMOJI: Record<string, string> = {
+  inbox: '💬',
+  send: '💬',
+  job: '🏁',
+  codex: '🏁',
+  task: '📋',
+  hw: '🖥️',
+  gpu: '🖥️',
+  stop: '✅',
+  renew: '🔄',
+  compaction: '🗜️',
+  compacted: '🗜️',
+  start: '▶️',
+  temp: '🌡️',
+};
+export const eventEmoji = (kind: string) =>
+  EVENT_EMOJI[kind] ?? EVENT_EMOJI[kind.split('_')[0]] ?? '🔔';
 export const eventIcon = (kind: string) =>
   EVENT_ICON[kind] ?? EVENT_ICON[kind.split('_')[0]] ?? '•';
 
@@ -143,7 +162,7 @@ export function mergeNews(
       // Not the position: a new event would shift every key and fold an opened row.
       id: `e:${ev.ts}:${ev.kind}:${ev.summary}`,
       at,
-      icon: eventIcon(ev.kind),
+      icon: eventEmoji(ev.kind),
       name,
       text: serverLine(ev.summary),
       target: eventTarget(ev),
@@ -157,3 +176,14 @@ export function mergeNews(
 
 export const filterNews = (items: NewsItem[], filter: NewsFilter): NewsItem[] =>
   filter === 'all' ? items : items.filter((i) => i.groups.includes(filter));
+
+const DAY_MS = 86_400_000;
+const midnight = (at: number) => new Date(at).setHours(0, 0, 0, 0);
+
+/** NOTICE-B: the list's day separator for `at`: today, yesterday, or an older day's local midnight. */
+export function newsDay(at: number, now: number): 'today' | 'yesterday' | number {
+  const day = midnight(at);
+  // Rounded: a day across a daylight-saving change is 23 or 25 hours.
+  const back = Math.round((midnight(now) - day) / DAY_MS);
+  return back <= 0 ? 'today' : back === 1 ? 'yesterday' : day;
+}

@@ -38,8 +38,9 @@ export interface EngineSnapshot {
     { requestId: string; action: EngineActionKind; fields?: Fields; retried?: boolean }
   >;
   toast: { id: number; name: string; text: string; tone: 'ok' | 'info' | 'error' } | null;
-  /** The add form (name null) or a project's 설정 form. */
-  form: { name: string | null; newOffice?: boolean } | null;
+  /** The add form (name null) or a project's 설정 form; `folder`: the add form's folder, given
+   *  (the dev room's 프로젝트 추가, after its clone or check). */
+  form: { name: string | null; newOffice?: boolean; folder?: string; cloned?: boolean } | null;
 }
 
 const empty: EngineSnapshot = { state: null, confirm: null, busy: {}, toast: null, form: null };
@@ -115,7 +116,10 @@ export function engineCancel(): void {
   if (snapshot.confirm) set({ confirm: null });
 }
 
-export const engineOpenForm = (name: string | null, options: { newOffice?: boolean } = {}) =>
+export const engineOpenForm = (
+  name: string | null,
+  options: { newOffice?: boolean; folder?: string; cloned?: boolean } = {},
+) =>
   set({ form: { name, ...options } });
 export const engineCloseForm = () => set({ form: null });
 
@@ -162,11 +166,12 @@ function send(
   out({ type: 'engineAction', requestId, action, name, ...fields });
 }
 
-/** The confirmation's button (or the folder question's 만들기). */
-export function engineConfirm(out: (msg: EngineAction) => void, connected: boolean): void {
+/** The confirmation's button (or the folder question's 만들기); `extra`: the dialog's own
+ *  choices (remove's purge box). */
+export function engineConfirm(out: (msg: EngineAction) => void, connected: boolean, extra: Fields = {}): void {
   const c = snapshot.confirm;
   if (!c) return;
-  send(out, connected, c.action, c.name, c.mkdir ? { ...c.fields, mkdir: true } : c.fields);
+  send(out, connected, c.action, c.name, { ...(c.mkdir ? { ...c.fields, mkdir: true } : c.fields), ...extra });
 }
 
 /** The form's 추가 / 저장 (D3b: or the 'Lead 로' dialog): the form itself was the confirmation. */

@@ -30,6 +30,7 @@ import * as path from 'path';
 import type { Coded } from '../../../../../core/src/cld/serverText.js';
 import { koText, refused } from '../../../../../core/src/cld/serverText.js';
 import type {
+  ChatEmployee,
   RepoAction,
   RepoActionKind,
   RepoActionResult,
@@ -51,9 +52,10 @@ import type {
   ReviewSend,
   ReviewSendResult,
 } from '../../../../../core/src/messages.js';
+import { DEVROOM_CHANGES_KEEP_MS } from '../../../constants.js';
 import type { SocketStepUp, WsSend } from '../../hooks.js';
 import { STEPUP_REQUIRED } from '../../shell/gate.js';
-import { branchTips, cleanupRows } from './cleanupList.js';
+import { branchTips, cleanupRows, FolderSizes } from './cleanupList.js';
 import type { SyncOutcome } from './conflicts.js';
 import { abortMerge, continueMerge, listConflicts, resolveFile, syncBase } from './conflicts.js';
 import type { GitRunner } from './gitRun.js';
@@ -73,7 +75,8 @@ import {
   ReviewNotes,
   ReviewNotesError,
 } from './reviewNotes.js';
-import { readWorktreeDetail, readWorktreeDiff } from './worktreeRead.js';
+import type { WorktreeChanges } from './worktreeRead.js';
+import { readWorktreeChanges, readWorktreeDetail, readWorktreeDiff } from './worktreeRead.js';
 import { Worktrees } from './worktrees.js';
 
 export const REPO_POLL_MS = 10_000;
@@ -244,6 +247,8 @@ export interface RepoManagerOptions {
   taskWorktree?: (req: RepoAction, privileged: boolean, source: string) => Promise<WriteResult>;
   /** W2: the name an assignment answers to now (a worktree's assignee). */
   nameOf?: (assignmentId: string) => string | undefined;
+  /** DEVROOM-NAMES: who did a worktree with no assignment (a Codex run's Worker or temp employee). */
+  whoDid?: (project: string, worktreePath: string) => { agent?: string; employee?: ChatEmployee } | undefined;
   /** Step ④: the notes to the agent that made the change (the office's messenger, tasks, rooms). */
   reviewSend?: (input: ReviewSendInput) => Promise<ReviewSendOutcome>;
   /** P4: the conflict handoff, delivered like review notes (reviewNotes.deliverToWorker). */
@@ -257,6 +262,8 @@ export interface RepoManagerOptions {
 export interface ConflictHandoffInput {
   project: string;
   worktree: string;
+  /** The worktree's folder (absolute), where the agent resolves it. */
+  path: string;
   taskId?: string;
   assignmentId?: string;
   base: string;
@@ -291,11 +298,15 @@ export class RepoManager {
   private readonly reviewSending = new Set<string>();
   /** P4: conflict pre-checks, by project, task, base commit and branch commit (null: failed). */
   private readonly conflictCache = new Map<string, string[] | null>();
+  /** P4 작업 폴더 정리: folder sizes, measured in the background and kept a while. */
+  private readonly sizes = new FolderSizes();
   /** P4: one pre-check at a time, for the whole daemon. */
   private conflictChecking = false;
   /** P4: a dev room viewer's own send per project view (so a repoView of the same client stays). */
   private readonly devroomSends = new Map<WsSend, WsSend>();
   private readonly devroomOrigin = new Map<WsSend, WsSend>();
+  /** P4: each open review's last changed-file list (changesOf), dropped DEVROOM_CHANGES_KEEP_MS on. */
+  private readonly changes = new Map<string, { at: number; changes: WorktreeChanges }>();
 
   /** A merge or another git write is running now (the update notice postpones for it). */
   get writing(): boolean {
@@ -376,7 +387,7 @@ export class RepoManager {
               ? this.mergeCheck(req)
               : msg.type === 'repoConflicts'
                 ? this.conflicts(req)
-                : this.cleanupList(req);
+                : this.cleanupList(req, (m) => send({ ...m }));
           void answer.then(
             (m) => send({ ...m }),
             (err: unknown) => console.warn(`[cld repo] ${String(msg.type)}: ${String(err)}`),
@@ -523,7 +534,8 @@ export class RepoManager {
     const list = await this.worktrees.list(proj).catch(() => [] as RepoWorktree[]);
     const tips = list.length ? await branchTips(this.run, top) : new Map<string, { sha: string; at: string }>();
     return list.map((w) => {
-      const assignee = w.assignmentId && this.o.nameOf?.(w.assignmentId);
+      const who = w.assignmentId ? undefined : this.o.whoDid?.(proj.name, w.path);
+      const assignee = (w.assignmentId && this.o.nameOf?.(w.assignmentId)) || who?.agent;
       const merge = this.history.last(proj.name, w.task);
       const tip = tips.get(w.branch);
       const base = tips.get(w.base);
@@ -536,6 +548,7 @@ export class RepoManager {
       return {
         ...w,
         ...(assignee && { assignee }),
+        ...(who?.employee && { employee: who.employee }),
         ...(merge && { merge }),
         ...(tip && { lastChange: tip.at }),
         ...(conflicts && { conflicts }),
@@ -579,7 +592,7 @@ export class RepoManager {
     if (!proj) return reply({ ok: false, ...refused('project_unregistered') });
     try {
       const page = req.task
-        ? await readWorktreeDiff(this.run, await repoRoot(this.run, proj.folder), await this.spec(proj, req.task), req)
+        ? await readWorktreeDiff(this.run, await this.changesOf(proj, req.task, req.since), req)
         : await readDiff(this.run, proj.folder, req);
       reply({ ok: true, ...page });
     } catch (err) {
@@ -590,9 +603,26 @@ export class RepoManager {
 
   /** The active task worktree `task` as git says it is now. */
   private async spec(proj: ProjectFolder, task: string) {
-    const w = (await this.worktrees.list(proj)).find((x) => x.task === task);
+    const w = await this.worktrees.spec(proj, task);
     if (!w) throw new RepoError(koText('worktree_missing'));
-    return { path: w.path, branch: w.branch, base: w.base, exists: w.exists };
+    return w;
+  }
+
+  /** The changed-file list the last repoWorktreeRequest read for this review (when recent), else read
+   *  now: the review asks for every file's diff right after the list, each then one git call. */
+  private async changesOf(proj: ProjectFolder, task: string, since?: string): Promise<WorktreeChanges> {
+    const key = `${proj.name}\0${task}\0${since ?? ''}`;
+    const kept = this.changes.get(key);
+    if (kept && Date.now() - kept.at < DEVROOM_CHANGES_KEEP_MS) return kept.changes;
+    const changes = await readWorktreeChanges(this.run, await repoRoot(this.run, proj.folder), await this.spec(proj, task), since);
+    this.keepChanges(key, changes);
+    return changes;
+  }
+
+  private keepChanges(key: string, changes: WorktreeChanges): void {
+    const now = Date.now();
+    for (const [k, v] of this.changes) if (now - v.at >= DEVROOM_CHANGES_KEEP_MS) this.changes.delete(k);
+    this.changes.set(key, { at: now, changes });
   }
 
   /** W4: what task worktree `req.task` changed (read-only; for privileged clients, like diffs). */
@@ -603,8 +633,12 @@ export class RepoManager {
     if (!proj) return reply({ ok: false, ...refused('project_unregistered') });
     try {
       const top = await repoRoot(this.run, proj.folder);
-      const detail = await readWorktreeDetail(this.run, top, await this.spec(proj, req.task), req.since);
-      reply({ ok: true, ...detail, guard: guardNote(await guardStatus(this.run, top)) });
+      const [{ changes, ...detail }, guard] = await Promise.all([
+        this.spec(proj, req.task).then((spec) => readWorktreeDetail(this.run, top, spec, req.since)),
+        guardStatus(this.run, top),
+      ]);
+      this.keepChanges(`${proj.name}\0${req.task}\0${req.since ?? ''}`, changes);
+      reply({ ok: true, ...detail, guard: guardNote(guard) });
     } catch (err) {
       if (!(err instanceof RepoError)) console.warn(`[cld repo] worktree detail: ${String(err)}`);
       reply({ ok: false, error: err instanceof RepoError ? err.message : koText('changes_unreadable') });
@@ -879,19 +913,24 @@ export class RepoManager {
     };
   }
 
-  /** The active record of task worktree `task`, its folder checked to be a registered worktree. */
-  private async taskWorktree(proj: ProjectFolder, task: string) {
-    const rec = this.worktrees
-      .all()
-      .find((r) => r.project === proj.name && r.task === task && r.status === 'active');
+  /** The active record of task worktree `task`, its folder checked to be a registered worktree.
+   *  `reopen`: a folder that is gone (its branch kept) is checked out again first (Worktrees.reopen). */
+  private async taskWorktree(proj: ProjectFolder, task: string, reopen = false) {
+    const find = () => this.worktrees.all().find((r) => r.project === proj.name && r.task === task && r.status === 'active');
+    if (!find()) throw new RepoError(koText('worktree_missing'));
+    let spec = await this.spec(proj, task);
+    if (reopen && !spec.exists) {
+      await this.worktrees.reopen(proj, task);
+      spec = await this.spec(proj, task);
+    }
+    const rec = find();
     if (!rec) throw new RepoError(koText('worktree_missing'));
-    const spec = await this.spec(proj, task);
     return { rec, spec };
   }
 
   /** P4: sync / resolve / mergeContinue / mergeAbort inside the task worktree (conflicts.ts). */
   private async syncAction(req: RepoAction, proj: ProjectFolder): Promise<WriteResult> {
-    const { rec, spec } = await this.taskWorktree(proj, req.task ?? '');
+    const { rec, spec } = await this.taskWorktree(proj, req.task ?? '', req.action === 'sync');
     if (!spec.exists) throw new RepoError(koText('worktree_missing'));
     let out: SyncOutcome;
     if (req.action === 'sync') {
@@ -919,13 +958,15 @@ export class RepoManager {
     if (refusal || !proj) return { ok: false, ...(refusal ?? { code: 'unknown_project', error: koText('project_unregistered') }) };
     if (!this.o.conflictHandoff) return { ok: false, code: 'no_engine', ...refused('not_engine_project') };
     try {
-      const { rec } = await this.taskWorktree(proj, req.task ?? '');
+      // The agent resolves it in the folder: one that is gone (an old Codex run's) is checked out again.
+      const { rec, spec } = await this.taskWorktree(proj, req.task ?? '', true);
       if (FULL_SHA.test(rec.base)) return { ok: false, code: 'no_base', ...refused('merge_no_base') };
       const files = await mergeConflicts(this.run, await repoRoot(this.run, proj.folder), rec.branch, rec.base);
       if (!files.length) return { ok: false, code: 'no_conflict', ...refused('conflict_none', { base: rec.base }) };
       const out = await this.o.conflictHandoff({
         project: proj.name,
         worktree: rec.task,
+        path: spec.path,
         ...(rec.taskId && { taskId: rec.taskId }),
         ...(rec.assignmentId && { assignmentId: rec.assignmentId }),
         base: rec.base,
@@ -1003,13 +1044,16 @@ export class RepoManager {
   }
 
   /** P4 작업 폴더 정리: merged or idle worktrees, sized now. */
-  private async cleanupList(req: { requestId: string; project: string }): Promise<RepoCleanupListResult> {
+  private async cleanupList(
+    req: { requestId: string; project: string },
+    again?: (m: RepoCleanupListResult) => void,
+  ): Promise<RepoCleanupListResult> {
     const head = { type: 'repoCleanupListResult' as const, requestId: req.requestId, project: req.project };
     const proj = this.project(req.project);
     if (!proj) return { ...head, ok: false, ...refused('project_unregistered') };
     try {
       const top = await repoRoot(this.run, proj.folder);
-      const rows = await cleanupRows(
+      const { rows, unsized } = await cleanupRows(
         (await this.worktreeRows(proj, top, false)).map((w) => {
           const m = this.history.last(proj.name, w.task);
           return {
@@ -1018,7 +1062,13 @@ export class RepoManager {
             changedFiles: async () => (await readWorktreeDetail(this.run, top, w)).files.length,
           };
         }),
+        (dir) => this.sizes.get(dir),
       );
+      // The sizes not known yet are measured after this answer; the same request is answered again then.
+      if (unsized.length && again)
+        void this.sizes.measure(unsized).then(() => this.cleanupList(req)).then(again, (err: unknown) => {
+          console.warn(`[cld repo] cleanup sizes: ${String(err)}`);
+        });
       return { ...head, ok: true, rows };
     } catch (err) {
       if (!(err instanceof RepoError)) console.warn(`[cld repo] cleanup list: ${String(err)}`);

@@ -412,9 +412,9 @@ export interface TaskStoreOptions {
 export class TaskStore {
   private tasks: Task[] = [];
   /** Why the file could not be read; while set, nothing is written (the file stays as it is). */
-  readonly corrupt: string | null = null;
+  corrupt: string | null = null;
   /** Why the file is readable but must not be written (not migrated); edits are refused. */
-  readonly unwritable: string | null = null;
+  unwritable: string | null = null;
   /** The file's other top-level keys, written back as they were. */
   private extra: Record<string, unknown> = {};
   private doc(tasks: Task[]) {
@@ -427,6 +427,21 @@ export class TaskStore {
     private readonly log: (line: string) => void = (l) => console.warn(`[cld] ${l}`),
     private readonly opts: TaskStoreOptions = {},
   ) {
+    this.read();
+  }
+
+  /** Read tasks.json again (after a rename changed it) and announce it. */
+  reload(): void {
+    this.tasks = [];
+    this.extra = {};
+    this.corrupt = null;
+    this.unwritable = null;
+    this.read();
+    this.changed();
+  }
+
+  private read(): void {
+    const { file, opts } = this;
     let raw: Record<string, unknown> | null;
     try {
       raw = readJson(file) as typeof raw;

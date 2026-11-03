@@ -10,6 +10,8 @@ import {
   diffRuns,
   fileLetter,
   groupFiles,
+  gutterCols,
+  gutterTemplate,
   isConflict,
   pushBlocked,
   type RepoConfirm,
@@ -365,5 +367,24 @@ describe('W2: a Task worktree', () => {
     expect(worktreeOfTask(list, 'T-4')).toBeUndefined();
     expect(worktreeOfTask(undefined, 'T-3')).toBeUndefined();
     expect(worktreeOfTask(list, undefined)).toBeUndefined();
+  });
+});
+
+describe('gutterCols', () => {
+  it('sizes each column by its largest number', () => {
+    const rows = diffRows('@@ -8,2 +98,3 @@\n same\n-old\n+new\n+more');
+    expect(gutterCols(rows)).toEqual({ old: 2, new: 4 });
+    expect(gutterTemplate(gutterCols(rows))).toBe('2ch 4ch 1fr');
+  });
+  it('leaves out the old column of a new file and the new column of a deleted one', () => {
+    const added = diffRows('diff --git a/x b/x\nnew file mode 100644\n--- /dev/null\n+++ b/x\n@@ -0,0 +1,2 @@\n+a\n+b');
+    expect(gutterCols(added)).toEqual({ old: 0, new: 2 });
+    expect(gutterTemplate(gutterCols(added))).toBe('2ch 1fr');
+    const gone = diffRows('@@ -1,2 +0,0 @@\n-a\n-b');
+    expect(gutterCols(gone)).toEqual({ old: 2, new: 0 });
+    expect(gutterTemplate(gutterCols(gone))).toBe('2ch 1fr');
+  });
+  it('an empty diff has no gutter', () => {
+    expect(gutterTemplate(gutterCols([]))).toBe('1fr');
   });
 });

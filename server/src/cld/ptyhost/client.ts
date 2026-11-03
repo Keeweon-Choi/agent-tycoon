@@ -5,11 +5,14 @@
  * and ends the subscriptions (their viewers reconnect); the next request connects again, so a
  * daemon restart or a new host needs nothing else.
  */
+import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 
 import { PTYHOST_CONNECT_MS, PTYHOST_REQUEST_MS, PTYHOST_SPAWN_MS } from '../../constants.js';
+import { claudeCommand } from '../engine/agents/claude/claude.js';
+import { readJson } from '../jsonFile.js';
 import type { ProgramStatus } from './programStatus.js';
 import type { Op, TerminalInfo } from './protocol.js';
 import { endpointFor, frame, lineReader, PTYHOST_VERSION, ptyhostPaths } from './protocol.js';
@@ -37,17 +40,73 @@ export function ensureToken(home: string): string {
   }
 }
 
+/** terminals.json's well-formed rows (a killed host leaves dead ones: check the pid). */
+export function listedTerminals(home: string): TerminalInfo[] {
+  let list: unknown;
+  try {
+    list = readJson(ptyhostPaths(home).terminals);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  return (list as TerminalInfo[]).filter(
+    (t) => t && typeof t.id === 'string' && Number.isInteger(t.pid) && t.pid > 0 && !!t.meta && typeof t.meta === 'object',
+  );
+}
+
+/**
+ * Starts the host outside our service's cgroup (its own systemd user scope, else setsid), as
+ * `claude --bg` ran: a redeploy of the daemon must not take its terminals with it. A scope that
+ * fails once (systemd-run exits non-zero) is not tried again.
+ */
+export function hostLauncher(o: {
+  home: string;
+  hostScript: string;
+  env: NodeJS.ProcessEnv;
+  systemdRun: string | null;
+  log: (line: string) => void;
+}): () => void {
+  let scope = o.systemdRun;
+  const launch = (retry: boolean): void => {
+    const dir = ptyhostPaths(o.home).dir;
+    const cmd = claudeCommand(process.execPath, ['--max-semi-space-size=1', o.hostScript, dir], scope);
+    try {
+      const child = spawn(cmd.file, cmd.args, {
+        cwd: dir,
+        env: o.env,
+        stdio: 'ignore',
+        detached: true,
+        windowsHide: true, // detached on Windows would open a console window
+      });
+      child.on('error', (err) => o.log(`PTY host: ${err.message}`));
+      child.on('exit', (code) => {
+        if (code === 0 || !scope || !retry) return;
+        // A host that left because one already listens exits 0; systemd-run failing does not.
+        o.log(`PTY host in a systemd scope exited ${code}; starting it with setsid from now on`);
+        scope = null;
+        launch(false);
+      });
+      child.unref();
+    } catch (err) {
+      o.log(`PTY host: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  return () => launch(true);
+}
+
 export class PtyHostClient {
   private sock: net.Socket | null = null;
   private connecting: Promise<void> | null = null;
   private serial = 0;
   private readonly pending = new Map<number, { done: (r: Reply) => void; timer: NodeJS.Timeout }>();
-  private readonly subs = new Map<string, { data: (d: string) => void; end: () => void }>();
+  /** `end(code)`: the terminal exited with `code`; no code: the connection to the host went. */
+  private readonly subs = new Map<string, { data: (d: string) => void; end: (code?: number) => void }>();
   /** OSC 7501 per terminal, as the host last reported it. */
   readonly status = new Map<string, ProgramStatus>();
   private readonly listeners = new Set<() => void>();
   /** The host process's pid, from its hello (the dev room's memory line). */
   pid: number | undefined;
+  readonly home: string;
 
   constructor(
     private readonly o: {
@@ -57,7 +116,9 @@ export class PtyHostClient {
       log: (line: string) => void;
       connectMs?: number;
     },
-  ) {}
+  ) {
+    this.home = o.home;
+  }
 
   /** `cb` on a status change or a terminal's exit; returns the unsubscribe. */
   onChange(cb: () => void): () => void {
@@ -149,10 +210,11 @@ export class PtyHostClient {
       for (const cb of this.listeners) cb();
     } else if (m.ev === 'exit' && typeof m.t === 'string') {
       this.status.delete(m.t);
+      const code = typeof m.code === 'number' ? m.code : 0;
       for (const [s, sub] of this.subs)
         if (s.startsWith(`${m.t}.`)) {
           this.subs.delete(s);
-          sub.end();
+          sub.end(code);
         }
       for (const cb of this.listeners) cb();
     }
@@ -206,8 +268,40 @@ export class PtyHostClient {
     return this.call('write', { t, data });
   }
 
-  /** Output of terminal `t`: its screen now, then each chunk; `end` when it exits or the host goes. */
-  async subscribe(t: string, data: (d: string) => void, end: () => void): Promise<Subscription | null> {
+  /** MSG-RECALL: viewers' keys for terminal `t` wait while the engine types into it. */
+  private readonly typingInto = new Map<string, string[]>();
+
+  /** A viewer's keys: held while the engine types into `t` (typing), else written now. */
+  viewerWrite(t: string, data: string): Promise<Reply> {
+    const held = this.typingInto.get(t);
+    if (!held) return this.write(t, data);
+    held.push(data);
+    return Promise.resolve({ ok: true });
+  }
+
+  /**
+   * MSG-RECALL: `fn` (a delivery: the input box check, the paste, its Enter) with no viewer key in
+   * between (an Up there recalled an older prompt over ours, 11-01 14:51); the keys held meanwhile
+   * go in after it, in order, so a viewer's key is late, never lost.
+   */
+  async typing<T>(t: string, fn: () => Promise<T>): Promise<T> {
+    if (this.typingInto.has(t)) return fn(); // one delivery at a time per terminal (the messenger's)
+    this.typingInto.set(t, []);
+    try {
+      return await fn();
+    } finally {
+      const held = this.typingInto.get(t) ?? [];
+      this.typingInto.delete(t);
+      if (held.length) await this.write(t, held.join(''));
+    }
+  }
+
+  /** Output of terminal `t`: its screen now, then each chunk; `end(code)` when it exits, `end()` when the host goes. */
+  async subscribe(
+    t: string,
+    data: (d: string) => void,
+    end: (code?: number) => void,
+  ): Promise<Subscription | null> {
     try {
       await this.connect(false);
     } catch {
@@ -229,6 +323,17 @@ export class PtyHostClient {
         if (this.subs.delete(s)) void this.request('unsubscribe', { s });
       },
     };
+  }
+
+  /** Terminal `t`'s visible screen now (serialized, no scrollback), or null (no host, no such
+   *  terminal). A host from before the `screen` op: a subscription's snapshot, taken and dropped. */
+  async screen(t: string): Promise<{ snapshot: string; cols: number; rows: number } | null> {
+    const r = await this.call('screen', { t });
+    if (r.ok && typeof r.snapshot === 'string') return { snapshot: r.snapshot, cols: Number(r.cols), rows: Number(r.rows) };
+    if (r.error !== 'unknown op') return null;
+    const sub = await this.subscribe(t, () => undefined, () => undefined);
+    sub?.off();
+    return sub;
   }
 
   /** How many of this daemon's subscriptions watch terminal `t` (its viewers). */

@@ -28,9 +28,9 @@ import type { Character, SpriteData } from '../../office/types.js';
 import { employeeName, employeeOf } from '../employees.js';
 import { closeWindow, openWindow } from '../hud/hudStore.js';
 import { cldGetSnapshot, useCldStore, virtualAgentId } from '../officeStore.js';
-import { setSipAnchor } from '../rest.js';
+import { setDrinkCells, setSipAnchor } from '../rest.js';
 import { compose, type DenseSheet, lookKey, portraitOf } from './compose.js';
-import { importedSheet } from './importedSheet.js';
+import { importedEight, importedSheet } from './importedSheet.js';
 import type { PartData } from './parts.js';
 
 /** Preset sheets take palette numbers from here up (the built-ins are 0-5). */
@@ -135,6 +135,12 @@ export function presetSheet(id: string, presets: CharacterPresets) {
   return typeof palette === 'number' ? getCustomCharacter(palette) : null;
 }
 
+/** CHAR-ISO-1: a preset sheet's column count (8 with the walking neutral); 7 until it loads. */
+export function presetColumns(preset: CharacterPreset): number {
+  const palette = presetPalette(preset);
+  return (palette !== null && getCustomCharacter(palette)?.sheet.down.length) || FRAMES;
+}
+
 /** SHEET-IMPORT: the palette a preset draws under once loaded (it starts loading), else null. */
 export function presetPalette(preset: CharacterPreset): number | null {
   load(preset);
@@ -194,7 +200,7 @@ function load(preset: CharacterPreset): void {
 function loadSheet(
   url: string,
   mugshotUrl: string | null,
-  preset: Pick<CharacterPreset, 'format' | 'columns' | 'walk'>,
+  preset: Pick<CharacterPreset, 'format' | 'columns' | 'walk' | 'drinkSteam'>,
   /** This is the isometric sheet beside the top view at this url. */
   isoOf?: string,
 ): void {
@@ -207,18 +213,37 @@ function loadSheet(
       // an imported sheet: 7 columns, or 8 with the walking neutral (CHAR-ISO-1)
       const cols = img.width / (IMPORT_WORLD_W * IMPORT_DENSITY);
       if (cols === FRAMES || cols === FRAMES + 1) {
-        const sheet = importedSheet(img, {
-          iso: preset.format === 'iso',
+        const opts = {
           standFirst: preset.columns === 'standFirst',
           twoStep: preset.walk === 'two',
-        });
-        setCustomCharacter(palette, sheet, null);
-        sheets.set(url, palette);
-        const top = isoOf ? sheets.get(isoOf) : undefined;
-        if (typeof top === 'number') setIsoPalette(top, palette);
-        const iso = !isoOf && isoUrls.get(url);
-        const isoPalette = iso ? sheets.get(iso) : undefined;
-        if (typeof isoPalette === 'number') setIsoPalette(palette, isoPalette);
+        };
+        if (preset.format === 'iso8') {
+          // CHAR-8DIR: both views in one sheet: the top view on this palette, the isometric beside it
+          const both = importedEight(img, opts);
+          const isoPalette = nextPalette++;
+          setCustomCharacter(isoPalette, both.iso, null);
+          setCustomCharacter(palette, both.top, null);
+          setIsoPalette(palette, isoPalette);
+          // C1: its drinking poses (a 6th row), shown in the three-quarter view while it drinks
+          if (both.drink) {
+            const steam = both.drink.map(() => null as readonly [number, number] | null);
+            for (const s of preset.drinkSteam ?? []) steam[s.col - 1] = [s.x, s.y];
+            setDrinkCells(isoPalette, { cells: both.drink, steam });
+          }
+          sheets.set(url, palette);
+        } else {
+          setCustomCharacter(
+            palette,
+            importedSheet(img, { ...opts, iso: preset.format === 'iso' }),
+            null,
+          );
+          sheets.set(url, palette);
+          const top = isoOf ? sheets.get(isoOf) : undefined;
+          if (typeof top === 'number') setIsoPalette(top, palette);
+          const iso = !isoOf && isoUrls.get(url);
+          const isoPalette = iso ? sheets.get(iso) : undefined;
+          if (typeof isoPalette === 'number') setIsoPalette(palette, isoPalette);
+        }
         update({ version: ui.version + 1 });
         return;
       }

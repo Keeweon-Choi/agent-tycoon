@@ -340,6 +340,25 @@ export function diffRows(text: string): DiffRow[] {
 }
 
 /**
+ * The diff gutter's two number columns, each as wide as its largest number plus one character of air
+ * (0 = the column has no numbers and is left out: a new file has no old side, a deleted one no new side).
+ */
+export function gutterCols(rows: readonly DiffRow[]): { old: number; new: number } {
+  const wide = (no: number | undefined) => (no === undefined ? 0 : String(no).length);
+  let o = 0;
+  let n = 0;
+  for (const row of rows) {
+    o = Math.max(o, wide(row.oldNo));
+    n = Math.max(n, wide(row.newNo));
+  }
+  return { old: o && o + 1, new: n && n + 1 };
+}
+
+/** The CSS grid template of a diff row for those columns: [old] [new] code. */
+export const gutterTemplate = (cols: { old: number; new: number }): string =>
+  `${cols.old ? `${cols.old}ch ` : ''}${cols.new ? `${cols.new}ch ` : ''}1fr`;
+
+/**
  * A unified diff as runs of consecutive lines of one kind (a few big nodes,
  * not one per line). Before a file's first `@@` every line is header; inside a
  * hunk only its first character counts, so a removed `-- x` is not a `---`.

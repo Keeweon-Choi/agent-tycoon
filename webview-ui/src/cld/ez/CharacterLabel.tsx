@@ -15,6 +15,7 @@ import {
   OFF_OVERLAY_ALPHA,
   OVERLAY_LABEL_SELECTED_Z_INDEX,
   OVERLAY_LABEL_Z_INDEX,
+  PHONE_CARD_OTHERS_ALPHA,
   STAT_SUMMARY_BAR_PX,
   STAT_SUMMARY_FACE_PX,
   STAT_SUMMARY_MAX_PX,
@@ -28,6 +29,7 @@ import type { OverlayProjection } from '../../office/projection.js';
 import type { Character } from '../../office/types.js';
 import { CharacterState } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
+import { CharacterMenuItems } from '../characters/CharacterMenu.js';
 import { employeeOf } from '../employees.js';
 import { useEngineProject } from '../engineStore.js';
 import { activityElapsed, type CharacterKind, kindLabel } from '../kinds.js';
@@ -113,6 +115,11 @@ export interface CharacterLabelProps {
   /** SHEET-IMPORT: how much taller than a classic figure it stands (world px): what sits over
    *  its head rises by it; what sits at its feet stays. */
   lift?: number;
+  /** UI-PHONE: the character's look name when its menu (대화 / 꾸미기 / 스탯) is a row of this card
+   *  (the phone; the selected agent only). */
+  menuName?: string;
+  /** UI-PHONE: another character's card is open on the phone: this one steps back. */
+  dim?: boolean;
 }
 
 export function CharacterLabel({
@@ -132,6 +139,8 @@ export function CharacterLabel({
   plateSize,
   bounds,
   lift = 0,
+  menuName,
+  dim = false,
 }: CharacterLabelProps) {
   // UI-SCALE: the plate's sizes are the 화면 크기 step's, never the screen width's.
   const sizes = nameplateSizes(useUiScale());
@@ -257,7 +266,10 @@ export function CharacterLabel({
           left: at.x,
           top: at.y,
           pointerEvents: selected ? 'auto' : 'none',
-          opacity: offAlpha(!!identity?.off, details, OFF_OVERLAY_ALPHA),
+          opacity: Math.min(
+            offAlpha(!!identity?.off, details, OFF_OVERLAY_ALPHA),
+            dim ? PHONE_CARD_OTHERS_ALPHA : 1,
+          ),
           zIndex: details ? OVERLAY_LABEL_SELECTED_Z_INDEX : OVERLAY_LABEL_Z_INDEX,
         }}
         data-testid="agent-overlay"
@@ -365,6 +377,17 @@ export function CharacterLabel({
             </Button>
           )}
         </div>
+        {selected && menuName !== undefined && (
+          // UI-PHONE: the menu is the card's own bottom row, so nothing floats between them.
+          <div
+            className="flex w-full gap-2 pixel-panel p-2"
+            role="menu"
+            aria-label={t('character.menu', { name })}
+            data-testid="card-menu"
+          >
+            <CharacterMenuItems agentId={ch.id} name={menuName} owner={false} row />
+          </div>
+        )}
       </div>
     </>
   );

@@ -7,9 +7,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { UsageLimitWindow, UsageState } from '../../../core/src/messages.js';
 import {
+  CLAUDE_USAGE_API_FILE,
+  CLAUDE_USAGE_BACKOFF_MAX_MS,
   CLAUDE_USAGE_BETA,
+  CLAUDE_USAGE_STALE_MS,
   USAGE_EARLY_RESET_MIN_FUTURE_MS,
   USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS,
+  USAGE_REFRESH_MS,
 } from '../constants.js';
 import { REPO_ROOT } from './testHome.js';
 import {
@@ -19,6 +23,7 @@ import {
   codexOwnUsage,
   earlyResets,
   type ReadKeychain,
+  retryAfterMs,
   UsageSource,
 } from './usage.js';
 
@@ -401,11 +406,12 @@ describe('UsageSource', () => {
       reads++;
       return null;
     };
-    const { source, changes } = listen(home, { usageUrl: api.url, keychain: broken });
+    const bare = tempHome(); // the first run saved its reading in `home`, which would hold a restart off
+    const { source, changes } = listen(bare, { usageUrl: api.url, keychain: broken });
     source.setViewing(true);
     await vi.waitFor(() => expect(changes).toHaveLength(1));
     expect(api.seen).toHaveLength(1); // no Keychain item, no file: no request
-    writeCreds(home, Date.now() + HOUR * 1000);
+    writeCreds(bare, Date.now() + HOUR * 1000);
     await view(source, changes, 2);
     source.stop();
     expect(reads).toBe(1);
@@ -539,6 +545,108 @@ it('claudeUsageUrl: a test daemon may point it at 127.0.0.1 only', () => {
     expect(claudeUsageUrl({ CLD_GUI_TEST_CLAUDE_USAGE_URL: other })).not.toBe(other);
 });
 
+describe('UsageSource backoff (429, 5xx, network)', () => {
+  const MIN = 60_000;
+  const week = new Date(Date.now() + 5 * 86_400_000).toISOString();
+  const good = { seven_day: { utilization: 16, resets_at: week } };
+  type Step = { status: number; retryAfter?: string; body?: unknown } | 'network';
+  /** A fake clock and a fake endpoint scripted per request; `at(min)` reads the source at that minute. */
+  function setup(script: (n: number) => Step) {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+    const home = tempHome();
+    writeCreds(home, start + 48 * 3600 * 1000);
+    const output = printed();
+    const fetchMock = vi.fn(async () => {
+      const step = script(fetchMock.mock.calls.length);
+      if (step === 'network') throw new TypeError('fetch failed');
+      return new Response(JSON.stringify(step.body ?? {}), {
+        status: step.status,
+        headers: step.retryAfter ? { 'retry-after': step.retryAfter } : {},
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const source = new UsageSource(options(home), () => undefined);
+    const at = async (ms: number) => {
+      vi.setSystemTime(start + ms);
+      await source.refreshNow();
+      return { claude: providerOf(source.usage, 'claude'), requests: fetchMock.mock.calls.length };
+    };
+    return { at, output, start };
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads Retry-After as seconds or an HTTP date', () => {
+    expect(retryAfterMs('120', 0)).toBe(120_000);
+    expect(retryAfterMs(new Date(90_000).toUTCString(), 0)).toBe(90_000);
+    expect(retryAfterMs('soon', 0)).toBeNull();
+    expect(retryAfterMs(null, 0)).toBeNull();
+  });
+
+  it('429 with Retry-After waits that long (capped); the last good reading stays meanwhile', async () => {
+    const { at, output } = setup(
+      (n) =>
+        n === 1
+          ? { status: 200, body: good }
+          : { status: 429, retryAfter: n === 2 ? '600' : '86400' }, // 10 min, then a day
+    );
+    expect((await at(0)).claude?.windows).toHaveLength(1);
+    const first = await at(2 * MIN); // 429 -> wait 10 min
+    expect(first.requests).toBe(2);
+    expect(first.claude?.windows).toEqual([{ id: '7d', pct: 16, resetAt: week }]);
+    expect((await at(11 * MIN)).requests).toBe(2); // still waiting
+    expect((await at(12 * MIN)).requests).toBe(3);
+    // A day-long Retry-After is capped.
+    expect((await at(12 * MIN + CLAUDE_USAGE_BACKOFF_MAX_MS - MIN)).requests).toBe(3);
+    expect((await at(12 * MIN + CLAUDE_USAGE_BACKOFF_MAX_MS)).requests).toBe(4);
+    expect(output()).not.toContain(TOKEN);
+  });
+
+  it('without Retry-After it doubles up to the cap; a success resets to the base interval', async () => {
+    let failing = true;
+    const { at } = setup(() => (failing ? { status: 429 } : { status: 200, body: good }));
+    let t = 0;
+    let requests = (await at(t)).requests; // failure 1 -> wait 4, then 8, 16, 30, 30
+    for (const wait of [4, 8, 16, 30, 30]) {
+      expect((await at(t + wait * MIN - 1000)).requests).toBe(requests); // too early
+      t += wait * MIN;
+      expect((await at(t)).requests).toBe(++requests); // asked again
+    }
+    failing = false;
+    expect((await at(t + 30 * MIN)).claude?.windows).toHaveLength(1);
+    t += 30 * MIN;
+    const after = (await at(t + USAGE_REFRESH_MS)).requests; // back to the base interval
+    expect(after).toBe(requests + 2);
+  });
+
+  it('5xx and network errors back off too; a 401 does not and drops the reading', async () => {
+    const steps: Step[] = [
+      { status: 200, body: good },
+      { status: 503 },
+      'network',
+      { status: 401 },
+    ];
+    const { at } = setup((n) => steps[n - 1] ?? { status: 401 });
+    await at(0);
+    expect((await at(2 * MIN)).requests).toBe(2); // 503 -> wait 4
+    expect((await at(5 * MIN)).requests).toBe(2);
+    expect((await at(6 * MIN)).requests).toBe(3); // network error -> wait 8
+    expect((await at(13 * MIN)).requests).toBe(3);
+    const refused = await at(14 * MIN); // 401: base interval, no figures from the endpoint
+    expect(refused.requests).toBe(4);
+    expect(refused.claude?.windows).toEqual([]);
+    expect((await at(16 * MIN)).requests).toBe(5);
+  });
+
+  it('the last good reading expires after the stale limit and the status-line file takes over', async () => {
+    const steps = (n: number): Step => (n === 1 ? { status: 200, body: good } : { status: 429 });
+    const { at } = setup(steps);
+    await at(0);
+    expect((await at(CLAUDE_USAGE_STALE_MS - MIN)).claude?.windows).toHaveLength(1);
+    expect((await at(CLAUDE_USAGE_STALE_MS + MIN)).claude?.windows).toEqual([]);
+  });
+});
+
 describe('earlyResets', () => {
   const now = Date.parse('2026-10-24T00:00:00.000Z');
   const reading = (pct: number, resetAt: number) => ({
@@ -596,5 +704,91 @@ describe('earlyResets', () => {
         now,
       ),
     ).toEqual([]);
+  });
+});
+
+describe('UsageSource keeps the last endpoint reading across a restart', () => {
+  const week = new Date(Date.now() + 5 * 86_400_000).toISOString();
+  const body = {
+    seven_day: { utilization: 16, resets_at: week },
+    limits: [
+      {
+        kind: 'weekly_scoped',
+        group: 'weekly',
+        percent: 18,
+        resets_at: week,
+        scope: { model: { id: null, display_name: 'Fable' }, surface: null },
+      },
+    ],
+  };
+  const stub = (status: number, answer: unknown = body) => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(answer), { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  };
+  const savedFile = (home: string) =>
+    path.join(path.dirname(claudeUsageFile(home)), CLAUDE_USAGE_API_FILE);
+  const refresh = async (home: string) => {
+    const source = new UsageSource(options(home), () => undefined);
+    await source.refreshNow();
+    return providerOf(source.usage, 'claude');
+  };
+  const save = (home: string, at: number) => {
+    const file = savedFile(home);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        at,
+        claude: {
+          id: 'claude',
+          name: 'Claude',
+          windows: [{ id: '7d', pct: 16, resetAt: week }],
+          models: [{ family: 'fable', pct: 0, reset: week }],
+        },
+      }),
+    );
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('saves a good reading without the token', async () => {
+    const home = tempHome();
+    writeCreds(home, Date.now() + 48 * 3600 * 1000);
+    stub(200);
+    await refresh(home);
+    const text = fs.readFileSync(savedFile(home), 'utf-8');
+    expect(text).not.toContain(TOKEN);
+    expect(text).toContain('fable');
+    expect(fs.readdirSync(path.dirname(savedFile(home))).filter((f) => f.endsWith('.tmp'))).toEqual(
+      [],
+    );
+  });
+
+  it('shows a fresh saved reading (model window included) after a restart even when the request answers 429', async () => {
+    const home = tempHome();
+    writeCreds(home, Date.now() + 48 * 3600 * 1000);
+    stub(200);
+    await refresh(home);
+    const fetchMock = stub(429);
+    const claude = await refresh(home); // a new UsageSource: the restart
+    expect(claude?.models?.[0]?.family).toBe('fable');
+    expect(fetchMock).not.toHaveBeenCalled(); // young enough to hold the first request off
+  });
+
+  it('asks at once when the saved reading is older than the refresh gap, and shows it on a 429', async () => {
+    const home = tempHome();
+    writeCreds(home, Date.now() + 48 * 3600 * 1000);
+    save(home, Date.now() - USAGE_REFRESH_MS * 2);
+    const fetchMock = stub(429);
+    expect((await refresh(home))?.models?.[0]?.family).toBe('fable');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not show a saved reading older than the stale limit', async () => {
+    const home = tempHome();
+    writeCreds(home, Date.now() + 48 * 3600 * 1000);
+    save(home, Date.now() - CLAUDE_USAGE_STALE_MS - 60_000);
+    stub(429);
+    expect((await refresh(home))?.windows).toEqual([]);
   });
 });

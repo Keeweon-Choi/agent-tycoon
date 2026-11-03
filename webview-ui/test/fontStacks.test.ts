@@ -30,7 +30,7 @@ describe('pixel font stacks (T-0054)', () => {
     // the --font-pixel token, the login page and the two canvas call sites
     expect(stacks.length).toBeGreaterThanOrEqual(2);
     expect(PIXEL_FONT_FAMILY).toMatch(/^'FS Pixel Sans', 'Galmuri11'$/);
-    expect(read('src/index.css')).toContain("--font-pixel: 'FS Pixel Sans', 'Galmuri11'");
+    expect(read('src/index.css')).toContain("--pixel-font-stack: 'FS Pixel Sans', 'Galmuri11'");
     expect(read('src/cld/login/login.css')).toContain("'FS Pixel Sans', 'Galmuri11'");
   });
 

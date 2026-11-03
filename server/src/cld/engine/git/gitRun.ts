@@ -150,6 +150,16 @@ export interface GitOptions {
   /** W2 (N7): the owner's confirmed commit or push from the panel: the repository's hooks and
    *  filters run as in the owner's terminal. Never for anything automatic or agent-triggered. */
   repoHooks?: boolean;
+  /** DEVROOM-PROJECT: the owner's clone only: the transports it may use (GIT_ALLOW_PROTOCOL),
+   *  instead of none. Hooks, fsmonitor and filters stay off. */
+  protocols?: string;
+  /** DEVROOM-PROJECT's clone: its own process group, no controlling terminal (POSIX; ssh cannot
+   *  prompt on one); a timeout kills the whole group. */
+  detached?: boolean;
+  /** CLONE-PROGRESS: each stderr chunk as it arrives (the result's `stderr` stays capped). */
+  onStderr?: (chunk: string) => void;
+  /** CLONE-PROGRESS: aborting kills git (its group when detached), as a timeout does. */
+  signal?: AbortSignal;
 }
 
 /** Run `git <args>` in `cwd` (absolute). Rejects only when git cannot be started. */
@@ -215,13 +225,26 @@ export function createGitRunner(o: GitRunnerOptions = {}): GitRunner {
       // Never fall back to the daemon's own cwd, which may be a real repository.
       if (!path.isAbsolute(cwd)) return reject(new Error('git: cwd must be an absolute path'));
       const maxBytes = opts.maxBytes ?? GIT_MAX_BYTES;
+      const detached = opts.detached === true && process.platform !== 'win32';
       const child = (o.spawnFn ?? spawn)(gitPath, args, {
         cwd,
         env: gitEnv(o.env ?? process.env, opts.env),
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
         windowsHide: true,
+        detached,
       });
+      // Our own group (git and the ssh it started), never anything else.
+      const kill = () => {
+        try {
+          if (detached && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else child.kill('SIGKILL');
+        } catch {
+          child.kill('SIGKILL');
+        }
+      };
+      opts.signal?.addEventListener('abort', kill, { once: true });
+      if (opts.signal?.aborted) kill();
       const chunks: Buffer[] = [];
       let size = 0;
       let stderr = '';
@@ -229,7 +252,7 @@ export function createGitRunner(o: GitRunnerOptions = {}): GitRunner {
       let timedOut = false;
       const timer = setTimeout(() => {
         timedOut = true;
-        child.kill('SIGKILL');
+        kill();
       }, opts.timeoutMs ?? GIT_TIMEOUT_MS);
       child.stdout?.on('data', (b: Buffer) => {
         if (capped) return;
@@ -237,11 +260,13 @@ export function createGitRunner(o: GitRunnerOptions = {}): GitRunner {
         size += b.length;
         if (size >= maxBytes) {
           capped = true;
-          child.kill('SIGKILL');
+          kill();
         }
       });
       child.stderr?.on('data', (b: Buffer) => {
-        if (stderr.length < STDERR_MAX) stderr += b.toString('utf-8');
+        const text = b.toString('utf-8');
+        if (stderr.length < STDERR_MAX) stderr += text;
+        opts.onStderr?.(text);
       });
       child.on('error', (err) => {
         clearTimeout(timer);
@@ -256,6 +281,7 @@ export function createGitRunner(o: GitRunnerOptions = {}): GitRunner {
       });
       child.on('close', (code) => {
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', kill);
         resolve({
           code: capped || timedOut ? null : code,
           stdout: Buffer.concat(chunks),
@@ -313,6 +339,8 @@ export function createGitRunner(o: GitRunnerOptions = {}): GitRunner {
       if (r.code !== 0 && r.code !== 1 && r.code !== 128) return r;
       filters = filterOverrides(r.stdout.toString('utf-8'));
     }
-    return raw(cwd, args, { ...opts, env: guard([...NO_REPO_CODE, ...filters], opts.env) });
+    const env = guard([...NO_REPO_CODE, ...filters], opts.env);
+    if (opts.protocols !== undefined) env.GIT_ALLOW_PROTOCOL = opts.protocols;
+    return raw(cwd, args, { ...opts, env });
   };
 }

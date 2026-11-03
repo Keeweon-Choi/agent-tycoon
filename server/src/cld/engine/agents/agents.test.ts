@@ -16,11 +16,12 @@ import { ENTRY_DEFAULTS } from '../../providers/types.js';
 import type { SpawnFn } from '../../spawnJson.js';
 import { engineCalls, killFakeSessions, makeEngineHome, removeTestHome } from '../../testHome.js';
 import type { EngineOptions } from '../engine.js';
-import { CLD_BIN_DIR, cldBinPath, Engine } from '../engine.js';
+import { Engine } from '../engine.js';
 import { EngineEvents, eventsPath } from '../events.js';
 import { Messenger } from '../messenger.js';
 import type { ProjectRecord } from '../registry.js';
 import { loadRegistry, registryPath, saveRegistry, sessionName } from '../registry.js';
+import { CLD_BIN_DIR, cldBinPath } from '../sessionEnv.js';
 import { CLAUDE_CAPABILITIES, ClaudeAgent } from './claude/claude.js';
 import type { AgentProvider, LiveSession, StartResult } from './types.js';
 

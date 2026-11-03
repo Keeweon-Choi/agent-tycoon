@@ -23,6 +23,13 @@ export interface AgentState {
   backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)
   isWaiting: boolean;
   permissionSent: boolean;
+  /** WAITING-PERSIST: the main turn ended on a question to the person (its last assistant text
+   *  ends with '?'); the transcript's size then, so a restart can tell whether anything came after
+   *  (question.ts, saved in questions.json). Undefined: no question. */
+  questionOffset?: number;
+  /** The newest main-chain assistant text of the current turn (reset by a user prompt): what a
+   *  turn end reads to tell a question from a statement. */
+  lastAssistantText?: string;
   /** Newest `permissionMode` from the transcript's permission-mode records
    *  (server/src/permissionMode.ts); undefined until one is seen. */
   permissionMode?: string;

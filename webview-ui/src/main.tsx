@@ -2,6 +2,7 @@ import './index.css';
 // Bundled by Vite into the SPA's own CSS — the standalone server must serve
 // every asset itself (no CDN).
 import '@xterm/xterm/css/xterm.css';
+import './cld/uiFont.js';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

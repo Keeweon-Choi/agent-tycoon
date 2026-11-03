@@ -2,6 +2,6 @@
 import { setDevroomTab } from './devroomStore.js';
 import { TaskReview } from './TaskReview.js';
 
-export function ChangesTab({ project, task }: { project: string; task: string }) {
-  return <TaskReview project={project} task={task} onMerge={() => setDevroomTab('merge')} />;
+export function ChangesTab({ project, task, on }: { project: string; task: string; on: boolean }) {
+  return <TaskReview project={project} task={task} live={on} onMerge={() => setDevroomTab('merge')} />;
 }

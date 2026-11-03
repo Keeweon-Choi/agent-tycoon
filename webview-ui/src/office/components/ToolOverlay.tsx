@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 
+import { lookNameOf } from '../../cld/characters/looks.js';
 import { employeeFatigue, employeeOf } from '../../cld/employees.js';
 import { describeActivity } from '../../cld/ez/activity.js';
 import { CharacterLabel } from '../../cld/ez/CharacterLabel.js';
 import { FatigueBar, RestBubble } from '../../cld/ez/Fatigue.js';
 import { fatigueRules } from '../../cld/ez/fatigueState.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
+import { OwnerPlate } from '../../cld/ez/OwnerPlate.js';
 import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
 import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';
 import { drawnShift } from '../../cld/floors.js';
@@ -35,6 +37,7 @@ import {
   OVERLAY_BUBBLE_Z_INDEX,
   OVERLAY_LABEL_SELECTED_Z_INDEX,
   OVERLAY_LABEL_Z_INDEX,
+  OWNER_CHARACTER_ID,
   TEAM_LEAD_COLOR,
   TEAM_ROLE_COLOR,
   TOOL_OVERLAY_VERTICAL_OFFSET,
@@ -70,6 +73,10 @@ interface ToolOverlayProps {
   panRef: React.RefObject<{ x: number; y: number }>;
   onCloseAgent: (id: number) => void;
   alwaysShowOverlay: boolean;
+  /** UI-PHONE: the phone shell: an open summary card dims every other plate. */
+  phone?: boolean;
+  /** UI-PHONE: the selected agent's menu is a row of its card (the phone, when menus are on). */
+  cardMenu?: boolean;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -148,6 +155,8 @@ export function ToolOverlay({
   panRef,
   onCloseAgent,
   alwaysShowOverlay,
+  phone = false,
+  cardMenu = false,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   // charpack v3 §6A: the nameplates' overlap pass (at once on a new focus or zoom).
@@ -177,6 +186,7 @@ export function ToolOverlay({
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
   const officeSnapshot = cldGetSnapshot();
+  const cardOpen = phone && selectedId !== null && selectedId !== OWNER_CHARACTER_ID;
 
   const bubbleFor = (ch: Character, id: number, at: OverlayProjection, other: boolean) => {
     if (!ch.bubbleType || (!other && ch.bubbleType === 'waiting' && ch.waitingAwaitingInput))
@@ -216,6 +226,23 @@ export function ToolOverlay({
 
   // All character IDs
   const allIds = [...agents, ...subagentCharacters.map((s) => s.id)];
+
+  // OWNER-HUD: the owner's character is no agent (not in allIds): its "나" plate, on its floor only.
+  const ownerPlate = () => {
+    const owner = officeState.characters.get(OWNER_CHARACTER_ID);
+    if (!owner || !officeSnapshot.officeSnapshot) return null;
+    const iso = isoOverlayFor(owner, dpr, baseProject);
+    const shift = iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, owner.y);
+    if (shift !== 0) return null;
+    return (
+      <OwnerPlate
+        ch={owner}
+        project={iso?.project ?? baseProject}
+        lift={characterLift(owner.palette, owner.hueShift)}
+        dim={cardOpen}
+      />
+    );
+  };
 
   // select-none (cld-gui T-0025/T-0045): a drag across the office never selects the labels.
   return (
@@ -333,6 +360,8 @@ export function ToolOverlay({
               plateSize={plateSizes.get(id)}
               lift={characterLift(ch.palette, ch.hueShift)}
               bounds={bounds}
+              menuName={cardMenu && isSelected ? lookNameOf(id, cldOffice) : undefined}
+              dim={cardOpen && !isSelected}
             />
           );
         }
@@ -543,6 +572,7 @@ export function ToolOverlay({
           </Fragment>
         );
       })}
+      {ownerPlate()}
     </div>
   );
 }

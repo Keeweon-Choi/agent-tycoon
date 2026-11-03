@@ -6,15 +6,36 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 import type { BoardTask, RepoState, RepoWorktree } from '../../../../core/src/messages.js';
 import type { AgentAppearance, TabStatus } from '../../components/AgentCard.js';
+import { DEVROOM_RESTING_DAYS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import type { ToolActivity } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
+import { employeeName } from '../employees.js';
 import { useEngineStore } from '../engineStore.js';
 import { useCldStore } from '../officeStore.js';
 import { useRepoStore } from '../repo/repoStore.js';
 import { reviewKey, useReviewStore } from '../repo/reviewStore.js';
+import { useWaitReasons } from '../waiting.js';
 import { workbenchProjects } from '../workbench/workbenchState.js';
-import { type Chip, chipOf, railOrder, shownProject, shownProjects, titleOf } from './devroomState.js';
+import { projectAgents } from './agentBoard.js';
+import {
+  type AgentColumn,
+  agentsOn,
+  type Chip,
+  chipOf,
+  columnOf,
+  phoneRows,
+  shownProject,
+  shownProjects,
+  type SubColumn,
+  subColumns,
+  titleOf,
+} from './devroomState.js';
 import { type Picked, pickKey, pickWorktree, useDevroom } from './devroomStore.js';
+
+/** DEVROOM-NAMES: who did a worktree: its assignee, else the temp employee of its Codex run. */
+export const whoName = (wt: Pick<RepoWorktree, 'assignee' | 'employee'>): string | undefined =>
+  wt.assignee ?? (wt.employee && employeeName(wt.employee));
 
 /** What the shells hand in: an agent's look and its card's status dot. */
 export const DevroomLooks = createContext<{
@@ -38,7 +59,12 @@ export interface Row {
 export interface Group {
   project: string;
   repo: RepoState | undefined;
+  /** Every row: `shown` then `resting`. */
   rows: Row[];
+  /** Needs-you first, then working, idle, merged (phoneRows). */
+  shown: Row[];
+  /** Old worktrees with no Task and nobody on them, folded into `쉬는 작업 N개`. */
+  resting: Row[];
 }
 
 /** Every Lead's project (the 작업실's list), and the groups the filter shows. */
@@ -48,7 +74,9 @@ export function useDevroomGroups(): { projects: string[]; groups: Group[] } {
   const { states } = useRepoStore();
   const { notes } = useReviewStore();
   const { filter } = useDevroom();
-  const looks = useContext(DevroomLooks);
+  const reasons = useWaitReasons();
+  // Resting is judged in days: the time the view opened is close enough.
+  const [now] = useState(() => Date.now());
   const projects = useMemo(() => workbenchProjects(officeSnapshot, engine), [officeSnapshot, engine]);
   const tasks = taskBoard?.tasks ?? [];
   const orchs = officeSnapshot?.orchestrators ?? [];
@@ -61,13 +89,14 @@ export function useDevroomGroups(): { projects: string[]; groups: Group[] } {
       const chip = chipOf({
         wt,
         task,
-        attention: agentId !== null && looks?.statusFor(agentId) === 'attention',
+        wait: agentId !== null ? (reasons[agentId] ?? null) : null,
         busy: orch?.busy === true,
         notesSent: !!notes[reviewKey(project, wt.task)]?.notes.some((n) => n.sentAt),
       });
       return { wt, task, title: titleOf(wt, tasks), chip, agentId };
     });
-    return { project, repo, rows: railOrder(rows) };
+    const { shown, resting } = phoneRows(rows, now, DEVROOM_RESTING_DAYS);
+    return { project, repo, rows: [...shown, ...resting], shown, resting };
   });
   return { projects, groups };
 }
@@ -81,7 +110,7 @@ export function useDevroomTitle(): string {
   return tab === 'cleanup' ? `${title} · ${t('devroom.tab.cleanup')}` : title;
 }
 
-/** The pick, or (none yet, or it left) the first open worktree, else the first trunk. */
+/** The pick, or (none yet, or it left) the first open worktree in view (needs-you first, never a resting one), else the first trunk. */
 export function currentPick(picked: Picked | null, groups: readonly Group[]): Picked | null {
   const exists = (p: Picked) =>
     groups.some((g) => g.project === p.project && (p.task === null || g.rows.some((r) => r.wt.task === p.task)));
@@ -89,7 +118,7 @@ export function currentPick(picked: Picked | null, groups: readonly Group[]): Pi
   // Choose only once the repositories are read: the trunk alone would stick before the cards come.
   if (groups.some((g) => !g.repo)) return null;
   for (const g of groups) {
-    const open = g.rows.find((r) => r.chip !== 'merged');
+    const open = g.shown.find((r) => r.chip !== 'merged');
     if (open) return { project: g.project, task: open.wt.task };
   }
   return groups[0] ? { project: groups[0].project, task: null } : null;
@@ -130,3 +159,34 @@ export function useDevroomView(on: boolean): void {
     return () => transport.send({ type: 'devroomView', on: false });
   }, [on, reconnects]);
 }
+
+/** What the shells hand in: every agent's tools and its sub-agents' (useExtensionMessages). */
+export const DevroomTools = createContext<{
+  agentTools: Record<number, ToolActivity[]>;
+  subagentTools: Record<number, Record<string, ToolActivity[]>>;
+}>({ agentTools: {}, subagentTools: {} });
+
+/**
+ * The 터미널 board's agents (DEVROOM-SUBVIEW): every agent of the pick's project, their running
+ * sub-agents, and `focus`, the pick's own agent (a worktree's Worker, the trunk's Lead).
+ * `project` null = nothing picked yet. `wt` null = the trunk.
+ */
+export function useTerminalColumns(
+  project: string | null,
+  wt: RepoWorktree | null,
+): { cols: AgentColumn[]; subs: SubColumn[]; focus: string | null } {
+  const engine = useEngineStore().state?.projects ?? [];
+  const { officeSnapshot, taskBoard } = useCldStore();
+  const { agentTools, subagentTools } = useContext(DevroomTools);
+  if (project === null) return { cols: [], subs: [], focus: null };
+  const orchs = officeSnapshot?.orchestrators ?? [];
+  const cols = projectAgents(project, engine).map((p) => columnOf(p, orchs));
+  const focus = agentsOn(project, wt, engine, taskBoard?.tasks ?? [])[0]?.name ?? null;
+  return { cols, subs: subColumns(cols, subagentTools, agentTools), focus };
+}
+
+/** The tab bar's right end: `에이전트 터미널 N개 + 서브 에이전트 M개`. */
+export const terminalCount = (cols: readonly AgentColumn[], subs: readonly SubColumn[]): string => {
+  const terminals = cols.filter((c) => c.kind === 'live').length;
+  return subs.length ? t('devroom.term.countSubs', { terminals, subs: subs.length }) : t('devroom.term.count', { terminals });
+};

@@ -51,18 +51,18 @@ const PHONE: BrowserContextOptions = {
 const IDLE_MS = 3000;
 const LEAD_SEC = 1; // video kept before the effect starts
 const TAIL_SEC = 1; // and after it ends
-type Kind = 'rebirthA' | 'rebirthB' | 'rebirthC' | 'coffee';
+type Kind = 'levelUpA' | 'levelUpB' | 'levelUpC' | 'coffee';
 const LETTER: Record<Kind, string> = {
-  rebirthA: 'rebirth-A',
-  rebirthB: 'rebirth-B',
-  rebirthC: 'rebirth-C',
+  levelUpA: 'rebirth-A',
+  levelUpB: 'rebirth-B',
+  levelUpC: 'rebirth-C',
   coffee: 'coffee',
 };
 /** Length and the moment to photograph (s after the start), as actions.ts draws them. */
 const REBIRTH: Record<Exclude<Kind, 'coffee'>, { sec: number; peak: number }> = {
-  rebirthA: { sec: 3, peak: 1.1 },
-  rebirthB: { sec: 3.2, peak: 1.6 },
-  rebirthC: { sec: 3.5, peak: 1.75 },
+  levelUpA: { sec: 3, peak: 1.1 },
+  levelUpB: { sec: 3.2, peak: 1.6 },
+  levelUpC: { sec: 3.5, peak: 1.75 },
 };
 
 /** The e2e hooks, and a frame counter (one clearRect(0,0,..) of the office canvas per frame). */
@@ -323,13 +323,13 @@ async function main() {
       ['iso', DESKTOP, true],
       ['phone', PHONE, false],
     ] as const) {
-      for (const kind of ['rebirthA', 'rebirthB', 'rebirthC'] as const) {
+      for (const kind of ['levelUpA', 'levelUpB', 'levelUpC'] as const) {
         const { page, t0 } = await open(opts, { iso });
         await page.addStyleTag({ content: HIDE_BAR });
         const id = await pickNearCoffee(page);
         await frame(page, id, iso, view === 'phone');
         let busyFrames: number | null = null;
-        if (view === 'desktop' && kind === 'rebirthA') {
+        if (view === 'desktop' && kind === 'levelUpA') {
           const before = await idleFrames(page);
           const f0 = (await page.evaluate('window.__frames')) as number;
           const start = (Date.now() - t0) / 1000;
@@ -436,7 +436,7 @@ async function main() {
       await page.addStyleTag({ content: HIDE_BAR });
       const id = await pickNearCoffee(page);
       await frame(page, id, false, false);
-      await page.evaluate(`window.__agtyFx.play('rebirthA', ${id}, 3)`);
+      await page.evaluate(`window.__agtyFx.play('levelUpA', ${id}, 3)`);
       await sleep(800);
       await page.screenshot({ path: path.join(OUT, 'desktop-rebirth-reduced-motion.png') });
       await page.context().close();

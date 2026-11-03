@@ -14,11 +14,13 @@ import type { SpawnFn } from '../spawnJson.js';
 import { engineCalls, killFakeSessions, makeEngineHome, removeTestHome } from '../testHome.js';
 import { readLiveSessions } from './agents/claude/sessions.js';
 import type { EngineOptions } from './engine.js';
-import { CLD_BIN_DIR, Engine, parseEngineAction, SWAP_UNFINISHED } from './engine.js';
+import { Engine, SWAP_UNFINISHED } from './engine.js';
+import { parseEngineAction } from './engineAction.js';
 import { EngineEvents, eventsPath } from './events.js';
 import { Messenger } from './messenger.js';
 import type { ProjectRecord } from './registry.js';
 import { loadRegistry, registryFault, registryPath, saveRegistry } from './registry.js';
+import { CLD_BIN_DIR } from './sessionEnv.js';
 
 const FAST = {
   pollMs: 20,

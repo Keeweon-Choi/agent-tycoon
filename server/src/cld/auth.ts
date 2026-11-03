@@ -658,7 +658,16 @@ export class StandaloneAuth {
     return session;
   }
 
-  validSession(id: string | undefined): boolean {
+  /**
+   * The live session with this hash, its expiry untouched: a file 'open' ticket stands for it in a
+   * browser without the cookie (files/routes.ts). Signed out, revoked or expired: undefined.
+   */
+  liveSessionByHash(hash: string): Session | undefined {
+    const session = this.sessions.get(hash);
+    return session && session.expiresAt > Date.now() ? session : undefined;
+  }
+
+    validSession(id: string | undefined): boolean {
     return this.session(id) !== undefined;
   }
 

@@ -9,6 +9,7 @@ import type { AgentStateStore } from './agentStateStore.js';
 import { StandaloneAuth } from './cld/auth.js';
 import type { ChatManager } from './cld/chat.js';
 import { configDirectory, legacyOfficeDirectory, officeDirectory } from './cld/configPath.js';
+import type { PtyHostClient } from './cld/ptyhost/client.js';
 import { hostShellRegistry } from './cld/shell/registry.js';
 import type {
   AssetCache,
@@ -85,6 +86,8 @@ export class AgentTycoonServer {
     chat?: ChatManager;
     /** Host opt-in for trusted-device shells. */
     allowTerminal?: boolean;
+    /** Our PTY host, where those shells run (ADR-0018); none: they end with the daemon. */
+    shellHost?: PtyHostClient | null;
     /** cld-gui (T-0022): new devices may ask a logged-in one for approval. */
     allowApprovalRequests?: boolean;
     /** Replace the persisted standalone token, revoking every URL that carried
@@ -168,10 +171,10 @@ export class AgentTycoonServer {
       auth,
       chat: options?.chat,
       allowTerminal: options?.allowTerminal,
-      // Shells in our tmux server, listed in ~/.config/agent-tycoon/shells.json (T-0069).
+      // Shells in our PTY host, listed in ~/.config/agent-tycoon/shells.json (T-0069).
       shellRegistry:
         !embedded && options?.allowTerminal
-          ? hostShellRegistry((notice) => store?.broadcast({ ...notice }))
+          ? hostShellRegistry((notice) => store?.broadcast({ ...notice }), options.shellHost ?? null)
           : undefined,
     });
 

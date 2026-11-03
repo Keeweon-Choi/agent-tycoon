@@ -86,7 +86,7 @@ async function main() {
     path.join(cfg, 'assignments.json'),
     JSON.stringify({ v: 1, assignments: [{ assignmentId: 'a_aaaaaaaaaa', projectId: 'p_aaaaaaaaaa', role: 'lead', provider: 'claude', wantRunning: true }] }),
   );
-  fs.writeFileSync(path.join(cfg, 'groups.json'), JSON.stringify({ v: 1, groups: [{ id: 'r0review0room', name: '장바구니', members: ['shop-web', 'web-worker'] }] }));
+  // No groups.json seeded with web-worker: `worker add` refuses a name with data left under it (PROJECT-DATA).
   const PATH = [bin, path.dirname(process.execPath), '/usr/bin', '/bin'].join(':');
   const daemon = startDaemon(
     { home, claudePath: path.join(bin, 'claude') },
@@ -108,7 +108,12 @@ async function main() {
         encoding: 'utf8',
         timeout: 60_000,
       });
-    const json = (r: ReturnType<typeof cli>) => JSON.parse(r.stdout || '{}') as Record<string, any>;
+    const json = (r: ReturnType<typeof cli>) => {
+      const out = JSON.parse(r.stdout || '{}') as Record<string, any>;
+      // A refused call says why in the log (its stdout/stderr), not only "check failed".
+      if (out.ok === false || r.status !== 0) console.error(`cli exit ${r.status}: ${r.stdout}${r.stderr}${r.error ? String(r.error) : ''}`);
+      return out;
+    };
     const session = (name: string) =>
       fs.readdirSync(path.join(home, '.claude/sessions')).some((file) => {
         try {
@@ -275,17 +280,18 @@ async function main() {
     // ── The 작업실's 검토 shows the same review ──
     await win.getByTestId('hud-title-devroom').dblclick();
     await openWorkbenchTab(desk, 'Task', { project: 'shop-web' });
-    const wb = desk.locator('[data-hud-window="workbench"]');
+    const wb = desk.locator('[data-hud-window="office"]');
     await wb.locator('[data-testid="task-card"][data-task-id="T-1"]').click();
     await wb.getByTestId('task-review-open').click();
-    await desk.locator('[data-hud-window="workbench"] [data-testid="task-review"][data-task]').waitFor({ timeout: 20_000 });
-    check((await desk.locator('[data-hud-window="workbench"]').innerText()).includes('작업실 / shop-web · 검토'), 'the 작업실 window is titled 작업실 / shop-web · 검토');
-    await desk.locator('[data-hud-window="workbench"]').getByTestId('review-back').click();
-    check((await desk.locator('[data-hud-window="workbench"] [data-testid="task-review"][data-task]').count()) === 0, '‹ 뒤로 returns to the tabs');
+    await desk.locator('[data-hud-window="office"] [data-testid="task-review"][data-task]').waitFor({ timeout: 20_000 });
+    check((await desk.locator('[data-hud-window="office"]').innerText()).includes('현황판 / shop-web · 검토'), 'the 현황판 window is titled 현황판 / shop-web · 검토 (UI-DASH renamed it)');
+    await desk.locator('[data-hud-window="office"]').getByTestId('review-back').click();
+    check((await desk.locator('[data-hud-window="office"] [data-testid="task-review"][data-task]').count()) === 0, '‹ 뒤로 returns to the tabs');
 
     console.log(`\n${oks} checks passed; screenshots in ${OUT}`);
   } catch (err) {
     fs.writeFileSync(path.join(os.tmpdir(), 'run-devroom-review.daemon.log'), daemon.log.join(''));
+    console.error(err); // a failing cleanup below must not hide it
     throw err;
   } finally {
     clearTimeout(deadline);
@@ -293,7 +299,7 @@ async function main() {
     await daemon.stop();
     killFakeSessions(home);
     repo.cleanup();
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5 }); // fake sessions may still be writing
   }
 }
 

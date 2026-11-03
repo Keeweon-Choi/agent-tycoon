@@ -641,12 +641,29 @@ export class PushService {
    * the activity is webview-only (ez rules), so a push without both keeps the plain turn end.
    */
   private readonly lastDoing = new Map<number, string>();
+  /** WAITING-PERSIST: characters whose current turn already buzzed (a turn end or its question),
+   *  until they go on: one question turn is one push, whichever of Stop and turn_duration says it. */
+  private readonly turnPushed = new Set<number>();
 
   private broadcast(m: Record<string, unknown>): void {
     if (m.type === 'agentToolStart' && typeof m.id === 'number' && typeof m.desc === 'string' && m.desc)
       this.lastDoing.set(m.id, m.desc);
-    if (m.type === 'agentStatus' && m.status === 'waiting' && typeof m.id === 'number') {
-      this.notifyAgent(m.id, m.awaitingInput === true ? 'question' : 'turnEnd');
+    if (m.type === 'agentStatus' && typeof m.id === 'number' && m.status !== 'waiting') {
+      this.turnPushed.delete(m.id);
+    } else if (m.type === 'agentStatus' && m.status === 'waiting' && typeof m.id === 'number') {
+      if (m.restored === true) return; // a question given back after a restart: shown, not pushed
+      if (m.question === true) {
+        if (this.turnPushed.has(m.id)) return;
+        this.turnPushed.add(m.id);
+        this.notifyAgent(m.id, 'question', undefined, true);
+      } else if (m.awaitingInput === true) {
+        this.notifyAgent(m.id, 'question'); // idle_prompt: the generic ask, as before
+      } else {
+        this.turnPushed.add(m.id);
+        this.notifyAgent(m.id, 'turnEnd');
+      }
+    } else if (m.type === 'agentClosed' && typeof m.id === 'number') {
+      this.turnPushed.delete(m.id);
     } else if (m.type === 'agentToolPermission' && typeof m.id === 'number') {
       // PERM-PROMPT: a sub-agent's dialog names it (its staff name).
       this.notifyAgent(m.id, 'permission', typeof m.asker === 'string' ? m.asker : undefined);
@@ -674,6 +691,8 @@ export class PushService {
     id: number,
     cause: Exclude<NoticeCause, 'job' | 'reply'>,
     asker?: string,
+    /** The turn ended on a question: its text and room, like a turn end, worded as a question. */
+    asked = false,
   ): void {
     const d = this.opts.describe(id);
     if (!d) return;
@@ -684,15 +703,15 @@ export class PushService {
       return this.deliverTurnEnd(id, d, cause, now, null, undefined, text);
     }
     const none: TurnInfo = { room: null, text: null };
-    const turn = cause === 'turnEnd' && this.hasAudience() ? (this.opts.turn?.(id) ?? none) : none;
+    const turn = (cause === 'turnEnd' || asked) && this.hasAudience() ? (this.opts.turn?.(id) ?? none) : none;
     if (turn instanceof Promise) {
       void turn.then(
-        (r) => this.deliverAgent(id, d, cause, now, r),
-        () => this.deliverAgent(id, d, cause, now, none),
+        (r) => this.deliverAgent(id, d, cause, now, r, asked),
+        () => this.deliverAgent(id, d, cause, now, none, asked),
       );
       return;
     }
-    this.deliverAgent(id, d, cause, now, turn);
+    this.deliverAgent(id, d, cause, now, turn, asked);
   }
 
   /** Someone could be pushed to at all (checked before any transcript is read for a turn end). */
@@ -707,10 +726,13 @@ export class PushService {
     cause: Exclude<NoticeCause, 'job' | 'reply'>,
     now: number,
     { room, text, attachments }: TurnInfo,
+    asked = false,
   ): void {
     // U-49: a turn that ended with text for the user is that message, in place of the generic
-    // turn end (one buzz). Asks stay asks.
-    const preview = cause === 'turnEnd' ? (replyPreview(text) ?? attachmentLabel(attachments)) : null;
+    // turn end (one buzz). Asks stay asks, except a turn that ended on a question (WAITING-PERSIST):
+    // its words are the ask, opening the same chat or room, to every device.
+    const preview =
+      cause === 'turnEnd' || asked ? (replyPreview(text) ?? attachmentLabel(attachments)) : null;
     if (preview) {
       const target: NoticeTarget = room
         ? room.id
@@ -718,6 +740,14 @@ export class PushService {
           : { open: 'office' }
         : noticeTarget({ cause: 'reply', agentId: id, lead: d.lead ? d.name : null, at: now });
       const sender = room ? `${room.name} · ${d.name}` : d.name;
+      if (asked) {
+        this.notify('question', room ? null : id, sender, preview, d.who, d.remote, now, {
+          target,
+          ...(room && { key: `${room.post ?? room.id ?? room.name}:${d.name}` }),
+          files: attachments,
+        });
+        return;
+      }
       this.notify('reply', room ? null : id, sender, preview, d.who, d.remote, now, {
         target,
         devices: (s) => kindOn(s, 'reply'),
@@ -745,7 +775,7 @@ export class PushService {
     // thread opens): one per member and post (the cooldown folds a repeat), so two members
     // answering one post are two notices. Asks (a question, a permission) stay the character's.
     if (room) {
-      this.notify('turnEnd', null, `${room.name} · ${d.name}`, text, d.who, d.remote, now, {
+      this.notify(cause === 'question' ? 'question' : 'turnEnd', null, `${room.name} · ${d.name}`, text, d.who, d.remote, now, {
         target: room.id ? { open: 'room', room: room.id } : { open: 'office' },
         key: `${room.post ?? room.id ?? room.name}:${d.name}`,
         devices,

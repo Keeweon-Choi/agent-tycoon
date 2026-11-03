@@ -269,8 +269,13 @@ export function describeActivity(
     );
   }
   if (SHELL_TOOLS.includes(tool)) {
-    const command = input.command ?? input.status?.match(/^\s*Running:\s*([\s\S]*)$/i)?.[1];
+    const command = input.command ?? commandOf(input.status);
     return worded(describeCommand(command ?? '', ctx).description, input.desc);
   }
   return worded(phrase(PHRASES.unknownTool), input.desc);
+}
+
+/** The shell command in a `Running: <cmd>` tool status, if it is one. */
+export function commandOf(status: string | null | undefined): string | undefined {
+  return status?.match(/^\s*Running:\s*([\s\S]*)$/i)?.[1];
 }

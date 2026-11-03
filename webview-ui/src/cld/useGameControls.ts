@@ -9,6 +9,8 @@ import {
   CAMERA_FOLLOW_ZOOM_STEPS,
   HD_ZOOM_STEP,
   OWNER_CHARACTER_ID,
+  OWNER_DRINK_KEY,
+  PHONE_ISO_SETTLE_S,
   ZOOM_MAX,
 } from '../constants.js';
 import { defaultZoom } from '../hooks/useEditorActions.js';
@@ -28,6 +30,7 @@ import {
   easeVelocity,
   edgeDirection,
   fillZoom,
+  fitZoom,
   framePan,
   glidePan,
   initialCameraFit,
@@ -39,10 +42,12 @@ import {
   stepZoom,
   usableView,
   wheelZoom,
+  workRoomsBox,
   zoomAround,
 } from './camera.js';
 import {
   askFraming,
+  askOwnerFollow,
   cameraAsks,
   type CameraMode,
   cameraMode,
@@ -51,10 +56,11 @@ import {
   noteFraming,
   noteManualCamera,
   restoreManual,
-  setCameraMode,
 } from './cameraMode.js';
 import { refreshLooks } from './characters/looks.js';
+import { director, ownerDrink } from './director/actions.js';
 import { visitFloor } from './elevator.js';
+import { characterRingOf } from './ez/visuals.js';
 import {
   cameraRect,
   currentRect,
@@ -71,6 +77,7 @@ import {
 import { fixedPanels } from './hud/fixedPanels.js';
 import { characterName } from './kinds.js';
 import { cldGetSnapshot, cldToast } from './officeStore.js';
+import { noteOwnerTile } from './ownerStats.js';
 import { loadSavedCamera, saveCamera } from './savedCamera.js';
 import { staffStep } from './staff.js';
 import { holdWalkKey, releaseWalkKey, walkRoute } from './walk.js';
@@ -120,8 +127,8 @@ interface GameControlsOptions {
 let walkPad: { press: (action: CameraKey) => void; release: (action: CameraKey) => void } | null =
   null;
 export const getWalkPad = () => walkPad;
-/** OWNER-AVATAR: '내 캐릭터' (the free camera's way back): nothing selected, the camera follows
- *  the owner's character again. */
+/** OWNER-AVATAR: '내 캐릭터' (both camera modes): nothing selected, the auto camera, and the owner's
+ *  character is followed (ownerStep reads `wantOwner`; setCameraMode asks for the framing). */
 let ownerFollow: (() => void) | null = null;
 export const followOwner = () => ownerFollow?.();
 
@@ -189,6 +196,10 @@ function coveredInsets(canvas: HTMLCanvasElement): Insets {
 }
 
 /** GFX: the mode the office is framed in now (the upstream surfaces have no cld office). */
+/** UI-PHONE: a character at work, as its plate shows it (the phone's first view goes to these). */
+const working = (c: { id: number; cldAway?: unknown }) =>
+  !c.cldAway && characterRingOf(c.id) === 'working';
+
 const framingMode = (): CameraMode => (cldGetSnapshot().officeSnapshot ? cameraMode() : 'off');
 
 /** The window fills the screen: the Fullscreen API, F11 in a browser, or the
@@ -250,6 +261,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     asksSeen: -1,
     shownSeen: null as string | null,
     ownerFollowed: false,
+    /** UI-PHONE: when the phone's first view began waiting for the agents (performance.now). */
+    firstSince: null as number | null,
   }).current;
 
   /** The pan clamp for the view drawn (the isometric one when it is on). */
@@ -478,12 +491,18 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     };
     const size = { w: canvas.width, h: canvas.height };
     const view = usableView(size, coveredInsets(canvas));
+    const floorZoom = fillZoom(view, box, density);
+    // UI-PHONE: a phone frames the rooms where agents work on this floor (never farther than the
+    // floor's own framing); with nobody at work, the floor.
+    const rooms = latest.current.phone
+      ? workRoomsBox(layout, rect, [...officeState.characters.values()].filter(working))
+      : null;
     const fit = initialCameraFit({
       phone: latest.current.phone === true,
-      desktop: { box, zoom: fillZoom(view, box, density) },
-      // Classic already frames the selected floor on every surface; keeping the explicit phone
-      // target here makes its initial-fit policy share the isometric camera's pure decision.
-      phoneTarget: { box, zoom: fillZoom(view, box, density) },
+      desktop: { box, zoom: floorZoom },
+      phoneTarget: rooms
+        ? { box: rooms, zoom: Math.max(floorZoom, fitZoom(view, rooms, density)) }
+        : { box, zoom: floorZoom },
     });
     const pan = framePan(layout, fit.zoom, size, view, fit.box);
     noteFraming({ mode, zoom: fit.zoom, view, box: fit.box });
@@ -520,6 +539,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       refreshLooks(); // it wears the owner's look
       state.wantOwner = 'first';
     }
+    noteOwnerTile(owner.tileCol, owner.tileRow); // OWNER-STATS: its steps
     const sel = officeState.selectedAgentId;
     if (sel !== state.selSeen) {
       state.selSeen = sel;
@@ -546,6 +566,19 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       }
     }
     if (!state.wantOwner) return;
+    // UI-PHONE: the phone's first view is the rooms where agents work (frameStep frames them);
+    // the owner's character only when nobody works here. The agents and their status come a moment
+    // after the layout: wait for one at work as long as the isometric phone view does.
+    if (state.wantOwner === 'first' && latest.current.phone && mode === 'auto') {
+      const rect = currentRect(officeState.getLayout());
+      if ([...officeState.characters.values()].some((c) => working(c) && onFloor(rect, c.y))) {
+        state.wantOwner = false;
+        state.frameKey = null; // frame again, now with them
+        return;
+      }
+      state.firstSince ??= performance.now();
+      if (performance.now() - state.firstSince < PHONE_ISO_SETTLE_S * 1000) return;
+    }
     if (walkRoute(mode, sel, owner.id).follow !== owner.id) {
       state.wantOwner = false;
       return;
@@ -687,6 +720,8 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       const owner = officeState.characters.has(OWNER_CHARACTER_ID) ? OWNER_CHARACTER_ID : null;
       const id = walkRoute(framingMode(), officeState.selectedAgentId, owner).walk;
       if (id === null) return 'unavailable';
+      // FX-ALL: walked off on a coffee break (the owner's own drink too): the break ends here.
+      if (officeState.characters.get(id)?.cldRest?.brk) director.skip(officeState, id);
       // A key added to held ones steps at once only when nothing walks (the first was blocked,
       // or W then D on the pad); a walk in progress picks the keys up at its next tile.
       const walking = !!officeState.characters.get(id)?.path.length;
@@ -719,9 +754,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     };
     walkPad = { press: (action) => pressDirection(action, false), release: releaseDirection };
     ownerFollow = () => {
-      latest.current.officeState.selectedAgentId = null;
-      setCameraMode('auto'); // asks again: the owner's character is followed
-      state.wantOwner = true;
+      askOwnerFollow(latest.current.officeState, state);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (
@@ -740,6 +773,11 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
           e.preventDefault();
           if (!e.repeat) goToFloor(id);
         }
+        return;
+      }
+      // FX-ALL: E, by the coffee or vending machine, the owner's character drinks there.
+      if (e.code === OWNER_DRINK_KEY && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (ownerDrink(latest.current.officeState)) e.preventDefault();
         return;
       }
       const action = cameraKey(e);

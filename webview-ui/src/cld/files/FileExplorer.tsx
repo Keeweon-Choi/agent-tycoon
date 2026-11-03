@@ -7,6 +7,7 @@ import type {
   ProjectFilePreview,
 } from '../../../../core/src/cld/projectFiles.js';
 import { Button } from '../../components/ui/Button.js';
+import { RECENT_FOLD_STORAGE_KEY, RECENT_OUTPUTS_SHOWN } from '../../constants.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { getLanguage, t } from '../../i18n/index.js';
 import { useEngineStore } from '../engineStore.js';
@@ -20,6 +21,8 @@ import {
 } from '../messenger/messengerStore.js';
 import { useCldStore } from '../officeStore.js';
 import { useRepoView } from '../repo/useRepoView.js';
+import { ZoomBar } from '../Zoom.js';
+import { useTextZoom, useZoomHost } from '../zoomStore.js';
 import { useEditSession } from './editSession.js';
 import { chooseFileRoot, listingCache, useFileRoot } from './explorerState.js';
 import {
@@ -42,6 +45,22 @@ const Editor = lazy(() => import('./Editor.js'));
 /** What the editor opens (the daemon also refuses non-text and over 1 MB). */
 const EDITABLE: readonly string[] = ['text', 'markdown', 'json', 'csv', 'html'];
 const EDIT_MAX_BYTES = 1024 * 1024;
+
+/** The 최근 산출물 fold is the owner's, kept in this browser (storage may be blocked: then it opens unfolded). */
+function readRecentFolded(): boolean {
+  try {
+    return localStorage.getItem(RECENT_FOLD_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveRecentFolded(folded: boolean): void {
+  try {
+    localStorage.setItem(RECENT_FOLD_STORAGE_KEY, folded ? '1' : '0');
+  } catch {
+    /* not remembered */
+  }
+}
 
 function FolderNode({
   root,
@@ -198,6 +217,11 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
   const sendableContacts = messenger.contacts.filter((contact) => contact.canSend);
   const [sendLead, setSendLead] = useState('');
   const session = useEditSession(root, editing && selected ? selected.path : null);
+  const zoomSurface = editing ? 'editor' : 'preview';
+  const { zoom } = useTextZoom(zoomSurface);
+  const zoomHost = useZoomHost(zoomSurface);
+  const [recentFolded, setRecentFolded] = useState(readRecentFolded);
+  const [recentShown, setRecentShown] = useState(RECENT_OUTPUTS_SHOWN);
   const folder =
     root.kind === 'project'
       ? (engine?.projects.find((project) => project.name === root.project)?.folder ??
@@ -339,21 +363,27 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
         relative: entry.path,
       },
     ]);
-    selection.current++;
-    setSelected(null);
+    // Desktop keeps the file open beside the messenger; the phone's full-screen pane would cover it.
+    if (isMobile) {
+      selection.current++;
+      setSelected(null);
+    }
     openMessenger(lead.agentId);
   };
   const pane = selected && (
     <div
       aria-label={t('files.preview')}
+      ref={zoomHost}
+      tabIndex={-1}
       className={
         isMobile
-          ? 'fixed inset-0 z-[100] overflow-auto bg-bg text-xs p-[calc(12px+var(--cld-safe-top))_calc(12px+var(--cld-safe-right))_calc(12px+var(--cld-safe-bottom))_calc(12px+var(--cld-safe-left))]'
-          : 'min-w-0 flex-1 border border-border p-8 bg-bg text-xs overflow-auto'
+          ? 'fixed inset-0 z-[100] overflow-auto bg-bg text-xs outline-none touch-pan-x touch-pan-y p-[calc(12px+var(--cld-safe-top))_calc(12px+var(--cld-safe-right))_calc(12px+var(--cld-safe-bottom))_calc(12px+var(--cld-safe-left))]'
+          : 'min-w-0 flex-1 border border-border p-8 bg-bg text-xs overflow-auto outline-none'
       }
     >
       <div className="flex flex-wrap gap-8 items-center mb-8">
         <strong className="truncate flex-1">{selected.name}</strong>
+        <ZoomBar surface={zoomSurface} />
         {editable &&
           (isMobile ? (
             <Button
@@ -461,6 +491,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
                     doc={session.doc}
                     docKey={session.docKey}
                     marks={session.marks}
+                    zoom={zoom}
                     label={t('files.edit.label', { name: selected.name })}
                     onChange={session.edit}
                   />
@@ -486,7 +517,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
           </p>
         </div>
       )}
-      {!editing && preview && <Preview file={preview} url={previewUrl} />}
+      {!editing && preview && <Preview file={preview} url={previewUrl} zoom={zoom} />}
       {!editing && isMobile && editable && (
         <p className="mt-8 border-2 border-border bg-devroom-box p-8 text-2xs text-text-muted">
           {t('files.edit.readOnly')}
@@ -516,7 +547,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
             type="search"
             aria-label={t('files.nameFilter')}
             placeholder={t('files.filterPlaceholder')}
-            className="bg-bg border border-border p-4 min-w-0 flex-1"
+            className="bg-bg border border-border p-4 min-w-96 flex-1"
             value={filter}
             onChange={(event) => setFilter(event.target.value.toLocaleLowerCase())}
           />
@@ -547,22 +578,47 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
           </label>
         </div>
         {recent && recent.entries.length > 0 && (
-          <div className="p-8 border-b border-border" aria-label={t('files.recentFiles')}>
-            <p className="text-text-muted mb-4">
-              {t('files.recent24h')}
-              {recent.partial ? t('files.partialSuffix') : ''}
-            </p>
-            {recent.entries.map((entry) => (
-              <button
-                key={entry.path}
-                type="button"
-                title={entry.path}
-                className="w-full text-left py-4 hover:bg-border truncate"
-                onClick={() => void open(entry)}
+          <div
+            className="p-8 border-b border-border"
+            aria-label={t('files.recentFiles')}
+            data-testid="recent-outputs"
+            data-folded={recentFolded || undefined}
+          >
+            <button
+              type="button"
+              className="w-full text-left text-text-muted hover:text-accent-text"
+              aria-expanded={!recentFolded}
+              data-testid="recent-toggle"
+              onClick={() => {
+                setRecentFolded(!recentFolded);
+                saveRecentFolded(!recentFolded);
+              }}
+            >
+              <span aria-hidden>{recentFolded ? '▸' : '▾'}</span> {t('files.recent24h')}
+              {recent.partial ? t('files.partialSuffix') : ''} ·{' '}
+              {t('files.recentCount', { count: recent.entries.length })}
+            </button>
+            {!recentFolded &&
+              recent.entries.slice(0, recentShown).map((entry) => (
+                <button
+                  key={entry.path}
+                  type="button"
+                  title={entry.path}
+                  className="w-full text-left py-4 hover:bg-border truncate"
+                  onClick={() => void open(entry)}
+                >
+                  <span aria-hidden>▤</span> {entry.path}
+                </button>
+              ))}
+            {!recentFolded && recent.entries.length > recentShown && (
+              <Button
+                size="sm"
+                data-testid="recent-more"
+                onClick={() => setRecentShown((n) => n + RECENT_OUTPUTS_SHOWN)}
               >
-                <span aria-hidden>▤</span> {entry.path}
-              </button>
-            ))}
+                {t('files.recentMore', { count: recent.entries.length - recentShown })}
+              </Button>
+            )}
           </div>
         )}
         <FolderNode

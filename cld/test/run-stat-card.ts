@@ -136,6 +136,16 @@ async function main() {
     console.log(`popover: ${Math.round(box.width)}x${Math.round(box.height)}`);
     check(box.height < 844 * 0.25, `the summary popover is short (${Math.round(box.height)} px of 844)`);
     check((await phone.getByRole('menuitem').count()) === 3, 'the menu has 3 buttons');
+    // UI-PHONE: the menu is the card's own bottom row, and the other plates step back.
+    check(
+      (await overlay.locator('[data-testid="card-menu"] [role="menuitem"]').count()) === 3,
+      'the menu is a row of the summary card',
+    );
+    const others = await phone
+      .locator('[data-testid="agent-overlay"]')
+      .filter({ hasNot: phone.locator('[data-testid="agent-details"]') })
+      .evaluateAll((els) => els.map((e) => Number(getComputedStyle(e).opacity)));
+    check(others.length > 0 && others.every((o) => o <= 0.3), `the other plates are dimmed (${others.join(',')})`);
     const text = (await overlay.textContent()) ?? '';
     check(!/엔진이 관리|이어 붙일/.test(text), 'no internal wording in the summary');
     check(/환생 4회/.test(text) && /25%/.test(text), `rebirths and fatigue read in the summary (${text.slice(0, 80)})`);

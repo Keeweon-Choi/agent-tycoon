@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { rememberDuration } from '../jobHistory.js';
 import { windowsCmd } from '../spawnJson.js';
-import { cleanEnv } from './engine.js';
 import { EngineEvents, eventsPath, isoLocal } from './events.js';
 import type { KillFn } from './jobs.js';
 import {
@@ -22,6 +21,7 @@ import {
   protectedPids,
   signalSafe,
 } from './jobs.js';
+import { cleanEnv } from './sessionEnv.js';
 import { startForTask, tasksPath, TaskStore } from './tasks.js';
 
 let cleanup: Array<() => void> = [];
