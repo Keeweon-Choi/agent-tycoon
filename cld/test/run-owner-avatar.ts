@@ -27,6 +27,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -353,7 +354,7 @@ async function main() {
       .click()
       .catch(() => {});
 
-    await page.getByRole('button', { name: '설정' }).first().click();
+    await topBarButton(page, '설정');
     const row = page.getByTestId('owner-character-option');
     check(
       await row.waitFor({ timeout: 5_000 }).then(

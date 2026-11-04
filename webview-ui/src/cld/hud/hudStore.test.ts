@@ -46,27 +46,30 @@ describe('UI-DASH: the workbench is the status board dev tab', () => {
   });
 });
 
-describe('UI-C1: the status board window has status board, HW and (from the folder icon) files', () => {
-  it('a tab name from an older saved state (jobs, codex) opens the status board', async () => {
+describe('UI-C1: the status board window has status board, development and (from the folder icon) files', () => {
+  it('a tab name from an older state (jobs, codex, hw) opens the status board', async () => {
     seedStorage({});
     const { hudGetSnapshot, showOffice, normalizeOfficeTab } = await import('./hudStore.js');
-    for (const old of ['jobs', 'codex', 'nope', undefined]) expect(normalizeOfficeTab(old)).toBe('status');
-    for (const tab of ['status', 'dev', 'hw', 'files'] as const) expect(normalizeOfficeTab(tab)).toBe(tab);
+    // building-a-1104: the HW tab is gone (the lobby board's full H/W screen replaced it).
+    for (const old of ['jobs', 'codex', 'hw', 'nope', undefined]) expect(normalizeOfficeTab(old)).toBe('status');
+    for (const tab of ['status', 'dev', 'files'] as const) expect(normalizeOfficeTab(tab)).toBe(tab);
     showOffice('codex' as never);
+    expect(hudGetSnapshot()).toMatchObject({ officeTab: 'status', boardTab: 'status' });
+    showOffice('hw' as never); // a request from outside (old link, test hook, stored state)
     expect(hudGetSnapshot()).toMatchObject({ officeTab: 'status', boardTab: 'status' });
   });
 
   it('the board icon leaves the files mode for the last board tab; the front one minimizes', async () => {
     seedStorage({});
     const { hudGetSnapshot, showOffice, pressIcon } = await import('./hudStore.js');
-    showOffice('hw');
+    showOffice('dev');
     pressIcon('files');
     expect(hudGetSnapshot()).toMatchObject({ officeTab: 'files', open: { office: true } });
     pressIcon('office');
-    expect(hudGetSnapshot()).toMatchObject({ officeTab: 'hw', open: { office: true } });
+    expect(hudGetSnapshot()).toMatchObject({ officeTab: 'dev', open: { office: true } });
     pressIcon('office'); // in front: minimized, not closed, its tab kept
     expect(hudGetSnapshot()).toMatchObject({
-      officeTab: 'hw',
+      officeTab: 'dev',
       open: { office: true },
       minimized: { office: true },
     });
@@ -81,7 +84,7 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
     const { hudGetSnapshot, minimizeWindow, openWindow, closeWindow, showOffice } = await import(
       './hudStore.js'
     );
-    showOffice('hw');
+    showOffice('dev');
     openWindow('devroom');
     minimizeWindow('office');
     openWindow('notices');
@@ -92,7 +95,7 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
     openWindow('office');
     const snap = hudGetSnapshot();
     expect(snap.minimized.office).toBeUndefined();
-    expect(snap.officeTab).toBe('hw');
+    expect(snap.officeTab).toBe('dev');
     expect(snap.order.at(-1)).toBe('office');
     closeWindow('office');
     expect(hudGetSnapshot().open).toMatchObject({ office: false, devroom: true, notices: true });
@@ -127,5 +130,29 @@ describe('WINMODEL: the store runs the model, the messenger included', () => {
     expect(messengerGetSnapshot().active).toBe(7);
     expect(messengerShowing(7)).toBe(true);
     expect(pressTab('messenger')).toBe('messenger'); // the caller shows the list
+  });
+});
+
+describe('REDEPLOY-STATE: a reload opens no window by itself', () => {
+  it('a window minimized before the reload comes back minimized, not in front', async () => {
+    const map = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+    });
+    const first = await import('./hudStore.js');
+    first.openWindow('devroom');
+    first.showOffice('status');
+    first.pressIcon('devroom'); // behind the board: to front
+    first.pressIcon('devroom'); // in front: minimized
+    first.saveWindowState(first.hudGetSnapshot().open, first.hudGetSnapshot().minimized);
+    vi.resetModules();
+    const { hudGetSnapshot } = await import('./hudStore.js');
+    expect(hudGetSnapshot()).toMatchObject({
+      open: { devroom: true, office: true },
+      minimized: { devroom: true },
+    });
+    expect(hudGetSnapshot().minimized.office).toBeUndefined();
   });
 });

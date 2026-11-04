@@ -9,6 +9,12 @@
   /* The page behind never scrolls or pull-refreshes while the viewer is up. */
   overscroll-behavior: none;
 }
+/* CHAT-NAV: a tap on the content hides the title and the buttons (the layout stays, nothing moves). */
+.attach-viewer[data-bars='hidden'] .attach-top,
+.attach-viewer[data-bars='hidden'] .attach-side,
+.attach-viewer[data-bars='hidden'] .attach-actions-controls {
+  visibility: hidden;
+}
 .attach-stage {
   position: absolute;
   inset: 0;

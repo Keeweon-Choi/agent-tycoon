@@ -378,14 +378,6 @@ async function main() {
         .locator('[data-hud-id^="icon:"]')
         .getByRole('button', { name: '현황판', exact: true })
         .click();
-    const tab = async (name: string) => {
-      await page
-        .getByRole('navigation', { name: '사무실 메뉴' })
-        .getByRole('button', { name, exact: true })
-        .click();
-      await page.waitForTimeout(800);
-    };
-
     // UI-C1: the job cards are alpha's Task tab (실행) in the 작업실; its Codex runs, the 에이전트 tab.
     await openWorkbenchTab(page, 'Task', { project: 'alpha' });
     await page.waitForTimeout(800);
@@ -422,20 +414,19 @@ async function main() {
     check((await page.getByText('· 엔진').count()) >= 2, 'Codex: both rows say 엔진');
     await shot('desktop-codex');
 
-    await tab('HW');
-    await page.locator('[data-testid="gpu-board"]').waitFor();
-    const hw = await page.locator('main, body').first().innerText();
-    check(/LHM/.test(hw) && /GPU/.test(hw), 'HW: readings from LHM (no nvidia-smi)');
-    const boardText = await page.locator('[data-testid="gpu-board"]').innerText();
-    check(
-      boardText.includes('예약') &&
-        boardText.includes('학습') &&
-        boardText.includes('대기 1') &&
-        boardText.includes('추론'),
-      `HW: the GPU board (${boardText.replace(/\s+/g, ' ')})`,
-    );
-    await page.locator('[data-testid="gpu-board"]').scrollIntoViewIfNeeded();
+    // The H/W readings are the lobby board's full H/W screen (the 현황판 has no HW tab since
+    // building-a-1104); the GPU queue is the gpu screen checked above.
+    const wallBox = (await lobby.boundingBox())!;
+    await page.mouse.click(wallBox.x + wallBox.width / 2, wallBox.y + wallBox.height * 0.7);
+    const full = page.getByTestId('board-full');
+    await full.waitFor({ timeout: 3_000 });
+    await full.getByTestId('board-tab-hw').click();
+    await full.getByTestId('board-hw-sources').waitFor();
+    const hw = await full.innerText();
+    check(/LHM/.test(hw) && /GPU/.test(hw), 'H/W: readings from LHM (no nvidia-smi)');
     await shot('desktop-hw-gpu');
+    await page.keyboard.press('Escape');
+    await full.waitFor({ state: 'detached' });
 
     await page.getByTestId('notice-bell').click(); // T-0070: the events are in the 알림 list
     const feed = await page.getByTestId('notice-list').innerText();

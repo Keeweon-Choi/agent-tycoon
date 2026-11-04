@@ -1,11 +1,11 @@
 {
   "memory": {
     "density": 12,
-    "pieces": 44,
-    "decodedMB": 73.81,
+    "pieces": 45,
+    "decodedMB": 73.99,
     "inUse": {
-      "pieces": 31,
-      "decodedMB": 28.53
+      "pieces": 40,
+      "decodedMB": 30.85
     },
     "biggest": "o-wall-window-wide",
     "biggestMB": 12.81,
@@ -52,6 +52,7 @@
       "o-coffee-table": 0.2,
       "o-floor-stone": 0.07,
       "o-sofa-b": 0.26,
+      "o-water-cooler": 0.18,
       "o-wall-low": 0.18,
       "o-lift-doors-open": 1.29
     }
@@ -907,6 +908,27 @@
       "size": [
         288,
         230
+      ],
+      "sourceBorder": 0
+    },
+    "water-cooler": {
+      "kind": "object",
+      "footprint": [
+        1,
+        1
+      ],
+      "scale": 0.297,
+      "baseWidthPx": 116,
+      "footprintWidthPx": 192,
+      "overhangPx": -75.8,
+      "leftover": {
+        "magenta": 0,
+        "halo": 0,
+        "rim": 867
+      },
+      "size": [
+        122,
+        360
       ],
       "sourceBorder": 0
     },

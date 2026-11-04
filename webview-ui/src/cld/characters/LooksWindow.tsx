@@ -3,14 +3,9 @@
  * The preview draws the compositor's sheet on its own canvases (never the office cache);
  * 저장 sends one setCharacter and the office, cards and messenger follow the store.
  */
-import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  HUMANOID_ACCESSORIES,
-  HUMANOID_HUE_MAX,
-  HUMANOID_HUE_STEP,
-  HUMANOID_PARTS,
   MASCOT_COLORS,
   MASCOT_EXPRESSIONS,
   MASCOT_GEARS,
@@ -21,7 +16,6 @@ import {
 } from '../../../../core/src/cld/looks.js';
 import { BODY_VARIANTS, SLOT_REGISTRY } from '../../../../core/src/cld/partRegistry.js';
 import type {
-  CharacterAccessory,
   CharacterChoice,
   CharacterColors,
   CharacterPresets,
@@ -31,24 +25,34 @@ import {
   IMPORT_DENSITY,
   MUGSHOT_CROP_SIDE_PX,
   MUGSHOT_RENDER_ZOOM,
+  PALETTE_COUNT,
   WALK_FRAME_DURATION_SEC,
 } from '../../constants.js';
-import { getLanguage, t, useLanguage } from '../../i18n/index.js';
+import { getLanguage, t, type TranslationKey, useLanguage } from '../../i18n/index.js';
 import { isSmooth } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
 import { getCharacterTemplates } from '../../office/sprites/spriteData.js';
 import type { SpriteData } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
+import { looksCustomOn } from '../features.js';
 import { useCldStore } from '../officeStore.js';
-import { serverLine } from '../serverText.js';
-import { compose, type ComposedLook, FRAME_H, FRAME_W, lookKey, portraitOf } from './compose.js';
+import {
+  compose,
+  type ComposedLook,
+  FRAME_H,
+  FRAME_W,
+  lookKey,
+  peopleGroups,
+  portraitOf,
+} from './compose.js';
 import {
   getCustomParts,
   lookProvider,
   OWNER_LOOK_KEY,
   ownerChoice,
-  presetColumns,
+  presetLabel,
   presetSheet,
+  previewPreset,
   useLooksUi,
 } from './looks.js';
 import { PartImport } from './PartImport.js';
@@ -64,7 +68,6 @@ import {
   randomPerson,
   REQUIRED_SLOTS,
 } from './parts.js';
-import { PhotoMaker } from './PhotoMaker.js';
 import { EditorEntry, PixelEditor } from './PixelEditor.js';
 import { SheetImport } from './SheetImport.js';
 
@@ -75,10 +78,11 @@ const PREVIEW_GAP_PX = 12;
 /** Walk frames as the office plays them; the back view types. */
 const WALK = [0, 1, 2, 1];
 const TYPE = [3, 4];
-const BODIES = [0, 1, 2, 3, 4, 5];
 
 type Tab = 'mascot' | 'person' | 'humanoid' | 'custom';
-const TABS: readonly Tab[] = ['mascot', 'person', 'humanoid', 'custom'];
+const TABS: readonly Tab[] = looksCustomOn
+  ? ['mascot', 'person', 'humanoid', 'custom']
+  : ['mascot', 'humanoid'];
 
 const kindOf = (look: CharacterChoice | undefined): Tab =>
   look?.preset !== undefined
@@ -89,12 +93,26 @@ const kindOf = (look: CharacterChoice | undefined): Tab =>
         ? 'person'
         : 'humanoid';
 
+/** The tab a look opens on: its own, or 사람 when its own is hidden (a part look, a sheet look). */
+const startTab = (look: CharacterChoice | undefined): Tab => {
+  const own = kindOf(look);
+  return TABS.includes(own) ? own : 'humanoid';
+};
+
 const chip = (on: boolean) =>
   `px-8 py-4 text-xs border-2 cursor-pointer pointer-coarse:min-h-44 ${on ? 'border-accent bg-active-bg text-accent-text' : 'border-border bg-btn-bg hover:bg-btn-hover'}`;
 
 /** One sprite frame on a canvas, crisp at an integer zoom (world pixels; an HD frame, twice as
  *  tall in sprite pixels, is drawn at half the zoom: the same size, twice the detail). */
-function Frame({ sprite, zoom, density: d }: { sprite: SpriteData; zoom: number; density?: number }) {
+export function Frame({
+  sprite,
+  zoom,
+  density: d,
+}: {
+  sprite: SpriteData;
+  zoom: number;
+  density?: number;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   // SHEET-IMPORT: a sheet's own density (an imported 24×44 frame, a 64×128 person drawn at 3)
   const density = d ?? Math.max(1, Math.round(sprite.length / FRAME_H));
@@ -105,7 +123,8 @@ function Frame({ sprite, zoom, density: d }: { sprite: SpriteData; zoom: number;
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
     const scale = zoom / density;
-    if (Number.isInteger(scale) || isSmooth(sprite)) ctx.drawImage(getCachedSprite(sprite, scale), 0, 0);
+    if (Number.isInteger(scale) || isSmooth(sprite))
+      ctx.drawImage(getCachedSprite(sprite, scale), 0, 0);
     else {
       // an HD64 frame in a small thumbnail: its pixels drawn at the thumbnail's size, nearest
       // (ponytail: every other pixel at ×2; its 32×64 copy if thumbnails ever look rough)
@@ -276,149 +295,124 @@ function MascotOptions({
   );
 }
 
-/** The look a person's choices make: the v1 shape while it has no part colours or accessories
- *  (the daemon stores it that way); part colours replace the hue (one or the other, §3.2). */
-function humanoidLook(
-  base: number,
-  hue: number,
-  colors: CharacterColors,
-  acc: readonly CharacterAccessory[],
-): CharacterChoice {
-  const parts = Object.keys(colors).length > 0;
-  if (!parts && !acc.length) return { palette: base, hueShift: hue };
-  return {
-    v: 2,
-    kind: 'humanoid',
-    base,
-    ...(parts ? { colors } : hue ? { hue } : {}),
-    ...(acc.length && { acc: HUMANOID_ACCESSORIES.filter((a) => acc.includes(a)) }),
-  };
-}
+/** A built-in person's role (an external sheet past them: its number). */
+const personName = (palette: number) =>
+  palette < PALETTE_COUNT
+    ? t(`looks.staff.${palette}` as TranslationKey)
+    : t('looks.bodyNumber', { number: palette + 1 });
 
-function HumanoidOptions({
+/** Preset sheets as picking chips: the front frame, the name below. */
+function PresetChips({
+  presets,
   look,
+  idPrefix,
   onChange,
 }: {
+  presets: CharacterPresets['presets'];
   look: CharacterChoice;
+  idPrefix: string;
   onChange: (look: CharacterChoice) => void;
 }) {
-  const body = look.palette ?? look.base ?? 0;
-  const hue = look.hueShift ?? look.hue ?? 0;
-  const colors = look.colors ?? {};
-  const acc = look.acc ?? [];
-  const set = (patch: {
-    base?: number;
-    hue?: number;
-    colors?: CharacterColors;
-    acc?: CharacterAccessory[];
-  }) =>
-    onChange(
-      humanoidLook(patch.base ?? body, patch.hue ?? hue, patch.colors ?? colors, patch.acc ?? acc),
-    );
-  const setPart = (part: keyof CharacterColors, color: string | null) => {
-    const next = { ...colors };
-    if (color) next[part] = color.toLowerCase();
-    else delete next[part];
-    set({ colors: next, hue: 0 });
-  };
-  const colorsKey = JSON.stringify(colors);
-  const thumbs = useMemo(
-    () =>
-      BODIES.map(
-        (palette) =>
-          compose(humanoidLook(palette, hue, JSON.parse(colorsKey) as CharacterColors, []), {
-            templates: getCharacterTemplates(),
-          }).sheet.down[0],
-      ),
-    [hue, colorsKey],
-  );
   return (
     <>
-      <Row label={t('looks.body')}>
-        {BODIES.map((palette) => (
-          <button
-            key={palette}
-            type="button"
-            className={chip(palette === body)}
-            aria-label={t('looks.bodyNumber', { number: palette + 1 })}
-            aria-pressed={palette === body}
-            onClick={() => set({ base: palette })}
-          >
-            <Frame sprite={thumbs[palette]} zoom={THUMB_ZOOM} />
-          </button>
-        ))}
-      </Row>
-      {HUMANOID_PARTS.map((part) => {
-        const color = colors[part];
-        const swatches = swatchesOf(part);
-        return (
-          <Row key={part} label={t(`looks.person.part.${part}`)}>
+      {presets.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={`${chip(look.preset === p.id)} flex flex-col items-center gap-2`}
+          aria-label={t('character.presetName', { name: presetLabel(p) })}
+          aria-pressed={look.preset === p.id}
+          data-testid={`${idPrefix}-${p.id}`}
+          onClick={() => onChange({ preset: p.id })}
+        >
+          {/* LOOKS-MEM: the daemon's small thumbnail of the first cell, loaded once in view; never
+              the sheet itself (an imported one is ~29 MB decoded, a phone closed the page) */}
+          {p.thumbUrl ? (
+            <img
+              src={p.thumbUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              width={FRAME_W * THUMB_ZOOM}
+              height={FRAME_H * THUMB_ZOOM}
+              className="block"
+              style={{
+                objectFit: 'contain',
+                objectPosition: 'top',
+                // an imported sheet (288×528 cells) shrinks smoothly; pixel art stays crisp
+                imageRendering: p.density === IMPORT_DENSITY ? 'auto' : 'pixelated',
+              }}
+            />
+          ) : (
+            <span
+              className="block"
+              style={{ width: FRAME_W * THUMB_ZOOM, height: FRAME_H * THUMB_ZOOM }}
+            />
+          )}
+          <span className="text-2xs max-w-64 truncate">{presetLabel(p)}</span>
+        </button>
+      ))}
+    </>
+  );
+}
+
+/** The people tab: pick one of the built-in people (stored as `{palette, hueShift: 0}`). */
+function PeopleOptions({
+  look,
+  presets,
+  canSave,
+  onChange,
+  onImport,
+}: {
+  look: CharacterChoice;
+  presets: CharacterPresets['presets'];
+  canSave: boolean;
+  onChange: (look: CharacterChoice) => void;
+  onImport: () => void;
+}) {
+  // a look from a hidden tab (parts, a sheet) leaves no person chosen
+  const chosen = kindOf(look) === 'humanoid' ? (look.palette ?? look.base ?? 0) : -1;
+  const templates = getCharacterTemplates();
+  return (
+    <>
+      {peopleGroups(templates.length).map(({ key, people }) => (
+        <Row key={key} label={t(`looks.people.${key}`)}>
+          {people.map((palette) => (
             <button
+              key={palette}
               type="button"
-              className={chip(!color)}
-              aria-pressed={!color}
-              onClick={() => setPart(part, null)}
+              className={chip(palette === chosen)}
+              aria-label={personName(palette)}
+              title={personName(palette)}
+              aria-pressed={palette === chosen}
+              data-testid={`looks-people-${palette}`}
+              onClick={() => onChange({ palette, hueShift: 0 })}
             >
-              {t('looks.person.original')}
+              <Frame sprite={templates[palette].down[1]} zoom={THUMB_ZOOM} />
             </button>
-            {swatches.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`size-24 pointer-coarse:size-44 border-2 cursor-pointer ${c === color ? 'border-accent' : 'border-border'}`}
-                style={{ background: c }}
-                aria-label={c}
-                aria-pressed={c === color}
-                data-testid={`looks-person-${part}-${c}`}
-                onClick={() => setPart(part, c)}
-              />
-            ))}
-            <label
-              className={`${chip(!!color && !swatches.includes(color))} flex items-center gap-4`}
-            >
-              {t('looks.colorPick')}
-              <input
-                type="color"
-                value={color ?? swatches[0]}
-                className="size-24 pointer-coarse:size-44 cursor-pointer"
-                onChange={(e) => setPart(part, e.target.value)}
-              />
-            </label>
-          </Row>
-        );
-      })}
-      <Row label={t('looks.person.acc')}>
-        {HUMANOID_ACCESSORIES.map((a) => {
-          const on = acc.includes(a);
-          return (
-            <button
-              key={a}
-              type="button"
-              className={chip(on)}
-              aria-pressed={on}
-              onClick={() => set({ acc: on ? acc.filter((x) => x !== a) : [...acc, a] })}
-            >
-              {t(`looks.person.acc.${a}`)}
-            </button>
-          );
-        })}
-      </Row>
-      {/* The hue turns the whole body; with part colours chosen it has nothing left to turn. */}
-      {!Object.keys(colors).length && (
-        <label className="flex items-center gap-8 text-xs">
-          {t('character.changeColor')}
-          <input
-            type="range"
-            min={0}
-            max={HUMANOID_HUE_MAX}
-            step={HUMANOID_HUE_STEP}
-            value={hue}
-            onChange={(e) => set({ hue: Number(e.target.value) })}
-            className="pixel-range flex-1"
-            style={{ '--range-fill': `${(hue / HUMANOID_HUE_MAX) * 100}%` } as CSSProperties}
+          ))}
+        </Row>
+      ))}
+      {/* the built-in sheets (the bunny) and the owner's own (SHEET-IMPORT), then the way to add one */}
+      {(presets.length > 0 || canSave) && (
+        <Row label={t('looks.people.sheets')}>
+          <PresetChips
+            presets={presets}
+            look={look}
+            idPrefix="looks-sheetchar"
+            onChange={onChange}
           />
-          <span className="w-40 text-right">{hue}°</span>
-        </label>
+          {canSave && (
+            <button
+              type="button"
+              className={chip(false)}
+              data-testid="looks-sheetchar-add"
+              onClick={onImport}
+            >
+              {t('looks.addCharacter')}
+            </button>
+          )}
+        </Row>
       )}
     </>
   );
@@ -812,14 +806,12 @@ function CustomOptions({
   presets,
   canSave,
   onChange,
-  onPhoto,
   onImport,
 }: {
   look: CharacterChoice;
   presets: CharacterPresets['presets'];
   canSave: boolean;
   onChange: (look: CharacterChoice) => void;
-  onPhoto: () => void;
   onImport: () => void;
 }) {
   // SHEET-IMPORT: the packs' presets too (the 64×128 bunny lived only under 사람 꾸미기 > 프리셋)
@@ -848,38 +840,16 @@ function CustomOptions({
         {presets.length === 0 ? (
           <p className="text-xs text-text-muted">{t('character.presetHelp')}</p>
         ) : (
-          presets.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`${chip(look.preset === p.id)} flex flex-col items-center gap-2`}
-              aria-label={t('character.presetName', { name: serverLine(p.label) })}
-              aria-pressed={look.preset === p.id}
-              data-testid={`looks-custom-preset-${p.id}`}
-              onClick={() => onChange({ preset: p.id })}
-            >
-              <span
-                className="block"
-                style={{
-                  width: FRAME_W * THUMB_ZOOM,
-                  height: FRAME_H * THUMB_ZOOM,
-                  backgroundImage: `url(${p.url})`,
-                  // an iso8 sheet has 5 rows, or 6 with its drinks (C1): its own aspect then
-                  backgroundSize: `${FRAME_W * presetColumns(p) * THUMB_ZOOM}px ${p.format === 'iso8' ? 'auto' : `${FRAME_H * (p.format === 'iso' ? 2 : 3) * THUMB_ZOOM}px`}`,
-                  // an imported sheet (192×384 frames) shrinks smoothly; pixel art stays crisp
-                  imageRendering: p.density === IMPORT_DENSITY ? 'auto' : 'pixelated',
-                }}
-              />
-              <span className="text-2xs max-w-64 truncate">{serverLine(p.label)}</span>
-            </button>
-          ))
+          <PresetChips
+            presets={presets}
+            look={look}
+            idPrefix="looks-custom-preset"
+            onChange={onChange}
+          />
         )}
       </Row>
       {canSave && (
         <div className="flex flex-wrap gap-6">
-          <Button size="sm" variant="ghost" onClick={onPhoto}>
-            {t('character.makeFromPhoto')}
-          </Button>
           <Button size="sm" variant="ghost" data-testid="looks-sheet-import" onClick={onImport}>
             {t('sheetImport.open')}
           </Button>
@@ -901,13 +871,17 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
       ? (ownerChoice(characterPresets) ?? { palette: 0, hueShift: 0 })
       : characterPresets?.assignments[name];
   const provider = lookProvider(name);
+  // No saved look yet: the automatic one the daemon pins (CHARS-1104): an employee's is its
+  // provider's mascot, a named agent's a built-in person (ponytail: shown as the first one until
+  // the pin arrives, a moment later).
+  const auto: CharacterChoice = name.startsWith('emp:')
+    ? { v: 2, kind: 'mascot' }
+    : { palette: 0, hueShift: 0 };
   const [draft, setDraft] = useState<CharacterChoice | null>(null);
-  const [tab, setTab] = useState<Tab>(() => kindOf(saved));
-  const [photo, setPhoto] = useState(false);
+  const [tab, setTab] = useState<Tab>(() => startTab(saved ?? auto));
   const [sheetImport, setSheetImport] = useState(false);
   const [editing, setEditing] = useState<Uint8ClampedArray<ArrayBuffer> | null>(null);
-  // No saved look yet: the automatic one is the provider's mascot (the daemon pins it).
-  const look: CharacterChoice = draft ?? saved ?? { v: 2, kind: 'mascot' };
+  const look: CharacterChoice = draft ?? saved ?? auto;
   const custom =
     look.preset !== undefined && characterPresets
       ? presetSheet(look.preset, characterPresets)
@@ -918,6 +892,11 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
     custom,
     parts: getCustomParts(),
   });
+  // LOOKS-MEM: the preview's sheet stays decoded while it shows (another pick or closing lets go)
+  useEffect(() => {
+    previewPreset(look.preset);
+    return () => previewPreset(undefined);
+  }, [look.preset]);
   const key = (l: CharacterChoice | undefined) => lookKey(l, provider);
   const dirty = draft !== null && key(draft) !== key(saved);
   const canSave = !officeReadOnly;
@@ -926,7 +905,7 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
     setTab(next);
     if (next === kindOf(look) || next === 'custom') return;
     setDraft(
-      next === kindOf(saved)
+      next === kindOf(saved ?? auto)
         ? null
         : next === 'mascot'
           ? { v: 2, kind: 'mascot', species: mascotOfProvider(provider) }
@@ -952,7 +931,7 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
   };
   const revert = () => {
     setDraft(null);
-    setTab(kindOf(saved));
+    setTab(startTab(saved ?? auto));
   };
 
   if (editing)
@@ -980,21 +959,8 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
           onSaved={(id) => {
             // the new preset is picked; 저장 puts it on this character
             setSheetImport(false);
-            setTab('custom');
+            setTab(startTab({ preset: id }));
             setDraft({ preset: id });
-          }}
-        />
-      </div>
-    );
-  if (photo)
-    return (
-      <div className="overflow-y-auto min-h-0 flex-1">
-        <PhotoMaker
-          name={name}
-          onBack={() => setPhoto(false)}
-          onSaved={() => {
-            setPhoto(false);
-            setDraft(null);
           }}
         />
       </div>
@@ -1033,14 +999,21 @@ export function LooksBody({ name, inWindow = false }: { name: string; inWindow?:
         </nav>
         {tab === 'mascot' && <MascotOptions look={look} provider={provider} onChange={setDraft} />}
         {tab === 'person' && <PersonOptions look={look} canSave={canSave} onChange={setDraft} />}
-        {tab === 'humanoid' && <HumanoidOptions look={look} onChange={setDraft} />}
+        {tab === 'humanoid' && (
+          <PeopleOptions
+            look={look}
+            presets={characterPresets?.presets ?? []}
+            canSave={canSave}
+            onChange={setDraft}
+            onImport={() => setSheetImport(true)}
+          />
+        )}
         {tab === 'custom' && (
           <CustomOptions
             look={look}
             presets={characterPresets?.presets ?? []}
             canSave={canSave}
             onChange={setDraft}
-            onPhoto={() => setPhoto(true)}
             onImport={() => setSheetImport(true)}
           />
         )}

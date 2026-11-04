@@ -222,6 +222,26 @@ if (typeof document !== 'undefined' && typeof document.addEventListener === 'fun
     if (document.visibilityState === 'hidden') trimSmoothCache();
   });
 
+/** LOOKS-MEM: the decoded sheet `sprite`'s master is in, let go (no character wears it): every
+ *  picture cut from it leaves the zoom LRU and the canvas gives its memory back now (width 0;
+ *  Safari frees a canvas only when it is collected). A frame of it drawn later draws nothing. */
+const released = new WeakSet<HTMLCanvasElement>();
+const isReleased = (m: Smooth) => !!m.rect && released.has(m.rect.src);
+export function releaseMaster(sprite: SpriteData): void {
+  const src = smooth.get(sprite)?.rect?.src;
+  if (!src) return;
+  released.add(src);
+  for (const e of byZoom.values())
+    for (const [s, pic] of e.pics) {
+      if (smooth.get(s)?.rect?.src !== src) continue;
+      e.pics.delete(s);
+      const bytes = pic.width * pic.height * 4;
+      e.bytes -= bytes;
+      totalBytes -= bytes;
+    }
+  src.width = src.height = 0;
+}
+
 /** The size `sprite` draws at `zoom` (device px). */
 export const smoothSize = (sprite: SpriteData, zoom: number): [number, number] => [
   Math.max(1, Math.round((sprite[0]?.length ?? 0) * zoom)),
@@ -260,6 +280,7 @@ export function drawSmooth(
     return;
   }
   const m = smooth.get(sprite)!;
+  if (isReleased(m)) return; // its sheet was let go (releaseMaster)
   const levels = chainOf(sprite, m);
   const [W, H] = smoothSize(sprite, zoom);
   const l = levelFor(levels, W, H);
@@ -295,9 +316,10 @@ export function smoothPicture(sprite: SpriteData, zoom: number): HTMLCanvasEleme
     return have;
   }
   const m = smooth.get(sprite)!;
-  const levels = chainOf(sprite, m);
   const W = Math.max(1, Math.round((sprite[0]?.length ?? 0) * zoom));
   const H = Math.max(1, Math.round(sprite.length * zoom));
+  if (isReleased(m)) return canvas(W, H); // its sheet was let go: blank, not kept
+  const levels = chainOf(sprite, m);
   // the smallest level still at least the display size (past the master: the master, nearest)
   const l = levelFor(levels, W, H);
   const c = canvas(W, H);

@@ -1,3 +1,5 @@
+import { CHAR_COUNT } from '../../core/src/assets/constants.js';
+
 // ── JSONL File Watching ─────────────────────────────────────
 export const FILE_WATCHER_POLL_INTERVAL_MS = 500;
 export const PROJECT_SCAN_INTERVAL_MS = 1000;
@@ -239,11 +241,8 @@ export const CONFIG_FILE_NAME = 'config.json';
 export const STANDALONE_STATE_FILE_NAME = 'standalone-state.json';
 
 // ── Avatar Customization ────────────────────────────────────
-/** Number of pre-colored bundled character palettes (char_0.png–char_5.png).
- *  Mirrors `PALETTE_COUNT` in webview-ui/src/constants.ts; kept separate
- *  because the server has no DOM/sprite access and cannot import the webview
- *  constant. The two values must stay in sync. */
-export const PALETTE_COUNT = 6;
+/** Number of bundled character palettes (`char_N.png`): core's `CHAR_COUNT`. */
+export const PALETTE_COUNT = CHAR_COUNT;
 /** Inclusive upper bound for a valid agent hue shift, in degrees. Used by
  *  clientMessageHandler to guard saveAgentSeats payloads from a remote or
  *  hand-edited source corrupting the stored values with out-of-range values. */
@@ -341,3 +340,219 @@ export const QUESTIONS_MAX = 100;
 /** DESKTOP-ACTIONS: an 'open' ticket (handed to the default browser) dies this long after its mint,
  *  however often a PDF or video viewer reads it: enough to read or watch, never a lasting link. */
 export const EXTERNAL_TICKET_MAX_MS = 30 * 60_000;
+
+// ── SPT-P1A spec tracking (server/src/cld/spec/) ──
+/** Finding documents walks the project folder's working tree this far, then stops (what it found stands). */
+export const SPEC_WALK_DIRS_MAX = 2_000;
+export const SPEC_WALK_FILES_MAX = 5_000;
+export const SPEC_WALK_DEPTH_MAX = 6;
+/** A document bigger than this is not offered, and a tracked one that grows past it is not read. */
+export const SPEC_FILE_MAX_BYTES = 2 * 1024 * 1024;
+/** SPT §2.3: the bytes read from a document's top for its front-matter kind (the 켜기 window, enable). */
+export const SPEC_FM_HEAD_BYTES = 4 * 1024;
+/** Folders the walk never enters, on top of tracking's SKIP_DIRS: virtual environments and datasets. */
+export const SPEC_SKIP_DIRS: readonly string[] = ['.venv', 'venv', '__pycache__', 'site-packages', 'dataset', 'datasets'];
+/** A file changed this recently is being written: the next scan reads it. */
+export const SPEC_SETTLE_MS = 5_000;
+/** A project is scanned at most this often, however often its routes are read. */
+export const SPEC_SCAN_MIN_MS = 10_000;
+/** The 개요's recent commits, read once per HEAD. */
+export const SPEC_RECENT_COMMITS = 20;
+/** A commit subject sent to the screen: masked, then cut here. */
+export const SPEC_TITLE_MAX = 120;
+/** git output for one status or file list (a huge untracked tree is cut there). */
+export const SPEC_GIT_MAX_BYTES = 1024 * 1024;
+/** A document record keeps this many past paths and decisions. */
+export const SPEC_PATH_HISTORY_MAX = 20;
+export const SPEC_DECISIONS_MAX = 10;
+/** Documents one enable may name. */
+export const SPEC_ENABLE_DOCS_MAX = 300;
+/** A document path the 켜기 window may send. */
+export const SPEC_PATH_MAX = 400;
+// ── SPT-P1B items ──
+/** ID-less headings become items down to this level when a document's mode is headings (SPT §7.1), and at most this deep. */
+export const SPEC_HEADING_DEPTH = 2;
+export const SPEC_HEADING_DEPTH_MAX = 6;
+/** An item's title or section sent to the screen: masked, then cut here. */
+export const SPEC_ITEM_TITLE_MAX = 200;
+/** The 요구사항 list: rows per page by default, and at most. */
+export const SPEC_ITEMS_PAGE = 200;
+export const SPEC_ITEMS_PAGE_MAX = 500;
+/** The 요구사항 search text, at most. */
+export const SPEC_QUERY_MAX = 100;
+// ── SPT-P1C identity ladder, match cache, questions ──
+/**
+ * R2's ladder (cld/docs/research/spec-tracking-identity-2026-11-03.md §3), every number by name.
+ * accept/low/margin: T3 takes a pair at `accept` with `margin` over the next one, asks from `low`;
+ * crossDocBody: a pair across documents needs this much body overlap (else capped under accept);
+ * retiredPenalty: coming back from retirement needs a bit more.
+ */
+export const SPEC_LADDER = {
+  accept: 0.6,
+  low: 0.45,
+  margin: 0.1,
+  crossDocBody: 0.5,
+  retiredPenalty: 0.05,
+  /** T3 skips a pair this far under `low` before the bonuses. */
+  prefilter: 0.2,
+  /** T3: title weight, same-document bonus, neighbour bonus (each side counts half). */
+  titleWeight: 0.6,
+  sameDocBonus: 0.05,
+  neighbourBonus: 0.1,
+  /** Shingles in more than max(stopMin, stopShare × items) items are template text, left out of T2/T3. */
+  stopMin: 3,
+  stopShare: 0.1,
+  /** Containment of the smaller side (damped), only from this many shingles and up to this size ratio. */
+  containMin: 20,
+  containRatio: 5,
+  containDamp: 0.8,
+  /** Under this share of the bigger side's size two sets cannot reach any threshold. */
+  sizeFloor: 0.05,
+  /** T1: identical text shorter than this is matched only inside its document (and, repeated, gets new UIDs, never a question). */
+  shortText: 20,
+  /** T2a keeps an item at this body overlap (or a title overlap of t2Title); T2b (another document) at t2Other. */
+  t2Same: 0.15,
+  t2Title: 0.5,
+  t2Other: 0.3,
+  /** T2: under t2Weak, an old text still alive elsewhere at t2Reused makes it ID reuse. */
+  t2Weak: 0.5,
+  t2Reused: 0.6,
+  /** D0 continuity (SPT 0.3): overlap at least this, or this share of the old items continuing by T1 or T2. */
+  d0Overlap: 0.1,
+  d0Items: 0.5,
+  /** D2: a front-matter id with the same file name or this much overlap. */
+  d2Overlap: 0.2,
+  /** D3: keep at d3Accept with d3Margin over the next; ask from d3Low; containment from d3ContainMin old shingles. */
+  d3Accept: 0.5,
+  d3Margin: 0.15,
+  d3Low: 0.25,
+  d3ContainMin: 200,
+  /** A pair accepted under this goes to 확인 권장 (SPT 0.3). */
+  reviewBelow: 0.7,
+  /** A new item whose best retired candidate scored from here up to `low` gets '어쩌면 같은 것' (SPT §2.5, non-blocking). */
+  maybeLow: 0.3,
+} as const;
+/** Ties at exactly the margin: scores are sums of decimals (1.15 - 1.05 is 0.0999…). */
+export const SPEC_SCORE_EPSILON = 1e-9;
+/** A document's sketch in the match cache: the bottom-k of its 3-gram hashes (Jaccard and containment estimates). */
+export const SPEC_SKETCH_K = 256;
+/** Old or current text in a 같은 항목 확인 question, masked, at most (bytes of UTF-8). */
+export const SPEC_QUESTION_TEXT_MAX = 4 * 1024;
+/** Files read as where a missing document may have gone (no git rename for it), at most per scan. */
+export const SPEC_MOVE_CANDIDATES_MAX = 300;
+/** 최근 판정: by default and at most; 합치기 offers this many retired items. */
+export const SPEC_DECISIONS_PAGE = 20;
+export const SPEC_DECISIONS_PAGE_MAX = 100;
+export const SPEC_MERGE_TARGETS_MAX = 10;
+/** A document nearly all of whose display IDs are defined elsewhere too looks like a table that repeats them (참조만 하는 표?). */
+export const SPEC_REPEATER_SHARE = 0.9;
+/** A scan that left a file being written scans once more this long after it settles, only if a route asked within SPEC_FOLLOW_UP_READ_MS. */
+export const SPEC_FOLLOW_UP_MARGIN_MS = 500;
+export const SPEC_FOLLOW_UP_READ_MS = 60_000;
+/** SPT §2.8: a folder that is no repository is offered an orphaned Registry when this share of its documents is here unchanged (suggest only). */
+export const SPEC_INHERIT_DOC_SHARE = 0.5;
+/** SPT-P2 trace (§4.4-4.5, §7.1): the commit scan reads at most this many first-parent commits of HEAD (cached by HEAD). */
+export const SPEC_TRACE_COMMITS_MAX = 500;
+/** [연결 추가]'s pickers: the last commits and jobs offered, and at most this many rows of any kind. */
+export const SPEC_TRACE_PICK_COMMITS = 200;
+export const SPEC_TRACE_PICK_JOBS = 100;
+export const SPEC_TRACE_PICK_MAX = 200;
+/** traceQuery: at most this many nodes and this depth; commits past SPEC_TRACE_COMMITS_PER_NODE of one requirement fold into '+N'. */
+export const SPEC_TRACE_NODES_MAX = 150;
+export const SPEC_TRACE_DEPTH_MAX = 2;
+export const SPEC_TRACE_COMMITS_PER_NODE = 20;
+/** The trace index is dropped this long after its last read; rebuilt when older than SPEC_SCAN_MIN_MS (Tasks and jobs move without a rev). */
+export const SPEC_TRACE_IDLE_MS = 60_000;
+/** links.json: a link's note at most (characters), the link history kept, a bulk confirm at most. */
+export const SPEC_LINK_NOTE_MAX = 500;
+export const SPEC_LINK_HISTORY_MAX = 2_000;
+export const SPEC_LINK_BULK_MAX = 500;
+/** SPT-P3-ACCEPT: an item's 인수 기준 in its detail, at most (each cut at SPEC_ITEM_TITLE_MAX). */
+export const SPEC_CRITERIA_MAX = 20;
+/** acceptance.json: at most this many records (about 300 bytes each); past it every acceptance write is refused, none is ever deleted. */
+export const SPEC_ACCEPT_RECORDS_MAX = 10_000;
+/** GAME-UI-1: the summary's 이번 주 수락 compares this week with this many past weeks (records older are not read). */
+export const SPEC_ACCEPT_WEEKS_PAST = 5;
+/** An item's history in its detail, at most (the newest). */
+export const SPEC_TRACE_HISTORY_MAX = 50;
+/** SPT-P3-OVERVIEW: the 개요's 최근 근거 lists the last SPEC_RECENT_COMMITS commits and at most this many ended jobs and merge records. */
+export const SPEC_RECENT_JOBS = 10;
+export const SPEC_RECENT_MERGES = 10;
+/** A commit's or a job's requirement chips in 최근 근거, at most. */
+export const SPEC_RECENT_REQS = 10;
+/** MEM-IDLE: the glibc malloc settings the installer starts the daemon with (DAEMON_ENV in
+ *  cld/install/install.mjs). glibc reads them at exec; the daemon then drops them so claude
+ *  sessions, terminals, jobs and codex it starts keep glibc's defaults. */
+export const DAEMON_ONLY_ENV = ['MALLOC_MMAP_THRESHOLD_', 'MALLOC_TRIM_THRESHOLD_'] as const;
+/** SPT-P4A architecture graph (§8): a Mermaid line longer than this refuses its block (the readers stay linear). */
+export const SPEC_ARCH_LINE_MAX = 4_096;
+/** An unsupported block's source sent with it, masked, at most (bytes). */
+export const SPEC_ARCH_SOURCE_MAX = 4 * 1024;
+/** The architecture query: at most this many components (the rest counted in `hidden`) and unsupported blocks. */
+export const SPEC_ARCH_NODES_MAX = 200;
+export const SPEC_ARCH_UNSUPPORTED_MAX = 50;
+/** One Mermaid block, at most (real documents: 20 nodes, 23 edges): past these the block is refused as too big. */
+export const SPEC_ARCH_BLOCK_NODES_MAX = 500;
+export const SPEC_ARCH_BLOCK_EDGES_MAX = 2_000;
+export const SPEC_ARCH_BLOCK_GROUPS_MAX = 100;
+/** One document's architecture, at most: past these the document's architecture is refused as too big (nothing of it read). */
+export const SPEC_ARCH_DOC_COMPS_MAX = 1_000;
+export const SPEC_ARCH_DOC_LINKS_MAX = 5_000;
+/** Retired components kept per document (the oldest go first). */
+export const SPEC_ARCH_RETIRED_PER_DOC = 200;
+/** The architecture query sends at most this many edges per layer (the rest counted in `hiddenEdges`). */
+export const SPEC_ARCH_EDGES_MAX = 1_000;
+/** A component table's 의존 cell names at most this many components (a longer cell's rest is not read). */
+export const SPEC_ARCH_DEP_NAMES_MAX = 100;
+/** One project's components read from its documents, at most: the documents past it show as too big (their components kept as they were). */
+export const SPEC_ARCH_PROJECT_COMPS_MAX = 10_000;
+// ── SPT-P4C: requirement ↔ component (§8). Computed links only: suggested from a label, observed from a module column ──
+/** Labels compared per index build, at most (doc path order); a label is whole words, at least this many characters, at most this many words. */
+export const SPEC_LINK_LABELS_MAX = 500;
+export const SPEC_LINK_LABEL_MIN = 3;
+export const SPEC_LINK_LABEL_WORDS_MAX = 4;
+/** Requirements whose text is compared with the labels per index build, at most (document order), and the words of each kept for it. */
+export const SPEC_LINK_MATCH_REQS_MAX = 2_000;
+export const SPEC_LINK_TEXT_WORDS_MAX = 300;
+/** Components one label names, and computed component links one requirement gets, at most. */
+export const SPEC_LINK_LABEL_COMPS_MAX = 4;
+export const SPEC_LINK_PER_REQ_MAX = 10;
+/** A module cell's paths (merged over the rows of one requirement), at most. */
+export const SPEC_LINK_MODULE_PATHS_MAX = 8;
+/** A requirement's text read for its words, at most (characters); a word longer than SPEC_ITEM_TITLE_MAX names no label and is dropped. */
+export const SPEC_LINK_TEXT_MAX = 4_096;
+/** Korean particles a word may end with: '스케줄러가' names '스케줄러' (longest first; one is stripped). */
+export const SPEC_LINK_PARTICLES: readonly string[] = ['입니다', '에서', '에게', '으로', '까지', '부터', '처럼', '보다', '이다', '이', '가', '은', '는', '을', '를', '의', '에', '로', '와', '과', '도', '만'];
+/** Words too common to suggest a component by (a one-word label only; lower case). */
+export const SPEC_LINK_STOP_WORDS: ReadonlySet<string> = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'this', 'that', 'not', 'are', 'can', 'will', 'has', 'all', 'any', 'new', 'one', 'use', 'each', 'when', 'then',
+  'user', 'users', 'data', 'system', 'service', 'app', 'api', 'module', 'component', 'file', 'files', 'page', 'list', 'item', 'name', 'type', 'value',
+  'error', 'test', 'tests', 'start', 'end', 'time', 'task', 'job', 'main', 'core', 'base', 'common', 'utils', 'util', 'src', 'lib', 'docs',
+  '사용자', '시스템', '데이터', '화면', '기능', '모듈', '구성요소',
+]);
+// ── SPT-P4B: the owner's architecture (arch.json, the folder skeleton) ──
+/** arch.json, at most (bytes): a write past it is refused (spec_arch_full); a bigger file is not read (corrupt, left as it is). */
+export const SPEC_ARCH_FILE_MAX_BYTES = 1024 * 1024;
+/** arch.json's lists, at most: past one the write that would grow it is refused. History keeps its newest. */
+export const SPEC_ARCH_OWNER_COMPS_MAX = 500;
+export const SPEC_ARCH_OWNER_RELS_MAX = 1_000;
+export const SPEC_ARCH_ALIASES_MAX = 1_000;
+export const SPEC_ARCH_APPROVALS_MAX = 1_000;
+export const SPEC_ARCH_KINDS_MAX = 2_000;
+export const SPEC_ARCH_DECISIONS_MAX = 500;
+export const SPEC_ARCH_HISTORY_MAX = 1_000;
+/** MAP-A: the owner's parents (one per component). */
+export const SPEC_ARCH_PARENTS_MAX = 2_000;
+// ── MAP-A: the 지도's structure view (GET …/map) ──
+/** Child cards drawn under the selected item; the rest are '그 밖 N개' (the tree lists them). */
+export const SPEC_MAP_CARDS_MAX = 8;
+/** The left pane's module tree, the 불확실 list, the selected item's requirements, the dependencies, the sources shown: at most. */
+export const SPEC_MAP_TREE_MAX = 300;
+export const SPEC_MAP_UNCERTAIN_MAX = 20;
+export const SPEC_MAP_REQS_MAX = 50;
+export const SPEC_MAP_DEPS_MAX = 40;
+export const SPEC_MAP_SOURCES_MAX = 10;
+/** The Task statuses counted as 진행 중. */
+export const SPEC_MAP_ACTIVE_TASKS: ReadonlySet<string> = new Set(['doing', 'review', 'blocked']);
+/** The folder skeleton: at most this many folders proposed (top folders first, then one level below). */
+export const SPEC_ARCH_SKELETON_MAX = 60;

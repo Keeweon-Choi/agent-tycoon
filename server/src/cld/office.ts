@@ -15,6 +15,7 @@
  * is sampled every 2 s. `claude agents --json` is only ClaudeSessions' fallback.
  */
 import { type ChildProcess, spawn, type SpawnOptions } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
@@ -82,6 +83,7 @@ import {
 } from './engine/events.js';
 import { EventsTail } from './engine/eventsTail.js';
 import { RepoError } from './engine/git/gitRun.js';
+import { MergeHistory } from './engine/git/mergeHistory.js';
 import { RepoManager } from './engine/git/repoManager.js';
 import type { ProjectFolder } from './engine/git/repoRead.js';
 import type { ReviewSendDeps } from './engine/git/reviewNotes.js';
@@ -126,9 +128,9 @@ import { OfficePermissions } from './office/permissions.js';
 import { OfficeRooms } from './office/rooms.js';
 import { WorkerRuns } from './office/workerRuns.js';
 import { registerOwnerProfileRoutes } from './ownerProfile.js';
-import { builtInPacksDir, PackStore } from './packs.js';
+import { builtInPacksDir, builtInSheetDirs, PackStore } from './packs.js';
 import { PinStore } from './pins.js';
-import { aliasOf, deleteGoneConversation, type FormerName, readNameHistory } from './projectData.js';
+import { aliasOf, deleteGoneConversation, detachSpecData, type FormerName, purgedNow, purgeSpecData, readNameHistory } from './projectData.js';
 import { parseProjectRepo, ProjectRepos } from './projectRepo.js';
 import type { ClaudeSession } from './providers/claudeProvider.js';
 import {
@@ -144,6 +146,8 @@ import { registerPushImageRoute } from './pushImage.js';
 import { RosterStore } from './roster.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
 import { SlashCatalogue } from './slashCommands.js';
+import { registerSpecRoutes } from './spec/routes.js';
+import { SpecService } from './spec/service.js';
 import { staffFacts } from './staffStatus.js';
 import {
   realStartPolicyDeps,
@@ -318,8 +322,9 @@ export class Office {
   private readonly turnLedger = new TurnLedger();
   /** The read-only work view of a temp (T-0056): readers open only while someone looks. */
   private readonly work: WorkViews;
-  /** Latest message per type (JSON), for change detection and snapshots. */
-  private readonly latest = new Map<string, string>();
+  /** Latest message per type, for snapshots, with its JSON's digest for change detection
+   *  (MEM-IDLE: not the JSON itself, characterParts alone is some 2.6 MB of it). */
+  private readonly latest = new Map<string, { msg: { type: string }; digest: string }>();
   /** While viewing: the HW tick and the claude safety poll. */
   private timers: Array<ReturnType<typeof setInterval>> = [];
   private readonly hwViewers = new Set<WsSend>();
@@ -356,6 +361,8 @@ export class Office {
   readonly tasks: TaskStore;
   /** U-48 phase 1: the agents' own work lists as tracked items, read only while someone views. */
   private readonly tracking: TrackingFeed;
+  /** SPT-P1A: spec tracking (document UIDs); runs only when its routes are read. */
+  readonly spec: SpecService;
   /** The project folders `tracking` last resolved a cwd against (JSON); a change forgets the cwd answers. */
   private trackingFolders = '';
   private readonly cwdProjects = new Map<string, string | null>();
@@ -392,6 +399,8 @@ export class Office {
     this.codexBinder = new CharacterBinder(opts.runtime, opts.store, CODEX_GRACE_MS);
     this.characters = new CharacterPresets({
       configDir: configDirectory(opts.home ?? os.homedir()),
+      // BUNNY-BUILTIN: the built-in packs' preset sheets (`<pack>/sheets/`)
+      builtInDirs: builtInSheetDirs(),
       publish: (msg) => this.publish(msg),
       // Keys are names: an engine project's or a Claude session's; a temp employee's `emp:<id>`;
       // the owner's own character (OWNER-AVATAR).
@@ -539,6 +548,7 @@ export class Office {
       () => {
         this.opts.store.broadcast({ ...this.tasks.message() });
         this.workerRuns.mergeDoneTasks();
+        this.spec?.sourcesChanged(); // SPT-P2: an open trace view reads again when its Tasks changed
       },
       undefined,
       {
@@ -560,6 +570,26 @@ export class Office {
       codexDir: (id) => (this.codex ? (readCodex(this.codex.dir, id)?.dir ?? null) : null),
       projects: () => this.engine?.folders() ?? [],
       taskIds: () => new Set(this.tasks.list().map((t) => t.id)),
+    });
+    const mergeHistory = new MergeHistory(path.join(configDirectory(home), 'merge-history.json'));
+    this.spec = new SpecService({
+      home,
+      // The engine's projects with their projectId (the Registry's key), read from its own file.
+      projects: () => {
+        const folders = this.engine?.folders() ?? [];
+        if (!folders.length) return [];
+        const ids = new Map(loadRegistry(registryPath(home)).projects.filter((p) => !p.role).map((p) => [p.name, p.projectId]));
+        return folders.flatMap((f) => {
+          const projectId = ids.get(f.name);
+          return projectId ? [{ ...f, projectId }] : [];
+        });
+      },
+      broadcast: (msg) => this.opts.store.broadcast({ ...msg }),
+      // SPT-P2: the trace reads the Task Board and the job records only when a spec route is read.
+      tasks: () => this.tasks.list(),
+      jobs: () => this.jobs?.list(true) ?? [],
+      // SPT-P3-OVERVIEW: 최근 근거's merges, read from W4's file on a 개요 read only.
+      merges: (project, n) => mergeHistory.list(project, n),
     });
     this.approvals = new ApprovalStore(approvalsPath(home), () => this.publishApprovals());
     this.usage = new UsageSource(
@@ -713,6 +743,7 @@ export class Office {
             env: () => this.engine!.jobEnv(),
             systemdRun: this.engine.scopeRunner,
             changed: () => {
+              this.spec?.sourcesChanged(); // SPT-P2: the job records the trace holds are read again
               this.workerRuns.observeExecutions();
               this.publishJobs();
             },
@@ -928,6 +959,7 @@ export class Office {
       if (this.updates) registerUpdateRoutes(app, auth, this.updates, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
       if (this.push) registerPushImageRoute(app, this.push.images);
       registerStartPolicyRoutes(app, auth, this.startPolicy, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
+      registerSpecRoutes(app, this.spec, { auth, kindOf, actorOf, readOnly: !!this.opts.readOnly });
     };
     this.started = true;
     // Before load(): its one recompute already folds Claude's rows into the
@@ -946,6 +978,7 @@ export class Office {
         `another cld-gui daemon already runs the engine for this HOME (${control} answers); not starting a second one`,
       );
     this.engine?.start();
+    this.spec.remember(); // SPT-P1D: the projects' ids by name (the engine has just loaded them), before any remove
     this.messenger?.start();
     this.jobs?.start();
     this.codex?.start();
@@ -1277,7 +1310,7 @@ export class Office {
   private publishGpu(): void {
     if (!this.gpuFold) return;
     const board = this.gpuFold.board();
-    const hw = JSON.parse(this.latest.get('hwSample') ?? 'null') as HwSample | null;
+    const hw = (this.latest.get('hwSample')?.msg ?? null) as HwSample | null;
     const procs =
       hw?.ts && Date.now() - Date.parse(hw.ts) < 5_000 ? (hw.gpuProcesses ?? null) : null;
     const holders = new Set(
@@ -1672,9 +1705,9 @@ export class Office {
   }
 
   private publish<T extends { type: string }>(msg: T): void {
-    const json = JSON.stringify(msg);
-    if (this.latest.get(msg.type) === json) return;
-    this.latest.set(msg.type, json);
+    const digest = crypto.createHash('sha1').update(JSON.stringify(msg)).digest('base64');
+    if (this.latest.get(msg.type)?.digest === digest) return;
+    this.latest.set(msg.type, { msg, digest });
     this.opts.store.broadcast(msg as unknown as Record<string, unknown>);
   }
 
@@ -1687,7 +1720,7 @@ export class Office {
    */
   private async hwForCli(): Promise<Reply> {
     try {
-      const last = JSON.parse(this.latest.get('hwSample') ?? 'null') as HwSample | null;
+      const last = (this.latest.get('hwSample')?.msg ?? null) as HwSample | null;
       let hw: Omit<HwSample, 'type'>;
       if (last?.ts && Date.now() - Date.parse(last.ts) < 3 * HW_MS) {
         const { type: _type, ...rest } = last;
@@ -1889,7 +1922,7 @@ export class Office {
     send({ ...this.tasks.message() });
     for (const m of this.tracking.snapshot()) send({ ...m });
     if (this.groupStore) send({ type: 'groupRooms', rooms: this.rooms.groupRooms() });
-    for (const json of this.latest.values()) send(JSON.parse(json) as Record<string, unknown>);
+    for (const { msg } of this.latest.values()) send({ ...msg });
     const ez = this.ezRules.message(); // only when the user wrote valid ez-rules.json rules
     if (ez) send({ ...ez });
     // The engine's feed, oldest first (the client keeps the newest on top).
@@ -2208,8 +2241,11 @@ export class Office {
   private projectDataChange(change: () => string[], names: string[]): string[] {
     this.levels.flush();
     this.roster.flushIfDirty();
+    const specIds = this.spec.idsOf(names); // what the names were while live (a remove's record is gone already)
+    const history = this.nameHistory; // as last read: what this remove adds comes after it
     const failed = change();
     this.nameHistory = readNameHistory(this.opts.home ?? os.homedir());
+    failed.push(...this.specRemoved(specIds, history));
     this.levels.reload();
     this.approvals.reload();
     this.tracking.settings.reload();
@@ -2229,6 +2265,29 @@ export class Office {
     this.floors.publishBuilding();
     this.rooms.publishGroups();
     this.recompute();
+    return failed;
+  }
+
+  /**
+   * SPT-P1D (§2.9, §4.1): a removed project's spec sidecar, by the projectId its name had while
+   * live (a rename keeps the projectId: nothing to do). Without the purge box only the match cache
+   * goes and registry.json stays for 이어받기; with it (name-history.json's `purged`, written by the
+   * remove before this runs, only an entry added since `history`) spec/<projectId>/ goes. Unsure
+   * (no such entry): only the cache.
+   */
+  private specRemoved(ids: Array<{ name: string; projectId: string }>, history: readonly FormerName[]): string[] {
+    const home = this.opts.home ?? os.homedir();
+    const live = this.spec.liveIds();
+    const failed: string[] = [];
+    for (const { name, projectId } of ids) {
+      if (live.has(projectId)) continue;
+      const purged = purgedNow(history, this.nameHistory, name);
+      const log = (l: string) => console.warn(`[Agent Tycoon] ${l}`);
+      if (!purged) this.spec.relabel(projectId, name);
+      failed.push(...(purged ? purgeSpecData(home, projectId, log) : detachSpecData(home, projectId, log)));
+      this.spec.forget(projectId);
+    }
+    this.spec.remember();
     return failed;
   }
 

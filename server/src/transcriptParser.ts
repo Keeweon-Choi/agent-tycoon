@@ -21,6 +21,33 @@ import type { AgentState } from './types.js';
 
 const debug = readEnv('DEBUG') !== '0';
 
+/** MEM-IDLE: record types newer Claude Code writes that carry nothing we read, some of them a
+ *  megabyte each (the API request bodies): recognised by their type field, never parsed. */
+const UNPARSED_RECORD_TYPES = ['api-request', 'api-request-blob'];
+/** The record types this parser reads. A line naming one of them is parsed even when it also says
+ *  `"type":"api-request"`: that can be a nested object (a tool's input or toolUseResult). */
+const READ_RECORD_TYPES = ['user', 'assistant', 'progress', 'system', 'queue-operation', 'permission-mode'];
+
+/** The unparsed type of a line that is such a record, judged without JSON.parse. */
+function unparsedType(line: string): string | undefined {
+  const type = UNPARSED_RECORD_TYPES.find((t) => line.includes(`"type":"${t}"`));
+  return type && !READ_RECORD_TYPES.some((t) => line.includes(`"type":"${t}"`)) ? type : undefined;
+}
+/** Types we do not read that are already expected: never logged. */
+const KNOWN_SKIPPABLE_TYPES = new Set(['file-history-snapshot', 'system', 'queue-operation']);
+/** Unrecognised record types already logged: one line per type per process. */
+const loggedUnknownTypes = new Set<string>();
+
+function noteUnknownType(agentId: number, type: string, keys?: string[]): void {
+  if (KNOWN_SKIPPABLE_TYPES.has(type) || loggedUnknownTypes.has(type)) return;
+  loggedUnknownTypes.add(type);
+  if (debug)
+    console.log(
+      `[Agent Tycoon] JSONL: Agent ${agentId} - unrecognized record type '${type}'` +
+        (keys ? `. Keys: ${keys.join(', ')}` : ' (skipped unparsed)'),
+    );
+}
+
 /** Empty set used as safe fallback when no HookProvider is registered. */
 const EMPTY_EXEMPT_TOOLS: ReadonlySet<string> = new Set();
 
@@ -124,6 +151,8 @@ export function processTranscriptLine(
   if (!agent) return;
   agent.lastDataAt = Date.now();
   agent.linesProcessed++;
+  const unparsed = unparsedType(line);
+  if (unparsed) return noteUnknownType(agentId, unparsed);
   try {
     const record = JSON.parse(line);
 
@@ -565,20 +594,10 @@ export function processTranscriptLine(
       }
     } else if (record.type === 'permission-mode') {
       applyPermissionMode(agentId, agents, record.permissionMode, permissionTimers);
-    } else if (record.type && !agent.seenUnknownRecordTypes.has(record.type)) {
-      // Log first occurrence of unrecognized record types to help diagnose issues
-      // where Claude Code changes JSONL format. Known types we intentionally skip:
-      // file-history-snapshot, queue-operation (non-enqueue), etc.
-      const knownSkippableTypes = new Set(['file-history-snapshot', 'system', 'queue-operation']);
-      if (!knownSkippableTypes.has(record.type)) {
-        agent.seenUnknownRecordTypes.add(record.type);
-        if (debug) {
-          console.log(
-            `[Agent Tycoon] JSONL: Agent ${agentId} - unrecognized record type '${record.type}'. ` +
-              `Keys: ${Object.keys(record).join(', ')}`,
-          );
-        }
-      }
+    } else if (typeof record.type === 'string') {
+      // Log the first occurrence of an unrecognized record type to help diagnose issues
+      // where Claude Code changes JSONL format.
+      noteUnknownType(agentId, record.type, Object.keys(record));
     }
   } catch {
     // Ignore malformed lines

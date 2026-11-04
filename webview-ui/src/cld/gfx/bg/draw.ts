@@ -3,14 +3,15 @@
  * iso px, each only when it first comes into view, kept (per seed, surroundings, palette and
  * building) and blitted every frame at the camera's zoom, nearest-neighbour, like every other
  * piece. A pan paints the pieces it uncovers, nothing else; an idle view and the clock cost
- * nothing until the sky turns day or night.
+ * nothing until the clock turns day or night. Round it all, the fog ring (fog.ts).
  */
 import type { BackgroundSettings } from '../../../../../core/src/cld/background.js';
-import { BG_CHUNK, BG_CHUNKS_KEPT } from '../../../constants.js';
+import { BG_CHUNK, BG_CHUNKS_KEPT, ISO_HALF_H, ISO_HALF_W } from '../../../constants.js';
 import type { IsoStack, Pt } from '../../iso/projection.js';
 import { isNight } from './clock.js';
+import { drawFog,fogRadius } from './fog.js';
 import type { Footprint } from './layout.js';
-import { edgeColours, horizonY, paintBackground } from './paint.js';
+import { edgeColour, paintBackground } from './paint.js';
 
 /** Counters for the runner: pieces painted and the time they took. */
 export const bgStats = { paints: 0, ms: 0 };
@@ -23,8 +24,7 @@ export const skyIsNight = (s: BackgroundSettings, nowMs: number, offsetMin: numb
 
 /**
  * Draw the background under the building. `o` is the device px of iso (0, 0), `zoom` the device
- * px per iso px. Fills what no piece covers (the very top and bottom) with the sky's or the
- * road's own colour.
+ * px per iso px. What no piece covers is the fog's colour; the fog ring goes over the ground.
  */
 export function drawIsoBackground(
   ctx: CanvasRenderingContext2D,
@@ -40,12 +40,8 @@ export function drawIsoBackground(
   const { box } = stack;
   const key = [s.seed, s.mix, night, fp.cols, fp.rows, box.x0, box.x1, box.y0, box.y1].join('|');
   if (cache.key !== key) cache = { key, pieces: new Map() };
-  const edges = edgeColours(night);
-  const horizon = Math.max(0, Math.min(h, o.y + horizonY() * zoom));
-  ctx.fillStyle = edges.sky;
-  ctx.fillRect(0, 0, w, horizon);
-  ctx.fillStyle = edges.ground;
-  ctx.fillRect(0, horizon, w, h - horizon);
+  ctx.fillStyle = edgeColour(night);
+  ctx.fillRect(0, 0, w, h);
   ctx.imageSmoothingEnabled = false;
   const cx0 = Math.floor(-o.x / zoom / BG_CHUNK);
   const cx1 = Math.floor((w - o.x) / zoom / BG_CHUNK);
@@ -78,6 +74,8 @@ export function drawIsoBackground(
       const y1 = Math.round(o.y + (cy + 1) * BG_CHUNK * zoom);
       ctx.drawImage(piece, x0, y0, x1 - x0, y1 - y0);
     }
+  const g = { x: ((fp.cols - fp.rows) * ISO_HALF_W) / 2, y: ((fp.cols + fp.rows) * ISO_HALF_H) / 2 };
+  drawFog(ctx, w, h, o, zoom, g, fogRadius(fp.cols, fp.rows), night);
   // Drop the least recently shown (the map keeps insertion order, shown pieces were re-added last).
   while (cache.pieces.size > BG_CHUNKS_KEPT) cache.pieces.delete(cache.pieces.keys().next().value!);
 }

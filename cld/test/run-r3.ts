@@ -14,12 +14,14 @@ import * as path from 'path';
 import { registryPath, saveRegistry } from '../../server/src/cld/engine/registry.js';
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -75,10 +77,9 @@ async function main() {
       await context.route('**/__r3/malgun.ttf', (route) => route.fulfill({ body: font, contentType: 'font/ttf' }));
       const page = await context.newPage();
       await page.goto((await daemon!.loginUrl()).replace('127.0.0.1', 'localhost'));
-      const settings = page.getByRole('button', { name: '설정', exact: true });
-      await settings.waitFor({ timeout: 30_000 });
+      await topBarReady(page, 30_000);
       await page.waitForTimeout(1_500);
-      await settings.click();
+      await topBarButton(page, '설정');
       await page.getByRole('tab', { name: '접속', exact: true }).click();
       const section = page.getByTestId('start-policy-option');
       await section.waitFor({ timeout: 15_000 });

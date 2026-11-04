@@ -13,6 +13,7 @@ import type { CardInfo } from '../components/cardBar.js';
 import type { SubagentCharacter } from '../hooks/useExtensionMessages.js';
 import { useLanguage } from '../i18n/index.js';
 import type { OfficeState } from '../office/engine/officeState.js';
+import { PartyMark } from './game/Party.js';
 import { cardInfo, characterKind, characterName, KIND_ORDER } from './kinds.js';
 import { useCldStore, virtualAgentId } from './officeStore.js';
 import { useStaff } from './staff.js';
@@ -52,6 +53,7 @@ export function useCldCards(
             group: KIND_ORDER.length,
             groupLabel: outsourcedName,
             name: outsourcedName,
+            temps: outsourced.length,
             extra: createElement(TempChip, {
               rows: outsourced,
               title: outsourcedName,
@@ -65,6 +67,7 @@ export function useCldCards(
         const rows = byLead.get(id) ?? [];
         return {
           ...info,
+          temps: rows.length,
           status: createElement(DutyMark, { id }),
           extra: createElement(
             Fragment,
@@ -75,6 +78,8 @@ export function useCldCards(
               title: characterName(ch, officeState, codexTasks),
               project: project(id),
             }),
+            // GAME-UI-1 (05): the context strip and the state icon.
+            createElement(PartyMark, { id }),
           ),
         };
       },

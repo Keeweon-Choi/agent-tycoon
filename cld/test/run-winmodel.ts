@@ -181,7 +181,7 @@ async function main() {
       const top = await draftAndScroll(page, conv);
       await tap('workbench');
       await workbench.getByRole('combobox', { name: '개발 프로젝트' }).selectOption('alpha');
-      await workbench.getByRole('button', { name: 'Task', exact: true }).tap();
+      await workbench.getByRole('button', { name: '이슈', exact: true }).tap();
       await page.waitForTimeout(500);
       await shot('2-workbench');
       for (const tab of ['board', 'notices', 'messenger']) {
@@ -194,7 +194,7 @@ async function main() {
       await page.waitForTimeout(500);
       check(
         (await workbench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'alpha' &&
-          (await workbench.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
+          (await workbench.getByRole('button', { name: '이슈', exact: true }).getAttribute('aria-pressed')) === 'true',
         'phone 2: the 작업실 kept its project and tab',
       );
 

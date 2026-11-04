@@ -4,7 +4,7 @@ import { resendAgentActivity } from './agentActivityResend.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import type { LoadedAssets, LoadedCharacterSprites, LoadedPetSprites } from './assetLoader.js';
+import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
 import { cldHooks, type SocketStepUp } from './cld/hooks.js';
 import {
   getHooksConsent,
@@ -46,7 +46,6 @@ export type ReloadAssetsSideEffect = (send: WsSend) => Promise<void> | void;
 /** Cached assets loaded at server startup. Sent to each WebSocket client on webviewReady. */
 export interface AssetCache {
   characters: LoadedCharacterSprites | null;
-  pets: LoadedPetSprites | null;
   floorTiles: string[][][] | null;
   wallTiles: string[][][][] | null;
   carpetTiles: string[][][][] | null;
@@ -488,13 +487,6 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   if (cache) {
     if (cache.characters) {
       send({ type: 'characterSpritesLoaded', characters: cache.characters.characters });
-    }
-    if (cache.pets) {
-      send({
-        type: 'petSpritesLoaded',
-        pets: cache.pets.pets,
-        petNames: cache.pets.manifests.map((m) => m.name),
-      });
     }
     if (cache.floorTiles) {
       send({ type: 'floorTilesLoaded', sprites: cache.floorTiles });

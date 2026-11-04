@@ -28,6 +28,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -297,7 +298,7 @@ async function main() {
       await shot(page, 'desktop-dm-default-owner');
 
       // — Settings: pick a picture (the repo's own sprite sheet stands in), it shows everywhere.
-      await page.getByRole('button', { name: '설정', exact: true }).click();
+      await topBarButton(page, '설정');
       await page.getByRole('tab', { name: '일반', exact: true }).click();
       const option = page.getByTestId('owner-picture-option');
       await option.waitFor();
@@ -354,8 +355,9 @@ async function main() {
       await shot(page, 'desktop-room-threads');
       check((await room.getByTestId('reply-arrow').count()) >= 3, 'room: every thread reply carries the pixel arrow');
       check((await room.getByTestId('room-thread').count()) >= 1, 'room: each thread is one block');
-      const tones = await room.getByTestId('room-thread').evaluateAll((all) => all.map((n) => getComputedStyle(n).borderLeftWidth));
-      check(tones.every((w) => w === '2px'), `room: a 2px rail on each thread (${tones})`);
+      // ROOM-THREADS: one rail rule (no colour per thread): the answered @전체 thread is plain.
+      const tone = await room.getByTestId('room-thread').first().getAttribute('data-tone');
+      check(tone === 'plain', `room: the answered thread has the plain rail (${tone})`);
       const betaReply = room.locator('[data-chat-id]').filter({ hasText: REPLIES.beta }).first();
       await betaReply.hover();
       await betaReply.getByRole('button', { name: '답글' }).first().click();
@@ -402,7 +404,7 @@ async function main() {
       await ctx2.close();
 
       // — Reset: back to the default icon.
-      await page.getByRole('button', { name: '설정', exact: true }).click();
+      await topBarButton(page, '설정');
       await page.getByRole('tab', { name: '일반', exact: true }).click();
       await page.getByTestId('owner-picture-option').getByRole('button', { name: '기본으로' }).click();
       await page.getByTestId('owner-picture-option').locator('[data-testid="owner-face"][data-picture="default"]').waitFor();

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_BACKGROUND, nextSeed, parseBackground } from '../../../../../core/src/cld/background.js';
-import { BG_BLOCK_TILES, BG_DAY_END_HOUR, BG_DAY_START_HOUR } from '../../../constants.js';
+import {
+  BG_BLOCK_TILES,
+  BG_DAY_END_HOUR,
+  BG_DAY_START_HOUR,
+  BG_TOWER_STOREYS,
+  ISO_STOREY_H,
+} from '../../../constants.js';
 import { isDayAt, isNight } from './clock.js';
 import {
   axisCell,
@@ -34,7 +40,7 @@ describe('BACKGROUND layout', () => {
   it('day and night share every position: one layout, two palettes of the same shape', () => {
     // The layout takes no palette; the palettes must offer the same pieces to draw it with.
     const { night, day } = PALETTES;
-    expect(day.skyline.length).toBe(night.skyline.length);
+    expect(Object.keys(day.fog).sort()).toEqual(Object.keys(night.fog).sort());
     expect(day.house.roofs.length).toBe(night.house.roofs.length);
     expect(Object.keys(day.ground).sort()).toEqual(Object.keys(night.ground).sort());
     expect(day.tower.p).toBe(night.tower.p);
@@ -73,6 +79,18 @@ describe('BACKGROUND layout', () => {
       }
   });
 
+  it('builds the neighbours at our scale: towers whole storeys of ours (building-a-1104)', () => {
+    const towers = objectsIn(4, 'towers', FP, { k0: -4, k1: 4, l0: -4, l1: 4 }, BOX).filter(
+      (o) => o.kind === 'tower',
+    );
+    expect(towers.length).toBeGreaterThan(0);
+    for (const t of towers) {
+      expect(t.h % ISO_STOREY_H).toBe(0);
+      expect(t.h / ISO_STOREY_H).toBeGreaterThanOrEqual(BG_TOWER_STOREYS.min);
+      expect(t.h / ISO_STOREY_H).toBeLessThanOrEqual(BG_TOWER_STOREYS.max);
+    }
+  });
+
   it('roads and plots tile the axis without a gap, both ways from the main plot', () => {
     for (const len of [14, 24]) {
       for (let k = -4; k <= 4; k++) {
@@ -81,7 +99,7 @@ describe('BACKGROUND layout', () => {
           const c = axisCell(start + t, len);
           expect(c).toMatchObject({ plot: k, t, n, road: -1 });
         }
-        // The road after it (away from the main plot) is three tiles of road.
+        // The road after it (away from the main plot) starts there.
         const away = k >= 0 ? start + n : start - 1;
         expect(axisCell(away, len).road).toBe(0);
       }

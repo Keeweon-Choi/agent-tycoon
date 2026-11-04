@@ -1,4 +1,5 @@
-/** CHAR-HUMAN: v1/v2 looks whose composed sheets must stay pixel-identical (hashes in lookHashes.json). */
+/** CHAR-HUMAN: v1/v2 looks whose composed sheets must stay pixel-identical (hashes in lookHashes.json;
+ *  CHARS-1104 re-took them on the 23 new people, a v2 humanoid now being its base person). */
 import type { CharacterChoice } from '../../../core/src/messages.js';
 
 /* eslint-disable agent-tycoon/no-inline-colors -- stored look colours */

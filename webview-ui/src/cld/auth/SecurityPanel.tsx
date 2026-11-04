@@ -67,13 +67,13 @@ interface Note {
 
 /** The window's width: a fixed one, because a shrink-wrapped window grew to its longest unbroken line while the column stayed narrow. */
 const SECURITY_WIDTH = 'w-[min(640px,100%)]';
-/** "보안" in the top bar (T-0022): passkeys and the logged-in devices. */
-export function SecurityButton() {
+/** "보안" in the top bar's menu (T-0022, HUD-2B: `children` is the menu row): passkeys and the logged-in devices. */
+export function SecurityButton({ children }: { children?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button size="sm" className="shrink-0" onClick={() => setOpen(true)}>
-        {t('auth.security')}
+        {children ?? t('auth.security')}
       </Button>
       {open && <SecurityModal onClose={() => setOpen(false)} />}
     </>

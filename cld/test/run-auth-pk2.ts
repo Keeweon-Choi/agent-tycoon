@@ -29,12 +29,14 @@ import * as path from 'path';
 
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -163,7 +165,8 @@ async function main(): Promise<void> {
     await d.page.screenshot({ path: path.join(OUT, `${name}.png`) });
   };
   const press = async (d: Device, name: string) => {
-    if (d.phone) await d.page.getByRole('button', { name: '설정', exact: true }).click();
+    if (!d.phone) return topBarButton(d.page, name);
+    await topBarButton(d.page, '설정');
     await d.page.getByRole('button', { name, exact: true }).first().click();
   };
   const closeModal = async (d: Device) => {
@@ -173,7 +176,7 @@ async function main(): Promise<void> {
   const reloadApp = async (d: Device) => {
     await d.page.goto(`${d.base}/`);
     await d.page.waitForURL(`${d.base}/`);
-    await d.page.getByRole('button', { name: d.phone ? '설정' : '기기 추가', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(d.page, 20_000);
   };
   const addDevice = async (d: Device): Promise<string> => {
     await press(d, '기기 추가');

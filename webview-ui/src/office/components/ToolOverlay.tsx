@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { lookNameOf } from '../../cld/characters/looks.js';
 import { employeeFatigue, employeeOf } from '../../cld/employees.js';
@@ -10,8 +10,6 @@ import { offAlpha } from '../../cld/ez/nameplate.js';
 import { OwnerPlate } from '../../cld/ez/OwnerPlate.js';
 import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
 import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';
-import { drawnShift } from '../../cld/floors.js';
-import { isoFrame, isoOverlayFor } from '../../cld/iso/render.js';
 import { characterKind, characterName, showsNameLabel } from '../../cld/kinds.js';
 import { OfficeBadges } from '../../cld/OfficeBadges.js';
 import { cldGetSnapshot, ezContext, fatigueFor, identityForAgent } from '../../cld/officeStore.js';
@@ -35,6 +33,7 @@ import {
   EZ_MOOD_ICON_OFFSET_Y,
   OFF_OVERLAY_ALPHA,
   OVERLAY_BUBBLE_Z_INDEX,
+  OVERLAY_CONTENT_MS,
   OVERLAY_LABEL_SELECTED_Z_INDEX,
   OVERLAY_LABEL_Z_INDEX,
   OWNER_CHARACTER_ID,
@@ -43,9 +42,8 @@ import {
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
-import { frameDue } from '../engine/gameLoop.js';
+import { onOfficeDrawn } from '../engine/gameLoop.js';
 import type { OfficeState } from '../engine/officeState.js';
-import type { OverlayProjection } from '../projection.js';
 import { overlayProjection } from '../projection.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
 import {
@@ -55,6 +53,8 @@ import {
 } from '../sprites/spriteData.js';
 import type { Character, ToolActivity } from '../types.js';
 import { CharacterState } from '../types.js';
+import type { Bind } from './overlayPlacer.js';
+import { createPlacer } from './overlayPlacer.js';
 
 // Both turn-end states show the green checkmark bubble. A finished turn (Stop)
 // shows ONLY the checkmark (the label falls through to its normal idle text);
@@ -164,60 +164,111 @@ export function ToolOverlay({
     containerRef,
     `${officeState.selectedAgentId}:${officeState.hoveredAgentId}:${zoom}:${nameplatesOn()}`,
   );
-  useEffect(() => {
-    let rafId = 0;
-    // cld-gui (T-0025): on the canvas's frames only (≤60 fps, in step with it).
-    const tick = (ts: number) => {
-      if (frameDue(ts)) setTick((n) => n + 1);
-      rafId = requestAnimationFrame(tick);
+  // SMOOTH2-1104: positions move on every canvas frame straight in the DOM (overlayPlacer.ts); what
+  // the plates SAY re-renders here only when it changed (the signature) and, as a net for state that
+  // signals nothing (staff, fatigue, the status icon's blink), every OVERLAY_CONTENT_MS.
+  const [placer] = useState(createPlacer);
+  const [bounds] = useState({ width: 0, height: 0 }); // the container's size, kept by a ResizeObserver
+  const live = useRef({ props: null as unknown as ToolOverlayProps });
+  useLayoutEffect(() => {
+    live.current.props = {
+      officeState, agents, agentTools, subagentTools, subagentCharacters, containerRef,
+      zoom, panRef, onCloseAgent, alwaysShowOverlay, phone, cardMenu,
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+  });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => {
+      bounds.width = e.contentRect.width;
+      bounds.height = e.contentRect.height;
+    });
+    ro.observe(el);
+    let lastSig = '';
+    let lastSnap: unknown;
+    let snapVersion = 0;
+    let lastContent = 0;
+    const stop = onOfficeDrawn(() => {
+      const p = live.current.props;
+      const dpr = window.devicePixelRatio || 1;
+      const layout = p.officeState.getLayout();
+      placer.frame(overlayProjection(layout, bounds, p.zoom, p.panRef.current, dpr), layout, dpr);
+      // The signature of what the plates say (not where they are).
+      const snap = cldGetSnapshot();
+      if (snap !== lastSnap) {
+        lastSnap = snap;
+        snapVersion++;
+      }
+      const os = p.officeState;
+      let sig = `${snapVersion}|${os.selectedAgentId}|${os.hoveredAgentId}`;
+      for (const id of [...p.agents, ...p.subagentCharacters.map((s) => s.id), OWNER_CHARACTER_ID]) {
+        const ch = os.characters.get(id);
+        if (!ch) continue;
+        sig += `|${id}:${placer.viewOf(ch).shift}:${ch.bubbleType}:${ch.waitingAwaitingInput}:${ch.isActive}:${ch.contextTokens}:${ch.maxContextTokens}:${ch.palette}:${ch.hueShift}:${ch.isTeamLead}:${ch.agentName}:${ch.directoryName}`;
+      }
+      const now = performance.now();
+      if (sig !== lastSig || now - lastContent >= OVERLAY_CONTENT_MS) {
+        lastSig = sig;
+        lastContent = now;
+        setTick((n) => n + 1);
+      }
+      placer.run();
+    });
+    setTick((n) => n + 1); // the container exists now: the first render could not see it
+    return () => {
+      stop();
+      ro.disconnect();
+    };
+  }, [containerRef, placer, bounds]);
 
   const el = containerRef.current;
   if (!el) return null;
   // dpr is also needed to size the bubble canvases in CSS px (OverlayBubble).
   const dpr = window.devicePixelRatio || 1;
   const layout = officeState.getLayout();
-  const bounds = el.getBoundingClientRect();
-  const baseProject = overlayProjection(layout, bounds, zoom, panRef.current, dpr);
+  if (!bounds.width) {
+    const r = el.getBoundingClientRect(); // once; the observer keeps it after
+    bounds.width = r.width;
+    bounds.height = r.height;
+  }
+  placer.frame(overlayProjection(layout, bounds, zoom, panRef.current, dpr), layout, dpr);
 
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
   const officeSnapshot = cldGetSnapshot();
   const cardOpen = phone && selectedId !== null && selectedId !== OWNER_CHARACTER_ID;
 
-  const bubbleFor = (ch: Character, id: number, at: OverlayProjection, other: boolean) => {
+  const bubbleFor = (ch: Character, id: number, bind: Bind, other: boolean) => {
     if (!ch.bubbleType || (!other && ch.bubbleType === 'waiting' && ch.waitingAwaitingInput))
       return null;
     const cachedBubble = getCachedSprite(
       ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE,
       zoom,
     );
-    const bubbleSittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
-    const alpha =
-      ch.bubbleType === 'waiting' && ch.bubbleTimer < BUBBLE_FADE_DURATION_SEC
-        ? ch.bubbleTimer / BUBBLE_FADE_DURATION_SEC
-        : 1;
     return (
       <div
         key={id}
-        className="absolute -translate-x-1/2 pointer-events-none"
+        ref={bind('bubble', (at, px) => ({
+          x: at.toScreenX(ch.x),
+          y:
+            at.toScreenY(
+              ch.y +
+                (ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0) -
+                BUBBLE_VERTICAL_OFFSET_PX -
+                characterLift(ch.palette, ch.hueShift),
+            ) -
+            (cachedBubble.height + zoom) / px,
+          opacity:
+            ch.bubbleType === 'waiting' && ch.bubbleTimer < BUBBLE_FADE_DURATION_SEC
+              ? ch.bubbleTimer / BUBBLE_FADE_DURATION_SEC
+              : 1,
+        }))}
+        className="absolute left-0 top-0 -translate-x-1/2 pointer-events-none"
         data-testid="agent-bubble"
         data-agent-id={id}
         data-bubble={ch.bubbleType}
         data-other-floor={other ? '' : undefined}
-        style={{
-          left: at.toScreenX(ch.x),
-          top:
-            at.toScreenY(
-              ch.y + bubbleSittingOff - BUBBLE_VERTICAL_OFFSET_PX - characterLift(ch.palette, ch.hueShift),
-            ) -
-            (cachedBubble.height + zoom) / dpr,
-          opacity: alpha,
-          zIndex: OVERLAY_BUBBLE_Z_INDEX,
-        }}
+        style={{ zIndex: OVERLAY_BUBBLE_Z_INDEX }}
       >
         <OverlayBubble cached={cachedBubble} dpr={dpr} />
       </div>
@@ -231,13 +282,11 @@ export function ToolOverlay({
   const ownerPlate = () => {
     const owner = officeState.characters.get(OWNER_CHARACTER_ID);
     if (!owner || !officeSnapshot.officeSnapshot) return null;
-    const iso = isoOverlayFor(owner, dpr, baseProject);
-    const shift = iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, owner.y);
-    if (shift !== 0) return null;
+    if (placer.viewOf(owner).shift !== 0) return null;
     return (
       <OwnerPlate
         ch={owner}
-        project={iso?.project ?? baseProject}
+        bind={(slot, fn) => placer.bind(`${OWNER_CHARACTER_ID}:${slot}`, owner, fn)}
         lift={characterLift(owner.palette, owner.hueShift)}
         dim={cardOpen}
       />
@@ -252,9 +301,8 @@ export function ToolOverlay({
         if (!ch) return null;
         // ISO-PILOT: in the isometric building, everything is placed from where it drew the
         // feet; a character off the floor in focus shows its bubble only.
-        const iso = isoOverlayFor(ch, dpr, baseProject);
-        const project = iso?.project ?? baseProject;
-        const shift = iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, ch.y);
+        const { shift } = placer.viewOf(ch);
+        const bind: Bind = (slot, fn) => placer.bind(`${id}:${slot}`, ch, fn);
         const isSelected = selectedId === id;
         const isHovered = hoveredId === id;
         const isSub = ch.isSubagent;
@@ -324,10 +372,7 @@ export function ToolOverlay({
         if (shift === null) return null;
         if (shift !== 0) {
           publishCharacterVisual(id, undefined);
-          const shifted = iso
-            ? project
-            : { ...project, toScreenY: (y: number) => project.toScreenY(y + shift) };
-          return bubbleFor(ch, id, shifted, true);
+          return bubbleFor(ch, id, bind, true);
         }
         // TEMP-PLATES: a roster employee's 피로도 is its execution's own context (null: unknown).
         const employee = employeeOf(id, officeSnapshot);
@@ -356,8 +401,8 @@ export function ToolOverlay({
               selected={isSelected}
               canClose={!isSub && !cldOffice.readOnly}
               onClose={() => onCloseAgent(id)}
-              project={project}
-              plateSize={plateSizes.get(id)}
+              bind={bind}
+              plateSizes={plateSizes}
               lift={characterLift(ch.palette, ch.hueShift)}
               bounds={bounds}
               menuName={cardMenu && isSelected ? lookNameOf(id, cldOffice) : undefined}
@@ -371,17 +416,17 @@ export function ToolOverlay({
         // stays crisp at every zoom.
         const moodNode = (
           <span
-            className="absolute -translate-x-full -translate-y-full pointer-events-none bg-bg border border-border px-4 text-xs leading-tight shadow-pixel"
-            style={{
-              left: project.toScreenX(ch.x + EZ_MOOD_ICON_OFFSET_X),
-              top: project.toScreenY(
+            ref={bind('mood', (at) => ({
+              x: at.toScreenX(ch.x + EZ_MOOD_ICON_OFFSET_X),
+              y: at.toScreenY(
                 ch.y +
                   (ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0) -
                   EZ_MOOD_ICON_OFFSET_Y -
                   characterLift(ch.palette, ch.hueShift),
               ),
-              zIndex: OVERLAY_LABEL_Z_INDEX,
-            }}
+            }))}
+            className="absolute left-0 top-0 -translate-x-full -translate-y-full pointer-events-none bg-bg border border-border px-4 text-xs leading-tight shadow-pixel"
+            style={{ zIndex: OVERLAY_LABEL_Z_INDEX }}
             data-testid="ez-mood"
             data-agent-id={id}
             data-prop={visual.prop ?? ''}
@@ -393,7 +438,7 @@ export function ToolOverlay({
           </span>
         );
 
-        const bubbleNode = bubbleFor(ch, id, project, false);
+        const bubbleNode = bubbleFor(ch, id, bind, false);
 
         // Only show the label for hovered or selected agents (unless
         // always-show is on) — the bubble renders regardless.
@@ -407,11 +452,15 @@ export function ToolOverlay({
         }
 
         // Position above character
-        const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-        const screenX = project.toScreenX(ch.x);
-        const screenY = project.toScreenY(
-          ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET - characterLift(ch.palette, ch.hueShift),
-        );
+        const labelAt = bind('label', (at) => ({
+          x: at.toScreenX(ch.x),
+          y: at.toScreenY(
+            ch.y +
+              (ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0) -
+              TOOL_OVERLAY_VERTICAL_OFFSET -
+              characterLift(ch.palette, ch.hueShift),
+          ),
+        }));
 
         // A "Done" agent (finished turn: waiting bubble without awaitingInput)
         // shows ONLY its floating green checkmark bubble, never the label panel
@@ -426,8 +475,9 @@ export function ToolOverlay({
               {moodNode}
               {bubbleNode}
               <div
-                className="absolute"
-                style={{ left: screenX, top: screenY, pointerEvents: 'none' }}
+                ref={labelAt}
+                className="absolute left-0 top-0"
+                style={{ pointerEvents: 'none' }}
                 data-testid="agent-overlay"
                 data-agent-id={id}
               />
@@ -463,11 +513,10 @@ export function ToolOverlay({
             {moodNode}
             {bubbleNode}
             <div
-              className="absolute flex flex-col items-center -translate-x-1/2 -translate-y-full"
+              ref={labelAt}
+              // Grows upward from just above the head (rest bubble, name, 피로도).
+              className="absolute left-0 top-0 flex flex-col items-center -translate-x-1/2 -translate-y-full"
               style={{
-                left: screenX,
-                // Grows upward from just above the head (rest bubble, name, 피로도).
-                top: screenY,
                 pointerEvents: isSelected ? 'auto' : 'none',
                 opacity: officeIdentity?.off
                   ? offAlpha(true, isSelected || isHovered, OFF_OVERLAY_ALPHA)

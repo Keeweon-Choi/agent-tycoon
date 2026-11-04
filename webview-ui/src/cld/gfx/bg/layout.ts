@@ -10,13 +10,16 @@ import {
   BG_BLOCK_TILES,
   BG_HOUSE_H,
   BG_HOUSE_TILES,
+  BG_LAMP_HEIGHT,
   BG_PAD_TILES,
   BG_ROAD_TILES,
-  BG_TOWER_H_MAX,
-  BG_TOWER_H_MIN,
+  BG_TOWER_STOREYS,
   BG_TOWER_TILES,
+  BG_TREE_R,
+  BG_TREE_TRUNK,
   ISO_HALF_H,
   ISO_HALF_W,
+  ISO_STOREY_H,
 } from '../../../constants.js';
 
 /** The building's first floor in tiles: what the main plot is built round. */
@@ -121,7 +124,8 @@ export function objectBox(o: BgObject): { x0: number; y0: number; x1: number; y1
     return { x0: g.x - half, x1: g.x + half, y0: g.y - o.h - roof - half / 2, y1: g.y + half / 2 };
   }
   const r = o.kind === 'tree' ? o.size + 1 : 2;
-  return { x0: g.x - r, x1: g.x + r, y0: g.y - 14 - 2 * o.size, y1: g.y + 2 };
+  const top = o.kind === 'tree' ? BG_TREE_TRUNK.h + 2 * o.size + 2 : BG_LAMP_HEIGHT + 3;
+  return { x0: g.x - r, x1: g.x + r, y0: g.y - top, y1: g.y + 2 };
 }
 
 /** The part of the world a drawing needs: plots ki in [k0, k1], kj in [l0, l1]. */
@@ -165,13 +169,15 @@ export function objectsIn(
       const cy = B.start + B.n / 2;
       if (kind === 'main') {
         // Trees on the back pavement (the front ones would stand in the building).
-        for (let t = 3; t < A.n - 3; t += 4) add({ kind: 'tree', a: A.start + t + 0.5, b: B.start + 0.5, size: 3, h: 0, pick: t });
-        for (let t = 3; t < B.n - 3; t += 4) add({ kind: 'tree', a: A.start + 0.5, b: B.start + t + 0.5, size: 3, h: 0, pick: t });
+        for (let t = 3; t < A.n - 3; t += 4) add({ kind: 'tree', a: A.start + t + 0.5, b: B.start + 0.5, size: BG_TREE_R, h: 0, pick: t });
+        for (let t = 3; t < B.n - 3; t += 4) add({ kind: 'tree', a: A.start + 0.5, b: B.start + t + 0.5, size: BG_TREE_R, h: 0, pick: t });
       } else if (kind === 'tower') {
-        const h = BG_TOWER_H_MIN + Math.floor(hash(ki, kj, seed + 2) * (BG_TOWER_H_MAX - BG_TOWER_H_MIN));
+        // Whole storeys of ours (building-a-1104): a neighbour reads at our building's scale.
+        const span = BG_TOWER_STOREYS.max - BG_TOWER_STOREYS.min + 1;
+        const h = ISO_STOREY_H * (BG_TOWER_STOREYS.min + Math.floor(hash(ki, kj, seed + 2) * span));
         add({ kind: 'tower', a: cx, b: cy, size: BG_TOWER_TILES, h, pick: s }, true);
         for (const [da, db] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const)
-          add({ kind: 'tree', a: cx + da * (BG_TOWER_TILES / 2 + 1.5), b: cy + db * (BG_TOWER_TILES / 2 + 1.5), size: 3, h: 0, pick: s + da + db });
+          add({ kind: 'tree', a: cx + da * (BG_TOWER_TILES / 2 + 1.5), b: cy + db * (BG_TOWER_TILES / 2 + 1.5), size: BG_TREE_R, h: 0, pick: s + da + db });
       } else if (kind === 'houses') {
         const q = A.n / 4;
         let k = 0;
@@ -182,13 +188,13 @@ export function objectsIn(
             k++;
           }
         for (let n = 0; n < 5; n++)
-          add({ kind: 'tree', a: A.start + 1.5 + hash(n, ki, seed + 4) * (A.n - 3), b: B.start + 1.5 + hash(n, kj, seed + 5) * (B.n - 3), size: 3, h: 0, pick: s + n });
+          add({ kind: 'tree', a: A.start + 1.5 + hash(n, ki, seed + 4) * (A.n - 3), b: B.start + 1.5 + hash(n, kj, seed + 5) * (B.n - 3), size: BG_TREE_R, h: 0, pick: s + n });
       } else if (kind === 'park' || kind === 'pond') {
         for (let a = 1; a < A.n - 1; a++)
           for (let b = 1; b < B.n - 1; b++) {
             if (kind === 'pond' && a > 3 && a < A.n - 4 && b > 3 && b < B.n - 4) continue;
             if (hash(A.start + a, B.start + b, seed + 6) < 0.2)
-              add({ kind: 'tree', a: A.start + a + 0.5, b: B.start + b + 0.5, size: 3 + Math.floor(hash(a, b, seed + 7) * 2), h: 0, pick: a * 31 + b });
+              add({ kind: 'tree', a: A.start + a + 0.5, b: B.start + b + 0.5, size: BG_TREE_R + Math.floor(hash(a, b, seed + 7) * 3), h: 0, pick: a * 31 + b });
           }
       }
     }

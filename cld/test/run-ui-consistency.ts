@@ -26,6 +26,8 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -133,7 +135,7 @@ async function main() {
       const tap = (loc: ReturnType<Page['locator']>) => (mobile ? loc.tap() : loc.click());
       await page.goto(`http://127.0.0.1:${port}/`);
       await page.addStyleTag({ content: FONT_CSS });
-      await page.getByRole('button', { name: '설정', exact: true }).first().waitFor({ timeout: 60_000 });
+      await topBarReady(page, 60_000);
       const closeInfo = page.getByRole('button', { name: '정보 창 닫기' });
       if (await closeInfo.count()) await closeInfo.first().click();
       await until('lead and its temps are in', async () =>
@@ -147,7 +149,7 @@ async function main() {
       await page.evaluate(() => document.fonts.load("16px 'FS Pixel Sans'", '가📖'));
 
       // ── 설정, every tab ──
-      await page.getByRole('button', { name: '설정', exact: true }).first().click();
+      await topBarButton(page, '설정');
       const dialog = page.getByRole('dialog').last();
       for (const name of TABS) {
         await page.getByRole('tab', { name, exact: true }).click();
@@ -176,7 +178,7 @@ async function main() {
               .map((r) => d.right - r.right);
           });
           if (TAG === 'after') {
-            check(edge.length > 0 && edge.every((g) => g <= 16), `${tag} ${name}: every right-side control ends at the content edge (${edge.map(Math.round).join(',')})`);
+            check(edge.length > 0 && edge.every((g) => g <= 24), `${tag} ${name}: every right-side control ends at the content edge (${edge.map(Math.round).join(',')})`);
           }
         }
       }

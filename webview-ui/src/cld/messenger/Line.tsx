@@ -1,14 +1,18 @@
 /** Messenger message lines and bubble actions. */
 /* eslint-disable react-refresh/only-export-components */
+import './gameMessenger.css';
+
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { ChatItem, ChatReply } from '../../../../core/src/messages.js';
-import { MESSAGE_ACTIONS_LONG_PRESS_MS } from '../../constants.js';
+import { MESSAGE_ACTIONS_LONG_PRESS_MS, MSG_TYPE_TICK_MS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { writeClipboardText } from '../../terminal/clipboard.js';
 import { withinTapSlop } from '../../touch/touchPrimitives.js';
+import { useGameMotion } from '../game/gameMotion.js';
+import { PixelIcon } from '../game/parts.js';
 import { Markdown } from '../markdown.js';
 import { cldOwnToast, ezContext, useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
@@ -16,8 +20,18 @@ import { ATTACHMENT_ACTION_ERROR_DURATION, ATTACHMENT_ACTION_SUCCESS_DURATION } 
 import { useAttachmentTarget, useOpenAttachment } from './attachmentGallery.js';
 import { splitAttachmentText } from './attachments.js';
 import { BubbleAttachments, sentFiles } from './BubbleAttachments.js';
-import { FACE_COLUMN, FACE_GAP, FACE_GUTTER_LEFT, FACE_GUTTER_RIGHT, OwnerFace, SenderFace } from './Faces.js';
-import { foldBubble } from './longMessage.js';
+import {
+  AGENT_GUTTER_RIGHT,
+  FACE_COLUMN,
+  FACE_GAP,
+  FACE_GUTTER_LEFT,
+  OWNER_GUTTER_LEFT,
+  OwnerFace,
+  PORTRAIT_FRAME_PX,
+  SenderFace,
+} from './Faces.js';
+import { sentenceEndStep, skipsTyping, typedSlice, typePlan, useTypewriter } from './gameMessenger.js';
+import { foldBubble, hitHiddenByFold } from './longMessage.js';
 import { copyText, replyChipText, replyDraft, replyIdOf, replySenderOf } from './messageActions.js';
 import { bubbleClock } from './parts.js';
 import type { PeekView } from './quotePeek.js';
@@ -343,32 +357,102 @@ export function Actionable({
   );
 }
 
-/** BUBBLE-TAIL + MSG-ALIGN: the bubble sits on the guide line; on a run's first bubble the pixel tail
- *  pokes out of its corner toward the face (look: `.bubble-tail` in index.css). */
-const BUBBLE_TAIL_COLORS = {
-  lead: '[--tail-border:var(--color-border)] [--tail-fill:var(--color-bg)]',
-  peer: '[--tail-border:var(--color-peer-border)] [--tail-fill:var(--color-peer-bg)]',
-  boss: '[--tail-border:var(--color-accent)] [--tail-fill:var(--color-active-bg)]',
-} as const;
-
-export function BubbleBox({
-  side,
-  tail,
+/** GAME-UI-1 G1 (01): the RPG dialogue box: a name plate on its top edge (a run's first line), a ▶ 넘기기
+ *  button on the right while the line types in. Lead, peer and boss alike (look: gameMessenger.css). */
+export function DialogueBox({
   kind,
+  plate,
+  skip,
+  onSkipAll,
+  fold,
+  typing,
+  onClick,
   children,
 }: {
-  side: 'l' | 'r' | null;
-  tail: boolean;
-  kind: keyof typeof BUBBLE_TAIL_COLORS;
+  kind: 'lead' | 'peer' | 'boss';
+  plate?: ReactNode;
+  skip?: string;
+  onSkipAll?: () => void;
+  /** The ▼ / ▲ that opens and folds a long reply (a FoldToggle), in the box's bottom right corner. */
+  fold?: ReactNode;
+  typing?: boolean;
+  onClick?: () => void;
   children: ReactNode;
 }) {
-  if (!side) return <>{children}</>;
   return (
-    <div className={`bubble-box ${BUBBLE_TAIL_COLORS[kind]}`}>
+    <div
+      className="dlg-box"
+      data-kind={kind}
+      data-plate={plate ? '' : undefined}
+      data-typing={typing || undefined}
+      data-fold={fold ? '' : undefined}
+      onClick={onClick}
+    >
+      {plate}
+      {skip && (
+        // Shows it all at once (the box's own click is the press-by-press one); Tab and Enter work as on any button.
+        <button
+          type="button"
+          className="dlg-skip text-2xs"
+          data-testid="dlg-skip"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSkipAll?.();
+          }}
+        >
+          <PixelIcon name="skip" size={12} />
+          {skip}
+        </button>
+      )}
       {children}
-      {tail && <span className={`bubble-tail bubble-tail-${side}`} aria-hidden="true" data-testid="bubble-tail" />}
+      {fold}
     </div>
   );
+}
+
+/** GAME-UI-1 G1 (01): a new reply types in, a time per sentence (typePlan). Press once (a click on its box, or
+ *  Space or Enter with the focus outside a field, skipsTyping) and the sentence being typed is whole, the next
+ *  one types on; press again and it is all there. `skipAll` (the ▶ 넘기기 button) shows it all at once.
+ *  Decided once, when the line mounts. */
+function useTyped(text: string | null) {
+  const [plan] = useState(() => (text === null ? null : typePlan(text)));
+  const [step, setStep] = useState(0);
+  const [pressed, setPressed] = useState(false);
+  const [skipped, setSkipped] = useState(false);
+  const active = text !== null && plan !== null && !skipped && step + 1 < plan.length;
+  const advance = () => {
+    if (!active || text === null || plan === null) return;
+    if (pressed) setSkipped(true);
+    else {
+      setPressed(true);
+      setStep((n) => sentenceEndStep(text, plan, n));
+    }
+  };
+  // The key listener below is set once per `active`: it calls the newest advance.
+  const latest = useRef(advance);
+  latest.current = advance;
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setStep((n) => n + 1), MSG_TYPE_TICK_MS);
+    const key = (e: KeyboardEvent) => {
+      if (!skipsTyping(e)) return;
+      e.preventDefault();
+      latest.current();
+    };
+    window.addEventListener('keydown', key);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('keydown', key);
+    };
+  }, [active]);
+  return {
+    active,
+    skipped,
+    // The first frame already shows its first characters.
+    shown: active && text !== null && plan ? typedSlice(text, plan[step]) : null,
+    advance,
+    skipAll: () => active && setSkipped(true),
+  };
 }
 
 export function Line({
@@ -382,6 +466,7 @@ export function Line({
   onReply,
   onQuote,
   face,
+  fresh = false,
 }: {
   item: ChatItem;
   received: boolean;
@@ -398,9 +483,15 @@ export function Line({
   /** MSG-UI2: the sender's face beside the bubble (`show`: this message starts a run; later ones
    *  keep the column empty so the bubbles line up). Absent: no face column. */
   face?: { show: boolean; name: string };
+  /** GAME-UI-1 G1 (01): the conversation's newest line, come in while it was open (it may type in). */
+  fresh?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const { tempStaff } = useCldStore();
+  const { tempStaff, officeSnapshot } = useCldStore();
+  const typewriter = useTypewriter();
+  const motion = useGameMotion();
+  const typingOn = typewriter && motion;
+  const typed = useTyped(fresh && typingOn && item.kind === 'assistant' && !item.attachments?.length ? foldBubble(item.text, false).shown : null);
   const copy = copyText(item);
   const actions: BubbleActions = {
     copy,
@@ -411,6 +502,28 @@ export function Line({
   const sent = useMemo(() => sentFiles(item), [item]);
   const targetFor = useAttachmentTarget(project, projectRoot);
   const openViewer = useOpenAttachment();
+  // CHAT-NAV: a search hit lands on this line: a reply still typing in shows whole, and a fold that keeps
+  // the word out of sight opens. The row then centres the word again (the jump centred it before the
+  // text grew), once the new text is in.
+  const tail = useRef<HTMLSpanElement>(null);
+  const revealing = useRef(false);
+  useEffect(() => {
+    if (!currentMatch) return;
+    const body = item.kind === 'user' ? splitAttachmentText(item.text).body : item.text;
+    const folded = hitHiddenByFold(body, highlightQuery);
+    if (!typed.active && !folded) return;
+    revealing.current = true;
+    typed.skipAll();
+    if (folded) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- typed is new every render; a new hit is what counts
+  }, [currentMatch, highlightQuery, item.text]);
+  useLayoutEffect(() => {
+    if (!revealing.current) return;
+    const mark = tail.current?.closest('[data-chat-id]')?.querySelector('mark.bg-search-current');
+    if (!mark) return;
+    revealing.current = false;
+    mark.scrollIntoView({ block: 'center' });
+  }, [open, typed.skipped]);
   if (item.kind === 'tool') {
     return (
       // On the bubbles' left line: past the sender's face column.
@@ -479,83 +592,63 @@ export function Line({
   const { long, shown } = foldBubble(visibleText, open);
   const quote = user && item.replyTo && <ReplyQuote reply={item.replyTo} open={onQuote} />;
   const faced = face && (peer || !user) ? face : null;
-  // MSG-UI3: the boss gets the mirror column, so every bubble has one width.
+  // MSG-UI3: the boss gets the mirror column.
   const bossFaced = face && user && !peer ? face : null;
-  const inner = (
-    <>
-      {peer && (!faced || faced.show) && (
-        <span className="text-2xs text-peer-name max-w-full truncate" data-testid="from-name">
+  const boxed = !!(faced ?? bossFaced);
+  const plain = (tone: string) => (boxed ? 'text-sm max-w-full overflow-hidden' : `text-sm px-8 py-4 border max-w-full ${tone}`);
+  const level = faced
+    ? officeSnapshot?.orchestrators.find((o) => o.name === faced.name || serverLine(o.name) === faced.name)?.level?.level
+    : undefined;
+  const plate =
+    faced?.show && !user ? (
+      <span className="dlg-plate text-xs" data-testid="from-name">
+        <span className="dlg-name">{faced.name}</span>
+        {level !== undefined && <span className="dlg-lv">{t('character.level', { level })}</span>}
+      </span>
+    ) : faced?.show && peer ? (
+      <span className="dlg-plate text-xs" data-testid="from-name">
+        <span className="dlg-name">
           {item.fromName && noticeName(serverLine(item.fromName), noticeEmployee(item, tempStaff))}
         </span>
-      )}
-      {/* A run's first bubble names its side next to the face, the lead's and the boss's alike (owner 10-24 23:28). */}
-      {!user && faced?.show && (
-        <span className="block text-2xs text-peer-name max-w-full truncate" data-testid="from-name">
-          {faced.name}
-        </span>
-      )}
-      {bossFaced?.show && (
-        <span className="text-2xs text-text-muted max-w-full truncate" data-testid="from-name">
-          {t('msgui3.me')}
-        </span>
-      )}
-      <BubbleBox
-        side={faced ? 'l' : bossFaced ? 'r' : null}
-        tail={!!(faced ?? bossFaced)?.show}
-        kind={peer ? 'peer' : user ? 'boss' : 'lead'}
-      >
-      {user ? (
-        <div
-          className={`text-sm px-8 py-4 border max-w-full ${peer ? 'border-peer-border bg-peer-bg overflow-hidden' : 'border-accent bg-active-bg'}`}
-        >
-          {quote}
-          {peer ? (
-            // Another agent's words (an orchestrator, a task notice): Markdown, like a lead's reply.
-            <Markdown text={shown} highlightQuery={highlightQuery} currentMatch={currentMatch} />
-          ) : (
-            <BubbleAttachments
-              text={
-                item.text === visibleText ? shown : `${shown}${item.text.slice(visibleText.length)}`
-              }
-              project={project}
-              projectRoot={projectRoot}
-              highlightQuery={highlightQuery}
-              currentMatch={currentMatch}
-            />
-          )}
-        </div>
-      ) : item.attachments?.length ? (
-        // Files the lead sent (T-0105): its caption, then thumbnails and chips; what could not be kept is a plain line.
-        <div className="text-sm px-8 py-4 border border-border max-w-full overflow-hidden space-y-4">
-          {shown && (
-            <Markdown
-              text={shown}
-              highlightQuery={highlightQuery}
-              currentMatch={currentMatch}
-              projectRoot={projectRoot}
-              fileLink={(path) => !!targetFor(path)}
-              onOpenFile={openViewer ?? undefined}
-            />
-          )}
-          <BubbleAttachments
-            text=""
-            attachments={sent}
-            project={project}
-            projectRoot={projectRoot}
-          />
-          {item.attachments
-            .filter((file) => file.unavailable)
-            .map((file, i) => (
-              <p key={i} className="text-xs text-text-muted break-all">
-                {t('messenger.fileUnavailable', { name: file.name })}
-              </p>
-            ))}
-        </div>
+      </span>
+    ) : bossFaced?.show ? (
+      <span className="dlg-plate text-xs" data-testid="from-name">
+        {t('msgui3.me')}
+      </span>
+    ) : undefined;
+  const mdOf = (text: string) => (
+    <Markdown
+      text={text}
+      className={plain('border-border')}
+      highlightQuery={highlightQuery}
+      currentMatch={currentMatch}
+      projectRoot={projectRoot}
+      fileLink={(path) => !!targetFor(path)}
+      onOpenFile={openViewer ?? undefined}
+    />
+  );
+  const content = user ? (
+    <div className={plain(peer ? 'border-peer-border bg-peer-bg overflow-hidden' : 'border-accent bg-active-bg')}>
+      {quote}
+      {peer ? (
+        // Another agent's words (an orchestrator, a task notice): Markdown, like a lead's reply.
+        <Markdown text={shown} highlightQuery={highlightQuery} currentMatch={currentMatch} />
       ) : (
-        // The leads write Markdown (bold, tables, code); the boss's own lines stay plain.
+        <BubbleAttachments
+          text={item.text === visibleText ? shown : `${shown}${item.text.slice(visibleText.length)}`}
+          project={project}
+          projectRoot={projectRoot}
+          highlightQuery={highlightQuery}
+          currentMatch={currentMatch}
+        />
+      )}
+    </div>
+  ) : item.attachments?.length ? (
+    // Files the lead sent (T-0105): its caption, then thumbnails and chips; what could not be kept is a plain line.
+    <div className={`${plain('border-border')} space-y-4`}>
+      {shown && (
         <Markdown
           text={shown}
-          className="text-sm px-8 py-4 border border-border max-w-full overflow-hidden"
           highlightQuery={highlightQuery}
           currentMatch={currentMatch}
           projectRoot={projectRoot}
@@ -563,9 +656,65 @@ export function Line({
           onOpenFile={openViewer ?? undefined}
         />
       )}
-      </BubbleBox>
-      {long && <FoldToggle open={open} toggle={() => setOpen((v) => !v)} />}
-      <span className="text-2xs text-text-muted">
+      <BubbleAttachments text="" attachments={sent} project={project} projectRoot={projectRoot} />
+      {item.attachments
+        .filter((file) => file.unavailable)
+        .map((file, i) => (
+          <p key={i} className="text-xs text-text-muted break-all">
+            {t('messenger.fileUnavailable', { name: file.name })}
+          </p>
+        ))}
+    </div>
+  ) : typed.shown !== null ? (
+    <>
+      {/* Typing: the slice for the eye over the whole reply kept invisible (the box has its final size from the
+          first frame, nothing below shifts); the whole reply for a screen reader (aria-live gets only whole text). */}
+      <div className="relative" aria-hidden="true">
+        <div className="invisible">{mdOf(shown)}</div>
+        <div className="absolute inset-0" data-testid="dlg-typing">
+          {mdOf(typed.shown)}
+        </div>
+      </div>
+      <span className="sr-only">{shown}</span>
+    </>
+  ) : (
+    // The leads write Markdown (bold, tables, code); the boss's own lines stay plain.
+    mdOf(shown)
+  );
+  // ▼ opens a long reply, ▲ folds it: in the box's corner, or under a bubble that has no box.
+  const foldToggle = long && (
+    <FoldToggle
+      open={open}
+      toggle={() => {
+        typed.skipAll();
+        setOpen((v) => !v);
+      }}
+    />
+  );
+  const inner = (
+    <>
+      {peer && !faced && (
+        <span className="text-2xs text-peer-name max-w-full truncate" data-testid="from-name">
+          {item.fromName && noticeName(serverLine(item.fromName), noticeEmployee(item, tempStaff))}
+        </span>
+      )}
+      {boxed ? (
+        <DialogueBox
+          kind={peer ? 'peer' : user ? 'boss' : 'lead'}
+          plate={plate}
+          skip={typed.active ? t('game.msg.skipTag') : undefined}
+          typing={typed.active}
+          onSkipAll={typed.skipAll}
+          fold={foldToggle}
+          onClick={typed.active ? typed.advance : undefined}
+        >
+          {content}
+        </DialogueBox>
+      ) : (
+        content
+      )}
+      {!boxed && foldToggle}
+      <span ref={tail} className="text-2xs text-text-muted">
         {/* The boss's side mirrors the lead's: copy/답글 sit left of the time (MSG-ALIGN). */}
         {user && !peer && <ActionRow actions={actions} before />}
         {item.at > 0 && (
@@ -573,6 +722,7 @@ export function Line({
         )}
         {item.at > 0 && received && <span aria-hidden="true"> · </span>}
         {received && <span>{t('messenger.received')}</span>}
+        {typed.skipped && <span data-testid="dlg-skipped"> · {t('game.msg.skipped')}</span>}
         {!(user && !peer) && <ActionRow actions={actions} />}
       </span>
     </>
@@ -582,25 +732,25 @@ export function Line({
       actions={actions}
       className={
         faced
-          ? `${FACE_GUTTER_RIGHT} flex items-start ${FACE_GAP}`
+          ? `${AGENT_GUTTER_RIGHT} flex items-start ${FACE_GAP}${typed.active ? ' dlg-typing' : ''}`
           : bossFaced
-            ? `${FACE_GUTTER_LEFT} flex items-start ${FACE_GAP}`
+            ? `${OWNER_GUTTER_LEFT} flex items-start ${FACE_GAP}`
             : peer
-            ? 'mr-24 flex flex-col items-start'
-            : user
-              ? 'ml-24 flex flex-col items-end'
-              : 'mr-24'
+              ? 'mr-24 flex flex-col items-start'
+              : user
+                ? 'ml-24 flex flex-col items-end'
+                : 'mr-24'
       }
       data-from={user ? (peer ? 'peer' : 'boss') : undefined}
     >
       {faced ? (
         <>
           {faced.show ? (
-            <SenderFace name={faced.name} employee={peer ? noticeEmployee(item, tempStaff) : undefined} />
+            <SenderFace name={faced.name} employee={peer ? noticeEmployee(item, tempStaff) : undefined} portrait />
           ) : (
-            <span className={`shrink-0 ${FACE_COLUMN}`} aria-hidden="true" />
+            <span className="shrink-0" style={{ width: PORTRAIT_FRAME_PX }} aria-hidden="true" />
           )}
-          {/* A column, so 더보기 and the time start their own lines on the guide line (MSG-ALIGN). */}
+          {/* A column, so 더보기 and the time start their own lines on the box's left line (MSG-ALIGN). */}
           <div className="min-w-0 flex-1 flex flex-col items-start">{inner}</div>
         </>
       ) : bossFaced ? (
@@ -615,17 +765,24 @@ export function Line({
   );
 }
 
-/** 더 보기 on a folded bubble, 접기 on an opened one (MSG-SPLIT: the owner's queued ones too). */
+/** ▼ on a folded bubble (named 더 보기), ▲ on an opened one (접기): the dialogue box's purple triangle
+ *  (MSG-SPLIT: the owner's queued ones too). Still: no blinking. */
 export function FoldToggle({ open, toggle }: { open: boolean; toggle: () => void }) {
+  const label = open ? t('messenger.collapse') : t('messenger.showMore');
   return (
     <button
       type="button"
-      className="text-2xs text-accent-text mt-2 pointer-coarse:min-h-44"
+      className="dlg-fold"
       aria-expanded={open}
+      aria-label={label}
+      title={label}
       data-testid="fold-toggle"
-      onClick={toggle}
+      onClick={(e) => {
+        e.stopPropagation();
+        toggle();
+      }}
     >
-      {open ? t('messenger.collapse') : t('messenger.showMore')}
+      <PixelIcon name={open ? 'up' : 'next'} />
     </button>
   );
 }

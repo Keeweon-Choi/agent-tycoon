@@ -1,0 +1,33 @@
+{
+  "id": "ARMCHAIR",
+  "name": "Armchair",
+  "category": "chairs",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "2-way",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 0,
+  "members": [
+    {
+      "type": "asset",
+      "id": "ARMCHAIR_FRONT",
+      "file": "ARMCHAIR_FRONT.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "orientation": "front"
+    },
+    {
+      "type": "asset",
+      "id": "ARMCHAIR_SIDE",
+      "file": "ARMCHAIR_SIDE.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "orientation": "side"
+    }
+  ]
+}

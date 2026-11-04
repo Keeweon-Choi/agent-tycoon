@@ -4,15 +4,20 @@ import type { BoardTask, CodexTask, OfficeJob, TrackedItem, TrackedItems } from 
 import {
   assigneeOf,
   boardItems,
+  confirmedTasks,
   DONE_SHOWN,
   filterChoices,
   filterItems,
   goalProgress,
   groupItems,
   nestItems,
+  newlyDone,
   NO_FILTER,
   nowStrip,
   observedRuns,
+  priorityStars,
+  stampDate,
+  statusesOf,
   toggleGoalFilter,
   trackedColumn,
   trackedCount,
@@ -131,6 +136,30 @@ describe('task board (DEV-BOARD)', () => {
     expect(filterChoices(items).projects).toEqual(['alpha', 'cld-gui', 'pofol']);
   });
 
+  it('SPT-P3-ISSUES: filters by priority and by a requirement (its confirmed Tasks only), with the others', () => {
+    const tasks = [
+      task({ id: 'T-1', priority: 'P1', owner: { kind: 'worker', name: 'Ann' } }),
+      task({ id: 'T-2', priority: 'P0' }),
+      task({ id: 'T-3', priority: 'P1', project: 'alpha' }),
+      task({ id: 'T-4' }),
+    ];
+    const items = boardItems(tasks, codex, jobs);
+    const ids = (f: Partial<typeof NO_FILTER>) => filterItems(items, { ...NO_FILTER, ...f }).map((i) => i.id);
+    expect(filterChoices(items).priorities).toEqual(['P0', 'P1']);
+    expect(ids({ priority: 'P1' })).toEqual(['T-1', 'T-3']);
+    expect(ids({ priority: 'P1', project: 'alpha' })).toEqual(['T-3']);
+    expect(ids({ priority: 'P1', owner: 'worker:Ann' })).toEqual(['T-1']);
+    const edge = (to: string, status: 'confirmed' | 'observed' | 'suggested' | 'rejected', rel: 'implements' | 'changes' = 'implements') =>
+      ({ id: `${status}:${to}`, from: 'i_x', to, rel, status }) as const;
+    const tasksOf = confirmedTasks([edge('T-1', 'confirmed'), edge('T-2', 'observed'), edge('T-3', 'rejected'), edge('T-4', 'suggested'), edge('abc', 'confirmed', 'changes')]);
+    expect(tasksOf).toEqual(['T-1']);
+    // A requirement filter shows nothing while its links load, then only its confirmed Tasks (never an observed run).
+    expect(ids({ requirement: { uid: 'i_x', label: 'FR-X-1' } })).toEqual([]);
+    expect(ids({ requirement: { uid: 'i_x', label: 'FR-X-1', tasks: [...tasksOf, 'j-1'] } })).toEqual(['T-1']);
+    expect(ids({ requirement: { uid: 'i_x', label: 'FR-X-1', tasks: ['T-1', 'T-3'] }, priority: 'P1', project: 'alpha' })).toEqual(['T-3']);
+    expect(ids({})).toHaveLength(items.length);
+  });
+
   it('summarizes fixed MVP goals in order, with done and active statuses', () => {
     const items = boardItems([
       task({ id: 'S-done', goal: 'Security', status: 'done' }),
@@ -181,9 +210,9 @@ describe('task board (DEV-BOARD)', () => {
   });
 
   it('toggles a summary goal without changing the other filters', () => {
-    const selected = toggleGoalFilter({ project: 'alpha', goal: null, owner: 'lead:alpha' }, 'Security');
-    expect(selected).toEqual({ project: 'alpha', goal: 'Security', owner: 'lead:alpha' });
-    expect(toggleGoalFilter(selected, 'Security')).toEqual({ project: 'alpha', goal: null, owner: 'lead:alpha' });
+    const selected = toggleGoalFilter({ ...NO_FILTER, project: 'alpha', owner: 'lead:alpha' }, 'Security');
+    expect(selected).toEqual({ ...NO_FILTER, project: 'alpha', goal: 'Security', owner: 'lead:alpha' });
+    expect(toggleGoalFilter(selected, 'Security')).toEqual({ ...NO_FILTER, project: 'alpha', owner: 'lead:alpha' });
   });
 });
 
@@ -394,5 +423,31 @@ describe('document items on the board (U-48 2a)', () => {
     ]);
     expect(items[0].trackedDrift).toBe(false);
     expect(trackedCount([trackedProject('cld-gui', [docCard('A.md'), docLine('A.md', 'x')])])).toBe(1);
+  });
+});
+
+describe('GAME-UI-1 G2 quest board', () => {
+  it('priority stars: P0 3, P1 2, P2 1, none or later 0', () => {
+    expect(['P0', 'P1', 'P2', 'later', undefined, null].map(priorityStars)).toEqual([3, 2, 1, 0, 0, 0]);
+  });
+
+  it('newlyDone: only a card seen not done that is done now; a card first seen done never stamps again', () => {
+    const before = statusesOf([
+      { key: 'a', status: 'review' },
+      { key: 'b', status: 'done' },
+      { key: 'c', status: 'doing' },
+    ]);
+    const now = statusesOf([
+      { key: 'a', status: 'done' },
+      { key: 'b', status: 'done' },
+      { key: 'c', status: 'blocked' },
+      { key: 'd', status: 'done' },
+    ]);
+    expect([...newlyDone(before, now)]).toEqual(['a']);
+  });
+
+  it('stampDate: local MM.DD, empty for no time', () => {
+    expect(stampDate(new Date(2026, 10, 3, 22).toISOString())).toBe('11.03');
+    expect([stampDate(undefined), stampDate('nope')]).toEqual(['', '']);
   });
 });

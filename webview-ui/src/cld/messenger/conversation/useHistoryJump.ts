@@ -2,7 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { ChatItem, ChatSearchHit } from '../../../../../core/src/messages.js';
-import { JUMP_WAIT_MS } from '../../../constants.js';
+import { HISTORY_PREFETCH_PX, JUMP_WAIT_MS } from '../../../constants.js';
 import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
 import { FOCUS_MS } from '../../notify/openTarget.js';
@@ -18,7 +18,7 @@ import {
   setJumpLoading,
 } from '../messengerStore.js';
 import { nextRequestId } from '../parts.js';
-import { isHidden, mayFetchOlder } from '../scrollRestore.js';
+import { holdTop, isHidden, mayFetchOlder, prependedTop } from '../scrollRestore.js';
 
 /**
  * Conversation's history paging and jumps: older pages (prepend restore, the top
@@ -78,7 +78,7 @@ export function useHistoryJump({
   useLayoutEffect(() => {
     const el = list.current;
     if (!el || !prepend.current || historyBusy) return;
-    el.scrollTop = prepend.current.top + el.scrollHeight - prepend.current.height;
+    holdTop(el, prependedTop(prepend.current, el.scrollHeight));
     prepend.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Conversation's stable refs/setter, see above
   }, [items, historyBusy]);
@@ -96,7 +96,7 @@ export function useHistoryJump({
           fetchOlder();
         }
       },
-      { root: el },
+      { root: el, rootMargin: `${HISTORY_PREFETCH_PX}px 0px 0px 0px` },
     );
     observer.observe(top);
     return () => observer.disconnect();
@@ -138,7 +138,8 @@ export function useHistoryJump({
     if (!row) return;
     stuck.current = false;
     setAway(true);
-    row.scrollIntoView({ block: 'center' });
+    // The marked word of a search hit, not the middle of a tall bubble (its fold may still open: Line).
+    (row.querySelector('mark.bg-search-current') ?? row).scrollIntoView({ block: 'center' });
     row.dataset.focused = 'true';
     window.setTimeout(() => {
       delete row.dataset.focused;

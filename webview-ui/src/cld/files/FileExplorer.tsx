@@ -24,7 +24,7 @@ import { useRepoView } from '../repo/useRepoView.js';
 import { ZoomBar } from '../Zoom.js';
 import { useTextZoom, useZoomHost } from '../zoomStore.js';
 import { useEditSession } from './editSession.js';
-import { chooseFileRoot, listingCache, useFileRoot } from './explorerState.js';
+import { chooseFileRoot, clearPendingFile, listingCache, useFileRoot, usePendingFile } from './explorerState.js';
 import {
   type FileRoot,
   fileRootKey,
@@ -208,6 +208,8 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
   const [allowSensitive, setAllowSensitive] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
+  /** SPT-P3-ACCEPT: the line [원본 열기] asked for (the source view, scrolled there and marked). */
+  const [line, setLine] = useState<number | undefined>();
   const selection = useRef(0);
   const isMobile = useIsMobile();
   const events = useCldStore().events;
@@ -298,9 +300,10 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
       live = false;
     };
   }, [root]);
-  const open = async (entry: ProjectFileEntry) => {
+  const open = async (entry: ProjectFileEntry, at?: number) => {
     if (!leaveEdit()) return;
     const current = ++selection.current;
+    setLine(at);
     setEditing(false);
     setSelected(entry);
     setPreview(null);
@@ -318,6 +321,14 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
       if (current === selection.current) setError((err as Error).message);
     }
   };
+  // SPT-P1A: a file the 문서 tab asked for, shown once this project's explorer is up.
+  const pending = usePendingFile();
+  useEffect(() => {
+    if (!pending || root.kind !== 'project' || pending.project !== root.project) return;
+    clearPendingFile();
+    void open(pending.entry, pending.line);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` is this render's; the request is taken once
+  }, [pending, root]);
   /** Back to the read-only view shows the file as it is now (it may have been saved meanwhile). */
   const toggleEdit = () => {
     if (!editing) return setEditing(true);
@@ -517,7 +528,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
           </p>
         </div>
       )}
-      {!editing && preview && <Preview file={preview} url={previewUrl} zoom={zoom} />}
+      {!editing && preview && <Preview file={preview} url={previewUrl} zoom={zoom} line={line} />}
       {!editing && isMobile && editable && (
         <p className="mt-8 border-2 border-border bg-devroom-box p-8 text-2xs text-text-muted">
           {t('files.edit.readOnly')}

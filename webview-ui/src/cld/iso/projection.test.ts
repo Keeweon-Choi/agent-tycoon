@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { ISO_FLOOR_GAP, ISO_HALF_H, ISO_SLAB_H, ISO_WALL_H } from '../../constants.js';
+import { ISO_HALF_H, ISO_HALF_W, ISO_ROOF_H, ISO_SLAB_H, ISO_STOREY_H, ISO_WALL_H } from '../../constants.js';
 import { TileType } from '../../office/types.js';
 import {
   behind,
   type DepthBox,
   depthOrder,
+  floorBox,
   floorOfRow,
   floorWalls,
   isoAt,
   isoInverse,
   isoOrigin,
   isoStack,
-  levelRise,
   panTo,
 } from './projection.js';
 
@@ -40,43 +40,30 @@ describe('iso projection', () => {
     }
   });
 
-  it('nests every floor over the wall tops of the one below, whatever its depth', () => {
-    // Floor 1's back walls stand on its row `top`; the floor above is `rows` deep. Its front-left
-    // edge (row = rows) and slab, and the lower back wall's top, meet at the same screen x.
-    for (const [top, rows] of [
-      [0, 24],
-      [1, 22],
-      [1, 30],
-    ]) {
-      const rise = levelRise(top, rows);
-      expect(rise).toBe((rows - top) * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP);
-      for (const c of [0, 5, 17]) {
-        // A back wall tile (c, top) stands on its front edge, `ISO_WALL_H + two half diamonds` tall.
-        const wallBase = isoAt(c + 1, top + 1, 0, [0, rise]);
-        const wallTop = { x: wallBase.x, y: wallBase.y - ISO_WALL_H - 2 * ISO_HALF_H };
-        // The upper floor's front-left edge at the same x: its slab's bottom is under it.
-        const upper = isoAt(c + 1 - top - 1 + rows, rows, 1, [0, rise]);
-        expect(upper.x).toBe(wallTop.x);
-        // The slab's bottom is this far below the wall's top (a negative gap: it covers it).
-        expect(upper.y + ISO_SLAB_H - wallTop.y, `top ${top} rows ${rows} col ${c}`).toBe(
-          -ISO_FLOOR_GAP,
-        );
-      }
+  it('stacks every floor a storey above the one below: its slab on the lower wall tops', () => {
+    // building-a-1104 (owner 11-04 17:51): same-size floors, stacked flush. A storey is a back
+    // wall and the slab of the floor above; the upper plate's front edge is a storey up from the
+    // lower one's at the same x, its slab's bottom exactly on the lower walls' top.
+    expect(ISO_STOREY_H).toBe(ISO_WALL_H + ISO_SLAB_H);
+    const stack = isoStack({
+      cols: 35,
+      rows: 74,
+      cldFloors: [
+        { id: '1', row: 0, rows: 24, cols: 35 },
+        { id: '2', row: 27, rows: 22, cols: 35 },
+        { id: '3', row: 52, rows: 20, cols: 35 },
+      ],
+    });
+    expect(stack.lifts).toEqual([0, ISO_STOREY_H, 2 * ISO_STOREY_H]);
+    for (const c of [0, 5, 17]) {
+      const lower = isoAt(c, stack.depth, 0, stack.lifts);
+      const upper = isoAt(c, stack.depth, 1, stack.lifts);
+      expect(upper.x).toBe(lower.x);
+      expect(upper.y + ISO_SLAB_H).toBe(lower.y - ISO_WALL_H);
     }
   });
 
-  it('lifts a storey by far less than its depth once the floors nest (one tower, not apart)', () => {
-    // The owner 11-01: much less space between storeys. The upper slab covers the top
-    // |ISO_FLOOR_GAP| of the lower back walls, and the rise stays under the old flush one.
-    expect(ISO_FLOOR_GAP).toBeLessThan(0);
-    expect(-ISO_FLOOR_GAP).toBeLessThan(ISO_WALL_H);
-    const flush = (rows: number) => rows * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H;
-    for (const rows of [22, 24, 30]) expect(levelRise(0, rows)).toBe(flush(rows) + ISO_FLOOR_GAP);
-    // Still above a floor's own wall height plus its slab: floors never swap places.
-    expect(levelRise(0, 22)).toBeGreaterThan(ISO_WALL_H + ISO_SLAB_H);
-  });
-
-  it('stacks the daemon floors bottom up, one level for an office of one floor', () => {
+  it('gives every floor the deepest plate and keeps each floor its own rows', () => {
     const stack = isoStack({
       cols: 35,
       rows: 74,
@@ -86,28 +73,26 @@ describe('iso projection', () => {
         { id: '3', row: 52, rows: 22, cols: 35 },
       ],
     });
-    expect(stack.floors.map((f) => [f.id, f.level])).toEqual([
-      ['1', 0],
-      ['2', 1],
-      ['3', 2],
+    expect(stack.floors.map((f) => [f.id, f.level, f.rows])).toEqual([
+      ['1', 0, 24],
+      ['2', 1, 22],
+      ['3', 2, 22],
     ]);
     expect(stack.depth).toBe(24);
-    // Each floor is raised by the rise over the one below, its own depth (a shallower floor
-    // sits closer); no tile map: the back walls are taken on row 0.
-    expect(stack.lifts).toEqual([0, levelRise(0, 22), levelRise(0, 22) * 2]);
+    // Same plate on every level: the boxes differ by the lift only.
+    const [b1, b3] = [floorBox(stack, 0), floorBox(stack, 2)];
+    expect([b3.x0, b3.x1]).toEqual([b1.x0, b1.x1]);
+    expect(b1.x0).toBe(-24 * ISO_HALF_W);
+    expect(b1.y0 - b3.y0).toBe(2 * ISO_STOREY_H);
+    // The saved rows still say which floor a row is on (the extra plate rows are no floor's).
     expect(floorOfRow(stack, 30)?.id).toBe('2');
-    expect(floorOfRow(stack, 25)).toBeNull(); // the void rows between floors
-    expect(stack.box.y0).toBe(-stack.lifts[2] - ISO_WALL_H);
+    expect(floorOfRow(stack, 49)).toBeNull(); // 2F is 22 rows: row 49 is between floors
+    expect(floorOfRow(stack, 25)).toBeNull();
+    // The building's top: the top storey's walls and the roof's parapet.
+    expect(stack.box.y0).toBe(-stack.lifts[2] - ISO_WALL_H - ISO_ROOF_H);
+    expect(stack.box.y1).toBe((35 + 24) * ISO_HALF_H + ISO_SLAB_H);
     const one = isoStack({ cols: 20, rows: 11 });
-    expect(one.floors).toEqual([{ id: '1', row: 0, rows: 11, level: 0, top: 0 }]);
-    // With the tile grid, a floor's back walls are where its first non-void row is.
-    const t = isoStack({ cols: 3, rows: 4 }, [
-      [V, V, V],
-      [W, W, W],
-      [W, F, W],
-      [W, W, W],
-    ]);
-    expect(t.floors[0].top).toBe(1);
+    expect(one.floors).toEqual([{ id: '1', row: 0, rows: 11, level: 0 }]);
   });
 
   it('places the origin on whole device px and pans like the top-down camera', () => {
@@ -194,7 +179,7 @@ describe('iso walls', () => {
     [W, F, F, F, F, F, W],
     [W, W, W, W, W, W, W],
   ];
-  const walls = floorWalls(map, { id: '1', row: 0, rows: 5, level: 0, top: 1 });
+  const walls = floorWalls(map, { id: '1', row: 0, rows: 5, level: 0 });
   const at = (c: number, r: number) => walls.find((w) => w.col === c && w.row === r)!;
 
   it('stands the back walls tall and cuts every other wall low', () => {
@@ -205,5 +190,61 @@ describe('iso walls', () => {
     expect(at(2, 2).tall).toBe(false); // a partition between rooms
     expect(at(6, 3).tall).toBe(false); // the right wall, near the viewer
     expect(at(3, 4).tall).toBe(false); // the front wall
+  });
+});
+
+describe('depthOrder with fixed pieces (SMOOTH-1104)', () => {
+  // The order before SMOOTH-1104: every pair compared, the smallest ready key scanned for.
+  const reference = <T extends DepthBox>(items: readonly T[]): T[] => {
+    const n = items.length;
+    const before: number[][] = Array.from({ length: n }, () => []);
+    const waiting = new Array<number>(n).fill(0);
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++) {
+        if (behind(items[i], items[j])) {
+          before[i].push(j);
+          waiting[j]++;
+        } else if (behind(items[j], items[i])) {
+          before[j].push(i);
+          waiting[i]++;
+        }
+      }
+    const key = (b: DepthBox) => b.c0 + b.c1 + b.r0 + b.r1 + (b.lift ?? 0) * 1e-3;
+    const keys = items.map(key);
+    const done = new Array<boolean>(n).fill(false);
+    const out: T[] = [];
+    while (out.length < n) {
+      let pick = -1;
+      for (let i = 0; i < n; i++) if (!done[i] && waiting[i] === 0 && (pick < 0 || keys[i] < keys[pick])) pick = i;
+      if (pick < 0) for (let i = 0; i < n; i++) if (!done[i] && (pick < 0 || keys[i] < keys[pick])) pick = i;
+      done[pick] = true;
+      out.push(items[pick]);
+      for (const j of before[pick]) waiting[j]--;
+    }
+    return out;
+  };
+  const box = (c0: number, r0: number, w: number, h: number, lift?: number): DepthBox => ({ c0, r0, c1: c0 + w, r1: r0 + h, lift });
+  let seed = 7;
+  const rnd = (k: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % k;
+  };
+  it('gives the same order as comparing everything, frame after frame, as characters move', () => {
+    const pieces: DepthBox[] = [];
+    for (let i = 0; i < 120; i++)
+      pieces.push(box(rnd(20), rnd(14), 1 + rnd(3), 1 + rnd(2), rnd(4) === 0 ? 1 : undefined));
+    for (let frame = 0; frame < 40; frame++) {
+      // the pieces stay (new objects each frame, as the renderer builds them); a door may change
+      const now = pieces.map((p) => ({ ...p }));
+      if (frame === 20) now[3] = { ...now[3], lift: 2 };
+      const chars = Array.from({ length: 18 }, () => {
+        const c = rnd(200) / 10;
+        const r = rnd(140) / 10;
+        return { c0: c - 0.3, r0: r - 0.3, c1: c + 0.3, r1: r + 0.3, lift: 1 };
+      });
+      const all = [...now, ...chars];
+      expect(depthOrder(all, now.length)).toEqual(reference(all));
+      expect(depthOrder(all)).toEqual(reference(all));
+    }
   });
 });

@@ -13,12 +13,7 @@ import * as path from 'path';
 
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
-import {
-  buildAssetCache,
-  loadAllCharacters,
-  loadAllFurniture,
-  loadAllPets,
-} from './assetReload.js';
+import { buildAssetCache, loadAllCharacters, loadAllFurniture } from './assetReload.js';
 import { findClaude } from './cld/agentCli.js';
 import { ChatManager } from './cld/chat.js';
 import { configDirectory } from './cld/configPath.js';
@@ -37,6 +32,7 @@ import type { AssetCache, ReloadAssetsSideEffect } from './clientMessageHandler.
 import { readConfig } from './configPersistence.js';
 import {
   AGENT_CLI_RESTART_EXIT_CODE,
+  DAEMON_ONLY_ENV,
   MAX_PORT,
   MIN_PORT,
   SHUTDOWN_DEADLINE_MS,
@@ -298,7 +294,13 @@ async function issueLoginCode(
 
 // ── Main ──────────────────────────────────────────────────────
 
+/** The installer's malloc settings are the daemon's own: its children never inherit them. */
+export function dropDaemonOnlyEnv(env: NodeJS.ProcessEnv = process.env): void {
+  for (const key of DAEMON_ONLY_ENV) delete env[key];
+}
+
 async function main(): Promise<void> {
+  dropDaemonOnlyEnv();
   if (process.argv.includes('--self-test')) process.exit(runSelfTest(__dirname));
   let args: CliArgs;
   try {
@@ -328,10 +330,9 @@ async function main(): Promise<void> {
     customFurniture,
   );
   const charCount = assetCache.characters?.characters.length ?? 0;
-  const petCount = assetCache.pets?.pets.length ?? 0;
   const furnitureCount = assetCache.furniture?.catalog.length ?? 0;
   console.log(
-    `[Agent Tycoon] Assets loaded: ${charCount} characters, ${petCount} pets, ${furnitureCount} furniture items`,
+    `[Agent Tycoon] Assets loaded: ${charCount} characters, ${furnitureCount} furniture items`,
   );
 
   // ── Store + adapter (shared settings + standalone-scoped agents/seats) ──
@@ -418,27 +419,18 @@ async function main(): Promise<void> {
     // updated sprites to the requesting client. Mutates the assetCache object in
     // place so already-open sockets (which captured the same reference) and
     // future webviewReady handshakes both observe the new assets. Only
-    // characters/pets/furniture can come from external dirs, so only those three
+    // characters/furniture can come from external dirs, so only those two
     // are reloaded and re-sent (mirrors the VS Code reload path).
     const onReloadAssets: ReloadAssetsSideEffect = async (send): Promise<void> => {
       const externalDirs = readConfig().externalAssetDirectories;
-      const [characters, pets, furniture] = await Promise.all([
+      const [characters, furniture] = await Promise.all([
         loadAllCharacters(distRoot, externalDirs),
-        loadAllPets(distRoot, externalDirs),
         loadAllFurniture(distRoot, externalDirs, customFurniture),
       ]);
       assetCache.characters = characters;
-      assetCache.pets = pets;
       assetCache.furniture = furniture;
       if (characters) {
         send({ type: 'characterSpritesLoaded', characters: characters.characters });
-      }
-      if (pets) {
-        send({
-          type: 'petSpritesLoaded',
-          pets: pets.pets,
-          petNames: pets.manifests.map((m) => m.name),
-        });
       }
       if (furniture) {
         send({

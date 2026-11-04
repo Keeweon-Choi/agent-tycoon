@@ -6,6 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import type { TraceEdge } from '../../../../core/src/cld/spec/trace.js';
 import type {
   BoardTask,
   BoardTaskOwner,
@@ -17,6 +18,7 @@ import type {
   TrackedStatus,
   TrackingSources,
 } from '../../../../core/src/messages.js';
+import { GAME_QUEST_STARS } from '../../constants.js';
 import { codexKind } from '../panels/jobs.js';
 
 export const STATUS_ORDER: BoardTaskStatus[] = ['doing', 'review', 'blocked', 'proposed', 'todo', 'done'];
@@ -351,8 +353,21 @@ export interface BoardFilter {
   project: string | null;
   goal: string | null;
   owner: string | null;
+  priority: string | null;
+  /** SPT-P3-ISSUES: only the Tasks with a confirmed link to this requirement (`tasks` unset while they load). */
+  requirement: BoardRequirement | null;
 }
-export const NO_FILTER: BoardFilter = { project: null, goal: null, owner: null };
+export interface BoardRequirement {
+  uid: string;
+  /** Its display ID (or 문서:줄), for the filter chip. */
+  label: string;
+  tasks?: readonly string[];
+}
+export const NO_FILTER: BoardFilter = { project: null, goal: null, owner: null, priority: null, requirement: null };
+
+/** SPT-P3-ISSUES: the Tasks a requirement's detail (`…/item/:uid`) has a confirmed `implements` link to. */
+export const confirmedTasks = (edges: readonly TraceEdge[]): string[] =>
+  edges.filter((e) => e.status === 'confirmed' && e.rel === 'implements').map((e) => e.to);
 
 /** The server's fixed MVP goals, kept in board order for filters and progress. */
 export const GOALS = [
@@ -431,7 +446,9 @@ export function filterItems(items: BoardItem[], f: BoardFilter): BoardItem[] {
     (i) =>
       (!f.project || i.project === f.project) &&
       (!f.goal || i.task?.goal === f.goal) &&
-      (!f.owner || ownerKey(i.owner) === f.owner),
+      (!f.owner || ownerKey(i.owner) === f.owner) &&
+      (!f.priority || i.task?.priority === f.priority) &&
+      (!f.requirement || (!!i.task && !!f.requirement.tasks?.includes(i.id))),
   );
 }
 
@@ -444,6 +461,7 @@ export function filterChoices(items: BoardItem[]) {
   return {
     projects: uniq(items.map((i) => i.project)),
     goals: uniq(items.map((i) => i.task?.goal)),
+    priorities: uniq(items.map((i) => i.task?.priority)).sort((a, b) => (PRIORITY_RANK[a] ?? 9) - (PRIORITY_RANK[b] ?? 9)),
     owners: [...owners.entries()].sort(([a], [b]) => a.localeCompare(b)),
   };
 }
@@ -534,3 +552,21 @@ const subscribeDocs = (l: () => void) => {
   };
 };
 export const useDocSources = (project: string) => useSyncExternalStore(subscribeDocs, () => docSources[project]);
+
+// ── GAME-UI-1 G2: the quest board (cockpit 09) ──
+/** A quest card's lit stars: P0 3, P1 2, P2 1; none or later 0 (all dim). */
+export const priorityStars = (priority?: string | null): number => (priority === 'P0' ? GAME_QUEST_STARS : priority === 'P1' ? 2 : priority === 'P2' ? 1 : 0);
+
+/** Each card's status by key, to see which ones turned done between two renders. */
+export const statusesOf = (items: readonly Pick<BoardItem, 'key' | 'status'>[]): Map<string, BoardTaskStatus> => new Map(items.map((i) => [i.key, i.status]));
+
+/** The cards that were on the board and not done, and are done now: their 완료 stamp drops once (any other done card has it already). */
+export function newlyDone(before: ReadonlyMap<string, BoardTaskStatus>, now: ReadonlyMap<string, BoardTaskStatus>): Set<string> {
+  return new Set([...now].filter(([k, s]) => s === 'done' && before.has(k) && before.get(k) !== 'done').map(([k]) => k));
+}
+
+/** The stamp's date, MM.DD in local time ('' for a bad time). */
+export function stampDate(iso?: string | null): string {
+  const d = new Date(iso ?? '');
+  return Number.isNaN(d.getTime()) ? '' : `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}

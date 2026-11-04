@@ -27,14 +27,6 @@ export function startsRun(items: readonly ChatItem[], index: number): boolean {
   return true;
 }
 
-/** The built-in palettes an employee without a pinned look draws from (a stable pick per employee). */
-export const BUILT_IN_PALETTES = 6;
-export function employeePalette(employeeId: string): number {
-  let h = 0;
-  for (const c of employeeId) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return h % BUILT_IN_PALETTES;
-}
-
 /** MSG-ALIGN: the employee a task notice belongs to: the one the server stamped on it (the roster keeps
  *  every run's, so it outlives the employee's reuse and a reload), else the current staff list's. */
 export function noticeEmployee(

@@ -38,6 +38,12 @@
  *   protected-branches.json { <project>: [branch] }  the owner's list: merge and guard (merge.ts)
  *   name-history.json      this module's: former names and removed agents (below)
  *   rename-journal.json    this module's: a rename the engine committed but did not finish
+ * Keyed by the engine's projectId, never by a name (SPT §2.9, §4.1; a rename keeps it):
+ *   spec/<projectId>/registry.json (+ links, acceptance, arch later)   the spec sidecar: a remove
+ *                          without the purge box keeps it as an orphan another project may inherit
+ *                          (detachSpecData), the purge box deletes the folder (purgeSpecData)
+ *   spec/<projectId>/match-cache.json.gz   the match cache: goes with any remove (and tracking off)
+ *   The remove passes names: the office resolves them to the projectIds they had while live.
  * Reserved, never a new agent's name (registry checkName): "owner" (the owner's look key), "사장"
  * (the boss's sender name), "cld-gui"/"agty" (system senders); `emp:`, `room:`, `engine:`, `$meta`
  * and `~` keys cannot be names (NAME_RE).
@@ -45,7 +51,7 @@
  * registry), agent-tokens.json (dropped; the restart issues a new token), the compaction counts
  * (memory only) and its revive-guard copy in memory (reloaded).
  * Checked again 11-01 (`grep -rn "\[project\]\|\[p.name\]\|\[name\]" server/src/cld` and every
- * <cfg> file): job-history.json is keyed by a job's label, layout seats are computed, devroom.json,
+ * <cfg> file): job-history.json is keyed by a job's label (and `$ <command>`), layout seats are computed, devroom.json,
  * gpu.json, ez-rules.json, decor.json and the rest are global or keyed by ids.
  * Left as written (history or ids, not names): events.jsonl and audit.jsonl (append-only; old lines
  * keep the old name), lead-history.json (assignment ids), job-history.json and Codex task records
@@ -69,10 +75,12 @@ import { configDirectory } from './configPath.js';
 import { combinedRulesFile } from './engine/agentRules.js';
 import { eventsPath } from './engine/events.js';
 import { readLeadHistory } from './engine/leadSwap.js';
-import { SESSION_ID_RE } from './engine/registry.js';
+import { PROJECT_ID_RE, SESSION_ID_RE } from './engine/registry.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { levelOf } from './levels.js';
 import { transcriptPath } from './providers/claudeProvider.js';
+import { cacheFile, deleteCache } from './spec/cache.js';
+import { specDirectory } from './spec/store.js';
 
 type Json = Record<string, unknown>;
 
@@ -511,6 +519,30 @@ export function purgeProjectData(
   return each(`purge ${name}`, (s) => s.purge(home, name, gone), log);
 }
 
+// ── The spec sidecar: by projectId ─────────────────────────────
+
+function specChange(what: string, projectId: string, run: () => void, log: (line: string) => void): string[] {
+  if (!PROJECT_ID_RE.test(projectId)) return ['spec']; // never a path built from anything else
+  try {
+    run();
+    return [];
+  } catch (err) {
+    log(`project data ${what} ${projectId}: spec not changed (${err instanceof Error ? err.message : String(err)})`);
+    return ['spec'];
+  }
+}
+
+/** A project removed without the purge box: its match cache goes (NFR-SEC-020), registry.json
+ *  stays for 이어받기 (SPT §2.8). The stores that did not follow. */
+export function detachSpecData(home: string, projectId: string, log: (line: string) => void = () => undefined): string[] {
+  return specChange('detach', projectId, () => deleteCache(cacheFile(home, projectId)), log);
+}
+
+/** 데이터까지 지우기: spec/<projectId>/ entirely. */
+export function purgeSpecData(home: string, projectId: string, log: (line: string) => void = () => undefined): string[] {
+  return specChange('purge', projectId, () => fs.rmSync(specDirectory(home, projectId), { recursive: true, force: true }), log);
+}
+
 // ── name-history.json ─────────────────────────────────────────
 
 /** What a removed agent's messenger contact needs. */
@@ -585,6 +617,17 @@ export function recordFormerName(home: string, entry: FormerName): void {
   const entries = readNameHistory(home);
   if (entries.some((e) => e.name === entry.name && e.as === entry.as && e.until === entry.until)) return;
   writeNameHistory(home, [...entries, entry]);
+}
+
+/**
+ * SPT-P1D: did the remove that just ran purge `name`? Only an entry appended since `before` (the
+ * history as the office last read it, before this remove wrote its own) counts: an older removal
+ * of the same name never does. None (its write failed) or a history rewritten meanwhile: unsure,
+ * false (the caller then keeps the data).
+ */
+export function purgedNow(before: readonly FormerName[], after: readonly FormerName[], name: string): boolean {
+  if (after.length < before.length) return false;
+  return [...after.slice(before.length)].reverse().find((e) => e.name === name && e.gone)?.gone?.purged === true;
 }
 
 /** Who `name` was at `at`: the name it answers to now (a rename), a gone name (removed), or

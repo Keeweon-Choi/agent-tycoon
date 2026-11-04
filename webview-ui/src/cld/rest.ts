@@ -7,12 +7,13 @@
 import {
   ACTIVITY_PROP_FRAME_SEC,
   ISO8_DRINK_CELLS,
+  PALETTE_COUNT,
   REST_ANIM_SEC,
   REST_LIFT_SEC,
   REST_SETTLE_MS,
 } from '../constants.js';
 import type { SpriteData } from '../office/types.js';
-import { HUMAN_SIP } from './characters/compose.js';
+import { BUILT_IN_SIP, HUMAN_SIP } from './characters/compose.js';
 import propData from './ez/props.json';
 
 type Drink = 'coffee' | 'energy';
@@ -52,6 +53,8 @@ export interface DrinkCells {
 }
 const drinkCells = new Map<number, DrinkCells>();
 export const setDrinkCells = (palette: number, d: DrinkCells) => void drinkCells.set(palette, d);
+/** LOOKS-MEM: its sheet was let go. */
+export const forgetDrinkCells = (palette: number) => void drinkCells.delete(palette);
 export const drinkCellsOf = (palette: number): DrinkCells | undefined => drinkCells.get(palette);
 
 /** C1: the drink row's cell (0-5) `sec` into a drink of `total` s: the rest moment's
@@ -60,11 +63,12 @@ export const drinkCell = (drink: 'coffee' | 'can', sec: number, total: number): 
   (drink === 'can' ? ISO8_DRINK_CELLS / 2 : 0) + sipStage(sec, total);
 
 const sips = new Map<number, readonly [number, number]>();
-/** The mouth of a composed look's palette (looks.ts), for the drink. */
+/** The mouth of a composed look's palette (looks.ts), for the drink; a built-in person's (palettes
+ *  below CHAR_COUNT) is theirs, any other (an external char_N, a preset sheet) the old body's. */
 export const setSipAnchor = (palette: number, sip: readonly [number, number]) =>
   void sips.set(palette, sip);
 export const sipAnchorOf = (palette: number): readonly [number, number] =>
-  sips.get(palette) ?? HUMAN_SIP;
+  sips.get(palette) ?? (palette < PALETTE_COUNT ? BUILT_IN_SIP : HUMAN_SIP);
 
 export class RestWatch {
   private readonly seen = new Map<number, number>();

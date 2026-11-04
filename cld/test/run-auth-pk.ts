@@ -33,12 +33,14 @@ import * as path from 'path';
 
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -171,7 +173,8 @@ async function main(): Promise<void> {
   };
   /** A top-bar button; on the phone it sits in 설정. */
   const press = async (d: Device, name: string) => {
-    if (d.phone) await d.page.getByRole('button', { name: '설정', exact: true }).click();
+    if (!d.phone) return topBarButton(d.page, name);
+    await topBarButton(d.page, '설정');
     await d.page.getByRole('button', { name, exact: true }).first().click();
   };
   /** Every open modal (on the phone 설정 stays under the panel it opened). */
@@ -182,7 +185,7 @@ async function main(): Promise<void> {
   const reloadApp = async (d: Device) => {
     await d.page.goto(`${d.base}/`);
     await d.page.waitForURL(`${d.base}/`);
-    await d.page.getByRole('button', { name: d.phone ? '설정' : '기기 추가', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(d.page, 20_000);
   };
   /** 기기 추가: the 8-digit code, or the error the panel shows. */
   const addDevice = async (d: Device, tap = false): Promise<string> => {

@@ -1,18 +1,15 @@
-import type { LoadedAssets, LoadedCharacterSprites, LoadedPetSprites } from './assetLoader.js';
+import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
 import {
   loadCarpetTiles,
   loadCharacterSprites,
   loadDefaultLayout,
   loadExternalCharacterSprites,
-  loadExternalPetSprites,
   loadFloorTiles,
   loadFurnitureAssets,
   loadFurnitureFolder,
-  loadPetSprites,
   loadWallTiles,
   mergeCharacterSprites,
   mergeLoadedAssets,
-  mergePetSprites,
 } from './assetLoader.js';
 import type { AssetCache } from './clientMessageHandler.js';
 import { setPaletteCount } from './paletteAssigner.js';
@@ -23,8 +20,8 @@ import { setPaletteCount } from './paletteAssigner.js';
  * surfaces (no copy-paste of the load+merge loops).
  *
  * Asymmetry preserved deliberately: the bundled root uses the canonical loaders
- * (`loadCharacterSprites`/`loadPetSprites`), while external directories use the
- * flexible scanners (`loadExternalCharacterSprites`/`loadExternalPetSprites`).
+ * (`loadCharacterSprites`), while external directories use the
+ * flexible scanners (`loadExternalCharacterSprites`).
  * Furniture uses `loadFurnitureAssets` for both. Callers pass `externalDirs`
  * (read from config) so these helpers stay pure and reusable.
  */
@@ -66,25 +63,11 @@ export async function loadAllCharacters(
   return chars;
 }
 
-export async function loadAllPets(
-  assetsRoot: string,
-  externalDirs: string[],
-): Promise<LoadedPetSprites | null> {
-  let pets = await loadPetSprites(assetsRoot);
-  for (const extraDir of externalDirs) {
-    const extra = await loadExternalPetSprites(extraDir);
-    if (extra) {
-      pets = pets ? mergePetSprites(pets, extra) : extra;
-    }
-  }
-  return pets;
-}
-
 /**
  * Build the full in-memory asset cache for the standalone server. External
- * directories contribute characters, pets, and furniture; floor/wall/carpet
+ * directories contribute characters and furniture; floor/wall/carpet
  * tiles are bundled-only. Reproduces the wrap/unwrap shape `AssetCache` expects:
- * characters/pets/furniture are wrapper objects, while floor/wall/carpet are the
+ * characters/furniture are wrapper objects, while floor/wall/carpet are the
  * unwrapped sprite arrays.
  */
 export async function buildAssetCache(
@@ -94,7 +77,6 @@ export async function buildAssetCache(
 ): Promise<AssetCache> {
   return {
     characters: await loadAllCharacters(distRoot, externalDirs),
-    pets: await loadAllPets(distRoot, externalDirs),
     floorTiles: await loadFloorTiles(distRoot).then((t) => t?.sprites ?? null),
     wallTiles: await loadWallTiles(distRoot).then((t) => t?.sets ?? null),
     carpetTiles: await loadCarpetTiles(distRoot).then((t) => t?.sets ?? null),

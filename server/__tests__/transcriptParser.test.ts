@@ -32,7 +32,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: 200_000,
@@ -386,5 +385,74 @@ describe('transcriptParser: tool description', () => {
       new Map(),
     );
     expect(agents.get(1)?.activeToolDescs.get('t1')).toBe('List the files');
+  });
+});
+
+describe('transcriptParser: record types it does not read (MEM-IDLE)', () => {
+  it('never parses a megabyte api-request record, and still reads the next tool call', () => {
+    setHookProvider(claudeProvider);
+    const agents = new AgentStateStore();
+    const agent = createTestAgent();
+    agents.set(1, agent);
+    const timers = new Map<number, ReturnType<typeof setTimeout>>();
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      for (const type of ['api-request-blob', 'api-request'])
+        processTranscriptLine(
+          1,
+          JSON.stringify({ type, sessionId: 's', blob: 'Q'.repeat(1024 * 1024) }),
+          agents,
+          timers,
+          timers,
+        );
+      expect(parse).not.toHaveBeenCalled();
+      processTranscriptLine(
+        1,
+        agentToolUseRecord('toolu_9', 'Read', { file_path: '/a' }),
+        agents,
+        timers,
+        timers,
+      );
+      expect(agent.activeToolNames.get('toolu_9')).toBe('Read');
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('still reads a tool call or result that only carries a nested api-request object', () => {
+    setHookProvider(claudeProvider);
+    const agents = new AgentStateStore();
+    const agent = createTestAgent();
+    agents.set(1, agent);
+    const timers = new Map<number, ReturnType<typeof setTimeout>>();
+    // An MCP tool whose argument object is {type: 'api-request', ...}
+    processTranscriptLine(
+      1,
+      agentToolUseRecord('toolu_x', 'mcp__http__send', { type: 'api-request', url: 'https://x' }),
+      agents,
+      timers,
+      timers,
+    );
+    expect(agent.activeToolNames.get('toolu_x')).toBe('mcp__http__send');
+    // A result whose structured toolUseResult carries it still completes its tool.
+    processTranscriptLine(
+      1,
+      agentToolUseRecord('toolu_y', 'Read', { file_path: '/a' }),
+      agents,
+      timers,
+      timers,
+    );
+    processTranscriptLine(
+      1,
+      JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_y', content: 'ok' }] },
+        toolUseResult: { type: 'api-request', status: 200 },
+      }),
+      agents,
+      timers,
+      timers,
+    );
+    expect(agent.activeToolIds.has('toolu_y')).toBe(false);
   });
 });

@@ -83,8 +83,9 @@ export function loginPage({
 <meta name="apple-mobile-web-app-title" content="${escapeHtml(app)}">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" href="icons/icon-256.png?v=2">
-<link rel="apple-touch-icon" href="icons/icon-256.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png?v=3">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png?v=3">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
 <title>${escapeHtml(fillText(w('login_title'), { app }))}</title>
 <link rel="stylesheet" href="login/login.css">
 <script type="module" src="login/login.js"></script>

@@ -1,8 +1,6 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import type {
-  GpuTicket,
-  HwSample,
   OfficeOrchestrator,
   UsageProvider,
 } from '../../../../core/src/messages.js';
@@ -11,7 +9,6 @@ import { t } from '../../i18n/index.js';
 import type { ToolActivity } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
 import { AddDeviceButton } from '../auth/AddDevice.js';
-import { SecurityButton } from '../auth/SecurityPanel.js';
 import { ChatAction } from '../ChatAction.js';
 import { Chevron } from '../Chevron.js';
 import { EngineCardButtons, EngineSection } from '../EngineControls.js';
@@ -27,9 +24,6 @@ import { FileExplorer } from '../files/FileExplorer.js';
 import { FloorPicker } from '../FloorControls.js';
 import {
   foldedFigures,
-  hwClock,
-  hwSections,
-  hwSensorsHint,
   isOff,
   type OfficePanel,
   percentTone,
@@ -37,14 +31,14 @@ import {
   stateLabel,
   timeAgo,
   usageWindows,
-  usageWindowText,
+  usageWindowTitle,
 } from '../format.js';
+import { HeatGauge, JobCounter, UsageGauge } from '../game/GameHud.js';
+import { HudMenu } from '../game/HudMenu.js';
 import { GameOptions } from '../GameOptions.js';
 import { HostClock } from '../HostClock.js';
 import { RefreshGlyph } from '../hud/glyphs.js';
 import { Movable } from '../hud/Movable.js';
-import { cpuCoreRows, cpuFigures, ramFigures } from '../hwDetail.js';
-import { type HwViewKind, hwViewModel, openHwView, setHwPrefs, useHwPrefs } from '../hwView.js';
 import { eventIcon, isFeedNoise } from '../notify/newsList.js';
 import {
   codexUsageCheckStarted,
@@ -88,7 +82,6 @@ function useNow() {
   return now;
 }
 
-const section = 'pixel-panel p-12 min-w-0';
 const muted = 'text-text-muted text-xs';
 const toneClass = { normal: 'text-text', warn: 'text-yellow-300', critical: 'text-red-400' };
 
@@ -446,162 +439,6 @@ function StatusPanel({
   );
 }
 
-const hwTone = { warn: 'text-red-400', critical: 'text-red-500 font-bold' };
-/** T-0030: each reading with its source; what nothing measured is left out. */
-function HardwarePanel() {
-  const { hwSample: hw } = useCldStore();
-  const prefs = useHwPrefs();
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const close = openHwView((msg) => transport.send(msg));
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
-    return () => {
-      window.clearInterval(timer);
-      close();
-    };
-  }, []);
-  return (
-    <div className="space-y-12 pb-[var(--cld-safe-bottom)] min-w-0" data-testid="hw-panel">
-      <p className={`${muted} tabular-nums`} data-testid="hw-clock">
-        {hwClock(now)}
-      </p>
-      {!hw && <Empty />}
-      {hw && (
-        <>
-          {hwViewModel(hw, prefs.view).canToggle && (
-            <Button
-              size="sm"
-              data-testid="hw-view-toggle"
-              data-view={prefs.view}
-              aria-label={t('board.viewToggle')}
-              title={t('board.viewToggle')}
-              onClick={() => setHwPrefs({ view: prefs.view === 'wsl' ? 'windows' : 'wsl' })}
-            >
-              <span className={prefs.view === 'wsl' ? 'text-accent-text font-bold' : muted}>
-                WSL
-              </span>
-              {' ↔ '}
-              <span className={prefs.view === 'windows' ? 'text-accent-text font-bold' : muted}>
-                Windows
-              </span>
-            </Button>
-          )}
-          {hw.stale && <p className="text-red-400 font-bold">{t('hardware.stale')}</p>}
-          {hw.sensorsHint && <p className={`${muted} break-words`}>{hwSensorsHint()}</p>}
-          {hw.lhm === false && !hw.sensorsHint && (
-            <p className="text-yellow-300">{t('hardware.noTemperature')}</p>
-          )}
-          {hwSections(hw, prefs.view).map((card) => (
-            <div key={card.title} className={section}>
-              <h2 className="font-bold mb-4">{card.title}</h2>
-              {card.rows.map((row) => (
-                <div
-                  key={row.key}
-                  className="flex justify-between gap-8 border-b border-border/50 py-4 text-sm"
-                >
-                  <span className="text-text-muted">{row.label}</span>
-                  <span className="text-right">
-                    <span className={row.tone ? hwTone[row.tone] : ''}>{row.text}</span>
-                    {row.source && <span className={muted}> · {row.source}</span>}
-                  </span>
-                </div>
-              ))}
-              {card.fold === 'cpu' && <CoresFold hw={hw} />}
-              {card.fold === 'ram' && <RamFold hw={hw} view={prefs.view} />}
-            </div>
-          ))}
-          {hw.warnings.map((warning) => (
-            <p key={warning} className="text-red-400 text-sm break-words">
-              ⚠ {serverLine(warning)}
-            </p>
-          ))}
-          <GpuBoard />
-        </>
-      )}
-    </div>
-  );
-}
-
-const foldRow = 'flex justify-between gap-8 border-b border-border/50 py-4 text-sm';
-
-/** The CPU's cores, one row each (the lobby board's CPU detail, folded). */
-function CoresFold({ hw }: { hw: HwSample }) {
-  const { rows } = cpuCoreRows(hw);
-  return (
-    <details className="mt-4" data-testid="hw-fold-cores">
-      <summary className="cursor-pointer text-sm">{t('hwDetail.perCore')}</summary>
-      {cpuFigures(hw).map((f) => (
-        <div key={f.id} className={foldRow}>
-          <span className="text-text-muted">{f.label}</span>
-          <span className={f.tone ? hwTone[f.tone] : ''}>{f.text}</span>
-        </div>
-      ))}
-      {rows.length === 0 && <p className={`${muted} py-4`}>{t('hwDetail.needsLhm')}</p>}
-      {rows.map((c) => (
-        <div key={c.name} className={`${foldRow} tabular-nums`} data-testid="hw-core">
-          <span className="text-text-muted">{c.name}</span>
-          <span className="text-right">
-            {[c.clock && `${c.clock} MHz`, c.temp, c.load].filter(Boolean).join(' · ')}
-          </span>
-        </div>
-      ))}
-    </details>
-  );
-}
-
-/** The memory of the side shown: used, cache, available, swap (WSL) or load and virtual memory (Windows). */
-function RamFold({ hw, view }: { hw: HwSample; view: HwViewKind }) {
-  const figures = ramFigures(hw, view, hwViewModel(hw, view).ram);
-  if (figures.length < 2) return null;
-  return (
-    <details className="mt-4" data-testid="hw-fold-ram">
-      <summary className="cursor-pointer text-sm">{t('hwDetail.ramDetail')}</summary>
-      {figures.map((f) => (
-        <div key={f.id} className={foldRow}>
-          <span className="text-text-muted">{f.label}</span>
-          <span>{f.text}</span>
-        </div>
-      ))}
-    </details>
-  );
-}
-
-/** T-0021: who holds the GPU and who waits, in line order (gpuBoard: office's and the engine's). */
-function GpuBoard() {
-  const { gpuBoard: g } = useCldStore();
-  if (!g) return null;
-  const kind = (ticket: GpuTicket) =>
-    ticket.exclusive
-      ? t('gpu.kind.exclusive')
-      : t('gpu.kind.shared', { amount: ticket.vramGib ?? '?' });
-  const row = (t: GpuTicket, head: string, tone: string) => (
-    <div key={t.id} className="flex justify-between gap-8 border-b border-border/50 py-4 text-sm">
-      <span className="min-w-0 break-words">
-        <span className={tone}>{head}</span> {t.project}
-        {t.label && <span className={muted}> · {t.label}</span>}
-      </span>
-      <span className={`${muted} shrink-0`}>{kind(t)}</span>
-    </div>
-  );
-  return (
-    <div className={section} data-testid="gpu-board">
-      <h2 className="font-bold mb-4">{t('gpu.title')}</h2>
-      {!g.holders.length && !g.queue.length && <p className={muted}>{t('gpu.empty')}</p>}
-      {g.holders.map((ticket) => row(ticket, t('gpu.reserved'), 'text-accent-text'))}
-      {g.queue.map((ticket, i) =>
-        row(ticket, t('gpu.waiting', { position: i + 1 }), 'text-yellow-300'),
-      )}
-      {g.unleased?.map((p) => (
-        <p key={p.pid} className="text-yellow-300 text-sm break-words">
-          {t('gpu.unleased')} · {p.cmd ? `${p.cmd}(${p.pid})` : `pid ${p.pid}`}
-          {p.usedMib != null && ` · ${p.usedMib} MiB`}
-        </p>
-      ))}
-      {g.processesUnknown && <p className={muted}>{t('gpu.unknown')}</p>}
-    </div>
-  );
-}
-
 function Empty() {
   return <p className="text-text-muted text-sm py-20 text-center">{t('panel.empty')}</p>;
 }
@@ -622,8 +459,7 @@ export function OfficePanelContent({
   if (panel === 'terminal')
     return <TerminalWorkspace mobile={mobile} keyboardOpen={keyboardOpen} />;
   if (panel === 'status') return <StatusPanel agentTools={agentTools} now={now} />;
-  if (panel === 'files') return <FileExplorer />;
-  return <HardwarePanel />;
+  return <FileExplorer />;
 }
 
 export function UsagePair({ provider, now }: { provider: UsageProvider; now: number }) {
@@ -636,37 +472,30 @@ export function UsagePair({ provider, now }: { provider: UsageProvider; now: num
       {windows.map((w) => (
         <span
           key={w.id}
-          className={`${toneClass[percentTone(w.pct)]} whitespace-nowrap`}
-          title={
-            w.title
-              ? t('usage.modelWeekly', { name: w.title, reset: resetCountdown(w.resetAt, now) })
-              : resetCountdown(w.resetAt, now)
-          }
+          className={`${toneClass[percentTone(w.pct)]} min-w-0 break-keep [overflow-wrap:anywhere]`}
+          title={w.isReset ? undefined : resetCountdown(w.resetAt, now)}
+          data-testid="usage-detail-window"
         >
-          {w.label} {usageWindowText(w.pct, w.isReset)}
-          {!w.isReset && <span className="text-text-muted"> · {resetCountdown(w.resetAt, now)}</span>}
+          {usageWindowTitle(w)}
         </span>
       ))}
     </div>
   );
 }
 
-/** Folded usage strip, per viewer (default open). */
-const USAGE_FOLDED_KEY = 'cld.usage-folded';
-function usageFolded(): boolean | null {
+/** GAME-UI-1: the gauges are the folded strip and the default; the detail (every window and its reset) is one click, remembered per viewer. */
+const USAGE_DETAIL_KEY = 'cld.usage-detail';
+function usageDetail(): boolean {
   try {
-    const saved = localStorage.getItem(USAGE_FOLDED_KEY);
-    return saved === null ? null : saved === '1';
+    return localStorage.getItem(USAGE_DETAIL_KEY) === '1';
   } catch {
-    return null;
+    return false;
   }
 }
 
-/** The cld top bar: usage (when office reports it; a provider nobody reports reads
- *  "알 수 없음", never a made-up number) and the host's date and time. It is the top
- *  of the page, so it clears the iPhone safe-area insets. The usage folds to
- *  one line, "Claude 5h 1% · 7d 66%   Codex 5h 73% · 7d 27%"; a phone wraps it
- *  between the providers, on a row of its own above the buttons. */
+/** The cld top bar as a game HUD (GAME-UI-1, ideas/agents 07; HUD-2B the resource bar): the usage gauges as
+ *  rows (HP/MP), the game clock in the bar's exact centre, then the job counter, the CPU heat and 메뉴. It is the top of the page, so it
+ *  clears the iPhone safe-area insets. */
 export function UsageBar() {
   const bar = useToastTop<HTMLDivElement>();
   return (
@@ -675,20 +504,46 @@ export function UsageBar() {
           and neither side can run under it (owner 10-24). */}
       <div
         ref={bar}
-        className="pixel-panel grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-12 gap-y-8 min-w-0 pb-8 pt-[calc(var(--cld-safe-top)+8px)] pl-[calc(var(--cld-safe-left)+12px)] pr-[calc(var(--cld-safe-right)+12px)]">
+        className="pixel-panel grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-8 gap-y-8 min-w-0 pb-8 pt-[calc(var(--cld-safe-top)+8px)] pl-[calc(var(--cld-safe-left)+10px)] pr-[calc(var(--cld-safe-right)+10px)]">
         <div className="flex min-w-0">
           <UsageLine />
         </div>
-        <HostClock />
-        <div className="flex flex-wrap items-start justify-end gap-8 min-w-0">
+        <HostClock game />
+        <div className="flex flex-wrap items-center justify-end gap-8 min-w-0">
+          <JobCounter />
+          <HeatGauge />
           <FloorPicker />
-          <AddDeviceButton />
-          <SecurityButton />
-          <ActivityLegend />
-          <GameOptions />
+          {/* HUD-2B: 기기 추가 · 보안 · 범례 · 설정 under one 메뉴. */}
+          <HudMenu />
+          {/* The settings window, its opener and the install note; 메뉴 → 설정 opens it, so no button here. */}
+          <GameOptions trigger={false} />
         </div>
       </div>
     </Movable>
+  );
+}
+
+/** Re-reads Codex's usage on demand (the one provider that can be). */
+function CodexRefresh() {
+  const { officeReadOnly, codexUsageChecking } = useCldStore();
+  if (officeReadOnly) return null;
+  return (
+    <Button
+      size="icon_md"
+      title={t('usage.checkCodexTitle')}
+      aria-label={t(codexUsageChecking ? 'usage.checkingCodex' : 'usage.checkCodex')}
+      aria-busy={codexUsageChecking}
+      data-testid="usage-refresh"
+      disabled={codexUsageChecking}
+      onClick={() => {
+        codexUsageCheckStarted();
+        transport.send({ type: 'codexUsageCheck' });
+      }}
+    >
+      <span className={codexUsageChecking ? 'animate-spin' : 'flex'}>
+        <RefreshGlyph />
+      </span>
+    </Button>
   );
 }
 
@@ -698,13 +553,13 @@ export function UsageBar() {
  * until the viewer opens it (owner 10-24: the usage goes to the bottom space).
  */
 export function UsageLine({ phone = false }: { phone?: boolean }) {
-  const { usageState, officeReadOnly, codexUsageChecking } = useCldStore();
+  const { usageState } = useCldStore();
   const now = useNow();
-  const [folded, setFolded] = useState(() => usageFolded() ?? phone);
+  const [folded, setFolded] = useState(() => !usageDetail());
   const fold = (next: boolean) => {
     setFolded(next);
     try {
-      localStorage.setItem(USAGE_FOLDED_KEY, next ? '1' : '0');
+      localStorage.setItem(USAGE_DETAIL_KEY, next ? '0' : '1');
     } catch {
       // Private mode: this visit still remembers it.
     }
@@ -715,40 +570,28 @@ export function UsageLine({ phone = false }: { phone?: boolean }) {
     ? usageState.providers.filter((provider) => foldedFigures(provider).length > 0)
     : usageState.providers;
   if (phone && providers.length === 0) return null;
+  const codex = !phone && providers.some((p) => p.id === 'codex');
   const line = folded ? (
-    <button
-      type="button"
-      className="flex items-center gap-8 flex-[1_1_240px] min-w-0 text-left text-xs pointer-coarse:min-h-44"
-      aria-expanded={false}
-      title={t('usage.expand')}
-      data-testid="usage-folded"
-      onClick={() => fold(false)}
-    >
-      <Chevron open={false} />
-      <span className="min-w-0">
-        {providers.map((provider, i) => {
-          const figures = foldedFigures(provider);
-          return (
-            // A phone wraps between the providers, never inside one.
-            <Fragment key={provider.id}>
-              {i > 0 && ' '}
-              <span className="whitespace-nowrap mr-12">
-                <strong className="text-accent-text">{provider.name}</strong>
-                {figures.length ? (
-                  figures.map((f, j) => (
-                    <Fragment key={f.text.split(' ')[0]}>
-                      {j > 0 && ' ·'} <span className={toneClass[percentTone(f.pct)]}>{f.text}</span>
-                    </Fragment>
-                  ))
-                ) : (
-                  <span className="text-text-muted"> {t('usage.none')}</span>
-                )}
-              </span>
-            </Fragment>
-          );
-        })}
-      </span>
-    </button>
+    <div className="flex items-center gap-4 flex-[1_1_240px] min-w-0">
+      {/* GAME-UI-1: the gauges; a click opens the detail. The phone keeps the 5-hour windows only. */}
+      <button
+        type="button"
+        className="flex items-center gap-4 min-w-0 text-left pointer-coarse:min-h-44"
+        aria-expanded={false}
+        title={t('usage.expand')}
+        data-testid="usage-folded"
+        onClick={() => fold(false)}
+      >
+        <Chevron open={false} />
+        {/* HUD-2B: one row per provider, the bars one under the other (the phone too, MOBILE-QUEST: one ▶ for both rows). */}
+        <span className="game-gx-rows">
+          {providers.map((provider) => (
+            <UsageGauge key={provider.id} provider={provider} now={now} phone={phone} />
+          ))}
+        </span>
+      </button>
+      {codex && <CodexRefresh />}
+    </div>
   ) : (
     <div className="flex items-start gap-8 flex-[1_1_240px] min-w-0">
       <Button
@@ -762,27 +605,10 @@ export function UsageLine({ phone = false }: { phone?: boolean }) {
       </Button>
       <div className="flex flex-wrap gap-x-20 gap-y-4 flex-1 min-w-0" aria-label={t('usage.label')}>
         {providers.map((provider) => (
-          <div key={provider.id} className="flex items-center gap-8">
+          <div key={provider.id} className="flex items-center gap-8 min-w-0">
             <UsagePair provider={provider} now={now} />
             {/* ponytail: the one provider whose usage can be re-read on demand is Codex; a provider with its own refresh would add a flag to the message. */}
-            {provider.id === 'codex' && !officeReadOnly && (
-              <Button
-                size="icon_md"
-                title={t('usage.checkCodexTitle')}
-                aria-label={t(codexUsageChecking ? 'usage.checkingCodex' : 'usage.checkCodex')}
-                aria-busy={codexUsageChecking}
-                data-testid="usage-refresh"
-                disabled={codexUsageChecking}
-                onClick={() => {
-                  codexUsageCheckStarted();
-                  transport.send({ type: 'codexUsageCheck' });
-                }}
-              >
-                <span className={codexUsageChecking ? 'animate-spin' : 'flex'}>
-                  <RefreshGlyph />
-                </span>
-              </Button>
-            )}
+            {provider.id === 'codex' && <CodexRefresh />}
           </div>
         ))}
       </div>
@@ -812,10 +638,13 @@ export function MobileTopBar() {
       className="pixel-panel shrink-0 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-8 min-w-0 pt-[calc(var(--cld-safe-top)+4px)] pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]"
       data-testid="mobile-top-bar"
     >
-      <div className="flex min-w-0">
+      {/* GAME-UI-1 (07): the job chip, and the heat only when it is hot. */}
+      <div className="flex items-center gap-4 min-w-0">
         <FloorPicker />
+        <JobCounter chip />
+        <HeatGauge chip />
       </div>
-      <HostClock size="text-sm" />
+      <HostClock size="text-sm" game />
       {/* 44×44 for the thumb; the bar has no bottom padding, so it is no taller than before. */}
       <div className="flex justify-end [&>button]:min-h-44 [&>button]:min-w-44 [&>button]:justify-center">
         <GameOptions

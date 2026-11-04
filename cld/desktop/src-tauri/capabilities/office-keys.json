@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "office-keys",
-  "description": "The office page gets the window keys, safe external links, and a typed Windows administrator setup action. The app itself checks that its saved connection is local; no page script, fs, shell, keys or passwords are available. Covers localhost and 127.0.0.1 (the ssh tunnel); no remote host is listed, so an office reached by address needs its origin added here.",
+  "description": "The office page gets the window keys, safe external links, and a typed Windows administrator setup action. The app itself checks that its saved connection is local; no page script, fs, shell, keys or passwords are available. Covers localhost and 127.0.0.1 (this computer, the ssh tunnel). An office reached by address gets only the four window permissions, never run_admin_setup, for the exact origin of its saved connection, added at run time (lib.rs allow_office_keys).",
   "windows": ["main"],
   "remote": {
     "urls": [

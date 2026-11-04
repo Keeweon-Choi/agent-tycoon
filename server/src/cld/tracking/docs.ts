@@ -13,6 +13,7 @@
  * name (`T-0015-x.md`) or front-matter `id:`; anywhere else an id is a mention, which
  * only links and never makes an entry.
  */
+import { ID_LINE_MAX, idAtStartPattern, idPattern } from '../../../../core/src/cld/spec/ids.js';
 import type { TrackedStatus } from '../../../../core/src/messages.js';
 
 
@@ -115,25 +116,19 @@ export const claimOf = (text: string, strict = false): StatusClaim | null => {
   return strict ? null : { status: 'unknown', raw: keep(cleaned, 200) };
 };
 
-/** The id shapes: `ABC-123` and Spec Kit's `T001` always; short ones (`D5`, `C3a`) only when the project turns them on. */
-const ID_LONG = '[A-Z]{1,6}-\\d{1,5}|T\\d{3}';
-const ID_SHORT = '[A-Z]\\d{1,2}[a-z]?';
-const idSource = (shortIds: boolean) => (shortIds ? `${ID_LONG}|${ID_SHORT}` : ID_LONG);
-export const idPattern = (shortIds: boolean) => new RegExp(`(?<![A-Za-z0-9_-])(?:${idSource(shortIds)})(?![A-Za-z0-9_])`, 'g');
-const idAtStartPattern = (shortIds: boolean) => new RegExp(`^(?:${idSource(shortIds)})(?![A-Za-z0-9_])`);
-
 export interface Ids {
   /** Every id the text names. */
   all(text: string): string[];
   /** The id the (cleaned) text starts with (a definition), or undefined. */
   atStart(text: string): string | undefined;
 }
-export function idsOf(shortIds: boolean): Ids {
-  const any = idPattern(shortIds);
-  const start = idAtStartPattern(shortIds);
+export function idsOf(shortIds: boolean, extra: readonly string[] = []): Ids {
+  const any = idPattern(shortIds, extra);
+  const start = idAtStartPattern(shortIds, extra);
+  // Line by line, each cut at ID_LINE_MAX: no reader runs a pattern over a megabyte at once.
   return {
-    all: (text) => (/\d/.test(text) ? [...new Set(text.match(any) ?? [])] : []),
-    atStart: (text) => start.exec(text)?.[0],
+    all: (text) => (/\d/.test(text) ? [...new Set(text.split('\n').flatMap((l) => l.slice(0, ID_LINE_MAX).match(any) ?? []))] : []),
+    atStart: (text) => start.exec(text.slice(0, ID_LINE_MAX))?.[0],
   };
 }
 
@@ -182,13 +177,13 @@ const hash = (text: string) => {
 };
 
 const CHECKBOX = /^\s*[-*+]\s+\[([ xX~-])\]\s+(.*)$/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
-const FENCE = /^\s*(```|~~~)/;
-const TABLE_ROW = /^\s*\|.*\|\s*$/;
-const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+export const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+export const FENCE = /^\s*(```|~~~)/;
+export const TABLE_ROW = /^\s*\|.*\|\s*$/;
+export const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
 /** A table row's cells (the outer pipes off, `\|` kept inside a cell). */
-const cellsOf = (line: string): string[] =>
+export const cellsOf = (line: string): string[] =>
   line
     .trim()
     .replace(/^\|/, '')
@@ -196,7 +191,7 @@ const cellsOf = (line: string): string[] =>
     .split(/(?<!\\)\|/)
     .map((c) => c.replace(/\\\|/g, '|').trim());
 
-function frontMatter(lines: string[]): { fields: Map<string, string>; end: number } {
+export function frontMatter(lines: string[]): { fields: Map<string, string>; end: number } {
   const fields = new Map<string, string>();
   if (lines[0]?.trim() !== '---') return { fields, end: 0 };
   for (let i = 1; i < Math.min(lines.length, 200); i++) {
@@ -207,10 +202,10 @@ function frontMatter(lines: string[]): { fields: Map<string, string>; end: numbe
   return { fields: new Map(), end: 0 }; // never closed: not front-matter
 }
 
-/** One Markdown document. `fileName` is its base name (an id may be defined by it). */
-export function parseDoc(text: string, fileName: string, shortIds: boolean): DocParse | 'unreadable' {
+/** One Markdown document. `fileName` is its base name (an id may be defined by it); `extra`, the project's own id patterns (SPT §2.4). */
+export function parseDoc(text: string, fileName: string, shortIds: boolean, extra: readonly string[] = []): DocParse | 'unreadable' {
   if (text.includes('\0')) return 'unreadable';
-  const ids = idsOf(shortIds);
+  const ids = idsOf(shortIds, extra);
   const lines = text.split(/\r?\n/);
   const { fields, end } = frontMatter(lines);
   const out: DocParse = { entries: [], more: 0, mentions: [] };
@@ -307,6 +302,11 @@ export function fileIdOf(fileName: string, ids: Ids): string | null {
   return next === '-' || next === '_' || next === '.' ? id : null;
 }
 
+/** A table header's folded cells (a trailing `(…)` off). */
+export const headerOf = (line: string): string[] => cellsOf(line).map((h) => fold(h).replace(/\s*[(（].*[)）]$/, ''));
+/** The status column of a table (never the first), or -1. */
+export const statusColumn = (header: string[]): number => header.findIndex((h, n) => n > 0 && STATUS_HEADERS.includes(h));
+
 /** One table from its header line; returns the index of its last line. */
 function table(
   lines: string[],
@@ -315,13 +315,16 @@ function table(
   add: (e: Omit<DocEntry, 'key'> & { base: string }) => DocEntry | null,
   mentions: Set<string>,
 ): number {
-  const header = cellsOf(lines[start]).map((h) => fold(h).replace(/\s*[(（].*[)）]$/, ''));
-  const statusCol = header.findIndex((h, n) => n > 0 && STATUS_HEADERS.includes(h));
+  const header = headerOf(lines[start]);
+  const statusCol = statusColumn(header);
+  // SPT §2.4: an `ID` column defines the row's id when the first cell does not.
+  const idCol = header.indexOf('id');
   let i = start + 2;
   for (; i < lines.length && TABLE_ROW.test(lines[i]); i++) {
     const cells = cellsOf(lines[i]);
     const first = clean(cells[0] ?? '');
-    const id = ids.atStart(first);
+    const idCell = idCol > 0 ? clean(cells[idCol] ?? '') : '';
+    const id = ids.atStart(first) ?? (idCell && ids.atStart(idCell) === idCell ? idCell : undefined);
     const refs = [...new Set(cells.flatMap((c) => ids.all(c)))];
     if (!id && statusCol < 0) {
       for (const r of refs) mentions.add(r);
@@ -336,9 +339,9 @@ function table(
         claim = claimOf(cells[n], true);
         if (claim) at = n;
       }
-    const rest = id ? first.slice(id.length).replace(/^[\s:.)\-—–]+/, '') : first;
+    const rest = id && first.startsWith(id) ? first.slice(id.length).replace(/^[\s:.)\-—–]+/, '') : first;
     const title =
-      rest || cells.slice(1).map(clean).find((c, n) => c && n + 1 !== at) || id || first;
+      rest || cells.map(clean).find((c, n) => n > 0 && c && n !== at && n !== idCol) || id || first;
     add({
       base: id ?? `h:${hash(first)}`,
       kind: 'row',

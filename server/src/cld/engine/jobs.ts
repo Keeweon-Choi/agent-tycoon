@@ -22,7 +22,7 @@ import * as path from 'path';
 import { type Coded, type Refused, refused } from '../../../../core/src/cld/serverText.js';
 import type { OfficeJob } from '../../../../core/src/messages.js';
 import { digestJobLog, maskJobLog } from '../jobDigest.js';
-import { estimateProgress, rememberDuration } from '../jobHistory.js';
+import { cmdKey, estimateProgress, rememberDuration } from '../jobHistory.js';
 import { deriveJobName, readNameRules } from '../jobNames.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { windowsCmd } from '../spawnJson.js';
@@ -44,6 +44,8 @@ export const JOB_PTY_ROWS = 40;
 const DAY = 86_400_000;
 const LOG_READ_MAX = 64 * 1024;
 const CMD_EVENT_MAX = 300;
+/** A failed job's stop line on its card (one line of the log). */
+const STOP_LINE_MAX = 200;
 export const ID_RE = /^\d{4}-\d{6}-[A-Za-z0-9가-힣._-]{1,48}$/;
 
 export const jobsDir = (
@@ -355,6 +357,7 @@ export class Jobs {
   private watcher: fs.FSWatcher | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
   private soon: ReturnType<typeof setTimeout> | null = null;
+  private readonly stops = new Map<string, Pick<OfficeJob, 'stopPct' | 'stopLine'>>();
   private readonly now: () => number;
   private readonly startTime: (pid: number) => string | null;
   /** Pids this daemon spawned whose exit it has not seen: alive without asking the OS. */
@@ -569,6 +572,7 @@ export class Jobs {
         stopped: r.stopped === true,
         // Nothing runs while it waits for the GPU: no log, no bar (F-15).
         progress: r.ended || gpu.gpu === 'queued' ? null : this.progressOf(r),
+        ...(r.ended && r.exit !== 0 && r.stopped !== true && this.stopOf(r, r.ended)),
         ...(r.gpu && gpu),
       };
     });
@@ -637,6 +641,9 @@ export class Jobs {
       let ended: number | undefined;
       try {
         const raw = fs.readFileSync(exitFile, 'utf-8').trim();
+        // The wrapper's `>` makes the file before it writes the code: empty = not written yet,
+        // judged like no file (11-04 deploy check: read in between, the job ended with exit null).
+        if (!raw) throw new Error('exit file not written yet');
         exit = /^-?\d+$/.test(raw) ? Number(raw) : null;
         ended = fs.statSync(exitFile).mtimeMs;
       } catch {
@@ -660,6 +667,7 @@ export class Jobs {
           // The run itself, not the GPU wait before it (startedOf: the lease time, else the ask).
           const ran = Date.parse(startedOf(this.dir, r) ?? r.started);
           rememberDuration(this.opts.home, this.nameOf(r), ended - ran);
+          rememberDuration(this.opts.home, cmdKey(r.cmd), ended - ran);
         } catch (err) {
           this.log(`job history: ${String(err)}`);
         }
@@ -695,6 +703,27 @@ export class Jobs {
         this.now() - Date.parse(startedOf(this.dir, r) ?? r.started),
       )
     );
+  }
+
+  /** Where a failed job stopped: its bar then (a tqdm line in the log, its steps or the last
+   *  successful runs; null with no basis) and the log line that says why (the first error line of
+   *  the last few, else the last line; masked). Ended logs do not change: read once per job. */
+  private stopOf(r: JobRecord, ended: string): Pick<OfficeJob, 'stopPct' | 'stopLine'> {
+    const known = this.stops.get(r.id);
+    if (known) return known;
+    const raw = readLogTail(r.log);
+    const tqdm = raw.split(/[\r\n]/).reverse().map(parseTqdm).find(Boolean);
+    const ran = Date.parse(ended) - Date.parse(startedOf(this.dir, r) ?? r.started);
+    const p = tqdm ?? estimateProgress(this.opts.home, this.nameOf(r), r.cmd, raw, ran);
+    const lines = digestJobLog(r.cmd, raw).lines;
+    const line = (lines.find((l) => l.error) ?? lines.at(-1))?.text;
+    const stop = {
+      stopPct: p.indeterminate || !Number.isFinite(p.pct) ? null : p.pct,
+      stopLine: line ? line.slice(0, STOP_LINE_MAX) : null,
+    };
+    // ponytail: grows by one entry per failed job this daemon saw (a few bytes each); never pruned.
+    this.stops.set(r.id, stop);
+    return stop;
   }
 
   /** What the job is: the user's description, else a name derived from the command. */

@@ -3,24 +3,26 @@ import { useContext } from 'react';
 import type { TempEmployee } from '../../../../core/src/messages.js';
 import type { AgentAppearance } from '../../components/AgentCard.js';
 import { CharacterMugShot } from '../../components/CharacterMugShot.js';
+import { MSG_PORTRAIT_FRAME_PAD_PX, MSG_PORTRAIT_PX } from '../../constants.js';
 import { lookByName } from '../characters/looks.js';
 import { employeeName } from '../employees.js';
 import { useCldStore } from '../officeStore.js';
 import { OWNER_PICTURE_SIDE, ownerPictureMissing, useOwnerPicture } from '../ownerPicture.js';
 import { MessengerLooks } from './looksContext.js';
 import { useMessenger } from './messengerStore.js';
-import { employeePalette } from './senderFace.js';
 
 export const FACE_PX = 32;
 /** The face's column: its border (1 px a side) and the mug shot. */
 export const FACE_COLUMN = 'w-[34px] h-[34px]';
-/** The gap between a face and its bubble's guide line: room for the bubble's 8 px tail (BUBBLE-TAIL). */
-export const FACE_GAP = 'gap-[14px]';
-/** MSG-UI3 + MSG-ALIGN: every bubble leaves one face column plus its gap (34 + 14 px) on the side opposite
- *  its own, so all bubbles share one width and one guide line: the bubble's body (its border) sits on
- *  that line, the tail pokes out toward the face, and command lines, 더보기, times and actions start on it. */
-export const FACE_GUTTER_RIGHT = 'mr-[48px]';
-export const FACE_GUTTER_LEFT = 'ml-[48px]';
+/** GAME-UI-1 G1 (01): the agent's portrait frame (the mug shot, 4 px padding and a 2 px line a side). */
+export const PORTRAIT_FRAME_PX = MSG_PORTRAIT_PX + MSG_PORTRAIT_FRAME_PAD_PX;
+/** The gap between a face and its dialogue box. */
+export const FACE_GAP = 'gap-[10px]';
+/** The agent's command lines, 더보기 and times start on its dialogue box: the portrait frame (60) and the gap (10). */
+export const FACE_GUTTER_LEFT = 'ml-[70px]';
+/** Room the agent's lines leave on the right, and the boss's on the left (the mock's player side is narrower). */
+export const AGENT_GUTTER_RIGHT = 'mr-[40px]';
+export const OWNER_GUTTER_LEFT = 'ml-[64px]';
 
 /**
  * A sender's face: the mug shot the agent cards draw (the look the office shows). `execution`
@@ -31,10 +33,13 @@ export function SenderFace({
   name,
   agentId,
   employee,
+  portrait,
 }: {
   name: string;
   agentId?: number;
   employee?: Pick<TempEmployee, 'employeeId' | 'nameId'>;
+  /** GAME-UI-1 G1: the dialogue's portrait frame (a bigger mug shot). */
+  portrait?: boolean;
 }) {
   const looks = useContext(MessengerLooks);
   const { contacts } = useMessenger();
@@ -43,25 +48,25 @@ export function SenderFace({
   let label = name;
   if (employee) {
     label = employeeName(employee);
-    // ponytail: an employee with no pinned look gets a stable built-in palette, which may differ
-    // from the temp character's own in the office; pin the office's pick if that ever matters.
-    appearance = lookByName(`emp:${employee.employeeId}`, characterPresets) ?? {
-      palette: employeePalette(employee.employeeId),
-      hueShift: 0,
-    };
+    appearance = lookByName(`emp:${employee.employeeId}`, characterPresets);
   } else {
     const id = agentId ?? contacts.find((c) => c.name === name)?.agentId;
     if (id !== undefined && looks) appearance = looks.getAppearance(id);
   }
   return (
     <span
-      className={`shrink-0 ${FACE_COLUMN} border border-border flex items-center justify-center text-2xs text-text-muted`}
+      className={
+        portrait
+          ? 'dlg-pf flex items-center justify-center text-text-muted'
+          : `shrink-0 ${FACE_COLUMN} border border-border flex items-center justify-center text-2xs text-text-muted`
+      }
+      style={portrait ? { width: PORTRAIT_FRAME_PX, height: PORTRAIT_FRAME_PX } : undefined}
       title={label}
       data-testid="sender-face"
       data-sender={label}
     >
       {appearance ? (
-        <CharacterMugShot palette={appearance.palette} hueShift={appearance.hueShift} size={FACE_PX} />
+        <CharacterMugShot palette={appearance.palette} hueShift={appearance.hueShift} size={portrait ? MSG_PORTRAIT_PX : FACE_PX} />
       ) : (
         <span aria-hidden="true">{[...label][0]}</span>
       )}

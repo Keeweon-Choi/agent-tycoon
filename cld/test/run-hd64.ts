@@ -1,7 +1,8 @@
 /**
  * HD64-SAMPLE verification: dist/cli.js with an isolated HOME on a spare port, headless Chromium
  * without a GPU. One fake Claude session (`lead`, a `sleep` with a transcript reading a file) wears
- * the built-in bunny preset (cld/packs/hd-bunny); no model is ever called.
+ * the built-in bunny (BUNNY-SHEET: the sheet cld/packs/hd-bunny/sheets/builtin-bunny.png, 288×528
+ * cells); no model is ever called.
  *
  *  1. In the office (Classic camera) at zoom 2 and 4: the copy the bunny draws at each (32×64,
  *     64×128) and at 3 (16×32), screenshots next to the built-in staff and furniture, with more
@@ -19,6 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   killFakeSessions,
@@ -28,7 +30,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/hd64');
@@ -43,18 +44,7 @@ const THROTTLE = 4;
 const COUNTS = [1, 10, 20];
 const SAMPLE_MS = 3000;
 const WARMUP_MS = 2500;
-const PACK = JSON.parse(
-  fs.readFileSync(path.join(REPO_ROOT, 'cld/packs/hd-bunny/pack.json'), 'utf-8'),
-) as {
-  id: string;
-  presets: { look: { parts: Record<string, string> } & Record<string, unknown> }[];
-};
-const preset = PACK.presets[0].look;
-/** The preset's look as the daemon stores it: part ids namespaced by the pack. */
-const LOOK = {
-  ...preset,
-  parts: Object.fromEntries(Object.entries(preset.parts).map(([k, v]) => [k, `${PACK.id}/${v}`])),
-};
+const PRESET = 'builtin-bunny';
 
 function check(ok: unknown, what: string): void {
   if (!ok) throw new Error(`check failed: ${what}`);
@@ -64,7 +54,7 @@ function check(ok: unknown, what: string): void {
 function session(home: string) {
   fs.writeFileSync(
     path.join(configDirectory(home), 'characters.json'),
-    JSON.stringify({ lead: LOOK }),
+    JSON.stringify({ lead: { preset: PRESET } }),
   );
   const cwd = '/work/alpha';
   const proc = spawn('sleep', ['1200'], { stdio: 'ignore' });
@@ -119,6 +109,7 @@ type Hooks = {
   getCharacterPosition: (id: number) => { x: number; y: number } | null;
   getTileCenter: (c: number, r: number) => { x: number; y: number } | null;
   spawnLook: (look: unknown, n: number, firstId: number) => number[];
+  spawnPreset: (id: string, n: number, firstId: number) => number;
   cacheBuildMs: (palette: number, hue: number, zoom: number) => number;
   drawnDensity: (palette: number, hue: number, zoom: number) => number;
   perf: () => {
@@ -161,16 +152,14 @@ async function open(browser: Browser, url: string, opts: BrowserContextOptions) 
   return { ctx, page, errors };
 }
 
-/** The lead's palette (the one her sprite draws from), found by its HD64 density. */
+/** The built-in bunny's palette (the lead's), once her sheet has loaded; -1 if it never does. */
 async function leadPalette(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const w = window as unknown as {
-      __agentTycoonTestHooks: { drawnDensity: (p: number, h: number, z: number) => number };
-    };
-    for (let p = 0; p < 2000; p++)
-      if (w.__agentTycoonTestHooks.drawnDensity(p, 0, 4) === 3) return p; // a 64×128 person draws at density 3 (SHEET-IMPORT)
-    return -1;
-  });
+  for (let i = 0; i < 50; i++) {
+    const p = await hooks(page)((h, id) => h.spawnPreset(id as string, 0, 0), PRESET);
+    if (p >= 0) return p;
+    await page.waitForTimeout(200);
+  }
+  return -1;
 }
 
 /** A screenshot of the canvas around world point (x, y), CSS px. */
@@ -242,20 +231,20 @@ async function main() {
     {
       const { ctx, page, errors } = await open(browser, await daemon.loginUrl(), DESK);
       const palette = await leadPalette(page);
-      check(palette >= 0, 'the lead wears the bunny preset (a 64×128 sheet)');
+      check(palette >= 0, 'the lead wears the built-in bunny sheet');
       const picked = await hooks(page)(
         (h, a) => [1, 2, 3, 4, 6, 8].map((z) => h.drawnDensity(a as number, 0, z)),
         palette,
       );
       check(
-        // SHEET-IMPORT: one master at every zoom, never the copy the zoom divides (was 1,2,1,4,2,4)
-        picked.join() === '3,3,3,3,3,3',
-        `the density per zoom 1,2,3,4,6,8: ${picked.join(',')} (her one 64×128 master drawn at 3 each time)`,
+        // SHEET-IMPORT: one master at every zoom, never the copy the zoom divides
+        new Set(picked).size === 1,
+        `the density per zoom 1,2,3,4,6,8: ${picked.join(',')} (one master each time)`,
       );
       result.lodPerZoom = Object.fromEntries([1, 2, 3, 4, 6, 8].map((z, i) => [z, picked[i]]));
       const leadId = (await hooks(page)((h) => h.getAgentSeats()))[0].id;
       // more bunnies: half typing at desks, half walking about
-      await hooks(page)((h, l) => h.spawnLook(l, 4, 9100), LOOK);
+      await hooks(page)((h, id) => h.spawnPreset(id as string, 4, 9100), PRESET);
       await page.waitForTimeout(1500);
       for (const z of [2, 3, 4]) {
         await hooks(page)((h, a) => h.setZoom(a as number), z);
@@ -314,15 +303,23 @@ async function main() {
         await hooks(page)((h) => h.setPerf(true));
         await hooks(page)((h, z) => h.setZoom(z as number), zoom);
         const t0 = Date.now();
-        const palettes = extra
-          ? await hooks(page)(
-              (h, a) => {
-                const [l, k] = a as [unknown, number];
-                return h.spawnLook(l, k, 9100);
-              },
-              [look, extra],
-            )
-          : [];
+        // the bunnies share her one sheet; the built-in ones each their own
+        const palettes = !extra
+          ? []
+          : look === PRESET
+            ? [
+                await hooks(page)(
+                  (h, k) => h.spawnPreset('builtin-bunny', k as number, 9100),
+                  extra,
+                ),
+              ]
+            : await hooks(page)(
+                (h, a) => {
+                  const [l, k] = a as [unknown, number];
+                  return h.spawnLook(l, k, 9100);
+                },
+                [look, extra],
+              );
         const composeMs = (Date.now() - t0) / Math.max(1, extra);
         // the lead's palette too, then each character's cache at this zoom
         const all = [await leadPalette(page), ...palettes].filter((p) => p >= 0);
@@ -361,7 +358,7 @@ async function main() {
         await ctx.close();
       };
       for (const zoom of [4, 2, 3])
-        for (const n of COUNTS) await measure(zoom, LOOK, n - 1, { hd64: n });
+        for (const n of COUNTS) await measure(zoom, PRESET, n - 1, { hd64: n });
       // for comparison: 19 built-in (16×32) characters besides the lead
       await measure(4, { palette: 0 }, 19, { classic: 19 });
       result[name] = { throttle: THROTTLE, rows };

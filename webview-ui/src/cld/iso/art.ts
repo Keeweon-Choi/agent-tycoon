@@ -13,9 +13,10 @@
  * Loaded the first time the view is on; until then nothing isometric is drawn. Only the
  * owner's pieces the manifest uses are decoded.
  */
-import { ISO_MASTER_DENSITY } from '../../constants.js';
+import { ISO_GROUND_MAX_DENSITY, ISO_MASTER_DENSITY } from '../../constants.js';
 import pilot from './art/manifest.json';
 import owner from './art/owner-manifest.json';
+import { shipScales } from './ship.js';
 
 export type Facing = '+row' | '+col' | '-row' | '-col' | 'none';
 
@@ -38,6 +39,8 @@ export interface PieceDef {
   wall?: { along: 'row' | 'col'; n: number; start: [number, number]; role: string };
   /** Stands on the floor even on a wall tile (a mobile whiteboard hangs on nothing). */
   stands?: boolean;
+  /** Flat on the floor (a rug): drawn with the floor, under everything that stands. */
+  flat?: boolean;
   /** C1: its pictures while it plays (a pantry machine in use), `file` first: frame 0 is idle,
    *  frame k+1 shows the furniture's "on" state k (`playingFrame`). */
   frames?: string[];
@@ -97,10 +100,12 @@ export interface IsoArt {
   d: number;
   ax: number;
   ay: number;
+  /** Px of the piece's `file` (as the manifest gives them) per px of this picture. */
+  k: number;
 }
 
 /** The densities a piece comes in, finest first. */
-const DENSITIES = [4, 2, 1];
+const DENSITIES = [ISO_GROUND_MAX_DENSITY, 2, 1];
 
 /** The density to draw at device px per world px `s`: the finest that divides it into whole
  *  device px (as the HD characters do), else the coarsest. */
@@ -133,17 +138,25 @@ export function isoArt(
   const piece = ISO_MANIFEST.pieces[name];
   if (!piece) return null;
   if (isMaster(piece)) {
-    // One master for every zoom: drawn scaled by device px per picture px (art.ts callers).
-    const img = images.get(piece.frames?.[frame] ?? piece.file);
-    return img ? { img, d: piece.density, ax: piece.anchor[0], ay: piece.anchor[1] } : null;
+    // One picture for every zoom (the master, or the build's copy k times smaller: ship.ts),
+    // drawn scaled by device px per picture px (art.ts callers).
+    const file = piece.frames?.[frame] ?? piece.file;
+    const img = images.get(file);
+    const k = SHIPPED.get(file) ?? 1;
+    return img
+      ? { img, d: piece.density / k, ax: piece.anchor[0] / k, ay: piece.anchor[1] / k, k }
+      : null;
   }
   const k = piece.density / d;
   const file = k === 1 ? piece.file : piece.file.replace(/\.png$/, `@${d}.png`);
   const img = images.get(file);
   if (!img) return null;
   // The copies' blocks are aligned on the anchor (gen-iso-art.ts lod()).
-  return { img, d, ax: Math.ceil(piece.anchor[0] / k), ay: Math.ceil(piece.anchor[1] / k) };
+  return { img, d, ax: Math.ceil(piece.anchor[0] / k), ay: Math.ceil(piece.anchor[1] / k), k };
 }
+
+/** Files the build ships k times smaller than their master (ship.ts). */
+const SHIPPED = shipScales(ISO_MANIFEST);
 
 const URLS = Object.fromEntries(
   Object.entries(import.meta.glob<string>('./art/*.png', { eager: true, import: 'default' })).map(
@@ -204,16 +217,22 @@ async function load(): Promise<void> {
           const img = new Image();
           img.src = url;
           await img.decode();
-          // Only the alpha is kept for hit tests (a master is big: one byte a pixel, not four),
-          // read once through a scratch canvas that is dropped; the decoded image is what is drawn.
-          const scratch = document.createElement('canvas');
-          scratch.width = img.width;
-          scratch.height = img.height;
-          const sctx = scratch.getContext('2d', { willReadFrequently: true })!;
-          sctx.drawImage(img, 0, 0);
-          const rgba = sctx.getImageData(0, 0, img.width, img.height).data;
-          const alpha = new Uint8Array(img.width * img.height);
-          for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+          // Only the alpha is kept for hit tests (one byte a pixel, not four), read the first time
+          // something asks (floors and walls never do) through a scratch canvas that is dropped;
+          // the decoded image is what is drawn.
+          let alpha: Uint8Array | null = null;
+          const alphaOf = () => {
+            if (alpha) return alpha;
+            const scratch = document.createElement('canvas');
+            scratch.width = img.width;
+            scratch.height = img.height;
+            const sctx = scratch.getContext('2d', { willReadFrequently: true })!;
+            sctx.drawImage(img, 0, 0);
+            const rgba = sctx.getImageData(0, 0, img.width, img.height).data;
+            alpha = new Uint8Array(img.width * img.height);
+            for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3];
+            return alpha;
+          };
           let flipped: HTMLCanvasElement | null = null;
           out.set(file, {
             w: img.width,
@@ -233,7 +252,11 @@ async function load(): Promise<void> {
               return flipped;
             },
             opaque: (x, y) =>
-              x >= 0 && y >= 0 && x < img.width && y < img.height && alpha[y * img.width + x] > 0,
+              x >= 0 &&
+              y >= 0 &&
+              x < img.width &&
+              y < img.height &&
+              alphaOf()[y * img.width + x] > 0,
           });
         } catch (err) {
           console.warn('[Webview] iso piece failed to load', file, err);

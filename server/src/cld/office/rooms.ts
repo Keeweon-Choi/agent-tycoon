@@ -4,7 +4,7 @@ import type { Conversations, Lead } from '../conversations.js';
 import { listedText, readOptions } from '../conversations.js';
 import { deviceLabel } from '../device.js';
 import type { GroupMessages } from '../engine/groupMessages.js';
-import { roomEvents, roomTranscript } from '../engine/groupMessages.js';
+import { roomEvents, roomTranscript, roomTranscriptAt, transcriptsAt } from '../engine/groupMessages.js';
 import type { GroupRoom, GroupStore } from '../engine/groups.js';
 import type { TurnLedger } from '../engine/turnLedger.js';
 import type { ClientMessageContext, WsSend } from '../hooks.js';
@@ -45,10 +45,11 @@ export class OfficeRooms {
       if (msg.on) {
         mine.add(room.id);
         this.groupViews.set(send, mine);
-        send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
+        send({ type: 'groupTimeline', room, posts: this.roomTimeline(room, true) });
       } else {
         mine.delete(room.id);
         if (!mine.size) this.groupViews.delete(send);
+        this.letGoEarlier();
       }
       return true;
     }
@@ -118,6 +119,12 @@ export class OfficeRooms {
 
   onClientClosed(send: WsSend): void {
     this.groupViews.delete(send);
+    this.letGoEarlier();
+  }
+
+  /** ROOM-THREADS: no room is viewed: the earlier replies read for one are not kept. */
+  private letGoEarlier(): void {
+    if (!this.groupViews.size) this.deps.groupMessages?.forgetEarlier();
   }
 
   /** The 1.5 s view poll: the room list's reply activity, then the open room timelines. */
@@ -174,7 +181,7 @@ export class OfficeRooms {
     if (room && this.deps.groupMessages)
       for (const [send, viewed] of this.groupViews)
         if (viewed.has(room.id))
-          send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
+          send({ type: 'groupTimeline', room, posts: this.roomTimeline(room, true) });
   }
 
   /** Small room-list summaries: enough to sort, preview and count unseen room
@@ -203,8 +210,11 @@ export class OfficeRooms {
     };
   }
 
-  /** Read reply turns only for room viewers; a room record itself never copies a transcript. */
-  private roomTimeline(room: GroupRoom) {
+  /** Read reply turns only for room viewers; a room record itself never copies a transcript.
+   *  `viewed` (an open room): ROOM-THREADS, a post older than a member's tail is read from the
+   *  transcript it was in at the time (roomTranscriptAt). The room list's summary does not: its
+   *  newest activity is in the tails, and an old reply is no unread. */
+  private roomTimeline(room: GroupRoom, viewed = false) {
     const lead = (member: string) => this.deps.leads().find((l) => l.name === member);
     return this.deps.groupMessages!.timelineWithReplies(
       room,
@@ -217,6 +227,14 @@ export class OfficeRooms {
         const found = lead(member);
         return found ? readOptions(found, (x) => this.deps.noticeEmployee(x)) : {};
       },
+      viewed
+        ? (member) => {
+            const transcript = lead(member)?.transcript;
+            return transcript
+              ? { files: (at: number) => transcriptsAt(transcript, at), window: roomTranscriptAt }
+              : null;
+          }
+        : undefined,
     );
   }
 
@@ -225,7 +243,7 @@ export class OfficeRooms {
     for (const [send, rooms] of this.groupViews)
       for (const id of rooms) {
         const room = this.deps.groupStore.find(id);
-        if (room) send({ type: 'groupTimeline', room, posts: this.roomTimeline(room) });
+        if (room) send({ type: 'groupTimeline', room, posts: this.roomTimeline(room, true) });
       }
   }
 }

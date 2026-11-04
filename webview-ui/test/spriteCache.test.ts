@@ -125,6 +125,34 @@ describe('SHEET-IMPORT: one master at every zoom', () => {
     expect(draws.at(-1)!.mirrored).toBe(true);
   });
 
+  it('LOOKS-MEM: a sheet let go leaves the zoom LRU, gives its canvas back, and draws nothing after', async () => {
+    const draws = install();
+    const { deriveSmooth, drawSmooth, markSmooth, releaseMaster, smoothCacheBytes } =
+      await import('../src/office/sprites/smoothSprite.js');
+    const sheet = Object.assign(document.createElement('canvas'), { width: 2304, height: 3168 });
+    const other = document.createElement('canvas');
+    const [a, b, keep] = [frame(96, 176), frame(96, 176), frame(96, 176)];
+    markSmooth(a, { src: sheet, x: 0, y: 0, w: 288, h: 528 });
+    markSmooth(keep, { src: other, x: 0, y: 0, w: 288, h: 528 });
+    deriveSmooth(a, b, { mirror: true }); // a mirrored copy: the same master
+    const before = smoothCacheBytes();
+    for (const f of [a, b, keep]) getCachedSprite(f, 2);
+    const one = 192 * 352 * 4;
+    expect(smoothCacheBytes() - before).toBe(3 * one);
+    releaseMaster(a);
+    expect(smoothCacheBytes() - before).toBe(one); // the other sheet's picture stays
+    expect([sheet.width, sheet.height]).toEqual([0, 0]);
+    const n = draws.length;
+    const blank = getCachedSprite(b, 2);
+    expect([blank.width, blank.height]).toEqual([192, 352]);
+    drawSmooth(document.createElement('canvas').getContext('2d')!, a, 3, 0, 0);
+    expect(draws.length).toBe(n); // nothing drawn from the canvas let go
+    expect(smoothCacheBytes() - before).toBe(one); // nor kept
+    // negative control: the sheet still held draws
+    getCachedSprite(keep, 3);
+    expect(draws.length).toBeGreaterThan(n);
+  });
+
   it('keeps the current zoom within the 48 MB byte cap too', async () => {
     install();
     const { markSmooth, smoothCacheBytes } = await import('../src/office/sprites/smoothSprite.js');

@@ -6,7 +6,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { rememberDuration } from '../jobHistory.js';
+import { cmdKey, rememberDuration } from '../jobHistory.js';
 import { windowsCmd } from '../spawnJson.js';
 import { EngineEvents, eventsPath, isoLocal } from './events.js';
 import type { KillFn } from './jobs.js';
@@ -258,6 +258,37 @@ describe.runIf(linux)('jobs on Linux', () => {
     expect(r.jobs.officeJobs()[0].label).toBe('서비스 배포');
     await vi.waitFor(() => expect(r.jobs.list()[0]?.ended).toBeTruthy(), 10_000);
     expect(r.jobs.readLog(started.id)?.text).toContain('/login?code=***');
+  });
+  it('an exit file made but not yet written does not end the job (exit null): the code read after (11-04 gate)', async () => {
+    const r = rig();
+    const started = r.jobs.run({ cmd: 'sleep 0.8; exit 1', cwd: r.work, project: 'alpha', tty: false, source: 'cli' });
+    if (!started.ok) throw new Error(started.error);
+    // The wrapper's `>` has made the file and not yet written the code.
+    fs.writeFileSync(path.join(jobsDir(r.home), `${started.id}.exit`), '');
+    r.jobs.reconcile();
+    expect(r.jobs.list()[0]?.ended).toBeNull();
+    await vi.waitFor(() => expect(r.jobs.list()[0]?.ended).toBeTruthy(), 10_000);
+    expect(r.jobs.list()[0]?.exit).toBe(1);
+  });
+  it('a failed job says where it stopped: the cause line, and its bar from the same command\'s successes', async () => {
+    const r = rig();
+    const cmd = 'sleep 1.2; echo "== test-server"; echo "FAIL npm run -s test:server"; echo "GATE FAIL"; echo "not deploying"; exit 1';
+    // A success of the same command under another description is the basis (the deploy case).
+    rememberDuration(r.home, cmdKey(cmd), 1);
+    const started = r.jobs.run({ cmd, desc: '배포 #10', cwd: r.work, project: 'alpha', tty: false, source: 'cli' });
+    if (!started.ok) throw new Error(started.error);
+    await vi.waitFor(() => expect(r.jobs.list()[0]?.ended).toBeTruthy(), 10_000);
+    const [job] = r.jobs.officeJobs();
+    expect(job).toMatchObject({ exit: 1, stopLine: 'FAIL npm run -s test:server', stopPct: 95 });
+    const ok = r.jobs.run({ cmd: 'echo done', cwd: r.work, project: 'alpha', tty: false, source: 'cli' });
+    if (!ok.ok) throw new Error(ok.error);
+    await vi.waitFor(() => expect(r.jobs.list().every((x) => x.ended)).toBe(true), 10_000);
+    // A success carries neither; a failure with no basis has no bar.
+    expect(r.jobs.officeJobs().find((j) => j.id === ok.id)).not.toHaveProperty('stopLine');
+    const bare = r.jobs.run({ cmd: 'echo "Error: boom"; exit 2', desc: '처음 보는 일', cwd: r.work, project: 'alpha', tty: false, source: 'cli' });
+    if (!bare.ok) throw new Error(bare.error);
+    await vi.waitFor(() => expect(r.jobs.list().every((x) => x.ended)).toBe(true), 10_000);
+    expect(r.jobs.officeJobs().find((j) => j.id === bare.id)).toMatchObject({ stopPct: null, stopLine: 'Error: boom' });
   });
   it('spawns detached in the caller folder, logs, ends with the exit code (HIF jobs shape, events)', async () => {
     const r = rig();

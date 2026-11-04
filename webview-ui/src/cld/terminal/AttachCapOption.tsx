@@ -5,11 +5,10 @@
  */
 import { useEffect, useState } from 'react';
 
-import { Button } from '../../components/ui/Button.js';
 import { t } from '../../i18n/index.js';
 import { authFetch, passkeyError } from '../auth/authApi.js';
 import { useCldStore } from '../officeStore.js';
-import { SettingRow } from '../SettingRow.js';
+import { Choice, SettingRow } from '../SettingRow.js';
 
 interface Cap {
   attaches: number;
@@ -43,33 +42,32 @@ export function AttachCapOption() {
   };
   const choices = Array.from({ length: cap.max - cap.min + 1 }, (_, i) => cap.min + i);
   return (
-    <div className="space-y-4" data-testid="attach-cap-option">
-      <SettingRow
-        title={t('terminal.attachCap')}
-        help={t('terminal.attachCapHelp', { cost: ATTACH_COST_MB })}
-      >
-        <div className="flex gap-4" role="group" aria-label={t('terminal.attachCap')}>
-          {choices.map((n) => (
-            <Button
-              key={n}
-              size="sm"
-              variant={cap.attaches === n ? 'active' : 'default'}
-              aria-pressed={cap.attaches === n}
-              onClick={() => choose(n)}
-            >
-              {n}
-            </Button>
-          ))}
-        </div>
-      </SettingRow>
-      {cap.attaches > cap.max && (
-        <p className="text-sm text-text-muted">{t('terminal.serverCap', { count: cap.attaches })}</p>
-      )}
-      {note && (
-        <p className="text-sm text-yellow-300" role="status">
-          {note}
-        </p>
-      )}
-    </div>
+    <SettingRow
+      testId="attach-cap-option"
+      title={t('terminal.attachCap')}
+      help={t('terminal.attachCapHelp', { cost: ATTACH_COST_MB })}
+      note={
+        (cap.attaches > cap.max || note) && (
+          <>
+            {cap.attaches > cap.max && (
+              <p className="m-0 text-sm text-text-muted">{t('terminal.serverCap', { count: cap.attaches })}</p>
+            )}
+            {note && (
+              <p className="m-0 text-sm text-yellow-300" role="status">
+                {note}
+              </p>
+            )}
+          </>
+        )
+      }
+    >
+      <Choice
+        label={t('terminal.attachCap')}
+        options={choices}
+        value={cap.attaches}
+        onPick={choose}
+        text={(n) => n}
+      />
+    </SettingRow>
   );
 }

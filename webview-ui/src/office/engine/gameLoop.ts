@@ -55,6 +55,14 @@ export function setOfficeCovered(next: boolean): void {
   }
 }
 
+const drawnListeners = new Set<() => void>();
+/** Runs `fn` right after each frame the office canvas draws (the DOM overlays move to where it just
+ *  put the characters, in the same animation frame); returns the unsubscribe. */
+export function onOfficeDrawn(fn: () => void): () => void {
+  drawnListeners.add(fn);
+  return () => drawnListeners.delete(fn);
+}
+
 /** Input on the office: draw at the full rate from the next frame on. */
 export function wakeOffice(): void {
   const now = performance.now();
@@ -105,6 +113,13 @@ export function startGameLoop(canvas: HTMLCanvasElement, callbacks: GameLoopCall
       // SHEET-IMPORT: build queued character pictures for this zoom (never mid-stride), in what
       // the frame's drawing left of its slice
       pumpWarm(WARM_SLICE_MS - (performance.now() - drawn));
+      for (const fn of drawnListeners) {
+        try {
+          fn();
+        } catch (e) {
+          console.error('[Webview] overlay frame failed', e); // never stops the loop
+        }
+      }
     }
     rafId = requestAnimationFrame(frame);
   };

@@ -4,9 +4,17 @@ import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 
 import { ISO_MASTER_DENSITY, ISO_WALL_H } from '../../constants.js';
-import { artDensity, ISO_MANIFEST, neededFiles, playingFrame } from './art.js';
+import {
+  artDensity,
+  ISO_MANIFEST,
+  isoArt,
+  type IsoImage,
+  neededFiles,
+  playingFrame,
+} from './art.js';
 import manifest from './art/manifest.json';
 import ownerReport from './art/report-owner.json';
+import { shipScales } from './ship.js';
 
 const DIR = path.join(__dirname, 'art');
 const read = (f: string) => PNG.sync.read(fs.readFileSync(path.join(DIR, f)));
@@ -44,8 +52,8 @@ describe("the owner's pieces (gen-iso-objects.ts)", () => {
     ([, p]) => p.density === ISO_MASTER_DENSITY,
   );
 
-  it('has all 42 objects and the two derived pieces, one master PNG each at density 12', () => {
-    expect(pieces.length).toBe(44);
+  it('has all 42 objects, the model-drawn water cooler and the two derived pieces, one master PNG each at density 12', () => {
+    expect(pieces.length).toBe(45);
     for (const [name, p] of pieces) {
       const png = read(p.file);
       expect(Number.isInteger(p.anchor[0]) && Number.isInteger(p.anchor[1]), name).toBe(true);
@@ -138,7 +146,66 @@ describe("the owner's pieces (gen-iso-objects.ts)", () => {
     expect(needed.has('o-floor-wood-light.png')).toBe(true);
     // A spare variant nothing uses is not decoded.
     expect(needed.has('o-wall-window-wide.png')).toBe(false);
-    expect(needed.has('o-rug-round.png')).toBe(false);
+    expect(needed.has('o-wall-entrance-a.png')).toBe(false);
+  });
+
+  // iso-prep-1104: the isometric view draws every catalog type in its own picture.
+  it('gives every furniture type of the catalog its isometric picture, turned ones flipped', () => {
+    const FURN = path.join(__dirname, '../../../public/assets/furniture');
+    type Member = { id?: string; type: string; mirrorSide?: boolean; members?: Member[] };
+    const ids: string[] = [];
+    const walk = (m: Member) => {
+      if (m.type === 'asset' && m.id) ids.push(m.id, ...(m.mirrorSide ? [`${m.id}:left`] : []));
+      m.members?.forEach(walk);
+    };
+    for (const dir of fs.readdirSync(FURN))
+      walk(JSON.parse(fs.readFileSync(path.join(FURN, dir, 'manifest.json'), 'utf-8')) as Member);
+    // Not drawn in isometric yet (the top-down sprite stands in), or an on-state of a machine
+    // (the placed type stays the machine's own).
+    const topDownOnly = new Set([
+      'CLOCK',
+      'HANGING_PLANT',
+      'LARGE_PAINTING',
+      'PENDANT_LAMP',
+      'SMALL_PAINTING',
+      'SMALL_PAINTING_2',
+      'TABLE_FRONT',
+      'WOODEN_BENCH',
+      ...[1, 2, 3].flatMap((k) => [`COFFEE_MACHINE_${k}`, `VENDING_MACHINE_${k}`]),
+    ]);
+    const missing = ids.filter((id) => !ISO_MANIFEST.types[id] && !topDownOnly.has(id));
+    expect(missing).toEqual([]);
+    for (const [side, front] of [
+      ['DESK_SIDE', 'DESK_FRONT'],
+      ['DESK_B_SIDE', 'DESK_B_FRONT'],
+      ['SMALL_TABLE_SIDE', 'SMALL_TABLE_FRONT'],
+    ])
+      expect(ISO_MANIFEST.types[side], side).toEqual({
+        piece: ISO_MANIFEST.types[front].piece,
+        mirror: true,
+      });
+    // Every picture the owner drew is worn by a type (a seat's other facing, or a wall, counts).
+    const worn = new Set([
+      ...Object.values(ISO_MANIFEST.types).map((t) => t.piece),
+      ...Object.values(ISO_MANIFEST.facings).flatMap((g) => Object.values(g).map((f) => f!.piece)),
+    ]);
+    for (const name of [
+      'o-desk-b',
+      'o-cabinet-a',
+      'o-cabinet-b',
+      'o-armchair-a',
+      'o-armchair-b',
+      'o-coffee-table-b',
+      'o-whiteboard-b',
+      'o-rug-round',
+    ])
+      expect(
+        Object.values(ISO_MANIFEST.types).some((t) => t.piece === name) && worn.has(name),
+        name,
+      ).toBe(true);
+    expect(ISO_MANIFEST.pieces['o-rug-round'].flat).toBe(true);
+    // The water cooler's taps face the lower right: flipped, it faces the room like the machines.
+    expect(ISO_MANIFEST.types.WATER_COOLER).toEqual({ piece: 'o-water-cooler', mirror: true });
   });
 });
 
@@ -161,5 +228,38 @@ describe('C1: machines that play frames', () => {
       expect(sizes.size, type).toBe(1);
       for (const f of p.frames!) expect(needed.has(f), f).toBe(true);
     }
+  });
+});
+
+// iso-prep-1104: the build ships each master at the size it is drawn (vite.config.ts isoShipPlugin).
+describe('pictures shipped at the size they are drawn', () => {
+  const k = shipScales(ISO_MANIFEST);
+
+  it('ships floors, back walls and the rug at the floor cache density, machines at max zoom', () => {
+    const m = ISO_MANIFEST;
+    for (const name of [
+      ...Object.values(m.floors),
+      m.walls.row.piece,
+      m.walls.col.piece,
+      m.walls.window.piece,
+      m.walls.corner,
+      'o-rug-round',
+    ])
+      expect(ISO_MANIFEST.pieces[name].density / k.get(ISO_MANIFEST.pieces[name].file)!, name).toBe(
+        4,
+      );
+    for (const f of ISO_MANIFEST.pieces['o-vending'].frames!) expect(k.get(f), f).toBe(2);
+    // Drawn live up to zoom 10 from density 12: no whole factor fits, shipped as is.
+    for (const name of ['o-desk', 'o-chair-down', 'o-wall-low', 'o-wall-lift'])
+      expect(k.has(ISO_MANIFEST.pieces[name].file), name).toBe(false);
+  });
+
+  it('reads a shipped copy with its anchor and density divided by its factor', () => {
+    const img = { w: 1, h: 1 } as IsoImage;
+    const p = ISO_MANIFEST.pieces['o-wall-plain'];
+    const a = isoArt(new Map([[p.file, img]]), 'o-wall-plain', 4)!;
+    expect(a).toMatchObject({ d: 4, k: 3, ax: p.anchor[0] / 3, ay: p.anchor[1] / 3 });
+    const desk = ISO_MANIFEST.pieces['o-desk'];
+    expect(isoArt(new Map([[desk.file, img]]), 'o-desk', 4)).toMatchObject({ d: 12, k: 1 });
   });
 });

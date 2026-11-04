@@ -36,6 +36,8 @@ export const CHAT_TAIL_BYTES = 256 * 1024;
 export const CHAT_SCAN_MAX_BYTES = 16 * 1024 * 1024;
 /** A tool_result line this long is no message: skipped unparsed unless results are wanted. */
 const BIG_RESULT_BYTES = 8 * 1024;
+/** A text block whose text starts with a header (`[peer · 단톡방 …]`, `[사장 · 메신저 …]`). */
+const HEADER_TEXT_BLOCK = '"type":"text","text":"[';
 export const CHAT_MAX_ITEMS = 80;
 const TEXT_MAX = 4000;
 /** The boss's own messages are shown whole up to the chat's send limit (U-37). */
@@ -255,6 +257,8 @@ type Rec = {
   data?: unknown;
   isSidechain?: unknown;
   isMeta?: unknown;
+  /** The summary a compaction writes as a user record: Claude's own notes, nobody's message. */
+  isCompactSummary?: unknown;
   message?: unknown;
   attachment?: unknown;
   uuid?: unknown;
@@ -271,13 +275,33 @@ const isTaskNotificationOrigin = (origin: unknown): boolean =>
 /** The user text that starts a Claude turn, if this line starts one.  Tool
  * results are user records too, but continue the assistant's existing turn. */
 export function userTurnText(line: string): string | null {
+  // Cheap pre-filter, before JSON.parse (MEM-IDLE): every reader walks every line through here,
+  // and transcripts hold megabyte lines (tool results with images, api-request-blob records).
+  // Only a user record or a queued command can start a turn; a big tool result does only when a
+  // text block beside it carries a header (a room post or a DM steered in mid-tool).
+  // ponytail: a headerless text block beside a big result is taken for none; parse those too
+  // if a DM typed mid-tool ever goes missing from the messenger.
+  if (!line.includes('"type":"user"') && !line.includes('queued_command')) return null;
+  if (
+    line.length > BIG_RESULT_BYTES &&
+    line.includes('"type":"tool_result"') &&
+    !line.includes(HEADER_TEXT_BLOCK)
+  )
+    return null;
   let r: Rec;
   try {
     r = JSON.parse(line) as Rec;
   } catch {
     return null;
   }
-  if (!r || typeof r !== 'object' || r.isSidechain === true || r.isMeta === true) return null;
+  if (
+    !r ||
+    typeof r !== 'object' ||
+    r.isSidechain === true ||
+    r.isMeta === true ||
+    r.isCompactSummary === true
+  )
+    return null;
   const content = (r.message as { content?: unknown } | undefined)?.content;
   if (r.type === 'user') {
     if (typeof content === 'string') return content;
@@ -439,8 +463,6 @@ export async function currentTurn(
             attachments = said.attachments;
           }
         }
-        if (!line.includes('"type":"user"') && !line.includes('queued_command')) continue;
-        if (line.length > BIG_RESULT_BYTES && line.includes('"type":"tool_result"')) continue;
         const prompt = userTurnText(line);
         if (prompt !== null)
           return { room: roomOfPrompt(prompt), text, ...(attachments && { attachments }) };
@@ -548,7 +570,8 @@ export function lineItems(line: string, n = 0, opts: LineOptions = {}): ChatItem
 
 function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
   if (!r || typeof r !== 'object' || (r.isSidechain === true && !opts.sidechain)) return [];
-  if (r.isMeta === true) return [];
+  // A compaction's summary showed as the owner's message (11-04).
+  if (r.isMeta === true || r.isCompactSummary === true) return [];
   const at = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) || 0 : 0;
   const base = `${at}-${typeof r.uuid === 'string' ? r.uuid.slice(0, 8) : `n${n}`}`;
   const items: ChatItem[] = [];

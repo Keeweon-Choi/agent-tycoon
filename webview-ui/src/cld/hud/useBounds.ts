@@ -2,8 +2,10 @@ import { type RefObject, useLayoutEffect, useState } from 'react';
 
 import type { Rect, Size } from './layout.js';
 
-/** The room a positioned thing lives in: its containing block (offsetParent), followed through resizes. */
-export function useBounds(ref: RefObject<HTMLElement | null>): Size | null {
+/** The room a positioned thing lives in: its containing block (offsetParent), followed through resizes.
+ *  `hidden`: the element is display: none (no offsetParent), so it is measured again once it shows
+ *  (DEVROOM-OPEN 11-04: a window restored minimized after a reload otherwise never got a room). */
+export function useBounds(ref: RefObject<HTMLElement | null>, hidden = false): Size | null {
   const [bounds, setBounds] = useState<Size | null>(null);
   useLayoutEffect(() => {
     const parent = ref.current?.offsetParent;
@@ -18,7 +20,7 @@ export function useBounds(ref: RefObject<HTMLElement | null>): Size | null {
     const observer = new ResizeObserver(read);
     observer.observe(parent);
     return () => observer.disconnect();
-  }, [ref]);
+  }, [ref, hidden]);
   return bounds;
 }
 

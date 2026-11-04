@@ -48,7 +48,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: 200_000,
@@ -370,7 +369,6 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
       /* eslint-disable agent-tycoon/no-inline-colors */
       const cache: AssetCache = {
         characters: null,
-        pets: null,
         floorTiles: [[['#000000']]],
         wallTiles: [[[['#aabbcc']]]],
         carpetTiles: [[[['#112233']]]],
@@ -394,7 +392,6 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
     it('skips carpetTilesLoaded when the cache has no carpet sprites', () => {
       const cache: AssetCache = {
         characters: null,
-        pets: null,
         floorTiles: null,
         wallTiles: null,
         carpetTiles: null,
@@ -570,7 +567,6 @@ describe('clientMessageHandler: saveAgentSeats palette sync', () => {
           { down: [[[]]], up: [[[]]], right: [[[]]] },
         ],
       },
-      pets: null,
       floorTiles: null,
       wallTiles: null,
       carpetTiles: null,
@@ -672,7 +668,6 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
       hadToolsInTurn: false,
       lastDataAt: 0,
       linesProcessed: 0,
-      seenUnknownRecordTypes: new Set(),
       hookDelivered: false,
       contextTokens: 0,
       maxContextTokens: 200_000,

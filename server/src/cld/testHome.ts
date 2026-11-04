@@ -146,6 +146,9 @@ export const TERMINAL_RENDERER_KEY = 'cld.terminal-renderer';
 export const CAMERA_MODE_KEY = 'cld.camera-mode';
 /** webview-ui/src/cld/gfx/titleScene.ts TITLE_KEY. */
 export const TITLE_SCENE_KEY = 'cld.title-scene';
+/** webview-ui/src/constants.ts PARTY_FRAME_EXPANDED_STORAGE_KEY and ELEVATOR_LIST_OPEN_STORAGE_KEY. */
+export const PARTY_FRAME_EXPANDED_KEY = 'cld.party-frame-expanded';
+export const ELEVATOR_LIST_OPEN_KEY = 'cld.elevator-list-open';
 /** webview-ui/src/cld/notify/push.ts DISMISSED_KEY: a time stamp, the banner stays away a week from it. */
 const PUSH_BANNER_DISMISSED_KEY = 'cld.push-banner-dismissed';
 
@@ -159,6 +162,22 @@ export async function openOfficeWindow(page: Page): Promise<void> {
   if (await win.isVisible()) return;
   await icon.click();
   await win.waitFor();
+}
+
+/** HUD-2B: the top bar is up (the desktop's 메뉴 or the phone's bar). */
+export const TOP_BAR_READY = '[data-testid="hud-menu"], [data-testid="mobile-top-bar"]';
+export async function topBarReady(page: Page, timeout?: number): Promise<void> {
+  await page.locator(TOP_BAR_READY).first().waitFor({ timeout });
+}
+
+/** HUD-2B: 기기 추가 · 보안 · 범례 · 설정 sit under the desktop top bar's 메뉴 (the phone keeps 설정 on its
+ *  bar). Clicks the button named `name`, opening 메뉴 first when there is one and it is shut. */
+export async function topBarButton(page: Page, name: string, timeout?: number): Promise<void> {
+  await topBarReady(page, timeout);
+  const menu = page.locator('[data-testid="hud-menu"]');
+  if (!(await menu.count())) return page.getByRole('button', { name, exact: true }).first().click({ timeout });
+  if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click();
+  await page.getByTestId('hud-menu-list').getByRole('button', { name, exact: true }).click({ timeout });
 }
 
 /** UI-DASH: the 현황판 (desktop window or the phone's Dock page), whose 개발 tab is the old 작업실. */
@@ -200,9 +219,9 @@ export async function openWorkbenchTab(
  *  may explicitly request another locale. `webkit: true` starts Playwright's WebKit instead (the
  *  iPhone's engine; it has no GPU switch to check), with the same context defaults. */
 export async function launchBrowser(
-  opts: LaunchOptions & { officeHours?: boolean; pushBanner?: boolean; webkit?: boolean } = {},
+  opts: LaunchOptions & { officeHours?: boolean; pushBanner?: boolean; webkit?: boolean; partyFrame?: boolean } = {},
 ): Promise<Browser> {
-  const { officeHours, pushBanner, webkit: useWebkit, ...launch } = opts;
+  const { officeHours, pushBanner, webkit: useWebkit, partyFrame, ...launch } = opts;
   const browser = useWebkit
     ? await webkit.launch(launch)
     : await chromium.launch({ ...launch, args: ['--disable-gpu', ...(launch.args ?? [])] });
@@ -223,6 +242,10 @@ export async function launchBrowser(
     [TITLE_SCENE_KEY, 'off'],
   ];
   if (!officeHours) defaults.push([OFFICE_HOURS_KEY, '{"on":false}']);
+  // PARTY-FRAME: the runners written before it read the full cards (names, temps) and click the floor
+  // buttons, so their pages start unfolded with the floor list open; `partyFrame: true` keeps the
+  // page defaults (folded portraits, the ▲ 1F ▼ strip alone), for run-party-frame.ts.
+  if (!partyFrame) defaults.push([PARTY_FRAME_EXPANDED_KEY, '1'], [ELEVATOR_LIST_OPEN_KEY, '1']);
   if (!pushBanner) defaults.push([PUSH_BANNER_DISMISSED_KEY, String(Date.now())]);
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (options) => {
@@ -242,14 +265,16 @@ export async function launchBrowser(
   return browser;
 }
 
-/** The spare ports tests may use (other agents share them): 18256-18259 are also the deploy
- *  check's install isolation test, so sub-agent runners take 18260-18269. */
-export const SPARE_PORTS = Array.from({ length: 14 }, (_, i) => 18256 + i);
+/** The spare ports tests may use: one range, so each task's runner can take its own block without
+ *  editing this list (11-04: a new block per task kept colliding in merges). It leaves out the real
+ *  daemon (18240) and the direct remote port (18443); 18256-18259 are also the deploy check's install
+ *  isolation test, so runners started by agents take 18260 and up. */
+export const SPARE_PORTS = Array.from({ length: 18599 - 18256 + 1 }, (_, i) => 18256 + i);
 
 /** A spare port from `process.argv[index]`; anything else is refused. */
 export function sparePort(index = 2): number {
   const port = Number(process.argv[index]);
-  if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18269');
+  if (!SPARE_PORTS.includes(port)) throw new Error('port must be 18256-18599');
   return port;
 }
 

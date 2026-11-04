@@ -29,21 +29,24 @@ export function PushBanner() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const tried = useRef(false);
+  // Read once, and again after a subscribe attempt (the browser's prompt changes it): the sync
+  // permission query does not run on every render.
+  const [permission, setPermission] = useState(currentPermission);
   const [now] = useState(Date.now); // a dismissal's week is measured from page load
   let kind = dismissed
     ? 'none'
     : pushBannerKind({
         push,
         support: pushSupport(),
-        permission: currentPermission(),
+        permission,
         dismissedAt: pushBannerDismissedAt(),
         optedOut: pushOptedOut(),
         now,
       });
   const enable = () =>
-    subscribePush(push!.publicKey!, settings, (m) => transport.send(m)).catch(() =>
-      setFailed(true),
-    );
+    subscribePush(push!.publicKey!, settings, (m) => transport.send(m))
+      .catch(() => setFailed(true))
+      .finally(() => setPermission(currentPermission()));
   useEffect(() => {
     if (kind !== 'resubscribe' || tried.current) return;
     tried.current = true; // once per page load: a failure shows the banner instead

@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import * as crypto from 'crypto';
 import Fastify from 'fastify';
 import * as fs from 'fs';
@@ -6,9 +7,10 @@ import * as path from 'path';
 import { PNG } from 'pngjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CHAR_COUNT } from '../../../core/src/assets/constants.js';
 import {
-  HUMANOID_PARTS,
   MASCOT_COLORS,
+  MASCOT_SPECIES,
   paletteOfLook,
   randomLook,
 } from '../../../core/src/cld/looks.js';
@@ -34,6 +36,8 @@ import {
   pngProblem,
   PRESET_ID,
   registerCharacterRoutes,
+  STORE_META_V,
+  thumbOf,
 } from './characterPresets.js';
 import { CharacterBinder } from './characters.js';
 import { promotePair } from './engine/leadSwap.js';
@@ -118,6 +122,21 @@ describe('ids and paths', () => {
       expect(presets.file(name)).toBeNull();
   });
 
+  // never opened: opening a FIFO blocks until a writer comes (a synchronous hang of the daemon)
+  it.skipIf(process.platform === 'win32')(
+    'a FIFO beside a sheet (or as one) is skipped, never opened',
+    () => {
+      put('top.png', png(288 * 7, 528 * 3));
+      for (const name of ['top.iso.png', 'pipe.png'])
+        execFileSync('mkfifo', [path.join(config, 'characters', name)]);
+      presets.scan();
+      expect(last().presets.map((p) => [p.id, p.isoUrl])).toEqual([['top', undefined]]);
+      expect(warn.mock.calls.flat().join('\n')).toMatch(
+        /ignored top\.iso\.png: not a regular file/,
+      );
+    },
+  );
+
   it('refuses a path-like preset in setCharacter and in characters.json', () => {
     presets.onClientMessage({
       type: 'setCharacter',
@@ -144,8 +163,74 @@ describe('presets folder', () => {
         label: '로봇',
         url: expect.stringMatching(/^cld\/characters\/robot\.png\?v=[0-9a-f]{10}$/),
         mugshotUrl: expect.stringMatching(/^cld\/characters\/robot\.mug\.png\?v=/),
+        thumbUrl: expect.stringMatching(/^cld\/characters\/robot\.thumb\.png\?v=/),
       },
     ]);
+  });
+
+  describe('LOOKS-MEM: a chip thumbnail per preset, cut by the scan', () => {
+    /** An imported iso8 sheet (8×6 cells of 288×528), every cell its own colour; cell (0,0) has
+     *  a half-transparent left column per 3×3 block. */
+    const sheet = () => {
+      const img = new PNG({ width: 288 * 8, height: 528 * 6 });
+      for (let y = 0; y < img.height; y++)
+        for (let x = 0; x < img.width; x++) {
+          const i = (y * img.width + x) * 4;
+          const cell = Math.floor(y / 528) * 8 + Math.floor(x / 288);
+          img.data[i] = cell === 0 ? (x % 3 === 0 ? 30 : 90) : 200;
+          img.data[i + 1] = cell * 5;
+          img.data[i + 2] = 7;
+          img.data[i + 3] = cell === 0 && x % 3 === 0 ? 0 : 255;
+        }
+      return img;
+    };
+
+    it('thumbOf: the first cell, a whole factor down to at most 96 px wide, alpha-weighted', () => {
+      const t = PNG.sync.read(thumbOf(sheet(), 288, 528));
+      expect([t.width, t.height]).toEqual([96, 176]);
+      // each 3×3 block: one transparent column (its red never counts), two opaque ones
+      expect([...t.data.subarray(0, 4)]).toEqual([90, 0, 7, 170]);
+      const last = (176 * 96 - 1) * 4;
+      expect([...t.data.subarray(last, last + 4)]).toEqual([90, 0, 7, 170]);
+      // negative control: nothing of the next cell (green 5) gets in
+      for (let i = 0; i < t.data.length; i += 4) expect(t.data[i + 1]).toBe(0);
+      // a classic cell (16×32) is already small: a copy
+      const classic = PNG.sync.read(CHAR_0);
+      const c = PNG.sync.read(thumbOf(classic, 16, 32));
+      expect([c.width, c.height]).toEqual([16, 32]);
+      expect(c.data.subarray(16 * 4 * 20, 16 * 4 * 21)).toEqual(
+        classic.data.subarray(112 * 4 * 20, 112 * 4 * 20 + 16 * 4),
+      );
+    });
+
+    it('an imported sheet gets a 96×176 thumbnail, served from memory; a changed sheet a new one', async () => {
+      const img = sheet();
+      put('big.png', PNG.sync.write(img, { colorType: 6 }));
+      presets.scan();
+      const p = last().presets[0];
+      expect(p.thumbUrl).toBe(p.url.replace('big.png', 'big.thumb.png'));
+      const app = Fastify();
+      registerCharacterRoutes(app, async () => undefined, presets);
+      const get = () => app.inject({ method: 'GET', url: '/cld/characters/big.thumb.png' });
+      const res = await get();
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toBe('image/png');
+      const t = PNG.sync.read(res.rawPayload);
+      expect([t.width, t.height]).toEqual([96, 176]);
+      expect(res.rawPayload.length).toBeLessThan(20_000);
+      img.data.fill(255);
+      put('big.png', PNG.sync.write(img, { colorType: 6 }));
+      presets.scan();
+      expect(last().presets[0].thumbUrl).not.toBe(p.thumbUrl);
+      expect([...PNG.sync.read((await get()).rawPayload).data.subarray(0, 4)]).toEqual([
+        255, 255, 255, 255,
+      ]);
+      // negative control: no thumbnail of a preset that is not there
+      expect(
+        (await app.inject({ method: 'GET', url: '/cld/characters/nope.thumb.png' })).statusCode,
+      ).toBe(404);
+      await app.close();
+    });
   });
 
   it('CHAR-FACTORY: an HD sheet (224×192, density 2) with its 32×32 portrait; a half-HD size is refused', () => {
@@ -168,16 +253,18 @@ describe('presets folder', () => {
     expect(fs.readFileSync(presets.file('bunny.png')!.path)).toEqual(sample);
   });
 
-  it('CHAR-ISO-1: an imported isometric sheet with an 8th column (the walking neutral) is a preset; 9 columns are not; CHAR-8DIR: 5 rows are iso8', () => {
+  it('CHAR-ISO-1: an imported isometric sheet with an 8th column (the walking neutral) is a preset; BUNNY-9COL: 9 columns too, 10 are not; CHAR-8DIR: 5 rows are iso8', () => {
     put('boss.png', png(288 * 8, 528 * 2));
     put('boss.json', JSON.stringify({ label: 'Boss', columns: 'standFirst' }));
-    put('wide.png', png(288 * 9, 528 * 2));
+    put('nine.png', png(288 * 9, 528 * 5));
+    put('wide.png', png(288 * 10, 528 * 2));
     put('eight.png', png(288 * 8, 528 * 5));
     put('top.png', png(288 * 8, 528 * 3));
     presets.scan();
     expect(last().presets.map((p) => [p.id, p.format, p.columns])).toEqual([
       ['boss', 'iso', 'standFirst'],
       ['eight', 'iso8', undefined],
+      ['nine', 'iso8', undefined],
       ['top', undefined, undefined],
     ]);
   });
@@ -372,7 +459,7 @@ describe('assignment store', () => {
   it('refuses unknown names, unknown presets and bad looks; null resets', () => {
     for (const character of [
       { preset: 'nope' },
-      { palette: 6 },
+      { palette: CHAR_COUNT },
       { palette: 1, hueShift: -5 },
       { x: 1 },
       'red',
@@ -602,6 +689,7 @@ describe('SHEET-IMPORT routes', () => {
       label: '달빛',
       url: expect.stringMatching(new RegExp(`^cld/characters/${id}\\.png\\?v=`)),
       mugshotUrl: null,
+      thumbUrl: expect.stringMatching(new RegExp(`^cld/characters/${id}\\.thumb\\.png\\?v=`)),
       density: 12,
       format: 'iso',
       columns: 'standFirst',
@@ -626,6 +714,7 @@ describe('SHEET-IMPORT routes', () => {
       label: 'ok',
       url: expect.any(String),
       mugshotUrl: null,
+      thumbUrl: expect.any(String),
     });
     // attaching to a preset that is not an imported one is refused
     expect(
@@ -647,6 +736,92 @@ describe('SHEET-IMPORT routes', () => {
     expect(files()).toEqual(['README.md', `${id}.json`, `${id}.png`]);
     expect(files().every((name) => !name.includes('..') && !name.includes('/'))).toBe(true);
   });
+});
+
+describe("BUNNY-BUILTIN: built-in preset folders (a pack's sheets)", () => {
+  let packs: string;
+  let sheets: string;
+  let built: CharacterPresets;
+  const sheet = png(288 * 9, 528 * 5);
+  beforeEach(() => {
+    packs = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-builtin-'));
+    sheets = path.join(packs, 'hd-bunny', 'sheets');
+    fs.mkdirSync(sheets, { recursive: true });
+    fs.writeFileSync(path.join(sheets, 'builtin-bunny.png'), sheet);
+    fs.writeFileSync(
+      path.join(sheets, 'builtin-bunny.json'),
+      JSON.stringify({ label: 'Bunny', columns: 'standFirst' }),
+    );
+    fs.writeFileSync(path.join(packs, 'outside.png'), CHAR_0);
+    built = new CharacterPresets({
+      configDir: config,
+      builtInDirs: [path.join(packs, 'gone', 'sheets'), sheets],
+      publish: (m) => published.push(m),
+      knownKey: (k) => names.has(k),
+    });
+    built.start();
+  });
+  afterEach(() => {
+    built.dispose();
+    fs.rmSync(packs, { recursive: true, force: true });
+  });
+
+  it("lists the built-in sheets first; a built-in id wins over the user's, with a log line", () => {
+    put('builtin-bunny.png', CHAR_0);
+    put('robot.png', CHAR_0);
+    built.scan();
+    expect(last().presets.map((p) => [p.id, p.label, p.format, p.columns])).toEqual([
+      ['builtin-bunny', 'Bunny', 'iso8', 'standFirst'],
+      ['robot', 'robot', undefined, undefined],
+    ]);
+    expect(warn.mock.calls.flat().join('\n')).toMatch(
+      /ignored builtin-bunny\.png: builtin-bunny is a built-in preset/,
+    );
+    expect(fs.readFileSync(built.file('builtin-bunny.png')!.path)).toEqual(sheet);
+    expect(fs.readFileSync(built.file('robot.png')!.path)).toEqual(CHAR_0);
+  });
+
+  it('serves nothing outside its folder: path names, a symlink, a file swapped for one', async () => {
+    fs.symlinkSync(path.join(packs, 'outside.png'), path.join(sheets, 'link.png'));
+    built.scan();
+    expect(last().presets.map((p) => p.id)).toEqual(['builtin-bunny']);
+    for (const name of ['../outside.png', '../../hd-bunny/sheets/builtin-bunny.png', 'link.png'])
+      expect(built.file(name)).toBeNull();
+    const app = Fastify();
+    registerCharacterRoutes(app, async () => undefined, built);
+    for (const url of ['/cld/characters/..%2Foutside.png', '/cld/characters/..%2F..%2Foutside.png'])
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(404);
+    // swapped after the scan checked it: the symlink is not followed out of the folder
+    fs.rmSync(path.join(sheets, 'builtin-bunny.png'));
+    fs.symlinkSync(path.join(packs, 'outside.png'), path.join(sheets, 'builtin-bunny.png'));
+    expect(built.file('builtin-bunny.png')).toBeNull();
+    expect(
+      (await app.inject({ method: 'GET', url: '/cld/characters/builtin-bunny.png' })).statusCode,
+    ).toBe(404);
+    await app.close();
+  });
+
+  it('refuses to attach to a built-in preset; a new preset never takes a built-in id', async () => {
+    // an isometric one (an iso8 sheet is refused for its format already)
+    const iso = png(288 * 7, 528 * 2);
+    fs.writeFileSync(path.join(sheets, 'builtin-iso.png'), iso);
+    fs.writeFileSync(path.join(sheets, 'photo-1000.png'), CHAR_0);
+    built.scan();
+    expect(
+      built.importSheet({ png: generated(3).toString('base64'), attach: 'builtin-iso' }, true),
+    ).toMatchObject({ errorCode: 'sheet_import_attach' });
+    expect(fs.readFileSync(path.join(sheets, 'builtin-iso.png'))).toEqual(iso);
+    expect(fs.readdirSync(path.join(config, 'characters'))).toEqual(['README.md']);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      expect(await built.saveSheet({ key: 'alpha', sheet: CHAR_0.toString('base64') })).toEqual({
+        id: 'photo-1000-1',
+      });
+    } finally {
+      now.mockRestore();
+    }
+    expect(fs.existsSync(path.join(config, 'characters', 'photo-1000.png'))).toBe(false);
+  }, 30_000); // one sheet decoded and converted (the import's own timeout above)
 });
 
 /* eslint-disable agent-tycoon/no-inline-colors -- stored looks' colours are data here, not UI */
@@ -727,7 +902,10 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     for (const k of Object.keys(stored) as Array<keyof typeof stored>)
       expect(parseAppearance(stored[k])).toEqual(stored[k]);
     restart();
-    fs.writeFileSync(store(), JSON.stringify({ ...v2, $meta: { v: 2, pinnedAt: 'x' } }, null, 2));
+    fs.writeFileSync(
+      store(),
+      JSON.stringify({ ...v2, $meta: { v: STORE_META_V, pinnedAt: 'x' } }, null, 2),
+    );
     restart();
     expect(last().assignments).toEqual(stored);
     names.add('painted');
@@ -739,7 +917,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     expect(read()).toEqual({
       ...stored,
       alpha: { v: 2, kind: 'mascot', species: 'coral', expr: 'focus' },
-      $meta: { v: 2, pinnedAt: 'x' },
+      $meta: { v: STORE_META_V, pinnedAt: 'x' },
     });
     restart();
     expect(last().assignments.alpha).toEqual({
@@ -749,6 +927,28 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
       expr: 'focus',
     });
     names.delete('painted');
+  });
+
+  it('the retired bunny preset look is read as the built-in bunny sheet (BUNNY-SHEET)', () => {
+    const parts = {
+      back: 'hd-bunny/tail',
+      body: 'hd-bunny/body',
+      face: 'hd-bunny/face',
+      legwear: 'hd-bunny/tights',
+      shoes: 'hd-bunny/heels',
+      fullbody: 'hd-bunny/suit',
+      neck: 'hd-bunny/bowtie',
+      wrist: 'hd-bunny/cuffs',
+      hair: 'hd-bunny/hair',
+    };
+    const old = { v: 3, kind: 'person', gender: 'f', body: 'curvy', parts };
+    expect(parseAppearance(old)).toEqual({ preset: 'builtin-bunny' });
+    // one part changed, or a colour: the owner's own look, kept as parts
+    const otherHair = { ...old, parts: { ...parts, hair: 'hd-bunny/other' } };
+    expect(parseAppearance(otherHair)).toMatchObject({ kind: 'person' });
+    expect(parseAppearance({ ...old, colors: { hair: '#ffffff' } })).toMatchObject({
+      kind: 'person',
+    });
   });
 
   it('a humanoid keeps its hue beside accessories, and is drawn with it', () => {
@@ -769,7 +969,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
       { v: 3, kind: 'humanoid' },
       { v: 2 },
       { v: 2, kind: 'robot' },
-      { v: 2, kind: 'humanoid', base: 6 },
+      { v: 2, kind: 'humanoid', base: CHAR_COUNT },
       { v: 2, kind: 'humanoid', hue: 350 },
       { v: 2, kind: 'humanoid', hue: 30, colors: { hair: '#000000' } },
       { v: 2, kind: 'humanoid', colors: { hat: '#000000' } },
@@ -984,7 +1184,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
       Object.fromEntries(
         Array.from({ length: n }, (_, i) => [`c${i}`, { palette: i % 6, hueShift: 0 }]),
       );
-    const meta = { $meta: { v: 2, pinnedAt: 'x' } };
+    const meta = { $meta: { v: STORE_META_V, pinnedAt: 'x' } };
     restart();
     fs.writeFileSync(store(), JSON.stringify({ ...entries(600), ...meta }));
     restart();
@@ -1053,7 +1253,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     expect(file.alpha).toEqual({ palette: 2, hueShift: 0 });
     const day = Math.floor(Date.now() / 86_400_000);
     expect(file.$meta).toEqual({
-      v: 2,
+      v: STORE_META_V,
       pinnedAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
       // automatic looks, each with the exact v1 look and day it was last seen
       auto: {
@@ -1084,21 +1284,21 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     presets.pin([], () => []);
     expect(Object.keys(read())).toEqual(['$meta']);
     restart();
-    presets.pin([{ name: 'newbie', palette: 3, hueShift: 45, provider: 'codex' }], () => {
+    presets.pin([{ name: 'emp:newbie', palette: 3, hueShift: 45, provider: 'codex' }], () => {
       throw new Error('the registry is read only by the first pin');
     });
     const byte = { v: 2, kind: 'mascot', species: 'byte', color: MASCOT_COLORS.byte[0] };
-    expect(read().newbie).toEqual(byte);
+    expect(read()['emp:newbie']).toEqual(byte);
     const before = stamp();
-    presets.pin([{ name: 'newbie', palette: 0, hueShift: 0, provider: 'claude' }], () => []);
+    presets.pin([{ name: 'emp:newbie', palette: 0, hueShift: 0, provider: 'claude' }], () => []);
     restart();
-    presets.pin([{ name: 'newbie', palette: 1, hueShift: 0 }], () => []);
+    presets.pin([{ name: 'emp:newbie', palette: 1, hueShift: 0 }], () => []);
     expect(stamp()).toBe(before);
-    expect(last().assignments.newbie).toEqual(byte); // a provider change keeps it
-    expect(presets.paletteOf('newbie')).toBeNull(); // the screen draws the mascot
+    expect(last().assignments['emp:newbie']).toEqual(byte); // a provider change keeps it
+    expect(presets.paletteOf('emp:newbie')).toBeNull(); // the screen draws the mascot
   });
 
-  it("CH-3: a new name gets its provider's mascot in the least used colour; pinned names keep theirs", () => {
+  it("CH-3: a new employee gets its provider's mascot in the least used colour; pinned names keep theirs", () => {
     restart();
     presets.pin([{ name: 'old', palette: 2, hueShift: 0, provider: 'claude' }], () => []); // first start
     expect(read().old).toEqual({ palette: 2, hueShift: 0 });
@@ -1106,35 +1306,35 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     presets.pin(
       [
         seen('old', 'codex'),
-        seen('c1', 'claude'),
-        seen('c2', 'claude'),
-        seen('x1', 'codex'),
-        seen('t1', 'gemini'),
-        seen('t2'),
+        seen('emp:c1', 'claude'),
+        seen('emp:c2', 'claude'),
+        seen('emp:x1', 'codex'),
+        seen('emp:t1', 'gemini'),
+        seen('emp:t2'),
       ],
       () => [],
     );
     const file = read();
     const mascot = (species: string, color: string) => ({ v: 2, kind: 'mascot', species, color });
     expect(file.old).toEqual({ palette: 2, hueShift: 0 }); // untouched
-    expect(file.c1).toEqual(mascot('coral', MASCOT_COLORS.coral[0]));
-    expect(file.c2).toEqual(mascot('coral', MASCOT_COLORS.coral[1]));
-    expect(file.x1).toEqual(mascot('byte', MASCOT_COLORS.byte[0]));
-    expect(file.t1).toEqual(mascot('tori', MASCOT_COLORS.tori[0]));
-    expect(file.t2).toEqual(mascot('tori', MASCOT_COLORS.tori[1]));
+    expect(file['emp:c1']).toEqual(mascot('coral', MASCOT_COLORS.coral[0]));
+    expect(file['emp:c2']).toEqual(mascot('coral', MASCOT_COLORS.coral[1]));
+    expect(file['emp:x1']).toEqual(mascot('byte', MASCOT_COLORS.byte[0]));
+    expect(file['emp:t1']).toEqual(mascot('tori', MASCOT_COLORS.tori[0]));
+    expect(file['emp:t2']).toEqual(mascot('tori', MASCOT_COLORS.tori[1]));
     // remembered as automatic looks, across a restart, until the owner changes one
     const auto = (read().$meta as { auto: Record<string, unknown> }).auto;
-    expect(auto.c1).toEqual(
+    expect(auto['emp:c1']).toEqual(
       expect.objectContaining({ species: 'coral', color: MASCOT_COLORS.coral[0] }),
     );
     restart();
-    presets.pin([seen('c1', 'claude')], () => []);
-    expect((read().$meta as { auto: Record<string, unknown> }).auto).toHaveProperty('c1');
-    names.add('c1');
+    presets.pin([seen('emp:c1', 'claude')], () => []);
+    expect((read().$meta as { auto: Record<string, unknown> }).auto).toHaveProperty('emp:c1');
+    names.add('emp:c1');
     try {
       presets.onClientMessage({
         type: 'setCharacter',
-        key: 'c1',
+        key: 'emp:c1',
         character: {
           v: 2,
           kind: 'mascot',
@@ -1144,9 +1344,214 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
         },
       });
     } finally {
-      names.delete('c1');
+      names.delete('emp:c1');
     }
-    expect((read().$meta as { auto: Record<string, unknown> }).auto).not.toHaveProperty('c1');
+    expect((read().$meta as { auto: Record<string, unknown> }).auto).not.toHaveProperty('emp:c1');
+  });
+
+  it('decision 9: a new employee gets the least used (species, colour) of all, its provider first; kept after', () => {
+    restart();
+    presets.pin([], () => []); // first start
+    const combos = MASCOT_SPECIES.flatMap((sp) => MASCOT_COLORS[sp].map((c) => `${sp}:${c}`));
+    const emp = (i: number, provider = 'claude') => ({
+      name: `emp:e${i}`,
+      palette: 0,
+      hueShift: 0,
+      provider,
+    });
+    // a named agent's mascot (the owner's) does not count: only employees do
+    names.add('lead');
+    try {
+      presets.onClientMessage({
+        type: 'setCharacter',
+        key: 'lead',
+        character: { v: 2, kind: 'mascot', species: 'puff', color: MASCOT_COLORS.puff[0] },
+      });
+    } finally {
+      names.delete('lead');
+    }
+    // one at a time, as they are hired
+    for (let i = 0; i < combos.length; i++) presets.pin([emp(i)], () => []);
+    const file = read() as Record<string, { species: string; color: string }>;
+    const got = combos.map((_, i) => `${file[`emp:e${i}`].species}:${file[`emp:e${i}`].color}`);
+    expect(new Set(got).size).toBe(combos.length); // every one of the 48 before any repeats
+    // ties: the provider's species first (Claude: Coral in its colour order), then the list
+    expect(got.slice(0, 4)).toEqual(MASCOT_COLORS.coral.map((c) => `coral:${c}`));
+    expect(got).toContain(`puff:${MASCOT_COLORS.puff[0]}`);
+    // all used once: a Codex hire gets Byte's first colour again
+    presets.pin([emp(100, 'codex')], () => []);
+    expect(read()['emp:e100']).toEqual({
+      v: 2,
+      kind: 'mascot',
+      species: 'byte',
+      color: MASCOT_COLORS.byte[0],
+    });
+    // kept per employee: seen again (another provider, a restart) it stays as it was
+    const before = stamp();
+    restart();
+    presets.pin([emp(0, 'codex'), emp(100, 'claude')], () => []);
+    expect(stamp()).toBe(before);
+    expect(read()['emp:e0']).toEqual({
+      v: 2,
+      kind: 'mascot',
+      species: 'coral',
+      color: MASCOT_COLORS.coral[0],
+    });
+  });
+
+  it('CHARS-1104 review: a later $meta version is left alone (no downgrade, no second migration)', () => {
+    restart();
+    const coral = { v: 2, kind: 'mascot', species: 'coral', color: MASCOT_COLORS.coral[0] };
+    const d = Math.floor(Date.now() / 86_400_000);
+    const pin = { d, species: 'coral', color: MASCOT_COLORS.coral[0] };
+    fs.writeFileSync(
+      store(),
+      JSON.stringify({
+        lead: coral,
+        $meta: { v: STORE_META_V + 1, pinnedAt: 'x', auto: { lead: pin } },
+      }),
+    );
+    restart();
+    const before = stamp();
+    presets.pin([], () => []);
+    expect(stamp()).toBe(before);
+    expect(read().$meta).toMatchObject({ v: STORE_META_V + 1 });
+    expect(read().lead).toEqual(coral);
+  });
+
+  it('CHARS-1104 review: an employee is a mascot from the first start, and v3 turns its automatic palette into one', () => {
+    restart();
+    presets.pin(
+      [
+        { name: 'alpha', palette: 2, hueShift: 0 },
+        { name: 'emp:e1', palette: 4, hueShift: 0, provider: 'codex' },
+      ],
+      () => [],
+    ); // first start
+    expect(read().alpha).toEqual({ palette: 2, hueShift: 0 });
+    expect(read()['emp:e1']).toEqual({
+      v: 2,
+      kind: 'mascot',
+      species: 'byte',
+      color: MASCOT_COLORS.byte[0],
+    });
+    // a v2 file: emp:e2's palette was pinned automatically, emp:e3's was the owner's
+    restart();
+    const d = Math.floor(Date.now() / 86_400_000);
+    fs.writeFileSync(
+      store(),
+      JSON.stringify({
+        'emp:e2': { palette: 5, hueShift: 0 },
+        'emp:e3': { palette: 6, hueShift: 0 },
+        $meta: { v: 2, pinnedAt: 'x', auto: { 'emp:e2': { d, palette: 5, hueShift: 0 } } },
+      }),
+    );
+    restart();
+    presets.pin([{ name: 'emp:e2', palette: 5, hueShift: 0, provider: 'claude' }], () => []);
+    expect(read()['emp:e2']).toEqual({
+      v: 2,
+      kind: 'mascot',
+      species: 'coral',
+      color: MASCOT_COLORS.coral[0],
+    });
+    expect(read()['emp:e3']).toEqual({ palette: 6, hueShift: 0 });
+  });
+
+  it('CHARS-1104 review: only names seen lately (and never the owner) count for the least used person', () => {
+    restart();
+    const today = Math.floor(Date.now() / 86_400_000);
+    const stale = Object.fromEntries(
+      Array.from({ length: CHAR_COUNT - 1 }, (_, i) => [`old${i}`, { palette: i, hueShift: 0 }]),
+    );
+    const auto = Object.fromEntries(
+      Array.from({ length: CHAR_COUNT - 1 }, (_, i) => [
+        `old${i}`,
+        { d: today - 30, palette: i, hueShift: 0 },
+      ]),
+    );
+    fs.writeFileSync(
+      store(),
+      JSON.stringify({
+        ...stale,
+        owner: { palette: CHAR_COUNT - 1, hueShift: 0 },
+        recent: { palette: CHAR_COUNT - 1, hueShift: 0 },
+        $meta: {
+          v: STORE_META_V,
+          pinnedAt: 'x',
+          auto: { ...auto, recent: { d: today, palette: CHAR_COUNT - 1, hueShift: 0 } },
+        },
+      }),
+    );
+    restart();
+    presets.pin([{ name: 'newbie', palette: 0, hueShift: 0, provider: 'claude' }], () => []);
+    const got = read().newbie as { palette: number; hueShift: number };
+    // the 22 names gone a month and the owner do not count: a free person, not a hue turn
+    expect(got.hueShift).toBe(0);
+    expect(got.palette).not.toBe(CHAR_COUNT - 1);
+  });
+
+  it('CHARS-1104: a new named agent gets the least used built-in person, an employee its mascot', () => {
+    restart();
+    presets.pin([{ name: 'old', palette: 2, hueShift: 0 }], () => []); // first start
+    const leads = Array.from({ length: CHAR_COUNT - 1 }, (_, i) => ({
+      name: `lead${i}`,
+      palette: 2,
+      hueShift: 0,
+      provider: 'claude',
+    }));
+    presets.pin(
+      [...leads, { name: 'emp:e1', palette: 2, hueShift: 0, provider: 'claude' }],
+      () => [],
+    );
+    const file = read();
+    const palettes = ['old', ...leads.map((l) => l.name)].map(
+      (n) => (file[n] as { palette: number }).palette,
+    );
+    expect(new Set(palettes).size).toBe(CHAR_COUNT); // every person once before any repeats
+    for (const l of leads)
+      expect(file[l.name]).toEqual({ palette: expect.any(Number), hueShift: 0 });
+    expect(file['emp:e1']).toEqual({
+      v: 2,
+      kind: 'mascot',
+      species: 'coral',
+      color: MASCOT_COLORS.coral[0],
+    });
+  });
+
+  it('CHARS-1104 $meta v2 -> v3: an automatic mascot of a named agent becomes a person once; choices and employees stay', () => {
+    restart();
+    const coral = { v: 2, kind: 'mascot', species: 'coral', color: MASCOT_COLORS.coral[0] };
+    const mine = { v: 2, kind: 'mascot', species: 'puff', color: MASCOT_COLORS.puff[0] };
+    const d = Math.floor(Date.now() / 86_400_000); // seen today: not past the 90 days
+    const pin = { d, species: 'coral', color: MASCOT_COLORS.coral[0] };
+    fs.writeFileSync(
+      store(),
+      JSON.stringify({
+        lead: coral,
+        'emp:e1': coral,
+        chosen: coral, // the owner's: not in auto
+        mine,
+        $meta: { v: 2, pinnedAt: 'x', auto: { lead: pin, 'emp:e1': pin } },
+      }),
+    );
+    restart();
+    presets.pin([], () => []);
+    const file = read();
+    expect(file.lead).toEqual({ palette: expect.any(Number), hueShift: 0 });
+    expect(file['emp:e1']).toEqual(coral);
+    expect(file.chosen).toEqual(coral);
+    expect(file.mine).toEqual(mine);
+    expect(file.$meta).toEqual({
+      v: STORE_META_V,
+      pinnedAt: 'x',
+      auto: { lead: { d, ...(file.lead as object) }, 'emp:e1': pin },
+    });
+    // once: a second start writes nothing
+    const before = stamp();
+    restart();
+    presets.pin([], () => []);
+    expect(stamp()).toBe(before);
+    expect(read()).toEqual(file);
   });
 
   it('CH-4 꾸미기: a saved look round trips; 기본으로 (null) becomes the recommendation at the next pin', () => {
@@ -1163,15 +1568,19 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     presets.onClientMessage({ type: 'setCharacter', key: 'alpha', character: look });
     restart();
     expect(last().assignments.alpha).toEqual(look);
+    // 11-04: every species (the eight new ones too) is stored and read back as sent
+    for (const species of MASCOT_SPECIES) {
+      const each = { v: 2, kind: 'mascot', species, color: MASCOT_COLORS[species][1] };
+      expect(parseAppearance(each)).toEqual(each);
+      presets.onClientMessage({ type: 'setCharacter', key: 'alpha', character: each });
+      restart();
+      expect(last().assignments.alpha).toEqual(each);
+    }
     presets.onClientMessage({ type: 'setCharacter', key: 'alpha', character: null });
     expect(last().assignments).not.toHaveProperty('alpha');
     presets.pin([{ name: 'alpha', palette: 3, hueShift: 0, provider: 'codex' }], () => []);
-    expect(last().assignments.alpha).toEqual({
-      v: 2,
-      kind: 'mascot',
-      species: 'byte',
-      color: MASCOT_COLORS.byte[0],
-    });
+    // CHARS-1104: a named agent's recommendation is a built-in person
+    expect(last().assignments.alpha).toEqual({ palette: expect.any(Number), hueShift: 0 });
   });
 
   it('CH-4 🎲: every random look is one the daemon stores as it is, and it rerolls past taken looks', () => {
@@ -1183,7 +1592,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
         const look = randomLook(kind, new Set(), key, rand);
         expect(parseAppearance(look)).toEqual(look);
         if (look.kind === 'mascot') expect(MASCOT_COLORS[look.species!]).toContain(look.color);
-        else expect(Object.keys(look.colors!).sort()).toEqual([...HUMANOID_PARTS].sort());
+        else expect(look.palette).toBeLessThan(CHAR_COUNT); // CHARS-1104: a built-in person
       }
     // the first draw is taken: the next one is used
     const draws = [0, 0, 0, 0, 0.99, 0.99, 0.99, 0.99];
@@ -1194,7 +1603,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
 
   it('$meta is never a character: not by setCharacter, not by a pin', () => {
     restart();
-    fs.writeFileSync(store(), JSON.stringify({ $meta: { v: 2, pinnedAt: 'x' } }));
+    fs.writeFileSync(store(), JSON.stringify({ $meta: { v: STORE_META_V, pinnedAt: 'x' } }));
     restart();
     names.add('$meta');
     try {
@@ -1203,7 +1612,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     } finally {
       names.delete('$meta');
     }
-    expect(read()).toEqual({ $meta: { v: 2, pinnedAt: 'x' } });
+    expect(read()).toEqual({ $meta: { v: STORE_META_V, pinnedAt: 'x' } });
     expect(last().assignments).toEqual({});
   });
 
@@ -1274,7 +1683,11 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
       restart();
       fs.writeFileSync(
         store(),
-        JSON.stringify({ ...pins, $meta: { v: 2, pinnedAt: 'x', auto: seen } }, null, 2) + '\n',
+        JSON.stringify(
+          { ...pins, $meta: { v: STORE_META_V, pinnedAt: 'x', auto: seen } },
+          null,
+          2,
+        ) + '\n',
       );
       restart();
       choose('alpha', { palette: 4 });
@@ -1286,7 +1699,10 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
 
       // 500 of the owner's own choices: nothing may give way, and the client is told.
       const mine = Object.fromEntries(Object.keys(pins).map((n) => [n, { preset: 'robot' }]));
-      fs.writeFileSync(store(), JSON.stringify({ ...mine, $meta: { v: 2, pinnedAt: 'x' } }));
+      fs.writeFileSync(
+        store(),
+        JSON.stringify({ ...mine, $meta: { v: STORE_META_V, pinnedAt: 'x' } }),
+      );
       restart();
       const before = stamp();
       choose('alpha', { palette: 4 });
@@ -1371,7 +1787,10 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
         ]),
       );
       restart();
-      fs.writeFileSync(store(), JSON.stringify({ ...mine, $meta: { v: 2, pinnedAt: 'x' } }));
+      fs.writeFileSync(
+        store(),
+        JSON.stringify({ ...mine, $meta: { v: STORE_META_V, pinnedAt: 'x' } }),
+      );
       restart();
       const stringify = vi.spyOn(JSON, 'stringify');
       try {
@@ -1396,7 +1815,11 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     restart();
     fs.writeFileSync(
       store(),
-      JSON.stringify({ alpha: { preset: 'robot' }, odd: { v: 9 }, $meta: { v: 2, pinnedAt: 'x' } }),
+      JSON.stringify({
+        alpha: { preset: 'robot' },
+        odd: { v: 9 },
+        $meta: { v: STORE_META_V, pinnedAt: 'x' },
+      }),
     );
     restart();
     presets.pin(
@@ -1409,7 +1832,7 @@ describe('appearance v2 and the pin migration (CH-1)', () => {
     expect(read()).toEqual({
       alpha: { preset: 'robot' },
       odd: { v: 9 },
-      $meta: { v: 2, pinnedAt: 'x' },
+      $meta: { v: STORE_META_V, pinnedAt: 'x' },
     });
   });
 
@@ -1569,11 +1992,11 @@ describe('CH-6 sheet checks: the daemon and the browser give the same answer', (
     const id = (saved as { id: string }).id;
     const face = PNG.sync.read(fs.readFileSync(path.join(config, `characters/${id}.mug.png`)));
     expect([face.width, face.height]).toEqual([16, 16]);
-    // char_0's standing front frame starts at row 3: the face's first row is that row.
+    // char_0's standing front frame starts at row 2: the face's first row is that row.
     const front = PNG.sync.read(CHAR_0);
     const row = (img: PNG, w: number, x0: number, y: number) =>
       img.data.subarray((y * w + x0) * 4, (y * w + x0 + 16) * 4);
-    expect(row(face, 16, 0, 0)).toEqual(row(front, 112, 16, 3));
+    expect(row(face, 16, 0, 0)).toEqual(row(front, 112, 16, 2));
     expect(last().assignments).toEqual({ alpha: { preset: id } });
     expect(last().presets.find((p) => p.id === id)?.label).toBe('alpha 커스텀');
   });

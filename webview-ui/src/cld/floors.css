@@ -70,50 +70,103 @@
   box-shadow: var(--shadow-pixel);
 }
 
-/* UI-FIX 4: folded, only the lamp shows (and takes clicks); the rest keeps its room, invisible. */
-.cld-elevator-panel.cld-folded {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  pointer-events: none;
+/* PARTY-FRAME: the 40px strip on the left edge, ▲ / the lamp (the floor; it opens the list) / ▼. */
+.cld-elevator-ride {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
-.cld-elevator-slot:has(.cld-folded) {
-  pointer-events: none;
-}
-.cld-elevator-panel.cld-folded > :not(.cld-elevator-display) {
-  visibility: hidden;
-}
-.cld-elevator-panel.cld-folded .cld-elevator-display {
-  pointer-events: auto;
-  cursor: pointer;
-  width: 32px; /* a small tab on the screen's edge: the windows start right of it */
-  height: 24px;
+.cld-elevator-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 40px;
   padding: 0;
-  font-size: 16px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
 }
-.cld-elevator-panel.cld-folded .cld-elevator-display .cld-arrow {
-  display: none;
+/* HUD-1B: the strip and the camera buttons under it, one 40px column. */
+.cld-elevator-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-
-/* The lamp display over the buttons: the way the car goes, and the floor. */
-.cld-elevator-display {
+.cld-camera-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 40px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
+}
+.cld-camera-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  height: 32px;
+  padding: 0;
+  background: var(--color-btn-bg);
+  border: 2px solid transparent;
+  border-radius: 0;
+  color: var(--color-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cld-camera-btn:hover {
+  background: var(--color-btn-hover);
+  color: var(--color-text);
+}
+/* 자유 시점 on: the one accent. */
+.cld-camera-btn[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+.cld-elevator-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0;
+  background: var(--color-btn-bg);
+  border: 2px solid transparent;
+  border-radius: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.cld-elevator-step:hover:not(:disabled) {
+  background: var(--color-btn-hover);
+  color: var(--color-text);
+}
+.cld-elevator-step:disabled {
+  color: var(--hud-line);
+  cursor: default;
+}
+.cld-elevator-step .cld-arrow.cld-moving {
+  color: var(--cld-lamp);
+}
+.cld-elevator-display {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: 34px;
-  padding: 0 4px;
+  padding: 0;
   background: var(--cld-lamp-bg);
   border: 2px solid var(--color-bg-dark);
+  border-radius: 0;
   color: var(--cld-lamp);
-  font-size: 32px; /* the pixel font is crisp at multiples of 16 px */
+  font-size: 32px; /* the pixel font is crisp at multiples of 16 px; the F at 16 so 9F fits 36px */
   line-height: 1;
+  cursor: pointer;
 }
-.cld-elevator-display .cld-arrow {
-  color: var(--cld-lamp-dim);
+.cld-lamp-f {
+  font-size: 16px; /* inline on the number's baseline: the lamp still reads "1F" */
 }
-.cld-elevator-display .cld-arrow.cld-moving {
-  color: var(--cld-lamp);
+.cld-elevator-display[aria-expanded='true'] {
+  border-color: var(--cld-lamp-dim);
 }
 
 /* What a drag from the office carries, beside the panel. */
@@ -512,7 +565,8 @@
   flex-direction: column;
   gap: 2px;
 }
-.cld-floor-picker-button .cld-dot {
+.cld-floor-picker-button .cld-dot,
+.cld-elevator-display .cld-dot {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -521,7 +575,8 @@
   background: var(--color-status-permission);
   border: 2px solid var(--color-bg);
 }
-.cld-floor-picker-button .cld-dot.cld-permission {
+.cld-floor-picker-button .cld-dot.cld-permission,
+.cld-elevator-display .cld-dot.cld-permission {
   background: var(--color-danger);
 }
 /* Under the picker (its top is set from the picker), across the screen. */

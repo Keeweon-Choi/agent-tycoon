@@ -14,12 +14,15 @@
  *    apart by the sheet's height.
  * The character system keeps its four world directions: only this module knows the camera.
  * CHAR-8DIR: a character with both kinds of sheet faces 8 screen directions (characterView).
+ * DIAG-1104: so do the built-in people and the mascots, whose three-quarter walk only walks and
+ * stands (drawnView).
  *
  * Density: as the top-down office draws (spritesAtZoom): a detailed character (64×128 and up)
  * draws its one master at every zoom, so clicked, zoomed or followed it is always at its
  * sharpest (owner 10-26).
  */
 import { deriveSmooth } from '../../office/sprites/smoothSprite.js';
+import { isoPaletteOf } from '../../office/sprites/spriteData.js';
 import type { Character, Direction as DirectionVal, SpriteData } from '../../office/types.js';
 import { CharacterState, Direction } from '../../office/types.js';
 
@@ -86,6 +89,15 @@ export function characterView(
     sy > 0 ? Direction.DOWN : sy < 0 ? Direction.UP : sx > 0 ? Direction.RIGHT : Direction.LEFT;
   return { palette: ch.palette, dir, mirror: false };
 }
+
+/** What the office draws `ch` in (both views and the test hooks): characterView with the sheet
+ *  beside its own; DIAG-1104: a walk-only one (a built-in person's or a mascot's three-quarter
+ *  walk) only while it walks or stands, seated or `drinking` it keeps its four views. */
+export const drawnView = (
+  ch: Pick<Character, 'dir' | 'state' | 'palette' | 'cldDiagRow'>,
+  iso: boolean,
+  drinking: boolean,
+) => characterView(ch, iso, isoPaletteOf(ch.palette, ch.state === CharacterState.TYPE || drinking));
 
 const flipped = new WeakMap<SpriteData, SpriteData>();
 /** `sprite` mirrored left to right (cached per frame). */

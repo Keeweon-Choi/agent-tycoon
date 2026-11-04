@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { fixJosa } from '../../../core/src/cld/josa.js';
 import { en, type TranslationKey } from './en.js';
 import { ko } from './ko.js';
+import { extraEn, extraKo } from './lazy.js';
 
 export type { TranslationKey } from './en.js';
 
@@ -59,7 +60,12 @@ export function translate(
   selected: Language = language,
   korean: Partial<Record<TranslationKey, string>> = ko,
 ): string {
-  const template = (selected === 'ko' ? korean[key] : undefined) ?? en[key];
+  // A lazily loaded string not registered yet shows its key, never throws.
+  const template =
+    (selected === 'ko' ? (korean[key] ?? extraKo[key]) : undefined) ??
+    (en as Record<string, string>)[key] ??
+    extraEn[key] ??
+    key;
   const text = template.replace(/\{(\w+)\}/g, (match, name: string) =>
     vars?.[name] === undefined ? match : String(vars[name]),
   );

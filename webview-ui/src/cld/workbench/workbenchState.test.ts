@@ -66,6 +66,15 @@ describe('the workbench remembers per device', () => {
       expect(parseSaved(raw)).toEqual({ project: null, tab: DEFAULT_TAB });
   });
 
+  it('SPT-P3-FINISH: the overview tab is the default (owner Q1); a remembered tab, even agents, still wins', () => {
+    expect(DEFAULT_TAB).toBe('cockpit');
+    expect(parseSaved(null).tab).toBe('cockpit');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'agents' })).tab).toBe('agents');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'cockpit' })).tab).toBe('cockpit');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'docs' })).tab).toBe('docs');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'reqs' })).tab).toBe('reqs');
+  });
+
   it('shows the wanted project while it exists, else the first one', () => {
     expect(resolveProject(['a', 'b'], 'b')).toBe('b');
     expect(resolveProject(['a', 'b'], 'gone')).toBe('a');

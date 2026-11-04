@@ -53,7 +53,9 @@ export function parseChatEdit(msg: Record<string, unknown>): ChatEdit | null {
   if (typeof requestId !== 'string' || !requestId || requestId.length > REQUEST_ID_MAX) return null;
   if (typeof name !== 'string' || typeof id !== 'string' || id.length > REQUEST_ID_MAX) return null;
   if (typeof text !== 'string') return null;
-  return { type: 'chatEdit', requestId, name, id, text };
+  const replyTo = msg.replyTo === undefined ? undefined : replyRef(msg.replyTo);
+  if (msg.replyTo !== undefined && !replyTo) return null;
+  return { type: 'chatEdit', requestId, name, id, text, ...(replyTo && { replyTo }) };
 }
 
 /** A well-formed chatHold, or null. */

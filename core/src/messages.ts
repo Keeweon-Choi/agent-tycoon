@@ -28,7 +28,6 @@ export type ServerMessage =
   | LayoutLoaded
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
-  | PetSpritesLoaded
   | FloorTilesLoaded
   | WallTilesLoaded
   | CarpetTilesLoaded
@@ -116,7 +115,8 @@ export type ServerMessage =
   | TaskBoard
   | DelegationApprovals
   | TrackedItems
-  | TrackingSources;
+  | TrackingSources
+  | SpecChanged;
 
 export type ClientMessage =
   | WebviewReady
@@ -403,20 +403,8 @@ export interface CharacterSpriteSet {
   down: string[][][];
   up: string[][][];
   right: string[][][];
-}
-
-export interface PetSpritesLoaded {
-  type: 'petSpritesLoaded';
-  pets: PetSpriteFrameSet[];
-  petNames: string[];
-}
-
-export interface PetSpriteFrameSet {
-  walkDown: string[][][];
-  idleDown: string[][][];
-  walkUp: string[][][];
-  idleUp: string[][][];
-  walkRight: string[][][];
+  downRight?: string[][][];
+  upRight?: string[][][];
 }
 
 export interface FloorTilesLoaded {
@@ -547,6 +535,7 @@ export interface CharacterPreset {
   label: string;
   url: string;
   mugshotUrl: string | null;
+  thumbUrl?: string;
   density?: CharacterDensity;
   format?: CharacterSheetFormat;
   isoUrl?: string;
@@ -608,7 +597,19 @@ export interface CharacterColors {
 
 export type CharacterAccessory = 'glasses' | 'headset' | 'cap';
 
-export type MascotSpecies = 'coral' | 'byte' | 'puff' | 'tori';
+export type MascotSpecies =
+  | 'coral'
+  | 'byte'
+  | 'puff'
+  | 'tori'
+  | 'kwak'
+  | 'bugi'
+  | 'moka'
+  | 'mungge'
+  | 'boo'
+  | 'gasi'
+  | 'mora'
+  | 'shoo';
 
 export type LookExpression =
   'smile' | 'happy' | 'focus' | 'sleepy' | 'neutral' | 'wink' | 'shy' | 'surprised' | 'playful';
@@ -681,7 +682,7 @@ export interface PackPreset {
 export interface CharacterPart {
   id: string;
   slot: CharacterPartSlot;
-  kind: AnonymousSchema_294;
+  kind: AnonymousSchema_279;
   gender?: CharacterGender;
   name?: string;
   ramp: string[];
@@ -710,7 +711,7 @@ export type CharacterPartSlot =
   | 'hair'
   | 'acc';
 
-export type AnonymousSchema_294 = 'sheet' | 'head';
+export type AnonymousSchema_279 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
   density?: CharacterPartDensity;
@@ -951,7 +952,7 @@ export interface ReviewNoteResult {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_458;
+  op: AnonymousSchema_443;
   id?: string;
   ok: boolean;
   error?: string;
@@ -959,7 +960,7 @@ export interface ReviewNoteResult {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_458 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_443 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSendResult {
   type: 'reviewSendResult';
@@ -1215,6 +1216,8 @@ export interface OfficeJob {
   gpu?: GpuJobState | null;
   gpuId?: string | null;
   stopped?: boolean;
+  stopPct?: number | null;
+  stopLine?: string | null;
 }
 
 export interface JobProgress {
@@ -1329,12 +1332,12 @@ export interface DiskUsage {
 }
 
 export interface DiskUsageRow {
-  kind: AnonymousSchema_696;
+  kind: AnonymousSchema_683;
   bytes: number;
   partial: boolean;
 }
 
-export type AnonymousSchema_696 =
+export type AnonymousSchema_683 =
   'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
 
 export interface UsageState {
@@ -1373,16 +1376,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_719;
+  state: AnonymousSchema_706;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_719 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_706 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_723;
+  language: AnonymousSchema_710;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1391,15 +1394,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_723 = 'ko' | 'en';
+export type AnonymousSchema_710 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_730;
+  mode: AnonymousSchema_717;
   error?: string;
 }
 
-export type AnonymousSchema_730 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_717 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1880,13 +1883,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1029;
+  status: AnonymousSchema_1016;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1029 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1016 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1945,10 +1948,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1057;
+  state: AnonymousSchema_1044;
 }
 
-export type AnonymousSchema_1057 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1044 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2302,6 +2305,12 @@ export interface TrackingDoc {
   items?: number;
 }
 
+export interface SpecChanged {
+  type: 'specChanged';
+  project: string;
+  rev: number;
+}
+
 export interface WebviewReady {
   type: 'webviewReady';
 }
@@ -2503,7 +2512,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1333;
+  op: AnonymousSchema_1323;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2512,7 +2521,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1333 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1323 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2622,6 +2631,7 @@ export interface ChatEdit {
   name: string;
   id: string;
   text: string;
+  replyTo?: ChatReply;
 }
 
 export interface ChatHold {
@@ -2656,14 +2666,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1418;
+  action: AnonymousSchema_1408;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1418 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1408 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2830,12 +2840,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1512;
+  lang?: AnonymousSchema_1502;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1512 = 'en' | 'ko';
+export type AnonymousSchema_1502 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2891,19 +2901,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1534;
+  language: AnonymousSchema_1524;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1534 = 'ko' | 'en';
+export type AnonymousSchema_1524 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1538;
+  mode: AnonymousSchema_1528;
 }
 
-export type AnonymousSchema_1538 = 'ask' | 'bypass';
+export type AnonymousSchema_1528 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

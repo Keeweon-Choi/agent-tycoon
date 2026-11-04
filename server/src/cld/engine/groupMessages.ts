@@ -1,6 +1,7 @@
 /** Append-only room posts, their tagged fan-out, and delivery-state folding. */
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
+import * as path from 'path';
 
 import { koText, pickRefusal, refused, type WithError } from '../../../../core/src/cld/serverText.js';
 import type { ChatItem, ChatReply } from '../../../../core/src/messages.js';
@@ -9,6 +10,7 @@ import {
   lineItems,
   type LineOptions,
   turnMessageId,
+  turnParts,
   userTurnText,
 } from '../transcriptView.js';
 import { maintainGroupLogs, monthFile, readSegment, roomSegments } from './groupLogFiles.js';
@@ -130,12 +132,35 @@ const shortStamp = (at: number) => {
  * honesty rule as the chat view's "이전 대화" paging.
  */
 export const ROOM_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+/** ROOM-THREADS: how far one binary-search probe reads on for a whole stamped line. */
+const ROOM_PROBE_MAX_BYTES = 1024 * 1024;
+/** ROOM-THREADS: how many transcripts running at a post's time are looked through for its reply. */
+// ponytail: five or more sessions running at once in the folder can push the member's own
+// out of reach; count the member's own sessions (registry) if folders get that crowded.
+export const ROOM_EARLIER_FILES = 4;
+/** ROOM-THREADS: a transcript's first record is looked for in this many bytes, then in the larger. */
+const ROOM_FIRST_BYTES = 4 * 1024;
+// ponytail: a transcript whose first stamped record lies past 64 KB is never a place to look.
+const ROOM_FIRST_MAX_BYTES = 64 * 1024;
+/** ROOM-THREADS: the earlier replies kept (their members' words), in all and per reply. */
+export const EARLIER_MAX_BYTES = 4 * 1024 * 1024;
+export const EARLIER_ENTRY_MAX_BYTES = 16 * 1024;
+/** ROOM-THREADS: a post whose reply none of its transcripts held is looked for again after this,
+ *  twice as long each time, up to the larger; never while those transcripts stay as they were. */
+export const EARLIER_RETRY_MS = 60_000;
+export const EARLIER_RETRY_MAX_MS = 30 * 60_000;
+/** Not-found marks kept while no one views a room (one per post and member). */
+const MISSED_MAX = 2000;
+/** ROOM-THREADS: the delivery states whose post can have a reply in a transcript. */
+const REACHED: ReadonlySet<GroupDelivery> = new Set(['delivered', 'off']);
 const NL = 0x0a;
 
-/** The top-level timestamp of the first whole line in `buf` that has one (null: none). */
-function firstStamp(buf: Buffer): number | null {
-  let from = buf.indexOf(NL) + 1; // the line before it is torn
-  for (let to = buf.indexOf(NL, from); from > 0 && to > 0; from = to + 1, to = buf.indexOf(NL, from)) {
+/** The top-level timestamp of the first whole line in `buf` that has one (null: none).
+ *  `whole`: `buf` starts at a line (a file's start), else its first line is torn. */
+function firstStamp(buf: Buffer, whole = false): number | null {
+  let from = whole ? 0 : buf.indexOf(NL) + 1;
+  if (!whole && from === 0) return null; // no whole line
+  for (let to = buf.indexOf(NL, from); to >= 0; from = to + 1, to = buf.indexOf(NL, from)) {
     try {
       const { timestamp } = JSON.parse(buf.toString('utf8', from, to)) as { timestamp?: unknown };
       const at = typeof timestamp === 'string' ? Date.parse(timestamp) : NaN;
@@ -182,6 +207,144 @@ export function roomTranscript(file: string, since: number): string | null {
   }
 }
 
+/** Read `length` bytes of `fd` at `at` (fewer at the end of the file). */
+function readAt(fd: number, at: number, length: number): Buffer {
+  const buf = Buffer.alloc(length);
+  return buf.subarray(0, fs.readSync(fd, buf, 0, length, at));
+}
+
+/** The first stamped whole line's time at or after `at`, read forward in CHAT_TAIL_BYTES chunks
+ *  up to ROOM_PROBE_MAX_BYTES (a record can be megabytes: an image, an api-request-blob). */
+function stampFrom(fd: number, at: number): number | null {
+  for (let k = at; k < at + ROOM_PROBE_MAX_BYTES; k += CHAT_TAIL_BYTES) {
+    const chunk = readAt(fd, k, CHAT_TAIL_BYTES);
+    if (!chunk.length) return null;
+    const stamp = firstStamp(chunk, k === 0);
+    if (stamp !== null) return stamp;
+  }
+  return null;
+}
+
+/** A transcript's first record time, kept per file and size (a small read: its first lines). */
+const firstStamps = new Map<string, { size: number; at: number | null }>();
+function fileStart(file: string, size: number): number | null {
+  const known = firstStamps.get(file);
+  if (known && (known.at !== null || known.size === size)) return known.at;
+  let fd: number;
+  try {
+    fd = fs.openSync(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const at =
+      firstStamp(readAt(fd, 0, ROOM_FIRST_BYTES), true) ??
+      (size > ROOM_FIRST_BYTES ? firstStamp(readAt(fd, 0, ROOM_FIRST_MAX_BYTES), true) : null);
+    firstStamps.set(file, { size, at });
+    return at;
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * ROOM-THREADS: the transcripts of `current`'s folder that were running at `at` (first record at
+ * or before it, written to since), the latest begun first, at most ROOM_EARLIER_FILES. A renew
+ * records no chain, and the folder can hold other sessions (another member's, a hand-run one):
+ * each is only a place to look, the delivery id decides what is a reply. Regular files only (a
+ * FIFO would block the open, a link could lead anywhere); one last written before `at` is not
+ * opened.
+ */
+export interface EarlierFile {
+  file: string;
+  size: number;
+  mtimeMs: number;
+}
+export function transcriptsAt(current: string, at: number): EarlierFile[] {
+  const dir = path.dirname(current);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const seen = new Set<string>();
+  const found: Array<EarlierFile & { first: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const file = path.join(dir, entry.name);
+    seen.add(file);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(file);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile() || stat.mtimeMs < at) continue;
+    const first = fileStart(file, stat.size);
+    if (first !== null && first <= at) found.push({ file, first, size: stat.size, mtimeMs: stat.mtimeMs });
+  }
+  for (const file of firstStamps.keys())
+    if (path.dirname(file) === dir && !seen.has(file)) firstStamps.delete(file); // gone from the folder
+  return found
+    .sort((x, y) => y.first - x.first)
+    .slice(0, ROOM_EARLIER_FILES)
+    .map(({ file, size, mtimeMs }) => ({ file, size, mtimeMs }));
+}
+
+/**
+ * ROOM-THREADS: the part of a transcript (one of transcriptsAt) that can hold a member's reply to
+ * a post made at `at` that the tail (roomTranscript) no longer reaches (a renew started a new
+ * conversation, or it lies more than ROOM_SCAN_MAX_BYTES back): at most ROOM_SCAN_MAX_BYTES from
+ * the first record at `at`, found by a binary search of short probes. Whole lines only; `end`:
+ * it reaches the end of the file. Null: unreadable.
+ */
+export function roomTranscriptAt(file: string, at: number): { text: string; end: boolean } | null {
+  let fd: number;
+  try {
+    fd = fs.openSync(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const size = fs.fstatSync(fd).size;
+    let lo = 0;
+    for (let hi = size; hi - lo > CHAT_TAIL_BYTES; ) {
+      const mid = Math.floor((lo + hi) / 2);
+      const stamp = stampFrom(fd, mid);
+      // None in reach (records megabytes long): taken for before `at`.
+      if (stamp === null || stamp < at) lo = mid;
+      else hi = mid;
+    }
+    const buf = readAt(fd, lo, ROOM_SCAN_MAX_BYTES);
+    const from = lo > 0 ? buf.indexOf(NL) + 1 : 0; // the line it starts inside is torn
+    const end = lo + buf.length >= size;
+    const to = end ? buf.length : buf.lastIndexOf(NL) + 1; // so is the last
+    return { text: from > 0 || lo === 0 ? buf.toString('utf8', from, Math.max(from, to)) : '', end };
+  } catch {
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** The first record time in a transcript text (whole lines; Infinity: none). */
+function textStart(text: string): number {
+  for (let from = 0, to = text.indexOf('\n'); from < text.length; from = to + 1, to = text.indexOf('\n', from)) {
+    try {
+      const { timestamp } = JSON.parse(text.slice(from, to < 0 ? undefined : to)) as { timestamp?: unknown };
+      const at = typeof timestamp === 'string' ? Date.parse(timestamp) : NaN;
+      if (at) return at;
+    } catch {
+      /* not a record */
+    }
+    if (to < 0) break;
+  }
+  return Infinity;
+}
+
 /**
  * One member's reply to a post: only assistant/progress/tool lines after the
  * room prompt and before their next user prompt.  Call this only while a room
@@ -195,25 +358,32 @@ export function roomTranscript(file: string, since: number): string | null {
 export function roomReplyReader(
   transcript: string,
   read: LineOptions = {},
-): (room: GroupRoom, post: GroupPost, messageId?: string) => ChatItem[] {
+  /** The text ends where its file does (a turn last in it is whole). */
+  end = true,
+): (room: GroupRoom, post: GroupPost, messageId?: string, whole?: boolean) => ChatItem[] | null {
   const lines = transcript.split('\n');
   // Each user turn's first line: only a `user` record (not a queued attachment) is a room prompt.
-  const turns: Array<{ n: number; text: string; user: boolean; id?: string }> = [];
+  // MSG-SPLIT: a joined turn (messages queued while it worked) answers each of its parts.
+  const turns: Array<{ n: number; parts: string[]; user: boolean; ids: Array<string | undefined> }> = [];
   for (const [n, line] of lines.entries()) {
     if (!line.includes('"type":"user"') && !line.includes('queued_command')) continue; // no turn (userTurnText)
     const text = userTurnText(line);
     if (text === null) continue;
     const user = (JSON.parse(line) as { type?: unknown }).type === 'user';
-    turns.push({ n, text, user, id: user ? turnMessageId(text) : undefined });
+    const parts = turnParts(text);
+    turns.push({ n, parts, user, ids: user ? parts.map(turnMessageId) : [] });
   }
-  return (room, post, messageId) => {
+  // `whole`: only a turn that ends inside the text (the next turn follows in it, or the file ends).
+  return (room, post, messageId, whole = false) => {
     const header = new RegExp(
       `^\\[[^\\]\\n]+ · 단톡방 '${escape(room.name)}' · ${escape(shortStamp(post.at))}\\]\\n${escape(post.text)}(?:$|\\n)`,
     );
     const i = turns.findIndex(
-      (turn) => turn.user && (messageId ? turn.id === messageId : header.test(turn.text)),
+      (turn) =>
+        turn.user && (messageId ? turn.ids.includes(messageId) : turn.parts.some((part) => header.test(part))),
     );
-    if (i < 0) return [];
+    if (i < 0) return null; // the turn is not in this text
+    if (whole && !turns[i + 1] && !end) return null; // its reply runs on past the text
     const items: ChatItem[] = [];
     // Tool-result records have type user but continue the same assistant turn.
     for (let n = turns[i].n + 1; n < (turns[i + 1]?.n ?? lines.length); n++)
@@ -229,7 +399,7 @@ export const roomReplyItems = (
   post: GroupPost,
   messageId?: string,
   read?: LineOptions,
-): ChatItem[] => roomReplyReader(transcript, read)(room, post, messageId);
+): ChatItem[] => roomReplyReader(transcript, read)(room, post, messageId) ?? [];
 
 /**
  * The room list's events (preview and last time): each post, and each item a member wrote under
@@ -294,6 +464,15 @@ export function roomMentions(
 export class GroupMessages {
   private readonly now: () => number;
   private readonly ids: () => string;
+  /** ROOM-THREADS: replies read from before the tail (roomTranscriptAt), per member and post, oldest
+   *  used first: that part of a transcript is history. At most EARLIER_MAX_BYTES; emptied when no
+   *  one views a room (forgetEarlier). */
+  private readonly earlier = new Map<string, { items: ChatItem[]; bytes: number }>();
+  private earlierBytes = 0;
+  /** ROOM-THREADS: posts not found yet: the next transcript to look in, or when to start again. */
+  //   `wait`: the last wait (doubled each time); `seen`: the transcripts (file, size, time) as they
+  //   were when every one had been looked in.
+  private readonly missed = new Map<string, { attempt: number; retryAt: number; wait: number; seen?: string }>();
 
   constructor(private readonly opts: GroupMessagesOptions) {
     this.now = opts.now ?? Date.now;
@@ -325,24 +504,91 @@ export class GroupMessages {
   }
 
   /** Transcript reads are deliberately supplied by the office only while a room is open: once
-   *  per member, the part that can answer posts at or after `since` (the oldest tagged post shown). */
+   *  per member, the part that can answer posts at or after `since` (the oldest tagged post shown).
+   *  ROOM-THREADS: `earlierFor` (the open room only) reaches a post older than that part that
+   *  reached the member (REACHED), by its delivery id only (a header's words can be another member's in a shared
+   *  folder): the transcripts running at its time, one at a time (transcriptsAt, roomTranscriptAt).
+   *  One window per member per build, so a build reads at most twice ROOM_SCAN_MAX_BYTES per member;
+   *  another post found in that window counts only when its turn ends there. A window without the
+   *  reply moves the next build on to the next transcript; after the last, the post waits
+   *  EARLIER_RETRY_MS, doubling to EARLIER_RETRY_MAX_MS, and is read again only when one of those
+   *  transcripts changed. What is found is kept (keepEarlier). */
   timelineWithReplies(
     room: GroupRoom,
     transcriptFor: (member: string, since: number) => string | null,
     limit = 50,
     /** How each member's lines are read (its sent files, T-0105). */
     readFor: (member: string) => LineOptions = () => ({}),
+    earlierFor?: (member: string) => {
+      files: (at: number) => EarlierFile[];
+      window: (file: string, at: number) => { text: string; end: boolean } | null;
+    } | null,
   ): GroupTimelinePost[] {
     const posts = this.timeline(room, limit);
     // A 공지 is never answered (no reply is bound to it): it reads no transcript.
     const since = Math.min(...posts.filter((post) => post.targets.length && !post.notice).map((post) => post.at));
-    const readers = new Map<string, ReturnType<typeof roomReplyReader> | null>();
+    type Reader = ReturnType<typeof roomReplyReader>;
+    const readers = new Map<string, { read: Reader; start: number } | null>();
     const readerFor = (member: string) => {
       if (!readers.has(member)) {
         const transcript = transcriptFor(member, since);
-        readers.set(member, transcript === null ? null : roomReplyReader(transcript, readFor(member)));
+        readers.set(
+          member,
+          transcript === null
+            ? null
+            : { read: roomReplyReader(transcript, readFor(member)), start: textStart(transcript) },
+        );
       }
       return readers.get(member)!;
+    };
+    const windows = new Map<string, Reader>(); // this build's earlier window, per member
+    const touched = new Set<string>(); // the replies this build shows: never evicted by it
+    const earlierItems = (member: string, post: GroupPost, named: GroupRoom, messageId: string): ChatItem[] => {
+      const key = `${member}\n${post.id}`;
+      touched.add(key);
+      const kept = this.earlier.get(key);
+      if (kept) {
+        this.earlier.delete(key); // used: the newest again
+        this.earlier.set(key, kept);
+        return kept.items;
+      }
+      const source = earlierFor?.(member);
+      if (!source) return [];
+      const opened = windows.get(member);
+      if (opened) {
+        // This build's window (opened for an older post of the member) may hold this one too, but
+        // only a turn that ends in it: one cut at its end waits for its own window.
+        const items = opened(named, post, messageId, true);
+        return items ? this.keepEarlier(key, items, touched) : [];
+      }
+      const now = this.now();
+      const miss = this.missed.get(key);
+      if (miss && miss.retryAt > now) return [];
+      const files = source.files(post.at);
+      const seen = files.map((f) => `${f.file}\0${f.size}\0${f.mtimeMs}`).join('\n');
+      const wait = miss?.wait ? Math.min(2 * miss.wait, EARLIER_RETRY_MAX_MS) : EARLIER_RETRY_MS;
+      if (miss?.seen === seen) {
+        this.missed.set(key, { ...miss, wait, retryAt: now + wait }); // nothing changed: nothing read
+        return [];
+      }
+      // ponytail: the order is read again each build, so a transcript added between two builds can
+      // shift it and one is skipped this round (the next round, after its wait, sees it).
+      const attempt = miss && miss.seen === undefined ? miss.attempt : 0;
+      const file = files[attempt];
+      if (!file) {
+        this.missed.set(key, { attempt: 0, wait, retryAt: now + wait, seen });
+        return [];
+      }
+      const text = source.window(file.file, post.at);
+      const window = roomReplyReader(text?.text ?? '', readFor(member), text?.end ?? true);
+      windows.set(member, window);
+      const items = window(named, post, messageId);
+      if (!items) {
+        this.missed.set(key, { attempt: attempt + 1, retryAt: 0, wait: miss?.wait ?? 0 }); // the next build: the next one
+        return [];
+      }
+      this.missed.delete(key);
+      return this.keepEarlier(key, items, touched);
     };
     return posts.map(({ roomName, messageIds, ...post }) => ({
       ...post,
@@ -350,19 +596,66 @@ export class GroupMessages {
         const reader = readerFor(member);
         if (reader === null) return [];
         const messageId = messageIds?.[member];
-        return [
-          {
-            member,
-            ...(messageId && { messageId }),
-            items: reader(
-              { ...room, name: roomName ?? room.name },
-              post,
-              messageId,
-            ),
-          },
-        ];
+        const named = { ...room, name: roomName ?? room.name };
+        const items =
+          reader.read(named, post, messageId) ??
+          // Typed into its session ('delivered'), or left in its inbox ('off': read at its next
+          // start, never marked so); one still 'pending' or 'held' reached no transcript.
+          (messageId && REACHED.has(post.delivery[member]) && post.at < reader.start
+            ? earlierItems(member, post, named, messageId)
+            : []);
+        return [{ member, ...(messageId && { messageId }), items }];
       }),
     }));
+  }
+
+  /**
+   * ROOM-THREADS: an earlier reply kept: only what a room shows (the member's words), at most
+   * EARLIER_ENTRY_MAX_BYTES of it; the least recently used replies leave past EARLIER_MAX_BYTES,
+   * never one this build shows. When this build's alone pass the cap, the reply is shown now and
+   * read again EARLIER_RETRY_MS on (not every build).
+   */
+  private keepEarlier(key: string, items: ChatItem[], touched: Set<string>): ChatItem[] {
+    const kept: ChatItem[] = [];
+    let bytes = 0;
+    for (const item of items) {
+      if (item.kind !== 'assistant') continue;
+      const left = EARLIER_ENTRY_MAX_BYTES - bytes;
+      const size = Buffer.byteLength(JSON.stringify(item));
+      if (size > left) {
+        // One UTF-8 character is at most 3 bytes in a text the cap reaches (Korean, ASCII).
+        const room = Math.floor((left - (size - Buffer.byteLength(item.text))) / 3);
+        if (room > 0) kept.push({ ...item, text: `${item.text.slice(0, room)}…` });
+        bytes = EARLIER_ENTRY_MAX_BYTES;
+        break;
+      }
+      kept.push(item);
+      bytes += size;
+    }
+    for (const [k, v] of this.earlier) {
+      if (this.earlierBytes + bytes <= EARLIER_MAX_BYTES) break;
+      if (touched.has(k)) continue;
+      this.earlier.delete(k);
+      this.earlierBytes -= v.bytes;
+    }
+    // ponytail: past the cap the overflow blinks out and back each EARLIER_RETRY_MS, and two open
+    // rooms push each other's replies out; a per-room share of the cap if that is ever seen.
+    if (this.earlierBytes + bytes > EARLIER_MAX_BYTES)
+      this.missed.set(key, { attempt: 0, wait: EARLIER_RETRY_MS, retryAt: this.now() + EARLIER_RETRY_MS });
+    else {
+      this.earlier.set(key, { items: kept, bytes });
+      this.earlierBytes += bytes;
+    }
+    return kept;
+  }
+
+  /** ROOM-THREADS: no one views a room: the earlier replies kept are let go. */
+  forgetEarlier(): void {
+    this.earlier.clear();
+    this.earlierBytes = 0;
+    // The not-found marks stay (small): a room closed and opened again keeps its grown wait
+    // instead of reading every unfound post again (11-04 review). ponytail: dropped whole past MISSED_MAX.
+    if (this.missed.size > MISSED_MAX) this.missed.clear();
   }
 
   async post(req: {

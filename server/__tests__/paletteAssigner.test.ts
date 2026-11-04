@@ -27,7 +27,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: 200_000,
@@ -64,15 +63,16 @@ describe('paletteAssigner', () => {
     });
 
     it('picks a least-used palette (one of the palettes at the minimum count)', () => {
-      // Seed counts: 0->3, 1->2, 2->1, 3->1, 4->1, 5->1. minCount=1,
-      // available = [2, 3, 4, 5].
-      const palettes = [0, 0, 0, 1, 1, 2, 3, 4, 5];
+      // Seed counts: 0->3, 1->2, every other palette 1. minCount=1,
+      // available = [2 .. PALETTE_COUNT-1].
+      const palettes = [0, 0, 1, ...Array(PALETTE_COUNT).keys()];
       for (let i = 0; i < palettes.length; i++) {
         store.set(100 + i, createTestAgent({ id: 100 + i, palette: palettes[i], hueShift: 0 }));
       }
       const agent = createTestAgent({ id: 1 });
       assignPaletteIfNeeded(agent, store);
-      expect([2, 3, 4, 5]).toContain(agent.palette);
+      expect(agent.palette).toBeGreaterThanOrEqual(2);
+      expect(agent.palette).toBeLessThan(PALETTE_COUNT);
       // minCount > 0 → hue shift in [45, 315].
       expect(agent.hueShift).toBeGreaterThanOrEqual(45);
       expect(agent.hueShift).toBeLessThanOrEqual(HUE_SHIFT_MAX_DEG);
@@ -81,7 +81,7 @@ describe('paletteAssigner', () => {
     it('counts only agents with a defined in-range palette', () => {
       // Two agents with undefined palette and one out-of-range must not move
       // the minCount, so the first real assignment stays in the first round
-      // (hueShift === 0) and can pick any of [0..5].
+      // (hueShift === 0) and can pick any of [0, PALETTE_COUNT).
       store.set(10, createTestAgent({ id: 10 })); // palette undefined
       store.set(11, createTestAgent({ id: 11, palette: 99 })); // out of range
       const agent = createTestAgent({ id: 1 });
@@ -109,7 +109,7 @@ describe('paletteAssigner', () => {
   });
 
   describe('setPaletteCount', () => {
-    it('picks from [0, N) when set above the default 6', () => {
+    it('picks from [0, N) for the count set (here 8)', () => {
       setPaletteCount(8);
       // Six agents get 0..5; the seventh must pick from [0, 8) -- if the
       // count were still 6, it would re-pick 0..5 and never 6 or 7.

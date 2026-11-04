@@ -95,7 +95,21 @@ function pathMatch(raw: string, start: number): FilePathMatch | null {
 }
 
 /** Find file-looking absolute and project-relative paths in ordinary message text. */
-export function findFilePaths(text: string): FilePathMatch[] {
+/** SMOOTH-1104: each text's paths (a conversation's bubbles render again on every store change). */
+const found = new Map<string, readonly FilePathMatch[]>();
+const FOUND_MAX = 2000;
+
+export function findFilePaths(text: string): readonly FilePathMatch[] {
+  const hit = found.get(text);
+  if (hit) return hit;
+  const matches = scanFilePaths(text);
+  // ponytail: dropped whole when full; an LRU if long sessions churn it
+  if (found.size >= FOUND_MAX) found.clear();
+  found.set(text, matches);
+  return matches;
+}
+
+function scanFilePaths(text: string): FilePathMatch[] {
   const matches: FilePathMatch[] = [];
   for (const tokenMatch of text.matchAll(/\S+/g)) {
     const token = tokenMatch[0];

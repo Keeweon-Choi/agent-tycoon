@@ -26,6 +26,11 @@ export const repoRoot = path.resolve(here, '../..');
 export const defaults = Object.freeze({ port: 18240, readOnly: true, chat: false, allowTerminal: false, funnel: false, engine: 'auto', allowApprovalRequests: false, allowedHosts: [] });
 // Smaller V8 young generation: idle daemon RSS 95 -> 84 MB at no measurable CPU cost (T-0013 measurement); RAM budget is below a VS Code SSH session.
 export const NODE_FLAGS = Object.freeze(['--max-semi-space-size=1']);
+// MEM-IDLE: glibc's malloc raises its mmap threshold after a big buffer is freed, then keeps later
+// freed buffers in its heap for good; fixed thresholds hand them back (cld/test/measure-idle-memory.ts).
+// Linux only (other platforms' allocators ignore them).
+export const DAEMON_ENV = Object.freeze({ MALLOC_MMAP_THRESHOLD_: '131072', MALLOC_TRIM_THRESHOLD_: '131072' });
+const daemonEnvLines = () => Object.entries(DAEMON_ENV).map(([key, value]) => `Environment=${key}=${value}\n`).join('');
 
 export function detectPlatform(platform = process.platform, procVersion = '') {
   if (platform === 'linux' && /microsoft/i.test(procVersion)) return 'wsl';
@@ -79,7 +84,7 @@ function xml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('
 const servicePath = (home, nodeDir, extra = []) => [path.join(home, '.local/bin'), ...[nodeDir].flat(), ...extra, '/usr/local/bin', '/usr/bin', '/bin'].filter(Boolean).join(':');
 export function renderSystemdUnit({ repo = repoRoot, node = process.execPath, home = os.homedir(), config, name = 'cld-gui', pathNodeDir = path.dirname(node) }) {
   const command = [node, ...NODE_FLAGS, path.join(repo, 'dist/cli.js'), ...daemonArgs(config)].map(shellQuote).join(' ');
-  return `[Unit]\nDescription=${name} host service\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=${repo}\nEnvironment=PATH=${servicePath(home, pathNodeDir)}\nExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNice=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n`;
+  return `[Unit]\nDescription=${name} host service\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=${repo}\nEnvironment=PATH=${servicePath(home, pathNodeDir)}\n${daemonEnvLines()}ExecStart=${command}\nRestart=on-failure\nRestartSec=5\nNice=5\nKillMode=process\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 // AbandonProcessGroup (TERM-P2, ADR-0018): when the daemon exits, launchd would kill what is left in its
@@ -255,7 +260,7 @@ export function rotateLog(file, max = 5 * 1024 * 1024) { try { if (fssync.statSy
 async function startDetached(config, home) {
   await stopDetached(home);
   const log = path.join(path.dirname(configPath(home)), 'daemon.log'); rotateLog(log); const out = fssync.openSync(log, 'a');
-  const child = spawnChild('nohup', [process.execPath, ...NODE_FLAGS, path.join(repoRoot, 'dist/cli.js'), ...daemonArgs(config)], { cwd: repoRoot, detached: true, stdio: ['ignore', out, out] });
+  const child = spawnChild('nohup', [process.execPath, ...NODE_FLAGS, path.join(repoRoot, 'dist/cli.js'), ...daemonArgs(config)], { cwd: repoRoot, detached: true, stdio: ['ignore', out, out], env: { ...process.env, ...DAEMON_ENV } });
   child.unref(); fssync.closeSync(out); await fs.writeFile(pidFile(home), `${child.pid}\n`);
   console.log(`! systemctl --user를 사용할 수 없어 백그라운드로 시작했습니다(로그 ${log}). 재부팅 뒤에는 설치를 다시 실행하세요.`);
 }

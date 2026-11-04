@@ -12,6 +12,7 @@ import { FOCUS_MS } from '../../notify/openTarget.js';
 import { cldOwnToast, useCldStore } from '../../officeStore.js';
 import { serverLine } from '../../serverText.js';
 import { requestStaleRecheck } from '../../staleBuild.js';
+import { useNow } from '../../workbench/workbenchStore.js';
 import { draftViewerFiles, useDraftTicketFor, useTicketFor } from '../attachmentGallery.js';
 import {
   composeAttachmentText,
@@ -37,6 +38,7 @@ import {
   mentionDisplay,
   replyPrefill,
 } from '../roomMentions.js';
+import { type RoomThread, roomThreads, ThreadTone, threadTone } from '../roomThreads.js';
 import { enterSends, isTouchDevice } from '../sendKey.js';
 import { RoomEditor } from './RoomEditor.js';
 
@@ -102,6 +104,12 @@ export function GroupRoomRow({
     }
   }, [groupError]);
   const timeline = m.groupTimelines[room.id];
+  // ROOM-THREADS: a waiting rail turns plain a day on, also while the room stays open.
+  const now = useNow();
+  const threads = useMemo(
+    () => roomThreads(timeline?.posts ?? []).map((thread) => ({ thread, tone: threadTone(thread, now) })),
+    [timeline, now],
+  );
   const chips = m.groupAttachments[room.id] ?? NO_CHIPS;
   const activeMention = mentionAt(text, cursor);
   const suggestions = activeMention ? filterMentions(room.members, activeMention.query) : [];
@@ -297,11 +305,11 @@ export function GroupRoomRow({
             />
           )}
           <div ref={posts} className="space-y-12">
-            {(timeline?.posts ?? []).map((post, index) => (
-              <RoomPost
-                key={post.id}
-                post={post}
-                tone={THREAD_TONES[index % THREAD_TONES.length]}
+            {threads.map(({ thread, tone }) => (
+              <RoomThreadView
+                key={thread.posts[0].id}
+                thread={thread}
+                tone={tone}
                 onReply={officeReadOnly ? undefined : replyTo}
                 onQuote={openQuote}
               />
@@ -471,13 +479,12 @@ export function GroupRoomRow({
   );
 }
 
-/** MSG-UI3: a room thread's rail, one colour each (static class names, so Tailwind sees them). */
-const THREAD_TONES = [
-  'border-l-thread-1',
-  'border-l-thread-2',
-  'border-l-thread-3',
-  'border-l-thread-4',
-];
+/** ROOM-THREADS: the thread's left rail (static class names, so Tailwind sees them). */
+const TONE_CLASS: Record<ThreadTone, string> = {
+  [ThreadTone.notice]: 'border-l-2 border-l-room-notice',
+  [ThreadTone.waiting]: 'border-l-2 border-l-accent',
+  [ThreadTone.plain]: '',
+};
 
 /** The ↳ mark before a thread reply, drawn in pixels (the pixel font has no such arrow). */
 function ReplyArrow() {
@@ -499,30 +506,22 @@ function ReplyArrow() {
   );
 }
 
-function RoomPost({
-  post,
-  tone,
-  onReply,
-  onQuote,
-}: {
-  post: GroupPostItem;
-  tone: string;
+type ReplyHandlers = {
   onReply?: (reply: ChatReply) => void;
   onQuote?: (id: string) => void;
-}) {
-  // C4: a system event (Task assigned, reported, …): one short muted line, no bubble.
-  if (post.system)
-    return (
-      <p data-keep={post.id} className="text-text-muted text-center">
-        {serverLine(post.text)}
-      </p>
-    );
+};
+
+/** A post's copy and 답글 actions (a post id names it; the boss's own post has no sender). */
+function postActions(post: GroupPostItem, onReply?: (reply: ChatReply) => void): BubbleActions {
   const copy = copyText({ kind: 'user', text: post.text });
-  const actions: BubbleActions = {
+  return {
     copy,
-    // A room post's id names it; the boss's own post has no sender.
     ...(onReply && { reply: () => onReply(replyDraft(post.id, post.sender ?? undefined, copy)) }),
   };
+}
+
+/** A post's delivery line: its mode, each target's state, and its actions. */
+function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: BubbleActions; top: boolean }) {
   const delivery = (state: GroupPostItem['delivery'][string]) =>
     state === 'delivered'
       ? t('messenger.delivery.delivered')
@@ -532,12 +531,113 @@ function RoomPost({
           ? t('messenger.delivery.off')
           : t('messenger.delivery.waiting');
   return (
+    <p className="text-text-muted flex flex-wrap gap-x-6 gap-y-2" aria-label={t('messenger.deliveryStatus')}>
+      {post.notice ? (
+        <span data-testid="room-mode">
+          {t('room.mode.notice', {
+            done: post.targets.filter((member) => post.delivery[member] === 'delivered').length,
+            total: post.targets.length,
+          })}
+        </span>
+      ) : (
+        post.targets.length > 0 && <span data-testid="room-mode">{t('room.mode.now')}</span>
+      )}
+      {!post.notice &&
+        post.targets.map((member) => (
+          <span key={member} className="border border-border px-4">
+            {member}: {delivery(post.delivery[member])}
+          </span>
+        ))}
+      <ActionRow actions={actions} post={top} />
+    </p>
+  );
+}
+
+/** The members' answers under a post, each after the ↳ mark. */
+function MemberReplies({ post, onReply, onQuote }: { post: GroupPostItem } & ReplyHandlers) {
+  return post.replies.map(
+    (reply) =>
+      // Owner 11-01 10:22: a room shows the members' words only, never their tool lines.
+      reply.items.some((i) => i.kind === 'assistant') && (
+        <section
+          key={reply.messageId ?? reply.member}
+          data-message-id={reply.messageId}
+          className="border-t border-border pt-4 flex items-start gap-6"
+          aria-label={t('messenger.replyLabel', { name: reply.member })}
+        >
+          <ReplyArrow />
+          <SenderFace name={reply.member} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <strong className="text-peer-name">{reply.member}</strong>
+            {reply.items
+              .filter((i) => i.kind === 'assistant')
+              .map((item) => (
+                <div
+                  key={item.id}
+                  data-chat-id={item.id}
+                  className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                >
+                  <Line item={item} received={false} replyAs={reply.member} onReply={onReply} onQuote={onQuote} />
+                </div>
+              ))}
+          </div>
+        </section>
+      ),
+  );
+}
+
+/** ROOM-THREADS: a 답글 in the thread, drawn as a member's answer is (↳, face, name), then its own answers. */
+function ThreadAnswer({ post, root, onReply, onQuote }: { post: GroupPostItem; root: string } & ReplyHandlers) {
+  const actions = postActions(post, onReply);
+  return (
+    <Actionable
+      actions={actions}
+      data-keep={post.id}
+      data-testid="thread-answer"
+      className="space-y-4 data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+    >
+      <section
+        className="border-t border-border pt-4 flex items-start gap-6"
+        aria-label={t('messenger.replyLabel', { name: post.sender ?? t('msgui3.me') })}
+      >
+        <ReplyArrow />
+        {post.sender ? <SenderFace name={post.sender} /> : <OwnerFace />}
+        <div className="min-w-0 flex-1 space-y-2">
+          <strong className="text-text-muted">{post.sender ?? t('msgui3.me')}</strong>
+          {/* The thread's first post needs no quote; a member's answer in it does. */}
+          {post.replyTo && post.replyTo.id !== root && <ReplyQuote reply={post.replyTo} open={onQuote} />}
+          <BubbleAttachments text={post.text} />
+          <PostStatus post={post} actions={actions} top={false} />
+        </div>
+      </section>
+      <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
+    </Actionable>
+  );
+}
+
+function RoomThreadView({
+  thread,
+  tone,
+  onReply,
+  onQuote,
+}: { thread: RoomThread; tone: ThreadTone } & ReplyHandlers) {
+  const [post, ...answers] = thread.posts;
+  // C4: a system event (Task assigned, reported, …): one short muted line, no bubble.
+  if (post.system)
+    return (
+      <p data-keep={post.id} className="text-text-muted text-center">
+        {serverLine(post.text)}
+      </p>
+    );
+  const actions = postActions(post, onReply);
+  return (
     <Actionable
       as="article"
       actions={actions}
       data-keep={post.id}
       data-testid="room-thread"
-      className={`border border-border border-l-2 ${tone} bg-bg-dark p-6 space-y-4 data-[focused=true]:outline-2 data-[focused=true]:outline-accent`}
+      data-tone={tone}
+      className={`border border-border ${TONE_CLASS[tone]} bg-bg-dark p-6 space-y-4 data-[focused=true]:outline-2 data-[focused=true]:outline-accent`}
     >
       <div className="flex items-center gap-6">
         {post.sender ? <SenderFace name={post.sender} /> : <OwnerFace />}
@@ -545,63 +645,11 @@ function RoomPost({
       </div>
       {post.replyTo && <ReplyQuote reply={post.replyTo} open={onQuote} />}
       <BubbleAttachments text={post.text} />
-      <p
-        className="text-text-muted flex flex-wrap gap-x-6 gap-y-2"
-        aria-label={t('messenger.deliveryStatus')}
-      >
-        {post.notice ? (
-          <span data-testid="room-mode">
-            {t('room.mode.notice', {
-              done: post.targets.filter((member) => post.delivery[member] === 'delivered').length,
-              total: post.targets.length,
-            })}
-          </span>
-        ) : (
-          post.targets.length > 0 && <span data-testid="room-mode">{t('room.mode.now')}</span>
-        )}
-        {!post.notice &&
-          post.targets.map((member) => (
-          <span key={member} className="border border-border px-4">
-            {member}: {delivery(post.delivery[member])}
-          </span>
-        ))}
-        <ActionRow actions={actions} post />
-      </p>
-      {post.replies.map(
-        (reply) =>
-          // Owner 11-01 10:22: a room shows the members' words only, never their tool lines.
-          reply.items.some((i) => i.kind === 'assistant') && (
-            <section
-              key={reply.messageId ?? reply.member}
-              data-message-id={reply.messageId}
-              className="border-t border-border pt-4 flex items-start gap-6"
-              aria-label={t('messenger.replyLabel', { name: reply.member })}
-            >
-              <ReplyArrow />
-              <SenderFace name={reply.member} />
-              <div className="min-w-0 flex-1 space-y-2">
-                <strong className="text-peer-name">{reply.member}</strong>
-                {reply.items
-                  .filter((i) => i.kind === 'assistant')
-                  .map((item) => (
-                  <div
-                    key={item.id}
-                    data-chat-id={item.id}
-                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
-                  >
-                    <Line
-                      item={item}
-                      received={false}
-                      replyAs={reply.member}
-                      onReply={onReply}
-                      onQuote={onQuote}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-          ),
-      )}
+      <PostStatus post={post} actions={actions} top />
+      <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
+      {answers.map((answer) => (
+        <ThreadAnswer key={answer.id} post={answer} root={post.id} onReply={onReply} onQuote={onQuote} />
+      ))}
     </Actionable>
   );
 }

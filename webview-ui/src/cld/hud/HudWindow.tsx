@@ -111,14 +111,14 @@ export function HudWindow({
   children,
 }: HudWindowProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const bounds = useBounds(ref);
   const hud = useHud();
   const { layout, minimized } = hud;
+  const hidden = !open || minimized[id] === true;
+  const bounds = useBounds(ref, hidden);
   const panels = useFixedPanels();
   const [live, setLive] = useState<Rect | null>(null);
   const stored = layout.items[id]?.place;
   const maximized = layout.items[id]?.max === true;
-  const hidden = !open || minimized[id] === true;
   const free = windowIsFree(id);
 
   // Until the room is measured the window stays out of sight rather than flashing at 0,0. The room

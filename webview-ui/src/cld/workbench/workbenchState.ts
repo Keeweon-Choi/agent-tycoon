@@ -17,9 +17,13 @@ import { NAME_RE } from '../engine.js';
 import type { CldSnapshot } from '../officeStore.js';
 import { codexKind } from '../panels/jobs.js';
 
-export const WORKBENCH_TABS = ['agents', 'tasks', 'changes'] as const;
+/** SPT-P1A/P1B/P3 (SPT §6.1): the Project Cockpit tabs (개요, 이슈, 요구사항, 그래프, 문서), then the operations ones (에이전트, 변경). */
+export const WORKBENCH_TABS = ['cockpit', 'tasks', 'reqs', 'graph', 'docs', 'agents', 'changes'] as const;
 export type WorkbenchTab = (typeof WORKBENCH_TABS)[number];
-export const DEFAULT_TAB: WorkbenchTab = 'agents';
+/** The operations tabs a phone folds under 더보기. */
+export const OPS_TABS: readonly WorkbenchTab[] = ['agents', 'changes'];
+/** Owner Q1 (SPT §14): with no tab remembered the 현황판 opens on 개요; a remembered tab wins. */
+export const DEFAULT_TAB: WorkbenchTab = 'cockpit';
 
 /** UI-C1: the picker's last entry, for the jobs and Codex runs that belong to no project. Not a
  *  valid project name (NAME_RE), so no project can collide with it. */

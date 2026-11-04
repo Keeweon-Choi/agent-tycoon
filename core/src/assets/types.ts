@@ -9,6 +9,10 @@ export interface CharacterDirectionSprites {
   down: string[][][];
   up: string[][][];
   right: string[][][];
+  /** DIAG-1104: the three-quarter walk (walk1, stand, walk3) facing lower right and upper right,
+   *  when the sheet has a `char_N_diag.png`; left is the right mirrored. */
+  downRight?: string[][][];
+  upRight?: string[][][];
 }
 
 export interface AssetIndex {
@@ -42,22 +46,4 @@ export interface CatalogEntry {
   frame?: number;
   /** GFX: optional 2.5D placement and depth (manifestUtils FurnitureVisual). */
   visual?: FurnitureVisual;
-}
-
-export interface PetSpriteFrames {
-  /** 3 frames of 16×32 — pet walking toward viewer (south). */
-  walkDown: string[][][];
-  /** 3 frames of 16×32 — pet idle facing viewer (south). */
-  idleDown: string[][][];
-  /** 3 frames of 16×32 — pet walking away from viewer (north). */
-  walkUp: string[][][];
-  /** 3 frames of 16×32 — pet idle facing away (north). */
-  idleUp: string[][][];
-  /** 3 frames of 32×32 — pet walking east. Left = horizontal flip at render time. */
-  walkRight: string[][][];
-}
-
-export interface PetManifest {
-  id: string;
-  name: string;
 }

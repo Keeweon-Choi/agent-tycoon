@@ -162,7 +162,8 @@ async function attach(port: number, id: string, cookie: string) {
   return { ws, text: () => frames.join(''), closed: () => closed };
 }
 
-const until = async (check: () => boolean, ms = 5_000) => {
+// A poll that returns as soon as the check holds: the cap is only for a real hang (11-03: 5 s timed out under a loaded gate).
+const until = async (check: () => boolean, ms = 20_000) => {
   const end = Date.now() + ms;
   while (!check()) {
     if (Date.now() > end) throw new Error('timed out');

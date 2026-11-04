@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { ChatReply, OfficeOrchestrator } from '../../../../../core/src/messages.js';
 import { transport } from '../../../transport/index.js';
+import { useDraftFiles } from '../draftFiles.js';
 import { pendingReplyForEdit } from '../messageActions.js';
 import {
   draftKey,
@@ -14,7 +15,9 @@ import {
   type PendingSend,
   saveDraft,
   saveDraftReply,
+  setAttachments,
 } from '../messengerStore.js';
+import { NO_CHIPS } from '../parts.js';
 import { type Peek, type PeekAction, peekShown, peekStep } from '../quotePeek.js';
 
 /**
@@ -42,6 +45,8 @@ export function useDraft({
   // The unsent text survives closing, switching and reloads (per device, 24 h).
   const draft = draftKey(row?.provider ?? 'claude', name);
   const [text, setText] = useState(() => loadDraft(draft));
+  // REDEPLOY-STATE: so do the files attached and not sent yet (a deploy reloads the page).
+  useDraftFiles(draft, m.attachments[agentId] ?? NO_CHIPS, (chips) => setAttachments(agentId, chips));
   // MSG-ACTIONS: the message this draft answers (답글), kept with the draft.
   const [reply, setReplyState] = useState(() => loadDraftReply(draft));
   const setReply = (value: ChatReply | null) => {
@@ -53,7 +58,7 @@ export function useDraft({
   const [peek, setPeek] = useState<Peek>(null);
   const editRestore = useRef<string | null>(null);
   const pendingEdit = m.editing?.agentId === agentId ? m.editing : null;
-  const peekOn = !pendingEdit && peekShown(peek, reply);
+  const peekOn = peekShown(peek, reply);
   const peekDo = (action: PeekAction) => {
     const step = peekStep(reply, action);
     setPeek(step.peek);
@@ -88,10 +93,20 @@ export function useDraft({
     setText(value);
     saveDraft(draft, value);
   };
+  // The draft's own reply chip waits while a held message is edited (the edit has its own chip).
+  // ponytail: kept in memory only; a reload in the middle of an edit forgets it.
+  const replyRestore = useRef<ChatReply | null>(null);
+  const parkReply = () => {
+    replyRestore.current = reply;
+    setReplyState(null);
+  };
   const leavePendingEdit = () => {
     messengerEditLeave((msg) => transport.send(msg));
     edit(editRestore.current ?? '');
     editRestore.current = null;
+    setReplyState(replyRestore.current);
+    saveDraftReply(draft, replyRestore.current);
+    replyRestore.current = null;
   };
   useEffect(() => {
     editActive.current = !!pendingEdit;
@@ -113,6 +128,7 @@ export function useDraft({
     reply,
     setReply,
     editRestore,
+    parkReply,
     pendingEdit,
     peekOn,
     peekDo,

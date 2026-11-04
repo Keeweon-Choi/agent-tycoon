@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { HOOK_EVENT_BUFFER_MS } from '../src/constants.js';
 import { HookEventHandler } from '../src/hookEventHandler.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { SessionRouter } from '../src/sessionRouter.js';
@@ -29,7 +30,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     ...overrides,
   } as AgentState;
@@ -267,28 +267,35 @@ describe('HookEventHandler', () => {
     expect(waitMsg).toBeTruthy();
   });
 
-  it('prunes expired buffered events', async () => {
-    // Create agent so events get buffered (unregistered agent exists)
-    const agent = createTestAgent({ id: 1, sessionId: 'other-sess' } as Partial<AgentState>);
-    agents.set(1, agent);
+  it('prunes expired buffered events', () => {
+    // Fake time: the prune interval is HOOK_EVENT_BUFFER_MS and keeps events strictly newer than
+    // the cutoff, so an event lives 5-10 s. Real time made this flaky under load (an event still
+    // buffered at 7 s when the first tick came a millisecond early, or late).
+    vi.useFakeTimers();
+    try {
+      // Create agent so events get buffered (unregistered agent exists)
+      const agent = createTestAgent({ id: 1, sessionId: 'other-sess' } as Partial<AgentState>);
+      agents.set(1, agent);
 
-    handler.handleEvent('claude', {
-      hook_event_name: 'Stop',
-      session_id: 'expired-sess',
-    });
+      handler.handleEvent('claude', {
+        hook_event_name: 'Stop',
+        session_id: 'expired-sess',
+      });
 
-    // Wait well past HOOK_EVENT_BUFFER_MS (5000) + prune interval cycle
-    await new Promise((r) => setTimeout(r, 7000));
+      // Two prune ticks: past any boundary of the 5-10 s window
+      vi.advanceTimersByTime(HOOK_EVENT_BUFFER_MS * 2 + 1);
 
-    // Now register -- event should have been pruned
-    const agent2 = createTestAgent({ id: 2 });
-    agents.set(2, agent2);
-    handler.registerAgent('expired-sess', 2);
+      // Now register -- event should have been pruned
+      const agent2 = createTestAgent({ id: 2 });
+      agents.set(2, agent2);
+      handler.registerAgent('expired-sess', 2);
 
-    // No messages (event was pruned)
-    expect(mockWebview.messages).toHaveLength(0);
-
-    handler.dispose();
+      // No messages (event was pruned)
+      expect(mockWebview.messages).toHaveLength(0);
+    } finally {
+      handler.dispose();
+      vi.useRealTimers();
+    }
   });
 
   // ── Auto-discovery ──────────────────────────────────────────

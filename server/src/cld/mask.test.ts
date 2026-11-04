@@ -68,4 +68,33 @@ describe('maskText', () => {
   it('cuts a very long line', () => {
     expect(maskText('x'.repeat(5000)).length).toBeLessThan(2100);
   });
+
+  it('a token straddling the long-line cap is dropped whole, never its first characters', () => {
+    const tok = `ghp_${'Zq9'.repeat(12)}`;
+    const out = maskText(`${'a'.repeat(1970)} ${tok} tail`);
+    expect(out).not.toMatch(/ghp_/);
+    expect(out).toBe(`${'a'.repeat(1970)}…`);
+    // A token ending before the cap is still masked, not cut.
+    expect(maskText(`${'a '.repeat(900)}${tok} ${'b'.repeat(400)}`)).toContain('***');
+  });
+
+  it('a long line without whitespace (compact JSON) keeps its head, cut at a non-token character; a straddling token still does not leak', () => {
+    const json = JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ id: i, name: `item${i}` })));
+    expect(json.length).toBeGreaterThan(2000);
+    const out = maskText(json);
+    expect(out.length).toBeGreaterThan(1950);
+    expect(json.startsWith(out.slice(0, -1))).toBe(true);
+    expect(out.endsWith('…')).toBe(true);
+    const tok = `ghp_${'Zq9'.repeat(12)}`;
+    const straddle = maskText(`{"k":"${'x'.repeat(1970)}","t":"${tok}","u":1}`);
+    expect(straddle).not.toMatch(/ghp_|Zq9/);
+    expect(straddle.startsWith('{"k":"xxx')).toBe(true);
+    // A JWT or a base64 secret is cut neither at its dots nor at its + / =: dropped whole, not split.
+    const jwt = `eyJ${'a'.repeat(30)}.eyJ${'b'.repeat(40)}.${'c/d+e='.repeat(8)}`;
+    const cutJwt = maskText(`{"k":"${'x'.repeat(1960)}","jwt":"${jwt}","u":1}`);
+    expect(cutJwt).not.toMatch(/eyJ|aaaa|c\/d/);
+    expect(cutJwt.endsWith('"jwt":…')).toBe(true);
+    // Nothing but token characters: nothing safe to keep.
+    expect(maskText('x'.repeat(5000))).toBe('…');
+  });
 });

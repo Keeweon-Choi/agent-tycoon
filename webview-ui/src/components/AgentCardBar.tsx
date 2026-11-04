@@ -1,21 +1,38 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { PartyButton, PartyPortrait } from '../cld/game/Party.js';
 import { HudPanel, usePanelSlot } from '../cld/hud/fixedPanels.js';
-import { CARD_BAR_MAX_VISIBLE, TERMINAL_SIDEBAR_WIDTH_PX } from '../constants.js';
+import {
+  CARD_BAR_MAX_VISIBLE,
+  PARTY_FRAME_BAR_PX,
+  PARTY_FRAME_EXPANDED_STORAGE_KEY,
+  TERMINAL_SIDEBAR_WIDTH_PX,
+} from '../constants.js';
 import { t } from '../i18n/index.js';
 import { swallowNextClick, withinTapSlop } from '../touch/touchPrimitives.js';
 import type { AgentAppearance, TabStatus } from './AgentCard.js';
 import { AgentCard } from './AgentCard.js';
 import {
   type CardInfo,
+  cardsExpanded,
   cardVariant,
   groupOrder,
   loadSavedOrder,
   mergeOrder,
   reorderByPointer,
+  savedCardsExpanded,
   saveOrder,
 } from './cardBar.js';
+
+/** PARTY-FRAME: this device's choice, folded (portraits) unless it unfolded the bar. */
+function loadExpanded(): boolean {
+  try {
+    return cardsExpanded(localStorage.getItem(PARTY_FRAME_EXPANDED_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
 
 interface AgentCardBarProps {
   /** Agents to show, top to bottom. */
@@ -75,6 +92,18 @@ export function AgentCardBar({
 }: AgentCardBarProps) {
   const [savedOrder, setSavedOrder] = useState<number[]>(loadSavedOrder);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(loadExpanded);
+  // PARTY-FRAME (owner 11-04 (나)): the cld bar folds to a column of portraits; upstream's stays as it was.
+  const folded = !!describeCard && !expanded;
+  const width = folded ? PARTY_FRAME_BAR_PX : TERMINAL_SIDEBAR_WIDTH_PX;
+  const fold = (next: boolean) => {
+    setExpanded(!next);
+    try {
+      localStorage.setItem(PARTY_FRAME_EXPANDED_STORAGE_KEY, savedCardsExpanded(!next));
+    } catch {
+      // Storage blocked: the choice holds for this page.
+    }
+  };
   const cardRefs = useRef(new Map<number, HTMLElement>());
   // WINDOW-LAYERS: past CARD_BAR_MAX_VISIBLE cards the list scrolls (its tags and the + stay put).
   const listRef = useRef<HTMLDivElement>(null);
@@ -143,31 +172,36 @@ export function AgentCardBar({
 
   return (
     <HudPanel>
-    {/* In the HUD layer (cld desktop) the bar is centred in the room under the top bar, over normal
-        windows; elsewhere it stays the flex sibling that overlays the office's right edge. */}
+    {/* In the HUD layer (cld desktop) the bar hangs from the room's top, as tall as its cards (PARTY-FRAME),
+        over normal windows; elsewhere it stays the flex sibling that overlays the office's right edge. */}
     <div
-      className={`flex flex-col items-center py-4 pointer-events-none ${inHud ? 'absolute inset-y-0 right-0 justify-center' : 'relative z-30 h-full shrink-0'}`}
+      className={`flex flex-col items-center py-4 pointer-events-none ${inHud ? 'absolute top-0 right-0 max-h-full' : 'relative z-30 h-full shrink-0'}`}
       style={{
-        width: TERMINAL_SIDEBAR_WIDTH_PX,
-        ...(!inHud && { marginLeft: -TERMINAL_SIDEBAR_WIDTH_PX }),
+        width,
+        ...(!inHud && { marginLeft: -width }),
       }}
     >
       <div
-        className="pixel-panel pointer-events-auto flex flex-col items-center gap-6 p-6 min-h-0 max-h-full select-none"
-        style={{ width: TERMINAL_SIDEBAR_WIDTH_PX - 8 }}
+        className={`pixel-panel pointer-events-auto flex flex-col items-center min-h-0 max-h-full select-none ${folded ? 'gap-4 p-4' : 'gap-6 p-6'}`}
+        style={{ width: width - (folded ? 4 : 8) }}
+        data-folded={folded || undefined}
         data-testid="card-container"
         data-hud-fixed
         onPointerDown={onPointerDown}
       >
+        {/* cld-gui (GAME-UI-1): the party roster opens from the bar's head. */}
+        {describeCard && <PartyButton folded={folded} onFold={fold} />}
+        {/* ponytail: a folded list that scrolls (past CARD_BAR_MAX_VISIBLE) clips the 기다림 tails; they
+            hang outside it otherwise. */}
         <div
           ref={listRef}
-          className="relative flex flex-col items-center gap-6 min-h-0 overflow-y-auto"
+          className={`relative flex flex-col items-center min-h-0 ${folded ? 'gap-4' : 'gap-6'} ${folded && listCap === null ? '' : 'overflow-y-auto'}`}
           style={listCap === null ? undefined : { maxHeight: listCap }}
         >
           {ids.map((agentId, i) => {
             const info = describeCard?.(agentId);
             const header =
-              info && (i === 0 || describeCard?.(ids[i - 1])?.group !== info.group) ? (
+              !folded && info && (i === 0 || describeCard?.(ids[i - 1])?.group !== info.group) ? (
                 <span
                   className="sticky top-0 z-10 shrink-0 w-full truncate text-center bg-bg border-2 border-border px-2 text-[length:calc(14px*var(--ui-scale))] leading-tight text-text-muted"
                   title={info.groupLabel}
@@ -186,22 +220,34 @@ export function AgentCardBar({
                   }}
                   className={draggingId === agentId ? 'opacity-70' : undefined}
                 >
-                  <AgentCard
-                    large
-                    agentId={agentId}
-                    variant={cardVariant(agentId, {
-                      activeId: activeAgentId,
-                      focusedId: focusedAgentId,
-                    })}
-                    appearance={getAppearance(agentId)}
-                    status={statusFor(agentId)}
-                    onSelect={onSelect}
-                    onClose={onClose}
-                    showClose={showClose}
-                    name={info?.name}
-                    extra={info?.extra}
-                    onCustomize={onCustomize}
-                  />
+                  {folded ? (
+                    <PartyPortrait
+                      id={agentId}
+                      name={info?.name ?? `Agent ${agentId}`}
+                      look={getAppearance(agentId)}
+                      temps={info?.temps ?? 0}
+                      variant={cardVariant(agentId, { activeId: activeAgentId, focusedId: focusedAgentId })}
+                      onSelect={onSelect}
+                      onCustomize={onCustomize}
+                    />
+                  ) : (
+                    <AgentCard
+                      large
+                      agentId={agentId}
+                      variant={cardVariant(agentId, {
+                        activeId: activeAgentId,
+                        focusedId: focusedAgentId,
+                      })}
+                      appearance={getAppearance(agentId)}
+                      status={statusFor(agentId)}
+                      onSelect={onSelect}
+                      onClose={onClose}
+                      showClose={showClose}
+                      name={info?.name}
+                      extra={info?.extra}
+                      onCustomize={onCustomize}
+                    />
+                  )}
                 </div>
               </Fragment>
             );

@@ -12,7 +12,7 @@ it('has an English and a Korean text for every key the update log uses', () => {
   const keys = changelogEntries.flatMap((e) => e.sections.flatMap((s) => [s.title, ...s.items]));
   expect(keys.length).toBeGreaterThan(0);
   for (const key of keys) {
-    expect(en[key], key).toBeTruthy();
+    expect((en as Record<string, string>)[key], key).toBeTruthy();
     expect(ko[key as keyof typeof ko], key).toBeTruthy();
   }
 });

@@ -16,11 +16,11 @@ export function readJson(file: string): unknown {
   }
 }
 
-/** 0600, write-then-rename. */
-export function writeJsonAtomic(file: string, data: unknown): void {
+/** 0600, write-then-rename; `indent` 0 writes it on one line (a big machine-only file). */
+export function writeJsonAtomic(file: string, data: unknown, indent = 2): void {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, indent)}\n`, { mode: 0o600 });
   fs.chmodSync(tmp, 0o600); // a leftover tmp keeps its old mode
   fs.renameSync(tmp, file);
 }

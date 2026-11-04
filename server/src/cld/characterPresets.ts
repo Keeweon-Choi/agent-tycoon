@@ -22,12 +22,12 @@ import {
 } from '../../../core/src/assets/constants.js';
 import {
   HUMANOID_HUE_MAX,
-  leastUsedMascotColor,
+  leastUsedMascot,
   MASCOT_EXPRESSIONS,
   MASCOT_GEARS,
   MASCOT_SPECIES,
-  mascotOfProvider,
   MAX_PERSON_ACC,
+  OWNER_LOOK_KEY,
   paletteOfLook,
   PART_ID,
   PART_SLOTS,
@@ -74,15 +74,25 @@ export const MAX_STORE_ENTRIES = 500;
 export const MAX_STORE_BYTES = 64 * 1024;
 /** An automatic look (a pin, not the owner's choice) of a name not seen for this long is dropped. */
 export const AUTO_PIN_TTL_DAYS = 90;
+/** CHARS-1104: the built-in people are shared out among the names seen this long ago at most (an
+ *  agent gone for weeks, kept up to AUTO_PIN_TTL_DAYS, no longer takes one). */
+export const RECENT_PIN_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const today = () => Math.floor(Date.now() / DAY_MS);
 /** A sanity cap for reading: a bigger file is not parsed (kept as a .bak-<time> copy). */
 export const MAX_STORE_READ_BYTES = 1024 * 1024;
-/** The file's own entry (§3.2): `{v: 2, pinnedAt}`, written by the pin migration. */
+/** The file's own entry (§3.2): `{v, pinnedAt}`, written by the pin migration. */
 export const STORE_META = '$meta';
+/** CHARS-1104: v3 = a named agent's automatic look is a built-in person, not its provider's mascot
+ *  (v2 pinned mascots, re-picked once). */
+export const STORE_META_V = 3;
 const SHEET_W = CHAR_FRAME_W * CHAR_FRAMES_PER_ROW;
 const SHEET_H = CHAR_FRAME_H * CHARACTER_DIRECTIONS.length;
 const MUGSHOT_SIDE = 16;
+/** LOOKS-MEM: a 꾸미기 chip's thumbnail is at most this wide (its 32 CSS px at dpr 3), and all of
+ *  them together at most this many bytes (past it a chip shows its name alone). */
+const THUMB_MAX_W = 96;
+const MAX_THUMB_BYTES = 2 * 1024 * 1024;
 const POLL_MS = 30_000;
 const WATCH_DEBOUNCE_MS = 100;
 const MAX_KEY_LENGTH = 200;
@@ -92,12 +102,15 @@ const UPLOAD_BODY_LIMIT = 2 * Math.ceil(MAX_PRESET_BYTES / 3) * 4 + 4096;
 /** SHEET-IMPORT: one generated sheet (base64) plus the JSON around it. */
 const IMPORT_BODY_LIMIT = Math.ceil(MAX_IMPORT_BYTES / 3) * 4 + 4096;
 /** An imported sheet: 7 frames of 192×384 in 3 rows (top view) or 2 (isometric); CHAR-ISO-1: or
- *  8, the last the walking neutral (an expansion pack's hand-made sheet; the importer makes 7). */
+ *  8, the last the walking neutral (an expansion pack's hand-made sheet; the importer makes 7);
+ *  BUNNY-9COL: or 9, the 9th the other foot's passing pose (walk 2, 8, 3, 9). */
 const HD_SHEET_W = IMPORT_FRAME_W * SHEET_FRAMES;
-const HD_SHEET_W8 = HD_SHEET_W + IMPORT_FRAME_W;
-/** The width an imported sheet file must have: 8 columns when it says so, else 7. */
-const hdWidth = (file: string): number =>
-  pngSize(file).w === HD_SHEET_W8 ? HD_SHEET_W8 : HD_SHEET_W;
+const HD_SHEET_WIDTHS = [HD_SHEET_W, HD_SHEET_W + IMPORT_FRAME_W, HD_SHEET_W + 2 * IMPORT_FRAME_W];
+/** The width an imported sheet file must have: 8 or 9 columns when it says so, else 7. */
+const hdWidth = (file: string): number => {
+  const { w } = pngSize(file);
+  return HD_SHEET_WIDTHS.includes(w) ? w : HD_SHEET_W;
+};
 /** CHAR-8DIR: an expansion pack's hand-made 5-row sheet (three-quarter front, three-quarter back,
  *  front, back, right side): both views in one file, 8 directions in the isometric view. */
 type PresetFormat = SheetFormat | 'iso8';
@@ -151,20 +164,64 @@ export function pngProblem(
   h: number,
   opaqueOk = false,
   maxBytes = MAX_SHEET_BYTES,
+  /** LOOKS-MEM: given the decoded picture of a good PNG (the scan cuts its thumbnail from it). */
+  decoded?: (png: PNG) => void,
 ): string | null {
   const header = pngHeaderIssue(buf, w, h, opaqueOk, maxBytes);
   if (header) return header.text;
+  let png: PNG;
   try {
-    PNG.sync.read(buf);
+    png = PNG.sync.read(buf);
   } catch (err) {
     return `broken PNG (${err instanceof Error ? err.message : String(err)})`;
   }
+  decoded?.(png);
   return null;
 }
 
-/** The IHDR width and height of a PNG file (its first 24 bytes), or 0s. */
+/** LOOKS-MEM: a 꾸미기 chip's picture, the sheet's first cell (what the chip always showed: the
+ *  standing front) shrunk by a whole factor to at most THUMB_MAX_W wide, each pixel the
+ *  alpha-weighted mean of its k×k block (as the browser's imported-sheet proxies), so a phone never
+ *  decodes a whole sheet (~29 MB for an imported one) per chip. */
+export function thumbOf(
+  img: { width: number; data: Uint8Array },
+  cellW: number,
+  cellH: number,
+): Buffer {
+  const k = Math.max(1, Math.ceil(cellW / THUMB_MAX_W));
+  const [w, h] = [Math.floor(cellW / k), Math.floor(cellH / k)];
+  const out = new PNG({ width: w, height: h });
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      let [r, g, b, a] = [0, 0, 0, 0];
+      for (let dy = 0; dy < k; dy++)
+        for (let dx = 0; dx < k; dx++) {
+          const i = ((y * k + dy) * img.width + x * k + dx) * 4;
+          const al = img.data[i + 3];
+          [r, g, b, a] = [
+            r + img.data[i] * al,
+            g + img.data[i + 1] * al,
+            b + img.data[i + 2] * al,
+            a + al,
+          ];
+        }
+      const o = (y * w + x) * 4;
+      if (a)
+        [out.data[o], out.data[o + 1], out.data[o + 2]] = [
+          Math.round(r / a),
+          Math.round(g / a),
+          Math.round(b / a),
+        ];
+      out.data[o + 3] = Math.round(a / (k * k));
+    }
+  return PNG.sync.write(out, { colorType: 6 });
+}
+
+/** The IHDR width and height of a PNG file (its first 24 bytes), or 0s; never opens what is not a
+ *  regular file (a FIFO would block the daemon). */
 function pngSize(file: string): { w: number; h: number } {
   try {
+    if (!fs.lstatSync(file).isFile()) return { w: 0, h: 0 };
     const fd = fs.openSync(file, 'r');
     const head = Buffer.alloc(24);
     fs.readSync(fd, head, 0, 24, 0);
@@ -178,7 +235,7 @@ function pngSize(file: string): { w: number; h: number } {
 /** A preset sheet's kind by its size: classic 112×96, HD 224×192 (CHAR-FACTORY), or an imported
  *  sheet at density 12 by its rows (top view 3, isometric 2, CHAR-8DIR 5). */
 function sheetKind({ w, h }: { w: number; h: number }): { density: Density; format: PresetFormat } {
-  if (w === HD_SHEET_W || w === HD_SHEET_W8)
+  if (HD_SHEET_WIDTHS.includes(w))
     return {
       density: IMPORT_DENSITY,
       format:
@@ -228,7 +285,7 @@ const ACCESSORIES = ['glasses', 'headset', 'cap'] as const;
 export function parseAppearance(value: unknown): CharacterChoice | null {
   if (!isObject(value)) return null;
   if (value.v === undefined) return parseChoice(value);
-  if (value.v === 3) return parsePerson(value);
+  if (value.v === 3) return retiredBunny(parsePerson(value));
   if (value.v !== 2) return null;
   const v = value;
   switch (v.kind) {
@@ -298,6 +355,30 @@ export function parseAppearance(value: unknown): CharacterChoice | null {
   }
 }
 
+/** BUNNY-SHEET (11-04): the retired `hd-bunny/bunny` preset's parts look, read as the built-in bunny
+ *  sheet (her 8-way walk). ponytail: one release of data compatibility, drop with the hd-bunny parts. */
+const RETIRED_BUNNY: Record<string, string> = {
+  body: 'hd-bunny/body',
+  face: 'hd-bunny/face',
+  hair: 'hd-bunny/hair',
+  fullbody: 'hd-bunny/suit',
+  legwear: 'hd-bunny/tights',
+  shoes: 'hd-bunny/heels',
+  wrist: 'hd-bunny/cuffs',
+  neck: 'hd-bunny/bowtie',
+  back: 'hd-bunny/tail',
+};
+const BUILTIN_BUNNY = 'builtin-bunny';
+function retiredBunny(look: CharacterChoice | null): CharacterChoice | null {
+  const parts = look?.parts as Record<string, unknown> | undefined;
+  const same =
+    parts &&
+    !look?.colors &&
+    Object.keys(parts).length === Object.keys(RETIRED_BUNNY).length &&
+    Object.entries(RETIRED_BUNNY).every(([slot, id]) => parts[slot] === id);
+  return same ? { preset: BUILTIN_BUNNY } : look;
+}
+
 /** CHAR-HUMAN: a v3 person (\`gender\`, a part id per slot, a colour per slot), its stored form
  *  (colours lower case, empty fields left out), or null. Part ids are only checked for shape: the
  *  webview draws an unknown one as its slot's built-in. */
@@ -350,17 +431,43 @@ function parsePerson(v: Record<string, unknown>): CharacterChoice | null {
   };
 }
 
+/** The built-in person \`looks\` use least (random among ties; past CHAR_COUNT with a hue turn). */
+function pickPerson(looks: Iterable<CharacterChoice | undefined>): {
+  palette: number;
+  hueShift: number;
+} {
+  const counts = new Array<number>(PALETTE_COUNT).fill(0);
+  for (const look of looks) {
+    const p = paletteOfLook(look);
+    if (p && p.palette < PALETTE_COUNT) counts[p.palette]++;
+  }
+  return pickDiversePalette(PALETTE_COUNT, counts);
+}
+
 /**
- * The look a name gets the first time it is seen after the pin migration (§3.3 item 2): its
- * provider's mascot (Claude → Coral, Codex → Byte, else Tori) in the colour from that species'
- * fixed list that \`looks\` (every saved look) use least.
+ * The look a name gets the first time it is seen after the pin migration (§3.3 item 2). CHARS-1104:
+ * a named agent (lead, teammate, engine project) gets the built-in person the \`looks\` of the names
+ * \`counted\` passes use least, at random among ties; an employee (\`emp:<id>\`: a sub-agent's, a Codex
+ * temporary's) the mascot (species and colour) the employees' looks use least, its provider's
+ * species first among ties (decision 9). Kept per employee afterwards, as every pin is.
  */
 export function firstSightLook(
+  name: string,
   provider: string | null | undefined,
-  looks: Iterable<CharacterChoice | undefined>,
+  looks: Readonly<Record<string, CharacterChoice>>,
+  counted: (name: string) => boolean = () => true,
 ): CharacterChoice {
-  const species = mascotOfProvider(provider);
-  return { v: 2, kind: 'mascot', species, color: leastUsedMascotColor(species, looks) };
+  if (!name.startsWith('emp:'))
+    return pickPerson(Object.entries(looks).flatMap(([n, l]) => (counted(n) ? [l] : [])));
+  const staff = Object.entries(looks).filter(([k]) => k.startsWith('emp:'));
+  return {
+    v: 2,
+    kind: 'mascot',
+    ...leastUsedMascot(
+      provider,
+      staff.map(([, l]) => l),
+    ),
+  };
 }
 
 const validKey = (key: unknown): key is string =>
@@ -440,9 +547,14 @@ type Density = 1 | 2 | typeof IMPORT_DENSITY;
 interface Preset {
   id: string;
   label: string;
+  /** BUNNY-BUILTIN: the folder its files are in (the user's, or a built-in pack's `sheets`). */
+  dir: string;
+  builtIn: boolean;
   /** The files stay on disk (`<id>.png`, `<id>.mug.png`, `<id>.iso.png`): memory keeps only
    *  which exist, not their bytes. */
   mug: boolean;
+  /** LOOKS-MEM: `<id>.thumb.png`, made by the scan (null past MAX_THUMB_BYTES or if it failed). */
+  thumb: Buffer | null;
   version: string;
   /** CHAR-FACTORY: 2 for an HD sheet (224×192); SHEET-IMPORT: 12 for an imported one. */
   density: Density;
@@ -461,6 +573,9 @@ interface Preset {
 export interface CharacterPresetOptions {
   /** ~/.config/agent-tycoon */
   configDir: string;
+  /** BUNNY-BUILTIN: read-only preset folders shipped with the daemon (built-in packs' `sheets`),
+   *  read before the user's; a built-in id wins. Not watched: they never change while it runs. */
+  builtInDirs?: readonly string[];
   publish(msg: PresetsMessage): void;
   /** A character by this name exists now (checked for setCharacter and uploads). */
   knownKey(key: string): boolean;
@@ -543,6 +658,7 @@ export class CharacterPresets {
         label: p.label,
         url: `cld/characters/${p.id}.png?v=${p.version}`,
         mugshotUrl: p.mug ? `cld/characters/${p.id}.mug.png?v=${p.version}` : null,
+        ...(p.thumb && { thumbUrl: `cld/characters/${p.id}.thumb.png?v=${p.version}` }),
         ...(p.density !== 1 && { density: p.density }),
         ...(p.format !== 'top' && { format: p.format }),
         ...(p.iso && { isoUrl: `cld/characters/${p.id}.iso.png?v=${p.version}` }),
@@ -562,131 +678,173 @@ export class CharacterPresets {
     if (!m || !preset || (m[2] === '.mug' && !preset.mug) || (m[2] === '.iso' && !preset.iso))
       return null;
     try {
-      const file = path.join(this.dir, name);
+      // BUNNY-BUILTIN: from its own folder, and only a file right in it (no symlink out of it)
+      const file = fs.realpathSync(path.join(preset.dir, name));
+      if (path.dirname(file) !== fs.realpathSync(preset.dir)) return null;
       return { path: file, size: fs.statSync(file).size };
     } catch {
       return null; // deleted since the scan; the next scan drops the preset
     }
   }
 
-  /** Re-read the folder when anything in it changed (names, sizes, mtimes). */
+  /** LOOKS-MEM: `<id>.thumb.png` as the last scan made it, else null. */
+  thumb(name: string): Buffer | null {
+    const m = /^([a-z0-9][a-z0-9_-]{0,40})\.thumb\.png$/.exec(name);
+    return (m && this.presets.get(m[1])?.thumb) || null;
+  }
+
+  /** Re-read the folders when anything in them changed (names, sizes, mtimes): the built-in ones
+   *  first (BUNNY-BUILTIN), then the user's. */
   scan(): void {
-    let names: string[] = [];
-    try {
-      names = fs.readdirSync(this.dir).sort();
-    } catch {
-      // No folder: no presets.
-    }
-    const stats = new Map<string, fs.Stats>();
-    for (const name of names) {
+    const folders = [...(this.opts.builtInDirs ?? []), this.dir].map((dir) => {
+      let names: string[] = [];
       try {
-        stats.set(name, fs.lstatSync(path.join(this.dir, name)));
+        names = fs.readdirSync(dir).sort();
       } catch {
-        // Deleted between readdir and lstat.
+        // No folder: no presets.
       }
-    }
-    const signature = [...stats].map(([n, s]) => `${n}:${s.size}:${s.mtimeMs}`).join('|');
-    if (signature === this.signature) return;
-    this.signature = signature;
-    const read = (
-      name: string,
-      w: number,
-      h: number,
-      opaqueOk = false,
-      maxBytes = MAX_PRESET_BYTES,
-      hash?: crypto.Hash,
-    ): boolean => {
-      const st = stats.get(name)!;
-      let problem: string | null = null;
-      if (!st.isFile()) problem = 'not a regular file';
-      else if (st.size > maxBytes) problem = `too big (${st.size} bytes)`;
-      else {
+      const stats = new Map<string, fs.Stats>();
+      for (const name of names) {
         try {
-          // the bytes are checked and hashed here, then dropped: they are served from disk
-          const buf = fs.readFileSync(path.join(this.dir, name));
-          problem = pngProblem(buf, w, h, opaqueOk, maxBytes);
-          if (!problem) hash?.update(buf);
-        } catch (err) {
-          problem = err instanceof Error ? err.message : String(err);
+          stats.set(name, fs.lstatSync(path.join(dir, name)));
+        } catch {
+          // Deleted between readdir and lstat.
         }
       }
-      if (problem) this.ignore(name, st, problem);
-      return !problem;
-    };
+      return { dir, stats };
+    });
+    const signature = folders
+      .flatMap(({ dir, stats }) => [...stats].map(([n, s]) => `${dir}/${n}:${s.size}:${s.mtimeMs}`))
+      .join('|');
+    if (signature === this.signature) return;
+    this.signature = signature;
     const next = new Map<string, Preset>();
-    for (const [name, st] of stats) {
-      if (name === 'README.md' || name.startsWith('.')) continue;
-      const m = /^(.+?)(\.mug\.png|\.iso\.png|\.png|\.json)$/.exec(name);
-      if (!m || !PRESET_ID.test(m[1])) {
-        this.ignore(
-          name,
-          st,
-          'not <id>.png, <id>.json, <id>.mug.png or <id>.iso.png (id: a-z 0-9 - _)',
-        );
-        continue;
-      }
-      const id = m[1];
-      if (m[2] !== '.png') {
-        if (!stats.has(`${id}.png`)) this.ignore(name, st, `no ${id}.png beside it`);
-        continue;
-      }
-      // CHAR-FACTORY: an HD sheet (twice the detail, the same layout) is 224×192, its portrait 32×32;
-      // SHEET-IMPORT: an imported one 1344 wide (no portrait: the screen crops its own)
-      const kind = st.isFile()
-        ? sheetKind(pngSize(path.join(this.dir, name)))
-        : sheetKind({ w: 0, h: 0 }); // never open a non-file
-      const { density, format } = kind;
-      const imported = density === IMPORT_DENSITY;
-      // C1: an iso8 sheet with its drink row is one row taller
-      const drinkRow = format === 'iso8' && pngSize(path.join(this.dir, name)).h === ISO8_DRINK_H;
-      const hash = crypto.createHash('sha1');
-      const ok = imported
-        ? read(
+    let thumbBytes = 0;
+    for (const { dir, stats } of folders) {
+      const builtIn = dir !== this.dir;
+      const read = (
+        name: string,
+        w: number,
+        h: number,
+        opaqueOk = false,
+        maxBytes = MAX_PRESET_BYTES,
+        hash?: crypto.Hash,
+        decoded?: (png: PNG) => void,
+      ): boolean => {
+        const st = stats.get(name)!;
+        let problem: string | null = null;
+        if (!st.isFile()) problem = 'not a regular file';
+        else if (st.size > maxBytes) problem = `too big (${st.size} bytes)`;
+        else {
+          try {
+            // the bytes are checked and hashed here, then dropped: they are served from disk
+            const buf = fs.readFileSync(path.join(dir, name));
+            problem = pngProblem(buf, w, h, opaqueOk, maxBytes, decoded);
+            if (!problem) hash?.update(buf);
+          } catch (err) {
+            problem = err instanceof Error ? err.message : String(err);
+          }
+        }
+        if (problem) this.ignore(name, st, problem);
+        return !problem;
+      };
+      for (const [name, st] of stats) {
+        if (name === 'README.md' || name.startsWith('.')) continue;
+        const m = /^(.+?)(\.mug\.png|\.iso\.png|\.png|\.json)$/.exec(name);
+        if (!m || !PRESET_ID.test(m[1])) {
+          this.ignore(
             name,
-            hdWidth(path.join(this.dir, name)),
-            drinkRow ? ISO8_DRINK_H : HD_SHEET_H[format],
+            st,
+            'not <id>.png, <id>.json, <id>.mug.png or <id>.iso.png (id: a-z 0-9 - _)',
+          );
+          continue;
+        }
+        const id = m[1];
+        // BUNNY-BUILTIN: an id an earlier (built-in) folder has stays its
+        const shadow = next.get(id);
+        if (shadow && shadow.dir !== dir) {
+          this.ignore(name, st, `${id} is a built-in preset`);
+          continue;
+        }
+        if (m[2] !== '.png') {
+          if (!stats.has(`${id}.png`)) this.ignore(name, st, `no ${id}.png beside it`);
+          continue;
+        }
+        // CHAR-FACTORY: an HD sheet (twice the detail, the same layout) is 224×192, its portrait 32×32;
+        // SHEET-IMPORT: an imported one 1344 wide (no portrait: the screen crops its own)
+        const kind = st.isFile()
+          ? sheetKind(pngSize(path.join(dir, name)))
+          : sheetKind({ w: 0, h: 0 }); // never open a non-file
+        const { density, format } = kind;
+        const imported = density === IMPORT_DENSITY;
+        // C1: an iso8 sheet with its drink row is one row taller
+        const drinkRow = format === 'iso8' && pngSize(path.join(dir, name)).h === ISO8_DRINK_H;
+        const hash = crypto.createHash('sha1');
+        // LOOKS-MEM: the chip's thumbnail is cut while the scan has the sheet decoded anyway
+        let thumb: Buffer | null = null;
+        const cut = (png: PNG) => {
+          try {
+            const t = imported
+              ? thumbOf(png, IMPORT_FRAME_W, IMPORT_FRAME_H)
+              : thumbOf(png, CHAR_FRAME_W * density, CHAR_FRAME_H * density);
+            if (thumbBytes + t.length <= MAX_THUMB_BYTES)
+              [thumb, thumbBytes] = [t, thumbBytes + t.length];
+          } catch (err) {
+            this.ignore(`${id}.thumb.png`, st, err instanceof Error ? err.message : String(err));
+          }
+        };
+        const ok = imported
+          ? read(
+              name,
+              hdWidth(path.join(dir, name)),
+              drinkRow ? ISO8_DRINK_H : HD_SHEET_H[format],
+              false,
+              MAX_HD_SHEET_BYTES,
+              hash,
+              cut,
+            )
+          : read(name, SHEET_W * density, SHEET_H * density, false, MAX_PRESET_BYTES, hash, cut);
+        if (!ok) continue;
+        const mug =
+          stats.has(`${id}.mug.png`) &&
+          !imported &&
+          read(
+            `${id}.mug.png`,
+            MUGSHOT_SIDE * density,
+            MUGSHOT_SIDE * density,
+            true,
+            MAX_PRESET_BYTES,
+            hash,
+          );
+        const iso =
+          stats.has(`${id}.iso.png`) &&
+          format === 'top' &&
+          read(
+            `${id}.iso.png`,
+            hdWidth(path.join(dir, `${id}.iso.png`)),
+            HD_SHEET_H.iso,
             false,
             MAX_HD_SHEET_BYTES,
             hash,
-          )
-        : read(name, SHEET_W * density, SHEET_H * density, false, MAX_PRESET_BYTES, hash);
-      if (!ok) continue;
-      const mug =
-        stats.has(`${id}.mug.png`) &&
-        !imported &&
-        read(
-          `${id}.mug.png`,
-          MUGSHOT_SIDE * density,
-          MUGSHOT_SIDE * density,
-          true,
-          MAX_PRESET_BYTES,
-          hash,
-        );
-      const iso =
-        stats.has(`${id}.iso.png`) &&
-        format === 'top' &&
-        read(
-          `${id}.iso.png`,
-          hdWidth(path.join(this.dir, `${id}.iso.png`)),
-          HD_SHEET_H.iso,
-          false,
-          MAX_HD_SHEET_BYTES,
-          hash,
-        );
-      const version = hash.digest('hex').slice(0, 10);
-      const meta = this.metaOf(id, stats);
-      next.set(id, {
-        id,
-        label: meta.label,
-        mug,
-        version,
-        density,
-        format,
-        iso,
-        standFirst: imported && meta.standFirst,
-        walk: imported ? meta.walk : 'steps',
-        drinkSteam: drinkRow ? meta.drinkSteam : [],
-      });
+          );
+        const version = hash.digest('hex').slice(0, 10);
+        const meta = this.metaOf(dir, id, stats);
+        next.set(id, {
+          id,
+          label: meta.label,
+          dir,
+          builtIn,
+          mug,
+          thumb,
+          version,
+          density,
+          format,
+          iso,
+          standFirst: imported && meta.standFirst,
+          walk: imported ? meta.walk : 'steps',
+          drinkSteam: drinkRow ? meta.drinkSteam : [],
+        });
+      }
     }
     this.presets = next;
     this.publish();
@@ -741,8 +899,7 @@ export class CharacterPresets {
     mug ??= faceOf(decoded.rgba!);
     const prefix = custom ? 'custom' : 'photo';
     let id = `${prefix}-${Date.now()}`;
-    for (let n = 1; fs.existsSync(path.join(this.dir, `${id}.png`)); n++)
-      id = `${prefix}-${Date.now()}-${n}`;
+    for (let n = 1; this.taken(id); n++) id = `${prefix}-${Date.now()}-${n}`;
     try {
       const label = koText(custom ? 'custom_label' : 'photo_label', {
         name: key.slice(0, MAX_LABEL_LENGTH - 4),
@@ -808,11 +965,14 @@ export class CharacterPresets {
         : koText('sheet_label');
     const attach = typeof b.attach === 'string' ? this.presets.get(b.attach) : undefined;
     // CHAR-8DIR: a 5-row sheet already holds both views
-    if (b.attach !== undefined && (attach?.density !== IMPORT_DENSITY || attach.format === 'iso8'))
+    // BUNNY-BUILTIN: a built-in preset is read-only
+    if (
+      b.attach !== undefined &&
+      (attach?.density !== IMPORT_DENSITY || attach.format === 'iso8' || attach.builtIn)
+    )
       return refused('sheet_import_attach', { id: String(b.attach).slice(0, MAX_LABEL_LENGTH) });
     let id = attach?.id ?? `sheet-${Date.now()}`;
-    for (let n = 1; !attach && fs.existsSync(path.join(this.dir, `${id}.png`)); n++)
-      id = `sheet-${Date.now()}-${n}`;
+    for (let n = 1; !attach && this.taken(id); n++) id = `sheet-${Date.now()}-${n}`;
     try {
       this.writeAtomic(
         `${id}.json`,
@@ -860,6 +1020,32 @@ export class CharacterPresets {
     const first = this.meta === null;
     const next = { ...this.assignments };
     const auto = new Map(this.auto);
+    const meta =
+      this.meta === null
+        ? { v: STORE_META_V, pinnedAt: new Date().toISOString() }
+        : typeof this.meta.v === 'number' && this.meta.v >= STORE_META_V
+          ? this.meta // a later version's file is left as it is
+          : { ...this.meta, v: STORE_META_V };
+    // CHARS-1104: the people go to the names seen lately, never to the owner's own look
+    const counted = (name: string) => {
+      const pinned = auto.get(name);
+      return (
+        name !== OWNER_LOOK_KEY &&
+        (this.live.has(name) || (!!pinned && day - pinned.d <= RECENT_PIN_DAYS))
+      );
+    };
+    const providerOf = (name: string) => live.find((c) => c.name === name)?.provider;
+    // CHARS-1104: once, a named agent's automatic mascot (v2's first-sight look) becomes a person
+    // and an employee's automatic palette a mascot; the owner's choices are never in \`auto\`
+    if (meta !== this.meta)
+      for (const [name, pinned] of auto) {
+        const staff = name.startsWith('emp:');
+        if (staff === 'species' in pinned) continue; // already the right kind
+        const look = autoLookOf(firstSightLook(name, providerOf(name), next, counted));
+        if (!look) continue;
+        next[name] = entryOf(look);
+        auto.set(name, autoPin(pinned.d, look));
+      }
     const free = (name: string) => validKey(name) && !(name in next) && !(name in this.foreign);
     const counts = new Array<number>(PALETTE_COUNT).fill(0);
     for (const c of live) {
@@ -867,11 +1053,12 @@ export class CharacterPresets {
       const pinned = auto.get(c.name);
       if (pinned) auto.set(c.name, { ...pinned, d: day });
       if (!free(c.name)) continue;
-      // ponytail: a palette past the built-in 6 (external char_N) does not validate, so it stays unpinned
+      // ponytail: a palette past CHAR_COUNT (external char_N) does not validate, so it stays unpinned
+      // the first start keeps a named character's palette; an employee is a mascot from the start
       const look = autoLookOf(
-        first
+        first && !c.name.startsWith('emp:')
           ? { palette: c.palette, hueShift: c.hueShift }
-          : firstSightLook(c.provider, Object.values(next)),
+          : firstSightLook(c.name, c.provider, next, counted),
       );
       if (!look) continue;
       next[c.name] = entryOf(look);
@@ -895,8 +1082,7 @@ export class CharacterPresets {
       Object.keys(next).every((k) => k in this.assignments) &&
       auto.size === this.auto.size &&
       [...auto].every(([k, v]) => sameAutoPin(this.auto.get(k), v));
-    if (!first && same) return;
-    const meta = this.meta ?? { v: 2, pinnedAt: new Date().toISOString() };
+    if (!first && same && meta === this.meta) return;
     if (!this.save(next, auto, meta, this.victims(auto, true))) {
       this.pinBlockedDay = day;
       return;
@@ -1061,6 +1247,7 @@ export class CharacterPresets {
    *  C1: `drinkSteam` `[{col, x, y}]`, the steam of a held cup in the drink row (bad entries are
    *  dropped). */
   private metaOf(
+    dir: string,
     id: string,
     stats: Map<string, fs.Stats>,
   ): { label: string; standFirst: boolean; walk: Walk; drinkSteam: CharacterDrinkSteam[] } {
@@ -1070,7 +1257,7 @@ export class CharacterPresets {
     if (!st) return none;
     try {
       if (!st.isFile() || st.size > 4096) throw new Error('not a small file');
-      const json = JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf-8')) as {
+      const json = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf-8')) as {
         label?: unknown;
         columns?: unknown;
         walk?: unknown;
@@ -1104,6 +1291,11 @@ export class CharacterPresets {
     }
   }
 
+  /** A new preset may not take this id: a sheet of it is in the user's folder, or it is built in. */
+  private taken(id: string): boolean {
+    return fs.existsSync(path.join(this.dir, `${id}.png`)) || !!this.presets.get(id)?.builtIn;
+  }
+
   /** One log line per file version. */
   private ignore(name: string, st: fs.Stats, why: string): void {
     const key = `${name}:${st.size}:${st.mtimeMs}`;
@@ -1126,7 +1318,7 @@ export class CharacterPresets {
 type RouteAuth = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 type Refused = ReturnType<typeof refused>;
 
-/** GET /cld/characters/<id>.png|<id>.mug.png|<id>.iso.png, POST /cld/characters and (SHEET-IMPORT)
+/** GET /cld/characters/<id>.png|<id>.mug.png|<id>.iso.png|<id>.thumb.png, POST /cld/characters and (SHEET-IMPORT)
  *  POST /cld/characters/import/preview and /cld/characters/import, all
  *  behind `auth` (static-looking paths skip the global session gate). */
 export function registerCharacterRoutes(
@@ -1138,6 +1330,13 @@ export function registerCharacterRoutes(
     '/cld/characters/:file',
     { preHandler: auth },
     async (request, reply) => {
+      // LOOKS-MEM: a chip's thumbnail, from memory (small)
+      const thumb = presets.thumb(request.params.file);
+      if (thumb)
+        return reply
+          .type('image/png')
+          .header('cache-control', 'private, max-age=86400')
+          .send(thumb);
       const file = presets.file(request.params.file);
       if (!file) return reply.code(404).send();
       // streamed from disk: the daemon never holds a sheet's bytes

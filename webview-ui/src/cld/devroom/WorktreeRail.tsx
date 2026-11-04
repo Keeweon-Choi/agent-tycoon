@@ -26,7 +26,6 @@ import { lookByName } from '../characters/looks.js';
 import { openExplorer } from '../files/explorerState.js';
 import { BranchGlyph, TerminalGlyph } from '../hud/glyphs.js';
 import { messengerSend } from '../messenger/messengerStore.js';
-import { employeePalette } from '../messenger/senderFace.js';
 import { cldToast, useCldStore } from '../officeStore.js';
 import { repoAsk, useRepoStore } from '../repo/repoStore.js';
 import { useRepoView } from '../repo/useRepoView.js';
@@ -91,7 +90,7 @@ export function Face({
     agentId !== null && looks
       ? looks.getAppearance(agentId)
       : employee
-        ? (lookByName(`emp:${employee.employeeId}`, characterPresets) ?? { palette: employeePalette(employee.employeeId), hueShift: 0 })
+        ? lookByName(`emp:${employee.employeeId}`, characterPresets)
         : null;
   return (
     <span className="shrink-0 flex items-center justify-center text-text-muted" style={{ width: size, height: size }} aria-hidden="true" data-employee={employee?.employeeId}>

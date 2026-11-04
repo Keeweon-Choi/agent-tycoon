@@ -249,7 +249,7 @@ async function main() {
     await phone.waitForTimeout(800);
     await tap('workbench');
     await workbench.getByRole('combobox', { name: '개발 프로젝트' }).selectOption('alpha');
-    await workbench.getByRole('button', { name: 'Task', exact: true }).tap();
+    await workbench.getByRole('button', { name: '이슈', exact: true }).tap();
     await workbench.locator('[data-testid="task-card"]').first().waitFor({ timeout: 20_000 });
     const scroller = () =>
       workbench.locator('[data-testid="task-card"]').first().evaluateHandle((el) => {

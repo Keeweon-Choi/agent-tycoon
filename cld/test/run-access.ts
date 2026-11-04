@@ -19,12 +19,14 @@ import * as path from 'path';
 
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -155,7 +157,7 @@ async function main() {
   const choose = (page: Page, id: string, title: string) =>
     card(page, id).getByRole('button', { name: `${title} — 이걸로 열기` });
   const openAccess = async (page: Page) => {
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     await page.getByRole('tab', { name: '접속', exact: true }).click();
     await page.getByTestId('access-option').getByRole('button', { name: '열기' }).click();
     await page.getByTestId('access-panel').getByTestId('access-current').waitFor();
@@ -217,7 +219,7 @@ async function main() {
     });
     await daemon.loginUrl(); // listening again before the page reloads
     await host.reload();
-    await host.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(host, 20_000);
     check(
       (await host.getByText('접속 방식 고르기').count()) === 0,
       'the remembered choice suppresses the start screen after restart',
@@ -245,7 +247,7 @@ async function main() {
     // ── 5. The compact access panel still fits a phone. ──
     const phone = await open(PHONE);
     await phone.goto(await loginLink());
-    await phone.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(phone, 20_000);
     await openAccess(phone);
     await card(phone, 'direct').scrollIntoViewIfNeeded();
     await shot(phone, 'access-phone');
@@ -269,7 +271,7 @@ async function main() {
     check((await health('127.0.0.2')) === 200, 'the LAN listener answers on 127.0.0.2');
     const lan = await open(DESKTOP);
     await lan.goto(lanLink);
-    await lan.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(lan, 20_000);
     await openAccess(lan);
     const connectorSeen = () =>
       lan.evaluate(async () => ((await (await fetch('/api/cld/connector')).json()) as { connector: string }).connector);
@@ -308,7 +310,7 @@ async function main() {
     // "패스키 필수" turns the device key's silent proof off, so only a passkey tap proves.
     const strict = await open(DESKTOP);
     await strict.goto(await loginLink());
-    await strict.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(strict, 20_000);
     const cdp = await strict.context().newCDPSession(strict);
     await cdp.send('WebAuthn.enable');
     await cdp.send('WebAuthn.addVirtualAuthenticator', {
@@ -327,16 +329,16 @@ async function main() {
       { timeout: 20_000 },
     );
     // Registering the passkey is itself a dangerous action: the device key proves it by itself.
-    await strict.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(strict, '보안');
     const security = strict.getByTestId('security');
     await security.getByRole('button', { name: '패스키 등록', exact: true }).click();
     await security.getByTestId('passkey-row').first().waitFor({ timeout: 15_000 });
     check(true, 'a passkey was added after the device key proved itself silently (no prompt)');
     await strict.reload(); // closes the panel
-    await strict.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(strict, 20_000);
     // cf5417ad (10-24): turning 패스키 필수 on takes this device's own passkey, just tapped here:
     // the security panel's checkbox taps it (the virtual authenticator answers).
-    await strict.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(strict, '보안');
     await strict
       .getByTestId('security')
       .getByRole('button', { name: /패스키\(생체 인증\) 필수/ })
@@ -358,7 +360,7 @@ async function main() {
     });
     await daemon.loginUrl();
     await strict.reload();
-    await strict.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(strict, 20_000);
     await openAccess(strict);
     const prompt = strict.getByTestId('stepup-prompt');
     await choose(strict, 'direct', '직접 열기').click();

@@ -31,6 +31,8 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon as launchDaemon,
+  topBarButton,
+  topBarReady,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -177,7 +179,7 @@ async function main() {
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
   // The phone's top bar keeps only the floor and 설정 (기기 추가 moved into 설정), so 설정 marks "in the app".
   const inApp = (page: Page) =>
-    page.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 15_000 });
+    topBarReady(page, 15_000);
   /** A CDP virtual platform authenticator with user verification (Face ID's stand-in). */
   const virtualAuthenticator = async (ctx: BrowserContext, page: Page) => {
     const cdp = await ctx.newCDPSession(page);
@@ -209,7 +211,7 @@ async function main() {
     check(true, 'device A logged in with the startup link');
 
     // ── 기기 추가 on A, typed on phone B ──
-    await a.getByRole('button', { name: '기기 추가', exact: true }).click();
+    await topBarButton(a, '기기 추가');
     const shown = (await a.getByTestId('device-code').textContent())?.trim() ?? '';
     check(/^\d{4} \d{4}$/.test(shown), `기기 추가 shows an 8-digit code as "1234 5678" (${shown})`);
     check(
@@ -303,7 +305,7 @@ async function main() {
     check(reused?.status() === 401, "and the handoff code can't be used twice");
 
     // ── Passkey: register on A, sign out, log back in ──
-    await a.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(a, '보안');
     const security = a.getByTestId('security');
     await security.getByRole('button', { name: '패스키 등록', exact: true }).click();
     await security.getByTestId('passkey-row').first().waitFor({ timeout: 15_000 });
@@ -350,7 +352,7 @@ async function main() {
     check(true, 'A logs back in with a host code');
 
     // ── Sign another device out: its socket closes ──
-    await a.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(a, '보안');
     await a.getByTestId('session-row').filter({ hasText: '이 기기' }).waitFor();
     const others = await a.getByTestId('session-row').filter({ hasNotText: '이 기기' }).count();
     await a.getByRole('button', { name: '다른 기기 모두 로그아웃', exact: true }).click();

@@ -315,7 +315,8 @@ describe('content packs (CHAR-FACTORY)', () => {
     if ('error' in bunny) throw new Error(bunny.error);
     expect(bunny.parts).toHaveLength(9);
     expect(bunny.parts.every((p) => p.hd?.density === 4)).toBe(true);
-    expect(bunny.summary.presets.map((p) => p.id)).toEqual(['hd-bunny/bunny']);
+    // BUNNY-SHEET: her parts stay one release; the built-in bunny is a sheet (hd-bunny/sheets/)
+    expect(bunny.summary.presets).toEqual([]);
     const skipped = warn.mock.calls.map((c) => String(c[0])).join('\n');
     expect(skipped).toMatch(/bad.*112×96, not 448×384/);
     expect(skipped).toMatch(/bad-density.*density must be 2 or 4/);

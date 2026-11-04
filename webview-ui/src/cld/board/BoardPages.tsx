@@ -24,7 +24,7 @@ import { transport } from '../../transport/index.js';
 import { diskBytes, diskMeasuredAt } from '../diskCard.js';
 import { useEngineStore } from '../engineStore.js';
 import { ringWord } from '../ez/visuals.js';
-import { percentTone, tempTone } from '../format.js';
+import { hwSections, hwSensorsHint, percentTone, tempTone } from '../format.js';
 import {
   capSlots,
   cpuCoreRows,
@@ -40,6 +40,7 @@ import {
   DETAIL_CPU,
   gpuDetail,
   type HwOpen,
+  type HwViewKind,
   type HwViewModel,
   hwViewModel,
   openDetail,
@@ -48,6 +49,7 @@ import {
   useHwPrefs,
 } from '../hwView.js';
 import type { CldSnapshot } from '../officeStore.js';
+import { serverLine } from '../serverText.js';
 import { capRows } from '../temps.js';
 import { useWaitReasons } from '../waiting.js';
 import {
@@ -305,8 +307,33 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
           <HwOverview hw={hw} m={m} mode={mode} diskUsage={snap.diskUsage} />
         )}
         {hw.stale && <p className="led-warn">{t('hardware.stale')}</p>}
+        {mode !== 'mini' && <HwNotes hw={hw} view={m.view} />}
       </div>
     </div>
+  );
+}
+
+/** building-a-1104: what only the 현황판's old HW tab said, now on the full board (that tab is
+ *  gone, owner 11-04 20:28): how to get the temperatures, the sampler's warnings, and where each
+ *  reading comes from. */
+function HwNotes({ hw, view }: { hw: HwSample; view: HwViewKind }) {
+  const sources = hwSections(hw, view)
+    .flatMap((card) => card.rows.map((r) => r.source && `${card.title} ${r.label} ${r.source}`))
+    .filter((x): x is string => !!x);
+  return (
+    <>
+      {hw.sensorsHint && <p className="led-muted" data-testid="board-hw-hint">{hwSensorsHint()}</p>}
+      {hw.warnings.map((w) => (
+        <p key={w} className="led-warn" data-testid="board-hw-warning">
+          ⚠ {serverLine(w)}
+        </p>
+      ))}
+      {sources.length > 0 && (
+        <p className="led-muted led-sources" data-testid="board-hw-sources">
+          {t('board.sources')} · {[...new Set(sources)].join(' · ')}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -829,6 +856,12 @@ function GpuPage({ snap, now, lookOf }: { snap: CldSnapshot; now: number; lookOf
           <p className="led-muted">{t('board.gpuIdle')}</p>
         )}
         <p className="led-muted">{t('board.queueCount', { count: board.queue.length })}</p>
+        {board.unleased?.map((p) => (
+          <p key={p.pid} className="led-warn" data-testid="board-gpu-unleased">
+            {t('gpu.unleased')} · {p.cmd ? `${p.cmd}(${p.pid})` : `pid ${p.pid}`}
+            {p.usedMib != null && ` · ${p.usedMib} MiB`}
+          </p>
+        ))}
         {ends.length > 0 && (
           <ul className="led-ends">
             {ends.map(({ end, fade }) => (

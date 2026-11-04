@@ -10,9 +10,10 @@
  * on a spare port, headless Chromium with --disable-gpu; the preset's <id>.png / <id>.json are
  * copied into that HOME's characters folder and given to the lead 'alpha'.
  *
- *   npx tsx cld/test/run-char-walk.ts <port 18256-18269> <preset dir> <preset id> <out dir> [zoom] [phone]
- * Writes <out dir>/office-walk.webm, strip-<walk>.png per walk, walk-log.json, and prints the
- * cells drawn per walk.
+ *   npx tsx cld/test/run-char-walk.ts <port> <preset dir> <preset id> <out dir> [zoom] [phone] [top]
+ * (`top`: the top-down office instead of the isometric one.) Writes <out dir>/office-walk.webm,
+ * strip-<walk>.png per walk, seated.png (BUNNY-SHEET: then sent to its desk), walk-log.json, and
+ * prints the cells drawn per walk.
  */
 import type { BrowserContextOptions, Page } from '@playwright/test';
 import * as fs from 'fs';
@@ -36,7 +37,9 @@ const [presetDir, presetId, outDir] = process.argv
   .slice(3, 6)
   .map((a, i) => (i === 1 ? a : path.resolve(a)));
 const ZOOM = Number(process.argv[6] ?? 6);
-const PHONE = process.argv[7] === 'phone';
+const FLAGS = process.argv.slice(7);
+const PHONE = FLAGS.includes('phone');
+const TOP = FLAGS.includes('top');
 const CLI = process.env.CLI_JS ?? path.join(REPO_ROOT, 'dist/cli.js');
 const DEADLINE_MS = 240_000;
 const VIEW = PHONE ? { width: 390, height: 844 } : { width: 960, height: 720 };
@@ -80,6 +83,7 @@ type Hooks = {
   selectAgent: (id: number) => void;
   setZoom: (z: number) => void;
   follow: (id: number) => void;
+  setActive: (id: number, on: boolean, tool?: string | null) => void;
 };
 const hooks = <T>(page: Page, fn: (h: Hooks, a: any) => T, arg?: unknown): Promise<T> =>
   page.evaluate(
@@ -91,16 +95,17 @@ const hooks = <T>(page: Page, fn: (h: Hooks, a: any) => T, arg?: unknown): Promi
     [fn.toString(), arg] as const,
   );
 
-/** The iso8 sheet cell the isometric office draws for a pose (cld/iso/sprites.ts characterView
- *  and importedSheet.ts: walk columns 2, 8, 3, 8; rows 1-5 three-quarter front, three-quarter
- *  back, front, back, right side; 'm' mirrored), or '-' when it stands. */
-function cellOf(p: Pose): string {
+/** The iso8 sheet cell the office draws for a pose (cld/iso/sprites.ts characterView and
+ *  importedSheet.ts: walk columns 2, 8, 3, 8, or 2, 8, 3, 9 on a 9-column sheet; rows 1-5
+ *  three-quarter front, three-quarter back, front, back, right side; 'm' mirrored), or '-' when
+ *  it stands. */
+function cellOf(p: Pose, walkCols: number[]): string {
   if (p.state !== 'walk') return '-';
   const [DOWN, LEFT, RIGHT] = [0, 1, 2];
   const across = p.dir === RIGHT ? 1 : p.dir === LEFT ? -1 : 0;
   const dr = across ? (p.diagRow ?? 0) : p.dir === DOWN ? 1 : -1;
-  const [sx, sy] = [Math.sign(across - dr), Math.sign(across + dr)];
-  const col = [2, 8, 3, 8][p.frame % 4];
+  const [sx, sy] = TOP ? [across, dr] : [Math.sign(across - dr), Math.sign(across + dr)];
+  const col = walkCols[p.frame % 4];
   if (sx && sy) return `r${sy > 0 ? 1 : 2}c${col}${sx < 0 ? 'm' : ''}`;
   if (sy) return `r${sy > 0 ? 3 : 4}c${col}`;
   return `r5c${col}${sx < 0 ? 'm' : ''}`;
@@ -136,6 +141,8 @@ async function main() {
     throw new Error('usage: <port> <preset dir> <id> <out dir> [zoom] [phone]');
   await assertPortFree(port);
   fs.mkdirSync(outDir, { recursive: true });
+  const cols = PNG.sync.read(fs.readFileSync(path.join(presetDir, `${presetId}.png`))).width / 288;
+  const walkCols = cols === 9 ? [2, 8, 3, 9] : [2, 8, 3, 8];
   const { home, bin } = makeEngineHome();
   const cfg = configDirectory(home);
   const sessions = path.join(home, '.claude/sessions');
@@ -207,16 +214,25 @@ async function main() {
       ...CONTEXT,
       recordVideo: { dir: outDir, size: VIEW },
     });
-    await ctx.addInitScript(() => {
-      (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
-      (window as unknown as { __name: (f: unknown) => unknown }).__name = (f) => f;
-      localStorage.setItem('cld.title-scene', 'off');
-      localStorage.setItem('cld.office-iso', 'on');
-      localStorage.setItem(
-        'cld.office-hours',
-        JSON.stringify({ on: false, start: 540, end: 1080, days: [1, 2, 3, 4, 5], lingerMin: 10 }),
-      );
-    });
+    await ctx.addInitScript(
+      (iso) => {
+        (window as unknown as { __AGENT_TYCOON_E2E: boolean }).__AGENT_TYCOON_E2E = true;
+        (window as unknown as { __name: (f: unknown) => unknown }).__name = (f) => f;
+        localStorage.setItem('cld.title-scene', 'off');
+        localStorage.setItem('cld.office-iso', iso);
+        localStorage.setItem(
+          'cld.office-hours',
+          JSON.stringify({
+            on: false,
+            start: 540,
+            end: 1080,
+            days: [1, 2, 3, 4, 5],
+            lingerMin: 10,
+          }),
+        );
+      },
+      TOP ? 'off' : 'on',
+    );
     const page = await ctx.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -249,7 +265,7 @@ async function main() {
         const [png, pose] = await Promise.all([page.screenshot({ clip }), tile()]);
         if (pose && pose.state === 'walk') {
           shots.push(png);
-          cells.push(cellOf(pose));
+          cells.push(cellOf(pose, walkCols));
         }
       }
     };
@@ -282,6 +298,13 @@ async function main() {
         `${walk.name}: (${from?.col},${from?.row}) -> (${to?.col},${to?.row}): ${runs(cells)}`,
       );
     }
+    // seated: sent to its desk to work, the still once it types
+    await hooks(page, (h, a) => h.setActive(a, true, 'Edit'), id);
+    for (const end = Date.now() + 20_000; Date.now() < end && (await tile())?.state !== 'type';)
+      await sleep(300);
+    await sleep(1_000);
+    fs.writeFileSync(path.join(outDir, 'seated.png'), await page.screenshot({ clip }));
+    console.log(`seated: ${(await tile())?.state}`);
     fs.writeFileSync(path.join(outDir, 'walk-log.json'), JSON.stringify(log, null, 1));
     await ctx.close();
     if (video) fs.renameSync(await video.path(), path.join(outDir, 'office-walk.webm'));

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
+import { interiorOn } from '../cld/features.js';
 import { loadSavedCamera } from '../cld/savedCamera.js';
 import { requestStaleRecheck } from '../cld/staleBuild.js';
 import type { ColorValue } from '../components/ui/types.js';
@@ -40,6 +41,7 @@ import {
 import type { EditorState } from '../office/editor/editorState.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { getRotatedType, getToggledType } from '../office/layout/furnitureCatalog.js';
+import { PET_SPECIES } from '../office/sprites/petSpriteData.js';
 import type {
   EditTool as EditToolType,
   OfficeLayout,
@@ -205,6 +207,7 @@ export function useEditorActions(
 
   const handleToggleEditMode = useCallback(() => {
     setIsEditMode((prev) => {
+      if (!interiorOn && !prev) return prev; // postponed (cld/features.ts): no way in, a way out stays
       const next = !prev;
       editorState.isEditMode = next;
       if (next) {
@@ -599,12 +602,12 @@ export function useEditorActions(
       let newPets: PlacedPet[];
       if (active) {
         // Picking a pet only arms it: the next click on a floor tile drops it there.
-        if (currentPets.some((p) => p.petType === petType)) return;
+        if (currentPets.some((p) => p.species === PET_SPECIES[petType])) return;
         editorState.petPlacingType = editorState.petPlacingType === petType ? null : petType;
         setEditorTick((n) => n + 1);
         return;
       } else {
-        newPets = currentPets.filter((p) => p.petType !== petType);
+        newPets = currentPets.filter((p) => p.species !== PET_SPECIES[petType]);
         // Idempotent: nothing to remove → no-op.
         if (newPets.length === currentPets.length) {
           return;
@@ -655,7 +658,10 @@ export function useEditorActions(
           if (petType === null || !os.canPlacePetAt(col, row)) return;
           editorState.petPlacingType = null;
           const pets = layout.pets ?? [];
-          applyEdit({ ...layout, pets: [...pets, { id: crypto.randomUUID(), petType, col, row }] });
+          applyEdit({
+            ...layout,
+            pets: [...pets, { id: crypto.randomUUID(), species: PET_SPECIES[petType], col, row }],
+          });
           return;
         }
         case EditTool.CARPET_PAINT:

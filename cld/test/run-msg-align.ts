@@ -7,7 +7,7 @@
  * time. A task notice of a run whose employee was reused for a newer run keeps its employee's name
  * and face, also after a reload.
  *
- *   npx tsx cld/test/run-msg-align.ts <port 18256-18259>
+ *   npx tsx cld/test/run-msg-align.ts <port 18316|18317>
  *
  * Screenshots: cld/artifacts/msg-align/*.png
  */
@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { STAFF_NAMES } from '../../core/src/cld/staffNames.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -24,13 +25,15 @@ import {
   launchBrowser,
   makeEngineHome,
   REPO_ROOT,
-  sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
-const port = sparePort();
+// 18256-18259 belong to the deploy check's install test, so this runner takes the game messenger's pair.
+const port = Number(process.argv[2]);
+if (![18316, 18317].includes(port)) throw new Error('port must be 18316 or 18317');
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/msg-align');
+/** The dialogue window's name plate starts this far inside its box edge (.dlg-plate: 8 px, plus the 2 px border). */
+const PLATE_INSET = 10;
 const DEADLINE_MS = 280_000;
 const PHONE = (() => {
   const d = { ...devices['iPhone 13'] } as BrowserContextOptions & { defaultBrowserType?: string };
@@ -201,28 +204,27 @@ async function main() {
     };
     /** Left/right edges (px) of what the conversation lines up, measured in the page. */
     const measure = (conv: Locator) =>
-      conv.evaluate((el) => {
+      conv.evaluate((el, plateInset) => {
         const list = el.querySelector('[data-testid="chat-scroll"]') as HTMLElement;
         const lb = list.getBoundingClientRect();
         const lefts: Record<string, number[]> = { body: [], name: [], more: [], time: [], line: [] };
         const rights: Record<string, number[]> = { body: [], name: [], more: [], time: [] };
         let actionsLeftOfTime = true;
         let actionsRightOfTime = true;
-        let tails = 0;
         for (const row of el.querySelectorAll<HTMLElement>('[data-chat-id]')) {
           const line = row.querySelector<HTMLElement>(':scope > details');
           if (line) {
             lefts.line.push(line.getBoundingClientRect().left);
             continue;
           }
-          const box = row.querySelector<HTMLElement>('.bubble-box');
+          const box = row.querySelector<HTMLElement>('.dlg-box');
           if (!box) continue;
           const boss = !!row.querySelector('[data-testid="owner-face"]') || row.querySelector('[data-from="boss"]') !== null;
           const into = boss ? rights : lefts;
           const edge = (n: HTMLElement) => (boss ? n.getBoundingClientRect().right : n.getBoundingClientRect().left);
-          tails += row.querySelector('[data-testid="bubble-tail"]') ? 1 : 0;
-          into.body.push(edge(box.firstElementChild as HTMLElement));
-          for (const n of row.querySelectorAll<HTMLElement>('[data-testid="from-name"]')) into.name.push(edge(n));
+          into.body.push(edge(box));
+          // the name plate sits inset from the box's edge (dialogue window)
+          for (const n of row.querySelectorAll<HTMLElement>('[data-testid="from-name"]')) into.name.push(edge(n) + (boss ? plateInset : -plateInset));
           for (const b of row.querySelectorAll<HTMLElement>('button.text-accent-text.mt-2')) into.more.push(edge(b));
           const time = row.querySelector<HTMLElement>('time');
           if (time) {
@@ -239,8 +241,8 @@ async function main() {
         }
         const guideL = lefts.body[0] - lb.left;
         const guideR = lb.left + list.clientLeft + list.clientWidth - rights.body[0];
-        return { lefts, rights, guideL, guideR, actionsLeftOfTime, actionsRightOfTime, tails };
-      });
+        return { lefts, rights, guideL, guideR, actionsLeftOfTime, actionsRightOfTime };
+      }, PLATE_INSET);
     const spread = (xs: number[]) => (xs.length ? Math.max(...xs) - Math.min(...xs) : 0);
     const verify = async (page: Page, conv: Locator, tag: string, actions: boolean) => {
       const m = await measure(conv);
@@ -252,25 +254,12 @@ async function main() {
         check(m.rights[k].length > 0, `${tag}: measured boss-side ${k} (${m.rights[k].length})`);
       check(spread(all(m.lefts)) <= 1, `${tag}: lead side: bubble bodies, names, 더보기, times and command lines start on one line (spread ${spread(all(m.lefts)).toFixed(2)} px)`);
       check(spread(all(m.rights)) <= 1, `${tag}: boss side: bubble bodies, names, 더보기 and times end on one line (spread ${spread(all(m.rights)).toFixed(2)} px)`);
-      check(Math.abs(m.guideL - m.guideR) <= 1, `${tag}: the two guide lines mirror each other (left ${m.guideL.toFixed(1)} px, right ${m.guideR.toFixed(1)} px)`);
+      // The sides no longer mirror: the lead's portrait frame is wider than the boss's face, so each keeps its own gutter (logged above).
+      check(m.guideL > 0 && m.guideR > 0, `${tag}: both sides keep a gutter (left ${m.guideL.toFixed(1)} px, right ${m.guideR.toFixed(1)} px)`);
       if (actions) check(m.actionsLeftOfTime && m.actionsRightOfTime, `${tag}: boss copy/답글 left of the time, lead's right of it`);
-      check(m.tails >= 3, `${tag}: tails still drawn (${m.tails})`);
       check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${tag}: no horizontal page scroll`);
       const list = await conv.getByTestId('chat-scroll').evaluate((l) => l.scrollWidth > l.clientWidth);
       check(!list, `${tag}: no horizontal list scroll`);
-    };
-    const faceGap = async (conv: Locator, tag: string) => {
-      const ok = await conv.evaluate((el) =>
-        [...el.querySelectorAll<HTMLElement>('[data-testid="bubble-tail"]')].every((t) => {
-          const face = t
-            .closest('[data-chat-id]')!
-            .querySelector<HTMLElement>('[data-testid="sender-face"], [data-testid="owner-face"]')!
-            .getBoundingClientRect();
-          const x = t.getBoundingClientRect();
-          return t.className.includes('bubble-tail-r') ? x.right <= face.left + 0.5 : x.left >= face.right - 0.5;
-        }),
-      );
-      check(ok, `${tag}: no tail overlaps a face`);
     };
     /** The old run's notice names the employee the roster kept for it (not the plain label). */
     const notices = async (conv: Locator, tag: string) => {
@@ -309,7 +298,6 @@ async function main() {
       const conv = await openDm(page, false);
       await conv.locator('button.text-accent-text.mt-2').first().waitFor();
       await verify(page, conv, 'desktop', true);
-      await faceGap(conv, 'desktop');
       await notices(conv, 'desktop');
       await shot(page, 'desktop-dm');
       await hoverBoss(conv, page, 'desktop-dm-boss-actions');
@@ -336,7 +324,6 @@ async function main() {
       const conv2 = await openDm(p2, true);
       await conv2.locator('button.text-accent-text.mt-2').first().waitFor();
       await verify(p2, conv2, 'phone', false);
-      await faceGap(conv2, 'phone');
       await notices(conv2, 'phone');
       await shot(p2, 'phone-dm');
       await conv2.getByTestId('chat-scroll').evaluate((s) => (s.scrollTop = 0));

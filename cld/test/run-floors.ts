@@ -35,6 +35,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
@@ -560,7 +561,7 @@ async function main() {
       [...received].reverse().find((m) => m.type === 'layoutLoaded') as typeof layout
     ).layout.cldFloors;
     console.log(`T-0049 floors: ${JSON.stringify([r1, r2])}`);
-    await stackPage.getByRole('button', { name: '설정' }).click();
+    await topBarButton(stackPage, '설정');
     await stackPage.getByRole('tab', { name: '화면', exact: true }).click();
     const option = stackPage.getByTestId('floor-view-option');
     check(
@@ -708,7 +709,7 @@ async function main() {
       message: { content: [{ type: 'tool_result', tool_use_id: 'tu-perm-49', content: 'ok' }] },
     });
     await stackPage.waitForTimeout(1500);
-    await stackPage.getByRole('button', { name: '설정' }).click();
+    await topBarButton(stackPage, '설정');
     await option.getByRole('button', { name: '한 층만' }).click();
     await closeOptions(stackPage);
     const hiddenPixels = await probe(stackPage, lowerLifted, cols);
@@ -719,7 +720,7 @@ async function main() {
     await stackPage.reload();
     await stackPage.addStyleTag({ content: FONT_CSS });
     await stackPage.locator('[data-testid="agent-overlay"]').first().waitFor();
-    await stackPage.getByRole('button', { name: '설정' }).click();
+    await topBarButton(stackPage, '설정');
     check(
       (await option.getByRole('button', { name: '한 층만' }).getAttribute('aria-pressed')) ===
         'true',
@@ -790,7 +791,7 @@ async function main() {
       rendersPer3s >= 3 && rendersPer3s <= 9,
       `phone perf: ${rendersPer3s} other-floor redraws in 3 s`,
     );
-    await phone.getByRole('button', { name: '설정' }).click();
+    await topBarButton(phone, '설정');
     await phone.getByRole('tab', { name: '화면', exact: true }).click();
     const phoneOption = phone.getByTestId('floor-view-option');
     await phoneOption.getByRole('button', { name: '한 층만' }).click();
@@ -810,7 +811,7 @@ async function main() {
     const perf = { rendersPer3s, msPerRender, fpsAll, fpsOne, throttle: 4 };
     fs.writeFileSync(path.join(OUT49, 'perf.json'), `${JSON.stringify(perf, null, 2)}\n`);
     console.log(`T-0049 phone perf: ${JSON.stringify(perf)}`);
-    await phone.getByRole('button', { name: '설정' }).click();
+    await topBarButton(phone, '설정');
     await phoneOption.getByRole('button', { name: '모든 층 보기' }).click();
     await closeOptions(phone);
     await cdpPerf.send('Emulation.setCPUThrottlingRate', { rate: 1 });

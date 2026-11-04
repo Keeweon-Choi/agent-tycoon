@@ -348,8 +348,8 @@ export function defaultWindowPlace(id: WindowId, bounds: Size, wide = false): Pl
 /**
  * WINDOW-LAYERS (owner 10-25): a free window may be anywhere in the HUD room, which is the whole
  * area under the top bar (the room's top is the bar's bottom edge, so no window ever reaches the
- * bar; nothing at the bottom is reserved either). The card bar, the icon dock and the elevator
- * panel draw OVER normal windows and a window may go under any of them. The one guard,
+ * bar; nothing at the bottom is reserved either). The card bar and the icon dock
+ * draw OVER normal windows and a window may go under any of them. The one guard,
  * `keepTitleGrabbable`: some part of its title bar always stays out from under them.
  */
 export const TITLE_BAR_PX = 40;

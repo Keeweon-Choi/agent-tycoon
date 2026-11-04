@@ -41,7 +41,6 @@ import {
 } from '../../cld/iso/camera.js';
 import { useIsoView } from '../../cld/iso/isoView.js';
 import {
-  isoBusy,
   isoFeet,
   isoFrameReset,
   type IsoPick,
@@ -253,7 +252,7 @@ export function OfficeCanvas({
         const pan = panRef.current;
         const panned = pan.x !== lastPan.x || pan.y !== lastPan.y;
         lastPan = { x: pan.x, y: pan.y };
-        return panned || officeState.isAnimating() || director.busy() || (iso && isoBusy());
+        return panned || officeState.isAnimating() || director.busy();
       },
       update: (dt) => {
         officeState.update(dt);
@@ -320,7 +319,6 @@ export function OfficeCanvas({
               hovered: officeState.hoveredAgentId,
               follow: officeState.cameraFollowId,
             },
-            performance.now(),
             backdropAllowed && backdropState().on ? isoBackground() : null,
           );
           director.drawFront(ctx);

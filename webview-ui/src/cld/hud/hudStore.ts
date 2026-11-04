@@ -90,6 +90,22 @@ function loadSavedOpen(): HudOpenState {
   }
 }
 
+/** REDEPLOY-STATE (owner 11-04): a window minimized when the page reloaded (a deploy) stays
+ *  minimized; restoring only the open flags brought it up in front by itself. */
+function loadSavedMinimized(open: HudOpenState): WinState['minimized'] {
+  try {
+    const saved = (JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? '{}') as { minimized?: unknown }).minimized;
+    if (typeof saved !== 'object' || saved === null) return {};
+    return Object.fromEntries(
+      (Object.keys(open) as (keyof HudOpenState)[])
+        .filter((id) => open[id] && (saved as Record<string, unknown>)[id] === true)
+        .map((id) => [id, true]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 function load(): Layout {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
@@ -108,12 +124,15 @@ function save(layout: Layout): void {
   try {
     const current = localStorage.getItem(LAYOUT_KEY);
     let open: unknown;
+    let minimized: unknown;
     try {
-      open = current ? (JSON.parse(current) as { open?: unknown }).open : undefined;
+      ({ open, minimized } = current
+        ? (JSON.parse(current) as { open?: unknown; minimized?: unknown })
+        : {});
     } catch {
       open = undefined;
     }
-    const saved = open === undefined ? layout : { ...layout, open };
+    const saved = open === undefined ? layout : { ...layout, open, minimized };
     if (Object.keys(layout.items).length === 0 && open === undefined && !layout.preset)
       localStorage.removeItem(LAYOUT_KEY);
     else localStorage.setItem(LAYOUT_KEY, serializeLayout(saved));
@@ -132,7 +151,7 @@ let snapshot: HudSnapshot = {
   officeTab: 'status',
   boardTab: 'status',
   order: ['office', 'messenger', 'notices', 'terminal', 'looks', 'devroom'],
-  minimized: {},
+  minimized: loadSavedMinimized({ ...savedOpen, messenger: false }),
 };
 const listeners = new Set<() => void>();
 
@@ -197,8 +216,9 @@ export function usePageStyle(id: WindowId): CSSProperties {
   return minimized[id] ? { display: 'none' } : { zIndex: 50 + order.indexOf(id) };
 }
 
-/** UI-C1: the tabs the window still has; a name from an older saved state (jobs, codex) is 현황판. */
-export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'hw', 'files'];
+/** UI-C1: the tabs the window still has; a name from an older state (jobs, codex, and hw since
+ *  building-a-1104: the board's full H/W screen replaced it) is 현황판. */
+export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'files'];
 export const normalizeOfficeTab = (tab: unknown): OfficeTab =>
   OFFICE_TABS.find((id) => id === tab) ?? 'status';
 
@@ -260,11 +280,11 @@ export function resetLayout(): void {
   update({ layout, minimized: {} });
 }
 
-/** Persist this device's floating-window open flags beside its layout. */
-export function saveWindowState(open: WinState['open']): void {
+/** Persist this device's floating-window open and minimized flags beside its layout. */
+export function saveWindowState(open: WinState['open'], minimized: WinState['minimized']): void {
   try {
     const layout = load();
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ ...layout, open }));
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ ...layout, open, minimized }));
   } catch {
     // Private mode: this visit still remembers it.
   }

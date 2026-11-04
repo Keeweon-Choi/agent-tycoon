@@ -46,7 +46,7 @@ self.addEventListener('push', (event) => {
       // renotify: the replacement still alerts (a new ask must not arrive silently).
       tag: typeof data.tag === 'string' && data.tag ? data.tag : agentId === null ? 'cld' : `agent-${agentId}`,
       renotify: true,
-      icon: '/icons/icon-256.png',
+      icon: '/icons/icon-256.png?v=3',
       data: { agentId, url },
     }),
   );

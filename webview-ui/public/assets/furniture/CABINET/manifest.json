@@ -1,0 +1,33 @@
+{
+  "id": "CABINET",
+  "name": "Filing Cabinet",
+  "category": "misc",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "2-way",
+  "canPlaceOnWalls": false,
+  "canPlaceOnSurfaces": false,
+  "backgroundTiles": 1,
+  "members": [
+    {
+      "type": "asset",
+      "id": "CABINET_FRONT",
+      "file": "CABINET_FRONT.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "front"
+    },
+    {
+      "type": "asset",
+      "id": "CABINET_SIDE",
+      "file": "CABINET_SIDE.png",
+      "width": 16,
+      "height": 32,
+      "footprintW": 1,
+      "footprintH": 2,
+      "orientation": "side"
+    }
+  ]
+}

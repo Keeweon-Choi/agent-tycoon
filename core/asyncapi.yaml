@@ -116,7 +116,6 @@ components:
         # Assets
         - $ref: '#/components/schemas/FurnitureAssetsLoaded'
         - $ref: '#/components/schemas/CharacterSpritesLoaded'
-        - $ref: '#/components/schemas/PetSpritesLoaded'
         - $ref: '#/components/schemas/FloorTilesLoaded'
         - $ref: '#/components/schemas/WallTilesLoaded'
         - $ref: '#/components/schemas/CarpetTilesLoaded'
@@ -231,6 +230,8 @@ components:
         - $ref: '#/components/schemas/TrackedItems'
         # cld-gui: a project's planning documents as tracked items (U-48 phase 2a)
         - $ref: '#/components/schemas/TrackingSources'
+        # cld-gui: a project's spec Registry changed (SPT-P1A)
+        - $ref: '#/components/schemas/SpecChanged'
       discriminator: type
 
     ClientMessage:
@@ -744,77 +745,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CharacterSpriteSet'
-
-    PetSpritesLoaded:
-      description: Pet sprite frame sets and display names, sent once after webviewReady (between characterSpritesLoaded and floorTilesLoaded).
-      type: object
-      additionalProperties: false
-      required: [type, pets, petNames]
-      properties:
-        type:
-          const: petSpritesLoaded
-        pets:
-          type: array
-          description: One frame-set per loaded pet, indexed by petType.
-          items:
-            $ref: '#/components/schemas/PetSpriteFrameSet'
-        petNames:
-          type: array
-          description: Display names parallel-indexed to `pets` (sourced from each pet's manifest.json).
-          items:
-            type: string
-
-    PetSpriteFrameSet:
-      description: One pet's frames keyed by direction + state. All arrays are 3D hex-string arrays (frames × rows × pixels).
-      type: object
-      additionalProperties: false
-      required: [walkDown, idleDown, walkUp, idleUp, walkRight]
-      properties:
-        walkDown:
-          type: array
-          description: 3 frames at 16×32 pixels.
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                type: string
-        idleDown:
-          type: array
-          description: 3 frames at 16×32 pixels.
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                type: string
-        walkUp:
-          type: array
-          description: 3 frames at 16×32 pixels.
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                type: string
-        idleUp:
-          type: array
-          description: 3 frames at 16×32 pixels.
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                type: string
-        walkRight:
-          type: array
-          description: 3 frames at 32×32 pixels.
-          items:
-            type: array
-            items:
-              type: array
-              items:
-                type: string
 
     FloorTilesLoaded:
       description: Floor tile sprites (7 patterns).
@@ -1622,6 +1552,8 @@ components:
       description: |
         One palette's character sprites as 3D hex-string arrays (frames × rows × pixels).
         Three direction sets per palette: down, up, right (left is rendered as flipped right).
+        DIAG-1104: optionally the three-quarter walk (walk1, stand, walk3) facing lower right and
+        upper right, from `char_N_diag.png`; the lower and upper left are them mirrored.
       type: object
       additionalProperties: false
       required: [down, up, right]
@@ -1643,6 +1575,22 @@ components:
               items:
                 type: string
         right:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: string
+        downRight:
+          type: array
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: string
+        upRight:
           type: array
           items:
             type: array
@@ -1792,6 +1740,13 @@ components:
           type: string
         mugshotUrl:
           type: [string, 'null']
+        thumbUrl:
+          description: |
+            LOOKS-MEM: the 꾸미기 chip's small picture (the sheet's first cell
+            shrunk to at most 96 px wide, `<id>.thumb.png`), so a phone never
+            decodes every whole sheet to show the chips; absent when the daemon
+            has none for it.
+          type: string
         density:
           $ref: '#/components/schemas/CharacterDensity'
         format:
@@ -1870,9 +1825,9 @@ components:
 
     CharacterChoice:
       description: |
-        A look. v1: a preset sheet (`preset`), or a built-in sheet (`palette`
-        0-5) with `hueShift` degrees. v2 (`v: 2`, by `kind`): `humanoid`
-        (`base` 0-5, `hue` 0-345 or `colors` per part, `acc` up to three),
+        A look. v1: a preset sheet (`preset`), or a built-in sheet (`palette`,
+        a built-in sheet number) with `hueShift` degrees. v2 (`v: 2`, by
+        `kind`): `humanoid` (`base` a built-in sheet number, `hue` 0-345 or `colors` per part, `acc` up to three),
         `mascot` (`species`, `color`, `expr`, `gear`), `custom` (`sheet`, a
         preset id). v3 (`v: 3`, CHAR-HUMAN): `person`, made of parts
         (`gender`, `parts` per slot, `colors` per slot); an unknown part id
@@ -2247,7 +2202,7 @@ components:
 
     MascotSpecies:
       type: string
-      enum: [coral, byte, puff, tori]
+      enum: [coral, byte, puff, tori, kwak, bugi, moka, mungge, boo, gasi, mora, shoo]
 
     MascotExpression:
       type: string
@@ -3932,6 +3887,20 @@ components:
         stopped:
           type: boolean
           description: The user explicitly stopped the engine job.
+        stopPct:
+          type: [number, 'null']
+          description: |
+            A failed engine job (ended, exit not 0, not stopped): its bar when it
+            stopped, 0-100 (a tqdm line in its log, its known steps, or the time it
+            ran over the median of the last successful runs of its name or command);
+            null with no basis. Absent on other jobs.
+        stopLine:
+          type: [string, 'null']
+          description: |
+            A failed engine job: the log line where it stopped (the first error line
+            of the last few, else the last line), masked like the log view, at most
+            200 characters. Absent on other jobs, and never sent to an unprivileged
+            (read-only) connection: it is a log line (httpServer, wsAuth.readOnlyView).
 
     GpuJobState:
       type: string
@@ -5294,6 +5263,9 @@ components:
           type: string
         text:
           type: string
+        replyTo:
+          description: The message the edited one now answers (it replaces the earlier reference); absent keeps it.
+          $ref: '#/components/schemas/ChatReply'
 
     PermissionWait:
       description: |
@@ -6682,6 +6654,22 @@ components:
           type: array
           description: Item keys hidden from the board.
           items: { type: string }
+
+    SpecChanged:
+      description: |
+        SPT-P1A: a project's spec tracking Registry was saved (tracking turned on or off, a
+        scan found a change, a document's setting changed), or (SPT-P2) its links were (a link
+        confirmed, rejected, edited or removed, a review, a deploy confirmation). Only the
+        project's name and its revision (the Registry's plus the links', so it only grows)
+        travel; a page showing that project's spec tabs fetches /api/cld/spec/:project/...
+        again. No path, title or text.
+      type: object
+      additionalProperties: false
+      required: [type, project, rev]
+      properties:
+        type: { const: specChanged }
+        project: { type: string }
+        rev: { type: integer, minimum: 0 }
 
     TrackingSources:
       description: |

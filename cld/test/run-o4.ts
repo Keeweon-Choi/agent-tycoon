@@ -17,12 +17,14 @@ import * as path from 'path';
 import { loadRegistry, registryPath, saveRegistry } from '../../server/src/cld/engine/registry.js';
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -148,13 +150,13 @@ async function main() {
 
     // ── 4. Asked once: the next open shows nothing. ──
     await page.reload();
-    await page.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 30_000 });
+    await topBarReady(page, 30_000);
     await page.waitForTimeout(3_000);
     check((await page.getByTestId('bypass-what').count()) === 0, 'a reload does not ask again');
     await shot(page, 'o4-second-open-desktop');
 
     // ── 5. The choice stays changeable in 설정. ──
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     await page.getByRole('tab', { name: '보안', exact: true }).click();
     const option = page.getByTestId('bypass-option');
     await option.waitFor();

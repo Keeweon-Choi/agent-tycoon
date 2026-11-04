@@ -43,6 +43,7 @@ import {
   isAllowedWebSocketOrigin,
   normalizeHostname,
   privilegedHostnames,
+  readOnlyView,
   redactTokenQuery,
 } from './wsAuth.js';
 
@@ -431,8 +432,10 @@ function registerWebSocketRoute(
         : undefined;
 
     const { store } = options;
-    // One send per socket, so cld hooks can tell this client apart on close.
-    const send = (m: Record<string, unknown>) => safeSend(socket, m);
+    // One send per socket, so cld hooks can tell this client apart on close. Everything this
+    // socket is sent (broadcasts and the snapshot replay) goes through it: an unprivileged one
+    // gets the read-only view.
+    const send = (m: Record<string, unknown>) => safeSend(socket, privileged ? m : readOnlyView(m));
     // cld-gui (T-0022): signing this session out closes its socket.
     const unbind = bindSessionSocket(auth, request, socket);
 
@@ -446,7 +449,7 @@ function registerWebSocketRoute(
     };
 
     const onBroadcast = (message: Record<string, unknown>) => {
-      safeSend(socket, message);
+      send(message);
     };
 
     store.on('agentAdded', onAgentAdded);

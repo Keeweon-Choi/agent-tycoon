@@ -49,6 +49,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 import { defaultWindowPlace, EDGE_GAP_PX, ICON_COLUMN_PX, RAIL_PX } from '../../webview-ui/src/cld/hud/layout.js';
 
@@ -198,7 +199,7 @@ async function main(): Promise<void> {
       page.locator('[data-hud-id^="icon:"]').getByRole('button', { name });
     const win = (page: Page, id: string) => page.locator(`[data-hud-window="${id}"]`);
     const settings = async (page: Page) => {
-      await page.getByRole('button', { name: '설정', exact: true }).click();
+      await topBarButton(page, '설정');
       // SETTINGS-TABS: the layout reset is in the 화면 tab (the tab is remembered per browser).
       await page.getByRole('tab', { name: '화면', exact: true }).click();
       return page.getByRole('button', { name: '화면 배치 초기화' });

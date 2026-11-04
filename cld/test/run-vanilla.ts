@@ -247,7 +247,7 @@ async function main() {
     await openWorkbenchTab(page, 'Task');
     const bench = page.locator('[data-hud-window="office"]');
     check(
-      (await bench.getByRole('button', { name: 'Task', exact: true }).count()) === 1 &&
+      (await bench.getByRole('button', { name: '이슈', exact: true }).count()) === 1 &&
         (await bench.getByRole('button', { name: '에이전트', exact: true }).count()) === 1,
       "the engine's jobs and Codex runs are the 작업실's Task and 에이전트 tabs (no office needed)",
     );

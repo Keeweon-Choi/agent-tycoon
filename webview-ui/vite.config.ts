@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import * as fs from 'fs';
 import * as path from 'path';
+import { PNG } from 'pngjs';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vite';
 
@@ -13,6 +14,9 @@ import {
   decodeAllFurniture,
   decodeAllWalls,
 } from '../core/src/assets/loader.ts';
+import type { IsoManifest } from './src/cld/iso/art.ts';
+import owner from './src/cld/iso/art/owner-manifest.json';
+import { shipScales } from './src/cld/iso/ship.ts';
 
 // ── Decoded asset cache (invalidated on file change) ─────────────────────────
 
@@ -119,8 +123,57 @@ function browserMockAssetsPlugin(): Plugin {
   };
 }
 
+// ── iso-prep-1104: isometric pictures shipped at the size they are drawn ─────────
+
+/** `png` k times smaller: each k×k block averaged (colour weighted by alpha; a block past the
+ *  edge counts as transparent), so the copy's pixels stay on the master's grid. */
+function shrinkPng(png: Buffer, k: number): Buffer {
+  const src = PNG.sync.read(png);
+  const out = new PNG({ width: Math.ceil(src.width / k), height: Math.ceil(src.height / k) });
+  for (let y = 0; y < out.height; y++)
+    for (let x = 0; x < out.width; x++) {
+      const acc = [0, 0, 0, 0];
+      for (let v = y * k; v < Math.min(src.height, (y + 1) * k); v++)
+        for (let u = x * k; u < Math.min(src.width, (x + 1) * k); u++) {
+          const i = (v * src.width + u) * 4;
+          const a = src.data[i + 3];
+          for (let c = 0; c < 3; c++) acc[c] += src.data[i + c] * a;
+          acc[3] += a;
+        }
+      const o = (y * out.width + x) * 4;
+      if (!acc[3]) continue;
+      for (let c = 0; c < 3; c++) out.data[o + c] = Math.round(acc[c] / acc[3]);
+      out.data[o + 3] = Math.round(acc[3] / (k * k));
+    }
+  return PNG.sync.write(out);
+}
+
+/** The owner's isometric masters (src/cld/iso/art) that are finer than ever drawn ship as the
+ *  shrunk copy only (ship.ts says by how much; art.ts reads their coordinates divided by it). */
+function isoShipPlugin(): Plugin {
+  const dir = path.resolve(__dirname, 'src/cld/iso/art');
+  const scales = shipScales(owner as unknown as IsoManifest);
+  let build = false;
+  return {
+    name: 'iso-ship',
+    enforce: 'pre',
+    configResolved(config) {
+      build = config.command === 'build';
+    },
+    load(id) {
+      const k = path.dirname(id) === dir ? scales.get(path.basename(id)) : undefined;
+      if (!k) return null;
+      const png = shrinkPng(fs.readFileSync(id), k);
+      if (!build)
+        return `export default ${JSON.stringify(`data:image/png;base64,${png.toString('base64')}`)};`;
+      const ref = this.emitFile({ type: 'asset', name: path.basename(id), source: png });
+      return `export default import.meta.ROLLUP_FILE_URL_${ref};`;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [tailwindcss(), react(), browserMockAssetsPlugin()],
+  plugins: [tailwindcss(), react(), browserMockAssetsPlugin(), isoShipPlugin()],
   server: {
     // Dev-only: allow reaching `vite --host` from another device on a
     // Tailscale network (Vite rejects non-localhost Host headers by default).

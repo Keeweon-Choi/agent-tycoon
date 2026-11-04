@@ -25,6 +25,8 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -141,7 +143,7 @@ async function main() {
       const act = (l: Locator) => (phone ? l.tap() : l.click());
       const ready = async () => {
         await page.goto(`http://127.0.0.1:${port}/`);
-        await page.getByRole('button', { name: '설정', exact: true }).first().waitFor({ timeout: 60_000 });
+        await topBarReady(page, 60_000);
         const closeInfo = page.getByRole('button', { name: '정보 창 닫기' });
         if (await closeInfo.count()) await closeInfo.first().click();
         await page.waitForTimeout(1_500);
@@ -165,7 +167,7 @@ async function main() {
       };
       const family = () => page.evaluate(() => getComputedStyle(document.body).fontFamily);
       const openSettings = async () => {
-        await act(page.getByRole('button', { name: '설정', exact: true }).first());
+        await (phone ? act(page.getByRole('button', { name: '설정', exact: true }).first()) : topBarButton(page, '설정'));
         await page.getByTestId('settings-tabs').waitFor();
       };
       const displayTab = () => act(page.getByTestId('settings-tabs').getByRole('tab', { name: '화면', exact: true }));

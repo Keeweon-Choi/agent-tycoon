@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { STAFF_NAMES } from '../../../../core/src/cld/staffNames.js';
 import type { ChatItem } from '../../../../core/src/messages.js';
 import { setLanguage } from '../../i18n/index.js';
-import { employeePalette, noticeEmployee, noticeName, senderKey, shellDone, startsRun } from './senderFace.js';
+import { noticeEmployee, noticeName, senderKey, shellDone, startsRun } from './senderFace.js';
 
 const item = (o: Partial<ChatItem>): ChatItem => ({ kind: 'assistant', text: 'x', id: '1-a', at: 1, ...o });
 
@@ -33,11 +33,6 @@ describe('MSG-UI2 sender faces', () => {
     expect(items.map((_, i) => startsRun(items, i))).toEqual([
       true, false, false, false, true, true, true, true,
     ]);
-  });
-
-  it('an employee keeps one built-in palette', () => {
-    expect(employeePalette('e-1')).toBe(employeePalette('e-1'));
-    expect(employeePalette('e-1')).toBeLessThan(6);
   });
 });
 

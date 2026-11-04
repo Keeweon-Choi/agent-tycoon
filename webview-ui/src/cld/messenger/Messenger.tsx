@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { MessengerContact } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
-import { MESSENGER_SPLIT_MIN_PX } from '../../constants.js';
+import { MESSENGER_SPLIT_MIN_PX, MSG_DELIVERED_BADGE_MS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
+import { PixelIcon } from '../game/parts.js';
 import { usePageStyle } from '../hud/hudStore.js';
 import { useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
@@ -294,15 +295,16 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
           aria-label={`${shownName(c.name)}${unread ? t('messenger.unread', { count: unread }) : ''}`}
           onClick={() => openMessenger(c.agentId)}
         >
-          <Mug agentId={c.agentId} getAppearance={getAppearance} />
+          {/* GAME-UI-1 G1 (04): where a sent envelope lands. */}
+          <span className="shrink-0 flex" data-mail-target={c.agentId}>
+            <Mug agentId={c.agentId} getAppearance={getAppearance} />
+          </span>
           <span className="flex-1 min-w-0">
             <span className="flex items-center gap-4 min-w-0">
               <StateDot agentId={c.agentId} statusFor={statusFor} />
               <strong className="text-sm truncate">{shownName(c.name)}</strong>
               <WaitMark agentId={c.agentId} />
-              {c.lastAt ? (
-                <span className="ml-auto shrink-0 text-2xs text-text-muted">{clock(c.lastAt)}</span>
-              ) : null}
+              <RowTime lastAt={c.lastAt} delivered={m.delivered[c.agentId]} />
             </span>
             <span className="flex items-center gap-4 min-w-0">
               <span
@@ -340,7 +342,7 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
     );
   };
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
+    <div className="flex-1 min-h-0 overflow-y-auto" data-mail-scroll>
       <GroupRooms />
       {sorted.length > 0 && (
         <h2 className="px-8 py-6 text-xs font-bold border-b border-border">
@@ -372,6 +374,27 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
   );
 }
 
+/** A row's time, or (GAME-UI-1 G1, 04) ✓ 전달됨 popping in for MSG_DELIVERED_BADGE_MS after a confirmed
+ *  delivery, then the time again (one timer, no polling). */
+function RowTime({ lastAt, delivered }: { lastAt?: number; delivered?: number }) {
+  const [shownFor, setShownFor] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const left = delivered === undefined ? 0 : delivered + MSG_DELIVERED_BADGE_MS - Date.now();
+    if (left <= 0) return;
+    setShownFor(delivered);
+    const id = window.setTimeout(() => setShownFor(undefined), left);
+    return () => window.clearTimeout(id);
+  }, [delivered]);
+  if (shownFor !== undefined && shownFor === delivered)
+    return (
+      <span className="mail-badge ml-auto shrink-0 text-2xs" data-testid="delivered-badge">
+        <PixelIcon name="check" size={12} />
+        {t('game.msg.delivered')}
+      </span>
+    );
+  return lastAt ? <span className="ml-auto shrink-0 text-2xs text-text-muted">{clock(lastAt)}</span> : null;
+}
+
 function Tab({ agentId }: { agentId: number; chip?: boolean }) {
   const m = useMessenger();
   const c = m.contacts.find((x) => x.agentId === agentId);
@@ -381,6 +404,7 @@ function Tab({ agentId }: { agentId: number; chip?: boolean }) {
   return (
     <span
       className={`shrink-0 flex items-center border text-xs ${on ? 'border-accent text-accent-text' : 'border-border text-text-muted'}`}
+      data-mail-target={agentId}
     >
       <button
         type="button"

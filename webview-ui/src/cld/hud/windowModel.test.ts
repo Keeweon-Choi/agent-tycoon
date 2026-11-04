@@ -112,9 +112,9 @@ describe('PC: the icons are a Windows taskbar', () => {
     expect(iconStatus(files, 'files')).toBe('front');
     expect(iconStatus(files, 'office')).toBe('closed');
     // The board icon over 파일 brings the board back on its last tab.
-    const hw = openOrFocus(pc, 'office', 'hw');
-    expect(press(hw, 'files', 'office').officeTab).toBe('hw');
-    expect(press(hw, 'files', 'files').minimized.office).toBe(true);
+    const dev = openOrFocus(pc, 'office', 'dev');
+    expect(press(dev, 'files', 'office').officeTab).toBe('dev');
+    expect(press(dev, 'files', 'files').minimized.office).toBe(true);
   });
 });
 
@@ -143,17 +143,17 @@ describe('phone: the Dock is a tab bar', () => {
   });
 
   it('board and files are two tabs of one window; the board comes back on its own tab', () => {
-    const hw = openOrFocus(phone, 'office', 'hw');
-    expect(activeTab(hw)).toBe('board');
-    const files = tabs(hw, 'files');
+    const dev = openOrFocus(phone, 'office', 'dev');
+    expect(activeTab(dev)).toBe('board');
+    const files = tabs(dev, 'files');
     expect(activeTab(files)).toBe('files');
-    expect(tabs(files, 'board').officeTab).toBe('hw');
+    expect(tabs(files, 'board').officeTab).toBe('dev');
   });
 
   it('a Dock press after another window keeps that window`s state (owner 10-24: Dock presses reset)', () => {
-    const hw = openOrFocus(phone, 'office', 'hw');
-    const s = tabs(hw, 'messenger', 'board');
-    expect(s.officeTab).toBe('hw');
+    const dev = openOrFocus(phone, 'office', 'dev');
+    const s = tabs(dev, 'messenger', 'board');
+    expect(s.officeTab).toBe('dev');
     expect(s.open.messenger).toBe(true);
   });
 

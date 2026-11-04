@@ -176,6 +176,19 @@ describe('/ws connection gate', () => {
     expect(await settled).not.toBeNull();
   });
 
+  // A privileged socket gets a failed job's log line; the read-only view (wsAuth.readOnlyView,
+  // wsAuth.test.ts) is what an unprivileged one would get.
+  it('sends a privileged connection the failed job stop line', async () => {
+    const store = new AgentStateStore();
+    const config = await server.start({ embedded: false, store });
+    const result = await connect(config.port, { Authorization: `Bearer ${config.token}` });
+    sockets.push(result.socket);
+    expect(result.accepted).toBe(true);
+    const got = waitForMessage(result.socket, 'officeJobs');
+    store.broadcast({ type: 'officeJobs', jobs: [{ pid: 1, project: null, cmd: 'x', exit: 1, stopPct: 40, stopLine: 'FAIL x' }] });
+    expect(await got).toMatchObject({ jobs: [{ stopPct: 40, stopLine: 'FAIL x' }] });
+  });
+
   // 3. A non-browser client (no Origin header) still CONNECTS — watching the
   //    office is the standalone server's job, and `--host` exposing it to the
   //    LAN is documented. What it must not do is grant consent; see the

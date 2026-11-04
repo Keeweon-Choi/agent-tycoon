@@ -16,15 +16,25 @@ type CatalogEntry = {
 
 type SeatCharacter = Pick<Character, 'dir' | 'seatId' | 'x' | 'y'>;
 
+/** SMOOTH-1104: each manifest's answers (asked for every piece of furniture, per seated
+ *  character, per frame). */
+const groups = new WeakMap<IsoManifest, Map<string, string | null>>();
+
 /** The manifest seating group associated with a catalog type, if it has one. */
 function seatGroupFor(manifest: IsoManifest, type: string): string | null {
+  let known = groups.get(manifest);
+  if (!known) groups.set(manifest, (known = new Map()));
+  const hit = known.get(type);
+  if (hit !== undefined) return hit;
   const piece = manifest.types[type]?.piece;
-  if (!piece || piece === 'none') return null;
-  return (
-    Object.entries(manifest.facings).find(([, facings]) =>
-      Object.values(facings).some((facing) => facing?.piece === piece),
-    )?.[0] ?? null
-  );
+  const group =
+    !piece || piece === 'none'
+      ? null
+      : (Object.entries(manifest.facings).find(([, facings]) =>
+          Object.values(facings).some((facing) => facing?.piece === piece),
+        )?.[0] ?? null);
+  known.set(type, group);
+  return group;
 }
 
 /** The furniture that owns a generated seat tile, plus that tile's manifest seat index. */

@@ -85,20 +85,6 @@
       "faces": "none",
       "from": "drawn"
     },
-    "board": {
-      "file": "board.png",
-      "density": 4,
-      "footprint": [
-        28,
-        9
-      ],
-      "anchor": [
-        896,
-        848
-      ],
-      "faces": "+row",
-      "from": "drawn"
-    },
     "bench": {
       "file": "bench.png",
       "density": 4,
@@ -118,11 +104,12 @@
     "SMALL_TABLE_FRONT": {
       "piece": "counter"
     },
+    "SMALL_TABLE_SIDE": {
+      "piece": "counter",
+      "mirror": true
+    },
     "COFFEE": {
       "piece": "coffee-machine"
-    },
-    "LED_BOARD": {
-      "piece": "board"
     },
     "LOBBY_BENCH": {
       "piece": "bench"

@@ -37,6 +37,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
   writeEngineProjects,
 } from '../../server/src/cld/testHome.js';
 import propData from '../../webview-ui/src/cld/ez/props.json';
@@ -904,7 +905,7 @@ async function main() {
         await p.getByTestId('mobile-top-bar').getByRole('button', { name: '설정' }).click();
         await p.getByTestId('settings-tabs').getByRole('tab', { name: '화면', exact: true }).click();
         await p.getByTestId('legend-option').getByRole('button', { name: '범례' }).click();
-      } else await p.getByRole('button', { name: '범례' }).click();
+      } else await topBarButton(p, '범례');
       const legend = p.getByTestId('activity-legend');
       await legend.waitFor();
       const rings = await legend.locator('[data-ring]').count();

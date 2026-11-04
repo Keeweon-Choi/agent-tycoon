@@ -1,5 +1,11 @@
+import { CHAR_DIAG_FRAMES } from '../../../../core/src/assets/constants.js';
 import type { ColorValue } from '../../components/ui/types.js';
-import { CLASSIC_FIGURE_RISE, PALETTE_COUNT, THINKING_DOT_COLOR } from '../../constants.js';
+import {
+  CLASSIC_FIGURE_RISE,
+  DIAG_PALETTE_BASE,
+  PALETTE_COUNT,
+  THINKING_DOT_COLOR,
+} from '../../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
@@ -71,6 +77,10 @@ export interface LoadedCharacterData {
   /** SHEET-IMPORT: the density it draws at, when not `density` (a 64×128 person draws at 3:
    *  1.33 times its world size, owner 10-26 03:10). */
   drawDensity?: number;
+  /** DIAG-1104: the three-quarter walk (walk1, stand, walk3) facing lower right and upper right
+   *  (`char_N_diag.png`, a mascot's `diag`); the diagonals draw it (diagSheetOf). */
+  downRight?: SpriteData[];
+  upRight?: SpriteData[];
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
@@ -81,12 +91,34 @@ const CLASSIC_FRAME_H = 32;
 const SMOOTH_DENSITY = 4;
 
 /** SHEET-IMPORT: a preset's isometric sheet (palette) beside its top-view one, which the
- *  isometric view draws instead. */
-const isoPalettes = new Map<number, number>();
-export function setIsoPalette(topPalette: number, isoPalette: number): void {
-  isoPalettes.set(topPalette, isoPalette);
+ *  isometric view draws instead. DIAG-1104: a `walkOnly` one (diagSheetOf) only walks and stands. */
+const isoPalettes = new Map<number, { iso: number; walkOnly: boolean }>();
+export function setIsoPalette(topPalette: number, isoPalette: number, walkOnly = false): void {
+  isoPalettes.set(topPalette, { iso: isoPalette, walkOnly });
 }
-export const isoPaletteOf = (palette: number): number => isoPalettes.get(palette) ?? palette;
+/** The palette beside `palette` for its diagonals; `still` (seated or drinking), a walk-only one
+ *  gives way to `palette` itself, whose four views the character then keeps. */
+export function isoPaletteOf(palette: number, still = false): number {
+  const e = isoPalettes.get(palette);
+  return !e || (still && e.walkOnly) ? palette : e.iso;
+}
+
+/** DIAG-1104: the three-quarter sheet of a sheet with a diagonal walk: the walk and stand facing
+ *  lower right (`down`) and upper right (`up`), its typing and reading the front and back ones
+ *  (never drawn: walk-only, isoPaletteOf); null without a whole diagonal walk of its frame size. */
+export function diagSheetOf(c: LoadedCharacterData): LoadedCharacterData | null {
+  const [w, h] = [c.down[0]?.[0]?.length, c.down[0]?.length];
+  const whole = (fs?: SpriteData[]) =>
+    fs?.length === CHAR_DIAG_FRAMES &&
+    fs.every((f) => f.length === h && f.every((r) => r.length === w));
+  if (!whole(c.downRight) || !whole(c.upRight)) return null;
+  return {
+    down: [...c.downRight!, ...c.down.slice(CHAR_DIAG_FRAMES)],
+    up: [...c.upRight!, ...c.up.slice(CHAR_DIAG_FRAMES)],
+    right: c.right,
+    ...(c.density && { density: c.density }),
+  };
+}
 
 // cld-gui (T-0017): preset sheets, drawn through the same cache as char_N under
 // palette numbers above the built-ins, with an optional card portrait.
@@ -105,6 +137,15 @@ export function setCustomCharacter(
     if (key.startsWith(`${palette}:`)) spriteCache.delete(key);
 }
 
+/** cld-gui (LOOKS-MEM): a preset sheet let go (nobody wears it): its sprites, cached sets and
+ *  isometric link go (palettes are never reused). */
+export function deleteCustomCharacter(palette: number): void {
+  customCharacters.delete(palette);
+  isoPalettes.delete(palette);
+  for (const key of [...spriteCache.keys()])
+    if (key.startsWith(`${palette}:`)) spriteCache.delete(key);
+}
+
 /** cld-gui (CH-4): a preset sheet as loaded, for the 꾸미기 preview. */
 export const getCustomCharacter = (palette: number) => customCharacters.get(palette) ?? null;
 
@@ -117,6 +158,16 @@ export function setCharacterTemplates(data: LoadedCharacterData[]): void {
   loadedCharacters = data;
   // Clear cache so sprites are rebuilt from loaded data
   spriteCache.clear();
+  // DIAG-1104: a person with a diagonal walk draws it on its diagonals (palette DIAG_PALETTE_BASE+i)
+  data.forEach((c, i) => {
+    const diag = diagSheetOf(c);
+    if (!diag) {
+      isoPalettes.delete(i); // its four views, as before
+      return;
+    }
+    customCharacters.set(DIAG_PALETTE_BASE + i, { sheet: diag, mugshot: null });
+    setIsoPalette(i, DIAG_PALETTE_BASE + i, true);
+  });
 }
 
 /** cld-gui (CH-2): the built-in sheets char_N as loaded (empty before they arrive). */

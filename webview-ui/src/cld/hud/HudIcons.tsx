@@ -152,7 +152,7 @@ export function HudIcons({
 /**
  * The layer the icons and the desktop windows live in: the office region's whole box (right under
  * the top bar), inert except for its children. WINDOW-LAYERS: one stacking context with three bands,
- * normal windows (1..n by order), the fixed panels (the `dock`, the card bar and the elevator panel,
+ * normal windows (1..n by order), the fixed panels (the `dock` and the card bar,
  * which portal into the panel slot, HUD_PANELS_Z) and a maximized window (HUD_MAXIMIZED_Z, see
  * windowModel.windowZ). Isolated so its own z order never fights the office's labels and doors.
  * Right and work presets keep the dock column beside the card bar. The bottom preset ignores its
@@ -191,8 +191,12 @@ export function HudLayer({ dock, children }: { dock: ReactNode; children: ReactN
       if (!layer || !slot) return;
       setFixedPanels(measurePanels(layer, slot));
     }
-    // A panel that comes or goes (a card, the elevator once the building is known) re-arms its observer.
-    const changes = new MutationObserver(() => {
+    // A panel that comes or goes (a card) re-arms its observer. SMOOTH-1104: only then: a change
+    // inside a panel (a portrait's state, a clock) moves nothing the resize observer would not see.
+    const fixedIn = (n: Node) =>
+      n instanceof Element && (n.matches('[data-hud-fixed]') || n.querySelector('[data-hud-fixed]') !== null);
+    const changes = new MutationObserver((records) => {
+      if (!records.some((r) => [...r.addedNodes, ...r.removedNodes].some(fixedIn))) return;
       for (const el of slot.querySelectorAll('[data-hud-fixed]'))
         if (!watched.has(el)) {
           watched.add(el);

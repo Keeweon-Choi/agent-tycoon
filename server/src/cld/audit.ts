@@ -44,7 +44,8 @@ export type AuditKind =
   | 'connector' // detail: "<from>><to>"
   | 'allowedHosts' // detail: how many names are allowed now
   | 'tokenRotated' // detail: host | path
-  | 'lockout'; // detail: short | direct
+  | 'lockout' // detail: short | direct
+  | 'spec'; // SPT-P1D, a spec-tracking write: "<action> <projectId> <UIDs and fixed words>", never document text
 
 export type Via = 'local' | 'lan' | 'remote';
 

@@ -8,13 +8,13 @@
  * from floor 1. Nothing here knows a camera: the renderer adds the zoom and pan
  * (`isoOrigin`), so the characters' world never hardcodes a view.
  *
- * Each level is raised (`lifts`) so its slab sits directly on the wall tops of the level below
- * (owner 10-26 01:48: taller storeys, stacked flush): the upper floor's front-left edge runs
- * parallel above the lower floor's back walls and touches them, so the building reads as one
- * structure and the floors never cover each other (the other floors are dimmed, never hidden).
- * A floor's plate is as deep as its own rows, so a shallower floor above sits closer.
+ * Every level is one storey above the one below (`lifts`, ISO_STOREY_H: a back wall and the slab
+ * of the floor above, owner 11-04 17:51: same-size floors, stacked flush, a real building), and
+ * every floor's plate is the deepest floor's (`depth`): a shallower floor's extra rows are bare
+ * floor, drawn only (the layout and its rows stay as saved). The floors above the one in focus
+ * are lifted off (the renderer draws their outline), those below are closed storeys.
  */
-import { ISO_FLOOR_GAP, ISO_HALF_H, ISO_HALF_W, ISO_SLAB_H, ISO_WALL_H } from '../../constants.js';
+import { ISO_HALF_H, ISO_HALF_W, ISO_ROOF_H, ISO_SLAB_H, ISO_STOREY_H, ISO_WALL_H } from '../../constants.js';
 import { TileType } from '../../office/types.js';
 
 export interface Pt {
@@ -30,14 +30,12 @@ export interface IsoFloor {
   rows: number;
   /** 0 = floor 1, at the bottom. */
   level: number;
-  /** First local row with anything in it: its back walls (the void rows above are no building). */
-  top: number;
 }
 
 export interface IsoStack {
   floors: IsoFloor[];
   cols: number;
-  /** The deepest floor's rows (the building's extent to the left). */
+  /** The deepest floor's rows: every floor's plate (the building's extent to the left). */
   depth: number;
   /** Iso px each level is raised above floor 1 (floor 1: 0). */
   lifts: number[];
@@ -70,39 +68,16 @@ export function isoInverse(
   return { col: (a + b) / 2, row: (b - a) / 2 };
 }
 
-/**
- * How far a floor of `rows` rows is raised above the floor below, whose back walls stand on
- * row `lowerTop` (its first row with anything): the upper floor's front-left edge (row `rows`,
- * and its slab) and the lower floor's back wall tops (a wall's base is two half diamonds down
- * from its row's back edge, its top ISO_WALL_H above the row line) run parallel; this puts them
- * together, `ISO_FLOOR_GAP` apart (none).
- */
-export function levelRise(lowerTop: number, rows: number): number {
-  return (rows - lowerTop) * 2 * ISO_HALF_H + ISO_WALL_H + ISO_SLAB_H + ISO_FLOOR_GAP;
-}
-
-/** The building for a layout: its floors as levels (one level for an office of one floor).
- *  `tileMap` (the layout's tile grid) tells each floor's first row with anything in it. */
-export function isoStack(
-  layout: { cols: number; rows: number; cldFloors?: unknown },
-  tileMap?: ReadonlyArray<ReadonlyArray<number>>,
-): IsoStack {
+/** The building for a layout: its floors as levels (one level for an office of one floor). */
+export function isoStack(layout: { cols: number; rows: number; cldFloors?: unknown }): IsoStack {
   const rects = Array.isArray(layout.cldFloors)
     ? (layout.cldFloors as Array<{ id: string; row: number; rows: number }>)
     : [];
   const rows: Array<{ id: string; row: number; rows: number }> =
     rects.length > 1 ? rects : [{ id: rects[0]?.id ?? '1', row: 0, rows: layout.rows }];
-  const floors: IsoFloor[] = rows.map((r, level) => {
-    let top = 0;
-    if (tileMap)
-      while (top < r.rows - 1 && !(tileMap[r.row + top] ?? []).some((t) => t !== TileType.VOID))
-        top++;
-    return { id: r.id, row: r.row, rows: r.rows, level, top };
-  });
+  const floors: IsoFloor[] = rows.map((r, level) => ({ id: r.id, row: r.row, rows: r.rows, level }));
   const depth = Math.max(...floors.map((f) => f.rows));
-  const lifts = [0];
-  for (let k = 1; k < floors.length; k++)
-    lifts.push(lifts[k - 1] + levelRise(floors[k - 1].top, floors[k].rows));
+  const lifts = floors.map((_, k) => k * ISO_STOREY_H);
   const cols = layout.cols;
   const stack: IsoStack = {
     floors,
@@ -114,17 +89,17 @@ export function isoStack(
   const boxes = floors.map((f) => floorBox(stack, f.level));
   stack.box = {
     x0: -depth * ISO_HALF_W,
-    y0: Math.min(...boxes.map((b) => b.y0)),
+    y0: Math.min(...boxes.map((b) => b.y0)) - ISO_ROOF_H,
     x1: cols * ISO_HALF_W,
     y1: Math.max(...boxes.map((b) => b.y1)),
   };
   return stack;
 }
 
-/** A floor's own bounds (iso px): its plate, its back walls and its slab. */
+/** A floor's own bounds (iso px): its plate (the building's), its back walls and its slab. */
 export function floorBox(stack: IsoStack, level: number): IsoStack['box'] {
   const lift = stack.lifts[level] ?? 0;
-  const rows = stack.floors[level]?.rows ?? stack.depth;
+  const rows = stack.depth;
   return {
     x0: -rows * ISO_HALF_W,
     x1: stack.cols * ISO_HALF_W,
@@ -185,38 +160,115 @@ export function behind(a: DepthBox, b: DepthBox): boolean {
 
 const key = (b: DepthBox) => b.c0 + b.c1 + b.r0 + b.r1 + (b.lift ?? 0) * 1e-3;
 
+/** SMOOTH-1104: the `behind` relations among the last call's fixed boxes (walls and furniture
+ *  barely change, the characters move every frame), kept while their footprints are the same. */
+let fixedCache: { boxes: Float64Array; before: number[][]; waiting: number[] } | null = null;
+
+const NO_FIXED = { before: [], waiting: [] };
+
+function fixedRelations(items: readonly DepthBox[], fixed: number): { before: number[][]; waiting: number[] } {
+  if (fixed === 0) return NO_FIXED;
+  const boxes = new Float64Array(fixed * 5);
+  for (let i = 0; i < fixed; i++) {
+    const b = items[i];
+    boxes.set([b.c0, b.r0, b.c1, b.r1, b.lift ?? 0], i * 5);
+  }
+  const same =
+    fixedCache !== null &&
+    fixedCache.boxes.length === boxes.length &&
+    fixedCache.boxes.every((v, i) => v === boxes[i]);
+  if (!same) {
+    const before: number[][] = Array.from({ length: fixed }, () => []);
+    const waiting = new Array<number>(fixed).fill(0);
+    for (let i = 0; i < fixed; i++)
+      for (let j = i + 1; j < fixed; j++) {
+        if (behind(items[i], items[j])) {
+          before[i].push(j);
+          waiting[j]++;
+        } else if (behind(items[j], items[i])) {
+          before[j].push(i);
+          waiting[i]++;
+        }
+      }
+    fixedCache = { boxes, before, waiting };
+  }
+  return fixedCache!;
+}
+
 /**
  * Painter's order (back first) of footprints on one floor: a topological sort of `behind`,
- * ties and the rare cycle broken by the footprint's centre. O(n²): a floor holds a few
- * hundred pieces at most.
+ * ties and the rare cycle broken by the footprint's centre (then the list order). The first
+ * `fixed` items are the floor's pieces that stay put: their relations are reused from the last
+ * call while their footprints are the same (SMOOTH-1104), so a frame compares only what moves.
  */
-export function depthOrder<T extends DepthBox>(items: readonly T[]): T[] {
+export function depthOrder<T extends DepthBox>(items: readonly T[], fixed = 0): T[] {
   const n = items.length;
-  const before: number[][] = Array.from({ length: n }, () => []); // j must come before i
+  const base = fixedRelations(items, Math.min(fixed, n));
+  const f = base.waiting.length;
+  // j must come before i: the fixed pairs from the cache, the rest compared now
+  const extra: number[][] = Array.from({ length: n }, () => []);
   const waiting = new Array<number>(n).fill(0);
+  for (let i = 0; i < f; i++) waiting[i] = base.waiting[i];
   for (let i = 0; i < n; i++)
-    for (let j = i + 1; j < n; j++) {
+    for (let j = Math.max(i + 1, f); j < n; j++) {
       if (behind(items[i], items[j])) {
-        before[i].push(j);
+        extra[i].push(j);
         waiting[j]++;
       } else if (behind(items[j], items[i])) {
-        before[j].push(i);
+        extra[j].push(i);
         waiting[i]++;
       }
     }
+  const keys = items.map(key);
+  // The ready ones in a min-heap on (key, index): the same pick as a scan for the smallest key.
+  const less = (a: number, b: number) => keys[a] < keys[b] || (keys[a] === keys[b] && a < b);
+  const heap: number[] = [];
+  const push = (i: number) => {
+    let k = heap.push(i) - 1;
+    while (k > 0) {
+      const p = (k - 1) >> 1;
+      if (!less(heap[k], heap[p])) break;
+      [heap[k], heap[p]] = [heap[p], heap[k]];
+      k = p;
+    }
+  };
+  const pop = (): number => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let k = 0; ; ) {
+        const l = 2 * k + 1;
+        const r = l + 1;
+        let m = k;
+        if (l < heap.length && less(heap[l], heap[m])) m = l;
+        if (r < heap.length && less(heap[r], heap[m])) m = r;
+        if (m === k) break;
+        [heap[k], heap[m]] = [heap[m], heap[k]];
+        k = m;
+      }
+    }
+    return top;
+  };
+  for (let i = 0; i < n; i++) if (waiting[i] === 0) push(i);
   const done = new Array<boolean>(n).fill(false);
   const out: T[] = [];
-  const keys = items.map(key);
   while (out.length < n) {
     let pick = -1;
-    for (let i = 0; i < n; i++)
-      if (!done[i] && waiting[i] === 0 && (pick < 0 || keys[i] < keys[pick])) pick = i;
+    while (heap.length && pick < 0) {
+      const i = pop();
+      if (!done[i]) pick = i;
+    }
     if (pick < 0)
       // A cycle: take the furthest back of what is left.
       for (let i = 0; i < n; i++) if (!done[i] && (pick < 0 || keys[i] < keys[pick])) pick = i;
     done[pick] = true;
     out.push(items[pick]);
-    for (const j of before[pick]) waiting[j]--;
+    const release = (j: number) => {
+      if (--waiting[j] === 0 && !done[j]) push(j);
+    };
+    if (pick < f) for (const j of base.before[pick]) release(j);
+    for (const j of extra[pick]) release(j);
   }
   return out;
 }

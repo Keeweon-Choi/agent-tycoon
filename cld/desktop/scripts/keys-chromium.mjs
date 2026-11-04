@@ -166,9 +166,14 @@ try {
     assert.equal(await reloads(t, 'Meta+r'), false, 'Win+R is not a reload off macOS');
     await t.page.keyboard.press('Control+Shift+T');
     await t.page.keyboard.press('Control+Comma');
+    await t.page.keyboard.press('F11');
+    await t.page.focus('#term');
+    await t.page.keyboard.press('F11'); // a terminal does not keep F11
     assert.deepEqual(await t.page.evaluate(() => window.__calls), [
       'toggle_on_top',
       'open_settings',
+      'toggle_fullscreen',
+      'toggle_fullscreen',
     ]);
     await t.context.close();
     const mac = await open({ mac: true });
@@ -183,7 +188,7 @@ try {
     ]);
     await mac.context.close();
     ok(
-      'Ctrl+R and F5 reload (not in a terminal), Ctrl+Shift+T and Ctrl+, reach the app; macOS: the same with Cmd',
+      'Ctrl+R and F5 reload (not in a terminal), Ctrl+Shift+T, Ctrl+, and F11 (a terminal too) reach the app; macOS: the same with Cmd',
     );
   }
 

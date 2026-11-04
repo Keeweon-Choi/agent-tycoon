@@ -206,3 +206,38 @@ test('a failed replacement restores the already-written originals', async () => 
     assert.notEqual(treeHash(path.join(home, '.config', 'agent-tycoon')), changed, 'saved originals are retained after rollback');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
+
+test('SPT-P1D: the spec Registry is in the archive by name; the match cache, its temp files and the hash key never are; a restore keeps the UIDs and drops the cache', async () => {
+  const home = seed();
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-restore-spec-'));
+  try {
+    const registry = JSON.stringify({ v: 1, projectId: 'p_abcdefghij', docs: { d_aaaaaaaaaa: {} }, items: { r_bbbbbbbbbb: {} } });
+    put(home, 'spec/p_abcdefghij/registry.json', registry);
+    put(home, 'spec/p_abcdefghij/links.json', '{"v":1}');
+    put(home, 'spec/p_abcdefghij/arch.json', '{"v":1,"rev":0}'); // SPT-P4B
+    put(home, 'spec/p_abcdefghij/match-cache.json.gz', 'SECRET-TOKEN-1234 cached text');
+    put(home, 'spec/p_abcdefghij/match-cache.json.gz.42.tmp', 'SECRET-TOKEN-1234 half written');
+    put(home, 'spec/p_abcdefghij/notes.json', 'SECRET-TOKEN-1234 not on the list');
+    put(home, 'spec/../spec.key', 'SECRET-TOKEN-1234 key');
+    put(home, 'spec/not-an-id/registry.json', 'SECRET-TOKEN-1234 a folder that is no project');
+    const made = backup.backup(deps(home));
+    const names = Object.keys(archive(made.file).files).filter((n) => n.startsWith('spec'));
+    assert.deepEqual(names.sort(), ['spec/p_abcdefghij/arch.json', 'spec/p_abcdefghij/links.json', 'spec/p_abcdefghij/registry.json']);
+    assert.doesNotMatch(zlib.gunzipSync(fs.readFileSync(made.file)).toString('utf8'), /SECRET-TOKEN-1234/);
+    // An archive that names the cache or the key is refused.
+    assert.equal(backup.isAllowedPath('spec/p_abcdefghij/match-cache.json.gz'), false);
+    assert.equal(backup.isAllowedPath('spec.key'), false);
+    assert.equal(backup.isAllowedPath('spec/p_abcdefghij/../../tasks.json'), false);
+    // Into another home: the Registry comes back byte for byte (its UIDs), 0600 in a 0700 folder.
+    put(destination, 'spec/p_abcdefghij/match-cache.json.gz', 'stale cache of another registry');
+    const restored = await backup.restore(deps(destination), { file: made.file, yes: true });
+    assert.equal(restored.ok, true, restored.error);
+    const file = get(destination, 'spec/p_abcdefghij/registry.json');
+    assert.equal(fs.readFileSync(file, 'utf8'), registry);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['arch.json', 'links.json', 'registry.json']); // the stale cache went: rebuilt on the next read
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(destination, { recursive: true, force: true });
+  }
+});

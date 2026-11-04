@@ -1,7 +1,7 @@
 /**
  * WINDOW-LAYERS check (desktop 1280x800 and 1920x1080, the phone untouched): the windows get the
- * whole room under the top bar; the card bar (orchestrator panel), the icon dock and the elevator
- * draw over normal windows; a window dragged under the card bar is covered by it but its title
+ * whole room under the top bar; the card bar (orchestrator panel) and the icon dock draw over
+ * normal windows (the elevator draws under them, run-ui-bugs-1104); a window dragged under the card bar is covered by it but its title
  * buttons stay visible (and are pushed clear when the title row is level with the panel); no
  * window reaches the top bar; maximize fills everything under the top bar in front of the panels
  * and restore returns; the card bar is centred under the top bar; with 12 orchestrators the card
@@ -229,7 +229,7 @@ async function desktop(page: Page, size: { width: number; height: number }) {
   check((await buttonsVisible(page, 'notices')) === null, `${tag}: its minimize, maximize and close buttons are visible (${await buttonsVisible(page, 'notices')})`);
   await shot(page, `${tag.replace(' ', '-')}-2-under-panels`);
 
-  // 2. Dragged to the left screen edge: the elevator draws over it, the buttons are visible.
+  // 2. Dragged to the left screen edge, over the elevator: the buttons are visible.
   await drag(page, { x: w.x + 60, y: w.y + 16 }, { x: 5, y: titleY });
   w = await box(page.locator(WIN));
   check(w.x <= 12, `${tag}: a window can reach the left screen edge (${Math.round(w.x)})`);

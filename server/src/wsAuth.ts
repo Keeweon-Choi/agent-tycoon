@@ -209,3 +209,20 @@ export function standaloneHandshakeVerdict(
   if (name === null || !allowedHostnames.has(name)) return 'untrusted-host';
   return 'privileged';
 }
+
+/**
+ * What an unprivileged (read-only) socket may see of a server message. A failed job's `stopLine`
+ * is a line of its log, which only a privileged client may read (`jobAction` log): even masked it
+ * can carry paths, addresses or output. Its bar (`stopPct`) stays.
+ */
+export function readOnlyView(m: Record<string, unknown>): Record<string, unknown> {
+  if (m.type !== 'officeJobs' || !Array.isArray(m.jobs)) return m;
+  return {
+    ...m,
+    jobs: m.jobs.map((job: Record<string, unknown>) => {
+      const copy = { ...job };
+      delete copy.stopLine;
+      return copy;
+    }),
+  };
+}

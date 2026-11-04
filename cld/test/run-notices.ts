@@ -448,7 +448,7 @@ async function main() {
     const bench = page.locator('[data-hud-window="office"]');
     check(
       (await bench.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'veteran' &&
-        (await bench.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true' &&
+        (await bench.getByRole('button', { name: '이슈', exact: true }).getAttribute('aria-pressed')) === 'true' &&
         (await bench.locator(`[data-job-ref="${jobId}"]`).count()) === 1 &&
         (await unread(page)) === 0,
       'desktop: a click on the job notice opens the 작업실 (veteran, Task) at its card (pid 4242) and reads it',

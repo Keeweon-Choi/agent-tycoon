@@ -1,6 +1,6 @@
 /**
  * CHAR-HUMAN test fixture: an owner's drawing as an image generator returns it, built from the
- * ×20 row template (cld/scripts/gen-char-templates.ts) with a part drawn on the mannequin. Used by
+ * ×20 row template (as the removed gen-char-templates.ts drew it) with a part drawn on the mannequin. Used by
  * partImport.test.ts and the cld/test/run-char-human.ts runner.
  */
 import { PART_ALPHABET, PARTS_META, SHEET_W } from '../../../core/src/cld/partData.js';

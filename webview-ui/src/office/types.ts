@@ -312,7 +312,7 @@ export interface Pet {
   id: string;
   /** Display name from sprite manifest (e.g. "Claudio", "Gitcat"). */
   name: string;
-  /** Index into the loaded PetSpriteFrames[] array. */
+  /** Index into PET_SPECIES (the pet's mascot). */
   petType: number;
   state: PetState;
   dir: Direction;
@@ -349,8 +349,9 @@ export interface Pet {
 export interface PlacedPet {
   /** crypto.randomUUID() generated when first toggled on. */
   id: string;
-  /** Index into the loaded pet sprite array. */
-  petType: number;
+  /** The mascot species the pet is (PET_SPECIES). Layouts saved before 11-04 carry a
+   *  numeric `petType` instead; migrateLayout turns it into a species. */
+  species: string;
   /** Tile the pet was dropped on, or last stood on when the layout was last synced.
    *  Absent in older layouts: the pet then starts on a random walkable tile. */
   col?: number;

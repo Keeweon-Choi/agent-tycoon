@@ -27,7 +27,6 @@ import type { FakeHome } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
-  type Daemon,
   FAKE_CLAUDE,
   launchBrowser,
   makeFakeHome,
@@ -35,6 +34,8 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -482,7 +483,7 @@ async function main() {
       'swapping: gamma-review attaches, beta-task lets go: still one attach process',
     );
     // 설정: the number of agent terminals at once (default = --chat-attaches, here 1).
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     await page.getByRole('tab', { name: '고급', exact: true }).click(); // SETTINGS-TABS: the cap is in the 고급 tab
     const capGroup = page.getByRole('group', { name: '동시에 붙일 에이전트 터미널' });
     await capGroup.waitFor();

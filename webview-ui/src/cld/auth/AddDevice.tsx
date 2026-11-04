@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
@@ -21,7 +21,7 @@ interface DeviceCode {
 /** "기기 추가" (T-0022): an 8-digit code to type on the new device and a QR of
  *  a login link; one credential, 5 minutes. Works from anywhere (T-0034): the
  *  address shown and copied is the canonical one. */
-export function AddDeviceButton({ targetUrl, label, zIndex = 60 }: { targetUrl?: string; label?: string; zIndex?: number } = {}) {
+export function AddDeviceButton({ targetUrl, label, zIndex = 60 }: { targetUrl?: string; label?: ReactNode; zIndex?: number } = {}) {
   const [open, setOpen] = useState(false);
   return (
     <>

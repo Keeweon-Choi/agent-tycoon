@@ -1,0 +1,619 @@
+/* SPT-P3-GRAPH: the requirements graph's pixel look over React Flow's style.css. Lazy (the graph's
+   chunk), so its colour tokens live here like board.css's, not in index.css: the main bundle stays as it was. */
+:root {
+  --tg-pane: #14141f;
+  --tg-node: #1e1e2e;
+  --tg-text: #dad8e2;
+  --tg-muted: #8a8aa6;
+  --tg-line: #8a8aa6;
+  --tg-line-hi: #ffe07c;
+  --tg-suggested: #9d87ff;
+  --tg-dot: #24243a;
+  --tg-req: #e8b41c;
+  --tg-doc: #3794ff;
+  --tg-task: #89d185;
+  --tg-commit: #d96ac0;
+  --tg-job: #4fc1a6;
+  --tg-msg: #b9a0ff;
+  --tg-comp: #8a8aa6;
+  --tg-group: #f0a070;
+  --tg-ok: #89d185;
+  --tg-part: #3794ff;
+  --tg-warn: #cca700;
+  --tg-bad: #d14249;
+  --tg-none: #4a4a6a;
+  --tg-box: rgba(255, 255, 255, 0.03);
+  --tg-hatch: rgba(138, 138, 166, 0.25);
+  --tg-mask: rgba(20, 20, 31, 0.7);
+}
+
+.tg-root {
+  position: relative;
+  border: 2px solid var(--color-border);
+  background: var(--tg-pane);
+  color: var(--tg-text);
+  font-family: var(--pixel-font-stack);
+  touch-action: none;
+}
+.tg-root .react-flow {
+  --xy-background-color: var(--tg-pane);
+  --xy-edge-stroke: var(--tg-line);
+  --xy-edge-stroke-width: 2;
+  --xy-edge-stroke-selected: var(--tg-line-hi);
+  --xy-edge-label-color: var(--tg-text);
+  --xy-edge-label-background-color: var(--tg-pane);
+  --xy-minimap-background-color: var(--tg-node);
+  --xy-minimap-mask-background-color: var(--tg-mask);
+  --xy-minimap-node-background-color: var(--tg-line);
+  --xy-controls-button-background-color: var(--color-btn-bg);
+  --xy-controls-button-background-color-hover: var(--color-btn-hover);
+  --xy-controls-button-color: var(--tg-text);
+  --xy-controls-button-color-hover: var(--tg-text);
+  --xy-controls-button-border-color: var(--color-border);
+  --xy-controls-box-shadow: var(--shadow-pixel);
+  --xy-attribution-background-color: var(--tg-node);
+  font-family: var(--pixel-font-stack);
+}
+.tg-root .react-flow__handle {
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+}
+.tg-root .react-flow__node {
+  border-radius: 0;
+}
+.tg-root .react-flow__node:focus-visible {
+  outline: 2px solid var(--tg-line-hi);
+  outline-offset: 2px;
+}
+
+/* Edges: confirmed solid, observed solid with a tag, suggested dashed, rejected dimmed. */
+.tg-root .tg-e--suggested .react-flow__edge-path {
+  stroke: var(--tg-suggested);
+  stroke-dasharray: 6 4;
+}
+.tg-root .tg-e--rejected {
+  opacity: 0.3;
+}
+.tg-root .tg-e--rejected .react-flow__edge-path {
+  stroke-dasharray: 2 4;
+}
+.tg-root .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--tg-line-hi);
+}
+.tg-root .react-flow__edge-text {
+  font-family: var(--pixel-font-stack);
+  font-size: 11px;
+  fill: var(--tg-text);
+}
+.tg-root .react-flow__edge-textbg {
+  fill: var(--tg-pane);
+  stroke: var(--tg-line);
+  stroke-width: 2px;
+}
+
+/* Controls, minimap, attribution: sharp, 2px, hard shadow. The attribution stays (restyled). */
+.tg-root .react-flow__controls {
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+}
+.tg-root .react-flow__controls-button {
+  border-radius: 0;
+  width: 28px;
+  height: 28px;
+}
+.tg-root .react-flow__minimap {
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+  box-shadow: var(--shadow-pixel);
+}
+.tg-root .react-flow__minimap-node.tg-mm-req {
+  fill: var(--tg-req);
+}
+.tg-root .react-flow__minimap-node.tg-mm-group {
+  fill: var(--tg-group);
+}
+.tg-root .react-flow__minimap-node.tg-mm-box {
+  fill: var(--tg-box);
+}
+.tg-root .react-flow__attribution {
+  border: 2px solid var(--color-border);
+  border-radius: 0;
+  padding: 0 4px;
+  margin: 4px;
+  font-family: var(--pixel-font-stack);
+  font-size: 10px;
+}
+.tg-root .react-flow__attribution a {
+  color: var(--tg-muted);
+}
+
+/* Nodes: our pixel components. --k is the kind's colour. */
+.tg-n {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 2px solid var(--k);
+  border-radius: 0;
+  background: var(--tg-node);
+  color: var(--tg-text);
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 2px 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.tg-n--req {
+  --k: var(--tg-req);
+}
+.tg-n--group {
+  --k: var(--tg-group);
+  box-shadow: 2px 2px 0px var(--k);
+}
+.tg-n--doc {
+  --k: var(--tg-doc);
+}
+.tg-n--task {
+  --k: var(--tg-task);
+}
+.tg-n--job {
+  --k: var(--tg-job);
+}
+.tg-n--msg {
+  --k: var(--tg-msg);
+}
+.tg-n--comp {
+  --k: var(--tg-comp);
+  box-shadow: 2px 2px 0px var(--k);
+}
+.tg-n--center {
+  border-width: 2px;
+  outline: 2px solid var(--k);
+  outline-offset: 2px;
+}
+.selected > .tg-n,
+.tg-n--sel {
+  border-color: var(--tg-line-hi);
+}
+.selected > .tg-n--task,
+.selected > .tg-n--job {
+  background: var(--tg-line-hi);
+}
+.selected > .tg-n--commit .tg-diamond {
+  border-color: var(--tg-line-hi);
+}
+.tg-n--missing {
+  background: repeating-linear-gradient(45deg, var(--tg-node) 0 4px, var(--tg-hatch) 4px 8px);
+  color: var(--tg-muted);
+}
+.tg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tg-id {
+  font-weight: normal;
+  white-space: nowrap;
+}
+.tg-sub {
+  color: var(--tg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tg-tag {
+  border: 2px solid var(--tg-muted);
+  color: var(--tg-muted);
+  font-size: 10px;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+/* The four state dots (작업, 근거, 수용, 최신) and a group's state bar. */
+.tg-dots {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.tg-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--tg-none);
+}
+.tg-dot--ok {
+  background: var(--tg-ok);
+}
+.tg-dot--part {
+  background: var(--tg-part);
+}
+.tg-dot--warn {
+  background: var(--tg-warn);
+}
+.tg-dot--bad {
+  background: var(--tg-bad);
+}
+.tg-bar {
+  display: flex;
+  height: 6px;
+  background: var(--tg-none);
+  margin-top: 2px;
+}
+.tg-bar > span {
+  background: var(--tg-ok);
+}
+
+/* Document: a folded corner. */
+.tg-n--doc::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  background: var(--tg-pane);
+  border-left: 2px solid var(--k);
+  border-bottom: 2px solid var(--k);
+}
+
+/* Task: rounded the pixel way, one step cut off each corner (no border-radius). */
+.tg-n--task {
+  border: 0;
+  padding: 4px 8px;
+  background: var(--k);
+  clip-path: polygon(
+    4px 0,
+    calc(100% - 4px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 4px) 100%,
+    4px 100%,
+    0 calc(100% - 4px),
+    0 4px
+  );
+}
+.tg-n--task > .tg-in,
+.tg-n--job > .tg-in {
+  position: absolute;
+  inset: 2px;
+  background: var(--tg-node);
+  clip-path: inherit;
+  z-index: 0;
+}
+.tg-n--task > :not(.tg-in, .react-flow__handle),
+.tg-n--job > :not(.tg-in, .react-flow__handle) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Job: a hexagon. */
+.tg-n--job {
+  border: 0;
+  padding: 4px 14px;
+  background: var(--k);
+  clip-path: polygon(
+    10px 0,
+    calc(100% - 10px) 0,
+    100% 50%,
+    calc(100% - 10px) 100%,
+    10px 100%,
+    0 50%
+  );
+}
+
+/* Commit: a small diamond beside its short SHA, or '커밋 +N' folded. */
+.tg-n--commit {
+  --k: var(--tg-commit);
+  border: 0;
+  background: transparent;
+  flex-direction: row;
+  align-items: center;
+  /* The diamond at the box's left edge, where the incoming edge's handle is. */
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 4px;
+}
+.tg-diamond {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  transform: rotate(45deg);
+  border: 2px solid var(--k);
+  background: var(--tg-node);
+}
+.tg-n--fold .tg-diamond {
+  background: var(--k);
+  box-shadow:
+    2px 2px 0px var(--tg-node),
+    4px 4px 0px var(--k);
+}
+
+/* A cluster box (document, section or ID prefix). */
+.tg-box {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 2px dashed var(--tg-line);
+  background: var(--tg-box);
+  pointer-events: none;
+}
+.tg-box-head {
+  color: var(--tg-group);
+  font-size: 11px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Overlays on the pane: the provenance of a clicked link, a picked node. */
+.tg-pop {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 5;
+  max-width: min(320px, calc(100% - 16px));
+  background: var(--tg-node);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+/* SPT-P4A: the architecture view. A kind's colour is --k: component a box, store a cylinder-like
+   box (a lid line, stepped corners), external dashed, system bold, interface its own colour. */
+:root {
+  --tg-component: #3794ff;
+  --tg-store: #4fc1a6;
+  --tg-system: #e8b41c;
+  --tg-interface: #b9a0ff;
+  --tg-external: #8a8aa6;
+}
+.ag-n {
+  --k: var(--tg-component);
+  align-items: center;
+  text-align: center;
+}
+.ag-label {
+  white-space: pre-line;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.ag-n--store {
+  --k: var(--tg-store);
+  border: 0;
+  background: var(--k);
+  clip-path: polygon(
+    6px 0,
+    calc(100% - 6px) 0,
+    100% 4px,
+    100% calc(100% - 4px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    0 calc(100% - 4px),
+    0 4px
+  );
+}
+.ag-n--store::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: var(--tg-node);
+  clip-path: inherit;
+}
+.ag-n--store::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 8px;
+  height: 2px;
+  background: var(--k);
+}
+.ag-n--store > .ag-label {
+  position: relative;
+  margin-top: 6px;
+}
+.ag-n--system {
+  --k: var(--tg-system);
+  border-width: 4px;
+}
+.ag-n--interface {
+  --k: var(--tg-interface);
+  /* SPT-P4B: a small tag (a pointed end, stepped like the store's corners, no rounding). */
+  border: 0;
+  background: var(--k);
+  padding-left: 12px;
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 10px 100%, 0 calc(50% + 2px), 0 calc(50% - 2px));
+}
+.ag-n--interface::before {
+  content: '';
+  position: absolute;
+  inset: 2px 2px 2px 3px;
+  background: var(--tg-node);
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 calc(50% + 2px), 0 calc(50% - 2px));
+}
+.ag-n--interface > .ag-label {
+  position: relative;
+}
+.ag-n--external {
+  --k: var(--tg-external);
+  border-style: dashed;
+}
+.ag-fold {
+  --k: var(--tg-group);
+  border-style: dashed;
+  box-shadow: 2px 2px 0px var(--k);
+  align-items: center;
+}
+.ag-box-head {
+  display: block;
+  width: 100%;
+  text-align: left;
+  pointer-events: auto;
+  cursor: pointer;
+  font-family: var(--pixel-font-stack);
+}
+.tg-root .react-flow__node-archGroup {
+  pointer-events: none;
+}
+.tg-root .ag-e--interaction .react-flow__edge-path {
+  stroke: var(--tg-msg);
+  stroke-width: 1;
+}
+.tg-root .ag-e--interaction .react-flow__edge-textbg {
+  stroke: var(--tg-msg);
+}
+
+/* SPT-P4B: a node's standing. Proposed folders dimmed and dotted; a diagram changed since its approval outlined. */
+.ag-s--proposed {
+  opacity: 0.45;
+  border-style: dotted;
+}
+.ag-s--review {
+  outline: 2px dashed var(--tg-warn);
+  outline-offset: 2px;
+}
+.ag-standing {
+  border: 2px solid var(--tg-none);
+  padding: 0 4px;
+}
+.ag-standing--approved {
+  border-color: var(--tg-ok);
+}
+.ag-standing--review {
+  border-color: var(--tg-warn);
+  color: var(--tg-warn);
+}
+
+/* MAP-A: the 지도's structure cards. The selected item on top, its children below joined by plain
+   lines (containment); a card's border says how sure it is: solid approved, dashed read from a
+   document, dotted and dim a proposal, a warn outline when its document changed since approval. */
+.pm-tree {
+  background: var(--tg-pane);
+  color: var(--tg-text);
+  border: 2px solid var(--color-border);
+  padding: 12px;
+}
+.pm-top {
+  display: flex;
+  justify-content: center;
+}
+.pm-stem {
+  width: 2px;
+  height: 16px;
+  margin: 0 auto;
+  background: var(--tg-line);
+}
+.pm-kids {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px 12px;
+  border-top: 2px solid var(--tg-line);
+  padding-top: 16px;
+}
+.pm-kids > * {
+  position: relative;
+}
+.pm-kids > *::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  width: 2px;
+  height: 16px;
+  background: var(--tg-line);
+}
+.pm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 8px;
+  background: var(--tg-node);
+  color: var(--tg-text);
+  border: 2px solid var(--tg-ok);
+  border-radius: 0;
+  font-family: var(--pixel-font-stack);
+  box-shadow: 2px 2px 0px var(--tg-none);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.pm-card--root {
+  max-width: 320px;
+  border-color: var(--color-border);
+}
+/* The one accent (purple) marks the picked card; gold stays the project name's. */
+.pm-card[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  box-shadow: 2px 2px 0px var(--color-accent);
+}
+.pm-card--doc {
+  border-style: dashed;
+  border-color: var(--tg-doc);
+}
+.pm-card--proposed {
+  border-style: dotted;
+  border-color: var(--tg-none);
+  opacity: 0.7;
+}
+.pm-card--review {
+  outline: 2px dashed var(--tg-warn);
+  outline-offset: 2px;
+}
+.pm-card--group {
+  border-width: 2px 2px 2px 6px;
+}
+.pm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pm-chip {
+  border: 2px solid var(--tg-none);
+  padding: 0 4px;
+  font-size: 11px;
+}
+.pm-chip--confirmed {
+  border-color: var(--tg-ok);
+}
+.pm-chip--observed {
+  border-color: var(--tg-doc);
+}
+.pm-chip--suggested {
+  border-style: dashed;
+  border-color: var(--tg-suggested);
+}
+.pm-chip--tasks {
+  border-color: var(--tg-task);
+}
+.pm-chip--review {
+  border-color: var(--tg-warn);
+  color: var(--tg-warn);
+}
+.pm-legend-line {
+  display: inline-block;
+  width: 24px;
+  height: 0;
+  border-top: 2px solid var(--tg-ok);
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.pm-legend-line--doc {
+  border-top-style: dashed;
+  border-top-color: var(--tg-doc);
+}
+.pm-legend-line--suggested {
+  border-top-style: dotted;
+  border-top-color: var(--tg-suggested);
+}

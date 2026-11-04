@@ -5,6 +5,7 @@ import { CHAT_REQUEST_TIMEOUT_MS } from '../../constants.js';
 import { setLanguage, t } from '../../i18n/index.js';
 import { presenceOf, presenceWord } from '../officeHours.js';
 import { cldConnectionLost, cldHandleMessage } from '../officeStore.js';
+import { type AttachmentChip, composeAttachmentText } from './attachments.js';
 import {
   chatViewClosed,
   closeConversation,
@@ -14,6 +15,7 @@ import {
   dividerAfter,
   DRAFT_TTL_MS,
   draftKey,
+  foldQuest,
   hasMessengerDraft,
   jumpStep,
   jumpTarget,
@@ -23,6 +25,7 @@ import {
   loadDraftReply,
   MAX_OPEN,
   mergeItems,
+  messengerAnswerPermission,
   messengerApproveHeld,
   messengerCancel,
   messengerEditEnter,
@@ -37,6 +40,7 @@ import {
   onLeadReply,
   openConversation,
   openMessenger,
+  questLabel,
   requestHistory,
   requestSearch,
   saveDraft,
@@ -615,6 +619,37 @@ it('edit mode enters from a queued bubble, saves to that id, or leaves without s
   expect(snap().pending[1][0]).toMatchObject({ state: 'cancelled', cancelling: false });
 });
 
+// EDIT-ATTACH (owner 11-03): a held message's edit takes files like a new message: their attachment
+// lines join the replacement text, and chatEdit carries it to the same queue id.
+it('EDIT-ATTACH: an edit saved with an attached file sends the file line in chatEdit', () => {
+  cldHandleMessage({
+    type: 'chatTranscript',
+    agentId: 1,
+    items: [],
+    canSend: true,
+    queued: [{ id: '1-att.json', text: 'old words', at: T0 }],
+  });
+  const sent: Array<{ type: string; text?: string; id?: string }> = [];
+  expect(messengerEditEnter((m) => sent.push(m), 1, 'alpha', 'q:1-att.json')).toBe(true);
+  const text = composeAttachmentText('new words', [
+    {
+      id: 'c1',
+      name: 'a.png',
+      size: 2048,
+      type: 'image/png',
+      path: '/p/.cld-inbox/a.png',
+      state: 'ready',
+      progress: 100,
+    },
+  ] as AttachmentChip[]);
+  expect(messengerEditSave((m) => sent.push(m), text!)).toBe(true);
+  expect(sent.at(-1)).toMatchObject({
+    type: 'chatEdit',
+    id: '1-att.json',
+    text: 'new words\n[\ucca8\ubd80] /p/.cld-inbox/a.png (image/png, 2 KB)',
+  });
+});
+
 // MSG-HOLD2 (owner 10-24 17:15): a reload finds the hold; three explicit decisions; an edit that
 // lost the race to delivery is offered as a correction and never shown as an edit.
 it('MSG-HOLD2: a reloaded page shows the held message with its choices; leaving the screen decides nothing', () => {
@@ -820,5 +855,39 @@ it('PRESENCE-SYNC: the messenger shows the card bar\'s presence: off duty grey, 
   expect(leadPresence(presenceOf(staff, 3), leadState(row, 'idle'))).toEqual({
     dot: 'resting',
     word: t('messenger.state.resting'),
+  });
+});
+
+describe('GAME-UI-1 G1: quest records and the delivered badge', () => {
+  beforeEach(() => messengerResetForTests());
+  const card = { toolId: 'toolu_1', tool: 'Bash command', detail: 'Clean the marks\nrm -f $M/*' };
+  it('stamps (records) only an answer the daemon confirms, then folds it', () => {
+    const sent: Array<{ requestId: string; toolId: string; allow: boolean }> = [];
+    messengerAnswerPermission((m) => sent.push(m), 7, card, true);
+    expect(sent[0]).toMatchObject({ toolId: 'toolu_1', allow: true });
+    expect(snap().permissionAnswers[7]).toMatchObject({ card, allow: true });
+    cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[0].requestId, agentId: 7, ok: true, result: 'answered' });
+    expect(snap().questRecords[7]).toMatchObject([{ toolId: 'toolu_1', allow: true, label: questLabel(card) }]);
+    expect(questLabel(card)).toBe('Bash command · Clean the marks');
+    foldQuest(7, 'toolu_1');
+    expect(snap().permissionAnswers[7].folded).toBe(true);
+    // A result that did nothing (no dialog on screen) gets no stamp and no record.
+    messengerAnswerPermission((m) => sent.push(m), 8, { ...card, toolId: 'toolu_2' }, false);
+    cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[1].requestId, agentId: 8, ok: true, result: 'noDialog' });
+    expect(snap().questRecords[8]).toBeUndefined();
+  });
+  it('notes when a send is delivered (sent), not when it is queued', () => {
+    const sent: Array<{ requestId: string }> = [];
+    messengerSend((m) => sent.push(m), true, 1, 'alpha', 'a');
+    messengerSend((m) => sent.push(m), true, 2, 'beta', 'b');
+    const contacts = [
+      { agentId: 1, name: 'alpha', replies: [] },
+      { agentId: 2, name: 'beta', replies: [] },
+    ];
+    cldHandleMessage({ type: 'messengerContacts', contacts });
+    cldHandleMessage({ type: 'chatSendResult', requestId: sent[0].requestId, name: 'alpha', ok: true, delivered: 'queued' });
+    cldHandleMessage({ type: 'chatSendResult', requestId: sent[1].requestId, name: 'beta', ok: true });
+    expect(snap().delivered[1]).toBeUndefined();
+    expect(snap().delivered[2]).toBeGreaterThan(0);
   });
 });

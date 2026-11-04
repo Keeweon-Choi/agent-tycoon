@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import type { ProjectFileList } from '../../../../core/src/cld/projectFiles.js';
+import type { ProjectFileEntry, ProjectFileList } from '../../../../core/src/cld/projectFiles.js';
 import { showOffice } from '../hud/hudStore.js';
 import { type FileRoot, fileRootKey } from './filesStore.js';
 
@@ -41,6 +41,28 @@ export function chooseFileRoot(root: FileRoot) {
 export function openProjectFiles(project: string) {
   chooseFileRoot({ kind: 'project', project });
   window.dispatchEvent(new Event('cld-open-files-tab'));
+}
+
+/** SPT-P1A: a file to show once the project's explorer is up (the 문서 tab's rows). */
+let pendingFile: { project: string; entry: ProjectFileEntry; line?: number } | null = null;
+const pendingListeners = new Set<() => void>();
+export const usePendingFile = () =>
+  useSyncExternalStore(
+    (l) => {
+      pendingListeners.add(l);
+      return () => void pendingListeners.delete(l);
+    },
+    () => pendingFile,
+  );
+/** The explorer took it. */
+export const clearPendingFile = () => {
+  pendingFile = null;
+};
+/** Open the 파일 tab on `project` and show one file of it (at `line`: its source, scrolled there and marked). */
+export function openProjectFile(project: string, entry: ProjectFileEntry, line?: number) {
+  pendingFile = { project, entry, ...(line && { line }) };
+  pendingListeners.forEach((l) => l());
+  openProjectFiles(project);
 }
 
 /** The dev room's `… → 탐색기에서 열기`: the 파일 window, rooted at one task worktree. */

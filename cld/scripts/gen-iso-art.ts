@@ -30,7 +30,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { ISO_BOARD_FACE_Z, ISO_BOARD_H, ISO_BOARD_PLANE } from '../../webview-ui/src/constants.js';
 import { hex, Img, mix, type Rgba } from './lib/img.js';
 
 const ROOT = path.resolve(__dirname, '../..');
@@ -358,7 +357,6 @@ const KEEP = new Set([
   'slab-row',
   'slab-col',
   'pavement',
-  'board',
   'bench',
   'counter',
   'coffee-machine',
@@ -854,42 +852,8 @@ const DIAMOND: [number, number] = [HW, 2 * HH];
   });
 }
 
-// The lobby's board, a whiteboard and the lobby's bench: the pack has none of them yet.
+// A whiteboard and the lobby's bench: the pack has none of them yet.
 {
-  const ink = {
-    frame: hex('#2a2d40'),
-    frameLit: hex('#3a3e56'),
-    screen: hex('#141824'),
-    dot: hex('#22304d'),
-    dotHi: hex('#3d5a8a'),
-  };
-  // About a wall's height, its screen as tall as the webview's copy of the board (the DOM board is
-  // laid over this screen, ISO_BOARD_*): the room behind still shows over its top.
-  const [fw, fh] = [28, 9];
-  const H = ISO_BOARD_H;
-  const f = new Frame(fw, fh, H * D);
-  for (const u of [3, 14, 25])
-    f.box(u, 0.3, u + 0.25, 0.55, 0, 6, { top: ink.frameLit, lit: ink.frameLit, shade: ink.frame });
-  f.box(0.2, 0.2, fw - 0.2, 0.5, 6, H, { top: ink.frameLit, lit: ink.frame, shade: ink.frame });
-  f.row(0.5, fw - 0.5, ISO_BOARD_PLANE, ISO_BOARD_FACE_Z, H - 2, ink.screen);
-  for (let z = ISO_BOARD_FACE_Z + 2; z < H - 3; z += 2)
-    for (let u = 0.75; u < fw - 0.6; u += 0.1875)
-      f.row(
-        u,
-        u + 0.0625,
-        ISO_BOARD_PLANE,
-        z,
-        z + 0.5,
-        (z + Math.round(u * 16)) % 7 ? ink.dot : ink.dotHi,
-      );
-  outline(f.img, 0.5);
-  save('board', f.img, {
-    footprint: [fw, fh],
-    anchor: [fw * HW, f.img.h],
-    faces: '+row',
-    from: 'drawn',
-  });
-
   const wb = {
     frame: hex('#4a4e4d'),
     board: hex('#efebe8'),
@@ -963,8 +927,8 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   'SOFA_SIDE:left': { piece: 'sofa-side' },
   COFFEE_TABLE: { piece: 'coffee-table' },
   SMALL_TABLE_FRONT: { piece: 'counter' },
+  SMALL_TABLE_SIDE: { piece: 'counter', mirror: true },
   COFFEE: { piece: 'coffee-machine' },
-  LED_BOARD: { piece: 'board' },
   WHITEBOARD: { piece: 'whiteboard' },
   LOBBY_BENCH: { piece: 'bench' },
 };

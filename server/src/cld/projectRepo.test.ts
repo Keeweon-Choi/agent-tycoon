@@ -190,13 +190,15 @@ describe.skipIf(!GIT_AVAILABLE)('projectRepo', () => {
 
   it('two clones into Foo and foo on a case-folding host: the second is refused while the first runs', async () => {
     const { r, projects, ask } = setup({ host: { caseInsensitive: true } });
-    const [a, b] = await Promise.all([
+    // Either may take the lock first (a folder source awaits a git check before it), so no winner is assumed.
+    const both = await Promise.all([
       ask({ action: 'clone', folder: projects, url: r.remote, name: 'Shop' }),
       ask({ action: 'clone', folder: projects, url: r.remote, name: 'shop' }),
     ]);
-    expect(a).toMatchObject({ ok: true });
-    expect(b.errorCode).toBe('clone_running');
-    expect(fs.readdirSync(projects)).toEqual(['Shop']);
+    const won = both.filter((x) => x.ok);
+    expect(won).toHaveLength(1);
+    expect(both.find((x) => !x.ok)?.errorCode).toBe('clone_running');
+    expect(fs.readdirSync(projects)).toEqual([path.basename(won[0].folder!)]);
   });
 
   it('wants a privileged client, a writable daemon, and a remote clone a fresh step-up', async () => {

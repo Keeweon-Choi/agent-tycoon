@@ -7,11 +7,16 @@ import type {
   GroundDecal,
   OfficeLayout,
   PlacedFurniture,
+  PlacedPet,
   Seat,
   TileType as TileTypeVal,
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
 import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
+
+/** Pre-mascot layouts stored `petType` 0/1 = the upstream pets claudio/gitcat (sorted folder
+ *  names): read as the Claude mascot and Byte. */
+const LEGACY_PET_SPECIES: readonly string[] = ['coral', 'byte'];
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -406,6 +411,19 @@ function migrateLayout(layout: OfficeLayout): OfficeLayout {
   // Default pets to empty array if absent (backward-compat for legacy layouts).
   if (!layout.pets) {
     layout = { ...layout, pets: [] };
+  }
+  // ponytail: one release of reading the upstream pets (petType 0/1) as mascots, drop after it.
+  const pets = layout.pets ?? [];
+  if (pets.some((p) => !p.species)) {
+    layout = {
+      ...layout,
+      pets: pets.flatMap((p) => {
+        if (p.species) return [p];
+        const { petType, ...rest } = p as PlacedPet & { petType?: number };
+        const species = LEGACY_PET_SPECIES[petType ?? -1];
+        return species ? [{ ...rest, species }] : [];
+      }),
+    };
   }
 
   if (layout.tileColors && layout.tileColors.length === layout.tiles.length) {

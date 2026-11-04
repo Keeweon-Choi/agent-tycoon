@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
@@ -34,7 +34,8 @@ const HEAD_ICONS: Array<['zzz' | 'alert' | 'lock', string]> = [
 
 /** The HUD's 범례 button: what the rings, props and head badges mean. */
 /** `zIndex`: above the dialog it opens from (the phone opens it inside 설정). */
-export function ActivityLegend({ zIndex }: { zIndex?: number } = {}) {
+/** `children`: the top bar menu's row (HUD-2B). */
+export function ActivityLegend({ zIndex, children }: { zIndex?: number; children?: ReactNode } = {}) {
   const [open, setOpen] = useState(false);
   const entries = Object.entries(ACTIVITY_VISUALS);
   // The numbers in force: the user's ez-rules.json over the defaults.
@@ -48,7 +49,7 @@ export function ActivityLegend({ zIndex }: { zIndex?: number } = {}) {
         title={t('activity.legendTitle')}
         onClick={() => setOpen(true)}
       >
-        {t('activity.legend')}
+        {children ?? t('activity.legend')}
       </Button>
       <Modal
         isOpen={open}

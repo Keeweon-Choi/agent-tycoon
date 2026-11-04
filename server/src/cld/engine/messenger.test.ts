@@ -639,6 +639,18 @@ describe('messages', () => {
     await vi.waitFor(() => expect(bodies(r.typed)).toEqual(['normal', 'urgent']));
   });
 
+  it('an edit may point the queued message at another message to answer; without one the old reference stays', async () => {
+    const r = rig();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    const first = await r.m.send({ ...boss('alpha', 'old words'), replyTo: { id: 'first001', sender: 'alpha', text: 'one' } });
+    if (!first.ok || !first.id) throw new Error('message was not queued');
+    const quoted = () => r.m.queuedFor('alpha').find((q) => q.id === first.id)?.replyTo?.id;
+    expect(r.m.edit('alpha', first.id, 'same quote')).toMatchObject({ ok: true });
+    expect(quoted()).toBe('first001');
+    expect(r.m.edit('alpha', first.id, 'new quote', { id: 'second02', sender: 'alpha', text: 'two' })).toMatchObject({ ok: true });
+    expect(quoted()).toBe('second02');
+  });
+
   it('the boss can edit or cancel a queued message in place; a peer cannot', async () => {
     const r = rig();
     r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
@@ -683,6 +695,28 @@ describe('messages', () => {
         .filter((e) => /^send_(edit|cancel)$/.test(String(e.type)))
         .map((e) => e.type),
     ).toEqual(['send_edit', 'send_cancel']);
+  });
+
+  it('EDIT-ATTACH: an edit keeps the uploaded files and takes the ones it adds, once each', async () => {
+    const r = rig();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
+    const one = '[\ucca8\ubd80] /p/.cld-inbox/a.png (image/png, 1 KB)';
+    const two = '[\ucca8\ubd80] /p/.cld-inbox/b.pdf (application/pdf, 2 KB)';
+    const first = await r.m.send(boss('alpha', `old words\n${one}`));
+    if (!first.ok || !first.id) throw new Error('message was not queued');
+    // The edit may repeat the old line (the box held it) and carries the new one after it.
+    expect(r.m.edit('alpha', first.id, `new words\n${one}\n${two}`)).toMatchObject({ ok: true });
+    expect(r.m.queuedFor('alpha')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.id, text: `new words\n${one}\n${two}`, edited: true }),
+      ]),
+    );
+    expect(r.m.edit('alpha', first.id, 'newer words')).toMatchObject({ ok: true });
+    expect(r.m.queuedFor('alpha')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: first.id, text: `newer words\n${one}\n${two}` }),
+      ]),
+    );
   });
 
   it('holds an edited queue entry and the later entries behind it until edit saves', async () => {

@@ -13,6 +13,7 @@ import { authFetch } from './auth/authApi.js';
 import { useEngineStore } from './engineStore.js';
 import { timeAgo } from './format.js';
 import { serverText } from './serverText.js';
+import { Choice, SettingRow } from './SettingRow.js';
 
 const POLICIES = ['on-demand', 'always', 'manual'] as const;
 type Policy = (typeof POLICIES)[number];
@@ -76,31 +77,14 @@ export function StartPolicyOption() {
   const always = view.policy === 'always';
   const yesNo = (on: boolean) => t(on ? 'settings.on' : 'settings.off');
 
-  return (
-    <div className="space-y-4" data-testid="start-policy-option">
-      <p className="text-base">{t('startPolicy.title')}</p>
-      <p className="text-sm text-text-muted">{t('startPolicy.help')}</p>
+  const details = (
+    <>
       {view.blocked ? (
         <p className="text-sm text-yellow-300" data-testid="start-policy-blocked">
           {serverText(view.blocked)}
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap gap-4" role="group" aria-label={t('startPolicy.title')}>
-            {POLICIES.map((p) => (
-              <Button
-                key={p}
-                size="sm"
-                variant={view.policy === p ? 'active' : 'default'}
-                aria-pressed={view.policy === p}
-                disabled={!view.canChange || busy || view.policy === p}
-                data-policy={p}
-                onClick={() => choose(p)}
-              >
-                {t(`startPolicy.${POLICY_KEY[p]}`)}
-              </Button>
-            ))}
-          </div>
           {view.policy && (
             <p className="text-sm text-text-muted">
               {t(`startPolicy.${POLICY_KEY[view.policy]}.help`)}
@@ -206,6 +190,27 @@ export function StartPolicyOption() {
           </li>
         )}
       </ul>
-    </div>
+    </>
+  );
+
+  return (
+    <SettingRow
+      testId="start-policy-option"
+      title={t('startPolicy.title')}
+      help={t('startPolicy.help')}
+      note={<div className="space-y-4">{details}</div>}
+    >
+      {!view.blocked && (
+        <Choice
+          label={t('startPolicy.title')}
+          options={POLICIES}
+          value={view.policy}
+          onPick={choose}
+          text={(p) => t(`startPolicy.${POLICY_KEY[p]}`)}
+          attr="data-policy"
+          disabled={(p) => !view.canChange || busy || view.policy === p}
+        />
+      )}
+    </SettingRow>
   );
 }

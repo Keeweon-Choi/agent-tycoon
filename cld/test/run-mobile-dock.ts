@@ -35,6 +35,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();

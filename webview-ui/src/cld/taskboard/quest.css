@@ -1,0 +1,161 @@
+/* GAME-UI-1 G2 (specs/ui-mock-1103 cockpit 09): the 이슈 board as a quest board. Each card is a
+   pinned request on dark paper: id and priority stars, title, requirement chip and evidence
+   lights, the assignee's face; done cards are dimmed under a 완료 stamp. Narrow boxes keep one
+   list (the order the board has); a wide board lays the status groups out as columns, 할 일 to
+   끝남. Tokens are aliases of existing ones (the mock's --quest-*). */
+.quest-board {
+  container-type: inline-size;
+}
+.quest-cols {
+  display: grid;
+  gap: 8px;
+}
+.quest-colh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 10px;
+  background: var(--hud-tile);
+  border: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.quest-colv {
+  margin-left: auto;
+  font-family: var(--font-data);
+  font-size: calc(36px * var(--ui-scale));
+  line-height: 1;
+  color: var(--color-text);
+}
+.quest-well {
+  padding: 8px;
+  background: var(--hud-tile);
+  border: 2px solid var(--color-border);
+}
+@container (min-width: 1000px) {
+  .quest-cols {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+  }
+  .quest-col[data-status='todo'] {
+    order: 0;
+  }
+  .quest-col[data-status='proposed'] {
+    order: 1;
+  }
+  .quest-col[data-status='doing'] {
+    order: 2;
+  }
+  .quest-col[data-status='review'] {
+    order: 3;
+  }
+  .quest-col[data-status='blocked'] {
+    order: 4;
+  }
+  .quest-col[data-status='done'] {
+    order: 5;
+  }
+}
+
+.quest-card {
+  position: relative;
+  min-width: 0;
+  padding: 10px 10px 8px;
+  background: var(--color-bg-thumb);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
+}
+.quest-pin {
+  position: absolute;
+  top: -8px;
+  left: calc(50% - 8px);
+  color: var(--color-accent-text);
+}
+.quest-body {
+  display: grid;
+  gap: 6px;
+}
+.quest-card[data-done] > .quest-body {
+  color: var(--color-text-muted);
+}
+.quest-card[data-done] > .quest-body .quest-who > :first-child {
+  opacity: 0.6;
+}
+.quest-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.quest-id {
+  font-family: var(--font-data);
+  font-size: calc(24px * var(--ui-scale));
+  line-height: 1;
+}
+.quest-stars {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  color: var(--color-text);
+}
+.quest-stars .quest-off {
+  color: var(--hud-seg);
+}
+.quest-title {
+  font-weight: 400;
+}
+.quest-req {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.quest-muted {
+  color: var(--color-text-muted);
+}
+.quest-chip {
+  padding: 0 6px;
+  border: 2px solid var(--chip-line);
+  font-family: var(--font-data);
+  font-size: calc(24px * var(--ui-scale));
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.quest-chip[data-status='observed'] {
+  border-color: var(--hud-line);
+}
+.quest-leds {
+  display: inline-flex;
+  gap: 4px;
+}
+.quest-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.quest-who > :first-child {
+  border: 2px solid var(--color-border);
+  background: var(--hud-tile);
+  box-sizing: content-box;
+}
+.quest-who > .quest-noface {
+  display: block;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-style: dashed;
+  background: none;
+}
+/* 완료: on the card's right, over its lower half; clicks go through to the card. */
+.quest-stamp {
+  position: absolute;
+  right: 10px;
+  top: 36px;
+  pointer-events: none;
+}
+.quest-stamp .game-stamp {
+  background: var(--color-bg-thumb);
+}

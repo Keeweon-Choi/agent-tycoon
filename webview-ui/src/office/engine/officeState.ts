@@ -42,6 +42,7 @@ import {
   MAX_PET_ID_LENGTH,
   OWNER_CHARACTER_ID,
   OWNER_SPAWN_FROM_BOARD,
+  OWNER_SPAWN_FROM_DOOR_ROWS,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
   WAITING_BUBBLE_DURATION_SEC,
@@ -55,7 +56,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
-import { getPetCount, getPetName } from '../sprites/petSpriteData.js';
+import { getPetName, PET_SPECIES } from '../sprites/petSpriteData.js';
 import { characterLift, getLoadedCharacterCount } from '../sprites/spriteData.js';
 import type {
   Character,
@@ -687,19 +688,26 @@ export class OfficeState {
     startMatrixEffect(this.greeter, 'despawn');
   }
 
-  /** OWNER-AVATAR: the owner's own character, in front of the lobby board (else the middle of
-   *  the office). It is in `characters` so it walks, rides and draws as everyone does; the
-   *  agent-only loops skip it by `cldOwner`. Idempotent; null when no tile is free. */
+  /** OWNER-AVATAR: the owner's own character, in front of a lobby board a layout still has, else
+   *  just inside the office door (the middle of floor 1's last rows: the lobby board stands
+   *  outside since building-a-1104). It is in `characters` so it walks, rides and draws as
+   *  everyone does; the agent-only loops skip it by `cldOwner`. Idempotent; null when no tile
+   *  is free. */
   spawnOwner(palette = 0, hueShift = 0): Character | null {
     const had = this.characters.get(OWNER_CHARACTER_ID);
     if (had) return had;
     const board = this.layout.furniture.find((f) => f.type === BOARD_TYPE);
+    const floors = (this.layout as { cldFloors?: Array<{ row: number; rows: number }> }).cldFloors;
+    const first = floors?.[0] ?? { row: 0, rows: this.layout.rows };
     const spawn = board
       ? this.closestFreeWalkableTile(
           board.col + OWNER_SPAWN_FROM_BOARD.col,
           board.row + OWNER_SPAWN_FROM_BOARD.row,
         )
-      : this.closestFreeWalkableTile(this.layout.cols >> 1, this.layout.rows >> 1);
+      : this.closestFreeWalkableTile(
+          this.layout.cols >> 1,
+          first.row + first.rows - OWNER_SPAWN_FROM_DOOR_ROWS,
+        );
     if (!spawn) return null;
     const ch = createCharacter(OWNER_CHARACTER_ID, palette, null, null, hueShift);
     Object.assign(ch, {
@@ -1251,7 +1259,7 @@ export class OfficeState {
   /**
    * Add a pet to the live runtime. Spawns on `placedPet`'s tile, or a random walkable tile without one.
    * Mirror in `this.layout.pets` so debounced saveLayout serialises the roster.
-   * Bounds-checks petType against the loaded sprite count to defend against stale layouts.
+   * Drops a pet whose species is not a mascot (stale or hand-edited layouts).
    */
   addPet(placedPet: PlacedPet): void {
     // Defensive guards (upstream 5e6c0a0)
@@ -1262,18 +1270,13 @@ export class OfficeState {
     ) {
       return;
     }
-    if (
-      !Number.isInteger(placedPet.petType) ||
-      placedPet.petType < 0 ||
-      placedPet.petType >= getPetCount()
-    ) {
-      return;
-    }
+    const petType = PET_SPECIES.indexOf(placedPet.species as (typeof PET_SPECIES)[number]);
+    if (petType < 0) return;
     if (this.pets.some((p) => p.id === placedPet.id)) return; // de-dupe
     const spawn = pickPetSpawn(placedPet, this.walkableTiles);
     if (!spawn) return; // no spawn space — silently drop
-    const pet = createPet(placedPet.id, placedPet.petType, spawn.col, spawn.row);
-    pet.name = getPetName(placedPet.petType);
+    const pet = createPet(placedPet.id, petType, spawn.col, spawn.row);
+    pet.name = getPetName(petType);
     this.pets.push(pet);
     this.syncLayoutPets();
   }
@@ -1373,7 +1376,7 @@ export class OfficeState {
   private syncLayoutPets(): void {
     this.layout.pets = this.pets.map((p) => ({
       id: p.id,
-      petType: p.petType,
+      species: PET_SPECIES[p.petType],
       col: p.tileCol,
       row: p.tileRow,
     }));

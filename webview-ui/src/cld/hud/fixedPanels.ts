@@ -1,5 +1,5 @@
 /**
- * WINDOW-LAYERS: where the fixed panels (card bar, icon dock, elevator) are, in the HUD layer's own
+ * WINDOW-LAYERS: where the fixed panels (card bar, icon dock) are, in the HUD layer's own
  * coordinates, so a window can keep its title buttons out from under them (layout.keepButtonsClear).
  * HudLayer measures the elements marked `data-hud-fixed` inside its panel slot: on a resize of one,
  * of the layer, or when the slot's children come and go. No polling.
@@ -73,7 +73,7 @@ export const usePanelSlot = (): HTMLElement | null =>
     () => slot,
   );
 
-/** A fixed panel (card bar, elevator): drawn in the HUD layer's panel slot, over normal windows, where there is one; in place elsewhere. */
+/** A fixed panel (card bar, icon dock): drawn in the HUD layer's panel slot, over normal windows, where there is one; in place elsewhere. */
 export function HudPanel({ children }: { children: ReactNode }): ReactNode {
   const slot = usePanelSlot();
   return slot ? createPortal(children, slot) : children;

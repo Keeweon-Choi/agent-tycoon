@@ -26,7 +26,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: 200_000,

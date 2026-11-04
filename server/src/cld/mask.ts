@@ -41,7 +41,17 @@ const ENV_RUN = 4;
 export const ENV_DUMP_NOTE = '(환경 변수 출력은 보여 주지 않아요)';
 
 const maskLine = (line: string): string => {
-  let out = line.length > LINE_MAX ? `${line.slice(0, LINE_MAX)}…` : line;
+  // Past the cap the cut falls at the last whitespace at or before it, else (compact JSON, a long
+  // path) at the last character no token has (outside [A-Za-z0-9_-] and base64's or a JWT's . + / =),
+  // so a token straddling the cap is dropped whole rather than leaving its first characters unmatched
+  // by the patterns. A line with neither is dropped.
+  let out = line;
+  if (line.length > LINE_MAX) {
+    const head = line.slice(0, LINE_MAX + 1);
+    let cut = head.search(/\s\S*$/);
+    if (cut <= 0) cut = head.search(/[^\w\-.+/=][\w\-.+/=]*$/);
+    out = `${line.slice(0, Math.max(cut, 0))}…`;
+  }
   for (const [re, to] of BASE_RULES) out = out.replace(re, to);
   for (const [re, to] of OUR_RULES) out = out.replace(re, to);
   return out;

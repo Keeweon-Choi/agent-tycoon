@@ -72,11 +72,11 @@ const pixelOf = (s: ReturnType<typeof composePerson>['sheet'], x: number, y: num
 
 describe('people made of parts (CHAR-HUMAN)', () => {
   it('v1 and v2 looks compose exactly as before the parts system', () => {
-    const now = LOOK_SAMPLES.map((look) =>
-      createHash('sha256')
-        .update(JSON.stringify(compose(look, { templates }).sheet))
-        .digest('hex'),
-    );
+    // The three views drawn before (mascots now also carry their three-quarter frames, 11-04).
+    const now = LOOK_SAMPLES.map((look) => {
+      const { down, up, right } = compose(look, { templates }).sheet;
+      return createHash('sha256').update(JSON.stringify({ down, up, right })).digest('hex');
+    });
     expect(now).toEqual(lookHashes);
     // negative control: the hash sees a one-degree hue change
     const turned = createHash('sha256')
@@ -154,24 +154,8 @@ describe('people made of parts (CHAR-HUMAN)', () => {
         expect(frame[ay][ax + 8], `${view} ${f}`).toBe('#123456');
       }),
     );
-    // the anchors are the built-in heads' own: char_0's hair part lands where char_0 drew its hair
-    const hair = composePerson({ parts: { hair: 'hair-0' } }).sheet;
-    let same = 0;
-    let all = 0;
-    VIEWS.forEach((view) =>
-      hair[view].forEach((frame, f) =>
-        frame.forEach((row, y) =>
-          row.forEach((c, x) => {
-            const was = templates[0][view][f][y][x];
-            if (c && byId('hair-0').palette.some((p) => `#${p.toUpperCase()}` === c)) {
-              all++;
-              if (was === c) same++;
-            }
-          }),
-        ),
-      ),
-    );
-    expect(same / all).toBeGreaterThan(0.95);
+    // ponytail (CHARS-1104): the anchors came from the old Metro char_0, gone since 11-04; W6
+    // takes them from the new people again and can check them against their sheet here
   });
 
   it('recolouring moves the main ramp with its shading; other colours and the outline stay', () => {

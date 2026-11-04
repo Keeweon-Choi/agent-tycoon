@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  getCharacterSprites,
+  setCharacterTemplates,
+  setIsoPalette,
+} from '../../office/sprites/spriteData.js';
 import { CharacterState, Direction } from '../../office/types.js';
-import { characterView, isoFacing, isoSheetFrame, rowDirection, sheetRows } from './sprites.js';
+import {
+  characterView,
+  drawnView,
+  isoFacing,
+  isoSheetFrame,
+  rowDirection,
+  sheetRows,
+} from './sprites.js';
 
 describe('iso facing', () => {
   // A tiny synthetic sheet: every frame one pixel wide-and-two, its colour says row and column,
@@ -98,5 +110,116 @@ describe('CHAR-8DIR: characterView', () => {
         });
         expect(characterView(ch, false, TOP)).toEqual({ palette: TOP, dir, mirror: false });
       }
+  });
+});
+
+describe('DIAG-1104: drawnView with the built-in three-quarter walk', () => {
+  const { RIGHT, LEFT, UP, DOWN } = Direction;
+  // two pixels: a frame flipped into its sheet (the top view's left) reads R first
+  const px = (tag: string) => [[`L${tag}`, `R${tag}`]];
+  const row = (tag: string, n: number) => Array.from({ length: n }, (_, c) => px(`${tag}${c}`));
+  const person = (diag: 'whole' | 'none' | 'short') => ({
+    down: row('F', 7),
+    up: row('B', 7),
+    right: row('S', 7),
+    ...(diag !== 'none' && {
+      downRight: row('dr', diag === 'whole' ? 3 : 2),
+      upRight: row('ur', diag === 'whole' ? 3 : 2),
+    }),
+  });
+  // palettes 0 (with its diagonal walk), 1 (none), 2 (a broken one: two frames)
+  setCharacterTemplates([person('whole'), person('none'), person('short')]);
+  const ch = (
+    palette: number,
+    dir: Direction,
+    cldDiagRow?: -1 | 1,
+    state: string = CharacterState.WALK,
+  ) => ({ palette, dir, cldDiagRow, state }) as Parameters<typeof drawnView>[0];
+  /** The cell a view draws: the sheet's own row (F front, B back, S side) or the three-quarter
+   *  one (dr facing lower right, ur upper right), its standing frame, 'm' mirrored (by the view or
+   *  in the sheet). */
+  const cell = (c: Parameters<typeof drawnView>[0], iso: boolean, drinking = false) => {
+    const v = drawnView(c, iso, drinking);
+    const s = getCharacterSprites(v.palette);
+    const f = (c.state === CharacterState.TYPE ? s.typing : s.walk)[v.dir][1];
+    const flipped = f[0][0].startsWith('R') !== v.mirror;
+    return `${f[0][0].slice(1)}${flipped ? 'm' : ''}`;
+  };
+
+  it('the isometric view: the world steps (screen diagonals) the three-quarter walk', () => {
+    const at = (dir: Direction, diag?: -1 | 1) => cell(ch(0, dir, diag), true);
+    expect({
+      lowerRight: at(RIGHT),
+      lowerLeft: at(DOWN),
+      upperRight: at(UP),
+      upperLeft: at(LEFT),
+      down: at(RIGHT, 1),
+      up: at(LEFT, -1),
+      right: at(RIGHT, -1),
+      left: at(LEFT, 1),
+    }).toEqual({
+      lowerRight: 'dr1',
+      lowerLeft: 'dr1m',
+      upperRight: 'ur1',
+      upperLeft: 'ur1m',
+      down: 'F1',
+      up: 'B1',
+      right: 'S1',
+      left: 'S1m',
+    });
+  });
+
+  it('the top-down view: straight steps its own views, diagonal steps the three-quarter walk', () => {
+    const at = (dir: Direction, diag?: -1 | 1) => cell(ch(0, dir, diag), false);
+    expect([at(DOWN), at(UP), at(RIGHT), at(LEFT)]).toEqual(['F1', 'B1', 'S1', 'S1m']);
+    expect([at(RIGHT, 1), at(LEFT, 1), at(RIGHT, -1), at(LEFT, -1)]).toEqual([
+      'dr1',
+      'dr1m',
+      'ur1',
+      'ur1m',
+    ]);
+  });
+
+  it('seated or drinking it keeps the front and back rows, mirrored as before', () => {
+    const typing = (dir: Direction) => cell(ch(0, dir, undefined, CharacterState.TYPE), true);
+    expect([typing(RIGHT), typing(DOWN), typing(UP), typing(LEFT)]).toEqual([
+      'F4',
+      'F4m',
+      'B4',
+      'B4m',
+    ]);
+    const drinking = (dir: Direction, iso: boolean) =>
+      cell(ch(0, dir, undefined, CharacterState.IDLE), iso, true);
+    expect([drinking(RIGHT, true), drinking(DOWN, true), drinking(DOWN, false)]).toEqual([
+      'F1',
+      'F1m',
+      'F1',
+    ]);
+    expect(drawnView(ch(0, RIGHT, 1, CharacterState.IDLE), false, true).palette).toBe(0);
+  });
+
+  it('without a whole diagonal walk a person keeps its four views (front and back mirrored)', () => {
+    for (const palette of [1, 2])
+      for (const diag of [undefined, 1, -1] as const)
+        for (const dir of [UP, DOWN, LEFT, RIGHT]) {
+          const f = isoFacing(dir);
+          expect(drawnView(ch(palette, dir, diag), true, false)).toEqual({
+            palette,
+            dir: rowDirection(f.row),
+            mirror: f.mirror,
+          });
+          expect(drawnView(ch(palette, dir, diag), false, false)).toEqual({
+            palette,
+            dir,
+            mirror: false,
+          });
+        }
+    expect(getCharacterSprites(2).walk[DOWN][1]).toEqual(px('F1')); // and it still draws
+  });
+
+  it('an iso8 sheet (a full isometric sheet beside) stays three-quarter seated', () => {
+    setIsoPalette(7, 8);
+    expect(drawnView(ch(7, RIGHT, undefined, CharacterState.TYPE), true, false).palette).toBe(8);
+    expect(drawnView(ch(7, RIGHT, undefined, CharacterState.IDLE), true, true).palette).toBe(8);
   });
 });

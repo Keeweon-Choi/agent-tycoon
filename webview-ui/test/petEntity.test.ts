@@ -25,6 +25,12 @@ import {
   PET_WANDER_PAUSE_MAX_SEC,
 } from '../src/constants.js';
 import { createPet, pickPetSpawn, updatePet } from '../src/office/engine/petEntity.js';
+import {
+  getPetCount,
+  getPetName,
+  getPetSprites,
+  PET_SPECIES,
+} from '../src/office/sprites/petSpriteData.js';
 import type { Character, TileType as TileTypeVal } from '../src/office/types.js';
 import { CharacterState, Direction, PetState, TileType } from '../src/office/types.js';
 
@@ -350,4 +356,24 @@ test('pickPetSpawn: without a tile, or on one that is no longer walkable, any wa
 
 test('pickPetSpawn: nowhere to stand gives null', () => {
   assert.equal(pickPetSpawn({ col: 1, row: 1 }, []), null);
+});
+
+test('the pets are the twelve mascots: drawn 16x32 frames in every pose, named after the species', () => {
+  assert.equal(getPetCount(), 12);
+  assert.equal(PET_SPECIES[0], 'tori');
+  for (let i = 0; i < getPetCount(); i++) {
+    const s = getPetSprites(i)!;
+    for (const pose of [s.walkDown, s.idleDown, s.walkUp, s.idleUp, s.walkRight, s.walkLeft]) {
+      for (const f of pose) {
+        assert.equal(f.length, 32);
+        assert.equal(f[0].length, 16);
+        assert.ok(
+          f.flat().some((c) => c !== ''),
+          `pet ${i} frame is drawn`,
+        );
+      }
+    }
+    assert.notEqual(getPetName(i), `Pet ${i + 1}`);
+  }
+  assert.equal(getPetSprites(12), null);
 });

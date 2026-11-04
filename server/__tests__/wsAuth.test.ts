@@ -12,6 +12,7 @@ import {
   isLoopbackHost,
   normalizeHostname,
   privilegedHostnames,
+  readOnlyView,
   redactTokenQuery,
   standaloneHandshakeVerdict,
   standaloneTokenValid,
@@ -185,5 +186,17 @@ describe('standaloneHandshakeVerdict', () => {
     expect(verdict(`/ws?token=${TOKEN}`, 'evil.com:3100')).toBe('untrusted-host');
     expect(verdict(`/ws?token=${TOKEN}`, '192.168.1.5:3100')).toBe('untrusted-host');
     expect(verdict(`/ws?token=${TOKEN}`, undefined)).toBe('untrusted-host');
+  });
+});
+
+describe('readOnlyView', () => {
+  it('drops a failed job stop line (a log line) and keeps its bar; other messages pass as they are', () => {
+    const jobs = { type: 'officeJobs', jobs: [{ pid: 1, exit: 1, stopPct: 40, stopLine: 'FAIL /home/me/x' }, { pid: 2, exit: 0 }] };
+    const view = readOnlyView(jobs) as { jobs: Array<Record<string, unknown>> };
+    expect(view.jobs[0]).toEqual({ pid: 1, exit: 1, stopPct: 40 });
+    expect(view.jobs[1]).toEqual({ pid: 2, exit: 0 });
+    expect(jobs.jobs[0].stopLine).toBe('FAIL /home/me/x'); // the broadcast itself is untouched
+    const other = { type: 'hooksStatus', stopLine: 'kept' };
+    expect(readOnlyView(other)).toBe(other);
   });
 });

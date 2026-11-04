@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { ProjectFilePreview } from '../../../../core/src/cld/projectFiles.js';
 import { IMAGE_FIT_MAX_VH } from '../../constants.js';
@@ -43,16 +43,42 @@ export function Preview({
   file,
   url,
   zoom = 1,
+  line,
 }: {
   file: ProjectFilePreview;
   url: string | null;
   zoom?: number;
+  /** A text file's source with this line marked and scrolled to (the 요구사항 detail's [원본 열기]). */
+  line?: number;
 }) {
   if (file.kind === 'image') return <ZoomedImage key={url ?? ''} url={url} alt={file.path} zoom={zoom} />;
+  const lines = line && file.text !== undefined && ['markdown', 'text', 'json', 'csv'].includes(file.kind);
   return (
     <div style={zoom === 1 ? undefined : { zoom }}>
-      <PreviewBody file={file} url={url} />
+      {lines ? <SourceLines text={file.text ?? ''} line={line} /> : <PreviewBody file={file} url={url} />}
     </div>
+  );
+}
+
+/** The text line by line with its numbers; `line` marked and scrolled into the middle. */
+function SourceLines({ text, line }: { text: string; line: number }) {
+  const mark = useRef<HTMLDivElement>(null);
+  useEffect(() => mark.current?.scrollIntoView({ block: 'center' }), [text, line]);
+  return (
+    <pre data-selectable="always" className="font-mono text-xs whitespace-pre-wrap break-all" data-testid="file-lines">
+      {text.split('\n').map((l, i) => (
+        <div
+          key={i}
+          ref={i + 1 === line ? mark : undefined}
+          data-line={i + 1}
+          aria-current={i + 1 === line ? 'true' : undefined}
+          className={i + 1 === line ? 'bg-active-bg outline outline-2 outline-accent' : undefined}
+        >
+          <span className="text-text-muted select-none">{`${i + 1}`.padStart(4)} </span>
+          {l}
+        </div>
+      ))}
+    </pre>
   );
 }
 

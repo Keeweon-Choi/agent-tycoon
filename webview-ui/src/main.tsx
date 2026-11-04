@@ -3,6 +3,7 @@ import './index.css';
 // every asset itself (no CDN).
 import '@xterm/xterm/css/xterm.css';
 import './cld/uiFont.js';
+import './cld/game/gameMotion.js';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

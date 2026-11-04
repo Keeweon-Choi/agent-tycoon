@@ -19,6 +19,7 @@ import { PNG } from 'pngjs';
 
 import { rgbaToHex } from '../../core/src/assets/colorUtils.js';
 import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   killFakeSessions,
@@ -28,7 +29,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/ch6');
@@ -159,7 +159,10 @@ async function main() {
     await card.waitFor();
     const closeInfo = page.getByRole('button', { name: '정보 창 닫기' });
     if (await closeInfo.count()) await closeInfo.click();
-    await until('lead is pinned to Coral', () => looks().lead?.species === 'coral');
+    await until(
+      'lead is pinned to a built-in person',
+      () => typeof looks().lead?.palette === 'number',
+    );
     const id = Number(await card.getAttribute('data-agent-id'));
 
     await card.click({ button: 'right' });

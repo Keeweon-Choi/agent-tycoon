@@ -27,6 +27,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 // @ts-expect-error the installer is plain ESM without types
 import { daemonArgs, defaults } from '../install/install.mjs';
@@ -178,7 +179,7 @@ async function main() {
       (await textOf(page, '[data-hud-window="office"]')).includes('GPU'),
       'the HW tab holds the GPU board (or its empty line)',
     );
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     // SETTINGS-TABS: the layout reset is in the 화면 tab.
     await page.getByRole('tab', { name: '화면', exact: true }).click();
     await page.getByRole('button', { name: '화면 배치 초기화' }).waitFor();

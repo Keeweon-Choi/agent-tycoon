@@ -205,16 +205,28 @@ function describeCommand(
   command: string,
   ctx: EzContext,
 ): { description: ActivityDescription; training: boolean } {
+  const rule = commandRule(command, ctx.user?.commands ?? NO_RULES);
+  return rule
+    ? { description: activity(rule.emoji, rule.text), training: rule.training === true }
+    : { description: phrase(PHRASES.plainCommand), training: false };
+}
+
+const NO_RULES: readonly CommandRule[] = [];
+/** SMOOTH-1104: the rule each command matched, per user table (every plate asks every frame). */
+const matched = new WeakMap<readonly CommandRule[], Map<string, CommandRule | null>>();
+/** Commands remembered per table (a status line holds 30 characters, the set stays small). */
+const MATCHED_MAX = 500;
+
+function commandRule(command: string, user: readonly CommandRule[]): CommandRule | null {
+  let known = matched.get(user);
+  if (!known) matched.set(user, (known = new Map()));
+  const hit = known.get(command);
+  if (hit !== undefined) return hit;
   const parsed = parseCommand(command);
-  const tables: ReadonlyArray<readonly CommandRule[]> = [ctx.user?.commands ?? [], COMMAND_RULES];
-  for (const table of tables) {
-    for (const rule of table) {
-      if (matches(rule, parsed)) {
-        return { description: activity(rule.emoji, rule.text), training: rule.training === true };
-      }
-    }
-  }
-  return { description: phrase(PHRASES.plainCommand), training: false };
+  const rule = [...user, ...COMMAND_RULES].find((r) => matches(r, parsed)) ?? null;
+  if (known.size >= MATCHED_MAX) known.clear();
+  known.set(command, rule);
+  return rule;
 }
 
 /** The rule for a tool (already normalized), the user's before the built-in ones. */

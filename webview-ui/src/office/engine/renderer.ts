@@ -3,9 +3,10 @@ import {
   cldCharacterSprite,
   cldDrawSpeechLinks,
   dimmedSprite,
+  drinkingNow,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
-import { characterView, mirrorSprite } from '../../cld/iso/sprites.js';
+import { drawnView, mirrorSprite } from '../../cld/iso/sprites.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
 import { perfFrame, perfOn } from '../../cld/perf.js';
 import { serverLine } from '../../cld/serverText.js';
@@ -69,7 +70,6 @@ import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
   BUBBLE_HEART_SPRITE,
   getCharacterSprites,
-  isoPaletteOf,
   spritesAtZoom,
 } from '../sprites/spriteData.js';
 import { warmCharacter } from '../sprites/warm.js';
@@ -426,7 +426,7 @@ export function renderScene(
     // HD: the character's density that divides this zoom; a detailed one (64×128 and up) draws
     // its one master at every zoom (smoothSprite.ts)
     // cld CHAR-8DIR: a character with both kinds of sheet steps diagonally in three-quarter view
-    const view = characterView(ch, false, isoPaletteOf(ch.palette));
+    const view = drawnView(ch, false, !!drinkingNow(ch));
     const all = getCharacterSprites(view.palette, ch.hueShift);
     // a 64×128 person draws at density 3, an import above
     if (countHd64 && all.density >= HD64_DRAW_DENSITY) hd64Drawn++;

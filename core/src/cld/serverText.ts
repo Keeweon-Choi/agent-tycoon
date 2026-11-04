@@ -2594,6 +2594,71 @@ export const SERVER_TEXT = {
     ko: '시작 정책을 바꾸지 못했어요: {why}',
     en: 'Could not change the start policy: {why}',
   },
+  // -- spec tracking (SPT-P1A, server/src/cld/spec/routes.ts) --
+  spec_session_only: {
+    ko: '명세 추적은 로그인한 브라우저에서만 볼 수 있어요',
+    en: 'Spec tracking is only available from a logged-in browser.',
+  },
+  spec_corrupt: {
+    ko: '이 프로젝트의 명세 추적 파일을 읽지 못해 그대로 두었어요. 바꿀 수 없어요',
+    en: "This project's spec tracking file could not be read, so it was left as it is and cannot be changed.",
+  },
+  spec_path: {
+    ko: '프로젝트 폴더 안의 Markdown 문서만 고를 수 있어요',
+    en: 'Only Markdown documents inside the project folder can be picked.',
+  },
+  spec_too_many: {
+    ko: '한 번에 고를 수 있는 문서 수를 넘었어요',
+    en: 'Too many documents picked at once.',
+  },
+  spec_off: {
+    ko: '명세 추적이 꺼져 있어요',
+    en: 'Spec tracking is off.',
+  },
+  spec_doc_unknown: {
+    ko: '모르는 문서예요',
+    en: 'That document is not known.',
+  },
+  spec_value: {
+    ko: '바꿀 값이 올바르지 않아요',
+    en: 'That value is not valid.',
+  },
+  spec_save: {
+    ko: '명세 추적 파일을 저장하지 못했어요',
+    en: 'The spec tracking file could not be saved.',
+  },
+  // -- SPT-P1C: 같은 항목 확인, 나누기·합치기 --
+  spec_item_unknown: {
+    ko: '모르는 항목이에요',
+    en: 'That item is not known.',
+  },
+  spec_stale: {
+    ko: '그사이 바뀌었어요. 다시 불러온 뒤 골라 주세요',
+    en: 'It changed meanwhile. Reload and choose again.',
+  },
+  // -- SPT-P2: links --
+  spec_boundary: {
+    ko: '이 프로젝트의 것만 연결할 수 있어요',
+    en: "Only this project's Tasks, commits, jobs and requirements can be linked.",
+  },
+  spec_link_unknown: {
+    ko: '모르는 연결이에요',
+    en: 'That link is not known.',
+  },
+  // -- SPT-P3-ACCEPT --
+  spec_accept_full: {
+    ko: '수용 기록이 상한에 닿아 더 남길 수 없어요. 기록은 지우지 않아요',
+    en: 'The acceptance history is full; nothing more can be recorded. No record is ever deleted.',
+  },
+  // -- SPT-P4B: the owner's architecture --
+  spec_comp_unknown: {
+    ko: '모르는 구성요소예요',
+    en: 'That component is not known.',
+  },
+  spec_arch_full: {
+    ko: '아키텍처 기록이 상한에 닿아 더 넣을 수 없어요',
+    en: 'The architecture record is full; nothing more can be added.',
+  },
   // @@MORE
 } as const satisfies Record<string, { ko: string; en: string }>;
 
@@ -2666,15 +2731,31 @@ const TEMPLATES = Object.entries(SERVER_TEXT).map(([code, text]) => {
 TEMPLATES.sort(
   (a, b) => Number(a.names.length > 0) - Number(b.names.length > 0) || b.fixed - a.fixed,
 );
-export function matchKorean(text: string): { code: ServerTextCode; params?: TextVars } | undefined {
+type KoreanMatch = { code: ServerTextCode; params?: TextVars } | undefined;
+/** SMOOTH-1104: the answers for short texts (names, previews and notices are asked on every
+ *  render, each a scan of every template). */
+const matchedTexts = new Map<string, KoreanMatch>();
+const MATCHED_TEXT_MAX = 600;
+const MATCHED_TEXTS = 2000;
+
+export function matchKorean(text: string): KoreanMatch {
+  const short = text.length <= MATCHED_TEXT_MAX;
+  if (short && matchedTexts.has(text)) return matchedTexts.get(text);
+  let found: KoreanMatch;
   for (const t of TEMPLATES) {
     const m = t.re.exec(text);
     if (!m) continue;
-    return t.names.length
+    found = t.names.length
       ? { code: t.code, params: Object.fromEntries(t.names.map((n, i) => [n, m[i + 1]])) }
       : { code: t.code };
+    break;
   }
-  return undefined;
+  if (short) {
+    // ponytail: dropped whole when full; an LRU if the set of texts ever churns
+    if (matchedTexts.size >= MATCHED_TEXTS) matchedTexts.clear();
+    matchedTexts.set(text, found);
+  }
+  return found;
 }
 
 /** An error that carries its coded refusal, for code that reports by throwing. */

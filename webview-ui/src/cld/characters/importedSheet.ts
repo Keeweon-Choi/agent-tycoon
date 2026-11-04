@@ -11,7 +11,7 @@ import {
 } from '../../constants.js';
 import { markSmooth } from '../../office/sprites/smoothSprite.js';
 import type { SpriteData } from '../../office/types.js';
-import { type DenseSheet, FRAMES, withLods } from './compose.js';
+import { type DenseSheet, FRAMES, IMPORTED_COLUMNS, withLods } from './compose.js';
 
 /** SHEET-IMPORT: an imported sheet (density 12: 192×384 frames, 2 rows isometric or 3 top view)
  *  as frames: each a 64×128 proxy (the sheet's pixels averaged 3×3, for hit tests, outlines and
@@ -19,12 +19,16 @@ import { type DenseSheet, FRAMES, withLods } from './compose.js';
  *  isometric sheet stands in for the top view too: front ← its front row, back ← its back row,
  *  the sides from its front row. Columns in the owner's order walk left, together, right,
  *  together (or the two steps alone) and stand on column 1. CHAR-ISO-1: an 8th column is the
- *  walking neutral (arms down), the "together" of the walk; without it the idle stands in. */
+ *  walking neutral (arms down), the "together" of the walk; without it the idle stands in.
+ *  BUNNY-9COL: a 9th is the other foot's passing pose, the second "together" (walk 2, 8, 3, 9). */
 export function importedSheet(
   img: ImageData,
   opts: { iso: boolean; standFirst: boolean; twoStep: boolean },
+  /** LOOKS-MEM: the canvas `img` was read from, kept as the masters (else a copy is made). */
+  canvas?: HTMLCanvasElement,
 ): DenseSheet {
-  return sheetOf(img, sourceOf(img, opts.iso ? 2 : 3), opts.iso ? [0, 1, 0] : [0, 1, 2], opts);
+  const src = sourceOf(img, opts.iso ? 2 : 3, canvas);
+  return sheetOf(img, src, opts.iso ? [0, 1, 0] : [0, 1, 2], opts);
 }
 
 /** CHAR-8DIR: a 5-row sheet (three-quarter front, three-quarter back, front, back, right side)
@@ -35,10 +39,11 @@ export function importedSheet(
 export function importedEight(
   img: ImageData,
   opts: { standFirst: boolean; twoStep: boolean },
+  canvas?: HTMLCanvasElement,
 ): { iso: DenseSheet; top: DenseSheet; drink?: SpriteData[] } {
   const rows =
     img.height === IMPORT_WORLD_H * IMPORT_DENSITY * ISO8_DRINK_ROWS ? ISO8_DRINK_ROWS : 5;
-  const src = sourceOf(img, rows);
+  const src = sourceOf(img, rows, canvas);
   const cell = cellsOf(img, src);
   return {
     iso: sheetOf(img, src, [0, 1, 0], opts),
@@ -49,12 +54,14 @@ export function importedEight(
   };
 }
 
-/** The decoded sheet on a canvas (the frames' masters), once its size is checked. */
-function sourceOf(img: ImageData, rows: number): HTMLCanvasElement {
+/** The decoded sheet on a canvas (the frames' masters), once its size is checked: `canvas` when
+ *  it already holds the picture (LOOKS-MEM: one copy of a ~29 MB sheet, not two). */
+function sourceOf(img: ImageData, rows: number, canvas?: HTMLCanvasElement): HTMLCanvasElement {
   const [fw, fh] = [IMPORT_WORLD_W * IMPORT_DENSITY, IMPORT_WORLD_H * IMPORT_DENSITY];
   const cols = img.width / fw;
-  if ((cols !== FRAMES && cols !== FRAMES + 1) || img.height !== fh * rows)
+  if (!IMPORTED_COLUMNS.includes(cols) || img.height !== fh * rows)
     throw new Error(`${img.width}×${img.height} is no imported sheet`);
+  if (canvas) return canvas;
   const src = document.createElement('canvas');
   [src.width, src.height] = [img.width, img.height];
   src.getContext('2d')!.putImageData(img, 0, 0);
@@ -104,7 +111,6 @@ function sheetOf(
   const cols = img.width / (IMPORT_WORLD_W * IMPORT_DENSITY);
   const frame = cellsOf(img, src);
   const row = (r: number) => Array.from({ length: cols }, (_, f) => frame(r, f));
-  const together = cols > FRAMES ? FRAMES : 0;
   const front = row(down);
   const sheet: DenseSheet = {
     down: front,
@@ -112,10 +118,19 @@ function sheetOf(
     right: right === down ? front : row(right),
     density: IMPORT_PROXY_DENSITY,
     ...(opts.standFirst && {
-      walk: opts.twoStep ? ([1, 2, 1, 2] as const) : ([1, together, 2, together] as const),
+      walk: walkOf(cols, opts.twoStep),
       stand: 0,
     }),
   };
   // the 32×64 copy compose's card portrait and the 꾸미기 thumbnails crop (never the office's)
   return withLods(sheet);
+}
+
+/** A standFirst sheet's walk (0-based columns) by its column count: left step, together, right
+ *  step, together; "together" is the walking neutral (8th) when there is one, else the idle, and
+ *  the second one the 9th column when there is one. */
+export function walkOf(cols: number, twoStep: boolean): readonly [number, number, number, number] {
+  if (twoStep) return [1, 2, 1, 2];
+  const together = cols > FRAMES ? FRAMES : 0;
+  return [1, together, 2, cols > FRAMES + 1 ? FRAMES + 1 : together];
 }

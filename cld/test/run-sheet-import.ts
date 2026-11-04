@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { PNG } from 'pngjs';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   launchBrowser,
@@ -31,7 +32,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
+import { BUNNY_LOOK as BUNNY } from '../scripts/gen-hd64-sample.js';
 
 const port = sparePort();
 const beforeAt = process.argv.indexOf('--before');
@@ -66,19 +67,6 @@ const SWEEP_STEP_MS = 700;
 const LONG_FRAME_MS = 20;
 const BASE = { 'cld.backdrop': 'off', 'cld.floor': '2', 'cld.floor-view': 'all' };
 const NO_LOBBY = { ...BASE, 'cld.title-scene': 'off' };
-
-const PACK = JSON.parse(
-  fs.readFileSync(path.join(REPO_ROOT, 'cld/packs/hd-bunny/pack.json'), 'utf-8'),
-) as {
-  id: string;
-  presets: { look: { parts: Record<string, string> } & Record<string, unknown> }[];
-};
-const BUNNY = {
-  ...PACK.presets[0].look,
-  parts: Object.fromEntries(
-    Object.entries(PACK.presets[0].look.parts).map(([k, v]) => [k, `${PACK.id}/${v}`]),
-  ),
-};
 
 const results: Record<string, unknown> = {};
 const lines: string[] = [];

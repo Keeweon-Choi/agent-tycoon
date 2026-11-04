@@ -46,6 +46,9 @@ describe('chatSend requests', () => {
       text: 'new',
     });
     expect(parseChatEdit({ requestId: 'e', name: 'alpha', id: 'a.json' })).toBeNull();
+    const edit = { requestId: 'e', name: 'alpha', id: 'a.json', text: 'new' };
+    expect(parseChatEdit({ ...edit, replyTo: { id: 'p1', text: 'quoted' } })).toMatchObject({ replyTo: { id: 'p1', text: 'quoted' } });
+    expect(parseChatEdit({ ...edit, replyTo: 7 })).toBeNull();
     expect(parseChatCancel({ requestId: 'c', name: 'alpha', id: 1 })).toBeNull();
   });
   it('parses an edit hold only with its queue identity and boolean switch', () => {

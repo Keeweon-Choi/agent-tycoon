@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { PALETTE_COUNT } from '../src/constants.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import type { AgentState, PersistedAgent } from '../src/types.js';
 
@@ -31,7 +32,6 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
     hadToolsInTurn: false,
     lastDataAt: 0,
     linesProcessed: 0,
-    seenUnknownRecordTypes: new Set(),
     hookDelivered: false,
     contextTokens: 0,
     maxContextTokens: 200_000,
@@ -177,11 +177,11 @@ describe('AgentRuntime -- restore preserves palette/hueShift', () => {
 
     const agent = store.get(9);
     expect(agent).toBeDefined();
-    // assignPaletteIfNeeded fills in [0, 6) with hueShift 0 on an empty
+    // assignPaletteIfNeeded fills in [0, PALETTE_COUNT) with hueShift 0 on an empty
     // store (first round). Assert "set to a valid value" rather than
     // re-deriving the exact algorithm.
     expect(agent?.palette).toBeGreaterThanOrEqual(0);
-    expect(agent?.palette).toBeLessThan(6);
+    expect(agent?.palette).toBeLessThan(PALETTE_COUNT);
     expect(agent?.hueShift).toBe(0);
   });
 });

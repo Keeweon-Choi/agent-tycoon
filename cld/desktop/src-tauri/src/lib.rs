@@ -38,6 +38,15 @@ const LOG_MAX: u64 = 1_000_000;
 #[cfg(desktop)]
 const KEYS_JS: &str = include_str!("keys.js");
 
+/// What the office reached by address may call (`allow_office_keys`): office-keys.json without
+/// run_admin_setup, which stays with this computer's own office.
+const REMOTE_OFFICE_KEYS: [&str; 4] = [
+    "allow-toggle-fullscreen",
+    "allow-toggle-on-top",
+    "allow-open-settings",
+    "allow-open-external",
+];
+
 /// Links that would open a second window (target=_blank, Ctrl/Shift-click) and window.open:
 /// the app has no second window, so web URLs go to the default browser via open_external.
 /// If the page may not call it (an office origin outside office-keys), the native new-window
@@ -181,6 +190,8 @@ struct App {
     /// `agty start --hold` in the chosen WSL distro: keeps it (and the daemon) up. Left running
     /// when the app quits, so agents keep working (H §4.3 "필요할 때만": closing keeps the work going).
     holder: Mutex<Option<Child>>,
+    /// Office origins `allow_office_keys` already gave the window keys this run.
+    office_origins: Mutex<Vec<String>>,
 }
 
 #[derive(Clone, Default)]
@@ -1689,6 +1700,7 @@ fn ladder(app: &AppHandle, config: &Config, generation: u64) {
                             ..View::default()
                         }
                     });
+                    allow_office_keys(app, config);
                     if let (Some(window), Ok(url)) = (main_window(app), Url::parse(&url)) {
                         let _ = window.navigate(url);
                     }
@@ -1729,6 +1741,40 @@ fn ladder(app: &AppHandle, config: &Config, generation: u64) {
         view(app, |v| {
             v.status = "연결하지 못했습니다. 다시 연결을 누르거나 설정을 확인하세요.".into()
         });
+    }
+}
+
+/// The window keys (REMOTE_OFFICE_KEYS) for the saved office's own origin, built from the saved
+/// config only (`connect::office_keys_origin`), never from what a page says.
+fn office_keys_capability(n: usize, origin: &str) -> tauri::ipc::CapabilityBuilder {
+    REMOTE_OFFICE_KEYS.iter().fold(
+        tauri::ipc::CapabilityBuilder::new(format!("office-keys-remote-{n}"))
+            .remote(origin.to_string())
+            .local(false)
+            .window("main"),
+        |capability, permission| capability.permission(*permission),
+    )
+}
+
+/// An office reached by address (https://<name or IP>:18443) gets the window keys office-keys.json
+/// gives localhost, once per origin. Tauri cannot take a capability back: after a change of
+/// connection the old origin keeps its entry until the app quits, but `route` no longer lets the
+/// window load it.
+fn allow_office_keys(app: &AppHandle, config: &Config) {
+    let Some(origin) = connect::office_keys_origin(&config.mode, &config.url) else {
+        return;
+    };
+    let st = app.state::<App>();
+    let mut allowed = st.office_origins.lock().unwrap();
+    if allowed.contains(&origin) {
+        return;
+    }
+    match app.add_capability(office_keys_capability(allowed.len(), &origin)) {
+        Ok(()) => {
+            log(app, &format!("창 단축키 허용: {origin}"));
+            allowed.push(origin);
+        }
+        Err(e) => log(app, &format!("창 단축키를 허용하지 못했습니다: {origin} ({e})")),
     }
 }
 
@@ -2626,4 +2672,52 @@ pub fn run() {
                 stop_tunnel(app);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::ipc::RuntimeCapability;
+    use tauri::utils::acl::capability::CapabilityFile;
+    use tauri::utils::acl::RemoteUrlPattern;
+
+    #[test]
+    fn remote_office_keys_are_the_window_keys_only() {
+        let file: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/office-keys.json")).unwrap();
+        let local: Vec<&str> = file["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap())
+            .collect();
+        for key in REMOTE_OFFICE_KEYS {
+            assert!(local.contains(&key), "{key} is not an office key");
+        }
+        assert!(!REMOTE_OFFICE_KEYS.contains(&"allow-run-admin-setup"));
+    }
+
+    #[test]
+    fn office_keys_capability_names_one_origin() {
+        let CapabilityFile::Capability(c) =
+            office_keys_capability(0, "https://office.duckdns.org:18443").build()
+        else {
+            panic!("one capability");
+        };
+        assert!(!c.local);
+        assert_eq!(c.windows, ["main"]);
+        let permissions = serde_json::to_string(&c.permissions).unwrap();
+        assert!(!permissions.contains("admin"), "{permissions}");
+        assert_eq!(c.permissions.len(), REMOTE_OFFICE_KEYS.len());
+        let urls = c.remote.unwrap().urls;
+        assert_eq!(urls, ["https://office.duckdns.org:18443"]);
+        let pattern: RemoteUrlPattern = urls[0].parse().unwrap();
+        let test = |url: &str| pattern.test(&Url::parse(url).unwrap());
+        assert!(test("https://office.duckdns.org:18443/"));
+        assert!(test("https://office.duckdns.org:18443/office?tab=dev#x"));
+        assert!(!test("https://office.duckdns.org:18444/"));
+        assert!(!test("http://office.duckdns.org:18443/"));
+        assert!(!test("https://evil.office.duckdns.org:18443/"));
+        assert!(!test("https://office.duckdns.org.evil.com:18443/"));
+    }
 }

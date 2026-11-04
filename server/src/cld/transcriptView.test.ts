@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { messageOf, type QueuedSend } from './engine/messenger.js';
+import { lastPrompt, messageOf, type QueuedSend } from './engine/messenger.js';
 import {
   CHAT_SCAN_MAX_BYTES,
   CHAT_TAIL_BYTES,
@@ -15,6 +15,7 @@ import {
   TASK_NOTICE_NAME,
   TranscriptTail,
   turnMessageId,
+  userTurnText,
 } from './transcriptView.js';
 
 const rec = (r: Record<string, unknown>) => JSON.stringify(r);
@@ -88,6 +89,22 @@ describe('transcript to messages', () => {
     expect(plain(chatItems(lines.join('\n')))).toEqual([
       { kind: 'assistant', text: 'T-0077 명세를 완료했고, 배포 검사는 진행 중입니다.' },
     ]);
+  });
+
+  it("a compaction's summary is no message, no turn start and no prompt (11-04)", () => {
+    const prompt = rec({ type: 'user', uuid: 'p1', message: { content: '배포 상태 알려줘' } });
+    const summary = rec({
+      type: 'user',
+      uuid: 's1',
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { content: 'This session is being continued from a previous conversation.' },
+    });
+    expect(plain(chatItems([prompt, summary].join('\n')))).toEqual([
+      { kind: 'user', text: '배포 상태 알려줘' },
+    ]);
+    expect(userTurnText(summary)).toBeNull();
+    expect(lastPrompt([prompt, summary].join('\n'))?.key).toBe('p1');
   });
 
   it('ids start with the record time and are distinct per block', () => {

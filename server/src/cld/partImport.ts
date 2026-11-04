@@ -95,7 +95,7 @@ interface Layout {
   cells: { x: number; y: number; view: number; frame: number }[];
 }
 
-/** The ×20 templates (cld/scripts/gen-char-templates.ts): cells one block apart, a 2-block margin. */
+/** The ×20 templates (cld/artifacts/char-parts/templates/, drawn by the removed gen-char-templates.ts): cells one block apart, a 2-block margin. */
 const MARGIN = 2;
 function spaced(
   name: string,

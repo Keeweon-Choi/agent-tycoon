@@ -208,8 +208,19 @@ run_fast() {
   fi
   if [[ $docs_changed == true ]]; then
     run docs-check node cld/scripts/docs-check.mjs --root cld
+    trace_drift
   else
     skip docs-check "no changed files under cld/docs"
+    skip trace-drift "no changed files under cld/docs"
+  fi
+}
+
+# SPT-P1D: traceability.md is generated (docs-check --write-trace); a stale one fails.
+trace_drift() {
+  if nice -n 10 node cld/scripts/docs-check.mjs --root cld --write-trace && git diff --exit-code --stat cld/docs/requirements/traceability.md; then
+    pass trace-drift
+  else
+    fail trace-drift
   fi
 }
 
@@ -233,6 +244,7 @@ run_integration() {
   run test-core node --test core/src/*.test.mjs
   run test-bundle node --test cld/release/bundle/*.test.mjs
   run docs-check node cld/scripts/docs-check.mjs --root cld
+  trace_drift
 }
 
 run_browser_runner() {

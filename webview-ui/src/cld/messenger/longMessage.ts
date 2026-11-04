@@ -1,4 +1,7 @@
+import { MSG_FOLD_SENTENCES } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import { matchRanges } from './searchMatch.js';
+import { splitSentences } from './sentences.js';
 
 /** The preview's tail; the text reaches the agent, so it follows the UI language. */
 export const longMessageSuffix = (): string => t('messenger.longMessageSuffix');
@@ -36,17 +39,17 @@ export function prepareMessage(text: string, max: number, at: Date = new Date())
   };
 }
 
-/** A bubble longer than this many lines (or characters) folds behind 더 보기. */
-export const FOLD_LINES = 12;
-export const FOLD_CHARS = 1200;
-
-/** A bubble's text, folded or open: `long` means it gets the 더 보기 / 접기 toggle; `shown` is
- *  the text to draw (cut with … while folded, whole when open). */
+/** A bubble's text, folded or open: `long` (more than MSG_FOLD_SENTENCES sentences) means it gets the
+ *  더 보기 / 접기 toggle; `shown` is the text to draw (the first sentences and … while folded, whole when open). */
 export function foldBubble(text: string, open: boolean): { long: boolean; shown: string } {
-  const lines = text.split('\n');
-  const long = lines.length > FOLD_LINES || text.length > FOLD_CHARS;
-  return {
-    long,
-    shown: long && !open ? `${lines.slice(0, FOLD_LINES).join('\n').slice(0, FOLD_CHARS)}…` : text,
-  };
+  const sentences = splitSentences(text);
+  const long = sentences.length > MSG_FOLD_SENTENCES;
+  return { long, shown: long && !open ? `${sentences.slice(0, MSG_FOLD_SENTENCES).join('').trimEnd()}…` : text };
+}
+
+/** A search hit that a folded long bubble keeps out of sight: the word is in the text, not in what the fold shows. */
+export function hitHiddenByFold(text: string, query: string | undefined): boolean {
+  if (!query) return false;
+  const { long, shown } = foldBubble(text, false);
+  return long && matchRanges(shown, query).length === 0 && matchRanges(text, query).length > 0;
 }

@@ -22,7 +22,7 @@ import {
 const port = sparePort();
 const TAG = process.argv[3] ?? 'after';
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/u43');
-type Layout = { cols: number; pets?: Array<{ id: string; petType: number; col?: number; row?: number }> };
+type Layout = { cols: number; pets?: Array<{ id: string; species: string; col?: number; row?: number }> };
 type Hooks = {
   getPets: () => Array<{ id: string; petType: number; x: number; y: number }>;
   getTileCenter: (c: number, r: number) => { x: number; y: number } | null;

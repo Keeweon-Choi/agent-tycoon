@@ -265,7 +265,7 @@ async function main() {
     await until(`${view}: the job card is marked`, async () => (await jobCard.getAttribute('data-focused')) === 'true');
     check(
       (await picker.inputValue()) === B &&
-        (await win.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
+        (await win.getByRole('button', { name: '이슈', exact: true }).getAttribute('aria-pressed')) === 'true',
       `${view}: the job notice opens the 현황판's 개발 tab on ${B}, Task tab, at its card`,
     );
     await shot(page, `${view}-notice-job`);
@@ -297,7 +297,7 @@ async function main() {
       `${view}: no Worker or Lead actions there`,
     );
     await shot(page, `${view}-no-project-agents`);
-    await click(win.getByRole('button', { name: 'Task', exact: true }));
+    await click(win.getByRole('button', { name: '이슈', exact: true }));
     await win.locator(`[data-job-ref="${ghostJob}"]`).waitFor();
     check(
       (await win.getByTestId('job-card').count()) === 1 && (await win.getByRole('button', { name: 'worktree', exact: true }).count()) === 0,

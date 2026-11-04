@@ -16,12 +16,14 @@ import * as path from 'path';
 
 import {
   assertPortFree,
-  type Daemon,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
+  type Daemon,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -104,7 +106,7 @@ async function main() {
     };
   const loginLink = async () => (await daemon!.loginUrl()).replace('127.0.0.1', 'localhost');
   const openAccess = async (page: Page) => {
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     await page.getByRole('tab', { name: '접속', exact: true }).click();
     await page.getByTestId('access-option').getByRole('button', { name: '열기' }).click();
     await page.getByTestId('access-panel').getByTestId('access-current').waitFor();
@@ -127,7 +129,7 @@ async function main() {
     // ── 1. The card is there; a bad address is refused in one line and stores nothing. ──
     const host = await open(DESKTOP);
     await host.goto(await loginLink());
-    await host.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(host, 20_000);
     // The device key registers on login; the step-up for the change is then silent.
     await host.waitForFunction(
       async () => !!((await (await fetch('/api/auth/me')).json()) as { deviceId: string | null }).deviceId,
@@ -181,7 +183,7 @@ async function main() {
     check(now.custom?.preferred === true && now.canonicalUrl === own, 'the address is still preferred after a restart');
     const phone = await open(PHONE);
     await phone.goto(await loginLink());
-    await phone.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(phone, 20_000);
     await openAccess(phone);
     await shot(phone, 'ok-phone');
     check((await phone.evaluate(() => document.documentElement.scrollWidth)) <= 393, 'no horizontal scroll on the phone');

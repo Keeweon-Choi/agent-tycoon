@@ -10,9 +10,9 @@ import {
   renderLhmAdminScript, renderLhmConfig, renderLhmInstallScript, renderLhmUninstallAdminScript, renderLhmUninstallScript,
 } from './hwSensors.mjs';
 import {
-  CLI_MARK, clientPlan, configPath, daemonArgs, defaults, detectPlatform,   exposurePath, findFreePort, installCli, installPlan, legacyConfigDirectory, loginBase,
+  CLI_MARK, clientPlan, configPath, DAEMON_ENV, daemonArgs, defaults, detectPlatform,   exposurePath, findFreePort, installCli, installPlan, legacyConfigDirectory, loginBase,
 mergeConfig, nameTaken, parseArgs, parseRegPath, pathExport, pathWith, pathWithout, recordExposure, remoteRequest,
-  removeCli, renderLaunchAgent, renderSchtasksCommand, renderSystemdUnit, revertLedger, rotateLog, winCliCmd,
+  removeCli, renderLaunchAgent, renderSchtasksCommand, renderSystemdUnit, repoRoot, revertLedger, rotateLog, winCliCmd,
 } from './install.mjs';
 
 const repo = '/absolute/project';
@@ -130,6 +130,12 @@ test('systemd unit has absolute paths and all daemon flags', () => {
   assert.match(unit, /^Restart=on-failure$/m); // a crash or kill -9 comes back; a clean exit (stop, a future idle exit) stays down
   assert.match(unit, /^KillMode=process$/m); // claude daemon and bg sessions started by us must survive a cld-gui restart (ops OQ-14 §0-3)
   assert.match(unit, /^Nice=5$/m);
+  // MEM-IDLE: glibc hands freed memory back (idle RSS under the 100 MB budget)
+  assert.match(unit, /^Environment=MALLOC_MMAP_THRESHOLD_=131072$/m);
+  assert.match(unit, /^Environment=MALLOC_TRIM_THRESHOLD_=131072$/m);
+  // ...and the daemon drops exactly these before it starts anything (server/src/constants.ts)
+  const daemonOnly = /DAEMON_ONLY_ENV = \[([^\]]*)\]/.exec(fs.readFileSync(path.join(repoRoot, 'server/src/constants.ts'), 'utf8'))[1];
+  assert.deepEqual(daemonOnly.match(/[A-Z_]+/g).sort(), Object.keys(DAEMON_ENV).sort());
 });
 
 test('launch agent and scheduled-task commands use absolute paths and flags', () => {

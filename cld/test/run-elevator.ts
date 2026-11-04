@@ -25,6 +25,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
 
@@ -334,7 +335,7 @@ async function main() {
 
     // ── The one-floor view: dragged back onto 1, it comes out of the floor-1 doors ──
     await page.waitForTimeout(200);
-    await page.getByRole('button', { name: '설정' }).click(); // 설정
+    await topBarButton(page, '설정'); // 설정
     await page.getByRole('tab', { name: '화면', exact: true }).click(); // 화면
     await page.getByTestId('floor-view-option').getByRole('button', { name: '한 층만' }).click(); // 한 층만
     await page.getByRole('dialog').last().getByRole('button', { name: 'x', exact: true }).click();
@@ -358,7 +359,7 @@ async function main() {
     );
 
     // ── Step 2: orch-gamma's room moved to floor 2 in 편집: eta and theta ride up ──
-    await page.getByRole('button', { name: '설정' }).click();
+    await topBarButton(page, '설정');
     await page.getByRole('tab', { name: '화면', exact: true }).click();
     await page
       .getByTestId('floor-view-option')

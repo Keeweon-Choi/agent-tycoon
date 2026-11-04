@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { CliArgsError, parseArgs } from '../src/cli.js';
+import { CliArgsError, dropDaemonOnlyEnv, parseArgs } from '../src/cli.js';
 import { CLAUDE_HOOK_EVENTS } from '../src/providers/hook/claude/constants.js';
 import { resolvePtyModule } from '../src/terminal/ptyModule.js';
 
@@ -520,5 +520,30 @@ describe('dist/cli.js entry-point guard', () => {
       fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
       fs.rmSync(workspaceDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
     }
+  });
+});
+
+describe("MEM-IDLE: the installer's malloc settings stay the daemon's own", () => {
+  it('a process the daemon spawns after its start does not inherit them', async () => {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      MALLOC_MMAP_THRESHOLD_: '131072',
+      MALLOC_TRIM_THRESHOLD_: '131072',
+    };
+    dropDaemonOnlyEnv(env);
+    const child = spawn(
+      process.execPath,
+      ['-e', 'process.stdout.write(JSON.stringify(process.env))'],
+      {
+        env,
+      },
+    );
+    let out = '';
+    child.stdout.on('data', (b: Buffer) => (out += b.toString()));
+    await new Promise((resolve) => child.once('close', resolve));
+    const seen = JSON.parse(out) as Record<string, string>;
+    expect(seen.MALLOC_MMAP_THRESHOLD_).toBeUndefined();
+    expect(seen.MALLOC_TRIM_THRESHOLD_).toBeUndefined();
+    expect(seen.PATH).toBe(process.env.PATH);
   });
 });

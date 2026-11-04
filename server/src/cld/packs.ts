@@ -337,6 +337,20 @@ export function builtInPacksDir(): string | null {
   return null;
 }
 
+/** BUNNY-BUILTIN: the built-in packs' preset sheet folders (`<pack>/sheets`, characterPresets.ts). */
+export function builtInSheetDirs(): string[] {
+  const root = builtInPacksDir();
+  if (!root) return [];
+  try {
+    return fs
+      .readdirSync(root)
+      .sort()
+      .map((name) => path.join(root, name, 'sheets'));
+  } catch {
+    return [];
+  }
+}
+
 export class PackStore {
   private packs: LoadedPack[] = [];
 

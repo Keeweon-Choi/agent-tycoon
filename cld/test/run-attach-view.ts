@@ -9,11 +9,11 @@
  * Desktop 1280x800 and phone 393x852 (touch):
  * - tapping an image opens the viewer and the page URL is unchanged, also with
  *   window.open refused (a home-screen app), the case that used to navigate away;
- * - a click or tap anywhere toggles fitted ↔ 2× fit (the image point stays
+ * - a double click or tap anywhere toggles fitted ↔ 2× fit (one click only hides the bars) (the image point stays
  *   under an image click); wheel and +/- still zoom; a drag pans when zoomed
  *   in; a pinch on the phone (CDP touch events) zooms; a fitted swipe goes next;
  * - prev/next walk the conversation's four attachments, wrapping, "n / 4";
- * - Esc, the close button and back close it; a tap on the dark zooms instead,
+ * - Esc, the close button and back close it; a double tap on the dark zooms instead,
  *   keeping the viewer and URL unchanged;
  * - the text attachment shows 내려받기 (a download) and 새 창에서 열기 (a popup,
  *   or a note when the browser refuses), never changing the page URL.
@@ -83,6 +83,13 @@ function picture(w: number, h: number, base: [number, number, number]): Buffer {
       png.data[i + 3] = 255;
     }
   return PNG.sync.write(png);
+}
+
+/** A double tap: two taps close together (one tap hides the bars; CHAT-NAV). */
+async function doubleTap(page: Page, x: number, y: number): Promise<void> {
+  await page.touchscreen.tap(x, y);
+  await new Promise((r) => setTimeout(r, 60));
+  await page.touchscreen.tap(x, y);
 }
 
 /** Touches through CDP (Playwright only taps). Each step moves every finger. */
@@ -332,7 +339,7 @@ async function main(): Promise<void> {
       y: (pointer.y - t.box.top) / t.box.height,
     });
     const before = frac(fit);
-    await page.mouse.click(pointer.x, pointer.y);
+    await page.mouse.dblclick(pointer.x, pointer.y);
     await until('image click zoom', async () => (await transform(page)).scale > fit.scale * 1.9);
     const imageClicked = await transform(page);
     const imageAfter = frac(imageClicked);
@@ -342,19 +349,19 @@ async function main(): Promise<void> {
         Math.abs(before.y - imageAfter.y) < 0.01,
       `desktop: an image click zooms around its point (${await level(page)}%)`,
     );
-    await page.mouse.click(pointer.x, pointer.y);
+    await page.mouse.dblclick(pointer.x, pointer.y);
     await until(
       'second image click fits',
       async () => Math.abs((await transform(page)).scale - fit.scale) < 0.01,
     );
     // The fitted margin has the same toggle contract and never closes the viewer.
-    await page.mouse.click(8, 200);
+    await page.mouse.dblclick(8, 200);
     await until('dark click zoom', async () => (await transform(page)).scale > fit.scale * 1.9);
     check(
       (await viewer.count()) === 1 && page.url() === BASE,
       'desktop: a click outside the image zooms and keeps the viewer open (new-rule negative control)',
     );
-    await page.mouse.click(8, 200);
+    await page.mouse.dblclick(8, 200);
     await until(
       'second dark click fits',
       async () => Math.abs((await transform(page)).scale - fit.scale) < 0.01,
@@ -420,18 +427,33 @@ async function main(): Promise<void> {
         (await page.evaluate(() => performance.getEntriesByType('resource').length)) === files0,
       `desktop: a office/engine state update keeps the zoom and pan (${await level(page)}%)`,
     );
-    // A double click is simply two clicks: zoomed → fit → 2× fit, then one click fits.
+    // CHAT-NAV: a double click is the zoom toggle (zoomed → fit → 2× fit → fit); one click only hides the bars.
     await page.mouse.dblclick(mid.x, mid.y);
     await until(
-      'double click settles at two times fit',
-      async () => Math.abs((await transform(page)).scale - fit.scale * 2) < 0.01,
-    );
-    await page.mouse.click(mid.x, mid.y);
-    await until(
-      'click after double click to fit',
+      'double click from zoomed fits',
       async () => Math.abs((await transform(page)).scale - fit.scale) < 0.01,
     );
-    check(true, 'desktop: double click follows the same click zoom toggle');
+    await page.mouse.dblclick(mid.x, mid.y);
+    await until(
+      'double click zooms to two times fit',
+      async () => Math.abs((await transform(page)).scale - fit.scale * 2) < 0.01,
+    );
+    await page.mouse.dblclick(mid.x, mid.y);
+    await until(
+      'double click fits again',
+      async () => Math.abs((await transform(page)).scale - fit.scale) < 0.01,
+    );
+    await page.mouse.click(mid.x, mid.y);
+    await page.waitForTimeout(600);
+    check(
+      Math.abs((await transform(page)).scale - fit.scale) < 0.01 &&
+        (await viewer.getAttribute('data-bars')) === 'hidden',
+      'desktop: one click hides the bars and does not zoom',
+    );
+    await page.mouse.click(mid.x, mid.y);
+    await page.waitForTimeout(600);
+    check((await viewer.getAttribute('data-bars')) === 'shown', 'desktop: the next click shows them');
+    check(true, 'desktop: double click is the click zoom toggle');
 
     // Prev / next through the conversation's four attachments.
     await page.locator('[data-testid="attach-next"]').click();
@@ -514,7 +536,7 @@ async function main(): Promise<void> {
     await page.locator('[data-testid="attach-img"]').waitFor();
     await until('fitted again', async () => (await transform(page)).scale > 0);
     // Fitted, a click on the dark outside the image zooms and leaves history alone.
-    await page.mouse.click(8, 200);
+    await page.mouse.dblclick(8, 200);
     await until(
       'dark click zooms again',
       async () => (await transform(page)).scale > fit.scale * 1.9,
@@ -548,13 +570,13 @@ async function main(): Promise<void> {
       `phone: a tap opens the viewer fitted (${await level(phone)}%), URL unchanged`,
     );
     await shot(phone, 'phone-fit');
-    await phone.touchscreen.tap(196, 426);
+    await doubleTap(phone, 196, 426);
     await until('phone tap zoom', async () => (await transform(phone)).scale > pfit.scale * 1.9);
     check(
       (await pviewer.count()) === 1 && phone.url() === BASE,
       `phone: a tap zooms to ${await level(phone)}% without closing`,
     );
-    await phone.touchscreen.tap(196, 426);
+    await doubleTap(phone, 196, 426);
     await until(
       'second phone tap fits',
       async () => Math.abs((await transform(phone)).scale - pfit.scale) < 0.01,
@@ -580,7 +602,7 @@ async function main(): Promise<void> {
       `phone: one finger pans the zoomed image (x ${pinched.x.toFixed(0)} to ${ppanned.x.toFixed(0)})`,
     );
     // One tap after a pan returns to fit, so the next gesture is a fitted swipe.
-    await phone.touchscreen.tap(196, 426);
+    await doubleTap(phone, 196, 426);
     await until(
       'tap after pan to fit',
       async () => Math.abs((await transform(phone)).scale - pfit.scale) < 0.01,
@@ -620,7 +642,7 @@ async function main(): Promise<void> {
     await pimageA.tap();
     await pviewer.waitFor();
     await until('phone fitted again', async () => (await transform(phone)).scale > 0);
-    await phone.touchscreen.tap(196, 120);
+    await doubleTap(phone, 196, 120);
     await until(
       'phone dark tap zoom',
       async () => (await transform(phone)).scale > pfit.scale * 1.9,

@@ -1,7 +1,10 @@
+import { CHAR_COUNT } from '../../core/src/assets/constants.js';
 import type { ColorValue } from './components/ui/types.js';
 
 // ── Desktop bridge ──────────────────────────────────────────
 export const ADMIN_SETUP_COMMAND = 'run_admin_setup';
+/** The desktop app's window command (lib.rs toggle_fullscreen, allowed for the office by office-keys). */
+export const TOGGLE_FULLSCREEN_COMMAND = 'toggle_fullscreen';
 /** DESKTOP-ACTIONS: the window event the desktop app fires when a download ends (lib.rs on_download). */
 export const APP_DOWNLOAD_EVENT = 'agent-tycoon-download';
 
@@ -283,6 +286,12 @@ export const NOTICE_TOAST_MS = 6_000;
 export const NOTICE_PULSE_MS = 3_000;
 /** A notice jump waits this long for a message that has not reached the conversation yet. */
 export const JUMP_WAIT_MS = 5_000;
+/** CHAT-NAV: older messages are asked for when the top is this close, so a page lands while the reader
+ *  is still mid-list (not in the rubber band at the very top, where a phone ignores a scroll set). */
+export const HISTORY_PREFETCH_PX = 400;
+/** CHAT-NAV: a scroll position within this many px of the wanted one is left alone (setting it would
+ *  stop a phone's momentum for nothing). */
+export const SCROLL_HOLD_SLACK_PX = 1;
 /** cld-gui (T-0043): a turn end and a messenger reply this close together are one notice. */
 export const NOTICE_PAIR_MS = 15_000;
 export const NOTICE_PULSE_PERIOD_MS = 1_000;
@@ -414,8 +423,11 @@ export const WAITING_BUBBLE_DURATION_SEC = 2.0;
 export const DISMISS_BUBBLE_FAST_FADE_SEC = 0.3;
 export const INACTIVE_SEAT_TIMER_MIN_SEC = 3.0;
 export const INACTIVE_SEAT_TIMER_RANGE_SEC = 2.0;
-/** Default/fallback palette count (bundled characters). Actual count comes from getLoadedCharacterCount(). */
-export const PALETTE_COUNT = 6;
+/** Default/fallback palette count (bundled characters, core's `CHAR_COUNT`). Actual count comes from getLoadedCharacterCount(). */
+export const PALETTE_COUNT = CHAR_COUNT;
+/** DIAG-1104: built-in person i's three-quarter sheet draws under palette DIAG_PALETTE_BASE + i
+ *  (below looks.ts's preset palettes, 1000 up). */
+export const DIAG_PALETTE_BASE = 500;
 export const AUTO_ON_FACING_DEPTH = 3;
 export const AUTO_ON_SIDE_DEPTH = 2;
 export const CHARACTER_HIT_HALF_WIDTH = 8;
@@ -433,6 +445,9 @@ export const OWNER_CHARACTER_ID = -2_000_000_000;
 export const OWNER_DRINK_KEY = 'KeyE';
 /** Where it starts: tiles from the lobby board's anchor, in front of the board's middle. */
 export const OWNER_SPAWN_FROM_BOARD = { col: 14, row: 11 } as const;
+/** ...or, with no board (it stands outside the building), this many rows up from floor 1's last
+ *  row (its office door), in the middle. */
+export const OWNER_SPAWN_FROM_DOOR_ROWS = 3;
 /** Stacking order for the Intro's bubble. Deliberately BELOW the modal stack
  *  (ui/Modal defaults to 50, ChangelogModal 51, the migration notice z-100): the
  *  Intro is diegetic furniture over the office, not a modal, so a modal opened
@@ -442,10 +457,12 @@ export const INTRO_BUBBLE_Z_INDEX = 45;
 export const BYPASS_ANSWER_TIMEOUT_MS = 6000;
 /** ToolOverlay stacking: status label panels (selected one on top), then the
  *  characters' speech bubbles above every label — all below the Intro bubble. */
-/** WINDOW-LAYERS: inside the HUD layer, normal windows are 1..n; the fixed panels (card bar, icon dock,
- *  elevator panel) sit at this z, a maximized window at HUD_MAXIMIZED_Z + its place in the order. */
+/** WINDOW-LAYERS: inside the HUD layer, normal windows are 1..n; the fixed panels (card bar, icon dock)
+ *  sit at this z (the elevator panel is the office's, under the whole layer), a maximized window at HUD_MAXIMIZED_Z + its place in the order. */
 export const HUD_PANELS_Z = 20;
 export const HUD_MAXIMIZED_Z = 30;
+/** SMOOTH2-1104: the DOM overlays' content re-renders at least this often (the net under the change signature). */
+export const OVERLAY_CONTENT_MS = 100;
 export const OVERLAY_LABEL_Z_INDEX = 41;
 export const OVERLAY_LABEL_SELECTED_Z_INDEX = 42;
 export const OVERLAY_BUBBLE_Z_INDEX = 43;
@@ -621,6 +638,8 @@ export const ELEVATOR_STEP_SEC = 0.35;
 /** The ride itself, plus this much per floor passed. */
 export const ELEVATOR_RIDE_SEC = 0.8;
 export const ELEVATOR_RIDE_PER_FLOOR_SEC = 0.35;
+/** PARTY-FRAME: '1' when this device keeps the elevator's floor list open beside its ▲ 1F ▼ strip. */
+export const ELEVATOR_LIST_OPEN_STORAGE_KEY = 'cld.elevator-list-open';
 /** A character dropped on another floor stands this far (tiles) at most from its elevator there. */
 export const ELEVATOR_VISIT_NEAR_TILES = 4;
 /** The elevator's pixels (a steel frame, the car's dark inside, two sliding doors, the call lamp). */
@@ -853,6 +872,11 @@ export const TERMINAL_SIDEBAR_WIDTH_PX = 120;
 /** The desktop card's fixed width: a card never resizes, so the slots stay the same
  *  (owner 10-24: bigger name/status text; the 40px face is unchanged). */
 export const CARD_BAR_CARD_WIDTH_PX = 96;
+/** PARTY-FRAME (owner 11-04 (나)): the folded card bar's width, a 56px portrait plus the container's
+ *  4px padding and 2px border each side and 2px of air. */
+export const PARTY_FRAME_BAR_PX = 72;
+/** '1': this device keeps the card bar unfolded (the full cards); otherwise it shows portraits only. */
+export const PARTY_FRAME_EXPANDED_STORAGE_KEY = 'cld.party-frame-expanded';
 /** WINDOW-LAYERS: the card bar shows this many cards; more scroll inside it. */
 export const CARD_BAR_MAX_VISIBLE = 10;
 /** Grab width of the drag handle on the panel's left edge. */
@@ -1097,6 +1121,45 @@ export const MESSAGE_ACTIONS_LONG_PRESS_MS = 500;
 export const QUOTE_PEEK_MAX_PX = 256;
 /** MSG-SPLIT: the desktop messenger's width from which 2 or 2×2 conversations fit beside its list. */
 export const MESSENGER_SPLIT_MIN_PX = 960;
+/** ROOM-THREADS: a tagged room post still unanswered shows its thread's waiting rail this long. */
+export const ROOM_WAITING_MS = 24 * 60 * 60 * 1000;
+// GAME-UI-1 G1 (ideas/messenger 01, 02, 04): the messenger's game motion.
+/** 01: every sentence of a new reply takes this long to type (an English line has more characters than a
+ *  Korean one, so the time follows the sentences, and inside one sentence the characters share it evenly) ... */
+export const MSG_TYPE_SENTENCE_MS = 533;
+/** 01: ... but the whole reply never takes longer than this (a long answer types faster, not longer) ... */
+export const MSG_TYPE_MAX_MS = 5000;
+/** 01: ... in whole characters every tick. */
+export const MSG_TYPE_TICK_MS = 40;
+/** 01: the agent's portrait in its dialogue frame ... */
+export const MSG_PORTRAIT_PX = 48;
+/** ... and what the frame adds around it (4 px padding and a 2 px line a side). */
+export const MSG_PORTRAIT_FRAME_PAD_PX = 12;
+/** 02: a confirmed answer's stamp stays on its card this long, then the card folds into a record. */
+export const MSG_QUEST_HOLD_MS = 1300;
+/** 02: the fold's three steps. */
+export const MSG_QUEST_FOLD_MS = 210;
+/** 02: a question card shows at most this many sentences of the lead's last paragraph (its end). */
+export const MSG_QUESTION_SENTENCES = 3;
+/** A reply of more than this many sentences folds behind 더 보기 (about the 12 lines it folded at before). */
+export const MSG_FOLD_SENTENCES = 8;
+/** 02: folded records kept per conversation (this page only). */
+export const MSG_QUEST_RECORDS_MAX = 20;
+/** 04: the envelope's flight: frames, one every MSG_ENVELOPE_FRAME_MS, on an arc this high. */
+export const MSG_ENVELOPE_FRAMES = 8;
+/** 04: one sprite pixel is this many screen pixels. */
+export const MSG_ENVELOPE_SCALE = 3;
+/** 04: the two trailing dots follow the envelope by these shares of the flight, each this many px wide. */
+export const MSG_ENVELOPE_TRAIL = [0.06, 0.12] as const;
+export const MSG_ENVELOPE_TRAIL_PX = 6;
+export const MSG_ENVELOPE_FRAME_MS = 60;
+export const MSG_ENVELOPE_ARC_PX = 120;
+/** 04: the squashed landing frame. */
+export const MSG_ENVELOPE_SQUASH_MS = 80;
+/** 04: the row's face frame lit as the envelope goes in. */
+export const MSG_ENVELOPE_LIT_MS = 120;
+/** 04: the row's ✓ 전달됨 badge, after which its time shows again. */
+export const MSG_DELIVERED_BADGE_MS = 1600;
 /** Gap a viewport-fitted Dropdown (the launch drawer) keeps from the top of
  *  the viewport when its content is taller than the room above its anchor. */
 export const DROPDOWN_VIEWPORT_MARGIN_PX = 8;
@@ -1179,8 +1242,10 @@ export const JOYSTICK_OPACITY = 0.75;
 export const JOYSTICK_FADED_OPACITY = 0.15;
 /** Above the lobby's mini board (BOARD_Z_INDEX), which can sit where the pad does. */
 export const JOYSTICK_Z_INDEX = BOARD_Z_INDEX + 1;
-/** The camera buttons (an owner's way back to their character) stay tappable where the mini board sits. */
+/** The phone's camera buttons (an owner's way back to their character) stay tappable where the mini board sits. */
 export const CAMERA_CONTROL_Z_INDEX = BOARD_Z_INDEX + 1;
+/** Gap of the phone's camera group to the office's right edge (the desktop's is under the elevator). */
+export const CAMERA_CONTROL_EDGE_GAP_PX = 8;
 /** Gap to the office's left edge (plus the safe inset), CSS px. */
 export const JOYSTICK_MARGIN_PX = 8;
 /** Gap to the office's bottom edge: above the hidden roster's 44 px handle at the same left edge, plus 8. */
@@ -1210,31 +1275,145 @@ export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
 export const ISO_HALF_W = 8;
 export const ISO_HALF_H = 4;
 /** A tall back wall (iso px above its floor at the building's back corner: the owner 10-26 01:48
- *  and 11-01 02:06 asked for taller storeys), a cut-away wall, a floor slab, and the gap between
- *  a floor's wall tops and the slab of the floor above (negative: the slab of the floor above
- *  covers the top of the wall below, so the floors read as one tower, owner 11-01 02:08). The
- *  wall pieces (gen-iso-objects.ts) are made this tall: regenerate them when it changes. */
+ *  and 11-01 02:06 asked for taller storeys), a cut-away wall and a floor slab. The wall pieces
+ *  (gen-iso-objects.ts) are made this tall: regenerate them when it changes. */
 export const ISO_WALL_H = 68;
 export const ISO_LOW_WALL_H = 5;
 export const ISO_SLAB_H = 6;
-export const ISO_FLOOR_GAP = -58;
-/** The lobby's board in the isometric view (owner 11-01 02:08: the LED board shows there): the
- *  slab's height (gen-iso-art.ts draws it), where its screen starts above the floor, and how tall
- *  the webview's copy of the board is laid over the screen (iso px), then its width in tiles
- *  (the board's 3:1 shape at the screen's own pixel scale, along the wall at its angle). */
-export const ISO_BOARD_H = 64;
-export const ISO_BOARD_FACE_Z = 10;
-export const ISO_BOARD_FACE_H = 48;
-export const ISO_BOARD_FACE_TILES = 18;
-/** The slab's screen plane: tiles in from its footprint's back edge (gen-iso-art.ts). */
-export const ISO_BOARD_PLANE = 0.5;
-/** The copy's own size: the board's em width in CSS px before the wall's transform, and the least
- *  em (CSS px, as drawn) at which its pages turn (a smaller one keeps a still frame). */
-export const ISO_BOARD_EM_PX = 12;
-export const ISO_BOARD_MIN_EM_PX = 6;
+/** One storey (owner 11-04 17:51: same-size floors stacked flush): a back wall, then the slab of
+ *  the floor above sits on its top. A person (~32 iso px) to a storey is about 1 : 2.3. */
+export const ISO_STOREY_H = ISO_WALL_H + ISO_SLAB_H;
+/** The roof's parapet over the top storey (iso px), its cap's light band, and how far in (tiles)
+ *  the deck sits inside it. */
+export const ISO_ROOF_H = 6;
+export const ISO_ROOF_CAP_H = 2;
+export const ISO_ROOF_INSET = 1;
+/** A closed storey's facade: a window bay every this many iso px along a face, its mullion's
+ *  width, the glass band (iso px from the floor line up: from, to; the lobby's is taller, with a
+ *  transom bar at this height), and the diagonal shine on the glass (period, width). */
+export const ISO_BAY_PX = 16;
+export const ISO_MULLION_PX = 2;
+export const ISO_GLASS_BAND = { from: 14, to: 58 } as const;
+export const ISO_LOBBY_GLASS_BAND = { from: 3, to: 62, transom: 22 } as const;
+export const ISO_SHINE = { period: 26, width: 3 } as const;
+/** The facade's colours by day and by night: wall and slab trim on the left (shade) and right
+ *  faces, the glass, its shine, a lit bay at night, the mullions, the roof deck, its inner edge
+ *  and the parapet's cap, and the band of the floor in focus (the one accent). */
+export const ISO_FACADE = {
+  day: {
+    wallL: '#d9c7a0',
+    wallR: '#f0e3c5',
+    trimL: '#a8693a',
+    trimR: '#c8844a',
+    glassL: '#4f6c9e',
+    glassR: '#6a8bc0',
+    shine: '#a9c4ec',
+    lit: '#ffe39a',
+    mull: '#efe4c8',
+    roof: '#aeb0c4',
+    roofIn: '#9496ae',
+    cap: '#fbf6ea',
+    accent: '#8b6cff',
+  },
+  night: {
+    wallL: '#4a4768',
+    wallR: '#5d5a80',
+    trimL: '#3a2c3e',
+    trimR: '#4a3848',
+    glassL: '#1c2650',
+    glassR: '#24305e',
+    shine: '#33427a',
+    lit: '#ffd27a',
+    mull: '#6c6890',
+    roof: '#2e3352',
+    roofIn: '#252a46',
+    cap: '#6e6a92',
+    accent: '#9d87ff',
+  },
+} as const;
+/** At night this share of a closed storey's bays is lit (a stable pick per bay). */
+export const ISO_NIGHT_LIT = 0.35;
+/** The floors above the one in focus are lifted off: their outline (owner 11-04 19:47: clear
+ *  enough to count the floors). Each storey's slab is a faint band along its front, edged by a
+ *  floor line; the floor lines, the outer corner posts and the roof's edge are a dark line with a
+ *  light line along its middle, so they read on the light fog and the green ground alike. Where
+ *  they cross the floor in focus they are drawn at `over` opacity (its people and furniture stay
+ *  clear). Each storey's label sits by its front corner on a backing with an edge. */
+export const ISO_OUTLINE = {
+  day: {
+    line: 'rgba(52, 44, 104, 0.92)',
+    core: 'rgba(255, 255, 255, 0.9)',
+    band: 'rgba(70, 62, 120, 0.2)',
+    label: '#2e2860',
+    back: 'rgba(255, 255, 255, 0.94)',
+    edge: '#463e78',
+  },
+  night: {
+    line: 'rgba(196, 188, 255, 0.92)',
+    core: 'rgba(255, 255, 255, 0.95)',
+    band: 'rgba(196, 188, 255, 0.18)',
+    label: '#f2f0ff',
+    back: 'rgba(22, 20, 48, 0.94)',
+    edge: '#b4a8ff',
+  },
+} as const;
+/** The line: at least this many CSS px wide (or this many iso px, whichever is wider), its light
+ *  middle a third of it (at least one CSS px). */
+export const ISO_OUTLINE_LINE_PX = 3;
+export const ISO_OUTLINE_W = 1.5;
+export const ISO_OUTLINE_OVER_ALPHA = 0.5;
+/** The label: iso px of type, never under the minimum CSS px; this far (iso px) right of the
+ *  storey's front corner, up on its band. */
+export const ISO_OUTLINE_LABEL_PX = 9;
+export const ISO_OUTLINE_LABEL_MIN_PX = 13;
+export const ISO_OUTLINE_LABEL_INSET = 6;
+/** The lobby board outside (owner 11-04 19:47, iso/billboard.ts): its face (iso px, level with
+ *  the screen), its right end this far right of the building's left corner, this far below the
+ *  left face's slab line, on posts this tall set this far in, and its colours (posts, face, frame
+ *  in the accent, a hot value, a page's title, an unlit page dot). */
+export const ISO_BILLBOARD = { w: 128, h: 56, along: 150, gap: 8, post: 14, postIn: 14 } as const;
+export const ISO_BILLBOARD_INK = {
+  post: '#5d5a80',
+  postShade: '#3a3858',
+  face: '#14122a',
+  frame: '#8b6cff',
+  hot: '#b9a4ff',
+  title: '#a98fff',
+  dotOff: '#3a3560',
+} as const;
+/** Its frame (CSS px: the 2 px border every panel has). */
+export const ISO_BILLBOARD_FRAME_PX = 2;
+/** Its pages (owner 11-04 20:27: the old board's 프로젝트 · H/W · GPU, after the summary) turn
+ *  this often; a list page shows this many rows (then "+N"). */
+export const ISO_BILLBOARD_PAGE_MS = 8_000;
+export const ISO_BILLBOARD_ROWS = 3;
+/** The face's layout (iso px of the face; CSS px are twice this at the lobby's zoom 2): its inner
+ *  padding, the summary's label and number type and their rows' middles, a list page's type, its
+ *  title's middle, its first row's middle and the step between rows, a state dot and the gap
+ *  after it, the width kept for a row's value, and the page dots (size, gap, up from the bottom). */
+export const ISO_BILLBOARD_FACE = {
+  pad: 5,
+  label: 9,
+  number: 20,
+  bigLabelY: 12,
+  bigNumberY: 32,
+  line: 6.5,
+  titleY: 6.5,
+  firstLineY: 16,
+  lineStep: 8,
+  dot: 4,
+  dotGap: 3,
+  valueW: 54,
+  pageDot: 2.5,
+  pageDotGap: 2.5,
+  pageDotFromBottom: 2.5,
+} as const;
 /** The art's master density: picture px per world px of the owner's pieces (a 16 px tile is a
  *  192×96 diamond), each drawn at every zoom from its one master. */
 export const ISO_MASTER_DENSITY = 12;
+/** The finest density the floor cache is drawn at (art.ts DENSITIES): floors and back walls
+ *  ship no finer (iso/ship.ts). */
+export const ISO_GROUND_MAX_DENSITY = 4;
 /** Margin (iso px) around the building in the whole-building framing. */
 export const ISO_FRAME_MARGIN = 12;
 /** PHONE-ZOOM: the isometric first view on a phone frames the floor's occupied rooms, never
@@ -1246,31 +1425,12 @@ export const PHONE_ISO_ZOOM_MAX = 8;
 /** Seconds the phone view waits for the agents to arrive after the first frame (the layout comes
  *  before the characters) before it settles on the floor's rooms. */
 export const PHONE_ISO_SETTLE_S = 4;
-/** A floor not in focus (owner 11-01 02:06: the focused one must clearly stand out): its cache
- *  keeps this share of each channel's colour (grey pulled in by ISO_DIM_DESATURATE), a touch
- *  bluer (ISO_DIM_BLUE added to blue), and is drawn at this opacity. */
-export const ISO_DIM_GAIN = [0.34, 0.36, 0.44] as const;
-export const ISO_DIM_DESATURATE = 0.5;
-export const ISO_DIM_BLUE = 6;
-export const ISO_DIM_ALPHA = 0.62;
-/** A floor above the focus covers part of it (the floors nest), so it is drawn fainter still. */
-export const ISO_DIM_ABOVE_ALPHA = 0.4;
-/** How often a dimmed floor checks whether its characters moved (ms; redrawn only then). */
-export const ISO_DIM_REFRESH_MS = 1000;
 /** Half-extent (tiles) of the depth box a character stands in. */
 export const ISO_CHARACTER_BOX = 0.3;
 /** An isometric object covering a character it is painted after is drawn at this opacity. */
 export const ISO_OCCLUSION_ALPHA = 0.45;
 /** World px a seated character's feet move towards its desk. */
 export const ISO_SIT_FORWARD_PX = 3;
-/** The elevator shaft between the floors' doors: its glass, its frame posts (iso px wide), and
- *  how near a floor (in levels) the car counts as standing at its doors. */
-export const ISO_SHAFT_GLASS = 'rgba(120, 170, 220, 0.14)';
-export const ISO_SHAFT_FRAME = 'rgba(92, 97, 112, 0.55)';
-export const ISO_SHAFT_POST = 1.5;
-export const ISO_CAR_AT_FLOOR = 0.04;
-/** The isometric elevator car's speed, floors a second. */
-export const ISO_LIFT_LEVELS_PER_S = 2.5;
 /** World px a picture hung on a wall drops when that wall is cut away (it rests on its top). */
 export const ISO_LOW_WALL_ITEM_DROP = 5;
 
@@ -1280,51 +1440,52 @@ export const BG_DAY_START_HOUR = 6;
 export const BG_DAY_END_HOUR = 18;
 /** The ground in tiles of the building's floor grid: the main plot is the floor plate plus this
  *  many tiles of plaza and pavement on every side; a road this wide runs round each plot; every
- *  other plot is this many tiles square (its outermost tile is pavement). */
-export const BG_PAD_TILES = 2;
-export const BG_ROAD_TILES = 3;
-export const BG_BLOCK_TILES = 14;
-/** A lamp stands on a plot's pavement at each corner and at the middle of each side. */
-export const BG_LAMP_HEIGHT = 14;
-/** Footprint (tiles) and height (iso px) of what stands on a plot. */
-export const BG_TOWER_TILES = 6;
-export const BG_TOWER_H_MIN = 70;
-export const BG_TOWER_H_MAX = 210;
-export const BG_HOUSE_TILES = 3;
-export const BG_HOUSE_H = 22;
+ *  other plot is this many tiles square (its outermost tile is pavement). building-a-1104: the
+ *  neighbours are at our building's scale (owner 11-04 17:51), so the blocks are big enough to
+ *  hold them. */
+export const BG_PAD_TILES = 4;
+export const BG_ROAD_TILES = 4;
+export const BG_BLOCK_TILES = 26;
+/** A lamp stands on a plot's pavement at each corner and at the middle of each side (iso px:
+ *  about a person and a half). */
+export const BG_LAMP_HEIGHT = 36;
+/** Footprint (tiles) of a tower and its height in our storeys (ISO_STOREY_H), a house's
+ *  footprint and height (iso px: a storey of a home is lower than an office's), its roof. */
+export const BG_TOWER_TILES = 15;
+export const BG_TOWER_STOREYS = { min: 2, max: 5 } as const;
+export const BG_HOUSE_TILES = 7;
+export const BG_HOUSE_H = 58;
 export const BG_HOUSE_ROOF_STEPS = 4;
-/** The horizon sits this far (iso px) above the back corner of the building's first floor; the
- *  sky above it fades over BG_SKY_H, and the haze over the ground just under it is BG_HAZE_H. */
-export const BG_HORIZON_ABOVE = 70;
-export const BG_SKY_H = 520;
-export const BG_HAZE_H = 36;
-/** Far skyline: one building per slot of this width (iso px) on each of three layers (far first). */
-export const BG_SKYLINE_SLOTS = [16, 22, 30] as const;
+/** A neighbour's window bays: one every this many iso px along a face (its mullion this wide, none
+ *  this near the corners), and a house's one glass band (iso px from the ground: from, to). */
+export const BG_BAY_PX = { every: 16, mullion: 3, inset: 3 } as const;
+export const BG_HOUSE_GLASS = { from: 12, to: 40 } as const;
+/** A tree's crown radius and trunk (iso px): taller than a person, as a street tree is. */
+export const BG_TREE_R = 9;
+export const BG_TREE_TRUNK = { w: 3, h: 14 } as const;
 /** The background is painted in square pieces of this many iso px, each when first in view. */
 export const BG_CHUNK = 256;
 /** At most this many pieces are kept (the least recently shown go first). */
 export const BG_CHUNKS_KEPT = 80;
 /** A piece also paints what stands this far (iso px) beyond its edge: glows, crowns, a tower's
- *  ground below the piece its top is in. */
-export const BG_OBJECT_REACH = { x: 56, y: 40 } as const;
-/** The far skyline's building heights (iso px) per layer, far first, before the surroundings
- *  scale them (BG_SKYLINE_SCALE: houses, towers, mixed). */
-export const BG_SKYLINE_H = [
-  [28, 80],
-  [44, 120],
-  [60, 170],
-] as const;
-export const BG_SKYLINE_SCALE = { houses: 0.45, towers: 1.25, mixed: 0.85 } as const;
-/** Sky pieces in iso px: where the sun and moon hang (from the building's centre, up from the
- *  horizon), a star's cell, a cloud's cell, hill height and wavelength. */
-export const BG_SUN = { dx: -290, up: 260, r: 9 } as const;
-export const BG_MOON = { dx: 290, up: 250, r: 9 } as const;
-export const BG_STAR_CELL = 12;
-export const BG_CLOUD_CELL = { w: 120, h: 80, up: 70, rows: 4, chance: 0.4 } as const;
-export const BG_HILLS = [
-  { base: 34, amp: 38, freq: 0.012 },
-  { base: 10, amp: 24, freq: 0.021 },
-] as const;
+ *  ground below the piece its top is in (a tower is BG_TOWER_TILES wide). */
+export const BG_OBJECT_REACH = { x: 140, y: 40 } as const;
+/** The fog ring round the plot (building-a-1104, owner 11-04 17:51: no horizon, the edge of the
+ *  world fades out like a fog of war): clear this far (iso px, a circle once the 2:1 squash is
+ *  undone) beyond the building's half width, puffs on two rings round that edge (radius out from
+ *  it, gap between puffs, puff radius; big ones behind), plain fog past `solid`; painted once
+ *  at one picture px per `texel` iso px. */
+export const BG_FOG = {
+  margin: 284,
+  rings: [
+    { out: 34, gap: 46, r: 30 },
+    { out: 6, gap: 40, r: 20 },
+  ],
+  jitter: 18,
+  solid: 46,
+  texel: 2,
+  extent: 1.3,
+} as const;
 /** An empty glow sprite's cache holds at most this many entries. */
 export const BG_SPRITE_CACHE_MAX = 32;
 /** A canvas colour from an "r,g,b" triplet and an alpha (the background's glows and haze). */
@@ -1486,7 +1647,9 @@ export const EDIT_POLL_MS = 5_000;
 
 // ── Text zoom (editor, preview, dev room diff) ───────────────
 /** The −/+ buttons and Ctrl+wheel move along these scales; the first is the floor, the last the ceiling. */
-export const TEXT_ZOOM_STEPS: readonly number[] = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3];
+export const TEXT_ZOOM_STEPS: readonly number[] = [
+  0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.5, 3,
+];
 export const TEXT_ZOOM_DEFAULT = 1;
 /** One mouse-wheel notch (100) moves a step; a trackpad pinch's fine deltas are summed to this much first. */
 export const TEXT_ZOOM_WHEEL_NOTCH = 100;
@@ -1499,3 +1662,104 @@ export const IMAGE_FIT_MAX_VH = 70;
 /** A long list shows this many of the newest first, 더 보기 adds as many again. */
 export const RECENT_OUTPUTS_SHOWN = 8;
 export const RECENT_FOLD_STORAGE_KEY = 'cld.recentFolded';
+
+// ── SPT-P1A 개요 / 문서 tabs (cld/spec/) ─────────────────────
+/** The 개요's lists (진행·검토·막힘, recent jobs, recent commits) show this many each. */
+export const SPEC_LIST_SHOWN = 5;
+/** A document UID shown on the 문서 tab: `d_` and this many characters (복사 copies it whole). */
+export const SPEC_UID_SHOWN = 6;
+/** The modal layer of the 켜기 window (above the 현황판 window). */
+export const SPEC_DIALOG_Z = 64;
+/** SPT-P1B: the 요구사항 search waits this long after the last key before it asks again. */
+export const SPEC_SEARCH_WAIT_MS = 250;
+/** SPT-P3-ACCEPT: an acceptance memo at most (the daemon's SPEC_LINK_NOTE_MAX). */
+export const SPEC_ACCEPT_NOTE_MAX = 500;
+/** SPT-P3-ISSUES: rows the 이슈 tab's requirement picker asks `…/items` for. */
+export const SPEC_ISSUES_PICK_MAX = 20;
+/** The deepest heading level a document's 제목도 항목 mode may take (the daemon's SPEC_HEADING_DEPTH_MAX). */
+export const SPEC_DEPTH_MAX = 6;
+/** 같은 항목 확인's word diff gives up past this many word pairs (two 4 KB texts are about 600 x 600). */
+export const SPEC_DIFF_CELLS_MAX = 400_000;
+/** SPT-P3-OVERVIEW: 끝 (지난 7일 +N)'s window; 최근 본 요구사항 keeps this many; a burst of specChanged refetches the 개요 once, this long after the last. */
+export const SPEC_OVERVIEW_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const SPEC_OVERVIEW_VIEWED = 5;
+export const SPEC_OVERVIEW_REFETCH_MS = 500;
+
+// ── SPT-P3-GRAPH 그래프 tab and requirement detail (cld/spec/TraceGraph.tsx, ReqDetail.tsx) ──
+/** Node boxes the dagre layout reserves (px, the pixel node components draw inside them). */
+export const SPEC_GRAPH_NODE = {
+  req: { w: 184, h: 56 },
+  group: { w: 184, h: 60 },
+  commit: { w: 128, h: 32 },
+  other: { w: 152, h: 40 },
+} as const;
+/** dagre spacing: between ranks (left to right), between nodes of one rank, around the drawing. */
+export const SPEC_GRAPH_RANK_GAP = 64;
+export const SPEC_GRAPH_NODE_GAP = 20;
+export const SPEC_GRAPH_MARGIN = 12;
+/** A cluster box: padding around its members and the band its name sits in. */
+export const SPEC_GRAPH_BOX_PAD = 12;
+export const SPEC_GRAPH_BOX_HEAD = 22;
+/** More commits than this on one Task or requirement fold into one '커밋 +N' node (SPT §7.1). */
+export const SPEC_GRAPH_FOLD_MIN = 1;
+/** The minimap's size (px): small, so it covers little of the drawing in its corner. */
+export const SPEC_GRAPH_MINIMAP = { width: 120, height: 80 } as const;
+/** Zoom range of the graph (wheel, pinch, buttons). */
+export const SPEC_GRAPH_ZOOM = { min: 0.2, max: 2.5 } as const;
+/** SPT-P4A 아키텍처 view: a group's parent chain is walked at most this deep (a cycle or a runaway chain ends there). */
+export const SPEC_ARCH_DEPTH_MAX = 32;
+// ── MAP-A 지도 tab (cld/spec/ProjectMap.tsx) ──
+/** The left pane's search: requirements listed at most. */
+export const SPEC_MAP_SEARCH_MAX = 10;
+/** The module tree's indent per level (px) and the deepest level indented. */
+export const SPEC_MAP_INDENT_PX = 12;
+export const SPEC_MAP_INDENT_MAX = 6;
+
+// ── GAME-UI-0 game parts (cld/game/parts.tsx; specs/ui-mock-1103 cockpit D2) ──
+/** An 8x8 pixel icon drawn at 2x. */
+export const GAME_ICON_PX = 16;
+/** SegBar's segments (the mock's 작업 연결 bar). */
+export const GAME_SEGBAR_SEGMENTS = 24;
+/** HI-SCORE digits (0001 / 0272). */
+export const GAME_SCORE_DIGITS = 4;
+/** GAME-UI-1 G2: a HI-SCORE digit rolls one place after the next (ms apart; the roll itself is game.css). */
+export const GAME_ROLL_STEP_MS = 200;
+/** 이번 주 수락: a day's column holds this many cells at most (the number under it is the count); the past-weeks bars are this tall. */
+export const GAME_WEEK_CELLS = 10;
+export const GAME_WEEK_BAR_PX = 36;
+/** A quest card's priority stars (P0 ★★★ … none ☆☆☆). */
+export const GAME_QUEST_STARS = 3;
+
+// ── GAME-UI-1 G3: party roster, job run, game HUD (cld/game; specs/ui-mock-1103/ideas/agents 05-07) ──
+/** 컨텍스트 남음 at or under this is amber (05). */
+export const GAME_CONTEXT_WARN_PCT = 20;
+/** The party card's context bar, and the card bar's small one. */
+export const GAME_PARTY_SEGMENTS = 10;
+export const GAME_MINI_SEGMENTS = 8;
+/** A party card's figure: world px x this (16x32 -> 48x96). */
+export const GAME_PARTY_FIGURE_ZOOM = 3;
+/** The job runner: world px x this, and its walk (8 fps), only while the card is on screen. */
+export const GAME_RUN_FIGURE_ZOOM = 2;
+export const GAME_RUN_WALK_MS = 125;
+/** The job track's cells. */
+export const GAME_RUN_SEGMENTS = 30;
+/** HUD: the 5-hour window's cells; a window with this much left or less is amber, 0 left is dimmed (07). */
+export const GAME_HUD_5H_SEGMENTS = 8;
+/** HUD-2B: the desktop bar's main window as an HP/MP row (specs/ui-mock-1104/hud2). */
+export const GAME_HUD_ROW_SEGMENTS = 20;
+export const GAME_USAGE_WARN_LEFT = 10;
+/** HUD heat gauge: 10 cells from 30 °C, one per 7 °C (the mock's scale; tones from format.tempTone). */
+export const GAME_HEAT_SEGMENTS = 10;
+export const GAME_HEAT_BASE_C = 30;
+export const GAME_HEAT_STEP_C = 7;
+/** The game clock: the sun from this hour, the moon from this one (host time). */
+export const GAME_DAY_FROM_H = 6;
+export const GAME_NIGHT_FROM_H = 18;
+
+/**
+ * 11-04: the interior (layout editor, the elevator's 편집 and 인테리어) and the looks window's 사람 꾸미기
+ * and 커스텀 tabs are postponed: their ways in are hidden while these are false, the code stays.
+ * The looks window itself (마스코트, 사람) is open. See cld/features.ts.
+ */
+export const FEATURE_INTERIOR = false;
+export const FEATURE_LOOKS_CUSTOM = false;

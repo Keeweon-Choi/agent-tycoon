@@ -27,6 +27,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 import { rankSprite } from '../../webview-ui/src/cld/ez/rankSprites.js';
@@ -263,7 +264,7 @@ async function main() {
     const iconsOf = async (p: Page) => Object.fromEntries((await plates(p)).filter((x) => x.kind === 'subagent').map((x) => [x.level, x.icon]));
     const seen: Record<string, Record<string, string | null>> = {};
     for (const [tag, p] of [['desktop', page], ['phone', phone]] as const) {
-      await p.getByRole('button', { name: '설정', exact: true }).first().click();
+      await topBarButton(p, '설정');
       await p.getByRole('tab', { name: '화면', exact: true }).click();
       const option = p.getByTestId('rank-icon-option');
       check(await option.isVisible(), `${tag}: 설정 → 화면 has 직급 아이콘`);
@@ -277,7 +278,7 @@ async function main() {
         seen[`${tag}:${style}`] = await iconsOf(p);
         await p.screenshot({ path: path.join(OUT, `${tag}-${style}.png`) });
         if (style !== RANK_STYLES.at(-1)) {
-          await p.getByRole('button', { name: '설정', exact: true }).first().click();
+          await topBarButton(p, '설정');
           await p.getByRole('tab', { name: '화면', exact: true }).click();
         }
       }

@@ -67,12 +67,25 @@ test('migrateLayoutColors handles pets: null (corrupted JSON) by defaulting to [
 
 test('migrateLayoutColors preserves an existing non-empty pets array', () => {
   const pets: PlacedPet[] = [
-    { id: 'pet-1', petType: 0 },
-    { id: 'pet-2', petType: 1 },
+    { id: 'pet-1', species: 'tori' },
+    { id: 'pet-2', species: 'kwak', col: 1, row: 2 },
   ];
   const layout = baseLayout({ pets });
   const migrated = migrateLayoutColors(layout);
   assert.deepEqual(migrated.pets, pets);
+});
+
+test('migrateLayoutColors reads the upstream pets (petType 0/1) as mascots, drops unknown ones', () => {
+  const legacy = [
+    { id: 'claudio', petType: 0, col: 3, row: 1 },
+    { id: 'gitcat', petType: 1 },
+    { id: 'external', petType: 7 },
+  ] as unknown as PlacedPet[];
+  const migrated = migrateLayoutColors(baseLayout({ pets: legacy }));
+  assert.deepEqual(migrated.pets, [
+    { id: 'claudio', species: 'coral', col: 3, row: 1 },
+    { id: 'gitcat', species: 'byte' },
+  ]);
 });
 
 test('migrateLayoutColors preserves an empty pets array (does not overwrite)', () => {
@@ -123,7 +136,7 @@ test('migrateLayoutColors handles OLD_VOID tile migration AND pets:[] injection 
 
 test('migrateLayoutColors preserves furniture and other fields untouched', () => {
   const furniture: PlacedFurniture[] = [{ uid: 'f-1', type: 'desk_basic', col: 1, row: 1 }];
-  const layout = baseLayout({ furniture, pets: [{ id: 'p1', petType: 0 }] });
+  const layout = baseLayout({ furniture, pets: [{ id: 'p1', species: 'tori' }] });
   const migrated = migrateLayoutColors(layout);
   assert.equal(migrated.furniture.length, 1);
   // The migrator may rewrite furniture types, so compare uid/col/row, not the
@@ -131,7 +144,7 @@ test('migrateLayoutColors preserves furniture and other fields untouched', () =>
   assert.equal(migrated.furniture[0].uid, 'f-1');
   assert.equal(migrated.furniture[0].col, 1);
   assert.equal(migrated.furniture[0].row, 1);
-  assert.deepEqual(migrated.pets, [{ id: 'p1', petType: 0 }]);
+  assert.deepEqual(migrated.pets, [{ id: 'p1', species: 'tori' }]);
   assert.equal(migrated.cols, 4);
   assert.equal(migrated.rows, 3);
   assert.equal(migrated.version, 1);

@@ -16,13 +16,18 @@ const ALLOW_LIST = Object.freeze([
   'projects.json', 'assignments.json', 'tasks.json', 'groups/**', 'memos.json', 'pins.json',
   'levels.json', 'characters.json', 'characters/**', 'building.json', 'decor.json',
   'worktrees.json', 'job-history.json', 'rules-engine.md', 'events.jsonl',
-  'pixel-agents/layout.json',
+  'pixel-agents/layout.json', 'spec/<projectId>/{registry,links,acceptance,arch}.json',
 ]);
 /** The office layout. Its archive name is the one from before the 2026-11 move (the file left
  *  ~/.pixel-agents for the office folder), so archives made before it still restore. */
 const LAYOUT_ENTRY = 'pixel-agents/layout.json';
 
-const CONFIG_FILES = new Set(ALLOW_LIST.filter((name) => !name.endsWith('/**') && !name.startsWith('pixel-agents/')));
+/** SPT §2.9, §4.1 (NFR-SEC-020): a project's spec sidecar by name, never its match cache
+ *  (`match-cache.json.gz`, its temp files) nor the hash key (`<config>/spec.key`, outside spec/). */
+const SPEC_ENTRY = /^spec\/p_[a-z2-7]{10}\/(registry|links|acceptance|arch)\.json$/;
+const SPEC_CACHE = 'match-cache.json.gz';
+
+const CONFIG_FILES = new Set(ALLOW_LIST.filter((name) => !name.endsWith('/**') && !name.startsWith('pixel-agents/') && !name.startsWith('spec/')));
 const CONFIG_TREES = ['groups/', 'characters/'];
 let temporaryNumber = 0;
 
@@ -69,7 +74,7 @@ function isAllowedPath(relative) {
   if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) return false;
   const normalized = path.posix.normalize(relative);
   if (normalized !== relative || normalized === '.' || normalized.startsWith('../') || normalized.includes('/../')) return false;
-  if (relative === LAYOUT_ENTRY) return true;
+  if (relative === LAYOUT_ENTRY || SPEC_ENTRY.test(relative)) return true;
   return CONFIG_FILES.has(relative) || CONFIG_TREES.some((prefix) => relative.startsWith(prefix) && relative.length > prefix.length);
 }
 
@@ -109,6 +114,7 @@ function allowedFiles(deps) {
     found.push({ relative, file, size });
   }
   for (const prefix of CONFIG_TREES) found.push(...filesUnder(deps, path.join(config, prefix.slice(0, -1)), prefix));
+  found.push(...filesUnder(deps, path.join(config, 'spec'), 'spec/').filter((entry) => SPEC_ENTRY.test(entry.relative)));
   return found.filter((entry) => entry.size <= MAX_FILE_SIZE).sort((a, b) => a.relative.localeCompare(b.relative));
 }
 
@@ -297,6 +303,14 @@ async function restore(dependencies = {}, options = {}) {
   } catch (error) {
     restoreSaved(deps, saved, written);
     return { ok: false, error: error.message, savedDirectory };
+  }
+  // A restored Registry is matched again from scratch: the match cache beside it (made for the
+  // Registry it replaced) goes, and the daemon rebuilds it on the next read (SPT §2.9).
+  for (const entry of targets.filter((target) => target.relative.endsWith('/registry.json'))) {
+    const dir = path.dirname(entry.target);
+    try {
+      for (const name of deps.fs.readdirSync(dir)) if (name === SPEC_CACHE || (name.startsWith(`${SPEC_CACHE}.`) && name.endsWith('.tmp'))) deps.fs.rmSync(path.join(dir, name), { force: true });
+    } catch { /* no cache there */ }
   }
   return { ok: true, files: targets.length, savedDirectory, lines: [`저장한 원본: ${savedDirectory}`] };
 }

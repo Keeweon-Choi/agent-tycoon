@@ -25,7 +25,7 @@ import {
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
-import type { OverlayProjection } from '../../office/projection.js';
+import type { Bind } from '../../office/components/overlayPlacer.js';
 import type { Character } from '../../office/types.js';
 import { CharacterState } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
@@ -54,7 +54,7 @@ import { clampPlate, nameMaxPx, offAlpha, rankIcon, ringOf } from './nameplate.j
 import { PixelSprite } from './PixelSprite.js';
 import { rankSprite } from './rankSprites.js';
 import { RebirthMark } from './RebirthMark.js';
-import { nameplatesOn } from './useNameplates.js';
+import { nameplatesOn, type PlateSizes } from './useNameplates.js';
 import { type CharacterVisual, ringWord, statusIcon } from './visuals.js';
 
 /**
@@ -107,10 +107,11 @@ export interface CharacterLabelProps {
   /** A close button on the selected character (not a sub-agent, not read-only). */
   canClose: boolean;
   onClose: () => void;
-  project: OverlayProjection;
-  /** The overlay's size at the last overlap pass, to keep it on screen. */
-  plateSize: { w: number; h: number } | undefined;
-  /** The office's size on screen (CSS px). */
+  /** Binds an element to a spot on this character, moved every frame without a render (overlayPlacer.ts). */
+  bind: Bind;
+  /** Each overlay's size at the last overlap pass (read when placing), to keep it on screen. */
+  plateSizes: PlateSizes;
+  /** The office's size on screen (CSS px); read when placing, so a resize needs no render. */
   bounds: { width: number; height: number };
   /** SHEET-IMPORT: how much taller than a classic figure it stands (world px): what sits over
    *  its head rises by it; what sits at its feet stays. */
@@ -121,6 +122,9 @@ export interface CharacterLabelProps {
   /** UI-PHONE: another character's card is open on the phone: this one steps back. */
   dim?: boolean;
 }
+
+/** How far a seated (typing) character sits lower; read when placing, as the state changes between renders. */
+const seat = (ch: Character) => (ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0);
 
 export function CharacterLabel({
   ch,
@@ -135,8 +139,8 @@ export function CharacterLabel({
   selected,
   canClose,
   onClose,
-  project,
-  plateSize,
+  bind,
+  plateSizes,
   bounds,
   lift = 0,
   menuName,
@@ -155,7 +159,6 @@ export function CharacterLabel({
   const employee = employeeOf(ch.id);
   const level = identity?.level ?? employee?.level;
   const overtime = staff.overtime.includes(ch.id);
-  const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
   // The readable rank/model at the feet: when no plate carries it, and always with nameplates off (as before them).
   const feetRank = !named || !nameplatesOn();
   const details = hovered || selected;
@@ -167,11 +170,11 @@ export function CharacterLabel({
   // no name label speaks for the character.
   const iconAnchor = (
     <span
-      className="absolute pointer-events-none"
-      style={{
-        left: project.toScreenX(ch.x + STATUS_ICON_OFFSET_X),
-        top: project.toScreenY(ch.y + sit - STATUS_ICON_RISE_PX - lift),
-      }}
+      ref={bind('icon', (at) => ({
+        x: at.toScreenX(ch.x + STATUS_ICON_OFFSET_X),
+        y: at.toScreenY(ch.y + seat(ch) - STATUS_ICON_RISE_PX - lift),
+      }))}
+      className="absolute left-0 top-0 pointer-events-none"
       data-testid="status-icon-anchor"
       data-agent-id={ch.id}
       data-kind={kind}
@@ -189,8 +192,11 @@ export function CharacterLabel({
   const feet =
     (temp && feetRank) || overtime || offDuty ? (
       <span
-        className="absolute -translate-x-1/2 flex items-center gap-2 pointer-events-none"
-        style={{ left: project.toScreenX(ch.x), top: project.toScreenY(ch.y + sit + 1) }}
+        ref={bind('feet', (at) => ({
+          x: at.toScreenX(ch.x),
+          y: at.toScreenY(ch.y + seat(ch) + 1),
+        }))}
+        className="absolute left-0 top-0 -translate-x-1/2 flex items-center gap-2 pointer-events-none"
         data-testid="feet-badges"
         data-agent-id={ch.id}
       >
@@ -230,14 +236,16 @@ export function CharacterLabel({
     ? rankModelLabel(level?.level, temp.model, temp.modelId)
     : [rankId ? rankName(rankId) : kindLabel(kind), orchestratorModel].filter(Boolean).join(' · ');
   // Bottom centre of the whole overlay, kept on screen (its size from the last overlap pass).
-  const at = clampPlate(
-    project.toScreenX(ch.x),
-    project.toScreenY(
-      ch.y + sit - lift - (named ? TOOL_OVERLAY_VERTICAL_OFFSET : STATUS_DETAILS_RISE_PX),
+  const plateAt = bind('plate', (at) =>
+    clampPlate(
+      at.toScreenX(ch.x),
+      at.toScreenY(
+        ch.y + seat(ch) - lift - (named ? TOOL_OVERLAY_VERTICAL_OFFSET : STATUS_DETAILS_RISE_PX),
+      ),
+      plateSizes.get(ch.id),
+      bounds,
+      NAMEPLATE_EDGE_MARGIN_PX,
     ),
-    plateSize,
-    bounds,
-    NAMEPLATE_EDGE_MARGIN_PX,
   );
   // The rank icon: beside the name on the plate; inside the rank chip once the summary is open.
   const rankIconNode = rank && (
@@ -260,11 +268,10 @@ export function CharacterLabel({
       {iconAnchor}
       {feet}
       <div
+        ref={plateAt}
         // w-max: near the right edge an absolute box would shrink to the room left of it.
-        className="absolute w-max flex flex-col items-center -translate-x-1/2 -translate-y-full"
+        className="absolute left-0 top-0 w-max flex flex-col items-center -translate-x-1/2 -translate-y-full"
         style={{
-          left: at.x,
-          top: at.y,
           pointerEvents: selected ? 'auto' : 'none',
           opacity: Math.min(
             offAlpha(!!identity?.off, details, OFF_OVERLAY_ALPHA),

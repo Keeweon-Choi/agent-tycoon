@@ -117,6 +117,7 @@ async function main() {
   copyPacks();
   buildHooks();
   await esbuild.build(cliOptions);
+  if (production) asciiOnly(cliOptions.outfile);
   await buildWorker();
   await buildPtyHost();
   await buildLoginPage();
@@ -170,6 +171,18 @@ async function buildPtyHost() {
     define: versionDefine,
     logLevel: 'silent',
   });
+}
+
+/** MEM-IDLE: V8 keeps the daemon's source for as long as it runs, and one non-ASCII character
+ *  (esbuild leaves them in regex literals: 가-힣, ’, ¹) makes all of it two-byte, 2.2 MB more
+ *  heap. Each becomes its \uXXXX escape, the same character in a regex, string or template.
+ *  Production only: it would shift a source map's columns. */
+function asciiOnly(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  // `\가` (an identity escape) would turn into `\\uAC00`: refuse rather than change a pattern.
+  if (/\\[^\x00-\x7f]/.test(src)) throw new Error(`${file}: an escaped non-ASCII character`);
+  const out = src.replace(/[^\x00-\x7f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  fs.writeFileSync(file, out);
 }
 
 /** The standalone daemon (dist/cli.js). */

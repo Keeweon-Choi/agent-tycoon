@@ -1,13 +1,13 @@
 /**
  * W1, the 작업실 (Workbench): one project's workplace in one window (desktop) or
- * one Dock page (phone). A project picker, then four tabs, each a small
+ * one Dock page (phone). A project picker, then the tabs (SPT-P1A: 개요 · 이슈 · 문서 · 에이전트 · 변경), each a small
  * component: 에이전트 (the Lead and Workers; D3b: "+ Worker" and 'Lead 로'), Task (C6: the
  * delegations waiting for the user's approval, then the task board, narrowed
  * to this project; W2: each card's worktree, "worktree 만들기", and its 검토) and 변경 (the project's
  * own repository). A card's 검토 replaces the whole window body with that worktree's review (P4).
  * What is left open (project, tab) is remembered per device (workbenchStore).
  */
-import { useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 
 import { JOSA, josa } from '../../../../core/src/cld/josa.js';
 import { Button } from '../../components/ui/Button.js';
@@ -36,6 +36,7 @@ import {
   type MemberState,
   NO_PROJECT,
   NO_PROJECT_TABS,
+  OPS_TABS,
   ownedNames,
   pickerProjects,
   resolveProject,
@@ -50,13 +51,32 @@ import {
   closeReview,
   setWorkbenchProject,
   setWorkbenchTab,
+  tabFocus,
   useCanAct,
   useNow,
   useWorkbench,
   useWorkbenchReview,
 } from './workbenchStore.js';
 
+// GAME-UI-1 G2: the tab row's 수락 HI-SCORE, its own small chunk (the 개요 has the big one).
+const TabHiScore = lazy(() => import('../spec/GameScore.js').then((m) => ({ default: m.TabHiScore })));
 const muted = 'text-text-muted text-xs';
+
+// SPT-P1A/P1B: the 개요, 요구사항 and 문서 tabs are their own chunk (the main bundle stays as it was).
+const Overview = lazy(() => import('../spec/Overview.js').then((m) => ({ default: m.Overview })));
+const ReqsTab = lazy(() => import('../spec/SpecTabs.js').then((m) => ({ default: m.ReqsTab })));
+const DocsTab = lazy(() => import('../spec/SpecTabs.js').then((m) => ({ default: m.DocsTab })));
+// SPT-P3-GRAPH, MAP-A: the 지도 tab (React Flow + dagre with it) loads only when opened.
+const MapTab = lazy(() => import('../spec/ProjectMap.js').then((m) => ({ default: m.MapTab })));
+const TAB_LABEL = {
+  cockpit: 'spec.tab.cockpit',
+  tasks: 'workbench.tab.tasks',
+  reqs: 'spec.tab.reqs',
+  graph: 'spec.tab.graph',
+  docs: 'spec.tab.docs',
+  agents: 'workbench.tab.agents',
+  changes: 'workbench.tab.changes',
+} as const satisfies Record<WorkbenchTab, string>;
 
 const STATE_TEXT: Record<MemberState, () => string> = {
   working: () => stateLabel('running', true),
@@ -298,6 +318,13 @@ function TasksTab({
   );
   // Like the board's own "+ 업무" button: the connection's privilege (the daemon refuses the rest).
   const readOnly = useCldStore().officeReadOnly;
+  // SPT-P3-OVERVIEW: opened from a 개요 status number: the board has no status filter, so its column scrolls into view.
+  useEffect(() => {
+    const status = tabFocus('tasks')?.key.replace(/^status:/, '');
+    if (!status) return;
+    const frame = requestAnimationFrame(() => document.querySelector(`[data-testid="task-group"][data-status="${status}"]`)?.scrollIntoView({ block: 'start' }));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   return (
     <CldScope.Provider value={scope}>
       <TaskWorktreeScope.Provider value={worktrees}>
@@ -358,6 +385,11 @@ function WorkbenchTabs({ mobile }: { mobile: boolean }) {
   const tabs = project === NO_PROJECT ? NO_PROJECT_TABS : WORKBENCH_TABS;
   const tab: WorkbenchTab = tabs.includes(saved.tab) ? saved.tab : 'agents';
   const tap = mobile ? 'pointer-coarse:min-h-44' : '';
+  // Phone: 에이전트 and 변경 fold under 더보기 (open while one of them is shown).
+  const [more, setMore] = useState(false);
+  const folded = mobile && project !== NO_PROJECT && !more && !OPS_TABS.includes(tab);
+  const shownTabs = folded ? tabs.filter((id) => !OPS_TABS.includes(id)) : tabs;
+  const agentIds = team.flatMap((m) => (m.agentId === null ? [] : [m.agentId]));
   return (
     <>
       <div className={`shrink-0 ${mobile ? 'px-8 pt-4' : ''} flex items-center gap-8 min-w-0`}>
@@ -382,7 +414,7 @@ function WorkbenchTabs({ mobile }: { mobile: boolean }) {
         className={`flex gap-4 overflow-x-auto ${mobile ? 'px-8 py-4' : 'py-8'} shrink-0`}
         aria-label={t('workbench.tabs')}
       >
-        {tabs.map((id) => (
+        {shownTabs.map((id) => (
           <Button
             key={id}
             size="sm"
@@ -391,9 +423,19 @@ function WorkbenchTabs({ mobile }: { mobile: boolean }) {
             className={`shrink-0 ${tap}`}
             onClick={() => setWorkbenchTab(id)}
           >
-            {t(`workbench.tab.${id}`)}
+            {t(TAB_LABEL[id])}
           </Button>
         ))}
+        {folded && (
+          <Button size="sm" className={`shrink-0 ${tap}`} aria-expanded={false} onClick={() => setMore(true)}>
+            {t('spec.more')}
+          </Button>
+        )}
+        {!mobile && project && project !== NO_PROJECT && tab !== 'cockpit' && (
+          <Suspense fallback={null}>
+            <TabHiScore project={project} />
+          </Suspense>
+        )}
       </nav>
       <div
         className={`overflow-y-auto min-h-0 flex-1 ${mobile ? 'px-8 pb-12' : ''}`}
@@ -406,6 +448,20 @@ function WorkbenchTabs({ mobile }: { mobile: boolean }) {
           <AgentsTab team={team} project={project} scope={scope} />
         ) : tab === 'tasks' ? (
           <TasksTab project={project} scope={scope} team={team} />
+        ) : tab === 'cockpit' || tab === 'reqs' || tab === 'graph' || tab === 'docs' ? (
+          <Suspense fallback={<p className={muted}>{t('spec.wizard.loading')}</p>}>
+            <CldScope.Provider value={scope}>
+              {tab === 'cockpit' ? (
+                <Overview project={project} agentIds={agentIds} />
+              ) : tab === 'reqs' ? (
+                <ReqsTab project={project} mobile={mobile} />
+              ) : tab === 'graph' ? (
+                <MapTab key={project} project={project} mobile={mobile} />
+              ) : (
+                <DocsTab project={project} />
+              )}
+            </CldScope.Provider>
+          </Suspense>
         ) : (
           <RepoPanel project={project} />
         )}

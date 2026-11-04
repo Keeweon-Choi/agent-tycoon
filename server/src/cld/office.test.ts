@@ -9,6 +9,7 @@ import type { OfficeSnapshot, UsageState } from '../../../core/src/messages.js';
 import { AgentRuntime } from '../agentRuntime.js';
 import { AgentStateStore } from '../agentStateStore.js';
 import { claudeProvider } from '../providers/hook/claude/claude.js';
+import { STORE_META_V } from './characterPresets.js';
 import type { AgentChoicesReader } from './engine/agentCapabilities.js';
 import { codexDir, saveCodex } from './engine/codex.js';
 import { GIT_AVAILABLE, makeTempRepo } from './engine/git/testRepo.js';
@@ -295,7 +296,7 @@ describe('office with the Claude provider only (no engine)', () => {
     const snap = last('officeSnapshot') as unknown as OfficeSnapshot;
     for (const o of snap.orchestrators.filter((o) => o.name !== name))
       expect(saved[o.name]).toEqual({ palette: expect.any(Number), hueShift: expect.any(Number) });
-    expect(saved.$meta).toMatchObject({ v: 2 });
+    expect(saved.$meta).toMatchObject({ v: STORE_META_V });
     expect(fs.existsSync(path.join(fake.home, '.config/agent-tycoon/characters/README.md'))).toBe(
       true,
     );
@@ -510,7 +511,7 @@ describe('office with the built-in engine', () => {
     expect(answers[0]).toMatchObject({ type: 'engineState' });
   });
 
-  it('engineMoveAll is the owner\'s: a client without the right gets a refusal and nothing starts', async () => {
+  it("engineMoveAll is the owner's: a client without the right gets a refusal and nothing starts", async () => {
     const { office } = await engineOffice();
     const answers: Array<Record<string, unknown>> = [];
     office.onClientMessage({ type: 'engineMoveAll' }, (m) => answers.push(m), false);
@@ -829,7 +830,7 @@ describe('office with the built-in engine', () => {
     expect((await run(['task', 'show', 'T-2'])).out).toContain(
       `배정: (삭제됨) alpha-a (${workerId})`,
     );
-  });
+  }, 30_000); // its own waits run up to 10 s: under the deploy check's load the 10 s default cut it (11-04, twice)
 
   it('T-0019: cld-gui job through the socket shows in the job panel; log and stop with the gates', async () => {
     const { home, office, messages } = await engineOffice();

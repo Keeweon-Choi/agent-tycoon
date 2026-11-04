@@ -12,6 +12,8 @@ import {
   makeFakeHome,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -55,7 +57,7 @@ async function main(): Promise<void> {
     const page = await context.newPage();
     await page.goto(await daemon.loginUrl());
     await page.waitForURL(`http://127.0.0.1:${port}/`);
-    await page.getByRole('button', { name: '설정', exact: true }).waitFor({ timeout: 20_000 });
+    await topBarReady(page, 20_000);
     check((await page.title()) === '에이전트 타이쿤', 'office document title is 에이전트 타이쿤');
 
     const manifest = await page.evaluate(async () => {
@@ -127,7 +129,7 @@ async function main(): Promise<void> {
     );
     await bareCtx.close();
 
-    await page.getByRole('button', { name: '설정', exact: true }).click();
+    await topBarButton(page, '설정');
     const installButton = page.getByRole('button', { name: '앱으로 설치', exact: true });
     check((await installButton.count()) === 1, 'settings contains the 앱으로 설치 button');
     await page.evaluate(() => {

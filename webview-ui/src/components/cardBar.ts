@@ -101,6 +101,8 @@ export interface CardInfo {
   extra?: ReactNode;
   /** The part of `extra` a compact card keeps beside its status dot (퇴근, 야근). */
   status?: ReactNode;
+  /** PARTY-FRAME: how many temps the card carries (the folded bar's +N). */
+  temps?: number;
 }
 
 /** The phone's cards (owner 10-24): compact unless this device expanded them ('1' stored). */

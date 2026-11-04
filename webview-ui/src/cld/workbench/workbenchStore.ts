@@ -42,8 +42,30 @@ const subscribe = (l: () => void) => {
 export const workbenchGetSnapshot = () => snapshot;
 export const useWorkbench = () => useSyncExternalStore(subscribe, workbenchGetSnapshot);
 
-export const setWorkbenchProject = (project: string) => set({ project });
-export const setWorkbenchTab = (tab: WorkbenchTab) => set({ tab });
+// SPT-P3-OVERVIEW: a tab opened on a filter (a 개요 number). Not remembered: a filter is a visit,
+// read by the tab when it mounts and gone with the next plain tab or project switch.
+export interface TabFocus {
+  tab: WorkbenchTab;
+  /** reqs: `show:<filter>`, `item:<uid>` or `all`; tasks: `status:<status>`; graph: a requirement UID. */
+  key: string;
+  label?: string;
+}
+let focus: TabFocus | null = null;
+export const tabFocus = (tab: WorkbenchTab): TabFocus | null => (focus?.tab === tab ? focus : null);
+/** The one way to open a tab with a filter. */
+export function openTab(tab: WorkbenchTab, key: string, label?: string): void {
+  focus = { tab, key, ...(label && { label }) };
+  set({ tab });
+}
+
+export const setWorkbenchProject = (project: string) => {
+  focus = null;
+  set({ project });
+};
+export const setWorkbenchTab = (tab: WorkbenchTab) => {
+  focus = null;
+  set({ tab });
+};
 
 /** Open the 현황판's 개발 tab, on `project` when given (the 현황판 card's button; a Worker's card means its project), else where it was left. */
 export function openWorkbench(project?: string): void {

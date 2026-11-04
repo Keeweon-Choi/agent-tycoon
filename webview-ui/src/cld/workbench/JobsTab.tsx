@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { Chevron } from '../Chevron.js';
+import { JobRun } from '../game/JobRun.js';
 import { jobRequest, useJobStore } from '../jobStore.js';
 import { useCldStore } from '../officeStore.js';
 import {
@@ -48,10 +49,9 @@ function Empty() {
 const LOG_POLL_MS = 3_000;
 
 /** Digest first; a masked raw log and process diagnostics stay one click away. */
-function JobControls({ job }: { job: OfficeJob }) {
+function JobControls({ job, open, setOpen }: { job: OfficeJob; open: boolean; setOpen: (open: boolean) => void }) {
   const { officeSnapshot: officeState, officeReadOnly } = useCldStore();
   const { logs, stopping, errors } = useJobStore();
-  const [open, setOpen] = useState(false);
   const [raw, setRaw] = useState(false);
   const [details, setDetails] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -185,10 +185,12 @@ const statusClass = {
 /** A job's key for a notice (T-0043): the engine's id, or `pid:<n>` (office's events' `ref`). */
 const jobRef = (job: OfficeJob) => job.id ?? `pid:${job.pid}`;
 
-function JobCard({ job, now }: { job: OfficeJob; now: number }) {
+/** `walk`: the list's top card; only its runner walks (GAME-UI-1, 06: less noise with many jobs). */
+function JobCard({ job, now, walk = false }: { job: OfficeJob; now: number; walk?: boolean }) {
   const status = jobStatus(job, now);
   const progress = progressText(job, now);
-  const pct = Math.max(0, Math.min(100, job.progress?.pct ?? 0));
+  const [logOpen, setLogOpen] = useState(false);
+  const { officeReadOnly } = useCldStore();
   const line = job.label ?? t('panel.job');
   return (
     // data-job-ref: a job-end notice opens this card (T-0043, notify/openTarget.ts).
@@ -217,26 +219,14 @@ function JobCard({ job, now }: { job: OfficeJob; now: number }) {
       <p className={`${muted} mt-2`} data-testid="job-times">
         {timesText(job.created ?? job.started, job.started, now)}
       </p>
+      {/* GAME-UI-1 (06): the run; the log's own words under it. */}
+      <JobRun job={job} kind={status.kind} walk={walk} onLog={officeReadOnly ? undefined : () => setLogOpen(true)} />
       {progress && (
-        <>
-          <div
-            className="h-12 border border-border bg-black/30 mt-8"
-            role="progressbar"
-            aria-valuenow={job.progress?.indeterminate ? undefined : pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div
-              className={`h-full bg-accent ${job.progress?.indeterminate ? 'job-progress-indeterminate' : ''}`}
-              style={{ width: job.progress?.indeterminate ? '20%' : `${pct}%` }}
-            />
-          </div>
-          <p className={`${muted} mt-4`} data-testid="job-progress">
-            {progress}
-          </p>
-        </>
+        <p className={`${muted} mt-4`} data-testid="job-progress">
+          {progress}
+        </p>
       )}
-      <JobControls job={job} />
+      <JobControls job={job} open={logOpen} setOpen={setLogOpen} />
     </li>
   );
 }
@@ -265,8 +255,8 @@ function JobsPanel() {
   const plan = planJobs(officeJobs.jobs, now);
   return (
     <ul className="space-y-8" data-testid="jobs-panel">
-      {plan.cards.map((job) => (
-        <JobCard key={job.id ?? `office:${job.pid}`} job={job} now={now} />
+      {plan.cards.map((job, i) => (
+        <JobCard key={job.id ?? `office:${job.pid}`} job={job} now={now} walk={i === 0} />
       ))}
       {plan.more > 0 && (
         <li className={muted} data-testid="jobs-more">

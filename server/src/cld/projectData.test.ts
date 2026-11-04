@@ -16,6 +16,7 @@ import {
   moveProjectData,
   NameTaken,
   PROJECT_STORES,
+  purgedNow,
   purgeProjectData,
   readNameHistory,
   recordFormerName,
@@ -293,5 +294,18 @@ describe('대화방 지우기 (deleteGoneConversation)', () => {
     expect(goneAgents(readNameHistory(h.home))).toEqual([]); // off the contact list
     expect(aliasOf(readNameHistory(h.home), 'alpha', 100)).toBe(GONE); // its posts still "(알 수 없음)"
     expect(deleteGoneConversation(h.home, GONE)).toBeNull(); // once
+  });
+});
+
+describe('SPT-P1D purgedNow', () => {
+  const gone = (name: string, until: number, purged?: true) => ({ name, until, as: '~a_aaaaaaaaaa', gone: { folder: '/w', ...(purged && { purged }) } });
+  it('only the entry this remove wrote counts; an older purge of the same name never does', () => {
+    const old = [gone('alpha', 1, true)];
+    expect(purgedNow(old, [...old, gone('alpha', 2, true)], 'alpha')).toBe(true);
+    expect(purgedNow(old, [...old, gone('alpha', 2)], 'alpha')).toBe(false);
+    // This remove's write failed: the older purged entry is all there is -> unsure, keep the data.
+    expect(purgedNow(old, old, 'alpha')).toBe(false);
+    expect(purgedNow(old, [...old, gone('beta', 2, true)], 'alpha')).toBe(false);
+    expect(purgedNow([...old, gone('x', 3)], old, 'alpha')).toBe(false); // rewritten meanwhile
   });
 });

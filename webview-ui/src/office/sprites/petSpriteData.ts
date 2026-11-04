@@ -1,9 +1,12 @@
+import { MASCOT_SPECIES } from '../../../../core/src/cld/looks.js';
+import type { MascotSpecies } from '../../../../core/src/messages.js';
+import { composeMascot, MASCOTS } from '../../cld/characters/compose.js';
+import { t } from '../../i18n/index.js';
 import type { SpriteData } from '../types.js';
 
 /**
- * Resolved per-pet sprite frames. Each entry is a 3-frame animation array.
- * `walkLeft` / `idleRight` / `idleLeft` are derived in setPetTemplates from
- * the broadcast fields.
+ * Resolved per-pet sprite frames. Each entry is a 3-frame animation array
+ * (walk: PET_WALK_SEQUENCE [0,1,0,2], so frame 0 is the standing pose).
  */
 export interface PetSpriteFrames {
   walkDown: [SpriteData, SpriteData, SpriteData];
@@ -16,93 +19,51 @@ export interface PetSpriteFrames {
   idleLeft: [SpriteData, SpriteData, SpriteData];
 }
 
-/** Flip a sprite horizontally (used for walkRight → walkLeft). */
-function flipHorizontal(s: SpriteData): SpriteData {
-  return s.map((row) => [...row].reverse());
-}
+/** The pets are the mascots (11-04: our own art replaces the upstream pet sheets); petType = index here. */
+export const PET_SPECIES: readonly MascotSpecies[] = MASCOT_SPECIES;
 
-/** Coerce a 3-frame raw array to a fixed-length tuple. Caller must verify len ≥ 3 first. */
-function toTriple(arr: string[][][]): [SpriteData, SpriteData, SpriteData] {
-  return [arr[0], arr[1], arr[2]];
-}
+const flip = (s: SpriteData): SpriteData => s.map((row) => [...row].reverse());
 
 let loadedPets: PetSpriteFrames[] | null = null;
-let loadedPetNames: string[] = [];
 
-/**
- * Receive raw frame arrays + parallel display names from the server message.
- * Skips entries with fewer than 3 frames in any of the required directions.
- */
-export function setPetTemplates(
-  data: Array<{
-    walkDown: string[][][];
-    idleDown: string[][][];
-    walkUp: string[][][];
-    idleUp: string[][][];
-    walkRight: string[][][];
-  }>,
-  petNames?: string[],
-): void {
-  const resolved: PetSpriteFrames[] = [];
-  const resolvedNames: string[] = [];
-  for (let i = 0; i < data.length; i++) {
-    const raw = data[i];
-    if (
-      !raw ||
-      !raw.walkDown ||
-      raw.walkDown.length < 3 ||
-      !raw.idleDown ||
-      raw.idleDown.length < 3 ||
-      !raw.walkUp ||
-      raw.walkUp.length < 3 ||
-      !raw.idleUp ||
-      raw.idleUp.length < 3 ||
-      !raw.walkRight ||
-      raw.walkRight.length < 3
-    ) {
-      continue;
-    }
-    const walkDown = toTriple(raw.walkDown);
-    const idleDown = toTriple(raw.idleDown);
-    const walkUp = toTriple(raw.walkUp);
-    const idleUp = toTriple(raw.idleUp);
-    const walkRight = toTriple(raw.walkRight);
-    const walkLeft: [SpriteData, SpriteData, SpriteData] = [
-      flipHorizontal(walkRight[0]),
-      flipHorizontal(walkRight[1]),
-      flipHorizontal(walkRight[2]),
-    ];
-    // The pet's front-facing idle stands in for "idle right"; the back-facing
-    // idle stands in for "idle left". No flip — the side-on pose isn't authored.
-    resolved.push({
-      walkDown,
-      idleDown,
-      walkUp,
-      idleUp,
-      walkRight,
-      walkLeft,
-      idleRight: idleDown,
-      idleLeft: idleUp,
-    });
-    resolvedNames.push(petNames?.[i] ?? `Pet ${i + 1}`);
-  }
-  loadedPets = resolved;
-  loadedPetNames = resolvedNames;
+/** A mascot sheet row (walk1 walk2 walk3 ...) as the pet's walk [stand, step, step] and idle. */
+function petOf(species: MascotSpecies): PetSpriteFrames {
+  const { sheet } = composeMascot({ species }, MASCOTS[species]);
+  const walk = (row: SpriteData[]): [SpriteData, SpriteData, SpriteData] => [
+    row[1],
+    row[0],
+    row[2],
+  ];
+  const idle = (s: SpriteData): [SpriteData, SpriteData, SpriteData] => [s, s, s];
+  const walkRight = walk(sheet.right);
+  return {
+    walkDown: walk(sheet.down),
+    idleDown: idle(sheet.down[1]),
+    walkUp: walk(sheet.up),
+    idleUp: idle(sheet.up[1]),
+    walkRight,
+    walkLeft: [flip(walkRight[0]), flip(walkRight[1]), flip(walkRight[2])],
+    idleRight: idle(walkRight[0]),
+    idleLeft: idle(flip(walkRight[0])),
+  };
 }
 
-/** Returns the resolved frames for a petType, or null if not loaded or out of range. */
+function pets(): PetSpriteFrames[] {
+  return (loadedPets ??= PET_SPECIES.map(petOf));
+}
+
+/** Returns the resolved frames for a petType, or null if out of range. */
 export function getPetSprites(petIndex: number): PetSpriteFrames | null {
-  if (!loadedPets) return null;
-  if (petIndex < 0 || petIndex >= loadedPets.length) return null;
-  return loadedPets[petIndex];
+  return pets()[petIndex] ?? null;
 }
 
-/** Number of pets currently loaded. */
+/** Number of pets the editor offers. */
 export function getPetCount(): number {
-  return loadedPets?.length ?? 0;
+  return PET_SPECIES.length;
 }
 
-/** Display name for a petType. Falls back to "Pet N" when manifest missing. */
+/** Display name for a petType: the mascot's name. */
 export function getPetName(petIndex: number): string {
-  return loadedPetNames[petIndex] ?? `Pet ${petIndex + 1}`;
+  const species = PET_SPECIES[petIndex];
+  return species ? t(`looks.species.${species}`) : `Pet ${petIndex + 1}`;
 }

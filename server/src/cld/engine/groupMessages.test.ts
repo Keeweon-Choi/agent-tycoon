@@ -96,6 +96,19 @@ describe('GroupMessages', () => {
     expect(roomReplyItems(transcript, room, post).map((item) => item.text)).toEqual(['배포를 시작합니다', 'Running: deploy', '배포가 끝났습니다']);
   });
 
+  it('ROOM-THREADS: a joined turn (posts queued while the member worked) answers each of its posts', () => {
+    const room = { id: 'room0003', name: '출시팀', members: ['alpha'] };
+    const at = new Date(2026, 9, 22, 15, 5).getTime();
+    const post = (id: string, text: string) => ({ id, at, sender: null, text, targets: ['alpha'], delivery: { alpha: 'delivered' as const } });
+    const line = (value: object) => `${JSON.stringify(value)}\n`;
+    const transcript =
+      line({ type: 'user', message: { content: "[사장 · 단톡방 '출시팀' · 10-22 15:05] ⟨m:aaaaaaaa⟩\n@alpha 첫 질문\n\n[사장 · 단톡방 '출시팀' · 10-22 15:05] ⟨m:bbbbbbbb⟩\n@alpha 둘째 질문" } }) +
+      line({ type: 'assistant', message: { content: [{ type: 'text', text: '둘 다 답해요' }] } }) +
+      line({ type: 'user', message: { content: '다른 일입니다' } });
+    for (const [id, mark, text] of [['p1', 'aaaaaaaa', '@alpha 첫 질문'], ['p2', 'bbbbbbbb', '@alpha 둘째 질문']] as const)
+      expect(roomReplyItems(transcript, room, post(id, text), mark).map((item) => item.text)).toEqual(['둘 다 답해요']);
+  });
+
   it('folds a held delivery then its eventual inbox state without rewriting the post', async () => {
     const h = home();
     const store = new GroupStore(h, () => ['alpha'], () => 'room0002');

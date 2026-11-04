@@ -25,6 +25,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -189,7 +190,7 @@ async function main() {
       check(fresh.dataScale === 'medium' && fresh.scaleVar === '1', `${tag}: a new browser starts at 보통 (--ui-scale ${fresh.scaleVar})`);
 
       const settings = async () => {
-        await page.getByRole('button', { name: '설정', exact: true }).first().click();
+        await topBarButton(page, '설정');
         await page.getByRole('tab', { name: '화면', exact: true }).click();
         await page.getByTestId('ui-scale-option').waitFor();
       };

@@ -56,12 +56,14 @@ import * as path from 'path';
 
 import {
   assertPortFree,
-  type FakeHome,
   launchBrowser,
   makeFakeHome,
   REPO_ROOT,
   sparePort,
   startDaemon as launchDaemon,
+  topBarButton,
+  topBarReady,
+  type FakeHome,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -289,7 +291,7 @@ async function main() {
     await page.screenshot({ path: path.join(dir, `${name}.png`) });
   };
   const inApp = (page: Page) =>
-    page.getByRole('button', { name: '기기 추가', exact: true }).waitFor({ timeout: 15_000 });
+    topBarReady(page, 15_000);
   const closeModal = (page: Page) =>
     page.getByRole('button', { name: 'x', exact: true }).last().click();
   const me = (page: Page) =>
@@ -449,7 +451,7 @@ async function main() {
     // O3: A is on Web Push (its row is its device key).
     const pushA = subscriber('a');
     check(await subscribe(a, pushA), 'O3: A subscribed to Web Push');
-    await a.getByRole('button', { name: '기기 추가', exact: true }).click();
+    await topBarButton(a, '기기 추가');
     const panel = a.getByTestId('add-device');
     const shown = (await a.getByTestId('device-code').textContent())?.trim() ?? '';
     check(
@@ -559,7 +561,7 @@ async function main() {
     await closeModal(a);
 
     // ── 5. B removes A ──
-    await b.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(b, '보안');
     const security = b.getByTestId('security');
     await security.getByTestId('session-row').nth(1).waitFor();
     const rowText = (await security.textContent()) ?? '';
@@ -592,7 +594,7 @@ async function main() {
       others()[0].id === cDevice && others()[0].label === 'Mac · Chrome',
       'B (on the other address) was told about C’s first login',
     );
-    await c.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(c, '보안');
     const move = c.getByRole('button', { name: `${SERVE_NAME}로 이 기기 옮기기` });
     await move.waitFor();
     await shot(c, 'move-button-desktop');
@@ -614,7 +616,7 @@ async function main() {
       others()[1].id === cDevice && others()[1].label === '기기 열쇠가 바뀌었어요: Mac · Chrome',
       'the move announced a key change, not a new device (T-0038)',
     );
-    await c.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(c, '보안');
     await c.getByTestId('session-row').filter({ hasText: '이 기기' }).waitFor();
     await shot(c, 'moved-desktop');
     const old = await cCtx.newPage();
@@ -624,8 +626,7 @@ async function main() {
     // ── 6b. O1: 기기 추가 on C — copy, share, result, nickname, cancel ──
     await closeModal(c);
     await cCtx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: canonical });
-    const addDevice = c.getByRole('button', { name: '기기 추가', exact: true });
-    await addDevice.click();
+    await topBarButton(c, '기기 추가');
     const invitePanel = c.getByTestId('add-device');
     await invitePanel.getByTestId('device-code').waitFor();
     const typedCode = ((await invitePanel.getByTestId('device-code').textContent()) ?? '').replace(/\s/g, '');
@@ -696,13 +697,13 @@ async function main() {
       'after 저장 the result reads "노트북(Windows · Chrome) 등록됨"',
     );
     await closeModal(c);
-    await c.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(c, '보안');
     const named = c.getByTestId('session-row').filter({ hasText: '노트북' });
     await named.waitFor();
     check((await named.count()) === 1, 'the device list shows the nickname 노트북');
     await shot(c, 'o1-device-list-nickname-desktop');
     await closeModal(c);
-    await d.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(d, '보안');
     await d.getByTestId('session-row').filter({ hasText: '노트북' }).waitFor();
     check(true, 'D’s own device list shows 노트북 too');
     await d.close();
@@ -793,7 +794,7 @@ async function main() {
         automaticPresenceSimulation: true,
       },
     });
-    await b.getByRole('button', { name: '보안', exact: true }).click();
+    await topBarButton(b, '보안');
     const required = b.getByRole('button', { name: /패스키\(생체 인증\) 필수/ });
     check(await required.isDisabled(), 'B cannot turn on 패스키 필수 without a passkey of its own here');
     await b.getByRole('button', { name: '패스키 등록', exact: true }).click();

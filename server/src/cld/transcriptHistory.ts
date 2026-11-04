@@ -33,28 +33,50 @@ interface TurnOffsets {
 }
 function roomTurnOffsets(file: string): TurnOffsets {
   const turns: TurnOffsets = { hidden: new Set(), bound: new Map() };
-  let text: string;
-  try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch {
-    return turns;
-  }
-  let offset = 0;
   let hiding = false;
   let bound: string | undefined;
-  for (const line of text.split('\n')) {
-    const prompt = userTurnText(line);
-    if (prompt !== null) {
-      hiding = isRoomPromptLine(line);
-      bound = turnMessageId(prompt);
-    }
-    // A joined turn (MSG-SPLIT) stays: lineItems drops its room parts and keeps its DM parts.
-    if (hiding && !(prompt !== null && turnParts(prompt).length > 1)) turns.hidden.add(offset);
-    else if (bound) turns.bound.set(offset, bound);
-    offset += Buffer.byteLength(line) + 1;
+  try {
+    forward(file, (line, offset) => {
+      const prompt = userTurnText(line);
+      if (prompt !== null) {
+        hiding = isRoomPromptLine(line);
+        bound = turnMessageId(prompt);
+      }
+      // A joined turn (MSG-SPLIT) stays: lineItems drops its room parts and keeps its DM parts.
+      if (hiding && !(prompt !== null && turnParts(prompt).length > 1)) turns.hidden.add(offset);
+      else if (bound) turns.bound.set(offset, bound);
+    });
+  } catch {
+    /* unreadable: what was read so far */
   }
   return turns;
 }
+
+/** Every line of `file` oldest first with its byte offset, read in CHAT_TAIL_BYTES chunks (MEM-IDLE:
+ *  a transcript can be 100 MB; this holds one chunk plus the line crossing it, never the file). */
+function forward(file: string, visit: (line: string, offset: number) => void): void {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const chunk = Buffer.alloc(CHAT_TAIL_BYTES);
+    let carry = Buffer.alloc(0); // the start of a line the previous chunk ended inside
+    let base = 0; // file offset of carry[0]
+    const next = () => fs.readSync(fd, chunk, 0, chunk.length, null);
+    for (let n = next(); n > 0; n = next()) {
+      const buf = carry.length ? Buffer.concat([carry, chunk.subarray(0, n)]) : chunk.subarray(0, n);
+      let start = 0;
+      for (let nl = buf.indexOf(NL); nl >= 0; nl = buf.indexOf(NL, start)) {
+        visit(buf.toString('utf8', start, nl), base + start);
+        start = nl + 1;
+      }
+      carry = Buffer.from(buf.subarray(start));
+      base += start;
+    }
+    if (carry.length) visit(carry.toString('utf8'), base);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+const NL = 0x0a;
 
 type Hit = Pick<ChatItem, 'id' | 'at' | 'kind' | 'session' | 'sessionStart'> & { snippet: string };
 export interface HistoryPage {

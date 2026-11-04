@@ -51,7 +51,35 @@ export function usageWindowText(
   pct: number | null | undefined,
   isReset: boolean | null | undefined,
 ): string {
-  return isReset ? t('usage.reset') : pct == null ? '—' : `${Math.round(pct)}%`;
+  return isReset ? t('usage.unknownShort') : pct == null ? '—' : `${Math.round(pct)}%`;
+}
+
+/** A reset time as a local "11-06 20:00". */
+function resetClock(resetAt: string | null | undefined): string | null {
+  const at = resetAt ? new Date(resetAt) : null;
+  if (!at || !Number.isFinite(at.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/**
+ * MOBILE-QUEST: one window's reading both ways round, so the gauge's "남음 39%" and `agty status`'s weekPct 61
+ * (the used share) read as one figure: "주간 61% 사용 · 남음 39% · 11-06 20:00 초기화". A passed reset or no figure says unknown.
+ */
+export function usageWindowTitle(w: UsageLimitWindow & { title?: string | null }): string {
+  const window = w.title
+    ? `${w.title} ${t('usage.win.7d')}`
+    : w.id === '5h' || w.id === '7d'
+      ? t(`usage.win.${w.id}`)
+      : w.id;
+  if (w.isReset) return t('usage.resetPassed', { window });
+  if (typeof w.pct !== 'number' || !Number.isFinite(w.pct)) return t('usage.windowUnknown', { window });
+  const used = Math.max(0, Math.min(100, Math.round(w.pct)));
+  const time = resetClock(w.resetAt);
+  return [
+    t('usage.usedLeft', { window, used, left: 100 - used }),
+    time ? t('usage.resetAt', { time }) : t('format.noReset'),
+  ].join(' · ');
 }
 
 /** A per-model weekly window's label ("F 7d") and tooltip name ("Fable"). */
@@ -110,14 +138,14 @@ export function isOff(orchestrator: OfficeOrchestrator): boolean {
   return orchestrator.state === 'off';
 }
 
-export type OfficePanel = 'status' | 'dev' | 'files' | 'hw' | 'terminal';
+export type OfficePanel = 'status' | 'dev' | 'files' | 'terminal';
 /** The 현황판 window's tab strip (UI-DASH, owner 11-01 14:54: the orchestrators' and the development
  *  status in one dashboard, the old 작업실 being its 개발 tab; 파일 is the window's own mode, opened by
- *  the folder icon). The 터미널 has its own window and icon (T-0077). */
+ *  the folder icon). The 터미널 has its own window and icon (T-0077). The HW tab is gone
+ *  (building-a-1104, owner 11-04 20:28): the lobby board's full H/W screen reads better. */
 export const desktopTabs: { id: Exclude<OfficePanel, 'terminal' | 'files'> }[] = [
   { id: 'status' },
   { id: 'dev' },
-  { id: 'hw' },
 ];
 
 /** A tab's name in the strip. */
@@ -141,12 +169,6 @@ const SOURCE_LABEL: Record<HwReadingSource, string> = {
 /** A temperature's tone: the display default (ADR-0014, T-0030), 85 °C warn, 95 °C critical. */
 export const tempTone = (c: number): 'warn' | 'critical' | null =>
   c >= 95 ? 'critical' : c >= 85 ? 'warn' : null;
-
-const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
-export function hwClock(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} (${t(`settings.weekday.${WEEKDAYS[date.getDay()]}`)}) ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
 
 export interface HwRow {
   key: string;

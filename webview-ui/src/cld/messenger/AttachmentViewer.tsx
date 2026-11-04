@@ -12,6 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 
 import {
+  ATTACH_DOUBLE_TAP_MS,
   ATTACH_VIEWER_Z_INDEX,
   ATTACH_WHEEL_SENSITIVITY,
   ATTACH_ZOOM_STEP,
@@ -47,6 +48,7 @@ import {
   fitScale,
   fitView,
   followFit,
+  isDoubleTap,
   isViewerTap,
   isZoomed,
   linkedFileProblem,
@@ -179,6 +181,12 @@ export function AttachmentViewer({
     problem?.missing ? 'missing' : (problem?.text ?? ''),
   );
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
+  // CHAT-NAV: one tap on the content hides the title and the buttons, the next shows them (a photo app).
+  const [barsHidden, setBarsHidden] = useState(false);
+  // A lone tap waits for a second one (the double tap zooms), then toggles the bars.
+  const lastTap = useRef<({ at: number } & Point) | null>(null);
+  const tapTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(tapTimer.current), []);
   // A link to a line opens the source, where the line jump lands.
   const [markdownRendered, setMarkdownRendered] = useState(file.line === undefined);
   const textPreview = useRef<HTMLDivElement>(null);
@@ -439,7 +447,25 @@ export function AttachmentViewer({
       }
       return;
     }
-    if (size) setView(tapZoomView(v, centred(e, stage.current), size, f));
+    const now = { at: Date.now(), x: e.clientX, y: e.clientY };
+    window.clearTimeout(tapTimer.current);
+    if (isDoubleTap(lastTap.current, now)) {
+      lastTap.current = null;
+      if (size) setView(tapZoomView(v, centred(e, stage.current), size, f));
+      return;
+    }
+    lastTap.current = now;
+    tapTimer.current = window.setTimeout(() => {
+      lastTap.current = null;
+      setBarsHidden((hidden) => !hidden);
+    }, ATTACH_DOUBLE_TAP_MS);
+  };
+  // A video, a text or a file: a click on the content around its own controls toggles the bars. (An image
+  // is the stage's: its taps above.) A selection being made, a button, a link or the video itself is left alone.
+  const onContentClick = (e: React.MouseEvent) => {
+    if (isImage || e.detail > 1 || window.getSelection()?.toString()) return;
+    if ((e.target as Element).closest('button, a, video, input, .attach-stage, .attach-bar, .attach-actions-controls')) return;
+    setBarsHidden((hidden) => !hidden);
   };
 
   return createPortal(
@@ -455,6 +481,8 @@ export function AttachmentViewer({
       aria-modal="true"
       aria-label={t('attachment.viewer.title')}
       data-testid="attach-viewer"
+      data-bars={barsHidden ? 'hidden' : 'shown'}
+      onClick={onContentClick}
     >
       <div
         ref={stage}

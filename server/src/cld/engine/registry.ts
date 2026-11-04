@@ -314,7 +314,7 @@ const KEYS: Array<keyof ProjectRecord> = [
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 
-const opaqueId = (prefix: string): string =>
+export const opaqueId = (prefix: string): string =>
   `${prefix}_${[...randomBytes(10)].map((byte) => BASE32[byte & 31]).join('')}`;
 
 /** A short stable id, intentionally unrelated to the project's display name. */

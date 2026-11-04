@@ -1,0 +1,971 @@
+/* GAME-UI-0: the game parts (parts.tsx), specs/ui-mock-1103 cockpit D2. Tokens in index.css :root.
+   Pixel rules: 2px borders, square corners, hard steps, no blur, no gradient. */
+.game-ico {
+  display: inline-block;
+  flex: none;
+  vertical-align: -2px;
+}
+.game-muted {
+  color: var(--color-text-muted);
+}
+/* index.css sets the pixel font on every element (*), so a face is never inherited: each part names its own. */
+.game-data {
+  font-family: var(--font-data);
+  font-size: 1.1667em;
+  white-space: nowrap;
+}
+
+/* LED: outer span = 2px frame + dark well; inner span = the light (half: the left 6 of 12 px). */
+.game-led {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--led-off-line);
+  background: var(--led-well);
+  vertical-align: -2px;
+}
+.game-led > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+.game-led[data-led='on'] {
+  border-color: var(--led-on-line);
+}
+.game-led[data-led='on'] > span {
+  right: 0;
+  background: var(--led-on);
+}
+.game-led[data-led='half'] {
+  border-color: var(--led-half-line);
+}
+.game-led[data-led='half'] > span {
+  width: 6px;
+  background: var(--led-half);
+}
+
+.game-legend {
+  display: grid;
+  gap: 2px;
+}
+.game-legend > li {
+  display: grid;
+  grid-template-columns: 16px minmax(4em, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.game-legend > li > .game-led {
+  margin-top: 4px;
+}
+.game-legend > .game-legend-title {
+  display: block;
+  color: var(--color-text-muted);
+}
+.game-legend-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--color-text-muted);
+}
+.game-legend-line > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Counter: a box one step under the page, its border near the background; the number in the data face. */
+.game-hud {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 6px 8px 8px;
+  min-width: 0;
+  background: var(--hud-tile);
+  border: 2px solid var(--hud-line);
+  color: var(--color-text);
+  text-align: left;
+}
+button.game-hud:hover {
+  border-color: var(--color-border);
+}
+.game-hud-k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.game-hud-v {
+  font-family: var(--font-data);
+  font-size: calc(36px * var(--ui-scale));
+  line-height: 1;
+  white-space: nowrap;
+}
+.game-hud-v[data-zero] {
+  color: var(--color-text-muted);
+}
+.game-hud[data-active] {
+  background: var(--color-active-bg);
+  border-color: var(--color-accent-bright);
+}
+.game-hud[data-active] .game-hud-k {
+  color: var(--color-text);
+}
+.game-hud[data-active] .game-ico {
+  color: var(--color-accent-text);
+}
+
+.game-segbar {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 2px solid var(--color-border);
+  background: var(--hud-tile);
+}
+.game-segbar > i {
+  width: 8px;
+  height: 14px;
+  background: var(--hud-seg);
+}
+.game-segbar > i[data-on] {
+  background: var(--hud-seg-on);
+}
+
+.game-stamp {
+  display: inline-grid;
+  justify-items: center;
+  padding: 2px;
+  border: 2px solid currentColor;
+  background: var(--color-bg);
+  color: var(--color-accent-text);
+}
+.game-stamp[data-tone='gold'] {
+  color: var(--score-gold);
+}
+.game-stamp[data-tone='muted'] {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+.game-stamp > b {
+  display: block;
+  padding: 0 14px;
+  border: 2px solid currentColor;
+  font-weight: 400;
+  font-size: calc(36px * var(--ui-scale));
+  line-height: 1.2;
+}
+.game-stamp > small {
+  font-family: var(--font-data);
+  font-size: calc(18px * var(--ui-scale));
+}
+
+/* GAME-UI-1 G3: segment tones (SegBar tone), sizes. */
+.game-segbar[data-tone='ok'] > i[data-on] {
+  background: var(--seg-ok);
+}
+.game-segbar[data-tone='warn'] > i[data-on] {
+  background: var(--seg-warn);
+}
+.game-segbar[data-tone='bad'] > i[data-on] {
+  background: var(--seg-bad);
+}
+.game-segbar.game-seg-sm,
+.game-segbar.game-seg-thin {
+  border-color: var(--hud-line);
+}
+.game-segbar.game-seg-sm > i {
+  width: 5px;
+  height: 12px;
+}
+.game-segbar.game-seg-thin > i {
+  width: 4px;
+  height: 12px;
+}
+.game-segbar.game-seg-fill {
+  display: flex;
+  width: 100%;
+  border-color: var(--hud-line);
+}
+.game-segbar.game-seg-fill > i {
+  flex: 1;
+  width: auto;
+  height: 12px;
+}
+
+/* 07 HUD: a gauge box (.game-gx) one step under the bar, its border near the background. */
+.game-gx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 6px;
+  background: var(--hud-tile);
+  border: 2px solid var(--hud-line);
+  color: var(--color-text);
+  white-space: nowrap;
+  flex: none;
+}
+button.game-gx:hover,
+button.game-pin:hover {
+  border-color: var(--color-border);
+}
+.game-gx-nm {
+  font-family: var(--font-data);
+  font-size: calc(16px * var(--ui-scale));
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+.game-gx-w {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.game-gx-k {
+  font-family: var(--font-data);
+  font-size: calc(14px * var(--ui-scale));
+  color: var(--color-text-muted);
+}
+.game-gx-v {
+  font-family: var(--font-data);
+  font-size: calc(20px * var(--ui-scale));
+  line-height: 1;
+}
+.game-gx-v[data-tone='zero'] {
+  color: var(--color-text-muted);
+}
+.game-gx-v[data-tone='warn'] {
+  color: var(--seg-warn);
+}
+.game-gx-r {
+  font-size: calc(14px * var(--ui-scale));
+  color: var(--color-text-muted);
+}
+.game-gx-sep {
+  width: 2px;
+  height: 20px;
+  background: var(--hud-line);
+}
+/* Only the heat box takes a warning border (the mock: the rest of the bar stays quiet). */
+.game-gx[data-tone='warn'],
+.game-pin[data-tone='warn'] {
+  border-color: var(--seg-warn);
+}
+.game-gx[data-tone='bad'],
+.game-pin[data-tone='bad'] {
+  border-color: var(--seg-bad);
+}
+[data-tone='warn'] > .game-tone {
+  color: var(--seg-warn);
+}
+[data-tone='bad'] > .game-tone {
+  color: var(--color-devroom-bad);
+}
+.game-cnt-box {
+  display: inline-block;
+  overflow: hidden;
+  height: calc(26px * var(--ui-scale));
+}
+.game-cnt-v {
+  display: block;
+  font-family: var(--font-data);
+  font-size: calc(26px * var(--ui-scale));
+  line-height: 1;
+}
+.game-cnt-v[data-zero] {
+  color: var(--color-text-muted);
+}
+.game-pin .game-cnt-box,
+.game-pin .game-cnt-v {
+  height: auto;
+  font-size: calc(18px * var(--ui-scale));
+}
+/* The phone's chips. */
+.game-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 6px;
+  background: var(--hud-tile);
+  border: 2px solid var(--hud-line);
+  font-family: var(--font-data);
+  font-size: calc(18px * var(--ui-scale));
+  color: var(--color-text);
+  white-space: nowrap;
+  flex: none;
+}
+/* The game clock: the sun or the moon, the time, the day's 24 cells (past dim line, now purple). */
+.game-clock {
+  display: inline-grid;
+  justify-items: center;
+  gap: 3px;
+}
+.game-clock-t {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.game-clock-t > .game-ico {
+  color: var(--color-accent-text);
+}
+.game-day {
+  display: flex;
+  gap: 1px;
+}
+.game-day > i {
+  width: 6px;
+  height: 3px;
+  background: var(--hud-seg);
+}
+.game-day > i[data-at='past'] {
+  background: var(--color-border);
+}
+.game-day > i[data-at='now'] {
+  background: var(--color-accent-text);
+}
+/* HUD-2B (specs/ui-mock-1104/hud2): the desktop bar's usage as HP/MP rows, one per provider, no box; the name
+   and window columns fixed so the bars line up. */
+.game-gx-rows {
+  display: grid;
+  gap: 2px;
+}
+.game-gx-rows > .game-gx {
+  height: 18px;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.game-gx-rows .game-gx-nm {
+  min-width: 56px;
+  font-size: calc(14px * var(--ui-scale));
+}
+.game-gx-rows .game-gx-k {
+  min-width: 20px;
+}
+.game-gx-rows .game-gx-v {
+  font-size: calc(16px * var(--ui-scale));
+}
+.game-gx-rows .game-seg-sm > i {
+  height: 8px;
+}
+.game-gx-rows .game-gx-sep {
+  height: 12px;
+}
+/* HUD-2B: 메뉴 and its rows (기기 추가 · 보안 · 범례 · 설정), over the windows (the bar is z 49). */
+.game-menu-root {
+  position: relative;
+}
+.game-menu-btn {
+  font-size: calc(16px * var(--ui-scale));
+}
+.game-menu-btn[aria-expanded='true'] {
+  border-color: var(--color-accent);
+}
+.game-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 49; /* the top bar's layer: over the office and its windows (48), under dialogs */
+  display: grid;
+  gap: 4px;
+  width: 200px;
+  padding: 4px;
+  background: var(--color-bg);
+  border: 2px solid var(--color-border);
+  box-shadow: var(--shadow-pixel);
+}
+.game-menu[hidden] {
+  display: none;
+}
+.game-menu > button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--hud-tile);
+  border: 2px solid transparent;
+  border-radius: 0;
+  color: var(--color-text);
+  font-size: calc(16px * var(--ui-scale));
+}
+.game-menu > button:hover,
+.game-menu > button:focus-visible {
+  border-color: var(--color-accent);
+}
+.game-menu > button > .game-ico {
+  color: var(--color-text-muted);
+}
+/* Under 1400 wide (the desktop bar): the day's cells and the weeks' resets fold first, then under 1300 the
+   heat's cells and the weeks (the numbers stay). A provider's main window (data-main: its 5-hour one, else its
+   week) always stays. The phone's top bar keeps its day cells. */
+@media (max-width: 1399px) {
+  .game-day,
+  .game-gx-w:not([data-main]) > .game-gx-r {
+    display: none;
+  }
+  [data-testid='mobile-top-bar'] .game-day {
+    display: flex;
+  }
+}
+@media (max-width: 1299px) {
+  /* ponytail: the weeks fold into the detail (one click) so the clock can stay centred (owner 10-24); the
+     mock moved the clock instead. */
+  .game-heat-cells,
+  .game-gx-w:not([data-main]),
+  .game-gx-sep {
+    display: none !important;
+  }
+}
+
+/* 05 party: the card bar's head and marks. */
+.game-party-btn {
+  width: 100%;
+  flex: none;
+  border: 2px solid var(--hud-line);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1.4;
+  cursor: pointer;
+}
+.game-party-btn:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.game-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.game-segbar.game-seg-mini {
+  padding: 1px;
+  border-color: var(--hud-line);
+}
+.game-segbar.game-seg-mini > i {
+  width: 6px;
+  height: 6px;
+}
+.game-state {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+.game-state[data-state='ask'] {
+  color: var(--color-accent-text);
+}
+.game-state[data-state='lock'] {
+  color: var(--seg-warn);
+}
+
+/* PARTY-FRAME (owner 11-04 (나)): the bar's head and the folded bar's portraits. Calm: one purple, no
+   blinking, the resting dimmed. */
+.game-party-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.game-party-head {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  flex: none;
+}
+.game-party-head .game-party-fold {
+  width: 28px;
+}
+.game-flip {
+  transform: scaleX(-1);
+}
+.game-portrait {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  border: 2px solid var(--hud-line);
+  background: var(--color-btn-bg);
+  cursor: pointer;
+}
+.game-portrait:hover {
+  background: var(--color-btn-hover);
+}
+.game-portrait[data-variant='focused'],
+.game-portrait[data-variant='active'] {
+  background: var(--color-active-bg);
+}
+.game-portrait[data-state='work'] {
+  border-color: var(--color-accent);
+}
+.game-portrait[data-state='ask'],
+.game-portrait[data-state='lock'] {
+  border-color: var(--color-accent-text);
+}
+.game-portrait-face {
+  display: flex;
+  margin-top: -2px; /* the face's crop has air on top; the cells take the room under it */
+}
+.game-portrait[data-state='rest'] .game-portrait-face {
+  opacity: 0.5;
+}
+.game-portrait > .game-state {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+}
+.game-portrait > .game-state .game-ico {
+  width: 8px; /* the 8x8 art at 1x: a corner mark, not over the face */
+  height: 8px;
+}
+.game-portrait-temps {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  color: var(--color-accent-text);
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1;
+}
+.game-segbar.game-seg-portrait {
+  gap: 1px;
+  padding: 1px;
+  border-color: var(--hud-line);
+}
+.game-segbar.game-seg-portrait > i {
+  width: 4px;
+  height: 3px;
+}
+/* 기다림: a speech tail to the portrait's left, over the office. */
+.game-portrait-wait {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  border: 2px solid var(--color-accent-text);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-pixel);
+  color: var(--color-accent-text);
+  font-size: calc(14px * var(--ui-scale));
+  line-height: 1.2;
+  pointer-events: none;
+}
+.game-portrait-wait::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: var(--color-accent-text);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+/* 05 party: the roster window. */
+.game-party-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.game-party-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+.game-party-energy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--hud-tile);
+  border: 2px solid var(--hud-line);
+}
+.game-party-ek {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.game-segbar.game-seg-energy {
+  border-color: var(--hud-line);
+}
+.game-segbar.game-seg-energy > i {
+  width: 10px;
+  height: 14px;
+}
+.game-party-note {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+.game-party-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.game-party-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--hud-tile);
+  border: 2px solid var(--hud-line);
+  cursor: pointer;
+}
+.game-party-card:hover {
+  border-color: var(--color-border);
+}
+.game-party-card[data-state='ask'] {
+  border-color: var(--color-accent-bright);
+}
+.game-party-card[data-state='lock'] {
+  border-color: var(--seg-warn);
+}
+.game-party-top {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.game-party-pit {
+  width: 64px;
+  height: 104px;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 2px;
+  background: var(--color-bg-dark);
+  border: 2px solid var(--hud-line);
+  overflow: hidden;
+}
+.game-party-who {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.game-party-nm {
+  font-family: var(--font-data);
+  font-size: calc(30px * var(--ui-scale));
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-party-lv {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.game-party-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.game-party-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 6px;
+  border: 2px solid var(--hud-line);
+  white-space: nowrap;
+}
+.game-party-tag[data-lead] {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+.game-party-stat {
+  display: grid;
+  gap: 4px;
+}
+.game-party-k {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--color-text-muted);
+}
+.game-party-k > b {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: calc(22px * var(--ui-scale));
+  line-height: 1;
+  color: var(--color-text);
+}
+.game-party-k > b[data-zero] {
+  color: var(--color-text-muted);
+}
+.game-party-sub {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: calc(14px * var(--ui-scale));
+}
+.game-party-fx {
+  display: flex;
+  gap: 4px;
+}
+.game-party-fx > span,
+.game-party-fx > button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--hud-line);
+  color: var(--hud-seg);
+}
+.game-party-fx > [data-on] {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.game-party-fx > [data-on][data-fx='ask'] {
+  border-color: var(--color-accent-bright);
+  background: var(--color-active-bg);
+}
+.game-party-fx > [data-on][data-fx='lock'] {
+  border-color: var(--seg-warn);
+}
+.game-party-fx > button {
+  cursor: pointer;
+}
+.game-party-fx > em {
+  align-self: center;
+  margin-left: 4px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.game-party-act {
+  padding-top: 6px;
+  border-top: 2px solid var(--hud-line);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-party-card[data-state='ask'] .game-party-act {
+  color: var(--color-text);
+}
+.game-party-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  color: var(--color-text-muted);
+}
+.game-party-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 06 job run: the lane at the bottom of the track, the runner over it, the flag at the end. */
+.game-run {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.game-run-track {
+  position: relative;
+  height: 88px;
+}
+.game-run-lane {
+  position: absolute !important;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.game-run .game-segbar > i[data-mark] {
+  background: var(--run-fail);
+}
+.game-run-goal {
+  position: absolute;
+  right: 0;
+  bottom: 22px;
+  color: var(--color-text-muted);
+}
+.game-run-runner {
+  position: absolute;
+  bottom: 20px;
+  left: calc((100% - 32px) * var(--lit));
+  line-height: 0;
+}
+.game-run-coins {
+  position: absolute;
+  right: 24px;
+  bottom: 26px;
+  color: var(--coin);
+}
+.game-coin {
+  position: absolute;
+  opacity: 0;
+}
+.game-run-src {
+  color: var(--color-text-muted);
+  font-size: calc(14px * var(--ui-scale));
+}
+.game-run-plate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 2px solid var(--hud-line);
+  background: var(--color-bg-dark);
+}
+.game-run-plate[data-ok] {
+  border-color: var(--seg-ok);
+  color: var(--color-status-success);
+}
+.game-run-plate[data-bad] {
+  border-color: var(--seg-bad);
+}
+.game-run-plate[data-bad] > .game-run-big {
+  color: var(--color-devroom-bad);
+}
+.game-run-why {
+  font-family: var(--font-data);
+  font-size: calc(14px * var(--ui-scale));
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.game-run-big {
+  font-family: var(--font-data);
+  font-size: calc(24px * var(--ui-scale));
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+/* Motion: only where gameMotion.ts says so (게임 효과 on, no reduced motion); otherwise the end state at once.
+   Every animation of the game parts goes below this line, under :root[data-game-motion='on'] (game.test.ts checks). */
+:root[data-game-motion='on'] .game-stamp:not([data-still]) {
+  animation:
+    game-stamp-drop 200ms steps(3, jump-end) both,
+    game-stamp-thunk 100ms step-end 200ms;
+}
+@keyframes game-stamp-drop {
+  from {
+    transform: translateY(-36px);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes game-stamp-thunk {
+  0%,
+  100% {
+    transform: translateY(2px);
+  }
+}
+
+/* GAME-UI-1 G3 one-shots, each keyed on a change (gameLooks.useChangeKey), never on mount. */
+/* A refill: the lit cells light again one by one (10 steps in 0.6 s for 10 cells). */
+:root[data-game-motion='on'] .game-segbar[data-refill] > i[data-on] {
+  animation: game-seg-off calc((var(--i) + 1) * 60ms) steps(1, end);
+}
+@keyframes game-seg-off {
+  0%,
+  100% {
+    background: var(--hud-seg);
+  }
+}
+/* The job count rolls in from below in 2 steps (0.2 s). */
+:root[data-game-motion='on'] .game-cnt-v[data-roll] {
+  animation: game-roll 200ms steps(2, end);
+}
+@keyframes game-roll {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+/* The heat box shakes 1 px left and right once (0.4 s) when it gets hotter. */
+:root[data-game-motion='on'] .game-gx[data-nudge],
+:root[data-game-motion='on'] .game-pin[data-nudge] {
+  animation: game-nudge 400ms steps(4, end);
+}
+@keyframes game-nudge {
+  0%,
+  100% {
+    transform: none;
+  }
+  25%,
+  75% {
+    transform: translateX(1px);
+  }
+  50% {
+    transform: translateX(-1px);
+  }
+}
+
+/* A state icon hops 2px once when the state changes. */
+:root[data-game-motion='on'] .game-state[data-hop] {
+  animation: game-hop 200ms steps(2, end);
+}
+@keyframes game-hop {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+}
+
+/* A plate pops in two steps when the job ends while watched. */
+:root[data-game-motion='on'] .game-run-plate[data-pop] {
+  animation: game-pop 250ms steps(2, end);
+}
+@keyframes game-pop {
+  0% {
+    transform: translateY(4px);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+/* Three coins hop up once (0.8 s, 4 steps), a tenth of a second apart, then are gone. */
+:root[data-game-motion='on'] .game-coin {
+  animation: game-coin 800ms steps(4, end) forwards;
+}
+:root[data-game-motion='on'] .game-coin[data-coin='1'] {
+  animation-delay: 100ms;
+  --dx: -24px;
+}
+:root[data-game-motion='on'] .game-coin[data-coin='2'] {
+  animation-delay: 200ms;
+  --dx: 16px;
+}
+@keyframes game-coin {
+  0% {
+    opacity: 1;
+    transform: none;
+  }
+  25% {
+    opacity: 1;
+    transform: translate(calc(var(--dx, -10px) / 2), -18px);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(var(--dx, -10px), -36px);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(var(--dx, -10px), -44px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx, -10px), -44px);
+  }
+}

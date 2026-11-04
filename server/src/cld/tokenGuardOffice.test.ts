@@ -46,7 +46,7 @@ async function office() {
       return [];
     }
   };
-  return { ...t, typed, got, send, ask, bg, files };
+  return { ...t, typed, got, send, ask, bg, files, engine };
 }
 
 describe('TOKEN-GUARD in the office', () => {
@@ -73,6 +73,111 @@ describe('TOKEN-GUARD in the office', () => {
     expect(t.typed).toEqual([]);
     expect(t.files('queue')).toEqual([]);
     expect(t.files('inbox')).toEqual([]);
+  }, 60_000);
+
+  it('SPT-P1A: turning spec tracking on, its scans and its reads type nothing, queue nothing and wake nobody', async () => {
+    const t = await office();
+    const folder = path.join(t.home, 'work', 'alpha');
+    fs.mkdirSync(path.join(folder, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(folder, 'docs', 'SRS.md'), '| ID | x |\n|---|---|\n| FR-OFC-001 | ask the agent @alpha |\n');
+    fs.writeFileSync(path.join(folder, 'TODO.md'), '- [ ] wake alpha-a\n');
+    const p = t.office.spec.project('alpha');
+    expect(p).toBeDefined();
+    const sessions = () => t.office.engine!.state().projects.map((x) => [x.name, x.bgId, x.live]);
+    const before = sessions();
+    expect(t.office.spec.scans).toBe(0); // the office started and nobody read: no scan
+    await t.office.spec.candidates(p!);
+    expect(await t.office.spec.enable(p!, ['docs/SRS.md', 'TODO.md'])).toMatchObject({ ok: true });
+    for (let i = 0; i < 5; i++) {
+      await t.office.spec.summary(p!);
+      await t.office.spec.docs(p!);
+    }
+    expect(t.office.spec.disable(p!)).toMatchObject({ ok: true });
+    await new Promise((r) => setTimeout(r, 2_500)); // more than one messenger tick
+    expect(t.typed).toEqual([]);
+    expect(t.files('queue')).toEqual([]);
+    expect(t.files('inbox')).toEqual([]);
+    expect(sessions()).toEqual(before);
+  }, 60_000);
+
+  it('SPT-P1D: a remove deletes by projectId: without the purge box the cache goes and registry.json stays; with it spec/<projectId>/ goes; nothing typed', async () => {
+    const t = await office();
+    const folder = path.join(t.home, 'work', 'alpha');
+    fs.mkdirSync(path.join(folder, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(folder, 'docs', 'SRS.md'), '| ID | x |\n|---|---|\n| FR-OFC-001 | a requirement that stays |\n');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(path.join(folder, 'docs', 'SRS.md'), old, old);
+    const spec = path.join(t.home, '.config/agent-tycoon/spec');
+    const p1 = t.office.spec.project('alpha')!;
+    expect(await t.office.spec.enable(p1, ['docs/SRS.md'])).toMatchObject({ ok: true });
+    expect(fs.readdirSync(path.join(spec, p1.projectId)).sort()).toEqual(['match-cache.json.gz', 'registry.json']);
+    // A rename keeps the projectId: nothing goes.
+    expect(t.office.engine!.rename('alpha', 'alpha2', 'test')).toEqual({ ok: true });
+    await vi.waitFor(() => expect(t.office.spec.project('alpha2')?.projectId).toBe(p1.projectId), { timeout: 30_000, interval: 100 });
+    // The whole rename, not only its registry line: under load the remove met a rename half done (11-03 gate).
+    await t.office.engine!.renameRun;
+    expect(fs.readdirSync(path.join(spec, p1.projectId)).sort()).toEqual(['match-cache.json.gz', 'registry.json']);
+    // Another project of the same name later must not lose it: the delete goes by projectId.
+    expect(await t.engine('remove', 'alpha2')).toMatchObject({ ok: true });
+    expect(fs.readdirSync(path.join(spec, p1.projectId))).toEqual(['registry.json']);
+    const uids = ((await t.office.spec.items(p1, {})) as { ok: true; value: { items: Array<{ uid: string }> } }).value.items.map((i) => i.uid);
+    // Added again from the same folder: offered, and only taken over when the owner accepts (TOKEN-GUARD: nobody typed to).
+    expect(await t.engine('add', 'alpha', { folder, room: 'lab' })).toMatchObject({ ok: true });
+    const p2 = t.office.spec.project('alpha')!;
+    expect(p2.projectId).not.toBe(p1.projectId);
+    expect(await t.office.spec.summary(p2)).toMatchObject({ enabled: false, inherit: [{ from: p1.projectId, why: 'samePath', name: 'alpha2' }] });
+    expect(fs.existsSync(path.join(spec, p2.projectId))).toBe(false);
+    expect(await t.office.spec.inherit(p2, { from: p1.projectId, answer: 'accept' })).toMatchObject({ ok: true });
+    const after = (await t.office.spec.items(p2, {})) as { ok: true; value: { items: Array<{ uid: string }> } };
+    expect(after.value.items.map((i) => i.uid)).toEqual(uids);
+    fs.mkdirSync(path.join(spec, 'p_zzzzzzzzzz')); // somebody else's sidecar
+    fs.writeFileSync(path.join(spec, 'p_zzzzzzzzzz', 'registry.json'), '{}');
+    expect(await t.engine('remove', 'alpha', { purge: true })).toMatchObject({ ok: true });
+    expect(fs.readdirSync(spec)).toEqual(['p_zzzzzzzzzz']); // 데이터까지 지우기: its folder only
+    expect(t.typed).toEqual([]);
+  }, 60_000);
+
+  it('SPT-P1D: after a daemon restart, a remove before anyone opens the spec tabs still deletes (keep: the cache; purge: the folder)', async () => {
+    const t = await office();
+    const spec = path.join(t.home, '.config/agent-tycoon/spec');
+    const ids: Record<string, string> = {};
+    for (const name of ['alpha', 'beta']) {
+      const folder = path.join(t.home, 'work', name);
+      fs.mkdirSync(path.join(folder, 'docs'), { recursive: true });
+      fs.writeFileSync(path.join(folder, 'docs', 'SRS.md'), '| ID | x |\n|---|---|\n| FR-OFC-001 | a requirement |\n');
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(path.join(folder, 'docs', 'SRS.md'), old, old);
+      if (name === 'beta') expect(await t.engine('add', 'beta', { folder, room: 'lab' })).toMatchObject({ ok: true });
+      const p = t.office.spec.project(name)!;
+      ids[name] = p.projectId;
+      expect(await t.office.spec.enable(p, ['docs/SRS.md'])).toMatchObject({ ok: true });
+    }
+    t.stop();
+    // The same HOME, a new daemon: nothing reads a spec route before the removes.
+    const typed: Array<{ id: string; text: string }> = [];
+    const t2 = await startEngineOffice({ home: t.home, readOnly: false, chat: true, extra: { typist: { type: (id, text) => (typed.push({ id, text }), Promise.resolve('typed')) } } });
+    const got: Array<Record<string, unknown>> = [];
+    let n = 0;
+    const engine2 = async (action: string, name: string, fields: Record<string, unknown> = {}) => {
+      const requestId = `x${++n}`;
+      t2.office.onClientMessage({ type: 'engineAction', action, name, ...fields, requestId }, (m) => got.push(m), true);
+      return vi.waitFor(() => {
+        const r = got.find((m) => m.requestId === requestId && String(m.type).endsWith('Result'));
+        expect(r).toBeDefined();
+        return r!;
+      }, WAIT);
+    };
+    // The restart revives both first ("already busy" until it is done): the remove goes in once it may.
+    const remove = (name: string, fields: Record<string, unknown> = {}) =>
+      vi.waitFor(async () => {
+        const r = await engine2('remove', name, fields);
+        expect(r, JSON.stringify(r)).toMatchObject({ ok: true });
+      }, { timeout: 30_000, interval: 250 });
+    await remove('alpha');
+    expect(fs.readdirSync(path.join(spec, ids.alpha))).toEqual(['registry.json']);
+    await remove('beta', { purge: true });
+    expect(fs.existsSync(path.join(spec, ids.beta))).toBe(false);
+    expect(typed).toEqual([]);
   }, 60_000);
 
   it('TG-02b: a Codex Worker\'s summary mentioning @전체 goes to the room for reading; only the Lead is told', async () => {

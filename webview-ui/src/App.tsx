@@ -19,6 +19,8 @@ import { engineOpenForm } from './cld/engineStore.js';
 import { StatDetailSheet } from './cld/ez/StatCard.js';
 import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
+import { publishGameLooks } from './cld/game/gameLooks.js';
+import { PartyHost } from './cld/game/Party.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
 import { closeTitleScene } from './cld/gfx/titleSceneState.js';
 import { useOfficeWarmUp } from './cld/gfx/warmUp.js';
@@ -351,8 +353,8 @@ function App() {
   // The desktop windows' open flags are remembered per browser; a phone's pages are not
   // (it starts on the office), so the phone shell never overwrites what a desktop left.
   useEffect(() => {
-    if (!isMobile) saveWindowState(hud.open);
-  }, [hud.open, isMobile]);
+    if (!isMobile) saveWindowState(hud.open, hud.minimized);
+  }, [hud.open, hud.minimized, isMobile]);
   // WINMODEL: one model, two shells (a phone shows one page at a time). The PC never takes the
   // browser's Back for its windows; the phone's Back steps inside its tab (usePhoneTabs).
   useEffect(() => setPhone(isMobile), [isMobile]);
@@ -369,7 +371,7 @@ function App() {
     () => getOfficeState().selectedAgentId,
   );
   // cld-gui (T-0017): characters wear the look chosen for their name.
-  useCharacterLooks(getOfficeState, agents, layoutReady);
+  useCharacterLooks(getOfficeState, agents, layoutReady, subagentCharacters);
   // SHEET-IMPORT: the office's pictures built while the lobby shows (or in idle time)
   useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady);
   // cld-gui (T-0036): cards grouped by kind and named, sub-agents included.
@@ -386,6 +388,11 @@ function App() {
     agentQuestion,
     agentSeenActivity,
   });
+  // GAME-UI-1: the party roster and the job runner draw the card bar's faces and states.
+  useEffect(
+    () => publishGameLooks({ getAppearance: terminalDrawer.getAppearance, statusFor: terminalDrawer.statusFor }),
+    [terminalDrawer.getAppearance, terminalDrawer.statusFor],
+  );
 
   const launchIntoDirectory = useCallback((directory: Directory) => {
     transport.send({ type: 'launchAgent', directoryPath: directory.path });
@@ -822,10 +829,13 @@ function App() {
   // flexing left half of the split view (the terminal panel docks beside it);
   // mobile mounts it as the first page of the sliding track. containerRef
   // (ToolOverlay geometry) rides along either way.
+  // WINDOW-TOP-1104: clip, not hidden. The office's overlays (the lobby board, the card bar's head) run past
+  // its edges, and an overflow:hidden box is still a scroll container: a scrollIntoView or focus() inside a
+  // window scrolled the whole region up, the windows' title bars under the top bar and a dead band below.
   const officeRegion = (
     <div
       ref={containerRef}
-      className={`relative h-full overflow-hidden ${isMobile ? 'w-full' : 'flex-1 min-w-0'}`}
+      className={`relative h-full overflow-clip ${isMobile ? 'w-full' : 'flex-1 min-w-0'}`}
     >
       <OfficeCanvas
         officeState={officeState}
@@ -955,7 +965,8 @@ function App() {
             phone={isMobile}
             cardMenu={cldMode && isMobile && !officeReadOnly && !editor.isEditMode && !isDebugMode}
           />
-          {cldMode && <CameraModeControl phone={isMobile} />}
+          {/* HUD-1B: the desktop's camera strip is the elevator's (FloorControls). */}
+          {cldMode && isMobile && <CameraModeControl phone />}
           {/* JOYSTICK: the direction keys (walk the selected or the owner's character, or pan the
               free camera); the phone's office page only. */}
           {cldMode && isMobile && (
@@ -1156,7 +1167,7 @@ function App() {
     // the terminal panel. Mobile: a column — the sliding office/terminal track
     // on top, the agent-card bar pinned along the bottom.
     <div
-      className="w-full h-full relative overflow-hidden flex flex-col"
+      className="w-full h-full relative overflow-clip flex flex-col"
       style={
         isMobile
           ? {
@@ -1178,7 +1189,7 @@ function App() {
       {/* The cld top bar already clears the top safe-area inset: below it,
           the phone's toggle and terminal pane must not add it again. */}
       <div
-        className={`flex flex-1 min-h-0 overflow-hidden ${isMobile ? 'flex-col' : ''}`}
+        className={`flex flex-1 min-h-0 overflow-clip ${isMobile ? 'flex-col' : ''}`}
         style={cldMode ? ({ '--cld-safe-top': '0px' } as CSSProperties) : undefined}
       >
         {isMobile ? (
@@ -1313,6 +1324,7 @@ function App() {
       <PerfReadout />
       <DevFxBar getOfficeState={getOfficeState} />
       {cldMode && <StatDetailSheet officeState={officeState} />}
+      {cldMode && !isMobile && <PartyHost ids={cldCards.cardIds} describeCard={cldCards.describeCard} />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}
       {/* A plain office (no Claude Code) is not in cld mode: the notice is for exactly that one. */}

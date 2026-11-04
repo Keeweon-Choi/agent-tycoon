@@ -1,4 +1,5 @@
-/** Last five successful durations for an exact visible job name. */
+/** Last five successful durations for an exact visible job name, and for its exact command
+ *  (`cmdKey`): a deploy described differently each time still has the same command. */
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -18,6 +19,7 @@ function read(home: string): History {
     return {};
   }
 }
+export const cmdKey = (cmd: string) => `$ ${cmd}`;
 export function historyMedian(home: string, name: string): number | null {
   const numbers = read(home)[name];
   if (!Array.isArray(numbers)) return null;
@@ -52,7 +54,7 @@ export function estimateProgress(
       pct: Math.min(95, Math.round((done / steps.length) * 100)),
     };
   }
-  const last = historyMedian(home, name);
+  const last = historyMedian(home, name) ?? historyMedian(home, cmdKey(cmd));
   if (!last) return { ...base, label: koText('progress_first_run'), pct: 0, indeterminate: true };
   const minutes = (ms: number) => koText('minutes_n', { n: Math.max(1, Math.round(ms / 60_000)) });
   const elapsed = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;

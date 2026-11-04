@@ -3,8 +3,6 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  BOARD_SIZE,
-  BOARD_TYPE,
   contractorSeatUid,
   generateLayout,
   LOBBY_ROOM,
@@ -131,28 +129,16 @@ describe('layout generator', () => {
     expect(g.layout.furniture.filter((f) => f.type === 'DESK_FRONT')).toHaveLength(3);
   });
 
-  it('the lobby (T-0046): the board on its top wall, benches facing it, the door, a clear way in', () => {
+  it('the lobby (T-0046): benches, the door, a clear way in, no board (it stands outside)', () => {
     const cell = (c: number, r: number) => r * layout.cols + c;
     const lobby = layout.areaTiles.flatMap((a, i) => (a === LOBBY_ROOM ? [i] : []));
-    const cols = lobby.map((i) => i % layout.cols);
     const rows = lobby.map((i) => Math.floor(i / layout.cols));
-    const [x0, x1, y0, y1] = [
-      Math.min(...cols),
-      Math.max(...cols),
-      Math.min(...rows),
-      Math.max(...rows),
-    ];
-    const board = layout.furniture.find((f) => f.type === BOARD_TYPE)!;
-    expect(board).toBeDefined();
-    // About two office rooms wide, inside the room, its screen up on the top wall (rows y0-2, y0-1).
-    expect(BOARD_SIZE.w).toBeGreaterThanOrEqual(2 * 14);
-    expect(board.col).toBeGreaterThanOrEqual(x0);
-    expect(board.col + BOARD_SIZE.w - 1).toBeLessThanOrEqual(x1);
-    expect(board.row).toBe(y0 - 2);
-    expect(at(board.col, y0 - 1)).toBe(0); // the wall behind it
+    const y1 = Math.max(...rows);
+    // building-a-1104: the lobby board is the billboard outside the building, never generated.
+    expect(layout.furniture.some((f) => f.type === 'LED_BOARD')).toBe(false);
     const benches = layout.furniture.filter((f) => f.type === 'LOBBY_BENCH');
     expect(benches.length).toBeGreaterThanOrEqual(2);
-    for (const b of benches) expect(b.row).toBeGreaterThan(board.row + BOARD_SIZE.h - 1); // in front of it
+    for (const b of benches) expect(layout.areaTiles[cell(b.col, b.row)]).toBe(LOBBY_ROOM);
     // The office door: a floor gap in the lobby's bottom wall, the floor's last row.
     const door = layout.areaTiles.findIndex(
       (a, i) => a === LOBBY_ROOM && Math.floor(i / layout.cols) === y1,
@@ -160,17 +146,9 @@ describe('layout generator', () => {
     expect(Math.floor(door / layout.cols)).toBe(layout.rows - 1);
     // Every floor tile of the lobby not under furniture reaches the door.
     const blocked = new Set<number>();
-    for (const f of layout.furniture.filter(
-      (f) => layout.areaTiles[cell(f.col, f.row + 1)] === LOBBY_ROOM || f.row >= y0,
-    )) {
-      const [w, h, bg] =
-        f.type === BOARD_TYPE
-          ? [BOARD_SIZE.w, BOARD_SIZE.h, 2]
-          : f.type === 'LOBBY_BENCH'
-            ? [2, 1, 0]
-            : [1, 1, 0];
-      for (let r = f.row + bg; r < f.row + h; r++)
-        for (let c = f.col; c < f.col + w; c++) blocked.add(cell(c, r));
+    for (const f of layout.furniture.filter((f) => layout.areaTiles[cell(f.col, f.row)] === LOBBY_ROOM)) {
+      const w = f.type === 'LOBBY_BENCH' ? 2 : 1;
+      for (let c = f.col; c < f.col + w; c++) blocked.add(cell(c, f.row));
     }
     const seen = new Set([door]);
     const todo = [door];
@@ -182,9 +160,9 @@ describe('layout generator', () => {
         todo.push(j);
       }
     }
-    // The benches' fronts and the walkway under the board are reachable.
     for (const b of benches) expect(seen.has(cell(b.col, b.row + 1))).toBe(true);
-    expect(seen.has(cell(board.col, board.row + BOARD_SIZE.h))).toBe(true);
+    const open = lobby.filter((i) => !blocked.has(i) && layout.tiles[i] !== 0);
+    for (const i of open) expect(seen.has(i), `lobby tile ${i}`).toBe(true);
   });
 
   it('the lounge stays its own room (T-0041), without the door when the lobby has it', () => {
@@ -210,7 +188,7 @@ describe('layout generator', () => {
     expect(g.areas.at(-2)!.label).toBe(`2층 ${LOUNGE_ROOM}`);
     expect(g.areas.at(-1)!.label).toBe(`2층 ${PANTRY_ROOM}`);
     expect(g.areas.some((a) => a.label === LOBBY_ROOM)).toBe(false);
-    expect(g.furniture.some((f) => f.type === BOARD_TYPE)).toBe(false);
+    expect(g.furniture.some((f) => f.type === 'LED_BOARD')).toBe(false);
     const last = g.rows - 1;
     const gap = g.tiles.findIndex(
       (t, i) => Math.floor(i / g.cols) === last && t !== 0 && t !== 255,

@@ -432,6 +432,18 @@ pub fn classify(url: &str, office: &str) -> Nav {
     }
 }
 
+/// The one origin that gets the office's window keys at run time (lib.rs `allow_office_keys`):
+/// the saved address of an office reached by address (mode "tailscale": Tailscale, the direct
+/// connector, the LAN), exact scheme, host and port. None for this computer and the ssh tunnel,
+/// whose http://localhost and 127.0.0.1 capabilities/office-keys.json already covers.
+pub fn office_keys_origin(mode: &str, url: &str) -> Option<String> {
+    let (scheme, host, _) = origin(url)?;
+    if mode != "tailscale" || !valid_url(url) || (scheme == "http" && loopback(&host)) {
+        return None;
+    }
+    web_origin(url)
+}
+
 /// URL without query and fragment: the login code and any token stay out of the log.
 pub fn redact(url: &str) -> &str {
     url.split(['?', '#']).next().unwrap_or_default()
@@ -956,5 +968,36 @@ mod tests {
         assert!(ssh_hint("choi@host: Permission denied (publickey).").contains("authorized_keys"));
         assert!(ssh_hint("Host key verification failed.").contains("호스트 키"));
         assert!(ssh_hint("ssh: connect to host h port 22: Connection refused").contains("포트"));
+    }
+
+    #[test]
+    fn office_keys_origin_is_the_saved_office_only() {
+        let o = |mode, url| office_keys_origin(mode, url);
+        assert_eq!(
+            o("tailscale", "https://office.duckdns.org:18443/"),
+            Some("https://office.duckdns.org:18443".into())
+        );
+        assert_eq!(
+            o("tailscale", "https://203.0.113.7:18443/login?code=ABCD"),
+            Some("https://203.0.113.7:18443".into())
+        );
+        assert_eq!(
+            o("tailscale", "https://Box.tail1.ts.net/office"),
+            Some("https://box.tail1.ts.net".into())
+        );
+        assert_eq!(
+            o("tailscale", "http://192.168.0.5:18240/"),
+            Some("http://192.168.0.5:18240".into())
+        );
+        // Already in office-keys.json, or not an office reached by address: nothing to add.
+        assert_eq!(o("tailscale", "http://localhost:18240/"), None);
+        assert_eq!(o("tailscale", "http://127.0.0.1:18240/"), None);
+        assert_eq!(o("ssh", "https://office.duckdns.org:18443/"), None);
+        assert_eq!(o("local", "https://office.duckdns.org:18443/"), None);
+        // Never a pattern: no wildcard, no odd host, no plain http to a public name.
+        assert_eq!(o("tailscale", "https://*.example.com:18443/"), None);
+        assert_eq!(o("tailscale", "https://office.example.com:*/"), None);
+        assert_eq!(o("tailscale", "http://office.example.com/"), None);
+        assert_eq!(o("tailscale", ""), None);
     }
 }

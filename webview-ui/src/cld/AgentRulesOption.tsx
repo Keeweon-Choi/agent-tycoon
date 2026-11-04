@@ -11,6 +11,7 @@ import { transport } from '../transport/index.js';
 import { stepUpFailedText } from './auth/authApi.js';
 import { requestStepUp } from './auth/stepUp.js';
 import { useCldStore } from './officeStore.js';
+import { OnOff, SettingGroup, SettingRow } from './SettingRow.js';
 
 interface Shown {
   defaults: string;
@@ -58,24 +59,8 @@ export function AgentRulesOption() {
 
   if (!shown) return null;
   const dirty = draft.trim() !== shown.text.trim();
-  return (
-    <div className="space-y-4" data-testid="agent-rules-option">
-      <p className="text-base">{t('rules.title')}</p>
-      <p className="text-sm text-text-muted">{t('rules.help')}</p>
-      <label className="flex items-center gap-4 text-sm pointer-coarse:min-h-48">
-        <input
-          type="checkbox"
-          checked={shown.useBuiltInRules}
-          disabled={officeReadOnly}
-          onChange={(e) => {
-            const useBuiltInRules = e.target.checked;
-            sent.current = { useBuiltInRules };
-            setNote('');
-            transport.send({ type: 'agentRulesRequest', language, useBuiltInRules });
-          }}
-        />
-        {t('rules.useBuiltIn')}
-      </label>
+  const mine = (
+    <>
       <details>
         <summary className="text-sm cursor-pointer">{t('rules.defaults')}</summary>
         <pre
@@ -112,6 +97,27 @@ export function AgentRulesOption() {
         </Button>
         {note && <span className="text-sm text-text-muted">{note}</span>}
       </div>
+    </>
+  );
+  return (
+    <div data-testid="agent-rules-option">
+      <SettingGroup title={t('rules.title')} />
+      <SettingRow
+        title={t('rules.useBuiltIn')}
+        help={t('rules.help')}
+        note={<div className="space-y-4">{mine}</div>}
+      >
+        <OnOff
+          label={t('rules.useBuiltIn')}
+          on={shown.useBuiltInRules}
+          disabled={officeReadOnly}
+          onChange={(useBuiltInRules) => {
+            sent.current = { useBuiltInRules };
+            setNote('');
+            transport.send({ type: 'agentRulesRequest', language, useBuiltInRules });
+          }}
+        />
+      </SettingRow>
     </div>
   );
 }

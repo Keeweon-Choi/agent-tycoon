@@ -72,7 +72,7 @@ export function status(s: WinState, id: WindowId): WinStatus {
 /**
  * WINDOW-LAYERS (owner 10-25): the HUD layer's z order, decided here and nowhere else. Normal
  * windows are 1..n by order (last touched on top), under the fixed panels (constants HUD_PANELS_Z: the card
- * bar, the icon dock, the elevator); a maximized window sits over them (HUD_MAXIMIZED_Z + order).
+ * bar, the icon dock); a maximized window sits over them (HUD_MAXIMIZED_Z + order).
  */
 export const windowZ = (s: Pick<WinState, 'order'>, id: WindowId, maximized: boolean): number =>
   (maximized ? HUD_MAXIMIZED_Z : 0) + s.order.indexOf(id) + 1;

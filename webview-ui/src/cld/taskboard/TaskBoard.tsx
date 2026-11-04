@@ -6,8 +6,14 @@
  * note editor. D6: the assignee on the card, children under their parent, and
  * in the detail the facts and Executions, each with its source (관측 / 보고 /
  * 추정). The board also has an MVP summary, calculated from reported tasks.
+ * GAME-UI-1 G2 (cockpit 09, the 퀘스트 게시판): each card is a pinned request: id and priority
+ * stars, the title, its requirement chip and evidence lights (QuestReq, lazy), the assignee's
+ * face; a done Task carries a 완료 stamp (dropped once when it turns done while shown). Wide
+ * boards lay the status groups out as columns (quest.css); no dragging (change status in the editor).
  */
-import { useMemo, useState } from 'react';
+import './quest.css';
+
+import { lazy, Suspense, useContext, useMemo, useState } from 'react';
 
 import type {
   BoardExecution,
@@ -20,13 +26,17 @@ import type {
   TrackedItem,
 } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
+import { GAME_QUEST_STARS } from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
+import { Face } from '../devroom/WorktreeRail.js';
 import { timeAgo } from '../format.js';
+import { DataText, PixelIcon, Stamp } from '../game/parts.js';
 import { useCldStore } from '../officeStore.js';
 import { codexStatus, jobStatus } from '../panels/jobs.js';
 import { serverLine } from '../serverText.js';
 import { TaskWorktreeChip, TaskWorktreeDetail } from '../workbench/TaskWorktree.js';
+import { TaskWorktreeScope } from '../workbench/taskWorktreeScope.js';
 import {
   assigneeOf,
   type BoardFilter,
@@ -40,18 +50,40 @@ import {
   GOALS,
   groupItems,
   nestItems,
+  newlyDone,
   NO_FILTER,
   nowStrip,
   type ObservedRun,
   OTHER_GOAL,
+  priorityStars,
+  stampDate,
   STATUS_ORDER,
+  statusesOf,
   toggleGoalFilter,
   trackedCount,
 } from './taskBoardState.js';
 
+// SPT-P3-ISSUES: the spec part (요구사항 filter, a Task's requirements) is a lazy chunk.
+const ReqFilter = lazy(() => import('../spec/TaskReqs.js').then((m) => ({ default: m.ReqFilter })));
+const TaskReqs = lazy(() => import('../spec/TaskReqs.js').then((m) => ({ default: m.TaskReqs })));
+const QuestReq = lazy(() => import('../spec/QuestReq.js').then((m) => ({ default: m.QuestReq })));
+
 const OWNER_KINDS: BoardTaskOwnerKind[] = ['lead', 'worker', 'subagent', 'codex', 'user', 'unassigned'];
 const PRIORITIES = ['P0', 'P1', 'P2', 'later'];
 const section = 'pixel-panel p-12 min-w-0';
+const STATUS_ICON = { doing: 'gear', review: 'lens', blocked: 'stop', proposed: 'flag', todo: 'board', done: 'check' } as const satisfies Record<BoardTaskStatus, string>;
+
+/** P0 ★★★ … none ☆☆☆, named for assistive tech. */
+function Stars({ priority }: { priority?: string | null }) {
+  const lit = priorityStars(priority);
+  return (
+    <span className="quest-stars" role="img" aria-label={priority ? t('game.quest.stars', { priority }) : t('game.quest.noPriority')} data-lit={lit}>
+      {Array.from({ length: GAME_QUEST_STARS }, (_, i) => (
+        <PixelIcon key={i} name="star" className={i < lit ? '' : 'quest-off'} />
+      ))}
+    </span>
+  );
+}
 const muted = 'text-text-muted text-xs';
 const chip = 'border border-border px-4 text-xs whitespace-nowrap';
 const control = 'bg-bg border border-border px-4 py-2 text-xs min-w-0 max-w-full';
@@ -506,6 +538,11 @@ function TaskDetail({ item, now, readOnly }: { item: BoardItem; now: number; rea
       {!task && !item.tracked && <p className={muted}>{t('tasks.noDetail')}</p>}
       {task && <TaskFacts task={task} now={now} />}
       {task && <TaskWorktreeDetail task={task} />}
+      {task && (
+        <Suspense fallback={null}>
+          <TaskReqs project={task.project} taskId={task.id} readOnly={readOnly} />
+        </Suspense>
+      )}
       {task?.executions && task.executions.length > 0 && (
         <div>
           <p className="text-text-muted">{t('tasks.executions')}</p>
@@ -576,6 +613,7 @@ function TaskCard({
   removed,
   children,
   nested = false,
+  quest,
 }: {
   item: BoardItem;
   now: number;
@@ -585,25 +623,56 @@ function TaskCard({
   removed: readonly string[];
   children?: BoardItem[];
   nested?: boolean;
+  /** GAME-UI-1: the agents' ids by name (faces), the cards whose stamp is new, the project the spec part reads. */
+  quest: { agents: ReadonlyMap<string, number | null>; fresh: ReadonlySet<string>; spec: string | null };
 }) {
   const open = openKey === item.key;
   const assignee = assigneeOf(item.task, removed);
+  // The face row: the assignee, else a named owner (lead · alpha), else nobody.
+  const owned = !!item.owner && (item.owner.kind !== 'unassigned' || !!item.owner.name);
+  const who = assignee?.name ?? (owned ? item.owner?.name : undefined);
+  const stamped = !!item.task && item.status === 'done';
   return (
     <li
-      className={section}
+      className="quest-card"
+      data-done={stamped || undefined}
       data-testid="task-card"
       data-task-id={item.id}
       data-task-status={item.status}
       {...(item.tracked && { 'data-tracked': item.tracked.key })}
       {...(item.task?.parentId && { 'data-task-parent': item.task.parentId })}
     >
-      <button type="button" className="w-full text-left min-w-0" aria-expanded={open} onClick={() => onToggle(item.key)}>
-        <span className="flex gap-6 items-baseline min-w-0">
-          {item.id !== item.title && <span className="text-text-muted text-xs shrink-0">{item.id}</span>}
-          <strong className="text-sm break-words min-w-0" data-testid="task-title">
-            {item.title}
-          </strong>
+      <PixelIcon name="pin" className="quest-pin" />
+      <button type="button" className="w-full text-left min-w-0 quest-body" aria-expanded={open} onClick={() => onToggle(item.key)}>
+        <span className="quest-top">
+          <span className="quest-id">{item.id !== item.title ? item.id : ''}</span>
+          {item.task && <Stars priority={item.task.priority} />}
         </span>
+        <strong className="quest-title break-words min-w-0" data-testid="task-title">
+          {item.title}
+        </strong>
+        {item.task && quest.spec && (
+          <Suspense fallback={null}>
+            <QuestReq project={quest.spec} task={item.task} />
+          </Suspense>
+        )}
+        {!item.tracked && (
+          <span className="quest-who" data-testid="quest-who">
+            {who ? <Face agentId={quest.agents.get(who) ?? null} name={who} size={32} /> : <span className="quest-noface" aria-hidden="true" />}
+            <span className="min-w-0">
+              {assignee ? (
+                <span className={`block truncate ${assignee.removed ? 'text-text-muted' : ''}`} data-testid="task-assignee">
+                  <DataText text={assignee.removed ? t('tasks.assigneeRemoved', { name: assignee.name }) : assignee.name} />
+                </span>
+              ) : (
+                <span className="block truncate" data-testid="task-owner">
+                  <DataText text={owned ? ownerText(item.owner) : t('game.quest.noOwner')} />
+                </span>
+              )}
+              {item.updatedAt && <span className="block text-text-muted">{timeAgo(item.updatedAt, now)}</span>}
+            </span>
+          </span>
+        )}
         <span className="mt-4 flex flex-wrap gap-4 items-center text-xs">
           {nested && <span className={`${chip} ${STATUS_TONE[item.status]}`}>{t(`tasks.status.${item.status}`)}</span>}
           {item.task?.status === 'review' && (
@@ -626,26 +695,14 @@ function TaskCard({
                 </span>
               )}
             </>
-          ) : (
-            <span className={chip} data-testid="task-owner">
-              {ownerText(item.owner)}
-            </span>
-          )}
-          {assignee && (
-            <span className={`${chip} ${assignee.removed ? 'text-text-muted' : ''}`} data-testid="task-assignee">
-              {t('tasks.assignee', {
-                name: assignee.removed ? t('tasks.assigneeRemoved', { name: assignee.name }) : assignee.name,
-              })}
-            </span>
-          )}
-          {item.task?.priority && <span className={`${chip} text-yellow-300`}>{item.task.priority}</span>}
+          ) : null}
           {item.trackedDrift && (
             <span className={`${chip} text-red-400`} title={t('tasks.tracked.driftHint')} data-testid="tracked-drift">
               {t('tasks.tracked.drift')}
             </span>
           )}
           <SourceBadge item={item} />
-          {item.updatedAt && <span className="text-text-muted">{timeAgo(item.updatedAt, now)}</span>}
+          {item.tracked && item.updatedAt && <span className="text-text-muted">{timeAgo(item.updatedAt, now)}</span>}
           {item.task?.branch && <span className="text-text-muted break-all">⎇ {item.task.branch}</span>}
           <TaskWorktreeChip task={item.task} />
           {item.project && <span className="text-text-muted">{item.project}</span>}
@@ -661,6 +718,13 @@ function TaskCard({
           <span className="mt-4 block text-xs">{runText(item.runs[0], now)}</span>
         )}
       </button>
+      {stamped && (
+        <span className="quest-stamp">
+          <Stamp still={!quest.fresh.has(item.key)} sub={stampDate(item.updatedAt)}>
+            {t('game.quest.done')}
+          </Stamp>
+        </span>
+      )}
       {open && <TaskDetail item={item} now={now} readOnly={readOnly} />}
       <TrackedLines item={item} now={now} />
       {children && children.length > 0 && (
@@ -675,6 +739,7 @@ function TaskCard({
               readOnly={readOnly}
               removed={removed}
               nested
+              quest={quest}
             />
           ))}
         </ul>
@@ -849,12 +914,14 @@ function MvpProgress({
 }
 
 export function TaskBoardView({ now }: { now: number }) {
-  const { taskBoard, codexTasks, officeJobs, officeReadOnly, tracked } = useCldStore();
+  const { taskBoard, codexTasks, officeJobs, officeReadOnly, tracked, officeSnapshot } = useCldStore();
   const [filter, setFilter] = useState<BoardFilter>(NO_FILTER);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [doneOpen, setDoneOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [mvpProgressOpen, setMvpProgressOpen] = useState(savedMvpProgressOpen);
+  const specProject = useContext(TaskWorktreeScope)?.project ?? null;
+  const [reqOpen, setReqOpen] = useState(false);
   const items = useMemo(
     () => boardItems(taskBoard?.tasks ?? [], codexTasks?.tasks, officeJobs?.jobs, Object.values(tracked)),
     [taskBoard, codexTasks, officeJobs, tracked],
@@ -865,8 +932,21 @@ export function TaskBoardView({ now }: { now: number }) {
   const nest = nestItems(shown);
   const groups = groupItems(nest.top);
   const removed = taskBoard?.removedAssignees ?? [];
+  // GAME-UI-1: a card that turns done while shown gets its 완료 stamp dropped once (React's
+  // previous-render pattern: the statuses seen last, the cards newly done since).
+  const statusKey = items.map((i) => `${i.key}=${i.status}`).join('\n');
+  const [seen, setSeen] = useState(() => ({ key: statusKey, statuses: statusesOf(items), fresh: new Set<string>() }));
+  if (seen.key !== statusKey) {
+    const statuses = statusesOf(items);
+    setSeen({ key: statusKey, statuses, fresh: newlyDone(seen.statuses, statuses) });
+  }
+  const orchs = officeSnapshot?.orchestrators;
+  const quest = useMemo(
+    () => ({ agents: new Map((orchs ?? []).map((o) => [o.name, o.agentId] as const)), fresh: seen.fresh, spec: specProject }),
+    [orchs, seen.fresh, specProject],
+  );
   return (
-    <div className="space-y-8 min-w-0" data-testid="task-board">
+    <div className="space-y-8 min-w-0 quest-board" data-testid="task-board">
       {taskBoard?.corrupt && (
         <p className="pixel-panel p-8 text-xs text-red-400 break-words" role="alert">
           {t('tasks.corrupt', { error: serverLine(taskBoard.corrupt) })}
@@ -901,6 +981,27 @@ export function TaskBoardView({ now }: { now: number }) {
           options={choices.owners.map(([key, o]) => [key, ownerText(o)])}
           onChange={(owner) => setFilter({ ...filter, owner })}
         />
+        <FilterSelect
+          label={t('tasks.priority')}
+          value={filter.priority}
+          options={choices.priorities.map((p) => [p, p])}
+          onChange={(priority) => setFilter({ ...filter, priority })}
+        />
+        {specProject &&
+          (reqOpen || filter.requirement ? (
+            <Suspense fallback={null}>
+              <ReqFilter
+                project={specProject}
+                value={filter.requirement}
+                onChange={(requirement) => setFilter((f) => ({ ...f, requirement }))}
+                onClose={() => setReqOpen(false)}
+              />
+            </Suspense>
+          ) : (
+            <button type="button" className={button} onClick={() => setReqOpen(true)} data-testid="spec-issues-filter">
+              {t('spec.issues.filter')} ▾
+            </button>
+          ))}
         {!officeReadOnly && !adding && (
           <button type="button" className={button} onClick={() => setAdding(true)}>
             + {t('tasks.add')}
@@ -912,28 +1013,33 @@ export function TaskBoardView({ now }: { now: number }) {
       {items.length > 0 && shown.length === 0 && (
         <p className={`${muted} py-12 text-center`}>{t('tasks.emptyFilter')}</p>
       )}
+      <div className="quest-cols">
       {groups
         .filter((g) => g.total > 0)
         .map((g) => {
           const folded = g.status === 'done' && !doneOpen;
           return (
-            <section key={g.status} className="space-y-8 min-w-0" data-testid="task-group" data-status={g.status}>
+            <section key={g.status} className="space-y-8 min-w-0 quest-col" data-testid="task-group" data-status={g.status}>
               {g.status === 'done' ? (
                 <button
                   type="button"
-                  className={`${button} w-full text-left`}
+                  className="quest-colh w-full text-left"
                   aria-expanded={!folded}
                   onClick={() => setDoneOpen(!doneOpen)}
                 >
+                  <PixelIcon name={STATUS_ICON.done} />
                   {folded ? '▶' : '▼'} {t('tasks.doneFold', { count: g.total })}
                 </button>
               ) : (
-                <h3 className={`text-sm ${STATUS_TONE[g.status]}`}>
-                  {t(`tasks.status.${g.status}`)} ({g.total})
+                <h3 className="quest-colh" aria-label={`${t(`tasks.status.${g.status}`)} (${g.total})`}>
+                  <PixelIcon name={STATUS_ICON[g.status]} />
+                  {/* calm: the headers in one muted colour, the number in the data face */}
+                  <span>{t(`tasks.status.${g.status}`)}</span>
+                  <span className="quest-colv">{g.total}</span>
                 </h3>
               )}
               {!folded && (
-                <ul className="space-y-8">
+                <ul className="space-y-8 quest-well">
                   {g.items.map((item) => (
                     <TaskCard
                       key={item.key}
@@ -944,6 +1050,7 @@ export function TaskBoardView({ now }: { now: number }) {
                       readOnly={officeReadOnly}
                       removed={removed}
                       children={nest.children.get(item.key)}
+                      quest={quest}
                     />
                   ))}
                   {g.total > g.items.length && (
@@ -954,6 +1061,7 @@ export function TaskBoardView({ now }: { now: number }) {
             </section>
           );
         })}
+      </div>
     </div>
   );
 }

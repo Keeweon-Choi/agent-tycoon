@@ -121,7 +121,7 @@ export function MobileShell({
           it gets to claim, making the whole app jump. The canvas and the
           terminal panes run their own touch handling; the card bar below
           is a sibling, so its horizontal scroll is unaffected. */}
-      <div ref={shellRef} className="relative flex-1 min-h-0 overflow-hidden touch-none">
+      <div ref={shellRef} className="relative flex-1 min-h-0 overflow-clip touch-none">
         {/* Sliding track: office and terminal side by side at 200% width;
             selecting a terminal slides one viewport-width left. Both pages
             keep real layout at all times (never display:none), so the
@@ -131,7 +131,7 @@ export function MobileShell({
           className="absolute top-0 bottom-0 left-0 flex w-[200%]"
           style={{ transform: trackTransform(shell.view), transition: TRACK_TRANSITION }}
         >
-          <div className="w-1/2 h-full relative overflow-hidden">{office}</div>
+          <div className="w-1/2 h-full relative overflow-clip">{office}</div>
           <div className="w-1/2 h-full">
             <MobileTerminalPage
               agentIds={terminalAgentIds}

@@ -2,8 +2,9 @@
  * CHAR-HUMAN: people made of parts (cld/docs/design/char-parts.md). A part is a slot, a kind
  * (`sheet`: 21 frames on the body grid; `head`: front/back/side views on the head canvas, placed on
  * every frame at the body's head anchor), a gender tag and its pixels. The built-in parts (the bald
- * body, two faces, the six built-ins split by their region maps) come from parts.generated.json
- * (`npx tsx cld/scripts/gen-char-templates.ts`). Pure and DOM-free.
+ * body, two faces, the six old built-ins split by their region maps) come from parts.generated.ts,
+ * frozen since 11-04 (its generator read the Metro City sheets that are gone; W6 makes new parts
+ * from the new people). Pure and DOM-free.
  */
 import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
 import type { PartSlot } from '../../../../core/src/cld/looks.js';
@@ -34,9 +35,9 @@ import type {
   CharacterColors,
   CharacterGender,
 } from '../../../../core/src/messages.js';
-import { parseHex } from './color.js';
+import type { Rgb } from './color.js';
+import { chroma, hue, lchToRgb, parseHex, rgbToLab } from './color.js';
 import type { DenseSheet } from './compose.js';
-import { rampColours } from './template.js';
 
 export { HEAD_H, HEAD_W, PART_SLOTS, partProblem, PARTS_META, SHEET_H, SHEET_W };
 export type { PartData, PartSlot };
@@ -170,6 +171,42 @@ function partColours(
     const rgb = moved.get(c);
     return rgb ? rgbaToHex(rgb[0], rgb[1], rgb[2], 255) : out[i];
   });
+}
+
+/** Lightness range a part's shading is squeezed into (OKLab L). */
+const L_MIN = 0.06;
+const L_MAX = 0.96;
+/** Chroma cap of a moved ramp. */
+const MAX_CHROMA = 0.3;
+
+/** One colour ramp (rrggbb -> pixels) moved to `target`: the most used colour becomes it, every
+ *  other step keeps its lightness offset and chroma ratio (squeezed into L_MIN..L_MAX). */
+function rampColours(colors: ReadonlyMap<string, number>, target: Rgb): Map<string, Rgb> {
+  const out = new Map<string, Rgb>();
+  if (!colors.size) return out;
+  const main = [...colors].sort((a, b) => b[1] - a[1])[0][0];
+  const mainLab = rgbToLab(parseHex(`#${main}`));
+  const want = rgbToLab(target);
+  const tL = Math.min(L_MAX, Math.max(L_MIN, want.L));
+  const offsets = [...colors.keys()].map((hex) => {
+    const lab = rgbToLab(parseHex(`#${hex}`));
+    return {
+      hex,
+      dL: lab.L - mainLab.L,
+      ratio: chroma(mainLab) > 1e-3 ? chroma(lab) / chroma(mainLab) : 1,
+    };
+  });
+  const lo = Math.min(0, ...offsets.map((o) => o.dL));
+  const hi = Math.max(0, ...offsets.map((o) => o.dL));
+  let squeeze = 1;
+  if (lo < 0) squeeze = Math.min(squeeze, (tL - L_MIN) / -lo);
+  if (hi > 0) squeeze = Math.min(squeeze, (L_MAX - tL) / hi);
+  for (const o of offsets)
+    out.set(
+      o.hex,
+      lchToRgb(tL + squeeze * o.dL, Math.min(MAX_CHROMA, chroma(want) * o.ratio), hue(want)),
+    );
+  return out;
 }
 
 /** Paint art `p` of density `from` (recoloured) onto the sheet of density `d` (#RRGGBB / ''): a

@@ -318,7 +318,7 @@ export class OfficeChat {
     const r =
       req.type === 'chatCancel'
         ? this.deps.messenger.cancel(req.name, req.id)
-        : this.deps.messenger.edit(req.name, req.id, req.text);
+        : this.deps.messenger.edit(req.name, req.id, req.text, req.replyTo);
     console.log(
       `[cld engine] ${req.type === 'chatCancel' ? 'cancel' : 'edit'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}: ${r.ok ? 'ok' : `failed (${r.code})`}`,
     );

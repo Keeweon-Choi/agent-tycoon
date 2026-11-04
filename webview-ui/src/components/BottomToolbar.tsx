@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { interiorOn } from '../cld/features.js';
 import type { Directory } from '../hooks/useExtensionMessages.js';
 import { transport } from '../transport/index.js';
 import { LaunchDrawer } from './LaunchDrawer.js';
@@ -110,13 +111,15 @@ export function BottomToolbar({
           />
         </div>
       )}
-      <Button
-        variant={isEditMode ? 'active' : 'default'}
-        onClick={onToggleEditMode}
-        title="Edit office layout"
-      >
-        Layout
-      </Button>
+      {interiorOn && (
+        <Button
+          variant={isEditMode ? 'active' : 'default'}
+          onClick={onToggleEditMode}
+          title="Edit office layout"
+        >
+          Layout
+        </Button>
+      )}
       <Button
         variant={isSettingsOpen ? 'active' : 'default'}
         onClick={onToggleSettings}

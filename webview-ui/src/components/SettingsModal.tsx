@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 
+import { interiorOn } from '../cld/features.js';
 import { setPerfOn, usePerfOn } from '../cld/perf.js';
 import { t } from '../i18n/index.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
@@ -72,22 +73,26 @@ export function SettingsModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('settings.title')}>
-      <MenuItem
-        onClick={() => {
-          onExportLayout();
-          onClose();
-        }}
-      >
-        {t('upstream.exportLayout')}
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          // Open the native file picker; the import is applied in onChange below.
-          fileInputRef.current?.click();
-        }}
-      >
-        {t('upstream.importLayout')}
-      </MenuItem>
+      {interiorOn && (
+        <>
+          <MenuItem
+            onClick={() => {
+              onExportLayout();
+              onClose();
+            }}
+          >
+            {t('upstream.exportLayout')}
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              // Open the native file picker; the import is applied in onChange below.
+              fileInputRef.current?.click();
+            }}
+          >
+            {t('upstream.importLayout')}
+          </MenuItem>
+        </>
+      )}
       <input
         ref={fileInputRef}
         type="file"

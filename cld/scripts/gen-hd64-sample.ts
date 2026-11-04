@@ -1065,6 +1065,28 @@ const PACK_PARTS: {
   { id: 'tail', slot: 'back', from: 'back', name: ['토끼 꼬리', 'Bunny tail'] },
 ];
 
+/** The bunny's look from the pack's parts. BUNNY-SHEET: no longer a pack preset (the built-in
+ *  bunny is the sheet cld/packs/hd-bunny/sheets/builtin-bunny.png); her parts stay one release. */
+export const BUNNY_LOOK = {
+  v: 3,
+  kind: 'person',
+  gender: 'f',
+  body: 'curvy',
+  parts: Object.fromEntries(
+    Object.entries({
+      body: 'body',
+      face: 'face',
+      hair: 'hair',
+      fullbody: 'suit',
+      legwear: 'tights',
+      shoes: 'heels',
+      wrist: 'cuffs',
+      neck: 'bowtie',
+      back: 'tail',
+    }).map(([slot, id]) => [slot, `hd-bunny/${id}`]),
+  ),
+};
+
 /** The pack: pack.json, each part's 64×128 art and its 16×32 drawing. */
 export function writePack(classicFor: (id: string, art: Img) => Img = (_, a) => classicOf4(a)) {
   const { sheets, hair, faces } = buildParts();
@@ -1107,38 +1129,11 @@ export function writePack(classicFor: (id: string, art: Img) => Img = (_, a) => 
         bodies: { curvy: art(p.id, sheets[p.from]) },
       });
   }
-  const look = {
-    v: 3,
-    kind: 'person',
-    gender: 'f',
-    body: 'curvy',
-    parts: {
-      body: 'body',
-      face: 'face',
-      hair: 'hair',
-      fullbody: 'suit',
-      legwear: 'tights',
-      shoes: 'heels',
-      wrist: 'cuffs',
-      neck: 'bowtie',
-      back: 'tail',
-    },
-  };
   const pack = {
     id: 'hd-bunny',
     version: 1,
     title: { ko: '바니걸 64×128 견본', en: 'Bunny girl 64×128 sample' },
     parts,
-    characters: [{ id: 'bunny', name: { ko: '바니', en: 'Bunny' } }],
-    presets: [
-      {
-        id: 'bunny',
-        character: 'bunny',
-        outfit: 'bunny',
-        name: { ko: '바니걸 (64×128)', en: 'Bunny girl (64×128)' },
-        look,
-      },
-    ],
   };
   fs.writeFileSync(path.join(PACK_DIR, 'pack.json'), JSON.stringify(pack, null, 2) + '\n');
   return { sheets, hair, faces };
@@ -1198,7 +1193,7 @@ export async function writeComposites() {
   const { composePerson } = await import('../../webview-ui/src/cld/characters/parts.js');
   const pack = loadPack(PACK_DIR, true);
   if ('error' in pack) throw new Error(pack.error);
-  const look = pack.summary.presets[0].look;
+  const look = BUNNY_LOOK;
   const compose = (l: object) => sheetImage(composePerson(l as never, pack.parts).sheet);
   const bunny = compose(look);
   const master = read(path.join(OUT, 'master-64x128.png'));
@@ -1276,7 +1271,7 @@ export async function writeLods() {
   const { compose, halveSheet } = await import('../../webview-ui/src/cld/characters/compose.js');
   const pack = loadPack(PACK_DIR, true);
   if ('error' in pack) throw new Error(pack.error);
-  const c = compose(pack.summary.presets[0].look, { templates: [], parts: pack.parts });
+  const c = compose(BUNNY_LOOK as never, { templates: [], parts: pack.parts });
   const [half, classic] = c.sheet.lods ?? [];
   const twice = halveSheet(halveSheet(c.sheet), false);
   const imgs = [c.sheet, half, classic, twice].map((s) => sheetImage(s as never));

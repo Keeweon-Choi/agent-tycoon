@@ -102,7 +102,6 @@ export function OwnerPictureOption({ onPickLook }: { onPickLook?: () => void }) 
         }
         title={t('owner.settings.title')}
         help={t('owner.settings.help')}
-        stacked
       >
         <Button
           size="sm"
@@ -130,7 +129,6 @@ export function OwnerPictureOption({ onPickLook }: { onPickLook?: () => void }) 
               </p>
             )
           }
-          stacked
         >
           <Button size="sm" disabled={busy} onClick={() => picker.current?.click()}>
             {t('msgui3.profile.pick')}

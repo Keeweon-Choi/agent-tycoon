@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
+  decodeCharacterDiagPng,
   decodeCharacterPng,
   decodeFloorPng,
   parseCarpetPng,
@@ -34,12 +35,29 @@ function listSortedPngs(dir: string, pattern: RegExp): { index: number; filename
 
 // ── Decoders ─────────────────────────────────────────────────────────────────
 
+/** DIAG-1104: `sprites` with the three-quarter walk of `char_<index>_diag.png` beside it, when it
+ *  is there and draws; else as it is (its four views stand in). */
+export function withCharacterDiag(
+  sprites: CharacterDirectionSprites,
+  charDir: string,
+  index: number,
+): CharacterDirectionSprites {
+  const file = path.join(charDir, `char_${index}_diag.png`);
+  if (!fs.existsSync(file)) return sprites;
+  try {
+    return { ...sprites, ...decodeCharacterDiagPng(fs.readFileSync(file)) };
+  } catch (err) {
+    console.warn(`[AssetLoader] ${file}: ${err instanceof Error ? err.message : err}, skipped`);
+    return sprites;
+  }
+}
+
 export function decodeAllCharacters(assetsDir: string): CharacterDirectionSprites[] {
   const charDir = path.join(assetsDir, 'characters');
   const files = listSortedPngs(charDir, /^char_(\d+)\.png$/i);
-  return files.map(({ filename }) => {
+  return files.map(({ index, filename }) => {
     const pngBuffer = fs.readFileSync(path.join(charDir, filename));
-    return decodeCharacterPng(pngBuffer);
+    return withCharacterDiag(decodeCharacterPng(pngBuffer), charDir, index);
   });
 }
 

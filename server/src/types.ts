@@ -40,8 +40,6 @@ export interface AgentState {
   lastDataAt: number;
   /** Total JSONL lines processed for this agent */
   linesProcessed: number;
-  /** Set of record.type values we've already warned about (prevents log spam) */
-  seenUnknownRecordTypes: Set<string>;
   /** Whether a hook event has been delivered for this agent (suppresses heuristic timers) */
   hookDelivered: boolean;
   /** True when agent has no transcript file (provider doesn't use JSONL). All state from hooks. */
@@ -95,7 +93,7 @@ export interface AgentState {
   teammateSpawnToolIds?: Set<string>;
 
   // -- Avatar customization --
-  /** Preferred character palette (0-5). If undefined, auto-assigned for diversity. */
+  /** Preferred character palette (a built-in sheet number, `CHAR_COUNT`). If undefined, auto-assigned for diversity. */
   palette?: number;
   /** Hue shift in degrees (0-360). Rotates the base palette colors. */
   hueShift?: number;
@@ -128,7 +126,7 @@ export interface PersistedAgent {
    *  transcripts are re-adopted after a reload; the spawned children
    *  themselves are derived state and never persisted. */
   backgroundAgentToolIds?: string[];
-  /** Preferred character palette (0-5). Persisted so colors stay stable
+  /** Preferred character palette (a built-in sheet number, `CHAR_COUNT`). Persisted so colors stay stable
    *  across server restarts; assignPaletteIfNeeded is a no-op on restore. */
   palette?: number;
   /** Hue shift in degrees (0-360). Persisted alongside palette. */

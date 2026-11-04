@@ -3,18 +3,18 @@
  *
  * The floor in focus is drawn live every frame: its static ground (pavement, slab, floor
  * tiles, the tall back walls) from a cache, then in depth order the cut walls, the furniture
- * and the characters, at the camera's zoom. Every other floor is one cached picture,
- * darkened and desaturated once when it is drawn and redrawn only when that floor changes
- * (its layout, or a character there moving to another tile, checked once a second): the
- * floors out of focus cost one scaled image each per frame and never animate (their
- * characters still work and walk: the simulation is not this module's). The glass elevator
- * shaft, its doors and its car are drawn last, live.
+ * and the characters, at the camera's zoom. Every floor has the deepest floor's plate and they
+ * stack a storey apart (projection.ts): the floors below the focus are closed storeys (their
+ * facade, facade.ts, one cached picture each, redrawn only when the building changes), the ones
+ * above it are lifted off and drawn as a labelled outline, so nothing covers the floor in focus.
+ * The lobby board stands outside as a billboard (billboard.ts), its text laid over by the
+ * webview (LobbyBoard).
  *
  * Pieces come at densities 4, 2 and 1 (art.ts); each target draws the one that divides its
  * zoom into whole device px, nearest-neighbour: the same pixels, never blurred.
  *
  * Hit testing reads what this frame drew (`isoPick`): characters first, then furniture, by
- * their opaque pixels, then the floor tile under the point, then another floor's plate.
+ * their opaque pixels, then the floor tile under the point, then another floor as drawn.
  */
 import type { BackgroundSettings } from '../../../../core/src/cld/background.js';
 import { elevatorState } from '../../cld/elevator.js';
@@ -26,41 +26,26 @@ import {
   drinkingNow,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
-import { reducedMotion } from '../../cld/floors.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
 import {
-  BOARD_TYPE,
   CHARACTER_SITTING_OFFSET_PX,
-  ELEVATOR_RIDE_PER_FLOOR_SEC,
-  ELEVATOR_RIDE_SEC,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
   IMPORT_DENSITY,
   IMPORT_WORLD_W,
-  ISO_BOARD_FACE_H,
-  ISO_BOARD_FACE_TILES,
-  ISO_BOARD_FACE_Z,
-  ISO_BOARD_PLANE,
-  ISO_CAR_AT_FLOOR,
+  ISO_BILLBOARD_FRAME_PX,
+  ISO_BILLBOARD_INK,
   ISO_CHARACTER_BOX,
-  ISO_DIM_ABOVE_ALPHA,
-  ISO_DIM_ALPHA,
-  ISO_DIM_BLUE,
-  ISO_DIM_DESATURATE,
-  ISO_DIM_GAIN,
-  ISO_DIM_REFRESH_MS,
   ISO_HALF_H,
   ISO_HALF_W,
-  ISO_LIFT_LEVELS_PER_S,
   ISO_OCCLUSION_ALPHA,
-  ISO_SHAFT_FRAME,
-  ISO_SHAFT_GLASS,
-  ISO_SHAFT_POST,
+  ISO_ROOF_H,
   ISO_SLAB_H,
   ISO_WALL_H,
   SELECTED_OUTLINE_ALPHA,
   STEAM_HELD_LEAN_PX,
 } from '../../constants.js';
+import { t as tr } from '../../i18n/index.js';
 import { getCharacterSprite } from '../../office/engine/characters.js';
 import { renderMatrixEffect } from '../../office/engine/matrixEffect.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
@@ -75,7 +60,6 @@ import { drawSmooth, isSmooth, smoothSize } from '../../office/sprites/smoothSpr
 import { getCachedSprite, getOutlineSprite } from '../../office/sprites/spriteCache.js';
 import {
   getCharacterSprites,
-  isoPaletteOf,
   spritesAtZoom,
 } from '../../office/sprites/spriteData.js';
 import { warmCharacter } from '../../office/sprites/warm.js';
@@ -94,11 +78,12 @@ import {
   playingFrame,
   type WallUse,
 } from './art.js';
+import { type BillboardBox, billboardBox } from './billboard.js';
+import { drawClosedStorey, drawFocusBand, drawOutlines, inStorey, onFaces, onRoof } from './facade.js';
 import { fadesForCharacter, type IsoScreenBox } from './occlusion.js';
 import {
   type DepthBox,
   depthOrder,
-  floorBox,
   isoAt,
   type IsoFloor,
   isoInverse,
@@ -109,11 +94,10 @@ import {
 } from './projection.js';
 import { buildScene, type IsoFloorScene, type IsoItem } from './scene.js';
 import { facingOf, seatPieceFor } from './seats.js';
-import { doorFronts, frontAt, LIFT_TILES, shaftBands } from './shaft.js';
-import { characterView, mirrorSprite } from './sprites.js';
+import { drawnView, mirrorSprite } from './sprites.js';
 
 /** Read-only counters for the runner: cache redraws, frames and the time they took. */
-export const isoStats = { groundRenders: 0, dimRenders: 0, frames: 0, ms: 0 };
+export const isoStats = { groundRenders: 0, storeyRenders: 0, frames: 0, ms: 0 };
 
 // ── The scene, per layout ───────────────────────────────────
 
@@ -128,11 +112,11 @@ let built: {
 export function isoScene(os: OfficeState): { stack: IsoStack; scenes: IsoFloorScene[] } {
   const layout = os.getLayout();
   if (built?.layout !== layout || built.tileMap !== os.tileMap) {
-    const stack = isoStack(layout as typeof layout & { cldFloors?: unknown }, os.tileMap);
+    const stack = isoStack(layout as typeof layout & { cldFloors?: unknown });
     const scenes = buildScene(stack, os.tileMap, layout.furniture, getCatalogEntry, ISO_MANIFEST);
     built = { layout, tileMap: os.tileMap, stack, scenes };
     ground.clear();
-    dim.clear();
+    storeys.clear();
   }
   return built;
 }
@@ -210,9 +194,10 @@ function putStrip(
   const drop = ISO_HALF_H * a.d;
   const w = a.img.w;
   // In the (possibly flipped) picture: where the strip's columns start and its base's front end.
-  const sx = use.mirror ? w - wall.start[0] - (j + 1) * tile : wall.start[0] + j * tile;
+  const [x0, y0] = [wall.start[0] / a.k, wall.start[1] / a.k];
+  const sx = use.mirror ? w - x0 - (j + 1) * tile : x0 + j * tile;
   const ax = use.mirror ? sx : sx + tile;
-  const ay = wall.start[1] + (j + 1) * drop;
+  const ay = y0 + (j + 1) * drop;
   smooth(t.ctx, t.s < a.d);
   t.ctx.drawImage(
     use.mirror ? a.img.flipped : a.img.plain,
@@ -244,25 +229,43 @@ function put(
 /** Pavement tiles around floor 1. */
 const PAVE = 3;
 
+/** The pavement round floor 1, a little under its slab. */
+function drawPavement(t: Target, stack: IsoStack, imgs: Map<string, IsoImage>) {
+  const rows = stack.depth;
+  for (let r = -PAVE; r < rows + PAVE; r++)
+    for (let c = -PAVE; c < stack.cols + PAVE; c++)
+      if (c < 0 || r < 0 || c >= stack.cols || r >= rows)
+        put(t, imgs, 'pavement', isoAt(c + 1, r + 1, 0, stack.lifts), -ISO_SLAB_H);
+}
+
 /** The pavement, slab, floor and tall walls of a floor: what nothing on it stands behind. */
 function drawGround(t: Target, stack: IsoStack, scene: IsoFloorScene, imgs: Map<string, IsoImage>) {
   const { level } = scene.floor;
   const front = (c: number, r: number) => isoAt(c + 1, r + 1, level, stack.lifts);
-  const rows = scene.floor.rows;
-  if (level === 0)
-    for (let r = -PAVE; r < rows + PAVE; r++)
-      for (let c = -PAVE; c < stack.cols + PAVE; c++)
-        if (c < 0 || r < 0 || c >= stack.cols || r >= rows)
-          put(t, imgs, 'pavement', front(c, r), -ISO_SLAB_H);
-  // The plate: concrete where no room is, the slab's two outer faces under its front edges.
+  // Every floor has the building's plate: a shallower one's extra rows are bare floor.
+  const rows = stack.depth;
+  if (level === 0) drawPavement(t, stack, imgs);
+  // The plate: bare floor where no room is (never walked: the layout has no tile there), the
+  // slab's two outer faces under its front edges.
   const covered = new Set(scene.tiles.map((x) => `${x.col},${x.row}`));
   for (const w of scene.walls) if (!w.tall) covered.add(`${w.col},${w.row}`);
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < stack.cols; c++)
-      if (!covered.has(`${c},${r}`)) put(t, imgs, 'plate', front(c, r));
+      if (!covered.has(`${c},${r}`)) put(t, imgs, ISO_MANIFEST.floors.default, front(c, r));
   for (let c = 0; c < stack.cols; c++) put(t, imgs, 'slab-row', front(c, rows - 1));
   for (let r = 0; r < rows; r++) put(t, imgs, 'slab-col', front(stack.cols - 1, r));
   for (const x of scene.tiles) put(t, imgs, x.piece, front(x.col, x.row));
+  // iso-prep-1104: a rug lies on the floor, under whoever walks over it.
+  for (const it of scene.items)
+    if (it.piece?.flat)
+      put(
+        t,
+        imgs,
+        ISO_MANIFEST.types[it.type].piece,
+        isoAt(it.c1, it.r1, level, stack.lifts),
+        0,
+        it.mirror,
+      );
   // The back walls stand on their tiles' room-side edges: the owner's wall pieces one tile at
   // a time, a window piece's strips in turn with plain wall, the corner where two meet.
   const w = ISO_MANIFEST.walls;
@@ -295,8 +298,6 @@ interface Drawn extends DepthBox, IsoScreenBox {
   artMirror?: boolean;
   /** A character never fades another character. */
   character?: boolean;
-  /** The canvas slab that the DOM lobby board overlays. */
-  board?: boolean;
   faded: boolean;
   /** For hit tests: what it is, and its picture in iso px (set when drawn). */
   hit?: Hit;
@@ -392,6 +393,7 @@ function itemDrawns(
   const out: Drawn[] = doorDrawns(scene, stack, imgs, os);
   const { floor } = scene;
   for (const it of scene.items) {
+    if (it.piece?.flat) continue; // drawn with the ground
     const front = isoAt(it.c1, it.r1, floor.level, stack.lifts);
     let name = ISO_MANIFEST.types[it.type]?.piece;
     let mirror = it.mirror;
@@ -410,7 +412,6 @@ function itemDrawns(
         y: 0,
         w: 0,
         h: 0,
-        board: it.type === BOARD_TYPE,
         faded: false,
         artName: piece,
         artFront: front,
@@ -429,11 +430,12 @@ function itemDrawns(
           drawArt(t, a, at, mirror);
           // its full cup steams (the last frame)
           if (def?.steam && k === n - 1) {
-            const sx = mirror ? a.img.w - def.steam[0] : def.steam[0];
+            const [stx, sty] = [def.steam[0] / a.k, def.steam[1] / a.k];
+            const sx = mirror ? a.img.w - stx : stx;
             drawSteam(
               t.ctx,
               t.o.x + (at.x + sx / a.d) * t.s,
-              t.o.y + (at.y + def.steam[1] / a.d) * t.s,
+              t.o.y + (at.y + sty / a.d) * t.s,
               t.s,
               animationClock(),
             );
@@ -467,7 +469,6 @@ function itemDrawns(
       y,
       w,
       h,
-      board: it.type === BOARD_TYPE,
       faded: false,
       draw: (t) => {
         const c = getCachedSprite(sprite, t.s);
@@ -518,8 +519,10 @@ function characterDrawns(
       else feet.y += CHARACTER_SITTING_OFFSET_PX / 2;
     }
     // SHEET-IMPORT: a preset's own isometric sheet when it has one beside its top view; CHAR-8DIR:
-    // with both, the top view's front, back and sides for the screen's straight directions
-    const view = characterView(ch, true, isoPaletteOf(ch.palette));
+    // with both, the top view's front, back and sides for the screen's straight directions;
+    // DIAG-1104: a walk-only one (a built-in person, a mascot) seated or drinking keeps its four
+    const drinking = drinkingNow(ch);
+    const view = drawnView(ch, true, !!drinking);
     const all = getCharacterSprites(view.palette, ch.hueShift);
     const sprites = spritesAtZoom(all, s);
     warmCharacter(
@@ -529,7 +532,6 @@ function characterDrawns(
       ch.id,
     );
     // C1: drinking in the three-quarter front view, a sheet with a drink row shows its own pose
-    const drinking = drinkingNow(ch);
     const cells = drinking && view.dir === Direction.DOWN ? drinkCellsOf(view.palette) : undefined;
     const cell = cells && drinking ? drinkCell(drinking.drink, drinking.sec, drinking.total) : -1;
     const steam = cells?.steam[cell] ?? null;
@@ -625,7 +627,7 @@ function drawDepthList(
   t: Target,
   imgs: Map<string, IsoImage>,
   recordHits: boolean,
-): boolean {
+): void {
   for (const item of list) measureDrawn(item, t, imgs);
   for (let i = 0; i < list.length; i++) {
     const character = list[i];
@@ -642,7 +644,6 @@ function drawDepthList(
         object.faded = true;
     }
   }
-  let boardFaded = false;
   for (const item of list) {
     if (item.faded) {
       t.ctx.save();
@@ -651,121 +652,7 @@ function drawDepthList(
       t.ctx.restore();
     } else item.draw(t);
     if (recordHits && item.hit) hits.push(item.hit);
-    if (item.board && item.faded) boardFaded = true;
   }
-  return boardFaded;
-}
-
-// ── The elevator ─────────────────────────────────────────────
-
-/** Where the car is (a level, fractional while it moves) and where it goes. */
-const car = { level: -1, target: 0, at: 0 };
-/** Whether the car is moving (the office keeps its full frame rate). */
-export const isoBusy = () => car.level !== car.target;
-/** The car's level (the runner reads it). */
-export const isoCarLevel = () => car.level;
-
-/**
- * Where the car is: with a rider in 'travel', between its floors as far as the ride has gone
- * (task/elevator: each ride is its own trip); else at the floor whose doors are open, or
- * where a rider waits; else at the floor in focus. `exact`: the ride sets it, no easing.
- */
-function carTarget(
-  os: OfficeState,
-  stack: IsoStack,
-  focus: IsoFloor,
-): { level: number; exact: boolean } {
-  const st = elevatorState(os);
-  const level = (id: string) => stack.floors.find((f) => f.id === id)?.level ?? focus.level;
-  const riding = st.riders.find((r) => r.phase === 'travel');
-  if (riding) {
-    const [a, b] = [level(riding.from), level(riding.to)];
-    const k = Math.min(
-      1,
-      riding.t / (ELEVATOR_RIDE_SEC + ELEVATOR_RIDE_PER_FLOOR_SEC * Math.abs(b - a)),
-    );
-    return { level: a + (b - a) * k, exact: true };
-  }
-  const open = st.floors.find((f) => f.open > 0);
-  if (open) return { level: level(open.floor), exact: false };
-  const waiting = st.riders.find((r) => r.phase === 'call' || r.phase === 'in');
-  if (waiting) return { level: level(waiting.from), exact: false };
-  return { level: focus.level, exact: false };
-}
-
-/** The elevator's doors as the car: the middle two tiles of the three-tile doors piece. */
-function drawCar(t: Target, imgs: Map<string, IsoImage>, front: Pt): void {
-  const name = ISO_MANIFEST.lift.doors;
-  const a = isoArt(imgs, name, t.d);
-  if (!a) return;
-  const tile = ISO_HALF_W * a.d;
-  // In the picture: the doors' columns, and the base under their right end (the piece's right
-  // end is half a tile on, where the base is half a drop lower).
-  const sx = tile / 2;
-  const baseY = a.ay - (ISO_HALF_H * a.d) / 2;
-  smooth(t.ctx, t.s < a.d);
-  t.ctx.drawImage(
-    a.img.plain,
-    sx,
-    0,
-    LIFT_TILES * tile,
-    a.img.h,
-    Math.round(t.o.x + (front.x - LIFT_TILES * ISO_HALF_W) * t.s),
-    Math.round(t.o.y + (front.y - baseY / a.d) * t.s),
-    Math.round((LIFT_TILES * tile * t.s) / a.d),
-    Math.round((a.img.h * t.s) / a.d),
-  );
-  smooth(t.ctx, false);
-}
-
-/** The glass of the shaft between the floors' doors, over everything, and the car riding in it. */
-function drawShaft(
-  t: Target,
-  stack: IsoStack,
-  focus: IsoFloor,
-  imgs: Map<string, IsoImage>,
-  os: OfficeState,
-  now: number,
-): void {
-  const fronts = doorFronts(stack, elevatorState(os).floors);
-  // The car moves a few floors a second (at once with reduced motion).
-  const goal = carTarget(os, stack, focus);
-  car.target = goal.level;
-  const dt = car.at ? Math.min(0.1, (now - car.at) / 1000) : 0;
-  car.at = now;
-  if (car.level < 0 || reducedMotion() || goal.exact) car.level = car.target;
-  const step = ISO_LIFT_LEVELS_PER_S * dt;
-  car.level =
-    Math.abs(car.target - car.level) <= step
-      ? car.target
-      : car.level + Math.sign(car.target - car.level) * step;
-  const ctx = t.ctx;
-  const at = (p: Pt) => [t.o.x + p.x * t.s, t.o.y + p.y * t.s] as const;
-  // The car first (the glass is in front of it); at a floor its doors are the wall's own.
-  const between = Math.abs(car.level - Math.round(car.level)) > ISO_CAR_AT_FLOOR;
-  const spot = between ? frontAt(fronts, car.level) : null;
-  if (spot) drawCar(t, imgs, spot);
-  ctx.save();
-  for (const band of shaftBands(fronts)) {
-    ctx.beginPath();
-    band.forEach((p, i) => (i ? ctx.lineTo(...at(p)) : ctx.moveTo(...at(p))));
-    ctx.closePath();
-    ctx.fillStyle = ISO_SHAFT_GLASS;
-    ctx.fill();
-    // The frame: a post up each side.
-    ctx.strokeStyle = ISO_SHAFT_FRAME;
-    ctx.lineWidth = Math.max(1, ISO_SHAFT_POST * t.s);
-    for (const [from, to] of [
-      [band[0], band[3]],
-      [band[1], band[2]],
-    ]) {
-      ctx.beginPath();
-      ctx.moveTo(...at(from));
-      ctx.lineTo(...at(to));
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
 }
 
 // ── Caches ───────────────────────────────────────────────────
@@ -773,18 +660,20 @@ function drawShaft(
 interface FloorCache {
   canvas: HTMLCanvasElement;
   key: string;
-  checkedAt: number;
 }
 const ground = new Map<string, FloorCache>();
-const dim = new Map<string, FloorCache>();
+/** Floor 1's pavement while another floor is in focus, at the density drawn. */
+const pavement = new Map<string, FloorCache>();
+/** The closed storeys, at density 1 (their facade is drawn in iso px). */
+const storeys = new Map<string, FloorCache>();
 
-/** A floor's cache bounds (iso px): its plate and walls, the pavement for floor 1. */
+/** A floor's cache bounds (iso px): its plate and walls (and a roof), the pavement for floor 1. */
 function cacheBox(stack: IsoStack, level: number): IsoStack['box'] {
   const lift = stack.lifts[level] ?? 0;
   return {
     x0: -(stack.depth + PAVE) * ISO_HALF_W,
     x1: (stack.cols + PAVE + 1) * ISO_HALF_W,
-    y0: -lift - ISO_WALL_H - 2 * ISO_HALF_H,
+    y0: -lift - ISO_WALL_H - ISO_ROOF_H - 2 * ISO_HALF_H,
     y1: (stack.cols + stack.depth + 2 * PAVE + 2) * ISO_HALF_H + ISO_SLAB_H * 2 - lift,
   };
 }
@@ -797,7 +686,7 @@ function cacheCanvas(
 ): FloorCache {
   let c = map.get(id);
   if (!c) {
-    c = { canvas: document.createElement('canvas'), key: '', checkedAt: -Infinity };
+    c = { canvas: document.createElement('canvas'), key: '' };
     map.set(id, c);
   }
   const w = (box.x1 - box.x0) * d;
@@ -810,37 +699,16 @@ function cacheCanvas(
   return c;
 }
 
-/** What a dimmed floor shows that can change: who stands where, facing how, working or not. */
-function floorSignature(
-  os: OfficeState,
-  chars: Character[],
-  stack: IsoStack,
-  floor: IsoFloor,
-): string {
-  // Its elevator doors, shut or open.
-  let sig = elevatorState(os)
-    .floors.filter((e) => e.floor === floor.id)
-    .map((e) => (e.open >= 0.5 ? 'o' : 's'))
-    .join('');
-  for (const ch of chars)
-    if (!ch.cldAway && floorOf(stack, ch) === floor)
-      sig += `${ch.id}:${ch.tileCol},${ch.tileRow},${ch.dir},${ch.state},${ch.isActive ? 1 : 0},${ch.palette};`;
-  return sig || 'empty';
-}
-
-/** Darker, less saturated, a touch bluer: a floor out of focus (pixels kept, nothing blurred). */
-function dimPixels(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (!d[i + 3]) continue;
-    const lum = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
-    for (let k = 0; k < 3; k++)
-      d[i + k] =
-        (d[i + k] + (lum - d[i + k]) * ISO_DIM_DESATURATE) * ISO_DIM_GAIN[k] +
-        (k === 2 ? ISO_DIM_BLUE : 0);
-  }
-  ctx.putImageData(img, 0, 0);
+/** Draw into a cache once per `key` (the art density, the palette...). */
+function filled(c: FloorCache, key: string, paint: (ctx: CanvasRenderingContext2D) => void): FloorCache {
+  if (c.key === key) return c;
+  const ctx = c.canvas.getContext('2d')!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
+  ctx.imageSmoothingEnabled = false;
+  paint(ctx);
+  c.key = key;
+  return c;
 }
 
 // ── The frame ────────────────────────────────────────────────
@@ -852,7 +720,7 @@ let frame: {
   stack: IsoStack;
   focus: IsoFloor;
   scenes: IsoFloorScene[];
-  boardFaded: boolean;
+  billboard: BillboardBox;
 } | null = null;
 
 export interface IsoSelection {
@@ -860,7 +728,6 @@ export interface IsoSelection {
   hovered: number | null;
   follow: number | null;
 }
-const NONE: IsoSelection = { selected: null, hovered: null, follow: null };
 
 /**
  * Draw the building into `ctx` (device px `w`×`h`). `centre` is the iso px the pan is about
@@ -876,7 +743,6 @@ export function renderIso(
   centre: Pt,
   focusId: string,
   sel: IsoSelection,
-  now: number,
   /** BACKGROUND: the surroundings drawn under the building (null: the plain void). */
   background: { settings: BackgroundSettings; night: boolean } | null = null,
 ): boolean {
@@ -891,80 +757,105 @@ export function renderIso(
     drawIsoBackground(ctx, w, h, o, zoom, stack, background.settings, background.night);
   const chars = os.getCharacters();
   const live = target(ctx, o, zoom);
+  const night = background?.night ?? false;
   hits = [];
-  let boardFaded = false;
   ctx.imageSmoothingEnabled = false;
+  const blit = (c: FloorCache, box: IsoStack['box'], d: number) =>
+    ctx.drawImage(
+      c.canvas,
+      o.x + box.x0 * zoom,
+      o.y + box.y0 * zoom,
+      (c.canvas.width * zoom) / d,
+      (c.canvas.height * zoom) / d,
+    );
+  const top = stack.floors.length - 1;
+  const above: Array<{ lift: number; top: boolean; label: string }> = [];
   for (const scene of scenes) {
     const { floor } = scene;
     const box = cacheBox(stack, floor.level);
-    const blit = (c: FloorCache, d: number) =>
-      ctx.drawImage(
-        c.canvas,
-        o.x + box.x0 * zoom,
-        o.y + box.y0 * zoom,
-        (c.canvas.width * zoom) / d,
-        (c.canvas.height * zoom) / d,
-      );
-    if (floor === focus) {
-      // The ground at the density this zoom draws (its cache is redrawn when that changes).
-      const d = live.d;
-      const g = cacheCanvas(ground, floor.id, box, d);
-      if (!g.key) {
-        const gctx = g.canvas.getContext('2d')!;
-        gctx.clearRect(0, 0, g.canvas.width, g.canvas.height);
-        gctx.imageSmoothingEnabled = false;
-        drawGround(
-          { ctx: gctx, o: { x: -box.x0 * d, y: -box.y0 * d }, s: d, d },
-          stack,
-          scene,
-          imgs,
-        );
-        g.key = 'drawn';
-        isoStats.groundRenders++;
-      }
-      blit(g, d);
-      const list = depthOrder([
-        ...wallDrawns(scene, stack, imgs),
-        ...itemDrawns(scene, stack, imgs, os),
-        ...characterDrawns(chars, stack, floor, sel, zoom),
-      ]);
-      boardFaded = drawDepthList(list, live, imgs, true);
+    const lift = stack.lifts[floor.level] ?? 0;
+    if (floor.level > focus.level) {
+      // Lifted off: drawn as an outline after the floors, labelled, so they can be counted.
+      above.push({ lift, top: floor.level === top, label: tr('iso.floorLabel', { n: floor.level + 1 }) });
       continue;
     }
-    const c = cacheCanvas(dim, floor.id, box, 1);
-    if (now - c.checkedAt >= ISO_DIM_REFRESH_MS || !c.key) {
-      c.checkedAt = now;
-      const key = floorSignature(os, chars, stack, floor);
-      if (key !== c.key) {
-        c.key = key;
-        const dctx = c.canvas.getContext('2d')!;
-        dctx.clearRect(0, 0, c.canvas.width, c.canvas.height);
-        dctx.imageSmoothingEnabled = false;
-        const t = target(dctx, { x: -box.x0, y: -box.y0 }, 1);
-        drawGround(t, stack, scene, imgs);
-        drawDepthList(
-          depthOrder([
-            ...wallDrawns(scene, stack, imgs),
-            ...itemDrawns(scene, stack, imgs, os),
-            ...characterDrawns(chars, stack, floor, NONE, 1),
-          ]),
-          t,
-          imgs,
-          false,
-        );
-        dimPixels(dctx, c.canvas.width, c.canvas.height);
-        isoStats.dimRenders++;
+    if (floor.level < focus.level) {
+      if (floor.level === 0) {
+        const d = live.d;
+        const pc = cacheCanvas(pavement, floor.id, box, d);
+        blit(filled(pc, String(d), (c) => drawPavement(target(c, { x: -box.x0 * d, y: -box.y0 * d }, d), stack, imgs)), box, d);
       }
+      const sc = cacheCanvas(storeys, floor.id, box, 1);
+      const key = `${night}`;
+      if (sc.key !== key) isoStats.storeyRenders++;
+      filled(sc, key, (c) => {
+        c.setTransform(1, 0, 0, 1, -box.x0, -box.y0);
+        drawClosedStorey(c, stack.cols, stack.depth, lift, {
+          lobby: floor.level === 0,
+          roof: false,
+          focus: false,
+          night,
+          seed: floor.level,
+        });
+      });
+      blit(sc, box, 1);
+      continue;
     }
-    ctx.globalAlpha = floor.level > focus.level ? ISO_DIM_ABOVE_ALPHA : ISO_DIM_ALPHA;
-    blit(c, 1);
-    ctx.globalAlpha = 1;
+    // The ground at the density this zoom draws (its cache is redrawn when that changes).
+    const d = live.d;
+    const g = cacheCanvas(ground, floor.id, box, d);
+    if (g.key !== `${d}|${night}`) isoStats.groundRenders++;
+    filled(g, `${d}|${night}`, (c) => {
+      drawGround({ ctx: c, o: { x: -box.x0 * d, y: -box.y0 * d }, s: d, d }, stack, scene, imgs);
+      // The floor in focus wears its slab band in the accent.
+      c.setTransform(d, 0, 0, d, -box.x0 * d, -box.y0 * d);
+      drawFocusBand(c, stack.cols, stack.depth, lift, night);
+    });
+    blit(g, box, d);
+    const pieces = [...wallDrawns(scene, stack, imgs), ...itemDrawns(scene, stack, imgs, os)];
+    const list = depthOrder([...pieces, ...characterDrawns(chars, stack, floor, sel, zoom)], pieces.length);
+    drawDepthList(list, live, imgs, true);
   }
-  drawShaft(live, stack, focus, imgs, os, now);
-  frame = { o, s: zoom, stack, focus, scenes, boardFaded };
+  const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+  drawOutlines(ctx, o, zoom, dpr, stack.cols, stack.depth, stack.lifts[focus.level] ?? 0, above, night);
+  const billboard = billboardBox(stack);
+  drawBillboard(live, billboard, dpr);
+  frame = { o, s: zoom, stack, focus, scenes, billboard };
   isoStats.frames++;
   isoStats.ms += performance.now() - started;
   return true;
+}
+
+/** The billboard's face as the webview last painted it (LobbyBoard: only when its page, data or
+ *  size change), blitted each frame; null: the bare face. */
+let face: HTMLCanvasElement | null = null;
+export function setBillboardFace(c: HTMLCanvasElement | null): void {
+  face = c;
+}
+
+/** The billboard's posts, frame and face (its painted pages, else bare). */
+function drawBillboard(t: Target, b: BillboardBox, dpr: number): void {
+  const { ctx, o, s } = t;
+  const X = (x: number) => Math.round(o.x + x * s);
+  const Y = (y: number) => Math.round(o.y + y * s);
+  const post = Math.max(2, Math.round(2 * s));
+  for (const px of b.posts) {
+    ctx.fillStyle = ISO_BILLBOARD_INK.post;
+    ctx.fillRect(X(px) - post, Y(b.y1), post, Y(b.ground) - Y(b.y1));
+    ctx.fillStyle = ISO_BILLBOARD_INK.postShade;
+    ctx.fillRect(X(px), Y(b.y1), post, Y(b.ground) - Y(b.y1));
+  }
+  ctx.fillStyle = ISO_BILLBOARD_INK.frame;
+  ctx.fillRect(X(b.x0), Y(b.y0), X(b.x1) - X(b.x0), Y(b.y1) - Y(b.y0));
+  const f = Math.round(ISO_BILLBOARD_FRAME_PX * dpr);
+  const [x, y, w, h] = [X(b.x0) + f, Y(b.y0) + f, X(b.x1) - X(b.x0) - 2 * f, Y(b.y1) - Y(b.y0) - 2 * f];
+  if (face) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(face, x, y, w, h);
+  } else {
+    ctx.fillStyle = ISO_BILLBOARD_INK.face;
+    ctx.fillRect(x, y, w, h);
+  }
 }
 
 /** Device px box of a character as the last frame drew it (a test aims a press at it). */
@@ -1028,23 +919,17 @@ export function isoPick(x: number, y: number): IsoPick {
     if (f.scenes[f.focus.level].tiles.some((x) => x.col === own.col && x.row === local))
       return { kind: 'tile', ...own };
   }
-  // A floor's plate, or its back walls standing on the plate's back edges: a point that far
-  // above the plane (a screen step down of d tiles adds d to both col and row) lands on an edge.
-  const covers = (fl: IsoFloor) => {
-    const b = floorBox(f.stack, fl.level);
-    if (ix < b.x0 || ix >= b.x1 || iy < b.y0 || iy >= b.y1) return false;
-    const p = isoInverse(ix, iy, fl.level, f.stack.lifts);
-    const d = Math.max(0, -Math.min(p.col, p.row));
-    if (d * 2 * ISO_HALF_H > ISO_WALL_H) return false;
-    const [col, row] = [p.col + d, p.row + d];
-    return col >= 0 && row >= 0 && col < f.stack.cols && row < fl.rows;
-  };
-  // The floors nest (ISO_FLOOR_GAP < 0): an upper floor's slab is drawn across the walls of the
-  // one below, so the floor drawn last there takes the click (the focused one: nothing to do).
-  for (let i = f.stack.floors.length - 1; i >= 0; i--) {
-    const fl = f.stack.floors[i];
-    if (covers(fl)) return fl === f.focus ? null : { kind: 'floor', id: fl.id };
-  }
+  // The floor in focus as drawn (its plate and back walls) keeps the click; elsewhere a floor is
+  // where the building would show it closed: a storey's front faces, the roof on the top one.
+  const { cols, depth, lifts } = f.stack;
+  if (inStorey(cols, depth, lifts[f.focus.level] ?? 0, ix, iy)) return null;
+  const floors = f.stack.floors;
+  const top = floors.length - 1;
+  if (top > f.focus.level && onRoof(cols, depth, lifts[top] ?? 0, ix, iy))
+    return { kind: 'floor', id: floors[top].id };
+  for (const fl of floors)
+    if (fl !== f.focus && onFaces(cols, depth, lifts[fl.level] ?? 0, ix, iy))
+      return { kind: 'floor', id: fl.id };
   return null;
 }
 
@@ -1085,32 +970,25 @@ export function isoOverlayFor(
   };
 }
 
-/**
- * The lobby board's screen in the last frame, for the webview's copy of the board (owner 11-01
- * 02:08): the top-left corner and the two edge vectors (CSS px) of the parallelogram the board's
- * screen is on the wall's face, at the wall's angle; null when no frame is drawn or the board's
- * floor is not the floor in focus (a dimmed floor is drawn dim, a DOM board would not be).
- */
-export function isoBoardQuad(
-  dpr: number,
-): { x: number; y: number; ux: number; uy: number; vx: number; vy: number; alpha: number } | null {
+/** The billboard's face in the last frame: its box (CSS px of the canvas) and CSS px per iso px,
+ *  for the webview's click on it; and the device px its painted face fills (inside the frame) and
+ *  device px per iso px, for painting it. Null when no frame is drawn. */
+export function isoBillboard(dpr: number): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  k: number;
+  face: { w: number; h: number; k: number };
+} | null {
   if (!frame) return null;
-  const { o, s, stack, focus, scenes } = frame;
-  const it = scenes[focus.level]?.items.find((i) => i.type === BOARD_TYPE);
-  if (!it) return null;
-  // The slab's screen plane: half a tile in from the footprint's back edge, centred on its width.
-  const u0 = (it.c1 - it.c0 - ISO_BOARD_FACE_TILES) / 2;
-  const p = isoAt(it.c0 + u0, it.r0 + ISO_BOARD_PLANE, focus.level, stack.lifts);
-  const k = s / dpr;
-  return {
-    x: (o.x + p.x * s) / dpr,
-    y: (o.y + (p.y - ISO_BOARD_FACE_Z - ISO_BOARD_FACE_H) * s) / dpr,
-    ux: ISO_BOARD_FACE_TILES * ISO_HALF_W * k,
-    uy: ISO_BOARD_FACE_TILES * ISO_HALF_H * k,
-    vx: 0,
-    vy: ISO_BOARD_FACE_H * k,
-    alpha: frame.boardFaded ? ISO_OCCLUSION_ALPHA : 1,
-  };
+  const { o, s, billboard: b } = frame;
+  const x = Math.round(o.x + b.x0 * s);
+  const y = Math.round(o.y + b.y0 * s);
+  const w = Math.round(o.x + b.x1 * s) - x;
+  const h = Math.round(o.y + b.y1 * s) - y;
+  const f = Math.round(ISO_BILLBOARD_FRAME_PX * dpr);
+  return { x: x / dpr, y: y / dpr, w: w / dpr, h: h / dpr, k: s / dpr, face: { w: w - 2 * f, h: h - 2 * f, k: s } };
 }
 
 /** Device px where the last frame drew world point (x, y) on its floor's plane (tests). */

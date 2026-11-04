@@ -30,7 +30,7 @@ import configPathModule from '../../core/src/cld/configPath.cjs';
 import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
 import { extractBundle, sha256File, verifyBundle } from '../release/bundle/verify.mjs';
 import { encodePowerShell } from './hwSensors.mjs';
-import { configPath, daemonArgs, defaults, detectPlatform, exposurePath, hostToken, mergeConfig, NODE_FLAGS, pathWith, pathWithout, renderLaunchAgent, renderSystemdUnit, revertLedger, rotateLog, shellQuote, winPath } from './install.mjs';
+import { configPath, DAEMON_ENV, daemonArgs, defaults, detectPlatform, exposurePath, hostToken, mergeConfig, NODE_FLAGS, pathWith, pathWithout, renderLaunchAgent, renderSystemdUnit, revertLedger, rotateLog, shellQuote, winPath } from './install.mjs';
 import { realDeps as remoteDeps } from './remote.mjs';
 import { rollback, update } from './update.mjs';
 
@@ -381,7 +381,7 @@ async function startDetached(s, home) {
   await fs.mkdir(path.dirname(log), { recursive: true });
   rotateLog(log);
   const out = fssync.openSync(log, 'a');
-  const child = spawnChild(s.argv[0], s.argv.slice(1), { cwd: s.cwd, detached: true, stdio: ['ignore', out, out] });
+  const child = spawnChild(s.argv[0], s.argv.slice(1), { cwd: s.cwd, detached: true, stdio: ['ignore', out, out], env: { ...process.env, ...DAEMON_ENV } });
   child.unref(); fssync.closeSync(out);
   await fs.writeFile(pidFile(home), `${child.pid}\n`);
 }

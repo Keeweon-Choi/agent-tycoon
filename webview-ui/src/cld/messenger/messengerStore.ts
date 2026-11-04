@@ -38,18 +38,20 @@ import type {
   PermissionAnswer,
   PermissionAnswerOutcome,
   PermissionAnswerResult,
+  PermissionWait,
   PinnedConversations,
   SetConversationPin,
   SlashCommandsList,
 } from '../../../../core/src/messages.js';
 import type { TabStatus } from '../../components/AgentCard.js';
-import { CHAT_REQUEST_TIMEOUT_MS } from '../../constants.js';
+import { CHAT_REQUEST_TIMEOUT_MS, MSG_QUEST_RECORDS_MAX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { closeWindow, hudSubscribe, openWindow, windowShown } from '../hud/hudStore.js';
 import { type Presence, presenceWord } from '../officeHours.js';
 // Called only when a result arrives (officeStore imports this module too).
 import { serverLine, serverText } from '../serverText.js';
 import type { AttachmentChip } from './attachments.js';
+import type { QuestRecord } from './gameMessenger.js';
 import { shownRoom, shownTimeline } from './goneNames.js';
 import {
   closePane,
@@ -185,6 +187,10 @@ export interface MessengerSnapshot {
   goneDeleteError: string | null;
   /** PERM-PROMPT: the last 허용/거부 of a lead's permission card: on its way, or what it did. */
   permissionAnswers: Record<number, PermissionAnswerState>;
+  /** GAME-UI-1 G1 (02): the answered quests, folded into one-line records (this page only). */
+  questRecords: Record<number, QuestRecord[]>;
+  /** GAME-UI-1 G1 (04): when a lead's last message was confirmed delivered (its row's ✓ 전달됨 badge). */
+  delivered: Record<number, number>;
   /** MSG-SPLIT: the panes (per viewer); the focused one mirrors `active`/`activeRoom`. */
   split: PaneState;
   /** MSG-SPLIT: the desktop messenger is wide enough for its panes (the phone never is). */
@@ -196,6 +202,12 @@ export interface PermissionAnswerState {
   toolId: string;
   result?: PermissionAnswerOutcome;
   error?: string;
+  /** GAME-UI-1 G1 (02): the card as it was answered (it stays to be stamped after the wait is gone),
+   *  the answer, when the server confirmed it, and whether the stamped card has folded. */
+  card?: PermissionWait;
+  allow?: boolean;
+  at?: number;
+  folded?: boolean;
 }
 
 function loadRead(): Record<string, string> {
@@ -247,6 +259,8 @@ const initial = (): MessengerSnapshot => ({
   goneDelete: null,
   goneDeleteError: null,
   permissionAnswers: {},
+  questRecords: {},
+  delivered: {},
   split: loadPanes(),
   splitWide: false,
 });
@@ -846,11 +860,23 @@ export function messengerHandleMessage(
   if (msg.type === 'permissionAnswerResult') {
     const mine = snapshot.permissionAnswers[msg.agentId];
     if (mine?.requestId !== msg.requestId) return;
+    const answered = msg.ok && msg.result === 'answered';
+    const at = Date.now();
     set({
       permissionAnswers: {
         ...snapshot.permissionAnswers,
-        [msg.agentId]: { ...mine, ...(msg.ok ? { result: msg.result ?? 'failed' } : { error: serverText(msg) }) },
+        [msg.agentId]: { ...mine, at, ...(msg.ok ? { result: msg.result ?? 'failed' } : { error: serverText(msg) }) },
       },
+      // GAME-UI-1 G1 (02): only a confirmed answer becomes a stamped record (never noDialog, failed...).
+      ...(answered && {
+        questRecords: {
+          ...snapshot.questRecords,
+          [msg.agentId]: [
+            ...(snapshot.questRecords[msg.agentId] ?? []),
+            { toolId: mine.toolId, allow: mine.allow !== false, at, label: questLabel(mine.card) },
+          ].slice(-MSG_QUEST_RECORDS_MAX),
+        },
+      }),
     });
     return;
   }
@@ -919,6 +945,7 @@ export function messengerHandleMessage(
     // A bubble the queue list made for this message meanwhile gives way to this one.
     const next = list.filter((p) => !queueId || p.requestId !== `${QUEUED_PREFIX}${queueId}`);
     const j = next.findIndex((p) => p.requestId === msg.requestId);
+    if (state === 'sent') snapshot = { ...snapshot, delivered: { ...snapshot.delivered, [Number(id)]: Date.now() } };
     next[j] = {
       ...list[i],
       state,
@@ -1160,14 +1187,28 @@ export function messengerSend(
 export function messengerAnswerPermission(
   send: (m: PermissionAnswer) => void,
   agentId: number,
-  toolId: string,
+  card: PermissionWait,
   allow: boolean,
 ): void {
   if (snapshot.permissionAnswers[agentId] && !snapshot.permissionAnswers[agentId].result && !snapshot.permissionAnswers[agentId].error)
     return; // one answer at a time
   const requestId = `${Date.now().toString(36)}-p${++seq}`;
-  set({ permissionAnswers: { ...snapshot.permissionAnswers, [agentId]: { requestId, toolId } } });
+  const { toolId } = card;
+  set({ permissionAnswers: { ...snapshot.permissionAnswers, [agentId]: { requestId, toolId, card, allow } } });
   send({ type: 'permissionAnswer', requestId, agentId, toolId, allow });
+}
+
+/** GAME-UI-1 G1 (02): a folded record's words: the dialog's title and its first line. */
+export function questLabel(card: PermissionWait | undefined): string {
+  const first = card?.detail?.split('\n').find((l) => l.trim())?.trim();
+  return [card?.tool, first].filter(Boolean).join(' \u00b7 ');
+}
+
+/** GAME-UI-1 G1 (02): the stamped card has shown its stamp: it folds into its record. */
+export function foldQuest(agentId: number, toolId: string): void {
+  const a = snapshot.permissionAnswers[agentId];
+  if (a?.toolId !== toolId || a.folded) return;
+  set({ permissionAnswers: { ...snapshot.permissionAnswers, [agentId]: { ...a, folded: true } } });
 }
 
 /** 지금 보내기 on a queued bubble: it may go in while the lead works. */
@@ -1267,7 +1308,7 @@ export function messengerEditLostClear(): void {
 }
 
 /** Save the composer back into the same pending message instead of making a new send. */
-export function messengerEditSave(send: (m: ChatEdit) => void, text: string): boolean {
+export function messengerEditSave(send: (m: ChatEdit) => void, text: string, replyTo?: ChatReply): boolean {
   const edit = snapshot.editing;
   if (!edit) return false;
   const list = snapshot.pending[edit.agentId] ?? [];
@@ -1279,7 +1320,7 @@ export function messengerEditSave(send: (m: ChatEdit) => void, text: string): bo
     return true;
   }
   const next = [...list];
-  next[i] = { ...next[i], editing: true, editText: text, refusal: undefined };
+  next[i] = { ...next[i], editing: true, editText: text, refusal: undefined, ...(replyTo && { replyTo }) };
   set({ pending: { ...snapshot.pending, [edit.agentId]: next }, editing: null });
   send({
     type: 'chatEdit',
@@ -1287,6 +1328,7 @@ export function messengerEditSave(send: (m: ChatEdit) => void, text: string): bo
     name: edit.name,
     id: edit.queueId,
     text,
+    ...(replyTo && { replyTo }),
   });
   return true;
 }

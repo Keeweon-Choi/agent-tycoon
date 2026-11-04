@@ -86,6 +86,7 @@ export function auditWhat(row: AuditRow, t: T): string {
     case 'allowedHosts': return t('auth.audit.allowedHosts', { count: detail });
     case 'tokenRotated':
       return t(detail === 'host' ? 'auth.audit.tokenHost' : 'auth.audit.tokenPath');
+    case 'spec': return t('spec.audit', { what: detail });
     case 'lockout':
       return t(detail === 'direct' ? 'auth.audit.lockoutDirect' : 'auth.audit.lockoutShort');
     default: return row.kind;

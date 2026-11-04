@@ -254,23 +254,23 @@ describe('room decor', () => {
     expect(grown.layouts[0].furniture.map((v) => v.uid)).toContain('seat:a1');
   });
 
-  it('moves and removes the lobby board; a reset restores only its own room', () => {
+  it('moves and removes a lobby bench; a reset restores only its own room', () => {
     const f = floor('a', ['a1']);
-    const board = f.layout.furniture.find((v) => v.uid === 'lobby:board')!;
+    const bench = f.layout.furniture.find((v) => v.uid === 'lobby:bench-1')!;
     const moved = structuredClone(saveOf([f], empty)) as FloorLayout;
-    moved.furniture.find((v) => v.uid === 'lobby:board')!.row++;
+    moved.furniture.find((v) => v.uid === 'lobby:bench-1')!.row++;
     moved.furniture.find((v) => v.uid === 'desk:a1')!.col--;
     const d = decorFromSave(moved, [f], empty, catalog) as Decor;
-    expect(d.rooms['로비'].removed).toEqual(['lobby:board']);
-    const shownBoard = (dec: Decor) =>
-      composeOffice([f], dec, catalog).layouts[0].furniture.filter((v) => v.uid === 'lobby:board');
-    expect(shownBoard(d)).toEqual([{ ...board, row: board.row + 1 }]);
+    expect(d.rooms['로비'].removed).toEqual(['lobby:bench-1']);
+    const shownBench = (dec: Decor) =>
+      composeOffice([f], dec, catalog).layouts[0].furniture.filter((v) => v.uid === 'lobby:bench-1');
+    expect(shownBench(d)).toEqual([{ ...bench, row: bench.row + 1 }]);
     const reset = resetDecorRoom(d, '로비');
-    expect(shownBoard(reset)).toEqual([board]);
+    expect(shownBench(reset)).toEqual([bench]);
     expect(reset.rooms.a).toEqual(d.rooms.a);
     const removed = structuredClone(saveOf([f], empty)) as FloorLayout;
-    removed.furniture = removed.furniture.filter((v) => v.uid !== 'lobby:board');
-    expect(shownBoard(decorFromSave(removed, [f], empty, catalog) as Decor)).toEqual([]);
+    removed.furniture = removed.furniture.filter((v) => v.uid !== 'lobby:bench-1');
+    expect(shownBench(decorFromSave(removed, [f], empty, catalog) as Decor)).toEqual([]);
   });
 
   it('keeps an item added on floor 2 (editor uids carry no floor prefix)', () => {

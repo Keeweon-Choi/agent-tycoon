@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { chatHistory, chatSearch } from './transcriptHistory.js';
 import { TranscriptTail } from './transcriptView.js';
@@ -221,4 +221,70 @@ describe('transcript history', () => {
     ]);
     expect((await chatSearch(file, 'secret')).hits).toEqual([]);
   });
+
+  it('MEM-IDLE: reads a room turn across megabyte lines without parsing or holding them', async () => {
+    const file = path.join(root(), 'big.jsonl');
+    const MB = 1024 * 1024;
+    const blob = JSON.stringify({ type: 'api-request-blob', blob: 'Q'.repeat(MB) }) + '\n';
+    const image = JSON.stringify({
+      type: 'user',
+      message: {
+        content: [{ type: 'tool_result', content: [{ type: 'image', source: { data: 'Q'.repeat(MB) } }] }],
+      },
+    }) + '\n';
+    write(file, [
+      record(0, 'before direct message'),
+      blob,
+      JSON.stringify({
+        type: 'user',
+        uuid: 'room-prompt',
+        timestamp: new Date(1_790_000_001_000).toISOString(),
+        message: { content: "[peer · 단톡방 '출시팀' · 10-22 10:05]\n@alpha secret room post" },
+      }) + '\n',
+      image,
+      blob,
+      record(3, 'secret room reply'),
+      image,
+      record(4, 'after direct message'),
+    ]);
+    const parse = vi.spyOn(JSON, 'parse');
+    try {
+      // The room turn is found forwards across the 256 KB chunks: its reply stays hidden.
+      expect((await chatHistory(file)).items.map((item) => item.text)).toEqual([
+        'before direct message',
+        'after direct message',
+      ]);
+      const sizes = parse.mock.calls.map(([text]) => String(text).length);
+      expect(sizes.length).toBeGreaterThan(0);
+      expect(Math.max(...sizes)).toBeLessThan(64 * 1024);
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it('MEM-IDLE: a room post steered in beside a big tool result still starts its room turn', async () => {
+    const file = path.join(root(), 'steer.jsonl');
+    write(file, [
+      record(0, 'before direct message'),
+      JSON.stringify({
+        type: 'user',
+        uuid: 'steer-room',
+        timestamp: new Date(1_790_000_001_000).toISOString(),
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 't1', content: 'y'.repeat(20_000) },
+            { type: 'text', text: "[peer · 단톡방 '출시팀' · 10-22 10:05]\n@alpha steered room post" },
+          ],
+        },
+      }) + '\n',
+      record(3, 'secret room reply'),
+      record(4, 'after direct message'),
+    ]);
+    expect((await chatHistory(file)).items.map((item) => item.text)).toEqual([
+      'before direct message',
+      'after direct message',
+    ]);
+    expect((await chatSearch(file, 'secret')).hits).toEqual([]);
+  });
 });
+

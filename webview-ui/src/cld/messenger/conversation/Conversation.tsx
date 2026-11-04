@@ -18,6 +18,7 @@ import { TerminalGlyph } from '../../hud/glyphs.js';
 import { fatigueFor, useCldStore } from '../../officeStore.js';
 import { serverLine, serverText } from '../../serverText.js';
 import { requestStaleRecheck } from '../../staleBuild.js';
+import { useWaitReasons } from '../../waiting.js';
 import { WaitMark } from '../../WaitMark.js';
 import { draftViewerFiles, useDraftTicketFor, useTicketFor } from '../attachmentGallery.js';
 import {
@@ -32,6 +33,8 @@ import { AttachmentGallery } from '../AttachmentViewer.js';
 import { DraftChip, sentFiles } from '../BubbleAttachments.js';
 import { keepPhoneComposerFocus } from '../composerFocus.js';
 import { composerHeight } from '../composerGrow.js';
+import { flyEnvelope } from '../envelope.js';
+import { placeRecords, questionText, setTypewriter, useTypewriter } from '../gameMessenger.js';
 import { shownName } from '../goneNames.js';
 import { Line, QuotePeek, ReplyChip } from '../Line.js';
 import { messageCharacterCount, prepareMessage } from '../longMessage.js';
@@ -62,7 +65,7 @@ import {
   useRow,
 } from '../parts.js';
 import { Pending } from '../Pending.js';
-import { PermissionCard } from '../PermissionCard.js';
+import { PermissionCard, QuestionCard, QuestRecordLine } from '../PermissionCard.js';
 import { peekView } from '../quotePeek.js';
 import { jumpLabel } from '../scrollJump.js';
 import { senderKey, startsRun } from '../senderFace.js';
@@ -95,6 +98,33 @@ export function Conversation({
     (row && 'dir' in row ? row.dir : undefined);
   const chips = m.attachments[agentId] ?? NO_CHIPS;
   const items = m.items[agentId];
+  // GAME-UI-1 G1 (01): what this view loaded first is history (shown at once); only the newest lead
+  // line that came in after it is fresh (it may type in, and carries ▼).
+  const [history, setHistory] = useState<Set<string> | null>(null);
+  if (items && !history) setHistory(new Set(items.map((i) => i.id)));
+  const newest = items && [...items].reverse().find((i) => i.kind === 'assistant');
+  const freshId = newest && history && !history.has(newest.id) ? newest.id : undefined;
+  const typewriter = useTypewriter();
+  const waitWhy = useWaitReasons()[agentId];
+  const answer = m.permissionAnswers[agentId];
+  const records = m.questRecords[agentId];
+  // The record of the card still showing its stamp joins the conversation once that card has folded,
+  // or at once when another call's card has taken its place.
+  const stamping =
+    answer && !answer.folded && (contact?.permission?.toolId ?? answer.toolId) === answer.toolId
+      ? answer.toolId
+      : undefined;
+  const placed = useMemo(
+    () =>
+      records?.length && items
+        ? placeRecords(
+            items.map((i) => i.at),
+            records.filter((r) => r.toolId !== stamping),
+          )
+        : null,
+    [records, items, stamping],
+  );
+  const formRef = useRef<HTMLFormElement>(null);
   // U-25: a cancelled queued message keeps its data in the store but is not shown.
   const pending = (m.pending[agentId] ?? []).filter((p) => p.state !== 'cancelled');
   const received = m.received[agentId] ?? [];
@@ -158,6 +188,7 @@ export function Conversation({
     reply,
     setReply,
     editRestore,
+    parkReply,
     pendingEdit,
     peekOn,
     peekDo,
@@ -263,6 +294,10 @@ export function Conversation({
   };
   /** Phones: no Ctrl+Enter, so 즉시 is a button (under the text box, UI-PHONE). */
   const touch = isTouchDevice();
+  // GAME-UI-1 G1 (02): the daemon's wait while it lasts (the agent still waits, so the card and its
+  // buttons stay), or the one just answered while its stamp shows (then it folds).
+  const questCard =
+    contact?.permission ?? (answer?.result === 'answered' && !answer.folded ? answer.card : undefined);
   const keepComposerFocus = (event: ReactPointerEvent<HTMLButtonElement>) =>
     keepPhoneComposerFocus(phone, event);
   const attachButton = (
@@ -300,17 +335,15 @@ export function Conversation({
 
   /** `now`: 즉시 보내기 (Ctrl+Enter, the 즉시 button): it may go in while the lead works. */
   const submit = async (now = false, clearApproved = false) => {
+    // A held message's edit keeps its text (the box holds at most CHAT_SEND_MAX) and takes files like
+    // a new message: they go up and their lines join the replacement text.
     if (pendingEdit) {
-      if (!text.trim()) return;
-      if (messengerEditSave((msg) => transport.send(msg), text)) {
-        edit('');
-        editRestore.current = null;
-        requestStaleRecheck();
-      }
+      if (!text.trim() || uploading || store.officeReadOnly) return;
+    } else if ((!text.trim() && !chips.length) || sending || uploading || store.officeReadOnly)
       return;
-    }
-    if ((!text.trim() && !chips.length) || sending || uploading || store.officeReadOnly) return;
-    const prepared = prepareMessage(text, CHAT_SEND_MAX);
+    const prepared = pendingEdit
+      ? { text, attachment: undefined }
+      : prepareMessage(text, CHAT_SEND_MAX);
     const hasGeneratedAttachment = prepared.attachment !== undefined;
     if (!clearApproved && !chips.length && text.trim() === '/clear') {
       setClearPrompt(true);
@@ -368,6 +401,17 @@ export function Conversation({
         );
         return;
       }
+      if (pendingEdit) {
+        // A reply picked while editing re-points the held message (its own chip, else the old quote stays).
+        if (!messengerEditSave((msg) => transport.send(msg), outgoing, reply ?? undefined)) return;
+        editRestore.current = null;
+        setReply(null);
+        edit('');
+        setAttachments(agentId, []);
+        requestStaleRecheck();
+        return;
+      }
+      flyEnvelope(agentId, formRef.current?.querySelector('button[type="submit"]'));
       messengerSend(
         (msg) => transport.send(msg),
         transport.state === 'connected',
@@ -433,6 +477,19 @@ export function Conversation({
               )}
             </span>
           </span>
+          {/* GAME-UI-1 G1 (01): 타자 효과 켬 / 끔 (this browser; a phone keeps its header for the name). */}
+          {!phone && (
+            <button
+              type="button"
+              className="dlg-switch text-2xs shrink-0"
+              aria-pressed={typewriter}
+              data-testid="typing-switch"
+              onClick={() => setTypewriter(!typewriter)}
+            >
+              {t('game.msg.typing')}
+              <span className="dlg-switch-v">{typewriter ? t('game.msg.on') : t('game.msg.off')}</span>
+            </button>
+          )}
           <Button
             size="icon_md"
             aria-label={t('messenger.search')}
@@ -614,8 +671,10 @@ export function Conversation({
                       {t('messenger.sessionStart', { time: sessionClock(item.sessionStart ?? item.at) })}
                     </p>
                   )}
+                  {index === 0 && placed?.get(-1)?.map((r) => <QuestRecordLine key={r.toolId} record={r} />)}
                   <Line
                     item={item}
+                    fresh={item.id === freshId}
                     received={received.includes(item.id)}
                     project={name}
                     projectRoot={projectRoot}
@@ -632,6 +691,11 @@ export function Conversation({
                         : { show: startsRun(items, index), name: item.fromName ? serverLine(item.fromName) : shown }
                     }
                   />
+                  {placed?.get(index)?.map((r) => (
+                    <div key={r.toolId} className="mt-8">
+                      <QuestRecordLine record={r} />
+                    </div>
+                  ))}
                   {dividerAfter(items, index) !== undefined && (
                     <p
                       className="previous-band text-center text-2xs py-4 px-8 mt-6"
@@ -655,8 +719,10 @@ export function Conversation({
                 }
                 edit={() => {
                   editRestore.current = text;
-                  if (messengerEditEnter((msg) => transport.send(msg), agentId, name, p.requestId))
+                  if (messengerEditEnter((msg) => transport.send(msg), agentId, name, p.requestId)) {
+                    parkReply();
                     setText(p.text);
+                  }
                 }}
                 cancel={() =>
                   messengerCancel((msg) => transport.send(msg), agentId, name, p.requestId)
@@ -797,7 +863,7 @@ export function Conversation({
               </button>
             </div>
           )}
-          {pendingEdit && pendingReply && <ReplyChip reply={pendingReply} open={openQuote} />}
+          {pendingEdit && pendingReply && !reply && <ReplyChip reply={pendingReply} open={openQuote} />}
           {m.editLost?.agentId === agentId && (
             <div
               className="mb-6 border-2 border-danger bg-bg-dark px-8 py-6 text-xs flex flex-wrap items-center gap-8"
@@ -834,7 +900,7 @@ export function Conversation({
               </button>
             </div>
           )}
-          {!pendingEdit && reply && (
+          {reply && (
             <ReplyChip
               reply={reply}
               cancel={() => setReply(null)}
@@ -850,7 +916,7 @@ export function Conversation({
               close={() => peekDo('close')}
             />
           )}
-          {!pendingEdit && chips.length > 0 && (
+          {chips.length > 0 && (
             <div className="flex flex-wrap gap-4 pb-6" aria-label={t('messenger.attachments')}>
               {chips.map((chip) => (
                 <DraftChip
@@ -871,15 +937,24 @@ export function Conversation({
               {t('messenger.renewingNote')}
             </p>
           )}
-          {contact?.permission ? (
+          {questCard ? (
             <PermissionCard
+              key={questCard.toolId}
               agentId={agentId}
-              card={contact.permission}
+              name={shown}
+              card={questCard}
               canAnswer={canSend && !store.officeReadOnly}
               visualViewportHeight={visualViewportHeight}
               openTerminal={
                 target?.kind === 'background' ? () => requestChat(agentId, target.id) : null
               }
+            />
+          ) : waitWhy === 'question' && !contact?.held ? (
+            <QuestionCard
+              agentId={agentId}
+              name={shown}
+              question={questionText(items)}
+              onAnswer={canSend && !store.officeReadOnly && !codexWorker ? () => box.current?.focus() : null}
             />
           ) : (
             contact?.held && (
@@ -894,6 +969,7 @@ export function Conversation({
             </p>
           ) : canSend && !store.officeReadOnly ? (
             <form
+              ref={formRef}
               className="flex flex-col gap-6"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -995,22 +1071,20 @@ export function Conversation({
                     </p>
                   )}
                 </div>
-                {!pendingEdit && (
-                  <input
-                    ref={picker}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    aria-label={t('messenger.chooseFiles')}
-                    accept={ATTACH_ACCEPT}
-                    onChange={(event) => {
-                      setChoosingAttachments(false);
-                      if (event.target.files) addFiles(event.target.files);
-                      event.target.value = '';
-                    }}
-                  />
-                )}
-                {!touch && !pendingEdit && attachButton}
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  aria-label={t('messenger.chooseFiles')}
+                  accept={ATTACH_ACCEPT}
+                  onChange={(event) => {
+                    setChoosingAttachments(false);
+                    if (event.target.files) addFiles(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+                {!touch && attachButton}
                 <Button
                   type="submit"
                   variant="accent"
@@ -1022,25 +1096,27 @@ export function Conversation({
                   {sending ? t('messenger.send.sending') : t('messenger.sendButton')}
                 </Button>
               </div>
-              {touch && !pendingEdit && (
+              {touch && (
                 // UI-PHONE: the text box keeps the row; 첨부 and 즉시 보내기 (named in full, with
                 // its icon) take a row of their own under it.
                 <div className="flex gap-8 justify-between" data-testid="composer-tools">
                   {attachButton}
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={sending || uploading || renewing || (!text.trim() && !chips.length)}
-                    title={renewing ? t('messenger.renewingNote') : t('messenger.sendNowHint')}
-                    data-testid="send-now"
-                    onPointerDown={keepComposerFocus}
-                    onClick={() => void submit(true)}
-                  >
-                    <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
-                      bolt
-                    </span>
-                    {t('uiPhone.sendNow')}
-                  </Button>
+                  {!pendingEdit && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={sending || uploading || renewing || (!text.trim() && !chips.length)}
+                      title={renewing ? t('messenger.renewingNote') : t('messenger.sendNowHint')}
+                      data-testid="send-now"
+                      onPointerDown={keepComposerFocus}
+                      onClick={() => void submit(true)}
+                    >
+                      <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                        bolt
+                      </span>
+                      {t('uiPhone.sendNow')}
+                    </Button>
+                  )}
                 </div>
               )}
             </form>

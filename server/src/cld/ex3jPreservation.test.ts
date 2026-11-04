@@ -12,6 +12,7 @@ import { promisify } from 'util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as zlib from 'zlib';
 
+import { STORE_META_V } from './characterPresets.js';
 import { codexDir } from './engine/codex.js';
 import { readRecords } from './engine/git/worktrees.js';
 import type { Typist } from './engine/messenger.js';
@@ -356,7 +357,7 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     });
     for (const room of ['devroom01', 'opsroom01']) expect(allAfter[`groups/${room}.2026-10.jsonl`]).toBe(allBefore[`groups/${room}.jsonl`]);
     // CH-1: the first start pins every character's look, then $meta.
-    expect(JSON.parse(allAfter['characters.json']).$meta).toMatchObject({ v: 2 });
+    expect(JSON.parse(allAfter['characters.json']).$meta).toMatchObject({ v: STORE_META_V });
     expect(typed).toEqual([]); // and typed nothing (alpha is mid-turn, the inbox waits for a start)
 
     // 2. Two Workers join alpha (the upgrade in use): only assignments.json gains them.
@@ -483,7 +484,7 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
       added: Object.keys(after).filter((k) => !(k in before)).sort(),
       changed: Object.keys(before).filter((k) => after[k] !== before[k]),
     }).toEqual({ added: ['characters.json', 'characters/README.md', 'engine.boot', 'host.json', 'owner-token'], changed: [] });
-    expect(JSON.parse(after['characters.json']).$meta).toMatchObject({ v: 2 }); // CH-1 pin
+    expect(JSON.parse(after['characters.json']).$meta).toMatchObject({ v: STORE_META_V }); // CH-1 pin
     expect(codexFiles()).toEqual(codexBefore);
   }, 60_000);
 });

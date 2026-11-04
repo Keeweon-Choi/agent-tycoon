@@ -50,6 +50,7 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 
@@ -708,7 +709,7 @@ async function main() {
     c1 = await cam(page);
     check(c1.x === c0.x && c1.y === c0.y, 'desktop: edge-scroll is off by default');
     await page.mouse.move(640, 400);
-    await page.getByRole('button', { name: '설정' }).click();
+    await topBarButton(page, '설정');
     // SETTINGS-TABS: the edge-scroll row is in the 화면 tab.
     await page.getByRole('tab', { name: '화면', exact: true }).click();
     const toggle = page.getByRole('button', { name: '가장자리 스크롤' });
@@ -949,7 +950,7 @@ async function main() {
     });
     // T-0041: the settings button is on the phone too (office hours); only the mouse-only
     // edge-scroll row is left out of it.
-    await phone.getByRole('button', { name: '설정', exact: true }).first().tap();
+    await topBarButton(phone, '설정');
     await phone.getByRole('tab', { name: '화면', exact: true }).tap(); // SETTINGS-TABS: where the row would be
     const edgeRow = await phone.getByText('가장자리 스크롤').isVisible();
     await phone.getByRole('button', { name: 'x', exact: true }).last().tap();

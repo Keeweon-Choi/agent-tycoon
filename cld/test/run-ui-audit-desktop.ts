@@ -28,6 +28,8 @@ import {
   REPO_ROOT,
   sparePort,
   startDaemon,
+  topBarButton,
+  topBarReady,
 } from '../../server/src/cld/testHome.js';
 
 const port = sparePort();
@@ -234,7 +236,7 @@ async function main() {
       const page = await ctx.newPage();
       page.on('pageerror', (err) => pageErrors.push(String(err)));
       await page.goto(`http://127.0.0.1:${port}/`);
-      await page.getByRole('button', { name: '설정', exact: true }).first().waitFor({ timeout: 60_000 });
+      await topBarReady(page, 60_000);
       await until('lead is in', async () =>
         (await page.$$eval('[data-testid="card-name"]', (n) => n.map((x) => x.textContent))).includes('lead'),
       );
@@ -306,10 +308,10 @@ async function main() {
         await survey('card bar', page.locator('[data-testid="agent-card"]').first().locator('xpath=ancestor::*[@data-hud-fixed][1]'));
       });
 
-      await modal('settings-일반', async () => page.getByRole('button', { name: '설정', exact: true }).first().click());
+      await modal('settings-일반', async () => topBarButton(page, '설정'));
       for (const tab of ['화면', '접속', '보안', '고급']) {
         await scene(`settings-${tab}`, async () => {
-          await page.getByRole('button', { name: '설정', exact: true }).first().click();
+          await topBarButton(page, '설정');
           await dialog().waitFor();
           await page.getByRole('tab', { name: tab, exact: true }).click();
           await page.waitForTimeout(400);
@@ -318,9 +320,9 @@ async function main() {
           await page.getByRole('button', { name: 'x', exact: true }).last().click();
         });
       }
-      await modal('security', async () => topBar().getByRole('button', { name: '보안', exact: true }).click());
-      await modal('add-device', async () => topBar().getByRole('button', { name: '기기 추가', exact: true }).click());
-      await modal('legend', async () => topBar().getByRole('button', { name: '범례', exact: true }).click());
+      await modal('security', async () => topBarButton(page, '보안'));
+      await modal('add-device', async () => topBarButton(page, '기기 추가'));
+      await modal('legend', async () => topBarButton(page, '범례'));
 
       await scene('office', async () => {
         await icon('현황판').click();

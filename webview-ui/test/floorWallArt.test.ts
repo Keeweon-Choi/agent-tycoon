@@ -56,3 +56,28 @@ test('wall sheet: 16 pieces, outline only where no wall continues', () => {
     assert.equal(px(m, 8, 16).a, 255);
   }
 });
+
+test('carpets (gen-carpets.ts): three distinct 64x64 sheets, two grey levels, empty piece 0, full piece 15', () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < 3; i++) {
+    const png = read(`carpets/carpet_${i}.png`);
+    assert.equal(png.width, 64);
+    assert.equal(png.height, 64);
+    const levels = new Set<number>();
+    const alphaAt = (x: number, y: number) => png.data[(y * 64 + x) * 4 + 3];
+    for (let p = 0; p < png.data.length; p += 4) {
+      if (png.data[p + 3] === 0) continue;
+      assert.ok(png.data[p] === png.data[p + 1] && png.data[p + 1] === png.data[p + 2]);
+      levels.add(png.data[p]);
+    }
+    // the engine keeps only the darkest (main) and lightest (accent) pixels
+    assert.equal(levels.size, 2, `carpet_${i} has two grey levels`);
+    for (let y = 0; y < 16; y++)
+      for (let x = 0; x < 16; x++) {
+        assert.equal(alphaAt(x, y), 0, `carpet_${i} piece 0 is empty`);
+        assert.equal(alphaAt(48 + x, 48 + y), 255, `carpet_${i} piece 15 is full`);
+      }
+    seen.add(png.data.toString('base64'));
+  }
+  assert.equal(seen.size, 3, 'the three carpets differ');
+});

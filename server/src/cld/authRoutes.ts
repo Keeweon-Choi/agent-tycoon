@@ -1070,7 +1070,8 @@ function requestLabel(request: FastifyRequest): string {
 }
 
 /** O3: how the request came in, for the record: this PC, the LAN listener, or anything else. */
-function contextOf(request: FastifyRequest): AuditContext {
+/** How a request came in, for audit.jsonl (local, LAN or remote, and the peer). */
+export function contextOf(request: FastifyRequest): AuditContext {
   return {
     via: isLocalRequest(request) ? 'local' : isLanRequest(request.socket) ? 'lan' : 'remote',
     peer: requestClient(request),

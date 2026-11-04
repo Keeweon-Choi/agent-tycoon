@@ -28,3 +28,29 @@ describe('i18n', () => {
     expect(translate('settings.bypass.recommended', undefined, 'ko')).toBe('추천');
   });
 });
+
+describe('lazy spec strings', () => {
+  it('a spec key shows itself before the strings are registered, and never throws', async () => {
+    expect(translate('spec.graph.title', undefined, 'en')).toBe('spec.graph.title');
+    expect(translate('spec.graph.title', undefined, 'ko')).toBe('spec.graph.title');
+  });
+
+  it('translates in both languages once registered, also when registered twice', async () => {
+    const { specEn } = await import('../src/i18n/spec.en.js');
+    const { specKo } = await import('../src/i18n/spec.ko.js');
+    await import('../src/i18n/specStrings.js');
+    const { addStrings } = await import('../src/i18n/lazy.js');
+    addStrings(specEn, specKo);
+    expect(translate('spec.noJobs', undefined, 'en')).toBe(specEn['spec.noJobs']);
+    expect(translate('spec.noJobs', undefined, 'ko')).toBe(specKo['spec.noJobs']);
+    expect(specKo['spec.noJobs']).not.toBe(specEn['spec.noJobs']);
+    expect(translate('spec.exit', { code: 3 }, 'en')).toBe('exit 3');
+  });
+
+  it('keeps the spec strings in English and Korean parity, apart from the main bundle ones', async () => {
+    const { specEn } = await import('../src/i18n/spec.en.js');
+    const { specKo } = await import('../src/i18n/spec.ko.js');
+    expect(Object.keys(specKo).sort()).toEqual(Object.keys(specEn).sort());
+    expect(Object.keys(specEn).filter((k) => k in en)).toEqual([]);
+  });
+});

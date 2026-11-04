@@ -1,17 +1,6 @@
 {
   "night": {
-    "sky": ["#060a22", "#0b1236", "#121c50", "#1c2a68", "#2d3a7c", "#46508f", "#6d6aa0"],
-    "stars": ["#6c78b8", "#a7b3ea", "#e2e8ff"],
-    "moon": { "disc": "#f2ecca", "crater": "#d3c99f", "pit": "#ded4ab", "glow": "190,205,255", "glowK": 0.22 },
-    "sun": null,
-    "cloud": null,
-    "hills": ["#1c2554", "#161d46"],
-    "skyline": [
-      { "body": "#36427c", "top": "#44508c", "lit": "#b79b68", "off": "#3b4784", "pLit": 0.03, "pOff": 0.05 },
-      { "body": "#252f62", "top": "#303b74", "lit": "#e6b45e", "off": "#2b3669", "pLit": 0.06, "pOff": 0.06 },
-      { "body": "#171e48", "top": "#222a5c", "lit": "#ffd27a", "off": "#1d2552", "pLit": 0.09, "pOff": 0.05 }
-    ],
-    "haze": "#1a2252",
+    "fog": { "body": "#1c2046", "lit": "#2c3264", "shade": "#141738" },
     "ground": {
       "road": "#171b33", "road2": "#1a1f38", "dash": "#6f6a46",
       "walk": "#363c68", "walkJ": "#2c3258", "curb": "#4b5488",
@@ -30,18 +19,7 @@
     "mainGlowK": 0.2
   },
   "day": {
-    "sky": ["#8fd0f4", "#a8dcf7", "#c3e8fa", "#dcf2fc", "#eef9fd", "#fdf6ec"],
-    "stars": [],
-    "moon": null,
-    "sun": { "disc": "#fff3b0", "glow": "255,244,190", "glowK": 0.35 },
-    "cloud": { "white": "#ffffff", "soft": "#f6fbff", "shade": "#d3e4f5" },
-    "hills": ["#bfe0d6", "#a7d4bc"],
-    "skyline": [
-      { "body": "#d3cbe6", "top": "#e2dcef", "lit": "#ffffff", "off": "#b9c6e6", "pLit": 0.03, "pOff": 0.07 },
-      { "body": "#c4bddc", "top": "#d6cfe8", "lit": "#ffffff", "off": "#aab8de", "pLit": 0.05, "pOff": 0.08 },
-      { "body": "#b2abd0", "top": "#c8c1e0", "lit": "#f4f8ff", "off": "#9aaad6", "pLit": 0.06, "pOff": 0.08 }
-    ],
-    "haze": "#e4f4f4",
+    "fog": { "body": "#f2f3fb", "lit": "#ffffff", "shade": "#d4d6ec" },
     "ground": {
       "road": "#c6c2d8", "road2": "#cdc9de", "dash": "#fffdf2",
       "walk": "#f3ead3", "walkJ": "#e3d8bc", "curb": "#ffffff",

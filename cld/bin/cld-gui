@@ -219,7 +219,7 @@ function request(cmd, args, timeoutMs = 90_000) {
   });
 }
 
-/** The lines of the office's HW panel (webview-ui format.ts hwSections), one reading each. */
+/** The lines of the board's H/W screen (webview-ui format.ts hwSections), one reading each. */
 function hwLines(hw) {
   const src = (k) => (hw.sources?.[k] ? ` (${hw.sources[k]})` : '');
   const num = (x) => typeof x === 'number';

@@ -42,10 +42,10 @@ export const PANTRY_TYPES = {
  *  used from (its label then sits below the machines, not over them). */
 const PANTRY_SIZE = { w: 3 };
 const PANTRY_MACHINE_ROWS = 2;
-/** Floor 1's entrance (T-0046): the office door, the big board, benches. */
+/** Floor 1's entrance (T-0046): the office door and benches. The lobby board stands outside the
+ *  building as a billboard since building-a-1104 (webview iso/billboard.ts): none is placed here;
+ *  one a user placed or moved stays theirs (decor), the isometric view leaves it out. */
 export const LOBBY_ROOM = koText('room_lobby');
-/** The board's furniture type (webview-ui/public/assets/furniture/LED_BOARD). */
-export const BOARD_TYPE = 'LED_BOARD';
 /** A work room's whiteboard (T-0065): a 2x2 wall item, the memo is drawn over it by the webview. */
 export const WHITEBOARD_TYPE = 'WHITEBOARD';
 export const whiteboardUid = (room: string): string => `whiteboard:${room}`;
@@ -62,13 +62,13 @@ const WALK = 2;
 const STEP = UNIT + WALK;
 const DOOR = 3;
 const LOUNGE_SIZE = { w: 11, h: 9 };
-/** The big board's footprint (LED_BOARD, about two office rooms wide). */
-export const BOARD_SIZE = { w: 28, h: 11 };
-/** Its top rows hang on the wall: characters never stand behind them. */
-const BOARD_BACKGROUND_ROWS = 2;
-// The lobby: the board (its screen up on the top wall), a walkway, benches
-// facing it, room to walk, and the office door in the outer wall.
-const LOBBY_SIZE = { w: BOARD_SIZE.w + 7, h: BOARD_SIZE.h + 4 };
+// The lobby: room to walk, benches across it, and the office door in the outer wall (the size
+// it had round the old board: rooms beside it keep their places). Benches stand this many rows
+// down from its top, the first this far in from its left, then every BENCH_STEP columns.
+const LOBBY_SIZE = { w: 35, h: 15 };
+const BENCH_ROW = 11;
+const BENCH_COL = 9;
+const BENCH_STEP = 9;
 const unitsPerRow = (units: number) => (units > 6 ? 4 : 3);
 const WALL_COLOR = { h: 214, s: 30, b: -100, c: -55 };
 // Floor tile type + colour per room, cycled (taken from the bundled layout).
@@ -279,23 +279,19 @@ export function generateLayout(
       }
     };
     if (room.lobby) {
-      // T-0046: the big board stands against the top wall, its screen up on
-      // the wall, clear of a door down from the shelf above (cols 2-4 of a
-      // first room); benches face it across a walkway.
-      const bx = room.x + 5;
-      const front = room.y + BOARD_SIZE.h - BOARD_BACKGROUND_ROWS;
+      // T-0046: benches across a walkway, clear of a door down from the shelf above (cols 2-4
+      // of a first room).
       door(room.x + Math.floor(room.w / 2));
-      furniture.push({ uid: 'lobby:board', type: BOARD_TYPE, col: bx, row: room.y - 1 });
       for (const k of [0, 1, 2])
         furniture.push({
           uid: `lobby:bench-${k + 1}`,
           type: 'LOBBY_BENCH',
-          col: bx + 4 + 9 * k,
-          row: front + 2,
+          col: room.x + BENCH_COL + BENCH_STEP * k,
+          row: room.y + BENCH_ROW,
         });
       furniture.push(
         { uid: 'lobby:plant-1', type: 'PLANT', col: room.x + 1, row: room.y + 1 },
-        { uid: 'lobby:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: front + 3 },
+        { uid: 'lobby:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: room.y + BENCH_ROW + 1 },
       );
       return;
     }

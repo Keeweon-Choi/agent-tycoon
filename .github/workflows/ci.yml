@@ -101,6 +101,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: node cld/scripts/docs-check.mjs --root cld
 
+      - name: Traceability Drift
+        if: ${{ !cancelled() }}
+        run: node cld/scripts/docs-check.mjs --root cld --write-trace && git diff --exit-code cld/docs/requirements/traceability.md
+
   # Manual runs and version tags only.
   # R4: the server suite on macOS and Windows (Linux runs it in the gate). Same policy as the e2e matrix.
   server-tests:

@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button.js';
 import { t } from '../../i18n/index.js';
 import { splitAttachmentText } from './attachments.js';
 import { BubbleAttachments } from './BubbleAttachments.js';
-import { FACE_COLUMN, FACE_GAP, FACE_GUTTER_LEFT } from './Faces.js';
+import { FACE_COLUMN, FACE_GAP, OWNER_GUTTER_LEFT } from './Faces.js';
 import { Actionable, ActionRow, FoldToggle, ReplyQuote } from './Line.js';
 import { foldBubble } from './longMessage.js';
 import { copyText, replyDraft } from './messageActions.js';
@@ -71,7 +71,7 @@ export function Pending({
       !cancelled && { reply: () => onReply(replyDraft(p.messageId!, undefined, copy)) }),
   };
   return (
-    <div className={`${FACE_GUTTER_LEFT} flex items-start ${FACE_GAP}`} data-testid="pending" data-state={p.state}>
+    <div className={`${OWNER_GUTTER_LEFT} flex items-start ${FACE_GAP}`} data-testid="pending" data-state={p.state}>
       <Actionable actions={bubbleActions} className="min-w-0 flex-1 flex flex-col items-end">
       <div
         className={`text-sm whitespace-pre-wrap [overflow-wrap:anywhere] min-w-0 max-w-full px-8 py-4 border-2 border-dashed ${failed || lost ? 'border-danger' : cancelled ? 'border-border text-text-muted opacity-60' : 'border-accent'}`}

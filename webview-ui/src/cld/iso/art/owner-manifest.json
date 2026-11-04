@@ -40,6 +40,7 @@
         288
       ],
       "faces": "none",
+      "flat": true,
       "from": "round rug"
     },
     "o-cactus": {
@@ -789,6 +790,20 @@
       ],
       "from": "sofa, other side"
     },
+    "o-water-cooler": {
+      "file": "o-water-cooler.png",
+      "density": 12,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        60,
+        379
+      ],
+      "faces": "+col",
+      "from": "water cooler (image model, 11-04)"
+    },
     "o-wall-low": {
       "file": "o-wall-low.png",
       "density": 12,
@@ -866,6 +881,26 @@
     "DESK_FRONT": {
       "piece": "o-desk"
     },
+    "DESK_SIDE": {
+      "piece": "o-desk",
+      "mirror": true
+    },
+    "DESK_B_FRONT": {
+      "piece": "o-desk-b"
+    },
+    "DESK_B_SIDE": {
+      "piece": "o-desk-b",
+      "mirror": true
+    },
+    "PC_BACK": {
+      "piece": "none"
+    },
+    "PC_SIDE": {
+      "piece": "none"
+    },
+    "PC_SIDE:left": {
+      "piece": "none"
+    },
     "PC_FRONT_OFF": {
       "piece": "none"
     },
@@ -890,11 +925,41 @@
     "CUSHIONED_CHAIR_SIDE": {
       "piece": "o-chair-right"
     },
+    "CUSHIONED_CHAIR_SIDE:left": {
+      "piece": "o-chair-left"
+    },
     "WOODEN_CHAIR_FRONT": {
       "piece": "o-chair-down"
     },
     "WOODEN_CHAIR_BACK": {
       "piece": "o-chair-up"
+    },
+    "WOODEN_CHAIR_SIDE": {
+      "piece": "o-chair-right"
+    },
+    "WOODEN_CHAIR_SIDE:left": {
+      "piece": "o-chair-left"
+    },
+    "ARMCHAIR_FRONT": {
+      "piece": "o-armchair-a"
+    },
+    "ARMCHAIR_SIDE": {
+      "piece": "o-armchair-b"
+    },
+    "CABINET_FRONT": {
+      "piece": "o-cabinet-a"
+    },
+    "CABINET_SIDE": {
+      "piece": "o-cabinet-b"
+    },
+    "COFFEE_TABLE_B": {
+      "piece": "o-coffee-table-b"
+    },
+    "WHITEBOARD_SIDE": {
+      "piece": "o-whiteboard-b"
+    },
+    "RUG_ROUND": {
+      "piece": "o-rug-round"
     },
     "PLANT": {
       "piece": "o-monstera"
@@ -946,6 +1011,13 @@
     },
     "VENDING_MACHINE": {
       "piece": "o-vending"
+    },
+    "WATER_COOLER": {
+      "piece": "o-water-cooler",
+      "mirror": true
+    },
+    "LED_BOARD": {
+      "piece": "none"
     }
   },
   "facings": {

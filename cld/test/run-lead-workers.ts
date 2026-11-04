@@ -433,7 +433,7 @@ async function main() {
     await bench2.getByRole('button', { name: '개발', exact: true }).click();
     check(
       (await bench2.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'beta' &&
-        (await bench2.getByRole('button', { name: 'Task', exact: true }).getAttribute('aria-pressed')) === 'true',
+        (await bench2.getByRole('button', { name: '이슈', exact: true }).getAttribute('aria-pressed')) === 'true',
       'W1: the project and the tab are remembered per device (a reload reopens beta / Task)',
     );
     await shotW1(desk, 'desktop-remembered');

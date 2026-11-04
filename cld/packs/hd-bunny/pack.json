@@ -160,42 +160,5 @@
         }
       }
     }
-  ],
-  "characters": [
-    {
-      "id": "bunny",
-      "name": {
-        "ko": "바니",
-        "en": "Bunny"
-      }
-    }
-  ],
-  "presets": [
-    {
-      "id": "bunny",
-      "character": "bunny",
-      "outfit": "bunny",
-      "name": {
-        "ko": "바니걸 (64×128)",
-        "en": "Bunny girl (64×128)"
-      },
-      "look": {
-        "v": 3,
-        "kind": "person",
-        "gender": "f",
-        "body": "curvy",
-        "parts": {
-          "body": "body",
-          "face": "face",
-          "hair": "hair",
-          "fullbody": "suit",
-          "legwear": "tights",
-          "shoes": "heels",
-          "wrist": "cuffs",
-          "neck": "bowtie",
-          "back": "tail"
-        }
-      }
-    }
   ]
 }

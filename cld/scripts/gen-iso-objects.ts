@@ -24,7 +24,7 @@
  * from the individual files (cld/artifacts/iso-2/review-sheet.png): footprint outlines, anchor
  * dots, seat points. The source pictures are never copied into the repo.
  *
- *   npx tsx cld/scripts/gen-iso-objects.ts [--src <dir with batch1 batch2 batch3>]
+ *   npx tsx cld/scripts/gen-iso-objects.ts [--src <dir with batch1 batch2 batch3 batch4>]
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -342,6 +342,16 @@ const OBJECTS: Record<string, Spec> = {
     kind: 'floor',
     note: 'light wood floor',
   },
+  // iso-prep-1104: drawn by our image model to the owner's cabinet (11-04, raw j1-water-cooler-a2);
+  // its taps face the lower right, the pantry draws it flipped to face the room like the machines.
+  '4/watercooler': {
+    id: 'water-cooler',
+    kind: 'obj',
+    fp: [1, 1],
+    h: 30,
+    faces: '+col',
+    note: 'water cooler (image model, 11-04)',
+  },
   '3/이소메트릭 픽셀 파일 캐비닛': {
     id: 'cabinet-b',
     kind: 'obj',
@@ -433,6 +443,8 @@ interface Piece {
   /** C1: a piece that plays: its frames (hand-made art, not cut here), and its cup's steam. */
   frames?: string[];
   steam?: [number, number];
+  /** Flat on the floor (a rug): drawn with the floor, under everything that stands. */
+  flat?: boolean;
   from: string;
 }
 const pieces: Record<string, Piece> = {};
@@ -512,6 +524,7 @@ function doFlat(s: Spec & { kind: 'flat' }, cut: Cut): void {
     footprint: s.fp,
     anchor: [fh * HW - out.x, (fw + fh) * HH - out.y],
     faces: 'none',
+    flat: true,
     from: s.note,
   });
   report[s.id] = {
@@ -737,14 +750,17 @@ function doCorner(s: Spec & { kind: 'wall' }, cut: Cut): void {
 // ── Main ─────────────────────────────────────────────────────
 
 if (!fs.existsSync(path.join(SRC, 'batch1'))) {
-  console.error(`no batches in ${SRC} (pass --src <dir with batch1..3>)`);
+  console.error(`no batches in ${SRC} (pass --src <dir with batch1..4>)`);
   process.exit(1);
 }
 fs.mkdirSync(OUT, { recursive: true });
+// The pantry machines' frames are hand-made (copied in, not cut here): kept.
 for (const f of fs.readdirSync(OUT))
-  if (f.startsWith('o-') && f.endsWith('.png')) fs.unlinkSync(path.join(OUT, f));
+  if (f.startsWith('o-') && f.endsWith('.png') && !/^o-(coffee-machine|vending)-\d\.png$/.test(f))
+    fs.unlinkSync(path.join(OUT, f));
 const seen = new Set<string>();
-for (const b of ['1', '2', '3'])
+// batch4: pictures our image model drew to the owner's look (11-04 on), same rules.
+for (const b of ['1', '2', '3', '4'])
   for (const file of fs.readdirSync(path.join(SRC, `batch${b}`)).sort()) {
     const key = `${b}/${normal(file)}`;
     const spec = OBJECTS[key];
@@ -943,8 +959,18 @@ const MIRROR: Record<Facing, Facing> = {
 
 const types: Record<string, { piece: string; mirror?: boolean }> = {
   DESK_FRONT: { piece: 'o-desk' },
+  // iso-prep-1104: a desk turned is the desk flipped; the other make is its own type.
+  DESK_SIDE: { piece: 'o-desk', mirror: true },
+  DESK_B_FRONT: { piece: 'o-desk-b' },
+  DESK_B_SIDE: { piece: 'o-desk-b', mirror: true },
   // The monitor is part of the desk.
+  PC_BACK: { piece: 'none' },
+  PC_SIDE: { piece: 'none' },
+  'PC_SIDE:left': { piece: 'none' },
   PC_FRONT_OFF: { piece: 'none' },
+  // building-a-1104: the lobby board stands outside as a billboard (iso/render.ts); one in a saved
+  // layout is not drawn and its tiles stay bare.
+  LED_BOARD: { piece: 'none' },
   PC_FRONT_ON_1: { piece: 'none' },
   PC_FRONT_ON_2: { piece: 'none' },
   PC_FRONT_ON_3: { piece: 'none' },
@@ -952,8 +978,18 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   CUSHIONED_CHAIR_FRONT: { piece: 'o-chair-down' },
   CUSHIONED_CHAIR_BACK: { piece: 'o-chair-up' },
   CUSHIONED_CHAIR_SIDE: { piece: 'o-chair-right' },
+  'CUSHIONED_CHAIR_SIDE:left': { piece: 'o-chair-left' },
   WOODEN_CHAIR_FRONT: { piece: 'o-chair-down' },
   WOODEN_CHAIR_BACK: { piece: 'o-chair-up' },
+  WOODEN_CHAIR_SIDE: { piece: 'o-chair-right' },
+  'WOODEN_CHAIR_SIDE:left': { piece: 'o-chair-left' },
+  ARMCHAIR_FRONT: { piece: 'o-armchair-a' },
+  ARMCHAIR_SIDE: { piece: 'o-armchair-b' },
+  CABINET_FRONT: { piece: 'o-cabinet-a' },
+  CABINET_SIDE: { piece: 'o-cabinet-b' },
+  COFFEE_TABLE_B: { piece: 'o-coffee-table-b' },
+  WHITEBOARD_SIDE: { piece: 'o-whiteboard-b' },
+  RUG_ROUND: { piece: 'o-rug-round' },
   PLANT: { piece: 'o-monstera' },
   POT: { piece: 'o-cactus' },
   CACTUS: { piece: 'o-cactus' },
@@ -971,6 +1007,7 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   WHITEBOARD: { piece: 'o-whiteboard-a' },
   COFFEE_MACHINE: { piece: 'o-coffee-machine' },
   VENDING_MACHINE: { piece: 'o-vending' },
+  WATER_COOLER: { piece: 'o-water-cooler', mirror: true },
 };
 
 /** Seating by facing: the piece whose picture faces that way, the other facing by its mirror.

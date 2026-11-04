@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { t, type TranslationKey } from '../i18n/index.js';
+import { isDaytime } from './game/gameState.js';
+import { PixelIcon } from './game/parts.js';
 import { hostTime } from './officeHours.js';
 import { useCldStore } from './officeStore.js';
 import { useUiFont } from './uiFont.js';
@@ -13,8 +15,9 @@ const HANGUL = /[\u3131-\uD79D]/;
 const toNextMinute = (now: number): number => 60_000 - (now % 60_000);
 
 /** The top bar's clock: "10.24 (금) 22:28" in the HOST's time (the one office hours use), ticking once a minute.
- *  The bars centre it (owner 10-24) and pass the Tailwind text size their height allows. */
-export function HostClock({ size = 'text-2xl' }: { size?: string }) {
+ *  The bars centre it (owner 10-24) and pass the Tailwind text size their height allows. `game` (GAME-UI-1,
+ *  ideas/agents 07): the sun or the moon beside it and the day's 24 cells under it, this hour's lit. */
+export function HostClock({ size = 'text-2xl', game = false }: { size?: string; game?: boolean }) {
   const readable = useUiFont() === 'readable';
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -35,8 +38,9 @@ export function HostClock({ size = 'text-2xl' }: { size?: string }) {
     day: date.getUTCDate(),
     weekday: WEEKDAY_MARK,
   }).split(WEEKDAY_MARK);
-  const time = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
-  return (
+  const hour = Math.floor(minute / 60);
+  const time = `${String(hour).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+  const clock = (
     <span
       className={`shrink-0 whitespace-nowrap leading-none text-text ${size}`}
       data-testid="host-clock"
@@ -52,6 +56,20 @@ export function HostClock({ size = 'text-2xl' }: { size?: string }) {
         {after}{' '}
       </span>
       {time}
+    </span>
+  );
+  if (!game) return clock;
+  return (
+    <span className="game-clock" data-hour={hour}>
+      <span className="game-clock-t">
+        <PixelIcon name={isDaytime(hour) ? 'sun' : 'moon'} />
+        {clock}
+      </span>
+      <span className="game-day" aria-hidden="true">
+        {Array.from({ length: 24 }, (_, h) => (
+          <i key={h} data-at={h === hour ? 'now' : h < hour ? 'past' : undefined} />
+        ))}
+      </span>
     </span>
   );
 }

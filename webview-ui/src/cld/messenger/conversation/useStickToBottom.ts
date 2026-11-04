@@ -5,7 +5,7 @@ import type { ChatItem } from '../../../../../core/src/messages.js';
 import { transport } from '../../../transport/index.js';
 import type { MessengerSnapshot, PendingSend } from '../messengerStore.js';
 import { atBottom, newSince } from '../scrollJump.js';
-import { isHidden, restoreTop } from '../scrollRestore.js';
+import { holdTop, isHidden, restoreTop } from '../scrollRestore.js';
 
 /**
  * Conversation's scroll pinning: follow the newest while at the bottom, keep the reader's
@@ -56,7 +56,7 @@ export function useStickToBottom({
     const anchor = readerAnchor.current;
     const row = anchor && el.querySelector<HTMLElement>(`[data-chat-id="${anchor.id}"]`);
     if (row) {
-      el.scrollTop = row.offsetTop - anchor.top;
+      holdTop(el, row.offsetTop - anchor.top);
       savedTop.current = el.scrollTop;
     }
     setMissed(newSince(items ?? [], seen.current));

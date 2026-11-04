@@ -1,7 +1,8 @@
 /**
  * CHAR-HUMAN: the part format shared by the webview's compositor and the daemon's importer, and the
- * generated geometry (head canvas, head anchors, reading paper, built-in parts) from
- * `npx tsx cld/scripts/gen-char-templates.ts`. Pure, no I/O.
+ * generated geometry (head canvas, head anchors, reading paper, built-in parts) in
+ * parts.generated.ts, frozen since 11-04 (its generator read the Metro City sheets that are gone;
+ * W6 makes new parts from the new people). Pure, no I/O.
  */
 import type { CharacterPart } from '../messages.js';
 import type { PartSlot } from './looks.js';

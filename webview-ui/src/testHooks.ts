@@ -1,23 +1,32 @@
 import type { CharacterChoice } from '../../core/src/messages.js';
 import type { Framing } from './cld/cameraMode.js';
 import { compose } from './cld/characters/compose.js';
-import { getCustomParts, presetPalette } from './cld/characters/looks.js';
+import {
+  closeLooks,
+  getCustomParts,
+  loadedPresetSheets,
+  openLooks,
+  presetPalette,
+} from './cld/characters/looks.js';
 import { chatOpenFor } from './cld/chat.js';
+import { drinkingNow } from './cld/ez/drawVisuals.js';
 import { nameplateStats } from './cld/ez/useNameplates.js';
 import { floorsSnapshot } from './cld/floors.js';
 import { bgStats } from './cld/gfx/bg/draw.js';
 import {
-  isoCarLevel,
   isoCharacterBox,
   isoFloors,
   isoFrame,
+  isoScene,
   isoScreenAt,
   isoStats,
 } from './cld/iso/render.js';
+import { drawnView } from './cld/iso/sprites.js';
 import { cldGetSnapshot } from './cld/officeStore.js';
 import { otherFloorStats } from './cld/otherFloors.js';
 import { perfSnapshot, setPerfOn } from './cld/perf.js';
 import type { ColorValue } from './components/ui/types.js';
+import { PALETTE_COUNT } from './constants.js';
 import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { isWalkable } from './office/layout/tileMap.js';
@@ -30,6 +39,7 @@ import {
   setCustomCharacter,
   spritesAtZoom,
 } from './office/sprites/spriteData.js';
+import type { Character } from './office/types.js';
 
 declare global {
   interface Window {
@@ -43,6 +53,8 @@ declare global {
         waitingAwaitingInput?: boolean;
         isHeadless?: boolean;
         isGreeter?: boolean;
+        isSubagent?: boolean;
+        palette?: number;
       }>;
       /** The character the camera follows (null = free camera). */
       getCameraFollowId?: () => number | null;
@@ -161,6 +173,9 @@ declare global {
         dir: number;
         frame: number;
         diagRow: number | null;
+        /** DIAG-1104: what each view draws now: its own sheet or the three-quarter one beside it
+         *  ('diag'), the row's direction and whether mirrored (cld/iso/sprites.ts drawnView). */
+        views: Record<'top' | 'iso', { sheet: 'own' | 'diag'; dir: number; mirror: boolean }>;
         /** LOUNGE: its rest phase (go, rest, fetch, use, drink), the seat and the drink. */
         rest: string | null;
         restSeat: string | null;
@@ -202,6 +217,10 @@ declare global {
       follow?: (id: number) => void;
       /** SHEET-IMPORT: character `id` at its desk (`tool`: what it works with, Read reads) or not. */
       setActive?: (id: number, on: boolean, tool?: string | null) => void;
+      /** LOOKS-MEM: open 꾸미기 for a character name; the preset sheets decoded now (their ids). */
+      openLooks?: (name: string) => void;
+      closeLooks?: () => void;
+      loadedPresetSheets?: () => string[];
       /** SHEET-IMPORT: pictures still queued to warm, and the bytes the zoom LRU holds. */
       warmState?: () => { pending: number; bytes: number };
       /** HD64-SAMPLE: walk character `id` to a tile (false: no path). */
@@ -211,19 +230,20 @@ declare global {
       /** HD64-SAMPLE: the performance readout's numbers (and turning it on). */
       perf?: () => ReturnType<typeof perfSnapshot>;
       setPerf?: (on: boolean) => void;
-      /** ISO-PILOT: the isometric view's counters, the floor in focus, the car's level. */
+      /** ISO-PILOT: the isometric view's counters and the floor in focus. */
       getIso?: () => {
         groundRenders: number;
-        dimRenders: number;
+        storeyRenders: number;
         frames: number;
         ms: number;
         focus: string;
         building: boolean;
-        car: number;
         drawn: boolean;
         floors: Array<{ id: string; row: number; rows: number; level: number }>;
         /** BACKGROUND: pictures painted and the time they took (ms). */
         background: { paints: number; ms: number };
+        /** iso-prep-1104: furniture types drawn as their top-down sprite (no isometric picture). */
+        spriteOnly: string[];
       };
       /** ISO-PILOT: CSS px (in the canvas) where the building drew world point (x, y). */
       isoPoint?: (worldX: number, worldY: number) => { x: number; y: number } | null;
@@ -263,7 +283,6 @@ declare global {
 /** Palettes the spawned test looks take (past the presets'), the built-in bodies, and the colour
  *  of the i-th spawned suit (round the wheel). */
 const SPAWN_PALETTE = 50_000;
-const BUILT_IN_BODIES = 6;
 const wheel = (i: number) => {
   const h = (i * 47) % 360;
   const f = (n: number) => {
@@ -284,10 +303,18 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     ...isoStats,
     focus: floorsSnapshot().current,
     building: floorsSnapshot().stacked,
-    car: isoCarLevel(),
     drawn: isoFrame(),
     floors: isoFloors(),
     background: { ...bgStats },
+    spriteOnly: officeStateRef.current
+      ? [
+          ...new Set(
+            isoScene(officeStateRef.current).scenes.flatMap((sc) =>
+              sc.items.filter((it) => !it.piece).map((it) => it.type),
+            ),
+          ),
+        ]
+      : [],
   });
   hooks.isoCharacterBox = (id) => {
     const b = isoCharacterBox(id);
@@ -309,7 +336,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       const own: CharacterChoice =
         look.kind === 'person'
           ? { ...look, colors: { ...look.colors, fullbody: wheel(i) } }
-          : { ...look, palette: ((look.palette ?? 0) + i) % BUILT_IN_BODIES };
+          : { ...look, palette: ((look.palette ?? 0) + i) % PALETTE_COUNT };
       const c = compose(own, {
         templates: getCharacterTemplates(),
         provider: null,
@@ -344,6 +371,9 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     officeStateRef.current?.setAgentActive(id, on);
     officeStateRef.current?.setAgentTool(id, on ? tool : null);
   };
+  hooks.openLooks = openLooks;
+  hooks.closeLooks = closeLooks;
+  hooks.loadedPresetSheets = loadedPresetSheets;
   hooks.warmState = () => ({ pending: warmPending(), bytes: smoothCacheBytes() });
   hooks.walkTo = (id, col, row) => officeStateRef.current?.walkToTile(id, col, row) ?? false;
   hooks.drawnDensity = (palette, hue, zoom) =>
@@ -369,6 +399,8 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       waitingAwaitingInput: ch.waitingAwaitingInput,
       isHeadless: ch.isHeadless,
       isGreeter: ch.isGreeter,
+      isSubagent: ch.isSubagent,
+      palette: ch.palette,
     }));
   };
 
@@ -383,6 +415,14 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
 
   hooks.getSelectedAgentId = () => officeStateRef.current?.selectedAgentId ?? null;
 
+  const viewOf = (ch: Character, iso: boolean) => {
+    const v = drawnView(ch, iso, !!drinkingNow(ch));
+    return {
+      sheet: v.palette === ch.palette ? 'own' : 'diag',
+      dir: v.dir,
+      mirror: v.mirror,
+    } as const;
+  };
   hooks.getCharacterTile = (id) => {
     const ch = officeStateRef.current?.characters.get(id);
     return ch
@@ -400,6 +440,10 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
           dir: ch.dir,
           frame: ch.frame,
           diagRow: ch.cldDiagRow ?? null,
+          views: {
+            top: viewOf(ch, false),
+            iso: viewOf(ch, true),
+          },
           rest: ch.cldRest?.phase ?? null,
           restSeat: ch.cldRest?.spot.seat ?? null,
           restKind: ch.cldRest?.kind ?? null,

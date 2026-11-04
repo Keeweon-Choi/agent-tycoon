@@ -169,6 +169,16 @@ export function projectRows(
   );
 }
 
+/** 진행 중 작업 on the billboard (building-a-1104): the jobs and Codex tasks running now, the
+ *  board's own 작업 column counted. */
+export function runningWork(snap: Pick<CldSnapshot, 'officeJobs' | 'codexTasks'>): number {
+  const jobs = (snap.officeJobs?.jobs ?? []).filter((j) => !j.ended).length;
+  const codex = (snap.codexTasks?.tasks ?? []).filter(
+    (k) => k.state === 'running' || k.state === 'limit',
+  ).length;
+  return jobs + codex;
+}
+
 export const moreText = (more: number): string => t('board.more', { count: more });
 
 /** The ticker's items: the latest notable news across projects, newest first. */

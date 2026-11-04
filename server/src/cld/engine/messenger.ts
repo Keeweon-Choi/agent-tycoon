@@ -354,7 +354,8 @@ export function lastPrompt(text: string): { key: string; queued: boolean } | nul
     }
     const key = typeof r?.uuid === 'string' ? r.uuid : lines[i];
     if (r && !r.isSidechain && queuedPrompt(r) !== null) return { key, queued: true };
-    if (!r || r.type !== 'user' || r.isSidechain || r.isMeta) continue;
+    // A compaction's summary is a user record too, but nobody's prompt.
+    if (!r || r.type !== 'user' || r.isSidechain || r.isMeta || r.isCompactSummary) continue;
     if (blocks(r).some((b) => b.type === 'tool_result')) continue;
     if (r.origin?.kind !== undefined && r.origin.kind !== 'human') continue;
     return { key, queued: false };
@@ -367,6 +368,7 @@ interface TranscriptRecord {
   subtype?: string;
   isSidechain?: boolean;
   isMeta?: boolean;
+  isCompactSummary?: boolean;
   timestamp?: string;
   message?: { content?: unknown };
 }
@@ -467,7 +469,7 @@ export function pasteOf(items: QueuedSend[]): string {
 const preview = (text: string) => text.split('\n', 1)[0].slice(0, 80);
 
 /** The messenger UI stores uploaded attachments as final `[첨부]` lines. An
- * edit changes the words before them, never the already-uploaded files. */
+ * edit changes the words before them and may add files; it never drops the already-uploaded ones. */
 function withoutAttachmentTail(text: string): { body: string; attachments: string[] } {
   const lines = text.split('\n');
   const attachments: string[] = [];
@@ -985,15 +987,17 @@ export class Messenger {
     return { ok: true, delivered: 'queued', id };
   }
 
-  /** Replace a boss message in place before the Typist has started entering it. */
-  edit(to: string, id: string, rawText: string): SendResult {
+  /** Replace a boss message in place before the Typist has started entering it (and, given one, the message it answers). */
+  edit(to: string, id: string, rawText: string, replyTo?: ChatReply): SendResult {
     const target = this.pendingTarget(to, id);
     if (!target) return { ok: false, code: 'not_queued', ...refused('message_gone') };
     if (this.isTyping(target)) return this.typingRefusal();
     const edited = withoutAttachmentTail(cleanText(rawText));
     if (!edited.body.trim())
       return { ok: false, code: 'empty_message', ...refused('message_empty') };
-    const text = [edited.body, ...withoutAttachmentTail(target.item.text).attachments].join('\n');
+    const kept = withoutAttachmentTail(target.item.text).attachments;
+    const added = edited.attachments.filter((line) => !kept.includes(line));
+    const text = [edited.body, ...kept, ...added].join('\n');
     if (Buffer.byteLength(text) > TEXT_MAX)
       return {
         ok: false,
@@ -1005,6 +1009,7 @@ export class Messenger {
       ...rest,
       text,
       edited: true,
+      ...(replyTo && { replyTo }),
       ...(raw && slashTextProblem(text) === null && { raw: true }),
     };
     try {

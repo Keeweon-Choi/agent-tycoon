@@ -20,6 +20,7 @@ import type { Browser, BrowserContextOptions, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   launchBrowser,
@@ -29,7 +30,7 @@ import {
   startDaemon,
   warmUpOffice,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
+import { BUNNY_LOOK as HD64 } from '../scripts/gen-hd64-sample.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/iso-2');
@@ -120,19 +121,6 @@ const INIT = `
     if (x === 0 && y === 0 && this.canvas.dataset && this.canvas.dataset.testid === 'office-canvas') window.__frames++;
     return clear.call(this, x, y, w, h);
   };`;
-
-const PACK = JSON.parse(
-  fs.readFileSync(path.join(REPO_ROOT, 'cld/packs/hd-bunny/pack.json'), 'utf-8'),
-) as {
-  id: string;
-  presets: { look: { parts: Record<string, string> } & Record<string, unknown> }[];
-};
-const HD64 = {
-  ...PACK.presets[0].look,
-  parts: Object.fromEntries(
-    Object.entries(PACK.presets[0].look.parts).map(([k, v]) => [k, `${PACK.id}/${v}`]),
-  ),
-};
 
 function makeHome() {
   const fake = makeFakeHome({ claude: 'R-8', agentsJson: true });

@@ -13,12 +13,13 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   TouchEvent,
 } from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { BuildingFloor } from '../../../core/src/messages.js';
 import { Button } from '../components/ui/Button.js';
 import { Modal } from '../components/ui/Modal.js';
+import { ELEVATOR_LIST_OPEN_STORAGE_KEY } from '../constants.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { t, translate } from '../i18n/index.js';
 import type { OfficeState } from '../office/engine/officeState.js';
@@ -26,7 +27,9 @@ import { getCachedSprite } from '../office/sprites/spriteCache.js';
 import { BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../office/sprites/spriteData.js';
 import { findTouch } from '../touch/touchPrimitives.js';
 import { transport } from '../transport/index.js';
+import { CameraModeControl } from './CameraModeControl.js';
 import { visitFloor } from './elevator.js';
+import { interiorOn } from './features.js';
 import type { FloorBadge } from './floors.js';
 import {
   DOOR_CLOSE_MS,
@@ -41,8 +44,6 @@ import {
   useFloors,
   wanderTiles,
 } from './floors.js';
-import { HudPanel } from './hud/fixedPanels.js';
-import { useHud } from './hud/hudStore.js';
 import { Movable } from './hud/Movable.js';
 import { useIsoView } from './iso/isoView.js';
 import { useCldStore } from './officeStore.js';
@@ -173,6 +174,26 @@ function IsoViewToggle({ className }: { className: string }) {
   );
 }
 
+/** The floor list's last state on this device (closed unless it was left open). */
+function loadListOpen(): boolean {
+  try {
+    return localStorage.getItem(ELEVATOR_LIST_OPEN_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Another floor wants a look: a permission first (the floor badges). */
+function floorAlarm(badges: Record<string, FloorBadge>): FloorBadge | null {
+  const kinds = Object.values(badges);
+  return kinds.includes('permission') ? 'permission' : kinds.length ? 'waiting' : null;
+}
+
+/**
+ * PARTY-FRAME (owner 11-04 (나)): the elevator is a 40px ▲ 1F ▼ strip on the office's left edge; the
+ * lamp opens the floor list (the floors, 건물/층, 편집, 인테리어) beside it, remembered per device. A
+ * drag that may land on a floor opens the list while it lasts.
+ */
 function ElevatorPanel({
   canEdit,
   decorate,
@@ -185,134 +206,154 @@ function ElevatorPanel({
   const { building, current, doors, badges, dragging, editing } = useFloors();
   const [over, setOver] = useState<string | null>(null);
   const [carrying, setCarrying] = useState(false);
-  // UI-FIX 4: an open window over the panel folds it to its lamp (a click on the lamp unfolds it).
-  // The fold hides, it never resizes, so the overlap test cannot flip back and forth.
-  const nav = useRef<HTMLElement>(null);
-  const hud = useHud();
-  const [covered, setCovered] = useState(false);
-  const [peek, setPeek] = useState(false);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const box = nav.current?.getBoundingClientRect();
-      if (!box) return;
-      setCovered(
-        [...document.querySelectorAll<HTMLElement>('[data-hud-window]')].some((win) => {
-          if (win.offsetParent === null) return false;
-          const w = win.getBoundingClientRect();
-          return w.left < box.right && w.right > box.left && w.top < box.bottom && w.bottom > box.top;
-        }),
-      );
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [hud]);
-  useEffect(() => {
-    if (!covered) setPeek(false);
-  }, [covered]);
-  const folded = covered && !peek && !editing;
-  // One floor: nothing to ride, so only the way to 층 추가 (none for a viewer).
-  if (!building || (building.floors.length < 2 && !canEdit)) return null;
-  const floors = building.floors;
+  const [listOpen, setListOpen] = useState(loadListOpen);
+  // One floor: nothing to ride, so only the way to 층 추가 (none for a viewer); the camera buttons stay.
+  const ride = !!building && (building.floors.length > 1 || canEdit);
+  const floors = building?.floors ?? [];
   const shown = floors.findIndex((f) => f.id === (doors?.target ?? current));
   const takes = canEdit && floors.length > 1 && (dragging !== null || carrying);
+  const showList = listOpen || takes;
+  const alarm = floorAlarm(badges);
+  const toggleList = () => {
+    setListOpen(!listOpen);
+    try {
+      localStorage.setItem(ELEVATOR_LIST_OPEN_STORAGE_KEY, listOpen ? '0' : '1');
+    } catch {
+      // Storage blocked: the list stays as set for this page.
+    }
+  };
+  // UI-BUGS-1104: drawn in the office's own layer (z 47), under the HUD layer's windows (48): a window
+  // over it covers it, never the other way round. Not a HudPanel (the card bar and the dock are).
   return (
-    <HudPanel>
     <Movable id="floors" label={t('floor.panel')} className="cld-elevator-slot" z={47}>
       <div className="cld-elevator">
-        <nav
-          ref={nav}
-          className={`cld-elevator-panel ${folded ? 'cld-folded' : ''}`}
-          aria-label={t('floor.elevator')}
+        <div
+          className="cld-elevator-ride"
           onDragEnter={(e) => isOurs(e) && setCarrying(true)}
           onDragLeave={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setCarrying(false);
           }}
           onDrop={() => setCarrying(false)}
         >
-          <div
-            className="cld-elevator-display"
-            data-testid="elevator-display"
-            aria-live="polite"
-            title={folded ? t('uiFix.elevatorPeek') : undefined}
-            onClick={() => folded && setPeek(true)}
-          >
-            <Arrow down={doors?.dir === -1} className={doors ? 'cld-moving' : ''} />
-            <span>{shown + 1}F</span>
+          <div className="cld-elevator-col">
+            {ride && (
+              <nav className="cld-elevator-strip" aria-label={t('floor.elevator')}>
+                <button
+                  type="button"
+                  className="cld-elevator-step"
+                  data-testid="elevator-up"
+                  aria-label={t('floor.up')}
+                  disabled={shown >= floors.length - 1}
+                  onClick={() => stepFloor(1)}
+                >
+                  <Arrow className={doors && doors.dir !== -1 ? 'cld-moving' : ''} />
+                </button>
+                <button
+                  type="button"
+                  className="cld-elevator-display"
+                  data-testid="elevator-display"
+                  aria-expanded={showList}
+                  aria-label={`${floorTitle(shown + 1, floors[shown]?.name ?? '')} · ${t('floor.listToggle')}`}
+                  aria-live="polite"
+                  onClick={toggleList}
+                >
+                  <span>
+                    {shown + 1}
+                    <span className="cld-lamp-f">F</span>
+                  </span>
+                  {alarm && !showList && <span className={`cld-dot ${alarm === 'permission' ? 'cld-permission' : ''}`} />}
+                </button>
+                <button
+                  type="button"
+                  className="cld-elevator-step"
+                  data-testid="elevator-down"
+                  aria-label={t('floor.down')}
+                  disabled={shown <= 0}
+                  onClick={() => stepFloor(-1)}
+                >
+                  <Arrow down className={doors?.dir === -1 ? 'cld-moving' : ''} />
+                </button>
+              </nav>
+            )}
+            {/* HUD-1B (owner 11-04): where to look, right under the floor (자동 / 내 캐릭터 / 로비). */}
+            <CameraModeControl />
           </div>
-          {takes && dragging && <div className="cld-carry">{t('floor.carrying', { name: dragging.name })}</div>}
-          <ol className={`cld-floor-buttons ${floors.length < 2 ? 'cld-none' : ''}`}>
-            {topFirst(floors).map(({ floor, n }) => {
-              const badge = badges[floor.id];
-              const label = `${floorTitle(n, floor.name)}${badge ? ` · ${badgeText(badge)}` : ''}`;
-              return (
-                <li key={floor.id}>
-                  <button
-                    type="button"
-                    className={`cld-floor-button ${takes ? 'cld-drop' : ''} ${takes && over === floor.id ? 'cld-drop-over' : ''}`}
-                    data-floor-id={floor.id}
-                    aria-current={floor.id === current}
-                    aria-label={label}
-                    onClick={() => goToFloor(floor.id)}
-                    // A character carried off the canvas rides there and visits (ELEVATOR):
-                    // only the character moves, its room stays (the editor moves rooms).
-                    onMouseEnter={() => setOver(floor.id)}
-                    onMouseLeave={() => setOver(null)}
-                    onMouseUp={() => {
-                      if (!dragging || !canEdit) return;
-                      visitFloor(officeState, dragging.id, floor.id);
-                      endFloorDrag();
-                    }}
-                    // A room or character chip from the floor editor.
-                    onDragOver={(e) => {
-                      if (!canEdit || !isOurs(e)) return;
-                      e.preventDefault();
-                      setOver(floor.id);
-                    }}
-                    onDrop={(e) => {
-                      const what = canEdit && carriedBy(e);
-                      if (!what) return;
-                      e.preventDefault();
-                      moveTo(floor.id, what);
-                      setOver(null);
-                    }}
-                  >
-                    {n}
-                    {badge && <BadgeBubble kind={badge} />}
-                    <span className="cld-floor-name" aria-hidden="true">
-                      {floorName(n, floor.name)}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-          {floors.length > 1 && <IsoViewToggle className="cld-elevator-edit" />}
-          {canEdit && (
-            <button
-              type="button"
-              className="cld-elevator-edit"
-              aria-pressed={editing}
-              onClick={() => setFloorEditing(!editing)}
-            >
-              {t('floor.edit')}
-            </button>
+          {ride && showList && (
+            <nav className="cld-elevator-panel" aria-label={t('floor.list')} data-testid="elevator-list">
+              {takes && dragging && <div className="cld-carry">{t('floor.carrying', { name: dragging.name })}</div>}
+              <ol className={`cld-floor-buttons ${floors.length < 2 ? 'cld-none' : ''}`}>
+                {topFirst(floors).map(({ floor, n }) => {
+                  const badge = badges[floor.id];
+                  const label = `${floorTitle(n, floor.name)}${badge ? ` · ${badgeText(badge)}` : ''}`;
+                  return (
+                    <li key={floor.id}>
+                      <button
+                        type="button"
+                        className={`cld-floor-button ${takes ? 'cld-drop' : ''} ${takes && over === floor.id ? 'cld-drop-over' : ''}`}
+                        data-floor-id={floor.id}
+                        aria-current={floor.id === current}
+                        aria-label={label}
+                        onClick={() => goToFloor(floor.id)}
+                        // A character carried off the canvas rides there and visits (ELEVATOR):
+                        // only the character moves, its room stays (the editor moves rooms).
+                        onMouseEnter={() => setOver(floor.id)}
+                        onMouseLeave={() => setOver(null)}
+                        onMouseUp={() => {
+                          if (!dragging || !canEdit) return;
+                          visitFloor(officeState, dragging.id, floor.id);
+                          endFloorDrag();
+                        }}
+                        // A room or character chip from the floor editor.
+                        onDragOver={(e) => {
+                          if (!canEdit || !isOurs(e)) return;
+                          e.preventDefault();
+                          setOver(floor.id);
+                        }}
+                        onDrop={(e) => {
+                          const what = canEdit && carriedBy(e);
+                          if (!what) return;
+                          e.preventDefault();
+                          moveTo(floor.id, what);
+                          setOver(null);
+                        }}
+                      >
+                        {n}
+                        {badge && <BadgeBubble kind={badge} />}
+                        <span className="cld-floor-name" aria-hidden="true">
+                          {floorName(n, floor.name)}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+              {floors.length > 1 && <IsoViewToggle className="cld-elevator-edit" />}
+              {canEdit && (
+                <button
+                  type="button"
+                  className="cld-elevator-edit"
+                  aria-pressed={editing}
+                  onClick={() => setFloorEditing(!editing)}
+                >
+                  {t('floor.edit')}
+                </button>
+              )}
+              {canEdit && decorate && (
+                <button
+                  type="button"
+                  className="cld-elevator-decorate"
+                  aria-pressed={decorate.on}
+                  onClick={decorate.toggle}
+                >
+                  {t('floor.decorate')}
+                </button>
+              )}
+            </nav>
           )}
-          {canEdit && decorate && (
-            <button
-              type="button"
-              className="cld-elevator-decorate"
-              aria-pressed={decorate.on}
-              onClick={decorate.toggle}
-            >
-              {t('floor.decorate')}
-            </button>
-          )}
-        </nav>
+        </div>
         {canEdit && editing && <FloorEditor />}
       </div>
     </Movable>
-    </HudPanel>
   );
 }
 
@@ -596,7 +637,11 @@ export function FloorLayer({
     <>
       <ElevatorDoors />
       {!isMobile && (
-        <ElevatorPanel canEdit={!officeReadOnly} decorate={decorate} officeState={officeState} />
+        <ElevatorPanel
+          canEdit={!officeReadOnly}
+          decorate={interiorOn ? decorate : undefined}
+          officeState={officeState}
+        />
       )}
     </>
   );
@@ -621,8 +666,7 @@ export function FloorPicker() {
   if (!isMobile || floors.length < 2) return null;
   const shown = floors.findIndex((f) => f.id === (doors?.target ?? current));
   // Only other floors have badges: the dot says one of them wants a look.
-  const kinds = Object.values(badges);
-  const alarm = kinds.includes('permission') ? 'permission' : kinds.length ? 'waiting' : null;
+  const alarm = floorAlarm(badges);
   const onTouchStart = (e: TouchEvent) => {
     const t = e.changedTouches[0];
     if (!touch.current && t)

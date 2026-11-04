@@ -5,13 +5,13 @@ import { setLanguage, t } from '../i18n/index.js';
 import {
   desktopTabs,
   foldedUsageText,
-  hwClock,
   hwSections,
   percentTone,
   resetCountdown,
   stateLabel,
   timeAgo,
   usageWindowText,
+  usageWindowTitle,
 } from './format.js';
 
 beforeEach(() => setLanguage('ko'));
@@ -30,12 +30,6 @@ const show = (hw: HwSample) =>
   ]);
 
 describe('HW panel rows (T-0030)', () => {
-  it('formats Korean weekdays and a one-second clock tick', () => {
-    const a = new Date(2026, 9, 22, 12, 19, 5);
-    expect(hwClock(a)).toBe('2026-10-22 (\ubaa9) 12:19:05');
-    expect(hwClock(new Date(a.getTime() + 1000))).toBe('2026-10-22 (\ubaa9) 12:19:06');
-  });
-
   it('shows four complete drives and Windows RAM without question marks', () => {
     const hw = sample({
       ramUsedGib: 12,
@@ -171,10 +165,22 @@ describe('formatters', () => {
       ]),
     ).toBe('Claude 5h 1% · 7d 66% · F 7d 0%');
   });
-  it('renders a reset window as its reset label, never a made-up percentage', () => {
-    expect(usageWindowText(73, true)).toBe(t('usage.reset'));
+  it('renders a passed reset as unknown, never a made-up percentage', () => {
+    expect(usageWindowText(73, true)).toBe(t('usage.unknownShort'));
     expect(usageWindowText(73, true)).not.toContain('0%');
     expect(usageWindowText(73, true)).not.toContain('73%');
+  });
+  it('reads a window both ways round: used (as agty status) and left (as the gauge), then the reset', () => {
+    const resetAt = new Date(2026, 10, 6, 20, 0).toISOString();
+    expect(usageWindowTitle({ id: '7d', pct: 61, resetAt })).toBe(
+      `${t('usage.usedLeft', { window: t('usage.win.7d'), used: 61, left: 39 })} · ${t('usage.resetAt', { time: '11-06 20:00' })}`,
+    );
+    expect(usageWindowTitle({ id: '5h', pct: 10, resetAt: null, isReset: true })).toBe(
+      t('usage.resetPassed', { window: t('usage.win.5h') }),
+    );
+    expect(usageWindowTitle({ id: '5h', pct: null, resetAt: null })).toBe(
+      t('usage.windowUnknown', { window: t('usage.win.5h') }),
+    );
   });
   it('labels process and activity states in Korean', () => {
     expect(stateLabel('running', true)).toBe('\uc77c\ud558\ub294 \uc911');
@@ -184,6 +190,6 @@ describe('formatters', () => {
   });
 });
 
-it("UI-DASH: the dashboard's tab strip is orchestrators, development and HW; files is the folder icon's mode", () => {
-  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'dev', 'hw']);
+it("UI-DASH: the dashboard's tab strip is orchestrators and development (HW is the lobby board's H/W screen); files is the folder icon's mode", () => {
+  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'dev']);
 });

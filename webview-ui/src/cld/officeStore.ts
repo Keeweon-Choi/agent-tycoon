@@ -52,6 +52,7 @@ import { repoHandleMessage } from './repo/repoStore.js';
 import { newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
 import { compactHolds, levelWatch, rebirthWatch, restWatch } from './rest.js';
 import { serverLine, serverText } from './serverText.js';
+import { specHandleMessage } from './spec/specStore.js';
 import { docSourcesHandleMessage } from './taskboard/taskBoardState.js';
 import { workHandleMessage } from './work/workStore.js';
 import { approvalsHandleMessage } from './workbench/approvals.js';
@@ -251,6 +252,9 @@ export function cldHandleMessage(msg: ServerMessage): void {
     }
     case 'trackingSources':
       docSourcesHandleMessage(msg);
+      break;
+    case 'specChanged':
+      specHandleMessage(msg);
       break;
     case 'delegationApprovals':
       // C6: the cards live in their own store; this screen's decision gets a toast.

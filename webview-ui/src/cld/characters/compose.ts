@@ -1,24 +1,19 @@
 /**
- * CH-2: the looks compositor. Any look (a v1 palette + hue, a v2 humanoid, a v2 mascot, a custom
+ * CH-2: the looks compositor. Any look (a v1 palette + hue, a v2 mascot, a v3 person, a custom
  * sheet) becomes today's sheet (rows down/up/right × 7 frames of 16×32) for setCustomCharacter,
  * with its card portrait and the anchors the office draws around it. Pure and DOM-free.
  *
  * Never invisible (design §3.5): a look that cannot be drawn falls back to the provider's
  * mascot, then to built-in person 0.
  */
-import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
-import {
-  HUMANOID_ACCESSORIES,
-  type MascotExpression,
-  mascotOfProvider,
-} from '../../../../core/src/cld/looks.js';
+import { type MascotExpression, mascotOfProvider } from '../../../../core/src/cld/looks.js';
 import { downsampleHd } from '../../../../core/src/cld/partData.js';
 import { MIN_FRAME_PIXELS } from '../../../../core/src/cld/sheetCheck.js';
 import type {
-  CharacterAccessory,
   CharacterChoice,
   MascotGear,
   MascotSpecies,
+  OfficeSnapshot,
 } from '../../../../core/src/messages.js';
 import {
   HD64_DRAW_DENSITY,
@@ -31,27 +26,75 @@ import {
 import { adjustSprite } from '../../office/colorize.js';
 import type { LoadedCharacterData } from '../../office/sprites/spriteData.js';
 import type { SpriteData } from '../../office/types.js';
-import accessoriesJson from './accessories.json';
 import { chroma, hue, lchToRgb, parseHex, rgbToLab } from './color.js';
+import boo from './mascots/boo.json';
+import bugi from './mascots/bugi.json';
 import byteJson from './mascots/byte.json';
 import coralJson from './mascots/coral.json';
+import gasi from './mascots/gasi.json';
 import gearJson from './mascots/gear.json';
+import kwak from './mascots/kwak.json';
+import moka from './mascots/moka.json';
+import mora from './mascots/mora.json';
+import mungge from './mascots/mungge.json';
 import puffJson from './mascots/puff.json';
+import shoo from './mascots/shoo.json';
 import toriJson from './mascots/tori.json';
 import type { PartData } from './parts.js';
 import { composePerson } from './parts.js';
-import type { Region } from './template.js';
-import { recolourSheet, templateColor, TEMPLATES } from './template.js';
 
 export const FRAME_W = 16;
 export const FRAME_H = 32;
 export const FRAMES = 7;
+/** An imported sheet's column counts: 7; CHAR-ISO-1: 8 (the walking neutral); BUNNY-9COL: 9 (the
+ *  other foot's passing pose). */
+export const IMPORTED_COLUMNS: readonly number[] = [FRAMES, FRAMES + 1, FRAMES + 2];
 export const VIEWS = ['down', 'up', 'right'] as const;
 export type View = (typeof VIEWS)[number];
 /** A custom sheet frame needs at least this many opaque pixels (design §4.3). */
 export { MIN_FRAME_PIXELS } from '../../../../core/src/cld/sheetCheck.js';
-/** Where a person's mouth is in the standing front frame (char_N): the rest prop's anchor. */
+/** Where a person's mouth is in the standing front frame (the old char_N body, which the person
+ *  parts and imported sheets keep): the rest prop's anchor. */
 export const HUMAN_SIP: readonly [number, number] = [8, 17];
+/** CHARS-1104: the built-in people's mouth (`sip` in the sheets' index.json; ponytail: one value for
+ *  all 23, a per-sheet table when one differs). */
+export const BUILT_IN_SIP: readonly [number, number] = [8, 14];
+
+/** The provider a name's character runs on, when the screen knows it (the fallback mascot). */
+export function providerOf(
+  office: Pick<OfficeSnapshot, 'orchestrators'>,
+  name: string,
+): string | null {
+  if (name.startsWith('emp:')) return null; // set by the caller from the execution
+  return office.orchestrators.find((o) => o.name === name)?.provider === 'claude' ? 'claude' : null;
+}
+
+/** CHARS-1104: the provider a sub-agent with no employee yet takes its mascot from: its lead's when
+ *  the screen knows it, else Claude Code, the only provider whose tools make sub-agents
+ *  (claude.ts subagentToolNames; an unnamed session or an engine Lead is not on the screen). */
+export const subagentProvider = (
+  office: Pick<OfficeSnapshot, 'orchestrators'>,
+  lead: string | undefined,
+): string => (lead === undefined ? null : providerOf(office, lead)) ?? 'claude';
+
+/** CHARS-1104: the built-in people's groups in the people tab (index.json order: 10 nerds, 10 Silicon
+ *  Valley, 3 Indian engineers; a sheet past them, an external char_N, joins the last group). */
+const PEOPLE_GROUPS = [
+  { key: 'nerd', from: 0 },
+  { key: 'valley', from: 10 },
+  { key: 'india', from: 20 },
+] as const;
+export type PeopleGroup = (typeof PEOPLE_GROUPS)[number]['key'];
+
+/** The groups and their sheet numbers for \`count\` loaded sheets: only sheets that are there
+ *  (none before they arrive), an empty group left out. */
+export function peopleGroups(count: number): Array<{ key: PeopleGroup; people: number[] }> {
+  return PEOPLE_GROUPS.flatMap((g, i) => {
+    const to = Math.min(PEOPLE_GROUPS[i + 1]?.from ?? count, count);
+    const people = [...Array(Math.max(0, to - g.from)).keys()].map((k) => g.from + k);
+    return people.length ? [{ key: g.key, people }] : [];
+  });
+}
 
 export interface MascotAnchor {
   face: number[] | null;
@@ -74,13 +117,29 @@ export interface MascotData {
   faces: Record<string, Partial<Record<View, Array<Array<number | string>>>>>;
   mug: number[];
   sip: number[];
+  /** DIAG-1104: the three-quarter walk (walk1, stand, walk3) facing lower right and upper right,
+   *  with its own anchors and faces (a face only facing lower right). */
+  diag?: {
+    frames: Record<DiagView, string[][]>;
+    anchors: Record<DiagView, MascotAnchor[]>;
+    faces: Record<string, Partial<Record<DiagView, Array<Array<number | string>>>>>;
+  };
 }
+type DiagView = 'downRight' | 'upRight';
 
 export const MASCOTS: Readonly<Record<MascotSpecies, MascotData>> = {
   coral: coralJson as MascotData,
   byte: byteJson as MascotData,
   puff: puffJson as MascotData,
   tori: toriJson as MascotData,
+  kwak: kwak as MascotData,
+  bugi: bugi as MascotData,
+  moka: moka as MascotData,
+  mungge: mungge as MascotData,
+  boo: boo as MascotData,
+  gasi: gasi as MascotData,
+  mora: mora as MascotData,
+  shoo: shoo as MascotData,
 };
 
 /** CHAR-FACTORY: a sheet with its density (sprite pixels per world pixel; absent = 1). An HD sheet
@@ -174,7 +233,7 @@ export interface ComposedLook {
 }
 
 export interface ComposeContext {
-  /** The built-in sheets char_0..5. */
+  /** The built-in sheets char_0..CHAR_COUNT-1. */
   templates: readonly LoadedCharacterData[];
   /** A custom look's decoded sheet, when it loaded (null: it failed). */
   custom?: { sheet: LoadedCharacterData; mugshot: SpriteData | null } | null;
@@ -198,14 +257,8 @@ export function lookKey(
   if (!look) return null;
   if (look.preset !== undefined) return `c:${look.preset}`;
   if (look.palette !== undefined) return `p:${look.palette}:${look.hueShift ?? 0}`;
-  if (look.kind === 'humanoid') {
-    const colors = Object.entries(look.colors ?? {})
-      .map(([part, c]) => `${part}=${c.toLowerCase()}`)
-      .sort()
-      .join(',');
-    const acc = HUMANOID_ACCESSORIES.filter((a) => look.acc?.includes(a)).join(',');
-    return `h:${look.base ?? 0}:${colors || (look.hue ?? 0)}:${acc}`;
-  }
+  // CHARS-1104: a v2 humanoid draws as its built-in person (its colours and accessories are gone)
+  if (look.kind === 'humanoid') return `p:${look.base ?? 0}:${look.hue ?? 0}`;
   if (isMascot(look)) {
     const m = normalizeMascot(look, provider);
     return `m:${m.species}:${m.color}:${m.expr}:${m.gear ?? '-'}`;
@@ -251,7 +304,9 @@ function composeExact(look: CharacterChoice, ctx: ComposeContext): ComposedLook 
     return finish(ctx.custom.sheet, ctx.custom.mugshot, HUMAN_SIP, 0);
   }
   if (look.palette !== undefined) return builtIn(look.palette, look.hueShift ?? 0, ctx);
-  if (look.kind === 'humanoid') return composeHumanoid(look, ctx);
+  // CHARS-1104: an old v2 humanoid (stored before the 23 people) is its base person, colours and
+  // accessories dropped (ponytail: read for one release, then the daemon's parser drops it)
+  if (look.kind === 'humanoid') return builtIn(look.base ?? 0, look.hue ?? 0, ctx);
   if (look.kind === 'person') {
     const sheet = composePerson(look, ctx.parts).sheet;
     const classic =
@@ -281,142 +336,7 @@ function builtIn(palette: number, hueShift: number, ctx: ComposeContext): Compos
     up: base.up.map(shift),
     right: base.right.map(shift),
   };
-  return finish(sheet, null, HUMAN_SIP, 0);
-}
-
-// ── people (CH-5) ───────────────────────────────────────────────────────────
-
-interface AccLayer {
-  at: 'top' | 'eye';
-  y: number;
-  rows: string[];
-  from?: number;
-}
-interface Accessories {
-  palette: Record<string, string>;
-  pieces: Record<CharacterAccessory, Partial<Record<View, AccLayer[]>>>;
-}
-export const ACCESSORIES = accessoriesJson as Accessories;
-
-/** Where a body's pieces hang on one frame: its head's first row of 4+ pixels, its eyes' row. */
-export interface HeadAnchor {
-  top: number;
-  eye: number;
-}
-
-/** A sheet from a template's RGBA (char_N.png layout). */
-function sheetOfRgba(rgba: ArrayLike<number>, width: number): LoadedCharacterData {
-  const frame = (row: number, f: number): SpriteData =>
-    Array.from({ length: FRAME_H }, (_, y) =>
-      Array.from({ length: FRAME_W }, (_, x) => {
-        const i = ((row * FRAME_H + y) * width + f * FRAME_W + x) * 4;
-        return rgbaToHex(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]);
-      }),
-    );
-  const row = (r: number) => Array.from({ length: FRAMES }, (_, f) => frame(r, f));
-  return { down: row(0), up: row(1), right: row(2) };
-}
-
-const anchorCache = new Map<number, Record<View, HeadAnchor[]>>();
-/** Every frame's head anchors on built-in body \`base\`, read off its own sheet (walk bob, seated
- *  and reading frames); the back view takes its eyes from the front frame's distance to the top. */
-export function headAnchors(base: number): Record<View, HeadAnchor[]> {
-  const hit = anchorCache.get(base);
-  if (hit) return hit;
-  const t = TEMPLATES[base];
-  const px = (view: number, f: number, x: number, y: number) =>
-    templateColor(t, (view * FRAME_H + y) * t.width + f * FRAME_W + x);
-  const frame = (view: number, f: number): HeadAnchor => {
-    let top = -1;
-    let eye = -1;
-    for (let y = 0; y < FRAME_H; y++) {
-      let n = 0;
-      for (let x = 0; x < FRAME_W; x++) {
-        const c = px(view, f, x, y);
-        if (c) n++;
-        // the eyes (and the built-in reading glasses on their row) are the only black up here
-        if (c === '000000' && eye < 0 && y < EYES_MAX_ROW) eye = y;
-      }
-      if (n >= HEAD_MIN_PIXELS && top < 0) top = y;
-    }
-    return { top, eye };
-  };
-  const all = (view: number) => Array.from({ length: FRAMES }, (_, f) => frame(view, f));
-  const down = all(0);
-  const up = all(1).map((a, f) => ({ top: a.top, eye: a.top + down[f].eye - down[f].top }));
-  const anchors = { down, up, right: all(2) };
-  anchorCache.set(base, anchors);
-  return anchors;
-}
-const HEAD_MIN_PIXELS = 4;
-const EYES_MAX_ROW = 24;
-/** The built-in reading frames (read1, read2) and the frame their head is drawn from (type1). */
-const READ_FRAMES = [5, 6];
-const TYPE_FRAME = 3;
-
-// eslint-disable-next-line agent-tycoon/no-inline-colors -- a sprite pixel: the built-ins' eye and glasses black
-const isBlack = (c: string) => c.slice(0, 7) === '#000000';
-
-/**
- * A person: a built-in body (\`base\`) with its own colours, the \`hue\` turn, or part \`colors\`
- * painted over its region map (shading steps kept); then the accessories on each frame's head.
- */
-function composeHumanoid(look: CharacterChoice, ctx: ComposeContext): ComposedLook {
-  const base = look.base ?? 0;
-  if (!TEMPLATES[base]) throw new Error(`no body ${base}`);
-  const colors = look.colors && Object.keys(look.colors).length ? look.colors : null;
-  const sheet: LoadedCharacterData = colors
-    ? sheetOfRgba(
-        recolourSheet(
-          Object.fromEntries(
-            Object.entries(colors).map(([part, c]) => [part, parseHex(c)]),
-          ) as Partial<Record<Region, [number, number, number]>>,
-          TEMPLATES[base],
-        ),
-        TEMPLATES[base].width,
-      )
-    : ctx.templates.length
-      ? builtIn(base, look.hue ?? 0, ctx).sheet
-      : // ponytail: Node scripts without the PNGs draw the hue-less body from its template
-        sheetOfRgba(recolourSheet({}, TEMPLATES[base]), TEMPLATES[base].width);
-  const acc = HUMANOID_ACCESSORIES.filter((a) => look.acc?.includes(a));
-  if (!acc.length) return finish(sheet, null, HUMAN_SIP, 0);
-  const anchors = headAnchors(base);
-  let clipped = 0;
-  const out = {} as LoadedCharacterData;
-  for (const view of VIEWS) {
-    out[view] = sheet[view].map((f) => f.map((row) => [...row]));
-    if (acc.includes('glasses') && view !== 'up')
-      // only our glasses: the reading frames get the typing frame's eyes back
-      for (const f of READ_FRAMES) {
-        const a = anchors[view][f];
-        const src = sheet[view][TYPE_FRAME];
-        const dy = a.eye - anchors[view][TYPE_FRAME].eye;
-        for (let y = a.eye; y <= a.eye + 2; y++)
-          for (let x = 0; x < FRAME_W; x++) {
-            const s = src[y - dy]?.[x] ?? '';
-            const d = out[view][f][y][x];
-            if (s !== d && (s || isBlack(d))) out[view][f][y][x] = s;
-          }
-      }
-    out[view].forEach((f, i) => {
-      const a = anchors[view][i];
-      for (const name of acc)
-        for (const layer of ACCESSORIES.pieces[name][view] ?? []) {
-          const y0 = (layer.at === 'top' ? a.top : a.eye) + layer.y;
-          layer.rows.forEach((row, dy) =>
-            [...row].forEach((k, x) => {
-              if (k === '.') return;
-              const y = y0 + dy;
-              if (layer.from !== undefined && y < a.top + layer.from) return;
-              if (y < 0 || y >= FRAME_H) clipped++;
-              else f[y][x] = ACCESSORIES.palette[k];
-            }),
-          );
-        }
-    });
-  }
-  return finish(out, null, HUMAN_SIP, clipped);
+  return finish(sheet, null, BUILT_IN_SIP, 0);
 }
 
 function finish(
@@ -443,8 +363,8 @@ export function sheetProblem(sheet: DenseSheet): string | null {
   const d = densityOf(sheet);
   for (const view of VIEWS) {
     const frames = sheet[view];
-    // CHAR-ISO-1: an imported sheet may carry an 8th column (the walking neutral)
-    if (frames?.length !== FRAMES && frames?.length !== FRAMES + 1)
+    // CHAR-ISO-1, BUNNY-9COL: an imported sheet may carry an 8th and a 9th column
+    if (!IMPORTED_COLUMNS.includes(frames?.length ?? 0))
       return `${view}: ${frames?.length ?? 0} frames, not ${FRAMES}`;
     for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
@@ -537,7 +457,8 @@ function gearPixels(gear: MascotGear, a: MascotAnchor, view: View): Px[] {
   }
 }
 
-/** One mascot look's sheet: recolour, face, headgear (pure; equal looks give equal sheets). */
+/** One mascot look's sheet: recolour, face, headgear (pure; equal looks give equal sheets).
+ *  DIAG-1104: its three-quarter walk the same way, when the species has one that draws. */
 export function composeMascot(look: MascotLook, data: MascotData): ComposedLook {
   const species = (look.species ?? data.species) as MascotSpecies;
   const color = (look.color ?? data.color).toLowerCase();
@@ -546,49 +467,71 @@ export function composeMascot(look: MascotLook, data: MascotData): ComposedLook 
   const palette = mascotPalette(data, color);
   const gearPalette = gearJson.palette as Record<string, string>;
   let clipped = 0;
+  /** One frame: its colour keys recoloured, the face at the anchor, the gear on the head box. */
+  const draw = (
+    rows: string[],
+    a: MascotAnchor,
+    face: Array<Array<number | string>> | undefined,
+    gearView: View,
+    what: string,
+  ): SpriteData => {
+    const f: SpriteData = rows.map((row) => [...row].map((k) => (k === '.' ? '' : palette[k])));
+    if (
+      f.length !== FRAME_H ||
+      f.some((r) => r.length !== FRAME_W || r.includes(undefined as never))
+    )
+      throw new Error(`${species}: ${what} is not a ${FRAME_W}×${FRAME_H} frame`);
+    const put = (px: number, py: number, c: string) => {
+      if (px < 0 || py < 0 || px >= FRAME_W || py >= FRAME_H) clipped++;
+      else f[py][px] = c;
+    };
+    if (a.face && face)
+      for (const [u, v, k] of face)
+        put(a.face[0] + Number(u), a.face[1] + Number(v), palette[String(k)]);
+    if (look.gear) {
+      const pixels = gearPixels(look.gear, a, gearView);
+      const mine = new Set(pixels.map(([px, py]) => `${px},${py}`));
+      for (const [px, py, k] of pixels) put(px, py, gearPalette[k]);
+      // the gear's own outline, only where nothing is drawn yet
+      for (const [px, py] of pixels)
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const nx = px + dx;
+          const ny = py + dy;
+          if (mine.has(`${nx},${ny}`)) continue;
+          if (nx < 0 || ny < 0 || nx >= FRAME_W || ny >= FRAME_H) clipped++;
+          else if (!f[ny][nx]) f[ny][nx] = gearPalette.o;
+        }
+    }
+    return f;
+  };
   const sheet = {} as LoadedCharacterData;
   for (const view of VIEWS) {
     const frames = data.frames[view];
     if (frames?.length !== FRAMES) throw new Error(`${species}: ${view} has no ${FRAMES} frames`);
-    sheet[view] = frames.map((rows, i) => {
-      const f: SpriteData = rows.map((row) => [...row].map((k) => (k === '.' ? '' : palette[k])));
-      if (
-        f.length !== FRAME_H ||
-        f.some((r) => r.length !== FRAME_W || r.includes(undefined as never))
-      )
-        throw new Error(`${species}: ${view} ${i + 1} is not a ${FRAME_W}×${FRAME_H} frame`);
-      const a = data.anchors[view][i];
-      const put = (px: number, py: number, c: string) => {
-        if (px < 0 || py < 0 || px >= FRAME_W || py >= FRAME_H) clipped++;
-        else f[py][px] = c;
-      };
-      const face = a.face && data.faces[expr][view];
-      if (a.face && face)
-        for (const [u, v, k] of face)
-          put(a.face[0] + Number(u), a.face[1] + Number(v), palette[String(k)]);
-      if (look.gear) {
-        const pixels = gearPixels(look.gear, a, view);
-        const mine = new Set(pixels.map(([px, py]) => `${px},${py}`));
-        for (const [px, py, k] of pixels) put(px, py, gearPalette[k]);
-        // the gear's own outline, only where nothing is drawn yet
-        for (const [px, py] of pixels)
-          for (const [dx, dy] of [
-            [1, 0],
-            [-1, 0],
-            [0, 1],
-            [0, -1],
-          ]) {
-            const nx = px + dx;
-            const ny = py + dy;
-            if (mine.has(`${nx},${ny}`)) continue;
-            if (nx < 0 || ny < 0 || nx >= FRAME_W || ny >= FRAME_H) clipped++;
-            else if (!f[ny][nx]) f[ny][nx] = gearPalette.o;
-          }
-      }
-      return f;
-    });
+    sheet[view] = frames.map((rows, i) =>
+      draw(rows, data.anchors[view][i], data.faces[expr][view], view, `${view} ${i + 1}`),
+    );
   }
   const [mx, my] = data.mug;
   const mugshot = sheet.down[1].slice(my, my + 16).map((row) => row.slice(mx, mx + 16));
-  return finish(sheet, mugshot, [data.sip[0], data.sip[1]], clipped);
+  const out = finish(sheet, mugshot, [data.sip[0], data.sip[1]], clipped);
+  // a diagonal walk that does not draw is left out: the four views stand in (diagSheetOf)
+  const diag = data.diag;
+  if (diag)
+    try {
+      const walk = (view: DiagView, gearView: View) =>
+        diag.frames[view].map((rows, i) =>
+          draw(rows, diag.anchors[view][i], diag.faces[expr]?.[view], gearView, `${view} ${i + 1}`),
+        );
+      [sheet.downRight, sheet.upRight] = [walk('downRight', 'down'), walk('upRight', 'up')];
+      out.clipped = clipped;
+    } catch (err) {
+      console.warn(`[cld] ${err instanceof Error ? err.message : String(err)}: no diagonal walk`);
+    }
+  return out;
 }

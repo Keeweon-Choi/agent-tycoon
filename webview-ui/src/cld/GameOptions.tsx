@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { openChangelog } from '../changelogOpen.js';
 import { Button } from '../components/ui/Button.js';
@@ -10,10 +10,12 @@ import { AgentRulesOption } from './AgentRulesOption.js';
 import { AccessButton } from './auth/Access.js';
 import { SecurityButton } from './auth/SecurityPanel.js';
 import { bypassReadOnly, chooseBypass, preferredBypassMode, useBypass } from './bypass.js';
+import { isDesktopApp, pageFillsScreen, toggleAppFullscreen } from './desktopApp.js';
 import { PixelSprite } from './ez/PixelSprite.js';
 import { rankSprite } from './ez/rankSprites.js';
 import { nameplatesOn, setNameplates } from './ez/useNameplates.js';
 import { setStackedView, useFloors } from './floors.js';
+import { setGameEffects, useGameEffects } from './game/gameMotion.js';
 import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
 import { BackgroundOptions } from './gfx/BackgroundOption.js';
 import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
@@ -24,13 +26,16 @@ import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHour
 import { panelAvailable, useCldStore } from './officeStore.js';
 import { OwnerPictureOption } from './OwnerPictureOption.js';
 import { getRankStyle, RANK_STYLES, setRankStyle } from './rank.js';
-import { SettingRow } from './SettingRow.js';
+import { type SettingHint, SettingHintContext, settingsKey } from './settingHint.js';
+import { Choice, OnOff, SettingGroup, SettingRow } from './SettingRow.js';
 import { setSettingsOpener, type SettingsTab } from './settingsOpen.js';
 import { StartPolicyOption } from './StartPolicyOption.js';
 import { AttachCapOption } from './terminal/AttachCapOption.js';
 import { setUiFont, UI_FONTS, useUiFont } from './uiFont.js';
 import { setUiScale, UI_SCALES, useUiScale } from './uiScale.js';
 import { isEdgeScrollOn, setEdgeScroll } from './useGameControls.js';
+
+const BYPASS_MODES = ['ask', 'bypass'] as const;
 
 /** O4: the permission mode NEW agents start with; existing agents keep theirs (each agent's own settings change it). */
 function BypassOption() {
@@ -51,20 +56,52 @@ function BypassOption() {
         )
       }
     >
-      <Button size="sm" variant={preferred === 'ask' ? 'active' : 'default'} aria-pressed={preferred === 'ask'} onClick={() => chooseBypass('ask')}>
-        {t('settings.bypass.ask')}
-      </Button>
-      <Button
-        size="sm"
-        variant={preferred === 'bypass' ? 'active' : 'default'}
-        aria-pressed={preferred === 'bypass'}
-        onClick={() => chooseBypass('bypass')}
-      >
-        {t('settings.bypass.allow')}
-        <span className="text-xs" data-testid="settings-bypass-recommended">
-          {t('settings.bypass.recommended')}
-        </span>
-      </Button>
+      <Choice
+        label={t('settings.bypass.title')}
+        options={BYPASS_MODES}
+        value={preferred}
+        onPick={chooseBypass}
+        text={(m) =>
+          m === 'ask' ? (
+            t('settings.bypass.ask')
+          ) : (
+            <>
+              {t('settings.bypass.allow')}
+              <span className="text-xs" data-testid="settings-bypass-recommended">
+                {t('settings.bypass.recommended')}
+              </span>
+            </>
+          )
+        }
+      />
+    </SettingRow>
+  );
+}
+
+const WINDOW_MODES = ['window', 'fullscreen'] as const;
+
+/** WINDOW-MODE: window / full screen in the desktop app only (a browser has its own F11). Same command as the app's F11. */
+function WindowModeOption() {
+  const [full, setFull] = useState(pageFillsScreen);
+  useEffect(() => {
+    const update = () => setFull(pageFillsScreen());
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  if (!isDesktopApp()) return null;
+  const choose = (wantFull: boolean) => {
+    if (wantFull !== full) toggleAppFullscreen();
+  };
+  return (
+    <SettingRow testId="window-mode-option" title={t('windowMode.title')} help={t('windowMode.help')} badge={t('windowMode.shortcut')}>
+      <Choice
+        label={t('windowMode.title')}
+        options={WINDOW_MODES}
+        value={full ? 'fullscreen' : 'window'}
+        onPick={(mode) => choose(mode === 'fullscreen')}
+        text={(mode) => t(`windowMode.${mode}`)}
+        attr="data-window-mode"
+      />
     </SettingRow>
   );
 }
@@ -80,22 +117,19 @@ function ImeGuardOption() {
   });
   return (
     <SettingRow testId="ime-guard-option" title={t('settings.imeGuard.title')} help={t('settings.imeGuard.help')}>
-      <Button
-        size="sm"
-        variant={on ? 'active' : 'default'}
-        aria-pressed={on}
-        onClick={() => {
+      <OnOff
+        label={t('settings.imeGuard.title')}
+        on={on}
+        onChange={(want) => {
           try {
-            if (on) localStorage.setItem(IME_GUARD_OFF_KEY, 'off');
-            else localStorage.removeItem(IME_GUARD_OFF_KEY);
-            setOn(!on);
+            if (want) localStorage.removeItem(IME_GUARD_OFF_KEY);
+            else localStorage.setItem(IME_GUARD_OFF_KEY, 'off');
+            setOn(want);
           } catch {
             // No storage (private mode): the layer stays on.
           }
         }}
-      >
-        {t(on ? 'settings.imeGuard.on' : 'settings.imeGuard.off')}
-      </Button>
+      />
     </SettingRow>
   );
 }
@@ -116,13 +150,29 @@ function readTab(): SettingsTab {
 /** Over the office's overlays and panels, like the other cld dialogs. */
 const OPTIONS_Z_INDEX = 60;
 
-/** A fixed width, so switching tabs does not resize the window. */
-const OPTIONS_WIDTH = 'w-[min(480px,100%)]';
+/** OPTIONS-3A: a game options screen on a desktop, one size whatever the tab (960 x 768 or the
+ *  screen, less its margin); the whole screen on a phone. The tabs and the hint line stay, a tab
+ *  scrolls only when it does not fit (a large 화면 크기). */
+const OPTIONS_FRAME = 'w-[min(960px,100%)] h-[min(768px,100%)] flex! flex-col overflow-hidden!';
+const OPTIONS_FRAME_PHONE = 'w-full h-full flex! flex-col overflow-hidden!';
+/** The desktop's tab column: an icon and the name. */
+const TAB_ICONS = {
+  general: 'star',
+  display: 'desktop_windows',
+  access: 'power',
+  security: 'shield',
+  advanced: 'build',
+} as const satisfies Record<SettingsTab, string>;
 
-/** Rows outside a tab (the install hint, the phone's quick row): the tab panel's own side padding. */
+/** Rows outside a tab (the install hint): the tab panel's own side padding. */
 const bar = 'flex items-center gap-8 px-10 pb-8';
-/** A tab's content: one padding for the whole window width, one gap between rows and sections. */
-const panelClass = 'flex flex-col gap-12 px-10 pb-10 pt-6';
+/** The hint line. A desktop's holds two lines (the 화면 tab's longest help), so hovering moves no
+ *  row; a phone's is one fixed size that scrolls, as a tap picks the row before its click lands
+ *  and a growing line would move the button away. */
+const HINT = 'flex min-h-78 shrink-0 items-start gap-12 border-t-2 border-border px-12 py-8 text-sm';
+const HINT_PHONE = 'flex h-112 shrink-0 flex-col gap-2 overflow-y-auto border-t-2 border-border px-12 py-8 text-sm';
+/** A tab's content: rows touch (each has its height), one side padding for every tab. */
+const panelClass = 'flex flex-col px-10 pb-6';
 /** A time or number field: the height of a small button. */
 const field = 'h-28 bg-bg border-2 border-border px-4 text-sm pointer-coarse:min-h-44';
 const INSTALL_HINT_KEY = 'cld.install-hint-dismissed';
@@ -270,25 +320,21 @@ function InstallAppOptions({ promptEvent, installed, iosSafari, install }: Insta
   );
 }
 
+
+const LANGUAGES = ['en', 'ko'] as const;
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+
 /** T-0041: office hours (cosmetic: when the staff go home) and how long temps linger. */
 function OfficeHoursOptions() {
   const h = useOfficeHours();
   return (
-    <div className="flex flex-col gap-8" data-testid="office-hours-options">
+    <div data-testid="office-hours-options">
       <SettingRow title={t('settings.hours.title')} help={t('settings.hours.help')}>
-        <Button
-          size="sm"
-          variant={h.on ? 'active' : 'default'}
-          aria-pressed={h.on}
-          aria-label={t('settings.hours.title')}
-          onClick={() => setOfficeHours({ on: !h.on })}
-        >
-          {h.on ? t('settings.on') : t('settings.off')}
-        </Button>
+        <OnOff label={t('settings.hours.title')} on={h.on} onChange={(on) => setOfficeHours({ on })} />
       </SettingRow>
       {h.on && (
         <>
-          <div className="flex items-center gap-8 text-sm">
+          <SettingRow title={t('opts.hours.time')} help={t('settings.hours.help')}>
             <input
               type="time"
               className={field}
@@ -299,7 +345,7 @@ function OfficeHoursOptions() {
                 if (v !== null && v !== h.end) setOfficeHours({ start: v });
               }}
             />
-            <span>~</span>
+            <span className="text-sm">~</span>
             <input
               type="time"
               className={field}
@@ -310,27 +356,29 @@ function OfficeHoursOptions() {
                 if (v !== null && v !== h.start) setOfficeHours({ end: v });
               }}
             />
-          </div>
-          <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.hours.days')}>
-            {(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const).map((name, day) => {
-              const on = h.days.includes(day);
-              return (
-                <Button
-                  key={name}
-                  size="sm"
-                  variant={on ? 'active' : 'default'}
-                  aria-pressed={on}
-                  onClick={() =>
-                    setOfficeHours({
-                      days: on ? h.days.filter((d) => d !== day) : [...h.days, day],
-                    })
-                  }
-                >
-                  {t(`settings.weekday.${name}`)}
-                </Button>
-              );
-            })}
-          </div>
+          </SettingRow>
+          <SettingRow title={t('settings.hours.days')} help={t('settings.hours.help')}>
+            <div className="flex gap-4" role="group" aria-label={t('settings.hours.days')}>
+              {WEEKDAYS.map((name, day) => {
+                const on = h.days.includes(day);
+                return (
+                  <Button
+                    key={name}
+                    size="sm"
+                    variant={on ? 'active' : 'default'}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setOfficeHours({
+                        days: on ? h.days.filter((d) => d !== day) : [...h.days, day],
+                      })
+                    }
+                  >
+                    {t(`settings.weekday.${name}`)}
+                  </Button>
+                );
+              })}
+            </div>
+          </SettingRow>
         </>
       )}
       <SettingRow title={t('settings.hours.linger')} help={t('settings.hours.lingerHelp')}>
@@ -346,7 +394,7 @@ function OfficeHoursOptions() {
             if (Number.isFinite(v) && v >= 0) setOfficeHours({ lingerMin: v });
           }}
         />
-        <span className="self-center text-sm">{t('settings.hours.minutes')}</span>
+        <span className="text-sm">{t('settings.hours.minutes')}</span>
       </SettingRow>
     </div>
   );
@@ -364,50 +412,34 @@ function LayoutPresets() {
     ...(panelAvailable('terminal', store) ? ['terminal'] : []),
     'files',
   ];
-  const pick = (preset: Preset) => {
-    applyLayoutPreset(preset, icons);
-    setPicked(preset);
-  };
   return (
-    <SettingRow
-      testId="hud-preset-option"
-      title={t('settings.layoutPresets.title')}
-      help={t('settings.layoutPresets.help')}
-      stacked
-    >
-      <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.layoutPresets.title')}>
-        {PRESETS.map((p) => (
-          <Button
-            key={p.id}
-            size="sm"
-            variant={picked === p.id ? 'active' : 'default'}
-            aria-pressed={picked === p.id}
-            title={t(`settings.layoutPresets.${p.id}Hint`)}
-            onClick={() => pick(p.id)}
-          >
-            {t(`settings.layoutPresets.${p.id}`)}
-          </Button>
-        ))}
-      </div>
+    <SettingRow testId="hud-preset-option" title={t('settings.layoutPresets.title')} help={t('settings.layoutPresets.help')}>
+      <Choice
+        label={t('settings.layoutPresets.title')}
+        options={PRESETS.map((p) => p.id)}
+        value={picked}
+        onPick={(preset) => {
+          applyLayoutPreset(preset, icons);
+          setPicked(preset);
+        }}
+        text={(preset) => t(`settings.layoutPresets.${preset}`)}
+        tip={(preset) => t(`settings.layoutPresets.${preset}Hint`)}
+      />
     </SettingRow>
   );
 }
 
-/** GFX2: the city seen from above around the office (off: the plain background). */
+/** GFX2: the title scene at start, and the city seen from above around the office (off: the plain background). */
 function BackdropOptions() {
   const { on } = useBackdrop();
   const { atStart } = useTitleScene();
   return (
     <>
       <SettingRow testId="title-scene-option" title={t('gfx.titleOption.title')} help={t('gfx.titleOption.help')}>
-        <Button size="sm" variant={atStart ? 'active' : 'default'} aria-pressed={atStart} onClick={() => setTitleAtStart(!atStart)}>
-          {atStart ? t('settings.on') : t('settings.off')}
-        </Button>
+        <OnOff label={t('gfx.titleOption.title')} on={atStart} onChange={setTitleAtStart} />
       </SettingRow>
       <SettingRow testId="backdrop-option" title={t('gfx.backdrop.title')} help={t('gfx.backdrop.help')}>
-        <Button size="sm" variant={on ? 'active' : 'default'} aria-pressed={on} onClick={() => setBackdrop({ on: !on })}>
-          {on ? t('settings.on') : t('settings.off')}
-        </Button>
+        <OnOff label={t('gfx.backdrop.title')} on={on} onChange={(want) => setBackdrop({ on: want })} />
       </SettingRow>
     </>
   );
@@ -419,11 +451,15 @@ export interface PhoneRows {
   display: ReactNode;
 }
 
-/** The top bar settings: office hours, floor view, and mouse edge scrolling. */
-export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
+const FLOOR_VIEWS = [true, false] as const;
+
+/** 설정: the window, its opener (openSettings) and the install note. `trigger={false}` draws no
+ *  button of its own (the desktop top bar opens it from its 메뉴). */
+export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRows; trigger?: boolean } = {}) {
   const language = useLanguage();
   const uiScale = useUiScale();
   const uiFont = useUiFont();
+  const gameEffects = useGameEffects();
   const [open, setOpen] = useState(false);
   const [edge, setEdge] = useState(isEdgeScrollOn);
   const [plates, setPlates] = useState(nameplatesOn);
@@ -432,8 +468,14 @@ export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
   const { stacked } = useFloors();
   const mobile = useIsMobile();
   const [tab, setTab] = useState(readTab);
+  // OPTIONS-3A: the hint line shows the hovered row's help, else the picked row's.
+  const [hovered, setHovered] = useState<SettingHint | null>(null);
+  const [picked, setPicked] = useState<SettingHint | null>(null);
+  const shown = hovered ?? picked;
+  const frame = useRef<HTMLDivElement>(null);
   const chooseTab = (id: SettingsTab) => {
     setTab(id);
+    setPicked(null);
     try {
       localStorage.setItem(SETTINGS_TAB_KEY, id);
     } catch {
@@ -449,6 +491,32 @@ export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
       }),
     [],
   );
+  // OPTIONS-3A: Esc closes, the arrow keys walk the rows (settingsKey), while this is the top
+  // dialog (a window opened from a row, like 보안, keeps its own keys). Capture, so the office's
+  // own arrow keys do not also move the camera.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      const root = frame.current;
+      const mine = root?.closest('[role="dialog"]');
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (!root || !mine || dialogs[dialogs.length - 1] !== mine || e.isComposing) return;
+      const typing = e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]');
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typing && e.target instanceof HTMLElement) e.target.blur(); // a draft is not thrown away
+        else setOpen(false);
+        return;
+      }
+      if (!typing && settingsKey(e.key, root)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open]);
   const showHint =
     !installApp.hintDismissed &&
     !!(installApp.promptEvent || installApp.iosSafari) &&
@@ -470,6 +538,18 @@ export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
       </button>
     </>
   );
+  const panel = (id: SettingsTab, body: ReactNode) => (
+    <div
+      role="tabpanel"
+      id={`settings-panel-${id}`}
+      aria-labelledby={`settings-tab-${id}`}
+      hidden={tab !== id}
+      className={panelClass}
+      data-testid={`settings-panel-${id}`}
+    >
+      {body}
+    </div>
+  );
   return (
     <>
       {/* Desktop: a floating note under the top bar. A phone's top bar grows by the
@@ -483,278 +563,243 @@ export function GameOptions({ phoneRows }: { phoneRows?: PhoneRows } = {}) {
           {hintBody}
         </div>
       )}
-      <Button
-        size="icon_md"
-        className="relative"
-        aria-label={t('settings.title')}
-        title={t('settings.title')}
-        onClick={() => setOpen(true)}
-      >
-        <span className="material-symbols-sharp" aria-hidden="true">
-          settings
-        </span>
-        {showHint && mobile && (
-          <span
-            data-testid="install-hint-dot"
-            className="pointer-events-none absolute right-2 top-2 size-8 bg-accent-bright"
-          />
-        )}
-      </Button>
+      {trigger && (
+        <Button
+          size="icon_md"
+          className="relative"
+          aria-label={t('settings.title')}
+          title={t('settings.title')}
+          onClick={() => setOpen(true)}
+        >
+          <span className="material-symbols-sharp" aria-hidden="true">
+            settings
+          </span>
+          {showHint && mobile && (
+            <span
+              data-testid="install-hint-dot"
+              className="pointer-events-none absolute right-2 top-2 size-8 bg-accent-bright"
+            />
+          )}
+        </Button>
+      )}
       <Modal
         isOpen={open}
         onClose={() => setOpen(false)}
-        title={t('settings.title')}
+        title={
+          <span className="flex items-baseline gap-16">
+            {t('settings.title')}
+            {!mobile && <span className="text-xs text-text-muted">{t('opts.escClose')}</span>}
+          </span>
+        }
         zIndex={OPTIONS_Z_INDEX}
-        className={OPTIONS_WIDTH}
+        className={mobile ? OPTIONS_FRAME_PHONE : OPTIONS_FRAME}
       >
         {showHint && mobile && (
           <div className={bar} role="status" data-testid="install-hint">
             {hintBody}
           </div>
         )}
-        <div
-          className="flex gap-4 overflow-x-auto px-10 pb-8"
-          role="tablist"
-          aria-label={t('settabs.label')}
-          data-testid="settings-tabs"
+        <SettingHintContext.Provider
+          value={{ picked: picked?.id ?? null, hover: setHovered, pick: setPicked, compact: mobile }}
         >
-          {SETTINGS_TABS.map((id) => (
-            <Button
-              key={id}
-              size="sm"
-              role="tab"
-              id={`settings-tab-${id}`}
-              aria-selected={tab === id}
-              aria-controls={`settings-panel-${id}`}
-              variant={tab === id ? 'active' : 'default'}
-              className="shrink-0"
-              onClick={() => chooseTab(id)}
+          <div ref={frame} className={`flex min-h-0 flex-1 ${mobile ? 'flex-col' : ''}`}>
+            <div
+              className={
+                mobile
+                  ? 'flex shrink-0 gap-4 overflow-x-auto px-10 pb-8'
+                  : 'flex w-168 shrink-0 flex-col gap-4 border-r-2 border-border px-8'
+              }
+              role="tablist"
+              aria-orientation={mobile ? 'horizontal' : 'vertical'}
+              aria-label={t('settabs.label')}
+              data-testid="settings-tabs"
             >
-              {t(`settabs.${id}`)}
-            </Button>
-          ))}
-        </div>
-        <div
-          role="tabpanel"
-          id="settings-panel-general"
-          aria-labelledby="settings-tab-general"
-          hidden={tab !== 'general'}
-          className={panelClass}
-          data-testid="settings-panel-general"
-        >
-          <InstallAppOptions {...installApp} />
-          <SettingRow
-            testId="language-option"
-            title={t('settings.language')}
-            help={t('settings.language.help')}
-          >
-            <div className="flex gap-4" role="group" aria-label={t('settings.language')}>
-              {(['en', 'ko'] as const).map((choice) => (
+              {SETTINGS_TABS.map((id) => (
                 <Button
-                  key={choice}
-                  size="sm"
-                  variant={language === choice ? 'active' : 'default'}
-                  aria-pressed={language === choice}
-                  onClick={() => setLanguage(choice)}
+                  key={id}
+                  size={mobile ? 'sm' : 'md'}
+                  role="tab"
+                  id={`settings-tab-${id}`}
+                  aria-selected={tab === id}
+                  aria-controls={`settings-panel-${id}`}
+                  variant={tab === id ? 'active' : 'default'}
+                  className={mobile ? 'shrink-0' : 'w-full justify-start! gap-8'}
+                  onClick={() => chooseTab(id)}
                 >
-                  {t(`settings.language.${choice === 'en' ? 'english' : 'korean'}`)}
+                  {!mobile && (
+                    <span className="material-symbols-sharp" aria-hidden="true">
+                      {TAB_ICONS[id]}
+                    </span>
+                  )}
+                  {t(`settabs.${id}`)}
                 </Button>
               ))}
             </div>
-          </SettingRow>
-          <OwnerPictureOption onPickLook={() => setOpen(false)} />
-          <OfficeHoursOptions />
-          <SettingRow
-            testId="changelog-option"
-            title={t('changelog.settingsTitle')}
-            help={t('changelog.settingsHelp')}
-          >
-            <Button size="sm" onClick={() => openChangelog()}>
-              {t('changelog.open')}
-            </Button>
-          </SettingRow>
-        </div>
-        <div
-          role="tabpanel"
-          id="settings-panel-display"
-          aria-labelledby="settings-tab-display"
-          hidden={tab !== 'display'}
-          className={panelClass}
-          data-testid="settings-panel-display"
-        >
-          {/* UI-SCALE: the whole UI's size, per browser (owner 10-24: the setting decides, not the screen). */}
-          <SettingRow testId="ui-scale-option" title={t('settings.uiScale')} help={t('settings.uiScale.help')} stacked>
-            <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.uiScale')}>
-              {UI_SCALES.map((step) => (
-                <Button
-                  key={step}
-                  size="sm"
-                  variant={uiScale === step ? 'active' : 'default'}
-                  aria-pressed={uiScale === step}
-                  data-ui-scale={step}
-                  onClick={() => setUiScale(step)}
-                >
-                  {t(`hud.${step}`)}
-                </Button>
-              ))}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
+              {panel(
+                'general',
+                <>
+                  <InstallAppOptions {...installApp} />
+                  <SettingRow testId="language-option" title={t('settings.language')} help={t('settings.language.help')}>
+                    <Choice
+                      label={t('settings.language')}
+                      options={LANGUAGES}
+                      value={language}
+                      onPick={setLanguage}
+                      text={(choice) => t(`settings.language.${choice === 'en' ? 'english' : 'korean'}`)}
+                    />
+                  </SettingRow>
+                  <OwnerPictureOption onPickLook={() => setOpen(false)} />
+                  <OfficeHoursOptions />
+                  <SettingRow testId="changelog-option" title={t('changelog.settingsTitle')} help={t('changelog.settingsHelp')}>
+                    <Button size="sm" onClick={() => openChangelog()}>
+                      {t('changelog.open')}
+                    </Button>
+                  </SettingRow>
+                </>,
+              )}
+              {panel(
+                'display',
+                <>
+                  <SettingGroup title={t('opts.group.window')} />
+                  <WindowModeOption />
+                  {/* UI-SCALE: the whole UI's size, per browser (owner 10-24: the setting decides, not the screen). */}
+                  <SettingRow testId="ui-scale-option" title={t('settings.uiScale')} help={t('settings.uiScale.help')}>
+                    <Choice
+                      label={t('settings.uiScale')}
+                      options={UI_SCALES}
+                      value={uiScale}
+                      onPick={setUiScale}
+                      text={(step) => t(`hud.${step}`)}
+                      attr="data-ui-scale"
+                    />
+                  </SettingRow>
+                  {/* UI-FONT: 감성이냐 가독성이냐, per browser (owner 11-01 14:54). */}
+                  <SettingRow testId="ui-font-option" title={t('uiFont.title')} help={t('uiFont.help')}>
+                    <Choice
+                      label={t('uiFont.title')}
+                      options={UI_FONTS}
+                      value={uiFont}
+                      onPick={setUiFont}
+                      text={(choice) => t(`uiFont.${choice}`)}
+                      attr="data-ui-font"
+                    />
+                  </SettingRow>
+                  {/* GAME-UI-0: one switch for every game animation (gameMotion.ts decides, with reduced motion). */}
+                  <SettingRow testId="game-motion-option" title={t('game.motion.title')} help={t('game.motion.help')}>
+                    <OnOff label={t('game.motion.title')} on={gameEffects} onChange={setGameEffects} />
+                  </SettingRow>
+                  <SettingGroup title={t('opts.group.office')} />
+                  <SettingRow testId="floor-view-option" title={t('settings.floors.title')} help={t('settings.floors.help')}>
+                    <Choice
+                      label={t('settings.floors.title')}
+                      options={FLOOR_VIEWS}
+                      value={stacked}
+                      onPick={setStackedView}
+                      text={(all) => t(all ? 'settings.floors.all' : 'settings.floors.one')}
+                    />
+                  </SettingRow>
+                  <BackdropOptions />
+                  <BackgroundOptions />
+                  <IsoOption />
+                  <SettingGroup title={t('opts.group.overhead')} />
+                  {phoneRows && (
+                    <SettingRow testId="legend-option" title={t('settabs.legend.title')} help={t('settabs.legend.help')}>
+                      {phoneRows.display}
+                    </SettingRow>
+                  )}
+                  <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
+                    <OnOff
+                      label={t('settings.nameplates.title')}
+                      on={plates}
+                      onChange={(on) => {
+                        setNameplates(on);
+                        setPlates(on);
+                      }}
+                    />
+                  </SettingRow>
+                  {/* RANK-LEVELS: how the rank icon beside a name is drawn, per browser. */}
+                  <SettingRow testId="rank-icon-option" title={t('settings.rankIcon')} help={t('settings.rankIcon.help')}>
+                    <Choice
+                      label={t('settings.rankIcon')}
+                      options={RANK_STYLES}
+                      value={rankStyle}
+                      onPick={(style) => {
+                        setRankStyle(style);
+                        setRankStyleState(style);
+                      }}
+                      text={(style) => (
+                        <>
+                          <PixelSprite sprite={rankSprite(style, 'manager')} scale={2} />
+                          {t(`settings.rankIcon.${style}`)}
+                        </>
+                      )}
+                      attr="data-rank-style"
+                    />
+                  </SettingRow>
+                  <SettingGroup title={t('opts.group.controls')} />
+                  <SettingRow className="pointer-coarse:hidden" title={t('settings.edge.title')} help={t('settings.edge.help')}>
+                    <OnOff
+                      label={t('settings.edge.title')}
+                      on={edge}
+                      onChange={(on) => {
+                        setEdgeScroll(on);
+                        setEdge(on);
+                      }}
+                    />
+                  </SettingRow>
+                  {!mobile && <LayoutPresets />}
+                  <SettingRow testId="hud-reset-option" title={t('settings.layoutReset.title')} help={t('settings.layoutReset.help')}>
+                    <Button size="sm" onClick={resetLayout}>
+                      {t('settings.layoutReset.button')}
+                    </Button>
+                  </SettingRow>
+                </>,
+              )}
+              {panel(
+                'access',
+                <>
+                  <SettingRow testId="access-option" title={t('settings.access.title')} help={t('settings.access.help')}>
+                    <AccessButton />
+                  </SettingRow>
+                  <StartPolicyOption />
+                  {phoneRows && (
+                    <SettingRow testId="add-device-option" title={t('settabs.addDevice.title')} help={t('settabs.addDevice.help')}>
+                      {phoneRows.access}
+                    </SettingRow>
+                  )}
+                </>,
+              )}
+              {panel(
+                'security',
+                <>
+                  <BypassOption />
+                  <SettingRow testId="security-open-option" title={t('settabs.securityOpen.title')} help={t('settabs.securityOpen.help')}>
+                    <SecurityButton />
+                  </SettingRow>
+                </>,
+              )}
+              {panel(
+                'advanced',
+                <>
+                  <AttachCapOption />
+                  <ImeGuardOption />
+                  <AgentRulesOption />
+                </>,
+              )}
             </div>
-          </SettingRow>
-          {/* UI-FONT: 감성이냐 가독성이냐, per browser (owner 11-01 14:54). */}
-          <SettingRow testId="ui-font-option" title={t('uiFont.title')} help={t('uiFont.help')} stacked>
-            <div className="flex flex-wrap gap-4" role="group" aria-label={t('uiFont.title')}>
-              {UI_FONTS.map((choice) => (
-                <Button
-                  key={choice}
-                  size="sm"
-                  variant={uiFont === choice ? 'active' : 'default'}
-                  aria-pressed={uiFont === choice}
-                  data-ui-font={choice}
-                  onClick={() => setUiFont(choice)}
-                >
-                  {t(`uiFont.${choice}`)}
-                </Button>
-              ))}
-            </div>
-          </SettingRow>
-          <SettingRow testId="floor-view-option" title={t('settings.floors.title')} help={t('settings.floors.help')} stacked>
-            <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.floors.title')}>
-              <Button
-                size="sm"
-                variant={stacked ? 'active' : 'default'}
-                aria-pressed={stacked}
-                onClick={() => setStackedView(true)}
-              >
-                {t('settings.floors.all')}
-              </Button>
-              <Button
-                size="sm"
-                variant={!stacked ? 'active' : 'default'}
-                aria-pressed={!stacked}
-                onClick={() => setStackedView(false)}
-              >
-                {t('settings.floors.one')}
-              </Button>
-            </div>
-          </SettingRow>
-          <BackdropOptions />
-          <BackgroundOptions />
-          <IsoOption />
-          {phoneRows && (
-            <SettingRow
-              testId="legend-option"
-              title={t('settabs.legend.title')}
-              help={t('settabs.legend.help')}
-            >
-              {phoneRows.display}
-            </SettingRow>
-          )}
-          <SettingRow testId="nameplates-option" title={t('settings.nameplates.title')} help={t('settings.nameplates.help')}>
-            <Button
-              size="sm"
-              variant={plates ? 'active' : 'default'}
-              aria-pressed={plates}
-              aria-label={t('settings.nameplates.title')}
-              onClick={() => {
-                setNameplates(!plates);
-                setPlates(!plates);
-              }}
-            >
-              {plates ? t('settings.on') : t('settings.off')}
-            </Button>
-          </SettingRow>
-          {/* RANK-LEVELS: how the rank icon beside a name is drawn, per browser. */}
-          <SettingRow testId="rank-icon-option" title={t('settings.rankIcon')} help={t('settings.rankIcon.help')} stacked>
-            <div className="flex flex-wrap gap-4" role="group" aria-label={t('settings.rankIcon')}>
-              {RANK_STYLES.map((style) => (
-                <Button
-                  key={style}
-                  size="sm"
-                  variant={rankStyle === style ? 'active' : 'default'}
-                  aria-pressed={rankStyle === style}
-                  data-rank-style={style}
-                  onClick={() => {
-                    setRankStyle(style);
-                    setRankStyleState(style);
-                  }}
-                >
-                  <PixelSprite sprite={rankSprite(style, 'manager')} scale={2} />
-                  {t(`settings.rankIcon.${style}`)}
-                </Button>
-              ))}
-            </div>
-          </SettingRow>
-          <SettingRow className="pointer-coarse:hidden" title={t('settings.edge.title')} help={t('settings.edge.help')}>
-            <Button
-              size="sm"
-              variant={edge ? 'active' : 'default'}
-              aria-pressed={edge}
-              aria-label={t('settings.edge.title')}
-              onClick={() => {
-                setEdgeScroll(!edge);
-                setEdge(!edge);
-              }}
-            >
-              {edge ? t('settings.on') : t('settings.off')}
-            </Button>
-          </SettingRow>
-          {!mobile && <LayoutPresets />}
-          <SettingRow testId="hud-reset-option" title={t('settings.layoutReset.title')} help={t('settings.layoutReset.help')}>
-            <Button size="sm" onClick={resetLayout}>
-              {t('settings.layoutReset.button')}
-            </Button>
-          </SettingRow>
-        </div>
-        <div
-          role="tabpanel"
-          id="settings-panel-access"
-          aria-labelledby="settings-tab-access"
-          hidden={tab !== 'access'}
-          className={panelClass}
-          data-testid="settings-panel-access"
-        >
-          <SettingRow testId="access-option" title={t('settings.access.title')} help={t('settings.access.help')}>
-            <AccessButton />
-          </SettingRow>
-          <StartPolicyOption />
-          {phoneRows && (
-            <SettingRow
-              testId="add-device-option"
-              title={t('settabs.addDevice.title')}
-              help={t('settabs.addDevice.help')}
-            >
-              {phoneRows.access}
-            </SettingRow>
-          )}
-        </div>
-        <div
-          role="tabpanel"
-          id="settings-panel-security"
-          aria-labelledby="settings-tab-security"
-          hidden={tab !== 'security'}
-          className={panelClass}
-          data-testid="settings-panel-security"
-        >
-          <BypassOption />
-          <SettingRow
-            testId="security-open-option"
-            title={t('settabs.securityOpen.title')}
-            help={t('settabs.securityOpen.help')}
-          >
-            <SecurityButton />
-          </SettingRow>
-        </div>
-        <div
-          role="tabpanel"
-          id="settings-panel-advanced"
-          aria-labelledby="settings-tab-advanced"
-          hidden={tab !== 'advanced'}
-          className={panelClass}
-          data-testid="settings-panel-advanced"
-        >
-          <AttachCapOption />
-          <ImeGuardOption />
-          <AgentRulesOption />
-        </div>
+          </div>
+          <div className={mobile ? HINT_PHONE : HINT} data-testid="settings-hint">
+            {shown ? (
+              <>
+                <span className="shrink-0 text-accent-text">{shown.title}</span>
+                <span className="min-w-0 text-text-muted">{shown.help}</span>
+              </>
+            ) : (
+              <span className="text-text-muted">{t(mobile ? 'opts.hintTap' : 'opts.hintKeys')}</span>
+            )}
+          </div>
+        </SettingHintContext.Provider>
       </Modal>
     </>
   );

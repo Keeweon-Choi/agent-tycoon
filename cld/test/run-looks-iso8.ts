@@ -5,27 +5,11 @@
  *
  *   npx tsx cld/test/run-looks-iso8.ts <port 18260-18269>
  */
-/* CH-4 꾸미기 check: dist/cli.js with an isolated HOME on a spare port, headless Chromium (no
- * GPU), desktop 1280x800 and phone 393x852. One fake Claude session (a `sleep` with a
- * transcript), no model is ever called.
- *
- * Desktop: the card's right-click opens the window; a mascot is changed (species, colour, face,
- * headgear) and saved: characters.json and the card face follow; 랜덤 then 되돌리기; 기본으로
- * pins the provider's Coral again; a person look is saved. Phone: card tap → the character's
- * menu → 꾸미기 opens as a page; a Dock button minimizes it. Screenshots: cld/artifacts/ch4/.
- *
- * CH-5: on the 사람 tab, part swatches (skin, hair, top, shoes) and two accessories are saved:
- * characters.json holds them, the card face has the hair colour; the phone's 꾸미기 page shows
- * the saved person. Screenshots: cld/artifacts/char-humanoid/.
- *
- *   npx tsx cld/test/run-looks.ts <port 18256-18259>
- */
 import type { Page } from '@playwright/test';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { HUMANOID_SWATCHES, MASCOT_COLORS } from '../../core/src/cld/looks.js';
 import { normalizeProjectPath } from '../../core/src/normalizeProjectPath.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
