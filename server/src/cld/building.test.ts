@@ -316,6 +316,8 @@ describe('office floors (T-0027, engine projects)', () => {
     const [f1, f2] = l.cldFloors!;
     expect(labelsOn(l, f2)).toEqual(new Set(['orch-beta', '2층 휴게실', '2층 탕비실']));
     expect(labelsOn(l, f1).has('orch-beta')).toBe(false);
+    // floors-fill-1104: floor 2's one room fills the same plate as floor 1's many.
+    expect([f2.cols, f2.rows]).toEqual([f1.cols, f1.rows]);
     // delta's seat is on floor 2's rows, and the map says so.
     const seat = l.furniture.find((f) => f.uid === office.seatFor(agentOf(office, 'delta')))!;
     expect(seat.row).toBeGreaterThanOrEqual(f2.row);

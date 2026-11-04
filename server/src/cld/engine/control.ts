@@ -155,6 +155,8 @@ export interface ControlDeps {
     model: string | null;
     effort?: string | null;
     worktree: boolean;
+    /** `--name`: the worktree's branch name (`feat/iso-billboard`). */
+    name?: string | null;
     /** The user's one-line description: the run's title in its cards and notices. */
     desc?: string | null;
     project: string | null;
@@ -299,7 +301,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       if (!spec)
         return refuse(
           'usage',
-          `사용법: ${CLI_NAME} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree] [--project <이름>] <명세 파일>`,
+          `사용법: ${CLI_NAME} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>`,
         );
       let desc: string | null;
       try {
@@ -318,6 +320,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         model: str(a.model),
         effort: str(a.effort),
         worktree: a.worktree === true,
+        ...(str(a.name) && { name: str(a.name)! }),
         desc,
         project,
         cwd: req.cwd,

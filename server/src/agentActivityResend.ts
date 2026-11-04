@@ -1,4 +1,5 @@
 import type { AgentStateStore } from './agentStateStore.js';
+import { compactionsMessage } from './contextUsage.js';
 import { hasPromotedBackgroundAgent } from './teamUtils.js';
 
 /**
@@ -10,7 +11,7 @@ import { hasPromotedBackgroundAgent } from './teamUtils.js';
  * 3. Background tools with runInBackground + isTeammateSpawn flags, skipping promoted spawns
  *    (3b. running sub-agent tools)
  * 4. Waiting status
- * 5. Context usage
+ * 5. Context usage, then the compactions counted
  */
 export function resendAgentActivity(
   send: (message: Record<string, unknown>) => void,
@@ -97,7 +98,11 @@ export function resendAgentActivity(
         id,
         contextTokens: agent.contextTokens,
         maxContextTokens: agent.maxContextTokens,
+        limitBasis: agent.limitBasis ?? 'unknown',
       });
     }
+    // Always, even none: a client that missed a reset (a new transcript) while away
+    // would otherwise keep the old session's count.
+    send(compactionsMessage(id, agent.compactions ?? { count: 0, partial: false, recent: [] }));
   }
 }

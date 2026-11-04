@@ -12,22 +12,19 @@ import './lobby.css';
 
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import type { CharacterChoice, CharacterPresets } from '../../../../core/src/messages.js';
+import type { CharacterPresets } from '../../../../core/src/messages.js';
 import { LOBBY_ART } from '../../constants.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
 import { getCharacterSprites } from '../../office/sprites/spriteData.js';
 import { Direction } from '../../office/types.js';
-import { lookByName, ownerChoice, useLooksUi } from '../characters/looks.js';
+import { useLooksUi } from '../characters/looks.js';
 import { reducedMotion } from '../floors.js';
 import { useCldStore } from '../officeStore.js';
-import tall from './art/title-tall.webp';
-import wide from './art/title-wide.webp';
+import { LOBBY_SRC, lobbyLooks } from './lobbyCast.js';
 import SPOTS from './lobbySpots.json';
 import { exactDevicePx, type LobbyArtKind, lobbyCover, snapExact } from './titleSceneState.js';
 
 type Art = LobbyArtKind;
-const SRC: Record<Art, string> = { wide, tall };
-const TORI: CharacterChoice = { v: 2, kind: 'mascot', species: 'tori' };
 
 function useCover() {
   const get = () => lobbyCover(window.innerWidth, window.innerHeight);
@@ -66,7 +63,7 @@ export function LobbyArt() {
       data-art={art}
     >
       <img
-        src={SRC[art]}
+        src={LOBBY_SRC[art]}
         alt=""
         draggable={false}
         className="absolute inset-0 w-full h-full"
@@ -127,12 +124,7 @@ function LobbyCast({ art, s }: { art: Art; s: number }) {
     presets: [],
     assignments: {},
   };
-  const owner = ownerChoice(presets);
-  const looks = [TORI, owner].map((choice, i) =>
-    choice
-      ? lookByName(`lobby:${i}`, { ...presets, assignments: { [`lobby:${i}`]: choice } })
-      : null,
-  );
+  const looks = lobbyLooks(presets);
   const desk = SPOTS[art].desk;
   // One world scale for both (device px per world px), a multiple of every density on show,
   // so each sprite is drawn at a whole number of device px per sprite px and both stand the

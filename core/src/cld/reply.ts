@@ -11,6 +11,9 @@
 export const REPLY_ID = /^[A-Za-z0-9._:-]{1,64}$/;
 /** The quote line the agent reads carries this much of the replied message. */
 export const REPLY_QUOTE_MAX = 120;
+/** REPLY-FULL: a replied message the agent no longer has in its context (older than its session
+ *  or its last compaction) is quoted whole up to this many characters. */
+export const REPLY_FULL_MAX = 1000;
 /** What the app sends of the replied message: whole lines, so the server masks a secret before it
  *  cuts the quote (a cut first can leave a token's head that no mask rule matches).
  *  ponytail: a secret straddling this far-off cut could still leak a head if masking shrank

@@ -86,7 +86,7 @@ function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: P
     hostScript: '/x/cld-ptyhost.js',
     log: () => undefined,
     client: client ?? host.client,
-    timing: { enterMs: 50, submitMs: 300, pollMs: 10 },
+    timing: { enterMs: 50, submitMs: 300, retryMs: 80, pollMs: 10 },
     platform,
   });
   const transcript = transcriptPath('/work/alpha', 's-1', home);
@@ -228,7 +228,8 @@ describe('claude-pty deliver', () => {
       submit('[사장 · 메신저 · 11-01 14:50] ⟨m:abcdefgh⟩\nhi\nthere');
     });
     expect(await agent.deliver(lead, 'hi\nthere\x07', { messageId: 'abcdefgh' })).toBe('typed');
-    expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~hi\rthere\x1b[201~', '\r']);
+    // TYPIST-STALE: the newline as LF (Ctrl+J), never CR (Enter where the paste markers do not arrive).
+    expect(host.writes.map((w) => w.data)).toEqual(['\x1b[200~hi\nthere\x1b[201~', '\r']);
     expect(host.writes[1].at - host.writes[0].at).toBeGreaterThanOrEqual(45);
     writeSession('busy');
     host.status.set('abcd1234', { state: 'working' });
@@ -415,6 +416,221 @@ describe('MSG-RECALL: a delivery never submits a prompt that is not its own (11-
     expect(await agent.deliver(lead, NEW, { messageId: 'zzzzzzzz' })).toBe('lost');
     writeSession('busy');
     expect(await agent.deliver(lead, NEW, { messageId: 'yyyyyyyy' })).toBe('unconfirmed');
+  });
+});
+
+/**
+ * TYPIST-STALE (11-04 laptop): a fake Claude Code over a fake PTY. `markers: false` is a Windows
+ * ConPTY that hands a paste over as keys (the 11-04 21:45 split): CR in it is Enter, LF (Ctrl+J)
+ * a new line; `markers: true` is a Unix PTY (bracketed paste honoured: CR and LF both a new
+ * line). `swallow` Enters are lost (a composer not ready yet, one a slow paste took in). The box
+ * shows whole (no placeholder), as the laptop's did, unless `fold`: then a multi-line box shows as
+ * Claude's `[Pasted text #<n> +<line breaks> lines]`, `#n` counting every paste up (ours, and the
+ * owner's own through `setBox`). `onSwallow` runs at each Enter lost. `blindRead(k)`: the k-th screen read fails.
+ */
+function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
+  const client = new PtyHostClient({ home: '/nonexistent', launch: () => undefined, log: () => undefined });
+  const writes: string[] = [];
+  const submitted: string[] = [];
+  let box = '';
+  let pastes = 0;
+  let reads = 0;
+  let blindAt = 0;
+  let swallow = o.swallow ?? 0;
+  let onSubmit: (text: string) => void = () => undefined;
+  let onSwallow: () => void = () => undefined;
+  const enter = () => {
+    if (swallow > 0) {
+      swallow--;
+      return onSwallow();
+    }
+    if (!box) return;
+    submitted.push(box);
+    onSubmit(box);
+    box = '';
+  };
+  const key = (ch: string) => (ch === '\r' ? enter() : (box += ch));
+  const c = client as unknown as Record<string, unknown>;
+  c.connect = () => Promise.resolve();
+  c.call = (op: string, f: { data?: string }) => {
+    const d = f.data;
+    if (op === 'write' && d !== undefined) {
+      writes.push(d);
+      if (d.startsWith('\x1b[200~')) {
+        const inner = d.slice(6, -6);
+        pastes++;
+        if (o.markers) box += inner.replaceAll('\r', '\n');
+        else for (const ch of inner) key(ch);
+      } else for (const ch of d) key(ch);
+    }
+    return Promise.resolve({ ok: true });
+  };
+  const screen = () =>
+    `\x1b[2J\x1b[H${RULE}\r\n${(o.fold && box.includes('\n') ? `[Pasted text #${pastes} +${box.split('\n').length - 1} lines]` : box)
+      .split('\n')
+      .map((l, i) => `${i ? '  ' : '❯ '}${l}`)
+      .join('\r\n')}\r\n${RULE}\r\n  ? for shortcuts`;
+  c.screen = () => Promise.resolve(++reads === blindAt ? null : { snapshot: screen(), cols: 100, rows: 30 });
+  return {
+    client,
+    writes,
+    submitted,
+    /** The owner put `b` there (a paste of theirs when multi-line: it counts). */
+    setBox: (b: string) => {
+      if (b.includes('\n')) pastes++;
+      box = b;
+    },
+    blindRead: (k: number) => (blindAt = k),
+    setSwallow: (n: number) => (swallow = n),
+    onSubmit: (f: (text: string) => void) => (onSubmit = f),
+    onSwallow: (f: () => void) => (onSwallow = f),
+  };
+}
+
+describe('TYPIST-STALE: a typed message is submitted once, whole, or it says so (11-04 laptop)', () => {
+  const MSG = '[사장 · 메신저 · 11-04 21:43] ⟨m:vtujnxny⟩\nㅎㅇ';
+  const REVIVE =
+    '[cld-gui 자동 복구 · 11-02 20:37] 컴퓨터가 다시 켜져서 엔진이 이 대화를 다시 띄웠다.\n\n[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽';
+
+  it('negative control: the fake ConPTY submits a CR inside a paste as its own turn (the header alone, as on the laptop)', async () => {
+    const h = conptyHost({ markers: false });
+    await h.client.write('abcd1234', `\x1b[200~${MSG.replaceAll('\n', '\r')}\x1b[201~`);
+    await h.client.write('abcd1234', '\r');
+    expect(h.submitted).toEqual(['[사장 · 메신저 · 11-04 21:43] ⟨m:vtujnxny⟩', 'ㅎㅇ']);
+  });
+
+  for (const markers of [false, true])
+    it(`header and body go in as ONE prompt (${markers ? 'Unix PTY' : 'Windows ConPTY, paste as keys'})`, async () => {
+      const h = conptyHost({ markers });
+      const { agent, submit } = rig('idle', markers ? 'linux' : 'win32', h.client);
+      h.onSubmit(submit);
+      expect(await agent.deliver(lead, MSG, { messageId: 'vtujnxny' })).toBe('typed');
+      expect(h.submitted).toEqual([MSG]);
+    });
+
+  it('an Enter that did not take is pressed again while our paste sits whole in the box: one paste, two Enters', async () => {
+    const h = conptyHost({ markers: false, swallow: 1 });
+    const { agent, submit } = rig('idle', 'win32', h.client);
+    h.onSubmit(submit);
+    expect(await agent.deliver(lead, MSG, { messageId: 'vtujnxny' })).toBe('typed');
+    expect(h.writes.filter((w) => w.startsWith('\x1b[200~'))).toHaveLength(1);
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(2);
+    expect(h.submitted).toEqual([MSG]);
+  });
+
+  it('no Enter takes (retries spent): unsubmitted, never `typed`; the next try submits that draft with Enter only', async () => {
+    const h = conptyHost({ markers: true, swallow: 99 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    expect(await agent.deliver(lead, MSG, { messageId: 'vtujnxny' })).toBe('unsubmitted');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(3); // Enter, then PTY_SUBMIT_RETRIES more
+    // An inbox delivery (no mark) used to be `typed` here and left its draft in the box for good.
+    h.setBox('');
+    expect(await agent.deliver(lead, REVIVE, {})).toBe('unsubmitted');
+    h.setSwallow(0);
+    h.writes.length = 0;
+    expect(await agent.deliver(lead, REVIVE, {})).toBe('typed');
+    expect(h.writes).toEqual(['\r']); // the draft in the box, not a second copy of it
+    expect(h.submitted).toEqual([REVIVE]);
+  });
+
+  it('a message of ours Up recalled into the box is never submitted again (negative: the earlier-paste Enter did)', async () => {
+    const h = conptyHost({ markers: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    const M1 = '[사장 · 메신저 · 11-04 21:43] ⟨m:aaaaaaaa⟩\n첫 말';
+    expect(await agent.deliver(lead, M1, { messageId: 'aaaaaaaa' })).toBe('typed');
+    h.setBox(M1); // the owner pressed Up in the terminal
+    h.writes.length = 0;
+    // Whatever a caller still passes (an older messenger handed its earlier pastes over).
+    const o = { messageId: 'bbbbbbbb', earlier: [M1] };
+    expect(await agent.deliver(lead, MSG, o)).toBe('inputBusy');
+    expect(h.submitted).toEqual([M1]);
+    expect(h.writes).toEqual([]);
+  });
+
+  // A message Claude folds into a placeholder (five lines).
+  const LONG = '[사장 · 메신저 · 11-04 22:10] ⟨m:longlong⟩\n하나\n둘\n셋\n넷';
+  const OWNERS = '내 로그 1\n2\n3\n4\n5\n6\n7\n8'; // the owner's own paste: another line count
+
+  it("while our folded paste waits for its Enter, the owner's own paste put there instead is not submitted", async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.onSwallow(() => h.setBox(OWNERS));
+    expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1); // no Enter again on the owner's paste
+    expect(h.submitted).toEqual([]);
+  });
+
+  it("a folded paste left unsubmitted: the owner's own paste put there instead, even of our line count, is not ours (its #n)", async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 99 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('unsubmitted');
+    // The owner cleared it and pasted their own text, with as many line breaks as ours.
+    h.setBox('내 글 1\n2\n3\n4\n5');
+    h.setSwallow(0);
+    h.writes.length = 0;
+    expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('inputBusy');
+    expect(h.writes).toEqual([]);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it('a folded paste left unsubmitted is still ours by its #n: the next try (forced or not) presses Enter only, no second copy', async () => {
+    for (const force of [true, false]) {
+      const h = conptyHost({ markers: true, fold: true, swallow: 99 });
+      const { agent, submit } = rig('idle', 'linux', h.client);
+      h.onSubmit(submit);
+      expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('unsubmitted');
+      h.setSwallow(0);
+      h.writes.length = 0;
+      expect(await agent.deliver(lead, LONG, { messageId: 'longlong', ...(force && { force }) })).toBe('typed');
+      expect(h.writes).toEqual(['\r']);
+      expect(h.submitted).toEqual([LONG]); // once
+    }
+  });
+
+  it("the owner's paste of our line count put there between our Enters is not submitted by a retry Enter (its #n is not ours)", async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.onSwallow(() => h.setBox('내 글 1\n2\n3\n4\n5')); // as many line breaks as LONG
+    expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it('no #n read after our paste (a screen we could not read): the placeholder there is no one\'s, no retry Enter on it', async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.blindRead(2); // the first read is the box check (free); the second reads the `#n` after our paste
+    expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it('what the owner types into the box between our Enters is never submitted by a retry Enter', async () => {
+    const h = conptyHost({ markers: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.onSwallow(() => h.setBox('내가 치던 글'));
+    expect(await agent.deliver(lead, MSG, { messageId: 'vtujnxny' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it("a paste an older build left in the box, or a person's draft, waits untouched", async () => {
+    const h = conptyHost({ markers: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    for (const draft of [REVIVE, '내가 쓰던 글', `${REVIVE} 그리고`]) {
+      h.setBox(draft);
+      expect(await agent.deliver(lead, MSG, { messageId: 'vtujnxny' })).toBe('inputBusy');
+    }
+    expect(h.writes).toEqual([]);
+    expect(h.submitted).toEqual([]);
   });
 });
 

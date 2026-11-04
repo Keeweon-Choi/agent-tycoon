@@ -14,7 +14,6 @@ import {
   REST_SETTLE_MS,
 } from '../../constants.js';
 import type { Character } from '../../office/types.js';
-import { FATIGUE } from '../ez/rules.js';
 import { cldHandleMessage, setTempCharacterLookup } from '../officeStore.js';
 import { compactHolds } from '../rest.js';
 import { makeAction } from './actions.js';
@@ -373,7 +372,7 @@ describe('COMPACT-COFFEE: CompactBreakWatch', () => {
 
 describe('FX-ALL: the temp staff moments (TempStaffWatch)', () => {
   const MAX = 200_000;
-  const emp = (execution: string, level: number, tokens?: number): TempEmployee => ({
+  const emp = (execution: string, level: number, tokens?: number, compactions?: number): TempEmployee => ({
     execution,
     employeeId: 'e1',
     nameId: 'n1',
@@ -381,36 +380,39 @@ describe('FX-ALL: the temp staff moments (TempStaffWatch)', () => {
     working: true,
     level: { level, xp: 0, floor: 0, next: 100, rebirths: 0 },
     ...(tokens !== undefined && { contextTokens: tokens, maxContextTokens: MAX }),
+    ...(compactions !== undefined && { compactions }),
   });
   const later = REST_SETTLE_MS + 1;
 
   it("a live Lv up of the employee is a level-up; the load, a reconnect's replay and a lower Lv are not", () => {
     const w = new TempStaffWatch();
     w.connected(0, REST_SETTLE_MS);
-    expect(w.observe([emp('claude:a', 2)], FATIGUE, 10)).toEqual([]); // the load: a baseline
-    expect(w.observe([emp('claude:a', 3)], FATIGUE, 20)).toEqual([]); // still the replay
-    expect(w.observe([emp('claude:a', 3)], FATIGUE, later)).toEqual([]); // the same Lv: nothing
+    expect(w.observe([emp('claude:a', 2)], 10)).toEqual([]); // the load: a baseline
+    expect(w.observe([emp('claude:a', 3)], 20)).toEqual([]); // still the replay
+    expect(w.observe([emp('claude:a', 3)], later)).toEqual([]); // the same Lv: nothing
     // the employee's Lv carries over to its next execution: the moment is on that one
-    expect(w.observe([emp('claude:b', 4)], FATIGUE, later)).toEqual([
+    expect(w.observe([emp('claude:b', 4)], later)).toEqual([
       { execution: 'claude:b', kind: 'levelUp', count: 4 },
     ]);
-    expect(w.observe([emp('claude:b', 1)], FATIGUE, later)).toEqual([]); // a reset: nothing
+    expect(w.observe([emp('claude:b', 1)], later)).toEqual([]); // a reset: nothing
     w.connected(later, REST_SETTLE_MS);
-    expect(w.observe([emp('claude:b', 5)], FATIGUE, later + 1)).toEqual([]); // a reconnect
+    expect(w.observe([emp('claude:b', 5)], later + 1)).toEqual([]); // a reconnect
   });
 
-  it("a compaction of the execution's own context is a coffee break; a small drop or a new execution is not", () => {
+  it("a compaction the daemon counted in the execution's own transcript is a coffee break; a falling gauge, or a new execution, is not", () => {
     const w = new TempStaffWatch();
     const full = MAX * 0.8;
-    expect(w.observe([emp('claude:a', 1, full)], FATIGUE, later)).toEqual([]); // first sample
-    expect(w.observe([emp('claude:a', 1, full - MAX * 0.02)], FATIGUE, later)).toEqual([]); // a small drop
-    expect(w.observe([emp('claude:a', 1, MAX * 0.2)], FATIGUE, later)).toEqual([
+    expect(w.observe([emp('claude:a', 1, full, 0)], later)).toEqual([]); // first sample
+    // the gauge fell 60 points but nothing was counted (a /clear, a wider window): not a compaction
+    expect(w.observe([emp('claude:a', 1, MAX * 0.2, 0)], later)).toEqual([]);
+    expect(w.observe([emp('claude:a', 1, MAX * 0.2, 1)], later)).toEqual([
       { execution: 'claude:a', kind: 'coffee', count: 1 },
     ]);
-    // a new execution of the same employee starts low: its first sample, never a drop
-    expect(w.observe([emp('claude:b', 1, MAX * 0.05)], FATIGUE, later)).toEqual([]);
+    expect(w.observe([emp('claude:a', 1, MAX * 0.3, 1)], later)).toEqual([]); // the same count: nothing
+    // a new execution of the same employee starts at its own count: its first sample
+    expect(w.observe([emp('claude:b', 1, MAX * 0.05, 3)], later)).toEqual([]);
     // no verified context (a Codex temporary): never a coffee break
-    expect(w.observe([emp('codex:t', 1)], FATIGUE, later)).toEqual([]);
+    expect(w.observe([emp('codex:t', 1)], later)).toEqual([]);
   });
 
   it('plays on the execution character on screen, and skips quietly when there is none', () => {

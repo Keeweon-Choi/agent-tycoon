@@ -25,6 +25,7 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from '../components/ui/types.js';
 import type { FurnitureVisual } from '../../../core/src/assets/manifestUtils.js';
+import type { ContextLimitBasis } from '../../../core/src/messages.js';
 import type { Ride, Visit } from '../cld/elevator.js';
 import type { Rest } from '../cld/lounge.js';
 import type { ColorValue } from '../components/ui/types.js';
@@ -301,6 +302,8 @@ export interface Character {
   contextTokens: number;
   /** Window `contextTokens` is measured against. */
   maxContextTokens: number;
+  /** Where that window comes from (agentContextUsage.limitBasis); undefined: an estimate. */
+  contextLimitBasis?: ContextLimitBasis;
 }
 
 export const PetState = { IDLE: 'idle', WALK: 'walk', FOLLOW: 'follow' } as const;

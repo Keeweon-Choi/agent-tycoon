@@ -139,7 +139,7 @@ export class OfficeFloors {
     const areaOf = new Map<string, string>();
     const overflow: Array<[string, number]> = [];
     const floorPlans: FloorPlan['floors'] = [];
-    const layouts = b.floors.map((floor, k) => {
+    const inputs = b.floors.map((floor, k) => {
       const rooms: RoomSpec[] = specs.map((spec) => {
         const home = floorOfRoom(b, spec.label).id === floor.id;
         const label = home ? spec.label : `${floorName(k + 1)} ${spec.label}`;
@@ -155,12 +155,26 @@ export class OfficeFloors {
         };
       });
       const floor1 = k === 0;
-      const gen = generateLayout(
+      return [
         rooms,
         floor1 ? LOUNGE_ROOM : koText('room_lounge_floor', { floor: floorName(k + 1) }),
         floor1,
         floor1 ? PANTRY_ROOM : koText('room_pantry_floor', { floor: floorName(k + 1) }),
-      );
+      ] as const;
+    });
+    // floors-fill-1104: every floor is the largest one's size (a floor's own layout counts too),
+    // its rooms grown to fill it; a room more or less anywhere resizes them all alike.
+    const sizes = b.floors.map((floor, k) =>
+      k > 0 && isLayout(floor.layout)
+        ? (floor.layout as { cols: number; rows: number })
+        : generateLayout(...inputs[k]).layout,
+    );
+    const size = {
+      cols: Math.max(...sizes.map((l) => l.cols)),
+      rows: Math.max(...sizes.map((l) => l.rows)),
+    };
+    const layouts = b.floors.map((floor, k) => {
+      const gen = generateLayout(...inputs[k], size);
       const own = k > 0 && isLayout(floor.layout);
       floorPlans.push({ id: floor.id, own, rooms: own ? [] : gen.rooms });
       Object.assign(seats, gen.seats);

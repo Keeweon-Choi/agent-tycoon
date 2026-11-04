@@ -145,16 +145,12 @@
   --color-code-agent: #e8b41c;
   --color-code-agent-bg: rgba(232, 180, 28, 0.09);
 
-  /* GAME-UI-1 G1 (ideas/messenger README "새 토큰 제안"): dialogue box, name plate, stamp ink, envelope. */
+  /* GAME-UI-1 G1 (ideas/messenger README "새 토큰 제안"): dialogue box, name plate, stamp ink. */
   --win-line: #34344c; /* low-contrast line, darker than --color-border */
   --dlg-line: var(--color-border);
   --dlg-inner: var(--color-bg-dark);
   --plate-bg: var(--color-active-bg);
   --stamp-ink: var(--color-accent-text);
-  --mail-paper: var(--color-devroom-ctx);
-  --mail-line: var(--color-bg-dark);
-  --mail-flap: var(--color-border);
-  --mail-trail: var(--color-text-muted);
 
   /* GAME-UI-0 (specs/ui-mock-1103 cockpit D2, calm): the game parts' tokens, existing colours by alias. */
   --font-data: 'Galmuri11 ASCII', 'FS Pixel Sans', 'Galmuri11', sans-serif; /* IDs, SHAs, big numbers */

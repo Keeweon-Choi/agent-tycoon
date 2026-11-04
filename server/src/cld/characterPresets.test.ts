@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { PNG } from 'pngjs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CHAR_COUNT } from '../../../core/src/assets/constants.js';
 import {
@@ -230,6 +230,92 @@ describe('presets folder', () => {
         (await app.inject({ method: 'GET', url: '/cld/characters/nope.thumb.png' })).statusCode,
       ).toBe(404);
       await app.close();
+    });
+  });
+
+  describe('LOOKS-MEM: the scan inflates a sheet only for a thumbnail it has not cached', () => {
+    const solid = (fill: number) => {
+      const img = new PNG({ width: 288 * 8, height: 528 * 2 });
+      img.data.fill(fill);
+      return PNG.sync.write(img, { colorType: 6 });
+    };
+    const cacheDir = () => path.join(config, 'cache/thumbs');
+    const cached = () => fs.readdirSync(cacheDir()).sort();
+    /** A second daemon start on the same folder: the thumbnails come from the cache, if at all. */
+    const restart = () => {
+      presets.dispose();
+      presets = make();
+      presets.start();
+    };
+    const realRead = PNG.sync.read;
+    const inflated = vi.spyOn(PNG.sync, 'read').mockImplementation((b, o) => realRead(b, o));
+    afterAll(() => {
+      inflated.mockRestore();
+    });
+    beforeEach(() => {
+      inflated.mockClear();
+    });
+
+    it('a restart reads the thumbnails from the cache; a changed sheet alone is inflated again', () => {
+      put('a.png', solid(10));
+      put('b.png', solid(20));
+      presets.scan();
+      expect(inflated).toHaveBeenCalledTimes(2);
+      expect(cached()).toHaveLength(2);
+      const thumbs = last().presets.map((p) => p.thumbUrl);
+      inflated.mockClear();
+      restart();
+      expect(inflated).not.toHaveBeenCalled();
+      expect(last().presets.map((p) => p.thumbUrl)).toEqual(thumbs);
+      expect(presets.thumb('a.thumb.png')).not.toBeNull();
+      // one sheet changes: that one alone is inflated, the old thumbnail leaves the cache
+      const before = cached();
+      put('b.png', solid(30));
+      presets.scan();
+      expect(inflated).toHaveBeenCalledTimes(1);
+      expect(cached()).toHaveLength(2);
+      expect(cached().filter((n) => before.includes(n))).toHaveLength(1);
+      expect([...PNG.sync.read(presets.thumb('b.thumb.png')!).data.subarray(0, 4)]).toEqual([
+        30, 30, 30, 30,
+      ]);
+    });
+
+    it('a cache file that is cut short, wrong or gone is made anew', () => {
+      put('a.png', solid(10));
+      presets.scan();
+      const [file] = cached();
+      const whole = fs.readFileSync(path.join(cacheDir(), file));
+      for (const damage of [
+        () => fs.writeFileSync(path.join(cacheDir(), file), whole.subarray(0, whole.length - 5)),
+        () =>
+          fs.writeFileSync(path.join(cacheDir(), file), 'not a png at all, but long enough......'),
+        () => fs.writeFileSync(path.join(cacheDir(), file), png(8, 8)),
+        () => fs.rmSync(path.join(cacheDir(), file)),
+      ]) {
+        damage();
+        inflated.mockClear();
+        restart();
+        expect(inflated).toHaveBeenCalledTimes(1);
+        expect(presets.thumb('a.thumb.png')).toEqual(whole);
+        expect(fs.readFileSync(path.join(cacheDir(), file))).toEqual(whole);
+      }
+    });
+
+    it('the header alone refuses a wrong sheet; a sheet that does not inflate is refused when it has no cached thumbnail', () => {
+      put('small.png', png(288 * 8, 100));
+      put('gif.png', Buffer.from('GIF89a, not a png at all, long enough to be read'));
+      // a good header over a body that is not a PNG's
+      const broken = Buffer.from(solid(10));
+      broken.fill(7, 100, 400);
+      put('broken.png', broken);
+      presets.scan();
+      expect(inflated).toHaveBeenCalledTimes(1); // broken.png only
+      expect(last().presets).toEqual([]);
+      const said = warn.mock.calls.flat().join('\n');
+      expect(said).toMatch(/ignored small\.png: 2304×100, not/);
+      expect(said).toMatch(/ignored gif\.png: bad PNG signature/);
+      expect(said).toMatch(/ignored broken\.png: broken PNG/);
+      expect(fs.existsSync(cacheDir()) ? cached() : []).toEqual([]);
     });
   });
 

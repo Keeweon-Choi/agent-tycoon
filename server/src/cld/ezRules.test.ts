@@ -181,6 +181,16 @@ describe('ez-rules.json: fatigue numbers (T-0026)', () => {
     expect(lines.join('\n')).toContain('fatigue.nap: unknown field');
   });
 
+  it('the old compactionDrop number (a guess from the gauge falling) is just unknown now: the daemon counts', () => {
+    const { lines, note } = log();
+    const rules = parseEzRules(
+      JSON.stringify({ fatigue: { compactionDrop: 30, tired: 50 } }),
+      note,
+    );
+    expect(rules?.fatigue).toEqual({ tired: 50 });
+    expect(lines.join('\n')).toContain('fatigue.compactionDrop: unknown field');
+  });
+
   it('a fatigue that is not an object, or holds nothing valid, is left out', () => {
     const { lines, note } = log();
     expect(parseEzRules(JSON.stringify({ fatigue: [70] }), note)).toEqual({

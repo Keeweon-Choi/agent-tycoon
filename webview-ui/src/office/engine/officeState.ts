@@ -1,3 +1,4 @@
+import type { ContextLimitBasis } from '../../../../core/src/messages.js';
 import { pickDiversePalette } from '../../../../core/src/paletteUtils.js';
 import type { CameraKey } from '../../cld/camera.js';
 import {
@@ -1421,11 +1422,17 @@ export class OfficeState {
     ch.isHeadless = headless;
   }
 
-  setAgentContext(id: number, contextTokens: number, maxContextTokens: number): void {
+  setAgentContext(
+    id: number,
+    contextTokens: number,
+    maxContextTokens: number,
+    limitBasis?: ContextLimitBasis,
+  ): void {
     const ch = this.characters.get(id);
     if (!ch) return;
     ch.contextTokens = contextTokens;
     ch.maxContextTokens = maxContextTokens;
+    ch.contextLimitBasis = limitBasis;
   }
 
   update(dt: number): void {
@@ -1522,17 +1529,24 @@ export class OfficeState {
     }
   }
 
-  /** cld-gui (T-0075): does anything on the office need smooth (full-rate)
-   *  frames — a walker, a spawn/despawn effect, a fading bubble, a pet on the
-   *  move? false: only the slow typing/reading frames change, 10 fps shows them. */
+  /** cld-gui (T-0075): does anything on the office move — a walker, a spawn/despawn effect, a
+   *  fading bubble, a pet on the move? false: only the slow typing/reading frames change, 10 fps
+   *  shows them. PAGE-MEM: hasEffects() is the part that needs the full rate on its own. */
   isAnimating(): boolean {
+    if (this.hasEffects()) return true;
     const moving = (ch: Character) =>
-      ch.matrixEffect !== null ||
-      (!ch.cldAway && (ch.state === CharacterState.WALK || ch.bubbleType === 'waiting'));
-    if (this.greeter && this.greeter.matrixEffect !== null) return true;
-    if (this.cldDoorsMoving) return true;
+      !ch.cldAway && (ch.state === CharacterState.WALK || ch.bubbleType === 'waiting');
     for (const ch of this.characters.values()) if (moving(ch)) return true;
     return this.pets.some((p) => p.state !== PetState.IDLE || p.bubbleType !== null);
+  }
+
+  /** PAGE-MEM: what needs every frame even with nobody at the office: a spawn or despawn
+   *  effect, the greeter's, elevator doors on the move. */
+  hasEffects(): boolean {
+    if (this.greeter && this.greeter.matrixEffect !== null) return true;
+    if (this.cldDoorsMoving) return true;
+    for (const ch of this.characters.values()) if (ch.matrixEffect !== null) return true;
+    return false;
   }
 
   /** The `saveAgentSeats` payload: palette, hue and seat for every agent worth

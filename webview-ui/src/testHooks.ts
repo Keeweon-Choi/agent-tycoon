@@ -7,10 +7,12 @@ import {
   loadedPresetSheets,
   openLooks,
   presetPalette,
+  sheetLoads,
 } from './cld/characters/looks.js';
 import { chatOpenFor } from './cld/chat.js';
 import { drinkingNow } from './cld/ez/drawVisuals.js';
 import { nameplateStats } from './cld/ez/useNameplates.js';
+import { characterRingOf, characterVisualOf } from './cld/ez/visuals.js';
 import { floorsSnapshot } from './cld/floors.js';
 import { bgStats } from './cld/gfx/bg/draw.js';
 import {
@@ -31,7 +33,8 @@ import { OfficeState } from './office/engine/officeState.js';
 import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { isWalkable } from './office/layout/tileMap.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
-import { smoothCacheBytes, warmPending } from './office/sprites/smoothSprite.js';
+import { pictureStats } from './office/sprites/pictureBudget.js';
+import { warmPending } from './office/sprites/smoothSprite.js';
 import { getCachedSprite } from './office/sprites/spriteCache.js';
 import {
   getCharacterSprites,
@@ -55,6 +58,10 @@ declare global {
         isGreeter?: boolean;
         isSubagent?: boolean;
         palette?: number;
+        /** STATE-SYNC: at its desk's work (seated), its ring and its card's activity words. */
+        isActive?: boolean;
+        ring?: string;
+        activity?: string;
       }>;
       /** The character the camera follows (null = free camera). */
       getCameraFollowId?: () => number | null;
@@ -221,8 +228,12 @@ declare global {
       openLooks?: (name: string) => void;
       closeLooks?: () => void;
       loadedPresetSheets?: () => string[];
-      /** SHEET-IMPORT: pictures still queued to warm, and the bytes the zoom LRU holds. */
+      /** SHEET-IMPORT: pictures still queued to warm, and the bytes the picture budget holds. */
       warmState?: () => { pending: number; bytes: number };
+      /** BOOT-LOAD: worn sheets [decoded or failed, asked for]. */
+      sheetLoads?: () => [number, number];
+      /** PAGE-MEM: the picture budget now (bytes, pictures, the limit, how many it let go). */
+      pictures?: () => ReturnType<typeof pictureStats>;
       /** HD64-SAMPLE: walk character `id` to a tile (false: no path). */
       walkTo?: (id: number, col: number, row: number) => boolean;
       /** HD64-SAMPLE: the density palette/hue draws at `zoom` (its LOD there). */
@@ -374,7 +385,9 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
   hooks.openLooks = openLooks;
   hooks.closeLooks = closeLooks;
   hooks.loadedPresetSheets = loadedPresetSheets;
-  hooks.warmState = () => ({ pending: warmPending(), bytes: smoothCacheBytes() });
+  hooks.warmState = () => ({ pending: warmPending(), bytes: pictureStats().bytes });
+  hooks.pictures = pictureStats;
+  hooks.sheetLoads = sheetLoads;
   hooks.walkTo = (id, col, row) => officeStateRef.current?.walkToTile(id, col, row) ?? false;
   hooks.drawnDensity = (palette, hue, zoom) =>
     spritesAtZoom(getCharacterSprites(palette, hue), zoom).density;
@@ -401,6 +414,9 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       isGreeter: ch.isGreeter,
       isSubagent: ch.isSubagent,
       palette: ch.palette,
+      isActive: ch.isActive,
+      ring: characterRingOf(ch.id),
+      activity: characterVisualOf(ch.id)?.text,
     }));
   };
 

@@ -94,6 +94,8 @@ export const DEFAULT_MAX_CONTEXT_TOKENS = 200_000;
  *  context observed so far wins; beyond the last tier we round up to a whole
  *  multiple of it, so an unknown future window still reads under 100%. */
 export const CONTEXT_WINDOW_TIERS = [200_000, 1_000_000] as const;
+/** The newest compactions kept (and sent) per agent. Older ones are only in the count. */
+export const COMPACTION_LOG_KEPT = 5;
 /** How much of a transcript's tail to read when seeding an agent's context on
  *  adoption or restore. Comfortably more than one turn's worth of records. */
 export const CONTEXT_SEED_TAIL_BYTES = 256 * 1024;
@@ -301,6 +303,11 @@ export const PTYHOST_CONPTY_INPUT_MS = 5_000;
 export const PTYHOST_SPAWN_MS = PTYHOST_REQUEST_MS + 3 * PTYHOST_CONPTY_INPUT_MS;
 /** After Enter, how long the turn may take to show it started (OSC working, session busy, transcript). */
 export const PTY_SUBMIT_MS = 5_000;
+/** TYPIST-STALE (11-04 laptop): Enter is pressed again this long after one that left our paste in the
+ *  box (no prompt, no turn: a composer not ready yet, an Enter a slow paste swallowed)... */
+export const PTY_SUBMIT_RETRY_MS = 1_500;
+/** ...at most this many times per delivery; after that the delivery is `unsubmitted`. */
+export const PTY_SUBMIT_RETRIES = 2;
 /** An idle agent terminal no one watches is closed after this long and resumed by its next message. */
 export const AGENT_IDLE_STOP_MS = 60 * 60_000;
 /** TERM-P3: a Claude agent moved into our PTY host must be found idle on its own conversation within this. */
@@ -541,18 +548,61 @@ export const SPEC_ARCH_APPROVALS_MAX = 1_000;
 export const SPEC_ARCH_KINDS_MAX = 2_000;
 export const SPEC_ARCH_DECISIONS_MAX = 500;
 export const SPEC_ARCH_HISTORY_MAX = 1_000;
-/** MAP-A: the owner's parents (one per component). */
+/** MAP-A's parents (arch.json, read for one release, never written: SPT C1). */
 export const SPEC_ARCH_PARENTS_MAX = 2_000;
-// ── MAP-A: the 지도's structure view (GET …/map) ──
-/** Child cards drawn under the selected item; the rest are '그 밖 N개' (the tree lists them). */
-export const SPEC_MAP_CARDS_MAX = 8;
-/** The left pane's module tree, the 불확실 list, the selected item's requirements, the dependencies, the sources shown: at most. */
-export const SPEC_MAP_TREE_MAX = 300;
-export const SPEC_MAP_UNCERTAIN_MAX = 20;
-export const SPEC_MAP_REQS_MAX = 50;
-export const SPEC_MAP_DEPS_MAX = 40;
-export const SPEC_MAP_SOURCES_MAX = 10;
-/** The Task statuses counted as 진행 중. */
-export const SPEC_MAP_ACTIVE_TASKS: ReadonlySet<string> = new Set(['doing', 'review', 'blocked']);
+// ── SPT C1: the 지도 (GET …/map, SPT §8.1-8.3, §8.6). Estimates until C1-C2 measure them (SPT §14). ──
+/** Cells the structure folds into (one per layer first, the rest to the biggest units). */
+export const SPEC_MAP_CELLS = 9;
+/** Imports between two blocks drawn as an arrow, and a top folder a workspace imports this much from becomes a layer (SPT §8.2 M1). */
+export const SPEC_MAP_ARROW_MIN = 50;
+/** A layer with this many blocks or more says its pairs inside the cells (⇄ text) instead of lines. */
+export const SPEC_MAP_TEXT_PAIRS_FROM = 4;
+/** Two code scans (the child process) of one project at least this far apart. */
+export const SPEC_MAP_MIN_MS = 30_000;
+/** The child process's caps: past one the scan says 일부만 셈 (SPT §8.6). */
+export const SPEC_MAP_FILES_MAX = 20_000;
+export const SPEC_MAP_FILE_MAX_BYTES = 1024 * 1024;
+export const SPEC_MAP_READ_MAX_BYTES = 200 * 1024 * 1024;
+export const SPEC_MAP_TIME_MS = 15_000;
+export const SPEC_MAP_HEAP_MB = 128;
+/** The daemon's wait past the child's own time cap before it kills it, and the answer's size cap. */
+export const SPEC_MAP_KILL_GRACE_MS = 5_000;
+export const SPEC_MAP_OUT_MAX_BYTES = 32 * 1024 * 1024;
+/** Layer violations listed as file pairs, at most. */
+export const SPEC_MAP_VIOLATION_PAIRS_MAX = 10;
+/** A cell's 안에 든 것: its biggest parts, at most. */
+export const SPEC_MAP_INSIDE_MAX = 4;
+/** 진행 and 원문 바뀜 look this far back. */
+export const SPEC_MAP_RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+/** A feature's requirements listed on the right, at most ('+N'). */
+export const SPEC_MAP_FEATURE_REQS_MAX = 200;
+/** [한 단계 들어가기] this deep at most (the `in` chain). */
+export const SPEC_MAP_IN_DEPTH_MAX = 8;
+// ── SPT C2: the links (§8.4) and the chain (§6.8) ──
+/** The code scan's `git log --no-merges` from HEAD, newest first: at most this many commits, this much output (the child's own cap: this repository's 3,000 are 1.9 MB with their bodies). */
+export const SPEC_MAP_COMMITS_MAX = 3_000;
+export const SPEC_MAP_LOG_MAX_BYTES = 8 * 1024 * 1024;
+/**
+ * The link paths counted by default (the bar, the chain's 파일, the cells' 요구 N); the others show in
+ * [펼치기] only. A path is on when its sample, judged by an independent agent (not the owner), is right
+ * at least SPEC_MAP_PATH_ON_RATE of the time (cld/docs/research/spec-map-links-2026-11-04.md;
+ * chain.test.ts holds it to the sample).
+ */
+export const SPEC_MAP_PATH_ON_RATE = 0.7;
+export const SPEC_MAP_PATHS_ON: readonly string[] = ['confirmed', 'direct'];
+/** [펼치기]: a path's files named per requirement, at most; a cell's recent commits and tags. */
+export const SPEC_MAP_PATH_FILES_MAX = 3;
+export const SPEC_MAP_BLOCK_RECENT_MAX = 5;
+export const SPEC_MAP_BLOCK_TAGS_MAX = 6;
+/** A feature's tasks listed in the chain, at most ('+N'). */
+export const SPEC_MAP_FEATURE_TASKS_MAX = 50;
 /** The folder skeleton: at most this many folders proposed (top folders first, then one level below). */
 export const SPEC_ARCH_SKELETON_MAX = 60;
+
+// ── LOOKS-MEM: the character scan never inflates a sheet it already knows ──
+/** A PNG's signature, IHDR and the colour/interlace bytes: all the scan reads of a sheet to judge it. */
+export const PNG_HEAD_BYTES = 33;
+/** The chip thumbnails' cache folder, inside the settings directory. */
+export const THUMB_CACHE_DIR = 'cache/thumbs';
+/** Part of a thumbnail's cache key: raise it when `thumbOf` draws differently. */
+export const THUMB_CACHE_VERSION = 1;

@@ -35,6 +35,7 @@ import {
   THINKING_DOT_FRAME_SEC,
 } from '../../constants.js';
 import { adjustSprite } from '../../office/colorize.js';
+import type { Picture } from '../../office/sprites/pictureBudget.js';
 import { copyFor, deriveSmooth } from '../../office/sprites/smoothSprite.js';
 import { getCachedSprite } from '../../office/sprites/spriteCache.js';
 import {
@@ -270,9 +271,11 @@ export function yawnFrame(t: number): SpriteData | null {
 }
 
 const dimmed = new WeakMap<SpriteData, SpriteData>();
+/** Whether character `id` draws dimmed now (it idles). */
+export const idleDimmed = (id: number): boolean => characterVisualOf(id)?.ring === 'idle';
 /** The character's sprite, slightly dimmer while it idles. */
 export function cldCharacterSprite(id: number, sprite: SpriteData): SpriteData {
-  return characterVisualOf(id)?.ring === 'idle' ? dimmedSprite(sprite) : sprite;
+  return idleDimmed(id) ? dimmedSprite(sprite) : sprite;
 }
 
 /** `sprite` as an idle character draws it (cached; the warm queue builds both). */
@@ -291,7 +294,7 @@ interface Drawable {
   draw: (ctx: CanvasRenderingContext2D) => void;
 }
 
-function drawAt(img: HTMLCanvasElement, x: number, y: number, alpha: number) {
+function drawAt(img: Picture, x: number, y: number, alpha: number) {
   return (ctx: CanvasRenderingContext2D) => {
     ctx.save();
     ctx.globalAlpha = alpha;

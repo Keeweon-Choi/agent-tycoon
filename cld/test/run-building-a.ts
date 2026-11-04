@@ -6,13 +6,14 @@
  *  - The whole building with each floor in focus (1F, 2F, 3F): the floors below closed, the ones
  *    above an outline. A click on a closed storey focuses it; one on an outline above the focus
  *    focuses that floor.
- *  - The billboard, in the building view and the lobby's floor view: in the view, clear of the
- *    floor panel, its type (list 13, numbers 40 CSS px in the lobby view), taps just outside its
- *    edges open nothing. Its pages turn by themselves (summary, projects, H/W, GPU): a picture of
- *    each, and a tap on each opens what it continues (the 현황판 with no HW tab, the full board on
- *    its projects, H/W and GPU screens); the HUD heat gauge opens the full board's H/W.
+ *  - The billboard (billboard2-1104: the old lobby board's own screen on a 3D case): in the
+ *    building view and the lobby's floor view, in the view, clear of the floor panel, its tab
+ *    head and 나를 기다림, at least the old board's readable em (10 px) in the lobby view where
+ *    its pages turn; taps just outside open nothing, a tap on it opens the full board. A page
+ *    turns by itself; each tab's page pictured, and a tap on it opens the full board on it; the
+ *    HUD heat gauge opens the full board's H/W.
  *  - Night (the outline and facade in the night palette), and a phone 390x844.
- * Screenshots: cld/artifacts/building-a-1104/.
+ * Screenshots: cld/artifacts/billboard2-1104/ (OUT_DIR to change).
  *
  *   npx tsx cld/test/run-building-a.ts <port 18540-18549> [--board-only]
  * --board-only: the billboard checks only (the negative control's quick run).
@@ -34,7 +35,7 @@ import {
 const port = Number(process.argv[2]);
 if (!(port >= 18540 && port <= 18549)) throw new Error('port must be 18540-18549');
 const BOARD_ONLY = process.argv.includes('--board-only');
-const OUT = path.join(REPO_ROOT, 'cld/artifacts/building-a-1104');
+const OUT = path.join(REPO_ROOT, process.env.OUT_DIR ?? 'cld/artifacts/billboard2-1104');
 const DESK: BrowserContextOptions = { viewport: { width: 1282, height: 832 }, deviceScaleFactor: 1 };
 const PHONE: BrowserContextOptions = {
   viewport: { width: 390, height: 844 },
@@ -110,11 +111,12 @@ async function clickCanvas(page: Page, p: Pt) {
 }
 const boardOpen = async (page: Page) => (await page.locator('[data-testid="board-full"]').count()) > 0;
 
-/** The billboard: in the view, not under the floor panel, its type size (from its face's
- *  scale: the face is ISO_BILLBOARD.h iso px tall), taps just outside open nothing. */
+/** The billboard: the old board's own screen on it (its tab head, 나를 기다림 in the head), in
+ *  the view, clear of the floor panel, at least the old board's readable em in the lobby view
+ *  (where its pages turn), taps just outside open nothing, a tap on it opens the full board. */
 async function billboardChecks(page: Page, where: string, readable: boolean) {
-  const bb = page.locator('[data-testid="lobby-billboard"]');
-  check((await bb.count()) === 1, `${where}: the billboard shows`);
+  const bb = page.locator('[data-testid="lobby-board"]');
+  check((await bb.count()) === 1, `${where}: the billboard shows the old board's screen`);
   if (!(await bb.count())) return;
   const b = (await bb.boundingBox())!;
   const view = DESK.viewport!;
@@ -122,73 +124,64 @@ async function billboardChecks(page: Page, where: string, readable: boolean) {
   const panel = await page.locator('.cld-elevator').first().boundingBox();
   const apart = (p: Box | null) => !p || b.x >= p.x + p.width || b.x + b.width <= p.x || b.y >= p.y + p.height || b.y + b.height <= p.y;
   check(apart(panel), `${where}: clear of the floor panel`);
-  // ISO_BILLBOARD.h = 56, the list type 6.5 and the big number 20 iso px (billboardFace.ts).
-  const k = b.height / 56;
-  console.log(`${where}: billboard ${Math.round(b.width)}x${Math.round(b.height)}, list type ${(6.5 * k).toFixed(1)} px, numbers ${(20 * k).toFixed(1)} px`);
+  const tabs = await bb.locator('[data-testid^="board-tab-"]').count();
+  check(tabs === 3 && (await bb.locator('.led-wait').count()) === 1, `${where}: its tab head (3 tabs) and 나를 기다림 in the head`);
+  const em = await bb.evaluate((el) => parseFloat((el as HTMLElement).style.fontSize));
+  const live = await bb.getAttribute('data-live');
+  console.log(`${where}: board ${Math.round(b.width)}x${Math.round(b.height)}, em ${em.toFixed(1)} px, live ${live}`);
   if (readable) {
-    check(6.5 * k >= 12, `${where}: list labels at least 12 px`);
-    check(Math.abs(20 * k - 40) <= 2, `${where}: big numbers about 40 px`);
+    check(em >= 10, `${where}: em at least 10 px (the old board's readable size, BOARD_MIN_EM_PX)`);
+    check(live === 'true', `${where}: its pages turn (live)`);
   }
   const out = [
-    { x: b.x + b.width / 2, y: b.y - 3 },
-    { x: b.x - 3, y: b.y + b.height / 2 },
-    { x: b.x + b.width + 3, y: b.y + b.height / 2 },
+    { x: b.x + b.width / 2, y: b.y - 6 },
+    { x: b.x - 6, y: b.y + b.height / 2 },
+    { x: b.x + b.width + 12, y: b.y + b.height * 0.8 },
   ];
   for (const p of out) {
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(600);
-    const opened = (await boardOpen(page)) || (await officeOpen(page));
+    const opened = await boardOpen(page);
     check(!opened, `${where}: a tap just outside (${Math.round(p.x)},${Math.round(p.y)}) opens nothing`);
     if (opened) await closeAll(page);
   }
+  await page.mouse.click(b.x + b.width * 0.5, b.y + b.height * 0.7);
+  await page.waitForTimeout(1000);
+  check(await boardOpen(page), `${where}: a tap on the board opens the full board`);
+  await closeAll(page);
 }
 
-const officeOpen = async (page: Page) => (await page.locator('[data-hud-window="office"]').count()) > 0;
 async function closeAll(page: Page) {
   if (await boardOpen(page)) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(600);
   }
-  if (await officeOpen(page)) {
-    await page.locator('[data-testid="hud-title-office"] button').last().click();
-    await page.waitForTimeout(600);
-  }
 }
-/** The 현황판's tab strip as shown. */
-const officeTabs = (page: Page) =>
-  page.locator('[data-hud-window="office"] nav button').allInnerTexts();
 
-/** Each page in turn: it comes by itself, a picture of it, a tap opens what it continues. */
+/** Its pages: one turns by itself (BOARD_PAGE_MS), then each by its tab: a picture of each, and
+ *  a tap on the board opens the full board on that page. */
 async function billboardPages(page: Page) {
-  const bb = page.locator('[data-testid="lobby-billboard"]');
-  const order = ['summary', 'projects', 'hw', 'gpu'];
-  const pageNow = () => bb.getAttribute('data-page');
-  const seen: string[] = [];
-  for (const want of [...order.slice(order.indexOf((await pageNow()) ?? 'summary')), ...order].slice(0, 4)) {
-    const end = Date.now() + 12_000;
-    while ((await pageNow()) !== want && Date.now() < end) await page.waitForTimeout(250);
-    const at = await pageNow();
-    seen.push(at ?? '?');
-    check(at === want, `the billboard turns to ${want}`);
-    if (at !== want) continue;
+  const bb = page.locator('[data-testid="lobby-board"]');
+  const shown = async () =>
+    (await bb.locator('[data-testid^="board-tab-"][aria-selected="true"]').getAttribute('data-testid'))?.replace('board-tab-', '');
+  const first = await shown();
+  const end = Date.now() + 26_000;
+  while ((await shown()) === first && Date.now() < end) await page.waitForTimeout(500);
+  const next = await shown();
+  check(next !== first, `the billboard's page turns by itself (${first} -> ${next})`);
+  for (const want of ['projects', 'hw', 'gpu']) {
+    await bb.locator(`[data-testid="board-tab-${want}"]`).click();
+    await page.waitForTimeout(800);
+    check((await shown()) === want, `the ${want} tab shows its page`);
     const b = (await bb.boundingBox())!;
-    await page.screenshot({ path: path.join(OUT, `billboard-${want}.png`), clip: { x: b.x - 10, y: b.y - 10, width: b.width + 20, height: b.height + 40 } });
-    await page.mouse.click(b.x + b.width * 0.3, b.y + b.height * 0.5);
+    await page.screenshot({ path: path.join(OUT, `billboard-${want}.png`), clip: { x: b.x - 24, y: b.y - 24, width: b.width + 60, height: b.height + 60 } });
+    await page.mouse.click(b.x + b.width * 0.5, b.y + b.height * 0.7);
     await page.waitForTimeout(1000);
-    if (want === 'summary') {
-      const tabs = await officeTabs(page);
-      const pressed = await page.locator('[data-hud-window="office"] nav button[aria-pressed="true"]').allInnerTexts();
-      check((await officeOpen(page)) && pressed.length === 1, `summary: a tap opens the 현황판 (${JSON.stringify(pressed)})`);
-      check(!tabs.includes('HW'), `the 현황판 has no HW tab (${JSON.stringify(tabs)})`);
-      await page.screenshot({ path: path.join(OUT, `billboard-${want}-open.png`) });
-    } else {
-      const sel = await page.locator(`[data-testid="board-full"] [data-testid="board-tab-${want}"][aria-selected="true"]`).count();
-      check(sel === 1, `${want}: a tap opens the full board on its ${want} screen`);
-      await page.screenshot({ path: path.join(OUT, `billboard-${want}-open.png`) });
-    }
+    const sel = await page.locator(`[data-testid="board-full"] [data-testid="board-tab-${want}"][aria-selected="true"]`).count();
+    check(sel === 1, `${want}: a tap opens the full board on its ${want} screen`);
+    await page.screenshot({ path: path.join(OUT, `billboard-${want}-open.png`) });
     await closeAll(page);
   }
-  console.log(`pages seen: ${seen.join(' -> ')}`);
   // The CPU heat gauge (it went to the HW tab) opens the full board's H/W screen.
   const heat = page.locator('[data-testid="hud-heat"]');
   if (await heat.count()) {
@@ -241,7 +234,7 @@ async function main() {
     await billboardChecks(l.page, 'lobby', true);
     await billboardPages(l.page);
     if (!BOARD_ONLY) {
-      const bb = (await l.page.locator('[data-testid="lobby-billboard"]').boundingBox())!;
+      const bb = (await l.page.locator('[data-testid="lobby-board"]').boundingBox())!;
       const clip = { x: Math.max(0, bb.x - 60), y: Math.max(0, bb.y - 60), width: bb.width + 120, height: bb.height + 100 };
       await l.page.screenshot({ path: path.join(OUT, 'lobby-billboard-crop.png'), clip });
     }

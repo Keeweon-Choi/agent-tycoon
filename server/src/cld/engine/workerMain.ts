@@ -6,6 +6,7 @@
  *   gpu [--json]                  the reservation board        } `cld-gui gpu …`
  *   gpu run [opts] -- <command>   foreground, with --wait      } (cld-cli.md §13)
  *   gpu cancel <id> | move <id> <n>                            }
+ *   spec-map <folder>             SPT C1: the 지도's code scan, one JSON on stdout (spec/mapWorker.ts)
  *
  * Exit codes and JSON lines follow cld-cli.md §3 (CLD_OUTPUT=json).
  */
@@ -14,6 +15,7 @@ import * as os from 'os';
 
 import { CLI_NAME } from '../cliName.js';
 import { findNvidiaSmi, readTotalMib } from '../hw/nvidiaSmi.js';
+import { scanCode } from '../spec/mapWorker.js';
 import { CODEX_TIMING, runCodex } from './codex.js';
 import { appendEvent, eventsPath } from './events.js';
 import type { GpuEvent, GpuPolicy } from './gpu.js';
@@ -220,7 +222,13 @@ async function main(argv: string[]): Promise<void> {
       await runCodex(rest[0], { home, codex: e.CLD_CODEX, cldBin: e.CLD_BIN ?? null, timing }),
     );
   }
-  usage('사용법: cld-worker.js gpu … | gpu-run | codex <id>');
+  if (cmd === 'spec-map' && rest[0]) {
+    const out = JSON.stringify(await scanCode(rest[0]));
+    // A pipe may be asynchronous (Windows): exit once it took the whole answer.
+    process.stdout.write(out, () => process.exit(0));
+    return;
+  }
+  usage('사용법: cld-worker.js gpu … | gpu-run | codex <id> | spec-map <folder>');
 }
 
 void main(process.argv.slice(2)).catch((err: unknown) => {

@@ -19,6 +19,7 @@
 // "✻ Compacting conversation… (Ns · esc to interrupt)" for 8 s ("FAKE-COMPACT 40": 40 s; the
 // engine's clean environment drops FAKE_* variables), redrawn each second, then a compact_boundary
 // record in the transcript and the turn's reply.
+// STATE-SYNC: FAKE-JOB N (a background shell: status `shell` N s) and FAKE-LONG N (a tool open N s).
 // DEVROOM-BOARD2: a resize (SIGWINCH) redraws the screen, row 2 ending in `|` at the PTY's last column.
 'use strict';
 const { spawn } = require('child_process');
@@ -176,6 +177,44 @@ module.exports = function run(args) {
         osc('done');
         draw();
       }, Number(compact[1] || 8) * 1000);
+    }
+    // STATE-SYNC: "FAKE-JOB N" starts a background shell (a training job) and ends its turn; the
+    // session file then says `shell` (Claude Code: idle while a shell runs) for N s, then idle.
+    // "FAKE-LONG N" keeps one foreground tool call open N s (busy, the transcript quiet).
+    const job = /FAKE-(JOB|LONG)(?: (\d+))?/.exec(text);
+    if (job) {
+      const add = (r) =>
+        fs.appendFileSync(transcript, `${JSON.stringify({ uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, ...r })}\n`);
+      const id = `toolu_${crypto.randomUUID().slice(0, 8)}`;
+      const background = job[1] === 'JOB';
+      const end = (said) => {
+        add({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: said }] } });
+        record('assistant', said);
+        add({ type: 'system', subtype: 'turn_duration', durationMs: 1000 });
+      };
+      // An engine session skips permissions: no heuristic permission timer on the open call.
+      add({ type: 'permission-mode', permissionMode: 'bypassPermissions' });
+      add({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'python train.py', ...(background && { run_in_background: true }) } }] } });
+      const ms = Number(job[2] || 30) * 1000;
+      if (!background)
+        return setTimeout(() => {
+          end('trained');
+          status = 'idle';
+          writeSession();
+          osc('done');
+          draw();
+        }, ms);
+      return setTimeout(() => {
+        end('Command running in background with ID: b1');
+        status = 'shell';
+        writeSession();
+        osc('done');
+        draw();
+        setTimeout(() => {
+          status = 'idle';
+          writeSession();
+        }, ms);
+      }, turnMs);
     }
     setTimeout(() => {
       record('assistant', `ok: ${last.slice(0, 40)}`);

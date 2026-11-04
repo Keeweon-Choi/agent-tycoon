@@ -4,8 +4,9 @@
  * redrawn per pixel at each zoom, nor swapped for 32×64 / 16×32 copies: each frame has one master
  * (the imported sheet's own pixels, or the frame's pixels put once), a mip chain built once per
  * master by halving with smoothing, and a zoom's picture is one drawImage from the level just
- * above the display size (smoothing high), or nearest past 1:1. Those pictures live in a small LRU
- * of zooms bounded by bytes, so zooming back and forth does not rebuild them, and a warm queue
+ * above the display size (smoothing high), or nearest past 1:1. Those pictures, and the mip levels,
+ * live in the picture budget's LRU (pictureBudget.ts, PAGE-MEM), so zooming back and forth does not
+ * rebuild them while they fit, and a warm queue
  * builds a visible character's frames for the current zoom between frames (never mid-stride).
  *
  * A frame's SpriteData (what hit tests, outlines and the spawn effect read) stays as it is; for an
@@ -15,13 +16,21 @@
 import { perfCache } from '../../cld/perf.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
-  SMOOTH_CACHE_MAX_BYTES,
   WARM_FORCE_EVERY,
   WARM_IDLE_SPARE_MS,
   WARM_SLICE_MS,
 } from '../../constants.js';
 import { adjustHex } from '../colorize.js';
 import type { SpriteData } from '../types.js';
+import {
+  bakePicture,
+  forgetPicture,
+  keepPicture,
+  type Picture,
+  type PictureContext,
+  pictureCost,
+  touchPicture,
+} from './pictureBudget.js';
 
 /** A frame's pixels in a decoded sheet. */
 export interface MasterRect {
@@ -107,8 +116,10 @@ function ownCanvas(sprite: SpriteData): HTMLCanvasElement {
 }
 
 /** The mip chain of a master (level 0 the master itself), built as deep as a zoom asks
- *  (`levelFor`), once. */
+ *  (`levelFor`); the levels past 0 are one entry of the picture budget, let go together. */
 const chains = new WeakMap<object, Level[]>();
+/** Chains with levels past 0, by their master's source (releaseMaster lets them go). */
+const chainSrc = new Map<Level[], CanvasImageSource>();
 function chainOf(sprite: SpriteData, m: Smooth): Level[] {
   const owner: object = m.rect ?? m.own ?? sprite;
   const have = chains.get(owner);
@@ -130,24 +141,41 @@ function chainOf(sprite: SpriteData, m: Smooth): Level[] {
 /** The smallest level of `levels` still at least `w`×`h`, halving further first when the last
  *  one is still twice that (each halving an average of 2×2 pixels: bilinear at exactly half). */
 function levelFor(levels: Level[], w: number, h: number): Level {
+  let grew = false;
   for (let l = levels[levels.length - 1]; l.w >= w * 2 && l.h >= h * 2;) {
-    const c = canvas(Math.round(l.w / 2), Math.round(l.h / 2));
-    const ctx = c.getContext('2d')!;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'medium';
-    ctx.drawImage(l.img, l.x, l.y, l.w, l.h, 0, 0, c.width, c.height);
+    const from = l;
+    const c = bakePicture(Math.round(l.w / 2), Math.round(l.h / 2), (ctx) => {
+      // exactly half: bilinear is the 2×2 average (PAGE-MEM: 'medium' had the canvas also keep a
+      // mipmap of the whole source sheet)
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'low';
+      ctx.drawImage(from.img, from.x, from.y, from.w, from.h, 0, 0, c0(from.w), c0(from.h));
+    });
     perfCache(c.width * c.height * 4);
     l = { img: c, x: 0, y: 0, w: c.width, h: c.height };
     levels.push(l);
+    grew = true;
   }
+  if (grew) {
+    chainSrc.set(levels, levels[0].img);
+    let bytes = 0;
+    for (const l of levels.slice(1)) bytes += pictureCost(l.img as Picture);
+    keepPicture(levels, bytes, () => {
+      levels.length = 1;
+      chainSrc.delete(levels);
+    });
+  } else if (levels.length > 1) touchPicture(levels);
   let pick = levels[0];
   for (const next of levels) if (next.w >= w && next.h >= h) pick = next;
   return pick;
 }
 
+/** Half a level's side, as levelFor makes it. */
+const c0 = (side: number) => Math.round(side / 2);
+
 /** A picture's pixels adjusted as adjustSprite would (the idle dim), in place: at the display
  *  size, so it costs what is drawn, not the master. */
-function adjustPicture(ctx: CanvasRenderingContext2D, w: number, h: number, color: ColorValue) {
+function adjustPicture(ctx: PictureContext, w: number, h: number, color: ColorValue) {
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   const seen = new Map<number, number>();
@@ -169,58 +197,9 @@ function adjustPicture(ctx: CanvasRenderingContext2D, w: number, h: number, colo
 export const copyFor = (sprite: SpriteData): SpriteData | null =>
   smooth.has(sprite) ? sprite.slice() : null;
 
-// ── the zoom LRU ─────────────────────────────────────────────
+// ── each zoom's pictures (their bytes are the picture budget's) ──
 
-/** Built pictures by zoom (Map order = least recently used first), and their bytes. */
-const byZoom = new Map<number, { pics: Map<SpriteData, HTMLCanvasElement>; bytes: number }>();
-let totalBytes = 0;
-let lastZoom = NaN;
-
-/** The bytes the zoom LRU holds now (for the performance readout and the runner). */
-export const smoothCacheBytes = (): number => totalBytes;
-
-function entry(zoom: number) {
-  let e = byZoom.get(zoom);
-  if (e && zoom !== lastZoom) {
-    byZoom.delete(zoom);
-    byZoom.set(zoom, e);
-  }
-  if (!e) byZoom.set(zoom, (e = { pics: new Map(), bytes: 0 }));
-  lastZoom = zoom;
-  return e;
-}
-
-function evict(): void {
-  for (const [zoom, e] of byZoom) {
-    if (totalBytes <= SMOOTH_CACHE_MAX_BYTES || zoom === lastZoom) break;
-    byZoom.delete(zoom);
-    totalBytes -= e.bytes;
-  }
-  // The current zoom may itself contain more pictures than the cap. Keep its most recently used
-  // pictures, but never let one busy office turn the stated byte bound into a soft limit.
-  const current = byZoom.get(lastZoom);
-  while (totalBytes > SMOOTH_CACHE_MAX_BYTES && current?.pics.size) {
-    const sprite = current.pics.keys().next().value!;
-    const pic = current.pics.get(sprite)!;
-    current.pics.delete(sprite);
-    const bytes = pic.width * pic.height * 4;
-    current.bytes -= bytes;
-    totalBytes -= bytes;
-  }
-}
-
-/** Drop every zoom's pictures but the current one's (the page went to the background). */
-export function trimSmoothCache(): void {
-  for (const [zoom, e] of byZoom) {
-    if (zoom === lastZoom) continue;
-    byZoom.delete(zoom);
-    totalBytes -= e.bytes;
-  }
-}
-if (typeof document !== 'undefined' && typeof document.addEventListener === 'function')
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') trimSmoothCache();
-  });
+const byZoom = new Map<number, Map<SpriteData, Picture>>();
 
 /** LOOKS-MEM: the decoded sheet `sprite`'s master is in, let go (no character wears it): every
  *  picture cut from it leaves the zoom LRU and the canvas gives its memory back now (width 0;
@@ -231,13 +210,17 @@ export function releaseMaster(sprite: SpriteData): void {
   const src = smooth.get(sprite)?.rect?.src;
   if (!src) return;
   released.add(src);
-  for (const e of byZoom.values())
-    for (const [s, pic] of e.pics) {
+  for (const pics of byZoom.values())
+    for (const [s, pic] of pics) {
       if (smooth.get(s)?.rect?.src !== src) continue;
-      e.pics.delete(s);
-      const bytes = pic.width * pic.height * 4;
-      e.bytes -= bytes;
-      totalBytes -= bytes;
+      pics.delete(s);
+      forgetPicture(pic);
+    }
+  for (const [levels, from] of chainSrc)
+    if (from === src) {
+      forgetPicture(levels);
+      levels.length = 1;
+      chainSrc.delete(levels);
     }
   src.width = src.height = 0;
 }
@@ -249,8 +232,8 @@ export const smoothSize = (sprite: SpriteData, zoom: number): [number, number] =
 ];
 
 /** `sprite`'s picture at `zoom` when built, else null (nothing is built). */
-export function peekSmooth(sprite: SpriteData, zoom: number): HTMLCanvasElement | null {
-  return byZoom.get(zoom)?.pics.get(sprite) ?? null;
+export function peekSmooth(sprite: SpriteData, zoom: number): Picture | null {
+  return byZoom.get(zoom)?.get(sprite) ?? null;
 }
 
 /** When the office last drew at each zoom (a missed picture of a zoom it left is not built). */
@@ -276,6 +259,7 @@ export function drawSmooth(
 ): void {
   const pic = peekSmooth(sprite, zoom);
   if (pic) {
+    touchPicture(pic);
     ctx.drawImage(pic, x, y);
     return;
   }
@@ -305,14 +289,14 @@ export function drawSmooth(
   });
 }
 
-/** `sprite` (marked smooth) drawn `zoom` device px per sprite px: cached per zoom (LRU). */
-export function smoothPicture(sprite: SpriteData, zoom: number): HTMLCanvasElement {
-  const e = entry(zoom);
-  const have = e.pics.get(sprite);
+/** `sprite` (marked smooth) drawn `zoom` device px per sprite px: cached per zoom (the picture
+ *  budget's LRU). */
+export function smoothPicture(sprite: SpriteData, zoom: number): Picture {
+  let pics = byZoom.get(zoom);
+  if (!pics) byZoom.set(zoom, (pics = new Map()));
+  const have = pics.get(sprite);
   if (have) {
-    // A picture read at the current zoom is its most recent entry there too.
-    e.pics.delete(sprite);
-    e.pics.set(sprite, have);
+    touchPicture(have);
     return have;
   }
   const m = smooth.get(sprite)!;
@@ -322,21 +306,23 @@ export function smoothPicture(sprite: SpriteData, zoom: number): HTMLCanvasEleme
   const levels = chainOf(sprite, m);
   // the smallest level still at least the display size (past the master: the master, nearest)
   const l = levelFor(levels, W, H);
-  const c = canvas(W, H);
-  const ctx = c.getContext('2d')!;
   const up = W >= levels[0].w;
-  ctx.imageSmoothingEnabled = !up;
-  // under 2:1 from the level above: bilinear is all of it (high asks a software canvas a lot)
-  if (!up) ctx.imageSmoothingQuality = 'medium';
-  if (m.mirror) ctx.setTransform(-1, 0, 0, 1, W, 0);
-  ctx.drawImage(l.img, l.x, l.y, l.w, l.h, 0, 0, W, H);
-  if (m.adjust) adjustPicture(ctx, W, H, m.adjust);
-  e.pics.set(sprite, c);
-  e.bytes += W * H * 4;
-  totalBytes += W * H * 4;
+  const pic = bakePicture(W, H, (ctx) => {
+    ctx.imageSmoothingEnabled = !up;
+    // under 2:1 from the level above: bilinear is all of it (high asks a software canvas a lot)
+    if (!up) ctx.imageSmoothingQuality = 'medium';
+    if (m.mirror) ctx.setTransform(-1, 0, 0, 1, W, 0);
+    ctx.drawImage(l.img, l.x, l.y, l.w, l.h, 0, 0, W, H);
+    if (m.adjust) adjustPicture(ctx, W, H, m.adjust);
+  });
+  pics.set(sprite, pic);
+  const zoomPics = pics;
+  keepPicture(pic, pictureCost(pic), () => {
+    zoomPics.delete(sprite);
+    if (!zoomPics.size && byZoom.get(zoom) === zoomPics) byZoom.delete(zoom);
+  });
   perfCache(W * H * 4);
-  evict();
-  return c;
+  return pic;
 }
 
 // ── warming ──────────────────────────────────────────────────
@@ -347,6 +333,9 @@ export function smoothPicture(sprite: SpriteData, zoom: number): HTMLCanvasEleme
 const queue = new Map<object, Array<() => void>>();
 const warmed = new WeakMap<object, number>();
 let pending = 0;
+/** Builds run so far (BOOT-LOAD: the queue runs oldest owner first, so once this has grown by what
+ *  was pending at some moment, everything queued by then is built). */
+let ran = 0;
 let idleAsked = false;
 
 function clearQueuedWarm(owner: object): void {
@@ -379,6 +368,7 @@ function runOne(): boolean {
     if (!jobs.length) queue.delete(owner);
     if (!job) continue;
     pending--;
+    ran++;
     job();
     return true;
   }
@@ -407,6 +397,7 @@ function queueMissed(job: () => void): void {
 }
 
 export const warmPending = (): number => pending;
+export const warmRan = (): number => ran;
 
 function askIdle(): void {
   if (idleAsked || typeof requestIdleCallback !== 'function') return;

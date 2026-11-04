@@ -12,10 +12,10 @@
  *  2. 02 quest card: a permission wait is a quest card; 허용 stamps only after the daemon answered the
  *     dialog (start, middle, end photos), then the card folds into a 허용함 record; Y / N on the keyboard
  *     (focus outside the composer) answer nothing, 거부 on the button denies the next one: a dim 거부함 record
- *  3. 04 envelope: 보내기 flies the envelope to alpha's row (start, middle, end photos), the row pops
- *     ✓ 전달됨 once the send result says delivered, and gives the time back
- *  4. 게임 효과 끔: no typing, no envelope, the answered card folds at once
- *  5. phone, and one picture beside the mock (01, 02, 04)
+ *  3. 04 delivered badge: 보내기 sends, the row pops ✓ 전달됨 once the send result says delivered, and gives
+ *     the time back
+ *  4. 게임 효과 끔: no typing, the answered card folds at once
+ *  5. phone, and one picture beside the mock (01, 02)
  * Screenshots in cld/artifacts/game-messenger/.
  *
  *   npx tsx cld/test/run-game-messenger.ts <port 18316|18317|18490|18491>
@@ -264,8 +264,7 @@ async function main() {
     await page.keyboard.type('a b');
     check((await field.inputValue()) === 'a b' && (await alpha.getByTestId('dlg-typing').count()) === 1, '1: Space in the composer is a space and does not skip the typing line');
     await page.keyboard.press('Enter');
-    await page.getByTestId('mail-envelope').waitFor({ timeout: 2_000 }); // the send flew off
-    check((await field.inputValue()) === '' && (await alpha.getByTestId('dlg-skipped').count()) === skippedBefore, '1: Enter in the composer sends the message (the envelope flies, the composer is empty) and skips nothing');
+    check((await field.inputValue()) === '' && (await alpha.getByTestId('dlg-skipped').count()) === skippedBefore, '1: Enter in the composer sends the message (the composer is empty) and skips nothing');
     await shot('04b-composer-keys');
     // A 답글 pressed with text in the composer: the chip is there at once, the text is untouched; × removes it.
     await field.fill('half written');
@@ -275,7 +274,7 @@ async function main() {
     await alpha.getByRole('button', { name: '답글 취소' }).click();
     check((await alpha.getByTestId('reply-chip').count()) === 0 && (await field.inputValue()) === 'half written', '1: × removes the chip, the text stays');
     await field.fill('');
-    await until('the envelope and badge gone', async () => (await page.getByTestId('mail-envelope').count()) === 0 && (await page.getByTestId('delivered-badge').count()) === 0, 20_000);
+    await until('the badge gone', async () => (await page.getByTestId('delivered-badge').count()) === 0, 20_000);
 
     const sw = alpha.getByTestId('typing-switch');
     await sw.click();
@@ -331,23 +330,16 @@ async function main() {
     done('toolu_q2');
     await shot('08-quest-deny-record');
 
-    // ── 3. 04 envelope ──
+    // ── 3. 04 delivered badge ──
     const box = alpha.getByRole('textbox', { name: '보낼 글' });
     await box.fill('deploy check 결과 나오면 바로 알려 줘. 실패하면 로그 첫 줄도.');
     // Enter sends (the 보내기 button sits under the camera group's 내 캐릭터 at 1400x900; reported).
     await box.press('Enter');
-    const env = page.getByTestId('mail-envelope');
-    await env.waitFor({ timeout: 2_000 });
-    await shot('09-envelope-start');
-    await wait(220);
-    await shot('09-envelope-middle');
     const row = messenger.getByRole('list', { name: '연락처' }).locator('li').filter({ hasText: 'alpha' });
     const badge = row.getByTestId('delivered-badge');
     await badge.waitFor({ timeout: 15_000 });
-    await shot('09-envelope-end');
+    await shot('09-delivered');
     check((await badge.innerText()).includes('전달됨'), '3: the row pops ✓ 전달됨 once the send result says delivered');
-    await until('the envelope landed', async () => (await env.count()) === 0, 3_000);
-    check(true, '3: the envelope is gone after landing');
     await until('the time back', async () => (await badge.count()) === 0, 4_000);
     check(true, '3: the badge gives the time back');
 
@@ -404,7 +396,6 @@ async function main() {
     await off.alpha.getByRole('textbox', { name: '보낼 글' }).fill('효과 끔에서도 보내져요');
     await off.alpha.getByRole('textbox', { name: '보낼 글' }).press('Enter');
     await wait(300);
-    check((await page.getByTestId('mail-envelope').count()) === 0, '4: no envelope flies');
     await wait(500);
     await shot('10-effects-off');
     await page.evaluate(() => localStorage.setItem('cld.game-effects', 'on'));
@@ -441,7 +432,7 @@ async function main() {
       `<div style="display:flex;gap:20px"><figure style="margin:0;width:700px"><figcaption>mock ${mock}</figcaption><img src="${img(path.join(MOCK, mock))}" style="width:700px"></figure>` +
       `<figure style="margin:0;width:700px"><figcaption>G1 ${ours}</figcaption><img src="${img(path.join(OUT, ours))}" style="width:700px"></figure></div>`;
     await side.setContent(
-      `<body style="margin:0;font:14px sans-serif;background:white">${pair('01-dialogue.png', '02-typing-end.png')}${pair('02-quest-card.png', '06-stamp-end.png')}${pair('04-envelope.png', '09-envelope-middle.png')}</body>`,
+      `<body style="margin:0;font:14px sans-serif;background:white">${pair('01-dialogue.png', '02-typing-end.png')}${pair('02-quest-card.png', '06-stamp-end.png')}</body>`,
     );
     await side.screenshot({ path: path.join(OUT, '12-beside-mock.png'), fullPage: true });
     await side.close();

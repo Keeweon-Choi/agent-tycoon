@@ -67,7 +67,7 @@ const Overview = lazy(() => import('../spec/Overview.js').then((m) => ({ default
 const ReqsTab = lazy(() => import('../spec/SpecTabs.js').then((m) => ({ default: m.ReqsTab })));
 const DocsTab = lazy(() => import('../spec/SpecTabs.js').then((m) => ({ default: m.DocsTab })));
 // SPT-P3-GRAPH, MAP-A: the 지도 tab (React Flow + dagre with it) loads only when opened.
-const MapTab = lazy(() => import('../spec/ProjectMap.js').then((m) => ({ default: m.MapTab })));
+const MapTab = lazy(() => import('../spec/CockpitMap.js').then((m) => ({ default: m.MapTab })));
 const TAB_LABEL = {
   cockpit: 'spec.tab.cockpit',
   tasks: 'workbench.tab.tasks',

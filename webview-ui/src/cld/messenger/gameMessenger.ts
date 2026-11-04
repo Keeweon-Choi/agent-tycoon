@@ -5,13 +5,12 @@
  *   sentenceEndStep   the first press on a typing reply: on to the end of the sentence being typed
  *   skipsTyping       which key presses move a typing reply on (never one meant for a field)
  *   placeRecords      where the folded quest records sit among the conversation's items
- *   arcPoint          the envelope's flight: a quadratic arc above the straight line, whole pixels
  * The switch is per browser (like 게임 효과): localStorage behind try/catch, on by default.
  */
 import { useSyncExternalStore } from 'react';
 
 import type { ChatItem } from '../../../../core/src/messages.js';
-import { MSG_ENVELOPE_ARC_PX, MSG_QUESTION_SENTENCES, MSG_TYPE_MAX_MS, MSG_TYPE_SENTENCE_MS, MSG_TYPE_TICK_MS } from '../../constants.js';
+import { MSG_QUESTION_SENTENCES, MSG_TYPE_MAX_MS, MSG_TYPE_SENTENCE_MS, MSG_TYPE_TICK_MS } from '../../constants.js';
 import { splitSentences } from './sentences.js';
 
 /** How a new line types in: the characters shown after each tick (the last is the whole line); null = nothing
@@ -84,17 +83,6 @@ export function placeRecords(itemTimes: readonly number[], records: readonly Que
     out.set(at, [...(out.get(at) ?? []), r]);
   }
   return out;
-}
-
-/** The envelope at `t` (0..1) on a quadratic arc lifted MSG_ENVELOPE_ARC_PX over the higher end; whole pixels. */
-export function arcPoint(from: { x: number; y: number }, to: { x: number; y: number }, t: number): { x: number; y: number } {
-  const cx = (from.x + to.x) / 2;
-  const cy = Math.min(from.y, to.y) - MSG_ENVELOPE_ARC_PX;
-  const u = 1 - t;
-  return {
-    x: Math.round(u * u * from.x + 2 * u * t * cx + t * t * to.x),
-    y: Math.round(u * u * from.y + 2 * u * t * cy + t * t * to.y),
-  };
 }
 
 // ── 타자 효과 (the conversation header's switch) ──

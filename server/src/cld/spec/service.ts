@@ -57,6 +57,11 @@ import {
   SPEC_LINK_HISTORY_MAX,
   SPEC_LINK_NOTE_MAX,
   SPEC_LINK_TEXT_WORDS_MAX,
+  SPEC_MAP_FEATURE_REQS_MAX,
+  SPEC_MAP_IN_DEPTH_MAX,
+  SPEC_MAP_MIN_MS,
+  SPEC_MAP_PATHS_ON,
+  SPEC_MAP_RECENT_MS,
   SPEC_MERGE_TARGETS_MAX,
   SPEC_MOVE_CANDIDATES_MAX,
   SPEC_PATH_HISTORY_MAX,
@@ -114,6 +119,7 @@ import {
   writeArchFile,
 } from './archOwner.js';
 import { cacheFile, deleteCache, emptyCache, entryOf, hasherFor, type MatchCache, matOf, readCache, withoutText, writeCache } from './cache.js';
+import { blockDetail, type ChainReq, featureChain, lightCells, linkedCount, reqLinks, tagOnly } from './chain.js';
 import { type ModRow, moduleRows, type TraceComp, wordsOf } from './compLinks.js';
 import {
   blobOf,
@@ -149,7 +155,7 @@ import {
   type SpecLink,
   writeLinks,
 } from './links.js';
-import { buildMapModel, MAP_ROOT, type MapModel, mapView, offMap, parentCycles } from './map.js';
+import { codeKey, type CodeScan } from './mapWorker.js';
 import {
   type Cand,
   COMP_UID_RE,
@@ -172,6 +178,7 @@ import {
   type SpecRegistry,
   writeRegistry,
 } from './store.js';
+import { type FeatureReq, featuresOf, structureOwned } from './structure.js';
 import {
   ACCEPTANCE_FILTERS,
   type AcceptanceFilter,
@@ -222,6 +229,8 @@ export interface SpecDeps {
   jobs?: () => Array<TraceJob & { project: string | null; kind?: string }>;
   /** SPT-P3-OVERVIEW: the project's last `n` merge records (merge-history.json), newest first. */
   merges?: (project: string, n: number) => RepoMerge[];
+  /** SPT C1: the 지도's code scan, a short child process (the office: `cld-worker.js spec-map`); none: no structure. */
+  specMap?: (folder: string) => Promise<CodeScan | null>;
 }
 
 export type SpecError = 'corrupt' | 'path' | 'tooMany' | 'off' | 'doc' | 'item' | 'stale' | 'value' | 'save' | 'boundary' | 'link' | 'full' | 'comp' | 'archFull';
@@ -495,9 +504,19 @@ export class SpecService {
   private readonly archFiles = new Map<string, LoadedArch>();
   private readonly skeletons = new Map<string, { key: string; folders: ArchFolder[] }>();
   skeletonBuilds = 0;
-  /** MAP-A: projectId → the module tree as last built for that rev and HEAD (dropped with the index); builds since start. */
-  private readonly mapCache = new Map<string, { key: string; model: MapModel }>();
-  mapBuilds = 0;
+  /**
+   * SPT C1: projectId → the last code scan with its key (HEAD, code files, latest mtime), when it ran
+   * and when its key was last looked at, and what it said (a change is a new structRev: specChanged).
+   * Kept past the idle drop (small: paths and index pairs, no text), so an unchanged repository is
+   * never scanned again. Scans in flight; scans since start (the cost tests).
+   */
+  private readonly codeScans = new Map<string, { key: string; scan: CodeScan | null; ranAt: number; checkedAt: number; print: string }>();
+  private readonly codeRuns = new Map<string, Promise<CodeScan | null>>();
+  private readonly codeWaits = new Set<string>();
+  /** The spec-map child processes, one after the other over every project. */
+  private mapQueue: Promise<void> = Promise.resolve();
+  private readonly structRevs = new Map<string, number>();
+  mapScans = 0;
 
   constructor(private readonly deps: SpecDeps) {
     this.run = deps.run ?? createGitRunner();
@@ -555,7 +574,7 @@ export class SpecService {
 
   /** A removed project: nothing of it stays in memory (its files are projectData's). */
   forget(projectId: string): void {
-    for (const m of [this.loaded, this.scannedAt, this.gitCache, this.countCache, this.titles, this.caches, this.readAt, this.offerCache, this.linkFiles, this.acceptFiles, this.traces, this.commitCache, this.shaCache, this.recentCache, this.archCache, this.archFiles, this.skeletons, this.mapCache]) m.delete(projectId);
+    for (const m of [this.loaded, this.scannedAt, this.gitCache, this.countCache, this.titles, this.caches, this.readAt, this.offerCache, this.linkFiles, this.acceptFiles, this.traces, this.commitCache, this.shaCache, this.recentCache, this.archCache, this.archFiles, this.skeletons, this.codeScans]) m.delete(projectId);
     for (const [name, id] of this.lastIds) if (id === projectId) this.lastIds.delete(name);
   }
 
@@ -1070,7 +1089,7 @@ export class SpecService {
       return { ok: false, error: 'save' };
     }
     this.forget(from);
-    for (const m of [this.scannedAt, this.titles, this.caches, this.linkFiles, this.acceptFiles, this.traces, this.archCache, this.archFiles, this.skeletons, this.mapCache]) m.delete(p.projectId);
+    for (const m of [this.scannedAt, this.titles, this.caches, this.linkFiles, this.acceptFiles, this.traces, this.archCache, this.archFiles, this.skeletons, this.codeScans]) m.delete(p.projectId);
     reg.projectId = p.projectId;
     reg.repo.lastPath = p.folder;
     delete reg.dismissed;
@@ -1084,7 +1103,9 @@ export class SpecService {
     this.readAt.set(p.projectId, this.now());
     const last = this.scannedAt.get(p.projectId);
     if (last !== undefined && this.now() - last < SPEC_SCAN_MIN_MS) return this.inFlight.get(p.projectId) ?? Promise.resolve();
-    return this.scan(p, false);
+    // SPT C1: a scan while the 지도 is read (its index held, a code scan kept) looks at the code key too.
+    const reg = this.traceReadAt.has(p.projectId) && this.codeScans.has(p.projectId) ? this.enabled(p) : null;
+    return this.scan(p, false).then(() => void (reg && this.codeScan(p, reg).catch(() => undefined)));
   }
 
   /** One scan of a project with tracking on (one at a time per project). */
@@ -1749,10 +1770,12 @@ export class SpecService {
     return a;
   }
 
-  /** What specChanged carries: the Registry's rev plus the links' and the acceptance records' plus the source changes seen (each only grows, so the sum does). */
-  // ponytail: the source part is memory only; after a restart one value may repeat once (that page then refetches on the next change).
+  /** What specChanged carries: the Registry's rev plus the links' and the acceptance records' plus the source changes and the structure changes seen (each only grows, so the sum does). */
+  // ponytail: the source and structure parts are memory only; after a restart one value may repeat once (that page then refetches on the next change).
   private revOf(p: SpecProject): number {
-    return (this.load(p).registry?.rev ?? 0) + this.linksOf(p).links.rev + this.acceptOf(p).file.rev + this.archOf(p).file.rev + (this.sourceRevs.get(p.projectId) ?? 0);
+    return (
+      (this.load(p).registry?.rev ?? 0) + this.linksOf(p).links.rev + this.acceptOf(p).file.rev + this.archOf(p).file.rev + (this.sourceRevs.get(p.projectId) ?? 0) + (this.structRevs.get(p.projectId) ?? 0)
+    );
   }
 
   /** What of this project's Tasks and jobs the index reads, as one string (a change in it is a change in the trace). */
@@ -1955,7 +1978,7 @@ export class SpecService {
       const quiet = this.now() - (this.traceReadAt.get(p.projectId) ?? 0);
       if (quiet < SPEC_TRACE_IDLE_MS) return void later(check, SPEC_TRACE_IDLE_MS - quiet);
       this.idleTimers.delete(p.projectId);
-      for (const m of [this.traces, this.commitCache, this.shaCache, this.traceReadAt, this.recentCache, this.archCache, this.skeletons, this.mapCache]) m.delete(p.projectId);
+      for (const m of [this.traces, this.commitCache, this.shaCache, this.traceReadAt, this.recentCache, this.archCache, this.skeletons, this.codeScans]) m.delete(p.projectId);
     };
     later(check, SPEC_TRACE_IDLE_MS);
   }
@@ -2087,6 +2110,7 @@ export class SpecService {
     const owned = applyOwner(arch, this.archOf(p).file, await this.skeletonOf(p, reg));
     // SPT-P4C: each component's requirements, from the trace index (its own rev and cache).
     const ix = await this.index(p, reg);
+    const last = lastBatch(this.archOf(p).file);
     return {
       ok: true,
       value: {
@@ -2095,41 +2119,215 @@ export class SpecService {
           const reqs = compReqs(ix, n.id);
           return reqs.count ? { ...n, reqs } : n;
         }),
+        // [제안 모두 승인] and [되돌리기] (the design drawing's head, SPT C1).
+        pending: {
+          diagrams: owned.diagrams.filter((d) => d.standing === 'doc').map((d) => ({ doc: d.doc, block: d.block, version: d.version })),
+          folders: owned.nodes.flatMap((n) => (n.standing === 'proposed' && n.folder ? [n.folder] : [])),
+        },
+        ...(last && { lastBatch: last }),
       },
     };
   }
 
   /**
-   * MAP-A: the 지도's structure view of one selected item (`root`, or a module's id): built from the
-   * arch query (the owner's decisions laid over the documents) and the trace index, the module tree
-   * kept per rev and HEAD and dropped with the index when nobody reads. Tracking off: an empty map,
-   * nothing scanned or read from git.
+   * SPT C1-C2 (§6.8, §8): the 지도. The features from the trace index (no file read), the structure
+   * and the links from the last code scan (a child process, run only when its key changed and
+   * SPEC_MAP_MIN_MS passed). `feature`: that feature's requirements and chain; `block`: a cell's
+   * detail; `in`: the cells entered ([한 단계 들어가기], `a>b`). Tracking off: an empty map, nothing
+   * scanned, read or run.
    */
-  async map(p: SpecProject, q: { uid?: unknown }): Promise<SpecResult<TraceMap>> {
-    const uid = q.uid ?? MAP_ROOT;
-    if (typeof uid !== 'string' || uid.length > SPEC_PATH_MAX) return { ok: false, error: 'value' };
+  async map(p: SpecProject, q: { feature?: unknown; in?: unknown; block?: unknown }): Promise<SpecResult<TraceMap>> {
+    const { feature, block, in: into = '' } = q;
+    const bad = (v: unknown) => v !== undefined && (typeof v !== 'string' || v.length > SPEC_PATH_MAX);
+    if (bad(feature) || bad(block) || typeof into !== 'string' || into.length > SPEC_PATH_MAX) return { ok: false, error: 'value' };
+    const chain = into ? into.split('>') : [];
+    if (chain.length > SPEC_MAP_IN_DEPTH_MAX) return { ok: false, error: 'value' };
     if (this.load(p).corrupt) return { ok: false, error: 'corrupt' };
-    if (!this.enabled(p)) return { ok: true, value: offMap() };
-    const model = await this.mapModel(p);
-    if (!model.ok) return model;
-    const view = mapView(model.value, uid);
-    if (!view) return { ok: false, error: 'comp' };
-    const last = lastBatch(this.archOf(p).file);
-    return { ok: true, value: last ? { ...view, lastBatch: last } : view };
+    const on = new Set(SPEC_MAP_PATHS_ON as TraceMap['pathsOn']);
+    if (!this.enabled(p))
+      return { ok: true, value: { enabled: false, features: [], common: [], reqTotal: 0, changed: 0, structure: null, linked: 0, pathsOn: [...on], commits: 0, tagOnly: 0 } };
+    const t = await this.traced(p);
+    if (!t.ok) return t;
+    const { reg, ix } = t.value;
+    const reqs = this.featureReqs(p, reg, ix);
+    const scan = await this.codeScan(p, reg);
+    const since = this.now() - SPEC_MAP_RECENT_MS;
+    const links = scan ? reqLinks(scan, this.chainReqs(p, reg, ix, reqs), since, this.taskTitles(ix)) : null;
+    // 진행: the scan's own commit read (every branch's commits, not only first-parent; none without a scan).
+    if (links) for (const r of reqs) r.progress = !!links.reqs.get(r.uid)?.recent;
+    const { features, common } = featuresOf(reqs);
+    const owned = scan ? structureOwned(scan, chain, this.archLabels(p)) : null;
+    if (scan && !owned) return { ok: false, error: 'comp' };
+    const keyOf = new Map([...features, ...common].flatMap((f) => f.uids.map((u) => [u, f.key] as const)));
+    if (links && owned) lightCells(links, owned.s, owned.owner, keyOf, on, since);
+    const linked = (uids: readonly string[]) => (links ? linkedCount(links, uids, on) : 0);
+    const value: TraceMap = {
+      enabled: true,
+      features: features.map(({ uids, source: _s, ...f }) => ({ ...f, linked: linked(uids) })),
+      common: common.map(({ uids: _u, ...c }) => c),
+      reqTotal: reqs.length,
+      changed: reqs.filter((r) => r.changed).length,
+      structure: owned?.s ?? null,
+      linked: features.reduce((n, f) => n + linked(f.uids), 0),
+      pathsOn: [...on],
+      commits: links?.commits.length ?? 0,
+      ...(scan?.links?.capped && { commitsCapped: true as const }),
+      tagOnly: links ? links.commits.filter((c) => tagOnly(c, links.known)).length : 0,
+    };
+    if (block !== undefined) {
+      const names = new Map([...features.map((f) => [f.key, { short: f.short, name: f.name }] as const), ...common.map((c) => [c.key, { short: c.key, name: c.key }] as const)]);
+      const d = links && owned && scan ? blockDetail(links, scan, owned.s, owned.owner, block as string, names) : null;
+      if (!d) return { ok: false, error: 'item' };
+      value.block = d;
+    }
+    if (feature === undefined) return { ok: true, value };
+    const f = features.find((x) => x.key === feature) ?? common.find((x) => x.key === feature);
+    if (!f) return { ok: false, error: 'item' };
+    const changed = new Set(reqs.filter((r) => r.changed).map((r) => r.uid));
+    const named = features.find((x) => x.key === feature);
+    const fc = links && scan ? featureChain(links, f.uids, scan.files, on, since) : null;
+    value.feature = {
+      key: f.key,
+      name: named?.name ?? f.key,
+      ...(named?.source && { source: named.source }),
+      reqs: f.uids.slice(0, SPEC_MAP_FEATURE_REQS_MAX).map((u) => {
+        const n = ix.nodes.get(u);
+        return {
+          uid: u,
+          label: n?.label ?? u,
+          ...(n?.title && { title: n.title }),
+          ...(ix.states.get(u) && { state: ix.states.get(u) }),
+          ...(changed.has(u) && { changed: true as const }),
+          ...fc?.perReq.get(u),
+        };
+      }),
+      more: Math.max(0, f.uids.length - SPEC_MAP_FEATURE_REQS_MAX),
+      chain: fc?.chain ?? { reqs: f.uids.length, tasks: 0, commits: 0, files: 0 },
+      tasks: fc?.tasks ?? [],
+      tasksMore: fc?.tasksMore ?? 0,
+      week: fc?.week ?? 0,
+    };
+    return { ok: true, value };
   }
 
-  private async mapModel(p: SpecProject): Promise<SpecResult<MapModel>> {
-    const a = await this.arch(p, {});
-    if (!a.ok) return a;
-    const reg = this.enabled(p)!;
-    // A folder that is no repository: the skeleton's own key (its walk is redone per SPEC_SCAN_MIN_MS).
-    const key = `${this.revOf(p)}|${reg.repo.lastHead ?? ''}|${this.skeletons.get(p.projectId)?.key ?? ''}`;
-    const c = this.mapCache.get(p.projectId);
-    if (c?.key === key) return { ok: true, value: c.model };
-    const model = buildMapModel(a.value, this.archOf(p).file.parents, await this.index(p, reg));
-    this.mapBuilds++;
-    this.mapCache.set(p.projectId, { key, model });
-    return { ok: true, value: model };
+  /**
+   * SPT C2 (§8.4): what the links need of each requirement besides the scan: the task numbers its own
+   * row names (the SRS 출처 칸), the Task Board Tasks linked to it (confirmed, observed), the folders of
+   * the components it is confirmed to realize.
+   */
+  private chainReqs(p: SpecProject, reg: SpecRegistry, ix: TraceIndex, reqs: readonly FeatureReq[]): ChainReq[] {
+    const titles = this.titles.get(p.projectId);
+    const folders = new Map<string, string[]>();
+    for (const c of this.linkComps(p, reg)) if (c.folder) (folders.get(c.uid) ?? folders.set(c.uid, []).get(c.uid)!).push(c.folder);
+    return reqs.map((r) => {
+      const edges = (ix.adj.get(r.uid) ?? []).map((i) => ix.edges[i]).filter((e) => e.from === r.uid);
+      const board = edges.filter((e) => e.rel === 'implements' && (e.status === 'confirmed' || e.status === 'observed')).map((e) => e.to);
+      const row = (titles?.get(r.doc)?.byUid.get(r.uid)?.refs ?? []).filter((id) => /^T-\d{1,5}$/.test(id));
+      return {
+        uid: r.uid,
+        id: r.id,
+        tasks: [...new Set([...row, ...board])],
+        folders: edges.filter((e) => e.rel === 'realizes' && e.status === 'confirmed').flatMap((e) => folders.get(e.to) ?? []),
+      };
+    });
+  }
+
+  /** The Task Board Tasks' titles in the index (masked), by id. */
+  private taskTitles(ix: TraceIndex): Map<string, string> {
+    return new Map([...ix.nodes.values()].flatMap((n) => (n.type === 'task' && n.title ? [[n.id, n.title] as const] : [])));
+  }
+
+  /** The requirement documents' live items with what the feature rows light up by: 막힘, 원문 바뀜 (SPT §6.8); 진행 is the code scan's (map()). */
+  private featureReqs(p: SpecProject, reg: SpecRegistry, ix: TraceIndex): FeatureReq[] {
+    const since = this.now() - SPEC_MAP_RECENT_MS;
+    const titles = this.titles.get(p.projectId);
+    return ix.reqs.flatMap((uid) => {
+      const r = reg.items[uid];
+      const d = reg.docs[r.doc];
+      if (d.kind !== 'requirements') return [];
+      const id = currentId(r);
+      const tasks = (ix.adj.get(uid) ?? []).map((i) => ix.edges[i]).filter((e) => e.rel === 'implements' && (e.status === 'confirmed' || e.status === 'observed'));
+      return [
+        {
+          uid,
+          id,
+          doc: r.doc,
+          path: d.path,
+          ...(d.fmId && { fmId: d.fmId }),
+          section: titles?.get(r.doc)?.byUid.get(uid)?.section ?? '',
+          line: r.locator.line,
+          changed: r.decisions.some((x) => !x.first && x.was !== undefined && !!x.at && Date.parse(x.at) >= since),
+          progress: false,
+          blocked: tasks.some((e) => !!ix.nodes.get(e.to)?.state?.work?.byStatus?.blocked),
+        },
+      ];
+    });
+  }
+
+  /** The owner's names for folders (arch.json's renamed skeleton folders), by folder without the slash: cells and bands take them. */
+  private archLabels(p: SpecProject): Map<string, string> {
+    return new Map(this.archOf(p).file.skeleton.flatMap((d) => (d.action === 'renamed' && d.label ? [[d.path.replace(/\/+$/, ''), d.label] as const] : [])));
+  }
+
+  /**
+   * The last code scan, its key looked at once per SPEC_SCAN_MIN_MS (a listing and stats, no file
+   * opened); run again only when the key changed and SPEC_MAP_MIN_MS passed since the last run (else
+   * once when it has, while someone reads: that run skips the look's own interval). A failed run
+   * (null) is kept under no key: tried again past SPEC_MAP_MIN_MS, the page says 세지 못함. A changed
+   * answer is a new structure rev: specChanged once.
+   */
+  private codeScan(p: SpecProject, reg: SpecRegistry, due = false): Promise<CodeScan | null> {
+    // One look at a time per project (a read and a scan's look may meet).
+    let job = this.codeRuns.get(p.projectId);
+    if (!job) {
+      job = this.codeScanNow(p, reg, due).finally(() => this.codeRuns.delete(p.projectId));
+      this.codeRuns.set(p.projectId, job);
+    }
+    return job;
+  }
+
+  private async codeScanNow(p: SpecProject, reg: SpecRegistry, due: boolean): Promise<CodeScan | null> {
+    const spawnMap = this.deps.specMap;
+    if (!spawnMap) return null;
+    const id = p.projectId;
+    const now = this.now();
+    const c = this.codeScans.get(id);
+    if (c && !due && now - c.checkedAt < SPEC_SCAN_MIN_MS) return c.scan;
+    const key = `${reg.repo.lastHead ?? ''}|${await codeKey(p.folder, this.run)}`;
+    if (c && c.key === key) {
+      c.checkedAt = now;
+      return c.scan;
+    }
+    // Changed but too soon: the old answer, and one run once the interval has passed (the look is not
+    // recorded, so neither a read nor that run is held off by it).
+    if (c && now - c.ranAt < SPEC_MAP_MIN_MS) {
+      if (!this.codeWaits.has(id)) {
+        this.codeWaits.add(id);
+        const again = () => {
+          this.codeWaits.delete(id);
+          const held = this.traceReadAt.has(id) && this.enabled(p);
+          if (held) void this.codeScan(p, held, true).catch(() => undefined);
+        };
+        const ms = SPEC_MAP_MIN_MS - (now - c.ranAt);
+        if (this.deps.later) this.deps.later(again, ms);
+        else setTimeout(again, ms).unref();
+      }
+      return c.scan;
+    }
+    this.mapScans++;
+    // One child process at a time over every project (the daemon's memory and CPU): they queue.
+    const run = this.mapQueue.then(() => spawnMap(p.folder)).catch(() => null);
+    this.mapQueue = run.then(() => undefined);
+    const scan = await run;
+    const print = scan ? crypto.createHash('sha256').update(JSON.stringify([scan.files, scan.edges, scan.unresolved, scan.workspaces, scan.partial ?? '', scan.big])).digest('hex') : '';
+    const before = this.codeScans.get(id);
+    // A failure is held under no key: the next look past SPEC_MAP_MIN_MS runs it again.
+    this.codeScans.set(id, { key: scan ? key : '', scan, ranAt: now, checkedAt: now, print });
+    if (before && before.print !== print) {
+      this.structRevs.set(id, (this.structRevs.get(id) ?? 0) + 1);
+      this.deps.broadcast({ type: 'specChanged', project: p.name, rev: this.revOf(p) });
+    }
+    return scan;
   }
 
   /** One requirement's detail. */
@@ -2676,6 +2874,7 @@ export class SpecService {
       a.relations = a.relations.filter((r) => r.from !== uid && r.to !== uid);
       a.aliases = a.aliases.filter((x) => x.uid !== uid && x.into !== uid);
       a.kinds = a.kinds.filter((k) => k.uid !== uid);
+      // ponytail: MAP-A's parents are read only since C1 but a delete still prunes them (a write); drop with the field after one release.
       a.parents = a.parents.filter((x) => x.uid !== uid && x.parent !== uid);
       a.skeleton = a.skeleton.flatMap((d): SkeletonDecision[] => (d.action !== 'merged' || d.into !== uid ? [d] : d.uid ? [{ path: d.path, action: 'approved', uid: d.uid }] : []));
       log('deleted', uid);
@@ -2821,33 +3020,6 @@ export class SpecService {
       });
       log('unapproved-all', batch, `kept:${kept.length}`, ...kept.map((d) => d.uid!));
       return { batch, kept: kept.length };
-    });
-  }
-
-  /**
-   * MAP-A [부모 정하기]: the owner's parent of a component (both this project's components, `c_`
-   * UIDs); `parent: null` takes the owner's decision away (its document's or folder's parent shows
-   * again). A parent below the component (a cycle, through any source) is refused.
-   */
-  async archParent(p: SpecProject, b: { uid?: unknown; parent?: unknown }, device: string): Promise<SpecResult<{ uid: string; parent: string | null }>> {
-    const model = this.enabled(p) && !this.load(p).corrupt ? await this.mapModel(p) : null;
-    return this.archWrite(p, device, (reg, a, log) => {
-      const { uid, parent } = b;
-      if (typeof uid !== 'string' || !COMP_UID_RE.test(uid) || (parent !== null && (typeof parent !== 'string' || !COMP_UID_RE.test(parent))) || uid === parent) return 'value';
-      const known = knownComps(reg.components, a);
-      if (!known.has(uid) || (parent !== null && !known.has(parent))) return 'boundary';
-      // Never write what the read drops: a component merged into another ('같은 구성요소') or past the drawing cap is on no map.
-      if (!model?.ok || !model.value.mods.has(uid) || (parent !== null && !model.value.mods.has(parent))) return 'boundary';
-      if (parent !== null) {
-        if (parentCycles(model.value, uid, parent)) return 'value';
-        // The owner's parents as they are in the queue now (a write queued meanwhile included): no chain back to `uid`.
-        const owner = new Map(a.parents.filter((x) => x.uid !== uid).map((x) => [x.uid, x.parent]));
-        for (let at: string | undefined = parent, n = 0; at && n <= owner.size; at = owner.get(at), n++) if (at === uid) return 'value';
-      }
-      // Pruned with it, as a kind write prunes kinds: the parents of components no longer there.
-      a.parents = [...a.parents.filter((x) => x.uid !== uid && known.has(x.uid) && known.has(x.parent)), ...(parent === null ? [] : [{ uid, parent }])];
-      log(parent === null ? 'unparented' : 'parented', uid, ...(parent === null ? [] : [parent]));
-      return { uid, parent };
     });
   }
 

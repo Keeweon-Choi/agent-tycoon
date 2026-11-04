@@ -33,6 +33,14 @@ function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
   } as AgentState;
 }
 
+/** Every agent's replay ends with its compaction log (agentCompactions, its own test below):
+ *  the tests of the other activity leave it out. */
+const activityOnly =
+  (sent: Array<Record<string, unknown>>) =>
+  (msg: Record<string, unknown>): void => {
+    if (msg.type !== 'agentCompactions') sent.push(msg);
+  };
+
 describe('resendAgentActivity', () => {
   it('sends messages in order: team info, tools, waiting, context', () => {
     const store = new AgentStateStore();
@@ -48,7 +56,7 @@ describe('resendAgentActivity', () => {
       }),
     );
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
 
     expect(sent.map((m) => m.type)).toEqual([
       'agentTeamInfo',
@@ -69,7 +77,7 @@ describe('resendAgentActivity', () => {
       }),
     );
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toEqual({
@@ -117,7 +125,7 @@ describe('resendAgentActivity', () => {
       }),
     );
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
 
     const toolStarts = sent.filter((m) => m.type === 'agentToolStart');
     expect(toolStarts).toHaveLength(2); // unnamed + named, NOT promoted
@@ -150,7 +158,7 @@ describe('resendAgentActivity', () => {
     let store = new AgentStateStore();
     store.set(1, createTestAgent({ id: 1, teamName: 'my-team' }));
     let sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ type: 'agentTeamInfo', id: 1, teamName: 'my-team' });
 
@@ -158,7 +166,7 @@ describe('resendAgentActivity', () => {
     store = new AgentStateStore();
     store.set(2, createTestAgent({ id: 2, agentName: 'worker-1', leadAgentId: 1 }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ type: 'agentTeamInfo', id: 2, agentName: 'worker-1' });
 
@@ -166,7 +174,7 @@ describe('resendAgentActivity', () => {
     store = new AgentStateStore();
     store.set(3, createTestAgent({ id: 3, isTeamLead: true }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ type: 'agentTeamInfo', id: 3, isTeamLead: true });
 
@@ -174,7 +182,7 @@ describe('resendAgentActivity', () => {
     store = new AgentStateStore();
     store.set(4, createTestAgent({ id: 4 }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent.filter((m) => m.type === 'agentTeamInfo')).toHaveLength(0);
   });
 
@@ -187,7 +195,7 @@ describe('resendAgentActivity', () => {
     store.set(1, createTestAgent({ id: 1, ...tools, permissionSent: true }));
     store.set(2, createTestAgent({ id: 2, ...tools }));
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent.map((m) => `${m.type}:${m.id}`)).toEqual([
       'agentToolStart:1',
       'agentToolPermission:1',
@@ -199,13 +207,13 @@ describe('resendAgentActivity', () => {
     let store = new AgentStateStore();
     store.set(1, createTestAgent({ id: 1, isWaiting: true }));
     let sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toEqual([{ type: 'agentStatus', id: 1, status: 'waiting' }]);
 
     store = new AgentStateStore();
     store.set(2, createTestAgent({ id: 2, isWaiting: false }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(0);
   });
 
@@ -213,23 +221,76 @@ describe('resendAgentActivity', () => {
     let store = new AgentStateStore();
     store.set(1, createTestAgent({ id: 1, contextTokens: 50_000, maxContextTokens: 200_000 }));
     let sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toEqual([
-      { type: 'agentContextUsage', id: 1, contextTokens: 50_000, maxContextTokens: 200_000 },
+      {
+        type: 'agentContextUsage',
+        id: 1,
+        contextTokens: 50_000,
+        maxContextTokens: 200_000,
+        limitBasis: 'unknown',
+      },
     ]);
 
     store = new AgentStateStore();
     store.set(2, createTestAgent({ id: 2, contextTokens: 0, maxContextTokens: 200_000 }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(0);
+  });
+
+  it('replays the limit basis and the compactions counted (always, none too), so a late client reads the same', () => {
+    const store = new AgentStateStore();
+    const recent = [
+      { at: 1_000, trigger: 'auto' as const, preTokens: 400_000, postTokens: 30_000 },
+    ];
+    store.set(
+      1,
+      createTestAgent({
+        id: 1,
+        contextTokens: 50_000,
+        maxContextTokens: 1_000_000,
+        limitBasis: 'estimated',
+        compactions: { count: 3, partial: true, recent },
+      }),
+    );
+    store.set(
+      2,
+      createTestAgent({
+        id: 2,
+        contextTokens: 5,
+        compactions: { count: 0, partial: false, recent: [] },
+      }),
+    );
+    const sent: Array<Record<string, unknown>> = [];
+    resendAgentActivity((msg) => sent.push(msg), store);
+    expect(sent.filter((m) => m.id === 1)).toEqual([
+      {
+        type: 'agentContextUsage',
+        id: 1,
+        contextTokens: 50_000,
+        maxContextTokens: 1_000_000,
+        limitBasis: 'estimated',
+      },
+      { type: 'agentCompactions', id: 1, count: 3, partial: true, recent },
+    ]);
+    // Always replayed, even with none counted: a client that missed a reset while away
+    // must not keep the old session's count.
+    expect(sent.filter((m) => m.id === 2 && m.type === 'agentCompactions')).toEqual([
+      { type: 'agentCompactions', id: 2, count: 0, recent: [] },
+    ]);
+    const fresh = new AgentStateStore();
+    fresh.set(3, createTestAgent({ id: 3 })); // nothing counted yet: an empty log
+    const replay: Array<Record<string, unknown>> = [];
+    resendAgentActivity((msg) => replay.push(msg), fresh);
+    expect(replay).toEqual([{ type: 'agentCompactions', id: 3, count: 0, recent: [] }]);
   });
 
   it('handles edge cases: empty store and multiple agents', () => {
     // Empty store
     let store = new AgentStateStore();
     let sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(0);
 
     // Multiple agents with different activity
@@ -244,7 +305,7 @@ describe('resendAgentActivity', () => {
     );
     store.set(2, createTestAgent({ id: 2, isWaiting: true }));
     sent = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ type: 'agentToolStart', id: 1 });
     expect(sent[1]).toMatchObject({ type: 'agentStatus', id: 2, status: 'waiting' });
@@ -272,7 +333,7 @@ describe('resendAgentActivity', () => {
       }),
     );
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent.map((m) => [m.toolId, m.desc])).toEqual([
       ['t-fg', 'List the files'],
       ['t-bg', 'Build the thing'],
@@ -298,7 +359,7 @@ describe('resendAgentActivity', () => {
       status: 'Reading a.ts',
     });
     const sent: Array<Record<string, unknown>> = [];
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toEqual([
       {
         type: 'subagentToolStart',
@@ -320,7 +381,7 @@ describe('resendAgentActivity', () => {
     store.broadcast({ type: 'subagentToolDone', id: 1, parentToolId: 'p1', toolId: 's1' });
     store.broadcast({ type: 'subagentClear', id: 1, parentToolId: 'p1' });
     sent.length = 0;
-    resendAgentActivity((msg) => sent.push(msg), store);
+    resendAgentActivity(activityOnly(sent), store);
     expect(sent).toEqual([]);
   });
 

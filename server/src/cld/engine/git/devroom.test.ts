@@ -242,19 +242,19 @@ describe.skipIf(!GIT_AVAILABLE)('dev room git (P4 S1)', () => {
       fs.writeFileSync(path.join(wtDir(rec.task), 'a.txt'), `${id}\n`);
       r.git(['commit', '-qam', id], wtDir(rec.task));
     }
-    const note = await mgr.leadReviewNote({ project: 'alpha', task: 't-1-x', file: 'a.txt', line: 1, body: 'name it better', lead: 'alpha' });
+    const note = await mgr.leadReviewNote({ project: 'alpha', task: 'feat-t1-x', file: 'a.txt', line: 1, body: 'name it better', lead: 'alpha' });
     expect(note).toMatchObject({ ok: true, to: 'web-worker' });
     expect(delivered).toHaveLength(1);
     expect(delivered[0]).toMatchObject({ to: 'web-worker', from: 'alpha' });
     expect(delivered[0].text).toContain('name it better');
     expect(leadLines).toEqual(['alpha 가 web-worker 에게 검토 의견을 보냈어요 (Task T-1)']);
-    expect(mgr.reviewNotes.list('alpha', 't-1-x')[0]).toMatchObject({ by: 'agent:alpha', sentAt: expect.any(String) });
+    expect(mgr.reviewNotes.list('alpha', 'feat-t1-x')[0]).toMatchObject({ by: 'agent:alpha', sentAt: expect.any(String) });
 
-    const locked = await mgr.merge('alpha', 't-1-x', { privileged: true, source: 'engine', auto: true });
+    const locked = await mgr.merge('alpha', 'feat-t1-x', { privileged: true, source: 'engine', auto: true });
     expect(locked).toMatchObject({ ok: false, code: 'review_notes' });
     expect(r.git(['show', 'dev:a.txt'])).toBe('one\n');
     // Negative control: the same automatic merge of the Task without notes goes through.
-    expect(await mgr.merge('alpha', 't-2-x', { privileged: true, source: 'engine', auto: true })).toMatchObject({ ok: true });
+    expect(await mgr.merge('alpha', 'feat-t2-x', { privileged: true, source: 'engine', auto: true })).toMatchObject({ ok: true });
     expect(r.git(['show', 'dev:a.txt'])).toBe('T-2\n');
   });
 

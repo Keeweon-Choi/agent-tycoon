@@ -35,12 +35,13 @@ import { CompactBreakWatch, director, InheritWatch, TempStaffWatch } from './dir
 import { engineGetSnapshot, engineHandleMessage } from './engineStore.js';
 import { type EzContext, PLAIN_CONTEXT } from './ez/activity.js';
 import {
+  basisOf,
+  type CompactionLog,
   contextPct,
   type ContextSample,
   type FatigueLook,
   fatigueLook,
   fatigueRules,
-  nextContextSample,
 } from './ez/fatigueState.js';
 import { floorsHandleMessage } from './floors.js';
 import { isOff, type OfficePanel } from './format.js';
@@ -105,8 +106,10 @@ export interface CldSnapshot {
   /** T-0032: the folder picker's latest answer. */
   folderList: FolderList | null;
   toast: ActionToast | null;
-  /** T-0026: agentId -> its context for 피로도, with the drops seen in its current session. */
-  contexts: Record<number, ContextSample & { session?: string | null }>;
+  /** T-0026: agentId -> its context for 피로도 (agentContextUsage). */
+  contexts: Record<number, ContextSample>;
+  /** agentId -> the compactions the daemon counted in its transcript (agentCompactions). */
+  compactions: Record<number, CompactionLog>;
   /** TEMP-PLATES: roster employees with the execution each was last bound to. */
   tempStaff: TempEmployee[];
 }
@@ -136,6 +139,7 @@ const empty: CldSnapshot = {
   folderList: null,
   toast: null,
   contexts: {},
+  compactions: {},
   tempStaff: [],
 };
 let snapshot = empty;
@@ -285,23 +289,26 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'ezRules':
       snapshot = { ...snapshot, ezRules: msg };
       break;
-    case 'agentContextUsage': {
-      // A new session (renew, /clear) is a fresh conversation: its drops start over.
-      const session = rowOf(msg.id, snapshot.officeSnapshot)?.sessionId;
-      const prev = snapshot.contexts[msg.id];
-      const sample = nextContextSample(
-        prev?.session === session ? prev : undefined,
-        msg.contextTokens,
-        msg.maxContextTokens,
-        fatigueRules(snapshot.ezRules?.fatigue),
-      );
+    case 'agentContextUsage':
       snapshot = {
         ...snapshot,
-        contexts: { ...snapshot.contexts, [msg.id]: { ...sample, session } },
+        contexts: {
+          ...snapshot.contexts,
+          [msg.id]: { tokens: msg.contextTokens, max: msg.maxContextTokens, basis: basisOf(msg.limitBasis) },
+        },
       };
       noteRests();
       break;
-    }
+    case 'agentCompactions':
+      snapshot = {
+        ...snapshot,
+        compactions: {
+          ...snapshot.compactions,
+          [msg.id]: { count: msg.count, partial: msg.partial === true, recent: msg.recent },
+        },
+      };
+      noteRests();
+      break;
     case 'officeEvent':
       // A reconnect's resync replays the whole feed (T-0025): keep each event once.
       if (snapshot.events.some((e) => e.ts === msg.ts && e.summary === msg.summary)) break;
@@ -509,7 +516,7 @@ function noteRests(): void {
     const id = o.agentId ?? virtualAgentId(`orch:${o.name}`);
     // COMPACT-COFFEE: the break starts with the compaction and drinks on while it lasts; the
     // boundary's 휴식 +1 of the same compaction plays no second one.
-    const rose = restWatch.observe(id, Math.max(o.compactions, snapshot.contexts[id]?.drops ?? 0), now);
+    const rose = restWatch.observe(id, Math.max(o.compactions, snapshot.compactions[id]?.count ?? 0), now);
     if (o.compacting) compactHolds.add(id);
     if (compactWatch.observe(id, o.compacting === true, rose, now)) director.play(id, { kind: 'coffee' });
     if (!o.level) continue;
@@ -536,8 +543,7 @@ const tempWatch = new TempStaffWatch();
 /** FX-ALL: the temp staff (sub-agents, Codex temporaries) level up and take coffee breaks too,
  *  on the execution's character while it is on screen (none now: skipped). */
 function noteTemps(): void {
-  const rules = fatigueRules(snapshot.ezRules?.fatigue);
-  for (const m of tempWatch.observe(snapshot.tempStaff, rules, performance.now())) {
+  for (const m of tempWatch.observe(snapshot.tempStaff, performance.now())) {
     const id = tempCharacter(m.execution);
     if (id === null) continue;
     director.play(
@@ -548,31 +554,36 @@ function noteTemps(): void {
 }
 
 /** The officeState row (an engine project or a Claude session) of a character. */
-function rowOf(id: number, office: OfficeSnapshot | null) {
+export function rowOf(id: number, office: OfficeSnapshot | null) {
   return office?.orchestrators.find((o) => (o.agentId ?? virtualAgentId(`orch:${o.name}`)) === id);
 }
 
 /**
- * A character's 피로도 (T-0026), or null before its first context report.
- * Compactions: the row's count (the engine's from the transcript, the same
- * number the board's 컴팩션 N회 shows), or the context drops this screen saw
- * in the agent's current session when that is more (a plain Claude session
- * reports a neutral 0).
- *
- * ponytail: the drops are counted per screen since it opened (a reload starts
- * over); count them in the daemon if that matters for plain Claude sessions.
+ * A character's 피로도 (T-0026), or null before its first context report and while the
+ * window is unknown (a model the daemon has no window for: tokens only, never a percent).
+ * Compactions: the daemon's count of the transcript's compact_boundary records, or the
+ * row's (the engine's, the same number the board's 컴팩션 N회 shows) when that is more.
  */
 export function fatigueFor(id: number, snap: CldSnapshot = snapshot): FatigueLook | null {
   const sample = snap.contexts[id];
-  if (!sample) return null;
-  const rowCount = rowOf(id, snap.officeSnapshot)?.compactions ?? 0;
+  if (!sample || sample.basis === 'unknown') return null;
+  const { count, partial } = compactionsFor(id, snap);
   const rules = fatigueRules(snap.ezRules?.fatigue);
-  return fatigueLook(
-    contextPct(sample),
-    Math.max(rowCount, sample.drops),
-    rules,
-    renewThreshold(id, snap),
-  );
+  return fatigueLook(contextPct(sample), count, rules, renewThreshold(id, snap), sample.basis, partial);
+}
+
+/** The compactions of a character: the larger of the row's (engine) and the daemon's count of its transcript. */
+export function compactionsFor(id: number, snap: CldSnapshot = snapshot): { count: number; partial: boolean } {
+  const rowCount = rowOf(id, snap.officeSnapshot)?.compactions ?? 0;
+  const counted = snap.compactions[id];
+  if (!counted || counted.count <= rowCount) return { count: rowCount, partial: false };
+  return { count: counted.count, partial: counted.partial };
+}
+
+/** What the stat card says of a character's compactions, or null while none was counted. */
+export function restsOf(id: number, snap: CldSnapshot = snapshot): CompactionLog | null {
+  const { count, partial } = compactionsFor(id, snap);
+  return count > 0 ? { count, partial, recent: snap.compactions[id]?.recent ?? [] } : null;
 }
 
 /**

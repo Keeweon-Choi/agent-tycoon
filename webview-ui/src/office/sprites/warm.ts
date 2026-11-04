@@ -19,24 +19,26 @@ export function framesOf(sprites: CharacterSprites): SpriteData[] {
 }
 
 /** Queue character `id`'s frames (each with the `variants` it may draw as: mirrored, dimmed) at
- *  `scale` device px per sprite px, once per sprites and scale. */
+ *  `scale` device px per sprite px, once per sprites, scale and `tag` (PAGE-MEM: the variants it
+ *  draws as now, e.g. dimmed or not: only those are built, each change of them queues again). */
 /** A normal office admits at most 500 characters; keep a little room for the greeter and tests. */
 export const MAX_WARM_CHARACTER_OWNERS = 512;
-const owners = new Map<number, { sprites: CharacterSprites; key: object }>();
+const owners = new Map<number, { sprites: CharacterSprites; key: object; tag: string }>();
 export const warmCharacterOwnerCount = (): number => owners.size;
 export function warmCharacter(
   sprites: CharacterSprites,
   scale: number,
   variants: (f: SpriteData) => SpriteData[],
   id: number,
+  tag = '',
 ): void {
   let o = owners.get(id);
-  if (o && o.sprites !== sprites) {
+  if (o && (o.sprites !== sprites || o.tag !== tag)) {
     forgetWarm(o.key);
     owners.delete(id);
     o = undefined;
   }
-  if (!o) owners.set(id, (o = { sprites, key: {} }));
+  if (!o) owners.set(id, (o = { sprites, key: {}, tag }));
   else {
     // Map order is LRU order, so a character currently being drawn is never an old owner.
     owners.delete(id);

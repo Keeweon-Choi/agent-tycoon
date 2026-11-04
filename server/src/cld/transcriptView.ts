@@ -24,11 +24,12 @@
  */
 import * as fs from 'fs';
 
-import { parseQuote } from '../../../core/src/cld/reply.js';
+import { parseQuote, REPLY_QUOTE_MAX, snippet } from '../../../core/src/cld/reply.js';
 import { koText, ROOM_NOTICE_END, ROOM_NOTICE_LINE } from '../../../core/src/cld/serverText.js';
 import type { ChatAttachment, ChatEmployee, ChatItem, ChatReply } from '../../../core/src/messages.js';
 import { formatToolStatus } from '../providers/hook/claude/claude.js';
 import { SENT_MAX, sentLines } from './files/outbox.js';
+import { maskText } from './mask.js';
 
 /** One backward read of a (re)load, and the largest jump an append is followed through. */
 export const CHAT_TAIL_BYTES = 256 * 1024;
@@ -102,13 +103,34 @@ export function unmark(t: string): { text: string; messageId?: string; replyTo?:
       replyTo = undefined;
       if (re) {
         const q = parseQuote(quote ?? '');
-        replyTo = { id: re, ...(q.sender && q.sender !== BOSS_NAME && { sender: q.sender }), text: q.text };
+        // REPLY-FULL: a whole quoted original shows as the short quote it stands for.
+        replyTo = {
+          id: re,
+          ...(q.sender && q.sender !== BOSS_NAME && { sender: q.sender }),
+          text: q.text.length > REPLY_QUOTE_MAX ? snippet(q.text, REPLY_QUOTE_MAX) : q.text,
+        };
       }
       return `${lead}${head}`;
     },
   );
   return messageId ? { text, messageId, ...(replyTo && { replyTo }) } : { text: t };
 }
+
+/** TYPIST-STALE: a user turn that is only one of our marked header lines (its body went in as the
+ *  next turn: a Windows ConPTY read the paste's newline as Enter, 11-04 21:45): that message's id. Such a
+ *  turn is no bubble; its body's turn takes the id. ponytail: the body then reads as the boss's,
+ *  also under a peer's header (only typed that way before the LF fix). */
+export function headerOnly(prompt: string): string | undefined {
+  const t = prompt.replace(PASTED, '$1').trim();
+  return t.includes('\n') ? undefined : unmark(`${t}\n`).messageId;
+}
+
+/** TYPIST-STALE: the id a header-only turn hands to the next unmarked turn: only a one-to-one
+ *  header's. A room header alone hands nothing on: the next unmarked turn may be anything (the
+ *  owner's own words typed at the terminal, a task notification), and nothing proves it is the
+ *  post's body, so it stays a DM turn (the owner's one-to-one words never read as a room's). */
+export const carriedId = (prompt: string): string | undefined =>
+  roomOfPrompt(prompt) === null ? headerOnly(prompt) : undefined;
 
 /** The message id a user turn's text (userTurnText) binds its replies to, if any. */
 export const turnMessageId = (prompt: string): string | undefined =>
@@ -122,7 +144,8 @@ export const turnMessageId = (prompt: string): string | undefined =>
  */
 export const roomOfPrompt = (prompt: string): string | null =>
   // A multi-line post typed into our PTY host arrives inside Claude's <pasted_content> wrapper (11-01).
-  ROOM_HEADER.exec(unmark(prompt.replace(PASTED, '$1').trim()).text)?.[1] ?? null;
+  // TYPIST-STALE: a header that went in alone (headerOnly) is that room's turn too.
+  ROOM_HEADER.exec(unmark(`${prompt.replace(PASTED, '$1').trim()}\n`).text)?.[1] ?? null;
 
 /** A part of a joined turn (turnParts) that stays out of the DM: a room post, or the room 공지
  *  that rode in this paste (ROOM-MODES: ROOM_NOTICE_LINE and everything the messenger put after it). */
@@ -250,6 +273,7 @@ type Block = {
   id?: unknown;
   content?: unknown;
   thinking?: unknown;
+  is_error?: unknown;
 };
 type Rec = {
   type?: unknown;
@@ -360,6 +384,8 @@ export class RoomTurnFilter {
   /** C3: the room the newest user turn read belongs to (null: a DM turn, or none yet). */
   turn: RoomRef | null = null;
   private bound: string | undefined;
+  /** TYPIST-STALE: the id of a one-to-one header-only turn just read (carriedId): the next turn's. */
+  private carried: string | undefined;
 
   constructor(private readonly options: RoomTurnOptions = {}) {}
 
@@ -371,13 +397,17 @@ export class RoomTurnFilter {
   reset(): void {
     this.turn = null;
     this.bound = undefined;
+    this.carried = undefined;
   }
 
   items(line: string, n = 0, opts: LineOptions = {}): ChatItem[] {
     const prompt = userTurnText(line);
     if (prompt !== null) {
       const name = roomOfPrompt(prompt);
-      this.bound = turnMessageId(prompt);
+      const own = turnMessageId(prompt);
+      // TYPIST-STALE: an unmarked turn after a one-to-one header alone is its body: that header's id.
+      this.bound = own ?? this.carried;
+      this.carried = carriedId(prompt);
       // What the messenger typed is the record; the header alone only for what it did not type.
       const typed = this.options.classify?.(this.bound);
       this.turn = typed !== undefined ? typed : name === null ? null : { name };
@@ -516,7 +546,7 @@ export function toolDescription(input: unknown): string | undefined {
   const description = (input as { description?: unknown } | undefined)?.description;
   if (typeof description !== 'string') return undefined;
   const trimmed = description.trim();
-  return trimmed ? trimmed.slice(0, TOOL_DESC_MAX) : undefined;
+  return trimmed ? maskText(trimmed).slice(0, TOOL_DESC_MAX) : undefined;
 }
 
 /** DEVROOM-SUBVIEW: a tool call's arguments as a terminal shows them: `npm test`, `src/a.ts`, `path: src, glob: *.ts`. */
@@ -585,6 +615,7 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
     for (const part of parts) {
       let t = part.trim();
       if (!t || WRAPPER.test(t)) continue;
+      if (kind === 'user' && !joined && headerOnly(t)) continue;
       let who: Pick<ChatItem, 'from' | 'fromName' | 'replyTo' | 'execution' | 'employee'> = {};
       let own: Pick<ChatItem, 'messageId'> & { at?: number } = {};
       if (kind === 'user') {
@@ -629,8 +660,13 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
       if (b?.type === 'text') text('user', b.text, taskNotification);
       else if (opts.results && b?.type === 'tool_result') {
         const t = resultText(b.content).trim();
-        if (t)
-          add({ kind: 'result', text: t.length > RESULT_MAX ? `${t.slice(0, RESULT_MAX)}…` : t });
+        const failed = b.is_error === true;
+        if (t || failed)
+          add({
+            kind: 'result',
+            text: t.length > RESULT_MAX ? `${t.slice(0, RESULT_MAX)}…` : t,
+            ...(failed && { failed: true }),
+          });
       }
     }
   } else if (r.type === 'attachment') {

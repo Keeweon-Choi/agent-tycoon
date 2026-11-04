@@ -243,8 +243,9 @@ export function OfficeCanvas({
       observer.observe(containerRef.current);
     }
 
-    // cld-gui (T-0075): a camera that moved since the last frame, or anything
-    // animating on the office, keeps the loop at the full rate.
+    // cld-gui (T-0075): a camera that moved since the last frame, or an effect on the office,
+    // keeps the loop at the full rate; PAGE-MEM: characters moving on their own, with no input,
+    // at the ambient rate.
     let lastPan = { ...panRef.current };
     const container = containerRef.current;
     const stop = startGameLoop(canvas, {
@@ -252,8 +253,9 @@ export function OfficeCanvas({
         const pan = panRef.current;
         const panned = pan.x !== lastPan.x || pan.y !== lastPan.y;
         lastPan = { x: pan.x, y: pan.y };
-        return panned || officeState.isAnimating() || director.busy();
+        return panned || officeState.hasEffects();
       },
+      ambient: () => officeState.isAnimating() || director.busy(),
       update: (dt) => {
         officeState.update(dt);
         director.step(officeState, dt); // C1: coffee breaks and rebirths (nothing queued: nothing done)

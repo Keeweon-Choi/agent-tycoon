@@ -20,6 +20,7 @@ import {
   alreadyTyped,
   answeredSince,
   cleanText,
+  fullQuote,
   header,
   messageOf,
   Messenger,
@@ -2295,6 +2296,53 @@ describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () 
     expect(r.queueFiles()).toEqual([]);
   });
 
+  it("TYPIST-STALE: 지금 보내기 on the boss's message behind an engine message the box holds back: the pressed one goes in first, with force, then the rest", async () => {
+    const r = rig();
+    const calls: Array<[string, boolean]> = [];
+    let busy = true; // a draft in the box, until a forced paste takes it along
+    r.engine.deliver = (_name, text, o) => {
+      calls.push([text.split('\n').at(-1)!, !!o.force]);
+      if (o.force) busy = false;
+      return Promise.resolve(o.force || !busy ? 'typed' : 'inputBusy');
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send({ ...send('alpha', 'engine notice', false, null), source: 'engine' });
+    expect(await r.m.send(boss('alpha', '사장 말'))).toMatchObject({ delivered: 'queued' });
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ text: '사장 말', inputWait: true })]);
+    expect(calls).toEqual([['engine notice', false]]);
+    expect(r.m.promote('alpha', r.m.queuedFor('alpha')[0].id)).toMatchObject({ ok: true });
+    for (let i = 0; i < 100 && r.queueFiles().length; i++) await new Promise((res) => setTimeout(res, 5));
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(calls.slice(1)).toEqual([['사장 말', true], ['engine notice', false]]);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it("TYPIST-STALE: 지금 보내기 (force) on a message the box held back does not skip the already-typed check: the owner's own Enter put it in meanwhile", async () => {
+    const r = rig();
+    const transcript = path.join(r.home, 't.jsonl');
+    fs.writeFileSync(transcript, `${PROMPT}\n${TURN_END}\n`);
+    const calls: Array<{ force?: boolean }> = [];
+    r.engine.deliver = (_name, _text, o) => {
+      calls.push({ ...(o.force && { force: true }) });
+      return Promise.resolve('inputBusy');
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript });
+    const sent = await r.m.send(boss('alpha', '입력칸 대기'));
+    if (!sent.ok || !sent.messageId) throw new Error('not queued');
+    expect(calls).toEqual([{}]);
+    // Our unsubmitted paste sat in the box; the owner pressed Enter at the terminal, then 지금 보내기 in the app.
+    const item = parseQueued(fs.readFileSync(path.join(r.m.queueDir, r.queueFiles()[0]), 'utf-8'))!;
+    fs.appendFileSync(transcript, `${userTurn(messageOf(item))}\n${TURN_END}\n`);
+    expect(r.m.promote('alpha', r.m.queuedFor('alpha')[0].id)).toMatchObject({ ok: true });
+    for (let i = 0; i < 100 && r.queueFiles().length; i++) await new Promise((res) => setTimeout(res, 5));
+    expect(calls).toEqual([{}]); // never typed again, forced or not
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'token_guard')).toEqual([
+      expect.objectContaining({ trigger: 'tick', to: 'alpha', messageId: sent.messageId, allowed: false, reason: 'already_typed' }),
+    ]);
+  });
+
   /** Claude Code 2.1.316's record of a prompt a busy session took mid-turn (no `user` record);
    *  `humanTurn` comes only under its remote flag tengu_parsed_willow. */
   const queuedTurn = (prompt: string, humanTurn = true) =>
@@ -2434,5 +2482,119 @@ describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () 
     await r.m.tick();
     expect(r.queueFiles()).toEqual([]);
     expect(r.m.queuedFor('alpha')).toEqual([]);
+  });
+});
+
+describe('TYPIST-STALE: stale input, piled notices and a queue that waits past the turn (11-04 laptop)', () => {
+  const REVIVE = '[cld-gui 자동 복구 · ';
+
+  it('a new revive notice replaces one still waiting in the inbox; other inbox files stay (negative: without replaces both pile up)', () => {
+    const r = rig();
+    expect(r.m.writeInbox('alpha', `${REVIVE}11-02 20:37] 다시 띄웠다.`, REVIVE)).toBe(true);
+    expect(r.m.writeInbox('alpha', '[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽')).toBe(true);
+    expect(r.m.writeInbox('alpha', `${REVIVE}11-03 09:51] 다시 띄웠다.`, REVIVE)).toBe(true);
+    expect(r.readInbox('alpha')).toEqual([
+      '[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽',
+      `${REVIVE}11-03 09:51] 다시 띄웠다.`,
+    ]);
+    r.m.writeInbox('beta', `${REVIVE}a]`);
+    r.m.writeInbox('beta', `${REVIVE}b]`);
+    expect(r.readInbox('beta')).toHaveLength(2);
+  });
+
+  it('a revive notice a start already queued is replaced too; the other inbox messages it held go with the next start', () => {
+    const r = rig();
+    const queued = () => r.queueFiles().map((f) => (JSON.parse(fs.readFileSync(path.join(r.m.queueDir, f), 'utf-8')) as { text: string }).text);
+    r.m.writeInbox('alpha', `${REVIVE}11-02 20:37] 다시 띄웠다.`, REVIVE);
+    r.m.writeInbox('alpha', '[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽');
+    r.m.deliverInbox('alpha'); // the start that died before its first prompt went in
+    expect(queued()).toHaveLength(1);
+    r.m.writeInbox('alpha', `${REVIVE}11-03 09:51] 다시 띄웠다.`, REVIVE);
+    expect(queued()).toEqual([]);
+    r.m.deliverInbox('alpha');
+    expect(queued()).toEqual([`[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽\n\n${REVIVE}11-03 09:51] 다시 띄웠다.`]);
+  });
+
+  it('a message held back by the input box goes as soon as that box went in and its turn ended, not after the pause', async () => {
+    const r = rig({ timing: { retryMs: 60 * 60_000 } });
+    const file = path.join(r.home, 't.jsonl');
+    fs.writeFileSync(file, `${PROMPT}\n${TURN_END}\n`);
+    const calls: string[] = [];
+    let result: TypeResult = 'inputBusy';
+    r.engine.deliver = (_name, text) => {
+      calls.push(text);
+      return Promise.resolve(result);
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: file });
+    await r.m.send(boss('alpha', 'ㅎㅇ')); // its try finds the box taken
+    expect(calls).toHaveLength(1);
+    // Negative control: nothing went in, so the pause holds.
+    await r.m.tick();
+    expect(calls).toHaveLength(1);
+    // The stale draft is submitted, its turn runs (busy) and ends: ours goes at once.
+    fs.appendFileSync(file, `${JSON.stringify({ type: 'user', uuid: 'u2', message: { content: '묵은 글' } })}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: file });
+    await r.m.tick();
+    expect(calls).toHaveLength(1); // its turn is running
+    fs.appendFileSync(file, `${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: file });
+    result = 'typed';
+    await r.m.tick();
+    expect(calls).toHaveLength(2);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('no earlier pastes go to the provider (MSG-RECALL); one left unsubmitted is told, tried again, then shown failed with its own notice', async () => {
+    const r = rig();
+    const seen: Array<string[] | undefined> = [];
+    let result: TypeResult = 'typed';
+    r.engine.deliver = (_name, _text, o) => {
+      seen.push((o as { earlier?: string[] }).earlier);
+      return Promise.resolve(result);
+    };
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    await r.m.send(boss('alpha', '첫 말'));
+    result = 'unsubmitted';
+    await r.m.send(boss('alpha', '둘째 말'));
+    expect(seen).toEqual([undefined, undefined]);
+    r.advance(FAST.retryMs * 4);
+    await r.m.tick();
+    const lost = r.events().filter((e) => e.type === 'send_lost');
+    expect(lost.map((e) => [e.again, e.unsubmitted])).toEqual([
+      [true, true],
+      [false, true],
+    ]);
+    expect(r.m.queuedFor('alpha')).toEqual([expect.objectContaining({ failed: true })]);
+  });
+});
+
+describe('REPLY-FULL: a reply quotes the original whole when the agent no longer has it', () => {
+  const reply = { id: 'aaaaaaaa', text: '원래 메시지 첫 줄' };
+  const quoted = (r: ReturnType<typeof rig>) => r.typed.at(-1)!.text.split('\n')[1];
+
+  it('old (session start or compaction): the whole text; recent or unknown: the short quote; gone: marked', async () => {
+    const r = rig();
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    let found: 'recent' | 'missing' | { text: string } | null = { text: '원래 메시지 첫 줄\n둘째 줄 sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAA' };
+    r.engine.replied = () => Promise.resolve(found);
+    await r.m.send({ ...boss('alpha', '답'), replyTo: reply });
+    expect(quoted(r)).toMatch(/^> 사장: 원래 메시지 첫 줄 ⏎ 둘째 줄 /);
+    expect(quoted(r)).not.toContain('AAAAAAAAAAAAAAAAAAAA'); // masked like the app's quote
+    for (const [state, line] of [
+      ['recent', '> 사장: 원래 메시지 첫 줄'],
+      [null, '> 사장: 원래 메시지 첫 줄'],
+      ['missing', '> 사장: 원래 메시지 첫 줄 (원문 없음)'],
+    ] as const) {
+      found = state;
+      await r.m.send({ ...boss('alpha', '답'), replyTo: reply });
+      expect(quoted(r)).toBe(line);
+    }
+  });
+
+  it('a whole quote stops at 1,000 characters and says how long the original was', () => {
+    const long = '가'.repeat(1500);
+    const q = fullQuote('사장', long);
+    expect(q).toBe(`> 사장: ${'가'.repeat(1000)}… (원문 1500자 중 1000자)`);
+    expect(fullQuote('사장', '가'.repeat(1000))).toBe(`> 사장: ${'가'.repeat(1000)}`);
   });
 });

@@ -15,7 +15,12 @@ import type {
   CharacterPresets,
   OfficeSnapshot,
 } from '../../../../core/src/messages.js';
-import { IMPORT_DENSITY, IMPORT_WORLD_W, OWNER_CHARACTER_ID } from '../../constants.js';
+import {
+  IMPORT_DENSITY,
+  IMPORT_MASTER_DENSITY,
+  IMPORT_WORLD_W,
+  OWNER_CHARACTER_ID,
+} from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
 import { releaseMaster } from '../../office/sprites/smoothSprite.js';
@@ -249,6 +254,13 @@ function releaseUnworn(presets: CharacterPresets): void {
 export const loadedPresetSheets = (): string[] =>
   [...sheets].filter(([, s]) => typeof s === 'number').map(([url]) => url);
 
+/** BOOT-LOAD: the worn sheets asked for so far and how many of them are decoded (or failed). */
+export function sheetLoads(): [number, number] {
+  let waiting = 0;
+  for (const s of sheets.values()) if (s === 'loading') waiting++;
+  return [sheets.size - waiting, sheets.size];
+}
+
 /** Top-view sheet url -> the isometric sheet's url beside it. */
 const isoUrls = new Map<string, string>();
 
@@ -278,6 +290,8 @@ function loadSheet(
         const opts = {
           standFirst: preset.columns === 'standFirst',
           twoStep: preset.walk === 'two',
+          // PAGE-MEM: kept as large as the office's closest zoom draws it, no larger
+          masterDensity: IMPORT_MASTER_DENSITY,
         };
         if (preset.format === 'iso8') {
           // CHAR-8DIR: both views in one sheet: the top view on this palette, the isometric beside it

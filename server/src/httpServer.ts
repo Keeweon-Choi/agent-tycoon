@@ -398,11 +398,9 @@ function registerWebSocketRoute(
   webBuild: string | undefined,
 ): void {
   app.get('/ws', { websocket: true }, (socket, request) => {
-    // CONNECTION gate. Embedded (VS Code) requires the Bearer token. Standalone
-    // requires a same-origin handshake instead (isAllowedWebSocketOrigin), so a
-    // non-browser local client with no Origin can still watch the office. What
-    // may be DONE over an accepted connection is a separate question, decided
-    // below.
+    // CONNECTION gate. Standalone needs an allowed Origin/Host AND the host token
+    // or a login session (standaloneWsRejection); without them the socket is
+    // closed, so nobody watches the office unauthenticated.
     const rejection = options.embedded
       ? bearerTokenValid(request.headers.authorization, options.token)
         ? null
@@ -413,13 +411,12 @@ function registerWebSocketRoute(
       return;
     }
 
-    // Both modes prove privilege with the SAME out-of-band secret, differently
-    // carried: embedded sends the Bearer token it was handed in-process;
-    // standalone sends the `?token=` the CLI printed in the local URL and the
-    // SPA forwarded on this handshake, and it must arrive under an allowed Host
-    // -- the same verdict the terminal socket applies. A network POSITION
-    // never grants privilege, because every position is reproducible by a
-    // forwarder; the Host allowlist can only take it away.
+    // Every accepted socket is authenticated, so every one is privileged: there is
+    // no read-only viewer since 10-21 (6e5a598d). readOnlyView below and
+    // refuseReadOnly in clientMessageHandler are unreachable upstream leftovers:
+    // mask a secret where its string is made, never per socket. A network
+    // POSITION never grants anything; the Host allowlist can only take it away.
+    // ponytail: the dead read-only branches stay until a cleanup removes them.
     const privileged = true;
     // S1: a remote session's dangerous engine actions need a fresh step-up; this PC's own
     // browser and the host's Bearer token (no session) keep working as before.

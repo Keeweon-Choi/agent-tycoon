@@ -2,7 +2,7 @@
  * W2: the one operation "a worktree for a Task" (B §2 Worktree, F-16), used by
  * the 작업실 (repoAction `worktreeNew`), `cld-gui worktree new` and
  * `delegate_task({ task: { worktree: 'new' } })`: in the Task's project, the
- * git layer's createForTask (branch `task/<id>-<slug>` from the main branch or
+ * git layer's createForTask (branch `feat/t<id>-<slug>` from the main branch or
  * a named base, `.worktrees/`, refusals there), through RepoManager.write (the
  * gates every repository write has: read-only daemon, privileged caller, known
  * project, one write per repository). The Task then reports its `branch` and

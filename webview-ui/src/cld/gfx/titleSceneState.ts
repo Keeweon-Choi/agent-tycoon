@@ -20,6 +20,8 @@ let state = {
   /** Show it on the first open of a session (per browser, on unless 'off'). */
   atStart: tryRead(() => localStorage.getItem(TITLE_KEY)) !== 'off',
   open: false,
+  /** BOOT-LOAD: the loading screen (BootScreen.tsx) is in front of the lobby until it is done. */
+  booting: false,
 };
 /** Opened for something else: a notice's link (a conversation, a job, a character), straight or
  *  carried through the login. The lobby would cover what the user came to see. */
@@ -55,6 +57,8 @@ state.open = lobbyAtLaunch({
   deepLink: deepLink(),
   reloaded: reloaded(),
 });
+// BOOT-LOAD: the loading screen comes with the lobby at launch, never with the 로비 button.
+state.booting = state.open;
 // A session opened for a link counts as seen: its reloads stay on what it came to show.
 if (!state.open)
   try {
@@ -76,6 +80,7 @@ export const useTitleScene = () =>
     () => state,
   );
 export const showTitleScene = () => set({ open: true });
+export const finishBoot = () => set({ booting: false });
 export function closeTitleScene(): void {
   try {
     sessionStorage.setItem(SEEN_KEY, '1');
@@ -124,7 +129,10 @@ export function lobbyCastLeft(w: number, h: number): number {
 }
 
 /** The picture for a window, and where it lands (CSS px, a centred cover). */
-export function lobbyCover(w: number, h: number): { art: LobbyArtKind; s: number; left: number; top: number } {
+export function lobbyCover(
+  w: number,
+  h: number,
+): { art: LobbyArtKind; s: number; left: number; top: number } {
   const art: LobbyArtKind = w / h > LOBBY_ART.wideMinAspect ? 'wide' : 'tall';
   const { w: iw, h: ih } = SPOTS[art];
   const s = Math.max(w / iw, h / ih);

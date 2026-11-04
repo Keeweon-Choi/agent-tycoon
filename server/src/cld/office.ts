@@ -146,6 +146,7 @@ import { registerPushImageRoute } from './pushImage.js';
 import { RosterStore } from './roster.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
 import { SlashCatalogue } from './slashCommands.js';
+import { spawnSpecMap } from './spec/mapWorker.js';
 import { registerSpecRoutes } from './spec/routes.js';
 import { SpecService } from './spec/service.js';
 import { staffFacts } from './staffStatus.js';
@@ -532,8 +533,10 @@ export class Office {
     });
     opts.store.on('broadcast', (m) => this.temps.observe(m));
     opts.store.on('agentRemoved', (id) => this.temps.leadGone(id));
-    opts.runtime.subagentWatch.onContext = (leadId, toolId, tokens, max) =>
-      this.temps.context(leadId, toolId, tokens, max);
+    opts.runtime.subagentWatch.onContext = (leadId, toolId, tokens, max, basis) =>
+      this.temps.context(leadId, toolId, tokens, max, basis);
+    opts.runtime.subagentWatch.onCompactions = (leadId, toolId, count) =>
+      this.temps.compactions(leadId, toolId, count);
     opts.store.on('broadcast', (m) => {
       if (!this.levelsLive || (m.type !== 'agentStatus' && m.type !== 'agentToolStart')) return;
       const id = m.id;
@@ -572,6 +575,7 @@ export class Office {
       taskIds: () => new Set(this.tasks.list().map((t) => t.id)),
     });
     const mergeHistory = new MergeHistory(path.join(configDirectory(home), 'merge-history.json'));
+    const specWorker = this.opts.worker === undefined ? CLD_WORKER : this.opts.worker;
     this.spec = new SpecService({
       home,
       // The engine's projects with their projectId (the Registry's key), read from its own file.
@@ -590,6 +594,8 @@ export class Office {
       jobs: () => this.jobs?.list(true) ?? [],
       // SPT-P3-OVERVIEW: 최근 근거's merges, read from W4's file on a 개요 read only.
       merges: (project, n) => mergeHistory.list(project, n),
+      // SPT C1: the 지도's code scan in a short child process (never in the daemon: its memory goes back).
+      ...(specWorker && { specMap: spawnSpecMap(specWorker) }),
     });
     this.approvals = new ApprovalStore(approvalsPath(home), () => this.publishApprovals());
     this.usage = new UsageSource(
@@ -652,7 +658,7 @@ export class Office {
           started: (name) => this.messenger?.deliverInbox(name),
           // W2: a Claude Worker given a Task's worktree starts there next time.
           assignedFolder: (p) => this.assignedFolder(p),
-          writeInbox: (name, text) => this.messenger?.writeInbox(name, text) ?? false,
+          writeInbox: (name, text, replaces) => this.messenger?.writeInbox(name, text, replaces) ?? false,
           nudge: (name, count, fillPct) =>
             void this.messenger?.send({
               to: name,

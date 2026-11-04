@@ -3,6 +3,8 @@
  * renders markdown (a push body, a notice, a contact's last line). Pure.
  */
 
+import { stripQuestionTags } from './questionTag.js';
+
 /** What a list item starts with once its "-", "*", "+" or "1." is dropped. */
 export const LIST_MARK = '· ';
 
@@ -30,7 +32,7 @@ function inline(text: string): string {
 
 /** "**굵게** `코드` [링크](url)" reads "굵게 코드 링크"; whitespace folds to single spaces. */
 export function plainText(markdown: string): string {
-  return inline(markdown.split('\n').map(line).join('\n'))
+  return inline(stripQuestionTags(markdown).split('\n').map(line).join('\n'))
     .replace(/\s+/g, ' ')
     .trim();
 }

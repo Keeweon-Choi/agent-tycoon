@@ -6,7 +6,7 @@
  * the arithmetic.
  */
 import { RENEW_FILL_PCT } from '../../../../core/src/constants.js';
-import type { EzFatigue } from '../../../../core/src/messages.js';
+import type { CompactionRecord, ContextLimitBasis, EzFatigue } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import { FATIGUE } from './rules.js';
 
@@ -26,34 +26,56 @@ export function fatigueOf(contextPct: number): number {
 export interface ContextSample {
   tokens: number;
   max: number;
-  /** Drops of more than `compactionDrop` points: compactions, where nothing else counts them. */
-  drops: number;
+  /** Where `max` comes from. `unknown`: the token count is all there is, no percent. */
+  basis: ContextLimitBasis;
 }
 
-export const contextPct = ({ tokens, max }: ContextSample): number =>
+/** The compactions the daemon counted in an agent's transcript (agentCompactions). */
+export interface CompactionLog {
+  count: number;
+  /** A floor: the daemon began watching mid-session. */
+  partial: boolean;
+  /** The newest few, oldest first. */
+  recent: CompactionRecord[];
+}
+
+export const contextPct = ({ tokens, max }: Pick<ContextSample, 'tokens' | 'max'>): number =>
   max > 0 ? (tokens / max) * 100 : 0;
 
-/**
- * The next snapshot. A drop counts only when the tokens fell too: a window
- * that turns out wider lowers the percent without any compaction.
- */
-export function nextContextSample(
-  prev: ContextSample | undefined,
-  tokens: number,
-  max: number,
-  rules = FATIGUE,
-): ContextSample {
-  const next: ContextSample = { tokens, max, drops: prev?.drops ?? 0 };
-  if (prev && tokens < prev.tokens && contextPct(prev) - contextPct(next) > rules.compactionDrop) {
-    next.drops += 1;
-  }
-  return next;
+/** The wire's `limitBasis`: a server that does not say sent an estimate (the old behaviour). */
+export const basisOf = (limitBasis: ContextLimitBasis | undefined): ContextLimitBasis =>
+  limitBasis ?? 'estimated';
+
+/** Why a number is only roughly right, or undefined when it is not. */
+export const basisHint = (basis: ContextLimitBasis): string | undefined =>
+  basis === 'estimated' ? t('ctxsrc.estimatedHint') : basis === 'unknown' ? t('ctxsrc.unknownHint') : undefined;
+
+/** The hover over the office gauge: the percent (≈ when estimated) with its tokens, or the token count alone. */
+export function contextGaugeTitle(tokens: number, max: number, basis: ContextLimitBasis = 'estimated'): string {
+  const k = (n: number) => `${Math.round(n / 1000)}k`;
+  const said =
+    basis === 'unknown'
+      ? t('ctxsrc.tokensOnly', { tokens: k(tokens) })
+      : t('ctxsrc.gauge', {
+          percent: contextPctText(Math.round(contextPct({ tokens, max })), basis),
+          used: k(tokens),
+          max: k(max),
+        });
+  return [said, basisHint(basis)].filter(Boolean).join('\n');
 }
+
+/** "≈80" for a percent measured against an estimated window, "80" otherwise. */
+export const contextPctText = (value: number, basis: ContextLimitBasis): string =>
+  basis === 'estimated' ? `≈${value}` : `${value}`;
 
 export interface FatigueLook {
   /** 0..100: the context fill. */
   value: number;
+  /** `estimated`: the window was picked from the model's name, so the percent is a guess (shown "≈"). */
+  basis: ContextLimitBasis;
   compactions: number;
+  /** The count is a floor: the daemon began watching mid-session and saw only the conversation's tail. */
+  partial: boolean;
   /** M in "압축 N/M": compactions before the renew suggestion; null when nothing says. */
   threshold: number | null;
   /** The bar: green while fresh, yellow when tired, red from the yawns on. */
@@ -74,11 +96,15 @@ export function fatigueLook(
   compactions: number,
   rules = FATIGUE,
   threshold: number | null = null,
+  basis: ContextLimitBasis = 'reported',
+  partial = false,
 ): FatigueLook {
   const value = fatigueOf(contextPct);
   return {
     value,
+    basis,
     compactions,
+    partial,
     threshold,
     tone: value >= rules.yawn ? 'worn' : value >= rules.tired ? 'tired' : 'fresh',
     sweat: value >= rules.tired,
@@ -90,9 +116,12 @@ export function fatigueLook(
 }
 
 /** "압축 1/2" (or "압축 1" with no threshold). */
-export const compactionText = ({ compactions, threshold }: FatigueLook): string =>
-  t('activity.compactions', { count: compactions, threshold: threshold === null ? '' : `/${threshold}` });
+export const compactionText = ({ compactions, partial, threshold }: FatigueLook): string =>
+  t('activity.compactions', {
+    count: `${partial ? '≥' : ''}${compactions}`,
+    threshold: threshold === null ? '' : `/${threshold}`,
+  });
 
 /** The one line every surface shows: "피로도 80% · 압축 1/2". */
 export const fatigueText = (look: FatigueLook): string =>
-  t('activity.fatigueText', { percent: look.value, compactions: compactionText(look) });
+  t('activity.fatigueText', { percent: contextPctText(look.value, look.basis), compactions: compactionText(look) });

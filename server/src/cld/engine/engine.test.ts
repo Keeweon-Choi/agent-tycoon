@@ -1054,6 +1054,28 @@ describe('apply(): busy with background work only', () => {
     fs.appendFileSync(transcript, `${PROMPT}\n`);
     expect(busyOf()).toBe(true); // a new prompt: working again
   });
+
+  it('STATE-SYNC: a turn over with its background shell running is shellWait, not busy', async () => {
+    const { home, boot, act, folder } = setup();
+    const e = boot();
+    await act(e, 'add', 'alpha', { folder: folder('alpha') });
+    const { bgId } = await act(e, 'start', 'alpha');
+    const sessDir = path.join(home, '.claude/sessions');
+    const file = fs
+      .readdirSync(sessDir)
+      .map((f) => path.join(sessDir, f))
+      .find((f) => (JSON.parse(fs.readFileSync(f, 'utf-8')) as { jobId?: string }).jobId === bgId)!;
+    const sess = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+    const entry = () =>
+      e.apply({ rooms: [], agents: [] }).agents.find((a) => a.key === 'engine:alpha')!;
+    fs.writeFileSync(file, JSON.stringify({ ...sess, status: 'shell' })); // Claude Code: idle + a shell
+    await waitFor(() => expect(e.sessionOf('alpha')).toMatchObject({ status: 'shell' }));
+    expect(entry()).toMatchObject({ busy: false, shellWait: true });
+    fs.writeFileSync(file, JSON.stringify({ ...sess, status: 'idle' })); // negative: the job ended
+    await waitFor(() => expect(e.sessionOf('alpha')).toMatchObject({ status: 'idle' }));
+    expect(entry().shellWait).toBeUndefined();
+    expect(entry().busy).toBe(false);
+  });
 });
 
 describe('engine E2 (T-0019): events, start hook, revive notice, renew, compaction nudge', () => {

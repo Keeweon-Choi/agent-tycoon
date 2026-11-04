@@ -3,18 +3,27 @@
  * The numbers are the office's own (level, fatigue, context, model); this file only words and
  * orders them, so the big tiles (layout E) and the sectioned list (layout C) never disagree.
  */
-import type { EngineProject, OfficeLevel, OfficeOrchestrator } from '../../../../core/src/messages.js';
+import type {
+  CompactionRecord,
+  ContextLimitBasis,
+  EngineProject,
+  OfficeLevel,
+  OfficeOrchestrator,
+} from '../../../../core/src/messages.js';
 import { STAT_DETAIL_FULL_STORAGE_KEY } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { sessionActions } from '../engine.js';
 import { stateLabel } from '../format.js';
 import { offDutyFacts } from '../offDuty.js';
-import type { FatigueLook } from './fatigueState.js';
+import type { CompactionLog, FatigueLook } from './fatigueState.js';
+import { basisHint, contextPctText } from './fatigueState.js';
 import { levelLook } from './level.js';
 
 export interface StatTokens {
   used: number;
   max: number;
+  /** Where `max` comes from: `unknown` means the count is all that is said. */
+  basis: ContextLimitBasis;
 }
 
 /** What only an orchestrator has (the old 퇴근 sheet's facts), worded; a field the office lacks is null. */
@@ -44,6 +53,8 @@ export interface StatFacts {
   fatigue: FatigueLook | null;
   /** The context behind the fatigue, when the character has reported it. */
   tokens: StatTokens | null;
+  /** The compactions the daemon counted in its transcript (the count also covers an engine row's), or null: none. */
+  rests: CompactionLog | null;
   /** What it does now (the status icon and words), and how long it has been at it. */
   activity: string | null;
   elapsed: string | null;
@@ -58,6 +69,8 @@ export interface StatRow {
   id: string;
   label: string;
   value: string;
+  /** More words on hover: where a number comes from. */
+  hint?: string;
 }
 
 export interface StatSection {
@@ -71,15 +84,37 @@ export const kTokens = (n: number): string => `${Math.round(n / 1000)}k`;
 /** "25% (252k / 1000k)": fatigue IS the context fill, so the percent and the tokens are said once. */
 export const fatigueLine = (look: FatigueLook, tokens: StatTokens | null): string =>
   tokens
-    ? t('stat.fatigueLine', { pct: look.value, used: kTokens(tokens.used), max: kTokens(tokens.max) })
-    : t('stat.fatigueShort', { pct: look.value });
+    ? t('stat.fatigueLine', {
+        pct: contextPctText(look.value, look.basis),
+        used: kTokens(tokens.used),
+        max: kTokens(tokens.max),
+      })
+    : t('stat.fatigueShort', { pct: contextPctText(look.value, look.basis) });
 
-/** N of M rests, or just N when nothing says M. */
-export const restValue = ({ compactions, threshold }: FatigueLook): string =>
-  threshold === null ? `${compactions}` : `${compactions}/${threshold}`;
+/** N of M rests, or just N when nothing says M; "≥N" when the daemon saw only part of the conversation. */
+export const restValue = ({ compactions, partial, threshold }: FatigueLook): string =>
+  `${partial ? '≥' : ''}${threshold === null ? compactions : `${compactions}/${threshold}`}`;
 
-const row = (id: string, label: string, value: string | null | undefined): StatRow[] =>
-  value ? [{ id, label, value }] : [];
+const hhmm = (at: number): string =>
+  new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** "14:02 · auto · 412k → 38k": one compaction, saying only what its record carried. */
+export function compactionLine(c: CompactionRecord): string {
+  const span =
+    c.preTokens !== undefined && c.postTokens !== undefined
+      ? t('ctxsrc.tokenSpan', { pre: kTokens(c.preTokens), post: kTokens(c.postTokens) })
+      : c.postTokens !== undefined
+        ? t('ctxsrc.tokenAfter', { post: kTokens(c.postTokens) })
+        : c.preTokens !== undefined
+          ? t('ctxsrc.tokenBefore', { pre: kTokens(c.preTokens) })
+          : null;
+  return [hhmm(c.at), c.trigger ? t(`ctxsrc.trigger.${c.trigger}`) : null, span]
+    .filter((part): part is string => part !== null)
+    .join(' · ');
+}
+
+const row = (id: string, label: string, value: string | null | undefined, hint?: string): StatRow[] =>
+  value ? [{ id, label, value, ...(hint && { hint }) }] : [];
 
 /** Layout C: every number labelled, a section only when it has something to say. */
 export function statSections(f: StatFacts): StatSection[] {
@@ -99,19 +134,35 @@ export function statSections(f: StatFacts): StatSection[] {
     {
       id: 'fatigue',
       title: t('stat.sec.fatigue'),
-      rows: fatigue
-        ? [
-            ...row('fatigue', t('stat.fatigue'), `${fatigue.value}%`),
-            ...row('rest', t('stat.rest'), restValue(fatigue)),
-            ...(f.tokens
-              ? row(
-                  'tokens',
-                  t('stat.tokens'),
-                  t('stat.tokensOf', { used: kTokens(f.tokens.used), max: kTokens(f.tokens.max) }),
-                )
-              : []),
-          ]
-        : [],
+      rows: [
+        ...(fatigue
+          ? row('fatigue', t('stat.fatigue'), `${contextPctText(fatigue.value, fatigue.basis)}%`, basisHint(fatigue.basis))
+          : []),
+        ...row(
+          'rest',
+          t('stat.rest'),
+          fatigue ? restValue(fatigue) : f.rests && `${f.rests.partial ? '≥' : ''}${f.rests.count}`,
+          f.rests?.partial ? t('ctxsrc.partialHint') : undefined,
+        ),
+        ...(f.tokens
+          ? row(
+              'tokens',
+              t('stat.tokens'),
+              f.tokens.basis === 'unknown'
+                ? t('ctxsrc.tokensOnly', { tokens: kTokens(f.tokens.used) })
+                : t('stat.tokensOf', { used: kTokens(f.tokens.used), max: kTokens(f.tokens.max) }),
+              basisHint(f.tokens.basis),
+            )
+          : []),
+        ...(f.rests?.recent.length
+          ? row(
+              'lastRest',
+              t('ctxsrc.lastRest'),
+              compactionLine(f.rests.recent[f.rests.recent.length - 1]),
+              [t('ctxsrc.recentRests'), ...f.rests.recent.map(compactionLine)].join('\n'),
+            )
+          : []),
+      ],
     },
     {
       id: 'growth',

@@ -7,7 +7,7 @@
 import { staffName } from '../../../core/src/cld/staffNames.js';
 import type { CodexTasks, TempEmployee } from '../../../core/src/messages.js';
 import { getLanguage, type Language } from '../i18n/index.js';
-import { contextPct, type FatigueLook, fatigueLook, type FatigueRules } from './ez/fatigueState.js';
+import { basisOf, contextPct, type FatigueLook, fatigueLook, type FatigueRules } from './ez/fatigueState.js';
 import { cldGetSnapshot, type CldSnapshot, virtualAgentId } from './officeStore.js';
 
 /** A sub-agent character's spawn tool id (staff.ts knows the office). */
@@ -60,8 +60,15 @@ export function employeeBusyElsewhere(
 export const employeeName = (e: Pick<TempEmployee, 'nameId'>, lang: Language = getLanguage()): string =>
   staffName(e.nameId, lang);
 
-/** 피로도 from the execution's own context, or null: unknown (never estimated). */
+/** 피로도 from the execution's own context, or null: unknown (a window nobody stated gets no percent). */
 export function employeeFatigue(e: TempEmployee, rules: FatigueRules): FatigueLook | null {
-  if (e.contextTokens === undefined || !e.maxContextTokens) return null;
-  return fatigueLook(contextPct({ tokens: e.contextTokens, max: e.maxContextTokens, drops: 0 }), 0, rules);
+  if (e.contextTokens === undefined || !e.maxContextTokens || e.limitBasis === 'unknown') return null;
+  const basis = basisOf(e.limitBasis);
+  return fatigueLook(
+    contextPct({ tokens: e.contextTokens, max: e.maxContextTokens }),
+    e.compactions ?? 0,
+    rules,
+    null,
+    basis,
+  );
 }

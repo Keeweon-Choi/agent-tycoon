@@ -21,6 +21,7 @@ import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
 import { publishGameLooks } from './cld/game/gameLooks.js';
 import { PartyHost } from './cld/game/Party.js';
+import { BootScreen } from './cld/gfx/BootScreen.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
 import { closeTitleScene } from './cld/gfx/titleSceneState.js';
 import { useOfficeWarmUp } from './cld/gfx/warmUp.js';
@@ -373,7 +374,7 @@ function App() {
   // cld-gui (T-0017): characters wear the look chosen for their name.
   useCharacterLooks(getOfficeState, agents, layoutReady, subagentCharacters);
   // SHEET-IMPORT: the office's pictures built while the lobby shows (or in idle time)
-  useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady);
+  useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady, isoView, isMobile);
   // cld-gui (T-0036): cards grouped by kind and named, sub-agents included.
   const cldCards = useCldCards(getOfficeState, agents, subagentCharacters);
 
@@ -819,9 +820,15 @@ function App() {
       return false;
     })();
 
+  // BOOT-LOAD: the loading screen is the first child of both returns, so it stays mounted when the
+  // layout comes in.
+  const boot = <BootScreen layoutReady={layoutReady} />;
   if (!layoutReady) {
     return (
-      <div className="w-full h-full flex items-center justify-center ">{t('upstream.loading')}</div>
+      <>
+        {boot}
+        <div className="w-full h-full flex items-center justify-center ">{t('upstream.loading')}</div>
+      </>
     );
   }
 
@@ -1162,10 +1169,12 @@ function App() {
 
   const mobileShowsAgentCards = showsAgentCards(phoneTabs.tab, mobileShell.view);
 
+  // Desktop: split view — the office region flexes to fill the space left of
+  // the terminal panel. Mobile: a column — the sliding office/terminal track
+  // on top, the agent-card bar pinned along the bottom.
   return (
-    // Desktop: split view — the office region flexes to fill the space left of
-    // the terminal panel. Mobile: a column — the sliding office/terminal track
-    // on top, the agent-card bar pinned along the bottom.
+    <>
+    {boot}
     <div
       className="w-full h-full relative overflow-clip flex flex-col"
       style={
@@ -1465,6 +1474,7 @@ function App() {
         <MigrationNotice onDismiss={() => setMigrationNoticeDismissed(true)} />
       )}
     </div>
+    </>
   );
 }
 

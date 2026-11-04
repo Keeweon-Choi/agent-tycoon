@@ -465,6 +465,7 @@ export function Line({
   replyAs,
   onReply,
   onQuote,
+  onQuestionTag,
   face,
   fresh = false,
 }: {
@@ -480,6 +481,8 @@ export function Line({
   onReply?: (reply: ChatReply) => void;
   /** MSG-ACTIONS: a reply's quote was tapped: go to the original. */
   onQuote?: (id: string) => void;
+  /** MSGQ: a question tag's chip in this line was tapped: go to the message the tag first appeared in. */
+  onQuestionTag?: (name: string, fromId: string) => void;
   /** MSG-UI2: the sender's face beside the bubble (`show`: this message starts a run; later ones
    *  keep the column empty so the bubbles line up). Absent: no face column. */
   face?: { show: boolean; name: string };
@@ -616,9 +619,11 @@ export function Line({
         {t('msgui3.me')}
       </span>
     ) : undefined;
+  const tagOpen = onQuestionTag && ((name: string) => onQuestionTag(name, item.id));
   const mdOf = (text: string) => (
     <Markdown
       text={text}
+      onQuestionTag={tagOpen}
       className={plain('border-border')}
       highlightQuery={highlightQuery}
       currentMatch={currentMatch}
@@ -632,7 +637,12 @@ export function Line({
       {quote}
       {peer ? (
         // Another agent's words (an orchestrator, a task notice): Markdown, like a lead's reply.
-        <Markdown text={shown} highlightQuery={highlightQuery} currentMatch={currentMatch} />
+        <Markdown
+          text={shown}
+          highlightQuery={highlightQuery}
+          currentMatch={currentMatch}
+          onQuestionTag={tagOpen}
+        />
       ) : (
         <BubbleAttachments
           text={item.text === visibleText ? shown : `${shown}${item.text.slice(visibleText.length)}`}
@@ -649,6 +659,7 @@ export function Line({
       {shown && (
         <Markdown
           text={shown}
+          onQuestionTag={tagOpen}
           highlightQuery={highlightQuery}
           currentMatch={currentMatch}
           projectRoot={projectRoot}

@@ -28,17 +28,18 @@ import { engineLabel } from '../engine.js';
 import { engineAsk, useEngineProject, useEngineStore } from '../engineStore.js';
 import { activityElapsed, characterKind, characterName, elapsedText, kindLabel } from '../kinds.js';
 import { modelName } from '../modelBadges.js';
-import { fatigueFor, identityForAgent, useCldStore, virtualAgentId } from '../officeStore.js';
+import { fatigueFor, identityForAgent, restsOf, useCldStore, virtualAgentId } from '../officeStore.js';
 import { rankName, rankOfLevel } from '../rank.js';
 import { staffSnapshot, useStaff } from '../staff.js';
 import { useCanAct } from '../useCanAct.js';
 import { LevelRing } from './Fatigue.js';
-import { fatigueRules } from './fatigueState.js';
+import { basisHint, fatigueRules } from './fatigueState.js';
 import { ringOf } from './nameplate.js';
 import { OwnerStatBody } from './OwnerStatCard.js';
 import {
   canStartProject,
   fatigueLine,
+  kTokens,
   placeOf,
   readStatFull,
   restValue,
@@ -90,7 +91,8 @@ function useStatFacts(
     level,
     rank: rankId ? rankName(rankId) : null,
     fatigue,
-    tokens: sample ? { used: sample.tokens, max: sample.max } : null,
+    tokens: sample ? { used: sample.tokens, max: sample.max, basis: sample.basis } : null,
+    rests: restsOf(id, store),
     activity,
     elapsed: activity ? elapsedText(activityElapsed(id, activity)) : null,
     model: temp?.model ? modelName(temp.model, temp.modelId) : (engine?.model ?? null),
@@ -164,9 +166,23 @@ function StatTiles({ f }: { f: StatFacts }) {
           )}
         </Section>
       )}
+      {!f.fatigue && f.tokens && (
+        <Section title={t('stat.sec.fatigue')}>
+          <div className={TILE} data-testid="stat-tokens-only" title={basisHint(f.tokens.basis)}>
+            <span className="text-lg leading-none">
+              {t('ctxsrc.tokensOnly', { tokens: kTokens(f.tokens.used) })}
+            </span>
+          </div>
+        </Section>
+      )}
       {f.fatigue && (
         <Section title={t('stat.sec.fatigue')}>
-          <div className={TILE} data-testid="stat-fatigue" data-tone={f.fatigue.tone}>
+          <div
+            className={TILE}
+            data-testid="stat-fatigue"
+            data-tone={f.fatigue.tone}
+            title={basisHint(f.fatigue.basis)}
+          >
             <span className="text-lg leading-none">{fatigueLine(f.fatigue, f.tokens)}</span>
             <span className="block h-12 border-2 border-border bg-bg">
               <span
@@ -211,7 +227,7 @@ function StatList({ f }: { f: StatFacts }) {
         <Section key={s.id} title={s.title}>
           <dl className="border-2 border-border bg-bg-dark shadow-pixel p-8 flex flex-col gap-4 text-xs">
             {s.rows.map((r) => (
-              <div key={r.id} className="flex justify-between gap-8" data-row={r.id}>
+              <div key={r.id} className="flex justify-between gap-8" data-row={r.id} title={r.hint}>
                 <dt className="text-text-muted whitespace-nowrap">{r.label}</dt>
                 <dd
                   className="text-right min-w-0 break-words"

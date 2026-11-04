@@ -23,11 +23,11 @@ import { type DenseSheet, FRAMES, IMPORTED_COLUMNS, withLods } from './compose.j
  *  BUNNY-9COL: a 9th is the other foot's passing pose, the second "together" (walk 2, 8, 3, 9). */
 export function importedSheet(
   img: ImageData,
-  opts: { iso: boolean; standFirst: boolean; twoStep: boolean },
+  opts: { iso: boolean; standFirst: boolean; twoStep: boolean; masterDensity?: number },
   /** LOOKS-MEM: the canvas `img` was read from, kept as the masters (else a copy is made). */
   canvas?: HTMLCanvasElement,
 ): DenseSheet {
-  const src = sourceOf(img, opts.iso ? 2 : 3, canvas);
+  const src = sourceOf(img, opts.iso ? 2 : 3, canvas, opts.masterDensity);
   return sheetOf(img, src, opts.iso ? [0, 1, 0] : [0, 1, 2], opts);
 }
 
@@ -38,12 +38,12 @@ export function importedSheet(
  *  same with a can, 7-8 empty): `drink`, those six cells. */
 export function importedEight(
   img: ImageData,
-  opts: { standFirst: boolean; twoStep: boolean },
+  opts: { standFirst: boolean; twoStep: boolean; masterDensity?: number },
   canvas?: HTMLCanvasElement,
 ): { iso: DenseSheet; top: DenseSheet; drink?: SpriteData[] } {
   const rows =
     img.height === IMPORT_WORLD_H * IMPORT_DENSITY * ISO8_DRINK_ROWS ? ISO8_DRINK_ROWS : 5;
-  const src = sourceOf(img, rows, canvas);
+  const src = sourceOf(img, rows, canvas, opts.masterDensity);
   const cell = cellsOf(img, src);
   return {
     iso: sheetOf(img, src, [0, 1, 0], opts),
@@ -54,22 +54,44 @@ export function importedEight(
   };
 }
 
-/** The decoded sheet on a canvas (the frames' masters), once its size is checked: `canvas` when
- *  it already holds the picture (LOOKS-MEM: one copy of a ~29 MB sheet, not two). */
-function sourceOf(img: ImageData, rows: number, canvas?: HTMLCanvasElement): HTMLCanvasElement {
+/** The frames' masters: the decoded sheet on a canvas, once its size is checked (`canvas` when
+ *  it already holds the picture, LOOKS-MEM: one copy of a ~29 MB sheet, not two), and the scale
+ *  they are kept at. PAGE-MEM: with `masterDensity` under the sheet's own, the masters are that
+ *  canvas scaled down to it (smoothly, as the closest zoom drew it) and the big one is let go. */
+interface Masters {
+  src: HTMLCanvasElement;
+  scale: number;
+}
+function sourceOf(
+  img: ImageData,
+  rows: number,
+  canvas?: HTMLCanvasElement,
+  masterDensity = IMPORT_DENSITY,
+): Masters {
   const [fw, fh] = [IMPORT_WORLD_W * IMPORT_DENSITY, IMPORT_WORLD_H * IMPORT_DENSITY];
   const cols = img.width / fw;
   if (!IMPORTED_COLUMNS.includes(cols) || img.height !== fh * rows)
     throw new Error(`${img.width}×${img.height} is no imported sheet`);
-  if (canvas) return canvas;
-  const src = document.createElement('canvas');
-  [src.width, src.height] = [img.width, img.height];
-  src.getContext('2d')!.putImageData(img, 0, 0);
-  return src;
+  let src = canvas;
+  if (!src) {
+    src = document.createElement('canvas');
+    [src.width, src.height] = [img.width, img.height];
+    src.getContext('2d')!.putImageData(img, 0, 0);
+  }
+  const scale = Math.min(1, masterDensity / IMPORT_DENSITY);
+  if (scale === 1) return { src, scale };
+  const small = document.createElement('canvas');
+  [small.width, small.height] = [Math.round(img.width * scale), Math.round(img.height * scale)];
+  const ctx = small.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'medium';
+  ctx.drawImage(src, 0, 0, small.width, small.height);
+  src.width = src.height = 0; // its memory back now
+  return { src: small, scale };
 }
 
 /** The cell at row `r`, column `f` of the source: a proxy whose master is that rect of it. */
-function cellsOf(img: ImageData, src: HTMLCanvasElement): (r: number, f: number) => SpriteData {
+function cellsOf(img: ImageData, { src, scale }: Masters): (r: number, f: number) => SpriteData {
   const [fw, fh] = [IMPORT_WORLD_W * IMPORT_DENSITY, IMPORT_WORLD_H * IMPORT_DENSITY];
   const k = IMPORT_DENSITY / IMPORT_PROXY_DENSITY;
   const hex = new Map<number, string>();
@@ -96,7 +118,7 @@ function cellsOf(img: ImageData, src: HTMLCanvasElement): (r: number, f: number)
         return h;
       }),
     );
-    markSmooth(proxy, { src, x: x0, y: y0, w: fw, h: fh });
+    markSmooth(proxy, { src, x: x0 * scale, y: y0 * scale, w: fw * scale, h: fh * scale });
     return proxy;
   };
 }
@@ -104,7 +126,7 @@ function cellsOf(img: ImageData, src: HTMLCanvasElement): (r: number, f: number)
 /** The sheet whose front, back and side are the source's rows `[front, back, side]`. */
 function sheetOf(
   img: ImageData,
-  src: HTMLCanvasElement,
+  src: Masters,
   [down, up, right]: number[],
   opts: { standFirst: boolean; twoStep: boolean },
 ): DenseSheet {

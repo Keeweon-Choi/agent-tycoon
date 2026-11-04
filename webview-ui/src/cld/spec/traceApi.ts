@@ -12,7 +12,7 @@ import type {
   ArchSkeletonAction,
   EvidenceKind,
   LinkRel,
-  TraceMap,
+  TraceArch,
   TracePick,
   TraceState,
 } from '../../../../core/src/cld/spec/trace.js';
@@ -100,14 +100,13 @@ export const archWrite = {
   alias: (project: string, uid: string, into: string) => request(project, 'arch/alias', { uid, into }),
   unalias: (project: string, uid: string) => request(project, `arch/alias/${enc(uid)}`, undefined, 'DELETE'),
   skeleton: (project: string, path: string, action: ArchSkeletonAction, more: { label?: string; into?: string } = {}) => request(project, 'arch/skeleton', { path, action, ...more }),
-  // MAP-A
-  /** `parent: null` takes the owner's parent away (the document's or folder's shows again). */
-  parent: (project: string, uid: string, parent: string | null) => request(project, 'arch/parent', { uid, parent }),
-  /** [제안 모두 승인]: what the map showed as pending; a diagram changed since is refused `spec_stale`. */
-  approveAll: (project: string, pending: TraceMap['pending']) => request(project, 'arch/approve-all', pending),
+  /** [제안 모두 승인]: what the design drawing showed as pending; a diagram changed since is refused `spec_stale`. */
+  approveAll: (project: string, pending: NonNullable<TraceArch['pending']>) => request(project, 'arch/approve-all', pending),
   undoAll: (project: string, batch: string) => request(project, 'arch/approve-all/undo', { batch }),
 };
-export const mapPath = (uid: string) => `map?${new URLSearchParams({ uid })}`;
+/** SPT C1: the 지도; `chain` the cells entered ([한 단계 들어가기]), `feature` a feature's requirements. */
+export const mapPath = (chain: readonly string[], feature?: string, block?: string) =>
+  `map?${new URLSearchParams({ ...(chain.length && { in: chain.join('>') }), ...(feature && { feature }), ...(block && { block }) })}`;
 
 /** `route`'s answer while mounted, again on the project's `specChanged` and on `reload()`; `null` route = nothing. */
 export function useTrace<T>(

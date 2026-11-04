@@ -160,6 +160,25 @@ describe('Claude sub-agents', () => {
     expect(row.level).toMatchObject({ level: 1, xp: 0 });
   });
 
+  it('carries the limit basis and the compactions counted in the sub-agent’s own transcript, across a restart', () => {
+    const o = office();
+    o.temps.observe(spawn('t1'));
+    o.temps.compactions(LEAD, 't1', 1); // no context yet: nowhere to hold it
+    expect(o.temps.message().staff[0].compactions).toBeUndefined();
+    o.temps.context(LEAD, 't1', 50_000, 200_000, 'estimated');
+    o.temps.compactions(LEAD, 't1', 2);
+    o.temps.context(LEAD, 't1', 12_000, 200_000, 'estimated'); // the next usage keeps the count
+    const want = { contextTokens: 12_000, limitBasis: 'estimated', compactions: 2 };
+    expect(o.temps.message().staff[0]).toMatchObject(want);
+    expect(o.restart().temps.message().staff[0]).toMatchObject(want);
+    // none counted: no field, not a 0
+    const fresh = office();
+    fresh.temps.observe(spawn('t2'));
+    fresh.temps.context(LEAD, 't2', 1_000, 200_000, 'unknown');
+    expect(fresh.temps.message().staff[0]).toMatchObject({ limitBasis: 'unknown' });
+    expect(fresh.temps.message().staff[0]).not.toHaveProperty('compactions');
+  });
+
   it('keeps the last known context after the sub-agent finished and across a daemon restart', () => {
     const o = office();
     o.temps.observe(spawn('t1'));

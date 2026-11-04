@@ -5,13 +5,21 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { CONTEXT_SEED_TAIL_BYTES, DEFAULT_MAX_CONTEXT_TOKENS } from '../src/constants.js';
+import { COMPACTION_LOG_KEPT } from '../src/constants.js';
 import {
+  extractCompaction,
   extractContextTokens,
+  resetCompactions,
+  seedCompactions,
   seedContextUsage,
   updateContextUsage,
   widenContextWindow,
 } from '../src/contextUsage.js';
-import { claudeProvider, contextWindowForModel } from '../src/providers/hook/claude/claude.js';
+import {
+  claudeProvider,
+  contextWindowBasis,
+  contextWindowForModel,
+} from '../src/providers/hook/claude/claude.js';
 import type { AgentState } from '../src/types.js';
 
 function createTestAgent(overrides: Partial<AgentState> = {}): AgentState {
@@ -114,6 +122,38 @@ describe('claudeProvider.contextWindowForModel', () => {
   it('answers nothing for models it cannot place, rather than guessing', () => {
     expect(contextWindowForModel(undefined)).toBeUndefined();
     expect(contextWindowForModel('<synthetic>')).toBeUndefined();
+    // FR-STA-005: a name outside the table is not 1M by default
+    for (const model of ['glm-4.6', 'gpt-5-codex', 'my-proxy-model', 'opus']) {
+      expect(contextWindowForModel(model)).toBeUndefined();
+    }
+  });
+
+  it('takes a [1m] suffix at its word', () => {
+    expect(contextWindowForModel('claude-opus-4-1[1m]')).toBe(1_000_000);
+    expect(contextWindowForModel('some-model[1M]')).toBe(1_000_000);
+  });
+});
+
+describe('claudeProvider.contextWindowBasis (FR-STA-005)', () => {
+  it('a [1m] suffix is reported, a table name estimated, anything else unknown', () => {
+    expect(contextWindowBasis('claude-opus-4-1[1m]')).toBe('reported');
+    expect(contextWindowBasis('claude-opus-5')).toBe('estimated');
+    expect(contextWindowBasis('claude-haiku-4-5-20251001')).toBe('estimated');
+    expect(contextWindowBasis('claude-3-5-sonnet-20241022')).toBe('estimated');
+    expect(contextWindowBasis('glm-4.6')).toBe('unknown');
+  });
+
+  it('says nothing for no model or a synthetic record', () => {
+    expect(contextWindowBasis(undefined)).toBeUndefined();
+    expect(contextWindowBasis('<synthetic>')).toBeUndefined();
+  });
+
+  it('the window and the basis agree: no window, no claim of one', () => {
+    for (const model of ['claude-opus-5', 'glm-4.6', 'claude-sonnet-4-1[1m]', 'haiku']) {
+      expect(contextWindowForModel(model) === undefined).toBe(
+        contextWindowBasis(model) === 'unknown',
+      );
+    }
   });
 });
 
@@ -157,6 +197,7 @@ describe('updateContextUsage', () => {
         id: 1,
         contextTokens: 50_302,
         maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+        limitBasis: 'unknown', // no provider, no model table: nobody can name the window
       },
     ]);
   });
@@ -184,7 +225,9 @@ describe('updateContextUsage', () => {
       expect(agent.contextTokens).toBe(345_306);
       updateContextUsage(1, agent, agents, boundary(15_972));
       expect(agent.contextTokens).toBe(15_972);
-      expect(messages.at(-1)).toMatchObject({ type: 'agentContextUsage', contextTokens: 15_972 });
+      expect(messages.filter((m) => m.type === 'agentContextUsage').at(-1)).toMatchObject({
+        contextTokens: 15_972,
+      });
       // the window learned from the pre-compaction turn stays put
       expect(agent.maxContextTokens).toBe(1_000_000);
     });
@@ -274,6 +317,296 @@ describe('updateContextUsage', () => {
 
     expect(agent.contextTokens).toBe(53_697);
     expect(messages).toHaveLength(2);
+  });
+});
+
+describe('limitBasis on the gauge', () => {
+  let agents: AgentStateStore;
+  let agent: AgentState;
+  let messages: Array<Record<string, unknown>>;
+  beforeEach(() => {
+    agents = new AgentStateStore();
+    agent = createTestAgent();
+    agents.set(1, agent);
+    messages = [];
+    agents.on('broadcast', (msg) => messages.push(msg as Record<string, unknown>));
+  });
+  const turn = (model: string | undefined, cacheRead = 50_000) => ({
+    type: 'assistant',
+    message: { ...(model && { model }), usage: { cache_read_input_tokens: cacheRead } },
+  });
+  const basisSent = () => messages.filter((m) => m.type === 'agentContextUsage').at(-1)?.limitBasis;
+
+  it('a table model is estimated, a [1m] one reported, an unlisted one unknown', () => {
+    updateContextUsage(1, agent, agents, turn('claude-opus-5'), claudeProvider);
+    expect(basisSent()).toBe('estimated');
+    updateContextUsage(1, agent, agents, turn('claude-opus-4-1[1m]'), claudeProvider);
+    expect(basisSent()).toBe('reported');
+    updateContextUsage(1, agent, agents, turn('glm-4.6'), claudeProvider);
+    expect(basisSent()).toBe('unknown');
+  });
+
+  it('widening past the table window stays an estimate', () => {
+    updateContextUsage(1, agent, agents, turn('claude-haiku-4-5', 260_000), claudeProvider);
+    expect(agent.maxContextTokens).toBe(1_000_000);
+    expect(basisSent()).toBe('estimated');
+  });
+
+  it('a record with no model keeps the last word; with none ever, the window is unknown', () => {
+    updateContextUsage(1, agent, agents, turn(undefined), claudeProvider);
+    expect(basisSent()).toBe('unknown');
+    updateContextUsage(1, agent, agents, turn('claude-opus-5'), claudeProvider);
+    updateContextUsage(1, agent, agents, turn(undefined, 60_000), claudeProvider);
+    expect(basisSent()).toBe('estimated');
+  });
+
+  it('a compaction boundary does not change it', () => {
+    updateContextUsage(1, agent, agents, turn('claude-opus-4-1[1m]'), claudeProvider);
+    updateContextUsage(
+      1,
+      agent,
+      agents,
+      { type: 'system', subtype: 'compact_boundary' },
+      claudeProvider,
+    );
+    expect(basisSent()).toBe('reported');
+  });
+
+  it('seeding from a transcript tail carries it too', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tycoon-basis-'));
+    try {
+      const file = path.join(dir, 's.jsonl');
+      fs.writeFileSync(file, JSON.stringify(turn('glm-4.6')) + '\n');
+      const seeded = createTestAgent({ id: 2, jsonlFile: file });
+      agents.set(2, seeded);
+      seedContextUsage(2, agents, claudeProvider);
+      expect(seeded.limitBasis).toBe('unknown');
+      expect(basisSent()).toBe('unknown');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('compactions counted by the daemon', () => {
+  let agents: AgentStateStore;
+  let agent: AgentState;
+  let messages: Array<Record<string, unknown>>;
+  beforeEach(() => {
+    agents = new AgentStateStore();
+    agent = createTestAgent();
+    agents.set(1, agent);
+    messages = [];
+    agents.on('broadcast', (msg) => messages.push(msg as Record<string, unknown>));
+  });
+  const boundary = (extra: Record<string, unknown> = {}, meta?: Record<string, unknown>) => ({
+    type: 'system',
+    subtype: 'compact_boundary',
+    ...(meta && { compactMetadata: meta }),
+    ...extra,
+  });
+  const sent = () => messages.filter((m) => m.type === 'agentCompactions');
+
+  it("extractCompaction reads the record's own time, trigger and token counts, and only those it has", () => {
+    expect(
+      extractCompaction(
+        boundary(
+          { timestamp: '2026-11-04T05:02:03.000Z' },
+          { trigger: 'auto', preTokens: 412_000, postTokens: 38_000 },
+        ),
+      ),
+    ).toEqual({
+      at: Date.parse('2026-11-04T05:02:03.000Z'),
+      trigger: 'auto',
+      preTokens: 412_000,
+      postTokens: 38_000,
+    });
+    expect(
+      extractCompaction(boundary({ timestamp: '2026-11-04T05:02:03.000Z' }, { trigger: 'manual' })),
+    ).toEqual({
+      at: Date.parse('2026-11-04T05:02:03.000Z'),
+      trigger: 'manual',
+    });
+    // nothing usable: the daemon's own clock, no invented fields
+    const bare = extractCompaction(
+      boundary({}, { trigger: 'weird', preTokens: -5, postTokens: 'x' }),
+    );
+    expect(Object.keys(bare!)).toEqual(['at']);
+    expect(Math.abs(bare!.at - Date.now())).toBeLessThan(5_000);
+  });
+
+  it('other records are no compaction', () => {
+    for (const r of [
+      assistantRecord(),
+      { type: 'user' },
+      { type: 'system', subtype: 'init' },
+      null,
+      'x',
+    ]) {
+      expect(extractCompaction(r)).toBeNull();
+    }
+  });
+
+  it('counts each boundary once and sends the log; the gauge falling alone counts nothing', () => {
+    updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 300_000 }));
+    updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 10_000 })); // 97% fall, no boundary
+    expect(agent.compactions).toBeUndefined();
+    expect(sent()).toHaveLength(0);
+
+    updateContextUsage(
+      1,
+      agent,
+      agents,
+      boundary(
+        { timestamp: '2026-11-04T05:00:00Z' },
+        { trigger: 'auto', preTokens: 300_000, postTokens: 15_000 },
+      ),
+    );
+    updateContextUsage(
+      1,
+      agent,
+      agents,
+      boundary({ timestamp: '2026-11-04T06:00:00Z' }, { trigger: 'manual' }),
+    );
+    expect(agent.compactions?.count).toBe(2);
+    expect(sent().at(-1)).toEqual({
+      type: 'agentCompactions',
+      id: 1,
+      count: 2,
+      recent: [
+        {
+          at: Date.parse('2026-11-04T05:00:00Z'),
+          trigger: 'auto',
+          preTokens: 300_000,
+          postTokens: 15_000,
+        },
+        { at: Date.parse('2026-11-04T06:00:00Z'), trigger: 'manual' },
+      ],
+    });
+  });
+
+  it('keeps only the newest few; the count keeps going', () => {
+    for (let i = 0; i < COMPACTION_LOG_KEPT + 3; i++)
+      updateContextUsage(
+        1,
+        agent,
+        agents,
+        boundary({ timestamp: new Date(1_000_000 + i * 1000).toISOString() }, { trigger: 'auto' }),
+      );
+    expect(agent.compactions?.count).toBe(COMPACTION_LOG_KEPT + 3);
+    expect(agent.compactions?.recent).toHaveLength(COMPACTION_LOG_KEPT);
+    expect(agent.compactions?.recent[0].at).toBe(1_000_000 + 3 * 1000); // the oldest three are gone
+    expect(sent().at(-1)?.recent).toHaveLength(COMPACTION_LOG_KEPT);
+  });
+
+  it("a lead does not count its sub-agents' boundaries once its own turn was seen; a teammate file counts its own", () => {
+    updateContextUsage(1, agent, agents, assistantRecord({ cacheRead: 50_000 }));
+    updateContextUsage(1, agent, agents, boundary({ isSidechain: true }));
+    expect(agent.compactions).toBeUndefined();
+
+    const teammate = createTestAgent({ id: 2 });
+    agents.set(2, teammate);
+    updateContextUsage(2, teammate, agents, boundary({ isSidechain: true }));
+    expect(teammate.compactions?.count).toBe(1);
+  });
+
+  it('a new transcript starts over, and tells the screens', () => {
+    updateContextUsage(1, agent, agents, boundary());
+    resetCompactions(1, agent, agents);
+    expect(agent.compactions).toBeUndefined();
+    expect(sent().at(-1)).toEqual({ type: 'agentCompactions', id: 1, count: 0, recent: [] });
+    // nothing to say when nothing was counted
+    messages.length = 0;
+    resetCompactions(1, agent, agents);
+    expect(sent()).toHaveLength(0);
+  });
+
+  describe('seedCompactions (an agent adopted mid-session)', () => {
+    let tmpDir: string;
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-tycoon-compactions-'));
+    });
+    afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+    const seeded = (records: Array<Record<string, unknown>>, atEnd = true, id = 5): AgentState => {
+      const file = path.join(tmpDir, `s${id}.jsonl`);
+      fs.writeFileSync(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const a = createTestAgent({
+        id,
+        jsonlFile: file,
+        fileOffset: atEnd ? fs.statSync(file).size : 0,
+      });
+      agents.set(id, a);
+      seedCompactions(id, agents);
+      return a;
+    };
+
+    it('counts the boundaries the stream will not replay, whole conversation in reach', () => {
+      const a = seeded([
+        assistantRecord(),
+        boundary({}, { trigger: 'auto' }),
+        assistantRecord(),
+        boundary(),
+      ]);
+      expect(a.compactions).toMatchObject({ count: 2, partial: false });
+      expect(sent().at(-1)).toMatchObject({ id: 5, count: 2 });
+      expect(sent().at(-1)).not.toHaveProperty('partial');
+    });
+
+    it('a file the stream reads from the start is not counted twice', () => {
+      const a = seeded([assistantRecord(), boundary()], false);
+      expect(a.compactions).toEqual({ count: 0, partial: false, recent: [] });
+      expect(sent()).toHaveLength(0);
+    });
+
+    it('counts only what lies before the offset: the rest is the stream’s', () => {
+      const records = [boundary(), assistantRecord(), boundary()];
+      const file = path.join(tmpDir, 'mid.jsonl');
+      fs.writeFileSync(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+      const firstLine = JSON.stringify(records[0]).length + 1;
+      const a = createTestAgent({ id: 9, jsonlFile: file, fileOffset: firstLine });
+      agents.set(9, a);
+      seedCompactions(9, agents);
+      expect(a.compactions?.count).toBe(1);
+    });
+
+    it('a conversation longer than the tail reads as a floor', () => {
+      const filler = { type: 'user', message: { content: 'x'.repeat(4_000) } };
+      const fillerCount = Math.ceil(CONTEXT_SEED_TAIL_BYTES / 4_000) + 10;
+      const a = seeded([
+        boundary(), // out of reach
+        ...Array.from({ length: fillerCount }, () => filler),
+        assistantRecord(),
+        boundary(),
+      ]);
+      expect(a.compactions).toMatchObject({ count: 1, partial: true });
+      expect(sent().at(-1)).toMatchObject({ count: 1, partial: true });
+    });
+
+    it('runs once per transcript', () => {
+      const a = seeded([boundary()]);
+      seedCompactions(5, agents);
+      seedCompactions(5, agents);
+      expect(a.compactions?.count).toBe(1);
+      expect(sent()).toHaveLength(1);
+    });
+
+    it('ignores a boundary under sub-agent turns the same way the stream does, and a missing file', () => {
+      expect(
+        seeded([assistantRecord(), boundary({ isSidechain: true })], true, 6).compactions?.count,
+      ).toBe(0);
+      expect(
+        seeded([assistantRecord({ isSidechain: true }), boundary({ isSidechain: true })], true, 7)
+          .compactions?.count,
+      ).toBe(1);
+      const gone = createTestAgent({
+        id: 8,
+        jsonlFile: path.join(tmpDir, 'gone.jsonl'),
+        fileOffset: 50,
+      });
+      agents.set(8, gone);
+      expect(() => seedCompactions(8, agents)).not.toThrow();
+    });
   });
 });
 

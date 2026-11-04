@@ -61,6 +61,41 @@ describe('SHEET-IMPORT: an imported sheet as the office loads it', () => {
     ).toThrow();
   });
 
+  it('PAGE-MEM: worn in the office, the masters are kept at the closest zoom\'s density (10 of 12) and the full-size canvas is let go', () => {
+    const draws: unknown[][] = [];
+    const canvases: Array<{ width: number; height: number }> = [];
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        createElement: () => {
+          const context = {
+            putImageData: () => undefined,
+            drawImage: (...a: unknown[]) => draws.push(a),
+            setTransform: () => undefined,
+          };
+          const c = { width: 0, height: 0, getContext: () => context };
+          canvases.push(c);
+          return c;
+        },
+      },
+    });
+    const [W, H] = [288 * 7, 528 * 2];
+    const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) } as ImageData;
+    const opts = { iso: true, standFirst: true, twoStep: false };
+    const full = Object.assign(document.createElement('canvas'), { width: W, height: H });
+    const sheet = importedSheet(img, { ...opts, masterDensity: 10 }, full as HTMLCanvasElement);
+    const small = canvases.at(-1)!;
+    expect([small.width, small.height]).toEqual([240 * 7, 440 * 2]);
+    expect([full.width, full.height]).toEqual([0, 0]); // its memory back
+    // a frame's rect is in the smaller masters: column 3 of the back row
+    getCachedSprite(sheet.up[3], 3);
+    expect(draws.at(-1)!.slice(0, 5)).toEqual([small, 3 * 240, 440, 240, 440]);
+    // negative control: without the option the sheet's own canvas stays the masters, full size
+    const own = Object.assign(document.createElement('canvas'), { width: W, height: H });
+    importedSheet(img, opts, own as HTMLCanvasElement);
+    expect([own.width, own.height]).toEqual([W, H]);
+  });
+
   it('CHAR-ISO-1: an 8th column is the walking neutral: the walk is step, neutral, other step, neutral and the idle only stands', () => {
     Object.defineProperty(globalThis, 'document', {
       configurable: true,

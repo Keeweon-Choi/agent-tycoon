@@ -1,5 +1,5 @@
 /* GAME-UI-1 G1 (specs/ui-mock-1103 ideas/messenger 01, 02, 04): the dialogue box, the quest card and the
-   envelope. Tokens in index.css :root. Pixel rules: 2px lines, square corners, hard steps, no blur,
+   delivered badge. Tokens in index.css :root. Pixel rules: 2px lines, square corners, hard steps, no blur,
    no rotation, no gradient. Every animation is under :root[data-game-motion='on'] (gameMotion.ts). */
 
 /* ── 01 RPG dialogue: a portrait frame and a box with a name plate on its top edge ── */
@@ -269,24 +269,7 @@
   color: var(--color-text-muted);
 }
 
-/* ── 04 the envelope and the row's ✓ 전달됨 badge ── */
-.mail-env {
-  position: fixed;
-  z-index: 90;
-  line-height: 0;
-  pointer-events: none;
-}
-.mail-trail {
-  position: fixed;
-  z-index: 89;
-  width: 6px;
-  height: 6px;
-  background: var(--mail-trail);
-  pointer-events: none;
-}
-.mail-got {
-  outline: 2px solid var(--color-accent-bright);
-}
+/* ── 04 the row's ✓ 전달됨 badge ── */
 .mail-badge {
   display: inline-flex;
   align-items: center;

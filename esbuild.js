@@ -117,7 +117,7 @@ async function main() {
   copyPacks();
   buildHooks();
   await esbuild.build(cliOptions);
-  if (production) asciiOnly(cliOptions.outfile);
+  asciiOnly(cliOptions.outfile);
   await buildWorker();
   await buildPtyHost();
   await buildLoginPage();
@@ -176,7 +176,8 @@ async function buildPtyHost() {
 /** MEM-IDLE: V8 keeps the daemon's source for as long as it runs, and one non-ASCII character
  *  (esbuild leaves them in regex literals: 가-힣, ’, ¹) makes all of it two-byte, 2.2 MB more
  *  heap. Each becomes its \uXXXX escape, the same character in a regex, string or template.
- *  Production only: it would shift a source map's columns. */
+ *  The development build too (the installer builds it): lines are kept, so a log's line numbers
+ *  and the source map's rows hold; only the columns of a line that had such a character shift. */
 function asciiOnly(file) {
   const src = fs.readFileSync(file, 'utf8');
   // `\가` (an identity escape) would turn into `\\uAC00`: refuse rather than change a pattern.

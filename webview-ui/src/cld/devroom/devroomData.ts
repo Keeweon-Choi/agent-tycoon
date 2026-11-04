@@ -15,6 +15,7 @@ import { useEngineStore } from '../engineStore.js';
 import { useCldStore } from '../officeStore.js';
 import { useRepoStore } from '../repo/repoStore.js';
 import { reviewKey, useReviewStore } from '../repo/reviewStore.js';
+import { rowBusy } from '../turnState.js';
 import { useWaitReasons } from '../waiting.js';
 import { workbenchProjects } from '../workbench/workbenchState.js';
 import { projectAgents } from './agentBoard.js';
@@ -90,7 +91,7 @@ export function useDevroomGroups(): { projects: string[]; groups: Group[] } {
         wt,
         task,
         wait: agentId !== null ? (reasons[agentId] ?? null) : null,
-        busy: orch?.busy === true,
+        busy: !!orch && rowBusy(orch) === true,
         notesSent: !!notes[reviewKey(project, wt.task)]?.notes.some((n) => n.sentAt),
       });
       return { wt, task, title: titleOf(wt, tasks), chip, agentId };

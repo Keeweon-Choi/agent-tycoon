@@ -13,8 +13,9 @@ import type { ProjectRecord } from '../registry.js';
  *  better can be seen), not ready, failed to write, MSG-RECALL `inputBusy` (the input box holds
  *  something not ours: nothing written), `lost` (another prompt went in instead of ours) or
  *  `unconfirmed` (Enter went in while the session works: Claude writes the prompt when it takes it,
- *  so its mark is looked for at the turn's end). */
-export type DeliverResult = 'typed' | 'notReady' | 'failed' | 'inputBusy' | 'lost' | 'unconfirmed';
+ *  so its mark is looked for at the turn's end) or `unsubmitted` (TYPIST-STALE: the paste is in the
+ *  box but no Enter took it, retries included; the next try submits it if it shows whole). */
+export type DeliverResult = 'typed' | 'notReady' | 'failed' | 'inputBusy' | 'lost' | 'unconfirmed' | 'unsubmitted';
 
 export type Protocol = 'claude' | 'codex' | 'acp' | 'pty';
 

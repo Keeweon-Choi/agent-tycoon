@@ -54,8 +54,10 @@ import {
   PTY_PASTE_ENTER_MS,
   PTY_PERMISSION_HOOK_S,
   PTY_SUBMIT_MS,
+  PTY_SUBMIT_RETRIES,
+  PTY_SUBMIT_RETRY_MS,
 } from '../../../../constants.js';
-import { compactingOnScreen, inputBoxTaken } from '../../../chat.js';
+import { compactingOnScreen, draftShown, inputBoxTaken, pastedAs } from '../../../chat.js';
 import { readJson, writeJsonAtomic } from '../../../jsonFile.js';
 import { processAlive, sessionFromFile, transcriptPath, turnEnded } from '../../../providers/claudeProvider.js';
 import { hostLauncher, listedTerminals, PtyHostClient } from '../../../ptyhost/client.js';
@@ -89,6 +91,8 @@ export const PTY_TIMING = {
   enterMs: PTY_PASTE_ENTER_MS,
   bytesPerMs: PTY_PASTE_BYTES_PER_MS,
   submitMs: PTY_SUBMIT_MS,
+  retryMs: PTY_SUBMIT_RETRY_MS,
+  retries: PTY_SUBMIT_RETRIES,
   pollMs: 100,
   closeMs: PTY_CLOSE_WAIT_MS,
 };
@@ -185,6 +189,12 @@ export class ClaudePtyAgent implements AgentProvider {
   private readonly platform: NodeJS.Platform;
   /** The dead terminals last logged (a host that ended without writing their exit). */
   private loggedGone = '';
+  /** TYPIST-STALE: terminal id + text of a paste of ours no Enter has taken yet → the `#n` of the
+   *  placeholder Claude Code folded it into (pastedAs): that placeholder alone is ours in that box;
+   *  anyone's paste of the same length gets the next `#n`. Kept past `unsubmitted` so the next try
+   *  presses Enter on it instead of pasting a second copy. ponytail: in memory; after a daemon
+   *  restart such a folded draft waits as a person's. */
+  private readonly unsent = new Map<string, number>();
   /** Terminal id -> Claude's own pid, for a launcher that starts Claude as its child. */
   private found: Record<string, number> | null = null;
 
@@ -439,14 +449,9 @@ export class ClaudePtyAgent implements AgentProvider {
     return term;
   }
 
-  /** MSG-RECALL: the input box holds a draft or a recalled prompt (never ours to submit). */
-  private async boxTaken(id: string): Promise<boolean> {
-    return this.onScreen(id, inputBoxTaken);
-  }
-
-  private async onScreen(id: string, look: (term: HeadlessTerminal) => boolean): Promise<boolean> {
+  private async onScreen<T>(id: string, look: (term: HeadlessTerminal) => T, none: T): Promise<T> {
     const term = await this.screen(id);
-    if (!term) return false;
+    if (!term) return none;
     try {
       return look(term);
     } finally {
@@ -459,7 +464,7 @@ export class ClaudePtyAgent implements AgentProvider {
   compacting(s: LiveSession): Promise<boolean> {
     if (!s.id || (this.host.status.get(s.id)?.state !== 'working' && s.status !== 'busy'))
       return Promise.resolve(false);
-    return this.onScreen(s.id, compactingOnScreen);
+    return this.onScreen(s.id, compactingOnScreen, false);
   }
 
   async deliver(
@@ -481,16 +486,37 @@ export class ClaudePtyAgent implements AgentProvider {
     const clean = cleanText(text);
     const file = this.transcript(s);
     const before = lastPrompt(tail(file));
+    const key = `${id}\n${clean}`;
+    const look = () =>
+      this.onScreen(id, (term) => boxOf(term, clean, this.unsent.get(key)), 'free' as const);
+    const settled = <R extends DeliverResult>(r: R): R => {
+      this.unsent.delete(key);
+      return r;
+    };
     // MSG-RECALL: from the box check to Enter, no viewer key goes in (they follow Enter).
     const typed = await this.host.typing(id, async () => {
       // Never onto a draft or a recalled prompt: Enter would submit it, and no key clears a box
       // safely (Esc twice opens the rewind menu, Ctrl+U clears one line), so the message waits;
       // unless the owner said 지금 보내기 on it (force): then a draft there goes in with it.
-      if (!o.force && (await this.boxTaken(id))) return 'inputBusy' as const;
-      const pasted = await this.host.write(id, `\x1b[200~${clean.replaceAll('\n', '\r')}\x1b[201~`);
-      if (!pasted.ok) return 'failed' as const;
-      // Enter on its own, once the paste had time to land (Orca: a 500 ms settle + ingest, 64 B/ms on Windows).
-      await sleep(this.t.enterMs + Math.ceil(Buffer.byteLength(clean) / this.t.bytesPerMs));
+      // TYPIST-STALE: an earlier message of ours in the box waits too: Up recalls exactly that text,
+      // and Enter on it would submit it a second time (an older build's unsubmitted paste looks the same).
+      const box = await look();
+      if (!o.force && box === 'taken') return 'inputBusy' as const;
+      // This very paste, left by a try whose Enter did not take: Enter only, never a second paste.
+      if (box !== 'ours') {
+        // TYPIST-STALE: newlines as LF (Ctrl+J), Claude Code's new line whether or not the paste
+        // markers reach it. A Windows ConPTY handed this paste over as keys, so a CR in it was
+        // Enter: the header went in as a turn of its own and the body as the next (11-04 21:45).
+        const pasted = await this.host.write(id, `\x1b[200~${clean}\x1b[201~`);
+        if (!pasted.ok) return 'failed' as const;
+        this.unsent.delete(key);
+        // Enter on its own, once the paste had time to land (Orca: a 500 ms settle + ingest, 64 B/ms on Windows).
+        await sleep(this.t.enterMs + Math.ceil(Buffer.byteLength(clean) / this.t.bytesPerMs));
+        // The `#n` our paste got; none read (the text shows whole, a screen we cannot read): a
+        // placeholder there is nobody's to submit, only our whole text is.
+        const n = await this.onScreen(id, (term) => pastedAs(term, clean, true), null);
+        if (n !== null) this.unsent.set(key, n);
+      }
       if (now) {
         await this.host.write(id, SEND_NOW[0]);
         await sleep(SEND_NOW_GAP_MS);
@@ -500,23 +526,42 @@ export class ClaudePtyAgent implements AgentProvider {
     });
     if (typed) return typed;
     const end = Date.now() + this.t.submitMs;
+    let enters = 1;
+    let again = Date.now() + this.t.retryMs;
     for (;;) {
       const got = tail(file);
       // MSG-RECALL: only the prompt with this message's own mark is ours; another one that went in
       // meanwhile (a recalled history item) is a lost delivery, never a typed one.
-      if (o.messageId && alreadyTyped(got, o.messageId)) return 'typed';
+      if (o.messageId && alreadyTyped(got, o.messageId)) return settled('typed');
       const last = lastPrompt(got);
       if (o.messageId && last?.key !== before?.key) {
         // Another prompt a working session took from its queue (the owner typed one into the terminal
         // just before our Enter): ours may sit behind it in that queue, so wait for our mark.
-        if (last?.queued && working()) return 'unconfirmed';
+        if (last?.queued && working()) return settled('unconfirmed');
         // A person's prompt record instead of ours: the history-recall swap (11-01 14:51).
         this.o.log(`"${p.name}": a prompt without ⟨m:${o.messageId}⟩ went in instead of it`);
-        return 'lost';
+        return settled('lost');
       }
-      if (!o.messageId && !now && working()) return 'typed';
+      if (!o.messageId && !now && working()) return settled('typed');
       if (Date.now() >= end) break;
+      // TYPIST-STALE: no prompt, no turn, and our paste still whole in the box: Enter again (a
+      // composer not ready yet, an Enter a slow paste swallowed), PTY_SUBMIT_RETRIES times at most.
+      if (!now && enters <= this.t.retries && Date.now() >= again && !working()) {
+        again = Date.now() + this.t.retryMs;
+        await this.host.typing(id, async () => {
+          if ((await look()) !== 'ours') return;
+          enters++;
+          this.o.log(`"${p.name}": our paste is still in its input box; Enter again`);
+          await this.host.write(id, '\r');
+        });
+      }
       await sleep(this.t.pollMs);
+    }
+    // Still in the box (whole, or as the placeholder with our `#n`): not delivered. The next try
+    // finds it there and presses Enter only; the `#n` stays remembered for that (never a second copy).
+    if (!now && !working() && (await look()) === 'ours') {
+      this.o.log(`"${p.name}": our paste stayed in its input box after ${enters} Enter(s)`);
+      return 'unsubmitted';
     }
     // An idle session that stays idle writes the prompt at once: none with our mark is a lost
     // paste. One working now (it was busy, or turned busy after our Enter: a task notification's
@@ -525,11 +570,25 @@ export class ClaudePtyAgent implements AgentProvider {
     if (o.messageId) {
       if (!now && turnEnded(s.status) && !working()) {
         this.o.log(`"${p.name}": no prompt with ⟨m:${o.messageId}⟩ in ${this.t.submitMs} ms`);
-        return 'lost';
+        return settled('lost');
       }
-      return 'unconfirmed';
+      return settled('unconfirmed');
     }
     this.o.log(`typed into "${p.name}"; no turn start seen in ${this.t.submitMs} ms`);
-    return 'typed';
+    return settled('typed');
   }
+}
+
+/**
+ * TYPIST-STALE: what the input box holds, telling ours from a person's: `free` (empty, or a screen
+ * whose shape we cannot judge), `ours` (exactly this message's text; or the one paste placeholder
+ * numbered `mine`, the `#n` our paste of it got), else `taken` (a draft, a recalled prompt, an
+ * earlier message of ours, anyone's paste, anything more or less than our whole text: never ours
+ * to submit). Exact means every character but whitespace, the header's ⟨m:…⟩ mark included,
+ * which no one types (messenger.ts defang).
+ */
+function boxOf(term: HeadlessTerminal, text: string, mine: number | undefined): 'free' | 'ours' | 'taken' {
+  if (!inputBoxTaken(term)) return 'free';
+  if (draftShown(term, text, true, 'text') || (mine !== undefined && pastedAs(term, text, true) === mine)) return 'ours';
+  return 'taken';
 }

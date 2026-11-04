@@ -16,6 +16,7 @@ import { t } from '../../i18n/index.js';
 import { NAME_RE } from '../engine.js';
 import type { CldSnapshot } from '../officeStore.js';
 import { codexKind } from '../panels/jobs.js';
+import { rowBusy } from '../turnState.js';
 
 /** SPT-P1A/P1B/P3 (SPT §6.1): the Project Cockpit tabs (개요, 이슈, 요구사항, 그래프, 문서), then the operations ones (에이전트, 변경). */
 export const WORKBENCH_TABS = ['cockpit', 'tasks', 'reqs', 'graph', 'docs', 'agents', 'changes'] as const;
@@ -88,13 +89,14 @@ export interface Member {
   agentId: number | null;
 }
 
-function stateOf(
+export function stateOf(
   orch: OfficeOrchestrator | undefined,
   engine: EngineProject | undefined,
 ): MemberState {
   if (orch) {
     if (orch.state === 'off') return 'off';
-    return orch.busy === true ? 'working' : orch.busy === false ? 'resting' : 'on';
+    const busy = rowBusy(orch);
+    return busy === true ? 'working' : busy === false ? 'resting' : 'on';
   }
   return engine?.live ? 'on' : 'off';
 }

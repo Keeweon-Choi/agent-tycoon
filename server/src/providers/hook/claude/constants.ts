@@ -95,7 +95,13 @@ export const SETTINGS_MUTATE_RETRY_DELAY_MS = 100;
 export const CLAUDE_LARGE_CONTEXT_WINDOW = 1_000_000;
 /** Haiku, and older models that never got the large window. */
 export const CLAUDE_SMALL_CONTEXT_WINDOW = 200_000;
-/** Model ids that run the small window. Everything else gets the large one:
- *  guessing small for a large model pins every gauge in the red, while the
- *  reverse is a quiet under-read that the runtime's widening still corrects. */
+/** Model ids that run the small window. */
 export const CLAUDE_SMALL_CONTEXT_MODEL_PATTERN = /haiku|claude-[123]|-4-[01]\b/i;
+/** Model ids whose window this table knows: a Claude family name (Opus, Sonnet,
+ *  Fable, Haiku) or a `claude-1`..`claude-3` id. A known id that is not small runs
+ *  the large window. Anything else (another vendor behind a proxy, a name from a
+ *  future family) is unknown: the office shows its token count and no percent
+ *  rather than measure it against a window nobody stated (FR-STA-005). */
+export const CLAUDE_KNOWN_CONTEXT_MODEL_PATTERN = /claude-(?:opus|sonnet|fable|haiku|[123])\b/i;
+/** A model id ending `[1m]` says the 1M window outright (Claude Code's own suffix). */
+export const CLAUDE_REPORTED_LARGE_WINDOW_PATTERN = /\[1m\]$/i;

@@ -2,6 +2,8 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { selectOrOpenInfo } from '../cld/offDuty.js';
+import { rowOf, useCldStore } from '../cld/officeStore.js';
+import { engineTurn, sharedActivity } from '../cld/turnState.js';
 import { publishWaiting, type WaitReason, waitReasons } from '../cld/waiting.js';
 import type { AgentActivity, AgentAppearance, TabStatus } from '../components/AgentCard.js';
 import {
@@ -186,15 +188,18 @@ export function useTerminalDrawer({
 
   // Activity for the tab status dot (green idle / blue working / yellow needs
   // attention). null until the agent's first activity, so the dot stays empty.
+  // STATE-SYNC: an engine session's turn is the engine's word (cld/turnState.ts).
+  const { officeSnapshot } = useCldStore();
   const getActivity = useCallback(
-    (id: number): AgentActivity | null => {
-      if (!agentSeenActivity[id]) return null;
-      if (reasons[id]) return 'attention';
-      if (agentTools[id]?.some((t) => !t.done)) return 'working';
-      if (agentStatuses[id] === 'waiting') return 'idle';
-      return 'working';
-    },
-    [agentSeenActivity, agentTools, agentStatuses, reasons],
+    (id: number): AgentActivity | null =>
+      sharedActivity({
+        turn: engineTurn(rowOf(id, officeSnapshot)),
+        seen: !!agentSeenActivity[id],
+        asks: !!reasons[id],
+        openTool: !!agentTools[id]?.some((t) => !t.done),
+        turnEnded: agentStatuses[id] === 'waiting',
+      }),
+    [agentSeenActivity, agentTools, agentStatuses, reasons, officeSnapshot],
   );
 
   const onStatusChange = useCallback((agentId: number, status: TerminalConnectionStatus) => {

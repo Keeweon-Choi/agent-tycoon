@@ -1,3 +1,5 @@
+import type { CompactionRecord, ContextLimitBasis } from '../../core/src/messages.js';
+
 export interface AgentState {
   id: number;
   sessionId: string;
@@ -66,6 +68,13 @@ export interface AgentState {
   /** Observational estimate of the window `contextTokens` fits in. Widens as
    *  larger contexts appear, never shrinks. */
   maxContextTokens: number;
+  /** Where `maxContextTokens` comes from (the newest model named in the transcript);
+   *  undefined until a model is seen, which reads as `unknown`. */
+  limitBasis?: ContextLimitBasis;
+  /** The compactions counted in this transcript (its `compact_boundary` records): the
+   *  count (`partial`: only the tail was in reach, so at least this many) and the newest
+   *  COMPACTION_LOG_KEPT. Starts over with a new transcript; not persisted. */
+  compactions?: { count: number; partial: boolean; recent: CompactionRecord[] };
   /** True once this transcript produced a main-chain turn, after which
    *  sidechain records belong to sub-agents and stop moving the gauge. */
   sawMainChainUsage?: boolean;

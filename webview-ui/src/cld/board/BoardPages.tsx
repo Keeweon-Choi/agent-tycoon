@@ -23,6 +23,7 @@ import { Direction } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
 import { diskBytes, diskMeasuredAt } from '../diskCard.js';
 import { useEngineStore } from '../engineStore.js';
+import { contextPctText } from '../ez/fatigueState.js';
 import { ringWord } from '../ez/visuals.js';
 import { hwSections, hwSensorsHint, percentTone, tempTone } from '../format.js';
 import {
@@ -200,6 +201,7 @@ function ProjectsPage({
             <span
               className={`led-fatigue led-tone-${tone ?? 'none'}`}
               data-label={t('board.column.fatigue')}
+              title={r.contextEstimated ? t('ctxsrc.estimatedHint') : undefined}
             >
               {r.context === null ? (
                 <span className="led-muted">-</span>
@@ -208,7 +210,7 @@ function ProjectsPage({
                   <span className="led-meter" aria-hidden="true">
                     <i style={{ width: `${Math.min(100, r.context)}%` }} />
                   </span>
-                  {r.context}%
+                  {contextPctText(r.context, r.contextEstimated ? 'estimated' : 'reported')}%
                 </>
               )}
             </span>
@@ -862,6 +864,11 @@ function GpuPage({ snap, now, lookOf }: { snap: CldSnapshot; now: number; lookOf
             {p.usedMib != null && ` · ${p.usedMib} MiB`}
           </p>
         ))}
+        {board.processesUnknown && (
+          <p className="led-muted" data-testid="board-gpu-unknown">
+            {t('board.gpuUnknown')}
+          </p>
+        )}
         {ends.length > 0 && (
           <ul className="led-ends">
             {ends.map(({ end, fade }) => (

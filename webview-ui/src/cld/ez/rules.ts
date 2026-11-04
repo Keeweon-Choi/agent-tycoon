@@ -38,6 +38,8 @@ export const PHRASES = {
   /** A job's progress; the percent is appended. */
   trainingProgress: { emoji: '🏋️', text: 'activity.training' },
   jobProgress: { emoji: '⏳', text: 'activity.workingOnJob' },
+  /** STATE-SYNC: the turn is over, its background job (a shell it started) still runs. */
+  jobWait: { emoji: '⏳', text: 'activity.jobWait' },
 } as const satisfies Record<string, Phrase>;
 
 /** Tools whose input is a shell command: the command rules decide. */
@@ -109,12 +111,10 @@ export const COMMAND_RULES: readonly CommandRule[] = [
 /**
  * 피로도 (T-0026, T-0045): exactly how full a character's context is
  * (fatigue.ts). Compactions are not part of it; they are shown beside it as
- * "압축 N/M". Every number can be replaced in ez-rules.json ("fatigue");
+ * "압축 N/M" (the daemon counts them). Every number can be replaced in ez-rules.json ("fatigue");
  * nothing about fatigue is decided anywhere else.
  */
 export const FATIGUE: Required<EzFatigue> = {
-  /** Without the engine's count, a context drop of more than this many points is a compaction. */
-  compactionDrop: 40,
   /** From here it sweats and walks slower, and its bar turns yellow. */
   tired: 60,
   /** From here it yawns now and then, and its bar turns red. */

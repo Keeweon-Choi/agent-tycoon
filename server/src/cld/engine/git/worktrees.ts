@@ -13,8 +13,12 @@
  * unless the caller says the user confirmed, and the branch goes only when it
  * is merged into its base (`git branch -d`).
  *
- * W2: a Task's worktree (`createForTask`): `.worktrees/<task id>-<slug>` on
- * branch `task/<task id>-<slug>` (lower case) from the project's main branch
+ * Names (branchName.ts): a branch is `<type>/<scope>-<what>` and its folder the same with `/` as `-`;
+ * records made before 2026-11 have `task/<name>` branches and plain folders, and keep them (a record
+ * holds both names, so nothing derives one from the other).
+ *
+ * W2: a Task's worktree (`createForTask`): `.worktrees/feat-t0042-<slug>` on
+ * branch `feat/t0042-<slug>` (lower case) from the project's main branch
  * or a named one, its record carrying `taskId`, `assignmentId` (who it is
  * given to), `createdBy` and `assignedAt`. Older records have none of these
  * and are read and written back as they are.
@@ -24,13 +28,15 @@ import * as path from 'path';
 
 import { koText, refused } from '../../../../../core/src/cld/serverText.js';
 import type { RepoWorktree } from '../../../../../core/src/messages.js';
+import { checkBranchName, folderOfBranch, MAX_BRANCH_NAME, taskBranch, uniqueBranch } from './branchName.js';
 import type { GitRunner } from './gitRun.js';
 import { READ_ENV, RepoError } from './gitRun.js';
 import type { ProjectFolder } from './repoRead.js';
 import { gitMessage, readStatus, repoRoot } from './repoRead.js';
 import type { WorktreeSpec } from './worktreeRead.js';
 
-export const TASK_PATTERN = /^[a-z0-9][a-z0-9-]{0,40}$/;
+/** A worktree folder name: a branch with its `/` turned into `-` (or an older plain task name). */
+export const TASK_PATTERN = new RegExp(`^[a-z0-9][a-z0-9-]{0,${MAX_BRANCH_NAME - 1}}$`);
 export const WORKTREES_DIR = '.worktrees';
 /** Anchored: only the project's own folder, matched in `.git/info/exclude`. */
 const EXCLUDE_LINE = `/${WORKTREES_DIR}/`;
@@ -169,26 +175,8 @@ async function commitExists(run: GitRunner, top: string, ref: string): Promise<b
 
 /** A Task id as the Task store writes it (tasks.ts ID_RE). */
 const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$/;
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 /** A base branch given by name: plain characters only, never an option or a ref expression. */
 const BASE_RE = /^(?![-./])(?!.*\.\.)(?!.*\/\/)(?!.*[./]$)(?!.*\.lock$)[A-Za-z0-9._/-]{1,200}$/;
-
-/** `title` as a branch-safe word: ASCII letters and digits, '-' between (Hangul drops out). */
-export function slugOf(title: string | undefined, max = 30): string {
-  return (title ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .slice(0, max)
-    .replace(/-+$/, '');
-}
-
-/** The folder (and branch) name of Task `taskId`'s worktree: `<id>-<slug>`, lower case, 41 at most. */
-export function taskWorktreeName(taskId: string, slug: string): string {
-  const id = taskId.toLowerCase().replace(/[._]/g, '-');
-  const name = slug ? `${id}-${slug}` : id;
-  return name.slice(0, 41).replace(/-+$/, '');
-}
 
 /** The branches a worktree must never be (F-10): main, master and every remote's default. */
 export async function protectedBranches(run: GitRunner, top: string): Promise<Set<string>> {
@@ -270,8 +258,10 @@ export class Worktrees {
   }
 
   /**
-   * new(project, task): `git worktree add <folder>/.worktrees/<task> -b task/<task>`
-   * from the current branch, `.worktrees/` kept out of the project's
+   * new(project, name): from the current branch, `git worktree add <folder>/.worktrees/<dir> -b <branch>`:
+   * a `name` with a `/` is a branch (`feat/iso-billboard`, checked by branchName.ts; a repeat gets
+   * `-2`, `-3`) in the folder `feat-iso-billboard`; a plain `name` is the older folder with
+   * branch `task/<name>`. `.worktrees/` kept out of the project's
    * tracked files (its `.git/info/exclude`), and the record written.
    * Throws a RepoError (Korean) when it cannot.
    */
@@ -281,9 +271,9 @@ export class Worktrees {
     /** W2: a Codex Worker's run for a Task (D5) records whose worktree it is. */
     meta: Pick<WorktreeRecord, 'taskId' | 'assignmentId' | 'createdBy'> = {},
   ): Promise<WorktreeRecord> {
-    if (!TASK_PATTERN.test(task)) {
-      throw new RepoError(koText('worktree_name_rule'));
-    }
+    const isBranch = task.includes('/');
+    const bad = isBranch ? checkBranchName(task) : TASK_PATTERN.test(task) ? null : koText('worktree_name_rule');
+    if (bad) throw new RepoError(bad, 'bad_name');
     return this.serial(async () => {
       const { run } = this.o;
       const top = await repoRoot(run, project.folder);
@@ -297,7 +287,10 @@ export class Worktrees {
           ? onBranch.stdout.toString('utf-8').trim()
           : head.stdout.toString('utf-8').trim();
       const at = (this.o.now?.() ?? new Date()).toISOString();
-      return this.add(project, top, task, base, null, {
+      const branch = isBranch
+        ? await uniqueBranch(task, (b) => this.taken(project, top, b))
+        : `task/${task}`;
+      return this.add(project, top, isBranch ? folderOfBranch(branch) : task, branch, base, null, {
         ...(meta.taskId && { taskId: meta.taskId }),
         ...(meta.createdBy && { createdBy: meta.createdBy }),
         ...(meta.assignmentId && { assignmentId: meta.assignmentId, assignedAt: at }),
@@ -306,19 +299,18 @@ export class Worktrees {
   }
 
   /**
-   * W2: Task `taskId`'s worktree: `.worktrees/<id>-<slug>` on `task/<id>-<slug>` from the
-   * project's main branch (or `base`), recorded with the Task and who it is given to. Refused
+   * W2: Task `taskId`'s worktree: `.worktrees/feat-t0042-<slug>` on `feat/t0042-<slug>`
+   * (branchName.ts) from the project's main branch (or `base`), recorded with the Task and who it is given to. Refused
    * (a RepoError, nothing made) for an unsafe name or base, a Task that has one, a protected
    * branch as the target, a checkout in the middle of a merge or rebase, and whatever create refuses.
    */
   async createForTask(project: ProjectFolder, o: TaskWorktreeOptions): Promise<WorktreeRecord> {
     if (!TASK_ID_RE.test(o.taskId)) throw new RepoError(koText('task_id_invalid'), 'bad_name');
-    if (o.slug !== undefined && !SLUG_RE.test(o.slug))
-      throw new RepoError(koText('slug_rule'), 'bad_name');
     if (o.base !== undefined && !BASE_RE.test(o.base))
       throw new RepoError(koText('base_name_invalid', { name: o.base.slice(0, 60) }), 'bad_name');
-    const task = taskWorktreeName(o.taskId, o.slug ?? slugOf(o.title));
-    if (!TASK_PATTERN.test(task)) throw new RepoError(koText('worktree_name_failed'));
+    const branch = taskBranch(o.taskId, o.title, o.slug);
+    const task = folderOfBranch(branch);
+    if (checkBranchName(branch) || !TASK_PATTERN.test(task)) throw new RepoError(koText('worktree_name_failed'));
     return this.serial(async () => {
       const { run } = this.o;
       const top = await repoRoot(run, project.folder);
@@ -330,13 +322,12 @@ export class Worktrees {
       if (!base) throw new RepoError(koText('base_not_found'), 'no_base');
       if (!(await commitExists(run, top, `refs/heads/${base}`)))
         throw new RepoError(koText('base_missing', { branch: base }), 'no_base');
-      const branch = `task/${task}`;
       if ((await protectedBranches(run, top)).has(branch))
         throw new RepoError(koText('worktree_protected', { branch }), 'protected');
       const busy = await operationInProgress(run, top);
       if (busy) throw new RepoError(koText('repo_busy', { operation: busy }), 'in_progress');
       const at = (this.o.now?.() ?? new Date()).toISOString();
-      return this.add(project, top, task, base, `refs/heads/${base}`, {
+      return this.add(project, top, task, branch, base, `refs/heads/${base}`, {
         taskId: o.taskId,
         createdBy: o.createdBy,
         ...(o.assignmentId && { assignmentId: o.assignmentId, assignedAt: at }),
@@ -344,11 +335,22 @@ export class Worktrees {
     });
   }
 
+  /** `branch` (or its folder) is already a worktree of the project, a folder on disk or a git branch. */
+  private async taken(project: ProjectFolder, top: string, branch: string): Promise<boolean> {
+    const dir = folderOfBranch(branch);
+    return (
+      readRecords(this.o.file).some((r) => r.project === project.name && r.status === 'active' && (r.task === dir || r.branch === branch)) ||
+      lexists(worktreePath(top, dir)) ||
+      (await commitExists(this.o.run, top, `refs/heads/${branch}`))
+    );
+  }
+
   /** The checks and the `git worktree add` both kinds share; inside serial(). `start` null: HEAD. */
   private async add(
     project: ProjectFolder,
     top: string,
     task: string,
+    branch: string,
     base: string,
     start: string | null,
     extra: Partial<WorktreeRecord>,
@@ -366,7 +368,6 @@ export class Worktrees {
       throw new RepoError(koText('worktrees_not_dir', { dir: WORKTREES_DIR }));
     }
     const wt = worktreePath(top, task);
-    const branch = `task/${task}`;
     const record = (): WorktreeRecord => ({
       project: project.name,
       task,

@@ -175,7 +175,7 @@ describe.skipIf(!GIT_AVAILABLE)('W3 RepoManager merge: policy and queue', () => 
     const proj = { name: 'alpha', folder: r.folder };
     const made: Record<string, string> = {};
     for (const [id, base, file] of [['t1', 'dev', 'one.txt'], ['t2', 'dev', 'two.txt'], ['m1', 'main', 'three.txt']] as const) {
-      const wt = await mgr.worktrees.createForTask(proj, { taskId: id, slug: 'x', base, createdBy: 'user' });
+      const wt = await mgr.worktrees.createForTask(proj, { taskId: id, slug: 'x', title: 'fix: x', /* the fixture has a branch named feat, which would block feat/… */ base, createdBy: 'user' });
       fs.writeFileSync(path.join(wt.path, file), `${id}\n`);
       r.git(['add', file], wt.path);
       r.git(['commit', '-qm', id], wt.path);
@@ -196,7 +196,7 @@ describe.skipIf(!GIT_AVAILABLE)('W3 RepoManager merge: policy and queue', () => 
     expect(a).toMatchObject({ ok: true });
     expect(b).toMatchObject({ ok: true });
     expect(r.git(['ls-tree', '--name-only', 'dev']).split('\n')).toEqual(expect.arrayContaining(['one.txt', 'two.txt']));
-    expect(r.git(['log', '-1', '--format=%s', 'dev']).trim()).toBe(`Merge branch 'task/${made.t2}' into dev`);
+    expect(r.git(['log', '-1', '--format=%s', 'dev']).trim()).toBe(`Merge branch '${made.t2.replace('fix-', 'fix/')}' into dev`);
   });
 
   it('a protected base: the automatic request is refused; a click needs step-up from a remote device', async () => {

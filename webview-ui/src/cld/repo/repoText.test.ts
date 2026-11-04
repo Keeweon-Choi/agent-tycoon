@@ -343,12 +343,12 @@ describe('W2: a Task worktree', () => {
   it('asks with the Task, the base and who gets it; sends taskId, assignee and base only when given', () => {
     expect(confirmText(ask)).toEqual({
       question: 'Create a worktree for Task T-3?',
-      note: 'A new branch task/… starts from the main branch, in a folder under the project’s .worktrees/. It goes to p-w1. A running session is not moved; it starts in this folder next time.',
+      note: 'A new branch (feat/t…-…) starts from the main branch, in a folder under the project’s .worktrees/. It goes to p-w1. A running session is not moved; it starts in this folder next time.',
       button: 'Create worktree',
       danger: false,
     });
     expect(confirmText({ ...ask, assignee: undefined, base: 'dev' }).note).toBe(
-      'A new branch task/… starts from dev, in a folder under the project’s .worktrees/.',
+      'A new branch (feat/t…-…) starts from dev, in a folder under the project’s .worktrees/.',
     );
     expect(confirmAction(ask)).toEqual({ action: 'worktreeNew', project: 'p', taskId: 'T-3', assignee: 'p-w1' });
     expect(confirmAction({ kind: 'worktreeNew', project: 'p', taskId: 'T-3', base: 'dev' })).toEqual({

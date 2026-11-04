@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ISO_FRAME_MARGIN, PHONE_ISO_ZOOM_MIN } from '../../constants.js';
+import { billboardBox } from './billboard.js';
 import {
   clampIsoPan,
   fitZoom,
@@ -8,6 +9,7 @@ import {
   newIsoCam,
   occupiedRoomsBox,
   phoneFitZoom,
+  phoneFrame,
   stackCentre,
   viewTarget,
 } from './camera.js';
@@ -71,6 +73,25 @@ describe('phone isometric framing', () => {
     expect(fitZoom(phoneView, floorBox(stack, 1), 3)).toBeLessThan(PHONE_ISO_ZOOM_MIN);
   });
 
+  it('on the ground floor the first view holds the billboard too (it is wider than the 6x frame)', () => {
+    const rooms = floorBox(stack, 0);
+    const e = billboardBox(stack).extent;
+    const at = phoneFrame(stack, 0, phoneView, rooms, 3);
+    expect(at.zoom).toBeLessThan(phoneFitZoom(phoneView, rooms, 3));
+    const cx = (at.box.x0 + at.box.x1) / 2;
+    const cy = (at.box.y0 + at.box.y1) / 2;
+    expect(cx - phoneView.w / 2 / at.zoom).toBeLessThanOrEqual(e.x0);
+    expect(cx + phoneView.w / 2 / at.zoom).toBeGreaterThanOrEqual(e.x1);
+    expect(cy - phoneView.h / 2 / at.zoom).toBeLessThanOrEqual(e.y0);
+    expect(cy + phoneView.h / 2 / at.zoom).toBeGreaterThanOrEqual(e.y1);
+    // an upper floor has no billboard: the rooms alone, as before
+    const up = occupiedRoomsBox(stack, 1, layout, inRoomB)!;
+    expect(phoneFrame(stack, 1, phoneView, up, 3)).toEqual({
+      box: up,
+      zoom: phoneFitZoom(phoneView, up, 3),
+    });
+  });
+
   it('takes only the rooms with someone in them, else every room of the floor', () => {
     const b = occupiedRoomsBox(stack, 1, layout, inRoomB)!;
     const all = occupiedRoomsBox(stack, 1, layout, [])!;
@@ -124,6 +145,22 @@ describe('phone isometric framing', () => {
       phoneBox: () => box,
     });
     expect(kept).toEqual({ pan: moved });
+  });
+
+  it('starts on the followed owner at the rooms zoom, not the ground floor billboard frame', () => {
+    const rooms = occupiedRoomsBox(stack, 1, layout, inRoomB)!; // (the test layout has rooms on floor 2 only)
+    const ground = { ...phone, level: 0, focusId: '1', phoneBox: () => rooms };
+    const cam = newIsoCam();
+    const first = isoCameraStep(cam, ground);
+    expect(first.zoom).toBeLessThan(phoneFitZoom(phoneView, rooms, 3)); // the billboard frame
+    const feet = { x: 10, y: 20 };
+    const out = isoCameraStep(cam, { ...ground, zoom: first.zoom!, pan: first.pan, follow: feet });
+    expect(out.zoom).toBe(phoneFitZoom(phoneView, rooms, 3));
+    expect(out.zoom).toBeGreaterThanOrEqual(PHONE_ISO_ZOOM_MIN);
+    expect(out.pan).toEqual(panTo(feet, stackCentre(stack), out.zoom!));
+    // a follow that starts later keeps the zoom it has
+    const later = isoCameraStep(cam, { ...ground, zoom: out.zoom!, pan: out.pan, follow: feet });
+    expect(later.zoom).toBeUndefined();
   });
 
   it('keeps a manual zoom and pan, and reframes on a toggle back to the floor', () => {

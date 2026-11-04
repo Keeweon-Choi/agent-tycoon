@@ -2,24 +2,19 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLanguage } from '../../i18n/index.js';
 import {
+  basisOf,
+  compactionText,
+  contextGaugeTitle,
   contextPct,
-  type ContextSample,
+  contextPctText,
   fatigueLook,
   fatigueOf,
   fatigueRules,
   fatigueText,
-  nextContextSample,
 } from './fatigueState.js';
 import { FATIGUE } from './rules.js';
 
 beforeEach(() => setLanguage('ko'));
-
-/** Feed snapshots (tokens of a 200k window) through the drop counter. */
-const feed = (tokens: number[], max = 200_000, rules = FATIGUE) =>
-  tokens.reduce<ContextSample | undefined>(
-    (prev, t) => nextContextSample(prev, t, max, rules),
-    undefined,
-  )!;
 
 describe('fatigue formula (T-0045: exactly the context saturation)', () => {
   it.each([
@@ -41,10 +36,8 @@ describe('fatigue formula (T-0045: exactly the context saturation)', () => {
   });
 
   it('is contextTokens / maxContextTokens as a percent', () => {
-    expect(fatigueLook(contextPct({ tokens: 160_000, max: 200_000, drops: 0 }), 0).value).toBe(80);
-    expect(fatigueLook(contextPct({ tokens: 160_000, max: 1_000_000, drops: 0 }), 0).value).toBe(
-      16,
-    );
+    expect(fatigueLook(contextPct({ tokens: 160_000, max: 200_000 }), 0).value).toBe(80);
+    expect(fatigueLook(contextPct({ tokens: 160_000, max: 1_000_000 }), 0).value).toBe(16);
   });
 });
 
@@ -60,26 +53,45 @@ describe('the fatigue line: \ud53c\ub85c\ub3c4 N% · \ud734\uc2dd N/M', () => {
   });
 });
 
-describe('compactions from context drops (no office count)', () => {
-  it('a drop of more than 40 points between snapshots is one compaction', () => {
-    expect(feed([180_000, 20_000]).drops).toBe(1); // 90% -> 10%
-    expect(feed([180_000, 20_000, 170_000, 30_000]).drops).toBe(2);
+describe('where the limit comes from (FR-STA-005)', () => {
+  it('says nothing on a reported limit and "≈" on an estimated one', () => {
+    expect(contextPctText(80, 'reported')).toBe('80');
+    expect(contextPctText(80, 'estimated')).toBe('≈80');
+    expect(fatigueText(fatigueLook(80, 1, FATIGUE, 2, 'estimated'))).toBe(
+      '\ud53c\ub85c\ub3c4 ≈80% · \ud734\uc2dd 1/2',
+    );
+    expect(fatigueText(fatigueLook(80, 1, FATIGUE, 2, 'reported'))).toBe(
+      '\ud53c\ub85c\ub3c4 80% · \ud734\uc2dd 1/2',
+    );
   });
 
-  it('a drop of exactly 40 points, or a slow decline, is not', () => {
-    expect(feed([100_000, 20_000]).drops).toBe(0); // 50% -> 10%: 40 points
-    expect(feed([180_000, 140_000, 100_000, 60_000, 20_000]).drops).toBe(0);
+  it('a server that names no basis sent an estimate; the default look claims none', () => {
+    expect(basisOf(undefined)).toBe('estimated');
+    expect(basisOf('reported')).toBe('reported');
+    expect(fatigueLook(10, 0).basis).toBe('reported');
   });
 
-  it('a wider window lowers the percent without a compaction', () => {
-    const before = nextContextSample(undefined, 180_000, 200_000);
-    const wider = nextContextSample(before, 190_000, 1_000_000); // 90% -> 19%, tokens rose
-    expect(contextPct(wider)).toBeCloseTo(19);
-    expect(wider.drops).toBe(0);
+  it('the gauge hover has ≈ and the reason for an estimate, tokens only for an unknown window', () => {
+    expect(contextGaugeTitle(250_000, 1_000_000, 'estimated')).toBe(
+      '\ucee8\ud14d\uc2a4\ud2b8 ≈25% \uc0ac\uc6a9 (250k / 1000k \ud1a0\ud070)\n\ucd94\uc815: \ubaa8\ub378 \uc774\ub984\uc73c\ub85c \ud55c\ub3c4\ub97c \uace8\ub790\uc5b4\uc694',
+    );
+    expect(contextGaugeTitle(250_000, 1_000_000, 'reported')).toBe(
+      '\ucee8\ud14d\uc2a4\ud2b8 25% \uc0ac\uc6a9 (250k / 1000k \ud1a0\ud070)',
+    );
+    const unknown = contextGaugeTitle(52_000, 200_000, 'unknown');
+    expect(unknown).toContain('52k \ud1a0\ud070 · \ud55c\ub3c4 \ubaa8\ub984');
+    expect(unknown).not.toContain('%');
   });
+});
 
-  it('takes the drop size from the rules', () => {
-    expect(feed([100_000, 20_000], 200_000, fatigueRules({ compactionDrop: 30 })).drops).toBe(1);
+describe('the rest count from the daemon', () => {
+  it('a partial count reads as a floor', () => {
+    expect(compactionText(fatigueLook(10, 2, FATIGUE, null, 'reported', true))).toBe(
+      '\ud734\uc2dd ≥2',
+    );
+    expect(compactionText(fatigueLook(10, 2, FATIGUE, 3, 'reported', false))).toBe(
+      '\ud734\uc2dd 2/3',
+    );
   });
 });
 

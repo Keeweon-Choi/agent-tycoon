@@ -10,6 +10,9 @@
  * '같은 구성요소' and lists what was merged into it; [구성요소 추가] and [관계 추가] add by hand; the
  * '제안' toggle shows the folder skeleton dimmed, each folder with [승인] [이름 바꾸기] [합치기] [빼기].
  * On a phone the detail and the dialogs take the full screen.
+ *
+ * SPT C1: the 지도's [설계 그림] (a secondary view of the structure); [제안 모두 승인] and its
+ * [되돌리기] moved here from the old map's head (the arch read carries `pending` and `lastBatch`).
  */
 import { Controls, Handle, type Node, type NodeChange, type NodeProps, Position, ReactFlow } from '@xyflow/react';
 import { createContext, memo, type ReactNode, useCallback, useContext, useMemo, useState } from 'react';
@@ -21,6 +24,7 @@ import { Modal } from '../../components/ui/Modal.js';
 import { SPEC_DIALOG_Z, SPEC_GRAPH_ZOOM } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { cldToast } from '../officeStore.js';
+import { useCanAct } from '../workbench/workbenchStore.js';
 import { type ArchFoldData, type ArchGroupData, type ArchNodeData, foldArch, layoutArch, toArchFlow } from './archModel.js';
 import { ReqDetail } from './ReqDetail.js';
 import { archWrite, useTrace } from './traceApi.js';
@@ -341,6 +345,9 @@ export function ArchGraph({ project, mobile, head }: { project: string; mobile: 
   const picked = sel ? byId.get(sel) : undefined;
   const height = mobile ? 'h-[60dvh]' : 'h-[min(560px,65vh)]';
   const c = data?.counts;
+  const canAct = useCanAct();
+  const pending = data?.pending;
+  const nPending = (pending?.diagrams.length ?? 0) + (pending?.folders.length ?? 0);
 
   return (
     <div className="flex-1 min-w-0 space-y-8 text-xs" data-testid="arch-graph">
@@ -360,6 +367,21 @@ export function ArchGraph({ project, mobile, head }: { project: string; mobile: 
           {t('spec.arch.interaction')}
         </Button>
       </div>
+      {canAct && (!!nPending || !!data?.lastBatch) && (
+        <div className="flex flex-wrap items-center gap-8" data-testid="arch-batch">
+          {!!nPending && (
+            <Button size="sm" variant="active" onClick={() => act(archWrite.approveAll(project, pending!))} data-testid="arch-approve-all">
+              {t('spec.arch.approveAll', { diagrams: pending!.diagrams.length, folders: pending!.folders.length })}
+            </Button>
+          )}
+          {data?.lastBatch && (
+            <Button size="sm" onClick={() => act(archWrite.undoAll(project, data.lastBatch!.id))} data-testid="arch-undo-all">
+              {t('spec.arch.undoAll', { diagrams: data.lastBatch.diagrams, folders: data.lastBatch.folders })}
+            </Button>
+          )}
+          {!!nPending && <span className={muted}>{t('spec.arch.approveHint')}</span>}
+        </div>
+      )}
       {c && (
         <p data-testid="arch-counts" data-approved={c.approved} data-proposed={c.proposed} data-from-docs={c.fromDocs}>
           {t('spec.arch.counts', { approved: c.approved, proposed: c.proposed, fromDocs: c.fromDocs })}

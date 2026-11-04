@@ -192,8 +192,8 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     const r = await service.arch(p, request.query ?? {});
     return r.ok ? r.value : fail(reply, r.error);
   });
-  // MAP-A: the 지도's structure view of one selected item (root or a module).
-  app.get<{ Params: Params; Querystring: { uid?: unknown } }>('/api/cld/spec/:project/map', opts, async (request, reply) => {
+  // SPT C1-C2: the 지도 (features × structure); ?feature= a feature's requirements and chain, ?block= a cell's detail, ?in= the cells entered.
+  app.get<{ Params: Params; Querystring: { feature?: unknown; in?: unknown; block?: unknown } }>('/api/cld/spec/:project/map', opts, async (request, reply) => {
     const p = gate(request, reply, false);
     if (!p) return reply;
     const r = await service.map(p, request.query ?? {});
@@ -375,15 +375,6 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     const r = await service.archUndoBatch(p, request.body ?? {}, deviceOf(request));
     if (!r.ok) return fail(reply, r.error);
     archAudit(request, 'arch-undo-all', p, [r.value.batch]);
-    return { ok: true };
-  });
-  // MAP-A [부모 정하기]: UIDs only in the log.
-  app.post<{ Params: Params; Body: { uid?: unknown; parent?: unknown } | undefined }>('/api/cld/spec/:project/arch/parent', opts, async (request, reply) => {
-    const p = gate(request, reply, true);
-    if (!p) return reply;
-    const r = await service.archParent(p, request.body ?? {}, deviceOf(request));
-    if (!r.ok) return fail(reply, r.error);
-    archAudit(request, 'arch-parent', p, [r.value.uid, r.value.parent ?? 'none']);
     return { ok: true };
   });
   app.post<{ Params: Params; Body: { path?: unknown; action?: unknown; label?: unknown; into?: unknown } | undefined }>('/api/cld/spec/:project/arch/skeleton', opts, async (request, reply) => {

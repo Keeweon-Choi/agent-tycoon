@@ -8,8 +8,10 @@
 import {
   CAMERA_FOLLOW_LERP,
   ISO_FRAME_MARGIN,
+  ISO_LOBBY_WALL_CUT,
   ISO_SLAB_H,
   ISO_WALL_H,
+  PHONE_ISO_BOTTOM_CLEAR_CSS,
   PHONE_ISO_SETTLE_S,
   PHONE_ISO_ZOOM_MAX,
   PHONE_ISO_ZOOM_MIN,
@@ -17,6 +19,7 @@ import {
   ZOOM_MIN,
 } from '../../constants.js';
 import { glidePan, initialCameraFit } from '../camera.js';
+import { billboardBox } from './billboard.js';
 import { floorBox, isoAt, type IsoStack, panTo, type Pt } from './projection.js';
 
 type Box = IsoStack['box'];
@@ -40,6 +43,44 @@ export function fitZoom(view: { w: number; h: number }, box: Box, dpr = 1): numb
  *  stays readable (the box then overflows and is panned) nor closer than one small room. */
 export const phoneFitZoom = (view: { w: number; h: number }, box: Box, dpr = 1): number =>
   Math.max(PHONE_ISO_ZOOM_MIN, Math.min(PHONE_ISO_ZOOM_MAX, fitZoom(view, box, dpr)));
+
+/**
+ * What the phone's first view frames: the occupied rooms (`rooms`) at a readable zoom, and on the
+ * ground floor the billboard in front of the building too. The billboard is wider than the
+ * readable frame (a phone is ~390 CSS px wide) and its foot must clear the view's floating buttons, so the zoom steps down to the one that fits its
+ * width, and the frame is moved only as far as it takes to bring the billboard into view.
+ * Returns `rooms` moved (its middle is where the view centres) and the zoom. Upper floors have
+ * no billboard: the rooms alone.
+ */
+export function phoneFrame(
+  stack: IsoStack,
+  level: number,
+  view: { w: number; h: number },
+  rooms: Box,
+  dpr = 1,
+): { box: Box; zoom: number } {
+  const zoom = phoneFitZoom(view, rooms, dpr);
+  if (level !== 0) return { box: rooms, zoom };
+  const e = billboardBox(stack).extent;
+  const z = Math.min(zoom, fitZoom(view, e, dpr));
+  // Per axis: keep the rooms' middle unless the billboard (and a margin) falls off the view.
+  const shift = (mid: number, lo: number, hi: number, viewLen: number) => {
+    const half = viewLen / 2 / z - ISO_FRAME_MARGIN;
+    const at = Math.max(hi - half, Math.min(lo + half, mid));
+    return at - mid;
+  };
+  const dx = shift((rooms.x0 + rooms.x1) / 2, e.x0, e.x1, view.w);
+  const dy = shift(
+    (rooms.y0 + rooms.y1) / 2,
+    e.y0,
+    e.y1 + (PHONE_ISO_BOTTOM_CLEAR_CSS * dpr) / z,
+    view.h,
+  );
+  return {
+    box: { x0: rooms.x0 + dx, x1: rooms.x1 + dx, y0: rooms.y0 + dy, y1: rooms.y1 + dy },
+    zoom: z,
+  };
+}
 
 /**
  * PHONE-ZOOM: the iso bounds of the rooms (area labels) of floor `level` that hold an
@@ -87,6 +128,18 @@ export function clampIsoPan(pan: Pt, stack: IsoStack, zoom: number): Pt {
   return x === at.x && y === at.y ? pan : panTo({ x, y }, c, zoom);
 }
 
+/** What the whole-building view frames: the building and the billboard in front of it. */
+export function buildingFrame(stack: IsoStack): Box {
+  const b = stack.box;
+  const e = billboardBox(stack).extent;
+  return {
+    x0: Math.min(b.x0, e.x0),
+    y0: Math.min(b.y0, e.y0),
+    x1: Math.max(b.x1, e.x1),
+    y1: Math.max(b.y1, e.y1),
+  };
+}
+
 /** The iso px the view centres on for a focus, in either view. In the whole-building view the
  *  building stays centred while it fits, else the focus floor is brought as near the middle as
  *  the building's ends allow. */
@@ -99,8 +152,17 @@ export function viewTarget(
 ): Pt {
   const f = floorBox(stack, level);
   const mid = (b: Box): Pt => ({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 });
-  if (!building) return mid(f);
-  const b = stack.box;
+  if (!building) {
+    // billboard2-1104: the lobby's view moves down until its billboard's screen is in it, as far
+    // as the back walls lose no more than ISO_LOBBY_WALL_CUT off their tops (the floor keeps its
+    // zoom; the posts may go below the view).
+    if (level !== 0) return mid(f);
+    const half = view.h / 2 / zoom;
+    const c = mid(f);
+    const face = billboardBox(stack).y1 + ISO_FRAME_MARGIN / 3;
+    return { x: c.x, y: Math.min(f.y0 + half + ISO_LOBBY_WALL_CUT, Math.max(c.y, face - half)) };
+  }
+  const b = buildingFrame(stack);
   const half = view.h / 2 / zoom;
   const centre = mid(b);
   if (b.y1 - b.y0 <= 2 * half) return centre;
@@ -184,12 +246,14 @@ export function isoCameraStep(
     st.phoneFit = phoneFit;
     st.settle = phoneFit && !input.manual ? PHONE_ISO_SETTLE_S : 0;
     const floor = floorBox(stack, input.level);
-    const rooms = phoneFit ? (input.phoneBox?.() ?? floor) : floor;
-    const desktopBox = building ? stack.box : floor;
+    const phoneAt = phoneFit
+      ? phoneFrame(stack, input.level, view, input.phoneBox?.() ?? floor, input.dpr)
+      : null;
+    const desktopBox = building ? buildingFrame(stack) : floor;
     const fit = initialCameraFit({
       phone: phoneFit,
       desktop: { box: desktopBox, zoom: fitZoom(view, desktopBox, input.dpr) },
-      phoneTarget: { box: rooms, zoom: phoneFitZoom(view, rooms, input.dpr) },
+      phoneTarget: phoneAt ?? { box: floor, zoom: fitZoom(view, floor, input.dpr) },
       ...(input.manual && { storedZoom: input.zoom }),
     });
     if (input.manual) {
@@ -211,8 +275,18 @@ export function isoCameraStep(
     st.settle = input.manual || input.focusId !== st.focusKey ? 0 : st.settle - input.dt;
     const rooms = input.phoneBox?.();
     if (rooms && st.settle > 0 && !input.follow) {
+      const at = phoneFrame(stack, input.level, view, rooms, input.dpr);
+      const zoom = at.zoom;
+      const next = panTo(boxMid(at.box), centre, zoom);
+      st.wrote = next;
+      return { pan: next, ...(zoom !== input.zoom && { zoom }) };
+    }
+    if (rooms && input.follow) {
+      // The phone opens on the owner's character (owner 11-04): the follow starts at the rooms'
+      // own zoom (the billboard frame is wider than a character wants), centred at once.
+      st.settle = 0;
       const zoom = phoneFitZoom(view, rooms, input.dpr);
-      const next = panTo(boxMid(rooms), centre, zoom);
+      const next = panTo(input.follow, centre, zoom);
       st.wrote = next;
       return { pan: next, ...(zoom !== input.zoom && { zoom }) };
     }
@@ -231,7 +305,9 @@ export function isoCameraStep(
     st.focusKey = input.focusId;
     const rooms = st.phoneFit ? input.phoneBox?.() : null;
     const target = panTo(
-      rooms ? boxMid(rooms) : viewTarget(stack, input.level, building, view, input.zoom),
+      rooms
+        ? boxMid(phoneFrame(stack, input.level, view, rooms, input.dpr).box)
+        : viewTarget(stack, input.level, building, view, input.zoom),
       centre,
       input.zoom,
     );

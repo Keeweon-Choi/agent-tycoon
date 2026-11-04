@@ -267,6 +267,9 @@ async function shown(home: string, typed: Array<{ id: string; text: string }>) {
   return { t, send, view };
 }
 
+// LOOKS-MEM: the chip thumbnails a built-in sheet leaves in cache/ are derived, and exist only where a pack is installed.
+const notCache = (k: string) => !k.startsWith('cache/');
+
 describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens survive D3', () => {
   it('the same contact list, rooms, members, timelines, queue, favourites and tokens; nothing rewritten', async () => {
     const { home, files } = d2Home();
@@ -348,7 +351,7 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     // no journal); only what every start wrote before D3b (on a used machine: there already).
     const allAfter = everything();
     expect({
-      added: Object.keys(allAfter).filter((k) => !(k in allBefore)).sort(),
+      added: Object.keys(allAfter).filter((k) => !(k in allBefore)).filter(notCache).sort(),
       changed: Object.keys(allBefore).filter((k) => allAfter[k] !== allBefore[k]),
     }).toEqual({
       // The first start splits each room log by month (groupLogFiles.ts): the same lines, in the month file.
@@ -481,7 +484,7 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
     t.stop();
     const after = everything();
     expect({
-      added: Object.keys(after).filter((k) => !(k in before)).sort(),
+      added: Object.keys(after).filter((k) => !(k in before)).filter(notCache).sort(),
       changed: Object.keys(before).filter((k) => after[k] !== before[k]),
     }).toEqual({ added: ['characters.json', 'characters/README.md', 'engine.boot', 'host.json', 'owner-token'], changed: [] });
     expect(JSON.parse(after['characters.json']).$meta).toMatchObject({ v: STORE_META_V }); // CH-1 pin

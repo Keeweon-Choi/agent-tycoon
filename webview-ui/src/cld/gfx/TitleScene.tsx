@@ -32,7 +32,6 @@ import {
   snapExact,
   useTitleScene,
 } from './titleSceneState.js';
-import { useWarmUp } from './warmUp.js';
 
 function useTransportState(): TransportState {
   const [s, setS] = useState<TransportState>(transport.state);
@@ -167,8 +166,9 @@ function Logo({ css }: { css: number }) {
 }
 
 export function TitleScene({ phone }: { phone: boolean }) {
-  const { open } = useTitleScene();
-  return open ? createPortal(<Title phone={phone} />, document.body) : null;
+  const { open, booting } = useTitleScene();
+  // BOOT-LOAD: the loading screen (BootScreen.tsx) is in front until the first view is ready.
+  return open && !booting ? createPortal(<Title phone={phone} />, document.body) : null;
 }
 
 function Title({ phone }: { phone: boolean }) {
@@ -208,7 +208,6 @@ function Title({ phone }: { phone: boolean }) {
   }, [box, phone]);
   const socket = useTransportState();
   const connector = useConnector();
-  const warm = useWarmUp();
   useEffect(() => {
     // 사무실 입장 takes the focus also when the lobby opens from the 로비 button (that click's
     // own focus lands after autoFocus), so Enter is always the office.
@@ -306,17 +305,6 @@ function Title({ phone }: { phone: boolean }) {
         >
           <span data-daemon={daemon}>{t(`gfx.title.daemon.${daemon}`)}</span>
           {remote && <span data-remote={remote}>{t(`gfx.title.remote.${remote}`)}</span>}
-          {warm.total > 0 && (
-            <span
-              className="text-text-muted"
-              data-testid="title-warm"
-              data-done={warm.done >= warm.total ? '1' : '0'}
-            >
-              {warm.done >= warm.total
-                ? t('sheetImport.warmDone')
-                : t('sheetImport.warm', { done: warm.done, total: warm.total })}
-            </span>
-          )}
         </p>
       </div>
       {help && (

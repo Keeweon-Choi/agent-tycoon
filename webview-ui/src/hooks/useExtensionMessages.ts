@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { HooksConsentRequest, ServerMessage } from '../../../core/src/messages.js';
+import type { ContextLimitBasis, HooksConsentRequest, ServerMessage } from '../../../core/src/messages.js';
 import { cldNotice } from '../cld/notify/notices.js';
-import { cldGetSnapshot, cldHandleMessage, virtualAgentId } from '../cld/officeStore.js';
+import { cldGetSnapshot, cldHandleMessage, rowOf, virtualAgentId } from '../cld/officeStore.js';
 import { syncUnattachedActive } from '../cld/restSync.js';
 import {
   codexLook,
@@ -12,6 +12,7 @@ import {
   reviveSubagent,
   staffLoading,
 } from '../cld/staff.js';
+import { atWork, engineTurn } from '../cld/turnState.js';
 import { RESYNC_QUIET_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
@@ -253,10 +254,14 @@ export function useExtensionMessages(
     let pendingAgents: PendingAgent[] = [];
     let officeCharacterIds = new Set<number>();
     // REST-BUSY: orchestrators with no live agent (no agentStatus will ever reach them).
+    // STATE-SYNC: an engine session the engine has at work sits at its desk (a job wait or a
+    // turn the transcript is quiet in sends no agentStatus), and one that is off does not.
     const unattachedRows = () =>
-      (cldGetSnapshot().officeSnapshot?.orchestrators ?? [])
-        .filter((o) => o.agentId == null)
-        .map((o) => ({ id: virtualAgentId(`orch:${o.name}`), busy: o.busy }));
+      (cldGetSnapshot().officeSnapshot?.orchestrators ?? []).flatMap((o) => {
+        if (o.agentId == null) return [{ id: virtualAgentId(`orch:${o.name}`), busy: o.busy }];
+        const turn = engineTurn(o);
+        return atWork(turn) || turn === 'off' ? [{ id: o.agentId, busy: atWork(turn) }] : [];
+      });
     // cld-gui (T-0025): until when a resync's replayed states make no sound.
     let quietUntil = 0;
 
@@ -655,7 +660,11 @@ export function useExtensionMessages(
           if ((prev[id] ?? false) === asks) return prev;
           return { ...prev, [id]: asks };
         });
-        os.setAgentActive(id, status === 'active');
+        // STATE-SYNC: a turn end while its job still runs keeps it at its desk.
+        os.setAgentActive(
+          id,
+          status === 'active' || engineTurn(rowOf(id, cldGetSnapshot().officeSnapshot)) === 'job',
+        );
         if (status === 'waiting') {
           os.showWaitingBubble(id, msg.awaitingInput === true);
           // cld-gui (T-0039): the cld office says who and why (toast, pulse, bell).
@@ -926,7 +935,12 @@ export function useExtensionMessages(
         );
       } else if (msg.type === 'agentContextUsage') {
         const id = msg.id as number;
-        os.setAgentContext(id, msg.contextTokens as number, msg.maxContextTokens as number);
+        os.setAgentContext(
+          id,
+          msg.contextTokens as number,
+          msg.maxContextTokens as number,
+          msg.limitBasis as ContextLimitBasis | undefined,
+        );
       }
     };
     const unsubscribe = transport.onMessage(handler);

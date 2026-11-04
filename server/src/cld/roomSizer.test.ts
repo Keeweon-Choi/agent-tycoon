@@ -79,16 +79,15 @@ describe('room sizes (T-0041)', () => {
     expect(Object.keys(seats)).toEqual(['engine:o0', 'engine:o1']);
   });
 
-  it('has room to walk: two tiles of floor between the walls and the desks', () => {
+  it('has room to walk: at least two tiles of floor between the walls and the desks', () => {
     const { layout } = size(2, 2);
     const desk = layout.furniture.find((f) => f.type === 'DESK_FRONT')!;
     const at = (c: number, r: number) => layout.tiles[r * layout.cols + c];
-    // The room's wall is three tiles above and left of its first desk.
-    expect(at(desk.col - 3, desk.row)).toBe(0);
-    expect(at(desk.col - 2, desk.row)).not.toBe(0);
-    expect(at(desk.col - 1, desk.row)).not.toBe(0);
-    expect(at(desk.col, desk.row - 3)).toBe(0);
-    expect(at(desk.col, desk.row - 2)).not.toBe(0);
+    // floors-fill-1104: a grown room centres its desks, so the wall may be further off.
+    for (const k of [1, 2]) {
+      expect(at(desk.col - k, desk.row)).not.toBe(0);
+      expect(at(desk.col, desk.row - k)).not.toBe(0);
+    }
   });
 
   it('spills rooms that would pass 64 rows instead of shrinking them', () => {

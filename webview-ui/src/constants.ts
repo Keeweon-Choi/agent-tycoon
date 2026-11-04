@@ -142,6 +142,30 @@ export const LIGHT_WARM_POOL = {
 export const HD_TEST_MARKER_COLOR = '#FFFFFF';
 /** GFX title scene: over the HUD (48-49), under the dialogs (50+) its menu opens. */
 export const TITLE_SCENE_Z = 49;
+/** BOOT-LOAD: the loading screen in front of the lobby, its steps in order with their weight (their
+ *  share of the bar, about the time each takes on a phone). */
+export const BOOT_STEPS = [
+  { id: 'connect', weight: 1 },
+  { id: 'office', weight: 2 },
+  { id: 'fonts', weight: 1 },
+  { id: 'lobby', weight: 2 },
+  { id: 'looks', weight: 3 },
+  { id: 'iso', weight: 2 },
+  { id: 'warm', weight: 4 },
+  { id: 'frame', weight: 1 },
+] as const;
+/** BOOT-LOAD: a step still waiting this long after the start is skipped (it carries on behind the
+ *  lobby, as before); the daemon's steps are never skipped. */
+export const BOOT_GIVE_UP_MS = 15_000;
+/** BOOT-LOAD: no daemon this long after the start: the retry panel shows (the socket keeps trying). */
+export const BOOT_ALERT_MS = 8_000;
+/** BOOT-LOAD: queued pictures built per animation frame while the loading screen shows (nothing
+ *  else moves then; the office's own slice is WARM_SLICE_MS). */
+export const BOOT_WARM_SLICE_MS = 12;
+/** BOOT-LOAD: navigator.deviceMemory (GB) at or under this, or a phone: only the zoom shown warms. */
+export const BOOT_LEAN_MEMORY_GB = 4;
+/** BOOT-LOAD: the bar's cells (5 % each). */
+export const BOOT_BAR_SEGMENTS = 20;
 /** GFX title scene: the owner's logo sign (art px), drawn at whole device px per art px, as wide
  *  as the title box allows and at most this share of the window's height (a phone held sideways). */
 export const TITLE_LOGO = { w: 135, h: 62, maxHeightShare: 0.25 } as const;
@@ -414,6 +438,10 @@ export const MAX_DELTA_TIME_SEC = 0.1;
  *  input on the office, take it back to the full frame rate on the very frame
  *  they start. */
 export const OFFICE_IDLE_FPS = 10;
+/** PAGE-MEM (owner 11-04 21:13: CPU 15 %, GPU 23 % with nobody using it): with no input, when only
+ *  characters move on their own (a walk, a waiting bubble, a pet), the office draws this often;
+ *  input, the camera and effects keep the full rate. */
+export const OFFICE_AMBIENT_FPS = 30;
 /** How long after the last pointer, touch, wheel or key input the office keeps
  *  drawing at the full rate (a hover, a drag, a key walk about to begin). */
 export const OFFICE_INPUT_GRACE_MS = 800;
@@ -904,9 +932,15 @@ export const MUGSHOT_RENDER_ZOOM = 2;
 /** The zoom step HD characters ask the camera for (32×64: even zooms); an HD64 character draws
  *  its 32×64 copy at those, so it asks no more. */
 export const HD_ZOOM_STEP = 2;
-/** SHEET-IMPORT: detailed characters (density 4 and up) draw one master at any zoom; the zooms'
- *  pictures are kept up to this many bytes (least recently used zoom dropped first). */
-export const SMOOTH_CACHE_MAX_BYTES = 48 * 1024 * 1024;
+/** PAGE-MEM (owner 11-04 21:13, 2 GB in the desktop app): every picture the office builds from
+ *  sprites and can build again (each zoom's character and furniture frames, the detailed
+ *  characters' pictures and mip levels) shares this many bytes, least recently used let go first
+ *  (office/sprites/pictureBudget.ts). The pixels and what each picture costs besides them. */
+export const PICTURE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+/** Measured in headless Chromium (11-04): a small canvas costs ~28 KB besides its pixels (its
+ *  2D context and surface), an ImageBitmap ~7 KB. */
+export const PICTURE_CANVAS_OVERHEAD_BYTES = 28 * 1024;
+export const PICTURE_BITMAP_OVERHEAD_BYTES = 7 * 1024;
 /** SHEET-IMPORT: a drawn frame and the queued pictures built after it (warm-up) take at most
  *  this long together; an idle callback leaves this much of its time unused. */
 export const WARM_SLICE_MS = 6;
@@ -917,6 +951,9 @@ export const WARM_FORCE_EVERY = 4;
  *  outlines and the spawn effect (density 4: 64×128). */
 export const IMPORT_DENSITY = 12;
 export const IMPORT_PROXY_DENSITY = 4;
+/** PAGE-MEM: an imported sheet the office wears is kept at the density its closest zoom draws
+ *  (ZOOM_MAX device px per world px), not its own 12: 0.69 of the pixels, as sharp at every zoom. */
+export const IMPORT_MASTER_DENSITY = ZOOM_MAX;
 /** SHEET-IMPORT (owner 10-26 03:10): an imported character's world frame (24×44 px, its standing
  *  figure 1.3 classic ones tall), and the density the 64×128 pack characters draw at (3: 1.33
  *  times their 16×32 world size, as tall as an imported one). */
@@ -1145,19 +1182,6 @@ export const MSG_QUESTION_SENTENCES = 3;
 export const MSG_FOLD_SENTENCES = 8;
 /** 02: folded records kept per conversation (this page only). */
 export const MSG_QUEST_RECORDS_MAX = 20;
-/** 04: the envelope's flight: frames, one every MSG_ENVELOPE_FRAME_MS, on an arc this high. */
-export const MSG_ENVELOPE_FRAMES = 8;
-/** 04: one sprite pixel is this many screen pixels. */
-export const MSG_ENVELOPE_SCALE = 3;
-/** 04: the two trailing dots follow the envelope by these shares of the flight, each this many px wide. */
-export const MSG_ENVELOPE_TRAIL = [0.06, 0.12] as const;
-export const MSG_ENVELOPE_TRAIL_PX = 6;
-export const MSG_ENVELOPE_FRAME_MS = 60;
-export const MSG_ENVELOPE_ARC_PX = 120;
-/** 04: the squashed landing frame. */
-export const MSG_ENVELOPE_SQUASH_MS = 80;
-/** 04: the row's face frame lit as the envelope goes in. */
-export const MSG_ENVELOPE_LIT_MS = 120;
 /** 04: the row's ✓ 전달됨 badge, after which its time shows again. */
 export const MSG_DELIVERED_BADGE_MS = 1600;
 /** Gap a viewport-fitted Dropdown (the launch drawer) keeps from the top of
@@ -1367,46 +1391,49 @@ export const ISO_OUTLINE_OVER_ALPHA = 0.5;
 export const ISO_OUTLINE_LABEL_PX = 9;
 export const ISO_OUTLINE_LABEL_MIN_PX = 13;
 export const ISO_OUTLINE_LABEL_INSET = 6;
-/** The lobby board outside (owner 11-04 19:47, iso/billboard.ts): its face (iso px, level with
- *  the screen), its right end this far right of the building's left corner, this far below the
- *  left face's slab line, on posts this tall set this far in, and its colours (posts, face, frame
- *  in the accent, a hot value, a page's title, an unlit page dot). */
-export const ISO_BILLBOARD = { w: 128, h: 56, along: 150, gap: 8, post: 14, postIn: 14 } as const;
-export const ISO_BILLBOARD_INK = {
-  post: '#5d5a80',
-  postShade: '#3a3858',
-  face: '#14122a',
-  frame: '#8b6cff',
-  hot: '#b9a4ff',
-  title: '#a98fff',
-  dotOff: '#3a3560',
+/** The lobby board outside (owner 11-04 19:47, iso/billboard.ts): the old lobby board's own
+ *  screen (BoardView, 48 x 16 em) on a billboard, level with the screen. Its outer face (iso px:
+ *  the screen at 240 x 80 inside a `frame` all round, so the old board's em is 10 CSS px at the
+ *  lobby's zoom 2, BOARD_MIN_EM_PX, where its pages turn), its right end this far right of the
+ *  building's left corner, this far below the left face's slab line, on posts this tall set this
+ *  far in. */
+export const ISO_BILLBOARD = {
+  w: 244,
+  h: 84,
+  frame: 2,
+  along: 248,
+  gap: 8,
+  post: 10,
+  postIn: 30,
 } as const;
-/** Its frame (CSS px: the 2 px border every panel has). */
-export const ISO_BILLBOARD_FRAME_PX = 2;
-/** Its pages (owner 11-04 20:27: the old board's 프로젝트 · H/W · GPU, after the summary) turn
- *  this often; a list page shows this many rows (then "+N"). */
-export const ISO_BILLBOARD_PAGE_MS = 8_000;
-export const ISO_BILLBOARD_ROWS = 3;
-/** The face's layout (iso px of the face; CSS px are twice this at the lobby's zoom 2): its inner
- *  padding, the summary's label and number type and their rows' middles, a list page's type, its
- *  title's middle, its first row's middle and the step between rows, a state dot and the gap
- *  after it, the width kept for a row's value, and the page dots (size, gap, up from the bottom). */
-export const ISO_BILLBOARD_FACE = {
-  pad: 5,
-  label: 9,
-  number: 20,
-  bigLabelY: 12,
-  bigNumberY: 32,
-  line: 6.5,
-  titleY: 6.5,
-  firstLineY: 16,
-  lineStep: 8,
-  dot: 4,
-  dotGap: 3,
-  valueW: 54,
-  pageDot: 2.5,
-  pageDotGap: 2.5,
-  pageDotFromBottom: 2.5,
+/** Its body (owner 11-04 21:04: more 3D): the case's depth (iso px, drawn up and right at the iso
+ *  angle: a top and a right side), the posts' width, the shadow on the ground (iso px offset of
+ *  its far edge, down and right), and the screen's glow (rings of this many device px). */
+export const ISO_BILLBOARD_BODY = {
+  depth: 8,
+  post: 3,
+  shadow: { dx: 22, dy: 11 },
+  glow: 3,
+} as const;
+/** Its colours: the posts (lit side, shaded side, cap), the case's top and right side, the
+ *  frame (the accent) with its light upper and dark lower edge, the shadow, the glow by day and
+ *  by night (per ring, outermost faintest). */
+export const ISO_BILLBOARD_INK = {
+  post: '#6a6790',
+  postShade: '#3a3858',
+  postCap: '#8c88b4',
+  top: '#3e3a66',
+  side: '#24213f',
+  frame: '#8b6cff',
+  frameLight: '#b9a4ff',
+  frameDark: '#5a40c8',
+  shadow: 'rgba(20, 18, 44, 0.28)',
+  glowDay: ['rgba(139, 108, 255, 0.10)', 'rgba(139, 108, 255, 0.18)', 'rgba(139, 108, 255, 0.28)'],
+  glowNight: [
+    'rgba(157, 135, 255, 0.16)',
+    'rgba(157, 135, 255, 0.28)',
+    'rgba(157, 135, 255, 0.42)',
+  ],
 } as const;
 /** The art's master density: picture px per world px of the owner's pieces (a 16 px tile is a
  *  192×96 diamond), each drawn at every zoom from its one master. */
@@ -1416,12 +1443,18 @@ export const ISO_MASTER_DENSITY = 12;
 export const ISO_GROUND_MAX_DENSITY = 4;
 /** Margin (iso px) around the building in the whole-building framing. */
 export const ISO_FRAME_MARGIN = 12;
+/** billboard2-1104: the lobby's view may cut this much (iso px) off its back walls' tops to show
+ *  the whole billboard screen in front (the old board's screen at its readable size). */
+export const ISO_LOBBY_WALL_CUT = 16;
 /** PHONE-ZOOM: the isometric first view on a phone frames the floor's occupied rooms, never
  *  farther than this zoom: an iso character is ~16 iso px tall, so at 6 it is ~96 device px
  *  (32 CSS px at dpr 3), readable, with its name tag clear of the next one's. */
 export const PHONE_ISO_ZOOM_MIN = 6;
 /** ...and never closer than this (one small room), so the room around the agents still shows. */
 export const PHONE_ISO_ZOOM_MAX = 8;
+/** CSS px at the phone view's bottom that the floating view buttons (auto, my character, lobby)
+ *  cover: the billboard's foot is kept above them. */
+export const PHONE_ISO_BOTTOM_CLEAR_CSS = 64;
 /** Seconds the phone view waits for the agents to arrive after the first frame (the layout comes
  *  before the characters) before it settles on the floor's rooms. */
 export const PHONE_ISO_SETTLE_S = 4;
@@ -1474,16 +1507,18 @@ export const BG_OBJECT_REACH = { x: 140, y: 40 } as const;
  *  world fades out like a fog of war): clear this far (iso px, a circle once the 2:1 squash is
  *  undone) beyond the building's half width, puffs on two rings round that edge (radius out from
  *  it, gap between puffs, puff radius; big ones behind), plain fog past `solid`; painted once
- *  at one picture px per `texel` iso px. */
+ *  at one picture px per `texel` iso px. Owner 11-04 21:04: wider, so a row or two of the
+ *  neighbours show round the building (a coarser texel keeps the bigger picture smaller than the
+ *  first one: 661 x 330 px, about 0.9 MB). */
 export const BG_FOG = {
-  margin: 284,
+  margin: 480,
   rings: [
     { out: 34, gap: 46, r: 30 },
     { out: 6, gap: 40, r: 20 },
   ],
   jitter: 18,
   solid: 46,
-  texel: 2,
+  texel: 3,
   extent: 1.3,
 } as const;
 /** An empty glow sprite's cache holds at most this many entries. */
@@ -1612,6 +1647,10 @@ export const DEVROOM_GRAPH_MAX_DEPTH = 3;
  *  `더 보기`; the finished sub-agents remembered; the clock of the elapsed times. */
 export const DEVROOM_CARD_W_PX = 230;
 export const DEVROOM_RESULT_LINES = 4;
+/** DEVROOM-SUBCHAT: the most output chips (commits, files) shown under a sub-agent's words. */
+export const DEVROOM_OUTPUT_CHIPS_MAX = 6;
+/** DEVROOM-SUBCHAT: a commit chip's message, cut to this many characters. */
+export const DEVROOM_COMMIT_CHIP_CHARS = 40;
 export const DEVROOM_SUBS_DONE_MAX = 20;
 export const DEVROOM_BOARD_TICK_MS = 15_000;
 /** DEVROOM-BOARD2 (Orca's Done/Idle): after its turn an agent is 끝남 until its last news is this old, then 쉬는 중. */
@@ -1708,12 +1747,17 @@ export const SPEC_GRAPH_MINIMAP = { width: 120, height: 80 } as const;
 export const SPEC_GRAPH_ZOOM = { min: 0.2, max: 2.5 } as const;
 /** SPT-P4A 아키텍처 view: a group's parent chain is walked at most this deep (a cycle or a runaway chain ends there). */
 export const SPEC_ARCH_DEPTH_MAX = 32;
-// ── MAP-A 지도 tab (cld/spec/ProjectMap.tsx) ──
-/** The left pane's search: requirements listed at most. */
-export const SPEC_MAP_SEARCH_MAX = 10;
-/** The module tree's indent per level (px) and the deepest level indented. */
-export const SPEC_MAP_INDENT_PX = 12;
-export const SPEC_MAP_INDENT_MAX = 6;
+// ── SPT C1 지도 tab (cld/spec/CockpitMap.tsx; SPT §8.3) ──
+/** Imports between two cells drawn as an arrow (the server's SPEC_MAP_ARROW_MIN, R4's value). */
+export const SPEC_MAP_ARROW_MIN = 50;
+/** A band with this many cells or more says its pairs inside the cells (⇄ text) instead of lines. */
+export const SPEC_MAP_TEXT_PAIRS_FROM = 4;
+/** An arrow's head (px). */
+export const SPEC_MAP_ARROW_HEAD = 6;
+/** SPT C2: segments of a bar (근거 막대, a cell's 7-day activity), feature chips on a cell, list rows before '+N ▼'. */
+export const SPEC_MAP_BAR_SEGMENTS = 10;
+export const SPEC_MAP_CHIPS = 2;
+export const SPEC_MAP_LIST_SHOW = 7;
 
 // ── GAME-UI-0 game parts (cld/game/parts.tsx; specs/ui-mock-1103 cockpit D2) ──
 /** An 8x8 pixel icon drawn at 2x. */

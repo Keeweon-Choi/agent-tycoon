@@ -5,14 +5,15 @@ import { employeeFatigue, employeeOf } from '../../cld/employees.js';
 import { describeActivity } from '../../cld/ez/activity.js';
 import { CharacterLabel } from '../../cld/ez/CharacterLabel.js';
 import { FatigueBar, RestBubble } from '../../cld/ez/Fatigue.js';
-import { fatigueRules } from '../../cld/ez/fatigueState.js';
+import { contextGaugeTitle, fatigueRules } from '../../cld/ez/fatigueState.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { OwnerPlate } from '../../cld/ez/OwnerPlate.js';
 import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
 import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';
 import { characterKind, characterName, showsNameLabel } from '../../cld/kinds.js';
 import { OfficeBadges } from '../../cld/OfficeBadges.js';
-import { cldGetSnapshot, ezContext, fatigueFor, identityForAgent } from '../../cld/officeStore.js';
+import { cldGetSnapshot, ezContext, fatigueFor, identityForAgent, rowOf } from '../../cld/officeStore.js';
+import { engineTurn, turnInputs } from '../../cld/turnState.js';
 import { Button } from '../../components/ui/Button.js';
 import {
   BUBBLE_FADE_DURATION_SEC,
@@ -45,6 +46,7 @@ import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
 import { onOfficeDrawn } from '../engine/gameLoop.js';
 import type { OfficeState } from '../engine/officeState.js';
 import { overlayProjection } from '../projection.js';
+import type { Picture } from '../sprites/pictureBudget.js';
 import { getCachedSprite } from '../sprites/spriteCache.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
@@ -126,7 +128,7 @@ function getFuelColor(ratio: number): string {
 /** A speech-bubble sprite blitted into a DOM canvas. Bubbles live in the DOM
  *  (not the office canvas) so they can stack ABOVE the status label panels —
  *  canvas content can never out-paint the DOM overlay. */
-function OverlayBubble({ cached, dpr }: { cached: HTMLCanvasElement; dpr: number }) {
+function OverlayBubble({ cached, dpr }: { cached: Picture; dpr: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -204,7 +206,7 @@ export function ToolOverlay({
       for (const id of [...p.agents, ...p.subagentCharacters.map((s) => s.id), OWNER_CHARACTER_ID]) {
         const ch = os.characters.get(id);
         if (!ch) continue;
-        sig += `|${id}:${placer.viewOf(ch).shift}:${ch.bubbleType}:${ch.waitingAwaitingInput}:${ch.isActive}:${ch.contextTokens}:${ch.maxContextTokens}:${ch.palette}:${ch.hueShift}:${ch.isTeamLead}:${ch.agentName}:${ch.directoryName}`;
+        sig += `|${id}:${placer.viewOf(ch).shift}:${ch.bubbleType}:${ch.waitingAwaitingInput}:${ch.isActive}:${ch.contextTokens}:${ch.maxContextTokens}:${ch.contextLimitBasis}:${ch.palette}:${ch.hueShift}:${ch.isTeamLead}:${ch.agentName}:${ch.directoryName}`;
       }
       const now = performance.now();
       if (sig !== lastSig || now - lastContent >= OVERLAY_CONTENT_MS) {
@@ -316,9 +318,11 @@ export function ToolOverlay({
         const ezRows = subChar
           ? subagentTools[subChar.parentAgentId]?.[subChar.parentToolId]
           : agentTools[id];
+        // STATE-SYNC: an engine session's turn is the engine's word (cld/turnState.ts), as on every list.
+        const turn = isSub ? null : engineTurn(rowOf(id, officeSnapshot.officeSnapshot));
         const ezTool = ezRows
           ? ([...ezRows].reverse().find((t) => !t.done) ??
-            (ch.isActive ? ezRows.at(-1) : undefined))
+            ((turn ? turn === 'on' : ch.isActive) ? ezRows.at(-1) : undefined))
           : undefined;
         const activity = describeActivity(
           {
@@ -329,8 +333,8 @@ export function ToolOverlay({
               ch.bubbleType === 'permission' || (!!ezTool?.permissionWait && !ezTool.done),
             waitingInput: ch.bubbleType === 'waiting' && !!ch.waitingAwaitingInput,
             idle: !ezTool && (!isSub || !ch.isActive), // cld T-0041: a lingering sub rests
-            // A finished turn's checkmark beats a stale busy flag.
-            busy: !!officeIdentity?.busy && ch.bubbleType !== 'waiting',
+            // A finished turn's checkmark beats a stale busy flag (not the engine's own word).
+            ...turnInputs(turn, !!officeIdentity?.busy && ch.bubbleType !== 'waiting'),
           },
           ezContext(officeSnapshot),
         );
@@ -507,6 +511,8 @@ export function ToolOverlay({
         // have no session of their own, so contextTokens stays 0.
         const contextRatio = ch.contextTokens / ch.maxContextTokens;
         const showContextGauge = !isSub && ch.contextTokens > 0;
+        // No stated window: the track stays empty and the hover says the token count (FR-STA-005).
+        const contextUnknown = ch.contextLimitBasis === 'unknown';
 
         return (
           <Fragment key={id}>
@@ -604,13 +610,14 @@ export function ToolOverlay({
                     background: CONTEXT_GAUGE_BG,
                     marginTop: 2,
                   }}
-                  title={`${Math.round(contextRatio * 100)}% context used (${(ch.contextTokens / 1000).toFixed(0)}k of ${(ch.maxContextTokens / 1000).toFixed(0)}k tokens)`}
+                  title={contextGaugeTitle(ch.contextTokens, ch.maxContextTokens, ch.contextLimitBasis)}
                   data-testid="context-gauge"
-                  data-context-pct={Math.round(contextRatio * 100)}
+                  data-context-pct={contextUnknown ? undefined : Math.round(contextRatio * 100)}
+                  data-context-basis={ch.contextLimitBasis ?? 'estimated'}
                 >
                   <div
                     style={{
-                      width: `${Math.min(contextRatio * 100, 100)}%`,
+                      width: contextUnknown ? 0 : `${Math.min(contextRatio * 100, 100)}%`,
                       height: '100%',
                       background: getFuelColor(contextRatio),
                     }}

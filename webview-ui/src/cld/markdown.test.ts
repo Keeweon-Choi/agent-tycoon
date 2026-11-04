@@ -247,3 +247,20 @@ it('search highlighting marks rendered text and never turns the query into marku
   );
   expect(marked.match(/<mark /g)?.length).toBe(3);
 });
+
+it('draws a question tag as a chip that names it, and leaves code as written', () => {
+  const tag = '⟨q:merge-order⟩';
+  const asked: string[] = [];
+  const out = renderToStaticMarkup(
+    createElement(Markdown, {
+      text: `Merge now? ${tag} and **bold ${tag}**\n\n\`${tag}\`\n\n\`\`\`\n${tag}\n\`\`\``,
+      onQuestionTag: (name: string) => asked.push(name),
+    }),
+  );
+  // Two chips (plain text, bold); the inline code and the fenced block keep the tag as written.
+  expect(out.match(/data-testid="question-tag"/g)?.length).toBe(2);
+  expect(out).toContain('data-tag="merge-order"');
+  expect(out.split(tag).length - 1).toBe(2);
+  // Without a handler nothing changes.
+  expect(html(`Merge? ${tag}`)).toContain(tag);
+});

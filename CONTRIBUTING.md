@@ -223,6 +223,8 @@ The auto-generated test inventory in `e2e/README.md` groups tests by `@area:` ta
 
 > **Note:** PRs are merged using **squash and merge** — all commits in your PR are combined into a single commit on `main`. Your PR title becomes the commit message, which is why the conventional commit format matters.
 
+> **History:** commits before 2026-11-04 use free-form messages (many in Korean). Every commit from 2026-11-04 on follows Conventional Commits, so tools that read the format (changelogs, release notes) should start there. The old messages are kept as they are: rewriting them would change every commit hash.
+
 ## Reporting Bugs
 
 [Open a bug report](https://github.com/Keeweon-Choi/agent-tycoon/issues/new?template=bug_report.yml) — the form will guide you through providing the details we need.

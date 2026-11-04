@@ -7,6 +7,7 @@
  * speculation.
  */
 
+import type { ContextLimitBasis } from './messages.js';
 import type { TeamProvider } from './teamProvider.js';
 
 // ── Normalized Events (all provider types produce these) ──────
@@ -112,6 +113,11 @@ export interface HookProvider {
    *  Return undefined for an unrecognized model; the runtime then keeps its
    *  previous estimate and widens it if a context ever exceeds it. */
   contextWindowForModel?(model: string | undefined): number | undefined;
+  /** Where that window comes from: `reported` (the CLI stated it, e.g. a model id
+   *  ending `[1m]`), `estimated` (picked from the model's name), `unknown` (the
+   *  provider has no window for this model). Undefined: the id says nothing (no model,
+   *  a synthetic record). Without this method every named model counts as `unknown`. */
+  contextWindowBasis?(model: string | undefined): ContextLimitBasis | undefined;
 
   // ── Optional file fallback (heuristic mode) ──
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { ISO_BILLBOARD, ISO_SLAB_H, ISO_STOREY_H, ISO_WALL_H } from '../../constants.js';
+import {
+  ISO_BILLBOARD,
+  ISO_BILLBOARD_BODY,
+  ISO_SLAB_H,
+  ISO_STOREY_H,
+  ISO_WALL_H,
+} from '../../constants.js';
 import { billboardBox } from './billboard.js';
 import { inStorey, onFaces, onRoof, plateCorners, plateEdges } from './facade.js';
 import { floorBox, isoStack } from './projection.js';
@@ -61,8 +67,9 @@ describe('the building outside (building-a-1104)', () => {
       expect(b.y1 - b.y0).toBe(ISO_BILLBOARD.h);
       expect(b.ground).toBeGreaterThan(b.y1);
       // Never over the building: no point of its face (nor its posts) is on a storey.
-      for (let x = b.x0; x <= b.x1; x += 4)
-        for (let y = b.y0; y <= b.ground; y += 4)
+      // The face, the posts and the case's top and right side (up and right of the face).
+      for (let x = b.x0; x <= b.x1 + ISO_BILLBOARD_BODY.depth; x += 4)
+        for (let y = b.y0 - ISO_BILLBOARD_BODY.depth / 2; y <= b.ground; y += 4)
           for (const lift of stack.lifts)
             expect(inStorey(stack.cols, stack.depth, lift, x, y), `${depth}: ${x},${y}`).toBe(
               false,

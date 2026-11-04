@@ -54,7 +54,13 @@ import type {
   CharacterRefusalReason,
 } from '../../../core/src/messages.js';
 import { pickDiversePalette } from '../../../core/src/paletteUtils.js';
-import { HUE_SHIFT_MAX_DEG, PALETTE_COUNT } from '../constants.js';
+import {
+  HUE_SHIFT_MAX_DEG,
+  PALETTE_COUNT,
+  PNG_HEAD_BYTES,
+  THUMB_CACHE_DIR,
+  THUMB_CACHE_VERSION,
+} from '../constants.js';
 import { sameOriginRequest } from './authRoutes.js';
 import {
   convertSheet,
@@ -94,6 +100,8 @@ const MUGSHOT_SIDE = 16;
 const THUMB_MAX_W = 96;
 const MAX_THUMB_BYTES = 2 * 1024 * 1024;
 const POLL_MS = 30_000;
+/** The last chunk of every PNG (IEND): a thumbnail cache file without it was cut short. */
+const PNG_IEND = Buffer.from('0000000049454e44ae426082', 'hex');
 const WATCH_DEBOUNCE_MS = 100;
 const MAX_KEY_LENGTH = 200;
 const MAX_LABEL_LENGTH = 60;
@@ -164,20 +172,35 @@ export function pngProblem(
   h: number,
   opaqueOk = false,
   maxBytes = MAX_SHEET_BYTES,
-  /** LOOKS-MEM: given the decoded picture of a good PNG (the scan cuts its thumbnail from it). */
-  decoded?: (png: PNG) => void,
 ): string | null {
   const header = pngHeaderIssue(buf, w, h, opaqueOk, maxBytes);
   if (header) return header.text;
-  let png: PNG;
   try {
-    png = PNG.sync.read(buf);
+    PNG.sync.read(buf);
   } catch (err) {
     return `broken PNG (${err instanceof Error ? err.message : String(err)})`;
   }
-  decoded?.(png);
   return null;
 }
+
+/** LOOKS-MEM: why a file is not a `w`×`h` sheet by its first PNG_HEAD_BYTES alone: the scan never
+ *  inflates a sheet to judge it (29 MB for an imported one). Its size is the caller's check. */
+function sheetHeadProblem(file: string, w: number, h: number, opaqueOk = false): string | null {
+  const head = Buffer.alloc(PNG_HEAD_BYTES);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const n = fs.readSync(fd, head, 0, PNG_HEAD_BYTES, 0);
+    return pngHeaderIssue(head.subarray(0, n), w, h, opaqueOk)?.text ?? null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** The shrink factor and size of a `cellW`×`cellH` cell's thumbnail. */
+const thumbSize = (cellW: number, cellH: number) => {
+  const k = Math.max(1, Math.ceil(cellW / THUMB_MAX_W));
+  return { k, w: Math.floor(cellW / k), h: Math.floor(cellH / k) };
+};
 
 /** LOOKS-MEM: a 꾸미기 chip's picture, the sheet's first cell (what the chip always showed: the
  *  standing front) shrunk by a whole factor to at most THUMB_MAX_W wide, each pixel the
@@ -188,8 +211,7 @@ export function thumbOf(
   cellW: number,
   cellH: number,
 ): Buffer {
-  const k = Math.max(1, Math.ceil(cellW / THUMB_MAX_W));
-  const [w, h] = [Math.floor(cellW / k), Math.floor(cellH / k)];
+  const { k, w, h } = thumbSize(cellW, cellH);
   const out = new PNG({ width: w, height: h });
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -600,6 +622,7 @@ export class CharacterPresets {
   private pinBlockedDay = -1;
   /** Characters and bytes of the file as last read or written (what a save may not grow past the limits). */
   private stored = { count: 0, bytes: 0 };
+  private readonly thumbDir: string;
   private signature: string | null = null;
   private readonly logged = new Set<string>();
   private watcher: fs.FSWatcher | null = null;
@@ -609,6 +632,7 @@ export class CharacterPresets {
   constructor(private readonly opts: CharacterPresetOptions) {
     this.dir = path.join(opts.configDir, 'characters');
     this.storeFile = path.join(opts.configDir, 'characters.json');
+    this.thumbDir = path.join(opts.configDir, THUMB_CACHE_DIR);
   }
 
   start(): void {
@@ -720,6 +744,7 @@ export class CharacterPresets {
     this.signature = signature;
     const next = new Map<string, Preset>();
     let thumbBytes = 0;
+    const used = new Set<string>();
     for (const { dir, stats } of folders) {
       const builtIn = dir !== this.dir;
       const read = (
@@ -729,7 +754,6 @@ export class CharacterPresets {
         opaqueOk = false,
         maxBytes = MAX_PRESET_BYTES,
         hash?: crypto.Hash,
-        decoded?: (png: PNG) => void,
       ): boolean => {
         const st = stats.get(name)!;
         let problem: string | null = null;
@@ -737,10 +761,10 @@ export class CharacterPresets {
         else if (st.size > maxBytes) problem = `too big (${st.size} bytes)`;
         else {
           try {
-            // the bytes are checked and hashed here, then dropped: they are served from disk
-            const buf = fs.readFileSync(path.join(dir, name));
-            problem = pngProblem(buf, w, h, opaqueOk, maxBytes, decoded);
-            if (!problem) hash?.update(buf);
+            // LOOKS-MEM: the header is judged, the file's size and mtime are its version (nothing
+            // is read or inflated; the bytes are served from disk)
+            problem = sheetHeadProblem(path.join(dir, name), w, h, opaqueOk);
+            if (!problem) hash?.update(`${name}:${st.size}:${st.mtimeMs}`);
           } catch (err) {
             problem = err instanceof Error ? err.message : String(err);
           }
@@ -780,19 +804,6 @@ export class CharacterPresets {
         // C1: an iso8 sheet with its drink row is one row taller
         const drinkRow = format === 'iso8' && pngSize(path.join(dir, name)).h === ISO8_DRINK_H;
         const hash = crypto.createHash('sha1');
-        // LOOKS-MEM: the chip's thumbnail is cut while the scan has the sheet decoded anyway
-        let thumb: Buffer | null = null;
-        const cut = (png: PNG) => {
-          try {
-            const t = imported
-              ? thumbOf(png, IMPORT_FRAME_W, IMPORT_FRAME_H)
-              : thumbOf(png, CHAR_FRAME_W * density, CHAR_FRAME_H * density);
-            if (thumbBytes + t.length <= MAX_THUMB_BYTES)
-              [thumb, thumbBytes] = [t, thumbBytes + t.length];
-          } catch (err) {
-            this.ignore(`${id}.thumb.png`, st, err instanceof Error ? err.message : String(err));
-          }
-        };
         const ok = imported
           ? read(
               name,
@@ -801,10 +812,27 @@ export class CharacterPresets {
               false,
               MAX_HD_SHEET_BYTES,
               hash,
-              cut,
             )
-          : read(name, SHEET_W * density, SHEET_H * density, false, MAX_PRESET_BYTES, hash, cut);
+          : read(name, SHEET_W * density, SHEET_H * density, false, MAX_PRESET_BYTES, hash);
         if (!ok) continue;
+        // LOOKS-MEM: the chip's thumbnail, from the disk cache; only a sheet it has none of is
+        // inflated, one at a time
+        const [cellW, cellH] = imported
+          ? [IMPORT_FRAME_W, IMPORT_FRAME_H]
+          : [CHAR_FRAME_W * density, CHAR_FRAME_H * density];
+        let thumb: Buffer | null = null;
+        try {
+          const t = this.thumbOfSheet(path.join(dir, name), stats.get(name)!, cellW, cellH, used);
+          if (thumbBytes + t.length <= MAX_THUMB_BYTES)
+            [thumb, thumbBytes] = [t, thumbBytes + t.length];
+        } catch (err) {
+          this.ignore(
+            name,
+            stats.get(name)!,
+            `broken PNG (${err instanceof Error ? err.message : String(err)})`,
+          );
+          continue;
+        }
         const mug =
           stats.has(`${id}.mug.png`) &&
           !imported &&
@@ -847,7 +875,57 @@ export class CharacterPresets {
       }
     }
     this.presets = next;
+    this.pruneThumbs(used);
     this.publish();
+  }
+
+  /** LOOKS-MEM: a sheet's chip thumbnail. It is cached on disk (`<config>/${THUMB_CACHE_DIR}/<key>.png`),
+   *  the key the sheet's size, mtime and cell: a changed sheet is a new key, so only it is inflated
+   *  again. A cache file that is missing or not a whole PNG of the right size is made anew. Throws
+   *  when the sheet does not inflate. */
+  private thumbOfSheet(
+    file: string,
+    st: fs.Stats,
+    cellW: number,
+    cellH: number,
+    used: Set<string>,
+  ): Buffer {
+    const key = crypto
+      .createHash('sha1')
+      .update(`${THUMB_CACHE_VERSION}:${cellW}x${cellH}:${st.size}:${st.mtimeMs}`)
+      .digest('hex');
+    used.add(key);
+    const cached = path.join(this.thumbDir, `${key}.png`);
+    const { w, h } = thumbSize(cellW, cellH);
+    try {
+      const buf = fs.readFileSync(cached);
+      if (!pngHeaderIssue(buf, w, h) && buf.subarray(-PNG_IEND.length).equals(PNG_IEND)) return buf;
+    } catch {
+      // not cached yet
+    }
+    const t = thumbOf(PNG.sync.read(fs.readFileSync(file)), cellW, cellH);
+    try {
+      fs.mkdirSync(this.thumbDir, { recursive: true });
+      const tmp = `${cached}.tmp`;
+      fs.writeFileSync(tmp, t);
+      fs.renameSync(tmp, cached);
+    } catch (err) {
+      console.warn(
+        `[cld] characters: thumbnail cache: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return t;
+  }
+
+  /** LOOKS-MEM: the cache holds what the last scan used and nothing else. */
+  private pruneThumbs(used: Set<string>): void {
+    try {
+      for (const n of fs.readdirSync(this.thumbDir))
+        if (!used.has(n.replace(/\.png$/, '')))
+          fs.rmSync(path.join(this.thumbDir, n), { force: true });
+    } catch {
+      // no cache folder yet
+    }
   }
 
   /** setCharacter from a client; a refusal is answered to it (\`characterRefused\`). True when

@@ -6,6 +6,7 @@ import { refused } from '../../../core/src/cld/serverText.js';
 import type { ChatItem } from '../../../core/src/messages.js';
 import { CHAT_SEARCH_MAX_BYTES, CHAT_SEARCH_MAX_HITS } from '../constants.js';
 import {
+  carriedId,
   CHAT_MAX_ITEMS,
   CHAT_SCAN_MAX_BYTES,
   CHAT_TAIL_BYTES,
@@ -35,12 +36,16 @@ function roomTurnOffsets(file: string): TurnOffsets {
   const turns: TurnOffsets = { hidden: new Set(), bound: new Map() };
   let hiding = false;
   let bound: string | undefined;
+  let carried: string | undefined;
   try {
     forward(file, (line, offset) => {
       const prompt = userTurnText(line);
       if (prompt !== null) {
         hiding = isRoomPromptLine(line);
-        bound = turnMessageId(prompt);
+        // TYPIST-STALE: an unmarked turn after a one-to-one header alone is its body (RoomTurnFilter's carried).
+        const own = turnMessageId(prompt);
+        bound = own ?? carried;
+        carried = carriedId(prompt);
       }
       // A joined turn (MSG-SPLIT) stays: lineItems drops its room parts and keeps its DM parts.
       if (hiding && !(prompt !== null && turnParts(prompt).length > 1)) turns.hidden.add(offset);
@@ -244,6 +249,47 @@ async function* chain(
     if (hop) end = hop.end;
     current = hop ? hop.file : start === null ? null : previous(current, start);
   }
+}
+
+/** REPLY-FULL: the replied message `id` as a session started at `startedAt` (ms) has it in its
+ *  context: 'recent', its text (before that start or before the transcript's last `boundary`, or
+ *  in an earlier conversation: gone from the context), or 'missing' (not found). */
+export async function repliedState(
+  file: string,
+  id: string,
+  boundary: string,
+  startedAt: number,
+): Promise<'recent' | 'missing' | { text: string }> {
+  const found = await findReplied(file, id, boundary);
+  if (!found) return 'missing';
+  return found.earlier || found.compacted || found.item.at < startedAt ? { text: found.item.text } : 'recent';
+}
+
+/**
+ * REPLY-FULL: the message a reply names (`id`: a user item's C2 id, else any item's own id, as the
+ * app's replyIdOf), newest first through this conversation and the ones before it (the history
+ * budget), or null. `compacted`: a `boundary` record (Claude's compact_boundary) of this
+ * conversation lies after it; `earlier`: it is in an earlier conversation's transcript.
+ */
+export async function findReplied(
+  file: string,
+  id: string,
+  boundary: string,
+): Promise<{ item: ChatItem; compacted: boolean; earlier: boolean } | null> {
+  const budget = { left: CHAT_SCAN_MAX_BYTES };
+  const roomTurns = new Map<string, TurnOffsets>();
+  let compacted = false;
+  for await (const entry of chain(file, budget, () => false)) {
+    if (entry.file === file && entry.line.includes(boundary)) compacted = true;
+    let turns = roomTurns.get(entry.file);
+    if (!turns) roomTurns.set(entry.file, (turns = roomTurnOffsets(entry.file)));
+    if (turns.hidden.has(entry.offset)) continue;
+    const bound = turns.bound.get(entry.offset);
+    for (const item of lineItems(entry.line))
+      if (item.id === id || (item.kind === 'user' && (item.messageId ?? bound) === id))
+        return { item, compacted, earlier: entry.file !== file };
+  }
+  return null;
 }
 
 function older(item: ChatItem, before: string): boolean {

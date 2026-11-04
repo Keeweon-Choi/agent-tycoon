@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
+import type { RoomSpec } from './layout.js';
 import {
   contractorSeatUid,
   generateLayout,
@@ -245,5 +246,92 @@ describe('layout generator', () => {
     expect(again).toEqual(
       generateLayout(S8, LOUNGE_ROOM).layout.furniture.filter((f) => f.type === WHITEBOARD_TYPE),
     );
+  });
+});
+
+describe('every floor fills the same plate (floors-fill-1104)', () => {
+  const roomsOf = (n: number, tag: string) =>
+    Array.from({ length: n }, (_, i) => ({
+      label: `${tag}-${i}`,
+      members: Array.from({ length: (i % 3) + 1 }, (_, k) => `engine:${tag}${i}-${k}`),
+      contractorDesk: i % 2 === 0,
+      spare: 2,
+    }));
+  const inputs: Array<[RoomSpec[], string, boolean, string]> = [
+    [roomsOf(1, 'one'), LOUNGE_ROOM, true, PANTRY_ROOM],
+    [roomsOf(4, 'four'), `2층 ${LOUNGE_ROOM}`, false, `2층 ${PANTRY_ROOM}`],
+    [roomsOf(7, 'seven'), `3층 ${LOUNGE_ROOM}`, false, `3층 ${PANTRY_ROOM}`],
+  ];
+  // As floors.ts does: each floor's own size first, then all of them at the largest.
+  const natural = inputs.map((args) => generateLayout(...args));
+  const size = {
+    cols: Math.max(...natural.map((g) => g.layout.cols)),
+    rows: Math.max(...natural.map((g) => g.layout.rows)),
+  };
+  const floors = inputs.map((args) => generateLayout(...args, size));
+  /** VOID tiles below the top row (row 0 is the headroom the top walls' sprites rise into). */
+  const voids = (l: { cols: number; tiles: number[] }) =>
+    l.tiles.filter((t, i) => i >= l.cols && t === 255).length;
+
+  it('floors of 1, 4 and 7 rooms are one size, with no void left', () => {
+    // The control: packed alone they differ, and the smaller ones would leave the plate bare.
+    expect(new Set(natural.map((g) => `${g.layout.cols}x${g.layout.rows}`)).size).toBe(3);
+    for (const { layout, rooms } of floors) {
+      expect([layout.cols, layout.rows]).toEqual([size.cols, size.rows]);
+      expect(voids(layout)).toBe(0);
+      expect(layout.tiles.slice(0, layout.cols).every((t) => t === 255)).toBe(true);
+      // The rooms tile the plate: every tile below row 0 is in a room.
+      for (let r = 1; r < layout.rows; r++)
+        for (let c = 0; c < layout.cols; c++)
+          expect(rooms.some((m) => c >= m.x && c < m.x + m.w && r >= m.y && r < m.y + m.h)).toBe(
+            true,
+          );
+    }
+  });
+
+  it('every seat and every room is reached on foot from the office door', () => {
+    for (const { layout, rooms, seats } of floors) {
+      const { cols } = layout;
+      const blocked = new Set<number>();
+      for (const f of layout.furniture) {
+        if (f.uid.startsWith('seat:')) continue;
+        const [w, h] = f.type === 'DESK_FRONT' ? [3, 2] : [1, 1];
+        for (let dr = 0; dr < h; dr++)
+          for (let dc = 0; dc < w; dc++) blocked.add((f.row + dr) * cols + f.col + dc);
+      }
+      const walk = (i: number) => layout.tiles[i] !== 0 && layout.tiles[i] !== 255 && !blocked.has(i);
+      const last = (layout.rows - 1) * cols;
+      const doors = Array.from({ length: cols }, (_, c) => last + c).filter(walk);
+      expect(doors.length).toBe(2); // one office door
+      const seen = new Set(doors);
+      const todo = [...doors];
+      while (todo.length) {
+        const i = todo.pop()!;
+        const c = i % cols;
+        for (const j of [c > 0 ? i - 1 : -1, c < cols - 1 ? i + 1 : -1, i - cols, i + cols])
+          if (j >= 0 && j < layout.tiles.length && !seen.has(j) && walk(j)) {
+            seen.add(j);
+            todo.push(j);
+          }
+      }
+      for (const room of rooms)
+        expect(
+          [...seen].some((i) => layout.areaTiles[i] === room.label),
+          room.label,
+        ).toBe(true);
+      const chairs = layout.furniture.filter((f) => f.uid.startsWith('seat:'));
+      expect(chairs.length).toBeGreaterThan(Object.keys(seats).length);
+      for (const ch of chairs) expect(seen.has(ch.row * cols + ch.col), ch.uid).toBe(true);
+    }
+  });
+
+  it('seat uids stay the character names, as packed alone', () => {
+    floors.forEach((g, k) => {
+      expect(g.seats).toEqual(natural[k].seats);
+      for (const spec of inputs[k][0])
+        for (const key of spec.members) expect(g.seats[key]).toBe(seatUid(key));
+      const uids = (x: typeof g) => x.layout.furniture.map((f) => f.uid).sort();
+      expect(uids(g)).toEqual(uids(natural[k]));
+    });
   });
 });

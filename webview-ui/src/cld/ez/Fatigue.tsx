@@ -13,10 +13,15 @@ import {
 import { t } from '../../i18n/index.js';
 import type { NameplateSizes } from '../uiScale.js';
 import { EFFECT_SPRITES } from './drawVisuals.js';
-import { compactionText, type FatigueLook, fatigueText } from './fatigueState.js';
+import { basisHint, compactionText, contextPctText,type FatigueLook, fatigueText } from './fatigueState.js';
 import { levelLook, levelText } from './level.js';
 import { type Ring, ringDash } from './nameplate.js';
 import { PixelSprite } from './PixelSprite.js';
+
+/** Hover words: the percent is a guess (the window was picked from the model's name), or the rests are a floor. */
+const hintOf = (look: FatigueLook): string | undefined =>
+  [basisHint(look.basis), look.partial ? t('ctxsrc.partialHint') : undefined].filter(Boolean).join('\n') ||
+  undefined;
 
 /**
  * DNF-style stamina bar, "피로도 72%": green, then yellow when tired, red from the yawns.
@@ -44,6 +49,7 @@ export function FatigueBar({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={look.value}
+        title={hintOf(look)}
         data-testid="fatigue"
         data-tone={look.tone}
       >
@@ -64,7 +70,7 @@ export function FatigueBar({
           />
         </span>
         <span aria-hidden className="text-text" data-testid="fatigue-pct">
-          {look.value}%
+          {contextPctText(look.value, look.basis)}%
         </span>
         <span aria-hidden>·</span>
         <span
@@ -86,6 +92,7 @@ export function FatigueBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={look.value}
+      title={hintOf(look)}
       data-testid="fatigue"
       data-tone={look.tone}
     >
@@ -96,7 +103,7 @@ export function FatigueBar({
         />
       </span>
       <span className="text-2xs whitespace-nowrap" data-testid="fatigue-text">
-        {t('activity.fatigue')} {look.value}% ·{' '}
+        {t('activity.fatigue')} {contextPctText(look.value, look.basis)}% ·{' '}
         <span
           className={look.renew ? 'font-bold text-yellow-300' : undefined}
           data-testid="compaction-text"

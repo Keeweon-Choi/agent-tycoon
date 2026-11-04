@@ -111,6 +111,7 @@ components:
         - $ref: '#/components/schemas/AgentTeamInfo'
         # Context window
         - $ref: '#/components/schemas/AgentContextUsage'
+        - $ref: '#/components/schemas/AgentCompactions'
         # Layout
         - $ref: '#/components/schemas/LayoutLoaded'
         # Assets
@@ -669,6 +670,11 @@ components:
         compacts or clears. `maxContextTokens` is the runtime's best estimate of
         the window size — transcripts don't state it, so it starts at the
         default and widens (never shrinks) once a larger context is observed.
+        `limitBasis` says where that window comes from: `reported` (the CLI
+        named it, e.g. a model id ending `[1m]`), `estimated` (picked from the
+        model's name, or widened because the context outgrew it) or `unknown`
+        (no model, or a model the provider has no window for: show the token
+        count only, never a percent). Absent means `estimated`.
         Sent for every agent, including leads and teammates; sub-agents have no
         session of their own and never report it.
       type: object
@@ -682,6 +688,59 @@ components:
         contextTokens:
           type: integer
         maxContextTokens:
+          type: integer
+        limitBasis:
+          $ref: '#/components/schemas/ContextLimitBasis'
+
+    AgentCompactions:
+      description: |
+        The compactions the daemon counted in the agent's transcript
+        (`compact_boundary` records), sent when one happens and to a client
+        that connects. `count` is this session's count (it starts over with a
+        new session); `partial` is true when the daemon began watching
+        mid-session and could only count the boundaries in the transcript's
+        tail, so the real count is at least `count`. `recent` is the newest
+        few, oldest first (a fixed cap); `trigger` and the token counts are
+        there only when the record carried them.
+      type: object
+      additionalProperties: false
+      required: [type, id, count, recent]
+      properties:
+        type:
+          const: agentCompactions
+        id:
+          type: integer
+        count:
+          type: integer
+        partial:
+          type: boolean
+        recent:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompactionRecord'
+
+    ContextLimitBasis:
+      description: Where a context window comes from; see AgentContextUsage.
+      type: string
+      enum: [reported, estimated, unknown]
+
+    CompactionTrigger:
+      type: string
+      enum: [auto, manual]
+
+    CompactionRecord:
+      description: One compaction. `at` is the record's own time (ms since the epoch), else when the daemon read it.
+      type: object
+      additionalProperties: false
+      required: [at]
+      properties:
+        at:
+          type: integer
+        trigger:
+          $ref: '#/components/schemas/CompactionTrigger'
+        preTokens:
+          type: integer
+        postTokens:
           type: integer
 
     LayoutLoaded:
@@ -2938,7 +2997,7 @@ components:
         branch to its tracked upstream, never forced. `worktreeRemove`: the
         task worktree `task`, `force` only after the user confirmed losing
         uncommitted or unmerged work. `worktreeNew` (W2): Task `taskId`'s
-        worktree, branch `task/<taskId>-<slug>` from the project's main branch
+        worktree, branch `<type>/<taskId>-<slug>` (e.g. `feat/t0042-login`) from the project's main branch
         (or `base`), given to the agent `assignee` (a name) when there is one.
         `merge` (W3): the task worktree `task`'s branch into its base, queued
         per repository; fast-forward, else a merge commit; a conflict changes
@@ -3671,6 +3730,13 @@ components:
             turn to end, or starting the new conversation). Its messages wait for the new
             conversation, and its character stays at work. Absent when none is.
           type: boolean
+        shellWait:
+          description: |
+            STATE-SYNC: an engine project whose main turn is over while a background shell it
+            started (a job, a Monitor) still runs: Claude Code's session status `shell`, which
+            Claude Code itself shows as Working. `busy` stays false (a message can go in now);
+            every screen shows the agent at work, waiting on its job. Absent otherwise.
+          type: boolean
         compacting:
           description: |
             COMPACT-COFFEE: an engine project whose Claude Code is compacting its conversation
@@ -3757,6 +3823,12 @@ components:
           description: The sub-agent's own transcript context (the main agents' snapshot rule); absent when unverified (Codex, or no transcript watched).
         maxContextTokens:
           type: integer
+        limitBasis:
+          $ref: '#/components/schemas/ContextLimitBasis'
+          description: Where `maxContextTokens` comes from (AgentContextUsage); absent means `estimated`.
+        compactions:
+          type: integer
+          description: The compactions counted in the sub-agent's own transcript.
 
     CodexTasks:
       description: Codex delegations from the engine's `cld-gui codex` (T-0021). Each running or limit-waiting task is a contractor character (`agentId`).
@@ -4748,6 +4820,11 @@ components:
             the call the way a terminal does. Only in `workContent`, capped and
             masked like `text`.
           type: string
+        failed:
+          description: |
+            DEVROOM-SUBVIEW: on a `result` item, the tool reported an error
+            (the transcript's `is_error`). Only in `workContent`.
+          type: boolean
         id:
           type: string
         at:
@@ -5586,17 +5663,15 @@ components:
         The user's fatigue (피로도) numbers (T-0026, T-0045), each replacing the
         screen's default: fatigue is exactly the context fill in percent
         (contextTokens / maxContextTokens); compactions are shown beside it as
-        "압축 N/M" (N is the engine's count, else the context drops of more than
-        `compactionDrop` points; M is the project's own `compactionNudge` for
-        engine projects, and absent otherwise). From `tired` percent a character
+        "압축 N/M" (N is the daemon's count of the transcript's compact_boundary
+        records; M is the project's own `compactionNudge` for engine projects,
+        and absent otherwise). From `tired` percent a character
         sweats and walks slower, from `yawn` it yawns now and then, and from
         `rest` percent it asks for a rest (N reaching M only highlights
         "압축 N/M", T-0047).
       type: object
       additionalProperties: false
       properties:
-        compactionDrop:
-          type: integer
         tired:
           type: integer
         yawn:

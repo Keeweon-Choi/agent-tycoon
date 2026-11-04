@@ -50,7 +50,6 @@ export interface EzRuleSet {
 
 /** Each fatigue number's allowed range. */
 const FATIGUE_RANGES: Record<keyof EzFatigue, [number, number]> = {
-  compactionDrop: [1, 100],
   tired: [0, 100],
   yawn: [0, 100],
   rest: [0, 100],

@@ -295,8 +295,7 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
           aria-label={`${shownName(c.name)}${unread ? t('messenger.unread', { count: unread }) : ''}`}
           onClick={() => openMessenger(c.agentId)}
         >
-          {/* GAME-UI-1 G1 (04): where a sent envelope lands. */}
-          <span className="shrink-0 flex" data-mail-target={c.agentId}>
+          <span className="shrink-0 flex">
             <Mug agentId={c.agentId} getAppearance={getAppearance} />
           </span>
           <span className="flex-1 min-w-0">
@@ -342,7 +341,7 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
     );
   };
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto" data-mail-scroll>
+    <div className="flex-1 min-h-0 overflow-y-auto">
       <GroupRooms />
       {sorted.length > 0 && (
         <h2 className="px-8 py-6 text-xs font-bold border-b border-border">
@@ -404,7 +403,6 @@ function Tab({ agentId }: { agentId: number; chip?: boolean }) {
   return (
     <span
       className={`shrink-0 flex items-center border text-xs ${on ? 'border-accent text-accent-text' : 'border-border text-text-muted'}`}
-      data-mail-target={agentId}
     >
       <button
         type="button"

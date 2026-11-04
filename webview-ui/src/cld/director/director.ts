@@ -13,7 +13,6 @@
 import type { TempEmployee } from '../../../../core/src/messages.js';
 import { COMPACT_COFFEE_DEDUPE_MS, FX_QUEUE_MAX, OWNER_CHARACTER_ID } from '../../constants.js';
 import type { Character } from '../../office/types.js';
-import { type ContextSample, type FatigueRules, nextContextSample } from '../ez/fatigueState.js';
 
 export type LevelUpKind = 'levelUpA' | 'levelUpB' | 'levelUpC';
 /** C1-FX2: the grand rebirths; a live 환생 picks one at random (owner 11-01 11:31). */
@@ -229,23 +228,23 @@ export interface TempMoment {
 /**
  * FX-ALL: the temp staff's moments (the tempStaff roster). The Lv is the employee's, carried
  * from one execution to the next: one that went up live is a level-up. The context is the
- * execution's own (each is a fresh session): a drop counted as fatigueFor counts one (a
- * compaction) is a coffee break. What a page load or a reconnect brings is a baseline.
- * ponytail: one small context entry per execution this page saw, cleared on a reconnect.
+ * execution's own (each is a fresh session): a compaction the daemon counted in its transcript
+ * is a coffee break. What a page load or a reconnect brings is a baseline.
+ * ponytail: one small count per execution this page saw, cleared on a reconnect.
  */
 export class TempStaffWatch {
   private readonly levels = new Map<string, number>();
-  private readonly contexts = new Map<string, ContextSample>();
+  private readonly compactions = new Map<string, number>();
   private quietUntil = -Infinity;
 
   /** A (re)connect handshake: what comes next is the daemon's replay, not news. */
   connected(nowMs: number, settleMs: number): void {
     this.levels.clear();
-    this.contexts.clear();
+    this.compactions.clear();
     this.quietUntil = nowMs + settleMs;
   }
 
-  observe(staff: readonly TempEmployee[], rules: FatigueRules, nowMs: number): TempMoment[] {
+  observe(staff: readonly TempEmployee[], nowMs: number): TempMoment[] {
     const live = nowMs >= this.quietUntil;
     const out: TempMoment[] = [];
     for (const e of staff) {
@@ -257,11 +256,11 @@ export class TempStaffWatch {
           out.push({ execution: e.execution, kind: 'levelUp', count: lv });
       }
       if (e.contextTokens === undefined || !e.maxContextTokens) continue;
-      const prev = this.contexts.get(e.execution);
-      const next = nextContextSample(prev, e.contextTokens, e.maxContextTokens, rules);
-      this.contexts.set(e.execution, next);
-      if (live && prev && next.drops > prev.drops)
-        out.push({ execution: e.execution, kind: 'coffee', count: next.drops });
+      const prev = this.compactions.get(e.execution);
+      const count = e.compactions ?? 0;
+      this.compactions.set(e.execution, count);
+      if (live && prev !== undefined && count > prev)
+        out.push({ execution: e.execution, kind: 'coffee', count });
     }
     return out;
   }

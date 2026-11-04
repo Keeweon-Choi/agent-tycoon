@@ -278,6 +278,10 @@ export interface TraceArch {
   hidden?: number;
   /** Edges of the layer past the cap, left out. */
   hiddenEdges?: number;
+  /** [제안 모두 승인] (the arch read only): the diagrams read from documents and never approved, and the folders proposed (masked paths), as shown now. */
+  pending?: { diagrams: Array<Pick<ArchDiagram, 'doc' | 'block' | 'version'>>; folders: string[] };
+  /** The last [제안 모두 승인] still standing, for [되돌리기]. */
+  lastBatch?: { id: string; at: string; diagrams: number; folders: number };
 }
 
 // ── SPT-P4C: requirement ↔ component (`realizes`, SPT §8) ──
@@ -313,89 +317,147 @@ export interface ArchDiagram {
   approvedAt?: string;
 }
 
-// ── MAP-A: the 지도 tab's structure view (`GET …/map?uid=<module|root>`), one selected item at a time ──
+// ── SPT C1: the 지도 tab (`GET …/map?feature=&in=`), features × structure (SPT §6.8, §8) ──
 
-/** Where a module, a parent or a relation comes from (provenance). `agent_suggested` has no source yet. */
-export type MapOrigin = 'owner_confirmed' | 'document_explicit' | 'algorithm_suggested' | 'agent_suggested';
-/** A module's parent: set by the owner (arch.json `parents`), a document's subgraph, or the folder skeleton. */
-export type MapParentFrom = 'owner' | 'doc' | 'folder';
-/** Requirements of a module and the modules under it, each counted once at its strongest status. */
-export interface MapReqCounts {
-  confirmed: number;
-  observed: number;
-  suggested: number;
+/** A feature (SPT §8.1): the first boundary rule that fits its requirements. */
+export interface MapFeature {
+  /** `FR-ENG` (prefix), `fm:<doc UID>` (front-matter id), `sk:<folder>` (Spec Kit), `dir:<folder>` (document folder). */
+  key: string;
+  /** What the row says first: `ENG`, the front-matter id, the folder's name. */
+  short: string;
+  /** The defining section's name (`3.19 내장 엔진(ENG)` → 내장 엔진), else the front matter's id or the folder's name; masked. */
+  name: string;
+  rule: 'speckit' | 'fm' | 'prefix' | 'folder';
+  reqs: number;
+  /** 진행: a commit of the last 7 days names one of its requirements (or a Task linked to one). */
+  progress: boolean;
+  /** 막힘: a Task linked to one (confirmed or observed) is blocked on the Task Board. */
+  blocked: boolean;
+  /** 원문 바뀜: its requirements whose text changed in the last 7 days. */
+  changed: number;
+  /** SPT C2 (§8.4): its requirements that reach a code file by a path on by default (the bar: linked / reqs). */
+  linked: number;
 }
-export interface MapCard {
-  /** A `c_` UID, a proposed folder (`f:…`) or a document subgraph (`g:…`). */
+/** SPT C2 (§8.4): the four link paths from a requirement to files, counted apart. */
+export type MapLinkPath = 'confirmed' | 'direct' | 'commit' | 'task';
+/** 공통 기준: NFR-, IR-, CON- requirements by prefix (`NFR-PERF`), apart from the features. */
+export interface MapCommon {
+  key: string;
+  reqs: number;
+  changed: number;
+}
+/** One cell of the structure (SPT §8.2): a layer's rest, a unit folder, or a rail. */
+export interface MapBlock {
+  /** The folder (`server/src/cld/engine`, a layer `server`), or `tests` / `tools` for the rails. */
   id: string;
-  label: string;
-  /** 'group': a document subgraph. */
-  kind: ArchKind | 'group';
-  standing: ArchStanding;
-  origin: MapOrigin;
-  parentFrom?: MapParentFrom;
-  reqs: MapReqCounts;
-  /** Tasks in doing, review or blocked, confirmed to a requirement confirmed or observed for it (or below). */
-  activeTasks: number;
-  children: number;
+  /** The folder's last name, or the owner's name for it (arch.json); a rail's is the page's. */
+  name: string;
+  kind: 'layer' | 'unit' | 'rail';
+  /** A layer cell that gave folders their own cells: its rest (`<name> 나머지`). */
+  rest?: true;
+  /** The layer (band) it sits in; none for a rail. */
+  layer?: string;
+  files: number;
+  /** Its biggest parts: `git/` (a folder), `cld/*` (a folder's own files), `` (its own files), `cld/test` (a rail's). */
+  inside: Array<{ name: string; n: number }>;
+  /** Relative imports into it and out of it, from and to the other cells (rails included). */
+  in: number;
+  out: number;
+  /** [한 단계 들어가기] would show more than one cell. */
+  deeper: boolean;
+  /** SPT C2: the features (and 공통 기준 prefixes) whose requirements reach it by a path on, with how many (요구 N), most first. */
+  features: Array<{ key: string; reqs: number }>;
+  /** Commits of the last 7 days that changed one of its files. */
+  week: number;
 }
-export interface MapModule extends MapCard {
-  parent?: string;
-  /** Where it is written (capped). */
-  sources: ArchSource[];
-  note?: string;
-  folder?: string;
-}
-/** A composition relation between two shown cards (relations below them lifted to them). */
-export interface MapDep {
-  from: string;
-  to: string;
-  label?: string;
-  origin: 'owner_confirmed' | 'document_explicit';
-  /** How many relations it stands for. */
-  count: number;
-}
-export interface MapUncertain {
+/** A band: one layer, top to bottom in import order (who imports more sits higher). */
+export interface MapBand {
   id: string;
-  label: string;
-  /** review: approved, its document changed since; proposed: a folder proposal; doc: read from a document, not approved; suggested: only suggested requirement links; unlinked: no requirement. */
-  why: 'review' | 'proposed' | 'doc' | 'suggested' | 'unlinked';
+  name: string;
+  files: number;
+  blocks: string[];
 }
-export interface MapReq {
-  uid: string;
-  label: string;
-  title?: string;
-  status: 'confirmed' | 'observed' | 'suggested';
-  state?: TraceState;
+/** Two cells' imports, each way (a → b, b → a); listed once per pair, rails out. */
+export interface MapPair {
+  a: string;
+  b: string;
+  ab: number;
+  ba: number;
 }
-export interface MapTreeRow {
+export interface MapStructure {
+  /** The `in` chain shown ([] at the top), each with its cell's name. */
+  crumbs: Array<{ id: string; name: string }>;
+  bands: MapBand[];
+  blocks: MapBlock[];
+  pairs: MapPair[];
+  /** Imports from a lower band to a higher one, and the first file pairs of them. */
+  violations: number;
+  violationFiles: Array<[string, string]>;
+  /** Code files counted, imports resolved between them, relative imports not resolved (css, json, pictures, aliases). */
+  files: number;
+  imports: number;
+  unresolved: number;
+  /** 일부만 셈: a cap cut the scan (files, bytes, time), or the listing was cut. */
+  partial?: 'files' | 'bytes' | 'time' | 'list';
+  /** Files over the per-file cap: counted, their imports not read. */
+  big: number;
+  /** When the child process scanned, how long it took and its peak RSS. */
+  at: string;
+  ms: number;
+  rssKb: number;
+}
+export interface MapFeatureDetail {
+  key: string;
+  name: string;
+  /** Where its name is defined (the section's document and line). */
+  source?: { path: string; line: number };
+  /** `paths`: [펼치기]'s files per path (every path, the ones off too), each count with its first files. */
+  reqs: Array<{
+    uid: string;
+    label: string;
+    title?: string;
+    state?: TraceState;
+    changed?: true;
+    tasks?: string[];
+    paths?: Partial<Record<MapLinkPath, { n: number; files: string[] }>>;
+  }>;
+  more: number;
+  /** SPT C2 (§6.8): 요구 → 작업 → 커밋 → 파일 (files by the paths on). */
+  chain: { reqs: number; tasks: number; commits: number; files: number };
+  /** Its tasks (Task Board Tasks linked, task spec numbers pointing at one of its requirements), with how many of its requirements each names. */
+  tasks: Array<{ id: string; title?: string; reqs: number }>;
+  tasksMore: number;
+  /** Commits of the last 7 days naming one of its requirements or tasks. */
+  week: number;
+}
+/** SPT C2 (`?block=`): a cell's 닿은 기능, its last commits and head-comment tags, 꼬리표로만 이어진 커밋 (D3). */
+export interface MapBlockDetail {
   id: string;
-  label: string;
-  parent?: string;
-  standing: ArchStanding;
-  children: number;
+  features: Array<{ key: string; short: string; name: string; reqs: number }>;
+  week: number;
+  recent: Array<{ sha: string; at: string; subject: string; tags: string[] }>;
+  tags: Array<{ tag: string; files: number }>;
+  /** Commits that changed its files and name a head-comment tag but no requirement or task number (not linked to a feature: SPT §14 D3). */
+  tagOnly: number;
 }
 export interface TraceMap {
-  /** false: spec tracking is off (nothing else is filled; nothing was read). */
+  /** false: spec tracking is off (nothing else is filled; nothing was read or run). */
   enabled: boolean;
-  /** The selected item; `id: 'root'` for the project itself. */
-  selected: MapModule;
-  /** The root first, the selected item last. */
-  crumbs: Array<{ id: string; label: string }>;
-  cards: MapCard[];
-  /** Children past the card cap ('그 밖 N개'; the tree lists them). */
-  more: number;
-  deps: MapDep[];
-  uncertain: MapUncertain[];
-  uncertainMore: number;
-  reqs: MapReq[];
-  reqsMore: number;
-  tree: MapTreeRow[];
-  treeMore: number;
-  /** The project's live requirements, linked to a module or not. */
+  features: MapFeature[];
+  common: MapCommon[];
+  /** Requirements of the requirement documents, and of those the ones whose text changed in the last 7 days. */
   reqTotal: number;
-  /** [제안 모두 승인]: the diagrams read from documents and never approved, and the folders proposed (masked paths), as shown now. */
-  pending: { diagrams: Array<Pick<ArchDiagram, 'doc' | 'block' | 'version'>>; folders: string[] };
-  /** The last [제안 모두 승인] still standing, for [되돌리기]. */
-  lastBatch?: { id: string; at: string; diagrams: number; folders: number };
+  changed: number;
+  /** null: the scan could not run or failed (세지 못함: tried again shortly); no code file is a structure with no block. */
+  structure: MapStructure | null;
+  /** `?feature=`: that feature's (or common prefix's) requirements. */
+  feature?: MapFeatureDetail;
+  /** SPT C2: the feature requirements linked by a path on, the paths on by default, the commits read (and whether the log was cut), the 꼬리표로만 commits of them all. */
+  linked: number;
+  pathsOn: MapLinkPath[];
+  commits: number;
+  commitsCapped?: true;
+  tagOnly: number;
+  /** `?block=`: that cell of the structure shown. */
+  block?: MapBlockDetail;
 }

@@ -55,6 +55,7 @@ import { turnEnded } from '../providers/claudeProvider.js';
 import type { World } from '../providers/types.js';
 import { STEPUP_REQUIRED } from '../shell/gate.js';
 import type { SpawnFn } from '../spawnJson.js';
+import { repliedState } from '../transcriptHistory.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
 import { ClaudePtyAgent } from './agents/claude/claudePty.js';
@@ -183,6 +184,8 @@ export const startedBy = (source: string): 'engine' | 'agent' | 'cli' | 'person'
 export const SWAP_UNFINISHED =
   koText('swap_unfinished');
 
+/** How every revive notice starts: a waiting one is replaced by the next (writeInbox `replaces`). */
+export const REVIVE_TAG = '[cld-gui 자동 복구 · ';
 /** First message after revive (the 자동 복구 line): why the session was started again. */
 export function reviveText(cause: 'reboot' | 'restart' | 'died', when: string): string {
   const why =
@@ -191,7 +194,7 @@ export function reviveText(cause: 'reboot' | 'restart' | 'died', when: string): 
       : cause === 'died'
         ? '같은 부팅에서 세션이 꺼져 다시 띄웠다. cld-gui job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).'
         : 'cld-gui가 다시 뜰 때 이 세션이 꺼져 있어서 엔진이 다시 띄웠다. cld-gui job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).';
-  return `[cld-gui 자동 복구 · ${when}] ${why} 꺼지기 전에 하던 일을 확인하고 이어서 해 달라. 하던 일이 없었으면 그대로 기다린다.`;
+  return `${REVIVE_TAG}${when}] ${why} 꺼지기 전에 하던 일을 확인하고 이어서 해 달라. 하던 일이 없었으면 그대로 기다린다.`;
 }
 
 /** The compaction nudge (an opt-in per project). */
@@ -236,8 +239,9 @@ export interface EngineOptions {
   started?: (name: string) => void;
   /** W2: the folder a Claude Worker should start in now (the worktree given to it), or null. */
   assignedFolder?: (p: ProjectRecord) => string | null;
-  /** T-0019: a message into a project's inbox (revive's notice, renew's handoff). */
-  writeInbox?: (name: string, text: string) => boolean;
+  /** T-0019: a message into a project's inbox (revive's notice, renew's handoff); `replaces`: the
+   *  first words of an older notice of the same kind still waiting there, which this one replaces. */
+  writeInbox?: (name: string, text: string, replaces?: string) => boolean;
   /** T-0019: a project's conversation refilled after its compaction nudge count. */
   nudge?: (name: string, count: number, fillPct: number) => void;
   /** The clock of the revive window (T-0091); tests move it. */
@@ -771,6 +775,22 @@ export class Engine {
       ...(h.status && { status: h.status }),
       transcript: h.agent.transcript(h),
     };
+  }
+
+  /**
+   * REPLY-FULL: the message reply `id` names, as `name`'s live session has it: 'recent' (in its
+   * context still), its text (sent before this session started or before its last compaction:
+   * the compaction summed it up), 'missing' (not found: its records are gone), or null (no live
+   * session, no start time or no compaction mark to tell by).
+   */
+  async replied(name: string, id: string): Promise<'recent' | 'missing' | { text: string } | null> {
+    const p = this.find(name);
+    if (!p) return null;
+    this.live = this.readLive();
+    const h = this.holder(p);
+    const mark = h?.agent.compaction?.mark;
+    if (!h || h.kind !== 'background' || h.startedAt === undefined || !mark) return null;
+    return repliedState(h.agent.transcript(h), id, mark, h.startedAt).catch(() => null);
   }
 
   /** C5a: every agent as the MCP tools see it (list_agents, the scope checks). */
@@ -2414,7 +2434,7 @@ export class Engine {
     let out: Outcome;
     try {
       // The first message tells the session why it is back (the 자동 복구 line).
-      if (firstPrompt) this.opts.writeInbox?.(name, reviveText(cause, shortStamp()));
+      if (firstPrompt) this.opts.writeInbox?.(name, reviveText(cause, shortStamp()), REVIVE_TAG);
       out = await this.enqueue(() => this.startProject(this.find(name) ?? p, 'revive'));
     } catch (err) {
       out = fail(err instanceof Error ? err.message : String(err));

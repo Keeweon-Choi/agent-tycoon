@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { SMOOTH_CACHE_MAX_BYTES, WALL_COLOR } from '../src/constants.js';
+import { PICTURE_CACHE_MAX_BYTES, PICTURE_CANVAS_OVERHEAD_BYTES, WALL_COLOR } from '../src/constants.js';
+import { pictureFrame, pictureStats } from '../src/office/sprites/pictureBudget.js';
 import { getCachedSprite } from '../src/office/sprites/spriteCache.js';
 
 const frame = (width: number, height: number) =>
@@ -127,8 +128,9 @@ describe('SHEET-IMPORT: one master at every zoom', () => {
 
   it('LOOKS-MEM: a sheet let go leaves the zoom LRU, gives its canvas back, and draws nothing after', async () => {
     const draws = install();
-    const { deriveSmooth, drawSmooth, markSmooth, releaseMaster, smoothCacheBytes } =
+    const { deriveSmooth, drawSmooth, markSmooth, releaseMaster } =
       await import('../src/office/sprites/smoothSprite.js');
+    const smoothCacheBytes = () => pictureStats().bytes;
     const sheet = Object.assign(document.createElement('canvas'), { width: 2304, height: 3168 });
     const other = document.createElement('canvas');
     const [a, b, keep] = [frame(96, 176), frame(96, 176), frame(96, 176)];
@@ -137,7 +139,7 @@ describe('SHEET-IMPORT: one master at every zoom', () => {
     deriveSmooth(a, b, { mirror: true }); // a mirrored copy: the same master
     const before = smoothCacheBytes();
     for (const f of [a, b, keep]) getCachedSprite(f, 2);
-    const one = 192 * 352 * 4;
+    const one = 192 * 352 * 4 + PICTURE_CANVAS_OVERHEAD_BYTES;
     expect(smoothCacheBytes() - before).toBe(3 * one);
     releaseMaster(a);
     expect(smoothCacheBytes() - before).toBe(one); // the other sheet's picture stays
@@ -153,15 +155,17 @@ describe('SHEET-IMPORT: one master at every zoom', () => {
     expect(draws.length).toBeGreaterThan(n);
   });
 
-  it('keeps the current zoom within the 48 MB byte cap too', async () => {
+  it('keeps the current zoom within the picture budget too: one over it goes at the next frame', async () => {
     install();
-    const { markSmooth, smoothCacheBytes } = await import('../src/office/sprites/smoothSprite.js');
+    const { markSmooth } = await import('../src/office/sprites/smoothSprite.js');
     const f = frame(64, 128);
     markSmooth(f);
     // The mock canvas does not allocate its backing store, but this displayed picture would be
-    // 128 MB. It must be returned for the current draw without being retained in the zoom LRU.
-    getCachedSprite(f, 64);
-    expect(smoothCacheBytes()).toBeLessThanOrEqual(SMOOTH_CACHE_MAX_BYTES);
+    // 128 MB. It is returned for the current draw, and let go when the next frame starts.
+    const pic = getCachedSprite(f, 64);
+    expect(pic.width).toBe(64 * 64);
+    pictureFrame();
+    expect(pictureStats().bytes).toBeLessThanOrEqual(PICTURE_CACHE_MAX_BYTES);
   });
 
   it('the office never builds a picture in its frame: an unbuilt one draws from the master, queued, and the queue drains on a busy frame too', async () => {

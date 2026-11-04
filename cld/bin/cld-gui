@@ -10,7 +10,7 @@
 //   cld-gui renew [--project <name>] [<handoff file> | -]
 //   cld-gui rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
 //   cld-gui project remove <name> [--purge]
-//   cld-gui codex [-m <model>] [-e <effort>] [-d <description>] [--worktree] [--project <name>] <spec file> | codex [--all]
+//   cld-gui codex [-m <model>] [-e <effort>] [-d <description>] [--worktree [--name <type/scope-what>]] [--project <name>] <spec file> | codex [--all]
 //   cld-gui gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
 //   cld-gui hw [--json]
 //   cld-gui task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
@@ -63,7 +63,7 @@ const USAGE = `사용법:
   ${CLI} renew [--project <이름>] [<인수인계 파일> | -]
   ${CLI} rename [--project <지금 이름>] <새 이름>   턴이 끝나면 이름을 바꿔 같은 대화로 다시 켬(기록·모습·레벨이 따라감)
   ${CLI} project remove <프로젝트> [--purge]   프로젝트(와 Worker)를 목록에서 뺌, --purge: 관련 데이터(환생 이력 등)도 지움
-  ${CLI} codex [-m <모델>] [-e <강도>] [-d|--desc <작업 설명>] [--worktree] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
+  ${CLI} codex [-m <모델>] [-e <강도>] [-d|--desc <작업 설명>] [--worktree [--name <type/scope-무엇>]] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
   ${CLI} gpu [--json] | gpu run [--vram GiB] [--exclusive] [--wait 분] [--label 설명] -- <명령>
   ${CLI} gpu cancel <id> | gpu move <id> <순서>
   ${CLI} hw [--json]
@@ -688,7 +688,7 @@ async function main(argv) {
       const o = options(
         rest,
         ['--worktree', '--all'],
-        ['-m', '--model', '-e', '--effort', '-d', '--desc', '--project', '--task'],
+        ['-m', '--model', '-e', '--effort', '-d', '--desc', '--project', '--task', '--name'],
       );
       if (o.error) return failWith('usage', o.error);
       const desc = o['--desc'] ?? o['-d'] ?? null;
@@ -697,7 +697,7 @@ async function main(argv) {
       if (rest.length > 1)
         return failWith(
           'usage',
-          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree] [--project <이름>] <명세 파일>`,
+          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>`,
         );
       if (!rest.length) {
         const r = await request('codex', { list: true, all: o['--all'] === true });
@@ -720,6 +720,7 @@ async function main(argv) {
         effort: o['-e'] ?? o['--effort'] ?? null,
         desc,
         worktree: o['--worktree'] === true,
+        ...(o['--name'] && { name: o['--name'] }),
         project: o['--project'] ?? null,
         path: process.env.PATH ?? null,
         ...(o['--task'] && { task: o['--task'] }),

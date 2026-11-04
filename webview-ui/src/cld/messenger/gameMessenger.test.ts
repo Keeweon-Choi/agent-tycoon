@@ -1,12 +1,12 @@
-// GAME-UI-1 G1: how a line types in (a time per sentence), where folded quest records sit, the envelope's arc.
+// GAME-UI-1 G1: how a line types in (a time per sentence), where folded quest records sit.
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { MSG_ENVELOPE_ARC_PX, MSG_TYPE_MAX_MS, MSG_TYPE_SENTENCE_MS, MSG_TYPE_TICK_MS } from '../../constants.js';
-import { arcPoint, placeRecords, questionText, type QuestRecord, sentenceEndStep, skipsTyping, typedSlice, typePlan } from './gameMessenger.js';
+import { MSG_TYPE_MAX_MS, MSG_TYPE_SENTENCE_MS, MSG_TYPE_TICK_MS } from '../../constants.js';
+import { placeRecords, questionText, type QuestRecord, sentenceEndStep, skipsTyping, typedSlice, typePlan } from './gameMessenger.js';
 
 describe('typePlan', () => {
   const ticksOf = (text: string) => typePlan(text)!.length;
@@ -108,20 +108,6 @@ describe('questionText', () => {
     expect(questionText(undefined)).toBe('');
     const long = questionText([{ kind: 'assistant', text: 'One. Two. Three. Four. Should I deploy?' }]);
     expect(long).toBe('\u2026Three. Four. Should I deploy?');
-  });
-});
-
-describe('arcPoint', () => {
-  it('starts and ends on the ends, rises above the straight line, in whole pixels', () => {
-    const from = { x: 900, y: 800 };
-    const to = { x: 260, y: 300 };
-    expect(arcPoint(from, to, 0)).toEqual(from);
-    expect(arcPoint(from, to, 1)).toEqual(to);
-    const mid = arcPoint(from, to, 0.5);
-    // lifted over the straight line, never past the arc's control height
-    expect(mid.y).toBeLessThan((from.y + to.y) / 2 - MSG_ENVELOPE_ARC_PX / 2);
-    expect(mid.y).toBeGreaterThanOrEqual(to.y - MSG_ENVELOPE_ARC_PX);
-    expect(Number.isInteger(mid.x) && Number.isInteger(mid.y)).toBe(true);
   });
 });
 

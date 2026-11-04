@@ -402,6 +402,8 @@ export function dialogMatches(dialog: string, match: string[]): boolean {
 const PASTE_PLACEHOLDER = '[Pasted text';
 /** Only placeholders in the box (one per paste, `#<n>` counts up, ` +<k> lines` only when multi-line). */
 const ONLY_PLACEHOLDERS = /^(\[Pastedtext#\d+[^\]]*\])+$/;
+/** Exactly one paste's placeholder, squashed: its `#<n>` and its ` +<k> lines` (k: the paste's line breaks) captured. */
+const ONE_PLACEHOLDER = /^\[Pastedtext#(\d+)(?:\+(\d+)lines)?\]$/;
 /** A lower bound of what Claude Code folds into a placeholder (it folds from a few lines or
  *  some hundred characters). Under it a placeholder cannot be ours: a short message of ours
  *  is shown as itself, so a placeholder in the box is someone else's paste (U-37). On a
@@ -443,22 +445,42 @@ export function draftShown(
   term: HeadlessTerminal,
   text: string,
   whileWorking = false,
-  only = false,
+  only: boolean | 'text' = false,
 ): boolean {
+  const box = boxShown(term, whileWorking);
+  if (!box) return false;
+  const folded = foldsWhenPasted(text, term.rows);
+  // 'text': the whole text itself, never a paste placeholder (anyone's long paste shows one).
+  if (only) return box === squash(text) || (only !== 'text' && folded && ONLY_PLACEHOLDERS.test(box));
+  if (folded && box.includes(squash(PASTE_PLACEHOLDER))) return true;
+  const key = draftKey(text);
+  return (!!key && box.includes(key)) || (box.length >= DRAFT_KEY && squash(text).includes(box));
+}
+
+/** The input box's text (from the `❯` row down to the rule under it), whitespace removed; '' when
+ *  no input line is found. */
+function boxShown(term: HeadlessTerminal, whileWorking: boolean): string {
   const i = inputRow(term, whileWorking);
-  if (i < 0) return false;
+  if (i < 0) return '';
   const b = term.buffer.active;
   const row = (r: number) => b.getLine(b.viewportY + r)?.translateToString() ?? '';
   const first = row(i);
   let shown = first.slice(first.search(/[❯›>]/) + 1);
   for (let r = i + 1; r < term.rows && !row(r).trimStart().startsWith('─'); r++) shown += row(r);
-  const box = squash(shown);
-  if (!box) return false;
-  const folded = foldsWhenPasted(text, term.rows);
-  if (only) return box === squash(text) || (folded && ONLY_PLACEHOLDERS.test(box));
-  if (folded && box.includes(squash(PASTE_PLACEHOLDER))) return true;
-  const key = draftKey(text);
-  return (!!key && box.includes(key)) || (box.length >= DRAFT_KEY && squash(text).includes(box));
+  return squash(shown);
+}
+
+/**
+ * TYPIST-STALE: the `#<n>` of the one paste placeholder the input box holds for a paste of `text`
+ * (its line count, and `text` long enough to be folded, foldsWhenPasted); null for anything else
+ * (the text itself, a second paste, an edited box, no placeholder, a screen we cannot read). `#n`
+ * counts Claude Code's pastes up, so a paste of ours is told from anyone's of the same length by it.
+ */
+export function pastedAs(term: HeadlessTerminal, text: string, whileWorking = false): number | null {
+  const one = ONE_PLACEHOLDER.exec(boxShown(term, whileWorking));
+  return one && foldsWhenPasted(text, term.rows) && Number(one[2] ?? 0) === text.split('\n').length - 1
+    ? Number(one[1])
+    : null;
 }
 
 export const CHAT_TEXT = {
@@ -630,6 +652,9 @@ class ChatPty {
       const clean = text.replace(/\r\n?/g, '\n').replace(CONTROL, '');
       const ours = () => draftShown(this.screen, clean, whileWorking);
       const oursOnly = () => draftShown(this.screen, clean, whileWorking, true);
+      // ponytail: the tmux Typist still takes any placeholder of our length as ours (and submits an
+      // earlier paste of ours by its text, which Up recalls too): the fixes claudePty.deliver got
+      // (TYPIST-STALE 11-04: the paste's `#n` remembered, no `earlier`) stop at that path. Backup path only.
       const earlier = () =>
         !oursOnly() &&
         (o.earlier ?? []).some((e) =>

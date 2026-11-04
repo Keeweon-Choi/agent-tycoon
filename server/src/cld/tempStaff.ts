@@ -20,6 +20,7 @@
  */
 import type {
   CodexTask,
+  ContextLimitBasis,
   TempEmployee,
   TempStaff as TempStaffMsg,
 } from '../../../core/src/messages.js';
@@ -87,8 +88,19 @@ export class TempStaff {
   }
 
   /** The sub-agent's own context (SubagentWatch.onContext). */
-  context(_leadId: number, spawnToolUseId: string, tokens: number, max: number): void {
-    if (this.d.roster.setContext(`claude:${spawnToolUseId}`, tokens, max)) this.d.changed();
+  context(
+    _leadId: number,
+    spawnToolUseId: string,
+    tokens: number,
+    max: number,
+    basis?: ContextLimitBasis,
+  ): void {
+    if (this.d.roster.setContext(`claude:${spawnToolUseId}`, tokens, max, basis)) this.d.changed();
+  }
+
+  /** The compactions counted in the sub-agent's own transcript (SubagentWatch.onCompactions). */
+  compactions(_leadId: number, spawnToolUseId: string, count: number): void {
+    if (this.d.roster.setCompactions(`claude:${spawnToolUseId}`, count)) this.d.changed();
   }
 
   /** The Codex task list (temporaries are the runs no Worker owns). */
@@ -127,7 +139,12 @@ export class TempStaff {
           project,
           working: b.ended === null,
           ...(this.d.levels.view(`emp:${e.id}`) && { level: this.d.levels.view(`emp:${e.id}`) }),
-          ...(ctx && { contextTokens: ctx.tokens, maxContextTokens: ctx.max }),
+          ...(ctx && {
+            contextTokens: ctx.tokens,
+            maxContextTokens: ctx.max,
+            ...(ctx.basis && { limitBasis: ctx.basis }),
+            ...(ctx.compactions && { compactions: ctx.compactions }),
+          }),
         };
       });
     return { type: 'tempStaff', staff };

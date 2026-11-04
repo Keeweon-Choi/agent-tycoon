@@ -25,6 +25,8 @@ export interface ActivityInput {
   idle?: boolean;
   /** The provider says a turn is in progress (office/engine `busy`); only matters with no tool running. */
   busy?: boolean;
+  /** STATE-SYNC: the turn is over but its background job still runs (the engine's shellWait). */
+  jobWait?: boolean;
   jobProgress?: JobProgress | null;
   /** The one-line description its owner gave (an agent's tool description, a job's `-d`): it replaces the phrase's words, never the emoji. */
   desc?: string | null;
@@ -256,8 +258,8 @@ export function describeActivity(
     return rule ? activity(rule.emoji, rule.text) : phrase(PHRASES.unknownTool);
   }
   if (input.idle || /^\s*(idle|turn ended|finished)\s*$/i.test(input.status ?? '')) {
-    // Precedence: tool > permission/waiting > busy (thinking) > idle.
-    return phrase(input.busy ? PHRASES.thinking : PHRASES.idle);
+    // Precedence: tool > permission/waiting > busy (thinking) > job wait > idle.
+    return phrase(input.busy ? PHRASES.thinking : input.jobWait ? PHRASES.jobWait : PHRASES.idle);
   }
 
   const progress = input.jobProgress;

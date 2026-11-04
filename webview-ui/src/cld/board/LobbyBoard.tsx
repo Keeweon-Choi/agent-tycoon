@@ -3,8 +3,8 @@
  * placed through overlayProjection so it pans and zooms with the camera, and
  * a full-screen view a click on the board opens (Esc or back closes it). In
  * the isometric building the board stands outside as a billboard
- * (building-a-1104): the canvas draws it, this lays its two numbers over its
- * face, and a tap on the face opens the same full view.
+ * (building-a-1104): the canvas draws its case, posts and frame, this lays the
+ * same screen inside the frame (level with the screen, owner 11-04 21:04).
  *
  * Cost: the pages turn and the data redraws only while the board is on the
  * shown floor, inside the view and big enough to read; otherwise it keeps a
@@ -26,7 +26,6 @@ import {
   BOARD_SCREEN,
   BOARD_TYPE,
   BOARD_Z_INDEX,
-  ISO_BILLBOARD_PAGE_MS,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { frameDue } from '../../office/engine/gameLoop.js';
@@ -36,16 +35,12 @@ import type { ToolActivity } from '../../office/types.js';
 import { TILE_SIZE } from '../../office/types.js';
 import { DRAG_THRESHOLD_PX } from '../camera.js';
 import { isOfficeCanvasTarget } from '../canvasTarget.js';
-import { useEngineStore } from '../engineStore.js';
 import { currentRect, onFloor } from '../floors.js';
 import { showOffice } from '../hud/hudStore.js';
-import { useHwPrefs } from '../hwView.js';
-import { isoBillboard, setBillboardFace } from '../iso/render.js';
+import { isoBillboard } from '../iso/render.js';
 import { characterName } from '../kinds.js';
 import { useCldStore, virtualAgentId } from '../officeStore.js';
 import { closeOverlay } from '../overlayHistory.js';
-import { useWaitReasons } from '../waiting.js';
-import { billboardContent, type BillboardPage, nextPage, paintFace } from './billboardFace.js';
 import { type BoardPage, inQuad, pickPage, type Quad, rotate, startRotation } from './board.js';
 import { type BoardMode, BoardModeContext } from './boardMode.js';
 import { onOpenBoard } from './boardOpen.js';
@@ -53,8 +48,8 @@ import { BoardView, type LookOf } from './BoardPages.js';
 
 interface LobbyBoardProps {
   officeState: OfficeState;
-  /** The isometric building is drawn: the board is the billboard outside (building-a-1104), its
-   *  two numbers laid over the face the canvas drew; a tap opens the full view. */
+  /** The isometric building is drawn: the board's screen is on the billboard outside
+   *  (building-a-1104), the canvas drawing its case round it; a tap opens the full view. */
   iso?: boolean;
   containerRef: React.RefObject<HTMLDivElement | null>;
   zoom: number;
@@ -162,13 +157,14 @@ export function LobbyBoard({
     return () => cancelAnimationFrame(raf);
   }, [officeState, containerRef, panRef]);
 
-  const rect = iso ? null : boardRect(officeState, containerRef.current, zoom, panRef.current);
-  const billboard = iso ? isoBillboard(window.devicePixelRatio || 1) : null;
+  // building-a-1104: in the isometric building the screen is the billboard's (outside, level
+  // with the screen), the old board's own screen laid on it as on the wall (owner 11-04 21:04).
+  const rect = iso
+    ? isoBillboard(window.devicePixelRatio || 1)
+    : boardRect(officeState, containerRef.current, zoom, panRef.current);
   const em = rect ? rect.width / BOARD_EM_WIDTH : 0;
   const container = containerRef.current?.getBoundingClientRect();
-  const b =
-    rect ??
-    (billboard && { left: billboard.x, top: billboard.y, width: billboard.w, height: billboard.h });
+  const b = rect;
   const inView =
     !!b &&
     !!container &&
@@ -176,14 +172,14 @@ export function LobbyBoard({
     b.top < container.height &&
     b.left + b.width > 0 &&
     b.top + b.height > 0;
-  // Only the pages of a board big enough to read turn (the billboard shows two numbers only).
-  const live = (!iso && inView && em >= BOARD_MIN_EM_PX) || full;
+  // Only the pages of a board big enough to read turn.
+  const live = (inView && em >= BOARD_MIN_EM_PX) || full;
   // UI-PHONE: the part of the wall's board inside the window, in em, measured as drawn after
   // each render (it renders whenever the board moves): the phone's table is laid in it.
   const wallRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = wallRef.current;
-    if (!el || !phone || iso || !(em > 0)) return;
+    if (!el || !phone || !(em > 0)) return;
     const b = el.getBoundingClientRect();
     const l = Math.max(0, -b.left);
     const r = Math.min(b.width, window.innerWidth - b.left);
@@ -206,60 +202,10 @@ export function LobbyBoard({
     [onPage],
   );
 
-  // The billboard's pages (owner 11-04 20:27): the summary, then the old board's 프로젝트, H/W
-  // and GPU, turning by themselves; painted into one canvas only when what it shows changes.
-  const [bbPage, setBbPage] = useState<BillboardPage>('summary');
-  useEffect(() => {
-    if (!iso) return;
-    const timer = setInterval(() => setBbPage(nextPage), ISO_BILLBOARD_PAGE_MS);
-    return () => clearInterval(timer);
-  }, [iso]);
-  const engineProjects = useEngineStore().state?.projects;
-  const reasons = useWaitReasons();
-  const hwView = useHwPrefs().view;
-  const content = useMemo(
-    () =>
-      iso
-        ? billboardContent(bbPage, {
-            snap,
-            agentTools,
-            waiting: waiting.length,
-            workers: new Set((engineProjects ?? []).filter((p) => p.role).map((p) => p.name)),
-            reasons,
-            view: hwView,
-            now: nowSec * 1000,
-          })
-        : null,
-    [iso, bbPage, snap, agentTools, waiting.length, engineProjects, reasons, hwView, nowSec],
-  );
-  const faceSize = billboard ? `${billboard.face.w}x${billboard.face.h}x${billboard.face.k}` : '';
-  const faceKey = content ? `${faceSize}|${JSON.stringify(content)}` : '';
-  const faceRef = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    if (!content || !billboard || billboard.face.w <= 0 || billboard.face.h <= 0) return;
-    const c = (faceRef.current ??= document.createElement('canvas'));
-    c.width = billboard.face.w;
-    c.height = billboard.face.h;
-    paintFace(c.getContext('2d')!, c.width, c.height, billboard.face.k, content);
-    setBillboardFace(c);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- faceKey is what it paints
-  }, [faceKey]);
-  useEffect(() => () => setBillboardFace(null), []);
-  // A tap on the billboard opens what its page continues: the summary the 현황판's 오케스트레이터
-  // tab (where who waits is answered), a list page the full board on that page.
-  const tapRef = useRef<() => void>(() => setFull(true));
-  tapRef.current = iso
-    ? () => (bbPage === 'summary' ? showOffice('status') : (setFull(true), onPage(bbPage)))
-    : () => setFull(true);
-
   // A tap on the board (not a drag) opens the full view; the canvas below still gets it. The
   // board's face as drawn: the rectangle, or the wall's slanted face in the isometric view.
   const quadRef = useRef<Quad | null>(null);
-  quadRef.current = !inView
-    ? null
-    : billboard
-      ? { x: billboard.x, y: billboard.y, ux: billboard.w, uy: 0, vx: 0, vy: billboard.h }
-      : rect && rectQuad(rect);
+  quadRef.current = inView && rect ? rectQuad(rect) : null;
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -280,12 +226,8 @@ export function LobbyBoard({
       const target = e.target as Element;
       if (!tap || target.closest?.('.led-head')) return;
       // Only the canvas or the board itself: a panel or button over the board's rectangle keeps its click.
-      if (
-        !isOfficeCanvasTarget(target) &&
-        !target.closest?.('[data-testid="lobby-board"], [data-testid="lobby-billboard"]')
-      )
-        return;
-      if (inside(p)) tapRef.current();
+      if (!isOfficeCanvasTarget(target) && !target.closest?.('[data-testid="lobby-board"]')) return;
+      if (inside(p)) setFull(true);
     };
     const onMove = (e: PointerEvent) => {
       if (e.pointerType === 'mouse') hovering.current.mini = inside(local(e));
@@ -331,26 +273,6 @@ export function LobbyBoard({
         >
           {view(!live, 'mini')}
         </div>
-      )}
-      {inView && billboard && content && (
-        <div
-          className="led-billboard"
-          data-testid="lobby-billboard"
-          data-page={bbPage}
-          style={{
-            left: billboard.x,
-            top: billboard.y,
-            width: billboard.w,
-            height: billboard.h,
-            zIndex: BOARD_Z_INDEX,
-          }}
-          aria-label={[
-            t('board.wallOpen'),
-            content.title,
-            ...(content.big ?? []).map((x) => `${x.label} ${x.value}`),
-            ...(content.lines ?? []).map((x) => [x.text, x.value].filter(Boolean).join(' ')),
-          ].join(' · ')}
-        />
       )}
       {full && (
         <FullBoard onClose={close} onHover={hoverFull}>

@@ -1,8 +1,17 @@
 import { perfCache } from '../../cld/perf.js';
 import type { SpriteData } from '../types.js';
+import {
+  bakePicture,
+  keepPicture,
+  type Picture,
+  type PictureContext,
+  pictureCost,
+  touchPicture,
+} from './pictureBudget.js';
 import { isSmooth, smoothPicture } from './smoothSprite.js';
 
-const zoomCaches = new Map<number, WeakMap<SpriteData, HTMLCanvasElement>>();
+/** Each zoom's built frames; their bytes are the picture budget's (pictureBudget.ts). */
+const zoomCaches = new Map<number, Map<SpriteData, Picture>>();
 
 // ── Outline sprite generation ─────────────────────────────────
 
@@ -51,50 +60,49 @@ export function getOutlineSprite(sprite: SpriteData): SpriteData {
  *  sprite px per world px, at an odd world zoom) is nearest-neighbour: each sprite px covers the
  *  device px between its rounded edges, so the pixels are 2 or 3 wide at 2.5, never blended.
  *  A whole zoom draws exactly as before. */
-export function getCachedSprite(sprite: SpriteData, zoom: number): HTMLCanvasElement {
+export function getCachedSprite(sprite: SpriteData, zoom: number): Picture {
   // SHEET-IMPORT: a detailed character frame draws its one master at this size (smoothSprite.ts)
   if (isSmooth(sprite)) return smoothPicture(sprite, zoom);
   let cache = zoomCaches.get(zoom);
   if (!cache) {
-    cache = new WeakMap();
+    cache = new Map();
     zoomCaches.set(zoom, cache);
   }
 
   const cached = cache.get(sprite);
-  if (cached) return cached;
+  if (cached) {
+    touchPicture(cached);
+    return cached;
+  }
 
   const rows = sprite.length;
   const cols = sprite[0].length;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(cols * zoom);
-  canvas.height = Math.round(rows * zoom);
   const edge = (i: number) => Math.round(i * zoom);
-  const ctx = canvas.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-
-  // HD64-SAMPLE: a large sprite (an HD character frame) at a whole zoom is put once at its own
-  // size and drawn scaled, nearest: the same pixels as a fill per sprite pixel, a fraction of the
-  // calls (a 64×128 frame is 8192 fills). Classic sprites keep the fills.
-  if (rows >= HD_SPRITE_ROWS && Number.isInteger(zoom) && putScaled(ctx, sprite, zoom)) {
-    cache.set(sprite, canvas);
-    perfCache(canvas.width * canvas.height * 4);
-    return canvas;
-  }
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const color = sprite[r][c];
-      if (color === '') continue;
-      ctx.fillStyle = color;
-      const x = edge(c);
-      const y = edge(r);
-      ctx.fillRect(x, y, edge(c + 1) - x, edge(r + 1) - y);
+  const pic = bakePicture(Math.round(cols * zoom), Math.round(rows * zoom), (ctx) => {
+    // HD64-SAMPLE: a large sprite (an HD character frame) at a whole zoom is put once at its own
+    // size and drawn scaled, nearest: the same pixels as a fill per sprite pixel, a fraction of
+    // the calls (a 64×128 frame is 8192 fills). Classic sprites keep the fills.
+    if (rows >= HD_SPRITE_ROWS && Number.isInteger(zoom) && putScaled(ctx, sprite, zoom)) return;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const color = sprite[r][c];
+        if (color === '') continue;
+        ctx.fillStyle = color;
+        const x = edge(c);
+        const y = edge(r);
+        ctx.fillRect(x, y, edge(c + 1) - x, edge(r + 1) - y);
+      }
     }
-  }
+  });
 
-  cache.set(sprite, canvas);
-  perfCache(canvas.width * canvas.height * 4);
-  return canvas;
+  cache.set(sprite, pic);
+  const zoomCache = cache;
+  keepPicture(pic, pictureCost(pic), () => {
+    zoomCache.delete(sprite);
+    if (!zoomCache.size && zoomCaches.get(zoom) === zoomCache) zoomCaches.delete(zoom);
+  });
+  perfCache(pic.width * pic.height * 4);
+  return pic;
 }
 
 /** Sprites this tall or taller (HD 32×64 and up) are cached by putScaled. */
@@ -102,10 +110,12 @@ const HD_SPRITE_ROWS = 64;
 const HEX = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i;
 /** The sprite's pixels as image data, drawn `zoom` times larger (nearest) onto `ctx`; false when
  *  a colour is not #RRGGBB(AA) (the caller then fills as before). */
-function putScaled(ctx: CanvasRenderingContext2D, sprite: SpriteData, zoom: number): boolean {
+let putSrc: HTMLCanvasElement | null = null;
+function putScaled(ctx: PictureContext, sprite: SpriteData, zoom: number): boolean {
   const rows = sprite.length;
   const cols = sprite[0].length;
-  const src = document.createElement('canvas');
+  // one scratch canvas for every put (PAGE-MEM: none left behind per frame built)
+  const src = (putSrc ??= document.createElement('canvas'));
   src.width = cols;
   src.height = rows;
   const sctx = src.getContext('2d');

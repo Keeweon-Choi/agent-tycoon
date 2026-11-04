@@ -17,8 +17,18 @@
  * TRACE=1 adds 6 s of the timeline (main-thread and compositor time by event). CLI=<path> runs
  * another build's dist/cli.js (a baseline worktree's, for before/after).
  * Output: cld/artifacts/smooth-1104/<LABEL>.json (+ <LABEL>.png, <LABEL>-end.png, -profile/-trace).
+ * BOOT=1 (BOOT-LOAD 11-04): the same office opened fresh with the lobby at launch, per case of
+ * BOOT_CASES (default "desk:4:iso,desk:1:iso,phone:4:iso,phone:1:iso,desk:4:top": viewport, CPU
+ * slowdown, view), a new browser context each (a cold cache, a new session): the time until the
+ * lobby's 사무실 입장 shows (the first view usable), what the page says is still pending at that
+ * moment (queued sprite builds against their peak, sheets, iso drawn: the loading screen's claim; twice each, BOOT_REPEAT),
+ * then 사무실 입장 and 10 s of wheel and pan: long tasks and frames over 50 ms; the renderer + GPU
+ * processes' RSS (peak from navigation to the end, idle after 10 s untouched), the JS heap and the
+ * picture budget's use (at the claim and when idle).
+ * SHOTS=1 adds a picture mid-load and of the lobby after it per viewport (at 10x, so the bar is caught on its way) (<LABEL>-<view>-loading.png,
+ * -lobby.png). Output: <LABEL>-boot.json.
  *
- *   taskset -c 0-3 npx tsx cld/test/run-smooth.ts <port 18530-18559> [LABEL]
+ *   taskset -c 0-3 npx tsx cld/test/run-smooth.ts <port 18500-18559> [LABEL]
  */
 import type { Browser, CDPSession, Page } from '@playwright/test';
 import type { ChildProcess } from 'child_process';
@@ -40,17 +50,25 @@ import {
 } from '../../server/src/cld/testHome.js';
 
 const port = Number(process.argv[2]);
-if (!(port >= 18530 && port <= 18559)) throw new Error('port 18530-18559');
+if (!((port >= 18500 && port <= 18559) || (port >= 18450 && port <= 18459))) throw new Error('port 18500-18559 or 18450-18459');
 const LABEL = process.argv[3] ?? 'run';
 const OUT = path.join(REPO_ROOT, process.env.OUT_DIR ?? 'cld/artifacts/smooth-1104');
 const MEASURE_MS = Number(process.env.MEASURE_MS ?? 30_000);
 const ROUNDS = Number(process.env.ROUNDS ?? 2);
 const RATES = (process.env.RATES ?? '4,1').split(',').map(Number);
-const DEADLINE_MS = 120_000 + RATES.length * ROUNDS * (MEASURE_MS + 20_000) + 60_000;
+const BOOT_CASES = (process.env.BOOT_CASES ?? 'desk:4:iso,desk:1:iso,phone:4:iso,phone:1:iso,desk:4:top').split(',');
+const DEADLINE_MS =
+  process.env.BOOT === '1'
+    ? 180_000 + (BOOT_CASES.length * Number(process.env.BOOT_REPEAT ?? 2) + 2) * 120_000
+    : 120_000 + RATES.length * ROUNDS * (MEASURE_MS + 20_000) + 60_000;
 const LEADS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
 const EXTRA = 12;
 const MODEL = 'claude-sonnet-4-5';
 const VIEW = { viewport: { width: 1282, height: 832 }, deviceScaleFactor: 1 };
+const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+const BOOT_AFTER_MS = 10_000;
+const BOOT_PENDING_SHARE = 0.1;
+const BOOT_REPEAT = Number(process.env.BOOT_REPEAT ?? 2);
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(what: string, ok: () => unknown, ms = 60_000): Promise<void> {
@@ -115,6 +133,46 @@ const INIT = `
       },
     };
   }
+`;
+
+
+// BOOT=1, page side: the loading screen's bar as it moves, the moment the lobby's button shows and
+// what the page has still pending then, long tasks and rAF after 사무실 입장.
+const BOOT_INIT = `
+  const B = (window.__boot = { pcts: [], firstBoot: null, usable: null, facts: null, rec: false, raf: [], long: [], peakPending: 0 });
+  const peek = setInterval(() => {
+    const h = window.__agentTycoonTestHooks;
+    if (B.usable !== null) return clearInterval(peek);
+    if (h && h.warmState) B.peakPending = Math.max(B.peakPending, h.warmState().pending);
+  }, 100);
+  new PerformanceObserver((l) => { if (B.rec) for (const e of l.getEntries()) B.long.push(e.duration); }).observe({ type: 'longtask', buffered: false });
+  const look = () => {
+    const boot = document.querySelector('[data-testid="boot-screen"]');
+    if (boot) {
+      if (B.firstBoot === null) B.firstBoot = performance.now();
+      const pct = Number(boot.getAttribute('data-pct'));
+      if (B.pcts[B.pcts.length - 1]?.[1] !== pct) B.pcts.push([Math.round(performance.now()), pct, boot.getAttribute('data-step')]);
+    }
+    // The claim is read when the bar says 100 (then the lobby takes over), or without a loading
+    // screen when the lobby's button shows.
+    const full = boot && boot.getAttribute('data-pct') === '100';
+    const enter = document.querySelector('[data-testid="title-enter"]');
+    if (B.usable === null && enter) B.usable = performance.now();
+    if (B.facts === null && (full || enter)) {
+      const h = window.__agentTycoonTestHooks || {};
+      B.facts = {
+        bootShown: !!boot,
+        lastPct: B.pcts.length ? B.pcts[B.pcts.length - 1][1] : null,
+        warmPending: h.warmState ? h.warmState().pending : null,
+        peakPending: B.peakPending,
+        sheets: h.sheetLoads ? h.sheetLoads() : null,
+        fonts: document.fonts.status,
+        isoDrawn: h.getIso ? h.getIso().drawn : null,
+        pictures: h.pictures ? h.pictures() : null,
+      };
+    }
+  };
+  new MutationObserver(look).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-pct'] });
 `;
 
 /** A live job record (a `sleep` stands for the process) with a tqdm log the runner climbs. */
@@ -410,10 +468,197 @@ async function main() {
     console.log(JSON.stringify(out, null, 1));
   };
 
+
+  /** BOOT=1: each case in a fresh context; the daemon and its office stay as they are. */
+  const bootRuns = async () => {
+    browser = await launchBrowser({ partyFrame: true });
+    const bcdp = await browser.newBrowserCDPSession();
+    /** The renderer and GPU processes' resident memory (MB), from /proc. */
+    const rss = async () => {
+      const { processInfo } = (await bcdp.send('SystemInfo.getProcessInfo')) as { processInfo: { type: string; id: number }[] };
+      let kb = 0;
+      for (const p of processInfo)
+        if (p.type === 'renderer' || p.type === 'GPU')
+          try {
+            kb += Number(/VmRSS:\s+(\d+)/.exec(fs.readFileSync(`/proc/${p.id}/status`, 'utf8'))?.[1] ?? 0);
+          } catch {
+            /* gone */
+          }
+      return kb / 1024;
+    };
+    // The changelog's "updated" notice would sit over the lobby: its version is marked seen first.
+    let seen: string | null = null;
+    {
+      const ctx = await browser.newContext(VIEW);
+      const page = await ctx.newPage();
+      await page.goto(await daemon.loginUrl());
+      await page.waitForURL(`http://127.0.0.1:${port}/`);
+      const toast = await page.getByText(/으로 업데이트됐어요/).first().textContent({ timeout: 6_000 }).catch(() => null);
+      seen = toast?.match(/v([\d.]+)/)?.[1] ?? null;
+      await ctx.close();
+    }
+    const results: unknown[] = [];
+    const one = async (c: string, shots: boolean) => {
+      const [view, rateS, mode] = c.split(':');
+      const rate = Number(rateS);
+      const ctx = await browser!.newContext(view === 'phone' ? PHONE : VIEW);
+      await ctx.addInitScript(INIT);
+      await ctx.addInitScript(BOOT_INIT);
+      await ctx.addInitScript(
+        ([iso, v]) => {
+          const set: Array<[string, string]> = [['cld.title-scene', 'on'], ['cld.office-iso', iso], ['cld.backdrop', 'off'], ['cld.floor', '1']];
+          if (v) set.push(['cld.changelogSeen', v]);
+          for (const [k, x] of set)
+            try {
+              localStorage.setItem(k, x);
+            } catch {
+              /* about:blank */
+            }
+        },
+        [mode === 'top' ? 'off' : 'on', seen] as const,
+      );
+      const page = await ctx.newPage();
+      const errors: string[] = [];
+      page.on('pageerror', (e) => errors.push(String(e)));
+      const cdp = await ctx.newCDPSession(page);
+      await cdp.send('Performance.enable');
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+      let peak = 0;
+      let heapPeak = 0;
+      let sampling = true;
+      // A case that fails (a picture's timeout) stops sampling with its page.
+      const sampler = (async () => {
+        while (sampling && !page.isClosed()) {
+          peak = Math.max(peak, await rss().catch(() => 0));
+          const m = (await cdp.send('Performance.getMetrics').catch(() => null)) as { metrics: { name: string; value: number }[] } | null;
+          const heap = m?.metrics.find((x) => x.name === 'JSHeapUsedSize')?.value ?? 0;
+          heapPeak = Math.max(heapPeak, heap / 1048576);
+          await wait(250);
+        }
+      })();
+      try {
+      await page.goto(await daemon.loginUrl());
+      await page.waitForURL(`http://127.0.0.1:${port}/`);
+      const tag = `${LABEL}-${view}`;
+      if (shots) {
+        // A picture while the bar is on its way (the page keeps loading under the screenshot).
+        for (let k = 0; k < 600; k++) {
+          const pct = Number(await page.getByTestId('boot-screen').getAttribute('data-pct', { timeout: 50 }).catch(() => -1));
+          if (pct >= 30 && pct < 100) {
+            await page.screenshot({ path: path.join(OUT, `${tag}-loading.png`), timeout: 120_000 });
+            break;
+          }
+          if (pct === -1 && (await page.getByTestId('title-enter').count())) break;
+          await wait(50);
+        }
+      }
+      const enter = page.getByTestId('title-enter');
+      await enter.waitFor({ timeout: 90_000 });
+      if (shots) {
+        await wait(1_000); // the lobby's picture and cast in
+        await page.screenshot({ path: path.join(OUT, `${tag}-lobby.png`), timeout: 120_000 });
+      }
+      await page.evaluate(() => {
+        const B = (window as unknown as { __boot: { rec: boolean; raf: number[] } }).__boot;
+        B.rec = true;
+        const t = (now: number) => {
+          if (!B.rec) return;
+          B.raf.push(now);
+          requestAnimationFrame(t);
+        };
+        requestAnimationFrame(t);
+      });
+      await enter.click();
+      const canvas = page.getByTestId('office-canvas');
+      const stopAt = Date.now() + BOOT_AFTER_MS;
+      while (Date.now() < stopAt) {
+        const cb = await canvas.boundingBox();
+        if (!cb) break;
+        const cx = cb.x + cb.width * 0.5;
+        const cy = cb.y + cb.height * 0.5;
+        await page.mouse.move(cx, cy, { steps: 3 });
+        for (const d of [-120, 120]) {
+          await page.mouse.wheel(0, d);
+          await wait(150);
+        }
+        await page.mouse.down({ button: 'middle' });
+        await page.mouse.move(cx + 80, cy + 40, { steps: 10 });
+        await page.mouse.move(cx, cy, { steps: 10 });
+        await page.mouse.up({ button: 'middle' });
+      }
+      const B = (await page.evaluate(() => {
+        const b = (window as unknown as { __boot: { rec: boolean } }).__boot;
+        b.rec = false;
+        return b;
+      })) as unknown as { pcts: [number, number, string][]; firstBoot: number | null; usable: number; facts: Record<string, unknown>; raf: number[]; long: number[] };
+      await wait(10_000); // untouched: what the page keeps
+      const idle = await rss();
+      const picturesIdle = await page.evaluate(() => {
+        const h = (window as unknown as { __agentTycoonTestHooks?: { pictures?: () => unknown } }).__agentTycoonTestHooks;
+        return h?.pictures ? h.pictures() : null;
+      });
+      sampling = false;
+      await sampler;
+      const iv = B.raf.slice(1).map((v, i) => v - B.raf[i]);
+      const f = B.facts as { bootShown: boolean; lastPct: number | null; warmPending: number | null; peakPending: number; sheets: [number, number] | null; fonts: string; isoDrawn: boolean | null };
+      // What the first view needs is in: the sheets, the iso drawn, and the queue drained to at most a
+      // tenth of its peak (walking characters keep queueing new turns, built in the office's slices).
+      const ready =
+        f.warmPending !== null &&
+        f.warmPending <= BOOT_PENDING_SHARE * f.peakPending &&
+        (!f.sheets || f.sheets[0] === f.sheets[1]) &&
+        (mode === 'top' || f.isoDrawn === true);
+      const row = {
+        case: c,
+        usableMs: Math.round(B.usable),
+        bootFirstMs: B.firstBoot === null ? null : Math.round(B.firstBoot),
+        pcts: B.pcts,
+        pctMonotonic: B.pcts.every((p, i) => i === 0 || p[1] >= B.pcts[i - 1][1]),
+        facts: f,
+        // the loading screen's claim: nothing pending when the lobby shows
+        readyAtLobby: ready,
+        claimHeld: B.firstBoot === null ? null : f.lastPct === 100 && ready,
+        after: {
+          frames: B.raf.length,
+          over50: iv.filter((v) => v > 50).length,
+          rafMax: pct(iv, 1),
+          longTasks: B.long.length,
+          longMs: Math.round(B.long.reduce((a, b) => a + b, 0)),
+          longMax: Math.round(Math.max(0, ...B.long)),
+        },
+        rssPeakMB: Math.round(peak),
+        rssIdleMB: Math.round(idle),
+        // PAGE-MEM: the picture budget (bytes, pictures, limit, evicted) at the claim and when idle
+        picturesIdle,
+        heapPeakMB: +heapPeak.toFixed(1),
+        errors: errors.slice(0, 3),
+      };
+      console.log(JSON.stringify(row));
+      return row;
+      } finally {
+        sampling = false;
+        await ctx.close();
+        await wait(2_000); // the closed context's renderer gone before the next one is measured
+      }
+    };
+    for (let k = 0; k < BOOT_REPEAT; k++) for (const c of BOOT_CASES) results.push(await one(c, false));
+    if (results.length)
+      fs.writeFileSync(path.join(OUT, `${LABEL}-boot.json`), JSON.stringify({ label: LABEL, cli: process.env.CLI ?? 'dist/cli.js', results }, null, 1));
+    // The pictures are not measurements: one that fails is reported and the next is taken.
+    if (process.env.SHOTS === '1')
+      for (const c of ['desk:10:iso', 'phone:10:iso'])
+        await one(c, true).catch((e: unknown) => console.error(`shot ${c}: ${String(e).split('\n')[0]}`));
+  };
+
   const rows: unknown[] = [];
   try {
     await daemon.loginUrl();
     for (const l of LEADS) await until(`${l} revived`, () => !!sessionOf(l), 90_000);
+    if (process.env.BOOT === '1') {
+      startActivity();
+      await bootRuns();
+      return;
+    }
     browser = await launchBrowser({ partyFrame: true });
     const ctx = await browser.newContext(VIEW);
     await ctx.addInitScript(INIT);

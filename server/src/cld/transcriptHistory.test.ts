@@ -3,8 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 
-import { chatHistory, chatSearch } from './transcriptHistory.js';
-import { TranscriptTail } from './transcriptView.js';
+import { chatHistory, chatSearch, repliedState } from './transcriptHistory.js';
+import { chatItems, TranscriptTail } from './transcriptView.js';
 
 const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cld-history-'));
 const record = (n: number, text = `message ${n}`, at = n) =>
@@ -288,3 +288,72 @@ describe('transcript history', () => {
   });
 });
 
+
+describe('TYPIST-STALE: a header that went in as a turn of its own reads the same in history as live', () => {
+  const T0 = 1_790_000_000_000;
+  const user = (s: number, content: string) =>
+    JSON.stringify({ type: 'user', uuid: `u${s}`, timestamp: new Date(T0 + s * 1000).toISOString(), message: { content } }) + '\n';
+  const said = (s: number, text: string) =>
+    JSON.stringify({ type: 'assistant', uuid: `a${s}`, timestamp: new Date(T0 + s * 1000).toISOString(), message: { content: [{ type: 'text', text }] } }) + '\n';
+
+  it("a DM body binds to its header id; a room header alone hands nothing on: the owner's own DM after it stays a DM (never a room reply)", async () => {
+    const file = path.join(root(), 's.jsonl');
+    write(file, [
+      user(1, '[사장 · 메신저 · 11-04 21:43] ⟨m:vtujnxny⟩'),
+      user(2, 'ㅎㅇ'),
+      said(3, '안녕하세요'),
+      user(4, "[peer · 단톡방 '출시팀' · 11-04 21:50] ⟨m:roomroom⟩"),
+      said(5, 'room reply to the header'),
+      user(6, 'private DM typed at the terminal'), // the owner's own words, not the post's body
+      said(7, 'private answer'),
+      user(8, '다음'),
+    ]);
+    const shown = (items: Array<{ text: string; messageId?: string }>) => items.map((i) => [i.text, i.messageId]);
+    const live = shown(chatItems(fs.readFileSync(file, 'utf-8'))); // RoomTurnFilter
+    expect(live).toEqual([
+      ['ㅎㅇ', 'vtujnxny'],
+      ['안녕하세요', 'vtujnxny'],
+      ['private DM typed at the terminal', undefined],
+      ['private answer', undefined],
+      ['다음', undefined],
+    ]);
+    expect(shown((await chatHistory(file)).items)).toEqual(live);
+    expect((await chatSearch(file, 'room reply')).hits).toEqual([]);
+    expect((await chatSearch(file, 'private')).hits.map((h) => h.snippet)).toHaveLength(2);
+  });
+});
+
+describe('REPLY-FULL: is the replied message still in the agent\'s context?', () => {
+  const T0 = 1_790_000_000_000;
+  const at = (s: number) => new Date(T0 + s * 1000).toISOString();
+  const MARK = '"subtype":"compact_boundary"';
+  const boss = (s: number, id: string, body: string) =>
+    JSON.stringify({ type: 'user', uuid: `u${s}`, timestamp: at(s), message: { content: `[사장 · 메신저 · 11-04 21:00] ⟨m:${id}⟩\n${body}` } }) + '\n';
+  const said = (s: number, text: string) =>
+    JSON.stringify({ type: 'assistant', uuid: `a${String(s).padStart(7, '0')}`, timestamp: at(s), message: { content: [{ type: 'text', text }] } }) + '\n';
+  const boundary = (s: number) => JSON.stringify({ type: 'system', subtype: 'compact_boundary', timestamp: at(s) }) + '\n';
+  const ORIGINAL = '첫 줄\n둘째 줄 아주 긴 원문';
+
+  it('before the session started, or before the last compaction: the whole text; after both: recent', async () => {
+    const file = path.join(root(), 's.jsonl');
+    write(file, [boss(10, 'aaaaaaaa', ORIGINAL), said(11, '네'), boss(20, 'bbbbbbbb', '최근')]);
+    expect(await repliedState(file, 'aaaaaaaa', MARK, T0 + 15_000)).toEqual({ text: ORIGINAL });
+    // Negative control: the same message with the session started before it is in its context.
+    expect(await repliedState(file, 'aaaaaaaa', MARK, T0)).toBe('recent');
+    expect(await repliedState(file, 'bbbbbbbb', MARK, T0 + 15_000)).toBe('recent');
+    // A compaction after it summed it up, though the session is older.
+    write(file, [boss(10, 'aaaaaaaa', ORIGINAL), said(11, '네'), boundary(12), boss(20, 'bbbbbbbb', '최근')]);
+    expect(await repliedState(file, 'aaaaaaaa', MARK, T0)).toEqual({ text: ORIGINAL });
+    expect(await repliedState(file, 'bbbbbbbb', MARK, T0)).toBe('recent');
+    // An assistant item by its own id (the app's replyIdOf), before the compaction.
+    expect(await repliedState(file, `${T0 + 11_000}-a0000011-0`, MARK, T0)).toEqual({ text: '네' });
+  });
+
+  it('in an earlier conversation: the whole text; nowhere: missing', async () => {
+    const dir = root();
+    write(path.join(dir, 'old.jsonl'), [boss(1, 'cccccccc', '지난 대화의 말')]);
+    write(path.join(dir, 'new.jsonl'), [said(100, '새 대화')]);
+    expect(await repliedState(path.join(dir, 'new.jsonl'), 'cccccccc', MARK, T0)).toEqual({ text: '지난 대화의 말' });
+    expect(await repliedState(path.join(dir, 'new.jsonl'), 'zzzzzzzz', MARK, T0)).toBe('missing');
+  });
+});

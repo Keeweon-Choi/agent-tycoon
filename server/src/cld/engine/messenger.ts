@@ -41,6 +41,7 @@ import * as path from 'path';
 
 import {
   quoteLine,
+  REPLY_FULL_MAX,
   REPLY_ID,
   REPLY_QUOTE_MAX,
   replySender,
@@ -115,6 +116,9 @@ export interface QueuedSend {
   /** MSG-ACTIONS (답글): the message this one answers, as replyRef made it. The header gets
    *  ` ⟨re:<id>⟩` after the C2 mark and the body starts with its quote line. */
   replyTo?: ChatReply;
+  /** REPLY-FULL: the body's quote line when it is not quoteLine's short one (one line): the replied
+   *  message whole (fullQuote), or the short quote marked NO_ORIGINAL. */
+  quote?: string;
   /** MSG-HOLD2: the boss opened it for editing. Kept in the queue file (a daemon restart keeps
    *  it), never expires and survives a page reload or a closed socket: only a decision ends it
    *  (the edit saved, the edit cancelled, the original approved, the message cancelled). */
@@ -218,6 +222,8 @@ export interface MessengerEngine {
     text: string,
     o: { task?: string; group?: QueuedSend['group']; messageId?: string; now?: boolean; force?: boolean },
   ): Promise<TypeResult> | null;
+  /** REPLY-FULL: the message reply `id` names, as `name`'s session has it (Engine.replied). */
+  replied?(name: string, id: string): Promise<'recent' | 'missing' | { text: string } | null>;
 }
 
 /** Newlines as \n, no control characters but newline and tab (nothing can leave a paste). */
@@ -248,6 +254,21 @@ export function replyRef(r: unknown): ChatReply | undefined {
     ...(name && name !== BOSS_NAME && { sender: name }),
     text: snippet(maskText(cleanText(text)), REPLY_QUOTE_MAX),
   };
+}
+
+/** REPLY-FULL: after the short quote of a replied message that is nowhere to be found. */
+export const NO_ORIGINAL = '(원문 없음)';
+
+/** REPLY-FULL: the quote line of a replied message the agent no longer has (older than its session
+ *  or its last compaction): the message whole on one line (line breaks as ⏎), REPLY_FULL_MAX
+ *  characters at most, a longer one cut and its length said. */
+export function fullQuote(sender: string, text: string): string {
+  const chars = [...text.trim().replace(/\s*\n\s*/g, ' ⏎ ')];
+  const body =
+    chars.length > REPLY_FULL_MAX
+      ? `${chars.slice(0, REPLY_FULL_MAX).join('')}… (원문 ${chars.length}자 중 ${REPLY_FULL_MAX}자)`
+      : chars.join('');
+  return `> ${replySender(sender)}: ${body}`;
 }
 
 /** The line in front of a message. `<from>에게서` reads right for any sender (an
@@ -453,7 +474,7 @@ const defang = (s: string): string => s.replaceAll('⟨', '〈');
 export const messageOf = (m: QueuedSend): string =>
   m.inbox || (m.raw && fromApp(m) && slashTextProblem(m.text) === null)
     ? m.text
-    : `${header(m)}\n${m.replyTo && m.messageId ? `${defang(quoteLine(m.replyTo.sender ?? BOSS_NAME, m.replyTo.text))}\n` : ''}${defang(m.text)}`;
+    : `${header(m)}\n${m.replyTo && m.messageId ? `${defang(m.quote ?? quoteLine(m.replyTo.sender ?? BOSS_NAME, m.replyTo.text))}\n` : ''}${defang(m.text)}`;
 
 /** What one paste types: the messages joined by a blank line, then the room 공지 among them after
  *  ROOM_NOTICE_LINE, one line apart, closed by ROOM_NOTICE_END (so none starts a part of the turn:
@@ -509,7 +530,8 @@ export function parseQueued(raw: string): QueuedSend | null {
     (j.raw === undefined || j.raw === true) &&
     (j.task === undefined || (typeof j.task === 'string' && TASK_ID.test(j.task))) &&
     (j.replyTo === undefined ||
-      JSON.stringify(replyRef(j.replyTo)) === JSON.stringify(j.replyTo));
+      JSON.stringify(replyRef(j.replyTo)) === JSON.stringify(j.replyTo)) &&
+    (j.quote === undefined || (typeof j.quote === 'string' && !/[\n\r]/.test(j.quote)));
   // `edited` is deliberately part of the on-disk item, so a reload still
   // tells every messenger that this is the replacement text.
   if (ok && j.edited !== undefined && j.edited !== true) return null;
@@ -675,6 +697,9 @@ export class Messenger {
   private readonly heldNow = new Set<string>();
   /** MSG-RECALL: projects whose input box held a draft or a recalled prompt, since when (ms). */
   private readonly inputWait = new Map<string, number>();
+  /** TYPIST-STALE: per project held by its input box, the transcript's last prompt at that try
+   *  (lastPrompt's key, '' for none): once another one is there, the box went in. */
+  private readonly boxPrompt = new Map<string, string>();
   /** MSG-RECALL: message ids lost to another prompt once (the next loss is the last). */
   private readonly lostOnce = new Set<string>();
   /** MSG-RECALL: message ids the owner sent with 지금 보내기 while they waited for the box. */
@@ -767,6 +792,9 @@ export class Messenger {
     const refusal = this.opts.engine.refuses?.(req.to, req);
     if (refusal) return { ok: false, ...refusal };
     const replyTo = replyRef(req.replyTo); // a raw command has no header to carry it (messageOf)
+    // REPLY-FULL: a room post's reply keeps the short quote (its original is a room post, not this
+    // agent's transcript). ponytail: look rooms up in their own store if that ever matters.
+    const quote = replyTo && !req.group ? await this.replyQuote(req.to, replyTo) : undefined;
     const item: QueuedSend = {
       v: 1,
       to: req.to,
@@ -781,6 +809,7 @@ export class Messenger {
       ...(req.group && { group: req.group }),
       ...(req.task && req.from && TASK_ID.test(req.task) && { task: req.task }),
       ...(replyTo && { replyTo }),
+      ...(quote && { quote }),
       ...(req.kind === 'nudge' && !req.from && { kind: 'nudge' as const }),
       ...(req.notice &&
         (req.group ? req.notice === 'fyi' : req.from || req.source === 'engine') && { notice: req.notice }),
@@ -837,7 +866,7 @@ export class Messenger {
     const line = [...this.pending.filter((p) => p.item.to === req.to), { item }];
     let tried: TypeResult | undefined;
     if (!item.notice && typeof s === 'object' && s && this.next(req.to, s, line)?.item === item) {
-      tried = await this.attempt(s.id, [item]);
+      tried = await this.attempt(s, [item]);
       if (tried === 'typed') {
         this.record(item, 'pane');
         return { ok: true, delivered: 'pane', ...this.idOf(item) };
@@ -846,7 +875,8 @@ export class Messenger {
     const name = stampName(item.created, '.json');
     if (!this.enqueue(item, name))
       return { ok: false, code: 'queue_failed', ...refused('queue_write_failed') };
-    if (tried === 'lost') this.lost(req.to, this.pending.filter((p) => p.item === item));
+    if (tried === 'lost' || tried === 'unsubmitted')
+      this.lost(req.to, this.pending.filter((p) => p.item === item), tried === 'unsubmitted');
     if (tried === 'unconfirmed') this.await(req.to, [item]);
     this.record(item, 'queued');
     return { ok: true, delivered: 'queued', id: name, ...this.idOf(item) };
@@ -871,6 +901,14 @@ export class Messenger {
       out.push(p);
     }
     return out;
+  }
+
+  /** REPLY-FULL: the quote line for `r` when the short one will not do (see Engine.replied). */
+  private async replyQuote(to: string, r: ChatReply): Promise<string | undefined> {
+    const found = await (this.opts.engine.replied?.(to, r.id) ?? Promise.resolve(null)).catch(() => null);
+    const sender = r.sender ?? BOSS_NAME;
+    if (found === 'missing') return `${quoteLine(sender, r.text)} ${NO_ORIGINAL}`;
+    return found && typeof found === 'object' ? fullQuote(sender, maskText(cleanText(found.text))) : undefined;
   }
 
   /** The id a result reports: only a message whose header carries the mark has one to bind. */
@@ -1004,12 +1042,14 @@ export class Messenger {
         code: 'too_large',
         ...refused('message_too_long', { kb: TEXT_MAX / 1024 }),
       };
-    const { raw, held: _held, ...rest } = target.item; // saving the edit ends its hold
+    const { raw, held: _held, quote, ...rest } = target.item; // saving the edit ends its hold
     const item: QueuedSend = {
       ...rest,
       text,
       edited: true,
       ...(replyTo && { replyTo }),
+      // REPLY-FULL: the quote stays with the message it was made for.
+      ...(quote && (!replyTo || replyTo.id === rest.replyTo?.id) && { quote }),
       ...(raw && slashTextProblem(text) === null && { raw: true }),
     };
     try {
@@ -1072,9 +1112,32 @@ export class Messenger {
     );
   }
 
-  /** A message straight to the inbox (renew's handoff, revive's notice). */
-  writeInbox(name: string, text: string): boolean {
+  /** A message straight to the inbox (renew's handoff, revive's notice). TYPIST-STALE: `replaces`, a
+   *  notice's first words: such notices still waiting there go, so only the newest one is delivered
+   *  (11-04: every reboot's 자동 복구 piled up before one start delivered them all). */
+  writeInbox(name: string, text: string, replaces?: string): boolean {
     try {
+      if (replaces) {
+        const dir = path.join(this.inboxDir, name);
+        let files: string[] = [];
+        try {
+          files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+        } catch {
+          /* no inbox yet */
+        }
+        const gone = new Set<string>();
+        for (const f of files)
+          if (fs.readFileSync(path.join(dir, f), 'utf-8').startsWith(replaces)) {
+            fs.rmSync(path.join(dir, f), { force: true });
+            gone.add(f);
+            this.log(`inbox ${name}/${f}: an older notice, replaced by a new one`);
+          }
+        // A start already queued them (deliverInbox copies the text): that delivery goes too, unless
+        // it is being typed; the inbox files it held still wait there for the next start.
+        for (const p of this.pending)
+          if (p.item.to === name && p.item.inbox?.some((f) => gone.has(f)) && !this.typingItems.has(p.item))
+            this.done(p);
+      }
       writeAtomic(path.join(this.inboxDir, name, stampName(this.now(), '.md')), text);
       return true;
     } catch (err) {
@@ -1203,12 +1266,16 @@ export class Messenger {
     line: T[],
   ): T | undefined {
     if (this.opts.engine.renewing(to) || (this.retryAt.get(to) ?? 0) > this.now()) return undefined;
-    if (turnEnded(s.status)) return line[0]; // idle, or `shell` (RENEW-STUCK)
+    // TYPIST-STALE: the one the owner pressed 지금 보내기 on while the box held them back goes first:
+    // the head (an agent's or the engine's message, a start's notice) would only find the box
+    // taken again, and only the pressed one goes in with what the box holds (force).
+    const forced = line.find((p) => !!p.item.messageId && this.forced.has(p.item.messageId));
+    if (turnEnded(s.status)) return forced ?? line[0]; // idle, or `shell` (RENEW-STUCK)
     // Only `busy` takes a 즉시 message. Any other status (`waiting`, none at all)
     // is judged by the transcript like a busy one: is its main turn over?
-    const urgent = s.status === 'busy' ? line.find((p) => p.item.now) : undefined;
+    const urgent = s.status === 'busy' ? (forced ?? line.find((p) => p.item.now)) : undefined;
     if (urgent || !line.length || !s.transcript) return urgent;
-    return turnOver(tail(s.transcript), this.now(), this.t.quietMs) ? line[0] : undefined;
+    return turnOver(tail(s.transcript), this.now(), this.t.quietMs) ? (forced ?? line[0]) : undefined;
   }
 
   private waitReason(to: string, s: { status?: string }): string {
@@ -1226,9 +1293,10 @@ export class Messenger {
 
   /** typeIn, unless the session waits on its terminal (held): then no attach, and the
    *  usual pause before the next look. */
-  private async attempt(id: string, items: QueuedSend[]): Promise<TypeResult> {
+  private async attempt(s: { id: string; transcript?: string }, items: QueuedSend[]): Promise<TypeResult> {
     const item = items[0];
     const to = item.to;
+    const id = s.id;
     const held = await (this.opts.engine.held?.(to) ?? Promise.resolve(false)).catch(() => false);
     if (held) {
       if (!this.heldNow.has(to)) this.log(`"${to}" waits on its terminal; its messages wait too`);
@@ -1238,7 +1306,11 @@ export class Messenger {
       return 'notReady';
     }
     this.heldNow.delete(to);
-    return this.typeIn(id, items);
+    // TYPIST-STALE: the prompt the transcript ends with before this try (boxPrompt).
+    const before = s.transcript ? (lastPrompt(tail(s.transcript))?.key ?? '') : undefined;
+    const r = await this.typeIn(id, items);
+    if (r === 'inputBusy' && before !== undefined) this.boxPrompt.set(to, before);
+    return r;
   }
 
   /** After an attempt: a miss stretches the next pause (doubling, capped) and is reported once
@@ -1255,6 +1327,7 @@ export class Messenger {
       return;
     }
     this.inputWait.delete(to);
+    this.boxPrompt.delete(to);
     if (r === 'typed' || r === 'unconfirmed') {
       this.retryAt.delete(to);
       this.misses.delete(to);
@@ -1474,6 +1547,13 @@ export class Messenger {
         // MSG-RECALL: a paste still waiting for its mark: nothing else goes in until it is settled.
         const waiting = this.awaiting.get(to);
         if (waiting && !this.confirm(to, s, waiting)) continue;
+        // TYPIST-STALE: the box that held them back went in (a new prompt in the transcript): look
+        // again as soon as the session is ready, not after the pause (11-04: 대기 중 past the answer).
+        const boxed = this.boxPrompt.get(to);
+        if (boxed !== undefined && this.inputWait.has(to) && s.transcript && (lastPrompt(tail(s.transcript))?.key ?? '') !== boxed) {
+          this.boxPrompt.delete(to);
+          this.retryAt.delete(to);
+        }
         // K1: FYIs never start a paste; they ride in the next one an agent or the engine makes.
         const line = beforeHold().filter((p) => !fyi(p.item) && !p.item.failed);
         const first = this.next(to, s, line);
@@ -1514,8 +1594,8 @@ export class Messenger {
           batch.push(
             ...this.riders(to, Buffer.byteLength(pasteOf(batch.map((p) => p.item))), (p) => typedBefore(p)),
           );
-        const r = await this.attempt(s.id, batch.map((p) => p.item));
-        if (r === 'lost') this.lost(to, batch);
+        const r = await this.attempt(s, batch.map((p) => p.item));
+        if (r === 'lost' || r === 'unsubmitted') this.lost(to, batch, r === 'unsubmitted');
         if (r === 'unconfirmed') this.await(to, batch.map((p) => p.item));
         if (r !== 'typed') continue;
         for (const p of batch) {
@@ -1559,16 +1639,23 @@ export class Messenger {
   }
 
   /**
-   * MSG-RECALL: another prompt went in instead of this paste (its mark is not in the transcript).
+   * MSG-RECALL: another prompt went in instead of this paste (its mark is not in the transcript),
+   * or (TYPIST-STALE, `unsubmitted`) the paste stayed in the input box, Enter retries and all.
    * Told to the owner (event send_lost) and tried once more after the pause (the box check first,
    * and the transcript's marks keep a paste that did arrive from going in twice); lost again, the
    * boss's words wait as failed for 다시 보내기, and others keep their slower retries.
    */
-  private lost(to: string, batch: Pending[]): void {
+  private lost(to: string, batch: Pending[], unsubmitted = false): void {
     const id = batch[0]?.item.messageId;
     const again = !!id && !this.lostOnce.has(id);
-    this.log(`"${to}": message ${id ?? '?'} lost to another prompt; ${again ? 'trying once more' : 'not again by itself'}`);
-    this.opts.events.append('send_lost', 'engine', { to, ...(id && { messageId: id }), again });
+    const why = unsubmitted ? 'left unsubmitted in the input box' : 'lost to another prompt';
+    this.log(`"${to}": message ${id ?? '?'} ${why}; ${again ? 'trying once more' : 'not again by itself'}`);
+    this.opts.events.append('send_lost', 'engine', {
+      to,
+      ...(id && { messageId: id }),
+      again,
+      ...(unsubmitted && { unsubmitted: true }),
+    });
     if (again) {
       this.lostOnce.add(id);
       return;

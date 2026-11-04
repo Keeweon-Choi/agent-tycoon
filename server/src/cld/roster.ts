@@ -24,6 +24,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 
 import { ACTIVE_STAFF_NAMES } from '../../../core/src/cld/staffNames.js';
+import type { ContextLimitBasis } from '../../../core/src/messages.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 
 /** Ended bindings kept per project (a replay older than this binds anew). */
@@ -50,7 +51,7 @@ export interface Binding {
   endedBy?: 'end' | 'restart';
   paid: string[];
   /** The run's last known context (its 피로도): kept past its end and across a restart. */
-  context?: { tokens: number; max: number };
+  context?: { tokens: number; max: number; basis?: ContextLimitBasis; compactions?: number };
 }
 
 interface ProjectRoster {
@@ -224,10 +225,20 @@ export class RosterStore {
   }
 
   /** The execution's latest context (false: no such execution). Written with the next flush. */
-  setContext(execution: string, tokens: number, max: number): boolean {
+  setContext(execution: string, tokens: number, max: number, basis?: ContextLimitBasis): boolean {
     const found = this.find(execution);
     if (!found) return false;
-    found.b.context = { tokens, max };
+    const { compactions } = found.b.context ?? {};
+    found.b.context = { tokens, max, ...(basis && { basis }), ...(compactions && { compactions }) };
+    this.dirty = true;
+    return true;
+  }
+
+  /** The compactions counted in the execution's transcript; false without a context to hold them. */
+  setCompactions(execution: string, count: number): boolean {
+    const ctx = this.find(execution)?.b.context;
+    if (!ctx) return false;
+    ctx.compactions = count;
     this.dirty = true;
     return true;
   }

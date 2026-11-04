@@ -12,6 +12,7 @@ import type { ToolActivity } from '../../office/types.js';
 import { describeActivity, type EzContext } from '../ez/activity.js';
 import { characterVisual, type RingState } from '../ez/visuals.js';
 import { isOff, stateLabel } from '../format.js';
+import { engineTurn, rowBusy } from '../turnState.js';
 
 export interface Room {
   name: string;
@@ -67,6 +68,7 @@ export function rowLook(
       waitingInput: question,
       idle: !tool,
       busy: o.busy === true,
+      jobWait: engineTurn(o) === 'job',
     },
     ctx,
   );
@@ -75,7 +77,7 @@ export function rowLook(
   return {
     ring: visual.ring,
     ez: off ? `${visual.icon} ${visual.text}` : `${activity.emoji} ${activity.text}`,
-    raw: off ? stateLabel(o.state, o.busy) : (tool?.status ?? t('status.noTool')),
+    raw: off ? stateLabel(o.state, rowBusy(o)) : (tool?.status ?? t('status.noTool')),
   };
 }
 

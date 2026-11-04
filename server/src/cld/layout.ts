@@ -5,7 +5,8 @@ import { koText, matchKorean } from '../../../core/src/cld/serverText.js';
  * character and, with the engine's Codex, one contractor desk; then a lounge,
  * and on floor 1 the 로비 (T-0046): the entrance with the office door and the
  * big board. Rooms are packed left to right (sharing walls, with a door between
- * neighbours) and wrap to a new row at about a 1.6:1 office. Furniture ids come from
+ * neighbours) and wrap to a new row at about a 1.6:1 office, then grow to fill the plate every
+ * floor shares (floors-fill-1104: no void, no bare floor). Furniture ids come from
  * the bundled catalog; the desk unit copies the bundled default layout's
  * DESK_FRONT + PC_FRONT_OFF + CUSHIONED_BENCH arrangement.
  *
@@ -197,16 +198,53 @@ function pack(specs: Array<Pick<Room, 'label' | 'units' | 'lounge' | 'lobby'>>):
   return rooms;
 }
 
+/** `extra` shared out over `n` parts as evenly as whole tiles allow: part k's share. */
+const share = (extra: number, n: number, k: number) =>
+  Math.floor((extra * (k + 1)) / n) - Math.floor((extra * k) / n);
+
+/**
+ * floors-fill-1104: the packed rooms grown to fill a `cols` x `rows` plate, no void left. Each
+ * shelf's spare width goes evenly to its rooms, the spare depth evenly to the shelves, so every
+ * room grows a little instead of one becoming a hall. Shared walls and doors keep their places
+ * relative to their rooms; what stands in a room is centred in it (`inset`).
+ */
+function fill(rooms: Room[], cols: number, rows: number): void {
+  const shelves = [...new Set(rooms.map((r) => r.y))].map((y) => rooms.filter((r) => r.y === y));
+  const spareRows = rows - Math.max(...rooms.map((r) => r.y + r.h));
+  let dy = 0;
+  shelves.forEach((shelf, s) => {
+    const last = shelf.at(-1)!;
+    const spareCols = cols - (last.x + last.w);
+    const grow = share(spareRows, shelves.length, s);
+    let dx = 0;
+    shelf.forEach((r, k) => {
+      const wider = share(spareCols, shelf.length, k);
+      Object.assign(r, { x: r.x + dx, y: r.y + dy, w: r.w + wider, h: r.h + grow });
+      dx += wider;
+    });
+    dy += grow;
+  });
+}
+
+/** How far a room's contents move in from its packed place to sit in the middle of its grown size. */
+function inset(r: Room): { dx: number; dy: number } {
+  const own = roomSize(r);
+  return { dx: Math.floor((r.w - own.w) / 2), dy: Math.floor((r.h - own.h) / 2) };
+}
+
 /**
  * `lounge`: the lounge's label (a floor above the first names its own,
  * T-0027), `pantry` the label of its pantry corner (also one per floor).
  * `lobby`: the floor has the 로비 (floor 1), which then holds the office door instead of the lounge.
+ * `size`: the plate every floor shares (floors-fill-1104, floors.ts: the largest floor's); the
+ * rooms grow to fill it. Without it, or where it is smaller, the floor's own packed size.
  */
 export function generateLayout(
   roomSpecs: RoomSpec[],
   lounge = LOUNGE_ROOM,
   lobby = lounge === LOUNGE_ROOM,
   pantry = PANTRY_ROOM,
+  size?: { cols: number; rows: number },
 ): GeneratedLayout {
   const work: Array<Pick<Room, 'label' | 'units'>> = roomSpecs
     .filter((r) => r.members.length || r.contractorDesk)
@@ -231,8 +269,9 @@ export function generateLayout(
     rooms = pack([...work, ...special]);
   }
 
-  const cols = Math.max(...rooms.map((r) => r.x + r.w));
-  const rows = Math.max(...rooms.map((r) => r.y + r.h));
+  const cols = Math.max(Math.min(MAX_COLS, size?.cols ?? 0), ...rooms.map((r) => r.x + r.w));
+  const rows = Math.max(Math.min(MAX_ROWS, size?.rows ?? 0), ...rooms.map((r) => r.y + r.h));
+  fill(rooms, cols, rows);
   const tiles = new Array<number>(cols * rows).fill(VOID);
   const tileColors = new Array<GeneratedLayout['layout']['tileColors'][number]>(cols * rows).fill(
     null,
@@ -278,6 +317,7 @@ export function generateLayout(
         areaTiles[(room.y + room.h - 1) * cols + k] = room.label;
       }
     };
+    const { dx, dy } = inset(room);
     if (room.lobby) {
       // T-0046: benches across a walkway, clear of a door down from the shelf above (cols 2-4
       // of a first room).
@@ -286,18 +326,23 @@ export function generateLayout(
         furniture.push({
           uid: `lobby:bench-${k + 1}`,
           type: 'LOBBY_BENCH',
-          col: room.x + BENCH_COL + BENCH_STEP * k,
-          row: room.y + BENCH_ROW,
+          col: room.x + dx + BENCH_COL + BENCH_STEP * k,
+          row: room.y + dy + BENCH_ROW,
         });
       furniture.push(
         { uid: 'lobby:plant-1', type: 'PLANT', col: room.x + 1, row: room.y + 1 },
-        { uid: 'lobby:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: room.y + BENCH_ROW + 1 },
+        {
+          uid: 'lobby:plant-2',
+          type: 'PLANT',
+          col: room.x + room.w - 2,
+          row: room.y + dy + BENCH_ROW + 1,
+        },
       );
       return;
     }
     if (room.lounge) {
-      const tx = room.x + 5;
-      const ty = room.y + 4;
+      const tx = room.x + dx + 5;
+      const ty = room.y + dy + 4;
       if (!lobby) door(tx);
       furniture.push(
         { uid: 'lounge:table', type: 'COFFEE_TABLE', col: tx, row: ty },
@@ -328,8 +373,8 @@ export function generateLayout(
 
     const per = unitsPerRow(room.units.length);
     room.units.forEach((name, k) => {
-      const ux = room.x + WALK + 1 + STEP * (k % per);
-      const uy = room.y + WALK + 1 + STEP * Math.floor(k / per);
+      const ux = room.x + dx + WALK + 1 + STEP * (k % per);
+      const uy = room.y + dy + WALK + 1 + STEP * Math.floor(k / per);
       const key = name ?? `codex@${room.label}`;
       const seat = name ? seatUid(name) : contractorSeatUid(room.label);
       furniture.push(

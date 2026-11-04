@@ -793,11 +793,3 @@ button.led-temp:hover,
     white-space: normal;
   }
 }
-
-/* building-a-1104: the billboard outside the building. The canvas draws it, its pages painted
-   once per change (billboardFace.ts); this is only its tap target and accessible name, over the
-   face. Taps go through to the office, which opens what the shown page continues. */
-.led-billboard {
-  position: absolute;
-  pointer-events: none;
-}

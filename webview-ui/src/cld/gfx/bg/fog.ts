@@ -4,7 +4,7 @@
  * drawing (pixel discs), only the feel of a town game's cloudy map edge.
  *
  * Cost: painted once per building size and palette into one picture (BG_FOG.texel iso px a
- * picture px, about 1.6 MB), then each frame one nearest-neighbour blit and up to four plain
+ * picture px, under 1 MB), then each frame one nearest-neighbour blit and up to four plain
  * rectangles past its edges. No filter, no gradient made per frame.
  */
 import { BG_FOG } from '../../../constants.js';

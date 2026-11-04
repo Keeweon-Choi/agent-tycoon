@@ -7,7 +7,7 @@ import type { ProjectFolder } from './repoRead.js';
 import type { TempRepo } from './testRepo.js';
 import { GIT_AVAILABLE, makeTempRepo, recording } from './testRepo.js';
 import type { WorktreeRecord } from './worktrees.js';
-import { readRecords, slugOf, TASK_PATTERN, taskWorktreeName, Worktrees } from './worktrees.js';
+import { readRecords, TASK_PATTERN, Worktrees } from './worktrees.js';
 
 // Every test here runs real git processes (a dozen or more each, the diff test a 2.5 MB diff); on a
 // starved CPU (the deploy gate: two nice'd cores) that outlasts the 10 s default while nothing is wrong.
@@ -52,7 +52,7 @@ describe('task names', () => {
     ['fix-login-2', true],
     ['x'.repeat(41), true],
     ['', false],
-    ['x'.repeat(42), false],
+    ['x'.repeat(61), false],
     ['A', false],
     ['-x', false],
     ['a_b', false],
@@ -91,6 +91,21 @@ describe.skipIf(!GIT_AVAILABLE)('new worktree (temp repos)', () => {
     expect(logs).toEqual(['[cld repo] worktree new "p" login: ok']);
     // git's own config is not touched (no tracking is set up for the new branch).
     expect(fs.readFileSync(path.join(r.folder, '.git/config'), 'utf-8')).toBe(before);
+  });
+
+  it('a branch name (type/scope-what) gets the folder with - for /, and a repeat gets -2, -3', async () => {
+    const { r, wt, project, dir, branches } = setup();
+    const a = await wt.create(project, 'feat/iso-billboard');
+    expect([a.task, a.branch, a.path]).toEqual(['feat-iso-billboard', 'feat/iso-billboard', dir('feat-iso-billboard')]);
+    const b = await wt.create(project, 'feat/iso-billboard');
+    expect([b.task, b.branch]).toEqual(['feat-iso-billboard-2', 'feat/iso-billboard-2']);
+    // A folder or a git branch of that name that is not in the records counts too.
+    r.git(['branch', 'feat/iso-billboard-3']);
+    expect((await wt.create(project, 'feat/iso-billboard')).branch).toBe('feat/iso-billboard-4');
+    expect(branches()).toEqual(expect.arrayContaining(['feat/iso-billboard-2', 'feat/iso-billboard-4']));
+    // Off the rule: refused before any git runs.
+    for (const bad of ['feat/', 'feat/A', 'task/x', 'feat/a/b', `feat/${'x'.repeat(60)}`])
+      await expect(wt.create(project, bad)).rejects.toBeInstanceOf(RepoError);
   });
 
   it('starts from the branch the project is on, with its commits', async () => {
@@ -150,7 +165,7 @@ describe.skipIf(!GIT_AVAILABLE)('new worktree (temp repos)', () => {
 
   it('refuses what is not a task name before any git runs', async () => {
     const { rec, wt, project, r } = setup();
-    for (const bad of ['', 'A', '-x', 'a/b', '../x', 'x'.repeat(42), 'a b']) {
+    for (const bad of ['', 'A', '-x', 'a/b', '../x', 'x'.repeat(61), 'a b']) {
       await expect(wt.create(project, bad)).rejects.toBeInstanceOf(RepoError);
     }
     expect(rec.calls).toEqual([]);
@@ -518,25 +533,6 @@ describe.skipIf(!GIT_AVAILABLE)('worktrees.json', () => {
   });
 });
 
-describe('W2: a Task worktree’s name', () => {
-  it.each([
-    ['로그인 페이지 고치기', ''],
-    ['Fix the Login page!', 'fix-the-login-page'],
-    ['  --x__y..z  ', 'x-y-z'],
-    ['a'.repeat(50), 'a'.repeat(30)],
-    [undefined, ''],
-  ])('slugOf(%j) = %j', (title, slug) => expect(slugOf(title)).toBe(slug));
-
-  it('<id>-<slug>, lower case, 41 at most, always a task name', () => {
-    expect(taskWorktreeName('T-12', 'login')).toBe('t-12-login');
-    expect(taskWorktreeName('T-12', '')).toBe('t-12');
-    expect(taskWorktreeName('a.b_c', 'x')).toBe('a-b-c-x');
-    expect(taskWorktreeName('T-1', `${'x'.repeat(36)}-yy`)).toBe(`t-1-${'x'.repeat(36)}`);
-    for (const n of [taskWorktreeName('T-99999', 'y'.repeat(40)), taskWorktreeName('Z'.repeat(41), '')])
-      expect(TASK_PATTERN.test(n)).toBe(true);
-  });
-});
-
 describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
   const at = new Date('2026-10-24T03:00:00.000Z');
   const w2 = (o: Parameters<typeof setup>[0] = {}) => {
@@ -545,7 +541,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
     return { ...s, wt };
   };
 
-  it('task/<id>-<slug> from the main branch in .worktrees/, recorded with the Task, its assignee and maker', async () => {
+  it('feat/t<id>-<slug> from the main branch in .worktrees/, recorded with the Task, its assignee and maker', async () => {
     const { r, rec, wt, project, records, dir, branches } = w2();
     // The project's checkout is on another branch: the Task still starts from main.
     r.git(['checkout', '-q', '-b', 'dev']);
@@ -560,9 +556,9 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
     });
     expect(out).toEqual({
       project: 'p',
-      task: 't-7-login-page',
-      path: dir('t-7-login-page'),
-      branch: 'task/t-7-login-page',
+      task: 'feat-t7-login-page',
+      path: dir('feat-t7-login-page'),
+      branch: 'feat/t7-login-page',
       base: 'main',
       created: at.toISOString(),
       status: 'active',
@@ -572,22 +568,22 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
       assignedAt: at.toISOString(),
     });
     expect(records()).toEqual([out]);
-    expect(rec.calls).toContainEqual(['worktree', 'add', dir('t-7-login-page'), '-b', 'task/t-7-login-page', 'refs/heads/main']);
-    expect(branches()).toContain('task/t-7-login-page');
-    expect(r.git(['rev-parse', 'HEAD'], dir('t-7-login-page'))).toBe(r.git(['rev-parse', 'main']));
-    expect(fs.existsSync(path.join(dir('t-7-login-page'), 'dev.txt'))).toBe(false);
+    expect(rec.calls).toContainEqual(['worktree', 'add', dir('feat-t7-login-page'), '-b', 'feat/t7-login-page', 'refs/heads/main']);
+    expect(branches()).toContain('feat/t7-login-page');
+    expect(r.git(['rev-parse', 'HEAD'], dir('feat-t7-login-page'))).toBe(r.git(['rev-parse', 'main']));
+    expect(fs.existsSync(path.join(dir('feat-t7-login-page'), 'dev.txt'))).toBe(false);
     // The wire carries the Task, the assignee and the maker.
-    expect((await wt.list(project))[0]).toMatchObject({ task: 't-7-login-page', taskId: 'T-7', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user' });
+    expect((await wt.list(project))[0]).toMatchObject({ task: 'feat-t7-login-page', taskId: 'T-7', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user' });
   });
 
-  it('a named base; a Hangul title gives the id alone; an explicit slug; no assignee', async () => {
+  it('a named base; a Hangul title gives the slug `task`; an explicit slug; no assignee', async () => {
     const { r, wt, project } = w2();
     r.git(['branch', 'release/1.0']);
     const a = await wt.createForTask(project, { taskId: 'T-8', title: '로그인', base: 'release/1.0', createdBy: 'cli' });
-    expect([a.task, a.branch, a.base]).toEqual(['t-8', 'task/t-8', 'release/1.0']);
+    expect([a.task, a.branch, a.base]).toEqual(['feat-t8-task', 'feat/t8-task', 'release/1.0']);
     expect(a).not.toHaveProperty('assignmentId');
     const b = await wt.createForTask(project, { taskId: 'T-9', slug: 'api', createdBy: 'agent:alpha' });
-    expect([b.task, b.createdBy]).toEqual(['t-9-api', 'agent:alpha']);
+    expect([b.task, b.createdBy]).toEqual(['feat-t9-api', 'agent:alpha']);
   });
 
   it('the main branch: the remote’s default when it is a local branch, else main, master, the branch it is on', async () => {
@@ -610,10 +606,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
       { taskId: '../x' },
       { taskId: '-T' },
       { taskId: 'T 1' },
-      { taskId: 'x'.repeat(42) },
-      { taskId: 'T-1', slug: 'A' },
-      { taskId: 'T-1', slug: '../x' },
-      { taskId: 'T-1', slug: '-x' },
+      { taskId: 'x'.repeat(61) },
       { taskId: 'T-1', base: '--upload-pack=x' },
       { taskId: 'T-1', base: 'a..b' },
       { taskId: 'T-1', base: 'a b' },
@@ -630,19 +623,19 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
     await expect(wt.createForTask(project, { taskId: 'T-1', base: 'nope', createdBy: 'cli' })).rejects.toThrow('기준 브랜치 nope가 없어요');
     await wt.createForTask(project, { taskId: 'T-1', createdBy: 'cli' });
     await expect(wt.createForTask(project, { taskId: 'T-1', slug: 'other', createdBy: 'cli' })).rejects.toThrow('이미 worktree 가 있어요');
-    fs.mkdirSync(dir('t-2'), { recursive: true });
+    fs.mkdirSync(dir('feat-t2-task'), { recursive: true });
     await expect(wt.createForTask(project, { taskId: 'T-2', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
-    r.git(['branch', 'task/t-3']);
-    await expect(wt.createForTask(project, { taskId: 'T-3', createdBy: 'cli' })).rejects.toThrow('브랜치 task/t-3가 이미 있어요');
+    r.git(['branch', 'feat/t3-task']);
+    await expect(wt.createForTask(project, { taskId: 'T-3', createdBy: 'cli' })).rejects.toThrow('브랜치 feat/t3-task가 이미 있어요');
     expect(records().map((x) => x.taskId)).toEqual(['T-1']);
   });
 
   it('refuses a protected branch as the target (main, master, a remote’s default)', async () => {
     const { r, rec, wt, project, branches } = w2();
     // A remote whose default branch is the very name the Task would get.
-    r.git(['update-ref', 'refs/remotes/origin/task/t-1', 'HEAD']);
-    r.git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/task/t-1']);
-    await expect(wt.createForTask(project, { taskId: 'T-1', base: 'main', createdBy: 'cli' })).rejects.toThrow('보호 브랜치(task/t-1)');
+    r.git(['update-ref', 'refs/remotes/origin/feat/t1-task', 'HEAD']);
+    r.git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/feat/t1-task']);
+    await expect(wt.createForTask(project, { taskId: 'T-1', base: 'main', createdBy: 'cli' })).rejects.toThrow('보호 브랜치(feat/t1-task)');
     expect(rec.calls.some((c) => c[0] === 'worktree')).toBe(false);
     expect(branches()).toEqual(['main']);
   });
@@ -690,7 +683,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
     await wt.createForTask(project, { taskId: 'T-1', createdBy: 'cli' });
     const after = JSON.parse(fs.readFileSync(file, 'utf-8')) as WorktreeRecord[];
     expect(after[0]).toStrictEqual(old);
-    expect(wt.forTask('p', 'T-1')?.task).toBe('t-1');
+    expect(wt.forTask('p', 'T-1')?.task).toBe('feat-t1-task');
     expect(wt.assignedTo('a_bbbbbbbbbb')).toBeUndefined();
   });
 
@@ -726,7 +719,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2 fix 3: no worktree without its record', () =
     };
     const wt = new Worktrees({ file, run: slow, log: () => undefined });
     await expect(wt.createForTask(project, { taskId: 'T-1', createdBy: 'cli' })).rejects.toThrow('제한 시간');
-    expect([fs.existsSync(dir('t-1')), branches(), listed()]).toEqual([false, ['main'], [r.folder]]);
+    expect([fs.existsSync(dir('feat-t1-task')), branches(), listed()]).toEqual([false, ['main'], [r.folder]]);
   });
 
   it('N4: any failed add (the user’s global git-lfs smudge failing, its server unreachable): nothing left, the next call no “exists”', async () => {
@@ -742,18 +735,18 @@ describe.skipIf(!GIT_AVAILABLE)('W2 fix 3: no worktree without its record', () =
       const err = await wt.createForTask(project, { taskId: 'T-1', createdBy: 'cli' }).catch((e: unknown) => e as RepoError);
       expect(err).toBeInstanceOf(RepoError);
       expect((err as RepoError).code).not.toBe('exists');
-      expect([fs.existsSync(dir('t-1')), branches(), listed()]).toEqual([false, ['main'], [r.folder]]);
+      expect([fs.existsSync(dir('feat-t1-task')), branches(), listed()]).toEqual([false, ['main'], [r.folder]]);
     }
   });
 
   it('what a dead call left (folder and branch, exactly as it would make them, no record): adopted', async () => {
     const { r, wt, project, dir, records } = setup();
-    r.git(['worktree', 'add', '-q', dir('t-1-login'), '-b', 'task/t-1-login', 'main']);
+    r.git(['worktree', 'add', '-q', dir('feat-t1-login'), '-b', 'feat/t1-login', 'main']);
     const out = await wt.createForTask(project, { taskId: 'T-1', slug: 'login', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user' });
-    expect(out).toMatchObject({ task: 't-1-login', branch: 'task/t-1-login', taskId: 'T-1', assignmentId: 'a_bbbbbbbbbb' });
+    expect(out).toMatchObject({ task: 'feat-t1-login', branch: 'feat/t1-login', taskId: 'T-1', assignmentId: 'a_bbbbbbbbbb' });
     expect(records()).toEqual([out]);
-    expect(wt.forTask('p', 'T-1')?.task).toBe('t-1-login');
-    expect((await wt.list(project)).map((w) => w.task)).toEqual(['t-1-login']);
+    expect(wt.forTask('p', 'T-1')?.task).toBe('feat-t1-login');
+    expect((await wt.list(project)).map((w) => w.task)).toEqual(['feat-t1-login']);
     // D5's create adopts the same way.
     r.git(['worktree', 'add', '-q', dir('codex-1'), '-b', 'task/codex-1']);
     expect((await wt.create(project, 'codex-1')).task).toBe('codex-1');
@@ -761,20 +754,20 @@ describe.skipIf(!GIT_AVAILABLE)('W2 fix 3: no worktree without its record', () =
 
   it('not adopted when it is not exactly that: a commit of its own, a change, another branch, a plain folder', async () => {
     const { r, wt, project, dir } = setup();
-    r.git(['worktree', 'add', '-q', dir('t-1'), '-b', 'task/t-1', 'main']);
-    fs.writeFileSync(path.join(dir('t-1'), 'w.txt'), 'w\n');
-    r.git(['add', 'w.txt'], dir('t-1'));
-    r.git(['commit', '-q', '-m', 'work'], dir('t-1'));
+    r.git(['worktree', 'add', '-q', dir('feat-t1-task'), '-b', 'feat/t1-task', 'main']);
+    fs.writeFileSync(path.join(dir('feat-t1-task'), 'w.txt'), 'w\n');
+    r.git(['add', 'w.txt'], dir('feat-t1-task'));
+    r.git(['commit', '-q', '-m', 'work'], dir('feat-t1-task'));
     await expect(wt.createForTask(project, { taskId: 'T-1', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
-    r.git(['worktree', 'add', '-q', dir('t-2'), '-b', 'task/t-2', 'main']);
-    fs.writeFileSync(path.join(dir('t-2'), 'a.txt'), 'dirty\n');
+    r.git(['worktree', 'add', '-q', dir('feat-t2-task'), '-b', 'feat/t2-task', 'main']);
+    fs.writeFileSync(path.join(dir('feat-t2-task'), 'a.txt'), 'dirty\n');
     await expect(wt.createForTask(project, { taskId: 'T-2', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
-    r.git(['branch', 'task/t-3']);
-    r.git(['worktree', 'add', '-q', dir('t-3'), '-b', 'other', 'main']);
+    r.git(['branch', 'feat/t3-task']);
+    r.git(['worktree', 'add', '-q', dir('feat-t3-task'), '-b', 'other', 'main']);
     await expect(wt.createForTask(project, { taskId: 'T-3', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
-    fs.mkdirSync(dir('t-4'));
-    r.git(['branch', 'task/t-4']);
+    fs.mkdirSync(dir('feat-t4-task'));
+    r.git(['branch', 'feat/t4-task']);
     await expect(wt.createForTask(project, { taskId: 'T-4', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
-    expect(fs.existsSync(path.join(dir('t-1'), 'w.txt'))).toBe(true); // nothing of theirs touched
+    expect(fs.existsSync(path.join(dir('feat-t1-task'), 'w.txt'))).toBe(true); // nothing of theirs touched
   });
 });

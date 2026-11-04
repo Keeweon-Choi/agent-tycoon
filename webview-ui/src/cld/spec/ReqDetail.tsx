@@ -8,11 +8,13 @@
  * GAME-UI-1 G2 (cockpit 11): the current version's 수락 is a gold stamp beside [원본 열기] (dropped,
  * with the panel's 2px thunk, only when this panel's own write came back; else already there),
  * 반려 a quiet dashed stamp with its memo; none on a read-only screen, none on a failed or stale write.
+ * SPT C1: [이웃 그래프] opens the requirements graph centred here (its lazy chunk, in a window);
+ * the detail the graph itself opens has none (`inGraph`).
  */
 import '../../i18n/specStrings.js';
 import './score.css';
 
-import { type ReactNode, useEffect, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type {
@@ -58,6 +60,8 @@ import {
   workText,
 } from './traceModel.js';
 
+// The graph's chunk (React Flow, dagre) loads only when [이웃 그래프] is pressed.
+const ReqGraph = lazy(() => import('./TraceGraph.js').then((m) => ({ default: m.ReqGraph })));
 const muted = 'text-text-muted text-xs';
 
 /** The 원문: a single table row as `column: value` lines (the narrow column cannot hold a table), anything else as Markdown. */
@@ -493,12 +497,15 @@ export function ReqDetail({
   mobile,
   onClose,
   onChanged,
+  inGraph,
 }: {
   project: string;
   uid: string;
   mobile: boolean;
   onClose: () => void;
   onChanged?: () => void;
+  /** Opened by the requirements graph: no [이웃 그래프], and over the graph's window on a phone. */
+  inGraph?: boolean;
 }) {
   const { data, error, reload } = useTrace<TraceItem>(project, itemPath(uid));
   // SPT-P3-OVERVIEW: the 개요's 최근 본 요구사항.
@@ -507,6 +514,7 @@ export function ReqDetail({
     if (shownLabel) rememberViewed(project, { uid, label: shownLabel });
   }, [project, uid, shownLabel]);
   const [adding, setAdding] = useState(false);
+  const [graph, setGraph] = useState(false);
   const [deploy, setDeploy] = useState<TraceNode | null>(null);
   // GAME-UI-1: what this panel just recorded (and how many times, for the thunk to replay).
   const [recorded, setRecorded] = useState<{ uid: string; state: Acceptance; n: number } | null>(null);
@@ -546,7 +554,7 @@ export function ReqDetail({
     <aside
       className={`${shell} text-xs p-8 space-y-8 min-w-0`}
       data-thunk={fresh === 'accepted' ? (recorded!.n % 2 ? 'a' : 'b') : undefined}
-      style={mobile ? { zIndex: SPEC_DIALOG_Z } : undefined}
+      style={mobile ? { zIndex: inGraph ? SPEC_DIALOG_Z + 2 : SPEC_DIALOG_Z } : undefined}
       aria-label={t('spec.detail.title')}
       data-testid="spec-detail"
       data-uid={uid}
@@ -582,6 +590,20 @@ export function ReqDetail({
       {!data && !error && <p className={muted}>{t('spec.wizard.loading')}</p>}
       {data && (
         <>
+          {!inGraph && (
+            <Button size="sm" onClick={() => setGraph(true)} data-testid="spec-detail-graph">
+              {t('spec.detail.graph')}
+            </Button>
+          )}
+          {graph && (
+            <Modal isOpen onClose={() => setGraph(false)} title={`${t('spec.detail.graph')} · ${node?.label ?? uid}`} zIndex={SPEC_DIALOG_Z + 1} className={mobile ? 'w-full h-full' : 'w-[min(1180px,calc(100vw-32px))]'}>
+              <div className="px-8 pb-8" data-testid="spec-detail-graph-window">
+                <Suspense fallback={<p className={muted}>{t('spec.wizard.loading')}</p>}>
+                  <ReqGraph project={project} mobile={mobile} center={{ uid, label: node?.label ?? uid }} />
+                </Suspense>
+              </div>
+            </Modal>
+          )}
           {(node?.source?.path || (canAct && acceptedBy)) && (
             <div className="acc-row">
               {node?.source?.path && (

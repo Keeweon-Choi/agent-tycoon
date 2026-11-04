@@ -41,7 +41,13 @@ import {
   GLOBAL_SCAN_ACTIVE_MIN_SIZE,
   PROJECT_SCAN_INTERVAL_MS,
 } from './constants.js';
-import { readTranscriptTail, seedContextUsage, transcriptModel } from './contextUsage.js';
+import {
+  readTranscriptTail,
+  resetCompactions,
+  seedCompactions,
+  seedContextUsage,
+  transcriptModel,
+} from './contextUsage.js';
 import type { DismissalTracker } from './dismissalTracker.js';
 import { readEnv } from './env.js';
 import { assignPaletteIfNeeded } from './paletteAssigner.js';
@@ -92,6 +98,7 @@ export function startFileWatching(
   // give an agent adopted or restored mid-session a context gauge without
   // replaying its whole transcript.
   seedContextUsage(agentId, agents, getHookProvider());
+  seedCompactions(agentId, agents);
   seedPermissionMode(agentId, agents);
   // A lead watched from mid-session never parsed the spawns of the background
   // agents still running under it: re-arm them from their sidecars.
@@ -395,6 +402,7 @@ export function scanForTeammateFiles(
       existingTeammate.jsonlFile = file;
       existingTeammate.fileOffset = 0;
       existingTeammate.lineBuffer = '';
+      resetCompactions(existingTeammate.id, existingTeammate, agents);
       existingTeammate.lastDataAt = Date.now();
       existingTeammate.linesProcessed = 0;
       existingTeammate.isWaiting = false;
@@ -1356,6 +1364,7 @@ export function reassignAgentToFile(
   agent.jsonlFile = newFilePath;
   agent.fileOffset = 0;
   agent.lineBuffer = '';
+  resetCompactions(agentId, agent, agents);
   persistAgents();
 
   // Start watching new file

@@ -10,7 +10,6 @@ import {
   HD_ZOOM_STEP,
   OWNER_CHARACTER_ID,
   OWNER_DRINK_KEY,
-  PHONE_ISO_SETTLE_S,
   ZOOM_MAX,
 } from '../constants.js';
 import { defaultZoom } from '../hooks/useEditorActions.js';
@@ -261,8 +260,6 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     asksSeen: -1,
     shownSeen: null as string | null,
     ownerFollowed: false,
-    /** UI-PHONE: when the phone's first view began waiting for the agents (performance.now). */
-    firstSince: null as number | null,
   }).current;
 
   /** The pan clamp for the view drawn (the isometric one when it is on). */
@@ -566,19 +563,6 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       }
     }
     if (!state.wantOwner) return;
-    // UI-PHONE: the phone's first view is the rooms where agents work (frameStep frames them);
-    // the owner's character only when nobody works here. The agents and their status come a moment
-    // after the layout: wait for one at work as long as the isometric phone view does.
-    if (state.wantOwner === 'first' && latest.current.phone && mode === 'auto') {
-      const rect = currentRect(officeState.getLayout());
-      if ([...officeState.characters.values()].some((c) => working(c) && onFloor(rect, c.y))) {
-        state.wantOwner = false;
-        state.frameKey = null; // frame again, now with them
-        return;
-      }
-      state.firstSince ??= performance.now();
-      if (performance.now() - state.firstSince < PHONE_ISO_SETTLE_S * 1000) return;
-    }
     if (walkRoute(mode, sel, owner.id).follow !== owner.id) {
       state.wantOwner = false;
       return;

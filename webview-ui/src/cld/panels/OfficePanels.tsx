@@ -52,6 +52,7 @@ import { useStaff } from '../staff.js';
 import { DutyMark, TempSummary } from '../TempList.js';
 import { TerminalWorkspace } from '../terminal/TerminalWorkspace.js';
 import { useToastTop } from '../toastSlot.js';
+import { rowBusy } from '../turnState.js';
 import { useWaitReasons } from '../waiting.js';
 import { WaitMark } from '../WaitMark.js';
 import { openWorkbench } from '../workbench/workbenchStore.js';
@@ -288,7 +289,7 @@ function OrchestratorNode({
       </div>
       {open && (
         <div className="px-12 pb-12 pt-4 space-y-8 text-xs min-w-0">
-          <p className="text-text-muted">{stateLabel(orchestrator.state, orchestrator.busy)}</p>
+          <p className="text-text-muted">{stateLabel(orchestrator.state, rowBusy(orchestrator))}</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-4 min-w-0">
             <dt className="text-text-muted">{t('status.currentWork')}</dt>
             {/* One line with an ellipsis (UI-CONSISTENCY); the tool's own words are the tooltip. */}

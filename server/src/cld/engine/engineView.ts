@@ -188,6 +188,8 @@ export function applyEngine(world: World, ctx: ApplyCtx): World {
       // The session file's status, as the messenger reads it to queue (T-0043:
       // the typing indicator and 보냄(대기 중) agree); else the provider row's.
       busy: !h ? null : ctx.busyOf(h, row?.busy ?? null, row?.transcript),
+      // STATE-SYNC: turn over, a background shell still running (Claude Code calls it Working).
+      ...(h?.status === 'shell' && { shellWait: true }),
       // D5: a resting session has no process, conversation or job to show.
       pid: h?.pid || null,
       sessionId: h?.sessionId || p.sessionId || null,

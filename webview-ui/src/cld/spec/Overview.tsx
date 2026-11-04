@@ -293,7 +293,7 @@ export function Overview({ project, agentIds }: { project: string; agentIds: num
               {!viewed.length && <p className="ov-muted">{t('spec.overview.noViewed')}</p>}
               <p className="ov-viewed">
                 {viewed.map((v) => (
-                  <button key={v.uid} type="button" className="ov-chip" data-status="observed" onClick={() => openTab('graph', v.uid, v.label)} data-testid="ov-viewed" data-uid={v.uid}>
+                  <button key={v.uid} type="button" className="ov-chip" data-status="observed" onClick={() => openTab('reqs', `item:${v.uid}`)} data-testid="ov-viewed" data-uid={v.uid}>
                     {v.label}
                   </button>
                 ))}

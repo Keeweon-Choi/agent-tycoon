@@ -17,6 +17,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { splitQuestionTags } from '../../../core/src/cld/questionTag.js';
 import { t } from '../i18n/index.js';
 import { writeClipboardText } from '../terminal/clipboard.js';
 import { findFilePaths, resolvePath } from './messenger/fileLinks.js';
@@ -39,6 +40,8 @@ type FileLinkOptions = {
   projectRoot?: string;
   fileLink?: (path: string) => boolean;
   onOpenFile?: (path: string, line?: number) => void;
+  /** A question tag `⟨q:name⟩` in plain text is a chip that calls this; absent: the tag stays as written. */
+  onQuestionTag?: (name: string) => void;
 };
 
 /** A safe external link target, or null. */
@@ -152,15 +155,31 @@ function inline(
   const plain = (s: string) => {
     s.split('\n').forEach((part, i) => {
       if (i) push(<br key={`${keyBase}b${n++}`} />);
-      if (part)
+      for (const piece of fileLinks?.onQuestionTag ? splitQuestionTags(part) : part ? [part] : [])
         push(
-          <FileLinkText
-            key={`${keyBase}t${n++}`}
-            text={part}
-            query={query}
-            current={current}
-            fileLinks={fileLinks}
-          />,
+          typeof piece === 'string' ? (
+            <FileLinkText
+              key={`${keyBase}t${n++}`}
+              text={piece}
+              query={query}
+              current={current}
+              fileLinks={fileLinks}
+            />
+          ) : (
+            <button
+              key={`${keyBase}q${n++}`}
+              type="button"
+              data-press-through
+              data-testid="question-tag"
+              data-tag={piece.tag}
+              className="text-accent-text border-2 border-accent px-4 text-2xs cursor-pointer align-baseline"
+              title={t('msgq.chipLabel', { name: piece.tag })}
+              aria-label={t('msgq.chipLabel', { name: piece.tag })}
+              onClick={() => fileLinks?.onQuestionTag?.(piece.tag)}
+            >
+              {t('msgq.chip')}
+            </button>
+          ),
         );
     });
   };
@@ -535,6 +554,7 @@ export function Markdown({
   projectRoot,
   fileLink,
   onOpenFile,
+  onQuestionTag,
 }: {
   text: string;
   className?: string;
@@ -543,6 +563,7 @@ export function Markdown({
   projectRoot?: string;
   fileLink?: (path: string) => boolean;
   onOpenFile?: (path: string) => void;
+  onQuestionTag?: (name: string) => void;
 }) {
   return (
     <div className={`space-y-4 min-w-0 ${className}`}>
@@ -550,6 +571,7 @@ export function Markdown({
         projectRoot,
         fileLink,
         onOpenFile,
+        onQuestionTag,
       })}
     </div>
   );

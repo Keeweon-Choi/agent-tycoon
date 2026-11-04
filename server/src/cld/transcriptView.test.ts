@@ -934,6 +934,20 @@ describe('C3: the channel of a turn (the one predicate)', () => {
       expect(f.turn).toEqual({ name: '다른방' }); // not typed by this run (an old record, a restart)
     });
 
+    it("TYPIST-STALE: a room header alone (the ledger knows its room) binds no DM typed after it, so that DM's reply is no room reply", () => {
+      const replies: string[] = [];
+      const f = new RoomTurnFilter({
+        classify: (id) => (id === 'roomroom' ? REF : undefined),
+        onReply: (r) => replies.push(r.item.text),
+      });
+      f.items(user("[사장 · 단톡방 '출시팀' · 11-04 21:50] ⟨m:roomroom⟩"));
+      expect(f.turn).toEqual({ name: '출시팀' }); // a header alone binds no id of its own (lineItems shows no bubble for it)
+      expect(f.items(user('private DM typed at the terminal')).map((i) => i.text)).toEqual(['private DM typed at the terminal']);
+      expect(f.turn).toBeNull();
+      expect(f.items(assistant('private answer')).map((i) => [i.text, i.messageId])).toEqual([['private answer', undefined]]);
+      expect(replies).toEqual([]);
+    });
+
     it('a delivery the messenger typed as a one-to-one message is one, whatever else is guessed', () => {
       const f = new RoomTurnFilter({ classify: () => null });
       expect(f.items(user(ROOM_MARKED)).map((i) => i.kind)).toEqual(['user']); // shown, as a DM turn
@@ -1064,5 +1078,39 @@ describe('MSG-SPLIT: a user turn Claude Code joined is several messages', () => 
     const reply = f.items(rec({ type: 'assistant', message: { content: [{ type: 'text', text: '네' }] } }));
     expect(reply[0].messageId).toBe('aaaaaaaa');
     expect(turnMessageId(wrap(OWNER, 'p1') + '\n\n' + wrap(NOTICE_MARKED, 'p2'))).toBe('aaaaaaaa');
+  });
+});
+
+describe('TYPIST-STALE: a header that went in as a turn of its own (11-04 21:45, Windows ConPTY)', () => {
+  const user = (content: string, uuid: string) => rec({ type: 'user', uuid, message: { role: 'user', content } });
+  const HEAD = '[사장 · 메신저 · 11-04 21:43] ⟨m:vtujnxny⟩';
+
+  it('is no bubble; the body turn after it is one message, bound to that id', () => {
+    const items = chatItems([user(HEAD, 'u1'), user('ㅎㅇ', 'u2')].join('\n'));
+    expect(items.map((i) => [i.kind, i.text, i.from, i.messageId])).toEqual([['user', 'ㅎㅇ', undefined, 'vtujnxny']]);
+    // In Claude's paste wrapper too.
+    expect(lineItems(user(`<pasted_content>\n${HEAD}\n</pasted_content>`, 'u3'))).toEqual([]);
+  });
+
+  it('negative control: a header with its body, and a header-like text without our mark, stay as they are', () => {
+    expect(chatItems(user(`${HEAD}\nㅎㅇ`, 'u1')).map((i) => [i.text, i.messageId])).toEqual([['ㅎㅇ', 'vtujnxny']]);
+    const unmarked = '[사장 · 메신저 · 11-04 21:43]';
+    expect(chatItems(user(unmarked, 'u2')).map((i) => i.text)).toEqual([unmarked]);
+    // The turn after an ordinary one binds nothing it did not carry.
+    expect(chatItems([user(`${HEAD}\nㅎㅇ`, 'u1'), user('다음', 'u2')].join('\n')).map((i) => i.messageId)).toEqual([
+      'vtujnxny',
+      undefined,
+    ]);
+  });
+});
+
+describe('DEVROOM-SUBVIEW: a failed tool result is marked', () => {
+  const result = (content: string, is_error?: boolean) =>
+    rec({ type: 'user', uuid: 'r1', message: { content: [{ type: 'tool_result', tool_use_id: 't', content, ...(is_error !== undefined && { is_error }) }] } });
+  it('carries is_error as failed (also with no text), and leaves an ok result unmarked', () => {
+    expect(lineItems(result('boom', true), 0, { results: true })).toMatchObject([{ kind: 'result', text: 'boom', failed: true }]);
+    expect(lineItems(result('', true), 0, { results: true })).toMatchObject([{ kind: 'result', text: '', failed: true }]);
+    expect(lineItems(result('fine', false), 0, { results: true })[0]).not.toHaveProperty('failed');
+    expect(lineItems(result('fine'), 0, { results: true })[0]).not.toHaveProperty('failed');
   });
 });

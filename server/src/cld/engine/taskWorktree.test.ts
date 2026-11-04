@@ -68,31 +68,31 @@ function rig(o: { readOnly?: boolean } = {}) {
 }
 
 describe.skipIf(!GIT_AVAILABLE)('W2: a worktree for a Task', () => {
-  it('makes task/<id>-<slug> in .worktrees/, records the Task and its assignee, and the Task says where', async () => {
+  it('makes feat/t<id>-<slug> in .worktrees/, records the Task and its assignee, and the Task says where', async () => {
     const { r, add, make, records, tasks } = rig();
     const t = add('Login page');
     const out = await make({ taskId: t.id, assignee: 'alpha-w1' });
-    const at = path.join(r.folder, '.worktrees', 't-1-login-page');
+    const at = path.join(r.folder, '.worktrees', 'feat-t1-login-page');
     expect(out).toMatchObject({
       ok: true,
       project: 'alpha',
       taskId: 'T-1',
-      task: 't-1-login-page',
+      task: 'feat-t1-login-page',
       path: at,
-      branch: 'task/t-1-login-page',
+      branch: 'feat/t1-login-page',
       base: 'main',
       assignee: 'alpha-w1',
       assignmentId: 'a_bbbbbbbbbb',
     });
     expect(out.detail).toBe(
-      'task/t-1-login-page · .worktrees/t-1-login-page · alpha-w1 에게 배정했어요. 켜져 있는 세션은 옮기지 않고, 다음에 켤 때 이 worktree 에서 시작해요',
+      'feat/t1-login-page · .worktrees/feat-t1-login-page · alpha-w1 에게 배정했어요. 켜져 있는 세션은 옮기지 않고, 다음에 켤 때 이 worktree 에서 시작해요',
     );
     expect(records()).toEqual([
-      expect.objectContaining({ project: 'alpha', task: 't-1-login-page', taskId: 'T-1', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user', status: 'active' }),
+      expect.objectContaining({ project: 'alpha', task: 'feat-t1-login-page', taskId: 'T-1', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user', status: 'active' }),
     ]);
     const task = tasks.get('T-1')!;
-    expect([task.branch, task.worktree]).toEqual(['task/t-1-login-page', at]);
-    expect(task.history.at(-1)).toMatchObject({ by: 'gui:Phone', change: 'branch — → task/t-1-login-page, worktree' });
+    expect([task.branch, task.worktree]).toEqual(['feat/t1-login-page', at]);
+    expect(task.history.at(-1)).toMatchObject({ by: 'gui:Phone', change: 'branch — → feat/t1-login-page, worktree' });
     expect(fs.existsSync(path.join(at, 'a.txt'))).toBe(true);
     expect(r.git(['status', '--porcelain'])).toBe('');
   });
@@ -234,7 +234,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: cld-gui worktree new|list', () => {
     s.add('b', 'beta');
     expect(await answerWorktree(d, { op: 'new' }, owner)).toMatchObject({ ok: false, code: 'usage' });
     const made = await answerWorktree(d, { op: 'new', task: 'T-1', assign: 'alpha-w1' }, owner);
-    expect(made).toMatchObject({ ok: true, taskId: 'T-1', branch: 'task/t-1-a', assignee: 'alpha-w1' });
+    expect(made).toMatchObject({ ok: true, taskId: 'T-1', branch: 'feat/t1-a', assignee: 'alpha-w1' });
     expect(s.records()[0].createdBy).toBe('cli');
     // Fix 5: the refusal's own code reaches the CLI (not git_failed).
     expect(await answerWorktree(d, { op: 'new', task: 'T-1' }, owner)).toMatchObject({ ok: false, code: 'exists' });
@@ -259,7 +259,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: cld-gui worktree new|list', () => {
       ['alpha', 'T-3', null],
       ['beta', 'T-2', null],
     ]);
-    expect(all[0]).toMatchObject({ task: 't-1-a', branch: 'task/t-1-a', base: 'main', exists: true, ahead: 0, dirty: 0, merged: true });
+    expect(all[0]).toMatchObject({ task: 'feat-t1-a', branch: 'feat/t1-a', base: 'main', exists: true, ahead: 0, dirty: 0, merged: true });
     const one = (await answerWorktree(d, { op: 'list', task: 'T-3' }, owner)).worktrees as Array<Record<string, unknown>>;
     expect(one.map((w) => w.taskId)).toEqual(['T-3']);
     const lead = { by: 'alpha', agent: 'alpha', project: 'alpha' };

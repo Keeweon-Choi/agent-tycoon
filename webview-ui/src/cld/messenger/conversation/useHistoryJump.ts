@@ -20,6 +20,14 @@ import {
 import { nextRequestId } from '../parts.js';
 import { holdTop, isHidden, mayFetchOlder, prependedTop } from '../scrollRestore.js';
 
+/** Outline a message row for a moment (a jump landed on it, or a tag chip points at its own line). */
+export function flashRow(row: HTMLElement): void {
+  row.dataset.focused = 'true';
+  window.setTimeout(() => {
+    delete row.dataset.focused;
+  }, FOCUS_MS);
+}
+
 /**
  * Conversation's history paging and jumps: older pages (prepend restore, the top
  * sentinel), a pending jump from a link, a search hit or a tapped quote. `list`,
@@ -140,10 +148,7 @@ export function useHistoryJump({
     setAway(true);
     // The marked word of a search hit, not the middle of a tall bubble (its fold may still open: Line).
     (row.querySelector('mark.bg-search-current') ?? row).scrollIntoView({ block: 'center' });
-    row.dataset.focused = 'true';
-    window.setTimeout(() => {
-      delete row.dataset.focused;
-    }, FOCUS_MS);
+    flashRow(row);
     setTargetItem(null);
     setJumpLoading(agentId, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Conversation's stable refs/setter, see above

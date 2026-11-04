@@ -373,6 +373,30 @@ describe('transcriptParser: tool description', () => {
     expect(starts.map((m) => m.desc)).toEqual(['Run the tests', undefined]);
   });
 
+  it('the activity line every viewer gets is masked: no token in the broadcast status or desc', () => {
+    setHookProvider(claudeProvider);
+    const agents = new AgentStateStore();
+    agents.set(1, createTestAgent());
+    const starts: Array<Record<string, unknown>> = [];
+    agents.on('broadcast', (msg) => {
+      if ((msg as { type: string }).type === 'agentToolStart')
+        starts.push(msg as Record<string, unknown>);
+    });
+    processTranscriptLine(
+      1,
+      agentToolUseRecord('t1', 'Bash', {
+        command: 'echo password=hunter2 && ls',
+        description: 'call it with password=hunter2',
+      }),
+      agents,
+      new Map(),
+      new Map(),
+    );
+    expect(starts).toHaveLength(1);
+    expect(starts[0].status).toBe('Running: echo password=*** && ls');
+    expect(starts[0].desc).toBe('call it with password=***');
+  });
+
   it('keeps the description with the running tool even when hooks suppress the broadcast', () => {
     setHookProvider(claudeProvider);
     const agents = new AgentStateStore();

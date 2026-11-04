@@ -96,6 +96,8 @@ export interface ProjectRow {
   ring: RingState;
   /** 피로도: the context in use, %, or null before its first report. */
   context: number | null;
+  /** The percent is measured against a window picked from the model's name (shown "≈"). */
+  contextEstimated: boolean;
   jobs: number;
   codex: number;
   work: string | null;
@@ -143,7 +145,8 @@ export function projectRows(
           ctx,
           o.agentId != null && reasons[o.agentId] === 'question',
         ).ring,
-        context: sample ? Math.round(contextPct(sample)) : null,
+        context: sample && sample.basis !== 'unknown' ? Math.round(contextPct(sample)) : null,
+        contextEstimated: sample?.basis === 'estimated',
         jobs: (snap.officeJobs?.jobs ?? []).filter((j) => j.project === o.name && !j.ended).length,
         codex: (snap.codexTasks?.tasks ?? []).filter(
           (t) => t.project === o.name && (t.state === 'running' || t.state === 'limit'),
@@ -167,16 +170,6 @@ export function projectRows(
     rows.map((r) => r.row),
     max,
   );
-}
-
-/** 진행 중 작업 on the billboard (building-a-1104): the jobs and Codex tasks running now, the
- *  board's own 작업 column counted. */
-export function runningWork(snap: Pick<CldSnapshot, 'officeJobs' | 'codexTasks'>): number {
-  const jobs = (snap.officeJobs?.jobs ?? []).filter((j) => !j.ended).length;
-  const codex = (snap.codexTasks?.tasks ?? []).filter(
-    (k) => k.state === 'running' || k.state === 'limit',
-  ).length;
-  return jobs + codex;
 }
 
 export const moreText = (more: number): string => t('board.more', { count: more });

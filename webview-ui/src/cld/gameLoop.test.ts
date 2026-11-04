@@ -53,10 +53,12 @@ describe('startGameLoop (T-0075)', () => {
     const dts: number[] = [];
     let renders = 0;
     let busy = false;
+    let ambient = false;
     const stop = startGameLoop(canvas, {
       update: (dt) => dts.push(dt),
       render: () => renders++,
       busy: () => busy,
+      ambient: () => ambient,
     });
     browser.tick(120); // two seconds: whatever settles, settles
     return {
@@ -67,6 +69,7 @@ describe('startGameLoop (T-0075)', () => {
       dts,
       renders: () => renders,
       setBusy: (b: boolean) => (busy = b),
+      setAmbient: (a: boolean) => (ambient = a),
       /** Tick until a frame was drawn: the next idle one is a whole interval away. */
       afterRender() {
         const n = renders;
@@ -106,6 +109,30 @@ describe('startGameLoop (T-0075)', () => {
     // office spent idle (up to 1/OFFICE_IDLE_FPS s).
     expect(loop.dts.slice(n).every((dt) => dt <= 1 / 60 + 1e-6)).toBe(true);
     expect(loop.dts.length).toBeGreaterThan(n);
+    loop.stop();
+  });
+
+  it('PAGE-MEM: characters moving on their own with no input draw at the ambient rate; input and effects take the full rate', async () => {
+    const loop = await start();
+    loop.setAmbient(true);
+    loop.browser.tick(2);
+    let before = loop.renders();
+    loop.browser.tick(60);
+    const ambient = loop.renders() - before;
+    expect(ambient).toBeGreaterThanOrEqual(28);
+    expect(ambient).toBeLessThanOrEqual(31);
+    before = loop.renders();
+    for (let i = 0; i < 60; i++) {
+      loop.wakeOffice();
+      loop.browser.tick(1);
+    }
+    expect(loop.renders() - before).toBeGreaterThanOrEqual(58);
+    loop.browser.tick(120); // the input grace runs out
+    loop.setBusy(true);
+    loop.browser.tick(2);
+    before = loop.renders();
+    loop.browser.tick(60);
+    expect(loop.renders() - before).toBeGreaterThanOrEqual(58);
     loop.stop();
   });
 

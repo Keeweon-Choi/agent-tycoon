@@ -311,7 +311,8 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       const res = await r.start({ worktree: true, model: 'm-test' });
       expect(res).toMatchObject({
         ok: true,
-        branch: expect.stringMatching(/^task\/codex-\d{4}-\d{6}$/),
+        branch: 'chore/codex-task', // the spec's first heading is "Task": no date or time in a name
+        worktree: expect.stringMatching(/chore-codex-task$/),
       });
       const id = res.id as string;
       const done = await r.until(id, (x) => x.state === 'done');
@@ -581,6 +582,19 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       expect(r.events()).toContainEqual(
         expect.objectContaining({ type: 'codex_end', state: 'stopped' }),
       );
+    });
+
+    it('--name is the branch as given (checked), a repeat gets -2; without --worktree or off the rule it is refused', async () => {
+      const r = rig('success');
+      const a = await r.start({ worktree: true, name: 'feat/iso-outdoor-billboard' });
+      expect(a).toMatchObject({ ok: true, branch: 'feat/iso-outdoor-billboard' });
+      expect(a.worktree).toMatch(/feat-iso-outdoor-billboard$/);
+      expect(await r.start({ worktree: true, name: 'feat/iso-outdoor-billboard' })).toMatchObject({
+        branch: 'feat/iso-outdoor-billboard-2',
+      });
+      expect(await r.start({ worktree: true, name: 'codex-1022' })).toMatchObject({ code: 'usage', error: expect.stringContaining('<종류>/<범위>-<무엇>') });
+      expect(await r.start({ worktree: true, name: 'feat/Has Space' })).toMatchObject({ code: 'usage' });
+      expect(await r.start({ name: 'feat/x' })).toMatchObject({ code: 'usage', error: expect.stringContaining('--worktree') });
     });
 
     it('refusals: spec, codex, --worktree outside a project, no build', async () => {

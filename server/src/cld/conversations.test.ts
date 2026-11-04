@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { MessengerContact } from '../../../core/src/messages.js';
 import type { Lead } from './conversations.js';
-import { Conversations, MAX_OPEN_PER_CLIENT, MAX_TAILS } from './conversations.js';
+import { Conversations, listedText, MAX_OPEN_PER_CLIENT, MAX_TAILS } from './conversations.js';
 import { TurnLedger } from './engine/turnLedger.js';
 import { RosterStore } from './roster.js';
 
@@ -411,5 +411,11 @@ describe('C3: a turn answering a room post counts for the room, never for the DM
       t.conv.poll();
       expect(t.contacts()[0].room).toBeUndefined();
     });
+  });
+});
+
+describe('MSGQ: question tags stay out of list and notice lines', () => {
+  it('a listed line has no tag', () => {
+    expect(listedText('Merge now? \u27e8q:merge-order\u27e9')).toBe('Merge now? ');
   });
 });

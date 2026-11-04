@@ -3,8 +3,8 @@
  * Three levels (overview of groups → a group's requirements → one requirement's neighbourhood)
  * with breadcrumbs; our own pixel nodes; edges styled by status, a click shows the provenance;
  * filters with '숨긴 것 N개 · 보기'; commits folded into '커밋 +N'; a text list of the same nodes
- * beside the graph; the requirement detail on the right (full screen on a phone). MAP-A: shown inside
- * the 지도's 요구사항 추적 view (ProjectMap.tsx). Edges are not
+ * beside the graph; the requirement detail on the right (full screen on a phone). SPT C1: opened from
+ * a requirement detail's [이웃 그래프] (ReqDetail.tsx), centred on it. Edges are not
  * focusable; Tab walks the nodes, Enter or Space picks one, Enter again or a double click opens it.
  */
 import '@xyflow/react/dist/style.css';
@@ -196,22 +196,17 @@ function NodePop({ project, n, onClose }: { project: string; n: TraceNode; onClo
   );
 }
 
-/**
- * The requirements graph. MAP-A: the 지도's 요구사항 추적 view gives it the requirement to centre
- * (`center`, else the overview) and takes a component node's click back to the structure (`onComp`).
- */
+/** The requirements graph, centred on `center` (a requirement detail's [이웃 그래프]), else the overview. */
 export function ReqGraph({
   project,
   mobile,
   head,
   center,
-  onComp,
 }: {
   project: string;
   mobile: boolean;
   head?: ReactNode;
   center?: { uid: string; label: string };
-  onComp?: (id: string) => void;
 }) {
   const [path, setPath] = useState<Crumb[]>(() =>
     center ? [{ level: 'overview' }, { level: 'neighbourhood', center: center.uid, label: center.label }] : [{ level: 'overview' }],
@@ -255,8 +250,7 @@ export function ReqGraph({
     setSel(n.id);
     setSelEdge(null);
     const owner = foldOwner(n.id);
-    if (n.type === 'comp' && onComp) onComp(n.id);
-    else if (owner) setUnfolded((u) => new Set([...u, owner]));
+    if (owner) setUnfolded((u) => new Set([...u, owner]));
     else if (n.type === 'group') go(drillFrom(n)!);
     else if (n.type === 'req') setDetail(n.id);
   };
@@ -475,6 +469,7 @@ export function ReqGraph({
           mobile={mobile}
           onClose={() => setDetail(null)}
           onChanged={reload}
+          inGraph
         />
       ) : (
         // The detail's column is kept on a desktop: a selection never narrows the canvas under the pointer (a double click lands where it began).

@@ -36,6 +36,7 @@ import { composeWithPlaybook } from './agentRules.js';
 import type { Reply } from './control.js';
 import { refuse } from './control.js';
 import { appendEvent, eventsPath, isoLocal, shortStamp } from './events.js';
+import { branchFromTitle, checkBranchName } from './git/branchName.js';
 import { NO_FETCH_ENV } from './git/gitRun.js';
 import type { Jobs } from './jobs.js';
 import { jobsDir } from './jobs.js';
@@ -272,6 +273,8 @@ export class CodexTasks {
     model: string | null;
     effort?: string | null;
     worktree: boolean;
+    /** `--name`: the worktree's branch (`feat/iso-billboard`); none: made from the title. */
+    name?: string | null;
     /** `-d`: the run's title (its cards and its finish notice), in place of the spec's heading. */
     desc?: string | null;
     project: string | null;
@@ -292,6 +295,11 @@ export class CodexTasks {
         : (req.desc ?? codexTitle(req.spec, fs.readFileSync(req.spec, 'utf8')));
     } catch {
       return refuse('bad_file', `명세 파일을 읽지 못했습니다: ${req.spec}`);
+    }
+    if (req.name) {
+      if (!req.worktree) return refuse('usage', '--name 은 --worktree 와 함께 씁니다');
+      const why = checkBranchName(req.name);
+      if (why) return refuse('usage', why);
     }
     if (req.model !== null && !/^[\w.:/@+ -]{1,80}$/.test(req.model))
       return refuse('usage', '모델 이름이 올바르지 않습니다');
@@ -324,7 +332,7 @@ export class CodexTasks {
         }
         const made = await this.o.worktree(
           { name: req.project, folder: worktreeFolder },
-          taskName(this.now()),
+          req.name || branchFromTitle(title),
           w?.task && w.taskWorktree !== false
             ? { taskId: w.task, assignmentId: w.assignmentId, createdBy: `agent:${w.name}` }
             : undefined,
@@ -530,13 +538,6 @@ export class CodexTasks {
   private log(line: string): void {
     (this.o.log ?? ((l: string) => console.log(`[cld engine] ${l}`)))(line);
   }
-}
-
-/** `codex-MMDD-HHMMSS` (E3's task names are lower case, digits and -). */
-export function taskName(t: number): string {
-  const d = new Date(t);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `codex-${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
 function isFile(p: string): boolean {

@@ -1,0 +1,247 @@
+/* SPT C1: the 지도 (features × structure, R4's b-cockpit.png). Lazy like traceGraph.css, so its
+   colour tokens live here, not in index.css. Cells are DOM; only the arrows are SVG. */
+:root {
+  --cm-pane: #14141f;
+  --cm-cell: #1e1e2e;
+  --cm-line: #4a4a6a;
+  --cm-text: #dad8e2;
+  --cm-muted: #8a8aa6;
+  --cm-arrow: #8a8aa6;
+  --cm-two: #e8b41c;
+  --cm-bad: #d14249;
+  --cm-led-progress: #89d185;
+  --cm-led-blocked: #d14249;
+  --cm-led-changed: #e8b41c;
+  --cm-lit: #7a6cf0;
+  --cm-lit-text: #ffffff;
+  --cm-bar-on: #8a7cf8;
+}
+.cm-pane {
+  background: var(--cm-pane);
+  color: var(--cm-text);
+  border: 2px solid var(--color-border);
+  padding: 8px;
+  min-width: 0;
+}
+.cm-muted {
+  color: var(--cm-muted);
+}
+.cm-leds {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.cm-led {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--cm-line);
+}
+.cm-led[data-on][data-k='progress'] {
+  background: var(--cm-led-progress);
+  border-color: var(--cm-led-progress);
+}
+.cm-led[data-on][data-k='blocked'] {
+  background: var(--cm-led-blocked);
+  border-color: var(--cm-led-blocked);
+}
+.cm-led[data-on][data-k='changed'] {
+  background: var(--cm-led-changed);
+  border-color: var(--cm-led-changed);
+}
+.cm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 4px 6px;
+  border: 2px solid transparent;
+  border-radius: 0;
+}
+.cm-row[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-active-bg);
+}
+.cm-short {
+  /* One line always: a long front-matter id (REQ-STATUS) is cut, never wrapped over the name. */
+  min-width: 40px;
+  max-width: 88px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-accent-text);
+}
+.cm-band {
+  border-top: 2px dashed var(--cm-line);
+  padding-top: 4px;
+  margin-top: 8px;
+}
+.cm-cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 6px 4px;
+}
+.cm-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+  padding: 6px 8px;
+  background: var(--cm-cell);
+  color: var(--cm-text);
+  border: 2px solid var(--cm-line);
+  border-radius: 0;
+  box-shadow: 2px 2px 0px var(--cm-line);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.cm-cell[data-rest] {
+  grid-column: span 2;
+  grid-row: span 2;
+}
+.cm-cell[data-kind='rail'] {
+  border-style: dashed;
+  box-shadow: none;
+}
+.cm-cell[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  box-shadow: 2px 2px 0px var(--color-accent);
+}
+.cm-cell-name {
+  font-size: 14px;
+  line-height: 1.4;
+}
+/* The ⇄ line stays under the name, smaller than it (the Hangul fallback runs taller than the pixel face). */
+.cm-pair {
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cm-rails {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.cm-canvas {
+  position: relative;
+}
+.cm-arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.cm-arrow {
+  stroke: var(--cm-arrow);
+  stroke-width: 2;
+  fill: none;
+}
+.cm-arrow--two {
+  stroke: var(--cm-two);
+}
+.cm-head {
+  fill: var(--cm-arrow);
+}
+.cm-head--two {
+  fill: var(--cm-two);
+}
+.cm-bad {
+  color: var(--cm-bad);
+}
+.cm-two-text {
+  color: var(--cm-two);
+}
+.cm-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+/* SPT C2: lit and dimmed (a picked feature lights its cells, a picked cell its features), badges, bars, chips. */
+.cm-cell[data-dim],
+.cm-li[data-dim] {
+  opacity: 0.4;
+}
+.cm-cell[data-lit] {
+  border-color: var(--cm-lit);
+  box-shadow: 2px 2px 0px var(--cm-lit);
+}
+.cm-row[data-lit] {
+  border-color: var(--cm-lit);
+}
+.cm-badge {
+  display: inline-block;
+  padding: 0 4px;
+  background: var(--cm-lit);
+  color: var(--cm-lit-text);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* The cell's badge sits in its corner; wider for more of the feature's requirements (굵기로 비교). */
+.cm-cell-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: calc(40px + 40px * var(--cm-w, 0));
+  text-align: center;
+}
+.cm-bar {
+  display: inline-flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.cm-bar-seg {
+  width: 4px;
+  height: 8px;
+  background: var(--cm-line);
+}
+.cm-bar-seg[data-on] {
+  background: var(--cm-bar-on);
+}
+.cm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.cm-chip {
+  display: inline-block;
+  padding: 0 4px;
+  border: 2px solid var(--cm-line);
+  border-radius: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.cm-chain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.cm-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.cm-table th,
+.cm-table td {
+  border: 2px solid var(--cm-line);
+  padding: 2px 3px;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+.cm-table [data-off] {
+  color: var(--cm-muted);
+  opacity: 0.6;
+}

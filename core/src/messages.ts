@@ -25,6 +25,7 @@ export type ServerMessage =
   | SubagentToolPermission
   | AgentTeamInfo
   | AgentContextUsage
+  | AgentCompactions
   | LayoutLoaded
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
@@ -340,7 +341,27 @@ export interface AgentContextUsage {
   id: number;
   contextTokens: number;
   maxContextTokens: number;
+  limitBasis?: ContextLimitBasis;
 }
+
+export type ContextLimitBasis = 'reported' | 'estimated' | 'unknown';
+
+export interface AgentCompactions {
+  type: 'agentCompactions';
+  id: number;
+  count: number;
+  partial?: boolean;
+  recent: CompactionRecord[];
+}
+
+export interface CompactionRecord {
+  at: number;
+  trigger?: CompactionTrigger;
+  preTokens?: number;
+  postTokens?: number;
+}
+
+export type CompactionTrigger = 'auto' | 'manual';
 
 export interface LayoutLoaded {
   type: 'layoutLoaded';
@@ -682,7 +703,7 @@ export interface PackPreset {
 export interface CharacterPart {
   id: string;
   slot: CharacterPartSlot;
-  kind: AnonymousSchema_279;
+  kind: AnonymousSchema_287;
   gender?: CharacterGender;
   name?: string;
   ramp: string[];
@@ -711,7 +732,7 @@ export type CharacterPartSlot =
   | 'hair'
   | 'acc';
 
-export type AnonymousSchema_279 = 'sheet' | 'head';
+export type AnonymousSchema_287 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
   density?: CharacterPartDensity;
@@ -952,7 +973,7 @@ export interface ReviewNoteResult {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_443;
+  op: AnonymousSchema_451;
   id?: string;
   ok: boolean;
   error?: string;
@@ -960,7 +981,7 @@ export interface ReviewNoteResult {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_443 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_451 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSendResult {
   type: 'reviewSendResult';
@@ -1106,6 +1127,7 @@ export interface OfficeOrchestrator {
   provider?: OrchestratorProvider;
   level?: OfficeLevel;
   renewing?: boolean;
+  shellWait?: boolean;
   compacting?: boolean;
   heldEdits?: number;
 }
@@ -1194,6 +1216,8 @@ export interface TempEmployee {
   level?: OfficeLevel;
   contextTokens?: number;
   maxContextTokens?: number;
+  limitBasis?: ContextLimitBasis;
+  compactions?: number;
 }
 
 export interface OfficeJobs {
@@ -1332,12 +1356,12 @@ export interface DiskUsage {
 }
 
 export interface DiskUsageRow {
-  kind: AnonymousSchema_683;
+  kind: AnonymousSchema_693;
   bytes: number;
   partial: boolean;
 }
 
-export type AnonymousSchema_683 =
+export type AnonymousSchema_693 =
   'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
 
 export interface UsageState {
@@ -1376,16 +1400,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_706;
+  state: AnonymousSchema_716;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_706 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_716 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_710;
+  language: AnonymousSchema_720;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1394,15 +1418,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_710 = 'ko' | 'en';
+export type AnonymousSchema_720 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_717;
+  mode: AnonymousSchema_727;
   error?: string;
 }
 
-export type AnonymousSchema_717 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_727 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1488,6 +1512,7 @@ export interface ChatItem {
   toolName?: string;
   desc?: string;
   args?: string;
+  failed?: boolean;
   id: string;
   at: number;
   session?: string;
@@ -1753,7 +1778,6 @@ export interface EzCommandRule {
 }
 
 export interface EzFatigue {
-  compactionDrop?: number;
   tired?: number;
   yawn?: number;
   rest?: number;
@@ -1883,13 +1907,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1016;
+  status: AnonymousSchema_1026;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1016 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1026 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1948,10 +1972,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1044;
+  state: AnonymousSchema_1054;
 }
 
-export type AnonymousSchema_1044 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1054 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2512,7 +2536,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1323;
+  op: AnonymousSchema_1333;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2521,7 +2545,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1323 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1333 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2666,14 +2690,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1408;
+  action: AnonymousSchema_1418;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1408 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1418 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2840,12 +2864,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1502;
+  lang?: AnonymousSchema_1512;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1502 = 'en' | 'ko';
+export type AnonymousSchema_1512 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2901,19 +2925,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1524;
+  language: AnonymousSchema_1534;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1524 = 'ko' | 'en';
+export type AnonymousSchema_1534 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1528;
+  mode: AnonymousSchema_1538;
 }
 
-export type AnonymousSchema_1528 = 'ask' | 'bypass';
+export type AnonymousSchema_1538 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

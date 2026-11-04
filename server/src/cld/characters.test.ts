@@ -75,6 +75,17 @@ describe('character binder', () => {
     expect(messages.some((m) => m.type === 'agentToolsClear' && m.id === id)).toBe(true);
   });
 
+  it('a re-bound session counts its compactions afresh (renew, /clear)', () => {
+    const b = new CharacterBinder(runtime, store);
+    const boundary = '{"type":"system","subtype":"compact_boundary"}\n';
+    b.reconcile([{ key: 'k', label: 'alpha', transcript: transcript('old', boundary + boundary) }]);
+    const id = b.idOf('k')!;
+    expect(store.get(id)!.compactions?.count).toBe(2);
+    b.reconcile([{ key: 'k', label: 'alpha', transcript: transcript('new', boundary) }]);
+    expect(store.get(id)!.compactions?.count).toBe(1); // the new transcript's own, not 2 + 1
+    expect(messages.filter((m) => m.type === 'agentCompactions').map((m) => m.count)).toEqual([2, 0, 1]);
+  });
+
   it('a bound transcript animates its agent through the upstream parser', async () => {
     const b = new CharacterBinder(runtime, store);
     const t = transcript('live');

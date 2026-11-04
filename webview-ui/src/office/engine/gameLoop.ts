@@ -1,10 +1,12 @@
 import {
   MAX_DELTA_TIME_SEC,
+  OFFICE_AMBIENT_FPS,
   OFFICE_IDLE_FPS,
   OFFICE_INPUT_GRACE_MS,
   OFFICE_VISIBLE_RATIO,
   WARM_SLICE_MS,
 } from '../../constants.js';
+import { pictureFrame } from '../sprites/pictureBudget.js';
 import { pumpWarm, warmPending } from '../sprites/smoothSprite.js';
 import { createFramePacer, FRAME_RATE } from './framePacer.js';
 
@@ -16,16 +18,24 @@ export interface GameLoopCallbacks {
    *  walker, a spawn effect, a camera on the move)? false lets it draw at
    *  OFFICE_IDLE_FPS. */
   busy?: () => boolean;
+  /** PAGE-MEM: does only something that moves on its own (a walker, a waiting bubble) change?
+   *  With no input and nothing busy, the office then draws at OFFICE_AMBIENT_FPS. */
+  ambient?: () => boolean;
 }
 
 // cld-gui (T-0075): one source of truth for "should the office draw now".
 let onScreen = true; // the canvas intersects the viewport
 let covered = false; // a page of the phone shell is in front of it (WINMODEL: the canvas stays in place)
 let busy = true; // something on the office needs smooth motion
+let ambient = false; // only characters move, on their own
 let fastUntil = 0; // input keeps the full rate until this time
 
 const pacer = createFramePacer(() =>
-  busy || performance.now() < fastUntil ? FRAME_RATE : OFFICE_IDLE_FPS,
+  busy || performance.now() < fastUntil
+    ? FRAME_RATE
+    : ambient
+      ? OFFICE_AMBIENT_FPS
+      : OFFICE_IDLE_FPS,
 );
 
 /** The gate the office canvas and its DOM overlays share: false while the
@@ -72,9 +82,11 @@ export function wakeOffice(): void {
   fastUntil = now + OFFICE_INPUT_GRACE_MS;
 }
 
-function setBusy(b: boolean): void {
-  if (b && !busy) pacer.reset();
+function setBusy(b: boolean, a: boolean): void {
+  // a rate that goes up starts on this frame
+  if ((b && !busy) || (a && !ambient && !busy)) pacer.reset();
   busy = b;
+  ambient = a;
 }
 
 const isEditable = (t: EventTarget | null) =>
@@ -105,10 +117,11 @@ export function startGameLoop(canvas: HTMLCanvasElement, callbacks: GameLoopCall
     callbacks.update(dt);
     // Warming is deliberately outside the drawing that needs the pictures: it may use the full
     // cadence briefly, then this becomes false and the office returns to its normal idle rate.
-    setBusy((callbacks.busy?.() ?? true) || warmPending() > 0);
+    setBusy((callbacks.busy?.() ?? true) || warmPending() > 0, callbacks.ambient?.() ?? false);
     if (frameDue(time)) {
       ctx.imageSmoothingEnabled = false;
       const drawn = performance.now();
+      pictureFrame(); // what this frame draws stays in the picture budget (PAGE-MEM)
       callbacks.render(ctx);
       // SHEET-IMPORT: build queued character pictures for this zoom (never mid-stride), in what
       // the frame's drawing left of its slice

@@ -13,7 +13,8 @@ import { CHAT_SEND_MAX, chatTarget, readOnlyNote, requestChat } from '../../chat
 import { DevroomLink } from '../../devroom/DevRoom.js';
 import { useEngineStore } from '../../engineStore.js';
 import { FatigueBar } from '../../ez/Fatigue.js';
-import { contextPct } from '../../ez/fatigueState.js';
+import { basisHint } from '../../ez/fatigueState.js';
+import { kTokens } from '../../ez/statCardRows.js';
 import { TerminalGlyph } from '../../hud/glyphs.js';
 import { fatigueFor, useCldStore } from '../../officeStore.js';
 import { serverLine, serverText } from '../../serverText.js';
@@ -33,7 +34,6 @@ import { AttachmentGallery } from '../AttachmentViewer.js';
 import { DraftChip, sentFiles } from '../BubbleAttachments.js';
 import { keepPhoneComposerFocus } from '../composerFocus.js';
 import { composerHeight } from '../composerGrow.js';
-import { flyEnvelope } from '../envelope.js';
 import { placeRecords, questionText, setTypewriter, useTypewriter } from '../gameMessenger.js';
 import { shownName } from '../goneNames.js';
 import { Line, QuotePeek, ReplyChip } from '../Line.js';
@@ -74,6 +74,7 @@ import { filterSlashCommands, slashComplete, slashMenuKey } from '../slashMenu.j
 import { useChatSearch } from './useChatSearch.js';
 import { useDraft } from './useDraft.js';
 import { useHistoryJump } from './useHistoryJump.js';
+import { useQuestionTag } from './useQuestionTag.js';
 import { useStickToBottom } from './useStickToBottom.js';
 
 export function Conversation({
@@ -181,6 +182,7 @@ export function Conversation({
     search,
     stepResult,
   } = useChatSearch({ agentId, m, jumpToHit });
+  const { openTag } = useQuestionTag({ agentId, m, list, jumpToHit, clearSearch });
   const box = useRef<HTMLTextAreaElement>(null);
   const {
     text,
@@ -411,7 +413,6 @@ export function Conversation({
         requestStaleRecheck();
         return;
       }
-      flyEnvelope(agentId, formRef.current?.querySelector('button[type="submit"]'));
       messengerSend(
         (msg) => transport.send(msg),
         transport.state === 'connected',
@@ -470,8 +471,8 @@ export function Conversation({
                 <FatigueBar look={fatigue} />
               ) : (
                 context && (
-                  <span className="shrink-0">
-                    {t('messenger.context', { percent: Math.round(contextPct(context)) })}
+                  <span className="shrink-0" title={basisHint(context.basis)}>
+                    {t('ctxsrc.tokensOnly', { tokens: kTokens(context.tokens) })}
                   </span>
                 )
               )}
@@ -685,6 +686,7 @@ export function Conversation({
                       canSend && !store.officeReadOnly && !codexWorker ? setReply : undefined
                     }
                     onQuote={openQuote}
+                    onQuestionTag={openTag}
                     face={
                       senderKey(item) === null
                         ? undefined

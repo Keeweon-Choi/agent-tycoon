@@ -632,8 +632,8 @@ export const SERVER_TEXT = {
   stage_failed: { ko: '스테이지에 실패했어요: {why}', en: 'Staging failed: {why}' },
   timed_out: { ko: '제한 시간을 넘었어요', en: 'it timed out' },
   worktree_name_rule: {
-    ko: '작업 이름은 소문자·숫자·-만, 41자까지 쓸 수 있어요',
-    en: 'A task name can use lowercase letters, digits and - only, up to 41 characters.',
+    ko: '작업 이름은 소문자·숫자·-만, 60자까지 쓸 수 있어요',
+    en: 'A task name can use lowercase letters, digits and - only, up to 60 characters.',
   },
   worktree_no_commit: {
     ko: '커밋이 하나도 없어서 작업 공간을 만들 수 없어요',
@@ -642,10 +642,6 @@ export const SERVER_TEXT = {
   task_id_invalid: {
     ko: 'Task id 가 올바르지 않아요',
     en: 'That task id is not valid.',
-  },
-  slug_rule: {
-    ko: '이름은 소문자·숫자·-만, 40자까지 쓸 수 있어요',
-    en: 'A name can use lowercase letters, digits and - only, up to 40 characters.',
   },
   base_name_invalid: {
     ko: '기준 브랜치 이름이 올바르지 않아요: {name}',
@@ -1323,6 +1319,14 @@ export const SERVER_TEXT = {
   ev_send_lost_final: {
     ko: '{to}에게 메시지를 전달하지 못했어요 · 대화방에서 다시 보내기',
     en: 'The message to {to} did not go in · resend it from the chat',
+  },
+  ev_send_unsubmitted: {
+    ko: '{to} 입력칸에 메시지가 들어갔지만 제출되지 않아 한 번 더 보내요',
+    en: 'The message sat unsubmitted in the input box of {to}; sending it once more',
+  },
+  ev_send_unsubmitted_final: {
+    ko: '{to} 입력칸에 메시지가 제출되지 않고 남았어요 · 터미널에서 Enter 를 누르거나 대화방에서 다시 보내기',
+    en: 'The message to {to} stayed unsubmitted in its input box · press Enter in its terminal or resend it from the chat',
   },
   ev_token_guard: { ko: '{to} 쪽 입력 하나를 막았어요', en: 'Blocked an input for {to}' },
   ev_send_cancel: { ko: '{to} 대기 메시지 취소', en: 'Cancelled a queued message to {to}' },

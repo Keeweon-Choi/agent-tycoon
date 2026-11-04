@@ -2,8 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import type { ContextLimitBasis } from '../../../../../core/src/messages.js';
 import { normalizeProjectPath } from '../../../../../core/src/normalizeProjectPath.js';
 import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.js';
+import { maskText } from '../../../cld/mask.js';
 import {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
@@ -16,7 +18,9 @@ import {
 import { claudeTeamProvider } from './claudeTeamProvider.js';
 import { CONSENT_DISCLOSURE, CONSENT_INSTALL_HEADLINE } from './consentCopy.js';
 import {
+  CLAUDE_KNOWN_CONTEXT_MODEL_PATTERN,
   CLAUDE_LARGE_CONTEXT_WINDOW,
+  CLAUDE_REPORTED_LARGE_WINDOW_PATTERN,
   CLAUDE_SMALL_CONTEXT_MODEL_PATTERN,
   CLAUDE_SMALL_CONTEXT_WINDOW,
 } from './constants.js';
@@ -34,7 +38,8 @@ export function formatToolStatus(toolName: string, input?: unknown): string {
     case 'Write':
       return `Writing ${base(inp.file_path)}`;
     case 'Bash': {
-      const cmd = (inp.command as string) || '';
+      // The command as typed can hold a token: masked here, where every viewer's line is made.
+      const cmd = maskText((inp.command as string) || '');
       return `Running: ${cmd.length > BASH_COMMAND_DISPLAY_MAX_LENGTH ? cmd.slice(0, BASH_COMMAND_DISPLAY_MAX_LENGTH) + '\u2026' : cmd}`;
     }
     case 'Glob':
@@ -267,14 +272,23 @@ function consentDisclosure(): { headline: string; disclosure: string } {
  * Claude Code writes the model id on every assistant record but never the
  * limit, so this table is the only thing standing between the context gauge and a
  * wrong denominator -- assuming 200k for a 1M model reads five times too full.
- * Unknown ids return undefined so the runtime keeps whatever it already
- * assumed rather than adopting a fresh guess.
+ * A model the table does not know returns undefined: the runtime then says the
+ * limit is unknown instead of adopting a guess.
  */
 export function contextWindowForModel(model: string | undefined): number | undefined {
   if (!model || model === '<synthetic>') return undefined;
+  if (CLAUDE_REPORTED_LARGE_WINDOW_PATTERN.test(model)) return CLAUDE_LARGE_CONTEXT_WINDOW;
+  if (!CLAUDE_KNOWN_CONTEXT_MODEL_PATTERN.test(model)) return undefined;
   return CLAUDE_SMALL_CONTEXT_MODEL_PATTERN.test(model)
     ? CLAUDE_SMALL_CONTEXT_WINDOW
     : CLAUDE_LARGE_CONTEXT_WINDOW;
+}
+
+/** Whether that window was stated (`[1m]` on the id) or picked from the model's name. */
+export function contextWindowBasis(model: string | undefined): ContextLimitBasis | undefined {
+  if (!model || model === '<synthetic>') return undefined;
+  if (CLAUDE_REPORTED_LARGE_WINDOW_PATTERN.test(model)) return 'reported';
+  return CLAUDE_KNOWN_CONTEXT_MODEL_PATTERN.test(model) ? 'estimated' : 'unknown';
 }
 
 // ── The provider ──
@@ -297,6 +311,7 @@ export const claudeProvider: HookProvider = {
   subagentToolNames: new Set(['Task', 'Agent']),
   readingTools: new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch']),
   contextWindowForModel,
+  contextWindowBasis,
 
   getSessionDirs,
   getAllSessionRoots,

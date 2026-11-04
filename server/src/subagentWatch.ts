@@ -19,6 +19,7 @@
 
 import * as fs from 'fs';
 
+import type { ContextLimitBasis } from '../../core/src/messages.js';
 import { createAgentState } from './agentState.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { CONTEXT_SEED_TAIL_BYTES } from './constants.js';
@@ -57,8 +58,15 @@ export class SubagentWatch {
   private readonly models = new Map<number, string>();
   /** cld-gui (TEMP-PLATES): the sub-agent's own context snapshot (its transcript's
    *  message.usage, the main agents' rule), for its employee's 피로도. Not broadcast. */
-  onContext: (leadId: number, spawnToolUseId: string, tokens: number, max: number) => void = () =>
-    undefined;
+  onContext: (
+    leadId: number,
+    spawnToolUseId: string,
+    tokens: number,
+    max: number,
+    basis?: ContextLimitBasis,
+  ) => void = () => undefined;
+  /** The compactions counted in the sub-agent's own transcript (the same, for its employee). */
+  onCompactions: (leadId: number, spawnToolUseId: string, count: number) => void = () => undefined;
 
   constructor(private readonly mainStore: AgentStateStore) {
     this.store.nextAgentId.current = SHADOW_ID_BASE;
@@ -222,7 +230,12 @@ export class SubagentWatch {
           spawnToolUseId,
           message.contextTokens as number,
           message.maxContextTokens as number,
+          message.limitBasis as ContextLimitBasis | undefined,
         );
+        break;
+      }
+      case 'agentCompactions': {
+        this.onCompactions(leadId, spawnToolUseId, message.count as number);
         break;
       }
       case 'agentToolPermission': {

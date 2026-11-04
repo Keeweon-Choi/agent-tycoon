@@ -24,16 +24,19 @@ import {
   cldCharacterSprite,
   dimmedSprite,
   drinkingNow,
+  idleDimmed,
 } from '../../cld/ez/drawVisuals.js';
 import { offAlpha } from '../../cld/ez/nameplate.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
 import {
+  BOARD_COLORS,
   CHARACTER_SITTING_OFFSET_PX,
   HEADLESS_CHARACTER_ALPHA,
   HOVERED_OUTLINE_ALPHA,
   IMPORT_DENSITY,
   IMPORT_WORLD_W,
-  ISO_BILLBOARD_FRAME_PX,
+  ISO_BILLBOARD,
+  ISO_BILLBOARD_BODY,
   ISO_BILLBOARD_INK,
   ISO_CHARACTER_BOX,
   ISO_HALF_H,
@@ -525,11 +528,14 @@ function characterDrawns(
     const view = drawnView(ch, true, !!drinking);
     const all = getCharacterSprites(view.palette, ch.hueShift);
     const sprites = spritesAtZoom(all, s);
+    // PAGE-MEM: only the variants it draws as now (dimmed while idle, or not), both facings
+    const dim = idleDimmed(ch.id);
     warmCharacter(
       sprites,
       s / sprites.density,
-      (f) => [f, mirrorSprite(f), dimmedSprite(f), dimmedSprite(mirrorSprite(f))],
+      (f) => (dim ? [dimmedSprite(f), dimmedSprite(mirrorSprite(f))] : [f, mirrorSprite(f)]),
       ch.id,
+      dim ? 'dim' : '',
     );
     // C1: drinking in the three-quarter front view, a sheet with a drink row shows its own pose
     const cells = drinking && view.dir === Direction.DOWN ? drinkCellsOf(view.palette) : undefined;
@@ -819,43 +825,93 @@ export function renderIso(
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   drawOutlines(ctx, o, zoom, dpr, stack.cols, stack.depth, stack.lifts[focus.level] ?? 0, above, night);
   const billboard = billboardBox(stack);
-  drawBillboard(live, billboard, dpr);
+  drawBillboard(live, billboard, dpr, night);
   frame = { o, s: zoom, stack, focus, scenes, billboard };
   isoStats.frames++;
   isoStats.ms += performance.now() - started;
   return true;
 }
 
-/** The billboard's face as the webview last painted it (LobbyBoard: only when its page, data or
- *  size change), blitted each frame; null: the bare face. */
-let face: HTMLCanvasElement | null = null;
-export function setBillboardFace(c: HTMLCanvasElement | null): void {
-  face = c;
-}
-
-/** The billboard's posts, frame and face (its painted pages, else bare). */
-function drawBillboard(t: Target, b: BillboardBox, dpr: number): void {
+/**
+ * The billboard (owner 11-04 21:04: more 3D, the screen still level so it reads): its shadow on
+ * the ground, the posts (a lit and a shaded side, a cap), the case's top and right side at the
+ * iso angle, the screen's glow, then the frame with a light upper and a dark lower edge. The
+ * screen inside the frame is the webview's (LobbyBoard lays the old board's own screen there);
+ * dark here until it does.
+ */
+function drawBillboard(t: Target, b: BillboardBox, dpr: number, night: boolean): void {
   const { ctx, o, s } = t;
+  const B = ISO_BILLBOARD_BODY;
+  const K = ISO_BILLBOARD_INK;
   const X = (x: number) => Math.round(o.x + x * s);
   const Y = (y: number) => Math.round(o.y + y * s);
-  const post = Math.max(2, Math.round(2 * s));
+  const poly = (pts: Array<[number, number]>, fill: string) => {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+    ctx.closePath();
+    ctx.fill();
+  };
+  const { dx, dy } = B.shadow;
+  poly(
+    [
+      [b.x0, b.ground],
+      [b.x1, b.ground],
+      [b.x1 + dx, b.ground + dy],
+      [b.x0 + dx, b.ground + dy],
+    ],
+    K.shadow,
+  );
+  const half = B.post / 2;
   for (const px of b.posts) {
-    ctx.fillStyle = ISO_BILLBOARD_INK.post;
-    ctx.fillRect(X(px) - post, Y(b.y1), post, Y(b.ground) - Y(b.y1));
-    ctx.fillStyle = ISO_BILLBOARD_INK.postShade;
-    ctx.fillRect(X(px), Y(b.y1), post, Y(b.ground) - Y(b.y1));
+    ctx.fillStyle = K.post;
+    ctx.fillRect(X(px - half), Y(b.y1), X(px) - X(px - half), Y(b.ground) - Y(b.y1));
+    ctx.fillStyle = K.postShade;
+    ctx.fillRect(X(px), Y(b.y1), X(px + half) - X(px), Y(b.ground) - Y(b.y1));
+    ctx.fillStyle = K.postCap;
+    ctx.fillRect(X(px - half), Y(b.ground) - Math.max(1, Math.round(s)), X(px + half) - X(px - half), Math.max(1, Math.round(s)));
   }
-  ctx.fillStyle = ISO_BILLBOARD_INK.frame;
-  ctx.fillRect(X(b.x0), Y(b.y0), X(b.x1) - X(b.x0), Y(b.y1) - Y(b.y0));
-  const f = Math.round(ISO_BILLBOARD_FRAME_PX * dpr);
-  const [x, y, w, h] = [X(b.x0) + f, Y(b.y0) + f, X(b.x1) - X(b.x0) - 2 * f, Y(b.y1) - Y(b.y0) - 2 * f];
-  if (face) {
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(face, x, y, w, h);
-  } else {
-    ctx.fillStyle = ISO_BILLBOARD_INK.face;
-    ctx.fillRect(x, y, w, h);
-  }
+  const d = B.depth;
+  poly(
+    [
+      [b.x0, b.y0],
+      [b.x1, b.y0],
+      [b.x1 + d, b.y0 - d / 2],
+      [b.x0 + d, b.y0 - d / 2],
+    ],
+    K.top,
+  );
+  poly(
+    [
+      [b.x1, b.y0],
+      [b.x1 + d, b.y0 - d / 2],
+      [b.x1 + d, b.y1 - d / 2],
+      [b.x1, b.y1],
+    ],
+    K.side,
+  );
+  // The glow, outermost ring faintest, then the frame and its bevel.
+  const [x0, y0, x1, y1] = [X(b.x0), Y(b.y0), X(b.x1), Y(b.y1)];
+  const glow = night ? K.glowNight : K.glowDay;
+  const ring = Math.max(1, Math.round(B.glow * dpr));
+  glow.forEach((c, i) => {
+    const g = (glow.length - i) * ring;
+    ctx.fillStyle = c;
+    ctx.fillRect(x0 - g, y1, x1 - x0 + 2 * g, g);
+    ctx.fillRect(x0 - g, y0, g, y1 - y0);
+  });
+  ctx.fillStyle = K.frame;
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  const e = Math.max(1, Math.round(dpr));
+  ctx.fillStyle = K.frameLight;
+  ctx.fillRect(x0, y0, x1 - x0, e);
+  ctx.fillRect(x0, y0, e, y1 - y0);
+  ctx.fillStyle = K.frameDark;
+  ctx.fillRect(x0, y1 - e, x1 - x0, e);
+  ctx.fillRect(x1 - e, y0, e, y1 - y0);
+  const f = Math.round(ISO_BILLBOARD.frame * s);
+  ctx.fillStyle = BOARD_COLORS.screen;
+  ctx.fillRect(x0 + f, y0 + f, x1 - x0 - 2 * f, y1 - y0 - 2 * f);
 }
 
 /** Device px box of a character as the last frame drew it (a test aims a press at it). */
@@ -970,25 +1026,20 @@ export function isoOverlayFor(
   };
 }
 
-/** The billboard's face in the last frame: its box (CSS px of the canvas) and CSS px per iso px,
- *  for the webview's click on it; and the device px its painted face fills (inside the frame) and
- *  device px per iso px, for painting it. Null when no frame is drawn. */
-export function isoBillboard(dpr: number): {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  k: number;
-  face: { w: number; h: number; k: number };
-} | null {
+/** The billboard's screen in the last frame (inside its frame; CSS px of the canvas), where the
+ *  webview lays the old board's screen; null when no frame is drawn. */
+export function isoBillboard(dpr: number): { left: number; top: number; width: number; height: number } | null {
   if (!frame) return null;
   const { o, s, billboard: b } = frame;
-  const x = Math.round(o.x + b.x0 * s);
-  const y = Math.round(o.y + b.y0 * s);
-  const w = Math.round(o.x + b.x1 * s) - x;
-  const h = Math.round(o.y + b.y1 * s) - y;
-  const f = Math.round(ISO_BILLBOARD_FRAME_PX * dpr);
-  return { x: x / dpr, y: y / dpr, w: w / dpr, h: h / dpr, k: s / dpr, face: { w: w - 2 * f, h: h - 2 * f, k: s } };
+  const f = ISO_BILLBOARD.frame;
+  const x = Math.round(o.x + (b.x0 + f) * s);
+  const y = Math.round(o.y + (b.y0 + f) * s);
+  return {
+    left: x / dpr,
+    top: y / dpr,
+    width: (Math.round(o.x + (b.x1 - f) * s) - x) / dpr,
+    height: (Math.round(o.y + (b.y1 - f) * s) - y) / dpr,
+  };
 }
 
 /** Device px where the last frame drew world point (x, y) on its floor's plane (tests). */

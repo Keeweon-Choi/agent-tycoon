@@ -9,6 +9,7 @@
  * contact list (last message, latest reply ids) is republished.
  */
 import { plainText } from '../../../core/src/cld/plainText.js';
+import { stripQuestionTags } from '../../../core/src/cld/questionTag.js';
 import { koText, refused } from '../../../core/src/cld/serverText.js';
 import type { ChatItem, ChatQueued, MessengerContact } from '../../../core/src/messages.js';
 import type { TurnLedger } from './engine/turnLedger.js';
@@ -54,7 +55,7 @@ const VIDEO_LINE = /^\[첨부\] [^\n]+ \(video\/[^(),]+, \d+ KB\)$/gm;
 
 /** A message's text for a list or a notice: each video's `[첨부]` line reads "[동영상]", not its path. */
 export function listedText(text: string): string {
-  return text.replace(VIDEO_LINE, koText('attachment_video_label'));
+  return stripQuestionTags(text).replace(VIDEO_LINE, koText('attachment_video_label'));
 }
 
 /** A contact's summary of its conversation so far. */

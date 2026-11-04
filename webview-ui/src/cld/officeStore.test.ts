@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { BoardTask, OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messages.js';
+import type {
+  BoardTask,
+  ContextLimitBasis,
+  OfficeOrchestrator,
+  OfficeSnapshot,
+} from '../../../core/src/messages.js';
 import { setLanguage } from '../i18n/index.js';
 import { engineHandleMessage, engineResetForTests } from './engineStore.js';
 import { describeActivity } from './ez/activity.js';
@@ -211,33 +216,50 @@ describe('identities from data', () => {
 
 describe('\ud53c\ub85c\ub3c4 per character (T-0026)', () => {
   beforeEach(cldResetForTests);
-  const context = (id: number, tokens: number, max = 200_000) =>
+  const context = (id: number, tokens: number, max = 200_000, limitBasis: ContextLimitBasis = 'reported') =>
     cldHandleMessage({
       type: 'agentContextUsage',
       id,
       contextTokens: tokens,
       maxContextTokens: max,
+      limitBasis,
+    });
+  const counted = (id: number, count: number, partial?: boolean) =>
+    cldHandleMessage({
+      type: 'agentCompactions',
+      id,
+      count,
+      ...(partial && { partial }),
+      recent: Array.from({ length: count }, (_, i) => ({ at: 1_000 * (i + 1) })),
     });
 
   it('nothing before the first context report', () => {
     expect(fatigueFor(5)).toBeNull();
   });
 
-  it('counts the context drops this screen saw', () => {
+  it("says the daemon's compaction count; a gauge that falls counts nothing", () => {
     context(7, 180_000);
     expect(fatigueFor(7)).toMatchObject({ value: 90, compactions: 0, yawn: true, rest: true });
-    context(7, 20_000); // 90% -> 10%: a compaction, which does not add to the fatigue
-    expect(fatigueFor(7)).toMatchObject({
-      value: 10,
-      compactions: 1,
-      threshold: null,
-      rest: false,
-    });
-    context(7, 170_000);
-    context(7, 10_000);
-    // No threshold without a provider that names one: "압축 2", no rest from the count.
-    expect(fatigueFor(7)).toMatchObject({ value: 5, compactions: 2, threshold: null, rest: false });
-    expect(fatigueText(fatigueFor(7)!)).toBe('\ud53c\ub85c\ub3c4 5% · \ud734\uc2dd 2');
+    context(7, 20_000); // 90% -> 10% with no boundary record behind it: not a compaction
+    expect(fatigueFor(7)).toMatchObject({ value: 10, compactions: 0, rest: false });
+    counted(7, 1);
+    expect(fatigueFor(7)).toMatchObject({ value: 10, compactions: 1, threshold: null, partial: false });
+    counted(7, 2, true);
+    // No threshold without a provider that names one: "휴식 ≥2" (the daemon saw only the tail).
+    expect(fatigueFor(7)).toMatchObject({ compactions: 2, threshold: null, partial: true });
+    expect(fatigueText(fatigueFor(7)!)).toBe('\ud53c\ub85c\ub3c4 10% · \ud734\uc2dd \u22652');
+  });
+
+  it('a window picked from the model name reads "≈"; an unknown one has no percent at all', () => {
+    context(8, 100_000, 200_000, 'estimated');
+    expect(fatigueText(fatigueFor(8)!)).toBe('\ud53c\ub85c\ub3c4 \u224850% · \ud734\uc2dd 0');
+    expect(fatigueFor(8)?.basis).toBe('estimated');
+    // a server that does not say (an older daemon) sent an estimate
+    cldHandleMessage({ type: 'agentContextUsage', id: 8, contextTokens: 100_000, maxContextTokens: 200_000 });
+    expect(fatigueFor(8)?.basis).toBe('estimated');
+    context(8, 52_000, 200_000, 'unknown');
+    expect(fatigueFor(8)).toBeNull();
+    expect(cldGetSnapshot().contexts[8]).toMatchObject({ tokens: 52_000, basis: 'unknown' });
   });
 
   it("a row's own count (the engine's) counts, beside the drops this screen saw", () => {
@@ -253,10 +275,10 @@ describe('\ud53c\ub85c\ub3c4 per character (T-0026)', () => {
     });
   });
 
-  it('a Claude session (neutral 0) keeps its own drops', () => {
+  it("a Claude session (the row's neutral 0) shows the daemon's count", () => {
     cldHandleMessage(state({ orchestrators: [orch()] }));
-    context(5, 180_000);
     context(5, 20_000);
+    counted(5, 1);
     expect(fatigueFor(5)).toMatchObject({ value: 10, compactions: 1 });
   });
 
@@ -294,12 +316,11 @@ describe('\ud53c\ub85c\ub3c4 per character (T-0026)', () => {
     engineResetForTests();
   });
 
-  it('a new session (renew, /clear) starts the drop count over', () => {
-    cldHandleMessage(state({ orchestrators: [orch({ sessionId: 's1' })] }));
-    context(5, 180_000);
+  it('a new session (renew, /clear) starts the count over: the daemon says zero', () => {
     context(5, 20_000);
+    counted(5, 1);
     expect(fatigueFor(5)?.compactions).toBe(1);
-    cldHandleMessage(state({ orchestrators: [orch({ sessionId: 's2' })] }));
+    counted(5, 0);
     context(5, 10_000);
     expect(fatigueFor(5)).toMatchObject({ value: 5, compactions: 0 });
   });

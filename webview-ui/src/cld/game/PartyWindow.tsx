@@ -12,6 +12,7 @@ import { t } from '../../i18n/index.js';
 import { chatTarget } from '../chat.js';
 import { employeeOf } from '../employees.js';
 import { useEngineStore } from '../engineStore.js';
+import { basisHint, contextPctText } from '../ez/fatigueState.js';
 import { kTokens, restValue } from '../ez/statCardRows.js';
 import { openStatDetail } from '../ez/statDetail.js';
 import { characterVisualOf } from '../ez/visuals.js';
@@ -83,11 +84,16 @@ function MemberCard({ id, name, onClose }: { id: number; name: string; onClose: 
           {model && <span className="game-party-tag game-data">{model}</span>}
         </span>
       )}
-      <div className="game-party-stat" data-testid="party-context" data-left={left ?? undefined}>
+      <div
+        className="game-party-stat"
+        data-testid="party-context"
+        data-left={left ?? undefined}
+        title={basisHint(fatigue?.basis ?? sample?.basis ?? 'reported')}
+      >
         <span className="game-party-k">
           {left === null ? t('game.party.context') : t('game.party.contextLeft')}
           <b className="game-data" data-zero={left === null || undefined}>
-            {left === null ? '—' : `${left}%`}
+            {left === null ? '—' : `${contextPctText(left, fatigue?.basis ?? 'reported')}%`}
           </b>
         </span>
         <SegBar
@@ -101,7 +107,13 @@ function MemberCard({ id, name, onClose }: { id: number; name: string; onClose: 
         />
         <span className="game-party-sub">
           {left === null ? (
-            <span>{codex ? t('game.party.codexNote') : ''}</span>
+            <span>
+              {codex
+                ? t('game.party.codexNote')
+                : sample
+                  ? t('ctxsrc.tokensOnly', { tokens: kTokens(sample.tokens) })
+                  : ''}
+            </span>
           ) : (
             <span className="game-data">{sample ? `${kTokens(sample.tokens)} / ${kTokens(sample.max)}` : ''}</span>
           )}

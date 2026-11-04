@@ -103,7 +103,16 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
       summary = koText('ev_send_stuck', { to: str(e.to) ?? '?' });
       break;
     case 'send_lost':
-      summary = koText(e.again === false ? 'ev_send_lost_final' : 'ev_send_lost', { to: str(e.to) ?? '?' });
+      summary = koText(
+        e.unsubmitted === true
+          ? e.again === false
+            ? 'ev_send_unsubmitted_final'
+            : 'ev_send_unsubmitted'
+          : e.again === false
+            ? 'ev_send_lost_final'
+            : 'ev_send_lost',
+        { to: str(e.to) ?? '?' },
+      );
       break;
     case 'token_guard':
       summary = koText('ev_token_guard', { to: str(e.to) ?? '?' });

@@ -66,16 +66,16 @@ describe.skipIf(!GIT_AVAILABLE)('W2 in the office', () => {
     try {
       const t1 = o.task('Login page');
       expect(await o.worktree(t1, 'alpha-a')).toMatchObject({ ok: true });
-      const wt = path.join(o.folder, '.worktrees', 't-1-login-page');
+      const wt = path.join(o.folder, '.worktrees', 'feat-t1-login-page');
       expect(await o.restart('alpha-a')).toBe(wt);
       // Given to alpha-b (alpha-a stopped): alpha-a goes back to the project's folder, alpha-b starts there.
       await o.engine('stop', 'alpha-a');
-      await o.t.office.repos.worktrees.assign({ name: 'alpha', folder: o.folder }, 't-1-login-page', o.id('alpha-b'));
+      await o.t.office.repos.worktrees.assign({ name: 'alpha', folder: o.folder }, 'feat-t1-login-page', o.id('alpha-b'));
       expect(await o.restart('alpha-a')).toBe(o.folder);
       expect(await o.restart('alpha-b')).toBe(wt);
       // Removed: alpha-b starts again, in the project's folder (not "폴더가 없어요").
       await o.engine('stop', 'alpha-b');
-      expect(await o.ask({ type: 'repoAction', action: 'worktreeRemove', project: 'alpha', task: 't-1-login-page', force: true })).toMatchObject({ ok: true });
+      expect(await o.ask({ type: 'repoAction', action: 'worktreeRemove', project: 'alpha', task: 'feat-t1-login-page', force: true })).toMatchObject({ ok: true });
       expect(await o.restart('alpha-b')).toBe(o.folder);
       // A folder the user gave (not a worktree of the daemon's): never moved.
       expect(await o.restart('alpha-c')).toBe(o.own);
@@ -91,11 +91,11 @@ describe.skipIf(!GIT_AVAILABLE)('W2 in the office', () => {
       const t1 = o.task('Api');
       expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-a'))).toBeNull(); // none yet
       expect(await o.worktree(t1, 'alpha-a')).toMatchObject({ ok: true });
-      const wt = path.join(o.folder, '.worktrees', 't-1-api');
-      expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-a'))).toEqual({ path: wt, branch: 'task/t-1-api' });
+      const wt = path.join(o.folder, '.worktrees', 'feat-t1-api');
+      expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-a'))).toEqual({ path: wt, branch: 'feat/t1-api' });
       expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-b'))).toBeNull();
-      await o.t.office.repos.worktrees.assign(project, 't-1-api', null);
-      expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-b'))).toEqual({ path: wt, branch: 'task/t-1-api' });
+      await o.t.office.repos.worktrees.assign(project, 'feat-t1-api', null);
+      expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-b'))).toEqual({ path: wt, branch: 'feat/t1-api' });
       // Its folder gone by hand: not offered.
       fs.rmSync(wt, { recursive: true, force: true });
       expect(o.t.office.codexTaskWorktree(project, t1, o.id('alpha-b'))).toBeNull();
@@ -143,13 +143,13 @@ describe.skipIf(!GIT_AVAILABLE)('W2 in the office', () => {
       // codexMayUse: its own worktree yes; once another's, or removed, no; a folder that is no worktree of ours, yes.
       const t1 = o.task('Api');
       expect(await o.worktree(t1, 'alpha-b')).toMatchObject({ ok: true });
-      const wt = path.join(o.folder, '.worktrees', 't-1-api');
+      const wt = path.join(o.folder, '.worktrees', 'feat-t1-api');
       expect(o.t.office.codexMayUse(project, wt, o.id('alpha-b'))).toBe(true);
-      await o.t.office.repos.worktrees.assign(project, 't-1-api', o.id('alpha-a'));
+      await o.t.office.repos.worktrees.assign(project, 'feat-t1-api', o.id('alpha-a'));
       expect(o.t.office.codexMayUse(project, wt, o.id('alpha-b'))).toBe(false);
-      await o.t.office.repos.worktrees.assign(project, 't-1-api', null);
+      await o.t.office.repos.worktrees.assign(project, 'feat-t1-api', null);
       expect(o.t.office.codexMayUse(project, wt, o.id('alpha-b'))).toBe(true);
-      expect(await o.ask({ type: 'repoAction', action: 'worktreeRemove', project: 'alpha', task: 't-1-api', force: true })).toMatchObject({ ok: true });
+      expect(await o.ask({ type: 'repoAction', action: 'worktreeRemove', project: 'alpha', task: 'feat-t1-api', force: true })).toMatchObject({ ok: true });
       expect(o.t.office.codexMayUse(project, wt, o.id('alpha-b'))).toBe(false);
       expect(o.t.office.codexMayUse(project, o.folder, o.id('alpha-b'))).toBe(true);
     } finally {

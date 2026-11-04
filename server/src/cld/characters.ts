@@ -15,6 +15,7 @@ import * as path from 'path';
 import type { AgentRuntime } from '../agentRuntime.js';
 import { createAgentState } from '../agentState.js';
 import type { AgentStateStore } from '../agentStateStore.js';
+import { resetCompactions } from '../contextUsage.js';
 import { startFileWatching } from '../fileWatcher.js';
 import { assignPaletteIfNeeded } from '../paletteAssigner.js';
 import { restoreQuestion } from '../question.js';
@@ -151,6 +152,8 @@ export class CharacterBinder {
       r.unregisterAgent(agent.sessionId);
       clearAgentActivity(agent, id, this.store, r.permissionTimers);
     }
+    // The next transcript is a new conversation: its compactions are counted afresh.
+    resetCompactions(id, agent, this.store);
     agent.jsonlFile = '';
     agent.projectDir = '';
     agent.sessionId = `cld:${key}`;
