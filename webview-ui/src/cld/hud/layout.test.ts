@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  applyPreset,
   clampPlace,
   clampRect,
+  clampWindowRect,
   cssAnchor,
   defaultWindowPlace,
   DRAG_THRESHOLD_PX,
@@ -11,8 +11,8 @@ import {
   FREE_PLACEMENT,
   GRID_PX,
   HANDLES,
-  ICON_ROW_PX,
   keepTitleGrabbable,
+  keepWindowPlaces,
   type Layout,
   maximizedPlace,
   migrateSavedWindowIds,
@@ -20,8 +20,6 @@ import {
   nearestCorner,
   parseLayout,
   placeFromRect,
-  presetLayoutOnly,
-  RAIL_PX,
   type Rect,
   rectFromPlace,
   resizeRect,
@@ -34,8 +32,8 @@ import {
   TITLE_GRAB_PX,
   WINDOW_MIN,
   windowIsFree,
+  windowRoom,
   withEntry,
-  withNewIcons,
 } from './layout.js';
 
 const screen = { w: 1280, h: 800 };
@@ -411,33 +409,7 @@ describe('maximize (T-0111)', () => {
   });
 });
 
-describe('icons newer than a saved layout (owner 10-24: the files icon)', () => {
-  const screen = { w: 1200, h: 800 };
-  const old = ['office', 'messenger', 'notices', 'terminal'];
-
-  it('a saved bottom row gets the files icon in the next slot, on the same line', () => {
-    const saved = applyPreset({ v: 1, items: {} }, 'bottom', screen, old).layout;
-    expect(saved.items['icon:files']).toBeUndefined();
-    const loaded = withNewIcons(presetLayoutOnly(parseLayout(serializeLayout(saved))));
-    const last = saved.items['icon:terminal']!.place!;
-    expect(loaded.items['icon:files']?.place).toEqual({
-      corner: 'bl',
-      dx: last.dx + 48,
-      dy: last.dy,
-    });
-    for (const id of old) expect(loaded.items[`icon:${id}`]).toEqual(saved.items[`icon:${id}`]);
-  });
-
-  it('W1: the devroom icon follows the files icon in a row saved without it', () => {
-    const saved = applyPreset({ v: 1, items: {} }, 'bottom', screen, [...old, 'files']).layout;
-    const loaded = withNewIcons(saved);
-    expect(loaded.items['icon:devroom']?.place).toEqual({
-      corner: 'bl',
-      dx: saved.items['icon:files']!.place!.dx + 48,
-      dy: saved.items['icon:files']!.place!.dy,
-    });
-  });
-
+describe('saved window ids (UI-DASH)', () => {
   it('UI-DASH: a saved workbench window place opens the status board; a saved board place wins', () => {
     const place = { corner: 'tr', dx: 10, dy: 20, w: 500, h: 400 } as const;
     expect(parseLayout(JSON.stringify({ v: 1, items: { workbench: { place } } })).items).toEqual({
@@ -447,81 +419,6 @@ describe('icons newer than a saved layout (owner 10-24: the files icon)', () => 
     expect(parseLayout(JSON.stringify(both)).items).toEqual({ office: { place: { ...place, dx: 99 } } });
   });
 
-  it('a row that has it already, the right column and no preset are left alone (the icon flows in the column)', () => {
-    const withFiles = applyPreset({ v: 1, items: {} }, 'bottom', screen, [
-      ...old,
-      'files',
-      'devroom',
-    ]).layout;
-    expect(withNewIcons(withFiles)).toEqual(withFiles);
-    const right = applyPreset({ v: 1, items: {} }, 'right', screen, old).layout;
-    expect(withNewIcons(right)).toEqual(right);
-    expect(withNewIcons({ v: 1, items: {} })).toEqual({ v: 1, items: {} });
-  });
-});
-
-describe('layout presets (T-0111)', () => {
-  const icons = ['office', 'messenger', 'notices', 'terminal'];
-  const messy: Layout = {
-    v: 1,
-    items: {
-      'icon:office': { place: { corner: 'bl', dx: 300, dy: 300 } },
-      office: { place: { corner: 'tl', dx: 5, dy: 5, w: 400, h: 300 }, max: true },
-      usage: { place: { corner: 'tr', dx: 9, dy: 9 } },
-    },
-  };
-
-  it('\uc624\ub978\ucabd \uc138\ub85c is the default: every free placement goes back (U-29)', () => {
-    const { layout, open } = applyPreset(messy, 'right', screen, icons);
-    expect(layout).toEqual({ v: 1, items: {}, preset: 'right' });
-    expect(open).toEqual({});
-  });
-
-  it('\uc544\ub798 \uac00\ub85c puts the icons in a row at the bottom centre, in the bottom strip', () => {
-    const { layout } = applyPreset(messy, 'bottom', screen, icons);
-    const rects = icons.map((id) => {
-      const place = layout.items[`icon:${id}`]?.place;
-      if (!place) throw new Error(`no place for ${id}`);
-      return rectFromPlace(place, { w: 40, h: 40 }, screen);
-    });
-    expect(new Set(rects.map((r) => r.y)).size).toBe(1);
-    expect(rects[0].y + 40).toBeGreaterThan(screen.h - ICON_ROW_PX);
-    expect(rects[3].y + 40).toBeLessThanOrEqual(screen.h);
-    for (let i = 1; i < rects.length; i++) expect(rects[i].x).toBe(rects[i - 1].x + 48);
-    const left = rects[0].x;
-    const right = rects[3].x + 40;
-    expect(Math.abs(left + right - screen.w)).toBeLessThanOrEqual(GRID_PX); // centred
-    expect(layout.items.office).toBeUndefined(); // the window is back at its default
-    expect(layout.items.usage).toBeUndefined(); // a free placement of another widget goes (U-29)
-    expect(layout.preset).toBe('bottom');
-  });
-
-  it('\uc544\ub798 \uac00\ub85c centres only the icons that exist', () => {
-    const { layout } = applyPreset(messy, 'bottom', screen, ['office', 'notices']);
-    expect(Object.keys(layout.items).sort()).toEqual(['icon:notices', 'icon:office']);
-  });
-
-  it('\uc791\uc5c5\uc6a9: messenger on the left third, terminal on the right half, \ud604\ud669\ud310 closed', () => {
-    const { layout, open } = applyPreset(messy, 'work', screen, icons);
-    const room = screen.w - RAIL_PX - 56 - 8;
-    const work = { w: screen.w, h: screen.h - ICON_ROW_PX };
-    const m = rectFromPlace(layout.items.messenger!.place!, { w: 0, h: 0 }, work);
-    const t = rectFromPlace(layout.items.terminal!.place!, { w: 0, h: 0 }, work);
-    expect(m.x).toBe(8);
-    expect(Math.abs(m.x + m.w - room / 3)).toBeLessThanOrEqual(GRID_PX);
-    expect(Math.abs(t.w - room / 2)).toBeLessThanOrEqual(GRID_PX);
-    expect(t.x + t.w).toBe(room);
-    expect(m.x + m.w).toBeLessThan(t.x);
-    expect(m.y + m.h).toBeLessThanOrEqual(work.h);
-    expect(open).toEqual({ office: false, messenger: true, terminal: true });
-    expect(layout.items.office).toBeUndefined();
-    expect(Object.keys(layout.items).some((k) => k.startsWith('icon:'))).toBe(false);
-  });
-
-  it('\uc791\uc5c5\uc6a9 opens only the windows whose icons exist', () => {
-    const { open } = applyPreset(messy, 'work', screen, ['office', 'notices']);
-    expect(open).toEqual({ office: false });
-  });
 });
 
 describe('no free placement (U-29)', () => {
@@ -536,17 +433,11 @@ describe('no free placement (U-29)', () => {
   it('placement stays switched off for the MVP', () => {
     expect(FREE_PLACEMENT).toBe(false);
   });
-  it('a stored layout without a preset keeps no icon or widget place, only a window (U-38)', () => {
-    expect(presetLayoutOnly(free)).toEqual({
+  it('a stored layout keeps no icon or widget place, only a window (U-38); an old preset key goes', () => {
+    expect(keepWindowPlaces({ ...free, preset: 'work' } as Layout)).toEqual({
       v: 1,
       items: { office: { place: { corner: 'tl', dx: 5, dy: 5, w: 400, h: 300 }, max: true } },
     });
-  });
-  it("a preset's own layout is kept, and survives a save and a parse", () => {
-    const { layout } = applyPreset(free, 'work', screen, ['office', 'messenger', 'terminal']);
-    expect(presetLayoutOnly(layout)).toEqual(layout);
-    expect(parseLayout(serializeLayout(layout)).preset).toBe('work');
-    expect(withEntry(layout, 'office', { max: true }).preset).toBe('work');
   });
 });
 
@@ -573,7 +464,7 @@ describe('movable windows keep their title bar reachable (U-38)', () => {
         ]),
       }),
     );
-    const loaded = presetLayoutOnly(stored);
+    const loaded = keepWindowPlaces(stored);
     for (const id of WINDOWS) expect(loaded.items[id]?.place).toEqual(place);
     expect(loaded.items['icon:messenger']).toBeUndefined();
   });
@@ -675,6 +566,74 @@ describe('a window may go under the fixed panels, its title bar stays grabbable 
           expect(freeTitle(out, panels)).toBeGreaterThanOrEqual(TITLE_GRAB_PX);
         }
     }
+  });
+});
+
+describe('a window may be dragged down to the screen bottom (owner 11-06: no window went below y 918)', () => {
+  const screens = [
+    { w: 1600, h: 1000 },
+    { w: 1920, h: 1080 },
+  ];
+
+  it('default placement and maximize still reserve the dock band; a drag does not', () => {
+    for (const bounds of screens) {
+      const room = windowRoom(bounds);
+      expect(room.h).toBeLessThan(bounds.h);
+      for (const id of ['messenger', 'office', 'terminal', 'notices'] as const) {
+        const d = defaultWindowPlace(id, room);
+        expect((d.dy ?? 0) + (d.h ?? 0)).toBeLessThanOrEqual(room.h); // opens above the dock
+        const from = rectFromPlace(d, { w: 0, h: 0 }, room);
+        const dragged = moveRect(from, 0, 99999, bounds, clampWindowRect);
+        expect(dragged.y).toBe(bounds.h - TITLE_BAR_PX); // only the title bar rule stops it
+        expect(dragged.y + TITLE_BAR_PX).toBe(bounds.h);
+        expect(dragged.y).toBeGreaterThan(room.h - TITLE_BAR_PX); // past the old line
+        expect(snapMoveRect(dragged, bounds, [], clampWindowRect).y + TITLE_BAR_PX).toBeLessThanOrEqual(bounds.h);
+      }
+      expect(maximizedPlace(bounds)).toMatchObject({ w: bounds.w, h: bounds.h });
+    }
+  });
+
+  it('a drag keeps the title bar on screen on every side and the size', () => {
+    const from = { x: 300, y: 200, w: 680, h: 500 };
+    for (const bounds of screens)
+      for (const [dx, dy] of [[-9999, -9999], [9999, 9999], [0, 9999], [9999, 0]]) {
+        const r = moveRect(from, dx, dy, bounds, clampWindowRect);
+        expect(r).toMatchObject({ w: from.w, h: from.h });
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.x + r.w).toBeLessThanOrEqual(bounds.w);
+        expect(r.y).toBeGreaterThanOrEqual(0);
+        expect(r.y + TITLE_BAR_PX).toBeLessThanOrEqual(bounds.h);
+      }
+  });
+
+  it('the real title height (a taller modern-style bar) is what must stay on screen', () => {
+    const r = moveRect({ x: 0, y: 0, w: 680, h: 500 }, 0, 99999, screens[0], (rect, b, min) =>
+      clampWindowRect(rect, b, min, 54),
+    );
+    expect(r.y).toBe(1000 - 54);
+  });
+
+  it('a short window sinks until its own (shorter) height is left', () => {
+    const r = clampWindowRect({ x: 0, y: 5000, w: 300, h: 30 }, screens[0], WINDOW_MIN);
+    expect(r.h).toBe(WINDOW_MIN.h); // the minimum size wins, so the title bar is the 40 px rule
+    expect(r.y).toBe(1000 - TITLE_BAR_PX);
+  });
+
+  it('a stored low window survives a load and is re-clamped to the visible screen after a resize', () => {
+    const bounds = screens[1];
+    const place = { corner: 'tl' as const, dx: 200, dy: bounds.h - TITLE_BAR_PX, w: 680, h: 500 };
+    const fit = (b: { w: number; h: number }) =>
+      clampPlace(place, { w: 0, h: 0 }, b, WINDOW_MIN, clampWindowRect);
+    expect(fit(bounds)).toEqual(place); // kept as dragged, below the old line
+    const small = rectFromPlace(fit(screens[0]), { w: 0, h: 0 }, screens[0]);
+    expect(small.y + TITLE_BAR_PX).toBeLessThanOrEqual(screens[0].h); // pulled back onto the shrunk screen
+    expect(small.y).toBe(screens[0].h - TITLE_BAR_PX);
+  });
+
+  it('a resize handle may reach the screen bottom too', () => {
+    const bounds = screens[0];
+    const from = { x: 100, y: 100, w: 600, h: 400 };
+    expect(resizeRect(from, 's', 0, 9999, bounds)).toMatchObject({ y: 100, h: bounds.h - 100 });
   });
 });
 

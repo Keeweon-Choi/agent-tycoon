@@ -81,7 +81,7 @@ describe('log pruning (U-42)', () => {
       'notes.txt',
     ])
       expect(r.has(r.jobs, keep), keep).toBe(true);
-    expect(r.logs.at(-1)).toMatch(/log prune: jobs 1 \(0\.0 MB\), codex 0 \(0\.0 MB\), delivered 0 \(0\.0 MB\) removed/);
+    expect(r.logs.at(-1)).toMatch(/log prune: jobs 1 \(0\.0 MB\), codex 0 \(0\.0 MB\), delivered 0 \(0\.0 MB\), renew handoffs 0 \(0\.0 MB\) removed/);
   });
 
   it('deletes processed inbox messages (and sidecars) older than 30 days, keeps newer ones and the pending inbox', () => {
@@ -101,6 +101,29 @@ describe('log pruning (U-42)', () => {
     expect(r.run().delivered.count).toBe(2);
     expect(fs.readdirSync(delivered)).toEqual(['2-new.md']);
     expect(fs.readdirSync(inbox).sort()).toEqual(['3-waiting.md', 'delivered']);
+  });
+
+  it('K1: a renew handoff that never reached the inbox (.failed) and a failed start\'s record go after 30 days; a pending record stays', () => {
+    const r = rig();
+    const dir = path.join(configDir(r.home), 'renewals');
+    fs.mkdirSync(dir, { recursive: true });
+    const put = (name: string, days: number) => {
+      const f = path.join(dir, name);
+      fs.writeFileSync(f, '{}');
+      fs.utimesSync(f, (NOW - days * DAY) / 1000, (NOW - days * DAY) / 1000);
+    };
+    put('old.json.failed', LOG_KEEP_DAYS + 1);
+    put('new.json.failed', LOG_KEEP_DAYS - 1);
+    put('pending.json', 90); // a renewal still on: never pruned
+    const failed = (name: string, days: number) => {
+      put(name, days);
+      fs.writeFileSync(path.join(dir, name), JSON.stringify({ name, failed: { code: 'start_failed' } }));
+      fs.utimesSync(path.join(dir, name), (NOW - days * DAY) / 1000, (NOW - days * DAY) / 1000);
+    };
+    failed('oldfail.json', LOG_KEEP_DAYS + 1); // a failed start nobody started again
+    failed('newfail.json', LOG_KEEP_DAYS - 1);
+    expect(r.run().renewFailed.count).toBe(2);
+    expect(fs.readdirSync(dir).sort()).toEqual(['new.json.failed', 'newfail.json', 'pending.json']);
   });
 
   it('prunes finished Codex tasks only (running and limit stay), keeping the same rule', () => {

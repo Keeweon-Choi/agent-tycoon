@@ -873,9 +873,9 @@ async function main() {
     const drawerFg = fpg.getByRole('complementary', { name: '사무실 정보' });
     // T-0070: the feed's events are lines of the 알림 list (the bell's page).
     const feedItems = async () => {
-      await fpg.getByTestId('notice-bell').click();
+      await fpg.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
       const n = await fpg.locator('[data-testid="notice-list"] > li').count();
-      await fpg.getByRole('button', { name: '알림 닫기' }).click();
+      await fpg.getByTestId('cc-seg-notices').click();
       return n;
     };
     const before = { characters: await characters(), feed: await feedItems() };

@@ -4,10 +4,13 @@
  * The check is `agty update --check --json` (cld/install/update.mjs: the pinned release key must
  * verify the signed SHA256SUMS, nothing is unpacked), so the daemon trusts nothing the manager does
  * not. No timer: a check happens only when a page asks for the view (someone is watching), at most
- * every CHECK_EVERY_MS; one that fails is quiet (the notice just does not appear) and waits longer.
+ * every CHECK_EVERY_MS, or when 설정's 지금 확인 asks (at most every CHECK_NOW_MIN_MS). One that fails
+ * shows no notice; the view's `lastCheck` says when it was and why it failed.
  * The install is the same `agty update --from <bundle>`, started detached so it outlives the daemon
- * it stops (systemd KillMode=process); sessions, worktrees and jobs are separate processes and keep
- * running. The new daemon reads the result: its own version is the target, or it is not.
+ * it stops (systemd KillMode=process); on Windows (schtasks) the manager runs it as its own hidden
+ * one-shot task instead (`update --background`), since ending the daemon's task would end its
+ * children. Sessions, worktrees and jobs are separate processes and keep running. The new daemon
+ * reads the result: its own version is the target, or it is not.
  *
  * Two different things are kept apart on purpose. `canVerify`: this build has the code (Ed25519 +
  * SHA-256 of the daemon bundle). `release`: whether THIS release's list was actually signed by the
@@ -24,19 +27,35 @@ import { sameOriginRequest } from './authRoutes.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { STEPUP_REQUIRED } from './shell/gate.js';
 
-/** ponytail: the placeholder repository of cld/release/stamp-installers.mjs until the public one exists (P9). */
+/** The public repository's newest release; a release still has to verify against the key pinned at install. */
 export const UPDATE_SOURCE =
-  'https://github.com/agent-tycoon/agent-tycoon/releases/latest/download';
-export const CHECK_EVERY_MS = 8 * 3_600_000;
-export const RETRY_AFTER_FAIL_MS = 6 * 3_600_000;
+  'https://github.com/Keeweon-Choi/agent-tycoon/releases/latest/download';
+export const CHECK_EVERY_MS = 3_600_000;
+export const RETRY_AFTER_FAIL_MS = 3_600_000;
 const CHECK_TIMEOUT_MS = 60_000;
 const RESULT_KEEP_MS = 24 * 3_600_000;
+/** 지금 확인 (POST /api/cld/update/check) runs at most this often. */
+export const CHECK_NOW_MIN_MS = 60_000;
+const REASON_MAX = 200;
 /** False until a real release key is published (P9); true must never be shown before that. */
 export const OFFICIAL_RELEASE_KEY = false;
 /** False until Windows/macOS code signing exists (F-25: the first public release has none). */
 export const OS_CODE_SIGNING = false;
-/** Services whose stop leaves a detached child alive (systemd KillMode=process; a detached daemon). The rest: terminal. */
+/** Services whose stop leaves a detached child alive (systemd KillMode=process; a detached daemon). */
 const DETACH_SAFE = new Set(['systemd', 'detached']);
+/**
+ * Services whose updater runs as its own scheduled task (the manager's `update --background`).
+ * ponytail: launchd stays terminal-only (bootout ends the job's children); a Mac check before it gets one.
+ */
+const OWN_TASK = new Set(['schtasks']);
+/** The updater task has this long to take the manager's lock before a run with no lock counts as over. */
+const TASK_START_GRACE_MS = 60_000;
+/** An unreadable manager.lock younger than this is one being written (the manager's own acquireLock rule). */
+const LOCK_HALF_WRITTEN_MS = 60_000;
+/** A lock taken this long before the run started belongs to an older operation. */
+const LOCK_CLOCK_SLACK_MS = 5_000;
+/** A run still "running" after this is over whatever its pid or lock says (a pid reused after a reboot). */
+const RUN_LIMIT_MS = 2 * 3_600_000;
 const VERSION_RE = /^[0-9A-Za-z][0-9A-Za-z.+-]*$/;
 const BUNDLE_RE =
   /^agent-tycoon-daemon-[0-9A-Za-z.+-]+-(linux|darwin|win)-(x64|arm64)\.tar\.(gz|zst)$/;
@@ -55,6 +74,8 @@ export interface UpdateFacts {
 interface Stored {
   checkedAt: number;
   ok: boolean;
+  /** Why the last check failed (the manager's last error line). */
+  reason?: string | null;
   /** The installed version this check was made for (a different one means the file is old news). */
   current: string | null;
   available: string | null;
@@ -63,7 +84,8 @@ interface Stored {
   run?: {
     state: 'running' | 'done' | 'failed';
     to: string;
-    pid: number;
+    /** The detached updater; none for one in its own task (OWN_TASK), which the manager's lock tells about. */
+    pid?: number;
     startedAt: number;
     finishedAt?: number;
     tail?: string;
@@ -89,6 +111,8 @@ export interface UpdateView {
   terminalOnly: boolean;
   command: string;
   install: { state: 'running' | 'done' | 'failed'; to: string; message: string } | null;
+  /** The last check (epoch ms), null before the first. */
+  lastCheck: { at: number; ok: boolean; reason?: string } | null;
 }
 
 export interface UpdateOptions {
@@ -107,6 +131,8 @@ export interface UpdateOptions {
   check?(args: string[]): Promise<string>;
   /** Starts the manager detached with its output in `log`; the pid, or null. */
   start?(args: string[], log: string): number | null;
+  /** Runs `manager update --background ...` (OWN_TASK), which starts the updater task and returns; false: it did not. */
+  startTask?(args: string[], log: string): Promise<boolean>;
   alive?(pid: number): boolean;
 }
 
@@ -143,6 +169,28 @@ function realStart(args: string[], log: string): number | null {
   } catch {
     return null;
   }
+}
+
+function realStartTask(args: string[], log: string): Promise<boolean> {
+  try {
+    fs.writeFileSync(log, '', { mode: 0o600 }); // the task's updater appends to it
+  } catch {
+    /* it is created by the updater then */
+  }
+  return new Promise((resolve) =>
+    execFile(
+      process.execPath,
+      args,
+      { timeout: CHECK_TIMEOUT_MS, windowsHide: true },
+      (err, _out, stderr) => {
+        if (err)
+          console.warn(
+            `[cld update] the updater task did not start: ${String(stderr || err.message).trim()}`,
+          );
+        resolve(!err || !!err.killed); // timed out: the task may be running; settle() tells (lock, grace)
+      },
+    ),
+  );
 }
 
 const realAlive = (pid: number) => {
@@ -227,10 +275,24 @@ export class UpdateNotice {
     const stale = s.current !== this.o.version;
     if (!this.managed || (!stale && age < (s.ok ? CHECK_EVERY_MS : RETRY_AFTER_FAIL_MS)))
       return Promise.resolve();
+    return this.checkOnce();
+  }
+
+  private checkOnce(): Promise<void> {
     this.inflight ??= this.doCheck().finally(() => {
       this.inflight = null;
     });
     return this.inflight;
+  }
+
+  private forcedAt = 0;
+  /** 지금 확인: a check now, whatever the age of the last one; false: asked within CHECK_NOW_MIN_MS. */
+  async checkNow(): Promise<boolean> {
+    if (!this.managed) return true;
+    if (this.forcedAt && this.now() - this.forcedAt < CHECK_NOW_MIN_MS) return false;
+    this.forcedAt = this.now();
+    await this.checkOnce();
+    return true;
   }
 
   private async doCheck(): Promise<void> {
@@ -258,6 +320,7 @@ export class UpdateNotice {
         ...this.state,
         checkedAt: this.now(),
         ok: true,
+        reason: null,
         current: this.o.version,
         available: found ? version : null,
         bundle: found ? (r.bundle as string) : null,
@@ -269,6 +332,7 @@ export class UpdateNotice {
         ...this.state,
         checkedAt: this.now(),
         ok: false,
+        reason: ((err as Error).message || String(err)).trim().slice(0, REASON_MAX),
         current: this.o.version,
         available: keep?.available ?? null,
         bundle: keep?.bundle ?? null,
@@ -281,8 +345,12 @@ export class UpdateNotice {
   /** The result of the last install this daemon (or the one before it) started. */
   private settle(): UpdateView['install'] {
     const run = this.state.run;
-    if (!run) return null;
-    if (run.state === 'running' && !(this.o.alive ?? realAlive)(run.pid)) {
+    if (!run || !this.managed) return null; // a source install never started one: an old file is not news
+    if (
+      run.state === 'running' &&
+      (this.now() - run.startedAt >= RUN_LIMIT_MS ||
+        !(run.pid ? (this.o.alive ?? realAlive)(run.pid) : this.taskBusy(run.startedAt)))
+    ) {
       const done = this.o.version === run.to;
       this.state.run = {
         ...run,
@@ -307,6 +375,30 @@ export class UpdateNotice {
     return { state: r.state, to: r.to, message };
   }
 
+  /** An updater task is at work while its manager holds <root>/manager.lock, or is still starting. */
+  private taskBusy(startedAt: number): boolean {
+    const file = path.join(this.o.root!, 'manager.lock');
+    try {
+      const lock = readJson(file) as { pid?: unknown; op?: unknown; startedAt?: unknown } | null;
+      if (
+        lock?.op === 'update' &&
+        typeof lock.pid === 'number' &&
+        typeof lock.startedAt === 'string' &&
+        Date.parse(lock.startedAt) >= startedAt - LOCK_CLOCK_SLACK_MS &&
+        (this.o.alive ?? realAlive)(lock.pid)
+      )
+        return true;
+    } catch {
+      // Half written: the manager is taking it right now, unless it has been like that for a minute.
+      try {
+        if (this.now() - fs.statSync(file).mtimeMs < LOCK_HALF_WRITTEN_MS) return true;
+      } catch {
+        /* gone meanwhile */
+      }
+    }
+    return this.now() - startedAt < TASK_START_GRACE_MS;
+  }
+
   private tail(): string {
     try {
       const lines = fs
@@ -327,7 +419,7 @@ export class UpdateNotice {
     const s = this.state;
     const available =
       s.available && s.current === this.o.version && s.available !== this.o.version ? s : null;
-    const terminalOnly = !DETACH_SAFE.has(this.o.serviceKind ?? '');
+    const terminalOnly = this.terminalOnly;
     return {
       managed: this.managed,
       current: this.o.version,
@@ -344,16 +436,24 @@ export class UpdateNotice {
       terminalOnly,
       command: `agty update --from ${this.source}`,
       install: this.settle(),
+      lastCheck:
+        this.managed && s.checkedAt
+          ? { at: s.checkedAt, ok: s.ok, ...(s.ok || !s.reason ? {} : { reason: s.reason }) }
+          : null,
     };
   }
 
+  private get terminalOnly(): boolean {
+    const kind = this.o.serviceKind ?? '';
+    return !DETACH_SAFE.has(kind) && !OWN_TASK.has(kind);
+  }
+
   /** The one place an install starts. Re-reads the live facts; postpones (never fails silently) on a real conflict. */
-  install(version: unknown, who: string): InstallResult {
+  async install(version: unknown, who: string): Promise<InstallResult> {
     const no = (code: string, error: string): InstallResult => ({ ok: false, code, error });
     const s = this.state;
     if (!this.managed) return no('not_managed', '소스로 깐 사무실이라 여기서 올리지 않아요');
-    if (!DETACH_SAFE.has(this.o.serviceKind ?? ''))
-      return no('terminal_only', '이 설치는 터미널에서 올려 주세요');
+    if (this.terminalOnly) return no('terminal_only', '이 설치는 터미널에서 올려 주세요');
     if (this.settle()?.state === 'running')
       return no('running', '이미 업데이트가 진행 중이라 미뤘어요');
     if (
@@ -367,16 +467,32 @@ export class UpdateNotice {
     if (this.o.facts().merging)
       return no(
         'merging',
-        '병합이 진행 중이라 미뤘어요. 끝난 뒤 다시 눌러 주세요 (병합을 중간에 끊지 않으려고요)',
+        '머지가 진행 중이라 미뤘어요. 끝난 뒤 다시 눌러 주세요 (머지를 중간에 끊지 않으려고요)',
       );
-    const args = [
-      this.o.managerPath,
-      'update',
-      '--from',
-      `${this.source}/${s.bundle}`,
-      '--root',
-      this.o.root!,
-    ];
+    const to = s.available;
+    // The release the notice showed, not latest/: one published since the check would 404 the bundle.
+    const from = `${this.source.replace(/\/latest\/download$/, `/download/v${to}`)}/${s.bundle}`;
+    if (OWN_TASK.has(this.o.serviceKind ?? '')) {
+      // Marked first: a second press while the task starts is postponed like one while it runs.
+      this.state.run = { state: 'running', to, startedAt: this.now() };
+      const args = [
+        this.o.managerPath,
+        'update',
+        '--background',
+        '--from',
+        from,
+        '--root',
+        this.o.root!,
+      ];
+      if (!(await (this.o.startTask ?? realStartTask)(args, this.log))) {
+        delete this.state.run;
+        return no('spawn', '업데이트를 시작하지 못했어요');
+      }
+      this.save();
+      console.log(`[cld update] install ${to} started by ${who} (its own task)`);
+      return { ok: true, to };
+    }
+    const args = [this.o.managerPath, 'update', '--from', from, '--root', this.o.root!];
     const pid = (this.o.start ?? realStart)(args, this.log);
     if (pid === null) return no('spawn', '업데이트를 시작하지 못했어요');
     this.state.run = { state: 'running', to: s.available, pid, startedAt: this.now() };
@@ -393,7 +509,7 @@ export interface RequestKind {
   remote: boolean;
 }
 
-/** GET /api/cld/update, POST /api/cld/update/install. `auth` is the login-session (or Bearer) gate. */
+/** GET /api/cld/update, POST /api/cld/update/check and /install. `auth` is the login-session (or Bearer) gate. */
 export function registerUpdateRoutes(
   app: FastifyInstance,
   auth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>,
@@ -409,6 +525,15 @@ export function registerUpdateRoutes(
   // Like the connector panel: the host may always act, a logged-in device only when actions are allowed.
   const mayAct = (request: FastifyRequest) => kind(request).host || !readOnly;
   app.get('/api/cld/update', { preHandler: auth }, async (request) => notice.view(mayAct(request)));
+  app.post('/api/cld/update/check', { preHandler: auth }, async (request, reply) => {
+    if (!kind(request).host && !sameOriginRequest(request))
+      return reply.code(403).send({ error: '요청 출처가 달라요' });
+    if (!(await notice.checkNow()))
+      return reply
+        .code(429)
+        .send({ error: '방금 확인했어요. 1분 뒤 다시 눌러 주세요', code: 'throttled' });
+    return notice.view(mayAct(request));
+  });
   app.post<{ Body: { version?: unknown } | undefined }>(
     '/api/cld/update/install',
     { preHandler: auth },
@@ -419,7 +544,7 @@ export function registerUpdateRoutes(
       if (!mayAct(request)) return reply.code(403).send({ error: '읽기 전용이라 올릴 수 없어요' });
       if (k.remote && !stepUpFresh?.(request))
         return reply.code(403).send({ error: STEPUP_REQUIRED });
-      const r = notice.install(
+      const r = await notice.install(
         request.body?.version,
         k.host ? 'host' : (actorOf?.(request) ?? 'device'),
       );

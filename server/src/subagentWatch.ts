@@ -211,6 +211,7 @@ export class SubagentWatch {
           status: message.status,
           ...(typeof message.desc === 'string' && { desc: message.desc }),
           ...(model && { model }),
+          ...(typeof message.path === 'string' && { path: message.path }),
         });
         break;
       }

@@ -15,18 +15,30 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
 import { TITLE_BAR, WINDOW_PAD } from '../../components/ui/windowChrome.js';
+import { HUD_DOCK_HANDLE_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { useFixedPanels } from './fixedPanels.js';
-import { CloseGlyph, MaximizeGlyph, MinimizeGlyph, RestoreGlyph } from './glyphs.js';
+import {
+  BellGlyph,
+  BoardGlyph,
+  BubbleGlyph,
+  CloseGlyph,
+  MaximizeGlyph,
+  MinimizeGlyph,
+  RestoreGlyph,
+  TerminalGlyph,
+} from './glyphs.js';
 import { minimizeWindow, openWindow, setPlace, toggleMaximize, useHud } from './hudStore.js';
 import {
   clampPlace,
+  clampWindowRect,
   cssAnchor,
   defaultWindowPlace,
   type Handle,
@@ -38,16 +50,28 @@ import {
   type Rect,
   rectFromPlace,
   resizeRect,
+  type Size,
   snapMoveRect,
   snapResizeRect,
+  TITLE_BAR_PX,
   WINDOW_MIN,
   type WindowId,
   windowIsFree,
+  windowRoom,
 } from './layout.js';
 import { siblingRects, useBounds } from './useBounds.js';
-import { windowZ } from './windowModel.js';
+import { layerZ } from './windowModel.js';
 
 const HANDLE_SIZE_PX = 6;
+
+/** UI-DEPTH: the head's icon, the same glyph as the window's dock icon (looks has none; the
+ *  개발실's title draws its own). */
+const HEAD_GLYPH: Partial<Record<WindowId, () => ReactNode>> = {
+  office: () => <BoardGlyph />,
+  messenger: () => <BubbleGlyph />,
+  notices: () => <BellGlyph />,
+  terminal: () => <TerminalGlyph />,
+};
 const CORNER_SIZE_PX = 14;
 
 const handleStyle = (h: Handle): CSSProperties => {
@@ -120,22 +144,39 @@ export function HudWindow({
   const stored = layout.items[id]?.place;
   const maximized = layout.items[id]?.max === true;
   const free = windowIsFree(id);
+  // The title bar's real extent from the window's top (the screen style changes it): the one part of a dragged window that must stay on screen.
+  const titleRef = useRef<HTMLDivElement>(null);
+  const [titleH, setTitleH] = useState(TITLE_BAR_PX);
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el || hidden) return;
+    const read = () => setTitleH(Math.ceil(el.getBoundingClientRect().bottom - (ref.current ?? el).getBoundingClientRect().top) || TITLE_BAR_PX); // down to the bar's foot, the window's border included
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hidden]);
+  const fit = (r: Rect, b: Size, min?: Size) => clampWindowRect(r, b, min, titleH);
 
   // Until the room is measured the window stays out of sight rather than flashing at 0,0. The room
-  // is the whole HUD box under the top bar; the fixed panels draw over the window (windowZ) and a window may go under
+  // is the whole HUD box under the top bar; a panel pressed after the window draws over it (layerZ) and a window may go under
   // any of them, only part of its title bar always stays out (keepTitleGrabbable).
+  // hud-v3 P0: a window OPENS above the dock's band (windowRoom); once the user moves it, or it is restored
+  // after a resize, it may use the whole layer down to the screen's bottom (clampWindowRect); a maximized one fills it.
+  const room = bounds && windowRoom(bounds);
   const rect: Rect | null =
     live ??
-    (bounds
+    (bounds && room
       ? maximized
         ? rectFromPlace(maximizedPlace(bounds), { w: 0, h: 0 }, bounds)
         : keepTitleGrabbable(
             rectFromPlace(
               clampPlace(
-                stored ?? defaultWindowPlace(id, bounds, wide),
+                stored ?? defaultWindowPlace(id, room, wide),
                 { w: 0, h: 0 },
                 bounds,
                 WINDOW_MIN,
+                fit,
               ),
               { w: 0, h: 0 },
               bounds,
@@ -160,7 +201,6 @@ export function HudWindow({
     const others = siblingRects(el, '[data-hud-window]');
     const start = { x: e.clientX, y: e.clientY };
     const from = rect;
-    const room = bounds;
     let latest = { dx: 0, dy: 0, alt: false };
     let last: Rect = from;
     let frame = 0;
@@ -168,11 +208,15 @@ export function HudWindow({
     const target = (): Rect => {
       const { dx, dy, alt } = latest;
       if (action === 'move') {
-        const moved = moveRect(from, dx, dy, room);
-        return keepTitleGrabbable(alt ? moved : snapMoveRect(moved, room, others), panels, room);
+        const moved = moveRect(from, dx, dy, bounds, fit);
+        return keepTitleGrabbable(
+          alt ? moved : snapMoveRect(moved, bounds, others, fit),
+          panels,
+          bounds,
+        );
       }
-      const sized = resizeRect(from, action, dx, dy, room);
-      return alt ? sized : snapResizeRect(sized, action, room, others);
+      const sized = resizeRect(from, action, dx, dy, bounds);
+      return alt ? sized : snapResizeRect(sized, action, bounds, others);
     };
     const paint = () => {
       frame = 0;
@@ -195,7 +239,7 @@ export function HudWindow({
       if (commit && (latest.dx !== 0 || latest.dy !== 0)) {
         last = target();
         if (last.x !== from.x || last.y !== from.y || last.w !== from.w || last.h !== from.h)
-          setPlace(id, placeFromRect(last, room, true));
+          setPlace(id, placeFromRect(last, bounds, true));
       }
       setLive(null);
     };
@@ -209,7 +253,7 @@ export function HudWindow({
   const style: CSSProperties = hidden
     ? { display: 'none' }
     : rect && bounds
-      ? { ...cssAnchor(placeFromRect(rect, bounds, true)), zIndex: windowZ(hud, id, maximized) }
+      ? { ...cssAnchor(placeFromRect(rect, bounds, true)), zIndex: layerZ(hud, id, maximized) }
       : { visibility: 'hidden', zIndex: 0 };
   const Frame = landmark ? 'aside' : 'div';
   return (
@@ -217,12 +261,13 @@ export function HudWindow({
       ref={ref as never}
       aria-label={landmark ? title : undefined}
       data-hud-window={id}
-      className="pixel-panel pointer-events-auto absolute flex flex-col min-h-0 min-w-0"
+      className="pixel-panel ui-window pointer-events-auto absolute flex flex-col min-h-0 min-w-0"
       style={style}
       // A click into a window behind brings it to front (WINMODEL).
       onPointerDownCapture={() => openWindow(id)}
     >
       <div
+        ref={titleRef}
         data-testid={`hud-title-${id}`}
         className={`${TITLE_BAR} touch-none ${free ? 'cursor-move' : ''}`}
         onPointerDown={(e) => {
@@ -233,7 +278,14 @@ export function HudWindow({
           if (!(e.target as HTMLElement).closest('button,input,select,a')) toggleMaximize(id);
         }}
       >
-        <strong className="text-sm">{title}</strong>
+        <strong className="text-(length:--ui-win-title) flex items-center gap-8 min-w-0">
+          {HEAD_GLYPH[id] && (
+            <span className="ui-head-icon shrink-0" aria-hidden>
+              {HEAD_GLYPH[id]()}
+            </span>
+          )}
+          {title}
+        </strong>
         <span className="flex items-center gap-4">
           {bar}
           <Button
@@ -258,7 +310,12 @@ export function HudWindow({
           </Button>
         </span>
       </div>
-      <div data-selectable className={`flex flex-col flex-1 min-h-0 ${WINDOW_PAD}`}>
+      {/* Maximized, the dock's handle floats over the window's foot: the body keeps its height clear. */}
+      <div
+        data-selectable
+        className={`flex flex-col flex-1 min-h-0 ${WINDOW_PAD}`}
+        style={maximized ? { paddingBottom: HUD_DOCK_HANDLE_PX } : undefined}
+      >
         {children}
       </div>
       {free &&

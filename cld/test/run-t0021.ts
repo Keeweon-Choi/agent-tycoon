@@ -379,7 +379,7 @@ async function main() {
         .getByRole('button', { name: '현황판', exact: true })
         .click();
     // UI-C1: the job cards are alpha's Task tab (실행) in the 작업실; its Codex runs, the 에이전트 tab.
-    await openWorkbenchTab(page, 'Task', { project: 'alpha' });
+    await openWorkbenchTab(page, '이슈', { project: 'alpha' });
     await page.waitForTimeout(800);
     // DEV-BOARD: Task opens on 업무; the job cards are its 실행 half.
     await page
@@ -428,7 +428,7 @@ async function main() {
     await page.keyboard.press('Escape');
     await full.waitFor({ state: 'detached' });
 
-    await page.getByTestId('notice-bell').click(); // T-0070: the events are in the 알림 list
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click(); // T-0070: the events are in the 알림 list
     const feed = await page.getByTestId('notice-list').innerText();
     check(
       feed.includes('GPU 차례 옴: alpha') &&
@@ -437,7 +437,7 @@ async function main() {
       '알림 list: gpu_* and codex_* in words',
     );
     await shot('desktop-feed');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
 
     // The Codex end notice (T-0039): a task that ends while the office is open.
     cli(['codex', 'spec-done.md']);
@@ -449,14 +449,14 @@ async function main() {
         ), // T-0068: in words, no task id
     );
     await shot('desktop-codex-toast');
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const items = await page.locator('[data-testid="notice-item"]').allTextContents();
     check(
       items.some((t) => t.includes('🏁') && t.includes('끝났어요')),
       `notices: the Codex end (${items.join(' | ')})`,
     );
     await shot('desktop-notices');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
 
     // The messenger: alpha's conversation has the one-line notice.
     await page.getByRole('button', { name: /^메신저/ }).click();

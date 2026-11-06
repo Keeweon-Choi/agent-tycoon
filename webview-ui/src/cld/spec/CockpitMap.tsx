@@ -22,7 +22,9 @@ import type { MapBlock, MapFeature, MapFeatureDetail, MapLinkPath, MapPair, MapS
 import { Button } from '../../components/ui/Button.js';
 import { SPEC_MAP_ARROW_HEAD, SPEC_MAP_ARROW_MIN, SPEC_MAP_BAR_SEGMENTS, SPEC_MAP_CHIPS, SPEC_MAP_LIST_SHOW, SPEC_MAP_TEXT_PAIRS_FROM } from '../../constants.js';
 import { t } from '../../i18n/index.js';
-import { HudCounter } from '../game/parts.js';
+import { HudCounter, type IconName, PixelIcon } from '../game/parts.js';
+import { ArchCards } from './ArchCards.js';
+import { cellName } from './archCardsModel.js';
 import { ReqDetail } from './ReqDetail.js';
 import { mapPath, useTrace } from './traceApi.js';
 
@@ -62,7 +64,6 @@ function Folded<T>({ items, more = 0, row }: { items: readonly T[]; more?: numbe
   );
 }
 
-const cellName = (b: MapBlock) => (b.kind === 'rail' ? t(`spec.map.rail.${b.id === 'tests' ? 'tests' : 'tools'}`) : b.rest ? t('spec.map.rest', { name: b.name }) : b.name);
 const insideText = (b: MapBlock) => b.inside.map((x) => `${x.name || t('spec.map.direct')} ${x.n}`).join(' · ');
 
 function Leds({ f }: { f: Pick3 }) {
@@ -392,6 +393,13 @@ function Structure({
         {s.partial && ` · ${t(`spec.map.partial.${s.partial}`)}`}
         {!!s.big && ` · ${t('spec.map.big', { count: s.big })}`}
       </p>
+      {!!s.langs?.length && (
+        <p className={muted} data-testid="map-langs">
+          {t('spec.map.langs', { list: s.langs.map((l) => `${l.name} ${l.files}`).join(' · ') })}
+          {!!s.noImports && ` · ${t('spec.map.noImports', { count: s.noImports })}`}
+          {s.other && (s.other.config > 0 || s.other.docs > 0) && ` · ${t('spec.map.other', s.other)}`}
+        </p>
+      )}
     </div>
   );
 }
@@ -639,12 +647,67 @@ function FeaturePanel({
   );
 }
 
+/** Where 모듈 지도 opens: from the 아키텍처 그래프's [단계별 들어가기] (one level in, or the cell picked) or a requirement area (that feature picked). */
+interface ModuleStart {
+  chain: string[];
+  pick: Pick;
+}
+const SUBS = ['arch', 'modules'] as const;
+type Sub = (typeof SUBS)[number];
+const SUB_ICON = { arch: 'board', modules: 'list' } as const satisfies Record<Sub, IconName>;
+
+/**
+ * The 지도 tab: its views in a second tab row (window mock v3-2), 아키텍처 그래프 first, then 모듈 지도
+ * (features × structure). The mock's 기능 흐름, 의존성 분석 and 구조 요약 have no screen yet, so they have no tab.
+ */
 export function MapTab({ project, mobile }: { project: string; mobile: boolean }) {
-  const [chain, setChain] = useState<string[]>([]);
-  const [pick, setPick] = useState<Pick>(null);
+  const [sub, setSub] = useState<Sub>('arch');
+  const [start, setStart] = useState<ModuleStart & { n: number }>({ chain: [], pick: null, n: 0 });
+  const toModules = (to: ModuleStart) => {
+    setStart((x) => ({ ...to, n: x.n + 1 }));
+    setSub('modules');
+  };
+  return (
+    <div className={`flex flex-col gap-8 min-w-0 ${mobile ? '' : 'h-full min-h-0'}`} data-testid="map-frame" data-sub={sub}>
+      <nav className="ui-subtabs overflow-x-auto shrink-0" role="tablist" aria-label={t('spec.mapTab.nav')}>
+        {SUBS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={sub === id}
+            className="ui-tab ui-raise shrink-0 text-sm pointer-coarse:min-h-44"
+            onClick={() => setSub(id)}
+            data-testid="map-sub"
+            data-sub={id}
+          >
+            <PixelIcon name={SUB_ICON[id]} />
+            {t(id === 'arch' ? (mobile ? 'spec.mapTab.archShort' : 'spec.mapTab.arch') : 'spec.mapTab.modules')}
+          </button>
+        ))}
+      </nav>
+      <div className={`flex-1 min-h-0 min-w-0 ${mobile || sub === 'arch' ? '' : 'overflow-y-auto'}`}>
+        {sub === 'arch' ? (
+          <ArchCards
+            project={project}
+            mobile={mobile}
+            onInto={(id, deeper) => toModules(deeper ? { chain: [id], pick: null } : { chain: [], pick: { t: 'block', id } })}
+            onFeature={(key) => toModules({ chain: [], pick: { t: 'feature', key } })}
+          />
+        ) : (
+          <ModuleMap key={start.n} project={project} mobile={mobile} start={start} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModuleMap({ project, mobile, start }: { project: string; mobile: boolean; start: ModuleStart }) {
+  const [chain, setChain] = useState<string[]>(start.chain);
+  const [pick, setPick] = useState<Pick>(start.pick);
   const [req, setReq] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
-  const [phoneView, setPhoneView] = useState<'features' | 'structure'>('features');
+  const [phoneView, setPhoneView] = useState<'features' | 'structure'>(start.chain.length || start.pick?.t === 'block' ? 'structure' : 'features');
   const { data, error } = useTrace<TraceMap>(project, mapPath(chain));
   const s = data?.structure ?? null;
   const shortOf = useMemo(() => new Map((data?.features ?? []).map((f) => [f.key, f.short])), [data]);

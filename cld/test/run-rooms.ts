@@ -316,7 +316,7 @@ async function main() {
     );
     // The open page's bell says the same: ROOM-NOTICE / U-49, one notice per room reply, titled
     // room · member (and none for the alpha or beta DM).
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const notices = page.locator('[data-testid="notice-item"]');
     const noticeTexts = await notices.allInnerTexts();
     console.log(`bell: ${JSON.stringify(noticeTexts)}`);
@@ -326,7 +326,7 @@ async function main() {
         ['alpha', 'beta'].every((m) => noticeTexts.some((t) => t.includes(`출시팀 · ${m}`))),
       'C3: the bell has one notice per room reply, for the room, none for the alpha or beta DM',
     );
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     await rooms.getByRole('button', { name: /^출시팀/ }).click();
     await room.waitFor();
     check(

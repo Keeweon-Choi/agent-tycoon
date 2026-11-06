@@ -567,7 +567,7 @@ export class DecorStore {
     return fs.existsSync(this.file);
   }
   save(next: Decor): string | null {
-    if (this.foreign) return 'decor.json을 이 판이 읽지 못해 덮어쓰지 않았어요';
+    if (this.foreign) return 'decor.json을 이 버전이 읽지 못해 덮어쓰지 않았어요';
     try {
       writeJsonAtomic(this.file, next);
     } catch (err) {

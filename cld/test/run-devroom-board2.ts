@@ -138,6 +138,17 @@ async function main() {
     await win.getByTestId('devroom-trunk').first().click();
     const paneOf = (name: string) => win.locator(`[data-testid="devroom-pane"][data-agent="${name}"]`);
     await paneOf('shop-web').waitFor({ timeout: 20_000 });
+    // DEVROOM-PANE-CHAT: panes open in 대화 and the cards sit behind the status chips.
+    const terminals = () =>
+      desk.evaluate(() =>
+        document
+          .querySelectorAll<HTMLElement>('[data-testid="devroom-pane"]:not([data-view="terminal"]) [data-testid="devroom-pane-view"][data-view="terminal"]')
+          .forEach((b) => b.click()),
+      );
+    const strip = async (open = true) => {
+      if ((await win.getByTestId('devroom-strip').count()) !== (open ? 1 : 0)) await win.getByTestId('devroom-status-chip').first().click();
+    };
+    await terminals();
 
     /** Row 2 of every pane on screen: ` cols=N` and one `|`, in column N. */
     const rulers = () =>
@@ -159,6 +170,7 @@ async function main() {
     await desk.waitForFunction(() => document.querySelector('[data-testid="devroom-pane"] .xterm-rows')?.textContent?.includes('fake Claude Code'), undefined, { timeout: 30_000 });
     await clean('layout 1', 1);
     await win.getByTestId('devroom-layout-4').click();
+    await terminals();
     await clean('1 → 2×2', 3);
     await shot(desk, 'pc-2x2');
     await win.getByTestId('devroom-layout-1').click();
@@ -166,6 +178,8 @@ async function main() {
     await shot(desk, 'pc-back-to-1');
     // A free split: a card on the Lead pane's right edge, another on that pane's bottom edge.
     const drag = async (from: string, to: string, fx: number, fy: number) => {
+      await strip();
+      if (from === 'api-worker' && !(await win.locator('[data-testid="devroom-agent-card"][data-agent="api-worker"]').count())) await win.getByTestId('devroom-show-idle').click();
       const a = (await win.locator(`[data-testid="devroom-agent-card"][data-agent="${from}"]`).boundingBox())!;
       const b = (await paneOf(to).boundingBox())!;
       await desk.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
@@ -175,9 +189,9 @@ async function main() {
       await desk.mouse.up();
       await paneOf(from).waitFor({ timeout: 10_000 });
     };
-    await win.getByTestId('devroom-show-idle').click(); // api-worker rests: its card shows on demand
-    await drag('web-worker', 'shop-web', 0.95, 0.5);
+    await drag('web-worker', 'shop-web', 0.95, 0.5); // api-worker rests: its card shows on demand
     await drag('api-worker', 'web-worker', 0.5, 0.95);
+    await terminals();
     await clean('a free split (the Lead left, two stacked right)', 3);
     const divider = win.getByTestId('devroom-divider').first();
     const d = (await divider.boundingBox())!;
@@ -192,7 +206,7 @@ async function main() {
     await shot(desk, 'pc-free-to-1');
 
     // The status strip: 끝남 (news within 30 minutes), 쉬는 중 hidden until its toggle.
-    await win.getByTestId('devroom-show-idle').click();
+    await strip();
     const bucket = (name: string) => win.locator(`[data-testid="devroom-agent-card"][data-agent="${name}"]`).getAttribute('data-bucket');
     await desk.waitForFunction(() => document.querySelector('[data-testid="devroom-agent-card"][data-agent="web-worker"]')?.getAttribute('data-bucket') === 'done', undefined, { timeout: 20_000 });
     check(true, 'web-worker answered a moment ago: 끝남');
@@ -210,8 +224,10 @@ async function main() {
     const add = (r: Rec) => fs.appendFileSync(lead, `${JSON.stringify(stamp(r))}\n`);
     add({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tu-a', name: 'Agent', input: { description: '테스트 실행', prompt: 'npm test' } }] } });
     add({ type: 'progress', parentToolUseID: 'tu-a', data: { type: 'agent_progress', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a-1', name: 'Bash', input: { command: 'npm test' } }] } } } });
+    await strip();
     await win.locator('[data-testid="devroom-agent-card"][data-agent="shop-web"]').click();
     await desk.waitForFunction(() => document.querySelector('[data-testid="devroom-pane"][data-agent="shop-web"] [data-testid="devroom-sub-chip"]')?.textContent?.includes('1'), undefined, { timeout: 20_000 });
+    await strip();
     check((await win.locator('[data-testid="devroom-agent-card"][data-agent="shop-web"] [data-testid="devroom-sub-chip"]').count()) === 1, "the Lead's card and pane wear 서브 1 while its sub-agent runs");
     check((await win.getByTestId('devroom-sub-chip').count()) === 2, 'and no other sub-agent sign anywhere');
     await shot(desk, 'pc-sub-chip');
@@ -225,6 +241,7 @@ async function main() {
     await phone.waitForTimeout(400);
     await shot(phone, 'phone-cards');
     await phone.locator('[data-testid="devroom-agent-card"][data-agent="web-worker"]').tap();
+    await phone.locator('[data-testid="devroom-phone-term"] [data-testid="devroom-pane-view"][data-view="terminal"]').tap();
     await phone.waitForFunction(() => document.querySelector('[data-testid="devroom-phone-term"] .xterm-rows')?.textContent?.includes('web-worker'), undefined, { timeout: 30_000 });
     await phone.waitForTimeout(SETTLE_MS);
     const row = await phone.evaluate(() => ([...document.querySelectorAll<HTMLElement>('[data-testid="devroom-phone-term"] .xterm-rows > div')][1]?.textContent ?? '').replace(/ /g, ' '));

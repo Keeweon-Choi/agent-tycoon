@@ -5,81 +5,15 @@
  * records, the hwSample the daemon broadcasts while someone watches (no polling of its own).
  * One-shot motion only (refill, roll, nudge), keyed on a change, never on mount.
  */
-import type { UsageLimitWindow, UsageProvider } from '../../../../core/src/messages.js';
-import { GAME_HEAT_SEGMENTS, GAME_HUD_5H_SEGMENTS, GAME_HUD_ROW_SEGMENTS } from '../../constants.js';
+import { GAME_HEAT_SEGMENTS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { openBoard } from '../board/boardOpen.js';
-import { usageWindows, usageWindowTitle } from '../format.js';
 import { useCldStore } from '../officeStore.js';
 import { workCounts } from '../panels/jobs.js';
-import { setJobsView } from '../taskboard/taskBoardState.js';
-import { openWorkbench, setWorkbenchTab } from '../workbench/workbenchStore.js';
 import { useChangeKey } from './gameLooks.js';
-import { gaugeTone, gaugeWindows, heatLook, shortReset, windowLeft } from './gameState.js';
+import { heatLook } from './gameState.js';
+import { openJobs } from './openJobs.js';
 import { PixelIcon, SegBar, type SegTone } from './parts.js';
-
-type GaugeWindow = UsageLimitWindow & { label?: string; title?: string | null };
-
-/** One window: what is LEFT ("남음 39%", the bar as HP); its hover title says the used share and the reset too. */
-function Window({ w, now, main, phone }: { w: GaugeWindow; now: number; main: boolean; phone: boolean }) {
-  const weekly = w.id !== '5h';
-  const left = windowLeft(w);
-  const tone = gaugeTone(left);
-  const refill = useChangeKey(left, (a, b) => b !== null && (a === null || b > a));
-  // The phone's strip leaves the reset to the detail (07: ▸ opens it).
-  const reset = w.isReset || phone ? null : shortReset(w.resetAt, now, weekly);
-  return (
-    <span className="game-gx-w" data-window={w.id} data-main={main || undefined} title={usageWindowTitle(w)}>
-      <span className="game-gx-k">{w.label ?? (weekly ? t('game.hud.week') : w.id)}</span>
-      {main && (
-        <SegBar
-          value={tone === 'zero' ? 0 : (left ?? 0)}
-          max={100}
-          segments={phone ? GAME_HUD_5H_SEGMENTS : GAME_HUD_ROW_SEGMENTS}
-          tone={tone === 'warn' ? 'warn' : undefined}
-          refill={refill}
-          className="game-seg-sm"
-          label={usageWindowTitle(w)}
-        />
-      )}
-      <span className="game-gx-v" data-tone={left === null ? 'zero' : tone} data-testid="usage-left">
-        {left === null ? t('usage.unknownShort') : t('game.hud.leftPct', { pct: left })}
-      </span>
-      {reset && <span className="game-gx-r">{reset}</span>}
-    </span>
-  );
-}
-
-/** One provider's box: its main window as cells (gaugeWindows: the 5-hour one, else the week), then (not on the
- *  phone) its week and each model's week ("F 7d") with their resets. */
-export function UsageGauge({ provider, now, phone = false }: { provider: UsageProvider; now: number; phone?: boolean }) {
-  const models = phone ? [] : usageWindows(provider).filter((w) => w.title);
-  const { main, rest } = gaugeWindows(provider.windows, phone);
-  const shown: GaugeWindow[] = [...(main ? [main] : []), ...rest, ...models];
-  return (
-    <span className="game-gx" data-testid="usage-gauge" data-provider={provider.id}>
-      <span className="game-gx-nm">{provider.name}</span>
-      {shown.length === 0 && (
-        <span className="game-gx-v" data-tone="zero">
-          —
-        </span>
-      )}
-      {shown.map((w, i) => (
-        <span key={w.id} className="contents">
-          {i > 0 && <span className="game-gx-sep" />}
-          <Window w={w} now={now} main={w === main} phone={phone} />
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/** The 작업 panel: the 현황판's 개발 tab on 업무 → 실행. */
-function openJobs(): void {
-  setWorkbenchTab('tasks');
-  setJobsView('runs');
-  openWorkbench();
-}
 
 /** Jobs running now and waiting (the records alone, jobs.workCounts); 0 dimmed; a click opens the jobs. */
 export function JobCounter({ chip = false }: { chip?: boolean }) {

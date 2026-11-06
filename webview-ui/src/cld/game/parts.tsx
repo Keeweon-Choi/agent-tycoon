@@ -19,6 +19,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import { GAME_ICON_PX, GAME_SEGBAR_SEGMENTS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import { Icon, type LucideName } from '../icons/Icon.js';
 
 // 8x8 pixel icons, '#' = lit (copied from the mock's common.mjs).
 const ICONS = {
@@ -65,6 +66,9 @@ const ICONS = {
   device: ['.####...', '.#..#...', '.#..#.#.', '.#..####', '.#..#.#.', '.#..#...', '.####...', '........'],
   shield: ['########', '#......#', '#..##..#', '#.####.#', '#..##..#', '.#....#.', '..#..#..', '...##...'],
   list: ['........', '#.######', '........', '#.######', '........', '#.######', '........', '........'],
+  // FEAT-HUD-CONTROL-CENTER: the control center's open button and a part's ›.
+  grid: ['###..###', '###..###', '###..###', '........', '........', '###..###', '###..###', '###..###'],
+  right: ['..#.....', '...#....', '....#...', '.....#..', '....#...', '...#....', '..#.....', '........'],
 } as const;
 export type IconName = keyof typeof ICONS;
 
@@ -80,11 +84,63 @@ const pathOf = (name: IconName) => {
 };
 
 /** An 8x8 icon at 2x (or `size` px), crisp edges, drawn in the text colour; decorative (aria-hidden). */
+/** FEAT-UI-MODERN-THEME: the outline each pixel icon becomes in 모던 (cld/icons/Icon.tsx). */
+const OUTLINE: Record<IconName, LucideName> = {
+  bell: 'bell',
+  gear: 'settings',
+  lens: 'search',
+  stop: 'circle-stop',
+  board: 'clipboard',
+  scroll: 'scroll-text',
+  eye: 'eye',
+  flag: 'flag',
+  hammer: 'hammer',
+  star: 'star',
+  coin: 'coins',
+  heart: 'heart',
+  clock: 'clock',
+  play: 'play',
+  min: 'minus',
+  max: 'app-window',
+  check: 'check',
+  trophy: 'trophy',
+  pin: 'pin',
+  zzz: 'coffee',
+  lock: 'lock',
+  ask: 'message-circle-question',
+  bolt: 'zap',
+  thermo: 'thermometer',
+  flame: 'flame',
+  moon: 'moon',
+  sun: 'sun',
+  case: 'briefcase',
+  log: 'file-text',
+  next: 'chevron-down',
+  up: 'chevron-up',
+  skip: 'skip-forward',
+  term: 'square-terminal',
+  person: 'user',
+  home: 'house',
+  menu: 'menu',
+  device: 'monitor-smartphone',
+  shield: 'shield',
+  list: 'list',
+  grid: 'layout-grid',
+  right: 'chevron-right',
+};
+
 export function PixelIcon({ name, size = GAME_ICON_PX, className = '' }: { name: IconName; size?: number; className?: string }) {
   return (
-    <svg className={`game-ico ${className}`} viewBox="0 0 8 8" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true" data-icon={name}>
-      <path d={pathOf(name)} fill="currentColor" />
-    </svg>
+    <Icon
+      name={OUTLINE[name]}
+      size={size}
+      className={`game-ico ${className}`}
+      pixel={
+        <svg className={`game-ico ${className}`} viewBox="0 0 8 8" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true" data-icon={name}>
+          <path d={pathOf(name)} fill="currentColor" />
+        </svg>
+      }
+    />
   );
 }
 

@@ -133,7 +133,7 @@ describe('the scan (the child process side)', () => {
     ]);
     const has = (f: string) => ['src/a.ts', 'b.tsx', 'src/c/index.ts', 'src/e.cjs'].includes(f);
     expect(['./a.js', '../b', './c', './e.cjs', './style.css'].map((s) => resolveImport('src/x.ts', s, has))).toEqual(['src/a.ts', 'b.tsx', 'src/c/index.ts', 'src/e.cjs', null]);
-    expect([isCodeFile('a/b.ts'), isCodeFile('a/b.d.ts'), isCodeFile('node_modules/x/y.js'), isCodeFile('webview-ui/public/x.js'), isCodeFile('x.mjs'), isCodeFile('a.py')]).toEqual([true, false, false, false, true, false]);
+    expect([isCodeFile('a/b.ts'), isCodeFile('a/b.d.ts'), isCodeFile('node_modules/x/y.js'), isCodeFile('webview-ui/public/x.js'), isCodeFile('x.mjs'), isCodeFile('a.py')]).toEqual([true, false, false, false, true, true]);
     expect(isGenerated('/**\n * AUTO-GENERATED FROM core/asyncapi.yaml. DO NOT EDIT MANUALLY.')).toBe(true);
     expect(workspaceDirs({ workspaces: ['server', './webview-ui/', 'packages/*'] }, ['packages/a/x.ts', 'packages/b/y.ts', 'packages/z.ts'])).toEqual(['packages/a', 'packages/b', 'server', 'webview-ui']);
     expect(workspaceDirs({ workspaces: { packages: ['apps/*'] } }, ['apps/web/i.ts'])).toEqual(['apps/web']);

@@ -1,9 +1,9 @@
 /**
  * P4 검토 (mockups-1101/review-loop-R1..R4): one task worktree's review, for the dev room's 변경 tab
- * and the 작업실's 검토 page. The header (who made it, the chip, 의견 N개 보내기, 병합), then either
+ * and the 작업실's 검토 page. The header (who made it, the chip, 의견 N개 보내기, 머지), then either
  * the whole diff with the notes on it (R1; R2 once sent, with the Lead's room beside it) or, on
  * 다시 보기, the six-step strip, the sent notes and only what changed since the send (R4). The
- * notes themselves are repo/ReviewNotes.tsx's. A task with notes merges only by the owner's 병합:
+ * notes themselves are repo/ReviewNotes.tsx's. A task with notes merges only by the owner's 머지:
  * the button is locked while its Worker fixes, and the footer says why.
  */
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
@@ -127,7 +127,7 @@ function Chip({ kind, children }: { kind: 'review' | 'fixing' | 'merged'; childr
     merged: 'text-text-muted border-border bg-devroom-done-bg',
   }[kind];
   return (
-    <span className={`inline-flex items-center whitespace-nowrap border-2 px-6 py-1 leading-[1.2] ${SMALL} ${look}`} data-testid="review-chip" data-kind={kind}>
+    <span className={`inline-flex items-center whitespace-nowrap border-2 px-6 py-1 leading-[calc(1.2*var(--ui-lh))] ${SMALL} ${look}`} data-testid="review-chip" data-kind={kind}>
       {children}
     </span>
   );
@@ -148,7 +148,7 @@ function StepStrip({ current, base }: { current: number; base: string }) {
               className={`relative min-w-0 border-2 p-8 ${state === 'cur' ? 'border-devroom-main-line bg-devroom-main shadow-pixel' : 'border-border bg-devroom-card'} ${state === 'done' ? 'opacity-70' : state === 'next' ? 'opacity-60' : ''}`}
             >
               {state === 'cur' && (
-                <span className={`absolute left-8 -top-12 border-2 border-devroom-main-line bg-accent px-5 leading-[1.3] text-white ${SMALL}`}>{t('review.stepNow')}</span>
+                <span className={`absolute left-8 -top-12 border-2 border-devroom-main-line bg-accent px-5 leading-[calc(1.3*var(--ui-lh))] text-white ${SMALL}`}>{t('review.stepNow')}</span>
               )}
               <b className={`flex items-center gap-6 font-normal ${BODY}`}>
                 <span
@@ -338,7 +338,7 @@ export function TaskReview({
   task: string;
   /** On screen (its window not minimized): only then is the list asked for every second. */
   live?: boolean;
-  /** 병합: the dev room opens its 병합 tab, the 작업실 asks the usual confirmation. */
+  /** 머지: the dev room opens its 머지 tab, the 작업실 asks the usual confirmation. */
   onMerge: (wt: RepoWorktree) => void;
   onBack?: () => void;
 }) {

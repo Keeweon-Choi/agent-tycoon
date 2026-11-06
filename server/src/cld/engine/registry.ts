@@ -92,6 +92,10 @@ export interface ProjectRecord {
   /** DEVROOM-PROJECT: a Lead added from a repository the dev room cloned: the engine never
    *  answers Claude's folder trust question for the project (Lead or Workers) by itself. */
   cloned?: true;
+  /** RQ4: the project's agents keep spec / plan / tasks in Spec Kit's shape (the spec workflow
+   *  rules layer). The project's choice, kept on the Lead's record; a Worker's record carries
+   *  its project's (linkWorkers). Unset = off. */
+  specWorkflow?: 'speckit';
 }
 
 export type WorkerRole = 'worker' | 'reviewer';
@@ -102,7 +106,7 @@ type ProjectSaveRecord = Omit<ProjectRecord, 'projectId'> &
   Partial<Pick<ProjectRecord, 'projectId'>>;
 
 /** The project's own part, kept in projects.json v2. */
-const PROJECT_KEYS = ['projectId', 'name', 'folder', 'room', 'leadAssignmentId', 'cloned'] as const;
+const PROJECT_KEYS = ['projectId', 'name', 'folder', 'room', 'leadAssignmentId', 'cloned', 'specWorkflow'] as const;
 /** The agent's part, kept in its assignment (assignments.json). */
 const AGENT_KEYS = [
   'title',
@@ -141,6 +145,9 @@ const WORD_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const TITLE_RE = /^[^\p{Cc}\s-][^\p{Cc}]{0,79}$/u;
 export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BACKGROUND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+/** ACP-1: another agent's own session id (an ACP agent picks it: `ses_…`, a counter, a UUID): printable,
+ *  no spaces, bounded. Only its provider reads it, never as a path (acp/transcript.ts hashes it). */
+export const AGENT_SESSION_ID_RE = /^[\x21-\x7e]{1,2000}$/;
 /** An agent provider's id (D4). */
 const PROVIDER_RE = /^[a-z][a-z0-9-]{0,31}$/;
 export const DEFAULT_PROVIDER = 'claude';
@@ -254,11 +261,13 @@ function validRecord(r: unknown, requireProjectId: boolean): r is ProjectRecord 
     optional(p.title, (v) => !CHECK.title(v)) &&
     (p.remoteControl === undefined || typeof p.remoteControl === 'boolean') &&
     (p.alwaysOn === undefined || typeof p.alwaysOn === 'boolean') &&
-    optional(p.sessionId, (v) => SESSION_ID_RE.test(v)) &&
-    optional(p.backgroundId, (v) => BACKGROUND_ID_RE.test(v)) &&
+    // Claude's ids name its transcript files: a UUID and a short id only; another agent's are its own.
+    optional(p.sessionId, (v) => SESSION_ID_RE.test(v) || (cliOf(p) !== DEFAULT_PROVIDER && AGENT_SESSION_ID_RE.test(v))) &&
+    optional(p.backgroundId, (v) => BACKGROUND_ID_RE.test(v) || (cliOf(p) !== DEFAULT_PROVIDER && AGENT_SESSION_ID_RE.test(v))) &&
     (p.idleRetired === undefined || typeof p.idleRetired === 'boolean') &&
     (p.resumeAsCopy === undefined || p.resumeAsCopy === true) &&
     (p.cloned === undefined || p.cloned === true) &&
+    (p.specWorkflow === undefined || p.specWorkflow === 'speckit') &&
     (p.compactionNudge === undefined ||
       (Number.isInteger(p.compactionNudge) && p.compactionNudge >= 1 && p.compactionNudge <= 99)) &&
     (p.role === undefined || WORKER_ROLES.includes(p.role)) &&
@@ -281,12 +290,17 @@ const providerOf = (a: Record<string, unknown>): Partial<ProjectRecord> =>
     ? {}
     : { provider: a.provider as string };
 
-/** A Worker's folder and room from its project's Lead (in the same list); a Lead as it is. */
+/** A Worker's folder, room and spec workflow from its project's Lead (in the same list); a Lead
+ *  as it is. */
 export function linkWorkers(records: ProjectRecord[]): ProjectRecord[] {
   const leads = new Map(records.filter((r) => !r.role).map((r) => [r.projectId, r]));
   return records.map((r) => {
     const lead = r.role ? leads.get(r.projectId) : undefined;
-    return lead ? { ...r, folder: r.workFolder ?? lead.folder, room: roomOf(lead) } : r;
+    if (!lead) return r;
+    const w: ProjectRecord = { ...r, folder: r.workFolder ?? lead.folder, room: roomOf(lead) };
+    if (lead.specWorkflow) w.specWorkflow = lead.specWorkflow;
+    else delete w.specWorkflow;
+    return w;
   });
 }
 
@@ -310,6 +324,7 @@ const KEYS: Array<keyof ProjectRecord> = [
   'provider',
   'resumeAsCopy',
   'cloned',
+  'specWorkflow',
 ];
 
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';

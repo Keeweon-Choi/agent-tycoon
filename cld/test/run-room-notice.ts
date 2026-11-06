@@ -288,7 +288,7 @@ async function main() {
     const sawToast = await toast.first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
     if (sawToast) await page.screenshot({ path: path.join(OUT, 'desktop-toast.png') });
     const items = page.locator('[data-testid="notice-item"]');
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     for (const end = Date.now() + 30_000; (await items.count()) < 2; await wait(300))
       if (Date.now() > end) throw new Error(`bell has ${await items.count()} notices, not 2`);
     const texts = await items.allInnerTexts();
@@ -315,7 +315,7 @@ async function main() {
       'desktop bell: no "a reply arrived in the room" line',
     );
     // The phone has the same two.
-    await phone.locator('[data-testid="notice-bell"]').tap();
+    await phone.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').tap();
     const phoneItems = phone.locator('[data-testid="notice-item"]');
     for (const end = Date.now() + 30_000; (await phoneItems.count()) < 2; await wait(300))
       if (Date.now() > end) throw new Error(`phone bell has ${await phoneItems.count()}, not 2`);

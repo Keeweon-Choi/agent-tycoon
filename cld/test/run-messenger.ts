@@ -351,9 +351,9 @@ async function main() {
     // U-36: personal chats and group rooms are two sections with their own heading.
     {
       fs.mkdirSync(OUT_B1, { recursive: true });
-      const direct = messenger.getByRole('heading', { name: '개인톡', exact: true });
+      const direct = messenger.getByRole('heading', { name: /^개인톡/ }); // the heading carries its count (개인톡4)
       const groups = messenger.getByRole('region', { name: '단톡방', exact: true });
-      const headings = await messenger.locator('h2').allTextContents();
+      const headings = (await messenger.locator('h2').allTextContents()).map((h) => h.replace(/\d+$/, '').trim());
       const order =
         headings.includes('개인톡') && headings.includes('단톡방')
           ? headings.indexOf('개인톡') < headings.indexOf('단톡방')
@@ -362,7 +362,7 @@ async function main() {
           : 'missing';
       check(
         (await direct.count()) === 1 &&
-          (await groups.getByRole('heading', { name: '단톡방' }).count()) === 1 &&
+          (await groups.getByRole('heading', { name: /^단톡방/ }).count()) === 1 &&
           (await groups.getByTestId('group-room-row-all').count()) === 1 &&
           (await groups
             .getByRole('button', { name: new RegExp(`^(${LEADS.join('|')})`) })
@@ -764,22 +764,11 @@ async function main() {
     setStatus('beta', 'busy');
     await beta.getByTestId('typing').waitFor({ timeout: 10_000 });
     check(true, 'typing indicator: 생각 중… while the turn is busy');
-    const dots = beta.locator('[data-testid="typing"] .thinking-dots');
-    // U-34: the box keeps one width; the dots come 0, 1, 2, 3 one at a time (clip-path steps).
-    const dotWidths: number[] = [];
-    const dotClips: string[] = [];
-    for (let i = 0; i < 9; i++) {
-      dotWidths.push(Math.round((await dots.boundingBox())?.width ?? 0));
-      dotClips.push(await dots.evaluate((el) => getComputedStyle(el).clipPath));
-      await page.waitForTimeout(430);
-    }
+    // FIX-MESSENGER-POLISH: the thinking bubble is an agent line (face, name, box) with three CSS-step dots.
     check(
-      new Set(dotWidths).size === 1 && dotWidths[0] > 0,
-      `thinking dots keep one width while busy (${dotWidths.join(', ')})`,
-    );
-    check(
-      new Set(dotClips).size === 4,
-      `thinking dots show 0, 1, 2 and 3 dots (${new Set(dotClips).size} looks over ${dotClips.length} samples)`,
+      (await beta.locator('[data-testid="typing"] .dlg-dots > i').count()) === 3 &&
+        (await beta.locator('[data-testid="typing"] [data-testid="sender-face"]').count()) === 1,
+      'the thinking bubble has the agent face, its name line and three dots',
     );
     await beta.getByRole('textbox', { name: '보낼 글' }).fill('끝나면 테스트도 돌려줘');
     await beta.getByRole('button', { name: '보내기', exact: true }).click();
@@ -985,7 +974,7 @@ async function main() {
     check(
       (await toast.innerText()).includes('💬') &&
         (await toast.innerText()).includes('gamma: 리뷰 끝났어요') &&
-        (await page.getByTestId('notice-bell').count()) === 1,
+        (await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').count()) === 1,
       `T-0039: the reply is a 💬 notice ("${(await toast.innerText()).replace(/\s+/g, ' ')}"), the bell beside the 메신저 tab`,
     );
     await shot(page, 'desktop-unread');
@@ -1026,7 +1015,7 @@ async function main() {
     }
     await page.waitForTimeout(4_000); // a turn end and its reply arrive apart; they pair into one
     const added = await freshDelta();
-    const bell = page.getByTestId('notice-bell');
+    const bell = page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]');
     await bell.click();
     const items = page.getByTestId('notice-item');
     const deltaItems = items.filter({ hasText: 'delta' });
@@ -1049,13 +1038,13 @@ async function main() {
     );
     say('gamma', 'assistant', 'gamma: 하나 더 있어요.');
     say('alpha', 'assistant', 'alpha: 저도요.');
-    await page.getByRole('button', { name: '알림 닫기' }).click(); // the bell's panel
+    await page.getByTestId('cc-seg-notices').click(); // the bell's panel
     await page.getByTestId('notice-unread').waitFor({ timeout: 15_000 });
     await bell.click();
     await page.getByTestId('notice-mark-all').click();
     await page.getByTestId('notice-unread').waitFor({ state: 'detached' });
     check(true, '모두 읽음 clears the bell badge');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
 
     // Drafts: kept when the conversation closes, on a switch, a closed messenger, a reload.
     await tabs.getByRole('tab', { name: /^alpha/ }).click();

@@ -1,7 +1,7 @@
 /**
- * P4 개발실's 병합 tab (mockups-1028/orca-tools-K, mockups-1101/devroom-W2) and its 작업 폴더 정리
+ * P4 개발실's 머지 tab (mockups-1028/orca-tools-K, mockups-1101/devroom-W2) and its 워크트리 정리
  * view (W3, CleanupView.tsx). Opening the tab asks the daemon for the pre-check; a clean task shows
- * the list and K's card (병합 / 취소), a conflicting one W2's banner: 에이전트에게 맡기기 or 직접 풀기
+ * the list and K's card (머지 / 취소), a conflicting one W2's banner: 에이전트에게 맡기기 or 직접 풀기
  * (ConflictView.tsx). The owner chooses each time; no side is ever picked for them.
  */
 import { useEffect, useState } from 'react';
@@ -19,8 +19,9 @@ import { CleanupView } from './CleanupView.js';
 import { ResolvePanel } from './ConflictView.js';
 import { BIG, BODY, SMALL, useDevroomGroups, whoName } from './devroomData.js';
 import { setDevroomTab, syncWorktree } from './devroomStore.js';
-import { fixingLock, preChecks } from './mergeState.js';
+import { fixingLock, preChecks, testsLine } from './mergeState.js';
 import { act, bindMergeWire, requestCheck, requestConflicts, taskKey, useMergeStore } from './mergeStore.js';
+import { latestTest } from './runState.js';
 import { Face } from './WorktreeRail.js';
 
 bindMergeWire({ send: (msg) => transport.send(msg), connected: () => transport.state === 'connected' });
@@ -59,7 +60,7 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
   const worker = row?.wt.assignee ?? '';
   // Nobody on it (an old Codex run, a worktree made by hand): the daemon hands it to the project's
   // Lead, who resolves it or gives it to a Worker; with neither here the button says so.
-  const { officeSnapshot } = useCldStore();
+  const { officeSnapshot, officeJobs } = useCldStore();
   const lead = officeSnapshot?.orchestrators.some((o) => o.name === project && o.agentId != null) ? project : '';
   const wt = row?.wt;
   // Ask again whenever the worktree moved (a merge, a sync, the agent's commit).
@@ -215,7 +216,7 @@ function MergePanel({ project, task, phone }: { project: string; task: string; p
 
   // Clean: the pre-check list, and K's card.
   const locked = fixingLock(check, row?.task?.status);
-  const list = preChecks(check, row?.task?.testsPassed?.value === true);
+  const list = preChecks(check, testsLine(row?.task?.testsPassed, latestTest(officeJobs?.jobs ?? [], project, task)));
   const subject = check.kind === 'ff' ? t('merge.confirm.ff', { count: check.ahead ?? 0 }) : (check.subject ?? '');
   const merge = () => {
     if (!wt) return;

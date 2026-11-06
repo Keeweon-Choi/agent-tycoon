@@ -22,14 +22,22 @@ export interface BootView {
   current: BootStepId | null;
   part?: readonly [number, number];
   skipped: BootStepId[];
+  /** The rows top to bottom (owner 11-06 21:14): the steps that ended, in the order they ended,
+   *  then the rest in BOOT_STEPS order, so no row is done under one still running. */
+  order: BootStepId[];
+  /** Pass this back as `endedBefore` on the next call. */
+  ended: BootStepId[];
   /** Each step needed here (a step not needed is left out). */
   states: Partial<Record<BootStepId, StepState>>;
 }
 
-/** `giveUp`: steps that waited too long and are skipped (they go on behind the lobby). */
+/** `giveUp`: steps that waited too long and are skipped (they go on behind the lobby).
+ *  `endedBefore`: the steps seen ended on earlier calls, in that order (the sources run in parallel
+ *  and finish in no fixed order, so the list follows the real finish, not the plan). */
 export function bootView(
   reports: Partial<Record<BootStepId, StepReport>>,
   giveUp: ReadonlySet<BootStepId> = new Set(),
+  endedBefore: readonly BootStepId[] = [],
 ): BootView {
   let total = 0;
   let got = 0;
@@ -61,9 +69,16 @@ export function bootView(
       part = r?.part;
     }
   }
+  const isEnded = (id: BootStepId) => states[id] === 'done' || states[id] === 'skip';
+  const ended = endedBefore.filter(isEnded);
+  for (const { id } of BOOT_STEPS) if (isEnded(id) && !ended.includes(id)) ended.push(id);
+  const order = [
+    ...ended,
+    ...BOOT_STEPS.map((s) => s.id).filter((id) => states[id] && !ended.includes(id)),
+  ];
   const done = current === null;
   const pct = done ? 100 : Math.min(99, Math.floor((got / Math.max(1, total)) * 100));
-  return { pct, done, current, ...(part && { part }), skipped, states };
+  return { pct, done, current, ...(part && { part }), skipped, order, ended, states };
 }
 
 /** Steps that may be given up after BOOT_GIVE_UP_MS: all but the daemon's (without it there is

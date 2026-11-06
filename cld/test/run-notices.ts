@@ -224,12 +224,13 @@ function leadMessage(transcript: string, text: string): void {
   for (const r of records) fs.appendFileSync(transcript, JSON.stringify(r) + '\n');
 }
 
-// T-0077: the 알림 list is a window (desktop) with its own ×.
-const closeModal = (p: Page) => p.getByRole('button', { name: '알림 닫기' }).click();
+// On the PC the 알림 list is the control center's notification panel; its notifications target folds it.
+const closeModal = (p: Page) => p.getByTestId('cc-seg-notices').click();
 const toast = (p: Page) => p.locator('[data-testid="notice-toast"]');
+// The PC's count is on the bottom-left bar (and the open panel's headline, "새 알림 N"), the phone's on its Dock.
 const unread = async (p: Page) => {
-  const badge = p.locator('[data-testid="notice-unread"]');
-  return (await badge.count()) ? Number(await badge.textContent()) : 0;
+  const badge = p.locator('[data-testid="cc-seg-notices"] .cc-count, [data-testid="notice-unread"]').first();
+  return (await badge.count()) ? Number(/\d+/.exec((await badge.textContent()) ?? '')?.[0] ?? 0) : 0;
 };
 const sounds = (p: Page) =>
   p.evaluate(() => (window.__agentTycoonTestHooks?.playedSounds ?? []).map((s) => s.kind));
@@ -245,7 +246,7 @@ const modalOverLabels = (p: Page) =>
   p.evaluate(() => {
     const modal = document
       .querySelector<HTMLElement>('[data-testid="notice-view-toggle"]')!
-      .closest<HTMLElement>('.overflow-y-auto')!;
+      .closest<HTMLElement>('[data-testid="cc-notice-pop"], .overflow-y-auto')!;
     const m = modal.getBoundingClientRect();
     const real = document.querySelector<HTMLElement>('[data-testid="agent-overlay"]');
     if (!real?.parentElement) return { labels: false, onTop: false };
@@ -432,7 +433,7 @@ async function main() {
     // 3b. T-0043: opening the bell reads nothing; a click on the job's notice
     // reads it and opens the 작업실 at that job's card.
     check((await unread(page)) === 1, 'desktop: the clicked turn end is read, the job end not');
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     check((await unread(page)) === 1, 'desktop: opening the bell reads nothing');
     await page
       .locator('[data-testid="notice-item"]')
@@ -456,12 +457,14 @@ async function main() {
     await shot(page, 'desktop-job-card');
 
     // 4. The bell's list: both, newest first.
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const lines = await page.locator('[data-testid="notice-item"]').allTextContents();
     check(
       lines.length === 2 &&
         lines[0].includes('작업이 끝났어요') &&
-        lines[1].includes('lead · 일을 마쳤어요'),
+        // The card shows the name apart from the title (no "lead ·" in front of it any more).
+        lines[1].includes('일을 마쳤어요') &&
+        lines[1].includes('lead'),
       `desktop: the bell lists the notices (${lines.join(' | ')})`,
     );
     await shot(page, 'desktop-bell');
@@ -483,10 +486,10 @@ async function main() {
         count: 3,
       }) + '\n',
     );
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const compaction = page
       .locator('[data-testid="news-event"]')
-      .filter({ hasText: 'veteran 휴식 3회' });
+      .filter({ hasText: '휴식 3회' });
     await compaction.waitFor({ timeout: 15_000 });
     check(
       (await unread(page)) === unreadBefore && (await toast(page).count()) === 0,
@@ -506,7 +509,7 @@ async function main() {
     // A permission ask of lead (7 s heuristic timer): a notice; 확인 필요 shows it, not the event.
     const askId = leadAsk(transcript);
     await page.waitForTimeout(10_000);
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const asked = page
       .locator('[data-testid="notice-item"]')
       .filter({ hasText: '허락을 기다려요' });
@@ -542,7 +545,7 @@ async function main() {
     await closeModal(page);
     leadAnswer(transcript, askId);
     await page.waitForTimeout(500);
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     // 5. Settings: turn ends off, sound off.
     await page.locator('[data-testid="notice-view-toggle"]').click();
     await page.getByRole('button', { name: '일을 마쳤을 때' }).click();
@@ -582,7 +585,7 @@ async function main() {
       'desktop: muted, a notice still shows but plays no sound',
     );
     // Back on, for the phone.
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     await page.locator('[data-testid="notice-view-toggle"]').click();
     await page.getByRole('button', { name: '일을 마쳤을 때' }).click();
     await page.getByRole('button', { name: '소리', exact: true }).click();
@@ -617,12 +620,12 @@ async function main() {
       'phone: a tap on the toast follows lead in the office (the 현황판 page is minimized)',
     );
     await shot(phone, 'phone-after-tap');
-    await phone.locator('[data-testid="notice-bell"]').tap();
+    await phone.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').tap();
     await shot(phone, 'phone-bell');
     // T-0070: the same list on the phone, inside the screen, filters and all.
     await phone
       .locator('[data-testid="news-event"]')
-      .filter({ hasText: 'veteran 휴식 3회' })
+      .filter({ hasText: '휴식 3회' })
       .waitFor({ timeout: 15_000 });
     check(
       await phone.evaluate(() => {
@@ -635,10 +638,13 @@ async function main() {
       'phone: the 알림 list (with the compaction event) fits the screen',
     );
     await phone.screenshot({ path: path.join(OUT70, 'phone-news-all.png') });
+    // T-68: the category chips sit in a sheet behind the filter button.
+    await phone.locator('[data-testid="notice-filters-toggle"]').tap();
     await phone.locator('[data-testid="notice-filter-attention"]').tap();
+    await phone.locator('[data-testid="notice-filter-sheet-close"]').tap();
     // The failed job (exit 1, pid 4243) is a 확인 필요 event; the compaction is not.
     check(
-      (await phone.locator('[data-testid="news-event"]').filter({ hasText: 'veteran 휴식' }).count()) ===
+      (await phone.locator('[data-testid="news-event"]').filter({ hasText: '휴식' }).count()) ===
         0 &&
         (await phone.locator('[data-testid="news-event"]').filter({ hasText: '실패' }).count()) >=
           1,
@@ -686,7 +692,7 @@ async function main() {
       },
     );
     await ready(lap, await started.loginUrl());
-    await lap.locator('[data-testid="notice-bell"]').click();
+    await lap.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     await lap.locator('[data-testid="notice-view-toggle"]').click();
     const pushButton = lap.getByRole('button', { name: '알림 받기' });
     await pushButton.click();
@@ -891,7 +897,7 @@ async function main() {
     await iosCtx.addCookies(await desk.cookies());
     await ios.goto(`http://127.0.0.1:${port}/`);
     await ready(ios);
-    await ios.locator('[data-testid="notice-bell"]').tap();
+    await ios.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').tap();
     await ios.locator('[data-testid="notice-view-toggle"]').tap();
     await ios.locator('[data-testid="push-row"]').scrollIntoViewIfNeeded();
     const hint = (await ios.locator('[data-testid="push-hint"]').textContent()) ?? '';

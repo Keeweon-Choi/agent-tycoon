@@ -189,6 +189,7 @@ async function main() {
     await win.getByTestId('devroom-trunk').first().click();
     const leadPane = win.locator('[data-testid="devroom-pane"][data-agent="shop-web"]');
     await leadPane.waitFor({ timeout: 20_000 });
+    await leadPane.locator('[data-testid="devroom-pane-view"][data-view="terminal"]').click(); // DEVROOM-PANE-CHAT: panes open in 대화
     await desk.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('[data-testid="devroom-pane"][data-agent="shop-web"] .xterm-rows')].some((el) => el.innerText.includes('fake Claude Code (pty)')), undefined, { timeout: 30_000 });
     for (const r of firstRun()) fs.appendFileSync(lead, `${JSON.stringify(r)}\n`);
     await desk.waitForFunction(() => document.querySelector('[data-testid="devroom-pane"][data-agent="shop-web"] [data-testid="devroom-sub-chip"]')?.textContent?.includes('2'), undefined, { timeout: 30_000 });

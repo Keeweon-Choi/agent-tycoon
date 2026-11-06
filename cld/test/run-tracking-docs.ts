@@ -225,7 +225,7 @@ async function main() {
     // ── desktop ──
     const { ctx: deskCtx, page: desk } = await open({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     await ready(desk, loginUrl);
-    await openWorkbenchTab(desk, 'Task', { project: PROJECT });
+    await openWorkbenchTab(desk, '이슈', { project: PROJECT });
     await desk.getByTestId('task-board').waitFor();
     await until('desktop: the ROADMAP.md card appears', async () => (await docCard(desk, 'ROADMAP.md').count()) === 1);
     const road = docCard(desk, 'ROADMAP.md');
@@ -331,7 +331,7 @@ async function main() {
     const { ctx: phoneCtx, page: phone } = await open({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
     await phoneCtx.addCookies(await deskCtx.cookies());
     await ready(phone, `http://127.0.0.1:${port}/`);
-    await openWorkbenchTab(phone, 'Task', { project: PROJECT, tap: true });
+    await openWorkbenchTab(phone, '이슈', { project: PROJECT, tap: true });
     await phone.getByTestId('task-board').waitFor();
     await until('phone: the document cards show', async () => (await docCard(phone, 'BACKLOG.md').count()) === 1);
     const widths = await phone.evaluate(() => {

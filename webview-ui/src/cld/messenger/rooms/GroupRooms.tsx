@@ -6,6 +6,7 @@ import type { GroupRoom } from '../../../../../core/src/messages.js';
 import { Button } from '../../../components/ui/Button.js';
 import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
+import { Icon } from '../../icons/Icon.js';
 import { useCldStore } from '../../officeStore.js';
 import { serverLine } from '../../serverText.js';
 import { SenderFace } from '../Faces.js';
@@ -31,14 +32,22 @@ function RoomSubscription({ roomId }: { roomId: string }) {
   return null;
 }
 /** Room records are deliberately fetched only when expanded, like transcripts. */
-export function GroupRooms() {
+/** The list's 단톡방 section; `find` (FEAT-MESSENGER-GPT-LOOK) keeps the rooms whose name holds it. */
+export function GroupRooms({ find = '' }: { find?: string }) {
   const m = useMessenger();
   const { officeReadOnly } = useCldStore();
   const [creating, setCreating] = useState(false);
+  const rooms = conversationSections(m.contacts, m.rooms, m.pinned).groups.filter((room) =>
+    serverLine(room.name).toLocaleLowerCase().includes(find),
+  );
+  if (find && !rooms.length) return null;
   return (
-    <section className="border-b-2 border-border" aria-label={t('messenger.rooms')}>
-      <div className="px-8 py-6 flex items-center gap-4">
-        <h2 className="flex-1 text-xs font-bold">{t('messenger.rooms')}</h2>
+    <section className="pb-6" aria-label={t('messenger.rooms')}>
+      <div className="msg-section text-xs">
+        <h2>
+          {t('messenger.rooms')}
+          <span className="text-2xs">{rooms.length}</span>
+        </h2>
         {!officeReadOnly && (
           <Button size="sm" onClick={() => setCreating((open) => !open)}>
             {t('messenger.createRoom')}
@@ -68,21 +77,20 @@ export function GroupRooms() {
         </p>
       )}
       <ul aria-label={t('messenger.roomList')}>
-        {conversationSections(m.contacts, m.rooms, m.pinned).groups.map((room) => {
+        {rooms.map((room) => {
           const unread = unreadCount(room.updates ?? [], m.read[`room:${room.id}`]);
+          const on = m.activeRoom === room.id;
           return (
-            <li key={room.id} className="flex items-stretch border-t border-border">
+            <li key={room.id} className="msg-row flex items-stretch" data-on={on || undefined}>
               <button
                 type="button"
                 data-testid={`group-room-row-${room.id}`}
-                className={`flex-1 min-w-0 flex items-center gap-8 px-8 py-6 text-left hover:bg-btn-hover ${m.activeRoom === room.id ? 'bg-active-bg' : ''}`}
+                className="flex-1 min-w-0 flex items-center gap-10 px-8 py-6 text-left"
+                aria-current={on || undefined}
                 aria-label={`${serverLine(room.name)}${unread ? t('messenger.unread', { count: unread }) : ''}`}
                 onClick={() => showRoom(room.id)}
               >
-                <span
-                  className="shrink-0 border border-border px-6 py-4 text-xs"
-                  aria-hidden="true"
-                >
+                <span className="msg-file-tile size-34! text-sm" aria-hidden="true">
                   #
                 </span>
                 <span className="flex-1 min-w-0">
@@ -98,14 +106,12 @@ export function GroupRooms() {
                       <span className="ml-auto text-2xs text-text-muted">{clock(room.lastAt)}</span>
                     )}
                   </span>
-                  <span className="flex gap-4">
-                    <span className="text-xs text-text-muted truncate flex-1">
+                  <span className="flex items-center gap-4">
+                    <span className="msg-row-sub text-xs text-text-muted truncate flex-1">
                       {room.preview ? serverLine(room.preview) : t('uiaudit.noChat')}
                     </span>
                     {unread > 0 && (
-                      <span className="shrink-0 text-2xs px-4 bg-danger text-text">
-                        {unread > 99 ? '99+' : unread}
-                      </span>
+                      <span className="msg-count ui-notch text-2xs">{unread > 99 ? '99+' : unread}</span>
                     )}
                   </span>
                 </span>
@@ -134,8 +140,11 @@ export function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?:
   return (
     <div className="flex-1 min-h-0 flex flex-col" data-testid={`group-room-screen-${room.id}`}>
       <RoomSubscription roomId={room.id} />
-      <header className="shrink-0 border-b border-border px-8 py-6 flex items-center gap-8 min-w-0">
-        <strong className="text-sm truncate min-w-0">{serverLine(room.name)}</strong>
+      <header className="msg-head shrink-0 px-12 py-8 flex items-center gap-10 min-w-0">
+        <span className="msg-file-tile size-45! text-lg" aria-hidden="true">
+          #
+        </span>
+        <strong className="text-lg leading-none truncate min-w-0 text-devroom-title">{serverLine(room.name)}</strong>
         {/* MSG-UI2: one pill with the head count; it opens the member list below and closes it again. */}
         <Button
           size="sm"
@@ -145,6 +154,7 @@ export function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?:
           data-testid="member-pill"
           onClick={() => setShowMembers((v) => !v)}
         >
+          <Icon name="users" size={14} pixel={null} />
           {t('messenger.memberPill', { count: room.members.length })}
         </Button>
         {/* UI-FIX 1: rename, members, system lines and delete fold under one button, so the
@@ -157,6 +167,7 @@ export function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?:
             data-testid="room-manage"
             onClick={() => setManage((v) => !v)}
           >
+            <Icon name="sliders-horizontal" size={14} pixel={null} />
             {t('uiFix.roomManage')}
           </Button>
         )}
@@ -171,7 +182,7 @@ export function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?:
         ref={list}
         onScroll={onScroll}
         data-testid="room-scroll"
-        className="flex-1 min-h-0 overflow-y-auto"
+        className="msg-timeline flex-1 min-h-0 overflow-y-auto"
       >
         <div ref={content} className="min-h-full flex flex-col">
           <GroupRoomRow room={room} allMembers={allMembers} manage={manage} />

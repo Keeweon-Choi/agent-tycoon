@@ -1,7 +1,7 @@
 /**
  * SPT-P3-OVERVIEW (SPT §6.2): the 현황판's 개요, drawn as GAME-UI-0's cockpit D2 (specs/ui-mock-1103).
- * A header (나를 기다림, 진행 · 검토 · 막힘 counters, the project's name in gold, 명세 numbers, the
- * 수락 HI-SCORE once, its digits rolling up on a rise: GameScore), three panels of counters (이슈, 요구사항, 확인할 것) where every number opens its
+ * A header (나를 기다림, 진행 · 검토 · 막힘 counters, the project's name in gold, 명세 numbers; no
+ * HI-SCORE since 11-06), three panels of counters (이슈, 요구사항, 확인할 것) where every number opens its
  * tab on that filter (openTab; GAME-UI-1: 이번 주 수락 under 요구사항), 진행 중 작업 (each Task's evidence lights and why a light is half),
  * 최근 근거 (`…/recent`: commits, jobs and merges) and 최근 본 요구사항. Light on purpose (it is the
  * default tab): no graph code, the summary and recent requests, plus one `…/task/:id` per Task shown
@@ -21,11 +21,11 @@ import { timeAgo } from '../format.js';
 import { DataText, HudCounter, type IconName, Led, LedLegend, PixelIcon, SegBar } from '../game/parts.js';
 import { openMessenger } from '../messenger/messengerStore.js';
 import { useCldStore } from '../officeStore.js';
-import { setJobsView } from '../taskboard/taskBoardState.js';
 import { useWaitReasons, waitingIds } from '../waiting.js';
-import { openTab, setWorkbenchTab, useNow } from '../workbench/workbenchStore.js';
-import { HiScore, WeekPanel } from './GameScore.js';
+import { openTab, useNow } from '../workbench/workbenchStore.js';
+import { WeekPanel } from './GameScore.js';
 import { questLights, readViewed, TASK_COLUMNS, type TaskColumn, taskCounts } from './overviewModel.js';
+import { ResumeLines } from './ResumeLines.js';
 import { SpecCard, type Summary, useSpec } from './SpecTabs.js';
 import { AXIS_TEXT } from './traceModel.js';
 
@@ -36,7 +36,6 @@ const STATUS_ICON: Record<TaskColumn, IconName> = { todo: 'board', doing: 'gear'
 const ACC_ICON: Record<(typeof ACC)[number], IconName> = { validate: 'lens', none: 'clock', rejected: 'stop' };
 
 const toTasks = (s: TaskColumn) => {
-  setJobsView('tasks'); // the 이슈 tab's board half, scrolled to that status column
   openTab('tasks', `status:${s}`);
 };
 const toReqs = (key: string) => openTab('reqs', key);
@@ -150,10 +149,11 @@ export function Overview({ project, agentIds }: { project: string; agentIds: num
   const on = !!s?.enabled && !s.corrupt;
   const working = tasks.filter((x) => (OPEN as readonly string[]).includes(x.status));
   const shown = working.slice(0, SPEC_LIST_SHOWN * 2);
-  const accepted = s?.acceptance?.accepted;
   const total = s?.items?.total;
   return (
     <div className="ov" data-testid="spec-cockpit" data-enabled={on}>
+      {/* 지금 상황 first (owner 11-06 18:10: the 프로젝트 tab opens on how the project goes). */}
+      <ResumeLines project={project} />
       <header className="ov-panel ov-mq" data-testid="ov-top">
         <div className="ov-mq-grp">
           <HudCounter
@@ -176,28 +176,12 @@ export function Overview({ project, agentIds }: { project: string; agentIds: num
               <Num id="top-reqs" n={total} onClick={() => toReqs('all')}>
                 {t('game.ov.specReqs')}{' '}
               </Num>
-              <Num id="top-same" n={s.questions} onClick={() => setWorkbenchTab('docs')}>
+              <Num id="top-same" n={s.questions} onClick={() => toReqs('check')}>
                 {t('spec.fresh.unresolved')}{' '}
               </Num>
             </span>
           )}
         </div>
-        {on && accepted !== undefined && total !== undefined && (
-          <button
-            type="button"
-            className="ov-hi"
-            onClick={() => toReqs('acc:accepted')}
-            data-testid="ov-acc-accepted"
-            data-count={accepted}
-            aria-label={t('game.ov.hiScoreName', { count: accepted, total })}
-          >
-            <span className="ov-hi-k">
-              <PixelIcon name="star" />
-              {t('spec.acc.accepted')} <span className="ov-d ov-small">{t('game.ov.hiScore')}</span>
-            </span>
-            <HiScore value={accepted} total={total} big />
-          </button>
-        )}
       </header>
 
       <div className="ov-cols" data-on={on}>
@@ -263,8 +247,8 @@ export function Overview({ project, agentIds }: { project: string; agentIds: num
                     ['review', t('spec.fresh.review'), s.reviewNeeded, () => toReqs('show:review')],
                     ['missing', t('spec.fresh.missing'), s.missing, () => toReqs('show:missing')],
                     ['unlinked', t('spec.overview.unlinked'), s.unlinked, () => toReqs('show:unlinked')],
-                    ['newdocs', t('spec.overview.newDocs'), s.newDocs, () => setWorkbenchTab('docs')],
-                    ['same', t('spec.fresh.unresolved'), s.questions, () => setWorkbenchTab('docs')],
+                    ['newdocs', t('spec.overview.newDocs'), s.newDocs, () => toReqs('sheet')],
+                    ['same', t('spec.fresh.unresolved'), s.questions, () => toReqs('check')],
                   ] as const
                 ).map(([id, label, n, go]) => (
                   <li key={id}>
@@ -377,7 +361,7 @@ export function Overview({ project, agentIds }: { project: string; agentIds: num
           {error}
         </p>
       )}
-      {s && <SpecCard project={project} summary={s} onOpenDocs={() => setWorkbenchTab('docs')} onOpenReqs={() => toReqs('all')} />}
+      {s && <SpecCard project={project} summary={s} onOpenDocs={() => toReqs('sheet')} onOpenReqs={() => toReqs('all')} />}
     </div>
   );
 }

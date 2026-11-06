@@ -387,7 +387,7 @@ async function main() {
     check(true, 'W1: the chat button opens that Worker’s conversation in the messenger');
     await desk.getByRole('button', { name: /^메신저/ }).first().click(); // closes the messenger window again
     // Task
-    await tab(desk, 'Task').click();
+    await tab(desk, '이슈').click();
     await bench.getByTestId('task-board').waitFor();
     await bench.getByText('알파 로그인 고치기').first().waitFor();
     check(
@@ -397,7 +397,7 @@ async function main() {
     await shotW1(desk, 'desktop-tasks');
     // worktree
     await tab(desk, 'worktree').click();
-    await bench.getByText('작업 공간 (1)').waitFor();
+    await bench.getByText('워크트리 (1)').waitFor();
     check((await bench.getByText('login', { exact: true }).count()) === 1, 'W1: worktree lists the task worktree');
     await shotW1(desk, 'desktop-worktree');
     // 변경
@@ -406,7 +406,7 @@ async function main() {
     check(
       (await bench.getByRole('button', { name: 'src/app.ts', exact: true }).count()) === 1 &&
         (await bench.getByRole('button', { name: 'notes.md', exact: true }).count()) === 1 &&
-        (await bench.getByText('작업 공간 (1)').count()) === 0,
+        (await bench.getByText('워크트리 (1)').count()) === 0,
       'W1: 변경 shows the changed files (the worktree list is its own tab)',
     );
     await bench.getByRole('button', { name: 'src/app.ts', exact: true }).click();
@@ -418,19 +418,19 @@ async function main() {
       (await bench.getByLabel('beta 저장소').count()) === 1,
       'W1: picking another project shows that project’s repository tab',
     );
-    await tab(desk, 'Task').click();
+    await tab(desk, '이슈').click();
     await bench.getByText('베타 문서 쓰기').first().waitFor();
     check((await bench.getByText('알파 로그인 고치기').count()) === 0, 'W1: Task follows the picked project (beta: its own task only)');
     await tab(desk, '에이전트').click();
     check((await bench.getByTestId('workbench-agent').count()) === 1, 'W1: beta’s team is its Lead alone');
     // Remembered per device: left on beta / Task, a reload and the icon bring it back.
-    await tab(desk, 'Task').click();
+    await tab(desk, '이슈').click();
     await desk.reload();
     await desk.addStyleTag({ content: FONT_CSS });
     const bench2 = desk.locator('[data-hud-window="office"]');
     // The 현황판 opens on its 오케스트레이터 tab after a reload; the 개발 tab keeps project and tab.
     await openOfficeWindow(desk);
-    await bench2.getByRole('button', { name: '개발', exact: true }).click();
+    await bench2.getByRole('button', { name: '프로젝트', exact: true }).click();
     check(
       (await bench2.getByRole('combobox', { name: '개발 프로젝트' }).inputValue()) === 'beta' &&
         (await bench2.getByRole('button', { name: '이슈', exact: true }).getAttribute('aria-pressed')) === 'true',
@@ -483,12 +483,12 @@ async function main() {
     await page2.getByTestId('workbench-agent').first().waitFor();
     check((await page2.getByTestId('workbench-agent').count()) === 3, 'W1: phone: 에이전트 lists the Lead and both Workers');
     await shotW1(ph, 'phone-agents');
-    await tab(ph, 'Task').tap();
+    await tab(ph, '이슈').tap();
     await page2.getByText('알파 로그인 고치기').first().waitFor();
     check((await page2.getByText('베타 문서 쓰기').count()) === 0, 'W1: phone: Task shows alpha’s task only');
     await shotW1(ph, 'phone-tasks');
     await tab(ph, 'worktree').tap();
-    await page2.getByText('작업 공간 (1)').waitFor();
+    await page2.getByText('워크트리 (1)').waitFor();
     await shotW1(ph, 'phone-worktree');
     await tab(ph, '변경').tap();
     await page2.getByText('main → origin/main').waitFor();
@@ -669,19 +669,13 @@ async function main() {
     check((await old.count()) > 0, 'EX-7b: the project chat scrolls back into the old Lead’s turns');
     await old.first().scrollIntoViewIfNeeded();
     await shot(d3, 'project-chat-scrollback');
-    // The lobby board lists the projects only, and every agent has one character.
-    await d3.locator('[data-testid="board-tab-projects"]').first().dispatchEvent('click');
-    await d3.waitForTimeout(500);
-    const boardRows = await d3.getByTestId('board-project').allInnerTexts();
+    // Every agent has one character (the lobby board no longer lists projects, e18c8bf3).
     const overlayNames = (await d3.locator('[data-testid="agent-overlay"] [data-testid="agent-name"]').allInnerTexts()).map((x) => x.trim());
     check(
-      boardRows.length > 0 &&
-        boardRows.every((r) => !/^alpha-[abc]$/.test(r.trim().split(/\s+/)[0])) && // its name (a row's last event may name a Worker)
-        new Set(overlayNames).size === overlayNames.length &&
+      new Set(overlayNames).size === overlayNames.length &&
         ['alpha', 'alpha-a', 'alpha-b', 'alpha-c'].every((n) => overlayNames.includes(n)),
-      `D3b: the lobby board lists projects only (${boardRows.map((r) => r.split('\n')[0]).join(', ')}); one character per agent (${overlayNames.join(', ')})`,
+      `D3b: one character per agent (${overlayNames.join(', ')})`,
     );
-    await shot(d3, 'lobby-board-projects');
     await d3Ctx.close();
     console.log(`${oks} ok`);
   } finally {

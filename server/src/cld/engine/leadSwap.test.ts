@@ -160,6 +160,15 @@ describe('D3b promotePair (§3.1)', () => {
     expect(r.lead.cloned).toBe(true);
   });
 
+  it('RQ4: the spec workflow switch stays with the project under its new Lead, and reaches its Workers', () => {
+    const { records } = home();
+    const on = records.map((x) => (!x.role && x.name === 'alpha' ? { ...x, specWorkflow: 'speckit' as const } : x));
+    const r = promotePair(on, 'alpha-b', 'worker');
+    if ('error' in r) throw new Error(r.error);
+    expect(r.lead.specWorkflow).toBe('speckit');
+    expect(r.records.filter((x) => x.role).map((x) => [x.name, x.specWorkflow])).toEqual(r.records.filter((x) => x.role).map((x) => [x.name, 'speckit']));
+  });
+
   it('promoting back restores the original names, roles and seat fields', () => {
     const { records } = home();
     const once = promotePair(records, 'alpha-a', 'worker');

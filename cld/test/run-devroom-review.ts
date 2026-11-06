@@ -4,10 +4,10 @@
  * Worker `web-worker` (never a real claude). Task T-1 has a worktree with two changed files and is
  * in review. Desktop (Chromium --disable-gpu, 1280x800): the dev room's 변경 tab shows both files with
  * the owner's two notes and a third being written (R1); the phone (390x844) opens a line's sheet
- * (R3); 의견 2개 보내기 reaches the Worker (one formatted message), the notes say 보냄, 병합 is
+ * (R3); 의견 2개 보내기 reaches the Worker (one formatted message), the notes say 보냄, 머지 is
  * locked, the Lead's room shows the line (R2); the Worker's edit makes one note 고침 and 다시 보기
  * shows the six steps, the sent notes and only what changed since the send (R4); the Task back in
- * review unlocks 병합; the 작업실's 검토 shows the same review. Screenshots in cld/artifacts/p4-s3/.
+ * review unlocks 머지; the 작업실's 검토 shows the same review. Screenshots in cld/artifacts/p4-s3/.
  *
  *   nice -n 10 npx tsx cld/test/run-devroom-review.ts <port 18264|18265>
  */
@@ -238,8 +238,8 @@ async function main() {
     await eventually('T-1 doing', () => taskStatus() === 'doing', 10_000);
     const merge = review.getByTestId('review-merge');
     await desk.waitForFunction(() => document.querySelector('[data-testid="review-merge"]')?.getAttribute('data-locked') === 'yes', null, { timeout: 20_000 });
-    check(await merge.isDisabled(), '병합 is locked while the Worker fixes');
-    check((await review.getByTestId('review-footer').innerText()).includes('병합은 잠겨요'), 'the footer says why');
+    check(await merge.isDisabled(), '머지 is locked while the Worker fixes');
+    check((await review.getByTestId('review-footer').innerText()).includes('머지는 잠겨요'), 'the footer says why');
     check((await review.getByTestId('review-chip').getAttribute('data-kind')) === 'fixing', 'the chip says 고치는 중');
     await review.getByTestId('review-lead-room').waitFor();
     check((await review.getByTestId('review-lead-line').innerText()).includes('web-worker 에게 검토 의견 2개를 보냈어요'), "the Lead's room line");
@@ -270,16 +270,16 @@ async function main() {
     await desk.waitForTimeout(400);
     await shot(desk, 'R4-again-strip');
 
-    // ── The Worker reports review again: step 5, 병합 unlocks ──
+    // ── The Worker reports review again: step 5, 머지 unlocks ──
     check(json(cli('task', 'update', 'T-1', '--status', 'review')).ok === true, 'T-1 reported review again');
     await desk.waitForFunction(() => document.querySelector('[data-testid="task-review"]')?.getAttribute('data-step') === '5', null, { timeout: 20_000 });
-    check(!(await merge.isDisabled()), 'the Task is back in review: 병합 is open (the owner clicks it)');
+    check(!(await merge.isDisabled()), 'the Task is back in review: 머지 is open (the owner clicks it)');
     await desk.waitForTimeout(300);
     await shot(desk, 'R4-step5-merge-open');
 
     // ── The 작업실's 검토 shows the same review ──
     await win.getByTestId('hud-title-devroom').dblclick();
-    await openWorkbenchTab(desk, 'Task', { project: 'shop-web' });
+    await openWorkbenchTab(desk, '이슈', { project: 'shop-web' });
     const wb = desk.locator('[data-hud-window="office"]');
     await wb.locator('[data-testid="task-card"][data-task-id="T-1"]').click();
     await wb.getByTestId('task-review-open').click();

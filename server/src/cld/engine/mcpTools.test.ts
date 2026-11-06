@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SEND_TEXT_MAX } from '../chatSend.js';
 import { REPO_ROOT } from '../testHome.js';
+import { QUERY_TOOLS } from './agentQueries.js';
 import type { ControlDeps } from './control.js';
 import { answerControl, controlPath, listenControl } from './control.js';
 import { approvalsPath,ApprovalStore } from './delegation.js';
@@ -211,6 +212,7 @@ describe('C5a: the MCP adapter (stdio JSON-RPC)', () => {
       'add_review_note',
       'get_group_context',
       'delegate_task',
+      ...QUERY_TOOLS,
     ]);
     expect(tools.every((t) => t.inputSchema.type === 'object')).toBe(true);
     expect(byId(answers, 3)!.result).toEqual({});

@@ -2,9 +2,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { splitAttachmentText } from '../../../core/src/cld/attachmentLines.js';
 import { refused } from '../../../core/src/cld/serverText.js';
-import type { ChatItem } from '../../../core/src/messages.js';
-import { CHAT_SEARCH_MAX_BYTES, CHAT_SEARCH_MAX_HITS } from '../constants.js';
+import type { ChatItem, ChatLibraryFile, ChatSearchHit } from '../../../core/src/messages.js';
+import {
+  CHAT_LIBRARY_PAGE,
+  CHAT_SEARCH_MASK_WINDOW,
+  CHAT_SEARCH_MAX_BYTES,
+  CHAT_SEARCH_MAX_HITS,
+} from '../constants.js';
+import { maskText } from './mask.js';
 import {
   carriedId,
   CHAT_MAX_ITEMS,
@@ -32,13 +39,13 @@ interface TurnOffsets {
   hidden: Set<number>;
   bound: Map<number, string>;
 }
-function roomTurnOffsets(file: string): TurnOffsets {
+function roomTurnOffsets(file: string, from = 0): TurnOffsets {
   const turns: TurnOffsets = { hidden: new Set(), bound: new Map() };
   let hiding = false;
   let bound: string | undefined;
   let carried: string | undefined;
   try {
-    forward(file, (line, offset) => {
+    forward(file, from, (line, offset) => {
       const prompt = userTurnText(line);
       if (prompt !== null) {
         hiding = isRoomPromptLine(line);
@@ -59,16 +66,36 @@ function roomTurnOffsets(file: string): TurnOffsets {
 
 /** Every line of `file` oldest first with its byte offset, read in CHAT_TAIL_BYTES chunks (MEM-IDLE:
  *  a transcript can be 100 MB; this holds one chunk plus the line crossing it, never the file). */
-function forward(file: string, visit: (line: string, offset: number) => void): void {
+function forward(file: string, from: number, visit: (line: string, offset: number) => void): void {
   const fd = fs.openSync(file, 'r');
   try {
     const chunk = Buffer.alloc(CHAT_TAIL_BYTES);
     let carry = Buffer.alloc(0); // the start of a line the previous chunk ended inside
-    let base = 0; // file offset of carry[0]
-    const next = () => fs.readSync(fd, chunk, 0, chunk.length, null);
+    let base = from; // file offset of carry[0]
+    let at = from;
+    const next = () => {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, at);
+      at += n;
+      return n;
+    };
+    // From the middle of a file the first piece is the tail of a line: skip to the next one.
+    let skipping = from > 0;
     for (let n = next(); n > 0; n = next()) {
-      const buf = carry.length ? Buffer.concat([carry, chunk.subarray(0, n)]) : chunk.subarray(0, n);
+      let buf = carry.length ? Buffer.concat([carry, chunk.subarray(0, n)]) : chunk.subarray(0, n);
       let start = 0;
+      if (skipping) {
+        const nl = buf.indexOf(NL);
+        if (nl < 0) {
+          carry = Buffer.alloc(0);
+          base += buf.length;
+          continue;
+        }
+        skipping = false;
+        start = nl + 1;
+        base += start;
+        buf = buf.subarray(start);
+        start = 0;
+      }
       for (let nl = buf.indexOf(NL); nl >= 0; nl = buf.indexOf(NL, start)) {
         visit(buf.toString('utf8', start, nl), base + start);
         start = nl + 1;
@@ -83,7 +110,7 @@ function forward(file: string, visit: (line: string, offset: number) => void): v
 }
 const NL = 0x0a;
 
-type Hit = Pick<ChatItem, 'id' | 'at' | 'kind' | 'session' | 'sessionStart'> & { snippet: string };
+type Hit = Omit<ChatSearchHit, 'sender'>;
 export interface HistoryPage {
   items: ChatItem[];
   done: boolean;
@@ -139,16 +166,16 @@ function edgeTime(file: string, first: boolean): number | null {
   }
 }
 
-/** D3b: the recorded lead chain (lead-history.json), asked before the heuristic below: the
- *  old Lead's transcript a Lead contact's session continues into, up to its byte offset.
- *  Set by the office while the engine runs. */
+/** D3b, K1: the recorded chain, asked before the heuristic below: the old Lead's transcript a
+ *  Lead contact's session continues into (lead-history.json), or the conversation a renew
+ *  replaced (renew-history.json), up to its byte offset. Set by the office while the engine runs. */
 export const leadHistoryHop: {
   hop?: (file: string, start: number) => { file: string; end: number } | null;
 } = {};
 
 /** The previous session: the newest other top-level transcript that ended before `ceiling`. */
-// ponytail: an unrelated session in the same folder can be taken for the previous one;
-// a Lead swap's terms are recorded (leadHistoryHop); a renew's are not yet.
+// ponytail: an unrelated session in the same folder can be taken for the previous one; only for
+// conversations no history names (before K1's renew-history.json, or never renewed nor swapped).
 function previous(file: string, ceiling: number): string | null {
   let best: { file: string; at: number } | null = null;
   try {
@@ -214,11 +241,14 @@ export interface HistoryCursor {
   skip: number;
 }
 
+/** `guess`: past the recorded history, the folder's newest earlier transcript (previous()); off, only
+ *  what lead-history.json and renew-history.json name (an agent's own conversations, BRN K3). */
 async function* chain(
   file: string,
   budget: { left: number },
   cancelled: () => boolean,
   from?: HistoryCursor,
+  guess = true,
 ): AsyncGenerator<{
   line: string;
   file: string;
@@ -247,7 +277,7 @@ async function* chain(
     const hop: { file: string; end: number } | null =
       start === null ? null : (leadHistoryHop.hop?.(current, start) ?? null);
     if (hop) end = hop.end;
-    current = hop ? hop.file : start === null ? null : previous(current, start);
+    current = hop ? hop.file : start === null || !guess ? null : previous(current, start);
   }
 }
 
@@ -290,6 +320,39 @@ export async function findReplied(
         return { item, compacted, earlier: entry.file !== file };
   }
   return null;
+}
+
+/**
+ * BRN K3 get_message: the item `id` names (as findReplied matches it), newest first through this
+ * conversation and the ones the recorded history says it continues (never a guessed one: another
+ * session in the same folder is not this agent's), with the user or assistant items right before
+ * and after it, and the earlier conversation's session id when it is in one. Null: not found.
+ */
+export async function messageAround(
+  file: string,
+  id: string,
+): Promise<{ item: ChatItem; before?: ChatItem; after?: ChatItem; session?: string } | null> {
+  const budget = { left: CHAT_SCAN_MAX_BYTES };
+  const roomTurns = new Map<string, TurnOffsets>();
+  const talk = (i: ChatItem) => i.kind === 'user' || i.kind === 'assistant';
+  let newer: ChatItem | undefined;
+  let found: { item: ChatItem; after?: ChatItem; session?: string } | null = null;
+  for await (const entry of chain(file, budget, () => false, undefined, false)) {
+    let turns = roomTurns.get(entry.file);
+    if (!turns) roomTurns.set(entry.file, (turns = roomTurnOffsets(entry.file)));
+    if (turns.hidden.has(entry.offset)) continue;
+    const bound = turns.bound.get(entry.offset);
+    for (const item of lineItems(entry.line).reverse()) {
+      if (found) {
+        if (talk(item)) return { ...found, before: item };
+        continue;
+      }
+      if (item.id === id || (item.kind === 'user' && (item.messageId ?? bound) === id))
+        found = { item: { ...item, ...(bound && !item.messageId && { messageId: bound }) }, ...(newer && { after: newer }), ...(entry.session && { session: entry.session }) };
+      else if (talk(item)) newer = item;
+    }
+  }
+  return found;
 }
 
 function older(item: ChatItem, before: string): boolean {
@@ -377,43 +440,184 @@ async function readPage(
   };
 }
 
-/** Text-only substring search, newest first, with an injectable budget for focused tests. */
+/** Options of chatSearch. The plain ones serve one open conversation; `bounded` is the messenger-wide
+ *  search over every conversation (searchAll.ts): a smaller window, snippets masked like the work view. */
+export interface ChatSearchOptions {
+  /** Injectable for focused tests. */
+  byteBudget?: number;
+  cancelled?: () => boolean;
+  /** The search ends here, keeping what it found (a time limit); `truncated` says so. */
+  stop?: () => boolean;
+  maxHits?: number;
+  bounded?: boolean;
+}
+
+/** The match's line(s), masked like the work view (maskText), and the match again in the masked text:
+ *  null when it was inside a secret (or past the line cap), so a secret is neither shown nor confirmed. */
+function maskedAround(text: string, needle: string): { text: string; pos: number } | null {
+  const lower = text.toLocaleLowerCase();
+  const raw = lower.indexOf(needle);
+  if (raw < 0) return null;
+  let from = 0;
+  let to = text.length;
+  if (text.length > CHAT_SEARCH_MASK_WINDOW * 2) {
+    // A huge message: the lines around the match; a line past the mask's cap is cut there, so its match is gone.
+    const low = raw - CHAT_SEARCH_MASK_WINDOW;
+    from = low > 0 ? text.lastIndexOf('\n', low) + 1 : 0;
+    const after = text.indexOf('\n', raw + CHAT_SEARCH_MASK_WINDOW);
+    to = after < 0 ? text.length : after;
+  }
+  const masked = maskText(text.slice(from, to));
+  const pos = masked.toLocaleLowerCase().indexOf(needle);
+  return pos < 0 ? null : { text: masked, pos };
+}
+
+/** The query as searched (trimmed), or null when it is too short or too long. */
+export function searchNeedle(query: string): string | null {
+  const needle = query.trim();
+  return needle.length < MIN_QUERY || needle.length > MAX_QUERY ? null : needle;
+}
+
+/** The short text around the first match of `folded` (the lower-cased words) in `text`, with … where it
+ *  was cut; `masked`: the secrets in it are gone first (maskedAround), and null is a match inside one. */
+export function matchSnippet(text: string, folded: string, masked: boolean): string | null {
+  let pos = text.toLocaleLowerCase().indexOf(folded);
+  if (pos < 0) return null;
+  if (masked) {
+    const found = maskedAround(text, folded);
+    if (!found) return null;
+    ({ text, pos } = found);
+  }
+  const from = Math.max(0, pos - SNIPPET_RADIUS);
+  const to = Math.min(text.length, pos + folded.length + SNIPPET_RADIUS);
+  return `${from ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`;
+}
+
+/** Text-only substring search, newest first. */
 export async function chatSearch(
   file: string | null,
   query: string,
-  opts: { byteBudget?: number; cancelled?: () => boolean } = {},
+  opts: ChatSearchOptions = {},
 ): Promise<SearchPage> {
   const needle = query.trim();
   if (needle.length < MIN_QUERY || needle.length > MAX_QUERY)
     return { hits: [], truncated: false, ...refused('search_query_length') };
   if (!file) return { hits: [], truncated: false };
   const budget = { left: opts.byteBudget ?? CHAT_SEARCH_MAX_BYTES };
+  const maxHits = opts.maxHits ?? CHAT_SEARCH_MAX_HITS;
+  const folded = needle.toLocaleLowerCase();
+  // ponytail: a record whose line does not hold the words as written (JSON escapes a quote, a backslash,
+  // a control character) is read without the shortcut; a writer that escapes non-ASCII (\uXXXX) would hide
+  // Korean from the bounded search. Claude's transcripts hold it as it is.
+  const quick = !!opts.bounded && !/["\\\u0000-\u001f]/.test(needle);
   const hits: Hit[] = [];
   let truncated = false;
   const roomTurns = new Map<string, TurnOffsets>();
-  for await (const entry of chain(file, budget, opts.cancelled ?? (() => false))) {
+  const reach = new Map<string, number>();
+  for await (const entry of chain(file, budget, opts.cancelled ?? (() => false), undefined, !opts.bounded)) {
     if (opts.cancelled?.()) return { hits: [], truncated: false };
+    if (opts.stop?.()) {
+      truncated = true;
+      break;
+    }
+    // Bounded: the part of each file this search can reach (a chunk of margin) is all of it that is classified.
+    if (!reach.has(entry.file))
+      reach.set(entry.file, Math.max(0, entry.offset - budget.left - CHAT_TAIL_BYTES));
+    if (quick && !entry.line.toLocaleLowerCase().includes(folded)) continue;
     let turns = roomTurns.get(entry.file);
-    if (!turns) roomTurns.set(entry.file, (turns = roomTurnOffsets(entry.file)));
+    if (!turns)
+      roomTurns.set(
+        entry.file,
+        (turns = roomTurnOffsets(entry.file, opts.bounded ? reach.get(entry.file) : 0)),
+      );
     for (const item of (turns.hidden.has(entry.offset) ? [] : lineItems(entry.line)).reverse()) {
       if (item.kind !== 'user' && item.kind !== 'assistant') continue;
-      const pos = item.text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase());
-      if (pos < 0) continue;
-      if (hits.length >= CHAT_SEARCH_MAX_HITS) {
+      const snippet = matchSnippet(item.text, folded, !!opts.bounded);
+      if (snippet === null) continue;
+      if (hits.length >= maxHits) {
         truncated = true;
         break;
       }
-      const from = Math.max(0, pos - SNIPPET_RADIUS);
-      const to = Math.min(item.text.length, pos + needle.length + SNIPPET_RADIUS);
       hits.push({
         id: item.id,
         at: item.at,
         kind: item.kind,
-        snippet: `${from ? '…' : ''}${item.text.slice(from, to)}${to < item.text.length ? '…' : ''}`,
+        snippet,
         ...(entry.session && { session: entry.session, sessionStart: entry.sessionStart }),
       });
     }
     if (truncated) break;
   }
   return { hits, truncated: truncated || budget.left === 0 };
+}
+
+export interface FilesPage {
+  files: ChatLibraryFile[];
+  /** The last message of this page, when older ones may follow. */
+  next?: string;
+  done: boolean;
+}
+
+/** The files one message carries: the boss's `[첨부]` lines, or what the lead sent. */
+function filesOf(item: ChatItem): ChatLibraryFile[] {
+  const base = { id: item.id, at: item.at };
+  if (item.kind === 'user')
+    return splitAttachmentText(item.text).attachments.map((file) => ({
+      ...base,
+      kind: 'user' as const,
+      name: file.name,
+      path: file.path,
+      type: file.type,
+      sizeKb: file.sizeKb,
+    }));
+  if (item.kind !== 'assistant') return [];
+  return (item.attachments ?? []).map((file) => ({
+    ...base,
+    kind: 'assistant' as const,
+    name: file.name,
+    ...(file.path && { path: file.path }),
+    ...(file.type && { type: file.type }),
+    ...(file.sizeKb !== undefined && { sizeKb: file.sizeKb }),
+    ...(file.unavailable && { unavailable: true }),
+  }));
+}
+
+/**
+ * The library: files exchanged in the conversation, newest first, from the same lines history reads
+ * (no new store). A page ends on a message boundary; `before` (the previous page's `next`) resumes after
+ * that message, which is found again by walking from the newest (ponytail: a deep page rereads the
+ * newer part of the chain, bounded by the scan budget; a cursor like chatHistory's if that hurts).
+ */
+export async function chatFiles(
+  file: string | null,
+  before?: string,
+  read: LineOptions = {},
+): Promise<FilesPage> {
+  if (!file) return { files: [], done: true };
+  const budget = { left: CHAT_SEARCH_MAX_BYTES };
+  const files: ChatLibraryFile[] = [];
+  let passed = !before;
+  let next: string | undefined;
+  let more = false;
+  const roomTurns = new Map<string, TurnOffsets>();
+  scan: for await (const entry of chain(file, budget, () => false)) {
+    let turns = roomTurns.get(entry.file);
+    if (!turns) roomTurns.set(entry.file, (turns = roomTurnOffsets(entry.file)));
+    for (const item of (turns.hidden.has(entry.offset) ? [] : lineItems(entry.line, 0, read)).reverse()) {
+      if (!passed) {
+        if (item.id === before) passed = true;
+        continue;
+      }
+      const here = filesOf(item);
+      if (!here.length) continue;
+      if (files.length >= CHAT_LIBRARY_PAGE) {
+        more = true;
+        break scan;
+      }
+      files.push(...here);
+      next = item.id;
+    }
+  }
+  // ponytail: a chain longer than the scan budget ends there (no `next`): the library holds the newest 64 MB.
+  return { files, ...(more && next && { next }), done: !more };
 }

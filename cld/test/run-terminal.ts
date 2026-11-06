@@ -35,8 +35,6 @@
  *    goes down before the IME's commit (10-22: the guard held that key).
  *    A pane draws with WebGL when the browser has it and falls back to the
  *    DOM renderer on a lost context.
- * 10. Negative control: with the old input path (the IME guard off) the same
- *    Korean arrives as jamo.
  *
  * Screenshots go to cld/artifacts/t0078/ (T0052_OUT names another folder). The daemons are
  * stopped with SIGTERM and only processes whose cwd is inside this run's temp HOME (the
@@ -903,17 +901,16 @@ async function main() {
     await until(async () => fs.existsSync(after), 'D: typing after the drags reaches the shell');
     check(true, 'D: typing after the drag reaches the shell');
 
-    // The old input path (the guard off, as the page had it before): the same keys, jamo.
+    // The renderer pages: a second browser page on the DOM/WebGL renderer the product uses.
     const { page: e } = await open(
       { viewport: { width: 1440, height: 900 }, userAgent: WINDOWS_UA },
-      'old-input-path',
+      'renderer-pages',
     );
-    await e.context().addInitScript(() => localStorage.setItem('cld.ime-guard', 'off'));
     // And the renderer the product uses (the harness pins the DOM one for reading rows).
     await e.context().addInitScript(() => localStorage.removeItem('cld.terminal-renderer'));
     await e.goto(await login());
     await e.waitForURL(`${local}/`);
-    await waitLoggedInWithKey(e, 'old-input-path desktop');
+    await waitLoggedInWithKey(e, 'renderer-pages desktop');
     await desktopTab(e);
     await pickWork(e);
     await paneOf(e).locator('.xterm-screen').waitFor();
@@ -946,11 +943,6 @@ async function main() {
       'E: the DOM renderer draws what is typed',
     );
     check(true, `E: ${hasWebgl2 ? 'after the context loss ' : ''}the DOM renderer draws the shell`);
-    const old = await typeKorean(e, undefined, 'old');
-    check(
-      old !== '아니 또\n' && /[\u3131-\u318e]/.test(old),
-      `negative control: with the old input path the same keys arrive as jamo (${JSON.stringify(old)})`,
-    );
     check(violations.length === 0, `no CSP violation (${violations.join('; ')})`);
     await stopDaemon(w2);
     // The shells outlive the daemon in the PTY host; ending the host (ours, in this temp HOME) ends them.

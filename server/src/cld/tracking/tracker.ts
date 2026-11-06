@@ -302,26 +302,26 @@ export class Tracker {
 }
 
 /**
- * The file's text, TOO_BIG when it holds more than FILE_MAX_BYTES, or null when it cannot be
+ * The file's text, TOO_BIG when it holds more than `max` (FILE_MAX_BYTES) bytes, or null when it cannot be
  * read or is not a regular file. Opened without blocking (a FIFO swapped in after the stat
  * must not hang the daemon) and, for `noFollow`, without following a link; the size is
  * decided on the open descriptor and the read stops one byte past the cap, so a file that
  * grows after the stat is still bounded.
  */
-export function readText(file: string, noFollow: boolean): string | typeof TOO_BIG | null {
+export function readText(file: string, noFollow: boolean, max = FILE_MAX_BYTES): string | typeof TOO_BIG | null {
   const { O_RDONLY, O_NONBLOCK = 0, O_NOFOLLOW = 0 } = fs.constants;
   let fd: number | null = null;
   try {
     fd = fs.openSync(file, O_RDONLY | O_NONBLOCK | (noFollow ? O_NOFOLLOW : 0));
     if (!fs.fstatSync(fd).isFile()) return null;
-    const buf = Buffer.allocUnsafe(FILE_MAX_BYTES + 1);
+    const buf = Buffer.allocUnsafe(max + 1);
     let n = 0;
     while (n < buf.length) {
       const got = fs.readSync(fd, buf, n, buf.length - n, null);
       if (got === 0) break;
       n += got;
     }
-    return n > FILE_MAX_BYTES ? TOO_BIG : buf.toString('utf-8', 0, n);
+    return n > max ? TOO_BIG : buf.toString('utf-8', 0, n);
   } catch {
     return null;
   } finally {

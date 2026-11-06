@@ -62,6 +62,13 @@ export const CLAUDE_CAPABILITIES: AgentCapabilities = {
   naming: 'numbered',
   usage: 'statusLine',
   lifetime: 'session',
+  limits: true,
+  usageRefresh: false,
+  context: true,
+  // ponytail: a Claude Code login is a plan; one run on ANTHROPIC_API_KEY is metered and still says plan.
+  billing: 'plan',
+  // `claude update` (alias upgrade): an install a package manager owns says so instead.
+  update: ['update'],
 };
 
 /** An id we pass to `claude stop`: Claude's short id, never a flag. */
@@ -370,6 +377,10 @@ export class ClaudeAgent implements AgentProvider {
     return nameMatches(name, base);
   }
 
+  cliPath(): string | null {
+    return fs.existsSync(this.o.claudePath) ? this.o.claudePath : null;
+  }
+
   /** The claude the engine runs is there (what the office's providerReady checked before D5). */
   ready(): string | null {
     return fs.existsSync(this.o.claudePath) ? null : koText('claude_missing');
@@ -401,6 +412,7 @@ export class ClaudeAgent implements AgentProvider {
           home: this.o.home,
           rulesDir: rulesDirFor(this.o.cldBin ? path.dirname(this.o.cldBin) : null),
           role: p.role ?? 'lead',
+          specWorkflow: p.specWorkflow === 'speckit',
           projectRulesFile: p.rulesFile,
           name: p.name,
           log: this.o.log,

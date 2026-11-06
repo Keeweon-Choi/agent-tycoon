@@ -52,7 +52,7 @@ case "$top" in */.worktrees/*) ;; *) exit 0 ;; esac
 refuse() {
   printf '%s\\t%s\\t%s\\t%s\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ${hook} "$1" "$top" >> "$LOG" 2>/dev/null
   if [ "$(wc -l < "$LOG" 2>/dev/null || echo 0)" -gt ${LOG_KEEP * 2} ]; then tail -n ${LOG_KEEP} "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
-  echo "cld-gui: '$1' 는 보호 브랜치라 여기서는 ${hook === 'pre-commit' ? '커밋' : 'push'}하지 않아요. 작업 브랜치(task/...)에서 하고, 병합은 작업실에서 해 주세요." >&2
+  echo "cld-gui: '$1' 는 보호 브랜치라 여기서는 ${hook === 'pre-commit' ? '커밋' : 'push'}하지 않아요. 작업 브랜치(task/...)에서 하고, 머지는 작업실에서 해 주세요." >&2
   echo "cld-gui: '$1' is a protected branch. This hook is a guard against mistakes, not a security boundary." >&2
   exit 1
 }

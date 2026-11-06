@@ -95,8 +95,10 @@ async function main() {
     `${JSON.stringify(bare.hw, null, 2)}\n`,
   );
   check(
-    bare.hw.lhm === false && bare.hw.sensorsHint === true && bare.hw.cpuTempC === undefined,
-    'without --lhm-port: no LHM read, no temperature, and the --hw-sensors hint',
+    bare.hw.lhm === false &&
+      (bare.hw.sensorNotes as string[] | undefined)?.includes('lhm') === true &&
+      bare.hw.cpuTempC === undefined,
+    'without an LHM answering: no temperature, and the install-LHM note',
   );
   const sources = bare.hw.sources as Record<string, string>;
   check(
@@ -109,7 +111,7 @@ async function main() {
   const s = lhm.hw.sources as Record<string, string>;
   check(
     lhm.hw.lhm === true &&
-      lhm.hw.sensorsHint === false &&
+      !(lhm.hw.sensorNotes as string[] | undefined)?.includes('lhm') &&
       typeof lhm.hw.cpuTempC === 'number' &&
       s.cpuTempC === 'lhm',
     `with --lhm-port ${lhmPort}: CPU ${String(lhm.hw.cpuTempC)} °C from LHM`,

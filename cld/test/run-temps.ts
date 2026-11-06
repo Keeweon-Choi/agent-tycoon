@@ -466,13 +466,13 @@ async function main() {
         .locator('[data-hud-id^="icon:"]')
         .getByRole('button', { name: '현황판', exact: true })
         .click();
-    await page.getByTestId('notice-bell').click(); // T-0070: the events are in the 알림 list
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click(); // T-0070: the events are in the 알림 list
     // TEMP-PLATES: the line names the employee (its roster name).
     const feedLine = page.getByText(/ · 끝 \(\d+분\)/);
     await feedLine.first().waitFor({ timeout: 5_000 });
     check(true, `the 알림 list says "${await feedLine.first().textContent()}"`);
     await shot(page, 'desktop-feed');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
 
     // 5. The 현황판: veteran's row folds its finished Codex tasks and counts its jobs.
     await page

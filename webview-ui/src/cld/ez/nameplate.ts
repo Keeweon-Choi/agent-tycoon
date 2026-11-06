@@ -34,9 +34,28 @@ export function ringDash(pct: number, c: number): [number, number] {
   return [filled, c - filled];
 }
 
-/** The name's max width in CSS px (the 화면 크기 step's); none when the plate is opened (selected or hovered). */
-export const nameMaxPx = (sizes: { nameMax: number }, opened: boolean): number | undefined =>
-  opened ? undefined : sizes.nameMax;
+/**
+ * T-67: every plate is one width whatever its name (constants.ts NAMEPLATE_SIZES.*.card, per screen style
+ * and 화면 크기 step); a name too long for it ends in an ellipsis, and the focused plate (hovered or selected)
+ * wraps it whole inside the same width. The opened summary card (`opened`) keeps its own size.
+ */
+export const plateLook = (
+  cardPx: number,
+  focused: boolean,
+  opened: boolean,
+): { width: number | undefined; name: 'cut' | 'whole' } => ({
+  width: opened ? undefined : cardPx,
+  name: opened || focused ? 'whole' : 'cut',
+});
+
+/** The plate under a point (the topmost: the last drawn), so a pointer over a plate is over its character. */
+export function plateAt(rects: readonly PlateRect[], x: number, y: number): number | null {
+  for (let i = rects.length - 1; i >= 0; i--) {
+    const r = rects[i];
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return r.id;
+  }
+  return null;
+}
 
 export interface PlateRect {
   id: number;
@@ -74,6 +93,78 @@ export function dimmedPlates(
   }
   for (const id of focus) over.delete(id);
   return over;
+}
+
+export interface CrowdItem {
+  key: string;
+  /** The whole box where it would sit un-nudged, at full size. */
+  rect: Omit<PlateRect, 'id'>;
+  /** Off duty or asleep (and not focused): gives way. Anything else stays put. */
+  low: boolean;
+  /** A feet badge row: never moved, hidden instead. */
+  fixed?: boolean;
+  /** The size it takes shrunk to its name, once known (full size until then). */
+  small?: { w: number; h: number };
+  /** The rise it has now, when crowded: kept while the new one is less than a px away (hysteresis). */
+  was?: number;
+}
+
+/** What a low item does: shrink to its name (hide, for a fixed one) and rise by `dy` (<= 0). */
+export interface CrowdFate {
+  crowd: boolean;
+  dy: number;
+}
+
+const overlaps = (a: Omit<PlateRect, 'id'>, b: Omit<PlateRect, 'id'>, slop: number): boolean =>
+  a.left + slop < b.right && b.left + slop < a.right && a.top + slop < b.bottom && b.top + slop < a.bottom;
+
+/**
+ * Who gives way where plates (and feet badges) pile up. Items that are not low stay put, and so does
+ * a low one that overlaps nothing placed. A low plate that does overlap shrinks to its name and, if
+ * that still sits on something, rises until it clears; a low feet badge row is hidden instead. The
+ * lowest-on-screen low items go first, so the ones nearest the floor keep their place.
+ * T-67: a pure function of the un-nudged boxes, so the same inputs place the same way every pass (two
+ * plates on one sofa row used to swap their rises every pass at some zooms: their bottoms were read back
+ * from the DOM a hair apart). The order compares bottoms in whole px with the key as the tie-break, a rise
+ * is a whole number of px, and one less than a px from the rise it has (`was`) keeps that one.
+ * ponytail: a rise is not clamped to the screen's top and the search is O(n^2); fine for an office's tens.
+ */
+export function crowdPlates(items: readonly CrowdItem[], slop: number, gap: number): Map<string, CrowdFate> {
+  const placed = items.filter((i) => !i.low).map((i) => i.rect);
+  const fates = new Map<string, CrowdFate>();
+  const lows = items
+    .filter((i) => i.low)
+    .sort((a, b) => Math.round(b.rect.bottom) - Math.round(a.rect.bottom) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  for (const item of lows) {
+    const { rect } = item;
+    if (!placed.some((p) => overlaps(rect, p, slop))) {
+      fates.set(item.key, { crowd: false, dy: 0 });
+      placed.push(rect);
+      continue;
+    }
+    if (item.fixed) {
+      fates.set(item.key, { crowd: true, dy: 0 });
+      continue;
+    }
+    const w = item.small?.w ?? rect.right - rect.left;
+    const h = item.small?.h ?? rect.bottom - rect.top;
+    const cx = (rect.left + rect.right) / 2;
+    let box = { left: cx - w / 2, right: cx + w / 2, top: rect.bottom - h, bottom: rect.bottom };
+    let dy = 0;
+    for (let i = 0; i <= placed.length; i++) {
+      const hit = placed.find((p) => overlaps(box, p, slop));
+      if (!hit) break;
+      const step = hit.top - gap - box.bottom;
+      dy += step;
+      box = { ...box, top: box.top + step, bottom: box.bottom + step };
+    }
+    const whole = item.was !== undefined && Math.abs(dy - item.was) < 1 ? item.was : Math.floor(dy);
+    box = { ...box, top: box.top + whole - dy, bottom: box.bottom + whole - dy };
+    dy = whole;
+    fates.set(item.key, { crowd: true, dy });
+    placed.push(box);
+  }
+  return fates;
 }
 
 /**

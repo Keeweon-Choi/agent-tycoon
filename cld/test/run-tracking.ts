@@ -225,7 +225,7 @@ async function main() {
     // ── desktop ──
     const { ctx: deskCtx, page: desk } = await open({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     await ready(desk, loginUrl);
-    await openWorkbenchTab(desk, 'Task', { project: PROJECT }); // UI-C1: the board is the 작업실's Task tab
+    await openWorkbenchTab(desk, '이슈', { project: PROJECT }); // UI-C1: the board is the 작업실's Task tab
     await desk.getByTestId('task-board').waitFor();
     await until('desktop: the busy session card appears', async () => (await card(desk, SID.busy).count()) === 1);
     const busy = card(desk, SID.busy).first();
@@ -289,7 +289,7 @@ async function main() {
     const { ctx: phoneCtx, page: phone } = await open({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
     await phoneCtx.addCookies(await deskCtx.cookies());
     await ready(phone, `http://127.0.0.1:${port}/`);
-    await openWorkbenchTab(phone, 'Task', { project: PROJECT, tap: true });
+    await openWorkbenchTab(phone, '이슈', { project: PROJECT, tap: true });
     await phone.getByTestId('task-board').waitFor();
     await until('phone: the session cards show', async () => (await card(phone, SID.rest).count()) === 1);
     const widths = await phone.evaluate(() => {

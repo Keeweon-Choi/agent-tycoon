@@ -9,11 +9,16 @@ import * as path from 'path';
 
 import type { MapBand, MapBlock, MapCommon, MapFeature, MapPair, MapStructure } from '../../../../core/src/cld/spec/trace.js';
 import { SPEC_MAP_ARROW_MIN, SPEC_MAP_CELLS, SPEC_MAP_INSIDE_MAX, SPEC_MAP_VIOLATION_PAIRS_MAX } from '../../constants.js';
+import { isTestFileOutsideJs, languageOf } from './languages.js';
 import type { CodeScan } from './mapWorker.js';
+import { shapeOf } from './shapes.js';
+import { SPEC_KIT_DIR } from './speckit.js';
 import { prefixOf } from './trace.js';
 
 /** The test rail: a file under a folder named so. */
 export const TEST_DIR = /(^|\/)(e2e|test|tests|__tests__)\//;
+/** The rail's files: under a test folder, or (K7a) named as a test in a language whose tests do not sit beside the code (`test_x.py`, `x_test.go`). TS and JS test files stay in their layer, as before. */
+const onRail = (f: string) => TEST_DIR.test(f) || isTestFileOutsideJs(f);
 export const RAIL_TESTS = 'tests';
 export const RAIL_TOOLS = 'tools';
 
@@ -27,7 +32,7 @@ const uniq = (xs: Iterable<string>) => [...new Set(xs)];
  * `src/`) are the layers. Test folders and the rest are rails, never layers.
  */
 export function layersOf(files: readonly string[], edges: ArrayLike<number>, workspaces: readonly string[], min = SPEC_MAP_ARROW_MIN): string[] {
-  const src = files.filter((f) => !TEST_DIR.test(f) && f.includes('/'));
+  const src = files.filter((f) => !onRail(f) && f.includes('/'));
   const tops = uniq(src.map(top)).sort();
   let layers = tops;
   if (workspaces.length) {
@@ -37,7 +42,7 @@ export function layersOf(files: readonly string[], edges: ArrayLike<number>, wor
     for (let i = 0; i + 1 < edges.length; i += 2) {
       const a = files[edges[i]];
       const b = files[edges[i + 1]];
-      if (inWs(a) && !inWs(b) && !TEST_DIR.test(b) && b.includes('/')) n.set(top(b), (n.get(top(b)) ?? 0) + 1);
+      if (inWs(a) && !inWs(b) && !onRail(b) && b.includes('/')) n.set(top(b), (n.get(top(b)) ?? 0) + 1);
     }
     layers = [...ws, ...tops.filter((t) => !ws.some((w) => w === t || w.startsWith(`${t}/`)) && (n.get(t) ?? 0) >= min)];
   }
@@ -90,7 +95,7 @@ interface Fold {
  */
 function fold(scan: CodeScan, idx: readonly number[], layers: ReadonlyArray<{ id: string; base: string }>, rails: boolean, labels: ReadonlyMap<string, string>, cells = SPEC_MAP_CELLS): Fold {
   const f = scan.files;
-  const test = (i: number) => rails && TEST_DIR.test(f[i]);
+  const test = (i: number) => rails && onRail(f[i]);
   const layerOf = (i: number) => layers.find((l) => !l.base || f[i].startsWith(`${l.base}/`));
   const inLayer = new Map(layers.map((l) => [l.id, [] as string[]]));
   for (const i of idx) if (!test(i)) inLayer.get(layerOf(i)?.id ?? '')?.push(f[i]);
@@ -160,6 +165,19 @@ function fold(scan: CodeScan, idx: readonly number[], layers: ReadonlyArray<{ id
 function remap(owner: Int32Array, ids: readonly string[], blocks: readonly MapBlock[]): Int32Array {
   const to = ids.map((id) => blocks.findIndex((b) => b.id === id));
   return owner.map((k) => (k >= 0 ? to[k] : -1));
+}
+
+/** K7a: the languages of the files in this view, the biggest first, and how many of them have no import lines read (TS and JS only). */
+function languagesOf(files: readonly string[], owner: Int32Array): Pick<MapStructure, 'langs' | 'noImports'> {
+  const n = new Map<string, number>();
+  let noImports = 0;
+  files.forEach((f, i) => {
+    const l = owner[i] >= 0 ? languageOf(f) : undefined;
+    if (!l) return;
+    n.set(l.name, (n.get(l.name) ?? 0) + 1);
+    if (!l.imports) noImports++;
+  });
+  return { langs: [...n].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([name, files]) => ({ name, files })), noImports };
 }
 
 /**
@@ -249,6 +267,8 @@ export function structureOwned(
     imports,
     unresolved: scan.unresolved,
     ...(scan.partial && { partial: scan.partial }),
+    ...languagesOf(scan.files, owner),
+    ...(scan.other && { other: scan.other }),
     big: scan.big,
     at: scan.at,
     ms: scan.ms,
@@ -275,7 +295,6 @@ export interface FeatureReq {
 }
 export type Feature = MapFeature & { uids: string[]; source?: { path: string; line: number } };
 const COMMON = new Set(['NFR', 'IR', 'CON']);
-const SPEC_KIT = /(?:^|\/)specs\/(\d{3}-[^/]+)\//;
 /** `3.19 내장 엔진(ENG)` → [내장 엔진, ENG]. */
 const AREA = /^(?:\d+(?:\.\d+)*\.?\s+)?(.+?)\s*\(([A-Z][A-Z0-9]*)\)\s*$/;
 
@@ -293,7 +312,9 @@ export function featuresOf(reqs: readonly FeatureReq[]): { features: Feature[]; 
   const common = new Map<string, MapCommon & { uids: string[] }>();
   const seen = new Set<string>();
   reqs.forEach((r, i) => {
-    const prefix = r.id ? prefixOf(r.id) : '';
+    // RQ5: a Kiro / OpenSpec folder is the feature (its `<feature>/R3` IDs are not a prefix family).
+    const shape = shapeOf(r.path);
+    const prefix = r.id && !shape ? prefixOf(r.id) : '';
     const again = !!r.id && seen.has(r.id);
     if (r.id) seen.add(r.id);
     if (prefix && COMMON.has(prefix.split('-')[0])) {
@@ -305,9 +326,15 @@ export function featuresOf(reqs: readonly FeatureReq[]): { features: Feature[]; 
       common.set(prefix, c);
       return;
     }
-    const kit = SPEC_KIT.exec(r.path)?.[1];
+    const kit = SPEC_KIT_DIR.exec(r.path)?.[1];
     const one = r.fmId && docPrefixes.get(r.doc)?.size === 1;
-    const [key, short, rule]: [string, string, MapFeature['rule']] = kit
+    const [key, short, rule]: [string, string, MapFeature['rule']] = shape
+      ? shape.tool === 'kiro'
+        ? [`kiro:${shape.feature}`, shape.feature, 'kiro']
+        : shape.file === 'spec' && shape.change
+          ? [`osc:${shape.change}`, shape.change, 'openspec']
+          : [`os:${shape.file === 'spec' ? shape.cap : shape.change}`, shape.file === 'spec' ? shape.cap : shape.change, 'openspec']
+      : kit
       ? [`sk:${kit}`, kit, 'speckit']
       : one
         ? [`fm:${r.doc}`, r.fmId!, 'fm']
@@ -316,7 +343,7 @@ export function featuresOf(reqs: readonly FeatureReq[]): { features: Feature[]; 
           : [`dir:${path.posix.dirname(r.path)}`, path.posix.basename(path.posix.dirname(r.path)), 'folder'];
     let f = feats.get(key);
     if (!f && again) return;
-    if (!f) feats.set(key, (f = { key, short, name: short, rule, reqs: 0, progress: false, blocked: false, changed: 0, linked: 0, uids: [], first: i }));
+    if (!f) feats.set(key, (f = { key, short, name: short, rule, ...(key.startsWith('osc:') && { changing: true as const }), reqs: 0, progress: false, blocked: false, changed: 0, linked: 0, uids: [], first: i }));
     const m = rule === 'prefix' && !f.source ? AREA.exec(r.section) : null;
     if (m && m[2] === short) {
       f.name = m[1];

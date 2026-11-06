@@ -65,6 +65,24 @@ export function bubbleClock(at: number): string {
     : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
 }
 
+/** FEAT-MESSENGER-GPT-LOOK: the timeline's day pill: "오늘 (금)", else "11월 5일 (목)". */
+export function dayLabel(at: number): string {
+  const d = new Date(at);
+  const weekday = t('messengerLook.weekdays').split(',')[d.getDay()] ?? '';
+  return d.toDateString() === new Date().toDateString()
+    ? t('messengerLook.today', { weekday })
+    : t('messengerLook.day', { month: d.getMonth() + 1, day: d.getDate(), weekday });
+}
+
+/** Whether line `index` opens a new day (the first dated line does): the pill goes over it. */
+export function newDay(items: readonly { at: number }[], index: number): boolean {
+  const at = items[index]?.at ?? 0;
+  if (at <= 0) return false;
+  for (let i = index - 1; i >= 0; i--)
+    if (items[i].at > 0) return new Date(items[i].at).toDateString() !== new Date(at).toDateString();
+  return true;
+}
+
 export function sessionClock(at: number): string {
   const d = new Date(at);
   return t('messenger.sessionClock', {
@@ -88,11 +106,12 @@ export function SearchHitRow({
     <li>
       <button
         type="button"
-        className="block w-full text-left border-b-2 border-border px-4 py-6 text-xs"
+        className="block w-full text-left border-b-ui border-border px-4 py-6 text-xs"
         onClick={onClick}
       >
         <span className="block text-2xs text-text-muted">
           {sessionClock(hit.at)}{' '}
+          {hit.sender && <strong>{hit.sender} </strong>}
           {hit.session && (
             <span className="border border-border px-4">{t('messenger.previousSession')}</span>
           )}
@@ -124,7 +143,7 @@ export function Mug({
 }) {
   const a = getAppearance(agentId);
   return (
-    <span className="shrink-0 border border-border">
+    <span className="shrink-0 border-ui rounded-ui-card border-devroom-card-line bg-(--surface-card)">
       <CharacterMugShot palette={a.palette} hueShift={a.hueShift} size={MUG_PX} />
     </span>
   );

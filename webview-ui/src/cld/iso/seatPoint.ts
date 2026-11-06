@@ -14,7 +14,7 @@ type CatalogEntry = {
   backgroundTiles?: number;
 };
 
-type SeatCharacter = Pick<Character, 'dir' | 'seatId' | 'x' | 'y'>;
+type SeatCharacter = Pick<Character, 'dir' | 'x' | 'y'>;
 
 /** SMOOTH-1104: each manifest's answers (asked for every piece of furniture, per seated
  *  character, per frame). */
@@ -78,7 +78,10 @@ export function isoSeatPoint(
   catalog: (type: string) => CatalogEntry | undefined,
   manifest: IsoManifest = ISO_MANIFEST,
 ): { x: number; y: number } | null {
-  if (!ch.seatId || !seat) return null;
+  // Only the seat it is on: a character resting on a sofa or walking keeps its desk as seatId, and
+  // the desk's point would draw it at the desk while its plate stands where it is.
+  if (!seat || Math.floor(ch.x / TILE_SIZE) !== seat.seatCol || Math.floor(ch.y / TILE_SIZE) !== seat.seatRow)
+    return null;
   const found = furnitureAtSeat(furniture, seat, catalog, manifest);
   if (!found) return null;
   const point = isoSeat(found.group, (ch.dir ?? seat.facingDir) as Direction, found.index);

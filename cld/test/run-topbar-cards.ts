@@ -1,11 +1,11 @@
 /**
- * TOPBAR-CARDS check: the host clock in the exact centre of the top bar and large (desktop 1280
- * and 1920, phone 393), the usage bar's refresh icon (busy while checking), the desktop card
- * container (bigger text, same face, a drag moves a card to another slot and the order survives a
+ * TOPBAR-CARDS check: the host clock in the exact centre of the phone's top bar and large (phone 393),
+ * the usage refresh icon in the PC menu (busy while checking), the desktop card
+ * container (portraits since FEAT-PARTY-V2: same face, a drag moves a card to another slot and the order survives a
  * reload, a drag does not select, + opens 오케스트레이터 추가) and the phone's card bar as before.
  *
  * dist/cli.js with --engine on --allow-actions --no-terminal in a temp HOME whose `claude` is the
- * engine fake, a stand-in usage endpoint (testHome's fakeUsage), on a spare port; headless Chromium
+ * engine fake, a status-line usage report (testHome's fakeUsage), on a spare port; headless Chromium
  * (--disable-gpu). Screenshots: cld/artifacts/topbar-cards/.
  *
  *   npx tsx cld/test/run-topbar-cards.ts <port 18256-18259>
@@ -172,8 +172,11 @@ async function main() {
   };
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
+  // FEAT-PARTY-V2: the container holds portraits, each named by its title.
   const cardNames = (page: Page) =>
-    page.locator('[data-testid="card-container"] [data-testid="card-name"]').allInnerTexts();
+    page
+      .locator('[data-testid="card-container"] [data-testid="agent-card"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('title') ?? ''));
   const box = async (loc: ReturnType<Page['locator']>): Promise<Box> => {
     const b = (await loc.boundingBox())!;
     return { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -199,33 +202,12 @@ async function main() {
     const notice = desk.getByRole('button', { name: '계속 물어보기' });
     if (await notice.count()) await notice.click();
 
-    // ── 1. the clock, desktop 1280 and 1920 ──
-    for (const width of [1280, 1920]) {
-      await desk.setViewportSize({ width, height: width === 1280 ? 800 : 1000 });
-      await desk.waitForTimeout(600);
-      const r = await clockReport(desk, '[data-hud-id="usage"]');
-      const centre = r.clock.x + r.clock.w / 2;
-      check(
-        Math.abs(centre - r.viewportW / 2) <= 1.5 &&
-          Math.abs(r.bar.x + r.bar.w / 2 - r.viewportW / 2) <= 1.5,
-        `desktop ${width}: the clock's centre ${centre.toFixed(1)} is the bar's and the window's centre ${r.viewportW / 2}`,
-      );
-      check(r.fontPx >= 30, `desktop ${width}: the clock is large (${r.fontPx}px, "${r.text}")`);
-      check(
-        r.hits.length === 0,
-        `desktop ${width}: nothing in the bar overlaps the clock${r.hits.length ? ` (${r.hits.join(', ')})` : ''}`,
-      );
-      check(!r.scrollX, `desktop ${width}: no sideways page scroll`);
-      check(
-        r.clock.h <= r.bar.h,
-        `desktop ${width}: the clock (${r.clock.h}px) fits the bar (${r.bar.h}px)`,
-      );
-      await shot(desk, `desktop-${width}`);
-    }
+    // ── 1. (the PC top bar and its centred clock are gone: hud-v3 moved the clock to the usage panel; the phone's is in 6) ──
     await desk.setViewportSize({ width: 1280, height: 800 });
     await desk.waitForTimeout(600);
 
-    // ── 2. the refresh icon ──
+    // ── 2. the refresh icon (in the corner 메뉴's usage detail) ──
+    await desk.getByTestId('hud-menu').click();
     const refresh = desk.getByTestId('usage-refresh');
     await refresh.waitFor();
     check(
@@ -257,27 +239,18 @@ async function main() {
       sent.some((m) => m.includes('"codexUsageCheck"')),
       'refresh: the click sent codexUsageCheck',
     );
+    await desk.keyboard.press('Escape'); // the menu shut
 
     // ── 3. the card container: text, face, one container ──
     const container = desk.getByTestId('card-container');
     check((await container.count()) === 1, 'cards: one container');
-    check(
-      (await container.getByTestId('card-group').first().innerText()) === '오케스트레이터',
-      'cards: the 오케스트레이터 tag is inside the container',
-    );
     const names = await cardNames(desk);
     check(
       LEADS.every((n) => names.includes(n)) && names.length === LEADS.length,
       `cards: ${names.join(', ')} in the container`,
     );
     const fonts2 = await desk.evaluate(() => {
-      const px = (sel: string) => {
-        const el = document.querySelector<HTMLElement>(sel);
-        return el ? parseFloat(getComputedStyle(el).fontSize) : 0;
-      };
       return {
-        name: px('[data-testid="card-container"] [data-testid="card-name"]'),
-        tag: px('[data-testid="card-group"]'),
         face: (() => {
           const c = document.querySelector<HTMLCanvasElement>('[data-testid="agent-card"] canvas');
           const r = c?.getBoundingClientRect();
@@ -285,10 +258,6 @@ async function main() {
         })(),
       };
     });
-    check(
-      fonts2.name >= 14 && fonts2.tag >= 14,
-      `cards: name ${fonts2.name}px and tag ${fonts2.tag}px (were 10 and 9)`,
-    );
     check(
       fonts2.face[0] === 40 && fonts2.face[1] === 40,
       `cards: the face is still ${fonts2.face.join('x')}`,
@@ -305,12 +274,9 @@ async function main() {
     await shot(desk, 'desktop-cards');
 
     // A plain click selects.
-    const cardOf = (name: string) =>
-      desk
-        .locator('[data-testid="agent-card"]')
-        .filter({ has: desk.getByText(name, { exact: true }) });
+    const cardOf = (name: string) => desk.locator(`[data-testid="agent-card"][title="${name}"]`);
     const selected = async (name: string) =>
-      (await cardOf(name).first().getAttribute('class'))?.includes('bg-active-bg') === true;
+      (await cardOf(name).first().getAttribute('data-variant')) === 'focused';
     await cardOf(names[1]).first().click();
     await desk.waitForTimeout(400);
     check(await selected(names[1]), `cards: a click selects ${names[1]}`);

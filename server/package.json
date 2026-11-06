@@ -12,6 +12,7 @@
     "ws": "^8.18.0"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "2.4.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^10.1.2",
     "@fastify/websocket": "^11.2.0",

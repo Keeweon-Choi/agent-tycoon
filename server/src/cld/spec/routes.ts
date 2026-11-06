@@ -4,6 +4,7 @@
  * changes this), same-origin for every write, a read-only daemon refuses writes, an unknown
  * project is 404, and every write leaves one `[cld spec]` line naming the device.
  */
+import { createHash } from 'crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { refused, type ServerTextCode } from '../../../../core/src/cld/serverText.js';
@@ -11,9 +12,11 @@ import { auditLog } from '../audit.js';
 import { contextOf, sameOriginRequest } from '../authRoutes.js';
 import { configDirectory } from '../configPath.js';
 import { maskText } from '../mask.js';
+import { STEPUP_REQUIRED } from '../shell/gate.js';
 import { refId, type SpecLink } from './links.js';
 import type { ItemQuery, SpecError, SpecProject, SpecService } from './service.js';
 import { DOC_UID_RE, ITEM_UID_RE } from './store.js';
+import type { SpecWorkflow, WorkflowError } from './workflow.js';
 
 type Params = { project: string };
 const NO_CACHE = 'private, no-store';
@@ -36,10 +39,24 @@ const ERRORS: Record<SpecError, [number, ServerTextCode]> = {
   archFull: [409, 'spec_arch_full'],
 };
 
+const WORKFLOW_ERRORS: Record<WorkflowError, [number, ServerTextCode]> = {
+  engine: [409, 'spec_workflow_engine'],
+  uv: [409, 'spec_workflow_uv'],
+  installed: [409, 'spec_workflow_installed'],
+  notInstalled: [409, 'spec_workflow_not_installed'],
+  busy: [409, 'spec_workflow_busy'],
+  consent: [403, 'spec_workflow_consent'],
+  save: [500, 'spec_workflow_save'],
+};
+
 export interface SpecRouteDeps {
   auth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   kindOf?: (request: FastifyRequest) => { host: boolean; remote: boolean };
   actorOf?: (request: FastifyRequest) => string | undefined;
+  /** S1: this request's session has a fresh step-up. */
+  stepUpFresh?: (request: FastifyRequest) => boolean;
+  /** RQ4: the engine path (none: the docs answer has no `workflow` and its routes are 404). */
+  workflow?: SpecWorkflow;
   readOnly: boolean;
 }
 
@@ -90,7 +107,9 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
   });
   app.get<{ Params: Params }>('/api/cld/spec/:project/docs', opts, async (request, reply) => {
     const p = gate(request, reply, false);
-    return p ? service.docs(p) : reply;
+    if (!p) return reply;
+    const docs = await service.docs(p);
+    return deps.workflow ? { ...docs, workflow: deps.workflow.view(p) } : docs;
   });
   app.get<{ Params: Params; Querystring: ItemQuery }>('/api/cld/spec/:project/items', opts, async (request, reply) => {
     const p = gate(request, reply, false);
@@ -192,8 +211,8 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     const r = await service.arch(p, request.query ?? {});
     return r.ok ? r.value : fail(reply, r.error);
   });
-  // SPT C1-C2: the 지도 (features × structure); ?feature= a feature's requirements and chain, ?block= a cell's detail, ?in= the cells entered.
-  app.get<{ Params: Params; Querystring: { feature?: unknown; in?: unknown; block?: unknown } }>('/api/cld/spec/:project/map', opts, async (request, reply) => {
+  // SPT C1-C2: the 지도 (features × structure); ?feature= a feature's requirements and chain, ?block= a cell's detail, ?in= the cells entered; BRN K8: ?design=1 the design and its drifts.
+  app.get<{ Params: Params; Querystring: { feature?: unknown; in?: unknown; block?: unknown; design?: unknown } }>('/api/cld/spec/:project/map', opts, async (request, reply) => {
     const p = gate(request, reply, false);
     if (!p) return reply;
     const r = await service.map(p, request.query ?? {});
@@ -213,6 +232,12 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     const r = await service.recent(p);
     return r.ok ? r.value : fail(reply, r.error);
   });
+  // ── BRN K5: the 개요's five lines, the Lead's latest handoff (read only, session only) ──
+  app.get<{ Params: Params }>('/api/cld/spec/:project/resume', opts, async (request, reply) => {
+    const p = gate(request, reply, false);
+    if (!p) return reply;
+    return service.resume(p);
+  });
   type LinkBody = { from?: unknown; to?: unknown; rel?: unknown; kind?: unknown; note?: unknown };
   const deviceOf = (request: FastifyRequest) => deps.actorOf?.(request) ?? 'device';
   // The log and audit.jsonl name UIDs, ids, relations and kinds only: never a note.
@@ -224,6 +249,16 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     if (!r.ok) return fail(reply, r.error);
     const w = linkWords(r.value);
     audit(request, 'link', p, w.join(' '), w);
+    return r.value;
+  });
+  // RQ3: 이 요구사항으로 이슈 만들기, the issue and its confirmed link, each audited (no text in the log).
+  app.post<{ Params: Params & { uid: string }; Body: { title?: unknown; note?: unknown; owner?: unknown } | undefined }>('/api/cld/spec/:project/item/:uid/issue', opts, async (request, reply) => {
+    const p = gate(request, reply, true);
+    if (!p) return reply;
+    const uid = request.params.uid;
+    const r = await service.createIssue(p, uid, request.body ?? {}, deviceOf(request));
+    if (!r.ok) return fail(reply, r.error);
+    audit(request, 'issue', p, `uid=${uid} task=${r.value.task} linked=${r.value.linked}`, [uid, r.value.task, `linked:${r.value.linked}`]);
     return r.value;
   });
   app.post<{ Params: Params; Body: { edges?: unknown } | undefined }>('/api/cld/spec/:project/links/confirm', opts, async (request, reply) => {
@@ -386,4 +421,63 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
     archAudit(request, 'arch-skeleton', p, [d.action, maskText(d.path), ...(d.uid ? [d.uid] : []), ...(d.into ? [d.into] : [])]);
     return d;
   });
+  // ── RQ4: the engine path. It changes what agents do and may install a third-party tool into the
+  // project, so every route is a write (session, same origin, not read-only) and a remote device
+  // needs a fresh step-up, for the switch, the plan and the install alike.
+  const wf = deps.workflow;
+  if (wf) {
+    const engineGate = (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply): SpecProject | null => {
+      const p = gate(request, reply, true);
+      if (!p) return null;
+      // Unknown standing is the careful one: a remote device.
+      if ((deps.kindOf?.(request) ?? { remote: true }).remote && !deps.stepUpFresh?.(request)) {
+        void reply.code(403).send({ error: STEPUP_REQUIRED });
+        return null;
+      }
+      return p;
+    };
+    const wfFail = (reply: FastifyReply, error: WorkflowError) => {
+      const [code, text] = WORKFLOW_ERRORS[error];
+      return reply.code(code).send(refused(text));
+    };
+    /** The login session a plan is shown to (its cookie, hashed): the install must come from it. */
+    const sessionKey = (request: FastifyRequest) => createHash('sha256').update(request.headers.cookie ?? '').digest('hex');
+    app.post<{ Params: Params; Body: { on?: unknown } | undefined }>('/api/cld/spec/:project/workflow', opts, async (request, reply) => {
+      const p = engineGate(request, reply);
+      if (!p) return reply;
+      const on = request.body?.on;
+      if (typeof on !== 'boolean') return fail(reply, 'value');
+      const r = wf.set(p, on);
+      if (!r.ok) return wfFail(reply, r.error);
+      audit(request, 'workflow', p, `on=${on}`, [`on:${on}`]);
+      return r.value;
+    });
+    app.post<{ Params: Params }>('/api/cld/spec/:project/workflow/plan', opts, async (request, reply) => {
+      const p = engineGate(request, reply);
+      if (!p) return reply;
+      const r = wf.plan(p, sessionKey(request));
+      if (!r.ok) return wfFail(reply, r.error);
+      audit(request, 'workflow-plan', p, `${r.value.version} ${r.value.integrations.join(',')}`, [r.value.version, ...r.value.integrations]);
+      return r.value;
+    });
+    app.post<{ Params: Params; Body: { planId?: unknown; consent?: unknown } | undefined }>('/api/cld/spec/:project/workflow/install', opts, async (request, reply) => {
+      const p = engineGate(request, reply);
+      if (!p) return reply;
+      const r = await wf.install(p, request.body?.planId, request.body?.consent, sessionKey(request));
+      if (!r.ok) return wfFail(reply, r.error);
+      // audit.jsonl keeps 60 characters: the count there, the names on the console line.
+      const w = [`ok:${r.value.ok}`, `files:${r.value.count}`, `changed:${r.value.changed.length}`, ...(r.value.failed ? [r.value.failed] : [])];
+      audit(request, 'workflow-install', p, [...w, ...r.value.changed].join(' '), w);
+      return r.value;
+    });
+    app.post<{ Params: Params }>('/api/cld/spec/:project/workflow/uninstall', opts, async (request, reply) => {
+      const p = engineGate(request, reply);
+      if (!p) return reply;
+      const r = await wf.uninstall(p);
+      if (!r.ok) return wfFail(reply, r.error);
+      const w = [`ok:${r.value.ok}`, `files:${r.value.count}`, `changed:${r.value.changed.length}`, ...(r.value.failed ? [r.value.failed] : [])];
+      audit(request, 'workflow-uninstall', p, [...w, ...r.value.changed].join(' '), w);
+      return r.value;
+    });
+  }
 }

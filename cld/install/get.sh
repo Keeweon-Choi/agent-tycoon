@@ -1,5 +1,5 @@
 #!/bin/sh
-# 에이전트 타이쿤의 복제·갱신용 설치 진입점. Node 최소 버전은 cld/install/install.mjs 의 prerequisites() 와 같게 유지한다.
+# 에이전트 타이쿤의 클론·갱신용 설치 진입점. Node 최소 버전은 cld/install/install.mjs 의 prerequisites() 와 같게 유지한다.
 DEFAULT_AGENT_TYCOON_REPO='https://github.com/Keeweon-Choi/agent-tycoon.git'
 REQUIRED_NODE_MAJOR=22
 

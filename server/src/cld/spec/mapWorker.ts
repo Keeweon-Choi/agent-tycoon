@@ -29,11 +29,10 @@ import { createGitRunner, type GitRunner, READ_ENV } from '../engine/git/gitRun.
 import { maskText } from '../mask.js';
 import { walkFiles } from './archOwner.js';
 import { classify } from './discover.js';
+import { JS_LANG, type Language, languageOf, otherKind, SKIP_DIRS, tagLine, testNameLine } from './languages.js';
 
-// ── what counts (SPT §8.2, D5: JS and TS only) ──
-const CODE_EXT = /\.(ts|tsx|js|mjs|cjs)$/;
-const SKIP = /(^|\/)(node_modules|dist|public)\/|\.d\.ts$/;
-export const isCodeFile = (f: string): boolean => CODE_EXT.test(f) && !SKIP.test(f);
+// ── what counts (SPT §8.2; K7a: every language of languages.ts, import lines only for TS and JS) ──
+export const isCodeFile = (f: string): boolean => !!languageOf(f) && !SKIP_DIRS.test(f) && !f.endsWith('.d.ts');
 /** A generated file (its head says so: this repository's core/src/messages.ts) is left out. */
 export const isGenerated = (head: string): boolean => /AUTO-GENERATED|@generated|DO NOT EDIT/.test(head);
 const HEAD_CHARS = 300;
@@ -41,22 +40,20 @@ const HEAD_CHARS = 300;
 // ── what names a number (SPT §8.4; which of them count is chain.ts's) ──
 // ponytail: the default grammar only (a project's short IDs and own patterns are not passed to the child, and task specs are found by name, not by the documents tracked); pass them as arguments and key the cache on them when a project needs it.
 const ID_RE = idPattern(false);
-/** A test's name: the first argument of `it(`, `test(`, `describe(` (and their `.only`/`.skip`), a plain string. */
-const TEST_NAME = /\b(?:it|test|describe)(?:\.(?:only|skip|todo|concurrent))?\(\s*(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g;
-/** A head comment's tag (R4's): a comment line starting with a capital dashed word that is no display ID. */
-const TAG_LINE = /^\s*(?:\/\*\*?|\/\/|\*)\s*([A-Z][A-Z0-9]{1,11}(?:-[A-Z0-9]{1,11})+)\b/gm;
 /** The head a tag is read from. */
 const TAG_HEAD_CHARS = 1500;
 const ID_WHOLE = new RegExp(`^(?:${idSource(false)})$`);
 const uniqIds = (text: string) => [...new Set(text.match(ID_RE) ?? [])];
-export function testNameIds(text: string): string[] {
+/** The display IDs in the test names of a file (the language's declaration lines: `it('FR-X-001 …')`, `func TestX`, `def test_x`, `@test "…"`). */
+export function testNameIds(text: string, lang: Language = JS_LANG): string[] {
   const out = new Set<string>();
-  for (const m of text.matchAll(TEST_NAME)) for (const id of m[2].match(ID_RE) ?? []) out.add(id);
+  for (const m of text.matchAll(testNameLine(lang))) for (const id of m[0].match(ID_RE) ?? []) out.add(id);
   return [...out];
 }
-export function headTags(text: string): string[] {
+/** A head comment's tag (R4's): a comment line starting with a capital dashed word that is no display ID, in the language's comment syntax. */
+export function headTags(text: string, lang: Language = JS_LANG): string[] {
   const out = new Set<string>();
-  for (const m of text.slice(0, TAG_HEAD_CHARS).matchAll(TAG_LINE)) if (!ID_WHOLE.test(m[1])) out.add(m[1]);
+  for (const m of text.slice(0, TAG_HEAD_CHARS).matchAll(tagLine(lang))) if (!ID_WHOLE.test(m[1])) out.add(m[1]);
   return [...out];
 }
 
@@ -145,6 +142,8 @@ export interface CodeScan {
   rssKb: number;
   /** SPT C2: none from a scan of C1 or a test that only folds. */
   links?: ScanLinks;
+  /** K7a: settings and documents of the project, counted apart (listed, never opened). */
+  other?: { config: number; docs: number };
 }
 
 // ── imports (SPT §8.3: R4's IMP and resolve, no new dependency) ──
@@ -197,8 +196,15 @@ export const taskNumber = (rel: string): string | null => {
  * repository, else the capped folder walk (archOwner's). `capped`: the listing was cut. `tasks`: the
  * task specs listed (SPT C2's 작업 길).
  */
-export async function listCode(folder: string, run: GitRunner): Promise<{ files: string[]; tasks: string[]; capped: boolean }> {
-  const out = (names: string[], capped: boolean) => ({ files: [...new Set(names.filter(isCodeFile))].sort(), tasks: [...new Set(names.filter((f) => taskNumber(f)))].sort(), capped });
+export async function listCode(folder: string, run: GitRunner): Promise<{ files: string[]; tasks: string[]; other: { config: number; docs: number }; capped: boolean }> {
+  const out = (names: string[], capped: boolean) => {
+    const other = { config: 0, docs: 0 };
+    for (const f of names) {
+      const k = SKIP_DIRS.test(f) ? null : otherKind(f);
+      if (k) other[k]++;
+    }
+    return { files: [...new Set(names.filter(isCodeFile))].sort(), tasks: [...new Set(names.filter((f) => taskNumber(f)))].sort(), other, capped };
+  };
   try {
     const r = await run(folder, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { env: READ_ENV, maxBytes: SPEC_GIT_MAX_BYTES });
     if (r.code === 0 || r.capped) {
@@ -327,14 +333,17 @@ export async function scanCode(folder: string, run: GitRunner = createGitRunner(
       drop.add(f);
       continue;
     }
-    for (const spec of relativeImports(text)) {
-      const to = resolveImport(f, spec, (c) => known.has(c));
-      if (to) pairs.push(f, to);
-      else unresolved++;
-    }
+    const lang = languageOf(f)!;
+    // K7a: only TS and JS have their import lines read; the other languages are cells without arrows (K7b: tree-sitter).
+    if (lang.imports)
+      for (const spec of relativeImports(text)) {
+        const to = resolveImport(f, spec, (c) => known.has(c));
+        if (to) pairs.push(f, to);
+        else unresolved++;
+      }
     const body = uniqIds(text);
-    const names = body.length ? testNameIds(text) : [];
-    const tags = headTags(text);
+    const names = body.length ? testNameIds(text, lang) : [];
+    const tags = headTags(text, lang);
     if (body.length || tags.length) named.set(f, { body, names, tags });
   }
   const files = all.filter((f) => !drop.has(f));
@@ -398,6 +407,7 @@ export async function scanCode(folder: string, run: GitRunner = createGitRunner(
     ms: clock() - t0,
     rssKb: process.resourceUsage().maxRSS,
     links,
+    other: listed.other,
   };
 }
 

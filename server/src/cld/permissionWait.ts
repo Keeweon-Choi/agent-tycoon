@@ -287,7 +287,8 @@ export function toolCall(name: unknown, rawInput: unknown): OpenToolCall {
   return {
     tool: typeof name === 'string' ? name : '?',
     ...(detail && { detail: detail.slice(0, DETAIL_MAX) }),
-    match: [description, command].filter((x): x is string => !!x),
+    // ACP-1: an agent whose title is the command itself: the card says it once.
+    match: [description, command !== description ? command : undefined].filter((x): x is string => !!x),
   };
 }
 
@@ -318,10 +319,11 @@ const ID_MAX = 200;
 /** A well-formed permissionAnswer, or null. */
 export function parsePermissionAnswer(
   msg: Record<string, unknown>,
-): { requestId: string; agentId: number; toolId: string; allow: boolean } | null {
-  const { requestId, agentId, toolId, allow } = msg;
+): { requestId: string; agentId: number; toolId: string; allow: boolean; optionId?: string } | null {
+  const { requestId, agentId, toolId, allow, optionId } = msg;
   if (typeof requestId !== 'string' || !requestId || requestId.length > ID_MAX) return null;
   if (typeof toolId !== 'string' || toolId.length > ID_MAX) return null;
   if (!Number.isInteger(agentId) || typeof allow !== 'boolean') return null;
-  return { requestId, agentId: agentId as number, toolId, allow };
+  if (optionId !== undefined && (typeof optionId !== 'string' || !optionId || optionId.length > ID_MAX)) return null;
+  return { requestId, agentId: agentId as number, toolId, allow, ...(optionId !== undefined && { optionId }) };
 }

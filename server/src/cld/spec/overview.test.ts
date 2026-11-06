@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { TraceRecent } from '../../../../core/src/cld/spec/trace.js';
+import type { TraceRecent, TraceResume } from '../../../../core/src/cld/spec/trace.js';
 import type { RepoMerge } from '../../../../core/src/messages.js';
 import { SPEC_SCAN_MIN_MS, SPEC_SETTLE_MS, SPEC_TRACE_IDLE_MS } from '../../constants.js';
 import { GIT_AVAILABLE, makeTempRepo, recording, type TempRepo } from '../engine/git/testRepo.js';
@@ -203,6 +203,40 @@ describe.skipIf(!GIT_AVAILABLE)('SPT-P3-OVERVIEW', () => {
     expect(ok.statusCode).toBe(200);
     expect((ok.json() as TraceRecent).merges).toHaveLength(10);
     expect((await server.inject({ method: 'GET', url: '/api/cld/spec/nope/recent', headers: { 'x-session': 'ok' } })).statusCode).toBe(404);
+  });
+});
+
+describe('BRN K5: the 개요\'s handoff route', () => {
+  it('session only, tracking off too, the injected reader asked by the Lead\'s name on each read; none or a throw reads as no handoff', async () => {
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cld-resume-home-')));
+    homes.push(home);
+    const project: SpecProject = { name: 'alpha', folder: home, projectId: 'p_abcdefghij' };
+    const handoff: TraceResume['handoff'] = { at: '2026-11-06T01:00:00.000Z', format: 'ok', goal: { items: [], total: 0 }, done: { items: [{ text: 'd', tag: 'fact' }], total: 1 }, open: { items: [], total: 0 }, next: { items: [], total: 0 } };
+    const resume = vi.fn((name: string) => (name === 'alpha' ? handoff : null));
+    const s = new SpecService({ home, projects: () => [project], broadcast: () => undefined, resume });
+    const server = Fastify();
+    registerSpecRoutes(server, s, {
+      auth: async (request, reply) => {
+        if (request.headers['x-session'] !== 'ok') await reply.code(401).send('unauthorized');
+      },
+      kindOf: (request) => ({ host: request.headers['x-host'] === '1', remote: false }),
+      readOnly: false,
+    });
+    const get = (headers: Record<string, string>) => server.inject({ method: 'GET', url: '/api/cld/spec/alpha/resume', headers });
+    expect((await get({})).statusCode).toBe(401);
+    expect((await get({ 'x-session': 'ok', 'x-host': '1' })).json().errorCode).toBe('spec_session_only');
+    expect(resume).not.toHaveBeenCalled();
+    const ok = await get({ 'x-session': 'ok' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['cache-control']).toBe('private, no-store');
+    expect(ok.json()).toEqual({ handoff });
+    expect(resume).toHaveBeenCalledWith('alpha');
+    expect((await server.inject({ method: 'GET', url: '/api/cld/spec/nope/resume', headers: { 'x-session': 'ok' } })).statusCode).toBe(404);
+    resume.mockImplementation(() => {
+      throw new Error('disk');
+    });
+    expect((await get({ 'x-session': 'ok' })).json()).toEqual({ handoff: null });
+    expect(new SpecService({ home, projects: () => [project], broadcast: () => undefined }).resume(project)).toEqual({ handoff: null });
   });
 });
 

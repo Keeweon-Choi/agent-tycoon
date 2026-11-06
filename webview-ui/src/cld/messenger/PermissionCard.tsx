@@ -162,8 +162,16 @@ export function PermissionCard({
   // A folded answer has had its stamp; if the daemon still reports the wait, the card is a plain one again.
   const stamped = mine?.result === 'answered' && !mine.folded;
   const answerable = canAnswer && !!card.toolId && !stamped;
-  const press = (allow: boolean) =>
-    messengerAnswerPermission((m) => transport.send(m), agentId, card, allow);
+  // FIX-PERM-RESTART: an answer goes only over a live connection (the transport never keeps one for later).
+  const [link, setLink] = useState(transport.state);
+  useEffect(() => {
+    setLink(transport.state);
+    return transport.onStateChange(setLink);
+  }, []);
+  const online = link === 'connected';
+  const press = (allow: boolean, optionId?: string) => {
+    if (online) messengerAnswerPermission((m) => transport.send(m), agentId, card, allow, optionId);
+  };
   const [folding, setFolding] = useState(false);
 
   // The stamp shows a moment, then the card folds into its record (at once without game motion).
@@ -236,16 +244,43 @@ export function PermissionCard({
               </span>
             )
           )}
-          {answerable && (
-            <>
-              <Button size="sm" variant="accent" disabled={busy} onClick={() => press(true)}>
-                <PixelIcon name="check" size={12} />
-                {t('permPrompt.allow')}
-              </Button>
-              <Button size="sm" disabled={busy} onClick={() => press(false)}>
-                {t('permPrompt.deny')}
-              </Button>
-            </>
+          {answerable && !online && (
+            <span className="w-full text-text-muted" data-testid="permission-offline">
+              {t('permNotice.offline')}
+            </span>
+          )}
+          {answerable && card.options?.length ? (
+            // ACP-1: one button per option the agent offers; its own words are the tooltip.
+            card.options.map((o) => {
+              const allow = o.kind.startsWith('allow');
+              return (
+                <Button
+                  key={o.optionId}
+                  size="sm"
+                  variant={o.kind === 'allow_once' ? 'accent' : undefined}
+                  disabled={busy || !online}
+                  title={o.name}
+                  data-testid="permission-option"
+                  data-kind={o.kind}
+                  onClick={() => press(allow, o.optionId)}
+                >
+                  {o.kind === 'allow_once' && <PixelIcon name="check" size={12} />}
+                  {t(`acp.option.${o.kind}`)}
+                </Button>
+              );
+            })
+          ) : (
+            answerable && (
+              <>
+                <Button size="sm" variant="accent" disabled={busy || !online} onClick={() => press(true)}>
+                  <PixelIcon name="check" size={12} />
+                  {t('permPrompt.allow')}
+                </Button>
+                <Button size="sm" disabled={busy || !online} onClick={() => press(false)}>
+                  {t('permPrompt.deny')}
+                </Button>
+              </>
+            )
           )}
           {card.detail && !stamped && (
             <Button

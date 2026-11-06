@@ -7,22 +7,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { FRAME_SRC_LOOPBACK } from '../../core/src/cld/devUrl.js';
+import { STREET_SUMMARY_VERSION } from '../../core/src/constants.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { isLocalRequest, redactLoginCode, sessionIdFromCookie, StandaloneAuth } from './cld/auth.js';
+import { isLocalRequest, redactLoginCode, StandaloneAuth } from './cld/auth.js';
 import {
   hostBearerValid,
   registerStandaloneAuth,
-  sameOriginRequest,
   standaloneRequestAuthorized,
 } from './cld/authRoutes.js';
 import type { ChatManager } from './cld/chat.js';
-import { registerChatRoute, registerChatSettingsRoutes } from './cld/chat.js';
+import { registerChatRoute } from './cld/chat.js';
 import { registerProjectFileRoutes } from './cld/files/routes.js';
 import { cldHooks, type SocketStepUp } from './cld/hooks.js';
 import { answerFor } from './cld/remote/healthChallenge.js';
 import { ShellRegistry } from './cld/shell/registry.js';
 import { registerShellRoutes } from './cld/shell/routes.js';
+import type { Street } from './cld/street.js';
+import { registerStreetRoutes } from './cld/streetRoutes.js';
 import type {
   AssetCache,
   ReloadAssetsSideEffect,
@@ -84,6 +86,8 @@ export interface HttpServerOptions {
   trustedTailscaleUsers?: readonly string[];
   /** Process-local standalone credentials. Omitted only by embedded callers. */
   auth?: StandaloneAuth;
+  /** MHO 3.6: this host's display name, for the login page title. */
+  hostName?: () => string;
   /** cld-gui chat (T-0014, --allow-chat). Absent: /cld/attach/* answers 404. */
   chat?: ChatManager;
   /** Host opt-in for trusted-device shells. */
@@ -92,6 +96,8 @@ export interface HttpServerOptions {
   shellRegistry?: ShellRegistry;
   /** Test seam for picker home bounds. */
   shellHome?: string;
+  /** MHO v1b (ADR-0020): pairing with other PCs and the street summary. Absent: no street. */
+  street?: Street;
 }
 
 /** Result of createHttpServer(). */
@@ -240,7 +246,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
 
   // ── Routes ──────────────────────────────────────────────────
 
-  registerHealthRoute(app, options.token);
+  registerHealthRoute(app, options.token, !options.embedded && !!options.street);
   // cld-gui: the session gate and the login routes (cld/authRoutes.ts).
   if (!options.embedded && auth)
     registerStandaloneAuth(app, {
@@ -251,16 +257,14 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
       chat: options.chat !== undefined,
       allowTerminal: options.allowTerminal === true,
       broadcast: (message) => options.store.broadcast(message),
+      hostName: options.hostName,
+      street: options.street,
     });
+  if (!options.embedded && auth && options.street)
+    registerStreetRoutes(app, { street: options.street, token: options.token, auth });
   registerHookRoute(app, options, auth);
   registerWebSocketRoute(app, options, allowedHostnames, auth, webBuild);
   if (!options.embedded && auth && options.chat) {
-    registerChatSettingsRoutes(
-      app,
-      options.chat,
-      sessionOrBearerAuth(options.token, auth),
-      sameOriginRequest,
-    );
     registerChatRoute(
       app,
       options.chat,
@@ -273,9 +277,9 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     cldHooks.registerRoutes?.(
       app,
       sessionOrBearerAuth(options.token, auth),
-      (request) => auth.stepUpFresh(auth.session(sessionIdFromCookie(request.headers.cookie))),
+      (request) => auth.stepUpFresh(auth.session(auth.sessionIdOf(request.headers.cookie))),
       (request) => {
-        const session = auth.session(sessionIdFromCookie(request.headers.cookie));
+        const session = auth.session(auth.sessionIdOf(request.headers.cookie));
         return session && auth.actorLabel(session);
       },
       (request) => {
@@ -326,7 +330,7 @@ function hostOs(): string {
 }
 const HOST_OS = hostOs();
 
-function registerHealthRoute(app: FastifyInstance, token: string): void {
+function registerHealthRoute(app: FastifyInstance, token: string, street: boolean): void {
   app.get('/api/health', async (request) => {
     const health = {
       status: 'ok',
@@ -334,6 +338,8 @@ function registerHealthRoute(app: FastifyInstance, token: string): void {
       version: process.env.CLD_GUI_VERSION ?? '',
       protocol: SERVER_HEALTH_PROTOCOL_VERSION,
       os: HOST_OS,
+      // MHO v1b: this daemon has the street (a neighbour that refuses a token is unpaired, not old).
+      ...(street ? { street: STREET_SUMMARY_VERSION } : {}),
     };
     // O6: a nonce this daemon itself just issued (its custom-address self-test) is answered with the
     // reply it made up for it; any other nonce gets the plain body, so nothing here can be asked.
@@ -424,7 +430,7 @@ function registerWebSocketRoute(
       !options.embedded && auth
         ? {
             remote: !isLocalRequest(request) && !hostBearerValid(request, options.token),
-            fresh: () => auth.stepUpFresh(auth.session(sessionIdFromCookie(request.headers.cookie))),
+            fresh: () => auth.stepUpFresh(auth.session(auth.sessionIdOf(request.headers.cookie))),
           }
         : undefined;
 
@@ -452,7 +458,7 @@ function registerWebSocketRoute(
     store.on('agentAdded', onAgentAdded);
     store.on('agentRemoved', onAgentRemoved);
     store.on('broadcast', onBroadcast);
-    cldHooks.onClientOpened?.(send, auth?.rowIdOf(sessionIdFromCookie(request.headers.cookie)));
+    cldHooks.onClientOpened?.(send, auth?.rowIdOf(auth.sessionIdOf(request.headers.cookie)));
 
     // Handle incoming client messages
     socket.on('message', (data: Buffer | string) => {
@@ -500,7 +506,7 @@ function bindSessionSocket(
   socket: { close: (code: number, reason: string) => void },
 ): () => void {
   return (
-    auth?.bindSocket(sessionIdFromCookie(request.headers.cookie), () =>
+    auth?.bindSocket(auth.sessionIdOf(request.headers.cookie), () =>
       socket.close(WS_CLOSE_UNAUTHORIZED, 'signed out'),
     ) ?? (() => undefined)
   );

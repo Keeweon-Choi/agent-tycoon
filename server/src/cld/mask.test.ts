@@ -50,6 +50,13 @@ describe('maskText', () => {
     expect(maskText('한글 문장 token 이야기')).toBe('한글 문장 token 이야기');
   });
 
+  it('drops a multi-line private key through its END line, and keeps what follows', () => {
+    const pem = ['before', '-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmUA', 'QyNTUxOQAAACBzZWNyZXRrZXlib2R5', '-----END OPENSSH PRIVATE KEY-----', 'after'].join('\n');
+    expect(maskText(pem)).toBe('before\n-----BEGIN PRIVATE KEY----- ***\nafter');
+    // No END: everything after the BEGIN line goes.
+    expect(maskText('-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nmore')).toBe('-----BEGIN PRIVATE KEY----- ***');
+  });
+
   it('masks per line: a value never runs into the next line', () => {
     expect(maskText('password=abc\nnext line stays')).toBe('password=***\nnext line stays');
   });

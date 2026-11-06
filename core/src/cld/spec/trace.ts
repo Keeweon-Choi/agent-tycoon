@@ -1,6 +1,7 @@
 /**
  * SPT Phase 2-3 contract: the shapes the spec trace API returns (server/src/cld/spec) and the
- * 현황판's 요구사항 detail and 그래프 read (webview-ui/src/cld/spec). Types only, no runtime code.
+ * 현황판's 요구사항 detail and 그래프 read (webview-ui/src/cld/spec). Types, plus the few rules the
+ * daemon's spec module and its engine share (NodeRef, the three meanings of `T-`; BRN §5 / K0).
  * Design: cld/docs/design/spec-tracking.md §4.3-4.5 (links), §5 (four states), §7 (graph).
  */
 
@@ -9,6 +10,37 @@ export type TraceNodeType = 'req' | 'doc' | 'task' | 'commit' | 'job' | 'msg' | 
 
 /** What a link means, from the requirement's side (SPT §4.3). */
 export type LinkRel = 'implements' | 'changes' | 'verifies' | 'discusses' | 'realizes' | 'refs';
+
+/** The other end of a link: a requirement, a Task, a commit, a job, a message or a component. */
+export type NodeRef =
+  | { t: 'req'; uid: string }
+  | { t: 'task'; id: string }
+  | { t: 'commit'; sha: string }
+  | { t: 'job'; id: string }
+  | { t: 'msg'; where: string; id: string }
+  | { t: 'comp'; uid: string };
+
+/** A reference a text names (a renew's handoff, BRN §3.2 B5): a NodeRef, plus the two it has no
+ *  shape for: a Brain document UID and a display ID (`FR-OFC-001`, evidence until K3 resolves it). */
+export type BrainRef = NodeRef | { t: 'doc'; uid: string } | { t: 'display'; id: string };
+
+/*
+ * `T-` means three things (BRN §3 O3). The rules that tell them apart live here:
+ *   Task        `T-<n>`: the engine's work item, numbered one past the highest (`taskSeq`).
+ *   task spec   `T-NNNN`: a tasks document's number, one to five digits (`TASK_SPEC_ID`).
+ *   display ID  any `T-<digits>` a text names; it is a Task only if the project has that Task
+ *               (`refOfDisplayId`), else evidence and nothing more.
+ */
+export const TASK_SPEC_ID = /^T-\d{1,5}$/;
+
+/** The number of a Task id (`T-12` is 12), or null for anything else. */
+export const taskSeq = (id: string): number | null => {
+  const m = /^T-(\d+)$/.exec(id);
+  return m ? Number(m[1]) : null;
+};
+
+/** A display ID a text names: the Task when the project has it (`taskIds`), else an unresolved display ID. */
+export const refOfDisplayId = (id: string, taskIds: ReadonlySet<string>): BrainRef => (taskIds.has(id) ? { t: 'task', id } : { t: 'display', id });
 
 /** confirmed: the owner confirmed it (stored). observed: the source names the display ID (computed,
  *  not a confirmed relation until the owner confirms). suggested: inferred without an ID (computed).
@@ -48,6 +80,25 @@ export interface TraceState {
   linkReview?: boolean;
   /** 수용 재검토: the latest non-'none' acceptance record is on an older text */
   acceptanceReview?: boolean;
+  /** RQ1: what the three states (reqState.ts) rest on, by how each link is known; requirements only. */
+  facts?: ReqFacts;
+}
+
+/** How a link is known (RQW §4): the owner confirmed it, a text names the ID (글에 적힘), or it is inferred (짐작). Rejected links count nowhere. */
+export type LinkHow = 'confirmed' | 'written' | 'guess';
+export type HowCount = Partial<Record<LinkHow, number>>;
+/** RQ1: a requirement's facts per how they are known (the server's trace index, SPT §5.2's ✔ and ◐). */
+export interface ReqFacts {
+  /** Its issues (Task Board), each by the strongest link to it. */
+  issues: Array<{ id: string; status: string; how: LinkHow }>;
+  /** Commits that are there, and of them those on the tracked branch (seen by the daemon). */
+  commits: HowCount;
+  merged: HowCount;
+  /** Test runs (jobs and an issue's tests the engine saw), and of them those that passed. */
+  runs: HowCount;
+  passed: HowCount;
+  /** Only an agent's word (◐): an issue reported done or its tests passed, unseen. */
+  reported: HowCount;
 }
 
 export interface TraceSource {
@@ -114,6 +165,12 @@ export interface TraceItem {
   version?: string;
   /** 인수 기준 (SPT §2.4: a table column or a Done when / Tests / 검증 / Scenario part), masked and capped. */
   criteria?: string[];
+  /** RQ5: how to check it (확인 방법), from the `검증` column of an SRS row; not an acceptance criterion. */
+  verify?: string[];
+  /** RQ5: an OpenSpec delta requirement of a change in progress, with what the change does to it. */
+  changing?: 'added' | 'modified' | 'removed';
+  /** RQ5: a decision record's one-word status, when its document says one it can read. */
+  decision?: 'proposed' | 'accepted' | 'deprecated' | 'superseded';
   /** Every acceptance record, newest first; `current`: on the requirement's text now. */
   acceptance?: TraceAcceptance[];
 }
@@ -184,6 +241,30 @@ export interface TraceRecent {
   jobs: Array<{ id: string; desc: string; exit: number | null; at: string; reqs: TraceRecentReq[]; reported?: true }>;
   /** This project's last merge records (merge-history.json), newest first. */
   merges: Array<{ ok: boolean; at: string; target: string; auto: boolean; task?: string; branch?: string; kind?: string; sha?: string; error?: string }>;
+}
+
+// ── BRN K5: the 개요's five lines, the Lead's latest renew handoff (`GET …/resume`) ──
+
+/** A handoff line's K1 tag ([사실] / [판단] / [미확인]); none: the line has no tag. */
+export type HandoffTag = 'fact' | 'judgement' | 'unverified';
+export interface ResumeSection {
+  /** The section's first lines (bullet marks gone, masked, each cut), in order. */
+  items: Array<{ text: string; tag?: HandoffTag }>;
+  /** Its lines in all. */
+  total: number;
+}
+export interface TraceResume {
+  /** Null: no renew handoff on record for the project's Lead. */
+  handoff: {
+    /** When the old conversation ended (the renew history), else when the handoff was written. */
+    at: string;
+    /** `free`: the four headings are not all there (the sections may be empty). */
+    format: 'ok' | 'free';
+    goal: ResumeSection;
+    done: ResumeSection;
+    open: ResumeSection;
+    next: ResumeSection;
+  } | null;
 }
 
 // ── SPT-P4A: the architecture graph read from the documents (`GET …/arch?layer=composition|interaction`, SPT §8) ──
@@ -321,13 +402,15 @@ export interface ArchDiagram {
 
 /** A feature (SPT §8.1): the first boundary rule that fits its requirements. */
 export interface MapFeature {
-  /** `FR-ENG` (prefix), `fm:<doc UID>` (front-matter id), `sk:<folder>` (Spec Kit), `dir:<folder>` (document folder). */
+  /** `FR-ENG` (prefix), `fm:<doc UID>` (front-matter id), `sk:<folder>` (Spec Kit), `kiro:<feature>` (`.kiro/specs/<feature>/`), `os:<capability>` (`openspec/specs/<capability>/`), `osc:<change>` (`openspec/changes/<change>/`, in progress), `dir:<folder>` (document folder). */
   key: string;
   /** What the row says first: `ENG`, the front-matter id, the folder's name. */
   short: string;
   /** The defining section's name (`3.19 내장 엔진(ENG)` → 내장 엔진), else the front matter's id or the folder's name; masked. */
   name: string;
-  rule: 'speckit' | 'fm' | 'prefix' | 'folder';
+  rule: 'speckit' | 'kiro' | 'openspec' | 'fm' | 'prefix' | 'folder';
+  /** RQ5: an OpenSpec change still in progress (바뀌는 중), its requirements are the ADDED / MODIFIED / REMOVED ones. */
+  changing?: true;
   reqs: number;
   /** 진행: a commit of the last 7 days names one of its requirements (or a Task linked to one). */
   progress: boolean;
@@ -337,6 +420,46 @@ export interface MapFeature {
   changed: number;
   /** SPT C2 (§8.4): its requirements that reach a code file by a path on by default (the bar: linked / reqs). */
   linked: number;
+  /** K9: what its Spec Kit folder says, in numbers (only a `speckit` feature whose files are tracked). */
+  kit?: MapKitCounts;
+}
+/** K9 (Project Brain §8): a Spec Kit feature folder read by rules. Everything here is written in the folder's files (글에 적힘); nothing is guessed. */
+export interface MapKitCounts {
+  stories: number;
+  frs: number;
+  scs: number;
+  tasks: number;
+  /** Tasks ticked `[x]` in tasks.md. */
+  done: number;
+  /** FR lines carrying `[NEEDS CLARIFICATION: …]`. */
+  clarify: number;
+}
+export interface MapKit {
+  dir: string;
+  title: string;
+  counts: MapKitCounts;
+  /** Which files were read (tracked documents of the folder). */
+  read: Array<'spec' | 'tasks' | 'plan' | 'research'>;
+  /** User stories in the spec's order; `tasks`/`done`: the tasks.md lines tagged `[USn]`, `files`: the files those lines name. */
+  stories: Array<{ id: string; title: string; priority?: string; line: number; scenarios: string[]; tasks: number; done: number; files: number }>;
+  /** `tasks`: the numbers of the tasks that name this FR (an FR is linked to a task only when the line writes its number). */
+  frs: Array<{ id: string; text: string; line: number; clarify?: true; tasks?: string[] }>;
+  scs: Array<{ id: string; text: string; line: number }>;
+  entities: string[];
+  /** tasks.md's phases in the file's order. */
+  phases: Array<{ label: string; title: string; tasks: number; done: number }>;
+  taskList: Array<{ id: string; done: boolean; parallel?: true; story?: number; phase?: number; text: string; files?: Array<{ path: string; exists: boolean | null }>; line: number }>;
+  taskListMore: number;
+  parallel: number;
+  /** plan.md's Technical Context as written (`Language/Version`, `Testing`, …). */
+  context: Record<string, string>;
+  /** plan.md's Project Structure paths; `exists`: a code file is there now (null: no code scan to ask). */
+  plan: Array<{ path: string; note?: string; exists: boolean | null; line: number }>;
+  /** Folders a plan path or a task line names where no code file is yet (계획만). */
+  planOnly: string[];
+  decisions: Array<{ topic: string; decision: string; rationale?: string; alternatives?: string; line: number }>;
+  /** Things this folder has that the rules cannot read, so the page says 없음 instead of guessing. */
+  notRead: Array<'frStory' | 'frTask' | 'dependencies' | 'dataModel' | 'constitution'>;
 }
 /** SPT C2 (§8.4): the four link paths from a requirement to files, counted apart. */
 export type MapLinkPath = 'confirmed' | 'direct' | 'commit' | 'task';
@@ -399,6 +522,10 @@ export interface MapStructure {
   unresolved: number;
   /** 일부만 셈: a cap cut the scan (files, bytes, time), or the listing was cut. */
   partial?: 'files' | 'bytes' | 'time' | 'list';
+  /** K7a: the code languages of the files counted (the biggest first), how many of those files are in a language whose import lines are not read yet (only TS and JS are: no arrows from them), and the settings and documents counted apart. */
+  langs?: Array<{ name: string; files: number }>;
+  noImports?: number;
+  other?: { config: number; docs: number };
   /** Files over the per-file cap: counted, their imports not read. */
   big: number;
   /** When the child process scanned, how long it took and its peak RSS. */
@@ -429,6 +556,8 @@ export interface MapFeatureDetail {
   tasksMore: number;
   /** Commits of the last 7 days naming one of its requirements or tasks. */
   week: number;
+  /** K9: the Spec Kit folder's stories, FR/SC, tasks, plan and decisions (a `speckit` feature only). */
+  kit?: MapKit;
 }
 /** SPT C2 (`?block=`): a cell's 닿은 기능, its last commits and head-comment tags, 꼬리표로만 이어진 커밋 (D3). */
 export interface MapBlockDetail {
@@ -460,4 +589,55 @@ export interface TraceMap {
   tagOnly: number;
   /** `?block=`: that cell of the structure shown. */
   block?: MapBlockDetail;
+  /** BRN K8 (`?design=1`): the structure the design documents plan, and where it and the code part (the top fold's cells). */
+  design?: MapDesign;
+  drift?: MapDrift;
+}
+
+// ── BRN K8: the map drawn from the design (project-brain §7) ──
+
+/**
+ * How a design module meets a code cell: its path is written in a document (글에 적힘), the owner
+ * paired it in arch.json (확인함), or only its name is a cell's (짐작: shown, never counted).
+ */
+export type MapDesignBy = 'written' | 'confirmed' | 'guess';
+export interface MapDesignModule {
+  /** Its `c_` UID (a folder tree line's too). */
+  id: string;
+  label: string;
+  /** Its planned paths (masked): a tree line, a table's path cell, a label that is a path, an approved folder. */
+  paths: string[];
+  /** The code cells it meets, and by what (absent: none). */
+  cells?: string[];
+  by?: MapDesignBy;
+  source?: ArchSource;
+}
+export interface MapDesign {
+  modules: MapDesignModule[];
+  /** Modules past the cap, left out. */
+  more: number;
+  /** The design's arrows between modules (composition; `ends` as ArchEdge's). */
+  edges: Array<{ from: string; to: string; ends?: 'none' | 'both' }>;
+  /** The planned paths folded by the code map's rules (a folder is one planned file in it); null: no module has a path. */
+  structure: MapStructure | null;
+}
+/** 설계에만 있음, 설계에 없음 (code only), 설계에 없는 의존, 반대 방향 의존. */
+export type MapDriftKind = 'designOnly' | 'codeOnly' | 'undesigned' | 'reversed';
+export interface MapDriftItem {
+  kind: MapDriftKind;
+  /** designOnly: the module and its planned path. */
+  module?: string;
+  path?: string;
+  /** codeOnly: the cell. */
+  cell?: string;
+  /** undesigned, reversed: the cells the code imports from → to, and how many imports. */
+  from?: string;
+  to?: string;
+  imports?: number;
+}
+export interface MapDrift {
+  counts: Record<MapDriftKind, number>;
+  items: MapDriftItem[];
+  /** Items past the cap, left out. */
+  more: number;
 }

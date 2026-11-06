@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OfficeEvent } from '../../../../core/src/messages.js';
-import { filterNews, isFeedNoise, mergeNews, newsDay } from './newsList.js';
+import {
+  cardTone,
+  EMPTY_QUERY,
+  filterNews,
+  IMPORTANCE_TONE,
+  importanceOf,
+  isFeedNoise,
+  kindOf,
+  mergeNews,
+  newsDay,
+  queryNews,
+  sortNews,
+} from './newsList.js';
 import type { Notice } from './notices.js';
 
 const T0 = 1_800_000_000_000;
@@ -178,5 +190,105 @@ describe('day separators (NOTICE-B)', () => {
     expect(newsDay(new Date(2026, 10, 2, 23, 59).getTime(), now)).toBe('yesterday');
     expect(newsDay(new Date(2026, 10, 1, 8, 0).getTime(), now)).toBe(new Date(2026, 10, 1).getTime());
     expect(newsDay(now + 60_000, now)).toBe('today');
+  });
+});
+
+describe('the window\'s facets (A4)', () => {
+  const now = T0 + 2 * 86_400_000;
+  const list = mergeNews(
+    [
+      notice({ id: 'p', cause: 'permission', name: 'lead', text: 'wait', at: now - 1_000 }),
+      notice({
+        id: 'f',
+        cause: 'job',
+        name: 'ops',
+        text: '\uc2dc\ud5d8\uc774 \uc2e4\ud328\ud588\uc5b4\uc694',
+        at: now - 2_000,
+      }),
+      notice({ id: 'j', cause: 'job', name: 'ops', text: 'ok', at: now - 3_000 }),
+      notice({ id: 'old', cause: 'reply', name: 'lead', text: 'old note', at: now - 3 * 86_400_000 }),
+    ],
+    [event({ ts: new Date(now - 4_000).toISOString(), kind: 'hw', name: 'box', summary: 'hot' })],
+  );
+
+  it('importance and kind come from the cause and the groups', () => {
+    const at = (id: string) => list.find((i) => i.notice?.id === id)!;
+    expect(importanceOf(at('p'))).toBe('important');
+    expect(importanceOf(at('f'))).toBe('urgent');
+    expect(importanceOf(at('j'))).toBe('normal');
+    expect(kindOf(at('p'))).toBe('attention');
+    expect(kindOf(at('old'))).toBe('reply');
+    expect(kindOf(list.find((i) => !i.notice)!)).toBe('system');
+  });
+
+  it('the system tab is the events no other tab claims', () => {
+    expect(filterNews(list, 'system').map((i) => i.name)).toEqual(['box']);
+  });
+
+  it('the facets and the text combine; a facet can be left out for its own counts', () => {
+    const q = { ...EMPTY_QUERY, time: 'today' as const };
+    expect(queryNews(list, q, now).map((i) => i.name)).toEqual(['lead', 'ops', 'ops', 'box']);
+    expect(queryNews(list, { ...q, importance: 'urgent' }, now)).toHaveLength(1);
+    expect(queryNews(list, { ...q, text: 'OPS' }, now)).toHaveLength(2);
+    expect(queryNews(list, { ...EMPTY_QUERY, time: 'week' }, now)).toHaveLength(5);
+    expect(queryNews(list, { ...q, importance: 'urgent' }, now, 'importance')).toHaveLength(4);
+  });
+
+  it('sorts by importance, newest first inside a level', () => {
+    const ids = sortNews(list, 'importance').map((i) => i.notice?.id ?? i.name);
+    expect(ids.slice(0, 2)).toEqual(['f', 'p']);
+    expect(ids.slice(2)).toEqual(['j', 'box', 'old']);
+    expect(sortNews(list, 'time')).toBe(list);
+  });
+});
+
+describe('importance colours and agent-neutral kinds (notices-neutral)', () => {
+  const list = mergeNews(
+    [
+      notice({ id: 'p', cause: 'permission', at: T0 + 5 }),
+      notice({ id: 'f', cause: 'job', text: '\uc2dc\ud5d8\uc774 \uc2e4\ud328\ud588\uc5b4\uc694', at: T0 + 4 }),
+      notice({ id: 'n', cause: 'turnEnd', at: T0 + 3 }),
+      notice({
+        id: 'cx',
+        cause: 'job',
+        name: 'codex',
+        target: { open: 'codex', id: 'c1' },
+        at: T0 + 2,
+      }),
+      notice({ id: 'jb', cause: 'job', target: { open: 'job', id: 'j1' }, at: T0 + 1 }),
+    ],
+    [
+      event({ kind: 'codex_end', ref: 'c9', summary: 'x', ts: new Date(T0 - 1).toISOString() }),
+      event({ kind: 'job_end', ref: 'j9', summary: 'y', ts: new Date(T0 - 2).toISOString() }),
+    ],
+  );
+  const by = (id: string) => list.find((i) => i.notice?.id === id)!;
+
+  it('the card tone and the filter count come from the same importance', () => {
+    expect(cardTone(by('f'))).toBe(IMPORTANCE_TONE.urgent);
+    expect(cardTone(by('p'))).toBe(IMPORTANCE_TONE.important);
+    expect(cardTone(by('n'))).toBe(IMPORTANCE_TONE.normal);
+    expect(new Set(Object.values(IMPORTANCE_TONE)).size).toBe(3);
+    // every item's card tone is the tone of the importance the filter counts it under
+    for (const i of list)
+      expect(queryNews(list, { ...EMPTY_QUERY, importance: importanceOf(i) }, T0).includes(i)).toBe(true);
+    for (const i of list) expect(cardTone(i)).toBe(IMPORTANCE_TONE[importanceOf(i)]);
+  });
+
+  it('an ended Codex run and an ended Claude run are the same kind; a background job is not', () => {
+    expect(kindOf(by('cx'))).toBe(kindOf(by('n')));
+    expect(kindOf(by('n'))).toBe('turnEnd');
+    expect(kindOf(by('jb'))).toBe('job');
+    const [codexEnd, jobEnd] = list.filter((i) => !i.notice);
+    expect(kindOf(codexEnd)).toBe('turnEnd');
+    expect(kindOf(jobEnd)).toBe('job');
+  });
+
+  it('a failed run is urgent whichever agent ran it', () => {
+    const [fail] = mergeNews([], [
+      event({ kind: 'codex_end', ref: 'c2', summary: '\uc2e4\ud328\ud588\uc5b4\uc694' }),
+    ]);
+    expect(importanceOf(fail)).toBe('urgent');
+    expect(kindOf(fail)).toBe('turnEnd');
   });
 });

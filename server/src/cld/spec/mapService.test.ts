@@ -326,3 +326,40 @@ describe.skipIf(!GIT_AVAILABLE)('[제안 모두 승인] through the arch read', 
     expect(lines[0]).toMatch(/arch-approve-all device="Test phone" project="alpha" b_[a-z2-7]{10} d:1 f:8$/);
   });
 });
+
+describe.skipIf(!GIT_AVAILABLE)('BRN K8: the design map through the service and the route', () => {
+  it("?design=1 only: the owner's pairs (a folder merged into a diagram's component) count, an arrow against the import is 반대 방향; the route is behind the gate", async () => {
+    const t = await setup();
+    // server imports webview-ui; the design draws Web app → API server.
+    t.setAnswer(scanOf(['server/src/main.ts', 'webview-ui/src/App.tsx'], [0, 1]));
+    const plain = await t.map();
+    expect([plain.design, plain.drift]).toEqual([undefined, undefined]);
+    expect(await t.s.map(t.project, { design: 'yes' })).toEqual({ ok: false, error: 'value' });
+    // Names alone (the Mermaid nodes have no path): nothing counted.
+    const guess = await t.s.map(t.project, { design: '1' });
+    if (!guess.ok) throw new Error(guess.error);
+    expect(guess.value.drift!.counts).toEqual({ reversed: 0, undesigned: 0, designOnly: 0, codeOnly: 0 });
+    const a = await t.arch();
+    const id = (label: string) => a.nodes.find((n) => n.label === label)!.id;
+    expect(await t.s.archSkeleton(t.project, { path: 'server/', action: 'merged', into: id('API server') }, 'x')).toMatchObject({ ok: true });
+    expect(await t.s.archSkeleton(t.project, { path: 'webview-ui/', action: 'merged', into: id('Web app') }, 'x')).toMatchObject({ ok: true });
+    const r = await t.s.map(t.project, { design: '1' });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.drift).toEqual({ counts: { reversed: 1, undesigned: 0, designOnly: 0, codeOnly: 0 }, items: [{ kind: 'reversed', from: 'server', to: 'webview-ui', imports: 1 }], more: 0 });
+    expect(r.value.design!.modules.find((m) => m.label === 'API server')).toMatchObject({ paths: ['server'], cells: ['server'], by: 'confirmed' });
+    expect(r.value.design!.structure!.bands.map((b) => b.id).sort()).toEqual(['server', 'webview-ui']);
+
+    const server = Fastify();
+    let allowed = false;
+    registerSpecRoutes(server, t.s, {
+      auth: async (_q, reply) => void (allowed || reply.code(401).send({ errorCode: 'unauthorized' })),
+      kindOf: () => ({ host: false, remote: false }),
+      actorOf: () => 'x',
+      readOnly: false,
+    });
+    const get = () => server.inject({ method: 'GET', url: '/api/cld/spec/alpha/map?design=1' });
+    expect((await get()).statusCode).toBe(401);
+    allowed = true;
+    expect((await get()).json().drift.counts.reversed).toBe(1);
+  });
+});

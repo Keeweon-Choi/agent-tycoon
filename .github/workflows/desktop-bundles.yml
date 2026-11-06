@@ -1,7 +1,8 @@
 # Desktop installers (T1): the Agent Tycoon app (cld/desktop, Tauri v2) built natively on each OS
 # and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64 and Intel), Windows NSIS setup.exe.
-# Same trigger policy as release-bundles.yml: manual dispatch and v* tags only (private-repo macOS
-# and Windows minutes cost several times Linux). One secret (the release signing key), read-only token.
+# Manual dispatch only, with the tag of a PUBLISHED release (cld/release/publish.mjs publishes it first): the
+# installers carry that release's signed daemon files (downloaded with gh, never built here), and a last job
+# uploads the installers to that release. No secret and no signing key is used anywhere in this workflow.
 # The version comes from one place, src-tauri/Cargo.toml (tauri.conf.json has no version field).
 #
 # UNSIGNED for now (code signing and notarization are P9). What the user sees:
@@ -18,14 +19,15 @@ name: Desktop bundles
 on:
   workflow_dispatch:
     inputs:
+      tag:
+        description: 'tag of a published release, e.g. v0.1.0-rc.2'
+        type: string
+        required: true
       only:
         description: 'all, or one OS (macOS minutes cost ten times Linux on a private repo)'
         type: choice
         default: all
         options: [all, linux, macos, windows]
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: read
@@ -69,6 +71,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -87,31 +91,26 @@ jobs:
             patchelf pkg-config file
 
       # The app carries the daemon bundle for its OS (T2+P5: build.rs reads <repo>/out/bundles/<target>/ and
-      # stops a release build without it). Signed with the release key (a repository secret); a throwaway key without it.
-      # Each installer build carries its own daemon version (0.1.0-rc.1.<run number>), so a newer app sees
-      # that its daemon is newer than the one it installed and updates it in place (APP-UPDATE).
-      # A release version (no pre-release part) is left exactly as it is.
-      - name: Stamp this build's daemon version
-        working-directory: .
-        run: node -e "const fs=require('fs'),f='cld/release/version.json',v=JSON.parse(fs.readFileSync(f,'utf8'));if(v.version.includes('-'))v.version+='.'+process.env.GITHUB_RUN_NUMBER;fs.writeFileSync(f,JSON.stringify(v,null,2)+'\n');console.log('daemon version',v.version)"
-
-      - name: Daemon bundles for this OS
+      # stops a release build without it): the release's own signed files, with the SHA256SUMS, its signature
+      # and the public key that go with them. The key must be the one committed in this tag.
+      - name: Signed daemon files of the release
         working-directory: .
         env:
-          HUSKY: '0'
-          # One release key (a repository secret, owner 10-27), so an installed daemon accepts the next
-          # build's bundle; without the secret (a fork) build.mjs signs with a throwaway key as before.
-          AGENT_TYCOON_SIGNING_KEY: ${{ secrets.AGENT_TYCOON_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
-          npm ci
           case "${{ matrix.os }}" in
-            linux) node cld/release/bundle/build.mjs --out out/bundles/linux-x64 ;;
-            macos) node cld/release/bundle/build.mjs --out out/bundles/darwin-arm64 ;;
-            macos-intel) node cld/release/bundle/build.mjs --out out/bundles/darwin-x64 ;;
-            windows)
-              node cld/release/bundle/build.mjs --out out/bundles/win-x64
-              node cld/release/bundle/build.mjs --target linux-x64 --skip-build --out out/bundles/linux-x64 ;;
+            linux) targets="linux-x64" ;;
+            macos) targets="darwin-arm64" ;;
+            macos-intel) targets="darwin-x64" ;;
+            windows) targets="win-x64 linux-x64" ;;
           esac
+          for t in $targets; do
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "out/bundles/$t" \
+              --pattern "agent-tycoon-daemon-*-$t.tar.gz" --pattern SHA256SUMS --pattern SHA256SUMS.sig --pattern agent-tycoon-release.pub
+            cmp "out/bundles/$t/agent-tycoon-release.pub" cld/release/agent-tycoon-release.pub
+            node cld/release/bundle/verify.mjs out/bundles/$t/agent-tycoon-daemon-*-$t.tar.gz "out/bundles/$t/SHA256SUMS" "out/bundles/$t/SHA256SUMS.sig" cld/release/agent-tycoon-release.pub --os "${t%-*}" --arch "${t#*-}"
+          done
 
       - name: Install the Tauri CLI
         run: npm ci
@@ -139,3 +138,24 @@ jobs:
           if-no-files-found: error
           # The download people get (owner 10-27: Actions zips, no Releases); 90 days is the maximum, and storage is free on the public repo.
           retention-days: 90
+
+  # The installers go to the release they were built for.
+  attach:
+    needs: bundle
+    name: Attach installers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: agent-tycoon-*
+          path: installers
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $(find installers -type f)

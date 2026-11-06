@@ -90,19 +90,19 @@ test('status shows the Claude weekly usage (5-hour only when known) and the sub-
   const resetsAt = new Date(2026, 10, 5, 9, 30).toISOString();
   const result = await upStatus({ claudeUsage: { weekPct: 84, resetsAt, fiveHourPct: 12 }, subagents: { total: 4, byProject: { 'cld-gui': 3, neus: 1, idle: 0 } } });
   const lines = maintenance.statusLines(result);
-  assert.ok(lines.includes('Claude 사용량: 주간 84% (초기화 11-05 09:30) · 5시간 12%'));
-  assert.ok(lines.includes('Claude 서브에이전트: 합계 4 (cld-gui 3, neus 1)'));
+  assert.ok(lines.includes('사용량 · Claude: 주간 84% (초기화 11-05 09:30) · 5시간 12%'));
+  assert.ok(lines.includes('서브에이전트: 합계 4 (cld-gui 3, neus 1)'));
   assert.deepEqual(result.claudeUsage, { weekPct: 84, resetsAt, fiveHourPct: 12 });
   assert.equal(result.subagents.byProject['cld-gui'], 3);
   const no5h = maintenance.statusLines(await upStatus({ claudeUsage: { weekPct: 40, resetsAt } }));
-  assert.ok(no5h.includes('Claude 사용량: 주간 40% (초기화 11-05 09:30)'));
+  assert.ok(no5h.includes('사용량 · Claude: 주간 40% (초기화 11-05 09:30)'));
 });
 
 test('status with no usage known and no sub-agents says so; json fields are null and zero', async () => {
   const result = await upStatus({});
   const lines = maintenance.statusLines(result);
-  assert.ok(lines.includes('Claude 사용량: 아직 알 수 없습니다'));
-  assert.ok(lines.includes('Claude 서브에이전트: 합계 0'));
+  assert.ok(lines.includes('사용량 · Claude: 아직 알 수 없습니다'));
+  assert.ok(lines.includes('서브에이전트: 합계 0'));
   assert.equal(result.claudeUsage, null);
   assert.deepEqual(result.subagents, { total: 0, byProject: {} });
 });

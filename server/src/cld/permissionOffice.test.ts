@@ -64,6 +64,7 @@ async function start() {
     engineClaude: claudePath,
     typist: chat,
     defaultLayout: { tiles: [1], furniture: [] },
+    lhmPort: null,
   });
   cleanup.push(() => {
     killFakeSessions(home);
@@ -309,5 +310,103 @@ describe('TERM-P3: a PTY agent asks through its PermissionRequest hook', () => {
     expect(t.broadcasts.some((m) => m.type === 'agentToolPermissionClear' && m.id === t.agentId)).toBe(true);
     // An agent that is not in the host: no card, no decision.
     expect(await ask('nobody', call)).toBeNull();
+  }, 90_000);
+
+  it('FIX-PERM-RESTART: a dialog only its terminal holds is a card that offers only the terminal, until the terminal answers it', async () => {
+    const t = await start();
+    vi.spyOn(t.office.engine!, 'inPty').mockImplementation((name) => name === 'alpha');
+    const inner = t.office as unknown as {
+      askPermission(name: string, a: { tool: string; input: Record<string, unknown>; waitMs?: number }): Promise<string | null>;
+      permission: { syncPty(): void };
+    };
+    const status = t.office.engine!.pty.host.status;
+    const terminal = (blocked: boolean) => {
+      if (blocked) status.set(t.entry.bg!.id, { state: 'blocked', kind: 'permission' });
+      else status.set(t.entry.bg!.id, { state: 'working' });
+      inner.permission.syncPty();
+    };
+    const asks = () => t.broadcasts.filter((m) => m.type === 'agentToolPermission' && m.id === t.agentId).length;
+    const clears = () => t.broadcasts.filter((m) => m.type === 'agentToolPermissionClear' && m.id === t.agentId).length;
+    // After our restart, before the hook asks again: the terminal's dialog alone.
+    terminal(true);
+    expect(t.card()).toEqual({ toolId: '' });
+    expect(asks()).toBe(1);
+    // The hook asks again: its card, answerable, the bubble already up.
+    const call = { tool: 'Bash', input: { command: 'rm -rf build' } };
+    let decided = inner.askPermission('alpha', { ...call, waitMs: 1_000 });
+    await vi.waitFor(() => expect(t.card()?.toolId).toMatch(/^hook:/));
+    expect(asks()).toBe(1);
+    // Its time runs out (waitMs): Claude shows its own dialog; the same card, answered only there.
+    expect(await decided).toBeNull();
+    expect(t.card()).toEqual({ toolId: '', tool: 'Bash', detail: 'rm -rf build' });
+    expect(clears()).toBe(0);
+    // Answered in the terminal: the card and the bubble go.
+    terminal(false);
+    expect(t.card()).toBeUndefined();
+    expect(clears()).toBe(1);
+    // 허용 on the card: no terminal card for the dialog that is closing.
+    terminal(true);
+    decided = inner.askPermission('alpha', call);
+    await vi.waitFor(() => expect(t.card()?.toolId).toMatch(/^hook:/));
+    expect(await t.answer(true, t.card()!.toolId)).toMatchObject({ ok: true, result: 'answered' });
+    expect(await decided).toBe('allow');
+    inner.permission.syncPty();
+    expect(t.card()).toBeUndefined();
+    terminal(false);
+    terminal(true); // a later dialog is a new wait
+    expect(t.card()).toEqual({ toolId: '' });
+  }, 90_000);
+});
+
+describe('ACP-1: an ACP agent asks through session/request_permission', () => {
+  it('the card lists the offered options; only one of them, of the pressed kind, answers, once', async () => {
+    const t = await start();
+    vi.spyOn(t.office.engine!, 'isAcp').mockImplementation((name) => name === 'alpha');
+    const perms = (t.office as unknown as { permission: import('./office/permissions.js').OfficePermissions }).permission;
+    const options = [
+      { optionId: 'ok-1', name: 'Allow once', kind: 'allow_once' as const },
+      { optionId: 'no-1', name: 'Reject <b>', kind: 'reject_once' as const },
+    ];
+    const call = { tool: 'Bash', input: { command: 'rm -rf build' }, options };
+    const press = async (allow: boolean, optionId?: string) => {
+      const requestId = `p${Math.random()}`;
+      t.office.onClientMessage(
+        { type: 'permissionAnswer', requestId, agentId: t.agentId, toolId: t.card()?.toolId ?? 'x', allow, ...(optionId && { optionId }) },
+        t.send,
+        true,
+      );
+      await new Promise((r) => setTimeout(r, 30));
+    };
+    const ctl = new AbortController();
+    const decided = perms.askAcp('alpha', call, ctl.signal);
+    await vi.waitFor(() => expect(t.card()).toBeDefined());
+    expect(t.card()).toMatchObject({ toolId: expect.stringMatching(/^acp:[0-9a-f]{12}:\d+$/), tool: 'Bash', detail: 'rm -rf build', options });
+    const first = t.card()!.toolId;
+    // No option, an unknown one, or one whose kind disagrees with the button: nothing is decided.
+    await press(true);
+    await press(true, 'made-up');
+    await press(true, 'no-1');
+    expect(t.card()).toBeDefined();
+    await press(false, 'no-1');
+    expect(await decided).toBe('no-1');
+    expect(t.card()).toBeUndefined();
+    // A second press finds nothing (exactly once).
+    expect(await t.answer(true, first)).toMatchObject({ ok: true, result: 'gone' });
+    // No timeout for an ACP card; the turn stopped or the pipe closed (the signal) ends it with none.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let late: Promise<string | false | null>;
+    const ctl2 = new AbortController();
+    try {
+      late = perms.askAcp('alpha', call, ctl2.signal);
+      vi.advanceTimersByTime(PTY_PERMISSION_WAIT_MS * 10);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(t.card()).toBeDefined();
+    ctl2.abort();
+    expect(await late!).toBeNull();
+    expect(t.card()).toBeUndefined();
+    // Not an ACP agent: no card, no decision.
+    expect(await perms.askAcp('nobody', call, new AbortController().signal)).toBeNull();
   }, 90_000);
 });

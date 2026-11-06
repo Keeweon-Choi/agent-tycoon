@@ -4,7 +4,7 @@
  * there (shop-web). Desktop (Chromium --disable-gpu, 1280x800): the rail's `+` opens the dialog,
  * 폴더 열기 picks a plain folder under ~/projects, the dialog says it is no git repository, git init
  * makes it one, the engine's add form comes with the folder and its name filled, 추가 makes the
- * Lead and the dev room lists the project. Phone (390x844, touch): `+ 프로젝트 추가`, 주소로 복제
+ * Lead and the dev room lists the project. Phone (390x844, touch): `+ 프로젝트 추가`, 주소로 클론
  * from a local bare repository under the HOME into ~/projects/cloned-app, the add form, 추가, the
  * new project's chip and trunk. Screenshots in cld/artifacts/devroom-project/.
  *
@@ -53,7 +53,7 @@ async function main() {
     path.join(cfg, 'assignments.json'),
     JSON.stringify({ v: 1, assignments: [{ assignmentId: 'a_aaaaaaaaaa', projectId: 'p_aaaaaaaaaa', role: 'lead', provider: 'claude', wantRunning: true }] }),
   );
-  // 폴더 열기's plain folder, and 주소로 복제's source: a bare repository with one commit, both under the HOME.
+  // 폴더 열기's plain folder, and 주소로 클론's source: a bare repository with one commit, both under the HOME.
   const projects = path.join(home, 'projects');
   const local = path.join(projects, 'local-app');
   fs.mkdirSync(local, { recursive: true });
@@ -105,6 +105,8 @@ async function main() {
     await win.waitFor({ timeout: 20_000 });
     await win.getByTestId('hud-title-devroom').dblclick();
     await win.locator('[data-testid="devroom-trunk"][data-project="shop-web"]').waitFor({ timeout: 20_000 });
+    // DV4: the rail's + makes a worktree; 프로젝트 추가 is in the project menu.
+    await win.getByTestId('devroom-filter').click();
     await win.getByTestId('devroom-add').click();
     const dialog = desk.getByTestId('devroom-add-dialog');
     await dialog.waitFor();
@@ -134,7 +136,7 @@ async function main() {
     const groupText = await group.innerText();
     console.log(`note - local-app group (empty repository): ${groupText.replace(/\n/g, ' | ')}`);
 
-    // ── Phone: + 프로젝트 추가, 주소로 복제 a local bare repository, the add form, its chip. ──
+    // ── Phone: + 프로젝트 추가, 주소로 클론 a local bare repository, the add form, its chip. ──
     const phone = await newPage(browser, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await phone.locator('[data-dock="devroom"]').tap();
     const list = phone.getByTestId('devroom-phone');

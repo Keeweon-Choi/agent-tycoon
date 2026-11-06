@@ -1,7 +1,7 @@
 /**
  * HUD-1B + HUD-2B (owner 11-04 16:42, specs/ui-mock-1104/hud2): the 시점 buttons under the elevator's ▲ 1F ▼,
  * and the top bar as a resource bar (usage rows, ≡ 메뉴). dist/cli.js in a temp HOME (the engine's fake
- * claude, a loopback usage endpoint, never a real agent or account), two Leads, two floors, page defaults
+ * claude, a status-line usage fixture, never a real agent or account), two Leads, two floors, page defaults
  * (launchBrowser `partyFrame: true`), headless Chromium without a GPU.
  *  Desktop 1282x832 (the owner's screen) and 1400x900:
  *  1. 자동 / 내 캐릭터 / 로비 are a 40px strip right under the elevator strip; the lamp is on top, 32px, says 1F
@@ -155,7 +155,8 @@ async function main() {
         `${w}: 내 캐릭터 and 로비 are named icons`,
       );
       const lampSize = await lamp.evaluate((el) => getComputedStyle(el).fontSize);
-      check((await onTop(p, '[data-testid="elevator-display"]')) && (await lamp.innerText()).includes('1F') && lampSize === '32px', `${w}: the lamp is on top and says 1F at ${lampSize}`);
+      // The readable face (f1ff2e92, the default) draws ASCII taller: the lamp is 32px or more, never smaller.
+      check((await onTop(p, '[data-testid="elevator-display"]')) && (await lamp.innerText()).includes('1F') && parseFloat(lampSize) >= 32, `${w}: the lamp is on top and says 1F at ${lampSize}`);
 
       // 2. floors and the camera mode.
       await p.getByTestId('elevator-up').click();
@@ -172,32 +173,31 @@ async function main() {
       check(before !== after, `${w}: the toggle flips the camera (${before} -> ${after})`);
       await toggle.click();
 
-      // 3. the usage rows.
-      const gauges = p.locator('.game-gx-rows [data-testid="usage-gauge"]');
+      // 3. the usage rows (hud-v3: the usage panel at the bottom right, one row per provider, stacked).
+      const gauges = p.locator('[data-testid="usage-panel-provider"]');
       await eventually(`${w}: two usage rows`, async () => (await gauges.count()) === 2, 30_000);
       const [g1, g2] = [(await gauges.nth(0).boundingBox())!, (await gauges.nth(1).boundingBox())!];
       check(g2.y >= g1.y + g1.height - 1 && Math.abs(g1.x - g2.x) <= 1, `${w}: Claude's row over Codex's (${Math.round(g1.y)} / ${Math.round(g2.y)})`);
-      const cells = await gauges.nth(0).locator('[data-main] .game-segbar > i').count();
-      check(cells === 20, `${w}: the main window is 20 cells (${cells})`);
       check(/52%|48%/.test((await gauges.nth(0).innerText()) + '') && (await gauges.nth(1).innerText()).includes('%'), `${w}: the percents read (${(await gauges.nth(0).innerText()).replace(/\s+/g, ' ')})`);
 
       // 4. the menu.
       const menu = p.getByTestId('hud-menu');
       const list = p.getByTestId('hud-menu-list');
-      check((await menu.isVisible()) && !(await list.isVisible()), `${w}: 메뉴 is on the bar, shut`);
-      check((await p.locator('[data-hud-id="usage"]').getByRole('button', { name: '보안', exact: true }).count()) === 0, `${w}: no 보안 / 기기 추가 / 범례 buttons on the bar itself`);
+      check((await menu.isVisible()) && !(await list.isVisible()), `${w}: 메뉴 is in the corner, shut`);
+      check((await p.getByTestId('hud-corner').getByRole('button', { name: '보안', exact: true }).count()) === 0, `${w}: no 보안 / 기기 추가 / 범례 buttons in the corner itself`);
       await menu.click();
-      const rows = (await list.getByRole('button').allInnerTexts()).map((s) => s.trim());
+      // The menu also carries the usage detail (a refresh button) and the jobs counter: only the named rows are compared.
+      const rows = (await list.getByRole('button').allInnerTexts()).map((s) => s.trim()).filter((s) => MENU_ROWS.includes(s));
       check(rows.join() === MENU_ROWS.join() && (await menu.getAttribute('aria-expanded')) === 'true', `${w}: 메뉴 opens with ${rows.join(' · ')}`);
       if (w === '1282') await shot(p, 'desktop-1282-menu');
       await p.keyboard.press('Escape');
       check(!(await list.isVisible()) && (await menu.evaluate((b) => document.activeElement === b)), `${w}: Esc shuts it, focus back on 메뉴`);
       await p.keyboard.press('Enter');
       await p.keyboard.press('Tab');
-      const tabbed = await list.evaluate((l) => l.contains(document.activeElement) && document.activeElement?.textContent?.trim());
-      check(tabbed === '기기 추가', `${w}: Tab moves into the rows (${tabbed})`);
-      // Outside the menu: the bar's empty strip left of the clock (the office below would select or open things).
-      await p.mouse.click(Math.round((opts.viewport?.width ?? 0) / 2) - 220, 6);
+      const tabbed = await list.evaluate((l) => l.contains(document.activeElement));
+      check(!!tabbed, `${w}: Tab moves into the menu (${tabbed})`);
+      // Outside the menu: the office's top-left corner (the lobby board's middle opens its full view, so not there).
+      await p.mouse.click(4, 4);
       check(!(await list.isVisible()), `${w}: a press outside shuts it`);
       await menu.click();
       await list.getByRole('button', { name: '범례' }).click();

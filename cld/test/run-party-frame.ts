@@ -6,7 +6,7 @@
  * `partyFrame: true`), headless Chromium without a GPU.
  *  1. 1282x832 (the owner's screen) with the 메신저 open: folded by default, the bar as tall as its
  *     portraits, alpha's purple border, beta's 기다림 tail, gamma's face dimmed; the bar covers neither the
- *     messenger nor its 보내기; ◂ 파티 unfolds the full cards, a reload keeps it, ▸ folds it back
+ *     messenger nor its 보내기; no expand toggle (FEAT-PARTY-V2)
  *  2. the elevator: the strip is 40px wide, the lamp opens the floor list, a floor from it rides there,
  *     ▼ comes back; the list's state survives a reload
  *  3. 1400x900 folded; the 시점 group stays clear of the bar
@@ -201,17 +201,8 @@ async function main() {
     check(!overlap((await bar(desk).boundingBox())!, (await msgr.boundingBox())!), '1282: the folded bar and the messenger do not overlap');
     await shot(desk, 'desktop-1282-folded');
 
-    // ◂ 파티 unfolds the full cards; a reload keeps it; ▸ folds back.
-    await desk.getByTestId('party-fold').click();
-    await eventually('unfolded cards', async () => (await desk.getByTestId('card-name').count()) === 4, 5_000);
-    check((await desk.getByTestId('party-mark').count()) === 4 && (await desk.getByTestId('party-open').count()) === 1, 'unfolded: the full cards with their marks and 파티');
-    await shot(desk, 'desktop-1282-expanded');
-    await desk.reload();
-    await eventually('still unfolded after a reload', async () => (await desk.getByTestId('card-name').count()) === 4, 30_000);
-    await desk.getByTestId('party-fold').click();
-    await desk.reload();
-    await eventually('folded again after a reload', async () => (await desk.locator('[data-portrait]').count()) === 4, 30_000);
-    check((await desk.getByTestId('card-name').count()) === 0, 'folding is remembered across a reload');
+    // FEAT-PARTY-V2: no unfolding any more.
+    check((await desk.getByTestId('party-fold').count()) === 0, 'no expand toggle');
 
     // ── 2. the elevator strip ──
     const lamp = desk.getByTestId('elevator-display');

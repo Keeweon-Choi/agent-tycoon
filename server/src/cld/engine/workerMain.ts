@@ -15,6 +15,8 @@ import * as os from 'os';
 
 import { CLI_NAME } from '../cliName.js';
 import { findNvidiaSmi, readTotalMib } from '../hw/nvidiaSmi.js';
+// dist/cld-worker.js is its own process entry: its `spec-map` command runs the map scan here (BRN K0 exception).
+// eslint-disable-next-line no-restricted-imports
 import { scanCode } from '../spec/mapWorker.js';
 import { CODEX_TIMING, runCodex } from './codex.js';
 import { appendEvent, eventsPath } from './events.js';

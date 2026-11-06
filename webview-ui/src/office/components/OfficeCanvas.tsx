@@ -10,6 +10,7 @@ import {
 } from '../../cld/cameraMode.js';
 import { director, ownerDrink } from '../../cld/director/actions.js';
 import { visitFloor } from '../../cld/elevator.js';
+import { plateUnder } from '../../cld/ez/useNameplates.js';
 import {
   cameraRect,
   currentRect,
@@ -141,7 +142,9 @@ export function OfficeCanvas({
   const backdrop = useBackdrop();
   useEffect(() => {
     setSeatPoint((ch) => {
-      const seat = ch.seatId ? officeState.seats.get(ch.seatId) : undefined;
+      // LOUNGE: resting, it sits on its rest seat (a sofa, a bench), not its desk (seatId).
+      const id = ch.cldRest ? ch.cldRest.spot.seat : ch.seatId;
+      const seat = id ? officeState.seats.get(id) : undefined;
       return isoSeatPoint(ch, seat, officeState.getLayout().furniture, getCatalogEntry);
     });
     return () => setSeatPoint(null);
@@ -504,15 +507,17 @@ export function OfficeCanvas({
     },
     [pointToWorld, officeState, iso, isoAt],
   );
-  /** The character under a viewport point (the isometric view: what it drew there). */
+  /** The character under a viewport point (the isometric view: what it drew there), or whose
+   *  nameplate is there (cld T-67: the plates take no pointer events, so a hover over one shows its
+   *  whole name and a click selects its character, with the wheel and drags still the canvas's). */
   const characterAt = useCallback(
     (clientX: number, clientY: number): number | null => {
       if (iso) {
         const hit = isoAt(clientX, clientY);
-        return hit?.kind === 'character' ? hit.id : null;
+        return hit?.kind === 'character' ? hit.id : plateUnder(clientX, clientY);
       }
       const pos = screenToWorld(clientX, clientY);
-      return pos ? officeState.getCharacterAt(pos.worldX, pos.worldY) : null;
+      return (pos ? officeState.getCharacterAt(pos.worldX, pos.worldY) : null) ?? plateUnder(clientX, clientY);
     },
     [iso, isoAt, screenToWorld, officeState],
   );
@@ -692,7 +697,7 @@ export function OfficeCanvas({
       }
 
       const pos = iso ? null : screenToWorld(e.clientX, e.clientY);
-      if (offFloor(e.clientX, e.clientY)) {
+      if (offFloor(e.clientX, e.clientY) && plateUnder(e.clientX, e.clientY) === null) {
         const canvas = canvasRef.current;
         if (canvas)
           canvas.style.cursor = otherFloorAt(e.clientX, e.clientY) ? 'pointer' : 'default';
@@ -949,7 +954,7 @@ export function OfficeCanvas({
   // double-click (cld-gui T-0025), which focuses and follows, never toggles off.
   const performTap = useCallback(
     (clientX: number, clientY: number, double = false) => {
-      if (offFloor(clientX, clientY)) {
+      if (offFloor(clientX, clientY) && plateUnder(clientX, clientY) === null) {
         const id = otherFloorAt(clientX, clientY);
         if (id) goToFloor(id);
         return;

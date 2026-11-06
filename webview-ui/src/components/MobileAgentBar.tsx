@@ -1,11 +1,13 @@
 import type { TouchEvent as ReactTouchEvent } from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { PartyPortrait, PartyWaiting } from '../cld/game/Party.js';
 import {
   mobileRosterState,
   nextMobileRosterState,
   savedMobileRosterState,
 } from '../cld/mobileRoster.js';
+import { usePartyColumn } from '../cld/party/partyColumn.js';
 import {
   CARD_REORDER_LONG_PRESS_MS,
   CARD_SCROLL_INTO_VIEW_MARGIN_PX,
@@ -54,9 +56,9 @@ interface MobileAgentBarProps {
   getAppearance: (agentId: number) => AgentAppearance;
   statusFor: (agentId: number) => TabStatus | null;
   hideActions?: boolean;
-  /** cld-gui (T-0036): each card's group and name. Given, the cards are
-   *  grouped (a thin divider between groups), named, and a reorder stays
-   *  inside its group. */
+  /** cld-gui (T-0036): each card's group and name. Given, the strip is the party (FEAT-PARTY-V2):
+   *  the chosen party's portraits, its head (pick and compose, as on the desktop), and a reorder
+   *  stays inside its group. */
   describeCard?: (agentId: number) => CardInfo | undefined;
   /** The bar is the bottom-most band and clears the home indicator (false when
    *  something sits under it, which does that instead). */
@@ -123,15 +125,25 @@ export function MobileAgentBar({
   const [savedOrder, setSavedOrder] = useState<number[]>(loadSavedOrder);
   const groupOf = describeCard ? (id: number) => describeCard(id)?.group ?? 0 : undefined;
   const merged = useMemo(() => mergeOrder(savedOrder, agentIds), [savedOrder, agentIds]);
-  const displayIds = groupOf ? groupOrder(merged, groupOf) : merged;
+  const ordered = groupOf ? groupOrder(merged, groupOf) : merged;
+  // FEAT-PARTY-V2 (owner 11-06 18:54): the cld strip is the chosen party, the desktop's parties and choice.
+  const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name), true);
+  const displayIds = party.shown;
   const [draggingId, setDraggingId] = useState<number | null>(null);
   // Compact is the default; one control opens the full cards, folds the strip away,
-  // then restores its compact form. This stays a viewer-only preference.
+  // then restores its compact form. This stays a viewer-only preference. The party (cld) has
+  // no full cards: the control folds it away and back.
   const [rosterState, setRosterState] = useState(loadRosterState);
-  const expanded = rosterState === MOBILE_ROSTER_STATES.EXPANDED;
   const hidden = rosterState === MOBILE_ROSTER_STATES.HIDDEN;
+  const expanded = !describeCard && rosterState === MOBILE_ROSTER_STATES.EXPANDED;
+  // The control's next step folds the strip away (the full cards, or the party).
+  const folds = expanded || (!!describeCard && !hidden);
   const toggleRoster = () => {
-    const next = nextMobileRosterState(rosterState);
+    const next = describeCard
+      ? hidden
+        ? MOBILE_ROSTER_STATES.COMPACT
+        : MOBILE_ROSTER_STATES.HIDDEN
+      : nextMobileRosterState(rosterState);
     setRosterState(next);
     try {
       localStorage.setItem(MOBILE_ROSTER_STATE_STORAGE_KEY, savedMobileRosterState(next));
@@ -154,9 +166,10 @@ export function MobileAgentBar({
     timer: null,
   });
   // The native touch handlers below are attached once but need the current
-  // render's order and select callback.
-  const displayIdsRef = useRef(displayIds);
-  displayIdsRef.current = displayIds;
+  // render's order and select callback. A drag reorders the whole strip (the ones
+  // another party hides are not laid out, so they keep their places).
+  const displayIdsRef = useRef(ordered);
+  displayIdsRef.current = ordered;
   const onSelectAgentRef = useRef(onSelectAgent);
   onSelectAgentRef.current = onSelectAgent;
   const groupOfRef = useRef(groupOf);
@@ -335,8 +348,8 @@ export function MobileAgentBar({
           type="button"
           className={`shrink-0 flex items-center justify-center border-2 border-border bg-btn-bg text-text-muted rounded-none ${hidden ? 'w-64 h-24 border-b-0' : 'w-44'}`}
           aria-expanded={expanded}
-          aria-label={hidden ? t('cards.show') : expanded ? t('cards.hide') : t('cards.expand')}
-          title={hidden ? t('cards.show') : expanded ? t('cards.hide') : t('cards.expand')}
+          aria-label={hidden ? t('cards.show') : folds ? t('cards.hide') : t('cards.expand')}
+          title={hidden ? t('cards.show') : folds ? t('cards.hide') : t('cards.expand')}
           data-testid="cards-toggle"
           onClick={toggleRoster}
         >
@@ -350,7 +363,7 @@ export function MobileAgentBar({
           >
             <path
               d={
-                expanded || hidden
+                folds || hidden
                   ? 'M0 0h5v1H0z M1 1h3v1H1z M2 2h1v1H2z'
                   : 'M2 0h1v1H2z M1 1h3v1H1z M0 2h5v1H0z'
               }
@@ -398,37 +411,45 @@ export function MobileAgentBar({
                 />
               </div>
             )}
+            {party.head && (
+              <div className="party-strip-head" data-testid="party-strip-head">
+                {party.head}
+                <PartyWaiting ids={displayIds} />
+              </div>
+            )}
             <div
               ref={scrollerRef}
-              className="flex items-stretch gap-6 overflow-x-auto no-scrollbar flex-1 min-w-0"
+              className={`flex items-stretch gap-6 overflow-x-auto no-scrollbar flex-1 min-w-0 ${describeCard ? 'party-strip' : ''}`}
+              data-testid={describeCard ? 'party-strip' : undefined}
             >
-              {displayIds.map((agentId, i) => {
+              {displayIds.map((agentId) => {
                 const variant = cardVariant(agentId, {
                   activeId: activeAgentId,
                   focusedId: focusedAgentId,
                 });
                 const info = describeCard?.(agentId);
-                const divider =
-                  info && i > 0 && groupOf?.(displayIds[i - 1]) !== info.group ? (
-                    <div
-                      className="shrink-0 w-2 bg-border"
-                      title={info.groupLabel}
-                      data-testid="card-group"
-                    />
-                  ) : null;
                 return (
-                  <Fragment key={agentId}>
-                    {divider}
-                    <div
-                      ref={(el) => {
-                        if (el) cardRefs.current.set(agentId, el);
-                        else cardRefs.current.delete(agentId);
-                      }}
-                      onTouchStart={handleCardTouchStart(agentId)}
-                      className={`shrink-0 flex items-stretch transition-transform ${
-                        draggingId === agentId ? 'relative z-10 -translate-y-4 opacity-70' : ''
-                      }`}
-                    >
+                  <div
+                    key={agentId}
+                    ref={(el) => {
+                      if (el) cardRefs.current.set(agentId, el);
+                      else cardRefs.current.delete(agentId);
+                    }}
+                    onTouchStart={handleCardTouchStart(agentId)}
+                    className={`shrink-0 flex items-stretch transition-transform ${
+                      draggingId === agentId ? 'relative z-10 -translate-y-4 opacity-70' : ''
+                    }`}
+                  >
+                    {describeCard ? (
+                      <PartyPortrait
+                        id={agentId}
+                        name={info?.name ?? `Agent ${agentId}`}
+                        look={getAppearance(agentId)}
+                        temps={info?.temps ?? 0}
+                        variant={variant}
+                        onSelect={onSelectAgent}
+                      />
+                    ) : (
                       <AgentCard
                         agentId={agentId}
                         variant={variant}
@@ -437,14 +458,11 @@ export function MobileAgentBar({
                         showClose={!hideActions && variant === 'active'}
                         onSelect={onSelectAgent}
                         onClose={onCloseAgent}
-                        name={info?.name}
-                        extra={info?.extra}
                         compact={!expanded}
                         mobileExpanded={expanded}
-                        statusNote={info?.status}
                       />
-                    </div>
-                  </Fragment>
+                    )}
+                  </div>
                 );
               })}
             </div>

@@ -421,7 +421,7 @@ async function main() {
     await ready(desk, loginUrl);
     // UI-C1: the job list is the 작업실's Task tab (실행); the seeded jobs' projects are no
     // orchestrator here, so they sit under 프로젝트 없음.
-    await openWorkbenchTab(desk, 'Task', { project: NO_PROJECT });
+    await openWorkbenchTab(desk, '이슈', { project: NO_PROJECT });
     await verify(desk, 'desktop');
 
     const { ctx: phoneCtx, page: phone } = await open({
@@ -432,7 +432,7 @@ async function main() {
     });
     await phoneCtx.addCookies(await deskCtx.cookies());
     await ready(phone, `http://127.0.0.1:${port}/`);
-    await openWorkbenchTab(phone, 'Task', { project: NO_PROJECT, tap: true });
+    await openWorkbenchTab(phone, '이슈', { project: NO_PROJECT, tap: true });
     await verify(phone, 'phone');
 
     // ── U-03: a job held in the GPU queue is a wait of its own, not 실행 중 ──
@@ -441,7 +441,7 @@ async function main() {
     const WHO = 'beta-orchestrator';
     const gpuJob = addLiveJob(fake.home, 'gpuwait', { project: WHO, gpu: true, minAgo: 4 });
     extra.push(gpuJob.proc);
-    await openWorkbenchTab(desk, 'Task', { project: WHO });
+    await openWorkbenchTab(desk, '이슈', { project: WHO });
     await desk
       .getByRole('group', { name: '작업 보기' })
       .getByRole('button', { name: '실행', exact: true })
@@ -467,19 +467,7 @@ async function main() {
       /^생성 \d+분 전 · 시작 전$/.test(c.times),
       `U-03: created and start are apart; before the lease: "${c.times}"`,
     );
-    // The lobby's board says the same word in its 작업 column (the 프로젝트 page, whichever page it turned to).
-    const boardRow = desk.locator('[data-testid="lobby-board"] [data-testid="board-project"]', {
-      hasText: WHO,
-    });
-    await desk
-      .locator('[data-testid="lobby-board"] [data-testid="board-tab-projects"]')
-      .evaluate((el) => (el as HTMLElement).click());
-    await until(
-      'the lobby board shows the wait',
-      async () => /GPU 대기/.test((await boardRow.textContent().catch(() => '')) ?? ''),
-      15_000,
-    );
-    check(true, 'U-03: the lobby board row reads GPU 대기 too: same word as the 작업 tab');
+    // (The lobby board's per-project 작업 column went with the dashboard, e18c8bf3: the 작업 tab alone says it.)
     await card.scrollIntoViewIfNeeded();
     await shotU(desk, 'u03-gpu-wait');
     fs.writeFileSync(path.join(jobsDir, `${gpuJob.id}.gpu`), 'gpu0\n');

@@ -166,21 +166,21 @@ describe('what the confirmation says and sends', () => {
   it('removing a merged, clean worktree is plain; one with work in it is the dangerous kind', () => {
     const clean = confirmText({ kind: 'worktreeRemove', project: 'p', worktree: wt() });
     expect(clean).toMatchObject({
-      question: '\uc791\uc5c5 \uacf5\uac04 login\uc744 \uc9c0\uc6b8\uae4c\uc694?',
+      question: '\uc6cc\ud06c\ud2b8\ub9ac login\uc744 \uc9c0\uc6b8\uae4c\uc694?',
       button: '\uc9c0\uc6b0\uae30',
       danger: false,
     });
     expect(clean.note).toContain('task/login\ub3c4 \ud568\uaed8 \uc9c0\uc6cc\uc694');
 
     const unmerged = wt({ ahead: 2, merged: false, dirty: 3 });
-    expect(worktreeLoss(unmerged)).toBe('\ubcd1\ud569\ub418\uc9c0 \uc54a\uc740 \ucee4\ubc0b 2\uac1c, \ucee4\ubc0b\ud558\uc9c0 \uc54a\uc740 \ubcc0\uacbd 3\uac74');
+    expect(worktreeLoss(unmerged)).toBe('\uba38\uc9c0\ub418\uc9c0 \uc54a\uc740 \ucee4\ubc0b 2\uac1c, \ucee4\ubc0b\ud558\uc9c0 \uc54a\uc740 \ubcc0\uacbd 3\uac74');
     const danger = confirmText({ kind: 'worktreeRemove', project: 'p', worktree: unmerged });
     expect(danger).toMatchObject({ button: '\ubc84\ub9ac\uace0 \uc9c0\uc6b0\uae30', danger: true });
-    expect(danger.note).toContain('\ubcd1\ud569\ub418\uc9c0 \uc54a\uc740 \ucee4\ubc0b 2\uac1c');
+    expect(danger.note).toContain('\uba38\uc9c0\ub418\uc9c0 \uc54a\uc740 \ucee4\ubc0b 2\uac1c');
     expect(danger.note).toContain('task/login ' + '\uc5d0 \uc784\uc2dc \ucee4\ubc0b\uc73c\ub85c \ubcf4\uad00');
 
     expect(worktreeLoss(wt({ dirty: 1 }))).toBe('\ucee4\ubc0b\ud558\uc9c0 \uc54a\uc740 \ubcc0\uacbd 1\uac74');
-    expect(worktreeLoss(wt({ merged: false }))).toBe('\ubcd1\ud569\ub410\ub294\uc9c0 \uc54c \uc218 \uc5c6\uc5b4\uc694');
+    expect(worktreeLoss(wt({ merged: false }))).toBe('\uba38\uc9c0\ub410\ub294\uc9c0 \uc54c \uc218 \uc5c6\uc5b4\uc694');
     expect(worktreeLoss(wt({ exists: false, ahead: 4, merged: false }))).toBeNull();
     expect(
       confirmText({ kind: 'worktreeRemove', project: 'p', worktree: wt({ exists: false }) }).note,
@@ -342,9 +342,9 @@ describe('W2: a Task worktree', () => {
 
   it('asks with the Task, the base and who gets it; sends taskId, assignee and base only when given', () => {
     expect(confirmText(ask)).toEqual({
-      question: 'Create a worktree for Task T-3?',
+      question: 'Create a worktree for issue T-3?',
       note: 'A new branch (feat/t…-…) starts from the main branch, in a folder under the project’s .worktrees/. It goes to p-w1. A running session is not moved; it starts in this folder next time.',
-      button: 'Create worktree',
+      button: 'Create a worktree',
       danger: false,
     });
     expect(confirmText({ ...ask, assignee: undefined, base: 'dev' }).note).toBe(

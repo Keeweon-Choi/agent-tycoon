@@ -2,7 +2,7 @@ import './index.css';
 // Bundled by Vite into the SPA's own CSS — the standalone server must serve
 // every asset itself (no CDN).
 import '@xterm/xterm/css/xterm.css';
-import './cld/uiFont.js';
+import './cld/uiTheme.js';
 import './cld/game/gameMotion.js';
 
 import { StrictMode } from 'react';
@@ -12,19 +12,24 @@ import App from './App.tsx';
 import { installExternalLinks } from './cld/externalLinks.js';
 import { installInputPolicy } from './cld/inputPolicy.js';
 import { isCldMock } from './cld/mock.js';
+import { cldGetSnapshot, cldSubscribe } from './cld/officeStore.js';
 import { PIXEL_FONT_PRELOAD, PIXEL_FONT_PRELOAD_TEXT } from './constants.js';
-import { getLanguage, subscribeLanguage, t } from './i18n/index.js';
+import { getLanguage, t } from './i18n/index.js';
 
 async function main() {
   installInputPolicy(); // G1: game areas get no browser menu / drag
   installExternalLinks(); // G2: another origin never replaces the app
-  // The page's name in its language (index.html and the manifest carry the English one).
+  // The page's name in its language (index.html and the manifest carry the English one), and
+  // which host it is (MHO 3.6: two offices in one browser). The Home-Screen name stays the app's.
   const nameThePage = () => {
-    document.title = t('srv.app_name');
-    document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', document.title);
+    const app = t('srv.app_name');
+    const host = cldGetSnapshot().hostInfo?.hostName;
+    const title = host ? `${app} · ${host}` : app;
+    if (document.title !== title) document.title = title;
+    document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', app);
   };
   nameThePage();
-  subscribeLanguage(nameThePage);
+  cldSubscribe(nameThePage); // also tells of language changes
   // Korean room names can be drawn on canvas before they appear in the DOM.
   // English pages let unicode-range load Galmuri only when Hangul is drawn.
   if (getLanguage() === 'ko')

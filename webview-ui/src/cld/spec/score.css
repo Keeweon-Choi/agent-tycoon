@@ -1,120 +1,21 @@
-/* GAME-UI-1 G2 (specs/ui-mock-1103 cockpit 11, agents 08): HI-SCORE digits, 이번 주 수락, the
+/* GAME-UI-1 G2 (specs/ui-mock-1103 cockpit 11, agents 08): 이번 주 수락, the
    수락 and 반려 stamps. Calm: the purple accent, gold only on the 수락 stamp and the 신기록 box,
    zeros dimmed, low-contrast lines. Every animation is under :root[data-game-motion='on'] (one
    step function, once, under 1.2s); without it the end state shows. */
-
-/* HI-SCORE: one cell per digit, the zeros in front dimmed. */
-.hi-v {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-  --hi-h: 24px;
-}
-.hi-v[data-big] {
-  --hi-h: 36px;
-}
-/* inline-block cells (not flex items): innerText reads them as one number, 0010 */
-.hi-digits {
-  display: inline-block;
-  white-space: nowrap;
-}
-.hi-digits > i {
-  display: inline-block;
-  vertical-align: top;
-  width: calc(var(--hi-h) * 0.6667);
-  height: var(--hi-h);
-  overflow: hidden;
-  font-style: normal;
-  font-family: var(--font-data);
-  font-size: var(--hi-h);
-  line-height: var(--hi-h);
-  text-align: center;
-  color: var(--color-text);
-  background: var(--color-bg-dark);
-}
-.hi-digits > i + i {
-  margin-left: 2px;
-}
-.hi-digits > i[data-lead] {
-  color: var(--color-text-muted);
-}
-.hi-digits b {
-  display: block;
-  font-family: var(--font-data);
-  font-size: inherit;
-  line-height: inherit;
-  font-weight: 400;
-}
-.hi-digits b::after {
-  content: attr(data-now);
-  display: block;
-}
-.hi-digits b[data-roll]::before {
-  content: attr(data-was);
-  display: block;
-}
-/* Without motion the old digit is not drawn: the end state. */
-:root:not([data-game-motion='on']) .hi-digits b[data-roll]::before {
-  content: none;
-}
-/* The number as one text (copy, find, innerText), drawn by the cells instead. */
-.hi-text {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-.hi-of {
-  font-family: var(--font-data);
-  font-size: calc(var(--hi-h) * 0.6667);
-  color: var(--color-text-muted);
-}
-.hi-plus {
-  position: absolute;
-  right: 0;
-  top: calc(100% - 4px);
-  font-family: var(--font-data);
-  font-size: calc(var(--hi-h) * 0.6667);
-  color: var(--color-text);
-  visibility: hidden;
-}
-.hi-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  margin-left: auto;
-  height: 36px;
-  padding: 0 10px;
-  background: var(--hud-tile);
-  border: 2px solid var(--color-border);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-.hi-tab:hover {
-  border-color: var(--color-accent-bright);
-}
-.hi-name {
-  font-family: var(--font-data);
-}
 
 /* 이번 주 수락 */
 .wk {
   display: grid;
   gap: 10px;
   padding-top: 8px;
-  border-top: 2px solid var(--hud-line);
+  border-top: var(--ui-bw) solid var(--hud-line);
 }
 .wk-h {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-weight: 400;
+  font-weight: var(--ui-weight-strong);
   color: var(--color-accent-text);
 }
 .wk-range {
@@ -127,12 +28,13 @@
   gap: 12px;
 }
 .wk-days {
+  border-radius: var(--ui-r-card);
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
   padding: 8px;
   background: var(--hud-tile);
-  border: 2px solid var(--hud-line);
+  border: var(--ui-bw) solid var(--hud-line);
 }
 .wk-day {
   display: grid;
@@ -191,11 +93,12 @@
   align-content: start;
 }
 .wk-tile {
+  border-radius: var(--ui-r-card);
   display: grid;
   gap: 4px;
   padding: 6px 10px 8px;
   background: var(--hud-tile);
-  border: 2px solid var(--hud-line);
+  border: var(--ui-bw) solid var(--hud-line);
 }
 .wk-k {
   display: flex;
@@ -304,18 +207,19 @@
 
 /* 반려: a dashed grey stamp with the memo, no drop, no ink, no score. */
 .rej-stamp {
+  border-radius: var(--ui-r-chip);
   display: inline-grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 4px;
   max-width: 100%;
   padding: 2px;
-  border: 2px dashed var(--color-text-muted);
+  border: var(--ui-bw) dashed var(--color-text-muted);
   color: var(--color-text-muted);
 }
 .rej-stamp > b {
   padding: 0 10px;
-  border: 2px solid currentColor;
+  border: var(--ui-bw) solid currentColor;
   font-weight: 400;
   font-size: calc(24px * var(--ui-scale));
 }
@@ -327,28 +231,6 @@
 }
 
 /* Motion (게임 효과 on, no reduced motion) */
-:root[data-game-motion='on'] .hi-digits b[data-roll] {
-  animation: hi-roll 200ms steps(3, jump-end) var(--roll-delay, 0ms) both;
-}
-@keyframes hi-roll {
-  from {
-    transform: none;
-  }
-  to {
-    transform: translateY(calc(-1 * var(--hi-h)));
-  }
-}
-:root[data-game-motion='on'] .hi-plus {
-  animation: hi-plus 600ms step-end;
-}
-@keyframes hi-plus {
-  0% {
-    visibility: visible;
-  }
-  100% {
-    visibility: hidden;
-  }
-}
 :root[data-game-motion='on'] .wk-stack > i[data-new] {
   animation: wk-drop 200ms steps(2, jump-end) both;
 }

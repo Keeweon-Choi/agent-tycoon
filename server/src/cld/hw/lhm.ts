@@ -5,8 +5,9 @@
  * (`Temperature`, `Power`, `Load`, `SmallData`), `Text` (`CPU Package`) and its
  * value as text in Windows' number format (`"54.0 °C"`, `"54,0 °C"`).
  *
- * The port is the one the installer set up or found (`--lhm-port`); without it
- * nothing is read. From WSL, 127.0.0.1 reaches Windows only in mirrored
+ * The port is the one the installer set up or found (`--lhm-port`), else LHM's
+ * own default: an LHM the user runs themselves is read without the installer.
+ * From WSL, 127.0.0.1 reaches Windows only in mirrored
  * networking; in the default NAT mode Windows' own curl.exe reads its localhost
  * (an inbound connection to the host is blocked by its firewall).
  */
@@ -19,6 +20,11 @@ import type { Readings } from './hwSource.js';
 
 /** After a failed read, LHM is tried again this much later (no curl.exe every 2 s for a closed LHM). */
 export const LHM_RETRY_MS = 30_000;
+/** LHM's own web server port (the installer's LHM.port too). */
+export const LHM_DEFAULT_PORT = 8085;
+/** The default port, nobody configured it: tried again this much later after a miss. On WSL a miss
+ *  costs ~1 s and a curl.exe start; the guide's 센서 도구 설치 re-checks at once (retryNow). */
+export const LHM_DEFAULT_RETRY_MS = 5 * 60_000;
 const TIMEOUT_MS = 1_500;
 const CURL_EXE = '/mnt/c/Windows/System32/curl.exe';
 
@@ -239,11 +245,17 @@ export class LhmReader {
   constructor(
     private readonly port: number,
     private readonly wsl: boolean,
+    private readonly retryMs = LHM_RETRY_MS,
     private readonly get: { http: typeof httpJson; curl: typeof curlJson } = {
       http: httpJson,
       curl: curlJson,
     },
   ) {}
+
+  /** After the office installed LHM: try at once, not after the back-off. */
+  retryNow(): void {
+    this.retryAt = 0;
+  }
 
   /** The readings, or null while LHM does not answer (then again after LHM_RETRY_MS). */
   async read(now = Date.now()): Promise<Readings | null> {
@@ -256,7 +268,7 @@ export class LhmReader {
         json = await this.get.curl(`http://localhost:${this.port}/data.json`).catch(() => null);
     }
     const r = json === null ? null : parseLhm(json);
-    if (!r) this.retryAt = now + LHM_RETRY_MS;
+    if (!r) this.retryAt = now + this.retryMs;
     return r;
   }
 }

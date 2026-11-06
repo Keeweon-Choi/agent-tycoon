@@ -1,27 +1,24 @@
 /**
- * T-0041: temps in words. A lead's card carries "+N" for its temps; tapping it
- * opens the list (name, model, state, elapsed, what it does), and a row goes
- * to that character; its 작업 보기 button opens the read-only work view (T-0056). The 현황판's orchestrator row shows the same summary:
+ * T-0041: temps in words. A lead's portrait carries "+N" for its temps; its member card's 관계 tab
+ * lists them (name, model, state, elapsed, what it does), and a row goes to that character; its
+ * 작업 보기 button opens the read-only work view (T-0056). The summary:
  * at most five temp rows then "외 N", finished Codex tasks folded into one
  * line, and the live work counted by state: "⏳ 작업 중 3 · ⌛ GPU 대기 1" (U-04;
  * from the records alone, never a progress figure), each job under it in EZ text only, never a command.
  */
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import type { CodexTask, OfficeJob } from '../../../core/src/messages.js';
 import { Button } from '../components/ui/Button.js';
-import { Modal } from '../components/ui/Modal.js';
 import { MODEL_BADGE_COLORS, MODEL_BADGE_TEXT, TEMP_ROWS_MAX } from '../constants.js';
 import { t } from '../i18n/index.js';
 import { transport } from '../transport/index.js';
 import { elapsedDuration } from './kinds.js';
 import { jobLineLabel } from './messenger/toolLine.js';
 import { MODEL_BADGES, type ModelBadge as Badge, modelVersion, rankModelLabel } from './modelBadges.js';
-import { presenceOf, presenceWord } from './officeHours.js';
 import { ezContext, useCldStore } from './officeStore.js';
 import { codexKind, codexStatus, jobStatus, workCounts, workLines } from './panels/jobs.js';
-import { staffFocus, useStaff } from './staff.js';
+import { staffFocus } from './staff.js';
 import {
   capRows,
   codexFold,
@@ -31,9 +28,6 @@ import {
   type TempRow,
 } from './temps.js';
 import { openWork } from './work/workStore.js';
-
-/** Over the card bars and panels, like the other cld dialogs. */
-const LIST_Z_INDEX = 60;
 
 const phaseWord = (phase: TempPhase): string => t(`temp.phase.${phase}`);
 const codexWord = (state: CodexTask['state']): string =>
@@ -76,7 +70,7 @@ export function TempRank({
 }) {
   return (
     <span
-      className="bg-bg border border-border px-4 text-xs leading-tight whitespace-nowrap"
+      className="bg-bg border border-border rounded-ui-chip px-4 text-xs leading-tight whitespace-nowrap"
       data-testid="temp-rank"
     >
       {rankModelLabel(level, badge, modelId)}
@@ -256,77 +250,5 @@ export function TempSummary({
       <CodexFold tasks={finished} />
       {jobs.length + live.length > 0 && <JobSummary jobs={jobs} tasks={live} now={now} />}
     </div>
-  );
-}
-
-/** "+N" under a lead's card name: its temps, in a list on a tap. */
-export function TempChip({
-  rows,
-  title,
-  project,
-  outsourced,
-}: {
-  rows: TempRow[];
-  title: string;
-  project: string | null;
-  outsourced?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!rows.length) return null;
-  return (
-    <>
-      <button
-        type="button"
-        className="block w-full text-center text-[10px] leading-tight text-accent-text border border-border bg-bg pointer-events-auto"
-        title={t('temp.viewTeam', { count: rows.length })}
-        aria-haspopup="dialog"
-        data-testid="temp-chip"
-        onClick={(e) => {
-          e.stopPropagation(); // not the card's select
-          setOpen(true);
-        }}
-      >
-        +{rows.length}
-      </button>
-      {open &&
-        // Portalled out of the card bar (the phone's sliding track would be
-        // its fixed box); React events still bubble to the card, so they stop here.
-        createPortal(
-          <div onClick={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-            <Modal
-              isOpen
-              onClose={() => setOpen(false)}
-              title={t('temp.teamTitle', { title, count: rows.length })}
-              zIndex={LIST_Z_INDEX}
-              className="w-[min(480px,100%)]"
-            >
-              <div className="px-10 pb-8" data-testid="temp-list">
-                <TempSummary
-                  rows={rows}
-                  project={project}
-                  outsourced={outsourced}
-                  onPick={() => setOpen(false)}
-                />
-              </div>
-            </Modal>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
-}
-
-/** 퇴근 on a card or a 현황판 row whose orchestrator went home; 야근 for one on overtime. */
-export function DutyMark({ id }: { id: number }) {
-  const duty = presenceOf(useStaff(), id);
-  if (!duty) return null;
-  const word = presenceWord(duty);
-  return (
-    <span
-      className="shrink-0 border border-border px-4 text-[10px] leading-tight text-text-muted"
-      data-testid="duty-mark"
-    >
-      {word}
-    </span>
   );
 }

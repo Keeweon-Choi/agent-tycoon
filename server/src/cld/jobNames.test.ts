@@ -15,7 +15,7 @@ import {
 describe('human work names', () => {
   it.each([
     ['node cld/install/install.mjs', '배포'],
-    ['bash cld/scripts/gate.sh', '병합 검사'],
+    ['bash cld/scripts/gate.sh', '머지 검사'],
     ['npx tsx cld/test/run-all.ts', '브라우저 시험 전체'],
     ['npx tsx cld/test/run-chat.ts', '브라우저 시험(chat)'],
     ['npm run test:unit', '시험'],

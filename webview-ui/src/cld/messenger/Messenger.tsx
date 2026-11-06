@@ -4,17 +4,18 @@ import type { MessengerContact } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
 import { MESSENGER_SPLIT_MIN_PX, MSG_DELIVERED_BADGE_MS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
-import { transport } from '../../transport/index.js';
 import { PixelIcon } from '../game/parts.js';
 import { usePageStyle } from '../hud/hudStore.js';
+import { Icon } from '../icons/Icon.js';
 import { useCldStore } from '../officeStore.js';
 import { serverLine } from '../serverText.js';
 import { WaitMark } from '../WaitMark.js';
+import { AllSearchResults } from './AllSearchResults.js';
+import { useChatView } from './chatView.js';
 import { Conversation } from './conversation/Conversation.js';
 import { shownName } from './goneNames.js';
 import { MessengerLooks } from './looksContext.js';
 import {
-  chatViewClosed,
   closeConversation,
   closeMessenger,
   closeMessengerPane,
@@ -39,15 +40,9 @@ import { GroupRooms, RoomConversation } from './rooms/GroupRooms.js';
 
 
 /** Each open conversation's chatView, while the panel is up (the transport
- *  re-sends it after a reconnect). */
+ *  re-sends it after a reconnect; a 개발실 pane may hold the same one: chatView.ts). */
 function Subscription({ agentId }: { agentId: number }) {
-  useEffect(() => {
-    transport.send({ type: 'chatView', agentId, on: true });
-    return () => {
-      transport.send({ type: 'chatView', agentId, on: false });
-      chatViewClosed(agentId);
-    };
-  }, [agentId]);
+  useChatView(agentId);
   return null;
 }
 
@@ -79,38 +74,32 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
     return (
       <section
         aria-label={t('messenger.title')}
-        className="absolute inset-x-0 top-0 bottom-0 z-50 bg-bg flex flex-col min-h-0 pl-(--cld-safe-left) pr-(--cld-safe-right)"
+        className="msg-shell absolute inset-x-0 top-0 bottom-0 z-50 bg-bg flex flex-col min-h-0 pl-(--cld-safe-left) pr-(--cld-safe-right)"
         style={pageStyle}
       >
         {subs}
         {m.active === null && !room ? (
           <>
-            <header className="shrink-0 border-b-2 border-border px-12 py-8 flex items-center justify-between">
-              <strong className="text-sm">{t('messenger.title')}</strong>
+            <header className="msg-head shrink-0 px-12 py-8 flex items-center justify-between">
+              <strong className="text-lg text-devroom-title">{t('messenger.title')}</strong>
               {/* WINMODEL: the way home; the page is kept (a phone has no minimize and no close). */}
-              <button
-                type="button"
-                className="text-xs border border-border px-8 py-4"
-                onClick={closeMessenger}
-              >
+              <Button size="sm" onClick={closeMessenger}>
                 {t('messenger.office')}
-              </button>
+              </Button>
             </header>
-            <Contacts statusFor={statusFor} getAppearance={getAppearance} />
+            <div className="msg-rail border-r-0! flex-1 min-h-0 flex flex-col">
+              <Contacts statusFor={statusFor} getAppearance={getAppearance} />
+            </div>
           </>
         ) : (
           <>
             <nav
-              className="shrink-0 flex items-center gap-4 px-8 py-4 border-b border-border overflow-x-auto"
+              className="msg-tabs shrink-0 flex items-center gap-6 px-8 py-6 overflow-x-auto"
               aria-label={t('messenger.openConversations')}
             >
-              <button
-                type="button"
-                className="shrink-0 text-xs border border-border px-8 py-4"
-                onClick={showMessengerList}
-              >
+              <Button size="sm" className="shrink-0" onClick={showMessengerList}>
                 {t('messenger.backToList')}
-              </button>
+              </Button>
               {m.open.map((id) => (
                 <Tab key={id} agentId={id} chip />
               ))}
@@ -140,19 +129,19 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
     <section
       ref={wideRef}
       aria-label={t('messenger.title')}
-      className="flex-1 min-h-0 flex flex-col border-2 border-border"
+      className="msg-shell flex-1 min-h-0 flex flex-col"
     >
       {subs}
       <div className="flex flex-1 min-h-0">
-        <div className="w-[min(220px,34%)] shrink-0 border-r-2 border-border flex flex-col min-h-0">
+        <div className="msg-rail w-[min(260px,32%)] shrink-0 flex flex-col min-h-0">
           <Contacts statusFor={statusFor} getAppearance={getAppearance} />
         </div>
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           {(m.splitWide || (m.open.length + m.openRooms.length > 0)) && (
-            <div className="shrink-0 flex items-center gap-4 px-8 py-4 border-b border-border">
+            <div className="msg-tabs shrink-0 flex items-center gap-6 px-10 py-6">
               {shown === 1 && (
                 <nav
-                  className="flex-1 min-w-0 flex gap-4 overflow-x-auto"
+                  className="flex-1 min-w-0 flex gap-6 overflow-x-auto"
                   aria-label={t('messenger.openConversations')}
                 >
                   {m.open.map((id) => (
@@ -199,7 +188,7 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
               ))}
             </div>
           ) : m.active === null && !room ? (
-            <p className="text-sm text-text-muted p-12">{t('messenger.chooseLead')}</p>
+            <p className="msg-timeline flex-1 text-sm text-text-muted p-16">{t('messenger.chooseLead')}</p>
           ) : room ? (
             <RoomConversation key={room.id} room={room} />
           ) : (
@@ -252,7 +241,7 @@ function Pane({
   };
   return (
     <div
-      className={`min-w-0 min-h-0 flex flex-col border-2 ${focused ? 'border-accent' : 'border-border'}`}
+      className={`min-w-0 min-h-0 flex flex-col border-ui rounded-ui-card ${focused ? 'border-(--msg-mine-line)' : 'border-devroom-card-line'}`}
       data-testid={`split-pane-${index}`}
       data-focused={focused || undefined}
       onPointerDownCapture={take}
@@ -270,7 +259,7 @@ function Pane({
           onClose={close}
         />
       ) : (
-        <p className="text-sm text-text-muted p-12">{t('msgSplit.emptyPane')}</p>
+        <p className="msg-timeline flex-1 text-sm text-text-muted p-16">{t('msgSplit.emptyPane')}</p>
       )}
     </div>
   );
@@ -279,19 +268,27 @@ function Pane({
 function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) {
   const m = useMessenger();
   const { officeReadOnly, officeSnapshot } = useCldStore();
-  const { direct: sorted, workers } = conversationSections(m.contacts, m.rooms, m.pinned);
-  if (!sorted.length && !m.rooms.length)
+  // FEAT-MESSENGER-GPT-LOOK: the list's find field keeps the rooms and people whose name holds the words.
+  const [findText, setFindText] = useState('');
+  const find = findText.trim().toLocaleLowerCase();
+  const { direct: all, workers } = conversationSections(m.contacts, m.rooms, m.pinned);
+  const named = (c: MessengerContact) => shownName(c.name).toLocaleLowerCase().includes(find);
+  const sorted = find ? all.filter((c) => named(c) || workers[c.name]?.some(named)) : all;
+  const unreadDirect = sorted.reduce((sum, c) => sum + unreadCount(c.replies, m.read[c.name]), 0);
+  if (!all.length && !m.rooms.length)
     return <p className="text-sm text-text-muted p-12">{t('messenger.noLeads')}</p>;
   const row = (c: MessengerContact, nested = false) => {
     const unread = unreadCount(c.replies, m.read[c.name]);
     // MSG-HOLD2: edits left held show here too, so a forgotten one cannot hide in its chat.
     const heldEdits =
       officeSnapshot?.orchestrators.find((o) => o.agentId === c.agentId)?.heldEdits ?? 0;
+    const on = m.active === c.agentId;
     return (
-      <li key={c.agentId} className="flex items-stretch border-b border-border">
+      <li key={c.agentId} className="msg-row flex items-stretch" data-on={on || undefined}>
         <button
           type="button"
-          className={`flex-1 min-w-0 flex items-center gap-8 ${nested ? 'pl-24 pr-8' : 'px-8'} py-6 text-left hover:bg-btn-hover ${m.active === c.agentId ? 'bg-active-bg' : ''}`}
+          className={`flex-1 min-w-0 flex items-center gap-10 ${nested ? 'pl-20 pr-8' : 'px-8'} py-6 text-left`}
+          aria-current={on || undefined}
           aria-label={`${shownName(c.name)}${unread ? t('messenger.unread', { count: unread }) : ''}`}
           onClick={() => openMessenger(c.agentId)}
         >
@@ -307,7 +304,7 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
             </span>
             <span className="flex items-center gap-4 min-w-0">
               <span
-                className={`text-xs truncate flex-1 min-w-0 ${c.held ? 'text-accent-text' : 'text-text-muted'}`}
+                className={`text-xs truncate flex-1 min-w-0 ${c.held ? 'text-accent-text' : 'msg-row-sub text-text-muted'}`}
               >
                 {c.held
                   ? heldNote()
@@ -324,9 +321,7 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
                 </span>
               )}
               {unread > 0 && (
-                <span className="shrink-0 text-2xs px-4 bg-danger text-text">
-                  {unread > 99 ? '99+' : unread}
-                </span>
+                <span className="msg-count ui-notch text-2xs">{unread > 99 ? '99+' : unread}</span>
               )}
             </span>
           </span>
@@ -341,13 +336,38 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
     );
   };
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <GroupRooms />
+    <>
+      <div className="shrink-0 px-8 pt-8 pb-4">
+        <label className="ui-input flex items-center gap-6 h-32 px-8 focus-within:border-accent-bright pointer-coarse:h-44">
+          <Icon name="search" size={16} className="text-text-muted" pixel={<span className="material-symbols-sharp text-[16px] text-text-muted" aria-hidden="true">
+            search
+          </span>} />
+          <input
+            type="search"
+            className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-text-muted"
+            placeholder={t('messengerLook.find')}
+            aria-label={t('messengerLook.findLabel')}
+            value={findText}
+            onChange={(e) => setFindText(e.target.value)}
+          />
+        </label>
+      </div>
+    <div className="flex-1 min-h-0 overflow-y-auto pb-8">
+      <GroupRooms find={find} />
       {sorted.length > 0 && (
-        <h2 className="px-8 py-6 text-xs font-bold border-b border-border">
-          {t('messenger.directChats')}
-        </h2>
+        <div className="msg-section text-xs">
+          <h2>
+            {t('messenger.directChats')}
+            <span className="text-2xs">{sorted.length}</span>
+          </h2>
+          {unreadDirect > 0 && (
+            <span className="msg-count ui-notch text-2xs" aria-label={t('messenger.unread', { count: unreadDirect })}>
+              {unreadDirect > 99 ? '99+' : unreadDirect}
+            </span>
+          )}
+        </div>
       )}
+      {find && !sorted.length && <p className="px-12 py-8 text-xs text-text-muted">{t('messengerLook.noMatch')}</p>}
       <ul aria-label={t('messenger.contacts')}>
         {sorted.flatMap((c) => {
           const team = workers[c.name];
@@ -357,8 +377,8 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
               ? [
                   // D3 (F-7): a project's Workers, an advanced chat, collapsed under it.
                   <li key={`workers:${c.name}`}>
-                    <details data-testid={`workers-${c.name}`}>
-                      <summary className="pl-24 pr-8 py-4 text-xs text-text-muted border-b border-border cursor-pointer">
+                    <details data-testid={`workers-${c.name}`} open={find ? true : undefined}>
+                      <summary className="mx-8 pl-20 pr-8 py-4 text-xs text-text-muted cursor-pointer hover:text-text">
                         {t('messenger.workers', { count: team.length })}
                       </summary>
                       <ul>{team.map((w) => row(w, true))}</ul>
@@ -369,7 +389,9 @@ function Contacts({ statusFor, getAppearance }: Omit<MessengerProps, 'mobile'>) 
           ];
         })}
       </ul>
+      <AllSearchResults findText={findText} getAppearance={getAppearance} />
     </div>
+    </>
   );
 }
 
@@ -401,14 +423,12 @@ function Tab({ agentId }: { agentId: number; chip?: boolean }) {
   const unread = c ? unreadCount(c.replies, m.read[c.name]) : 0;
   const on = m.active === agentId;
   return (
-    <span
-      className={`shrink-0 flex items-center border text-xs ${on ? 'border-accent text-accent-text' : 'border-border text-text-muted'}`}
-    >
+    <span className="msg-tab text-xs" data-on={on || undefined}>
       <button
         type="button"
         role="tab"
         aria-selected={on}
-        className="self-stretch px-8 max-w-[140px] truncate"
+        className="self-stretch flex items-center max-w-[160px] truncate"
         onClick={() => showConversation(agentId)}
       >
         {name}
@@ -434,15 +454,13 @@ function RoomTab({ roomId }: { roomId: string; chip?: boolean }) {
   const on = m.activeRoom === roomId;
   const unread = unreadCount(room.updates ?? [], m.read[roomKey(room)]);
   return (
-    <span
-      className={`shrink-0 flex items-center border text-xs ${on ? 'border-accent text-accent-text' : 'border-border text-text-muted'}`}
-    >
+    <span className="msg-tab text-xs" data-on={on || undefined}>
       <button
         type="button"
         role="tab"
         aria-selected={on}
         data-testid={`room-tab-${roomId}`}
-        className="self-stretch px-8 max-w-[140px] truncate"
+        className="self-stretch flex items-center max-w-[160px] truncate"
         onClick={() => showRoom(roomId)}
       >
         {serverLine(room.name)}

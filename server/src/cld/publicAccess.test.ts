@@ -128,12 +128,26 @@ describe('public (Funnel) requests', () => {
       '/fonts/FSPixelSansUnicode-Regular.ttf',
       '/fonts/galmuri/Galmuri11.woff2',
       '/fonts/galmuri/Galmuri11-Bold.woff2',
+      '/fonts/pretendard/Pretendard-Regular.woff2',
+      '/fonts/pretendard/Pretendard-SemiBold.woff2',
     ])
       expect([url, await get(url)]).toEqual([url, 200]);
     expect(await get('/login/other.js')).toBe(401);
     expect(await get('/fonts/other.ttf')).toBe(401);
     expect(await get('/fonts/galmuri/other.woff2')).toBe(401);
     expect(await get('/fonts/galmuri/OFL.txt')).toBe(401);
+    // only the two faces the CSS names: nothing else in or beside their folder
+    for (const url of [
+      '/fonts/pretendard/OFL.txt',
+      '/fonts/pretendard/Pretendard-Light.woff2',
+      '/fonts/pretendard/Pretendard-Bold.woff2', // the face 모던 drew before SemiBold, still on disk in the kit
+      '/fonts/pretendard/Pretendard-semibold.woff2',
+      '/fonts/pretendard/Pretendard-Regular.woff2.map',
+      '/fonts/pretendard/../../index.html',
+      '/fonts/Pretendard-Regular.woff2',
+      '/fonts/pretendardx/Pretendard-Regular.woff2',
+    ])
+      expect([url, await get(url)]).toEqual([url, 401]);
   });
 
   it('serves the app to a logged-in Funnel client', async () => {

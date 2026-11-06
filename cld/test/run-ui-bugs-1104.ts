@@ -1,9 +1,9 @@
 /**
  * UI-BUGS-1104 (owner's photos, 11-04 15:15) on the REAL API: dist/cli.js in a temp HOME (fake claude R-8, the
- * usage endpoint faked by testHome.fakeUsage), headless Chromium at the owner's 1282x832.
- *  1. A Claude plan with no 5-hour window (Ultra: the week only) still shows a gauge: under 1300 wide the
- *     strip keeps one window per provider, the week then, with its cells and its label (주).
- *  2. The elevator panel draws under the open windows (메신저, 현황판 > 개발 > 이슈): nowhere it shares
+ * status-line report and /usage answer faked by testHome.fakeUsage), headless Chromium at the owner's 1282x832.
+ *  1. A Claude plan with no 5-hour window (Ultra: the week only) still shows a gauge: the usage panel (bottom right)
+ *     keeps one window per provider, the week then, with its cells and its label (주).
+ *  2. The elevator panel draws under the open window (현황판 > 개발 > 이슈): nowhere it shares
  *     with a window is the elevator the topmost element.
  * Every check runs (a failure is reported, the rest still run); exit 1 on any failure.
  * Screenshots in cld/artifacts/ui-bugs-1104/<tag>/.
@@ -97,30 +97,23 @@ async function main() {
     const shot = (name: string) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
 
     // ── 1. the Claude gauge with the week only ──
-    const gauge = page.locator('[data-testid="usage-gauge"][data-provider="claude"]');
+    // hud-v3: the PC has no top bar; the usage panel at the bottom right shows each provider's main window.
+    const gauge = page.locator('[data-testid="usage-panel-provider"][data-provider="claude"]');
     await gauge.waitFor({ timeout: 30_000 });
-    await page.waitForFunction(() => /\d%/.test(document.querySelector('[data-testid="usage-gauge"][data-provider="codex"]')?.textContent ?? ''), null, { timeout: 30_000 });
+    const codexGauge = page.locator('[data-testid="usage-panel-provider"][data-provider="codex"]');
+    await page.waitForFunction(() => /\d%/.test(document.querySelector('[data-testid="usage-panel-provider"][data-provider="codex"]')?.textContent ?? ''), null, { timeout: 30_000 });
     await page.waitForTimeout(500);
     const claudeText = (await gauge.innerText()).replace(/\s+/g, ' ');
     check(/48%/.test(claudeText), `1282 wide: the Claude gauge shows the week's 48% left (${claudeText})`);
     check(await gauge.locator('.game-segbar').first().isVisible().catch(() => false), 'the Claude gauge has its cells');
-    check(/주/.test(claudeText), 'its label says it is the week (주)');
-    const codexText = (await page.locator('[data-testid="usage-gauge"][data-provider="codex"]').innerText()).replace(/\s+/g, ' ');
-    check(/5h/.test(codexText) && /98%/.test(codexText), `Codex keeps its 5-hour gauge (${codexText})`);
-    await page.locator('[data-testid="usage-folded"]').locator('xpath=ancestor::div[contains(@class,"pixel-panel")][1]').screenshot({ path: path.join(OUT, 'hud-1282.png') });
+    check((await gauge.getAttribute('data-window')) === '7d' && /주/.test(claudeText), 'its label says it is the week (주)');
+    const codexText = (await codexGauge.innerText()).replace(/\s+/g, ' ');
+    check((await codexGauge.getAttribute('data-window')) === '5h' && /5h/.test(codexText) && /98%/.test(codexText), `Codex keeps its 5-hour gauge (${codexText})`);
+    await page.getByTestId('usage-panel').screenshot({ path: path.join(OUT, 'hud-1282.png') });
 
     // ── 2. the elevator under the windows ──
     await page.getByTestId('elevator-display').waitFor({ timeout: 30_000 });
     await shot('office');
-    // 알림 (the messenger needs the chat on; any window draws in the same band).
-    const notices = page.locator('[data-hud-id="icon:notices"] button');
-    await notices.click();
-    await page.locator('[data-hud-window="notices"]').waitFor();
-    await toLeftEdge(page, 'notices');
-    const underNotices = await elevatorOnTop(page);
-    check(underNotices.length === 0, `알림 open: the elevator is under it (${underNotices.join('; ') || 'nowhere on top'})`);
-    await shot('notices');
-    await notices.click();
     await openWorkbenchTab(page, '이슈');
     await toLeftEdge(page, 'office');
     const underOffice = await elevatorOnTop(page);

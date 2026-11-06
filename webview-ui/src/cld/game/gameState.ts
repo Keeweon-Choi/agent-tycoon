@@ -14,14 +14,12 @@ import {
   GAME_NIGHT_FROM_H,
   GAME_USAGE_WARN_LEFT,
 } from '../../constants.js';
-import { t } from '../../i18n/index.js';
 import { tempTone } from '../format.js';
 import type { WaitReason } from '../waiting.js';
 import type { SegTone } from './parts.js';
 
 /** The four status effects (05): working, waits for me (a question), waits for a permission, resting. */
 export type PartyState = 'work' | 'ask' | 'lock' | 'rest';
-export const PARTY_STATES: readonly PartyState[] = ['work', 'ask', 'lock', 'rest'];
 
 /** The one waiting rule (waiting.ts) first, then the card's activity; anything else rests. */
 export function partyState(reason: WaitReason | undefined, status: TabStatus | null): PartyState {
@@ -89,17 +87,6 @@ export function gaugeWindows<W extends { id: string }>(windows: readonly W[], ph
 /** 0 left is dimmed with empty cells (the eye goes to the reset), a little left is amber. */
 export const gaugeTone = (left: number | null): 'zero' | 'warn' | undefined =>
   left === null ? undefined : left === 0 ? 'zero' : left <= GAME_USAGE_WARN_LEFT ? 'warn' : undefined;
-
-/** Time to a reset, short: "1:48" for a 5-hour window, "3일" / "19시간" / "40분" for a week. */
-export function shortReset(resetAt: string | null | undefined, now: number, weekly: boolean): string | null {
-  const then = resetAt ? Date.parse(resetAt) : NaN;
-  if (!Number.isFinite(then)) return null;
-  const minutes = Math.max(0, Math.ceil((then - now) / 60_000));
-  if (!weekly) return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
-  if (minutes >= 1440) return t('game.hud.days', { count: Math.floor(minutes / 1440) });
-  if (minutes >= 60) return t('game.hud.hours', { count: Math.floor(minutes / 60) });
-  return t('game.hud.minutes', { count: minutes });
-}
 
 /** The heat gauge: lit cells (at least one) and the tone of format.tempTone (85 warm, 95 critical). */
 export function heatLook(c: number): { lit: number; tone: SegTone | undefined; word: 'hot' | 'danger' | null } {

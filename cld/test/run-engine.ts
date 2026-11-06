@@ -10,7 +10,7 @@
  *
  *   npx tsx cld/test/run-engine.ts <port 18256-18259>
  */
-import type { Browser, Locator, Page } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -27,6 +27,7 @@ import {
   startDaemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
+import { engineButton, engineRow } from './engineRow.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0018');
@@ -187,8 +188,6 @@ async function main() {
     }
     await page.evaluate(() => document.fonts.load("16px 'FS Pixel Sans'", '가'));
   };
-  const card = (scope: Locator, page: Page, name: string) =>
-    scope.locator('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const engineActions = () => sent.filter((m) => m.type === 'engineAction');
@@ -273,16 +272,16 @@ async function main() {
       'custom model plus selected effort and compaction nudge save through the add action',
     );
     check(fs.statSync(folder).isDirectory(), 'the folder exists after 만들기');
-    const alpha = card(drawer, page, 'alpha-app');
-    await alpha.getByRole('button', { name: '켜기', exact: true }).waitFor();
+    // The 현황판 has no per-project cards any more: the buttons are in the inspector (engineRow selects the party card).
+    const alpha = await engineRow(page, 'alpha-app');
+    await (await engineButton(page, 'alpha-app', '켜기')).waitFor();
     check(
-      (await alpha.textContent())?.includes('엔진') &&
-        (await alpha.textContent())?.includes('꺼짐'),
-      'the new project card: 엔진, 꺼짐',
+      (await (await engineButton(page, 'alpha-app', '끄기')).count()) === 0,
+      'the new project: stopped (켜기, no 끄기)',
     );
     await shot(page, 'desktop-added');
 
-    await alpha.getByRole('button', { name: '켜기', exact: true }).click();
+    await (await engineButton(page, 'alpha-app', '켜기')).click();
     await dialog.waitFor();
     check(
       /alpha-app[을를] 켤까요\?/.test((await dialog.textContent()) ?? ''),
@@ -291,9 +290,9 @@ async function main() {
     await shot(page, 'desktop-start-confirm');
     await dialog.getByRole('button', { name: '켜기', exact: true }).click();
     await toast(page, '켰어요');
-    await alpha.getByRole('button', { name: '끄기', exact: true }).waitFor({ timeout: 15_000 });
+    await (await engineButton(page, 'alpha-app', '끄기')).waitFor({ timeout: 15_000 });
     check(
-      (await alpha.getByRole('button', { name: '재시작', exact: true }).count()) === 1,
+      (await (await engineButton(page, 'alpha-app', '재시작')).count()) === 1,
       'running: 끄기 and 재시작',
     );
     const overlay = page.locator('[data-testid="agent-overlay"]').filter({ hasText: 'alpha-app' });
@@ -313,12 +312,12 @@ async function main() {
     const t = transcriptPath(folder, sid!, home);
     fs.mkdirSync(path.dirname(t), { recursive: true });
     fs.writeFileSync(t, '{}\n');
-    await alpha.getByRole('button', { name: '재시작', exact: true }).click();
+    await (await engineButton(page, 'alpha-app', '재시작')).click();
     await dialog.getByRole('button', { name: '재시작', exact: true }).click();
     await toast(page, '재시작했어요');
     await shot(page, 'desktop-restarted');
 
-    await alpha.getByRole('button', { name: '끄기', exact: true }).click();
+    await (await engineButton(page, 'alpha-app', '끄기')).click();
     await dialog.waitFor();
     check(
       (await dialog.textContent())?.includes('하던 일이 멈출 수 있어요.'),
@@ -326,10 +325,10 @@ async function main() {
     );
     await dialog.getByRole('button', { name: '끄기', exact: true }).click();
     await toast(page, '껐어요');
-    await alpha.getByRole('button', { name: '켜기', exact: true }).waitFor({ timeout: 15_000 });
+    await (await engineButton(page, 'alpha-app', '켜기')).waitFor({ timeout: 15_000 });
     await shot(page, 'desktop-stopped');
 
-    await alpha.getByRole('button', { name: '삭제', exact: true }).click();
+    await (await engineButton(page, 'alpha-app', '삭제')).click();
     await dialog.waitFor();
     check(
       /alpha-app[을를] 삭제할까요\?/.test((await dialog.textContent()) ?? '') &&
@@ -370,15 +369,15 @@ async function main() {
     await noStrips(phone, 'add form');
     await pform.getByRole('button', { name: '추가', exact: true }).tap();
     await toast(phone, '추가했어요');
-    const betaCard = card(panel, phone, 'beta-app');
-    await betaCard.getByRole('button', { name: '켜기', exact: true }).tap();
+    const betaCard = await engineRow(phone, 'beta-app');
+    await (await engineButton(phone, 'beta-app', '켜기')).tap();
     const pdialog = phone.getByRole('alertdialog');
     await pdialog.waitFor();
     await shot(phone, 'phone-confirm');
     await noStrips(phone, 'confirmation');
     await pdialog.getByRole('button', { name: '켜기', exact: true }).tap();
     await toast(phone, '켰어요');
-    await betaCard.getByRole('button', { name: '끄기', exact: true }).waitFor({ timeout: 15_000 });
+    await (await engineButton(phone, 'beta-app', '끄기')).waitFor({ timeout: 15_000 });
     await betaCard.scrollIntoViewIfNeeded();
     await phone.waitForTimeout(500);
     await shot(phone, 'phone-running');

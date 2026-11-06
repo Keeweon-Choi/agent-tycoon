@@ -48,3 +48,26 @@ export function threadTone(thread: RoomThread, now: number): ThreadTone {
   if (thread.posts.some((post) => waits(post, now))) return ThreadTone.waiting;
   return thread.posts[0]?.notice ? ThreadTone.notice : ThreadTone.plain;
 }
+
+/** A thread's answers: the members' words under its posts and the 답글 posts in it, and who spoke last. */
+export interface ThreadReplies {
+  count: number;
+  /** `name` null: the boss. */
+  last: { name: string | null; at: number } | null;
+}
+
+/** Counts what a folded thread hides: each member line (tool lines are never shown) and each 답글 post. */
+export function threadReplies(thread: RoomThread): ThreadReplies {
+  let count = 0;
+  let last: ThreadReplies['last'] = null;
+  const see = (name: string | null, at: number) => {
+    count++;
+    if (!last || at >= last.at) last = { name, at };
+  };
+  thread.posts.forEach((post, i) => {
+    if (i > 0) see(post.sender ?? null, post.at);
+    for (const reply of post.replies)
+      for (const item of reply.items) if (item.kind === 'assistant') see(reply.member, item.at);
+  });
+  return { count, last };
+}

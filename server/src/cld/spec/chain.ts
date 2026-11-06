@@ -8,17 +8,15 @@
  * activity and recent work, and the commits linked by a head-comment tag only (§14 D3: counted, never
  * tied to a feature). Inputs are the code scan (mapWorker.ts) and what the service knows.
  */
-import type { MapBlockDetail, MapFeatureDetail, MapLinkPath, MapStructure } from '../../../../core/src/cld/spec/trace.js';
+import { type MapBlockDetail, type MapFeatureDetail, type MapLinkPath, type MapStructure, TASK_SPEC_ID } from '../../../../core/src/cld/spec/trace.js';
 import { SPEC_MAP_BLOCK_RECENT_MAX, SPEC_MAP_BLOCK_TAGS_MAX, SPEC_MAP_FEATURE_TASKS_MAX, SPEC_MAP_PATH_FILES_MAX } from '../../constants.js';
+import { isTestFile } from './languages.js';
 import type { CodeScan, ScanCommit } from './mapWorker.js';
 import { layersOf, TEST_DIR } from './structure.js';
 
 export const LINK_PATHS: readonly MapLinkPath[] = ['confirmed', 'direct', 'commit', 'task'];
 /** Test data: a folder so named is out of every path (SPT §8.4). */
 export const TEST_DATA_DIR = /(^|\/)(fixtures|__fixtures__|testdata|mocks|__mocks__)\//;
-/** A test file inside a layer: its test names count, not its body. */
-const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
-const TASK_ID = /^T-\d{1,5}$/;
 
 /** A requirement as the chain sees it: the tasks linked to it besides the task specs (its row's T-NNNN, Task Board Tasks), the folders of the components it is confirmed to realize. */
 export interface ChainReq {
@@ -26,6 +24,12 @@ export interface ChainReq {
   id: string;
   tasks: readonly string[];
   folders: readonly string[];
+  /**
+   * K9: the files its own written chain names: a Spec Kit story's `tasks.md` lines (`[USn]`) and the paths
+   * they write. Counted in 직접 (글에 적힘), like a file naming its number. ponytail: no fifth path, so
+   * the map's four-path table (webview) stays as is; split it out if a project needs the two told apart.
+   */
+  written?: readonly string[];
 }
 export interface ReqLink {
   paths: Record<MapLinkPath, Set<number>>;
@@ -53,7 +57,7 @@ export interface Links {
 export function fileRule(file: string, inLayer: boolean, testData = true): 'body' | 'names' | 'none' {
   if (!testData) return 'body';
   if (TEST_DATA_DIR.test(file)) return 'none';
-  return !inLayer || TEST_DIR.test(file) || TEST_FILE.test(file) ? 'names' : 'body';
+  return !inLayer || TEST_DIR.test(file) || isTestFile(file) ? 'names' : 'body';
 }
 
 const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => void (m.get(k) ?? m.set(k, []).get(k)!).push(v);
@@ -85,10 +89,19 @@ export function reqLinks(scan: CodeScan, reqs: readonly ChainReq[], since: numbe
     }
     return s;
   };
+  const index = reqs.some((r) => r.written?.length) ? new Map(scan.files.map((f, i) => [f, i] as const)) : null;
   const sinceS = since / 1000;
   const fresh = (ks: readonly number[] | undefined) => !!ks?.some((k) => L.commits[k].t >= sinceS);
   const out = new Map<string, ReqLink>();
   const known = new Set<string>(Object.keys(L.tasks));
+  const directOf = (r: ChainReq) => {
+    const out = r.id ? idFiles(r.id) : new Set<number>();
+    for (const f of r.written ?? []) {
+      const i = index?.get(f);
+      if (i !== undefined && rule[i] !== 'none') out.add(i);
+    }
+    return out;
+  };
   for (const r of reqs) {
     if (r.id) known.add(r.id);
     const tasks = [...new Set([...r.tasks, ...(r.id ? (specTasks.get(r.id) ?? []) : [])])].sort();
@@ -102,13 +115,13 @@ export function reqLinks(scan: CodeScan, reqs: readonly ChainReq[], since: numbe
     const confirmed = new Set<number>();
     if (dirs.length) scan.files.forEach((f, i) => dirs.some((d) => f.startsWith(d)) && confirmed.add(i));
     out.set(r.uid, {
-      paths: { confirmed, direct: r.id ? idFiles(r.id) : new Set(), commit, task },
+      paths: { confirmed, direct: directOf(r), commit, task },
       tasks,
       commits,
       recent: fresh(commits) || tasks.some((t) => fresh(byId.get(t))),
     });
   }
-  const taskCommits = new Map([...byId].filter(([id]) => TASK_ID.test(id)));
+  const taskCommits = new Map([...byId].filter(([id]) => TASK_SPEC_ID.test(id)));
   return { reqs: out, known, commits: L.commits, taskCommits, titles: new Map([...Object.entries(L.tasks).map(([k, t]) => [k, t.title] as const), ...taskTitles]) };
 }
 
@@ -121,7 +134,7 @@ export function filesOn(l: ReqLink | undefined, on: ReadonlySet<MapLinkPath>): S
 /** Its requirements that reach a file by a path on (the bar). */
 export const linkedCount = (links: Links, uids: readonly string[], on: ReadonlySet<MapLinkPath>): number => uids.filter((u) => filesOn(links.reqs.get(u), on).size > 0).length;
 /** A commit linked only by a head-comment tag: it names one and no requirement or task number. */
-export const tagOnly = (c: ScanCommit, known: ReadonlySet<string>): boolean => c.tags.length > 0 && !c.ids.some((id) => known.has(id) || TASK_ID.test(id));
+export const tagOnly = (c: ScanCommit, known: ReadonlySet<string>): boolean => c.tags.length > 0 && !c.ids.some((id) => known.has(id) || TASK_SPEC_ID.test(id));
 
 /** Fills the cells of the structure shown: which features reach each (요구 N, most first) and its commits of the window. */
 export function lightCells(links: Links, s: MapStructure, owner: Int32Array, keyOf: ReadonlyMap<string, string>, on: ReadonlySet<MapLinkPath>, since: number): void {

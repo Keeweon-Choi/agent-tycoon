@@ -3,7 +3,7 @@
  * On by default. Off when the setting is off or the device asks for reduced motion: every game
  * animation then shows its end state at once. It sets data-game-motion="on|off" on <html>;
  * game.css animates only under :root[data-game-motion='on'], and a part that moves from script
- * asks useGameMotion(). Stored per browser like uiFont: localStorage behind try/catch.
+ * asks useGameMotion(). Stored per browser like uiTheme: localStorage behind try/catch.
  */
 import { useSyncExternalStore } from 'react';
 

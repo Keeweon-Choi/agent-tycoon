@@ -5,7 +5,7 @@
  */
 import type { EvidenceMark, TraceAcceptanceWeek, TraceEvidence } from '../../../../core/src/cld/spec/trace.js';
 import type { BoardFactSource, BoardTask } from '../../../../core/src/messages.js';
-import { GAME_SCORE_DIGITS, GAME_WEEK_BAR_PX, GAME_WEEK_CELLS, SPEC_OVERVIEW_DONE_WINDOW_MS, SPEC_OVERVIEW_VIEWED } from '../../constants.js';
+import { GAME_WEEK_BAR_PX, GAME_WEEK_CELLS, SPEC_OVERVIEW_DONE_WINDOW_MS, SPEC_OVERVIEW_VIEWED } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import type { LedState } from '../game/parts.js';
 import { EVIDENCE_AXES, ledOf } from './traceModel.js';
@@ -99,27 +99,7 @@ export function rememberViewed(project: string, v: Viewed): void {
   }
 }
 
-// ── GAME-UI-1 G2: the HI-SCORE's digits and 이번 주 수락 ──
-export const padScore = (n: number) => String(n).padStart(GAME_SCORE_DIGITS, '0');
-
-/**
- * The HI-SCORE's digit cells going from `from` to `to`: each cell's old and new digit, and for a
- * changed one its place in the roll (0 = the ones first, then leftwards, one after the other);
- * the zeros in front are `lead` (dimmed). Only a rise rolls: a fall (a 수락 withdrawn) just shows.
- */
-export function rollDigits(from: number, to: number): Array<{ was: string; now: string; roll?: number; lead: boolean }> {
-  const a = padScore(from);
-  const b = padScore(to);
-  const width = Math.max(a.length, b.length);
-  const was = a.padStart(width, '0');
-  const now = b.padStart(width, '0');
-  const firstReal = now.search(/[^0]/);
-  let order = 0;
-  const cells = [...now].map((d, i) => ({ was: was[i], now: d, lead: firstReal < 0 ? i < width - 1 : i < firstReal }));
-  if (to > from) for (let i = width - 1; i >= 0; i--) if (cells[i].was !== cells[i].now) Object.assign(cells[i], { roll: order++ });
-  return cells;
-}
-
+// ── GAME-UI-1 G2: 이번 주 수락 ──
 /**
  * 이번 주 수락's numbers: this week's sum, the best past week, whether this week beats it (신기록:
  * gold, only past a real best, never on a project's first accepted week), each day's cells (at

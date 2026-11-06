@@ -1,5 +1,5 @@
 /**
- * CLONE-PROGRESS (owner 11-03 11:51), 주소로 복제 with git's real progress, end to end: dist/cli.js in
+ * CLONE-PROGRESS (owner 11-03 11:51), 주소로 클론 with git's real progress, end to end: dist/cli.js in
  * a temp HOME on a spare port, the engine's fake claude (never a real claude), and a slow smart-HTTP
  * git source of our own (git http-backend behind a Node server that sends the pack at ~400 KiB/s,
  * on the second port) holding a repository of ~6 MiB of random bytes.
@@ -161,7 +161,13 @@ async function main() {
         const win = p.locator('[data-hud-window="devroom"]');
         await win.waitFor({ timeout: 20_000 });
         await win.getByTestId('hud-title-devroom').dblclick();
-        await win.getByTestId('devroom-add').click();
+        // DV4: with projects, 프로젝트 추가 is in the project menu (the rail's + makes a worktree).
+        const empty = win.getByTestId('devroom-add-empty');
+        if (await empty.count()) await empty.click();
+        else {
+          await win.getByTestId('devroom-filter').click();
+          await win.getByTestId('devroom-add').click();
+        }
       }
       const d = p.getByTestId('devroom-add-dialog');
       await d.waitFor();

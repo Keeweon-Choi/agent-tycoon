@@ -315,7 +315,7 @@ describe('dist/cli.js entry-point guard', () => {
         expect(url.port).toBe(port.toString());
         const response = await fetch(url, { redirect: 'manual' });
         expect(response.status).toBe(303);
-        expect(response.headers.get('set-cookie')).toContain('cld_session=');
+        expect(response.headers.get('set-cookie')).toMatch(/^cld_session_[0-9a-f]{8}=/); // MHO 3.6: per host
       },
       '127.0.0.1',
       true,

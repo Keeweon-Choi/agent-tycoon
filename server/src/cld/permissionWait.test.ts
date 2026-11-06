@@ -8,6 +8,7 @@ import {
   openToolCall,
   PermissionWaits,
   subjectCall,
+  toolCall,
   type WaitSubject,
 } from './permissionWait.js';
 
@@ -200,6 +201,13 @@ describe('openToolCall', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('toolCall', () => {
+  it('a description that is the command itself is said once (an ACP title)', () => {
+    expect(toolCall('Bash', { description: 'rm -rf build', command: 'rm -rf build' }).match).toEqual(['rm -rf build']);
+    expect(toolCall('Bash', { description: 'Clean', command: 'rm -rf build' }).match).toEqual(['Clean', 'rm -rf build']);
   });
 });
 

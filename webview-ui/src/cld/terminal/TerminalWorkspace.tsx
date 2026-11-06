@@ -19,13 +19,7 @@ import { submitTerminalLine } from '../../components/mobileSend.js';
 import type { TerminalInputHandle } from '../../components/TerminalPane.js';
 import { TerminalPane } from '../../components/TerminalPane.js';
 import { Button } from '../../components/ui/Button.js';
-import {
-  MOBILE_TERMINAL_FONT_SIZE_PX,
-  TERMINAL_SWAP_CAP_READ_TIMEOUT_MS,
-  TERMINAL_SWAP_CAP_RETRY_DELAYS_MS,
-  TERMINAL_SWAP_REFUSAL_WINDOW_MS,
-  TERMINAL_SWAP_RELEASE_SETTLE_MS,
-} from '../../constants.js';
+import { MOBILE_TERMINAL_FONT_SIZE_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { readClipboardText } from '../../terminal/clipboard.js';
 import type { TerminalConnectionStatus } from '../../terminal/terminalClient.js';
@@ -48,13 +42,10 @@ import {
   agentTab,
   canSplitDown,
   canSplitRight,
-  heldElsewhere,
-  leastRecentAttached,
   paneCount,
   paneRects,
   phoneKey,
   shellTab,
-  swapCapRetryDelay,
   type Tab,
   tabLabels,
   terminalMessages,
@@ -115,14 +106,6 @@ export function TerminalWorkspace({
   const [refusal, setRefusal] = useState<Record<string, string>>({});
   /** Bumped to mount a tab's terminal afresh (a new attach). */
   const [gens, setGens] = useState<Record<string, number>>({});
-  /** Agent tabs the user swapped out ("이 터미널로 바꾸기"): not attached. */
-  const [released, setReleased] = useState<ReadonlySet<string>>(new Set());
-  /** Tabs whose cap refusal outlived a swap: the slot belongs to another browser or device. */
-  const [elsewhere, setElsewhere] = useState<ReadonlySet<string>>(new Set());
-  /** When (performance.now clock) each tab last pressed "이 터미널로 바꾸기". */
-  const swappedAt = useRef(new Map<string, number>());
-  /** Tabs whose "이 터미널로 바꾸기" is running: the button shows it and cannot be pressed twice. */
-  const [swapping, setSwapping] = useState<ReadonlySet<string>>(new Set());
   const [menu, setMenu] = useState(false);
   const [picking, setPicking] = useState(false);
   /** Waiting for a Face ID tap before `then` runs. */
@@ -132,19 +115,6 @@ export function TerminalWorkspace({
   const inputs = useRef(new Map<string, TerminalInputHandle>());
   const statuses = useRef<Record<string, TerminalConnectionStatus>>({});
   const menuRef = useRef<HTMLDivElement>(null);
-  /** Bounded re-mounts only while a swap waits for its released attach to leave the daemon. */
-  const swapRetries = useRef(new Map<string, number>());
-  const remountTimers = useRef(new Map<string, Set<number>>());
-
-  useEffect(
-    () => () => {
-      for (const timers of remountTimers.current.values()) {
-        for (const timer of timers) window.clearTimeout(timer);
-      }
-      remountTimers.current.clear();
-    },
-    [],
-  );
 
   const flushTerminalInput = (key: string) => {
     if (statuses.current[key] !== 'connected') return;
@@ -250,91 +220,10 @@ export function TerminalWorkspace({
   const closedShells = own.filter((s) => !shellTabs.some((t) => t.ref === s.id));
   const agents = (officeSnapshot?.chat ? officeSnapshot.orchestrators : []).filter((o) => o.bg?.id);
 
-  const finishSwap = (key: string) =>
-    setSwapping((w) => {
-      const next = new Set(w);
-      next.delete(key);
-      return next;
-    });
-
-  const remount = (key: string, finish = true) => {
-    if (finish) finishSwap(key);
-    setElsewhere((e) => {
-      const next = new Set(e);
-      next.delete(key);
-      return next;
-    });
+  const remount = (key: string) => {
     setRefusal((r) => omit(r, key));
     setStatus((s) => omit(s, key));
     setGens((g) => ({ ...g, [key]: (g[key] ?? 0) + 1 }));
-  };
-
-  const clearRemountTimers = (key: string) => {
-    for (const timer of remountTimers.current.get(key) ?? []) window.clearTimeout(timer);
-    remountTimers.current.delete(key);
-  };
-
-  const remountAfter = (key: string, delay: number, attach = false) => {
-    const timer = window.setTimeout(() => {
-      const timers = remountTimers.current.get(key);
-      timers?.delete(timer);
-      if (timers?.size === 0) remountTimers.current.delete(key);
-      if (attach) {
-        setReleased((r) => {
-          const next = new Set(r);
-          next.delete(key);
-          return next;
-        });
-      }
-      // A retry remains visibly in progress until it connects or every retry is exhausted.
-      remount(key, false);
-    }, delay);
-    const timers = remountTimers.current.get(key) ?? new Set<number>();
-    timers.add(timer);
-    remountTimers.current.set(key, timers);
-  };
-
-  /**
-   * "이 터미널로 바꾸기": attach this agent tab. When the daemon's cap (설정) has no room left,
-   * the least recently focused attached agent tab lets go first.
-   */
-  const swapIn = async (key: string, at: number) => {
-    clearRemountTimers(key);
-    swappedAt.current.set(key, at);
-    setSwapping((w) => new Set(w).add(key));
-    let cap: number | null = null;
-    // A slow or queued read must not leave the press doing nothing: past the timeout the cap is unknown.
-    const abort = new AbortController();
-    const timer = window.setTimeout(() => abort.abort(), TERMINAL_SWAP_CAP_READ_TIMEOUT_MS);
-    try {
-      cap = (await authFetch<{ attaches: number }>('/api/chat-attaches', { signal: abort.signal }))
-        .attaches;
-    } catch {
-      /* unknown: make room */
-    } finally {
-      window.clearTimeout(timer);
-    }
-    const attached = ws.tabs
-      .filter(
-        (t) =>
-          t.kind === 'agent' &&
-          t.key !== key &&
-          !released.has(t.key) &&
-          status[t.key] !== undefined &&
-          status[t.key] !== 'closed',
-      )
-      .map((t) => t.key);
-    const victim =
-      cap !== null && attached.length < cap ? null : leastRecentAttached(ws, attached, key);
-    if (victim) {
-      setReleased((r) => new Set(r).add(victim));
-      setStatus((s) => omit(s, victim));
-      swapRetries.current.set(key, 0);
-    } else {
-      swapRetries.current.delete(key);
-    }
-    // The old attach needs a moment to leave before the cap lets this one in.
-    remountAfter(key, victim ? TERMINAL_SWAP_RELEASE_SETTLE_MS : 0, true);
   };
 
   const openShellFolder = (cwd: string, input?: string) =>
@@ -591,7 +480,6 @@ export function TerminalWorkspace({
         {ws.tabs.map((tab) => {
           const at = placed.get(tab.key);
           const header = mobile ? 0 : PANE_HEADER_PX;
-          const mounted = !(tab.kind === 'agent' && released.has(tab.key));
           const focused = !!at && at.row === ws.focus.row && at.col === ws.focus.col;
           const why = refusal[tab.key];
           const closed = status[tab.key] === 'closed';
@@ -613,93 +501,45 @@ export function TerminalWorkspace({
               }
               onMouseDownCapture={() => at && workspaceActions.focus(at.row, at.col)}
             >
-              {mounted && (
-                <TerminalPane
-                  key={gens[tab.key] ?? 0}
-                  agentId={paneNumber(tab.key)}
-                  socketPath={
-                    tab.kind === 'shell' ? shellSocketPath(tab.ref) : `${CHAT_WS_PREFIX}/${tab.ref}`
-                  }
-                  isActive={!!at}
-                  mobileKeyBar={mobile}
-                  autoFocus={!mobile && focused}
-                  messages={terminalMessages()}
-                  prepare={tab.kind === 'shell' ? ensureShellProof : undefined}
-                  onStatusChange={(n, s) => {
-                    const k = keysByNumber.get(n);
-                    if (!k) return;
-                    statuses.current[k] = s;
-                    if (s === 'connected') {
-                      swapRetries.current.delete(k);
-                      swappedAt.current.delete(k);
-                      finishSwap(k);
-                    }
-                    setStatus((prev) => ({ ...prev, [k]: s }));
-                    if (s === 'connected') flushTerminalInput(k);
-                  }}
-                  onRefused={(n, reason) => {
-                    const k = keysByNumber.get(n);
-                    if (!k) return;
-                    const retry = swapRetries.current.get(k);
-                    if (reason === 'cap' && retry !== undefined) {
-                      const delay = swapCapRetryDelay(retry, TERMINAL_SWAP_CAP_RETRY_DELAYS_MS);
-                      if (delay !== null) {
-                        swapRetries.current.set(k, retry + 1);
-                        if (!remountTimers.current.get(k)?.size) remountAfter(k, delay);
-                        return;
-                      }
-                    }
-                    swapRetries.current.delete(k);
-                    const at = swappedAt.current.get(k);
-                    swappedAt.current.delete(k);
-                    finishSwap(k);
-                    if (
-                      reason === 'cap' &&
-                      heldElsewhere(at, performance.now(), TERMINAL_SWAP_REFUSAL_WINDOW_MS)
-                    )
-                      setElsewhere((e) => new Set(e).add(k));
-                    setRefusal((prev) => ({ ...prev, [k]: reason }));
-                  }}
-                  onRegisterInput={(n, handle) => {
-                    const k = keysByNumber.get(n);
-                    if (!k) return;
-                    if (handle) {
-                      inputs.current.set(k, handle);
-                      flushTerminalInput(k);
-                    } else inputs.current.delete(k);
-                  }}
-                  {...(mobile && { fontSizePx: MOBILE_TERMINAL_FONT_SIZE_PX, autoFocus: false })}
-                />
-              )}
-              {at && (!mounted || (closed && why)) && (
+              <TerminalPane
+                key={gens[tab.key] ?? 0}
+                agentId={paneNumber(tab.key)}
+                socketPath={
+                  tab.kind === 'shell' ? shellSocketPath(tab.ref) : `${CHAT_WS_PREFIX}/${tab.ref}`
+                }
+                isActive={!!at}
+                mobileKeyBar={mobile}
+                autoFocus={!mobile && focused}
+                messages={terminalMessages()}
+                prepare={tab.kind === 'shell' ? ensureShellProof : undefined}
+                onStatusChange={(n, s) => {
+                  const k = keysByNumber.get(n);
+                  if (!k) return;
+                  statuses.current[k] = s;
+                  setStatus((prev) => ({ ...prev, [k]: s }));
+                  if (s === 'connected') flushTerminalInput(k);
+                }}
+                onRefused={(n, reason) => {
+                  const k = keysByNumber.get(n);
+                  if (!k) return;
+                  setRefusal((prev) => ({ ...prev, [k]: reason }));
+                }}
+                onRegisterInput={(n, handle) => {
+                  const k = keysByNumber.get(n);
+                  if (!k) return;
+                  if (handle) {
+                    inputs.current.set(k, handle);
+                    flushTerminalInput(k);
+                  } else inputs.current.delete(k);
+                }}
+                {...(mobile && { fontSizePx: MOBILE_TERMINAL_FONT_SIZE_PX, autoFocus: false })}
+              />
+              {at && closed && why && (
                 <div
                   className="absolute inset-0 flex flex-col items-center justify-center gap-8 p-12 text-center text-xs bg-bg/90"
                   data-testid="terminal-overlay"
                 >
-                  {mounted && why === 'cap' && elsewhere.has(tab.key) ? (
-                    <>
-                      <strong className="text-sm">{names[tab.key]}</strong>
-                      <span className="text-text-muted">{t('terminal.heldElsewhere')}</span>
-                      <Button size="sm" onClick={() => remount(tab.key)}>
-                        {t('terminal.reconnect')}
-                      </Button>
-                    </>
-                  ) : !mounted || why === 'cap' ? (
-                    <>
-                      <strong className="text-sm">{names[tab.key]}</strong>
-                      <span className="text-text-muted">
-                        {mounted ? t('terminal.capReached') : t('terminal.detached')}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="accent"
-                        disabled={swapping.has(tab.key)}
-                        onClick={(e) => void swapIn(tab.key, e.timeStamp)}
-                      >
-                        {swapping.has(tab.key) ? t('terminal.switching') : t('terminal.switchHere')}
-                      </Button>
-                    </>
-                  ) : why === 'proof' ? (
+                  {why === 'proof' ? (
                     <>
                       <span>{t('terminal.verifyReconnect')}</span>
                       <Button

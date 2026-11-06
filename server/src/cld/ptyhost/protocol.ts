@@ -4,9 +4,10 @@
  * `{r, ok, error?, ...}` and events `{ev, ...}` (data per subscription `s`, exit and status per
  * terminal `t`). Where the host keeps its socket, token and terminal list: `ptyhostPaths`.
  */
+import { StringDecoder } from 'node:string_decoder';
+
 import { createHash } from 'crypto';
 import * as path from 'path';
-import { StringDecoder } from 'string_decoder';
 
 import { configDir } from '../engine/events.js';
 import type { ProgramStatus } from './programStatus.js';

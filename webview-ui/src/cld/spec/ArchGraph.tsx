@@ -34,7 +34,7 @@ const muted = 'text-text-muted text-xs';
 const kindText = (n: ArchNode) => t(`spec.arch.kind.${n.kind}`);
 /** A folder's file count; `N+` when the repository's file listing was cut. */
 const filesText = (n: ArchNode) => t(n.filesPartial ? 'spec.arch.filesMore' : 'spec.arch.files', { count: n.files ?? 0 });
-const selectCls = 'bg-bg border-2 border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
+const selectCls = 'bg-bg border-ui rounded-ui-card border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
 /** Folding is the view's own: a click on a group's name, or on a folded group. */
 const FoldToggle = createContext<(id: string) => void>(() => undefined);
 
@@ -237,7 +237,7 @@ function ArchPop({
       {n.reqs && (
         <span className="flex flex-wrap gap-4">
           {n.reqs.list.map((r) => (
-            <button key={r.uid} type="button" className="border-2 border-border px-4 font-mono pointer-coarse:min-h-44" data-status={r.status} onClick={() => onOpen(r.uid)} data-testid="arch-req">
+            <button key={r.uid} type="button" className="border-ui rounded-ui-card border-border px-4 font-mono pointer-coarse:min-h-44" data-status={r.status} onClick={() => onOpen(r.uid)} data-testid="arch-req">
               {r.label}
             </button>
           ))}
@@ -495,7 +495,7 @@ export function ArchGraph({ project, mobile, head }: { project: string; mobile: 
                 <p className="text-text-muted break-all" data-testid="arch-blocked">
                   {t('spec.arch.blocked', { line: u.firstBlockedLine, text: u.text })}
                 </p>
-                {u.source && <pre className="bg-bg border-2 border-border p-4 overflow-x-auto max-h-160 font-mono">{u.source}</pre>}
+                {u.source && <pre className="bg-bg border-ui rounded-ui-card border-border p-4 overflow-x-auto max-h-160 font-mono">{u.source}</pre>}
               </li>
             ))}
           </ul>

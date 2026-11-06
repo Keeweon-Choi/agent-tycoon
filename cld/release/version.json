@@ -1,6 +1,6 @@
 {
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "minApp": "0.1.0-rc.1",
   "maxApp": null,
-  "dataSchema": { "projects.json": 2, "assignments.json": 2, "host.json": 1, "tasks.json": 2, "lead-history.json": 1 }
+  "dataSchema": { "projects.json": 2, "assignments.json": 2, "host.json": 1, "tasks.json": 2, "lead-history.json": 1, "renew-history.json": 1 }
 }

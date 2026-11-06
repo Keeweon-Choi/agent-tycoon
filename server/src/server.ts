@@ -9,8 +9,11 @@ import type { AgentStateStore } from './agentStateStore.js';
 import { StandaloneAuth } from './cld/auth.js';
 import type { ChatManager } from './cld/chat.js';
 import { configDirectory, legacyOfficeDirectory, officeDirectory } from './cld/configPath.js';
+import { loadOrCreateHost } from './cld/engine/host.js';
+import { hostLabel } from './cld/hostName.js';
 import type { PtyHostClient } from './cld/ptyhost/client.js';
 import { hostShellRegistry } from './cld/shell/registry.js';
+import type { Street } from './cld/street.js';
 import type {
   AssetCache,
   ReloadAssetsSideEffect,
@@ -90,6 +93,8 @@ export class AgentTycoonServer {
     shellHost?: PtyHostClient | null;
     /** cld-gui (T-0022): new devices may ask a logged-in one for approval. */
     allowApprovalRequests?: boolean;
+    /** MHO v1b: the street (pairing with other PCs, the summary route). */
+    street?: Street;
     /** Replace the persisted standalone token, revoking every URL that carried
      *  the old one. Refused while another standalone server is running: it
      *  would keep honouring the old token until it restarts. */
@@ -146,11 +151,14 @@ export class AgentTycoonServer {
       : loadOrCreateStandaloneToken({ rotate: options?.rotateToken ?? false });
     const store = options?.store;
 
+    // MHO 3.6: every daemon has its host id from the start (not only with the engine on); it names
+    // the session cookie, so two daemons in one browser keep their own logins.
     const auth = embedded
       ? undefined
       : new StandaloneAuth({
           configDir: configDirectory(os.homedir()),
           allowApprovalRequests: options?.allowApprovalRequests,
+          hostId: loadOrCreateHost(os.homedir(), (line) => console.log(`[Agent Tycoon] ${line}`)).hostId,
         });
     // O3: a rotated host token is in the record (written once the new token is in place).
     if (options?.rotateToken && !embedded) auth?.audit.write({ kind: 'tokenRotated', detail: 'host', by: 'host', via: 'local' });
@@ -169,8 +177,10 @@ export class AgentTycoonServer {
       ptyManager: options?.ptyManager,
       allowedHosts: standalone?.allowedHosts,
       auth,
+      hostName: () => hostLabel(os.homedir()).hostName,
       chat: options?.chat,
       allowTerminal: options?.allowTerminal,
+      street: options?.street,
       // Shells in our PTY host, listed in ~/.config/agent-tycoon/shells.json (T-0069).
       shellRegistry:
         !embedded && options?.allowTerminal

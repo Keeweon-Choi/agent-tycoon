@@ -23,7 +23,7 @@ import {
 } from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
 import type { OfficeState } from '../../office/engine/officeState.js';
-import { releaseMaster } from '../../office/sprites/smoothSprite.js';
+import { markRedecode, releaseMaster } from '../../office/sprites/smoothSprite.js';
 import {
   deleteCustomCharacter,
   diagSheetOf,
@@ -48,7 +48,7 @@ import {
   providerOf,
   subagentProvider,
 } from './compose.js';
-import { importedEight, importedSheet } from './importedSheet.js';
+import { importedEight, importedSheet, mastersAt } from './importedSheet.js';
 import type { PartData } from './parts.js';
 
 /** Preset sheets take palette numbers from here up (the built-ins are 0..PALETTE_COUNT-1). */
@@ -175,6 +175,12 @@ export function presetPalette(preset: CharacterPreset): number | null {
 /** A sheet's pixels and the canvas they were read from (LOOKS-MEM: an imported sheet keeps that
  *  canvas as its masters, its one decoded copy; the bitmap is closed at once). */
 async function pixelsOf(url: string): Promise<{ img: ImageData; canvas: HTMLCanvasElement }> {
+  const canvas = await decodedSheet(url);
+  const ctx = canvas.getContext('2d')!;
+  return { img: ctx.getImageData(0, 0, canvas.width, canvas.height), canvas };
+}
+
+async function decodedSheet(url: string): Promise<HTMLCanvasElement> {
   const res = await fetch(url, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const bitmap = await createImageBitmap(await res.blob(), {
@@ -188,8 +194,13 @@ async function pixelsOf(url: string): Promise<{ img: ImageData; canvas: HTMLCanv
   if (!ctx) throw new Error('no 2d canvas');
   ctx.drawImage(bitmap, 0, 0);
   bitmap.close();
-  return { img: ctx.getImageData(0, 0, canvas.width, canvas.height), canvas };
+  return canvas;
 }
+
+/** PERF-WEBVIEW-MEMORY: the sheet at `url` decoded again as its masters (smoothSprite.ts keeps
+ *  them halved while the office draws them small, and asks for this when it zooms past that). */
+const redecodeOf = (url: string) => async () =>
+  mastersAt(await decodedSheet(url), IMPORT_MASTER_DENSITY).src;
 
 function spriteOf(img: ImageData, x0: number, y0: number, w: number, h: number): SpriteData {
   const d = img.data;
@@ -296,6 +307,7 @@ function loadSheet(
         if (preset.format === 'iso8') {
           // CHAR-8DIR: both views in one sheet: the top view on this palette, the isometric beside it
           const both = importedEight(img, opts, canvas);
+          markRedecode(both.iso.down[0], redecodeOf(url));
           const isoPalette = nextPalette++;
           setCustomCharacter(isoPalette, both.iso, null);
           setCustomCharacter(palette, both.top, null);
@@ -308,11 +320,9 @@ function loadSheet(
           }
           sheets.set(url, palette);
         } else {
-          setCustomCharacter(
-            palette,
-            importedSheet(img, { ...opts, iso: preset.format === 'iso' }, canvas),
-            null,
-          );
+          const sheet = importedSheet(img, { ...opts, iso: preset.format === 'iso' }, canvas);
+          markRedecode(sheet.down[0], redecodeOf(url));
+          setCustomCharacter(palette, sheet, null);
           sheets.set(url, palette);
           const top = isoOf ? sheets.get(isoOf) : undefined;
           if (typeof top === 'number') setIsoPalette(top, palette);

@@ -80,6 +80,9 @@ export const traceWrite = {
   review: (project: string, uid: string) => request(project, 'review', { uid }),
   deployConfirm: (project: string, jobId: string, note?: string) =>
     request(project, 'deploy-confirm', { jobId, ...(note && { note }) }),
+  /** RQ3: 이 요구사항으로 이슈 만들기; `linked: false` when only the issue was saved (it shows as 글에 적힘). */
+  issue: (project: string, uid: string, body: { title: string; note?: string; owner?: string }) =>
+    request<{ task: string; linked: boolean }>(project, `${itemPath(uid)}/issue`, body),
   // SPT-P3-ACCEPT
   /** `version`: the detail's (TraceItem.version); another text by then is refused `spec_stale`. */
   accept: (project: string, uid: string, version: string, state: Acceptance, note?: string) =>
@@ -105,8 +108,8 @@ export const archWrite = {
   undoAll: (project: string, batch: string) => request(project, 'arch/approve-all/undo', { batch }),
 };
 /** SPT C1: the 지도; `chain` the cells entered ([한 단계 들어가기]), `feature` a feature's requirements. */
-export const mapPath = (chain: readonly string[], feature?: string, block?: string) =>
-  `map?${new URLSearchParams({ ...(chain.length && { in: chain.join('>') }), ...(feature && { feature }), ...(block && { block }) })}`;
+export const mapPath = (chain: readonly string[], feature?: string, block?: string, design?: boolean) =>
+  `map?${new URLSearchParams({ ...(chain.length && { in: chain.join('>') }), ...(feature && { feature }), ...(block && { block }), ...(design && { design: '1' }) })}`;
 
 /** `route`'s answer while mounted, again on the project's `specChanged` and on `reload()`; `null` route = nothing. */
 export function useTrace<T>(

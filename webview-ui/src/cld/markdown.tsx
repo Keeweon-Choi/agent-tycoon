@@ -172,7 +172,7 @@ function inline(
               data-press-through
               data-testid="question-tag"
               data-tag={piece.tag}
-              className="text-accent-text border-2 border-accent px-4 text-2xs cursor-pointer align-baseline"
+              className="text-accent-text border-ui border-accent rounded-ui-chip px-4 text-2xs cursor-pointer align-baseline"
               title={t('msgq.chipLabel', { name: piece.tag })}
               aria-label={t('msgq.chipLabel', { name: piece.tag })}
               onClick={() => fileLinks?.onQuestionTag?.(piece.tag)}
@@ -289,7 +289,7 @@ function CodeBlock({ text, query, current }: { text: string; query?: string; cur
   };
   return (
     <div className="relative">
-      <pre className="font-pixel text-xs whitespace-pre overflow-x-auto max-w-full bg-bg-dark border border-border pl-8 pr-48 py-4 pointer-coarse:min-h-48">
+      <pre className="font-pixel text-xs whitespace-pre overflow-x-auto max-w-full bg-bg-dark border border-border rounded-ui-card pl-8 pr-48 py-4 pointer-coarse:min-h-48">
         <code className="font-pixel">
           <HighlightedText text={text} query={query} current={current} />
         </code>
@@ -566,7 +566,7 @@ export function Markdown({
   onQuestionTag?: (name: string) => void;
 }) {
   return (
-    <div className={`space-y-4 min-w-0 ${className}`}>
+    <div className={`space-y-(--ui-para-gap) min-w-0 ${className}`}>
       {render(parse(text), 'm', highlightQuery, currentMatch, {
         projectRoot,
         fileLink,

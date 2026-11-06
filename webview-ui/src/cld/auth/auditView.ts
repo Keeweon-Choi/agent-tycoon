@@ -87,7 +87,16 @@ export function auditWhat(row: AuditRow, t: T): string {
     case 'tokenRotated':
       return t(detail === 'host' ? 'auth.audit.tokenHost' : 'auth.audit.tokenPath');
     case 'spec': return t('spec.audit', { what: detail });
+    case 'street':
+      switch (detail) {
+        case 'pairCode': return t('street.audit.pairCode');
+        case 'paired': return t('street.audit.paired');
+        case 'unpaired': return t('street.audit.unpaired');
+        case 'added': return t('street.audit.added');
+        default: return t('street.audit.removed');
+      }
     case 'lockout':
+      if (detail === 'street') return t('street.audit.lockout');
       return t(detail === 'direct' ? 'auth.audit.lockoutDirect' : 'auth.audit.lockoutShort');
     default: return row.kind;
   }

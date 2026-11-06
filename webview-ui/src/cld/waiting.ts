@@ -47,12 +47,16 @@ export const waitingIds = (ids: readonly number[], reasons: Readonly<Record<numb
 
 let current: Record<number, WaitReason> = {};
 const listeners = new Set<() => void>();
+/** Since when each waiting agent waits (this page's clock: a reload starts them all again). */
+const since = new Map<number, number>();
 
 /** The terminal drawer's new map (same contents: nothing changes). */
-export function publishWaiting(next: Record<number, WaitReason>): void {
+export function publishWaiting(next: Record<number, WaitReason>, now = Date.now()): void {
   const a = Object.entries(current).join();
   if (a === Object.entries(next).join()) return;
   current = next;
+  for (const id of since.keys()) if (!(id in next)) since.delete(id);
+  for (const id of Object.keys(next).map(Number)) if (!since.has(id)) since.set(id, now);
   listeners.forEach((l) => l());
 }
 
@@ -63,4 +67,6 @@ const subscribe = (l: () => void) => {
   };
 };
 export const getWaitReasons = () => current;
+/** When agent `id` started waiting (the palette lists the longest wait first); undefined: it does not wait. */
+export const waitingSince = (id: number): number | undefined => since.get(id);
 export const useWaitReasons = () => useSyncExternalStore(subscribe, getWaitReasons);

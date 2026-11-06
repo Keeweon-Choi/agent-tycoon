@@ -2,7 +2,7 @@
  * W3 auto-merge, end to end below the office: a Task the store sees done for the first time
  * (TaskStore) has its worktree branch merged into its base (mergeNewlyDone → RepoManager.merge
  * with `auto`) in a real git repository. Tech debt #2 and the owner's 11-01 02:17 decision
- * (a Task with review notes waits for the owner's 병합), plus SEC-CONTROL (a caller without a
+ * (a Task with review notes waits for the owner's 머지), plus SEC-CONTROL (a caller without a
  * token cannot mark a Task done, so it cannot start a merge).
  */
 import * as fs from 'fs';
@@ -110,7 +110,7 @@ describe.skipIf(!GIT_AVAILABLE)('W3 auto-merge when a Task goes done', () => {
     ]);
     expect(files('dev')).not.toContain('T-1.txt');
     expect(files('dev')).not.toContain('T-2.txt');
-    // 병합 in the 작업실: not automatic, so the notes do not stop it.
+    // 머지 in the 작업실: not automatic, so the notes do not stop it.
     expect(await mgr.merge('alpha', a.task, { privileged: true, source: 'gui:web' })).toMatchObject({ ok: true });
     expect(files('dev')).toContain('T-1.txt');
   });

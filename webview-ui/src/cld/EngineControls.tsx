@@ -17,10 +17,8 @@ import {
   formFor,
   PTY_PROVIDER,
   rulesFileLabel,
-  sessionActions,
 } from './engine.js';
 import {
-  engineAsk,
   engineCancel,
   engineCloseForm,
   engineConfirm,
@@ -46,65 +44,32 @@ const input = 'w-full border border-border bg-black/20 px-8 py-4 text-sm';
 const OFFICES_LIST = 'cld-offices';
 const CUSTOM = '__custom__';
 
-/** An engine project's card row: 켜기 / 끄기 / 재시작, 설정, 삭제 (T-0010's look). */
-export function EngineCardButtons({ project: p }: { project: EngineProject }) {
+/** An engine project's notes on its member card (FEAT-PARTY-V2: its 켜기 / 끄기 / 재시작 / 설정 / 삭제 are the
+ *  card's buttons and ⋯ menu, party/MemberCard.tsx, on these same engineAsk / engineOpenForm handlers). */
+export function EngineNotes({ project: p }: { project: EngineProject }) {
   const { busy } = useEngineStore();
   const canAct = useCanAct();
   const running = busy[p.name] !== undefined;
+  if (!p.needsTrust && !p.downNote && !(p.live && !p.bgId) && !running && !p.trusting) return null;
   return (
-    <>
+    <div className="flex flex-col gap-4 text-xs break-words" data-testid="engine-notes">
       {p.needsTrust && (
-        <p className="basis-full text-xs text-yellow-300 break-words">
+        <p className="text-yellow-300">
           {t('engine.trust.before')} <code className="text-text">cd {p.folder}</code>{' '}
           {t('engine.trust.after')} <code className="text-text">claude</code>{t('engine.trust.end')}
         </p>
       )}
-      {p.needsTrust && canAct && (
-        <p className="basis-full text-xs text-text-muted break-words">{t('autoTrust.cardHelp')}</p>
-      )}
+      {p.needsTrust && canAct && <p className="text-text-muted">{t('autoTrust.cardHelp')}</p>}
       {p.downNote && (
-        <p className="basis-full text-xs text-yellow-300 break-words">
+        <p className="text-yellow-300">
           {serverLine(p.downNote)} · {t('engine.retry')}
         </p>
       )}
-      {canAct &&
-        sessionActions(p).map((action) => (
-          <Button
-            size="sm"
-            key={action}
-            disabled={running}
-            onClick={() => engineAsk(action, p.name)}
-          >
-            {engineLabel(action)}
-          </Button>
-        ))}
-      {canAct && (
-        <>
-          <Button
-            size="sm"
-            disabled={running}
-            onClick={() => engineOpenForm(p.name)}
-          >
-            {t('engine.action.edit')}
-          </Button>
-          <Button
-            size="sm"
-            disabled={running}
-            onClick={() => engineAsk('remove', p.name)}
-          >
-            {t('engine.action.remove')}
-          </Button>
-        </>
-      )}
-      {p.live && !p.bgId && (
-        <span className="self-center text-xs text-text-muted">{t('engine.terminalOpen')}</span>
-      )}
+      {p.live && !p.bgId && <p className="text-text-muted">{t('engine.terminalOpen')}</p>}
       {(running || p.trusting) && (
-        <span className="self-center text-xs text-accent-text pixel-pulse">
-          {p.trusting ? t('autoTrust.running') : t('engine.working')}
-        </span>
+        <p className="text-accent-text pixel-pulse">{p.trusting ? t('autoTrust.running') : t('engine.working')}</p>
       )}
-    </>
+    </div>
   );
 }
 

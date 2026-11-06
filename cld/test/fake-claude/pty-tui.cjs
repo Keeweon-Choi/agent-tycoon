@@ -14,7 +14,9 @@
 // TERM-P3: a submit containing FAKE-PERMISSION asks a permission as Claude does (P0 b): status
 // waiting, OSC blocked:kind=permission, and the PermissionRequest hook from --settings run through
 // `sh -c` with the hook's JSON on stdin; its decision (or `dialog` when it gave none) is one line
-// {sessionId, behavior} in $HOME/fake-claude-perm.log and the turn's reply.
+// {sessionId, behavior} in $HOME/fake-claude-perm.log and the turn's reply. With no decision the
+// dialog stays up, as Claude's own does, until `1` (terminal-allow) or `2` (terminal-deny) is typed
+// in the terminal; FAKE-PERMISSION-TERMINAL skips the hook (one that gave up) and shows it at once.
 // COMPACT-COFFEE: a submit containing FAKE-COMPACT compacts as Claude Code does: its spinner line
 // "✻ Compacting conversation… (Ns · esc to interrupt)" for 8 s ("FAKE-COMPACT 40": 40 s; the
 // engine's clean environment drops FAKE_* variables), redrawn each second, then a compact_boundary
@@ -46,6 +48,8 @@ module.exports = function run(args) {
   let chordX = false;
   let last = '';
   let compactingSince = 0;
+  /** Claude's own permission dialog is up (the hook gave no decision): `1` or `2` answers it. */
+  let dialog = null;
 
   const procStart = () => {
     try {
@@ -97,6 +101,7 @@ module.exports = function run(args) {
       ? `✻ Compacting conversation… (${Math.round((Date.now() - compactingSince) / 1000)}s · esc to interrupt)`
       : ' ✻ Working…';
     out(status === 'busy' ? `${spin}\r\n` : '\r\n');
+    if (dialog) out(' Bash command\r\n   rm -rf fake-build\r\n Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n');
     out(`${'─'.repeat(40)}\r\n❯ ${input.replaceAll('\r', '⏎')}`);
     // DEVROOM-BOARD2: a row drawn by column like a real TUI's status line, ` cols=N` and `|` in the
     // last column (cursor kept): a viewer that parses this at another width than the PTY's shows
@@ -106,7 +111,7 @@ module.exports = function run(args) {
     out(`\x1b7\x1b[2;1H\x1b[2K cols=${cols}\x1b[2;${cols}H|\x1b8`);
   };
   process.stdout.on('resize', () => draw()); // after Node read the new size (a SIGWINCH listener runs before)
-  const askPermission = () => {
+  const askPermission = (skipHook) => {
     let hook;
     try {
       hook = JSON.parse(arg('--settings') || '{}').hooks.PermissionRequest[0].hooks[0];
@@ -125,7 +130,12 @@ module.exports = function run(args) {
       osc('done');
       draw();
     };
-    if (!hook) return decided('dialog');
+    const ownDialog = () => {
+      fs.appendFileSync(path.join(HOME, 'fake-claude-perm.log'), `${JSON.stringify({ sessionId, behavior: 'dialog' })}\n`);
+      dialog = decided;
+      draw();
+    };
+    if (!hook || skipHook) return ownDialog();
     const child = spawn('sh', ['-c', hook.command], { stdio: ['pipe', 'pipe', 'ignore'] });
     let said = '';
     child.stdout.on('data', (d) => (said += d));
@@ -134,9 +144,10 @@ module.exports = function run(args) {
       try {
         behavior = JSON.parse(said).hookSpecificOutput.decision.behavior;
       } catch {
-        /* no decision: Claude would show its own dialog */
+        /* no decision: Claude shows its own dialog */
       }
-      decided(behavior);
+      if (behavior === 'dialog') ownDialog();
+      else decided(behavior);
     });
     child.stdin.end(
       JSON.stringify({
@@ -158,7 +169,7 @@ module.exports = function run(args) {
     writeSession();
     osc('working');
     draw();
-    if (text.includes('FAKE-PERMISSION')) return askPermission();
+    if (text.includes('FAKE-PERMISSION')) return askPermission(text.includes('FAKE-PERMISSION-TERMINAL'));
     const compact = /FAKE-COMPACT(?: (\d+))?/.exec(text);
     if (compact) {
       compactingSince = Date.now();
@@ -286,7 +297,12 @@ module.exports = function run(args) {
       } else {
         const ch = s[0];
         s = s.slice(1);
-        if (ch === '\x18') chordX = true;
+        if (dialog && (ch === '1' || ch === '2')) {
+          const done = dialog;
+          dialog = null;
+          done(ch === '1' ? 'terminal-allow' : 'terminal-deny');
+        } else if (dialog) continue;
+        else if (ch === '\x18') chordX = true;
         else if (ch === '\x13' && chordX) {
           chordX = false;
           submit(true);

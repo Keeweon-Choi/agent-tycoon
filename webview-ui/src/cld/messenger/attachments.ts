@@ -145,28 +145,7 @@ export function composeAttachmentText(text: string, chips: AttachmentChip[]): st
   return [text.trim(), ...lines].filter(Boolean).join('\n');
 }
 
-export function splitAttachmentText(text: string): {
-  body: string;
-  attachments: Array<{ path: string; name: string; type: string; sizeKb: number }>;
-} {
-  const attachments: Array<{ path: string; name: string; type: string; sizeKb: number }> = [];
-  const lines = text.split('\n');
-  while (lines.length) {
-    const line = lines.at(-1)!;
-    // An absolute path: POSIX, a Windows drive (C:\...) or UNC (\\wsl.localhost\...).
-    const match = /^\[\ucca8\ubd80\] ((?:\/|[A-Za-z]:[\\/]|\\\\)[^\n]+) \(([^(),]+), (\d+) KB\)$/.exec(line);
-    if (!match) break;
-    const savedName = match[1].split(/[\\/]/).at(-1)!;
-    attachments.unshift({
-      path: match[1],
-      name: savedName.replace(/^\d{8}-\d{6}-(?:-\d+-)?/, ''),
-      type: match[2],
-      sizeKb: Number(match[3]),
-    });
-    lines.pop();
-  }
-  return { body: lines.join('\n').trimEnd(), attachments };
-}
+export { splitAttachmentText } from '../../../../core/src/cld/attachmentLines.js';
 
 export interface UploadedAttachment {
   path: string;

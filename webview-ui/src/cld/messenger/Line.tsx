@@ -20,16 +20,7 @@ import { ATTACHMENT_ACTION_ERROR_DURATION, ATTACHMENT_ACTION_SUCCESS_DURATION } 
 import { useAttachmentTarget, useOpenAttachment } from './attachmentGallery.js';
 import { splitAttachmentText } from './attachments.js';
 import { BubbleAttachments, sentFiles } from './BubbleAttachments.js';
-import {
-  AGENT_GUTTER_RIGHT,
-  FACE_COLUMN,
-  FACE_GAP,
-  FACE_GUTTER_LEFT,
-  OWNER_GUTTER_LEFT,
-  OwnerFace,
-  PORTRAIT_FRAME_PX,
-  SenderFace,
-} from './Faces.js';
+import { AGENT_GUTTER_RIGHT, FACE_GUTTER_LEFT, FaceSpacer, OwnerFace, SenderFace } from './Faces.js';
 import { sentenceEndStep, skipsTyping, typedSlice, typePlan, useTypewriter } from './gameMessenger.js';
 import { foldBubble, hitHiddenByFold } from './longMessage.js';
 import { copyText, replyChipText, replyDraft, replyIdOf, replySenderOf } from './messageActions.js';
@@ -221,10 +212,10 @@ export function QuotePeek({
       data-testid="quote-peek"
       role="dialog"
       aria-label={t('messenger.peekTitle')}
-      className="absolute bottom-full left-12 right-12 mb-6 flex flex-col border-2 border-accent bg-bg shadow-pixel z-10"
+      className="absolute bottom-full left-12 right-12 mb-6 flex flex-col border-ui rounded-ui-card border-accent bg-bg shadow-pixel z-10"
       style={{ maxHeight }}
     >
-      <header className="flex shrink-0 items-center gap-8 border-b-2 border-border px-8 py-2 text-2xs text-text-muted">
+      <header className="flex shrink-0 items-center gap-8 border-b-ui border-border px-8 py-2 text-2xs text-text-muted">
         <strong className="min-w-0 truncate text-text">
           {view.sender ? serverLine(view.sender) : t('messenger.replyYou')}
         </strong>
@@ -357,20 +348,24 @@ export function Actionable({
   );
 }
 
-/** GAME-UI-1 G1 (01): the RPG dialogue box: a name plate on its top edge (a run's first line), a ▶ 넘기기
- *  button on the right while the line types in. Lead, peer and boss alike (look: gameMessenger.css). */
+/** GAME-UI-1 G1 (01): the dialogue box (FEAT-MESSENGER-GPT-LOOK: a raised card; the run's name row sits over
+ *  it), a ▶ 넘기기 button on the right while the line types in. Lead, peer and boss alike (look: gameMessenger.css). */
 export function DialogueBox({
   kind,
-  plate,
   skip,
   onSkipAll,
   fold,
   typing,
+  state,
+  head,
   onClick,
   children,
 }: {
   kind: 'lead' | 'peer' | 'boss';
-  plate?: ReactNode;
+  /** A message not delivered yet: `waiting` is drawn fainter (dashed outline, a 대기 중 mark); `failed` keeps full strength. */
+  state?: 'waiting' | 'failed';
+  /** FIX-MESSENGER-PENDING-ROW: a message's decisions (지금 보내기 / 수정 / 취소) at the right end of the 대기 중 row. */
+  head?: ReactNode;
   skip?: string;
   onSkipAll?: () => void;
   /** The ▼ / ▲ that opens and folds a long reply (a FoldToggle), in the box's bottom right corner. */
@@ -383,12 +378,11 @@ export function DialogueBox({
     <div
       className="dlg-box"
       data-kind={kind}
-      data-plate={plate ? '' : undefined}
       data-typing={typing || undefined}
+      data-state={state}
       data-fold={fold ? '' : undefined}
       onClick={onClick}
     >
-      {plate}
       {skip && (
         // Shows it all at once (the box's own click is the press-by-press one); Tab and Enter work as on any button.
         <button
@@ -403,6 +397,17 @@ export function DialogueBox({
           <PixelIcon name="skip" size={12} />
           {skip}
         </button>
+      )}
+      {(state === 'waiting' || head) && (
+        <div className="dlg-wait-row">
+          {state === 'waiting' && <span className="dlg-wait text-2xs">{t('msgPolish.waiting')}</span>}
+          {head && (
+            // The 44 px phone floor is lifted for this group on purpose (40 px, as the messenger head's).
+            <span className="dlg-wait-acts" data-touch-compact data-testid="pending-actions">
+              {head}
+            </span>
+          )}
+        </div>
       )}
       {children}
       {fold}
@@ -530,7 +535,7 @@ export function Line({
   if (item.kind === 'tool') {
     return (
       // On the bubbles' left line: past the sender's face column.
-      <details className={`${FACE_GUTTER_LEFT} text-xs text-text-muted`}>
+      <details className={`${FACE_GUTTER_LEFT} ${AGENT_GUTTER_RIGHT} text-xs text-text-muted`}>
         <summary className="cursor-pointer truncate">{toolLineLabel(item, ezContext())}</summary>
         <p className="pl-16 break-all">{item.text}</p>
       </details>
@@ -539,7 +544,7 @@ export function Line({
   if (item.kind === 'result') {
     // A tool's output (the work view only), trimmed on the server.
     return (
-      <details className={`${FACE_GUTTER_LEFT} text-2xs text-text-muted pl-16`}>
+      <details className={`${FACE_GUTTER_LEFT} ${AGENT_GUTTER_RIGHT} text-2xs text-text-muted pl-16`}>
         <summary className="cursor-pointer">{t('messenger.result')}</summary>
         <pre className="[font-family:inherit] whitespace-pre-wrap break-all">{item.text}</pre>
       </details>
@@ -550,7 +555,7 @@ export function Line({
     // One of the lead's command lines, folded like the others: the notice's text inside.
     return (
       <details
-        className={`${FACE_GUTTER_LEFT} text-xs ${shell.code ? 'text-danger' : 'text-text-muted'}`}
+        className={`${FACE_GUTTER_LEFT} ${AGENT_GUTTER_RIGHT} text-xs ${shell.code ? 'text-danger' : 'text-text-muted'}`}
         data-testid="shell-done"
         data-failed={shell.code ? 'true' : undefined}
       >
@@ -602,23 +607,29 @@ export function Line({
   const level = faced
     ? officeSnapshot?.orchestrators.find((o) => o.name === faced.name || serverLine(o.name) === faced.name)?.level?.level
     : undefined;
-  const plate =
-    faced?.show && !user ? (
-      <span className="dlg-plate text-xs" data-testid="from-name">
-        <span className="dlg-name">{faced.name}</span>
-        {level !== undefined && <span className="dlg-lv">{t('character.level', { level })}</span>}
+  const when = item.at > 0 && (
+    <time className="text-2xs" dateTime={new Date(item.at).toISOString()}>
+      {bubbleClock(item.at)}
+    </time>
+  );
+  // FEAT-MESSENGER-GPT-LOOK: the run's first line carries who (and the level) over the bubble; every message,
+  // that one too, keeps its time · 복사 · 답글 under its bubble (people copy or reply after reading it whole).
+  const plateName =
+    faced?.show && !user
+      ? faced.name
+      : faced?.show && peer
+        ? item.fromName && noticeName(serverLine(item.fromName), noticeEmployee(item, tempStaff))
+        : bossFaced?.show
+          ? t('msgui3.me')
+          : null;
+  const plate = plateName !== null && (
+    <span className="dlg-plate text-sm" data-kind={peer ? 'peer' : undefined}>
+      <span className="dlg-name" data-testid="from-name">
+        {plateName}
       </span>
-    ) : faced?.show && peer ? (
-      <span className="dlg-plate text-xs" data-testid="from-name">
-        <span className="dlg-name">
-          {item.fromName && noticeName(serverLine(item.fromName), noticeEmployee(item, tempStaff))}
-        </span>
-      </span>
-    ) : bossFaced?.show ? (
-      <span className="dlg-plate text-xs" data-testid="from-name">
-        {t('msgui3.me')}
-      </span>
-    ) : undefined;
+      {!user && level !== undefined && <span className="dlg-lv text-2xs">{t('character.level', { level })}</span>}
+    </span>
+  );
   const tagOpen = onQuestionTag && ((name: string) => onQuestionTag(name, item.id));
   const mdOf = (text: string) => (
     <Markdown
@@ -709,10 +720,10 @@ export function Line({
           {item.fromName && noticeName(serverLine(item.fromName), noticeEmployee(item, tempStaff))}
         </span>
       )}
+      {plate}
       {boxed ? (
         <DialogueBox
           kind={peer ? 'peer' : user ? 'boss' : 'lead'}
-          plate={plate}
           skip={typed.active ? t('game.msg.skipTag') : undefined}
           typing={typed.active}
           onSkipAll={typed.skipAll}
@@ -725,12 +736,10 @@ export function Line({
         content
       )}
       {!boxed && foldToggle}
-      <span ref={tail} className="text-2xs text-text-muted">
+      <span ref={tail} className="dlg-foot text-2xs text-text-muted">
         {/* The boss's side mirrors the lead's: copy/답글 sit left of the time (MSG-ALIGN). */}
         {user && !peer && <ActionRow actions={actions} before />}
-        {item.at > 0 && (
-          <time dateTime={new Date(item.at).toISOString()}>{bubbleClock(item.at)}</time>
-        )}
+        {when}
         {item.at > 0 && received && <span aria-hidden="true"> · </span>}
         {received && <span>{t('messenger.received')}</span>}
         {typed.skipped && <span data-testid="dlg-skipped"> · {t('game.msg.skipped')}</span>}
@@ -742,16 +751,15 @@ export function Line({
     <Actionable
       actions={actions}
       className={
-        faced
-          ? `${AGENT_GUTTER_RIGHT} flex items-start ${FACE_GAP}${typed.active ? ' dlg-typing' : ''}`
-          : bossFaced
-            ? `${OWNER_GUTTER_LEFT} flex items-start ${FACE_GAP}`
-            : peer
-              ? 'mr-24 flex flex-col items-start'
-              : user
-                ? 'ml-24 flex flex-col items-end'
-                : 'mr-24'
+        faced || bossFaced
+          ? `msg-line${typed.active ? ' dlg-typing' : ''}`
+          : peer
+            ? 'mx-(--msg-col) flex flex-col items-start'
+            : user
+              ? 'mx-(--msg-col) flex flex-col items-end'
+              : 'mx-(--msg-col)'
       }
+      data-side={faced ? 'agent' : bossFaced ? 'mine' : undefined}
       data-from={user ? (peer ? 'peer' : 'boss') : undefined}
     >
       {faced ? (
@@ -759,15 +767,14 @@ export function Line({
           {faced.show ? (
             <SenderFace name={faced.name} employee={peer ? noticeEmployee(item, tempStaff) : undefined} portrait />
           ) : (
-            <span className="shrink-0" style={{ width: PORTRAIT_FRAME_PX }} aria-hidden="true" />
+            <FaceSpacer />
           )}
-          {/* A column, so 더보기 and the time start their own lines on the box's left line (MSG-ALIGN). */}
-          <div className="min-w-0 flex-1 flex flex-col items-start">{inner}</div>
+          <div className="msg-lane">{inner}</div>
         </>
       ) : bossFaced ? (
         <>
-          <div className="min-w-0 flex-1 flex flex-col items-end">{inner}</div>
-          {bossFaced.show ? <OwnerFace /> : <span className={`shrink-0 ${FACE_COLUMN}`} aria-hidden="true" />}
+          <div className="msg-lane">{inner}</div>
+          {bossFaced.show ? <OwnerFace portrait /> : <FaceSpacer />}
         </>
       ) : (
         inner

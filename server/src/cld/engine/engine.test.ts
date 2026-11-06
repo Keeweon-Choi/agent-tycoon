@@ -29,6 +29,7 @@ import { EngineEvents, eventsPath } from './events.js';
 import { Messenger } from './messenger.js';
 import type { ProjectRecord } from './registry.js';
 import { loadRegistry, PROJECT_ID_RE, registryPath, saveRegistry } from './registry.js';
+import { readRenewHistory } from './renewals.js';
 import { CLD_BIN_DIR, cldBinPath, cleanEnv, findSystemdRun } from './sessionEnv.js';
 
 const FAST = {
@@ -1080,7 +1081,7 @@ describe('apply(): busy with background work only', () => {
 
 describe('engine E2 (T-0019): events, start hook, revive notice, renew, compaction nudge', () => {
   /** An engine whose hooks are recorded. */
-  function rig(projects?: ProjectRecord[], timing: Partial<EngineOptions['timing']> = {}) {
+  function rig(projects?: ProjectRecord[], timing: Partial<EngineOptions['timing']> = {}, more: Partial<EngineOptions> = {}) {
     const events: Array<{ type: string; source: string } & Record<string, unknown>> = [];
     const inbox: Array<{ name: string; text: string }> = [];
     const started: string[] = [];
@@ -1093,6 +1094,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
         started: (name) => started.push(name),
         writeInbox: (name, text) => (inbox.push({ name, text }), true),
         nudge: (name, n, fillPct) => nudges.push([name, n, fillPct]),
+        ...more,
       },
     });
     return { ...s, events, inbox, started, nudges };
@@ -1190,7 +1192,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     );
     const now = r.project(e, 'alpha')!;
     expect(now.sessionId).not.toBe(old.sessionId);
-    expect(r.inbox).toEqual([{ name: 'alpha', text: 'HANDOFF' }]);
+    expect(r.inbox).toEqual([{ name: 'alpha', text: expect.stringContaining('\nHANDOFF\n') }]);
     const calls = engineCalls(r.home).map((c) => c.argv.join(' '));
     const stopAt = calls.indexOf(`stop ${old.bgId}`);
     const startAt = calls.lastIndexOf('--bg -n alpha');
@@ -1206,20 +1208,22 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       old_session_id: old.sessionId,
       session_id: now.sessionId,
       ok: true,
+      format: 'free', // K1: not the handoff form, renewed all the same
     });
     expect(r.started).toEqual(['alpha', 'alpha']); // the inbox goes in after the new start
     expect(e.renewing('alpha')).toBe(false);
   });
 
-  it('renew whose new start fails: the handoff stays in the inbox, the old conversation stays resumable', async () => {
+  it('K1 (B4): renew whose new start fails: no retry; the next start is a NEW conversation with the handoff first', async () => {
     const r = rig();
-    const e = r.boot();
+    const e1 = r.boot();
     const dir = r.folder('alpha');
-    await r.act(e, 'add', 'alpha', { folder: dir });
-    await r.act(e, 'start', 'alpha');
-    const old = r.project(e, 'alpha')!;
+    await r.act(e1, 'add', 'alpha', { folder: dir });
+    await r.act(e1, 'start', 'alpha');
+    const old = r.project(e1, 'alpha')!;
+    r.transcript(dir, old.sessionId!); // the old conversation could be resumed
     fs.writeFileSync(path.join(dir, '.fake-untrusted'), ''); // Claude will refuse the new start
-    expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    expect(e1.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
     await waitFor(
       () => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true),
     );
@@ -1229,11 +1233,38 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       old_session_id: old.sessionId,
       session_id: null,
     });
-    expect(r.inbox).toEqual([{ name: 'alpha', text: 'HANDOFF' }]);
-    expect(r.project(e, 'alpha')!.sessionId).toBe(old.sessionId);
-    expect(r.project(e, 'alpha')!.live).toBe(false);
-    // Over: the record goes (the handoff is in the inbox).
+    expect(r.inbox).toEqual([{ name: 'alpha', text: expect.stringContaining('HANDOFF') }]);
+    expect(r.project(e1, 'alpha')!.sessionId).toBe(old.sessionId);
+    expect(r.project(e1, 'alpha')!.live).toBe(false);
+    // Kept: its phase and why, for the next start.
+    expect(JSON.parse(fs.readFileSync(path.join(renewals(r.home), 'alpha.json'), 'utf-8'))).toMatchObject({
+      v: 1,
+      phase: 'starting',
+      oldSessionId: old.sessionId,
+      failed: { code: 'start_failed' },
+    });
+    expect(e1.renewFailed('alpha')).toBe(true);
+    expect(e1.renewing('alpha')).toBe(false); // messages go to the inbox as usual
+    // No retry, not even by a restart's revive.
+    fs.rmSync(path.join(dir, '.fake-untrusted'));
+    const starts = r.bgCalls().length;
+    e1.dispose();
+    const e2 = r.boot();
+    await new Promise((res) => setTimeout(res, 400));
+    expect(r.bgCalls()).toHaveLength(starts);
+    expect(r.project(e2, 'alpha')!.live).toBe(false);
+    // A person's start: a new conversation (no --resume of the old one), the handoff its inbox.
+    expect(await r.act(e2, 'start', 'alpha')).toMatchObject({ ok: true });
+    const now = r.project(e2, 'alpha')!;
+    expect(now.sessionId).not.toBe(old.sessionId);
+    expect(r.bgCalls().slice(starts).map((c) => c.argv.join(' '))).toEqual(['--bg -n alpha']);
+    expect(r.events.filter((x) => x.type === 'orch_start').at(-1)).toMatchObject({ new_conversation: true });
+    expect(r.started.at(-1)).toBe('alpha'); // the inbox (the handoff) goes in
+    expect(r.inbox).toHaveLength(1);
     expect(fs.readdirSync(renewals(r.home))).toEqual([]);
+    expect(e2.renewFailed('alpha')).toBe(false);
+    // The chat scrolls back into the old conversation (renew-history.json).
+    expect(readRenewHistory(r.home)).toMatchObject([{ name: 'alpha', sessionId: old.sessionId, next: now.sessionId }]);
   });
 
   /** RENEW-STUCK: where pending renewals are kept. */
@@ -1264,9 +1295,221 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true, source: 'cli' });
     expect(r.project(e2, 'alpha')!.sessionId).not.toBe(old.sessionId);
-    expect(r.inbox).toEqual([{ name: 'alpha', text: 'HANDOFF' }]);
+    expect(r.inbox).toEqual([{ name: 'alpha', text: expect.stringContaining('HANDOFF') }]);
     expect(fs.readdirSync(renewals(r.home))).toEqual([]);
     expect(e2.renewing('alpha')).toBe(false);
+  });
+
+  it('K1 (B3): a restart after the new conversation started but before the end renews once, not twice', async () => {
+    const r = rig();
+    const e1 = r.boot();
+    await r.act(e1, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e1, 'start', 'alpha');
+    const old = r.project(e1, 'alpha')!;
+    const rec = path.join(renewals(r.home), 'alpha.json');
+    let mid = '';
+    // The record as it stood while the new conversation was starting (the daemon dies there).
+    const watch = setInterval(() => {
+      try {
+        const t = fs.readFileSync(rec, 'utf-8');
+        if ((JSON.parse(t) as { phase?: string }).phase === 'starting') mid = t;
+      } catch {
+        /* not yet, or gone */
+      }
+    }, 2);
+    expect(e1.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    clearInterval(watch);
+    expect(mid).not.toBe('');
+    const now = r.project(e1, 'alpha')!;
+    e1.dispose();
+    fs.writeFileSync(rec, mid, { mode: 0o600 });
+    const starts = r.bgCalls().length;
+    const stops = engineCalls(r.home).filter((c) => c.argv[0] === 'stop').length;
+    const e2 = r.boot();
+    await waitFor(() => expect(r.events.filter((x) => x.type === 'orch_renew')).toHaveLength(2));
+    expect(r.events.filter((x) => x.type === 'orch_renew').at(-1)).toMatchObject({ ok: true, session_id: now.sessionId });
+    await new Promise((res) => setTimeout(res, 300));
+    expect(r.bgCalls()).toHaveLength(starts); // no second new conversation
+    expect(engineCalls(r.home).filter((c) => c.argv[0] === 'stop')).toHaveLength(stops);
+    expect(r.project(e2, 'alpha')).toMatchObject({ sessionId: now.sessionId, live: true });
+    expect(r.inbox).toHaveLength(1);
+    expect(fs.readdirSync(renewals(r.home))).toEqual([]);
+    expect(old.sessionId).not.toBe(now.sessionId);
+  });
+
+  it('K1 (B4): the daemon died after the new conversation came up but before the registry took it: the renew is over, revive is free', async () => {
+    const r = rig();
+    const e1 = r.boot();
+    await r.act(e1, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e1, 'start', 'alpha');
+    const old = r.project(e1, 'alpha')!;
+    const rec = path.join(renewals(r.home), 'alpha.json');
+    let mid = '';
+    const watch = setInterval(() => {
+      try {
+        const t = fs.readFileSync(rec, 'utf-8');
+        if ((JSON.parse(t) as { phase?: string }).phase === 'starting') mid = t;
+      } catch {
+        /* not yet, or gone */
+      }
+    }, 2);
+    expect(e1.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    clearInterval(watch);
+    const now = r.project(e1, 'alpha')!;
+    e1.dispose();
+    // As it stood on disk: the new session lives, the registry still names the old conversation.
+    fs.writeFileSync(rec, mid, { mode: 0o600 });
+    const file = registryPath(r.home);
+    saveRegistry(file, loadRegistry(file).projects.map((x) => (x.name === 'alpha' ? { ...x, sessionId: old.sessionId! } : x)));
+    const starts = r.bgCalls().length;
+    const e2 = r.boot();
+    await waitFor(() => expect(r.project(e2, 'alpha')!.sessionId).toBe(now.sessionId));
+    expect(e2.renewFailed('alpha')).toBe(false);
+    expect(fs.readdirSync(renewals(r.home))).toEqual([]);
+    expect(readRenewHistory(r.home).map((t) => `${t.sessionId}>${t.next}`)).toEqual([`${old.sessionId}>${now.sessionId}`]);
+    expect(r.bgCalls()).toHaveLength(starts); // nothing started twice
+    expect(await r.act(e2, 'start', 'alpha')).toMatchObject({ ok: true }); // already on
+    expect(e2.renewFailed('alpha')).toBe(false);
+  });
+
+  it('K1 (B4): a start that gave up waiting for its session (session_not_found) while it came up: settled on the next look', async () => {
+    const r = rig();
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e, 'start', 'alpha');
+    const old = r.project(e, 'alpha')!;
+    expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    const now = r.project(e, 'alpha')!;
+    // What a session_not_found leaves: the record kept as a failed start, its session up anyway.
+    const rec = path.join(renewals(r.home), 'alpha.json');
+    fs.writeFileSync(
+      rec,
+      JSON.stringify({ v: 1, name: 'alpha', message: 'HANDOFF', source: 'cli', requestedAt: Date.now(), phase: 'starting', oldSessionId: old.sessionId, failed: { code: 'start_failed', error: 'session_not_found', at: Date.now() } }),
+      { mode: 0o600 },
+    );
+    expect(e.renewFailed('alpha')).toBe(true);
+    e.refresh();
+    expect(e.renewFailed('alpha')).toBe(false);
+    expect(fs.readdirSync(renewals(r.home))).toEqual([]);
+    expect(r.project(e, 'alpha')).toMatchObject({ sessionId: now.sessionId, live: true });
+    // A failed start whose session never came up stays failed (its session is the old one).
+    fs.writeFileSync(
+      rec,
+      JSON.stringify({ v: 1, name: 'alpha', message: 'HANDOFF', source: 'cli', requestedAt: Date.now(), phase: 'starting', oldSessionId: now.sessionId, failed: { code: 'start_failed', error: 'x', at: Date.now() } }),
+      { mode: 0o600 },
+    );
+    e.refresh();
+    expect(e.renewFailed('alpha')).toBe(true);
+  });
+
+  it('K1 (B3): a record from before K1 (no v, its message the whole first message) still renews', async () => {
+    const r = rig();
+    const e1 = r.boot();
+    await r.act(e1, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e1, 'start', 'alpha');
+    e1.dispose();
+    fs.mkdirSync(renewals(r.home), { recursive: true });
+    fs.writeFileSync(
+      path.join(renewals(r.home), 'alpha.json'),
+      JSON.stringify({ name: 'alpha', message: 'OLD FIRST MESSAGE', source: 'cli', requestedAt: Date.now() }),
+    );
+    r.boot();
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
+    expect(r.inbox).toEqual([{ name: 'alpha', text: 'OLD FIRST MESSAGE' }]);
+  });
+
+  it('K1 (G6): a renew waits while the agent\'s background sub-agents run', async () => {
+    let subs = 1;
+    const r = rig(undefined, {}, { subagents: () => subs });
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e, 'start', 'alpha');
+    expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true }); // its turn is over (idle)
+    await new Promise((res) => setTimeout(res, 300));
+    expect(e.renewing('alpha')).toBe(true);
+    expect(r.inbox).toEqual([]);
+    expect(r.logs).toContain('[cld engine] renew "alpha": waits for 1 background sub-agent(s)');
+    subs = 0;
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
+  });
+
+  it('K1 (G6): sub-agents not known yet (a daemon restart, its character not bound): the renew waits', async () => {
+    let subs: number | null = null;
+    const r = rig(undefined, {}, { subagents: () => subs });
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e, 'start', 'alpha');
+    expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    await new Promise((res) => setTimeout(res, 300));
+    expect(e.renewing('alpha')).toBe(true);
+    expect(r.inbox).toEqual([]);
+    expect(r.logs).toContain('[cld engine] renew "alpha": waits until its background sub-agents are known');
+    subs = 0;
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
+  });
+
+  it('K1 (G6): sub-agents past the wait: not_idle, said so, no new conversation', async () => {
+    const r = rig(undefined, { renewWaitMs: 300 }, { subagents: () => 2 });
+    const e = r.boot();
+    await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
+    await r.act(e, 'start', 'alpha');
+    const old = r.project(e, 'alpha')!;
+    expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({
+      ok: false,
+      code: 'not_idle',
+      error: expect.stringContaining('서브에이전트'),
+    });
+    expect(r.project(e, 'alpha')!.sessionId).toBe(old.sessionId);
+  });
+
+  it('K1 (B1, B2): a handoff in the form: safety lines, the six sections, then the work basis, in order', async () => {
+    const r = rig();
+    const e = r.boot();
+    const dir = r.folder('alpha');
+    const git = (...a: string[]) =>
+      spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: dir, encoding: 'utf-8' });
+    git('init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a');
+    git('add', '.');
+    git('commit', '-qm', 'first');
+    const sha = git('rev-parse', '--short=7', 'HEAD').stdout.trim();
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'b'); // one changed file
+    await r.act(e, 'add', 'alpha', { folder: dir });
+    await r.act(e, 'start', 'alpha');
+    const old = r.project(e, 'alpha')!;
+    const sections = ['## 목표', '## 완료', '## 미해결', '## 다음 행동', '## 결정', '## 시도했다 버린 것'];
+    const handoff = sections.map((h, i) => `${h}\n- [사실] 줄 ${i} ${sha}`).join('\n');
+    expect(e.renew('alpha', handoff, 'cli', '/w/handoff.md')).toEqual({ ok: true });
+    await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
+    expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true, format: 'ok' });
+    const text = r.inbox[0].text;
+    const order = [
+      '[cld-gui renew · ',
+      '이전 대화와 아래 인수인계는 읽기 전용 참고다',
+      '워크트리(`git status`)가 아래 기록과 다르면 워크트리가 정본이다',
+      '먼저 어디서 멈췄는지',
+      '--- 인수인계 (/w/handoff.md) ---',
+      ...sections,
+      '--- 작업 기준 (엔진이 직접 읽은 값) ---',
+      `이전 세션: ${old.sessionId}`,
+      `폴더: ${dir} · 브랜치: main · HEAD: ${sha} · 바뀐 파일: 1개`,
+      'task worktree: 없음',
+      '열린 Task (0개): 없음',
+      '돌고 있는 일: 없음',
+      'Worker: 없음',
+    ];
+    const at = order.map((x) => text.indexOf(x));
+    expect(at.every((x) => x >= 0), JSON.stringify({ at, text })).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(text).not.toContain('양식(목표·완료·미해결·다음 행동)을 따르지 않았다');
   });
 
   it('TOKEN-GUARD (S-02): 멈추기 during a pending renewal cancels it: no new conversation, none after a restart', async () => {
@@ -1303,7 +1546,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
     expect(r.logs).toContain('[cld engine] renew "alpha": turn over (status shell)');
-    expect(r.inbox).toEqual([{ name: 'alpha', text: 'HANDOFF' }]);
+    expect(r.inbox).toEqual([{ name: 'alpha', text: expect.stringContaining('HANDOFF') }]);
   });
 
   it("renew on 'busy' waits until its timeout, then fails: record cleared, the handoff kept", async () => {
@@ -2187,5 +2430,23 @@ describe('S1: a remote session needs a fresh step-up for the risky engine action
     expect(await viaWs(e, 3, 'stop', 'alpha', {}, remote(false))).toMatchObject({ ok: true });
     expect(r.project(e, 'alpha')?.sessionId).toBeTruthy();
     expect(await viaWs(e, 4, 'start', 'alpha', {}, remote(false))).toMatchObject({ ok: true });
+  });
+});
+
+describe('AGENT-UPDATE: agentCli', () => {
+  it("names the binary the engine runs and the provider's own update argv, nothing for one without", () => {
+    const { home, claudePath } = makeEngineHome();
+    const plain = { id: 'plain', capabilities: { approvalPolicy: [], lifetime: 'run' } } as unknown as AgentProvider;
+    const e = new Engine({ claudePath, home, readOnly: false, systemdRun: null, log: () => undefined, agents: [plain] });
+    cleanup.push(() => {
+      e.dispose();
+      removeTestHome(home);
+    });
+    expect(e.agentCli('claude')).toEqual({ bin: claudePath, update: ['update'] });
+    expect(e.agentCli('plain')).toBeNull();
+    expect(e.agentCli('nope')).toBeNull();
+    expect(e.state().agentCaps?.claude?.update).toBe(true);
+    fs.rmSync(claudePath);
+    expect(e.agentCli('claude')).toEqual({ bin: null, update: ['update'] }); // missing: refused, not run
   });
 });

@@ -183,7 +183,7 @@ async function main() {
     });
     await ready(desk, loginUrl);
     // UI-C1: the board is the 작업실's Task tab, narrowed to the project (the seed's is cld-gui).
-    await openWorkbenchTab(desk, 'Task', { project: 'cld-gui' });
+    await openWorkbenchTab(desk, '이슈', { project: 'cld-gui' });
     const switcher = desk.getByRole('group', { name: '작업 보기' });
     check(
       (await switcher
@@ -270,7 +270,7 @@ async function main() {
     });
     await phoneCtx.addCookies(await deskCtx.cookies());
     await ready(phone, `http://127.0.0.1:${port}/`);
-    await openWorkbenchTab(phone, 'Task', { project: 'cld-gui', tap: true });
+    await openWorkbenchTab(phone, '이슈', { project: 'cld-gui', tap: true });
     await phone.getByTestId('task-now').waitFor();
     await until(
       'phone: the board shows S1 blocked',

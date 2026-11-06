@@ -7,6 +7,8 @@
  */
 import type { OfficeSnapshot } from '../../../core/src/messages.js';
 import { t } from '../i18n/index.js';
+import { capsOf } from './engine.js';
+import { engineGetSnapshot } from './engineStore.js';
 import { messengerShowing } from './messenger/messengerStore.js';
 import { cldGetSnapshot, virtualAgentId } from './officeStore.js';
 import { agentTerminalVisible, openAgentTerminal } from './terminal/workspaceStore.js';
@@ -38,8 +40,11 @@ export function chatTarget(agentId: number, office: OfficeSnapshot | null): Chat
   const orch = office.orchestrators.find(
     (o) => (o.agentId ?? virtualAgentId(`orch:${o.name}`)) === agentId,
   );
-  if (orch) return orch.bg?.id ? { kind: 'background', id: orch.bg.id } : { kind: 'interactive' };
-  return null;
+  if (!orch) return null;
+  // ACP-1: an agent the engine says has no terminal (caps.attach: an ACP agent) has its conversation only.
+  const engine = engineGetSnapshot().state;
+  const caps = capsOf(engine, engine?.projects.find((p) => p.name === orch.name)?.provider);
+  return orch.bg?.id && (!caps || caps.attach) ? { kind: 'background', id: orch.bg.id } : { kind: 'interactive' };
 }
 
 /** The conversation's name, for the tab. */

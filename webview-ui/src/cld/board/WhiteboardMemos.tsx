@@ -199,7 +199,7 @@ function MemoModal({
       <textarea
         aria-label={t('board.memo')}
         data-testid="whiteboard-input"
-        className="w-full bg-bg-dark border-2 border-border px-8 py-4 text-base resize-none"
+        className="w-full bg-bg-dark border-ui border-border rounded-ui-card px-8 py-4 text-base resize-none"
         rows={6}
         maxLength={WHITEBOARD_MEMO_MAX}
         value={text}

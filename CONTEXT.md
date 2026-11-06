@@ -38,15 +38,19 @@ A character drawn translucent because its agent is headless — the visual short
 _Avoid_: faded, dimmed, transparent, inactive (that's a status)
 
 **Sub-agent**:
-An unnamed piece of delegated work spawned by an agent, visualized with its own character near its parent — around it, not in a seat. Not an Agent (no session of its own) and not a Teammate (no name). It exists only for the duration of its task, which may outlive the parent's turn. Having no name is what makes it a sub-agent.
+An unnamed piece of delegated work spawned by an agent, visualized with its own character near its parent — around it, not in a seat. Not an Agent (no session of its own) and not a Teammate (no name). It exists only for the duration of its task, which may outlive the parent's turn. Having no name is what makes it a sub-agent. In the engine these are the sessions a Lead runs on its own; the devroom lists each under the worktree it touches, read-only.
 _Avoid_: subtask (UI label prefix only)
 
 **Team**:
 A Lead plus the Teammates it spawned. A team exists because a teammate was spawned — whether or not the CLI recorded one. A CLI's team registry is evidence of a team, never its definition.
 
 **Lead**:
-The agent that spawned a Team's teammates. An agent becomes a lead the moment it spawns its first teammate.
-_Avoid_: parent (that's the sub-agent relationship), orchestrator
+The project's orchestrator (오케스트레이터): the one agent the owner talks to in the messenger, in charge of the whole project — it plans, delegates and integrates. The messenger shows Leads only. In a Claude Code agent team, the agent that spawned the teammates is likewise that Team's lead.
+_Avoid_: parent (that's the sub-agent relationship)
+
+**Worker**:
+An agent working on one worktree of a project with its own session and terminal: seated there by the owner in the devroom (Orca-style: the owner makes the worktree and picks the Worker) or given a Task by the Lead. It works on its own, but the Lead stays in charge of the project, so important changes go through a conversation with the Lead. Workers live in the devroom, not in the messenger.
+_Avoid_: teammate (the agent-team relationship), staff (a UI flavour word)
 
 **Teammate**:
 A named agent spawned by another agent — the name is what makes it a teammate. Its spawner is its Lead, and together they form a Team. Every teammate has its own transcript and sits in a seat; it may or may not have its own session or terminal — how it runs never changes what it is.
@@ -61,6 +65,18 @@ _Avoid_: spawn (that's the character-level visual event), create
 **Directory**:
 A named filesystem location agents can be launched into. Directories come from two sources: defined by the user in the office, or contributed by the host — VS Code contributes its workspace folders, standalone contributes the directory the server was started from. Host-contributed directories cannot be edited in the office.
 _Avoid_: folder, workspace folder (that's the VS Code-contributed source, not the concept), project
+
+**Worktree** (Korean screen text: 워크트리):
+A git worktree: a folder where one branch of a project is checked out, so an agent works there beside the others. The word developers say is used on screen, with no made-up translation (owner 11-06).
+_Avoid_: 작업 공간, 작업 폴더, work space, workspace (in screen text; "workspace" stays only as a Codex sandbox or editor term)
+
+**Merge / Clone / Worker** (Korean screen text: 머지, 클론, 워커):
+Merging a branch into another, cloning a repository from an address, and the agent that does a Task the Lead hands over. Developers say these words, so the screen uses them as they are (owner 11-06). A merge reads 머지 / 머지돼요 / 머지됨 and a clone 클론; a spec's "합치기" (joining two items) is not a git merge and stays.
+_Avoid_: 병합, 합쳐요, 합쳐짐, 복제, 일꾼
+
+**Version** (Korean screen text: 버전):
+A release or revision of the app or a file, as developers say it (owner 11-06).
+_Avoid_: 판 (새 판, 옛 판)
 
 **Adopt**:
 Begin tracking a session that was started outside the office. An adopted agent is a full citizen.

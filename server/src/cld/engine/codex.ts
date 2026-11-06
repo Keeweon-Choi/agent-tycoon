@@ -213,6 +213,8 @@ export interface WorkerRun {
   /** C7b: whose playbook the run's rules carry, and the agent's own rules file. */
   role?: WorkerRole;
   rulesFile?: string;
+  /** RQ4: its project's spec workflow switch is on. */
+  specWorkflow?: true;
   task?: string;
   resume?: string;
   messageId?: string;
@@ -342,7 +344,7 @@ export class CodexTasks {
       } catch (err) {
         return refuse(
           'worktree_failed',
-          `작업 공간을 만들지 못했습니다: ${err instanceof Error ? err.message : String(err)}`,
+          `워크트리를 만들지 못했습니다: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -353,6 +355,7 @@ export class CodexTasks {
           home: this.o.home,
           rulesDir: this.o.rulesDir ?? null,
           role: w.role ?? 'worker',
+          specWorkflow: w.specWorkflow === true,
           projectRulesFile: w.rulesFile,
         })
       : null;

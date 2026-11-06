@@ -48,10 +48,9 @@ export function subagentFacts(staff: readonly TempEmployee[]): SubagentFacts {
 }
 
 /**
- * The daemon's saved reading (the status line's `usage-claude.json`), for when no viewer made
- * UsageSource poll. Used only while fresh (file mtime within CLAUDE_USAGE_STALE_MS, as the last
- * good endpoint reading) and while its reset has not passed (claudeOwnUsage marks a passed reset
- * as no figure).
+ * The status line's saved report (`usage-claude.json`), for when no viewer made UsageSource
+ * read it. Used only while fresh (file mtime within CLAUDE_USAGE_STALE_MS) and while its reset
+ * has not passed (claudeOwnUsage marks a passed reset as no figure).
  */
 export function savedClaudeUsage(file: string, now = Date.now()): ClaudeUsageFact | null {
   try {
@@ -59,9 +58,7 @@ export function savedClaudeUsage(file: string, now = Date.now()): ClaudeUsageFac
   } catch {
     return null;
   }
-  return claudeUsageFact({
-    providers: [{ id: 'claude', name: 'Claude', windows: claudeOwnUsage(file, now) }],
-  });
+  return claudeUsageFact({ providers: [claudeOwnUsage(file, now)] });
 }
 
 /** The two fields `agty status` adds to the daemon's status answer. */

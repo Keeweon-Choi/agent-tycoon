@@ -11,7 +11,8 @@ import * as path from 'path';
 
 import { koText, refused } from '../../../core/src/cld/serverText.js';
 import { textIn } from '../../../core/src/cld/serverText.js';
-import { CHAT_WS_PREFIX } from '../../../core/src/constants.js';
+import { STREET_GATE } from '../../../core/src/cld/street.js';
+import { CHAT_WS_PREFIX, STREET_PAIR_PATH } from '../../../core/src/constants.js';
 import { bearerTokenValid, normalizeHostname } from '../wsAuth.js';
 import { AUDIT_PAGE, type AuditContext } from './audit.js';
 import {
@@ -30,6 +31,7 @@ import {
   isPublicListener,
   isPublicRequest,
   isShortCode,
+  LEGACY_SESSION_COOKIE,
   requestIsHttps,
   type Session,
   sessionCookie,
@@ -58,6 +60,10 @@ export interface StandaloneAuthRouteOptions {
   allowTerminal: boolean;
   /** To every logged-in client (approval requests). */
   broadcast: (message: Record<string, unknown>) => void;
+  /** MHO 3.6: this host's display name, in the login page title. */
+  hostName?: () => string;
+  /** MHO v1b (ADR-0020): the street, whose token opens what STREET_GATE says and nothing else. */
+  street?: { readerOf(authorization: string | undefined, method: string, pathname: string): unknown };
 }
 
 /** A device-key proof: the signature (base64url) over the nonce from /login/device/challenge. */
@@ -161,6 +167,9 @@ export function registerStandaloneAuth(
     if (isDirectRequest(request.socket) && DIRECT_REFUSED.test(pathname))
       return reply.code(404).send();
     if (standaloneRouteIsPublic(pathname) || fileTicketPassesGate(request.method, pathname)) return;
+    // ADR-0020: a request signed with a street key (another PC's daemon) passes here, for the summary route only.
+    if (STREET_GATE.opens(request.method, pathname) && opts.street?.readerOf(request.headers.authorization, request.method, pathname))
+      return;
     if (standaloneRequestAuthorized(request, token, auth)) return;
     // A wrong Bearer token is a guess at the host credential: rate-limited.
     if (request.headers.authorization !== undefined) {
@@ -172,11 +181,11 @@ export function registerStandaloneAuth(
   });
 
   app.get('/', async (request, reply) => {
-    const cookie = sessionIdFromCookie(request.headers.cookie);
+    const cookie = auth.sessionIdOf(request.headers.cookie);
     // Normal sessions slide on every use; LAN sessions keep their fixed
     // shorter expiry, and each response's cookie Max-Age matches it.
     const session = auth.session(cookie);
-    if (session) setSessionCookie(request, reply, cookie as string, session);
+    if (session) setSessionCookie(request, reply, auth, cookie as string, session);
     else if (!hostBearerValid(request, token)) return page(request, reply, 401);
     return reply.sendFile('index.html');
   });
@@ -296,7 +305,7 @@ export function registerStandaloneAuth(
   // other out); without one, per client. Neither is the per-client block failed proofs feed.
   app.get('/login/device/challenge', async (request, reply) => {
     if (!devices || devices.broken) return reply.code(404).send();
-    const session = auth.session(sessionIdFromCookie(request.headers.cookie));
+    const session = auth.session(auth.sessionIdOf(request.headers.cookie));
     const limiter = session ? auth.sessionChallengeLimiter : auth.challengeLimiter;
     const keys = [session ? `session:${session.hash}` : ipKey(requestClient(request))];
     if (limiter.blocked(keys)) {
@@ -320,7 +329,7 @@ export function registerStandaloneAuth(
     }
     console.log(`[cld auth] "${device.label}" logged back in with its device key`);
     const session = auth.deviceLogin(device, sessionLifetime(request));
-    setSessionCookie(request, reply, session.id, session);
+    setSessionCookie(request, reply, auth, session.id, session);
     return { ok: true };
   });
 
@@ -498,7 +507,7 @@ export function registerStandaloneAuth(
       );
       if (!session) return reply.code(401).send({ error: LOGIN_ERRORS.passkeyUnbound });
       noteAssertion(session.hash);
-      setSessionCookie(request, reply, session.id, session);
+      setSessionCookie(request, reply, auth, session.id, session);
       return { ok: true };
     },
   );
@@ -677,7 +686,7 @@ export function registerStandaloneAuth(
     const pushing = cldHooks.pushDevices?.();
     return {
       sessions: auth
-        .listSessions(sessionIdFromCookie(request.headers.cookie))
+        .listSessions(auth.sessionIdOf(request.headers.cookie))
         .map((row) => (pushing ? { ...row, push: pushing.has(row.id) } : row)),
     };
   });
@@ -720,7 +729,7 @@ export function registerStandaloneAuth(
     const dropsPasskeys =
       !!devices?.passkeyRequired && !!passkeys?.countFor(auth.revokeTarget(request.params.id));
     if ((!own || dropsPasskeys) && !stepUp(session, reply)) return reply;
-    const gone = auth.rowOf(request.params.id, sessionIdFromCookie(request.headers.cookie));
+    const gone = auth.rowOf(request.params.id, auth.sessionIdOf(request.headers.cookie));
     if (!auth.revoke(request.params.id)) return reply.code(404).send();
     auth.audit.write({
       kind: 'deviceRevoked',
@@ -728,18 +737,29 @@ export function registerStandaloneAuth(
       by: auth.actorLabel(session),
       ...contextOf(request),
     });
-    const self = !auth.validSession(sessionIdFromCookie(request.headers.cookie));
+    const self = !auth.validSession(auth.sessionIdOf(request.headers.cookie));
     console.log(
       `[cld auth] signed out a device${self ? ' (its own)' : ''} from "${session.label}"`,
     );
-    if (self) reply.header('Set-Cookie', clearedCookie(request));
+    // This host's cookie goes, and the old shared one too when it names a live session here: the
+    // next request would otherwise fall back to it and still be signed in. Another host's stays.
+    const legacy =
+      auth.cookieName === LEGACY_SESSION_COOKIE
+        ? undefined
+        : sessionIdFromCookie(request.headers.cookie, LEGACY_SESSION_COOKIE);
+    const ownLegacy = legacy !== undefined && (legacy === auth.sessionIdOf(request.headers.cookie) || auth.hasSession(legacy));
+    if (self)
+      reply.header('Set-Cookie', [
+        clearedCookie(request, auth.cookieName),
+        ...(ownLegacy ? [clearedCookie(request, LEGACY_SESSION_COOKIE)] : []),
+      ]);
     return { ok: true };
   });
 
   app.post('/api/auth/sessions/revoke-others', async (request, reply) => {
     const session = sessionFor(request, reply, auth);
     if (!session || !stepUp(session, reply)) return reply;
-    const count = auth.revokeOthers(sessionIdFromCookie(request.headers.cookie));
+    const count = auth.revokeOthers(auth.sessionIdOf(request.headers.cookie));
     auth.audit.write({ kind: 'revokeOthers', detail: count, by: auth.actorLabel(session), ...contextOf(request) });
     console.log(`[cld auth] signed out ${count} other session(s) from "${session.label}"`);
     return { count };
@@ -782,7 +802,7 @@ export function registerStandaloneAuth(
           deviceKind(request.headers['user-agent']),
           contextOf(request),
         );
-        setSessionCookie(request, reply, session.id, session);
+        setSessionCookie(request, reply, auth, session.id, session);
       }
       return {
         state: result.state,
@@ -853,6 +873,9 @@ export function registerStandaloneAuth(
       approval: !direct && !!approvals,
       device: deviceLoginOn(),
       lang: pageLanguage(request.headers['accept-language']),
+      // Which host this login is for, but never to the internet (Funnel, direct, LAN listener):
+      // a name can only be left out by network position, never granted.
+      host: isPublicRequest(request.headers, request.socket) ? undefined : opts.hostName?.(),
     };
     return sendLoginPage(reply, status, options);
   }
@@ -923,7 +946,7 @@ export function registerStandaloneAuth(
       }
       return page(request, reply, 401, LOGIN_ERRORS.badCode);
     }
-    setSessionCookie(request, reply, session.id, session);
+    setSessionCookie(request, reply, auth, session.id, session);
     // A move began on another origin: one hop from this one takes the cookie along.
     if (session.method === 'move') return sendEnterPage(reply);
     return reply.code(303).header('Location', '/').send();
@@ -938,7 +961,7 @@ export function standaloneRequestAuthorized(
 ): boolean {
   return (
     hostBearerValid(request, token) ||
-    auth.validSession(sessionIdFromCookie(request.headers.cookie))
+    auth.validSession(auth.sessionIdOf(request.headers.cookie))
   );
 }
 
@@ -955,12 +978,12 @@ export function hostBearerValid(request: FastifyRequest, token: string): boolean
  * must also be same-origin: SameSite=Strict still sends the cookie from a
  * sibling `*.ts.net` page, so the Origin header is checked too.
  */
-function sessionFor(
+export function sessionFor(
   request: FastifyRequest,
   reply: FastifyReply,
   auth: StandaloneAuth,
 ): Session | undefined {
-  const session = auth.session(sessionIdFromCookie(request.headers.cookie));
+  const session = auth.session(auth.sessionIdOf(request.headers.cookie));
   if (!session) {
     reply.code(401).send('unauthorized');
     return undefined;
@@ -998,7 +1021,7 @@ function requestNetwork(request: FastifyRequest): ApprovalNetwork {
 
 /**
  * What a client with no session may load: the health check, the login page
- * with its script, style, font and login calls, and what a browser fetches
+ * with its script, style, font and login calls, the app's bundled font faces, and what a browser fetches
  * without cookies to install the web app (manifest, icons, the push service
  * worker, T-0039: its update check may come without a session), and a push
  * notification's picture link (pushImage.ts: signed, one image, 10 minutes). Everything else --
@@ -1030,6 +1053,8 @@ function standaloneRouteIsPublic(pathname: string): boolean {
       '/login/approval/poll',
       '/fonts/FSPixelSansUnicode-Regular.ttf',
       '/api/health',
+      // MHO v1b: another PC's daemon pairs with a code (the route's own limits, streetRoutes.ts).
+      STREET_PAIR_PATH,
       '/manifest.webmanifest',
       '/favicon.ico',
       '/sw.js',
@@ -1037,15 +1062,37 @@ function standaloneRouteIsPublic(pathname: string): boolean {
     PUSH_IMAGE_PATH.test(pathname) ||
     /^\/apple-touch-icon(-precomposed)?\.png$/.test(pathname) ||
     /^\/icons\/[A-Za-z0-9_-]+\.png$/.test(pathname) ||
-    /^\/fonts\/galmuri\/Galmuri[0-9]+(-Bold)?\.woff2$/.test(pathname)
+    /^\/fonts\/galmuri\/Galmuri[0-9]+(-Bold)?\.woff2$/.test(pathname) ||
+    // the 모던 face: a phone's CSS font fetch may come without the session (the pixel faces above did)
+    /^\/fonts\/pretendard\/Pretendard-(Regular|SemiBold)\.woff2$/.test(pathname)
   );
 }
 
-/** Set-Cookie for a session's cookie value (handed out at login, never stored). */
-function setSessionCookie(request: FastifyRequest, reply: FastifyReply, value: string, session?: Session): void {
+/**
+ * Set-Cookie for a session's cookie value (handed out at login, never stored), under this host's
+ * cookie name. MHO 3.6: an old shared `cld_session` naming a live session of this host is cleared in
+ * the same reply (it moves to the new name); another host's is never touched.
+ */
+function setSessionCookie(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  auth: StandaloneAuth,
+  value: string,
+  session?: Session,
+): void {
+  const legacy =
+    auth.cookieName === LEGACY_SESSION_COOKIE
+      ? undefined
+      : sessionIdFromCookie(request.headers.cookie, LEGACY_SESSION_COOKIE);
+  const cookie = sessionCookie(
+    value,
+    requestIsHttps(headerValue(request.headers['x-forwarded-proto'])),
+    session?.lifetime,
+    auth.cookieName,
+  );
   reply.header(
     'Set-Cookie',
-    sessionCookie(value, requestIsHttps(headerValue(request.headers['x-forwarded-proto'])), session?.lifetime),
+    auth.hasSession(legacy) ? [cookie, clearedCookie(request, LEGACY_SESSION_COOKIE)] : cookie,
   );
 }
 
@@ -1054,10 +1101,12 @@ function sessionLifetime(request: FastifyRequest): Session['lifetime'] | undefin
   return isLanRequest(request.socket) ? 'lan' : undefined;
 }
 
-function clearedCookie(request: FastifyRequest): string {
+function clearedCookie(request: FastifyRequest, name: string): string {
   return sessionCookie(
     '',
     requestIsHttps(headerValue(request.headers['x-forwarded-proto'])),
+    undefined,
+    name,
   ).replace(/Max-Age=\d+/, 'Max-Age=0');
 }
 
@@ -1078,7 +1127,7 @@ export function contextOf(request: FastifyRequest): AuditContext {
   };
 }
 
-function requestClient(request: FastifyRequest): string {
+export function requestClient(request: FastifyRequest): string {
   const forwarded = request.headers['x-forwarded-for'];
   return clientAddress(
     request.socket.remoteAddress,

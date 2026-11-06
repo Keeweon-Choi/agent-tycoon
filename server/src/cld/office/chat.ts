@@ -94,13 +94,22 @@ export class OfficeChat {
       else this.deps.readScreen(msg.agentId); // PERM-PROMPT: a card someone now looks at
       return true;
     }
-    if (msg.type === 'chatHistory' || msg.type === 'chatSearch') {
+    if (msg.type === 'chatHistory' || msg.type === 'chatSearch' || msg.type === 'chatFiles') {
       if (!this.deps.opts.chat || !Number.isInteger(msg.agentId) || typeof msg.requestId !== 'string')
         return true;
       const agentId = msg.agentId as number;
       if (!privileged) {
         send(
-          msg.type === 'chatHistory'
+          msg.type === 'chatFiles'
+            ? {
+                type: 'chatFilesResult',
+                requestId: msg.requestId,
+                agentId,
+                files: [],
+                done: false,
+                ...refused('no_permission'),
+              }
+            : msg.type === 'chatHistory'
             ? {
                 type: 'chatHistoryResult',
                 requestId: msg.requestId,
@@ -134,6 +143,9 @@ export class OfficeChat {
           msg.before as string | undefined,
           msg.until as number | undefined,
         );
+      } else if (msg.type === 'chatFiles') {
+        if (msg.before !== undefined && typeof msg.before !== 'string') return true;
+        this.deps.conversations.files(send, agentId, msg.requestId, msg.before as string | undefined);
       } else if (typeof msg.query === 'string') {
         this.deps.conversations.search(send, agentId, msg.requestId, msg.query);
       }

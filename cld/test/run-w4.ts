@@ -125,7 +125,7 @@ async function main() {
     await bench.waitFor();
     await bench.getByRole('button', { name: 'worktree', exact: true }).click();
     const panel = bench.getByLabel('alpha 저장소');
-    await panel.getByText('작업 공간 (3)').waitFor();
+    await panel.getByText('워크트리 (3)').waitFor();
 
     const rows = panel.getByTestId('worktree-row');
     const rowOf = (task: string) => panel.locator(`[data-testid="worktree-row"][data-task="${task}"]`);

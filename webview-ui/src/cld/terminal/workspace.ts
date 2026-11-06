@@ -227,35 +227,6 @@ export function closeTab(ws: Workspace, key: string): Workspace {
   return paneCount(rest) > 1 ? closePane(rest, at.row, at.col) : rest;
 }
 
-/**
- * The agent tab to let go of when `key` needs an attach and the cap is
- * reached: the least recently focused of `attached` (agent tab keys holding
- * an attach), `key` itself excepted. Null when there is none.
- */
-export function leastRecentAttached(ws: Workspace, attached: string[], key: string): string | null {
-  const live = attached.filter((k) => k !== key && hasTab(ws, k));
-  const order = new Map(ws.recent.map((k, i) => [k, i]));
-  live.sort((a, b) => (order.get(a) ?? -1) - (order.get(b) ?? -1));
-  return live[0] ?? null;
-}
-
-/**
- * A cap refusal that came back after this window already let go of its own attach (a swap at
- * `swappedAt`, within `windowMs`) is a slot held by another browser or device: only they can free it.
- */
-export function heldElsewhere(
-  swappedAt: number | undefined,
-  now: number,
-  windowMs: number,
-): boolean {
-  return swappedAt !== undefined && now - swappedAt <= windowMs;
-}
-
-/** The next bounded retry after a swapped-out attach is still counted by the daemon, or null when done. */
-export function swapCapRetryDelay(retry: number, delays: readonly number[]): number | null {
-  return delays[retry] ?? null;
-}
-
 // ── What is kept per device ─────────────────────────────────────────────────
 
 export function serialize(ws: Workspace): string {

@@ -166,7 +166,7 @@ async function main() {
     await page.waitForTimeout(700);
     await shows('office', '파일 mode');
     await shot('tab-파일');
-    for (const tab of ['Task', '에이전트']) {
+    for (const tab of ['이슈', '에이전트']) {
       await openWorkbenchTab(page, tab);
       await page.waitForTimeout(700);
       await shows('workbench', `작업실 tab ${tab}`);

@@ -22,23 +22,27 @@ import {
   DEVROOM_DROP_EDGE,
   DEVROOM_JUST_NOW_MS,
   DEVROOM_PANE_MIN_PX,
-  DEVROOM_SUBS_DONE_MAX,
   MOBILE_TERMINAL_FONT_SIZE_PX,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 import { readClipboardText } from '../../terminal/clipboard.js';
 import { FatigueBar } from '../ez/Fatigue.js';
+import { openJobs } from '../game/openJobs.js';
+import { PixelIcon } from '../game/parts.js';
+import { Icon } from '../icons/Icon.js';
 import { elapsedDuration } from '../kinds.js';
 import { type LeadState, leadState, unreadCount, useMessenger } from '../messenger/messengerStore.js';
 import { DOT, Mug } from '../messenger/parts.js';
 import { fatigueFor, useCldStore } from '../officeStore.js';
+import { setRunsProject } from '../panels/runsFilter.js';
 import { useRepoStore } from '../repo/repoStore.js';
 import { terminalMessages } from '../terminal/workspace.js';
 import { WaitMark } from '../WaitMark.js';
-import { openWorkbench, setWorkbenchTab } from '../workbench/workbenchStore.js';
-import { type Bucket, bucketOf, BUCKETS, inStateSince } from './agentBoard.js';
-import { BODY, DevroomLooks, DevroomTools, SMALL, useTerminalColumns } from './devroomData.js';
+import { type Bucket, bucketOf, BUCKETS, inStateSince, waitsOnPerson } from './agentBoard.js';
+import { BODY, DevroomLooks, DevroomTools, SMALL, useSubs, useTerminalColumns } from './devroomData.js';
 import type { AgentColumn, SubColumn } from './devroomState.js';
+import { type AgentPick, useDevroom } from './devroomStore.js';
+import { PaneChat, PanePermission } from './PaneChat.js';
 import {
   closeAt,
   drop,
@@ -46,17 +50,22 @@ import {
   isLeaf,
   leaves,
   loadTree,
+  PANE_VIEWS,
   type PaneNode,
+  type PaneView,
   type Path,
   pathKey,
   preset,
   RATIO_MIN,
   resize,
   saveTree,
+  setView,
   showAt,
+  viewOf,
   type Zone,
 } from './paneTree.js';
-import { lineText, rememberSubs, sameSubs, type SubRow } from './subagents.js';
+import { takeSeated } from './seatStore.js';
+import { lineText, type SubRow } from './subagents.js';
 import { SubChip, SubList, SubTranscript } from './SubTranscript.js';
 
 const socketOf = (bgId: string) => `${CHAT_WS_PREFIX}/${bgId}`;
@@ -89,20 +98,6 @@ function useNow(on: boolean): number {
   return now;
 }
 
-/** Sub-agents seen this visit (subagents.ts): a finished one stays listed as done. */
-let subMemory: SubRow[] = [];
-
-function useSubs(cols: readonly AgentColumn[], live: readonly SubColumn[]): SubRow[] {
-  const [subs, setSubs] = useState(subMemory);
-  const ids = cols.flatMap((c) => (c.agentId === null ? [] : [c.agentId])).join();
-  useEffect(() => {
-    const next = rememberSubs(subMemory, live, new Set(ids.split(',').map(Number)), Date.now(), DEVROOM_SUBS_DONE_MAX);
-    if (!sameSubs(next, subMemory)) subMemory = next;
-    setSubs(subMemory);
-  }, [live, ids]);
-  return subs;
-}
-
 /** Every agent of the board with its state, in status order (needs-you first). */
 function useBoard(project: string, cols: readonly AgentColumn[], live: readonly SubColumn[], now: number): BoardAgent[] {
   const store = useCldStore();
@@ -117,7 +112,7 @@ function useBoard(project: string, cols: readonly AgentColumn[], live: readonly 
     const contact = m.contacts.find((c) => (id !== null && c.agentId === id) || c.name === col.name);
     const row = orchs.find((o) => o.name === col.name);
     const state: LeadState =
-      col.kind === 'off' ? 'off' : leadState(row, id === null ? null : (looks?.statusFor(id) ?? null), contact?.held === true);
+      col.kind === 'off' ? 'off' : leadState(row, id === null ? null : (looks?.statusFor(id) ?? null), waitsOnPerson(contact));
     const unread = contact ? unreadCount(contact.replies, m.read[contact.name]) : 0;
     // Since when it is in this state; after a turn, since its last news (the transcript's newest item).
     const settled = inStateSince(id ?? -1, state, now);
@@ -140,17 +135,27 @@ function useBoard(project: string, cols: readonly AgentColumn[], live: readonly 
   return BUCKETS.flatMap((b) => agents.filter((a) => a.bucket === b));
 }
 
-/** A column without a terminal says why; a Codex worker's links its run in the 작업실. */
-function NoTerminal({ col, project }: { col: AgentColumn; project: string }) {
+/** Why a column has no terminal, in one line (the dimmed 터미널 side's title too). */
+const noTerminalWhy = (col: AgentColumn): string =>
+  col.kind === 'none' ? t('agentCaps.noTerminal') : t(`devroom.term.${col.kind === 'live' ? 'off' : col.kind}`);
+
+/** A column without a terminal says why; an agent that works in runs links them in the 현황판's 실행
+ *  tab, any other (an ACP agent) its 대화. */
+function NoTerminal({ col, project, onChat }: { col: AgentColumn; project: string; onChat: () => void }) {
   return (
     <div className={`p-12 flex flex-col items-start gap-8 text-text-muted ${SMALL}`} data-testid="devroom-term-none">
-      <p>{t(`devroom.term.${col.kind === 'live' ? 'off' : col.kind}`)}</p>
-      {col.kind === 'codex' && (
+      <p>{noTerminalWhy(col)}</p>
+      {col.kind === 'none' && !col.runs && (
+        <Button size="sm" data-testid="devroom-term-chat" onClick={onChat}>
+          {t('devroom.term.chatLink')}
+        </Button>
+      )}
+      {col.kind === 'none' && col.runs && (
         <Button
           size="sm"
           onClick={() => {
-            setWorkbenchTab('agents');
-            openWorkbench(project);
+            openJobs();
+            setRunsProject(project);
           }}
         >
           {t('devroom.term.codexLink')}
@@ -240,6 +245,37 @@ function Card({
   );
 }
 
+const BUCKET_DOT: Record<Bucket, string> = { needs: DOT.waiting, working: DOT.working, done: DOT.resting, idle: DOT.off };
+
+/** D1's status chips: `나를 기다림 n · 일하는 중 n · 끝남 n · 쉬는 중 n · 보기` (stateGroup's reading, empty ones left out). */
+function StatusChips({ agents, open, onOpen }: { agents: readonly BoardAgent[]; open: Bucket | null; onOpen: (b: Bucket) => void }) {
+  return (
+    <div className="min-w-0 flex items-center gap-6 overflow-x-auto" role="group" aria-label={t('devroom.pane.chips')} data-testid="devroom-status-chips">
+      {BUCKETS.map((b) => {
+        const n = agents.filter((a) => a.bucket === b).length;
+        if (!n) return null;
+        return (
+          <button
+            key={b}
+            type="button"
+            className={`ui-tab shrink-0 ${SMALL} ${open === b ? 'ui-on' : ''}`}
+            aria-expanded={open === b}
+            data-testid="devroom-status-chip"
+            data-bucket={b}
+            onClick={() => onOpen(b)}
+          >
+            <span className={`inline-block size-8 rounded-ui-pill ${BUCKET_DOT[b]}`} aria-hidden="true" />
+            <span className={b === 'needs' ? 'text-status-permission' : undefined}>
+              {t(`devroom.board.bucket.${b}`)} {n}
+            </span>
+            {b === 'idle' && <span className="text-text-muted">· {t('devroom.board.showIdle')}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** The cards in status groups: 나를 기다림, 일하는 중, 끝남, 쉬는 중 (empty groups left out). */
 function Groups({
   agents,
@@ -248,6 +284,7 @@ function Groups({
   onSubs,
   onDrag,
   phone,
+  idleOpen = false,
 }: {
   agents: readonly BoardAgent[];
   shown: readonly (string | null)[];
@@ -255,12 +292,14 @@ function Groups({
   onSubs: (name: string) => void;
   onDrag?: (e: React.DragEvent, name: string) => void;
   phone?: boolean;
+  /** 쉬는 중 starts unfolded (its status chip's `보기` opened the list). */
+  idleOpen?: boolean;
 }) {
   // Orca's Idle column: 쉬는 중 is folded until asked for (this view only).
-  const [showIdle, setShowIdle] = useState(false);
+  const [showIdle, setShowIdle] = useState(idleOpen);
   return (
     <div
-      className={phone ? 'flex flex-col gap-12 p-10' : 'shrink-0 flex gap-14 overflow-x-auto px-10 py-8 bg-bg border-b-2 border-border'}
+      className={phone ? 'flex flex-col gap-12 p-10' : 'flex flex-wrap gap-14 px-10 py-8'}
       data-testid="devroom-agent-strip"
     >
       {BUCKETS.map((b) => {
@@ -305,12 +344,50 @@ function Groups({
   );
 }
 
-/** A pane's body: the picked sub-agent's transcript, else the agent's terminal (or why it has none). */
+/** The pane head's `대화 | 터미널` (D1). An agent without a terminal has that side dimmed; pressed, it says why. */
+function ViewSwitch({ agent, view, onView, wide }: { agent: BoardAgent; view: PaneView; onView: (v: PaneView) => void; wide?: boolean }) {
+  const live = agent.col.kind === 'live';
+  return (
+    <div
+      className={`ui-subtabs shrink-0 ${wide ? 'w-full' : ''}`}
+      role="tablist"
+      aria-label={t('devroom.pane.views')}
+      data-testid="devroom-pane-views"
+    >
+      {PANE_VIEWS.map((v) => {
+        const dim = v === 'terminal' && !live;
+        return (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            aria-disabled={dim || undefined}
+            title={dim ? noTerminalWhy(agent.col) : undefined}
+            className={`ui-tab ${SMALL} ${wide ? 'flex-1 justify-center' : ''} aria-disabled:opacity-(--btn-disabled-opacity)`}
+            data-testid="devroom-pane-view"
+            data-view={v}
+            onClick={() => onView(v)}
+          >
+            {v === 'chat' ? <Icon name="message-square-text" size={14} pixel={null} /> : <PixelIcon name="term" size={12} />}
+            {/* A narrow pane keeps the icons (the picker needs the room); the name stays for screen readers. */}
+            <span className={wide ? undefined : '@max-[480px]:sr-only'}>{t(`devroom.pane.view.${v}`)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A pane's body: the picked sub-agent's transcript; else in 대화 the agent's conversation, in 터미널 its
+ *  terminal (or why it has none) with its permission card over it. */
 function PaneBody({
   agent,
   project,
   on,
   now,
+  view,
+  onView,
   sub,
   onSubBack,
   phone,
@@ -320,6 +397,8 @@ function PaneBody({
   project: string;
   on: boolean;
   now: number;
+  view: PaneView;
+  onView: (v: PaneView) => void;
   sub: string | null;
   onSubBack: () => void;
   phone?: boolean;
@@ -328,10 +407,20 @@ function PaneBody({
   const picked = sub ? agent.subs.find((s) => s.key === sub) : undefined;
   if (picked) return <SubTranscript sub={picked} on={on} now={now} onBack={onSubBack} />;
   const col = agent.col;
-  if (col.kind !== 'live') return <NoTerminal col={col} project={project} />;
+  if (view === 'chat')
+    return <PaneChat agentId={col.agentId} project={project} on={on} onTerminal={col.kind === 'live' ? () => onView('terminal') : null} />;
+  const card = <PanePermission agentId={col.agentId} name={col.name} />;
+  if (col.kind !== 'live')
+    return (
+      <>
+        <NoTerminal col={col} project={project} onChat={() => onView('chat')} />
+        {card}
+      </>
+    );
   if (!on) return null;
   return (
-    <div className={`flex-1 min-h-0 ${phone ? 'p-4' : 'px-8 py-6'}`}>
+    <div className={`relative flex-1 min-h-0 ${phone ? 'p-4' : 'px-8 py-6'}`}>
+      {card}
       <TerminalPane
         agentId={col.agentId ?? -1}
         socketPath={socketOf(col.bgId)}
@@ -407,6 +496,8 @@ function Pane({
   onClose,
   sub,
   onSub,
+  view,
+  onView,
 }: {
   agent: BoardAgent | null;
   agents: readonly BoardAgent[];
@@ -423,17 +514,24 @@ function Pane({
   /** The sub-agent it shows instead of the terminal (kept by the board: a new layout keeps it). */
   sub: string | null;
   onSub: (key: string | null) => void;
+  view: PaneView;
+  onView: (v: PaneView) => void;
 }) {
   const store = useCldStore();
   const [zone, setZone] = useState<Zone | null>(null);
   const fatigue = agent?.col.agentId != null ? fatigueFor(agent.col.agentId, store) : null;
   return (
     <section
-      className={`relative flex-1 min-w-0 min-h-0 flex flex-col bg-bg-dark border-2 ${focused ? 'border-accent' : 'border-border'}`}
+      className={`@container relative flex-1 min-w-0 min-h-0 flex flex-col bg-bg-dark border-2 ${focused ? 'border-accent' : 'border-border'}`}
       data-testid="devroom-pane"
       data-agent={agent?.col.name}
+      data-agent-id={agent?.col.agentId ?? undefined}
+      data-view={view}
       data-focused={focused || undefined}
+      tabIndex={-1}
       onPointerDownCapture={onFocus}
+      // DV3 Alt+1..6 and the palette focus a pane by key: the board follows as it does a click.
+      onFocusCapture={onFocus}
       onDragOver={(e) => {
         if (!dragging(e)) return;
         e.preventDefault();
@@ -462,7 +560,7 @@ function Pane({
         <span className="flex-1 min-w-0 flex flex-col gap-2">
           <span className="flex items-center gap-8 min-w-0">
             <select
-              className={`min-w-0 max-w-[60%] bg-bg text-text border-2 border-border ${BODY} font-bold`}
+              className={`min-w-80 max-w-[60%] bg-bg text-text border-2 border-border ${BODY} font-bold`}
               aria-label={t('devroom.board.pick')}
               data-testid="devroom-pane-pick"
               value={agent?.col.name ?? ''}
@@ -490,6 +588,7 @@ function Pane({
           )}
         </span>
         {agent && <SubChip subs={agent.subs} open={subsOpen} onClick={() => onSubs(!subsOpen)} />}
+        {agent && <ViewSwitch agent={agent} view={view} onView={onView} />}
         {onClose && (
           <Button size="icon_md" aria-label={t('devroom.board.closePane')} title={t('devroom.board.closePane')} onClick={onClose}>
             ×
@@ -498,7 +597,7 @@ function Pane({
       </header>
       <div className="relative flex-1 min-h-0 flex flex-col">
         {agent ? (
-          <PaneBody agent={agent} project={project} on={on} now={now} sub={sub} onSubBack={() => onSub(null)} />
+          <PaneBody agent={agent} project={project} on={on} now={now} view={view} onView={onView} sub={sub} onSubBack={() => onSub(null)} />
         ) : (
           <p className={`m-auto p-12 text-center text-text-muted ${BODY}`}>{t('devroom.board.empty')}</p>
         )}
@@ -577,6 +676,8 @@ export function TerminalColumns(props: {
   subs: readonly SubColumn[];
   /** The rail's pick: its agent comes into the focused pane. */
   focus: string | null;
+  /** DEVROOM-SIDEBAR: the agent row clicked (focus is its agent): its sub-agent's transcript, or none. */
+  want?: AgentPick | null;
   /** The tab is on screen: only then do the terminals attach and the clock tick. */
   on: boolean;
 }) {
@@ -588,12 +689,14 @@ function Board({
   cols,
   subs,
   focus,
+  want = null,
   on,
 }: {
   project: string;
   cols: readonly AgentColumn[];
   subs: readonly SubColumn[];
   focus: string | null;
+  want?: AgentPick | null;
   on: boolean;
 }) {
   const now = useNow(on);
@@ -602,6 +705,13 @@ function Board({
   const [focusKey, setFocusKey] = useState('root');
   const [subsOpen, setSubsOpen] = useState<string | null>(null);
   const [subOf, setSubOf] = useState<Record<string, string | null>>({});
+  // The status chip whose cards are open (any opens them all, its own group unfolded), and a card's drag.
+  const [strip, setStrip] = useState<Bucket | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const closeStrip = () => {
+    setStrip(null);
+    setDragging(false);
+  };
   const order = agents.map((a) => a.col.name);
   const tree = fillTree(stored, order);
   const panes = leaves(tree);
@@ -612,12 +722,30 @@ function Board({
     if (there) setFocusKey(pathKey(there.path));
     else setStored(showAt(tree, focused.path, name));
   };
+  const openSub = (name: string, key: string | null) => setSubOf((m) => ({ ...m, [name]: key }));
+  /** `name`'s pane, shown and switched to `view`. */
+  const showView = (name: string, view: PaneView) => {
+    const shown = panes.some((l) => l.name === name) ? tree : showAt(tree, focused.path, name);
+    const leaf = leaves(shown).find((l) => l.name === name);
+    if (!leaf) return;
+    setStored(setView(shown, leaf.path, view));
+    setFocusKey(pathKey(leaf.path));
+  };
   // The rail's pick shows its agent (once per pick, never against the owner's own choice after).
   const last = useRef<string | null>(null);
   useEffect(() => {
-    if (!focus || focus === last.current || !order.includes(focus)) return;
-    last.current = focus;
-    show(focus);
+    if (!focus || !order.includes(focus)) return;
+    // T-70: an agent the owner just seated opens on its 터미널 (it is starting there; seatStore.ts),
+    // one with no terminal of ours (a run per message, still `claude --bg`) in 대화.
+    const seated = takeSeated(focus);
+    // An agent row clicked again shows it again (its stamp changed).
+    const stamp = `${focus}\0${want?.at ?? ''}`;
+    if (!seated && stamp === last.current) return;
+    last.current = stamp;
+    const kind = agents.find((a) => a.col.name === focus)?.col.kind;
+    if (seated) showView(focus, kind === 'none' || kind === 'old' ? 'chat' : 'terminal');
+    else show(focus);
+    if (want) openSub(focus, want.sub);
   });
   if (!cols.length) return <p className={`m-auto text-text-muted ${BODY}`}>{t('devroom.term.nobody')}</p>;
   const byName = (name: string | null) => agents.find((a) => a.col.name === name) ?? null;
@@ -653,40 +781,77 @@ function Board({
         onClose={panes.length > 1 ? () => setStored(closeAt(tree, path)) : undefined}
         sub={name ? (subOf[name] ?? null) : null}
         onSub={(k) => name && setSubOf({ ...subOf, [name]: k })}
+        view={viewOf(node)}
+        onView={(v) => {
+          setStored(setView(tree, path, v));
+          // A sub-agent's transcript gives the pane back to the view the owner asked for.
+          if (name) setSubOf({ ...subOf, [name]: null });
+        }}
       />
     );
   };
   const quick = (n: 1 | 2 | 4) => {
     const first = focused.name;
-    setStored(preset(n, [first, ...order.filter((x) => x !== first)]));
+    const fresh = preset(n, [first, ...order.filter((x) => x !== first)]);
+    // Each agent keeps the view it had (a 터미널 stays a 터미널).
+    const views = new Map(panes.map((l) => [l.name, l.view]));
+    setStored(leaves(fresh).reduce((t, l) => setView(t, l.path, views.get(l.name) ?? 'chat'), fresh));
     setFocusKey('root');
   };
   return (
-    <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-terminals">
-      <div className="shrink-0 flex items-stretch bg-bg">
-        <div className="flex-1 min-w-0">
-          <Groups
-            agents={agents}
-            shown={panes.map((l) => l.name)}
-            onPick={show}
-            onDrag={startDrag}
-            onSubs={(name) => {
-              show(name);
-              setSubsOpen(name);
-            }}
-          />
+    <div
+      className="relative flex-1 min-h-0 flex flex-col"
+      data-testid="devroom-terminals"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && strip) closeStrip();
+      }}
+    >
+      {/* D1: one row, the status chips (each opens the agent cards) left, the layouts right. */}
+      <div className="relative z-30 shrink-0 flex items-center gap-8 px-10 py-4 bg-bg border-b-ui border-border min-w-0">
+        <StatusChips agents={agents} open={strip} onOpen={(b) => setStrip(b === strip ? null : b)} />
+        <div className="ml-auto shrink-0 flex items-center gap-4" role="group" aria-label={t('devroom.board.layout')}>
+          {([1, 2, 4] as const).map((n) => (
+            <Button key={n} size="sm" aria-pressed={panes.length === n || (n === 4 && panes.length > 2)} data-testid={`devroom-layout-${n}`} onClick={() => quick(n)}>
+              {t(`msgSplit.layout${n}`)}
+            </Button>
+          ))}
         </div>
-        <div className="shrink-0 flex flex-col items-end justify-center gap-6 px-10 py-8 border-b-2 border-l-2 border-border">
-          <div className="flex gap-4" role="group" aria-label={t('devroom.board.layout')}>
-            {([1, 2, 4] as const).map((n) => (
-              <Button key={n} size="sm" data-testid={`devroom-layout-${n}`} onClick={() => quick(n)}>
-                {t(`msgSplit.layout${n}`)}
-              </Button>
-            ))}
-          </div>
-          <p className={`text-text-muted ${SMALL}`}>{t('devroom.board.dragHint')}</p>
-        </div>
+        <p className={`shrink min-w-0 truncate text-text-muted ${SMALL}`} title={t('devroom.board.dragHint')}>
+          {t('devroom.board.dragHint')}
+        </p>
       </div>
+      {strip && (
+        <>
+          <div className={`absolute inset-0 z-20 ${dragging ? 'pointer-events-none' : ''}`} aria-hidden="true" onClick={closeStrip} />
+          <div className="relative h-0 z-30">
+            {/* While a card is dragged the list steps aside (kept, not removed: the drag would end). */}
+            <div
+              className={`absolute left-8 right-8 top-4 max-h-320 overflow-y-auto bg-devroom-menu border-ui border-devroom-main-line rounded-ui-card shadow-pixel ${dragging ? 'opacity-0 pointer-events-none' : ''}`}
+              data-testid="devroom-strip"
+              onDragEnd={closeStrip}
+            >
+              <Groups
+                agents={agents}
+                shown={panes.map((l) => l.name)}
+                idleOpen={strip === 'idle'}
+                onPick={(name) => {
+                  closeStrip();
+                  show(name);
+                }}
+                onDrag={(e, name) => {
+                  startDrag(e, name);
+                  window.setTimeout(() => setDragging(true));
+                }}
+                onSubs={(name) => {
+                  closeStrip();
+                  show(name);
+                  setSubsOpen(name);
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
       <div className="flex-1 min-h-0 flex p-2 bg-border" data-testid="devroom-panes">
         {render(tree, [])}
       </div>
@@ -709,15 +874,25 @@ export function PhoneTerminal({
   const { cols, subs, focus } = useTerminalColumns(project, wt);
   const now = useNow(on);
   const agents = useBoard(project, cols, subs, now);
-  const [chosen, setChosen] = useState<string | null>(focus);
+  // DEVROOM-SIDEBAR: a tapped agent row opens on that agent (a sub-agent: its transcript).
+  const { agent: tapped } = useDevroom();
+  const want = tapped?.project === project ? tapped : null;
+  const [chosen, setChosen] = useState<string | null>(want?.name ?? focus);
   const [subsOpen, setSubsOpen] = useState(false);
-  const [sub, setSub] = useState<string | null>(null);
+  const [sub, setSub] = useState<string | null>(want?.sub ?? null);
+  // P1: an agent opens in 대화 (its terminal one tap away).
+  const [view, setView] = useState<PaneView>('chat');
   const input = useRef<TerminalInputHandle | null>(null);
   const agent = agents.find((a) => a.col.name === chosen);
   const pick = (name: string | null, list = false) => {
     setChosen(name);
     setSub(null);
     setSubsOpen(list);
+  };
+  const showView = (v: PaneView) => {
+    setView(v);
+    setSub(null);
+    setSubsOpen(false);
   };
   if (!cols.length) return <p className={`m-auto text-text-muted ${BODY}`}>{t('devroom.term.nobody')}</p>;
   if (!agent)
@@ -740,6 +915,9 @@ export function PhoneTerminal({
         <Unread n={agent.unread} />
         <SubChip subs={agent.subs} open={subsOpen} onClick={() => setSubsOpen(!subsOpen)} />
       </div>
+      <div className="shrink-0 px-8 py-4 bg-bg border-b-ui border-border">
+        <ViewSwitch agent={agent} view={view} onView={showView} wide />
+      </div>
       <div className="relative flex-1 min-h-0 flex flex-col">
         {subsOpen ? (
           <div className="flex-1 min-h-0 overflow-y-auto">
@@ -761,6 +939,8 @@ export function PhoneTerminal({
             project={project}
             on={on}
             now={now}
+            view={view}
+            onView={showView}
             sub={sub}
             onSubBack={() => setSub(null)}
             phone
@@ -770,7 +950,7 @@ export function PhoneTerminal({
           />
         )}
       </div>
-      {on && keyboardOpen && !sub && !subsOpen && agent.col.kind === 'live' && (
+      {on && keyboardOpen && view === 'terminal' && !sub && !subsOpen && agent.col.kind === 'live' && (
         <MobileKeyBar
           onKey={(seq) => input.current?.send(seq)}
           onPaste={() => {

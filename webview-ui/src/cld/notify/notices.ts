@@ -29,7 +29,6 @@ import { NOTICE_COOLDOWN_MS } from '../../../../core/src/constants.js';
 import type { OfficeEvent, PreviewOpen, PushState } from '../../../../core/src/messages.js';
 import {
   NOTICE_DEFAULT_VOLUME,
-  NOTICE_FEED_REPLAY_MS,
   NOTICE_LIST_MAX,
   NOTICE_PAIR_MS,
   NOTICE_PULSE_MS,
@@ -69,7 +68,7 @@ import { serverLine } from '../serverText.js';
 export const KIND_LABEL: Record<NoticeKind, TranslationKey> = {
   turnEnd: 'notice.turnEnd',
   attention: 'notice.attention',
-  job: 'notice.job',
+  job: 'noticesNeutral.settingJob',
   reply: 'notice.reply',
 };
 
@@ -110,6 +109,8 @@ export interface Notice {
 const SETTINGS_KEY = 'cld.notice-settings';
 const LIST_KEY = 'cld.notices';
 const CLEARED_AT_KEY = 'cld.notices-cleared-at';
+/** Per host: the end time of the newest feed event already turned into (or judged not) a notice. */
+const FEED_SEEN_KEY = 'cld.notice-feed-seen';
 
 export interface NoticeSnapshot {
   items: Notice[];
@@ -167,8 +168,20 @@ const pulses = new Map<number, number>();
 const listeners = new Set<() => void>();
 let seq = 0;
 let office: (() => OfficeState) | null = null;
-/** Until when feed events are a (re)connection's replay of history. */
-let replayUntil = 0;
+/**
+ * Per host, the feed's high-water mark: an event at or before it was already announced (or was
+ * history when this browser first met the host), so a replay of the feed (a reload, a reconnect, a
+ * daemon restart) never makes it a notice again, however long the replay takes. Its own store,
+ * not the capped list: a notice falling off the list must not let its event come back.
+ * ponytail: the host's clock against this browser's, only for a host first met (skew shifts what counts as history).
+ */
+const feedSeen = new Map<string, number>(
+  Object.entries(load<Record<string, number>>(FEED_SEEN_KEY, {})).filter(([, v]) =>
+    Number.isFinite(v),
+  ),
+);
+/** The host whose feed is arriving; null before any hostInfo (every event is then news). */
+let feedHost: string | null = null;
 
 const subscribe = (l: () => void) => {
   listeners.add(l);
@@ -301,6 +314,22 @@ function targetOf(cause: NoticeCause, agentId: number | null, itemId?: string): 
         );
   const lead = office?.chat ? (orch?.name ?? null) : null;
   return noticeTarget({ cause, agentId, lead, background: !!orch?.bg?.id, itemId });
+}
+
+/**
+ * FIX-PERM-RESTART (owner 11-06 20:07): a 허락을 기다려요 of an engine lead whose wait is over (its
+ * contact carries no permission card now: answered, or gone with a restart). Its conversation would
+ * show nothing to answer, so the notice says so and offers the terminal. Other leads: unknown (false).
+ */
+export function permissionOver(
+  n: Notice,
+  orchestrators: ReadonlyArray<{ name: string; provider?: string }>,
+  contacts: ReadonlyArray<{ name: string; permission?: unknown }>,
+): boolean {
+  if (n.cause !== 'permission' || n.target?.open !== 'chat') return false;
+  const lead = n.target.lead;
+  const contact = contacts.find((c) => c.name === lead);
+  return orchestrators.some((o) => o.name === lead && o.provider === 'engine') && !!contact && !contact.permission;
 }
 
 /** Where a notice goes: its own target, else (older lists) its character. */
@@ -444,12 +473,19 @@ export function cldNotice(
   return true;
 }
 
-/** A connection's snapshot begins (hostInfo, sent first): the feed that follows is history. */
-export function cldNoticeReplay(now = Date.now()): void {
-  replayUntil = now + NOTICE_FEED_REPLAY_MS;
+/**
+ * A connection's snapshot begins (hostInfo, sent first): the feed that follows is a replay. What
+ * is at or before the host's mark is history; what is after it ended while this browser was away.
+ * A host first met has no mark: everything it has now is history.
+ */
+export function cldNoticeReplay(hostId = 'host', now = Date.now()): void {
+  feedHost = hostId;
+  if (feedSeen.has(hostId)) return;
+  feedSeen.set(hostId, now);
+  save(FEED_SEEN_KEY, Object.fromEntries(feedSeen));
 }
 
-/** A feed event (officeEvent): a job or Codex task that ended is a notice. */
+/** A feed event (officeEvent): a job or an agent's run that ended is a notice. */
 export function cldNoticeEvent(ev: OfficeEvent, now = Date.now()): void {
   // Messages sent by the owner or between agents stay in the messenger only.
   if (ev.kind === 'send') return;
@@ -462,7 +498,16 @@ export function cldNoticeEvent(ev: OfficeEvent, now = Date.now()): void {
     ev.kind !== 'delegation_start_failed'
   )
     return;
-  if (now < replayUntil) return;
+  // The event's own time: a job that ended while this browser was away is announced once, as of
+  // when it ended (never later than now: a host clock ahead is not a future end).
+  const at = Math.min(now, Date.parse(ev.ts) || now);
+  const seen = feedHost === null ? undefined : feedSeen.get(feedHost);
+  if (feedHost !== null && seen !== undefined) {
+    if (at <= seen) return;
+    feedSeen.set(feedHost, at);
+    save(FEED_SEEN_KEY, Object.fromEntries(feedSeen));
+  }
+  now = at;
   if (ev.kind === 'delegation_approval' || ev.kind === 'delegation_start_failed') {
     // C6: a delegation waits for the user, or a new Worker did not start and its Task waits:
     // an ask, opening the project's 작업실.
@@ -534,5 +579,6 @@ export function noticesResetForTests(): void {
   turnEnds.clear();
   roomReplied.clear();
   office = null;
-  replayUntil = 0;
+  feedSeen.clear();
+  feedHost = null;
 }

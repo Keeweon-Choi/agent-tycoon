@@ -4,74 +4,170 @@
 
 /* ── 01 RPG dialogue: a portrait frame and a box with a name plate on its top edge ── */
 .dlg-pf {
+  border-radius: var(--ui-r-card);
   flex: none;
   padding: 4px;
-  border: 2px solid var(--dlg-line);
-  background: var(--hud-tile);
+  border: var(--ui-bw) solid var(--msg-bubble-line);
+  background: var(--surface-card);
+  box-shadow: var(--bevel), var(--shadow-pixel);
   line-height: 0;
   overflow: hidden;
 }
+/* MSG-BAND: ONE content band for both sides. The line is three columns: the avatar column (--msg-col, the frame
+   and its gap), the lane, and the avatar column again. An agent's face sits in the left column, the owner's in the
+   right one, both on the lane's top (the name line); the lane is the same band for both, so at full width an
+   owner's box and an agent's box have the same edges, and a shorter box shrinks toward its own side (the name
+   line, the bubble, its fold and its receipts all start (agent) or end (mine) on the same x). A line without a
+   face keeps its empty column (FaceSpacer). The tool lines, the receipts and the permission cards use the same
+   margin (--msg-col) on both sides. */
+.msg-line {
+  display: grid;
+  grid-template-columns: var(--msg-col) minmax(0, 1fr) var(--msg-col);
+  align-items: start;
+}
+.msg-line > .msg-lane {
+  grid-area: 1 / 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.msg-line[data-side='agent'] > .msg-face {
+  grid-area: 1 / 1;
+  justify-self: start;
+}
+.msg-line[data-side='mine'] > .msg-face {
+  grid-area: 1 / 3;
+  justify-self: end;
+}
+.msg-line[data-side='agent'] > .msg-lane {
+  align-items: flex-start;
+}
+.msg-line[data-side='mine'] > .msg-lane {
+  align-items: flex-end;
+}
+/* The timeline's side padding: the band is at most --msg-band-max wide, centred; a narrower pane keeps its
+   small edge (the phone's smaller). */
+.msg-band {
+  --msg-edge: 16px;
+  padding-inline: max(var(--msg-edge), calc((100% - var(--msg-band-max)) / 2));
+}
+@media (pointer: coarse) {
+  .msg-band {
+    --msg-edge: 10px;
+  }
+}
+
+/* FEAT-MESSENGER-GPT-LOOK: a bubble is a raised card on the timeline: a 2 px outline, the bevel, a hard drop;
+   the boss's own in the accent outline. */
 .dlg-box {
+  border-radius: var(--ui-r-win);
   position: relative;
   max-width: 100%;
   min-width: 0;
-  padding: 8px 10px;
-  background: var(--hud-tile);
-  border: 2px solid var(--dlg-line);
-  box-shadow:
-    inset 0 0 0 2px var(--dlg-inner),
-    var(--shadow-pixel);
-}
-.dlg-box[data-plate] {
-  margin-top: 12px;
-  padding-top: 16px;
+  padding: 10px 14px;
+  background: var(--msg-bubble);
+  border: var(--ui-bw) solid var(--msg-bubble-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
 }
 .dlg-box[data-kind='boss'] {
-  border-color: var(--color-accent);
-  background: var(--color-bg-dark);
-  box-shadow: var(--shadow-pixel);
+  border-color: var(--msg-mine-line);
+  background: var(--msg-mine);
+}
+/* A message that is waiting (not delivered yet): the whole box fainter with a muted dashed outline and a 대기 중
+   mark inside, so it never reads as sent. Its action row and receipt line are outside the box, at full strength. */
+.dlg-box[data-state='waiting'] {
+  --msg-wait-alpha: 0.5;
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-text-muted) calc(var(--msg-wait-alpha) * 100%), transparent);
+  box-shadow: none;
+}
+/* The box is faint, its 대기 중 row's buttons are not (an opacity on the box would fade them too). */
+.dlg-box[data-state='waiting'] > :not(.dlg-wait-row) {
+  opacity: var(--msg-wait-alpha);
+}
+.dlg-box[data-state='waiting'] .dlg-wait {
+  opacity: var(--msg-wait-alpha);
+}
+.dlg-box[data-state='failed'] {
+  border-color: var(--color-danger);
+}
+.dlg-wait {
+  display: block;
+  color: var(--color-text-muted);
+}
+/* FIX-MESSENGER-PENDING-ROW: the 대기 중 mark on the left, the message's decisions on the right, smaller than a
+   row button (20 px; 40 px on the phone, the group is data-touch-compact). */
+.dlg-wait-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+}
+.dlg-wait-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-left: auto;
+}
+.dlg-wait-acts > button {
+  height: calc(22 * var(--spacing));
+  min-height: 0;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: var(--text-2xs);
+}
+@media (max-width: 768px), ((pointer: coarse) and (max-width: 1024px)) {
+  .dlg-wait-acts > button {
+    height: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+  }
 }
 .dlg-box[data-kind='peer'] {
   border-color: var(--color-peer-border);
   background: var(--color-peer-bg);
 }
+/* The run's first line: who (and the level), over the bubble (the mockup's name row). */
 .dlg-plate {
-  position: absolute;
-  top: -13px;
-  left: 8px;
-  max-width: calc(100% - 16px);
-  height: 22px;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px;
-  overflow: hidden;
-  background: var(--plate-bg);
-  border: 2px solid var(--color-accent-bright);
-  color: var(--color-text);
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 0 6px;
   white-space: nowrap;
-  line-height: 1;
+  line-height: calc(1.2 * var(--ui-lh));
+}
+/* The line under a bubble (time, 받음 / 보냄, the waiting reason): on the bubble's outer edge like the name line. */
+.dlg-foot {
+  padding-top: 4px;
+}
+.dlg-foot:empty {
+  display: none;
 }
 .dlg-plate > .dlg-name {
+  font-weight: var(--ui-weight-strong);
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--color-devroom-title);
 }
 .dlg-plate > .dlg-lv {
+  border-radius: var(--ui-r-chip);
+  flex: none;
+  padding: 0 4px;
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  background: var(--color-devroom-box);
   font-family: var(--font-data);
   color: var(--color-accent-text);
 }
-.dlg-box[data-kind='boss'] > .dlg-plate {
-  left: auto;
-  right: 8px;
-  background: var(--color-bg-dark);
-  border-color: var(--color-accent);
-}
-.dlg-box[data-kind='peer'] > .dlg-plate {
-  background: var(--color-peer-bg);
-  border-color: var(--color-peer-border);
+.dlg-plate[data-kind='peer'] > .dlg-name {
   color: var(--color-peer-name);
 }
 .dlg-skip {
+  border-radius: var(--ui-r-card);
   position: absolute;
   top: -11px;
   right: 8px;
@@ -81,7 +177,7 @@
   gap: 4px;
   padding: 0 6px;
   background: var(--color-bg);
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
   color: var(--color-text-muted);
   white-space: nowrap;
   line-height: 1;
@@ -97,7 +193,7 @@
   cursor: pointer;
 }
 .dlg-box[data-fold] {
-  padding-bottom: 24px;
+  padding-bottom: 30px; /* the toggle's own height (a 16 px glyph, 6 px round, the 2 px line) sits under the content */
 }
 .dlg-box > .dlg-fold {
   position: absolute;
@@ -105,11 +201,12 @@
   bottom: 0;
 }
 .dlg-switch {
+  border-radius: var(--ui-r-card);
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 0 2px 0 6px;
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
   color: var(--color-text-muted);
   white-space: nowrap;
 }
@@ -123,22 +220,25 @@
 
 /* ── 02 the quest card (the request, the reward, the answer) and its folded record ── */
 .quest {
+  border-radius: var(--ui-r-card);
   position: relative;
+  margin-inline: var(--msg-col);
   display: grid;
   gap: 8px;
   padding: 0 10px 0;
   background: var(--hud-tile);
-  border: 2px solid var(--color-accent-bright);
+  border: var(--ui-bw) solid var(--color-accent-bright);
   box-shadow: var(--shadow-pixel);
 }
 .quest-head {
+  border-radius: var(--ui-r-card) var(--ui-r-card) 0 0;
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 30px;
   margin: 0 -10px;
   padding: 0 10px;
-  border-bottom: 2px solid var(--win-line);
+  border-bottom: var(--ui-bw) solid var(--win-line);
   color: var(--color-accent-text);
 }
 /* folded (MOBILE-QUEST): the head line alone */
@@ -167,24 +267,26 @@
   color: var(--color-text-muted);
 }
 .quest-call {
+  border-radius: var(--ui-r-card);
   display: grid;
   gap: 4px;
   min-width: 0;
   padding: 6px 8px;
   background: var(--color-code-bg);
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
 }
 .quest-call .quest-code {
   font-family: var(--font-data);
   color: var(--color-text);
 }
 .quest-goal {
+  border-radius: var(--ui-r-card);
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 24px;
   padding: 0 8px;
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
   color: var(--color-text-muted);
   white-space: nowrap;
 }
@@ -204,7 +306,7 @@
   gap: 8px;
   margin: 0 -10px;
   padding: 8px 10px;
-  border-top: 2px solid var(--win-line);
+  border-top: var(--ui-bw) solid var(--win-line);
   background: var(--hud-tile);
 }
 /* the stamp lands in the foot, beside 답했어요 (it never covers the request or the reward) */
@@ -245,22 +347,24 @@
     96px 72px 0 0 var(--stamp-ink);
 }
 .quest-done {
+  border-radius: var(--ui-r-chip);
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 32px;
   padding: 2px 8px;
   background: var(--hud-tile);
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
   color: var(--color-text-muted);
 }
 .quest-mini {
+  border-radius: var(--ui-r-chip);
   flex: none;
   display: inline-grid;
   place-items: center;
-  height: 22px;
+  height: calc(22 * var(--spacing));
   padding: 0 6px;
-  border: 2px solid currentColor;
+  border: var(--ui-bw) solid currentColor;
   box-shadow: inset 0 0 0 2px var(--hud-tile);
   color: var(--stamp-ink);
   line-height: 1;
@@ -271,12 +375,13 @@
 
 /* ── 04 the row's ✓ 전달됨 badge ── */
 .mail-badge {
+  border-radius: var(--ui-r-pill);
   display: inline-flex;
   align-items: center;
   gap: 4px;
   height: 20px;
   padding: 0 4px;
-  border: 2px solid var(--win-line);
+  border: var(--ui-bw) solid var(--win-line);
   background: var(--color-bg);
   color: var(--color-text);
   white-space: nowrap;
@@ -284,6 +389,53 @@
 }
 .mail-badge .game-ico {
   color: var(--color-status-success);
+}
+
+/* ── MSG-POLISH the thinking bubble: an agent's box in the same grid, small, holding only three dots that light
+   one after another in CSS steps (no timers). ── */
+.dlg-box:has(> .dlg-dots) {
+  padding: 6px 10px;
+}
+.dlg-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 1.25em; /* about one text line */
+}
+.dlg-dots > i {
+  width: 8px;
+  height: 8px;
+  background: var(--color-accent-text);
+  opacity: 0.7; /* still when game effects (or the system) ask for less motion */
+}
+:root[data-game-motion='on'] .dlg-dots > i {
+  animation: dlg-dot 1.2s steps(1, end) infinite;
+}
+:root[data-game-motion='on'] .dlg-dots > i:nth-child(2) {
+  animation-delay: 0.4s;
+}
+:root[data-game-motion='on'] .dlg-dots > i:nth-child(3) {
+  animation-delay: 0.8s;
+}
+@keyframes dlg-dot {
+  0% {
+    opacity: 1;
+  }
+  33% {
+    opacity: 0.35;
+  }
+}
+
+/* ── MSG-POLISH ↓ to the newest: at the timeline's bottom right, over the owner's face column and the agents'
+   free gutter (the boxes end before it), never over message text. ── */
+:root[data-game-motion='on'] .msg-jump-pop {
+  animation: msg-jump-pop 180ms steps(2, end);
+}
+@keyframes msg-jump-pop {
+  50% {
+    transform: scale(1.12);
+  }
 }
 
 /* Motion: only where gameMotion.ts says so; otherwise every part shows its end state at once. */
@@ -334,4 +486,410 @@
   to {
     transform: none;
   }
+}
+
+/* ── FEAT-MESSENGER-GPT-LOOK (specs/ui-mock-1104 hud-v3 gpt-2): the window's layers. Timeline deepest, the list
+   a step up, heads and the composer raised; the chosen row lit in the accent. Tokens in index.css :root. ── */
+.msg-rail {
+  background: var(--msg-rail);
+  border-right: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.msg-timeline {
+  background: var(--msg-timeline);
+}
+.msg-head {
+  background: var(--surface-head);
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: inset 0 1px 0 var(--bevel-hi);
+}
+/* FIX-PHONE-MESSENGER-HEADER (owner 11-06 21:42): on the phone the head is a grid, so the four buttons sit in the
+   name's row, right-aligned and 40 px (the group is data-touch-compact: the 44 px floor is lifted for it on
+   purpose, 40 is the owner's size), and the state line under the name takes the rest of the width. The buttons
+   keep their size and the name truncates before it pushes them. The desktop head is untouched (no class). */
+.msg-head-phone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+}
+.msg-head-phone > :first-child {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+}
+.msg-head-phone > .msg-head-text {
+  display: contents;
+}
+.msg-head-phone .msg-head-name {
+  grid-row: 1;
+  grid-column: 2;
+}
+.msg-head-phone .msg-head-state {
+  grid-row: 2;
+  grid-column: 2 / -1;
+}
+.msg-head-phone > .msg-head-tools {
+  grid-row: 1;
+  grid-column: 3;
+  margin-left: 0;
+  gap: 6px;
+}
+.msg-head-phone > .msg-head-tools > button[aria-label] {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+}
+.msg-tabs {
+  background: var(--surface-body);
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.msg-tab {
+  border-radius: var(--ui-r-card);
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 30px;
+  padding-left: 10px;
+  background: var(--color-btn-bg);
+  border: var(--ui-bw) solid var(--color-border);
+  color: var(--color-text-muted);
+  box-shadow: var(--bevel), var(--ui-ring, 0 0 0 0 transparent);
+}
+@media (hover: hover) {
+  .msg-tab:hover {
+    border-color: var(--color-border-hi);
+    color: var(--color-text);
+  }
+}
+.msg-tab[data-on] {
+  --ui-ring: 0 0 0 2px var(--glow-out);
+  background: var(--msg-row-on);
+  border-color: var(--glow-in);
+  color: var(--color-devroom-title);
+}
+.msg-tab > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A section of the list: its name, how many, the + of what it can add. */
+.msg-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px 4px;
+  color: var(--color-text-muted);
+}
+.msg-section > h2 {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-devroom-ctx);
+}
+.msg-section > h2 > span {
+  margin-left: 6px;
+  color: var(--color-text-muted);
+}
+/* A conversation row: a hover band, the chosen one filled with the accent and bevelled (ui-row's frame). */
+.msg-row {
+  border-radius: var(--ui-r-card);
+  margin: 0 8px 2px;
+  border: var(--ui-bw) solid transparent;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .msg-row:hover {
+    background: var(--color-btn-bg);
+    border-color: var(--color-devroom-menu-line);
+  }
+}
+.msg-row:active {
+  background: var(--color-devroom-menu);
+}
+.msg-row[data-on] {
+  background: var(--msg-row-on);
+  border-color: var(--msg-row-on-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+.msg-row[data-on] .msg-row-sub {
+  color: var(--color-devroom-mine-text);
+}
+.msg-row > button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+/* How many unread: an accent badge with cut corners (ui-notch), numbers in the data face. */
+.msg-count {
+  border-radius: var(--ui-r-pill);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  background: var(--color-accent);
+  border: var(--ui-bw) solid var(--color-devroom-accent-line);
+  color: var(--color-devroom-title);
+  font-family: var(--font-data);
+  line-height: 1;
+}
+.msg-row[data-on] .msg-count {
+  background: var(--color-devroom-title);
+  border-color: var(--color-devroom-title);
+  color: var(--msg-row-on);
+}
+
+/* The day a run of messages starts: a pill on a line across the timeline. */
+.msg-day {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 2px;
+  color: var(--color-text-muted);
+}
+.msg-day::before,
+.msg-day::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: var(--color-devroom-card-line);
+}
+.msg-day > span {
+  border-radius: var(--ui-r-pill);
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--surface-head);
+  border: var(--ui-bw) solid var(--color-border);
+  box-shadow: var(--bevel);
+  color: var(--color-devroom-ctx);
+  white-space: nowrap;
+}
+
+/* A file in a bubble: a sunken card, its kind in a tile, the name and the size, the download button. */
+.msg-file {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(320px, 100%);
+  min-width: 0;
+  padding: 6px 6px 6px 8px;
+  background: var(--msg-file);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel-in);
+}
+.msg-file-tile {
+  border-radius: var(--ui-r-card);
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: var(--color-devroom-box);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel);
+  color: var(--color-devroom-mine-text);
+}
+.msg-file-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+@media (hover: hover) {
+  .msg-file-name:hover > span:first-child {
+    color: var(--color-devroom-title);
+    text-decoration: underline;
+  }
+}
+.msg-file-name:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The composer: one raised panel, the text on top, the tools under it; the accent outline while typing. */
+.msg-composer {
+  border-radius: var(--ui-r-win);
+  background: var(--surface-card);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel), var(--shadow-pixel-3);
+}
+.msg-composer:focus-within {
+  border-color: var(--color-accent-bright);
+}
+.msg-composer textarea {
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.msg-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.msg-chip {
+  border-radius: var(--ui-r-chip);
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 4px 2px 6px;
+  background: var(--color-devroom-box);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel);
+}
+
+/* ── FIX-MESSENGER-GROUP-ROOM-MODERN (T-65): the group room as the 1:1 conversation looks. A thread is one raised
+   card (the bubble's surface, line and shadow), its replies hang under a guide line, a tag is a chip, and a
+   folded thread is its first post and one line. Shapes, lines, shadows and fonts all come from the tokens, so
+   픽셀 감성 gets its square corners, 2 px lines and hard drops with no rule of its own. ── */
+.room-thread {
+  border-radius: var(--ui-r-win);
+  padding: 10px 12px;
+  background: var(--msg-bubble);
+  border: var(--ui-bw) solid var(--msg-bubble-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+/* the rail: a thicker left edge in the tone's colour (a notice, a tag still waiting for its answer) */
+.room-thread[data-tone='notice'] {
+  border-left: calc(var(--ui-bw) * 3) solid var(--color-room-notice);
+}
+.room-thread[data-tone='waiting'] {
+  border-left: calc(var(--ui-bw) * 3) solid var(--color-accent);
+}
+.room-thread [data-testid='sender-face'],
+.room-thread [data-testid='owner-face'] {
+  border-radius: var(--ui-r-card);
+  border-width: var(--ui-bw);
+  overflow: hidden;
+}
+.room-name {
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+}
+.room-body {
+  overflow-wrap: anywhere;
+}
+.room-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.room-mode,
+.room-tag {
+  border-radius: var(--ui-r-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: var(--ui-bw) solid var(--color-border);
+  background: var(--surface-body);
+  white-space: nowrap;
+}
+.room-mode[data-kind='notice'] {
+  border-color: var(--color-room-notice);
+  color: var(--color-room-notice);
+}
+.room-tag[data-state='delivered'] {
+  color: var(--color-devroom-mine-text);
+}
+.room-tag[data-state='held'],
+.room-tag[data-state='off'] {
+  border-style: dashed;
+}
+/* the replies: a guide line down their left, each a face and a name over its bubble */
+.room-replies {
+  padding-top: 2px;
+}
+.room-reply {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+:root[data-ui-theme='modern'] .room-arrow {
+  display: none;
+}
+:root[data-ui-theme='pixel'] .room-reply {
+  border-left: 0;
+  padding-left: 0;
+}
+/* a lead's line in a room: the 1:1 bubble (the line's own outer margin is the conversation's avatar column) */
+.room-reply [data-chat-id] > div {
+  margin-inline: 0;
+}
+.room-reply [data-chat-id] > div > .border {
+  border-radius: var(--ui-r-win);
+  padding: 8px 12px;
+  background: var(--msg-bubble);
+  border-color: var(--msg-bubble-line);
+  box-shadow: var(--bevel);
+}
+.room-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: var(--ui-r-chip);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  background: var(--color-devroom-box);
+  box-shadow: var(--bevel);
+  color: var(--color-accent-text);
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .room-fold:hover {
+    border-color: var(--color-border-hi);
+  }
+}
+.room-fold:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.room-fold-last {
+  color: var(--color-text-muted);
+  margin-left: 2px;
+}
+.room-fold-new {
+  border-radius: var(--ui-r-pill);
+  margin-left: auto;
+  flex: none;
+  padding: 0 8px;
+  background: var(--color-accent);
+  border: var(--ui-bw) solid var(--color-devroom-accent-line);
+  color: var(--color-devroom-title);
+  white-space: nowrap;
+}
+/* a system line: a small pill centred on the timeline, as the day marker is */
+.room-system {
+  border-radius: var(--ui-r-pill);
+  justify-self: center;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 2px 12px;
+  background: var(--surface-head);
+  border: var(--ui-bw) solid var(--color-border);
+  text-align: center;
+}
+/* the @ suggestions over the composer: a floating panel, the chosen name lit */
+.room-mentions {
+  border-radius: var(--ui-r-card);
+  background: var(--surface-float);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel), var(--shadow-pixel-3);
+}
+.room-mention {
+  border-radius: var(--ui-r-chip);
 }

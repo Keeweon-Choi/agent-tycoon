@@ -3,6 +3,7 @@ import { beforeEach, expect, it } from 'vitest';
 import type { BackgroundSession, OfficeOrchestrator, OfficeSnapshot } from '../../../core/src/messages.js';
 import { setLanguage, t } from '../i18n/index.js';
 import { chatOpenFor, chatTarget, noSendNote, readOnlyNote, requestChat } from './chat.js';
+import { engineHandleMessage, engineResetForTests } from './engineStore.js';
 import { virtualAgentId } from './officeStore.js';
 import {
   getWorkspace,
@@ -79,4 +80,19 @@ it('the no-send note says why, and never blames another terminal for engine proj
   // 10-28: it also says how to get a conversation that can be sent to (the orchestrator panel's +).
   expect(t('chat.outsideTerminal')).toContain('+');
   for (const id of [7, 8, 10]) expect(readOnlyNote(id, withProject)).not.toContain('\ub2e4\ub978 \ud130\ubbf8\ub110');
+});
+
+it('ACP-1: an agent whose engine caps have no terminal has its conversation, never a terminal link', () => {
+  const caps = { approvalPolicy: ['ask'], lifetime: 'session', limits: false, usageRefresh: false, context: true, billing: 'plan' } as const;
+  engineHandleMessage({
+    type: 'engineState',
+    projects: [{ name: 'bg-one', provider: 'gemini' }],
+    agentCaps: { claude: { ...caps, attach: 'pty' }, gemini: caps },
+  } as never);
+  try {
+    expect(chatTarget(7, office(true))).toEqual({ kind: 'interactive' });
+  } finally {
+    engineResetForTests();
+  }
+  expect(chatTarget(7, office(true))).toEqual({ kind: 'background', id: 'a0000016' }); // caps not known: as before
 });

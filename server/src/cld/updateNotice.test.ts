@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   CHECK_EVERY_MS,
+  CHECK_NOW_MIN_MS,
   managedInstall,
   registerUpdateRoutes,
   RETRY_AFTER_FAIL_MS,
@@ -80,6 +81,10 @@ describe('the check', () => {
       osCodeSigning: false,
     });
     expect(checks[0]).toContain('--check');
+    // The check asks the newest release; 설치 then takes the version it found (updateNotice install tests).
+    expect(checks[0]).toContain(
+      'https://github.com/Keeweon-Choi/agent-tycoon/releases/latest/download',
+    );
     expect(checks[0]).toContain('--json');
   });
 
@@ -91,13 +96,37 @@ describe('the check', () => {
     expect(v.signature.canVerify).toBe(true); // the capability does not depend on a release
   });
 
-  it('a failed check is quiet: no notice, no error out of view()', async () => {
+  it('a failed check shows no notice, no error out of view(), and lastCheck says when and why', async () => {
     answer = async () => {
-      throw new Error('HTTP 404');
+      throw new Error(`download failed (HTTP 404) ${'x'.repeat(400)}`);
     };
     const v = await notice().view(true);
     expect(v.available).toBeNull();
     expect(v.install).toBeNull();
+    expect(v.lastCheck).toMatchObject({ at: clock, ok: false });
+    expect(v.lastCheck?.reason).toMatch(/^download failed \(HTTP 404\)/);
+    expect(v.lastCheck?.reason?.length).toBe(200);
+    answer = async () => found();
+    clock += CHECK_EVERY_MS;
+    expect((await notice().view(true)).lastCheck).toEqual({ at: clock, ok: true });
+  });
+
+  it('지금 확인 checks at once, at most once a minute; a source install has nothing to check', async () => {
+    const n = notice();
+    await n.view(true);
+    expect(checks).toHaveLength(1);
+    expect(await n.checkNow()).toBe(true);
+    expect(checks).toHaveLength(2);
+    clock += CHECK_NOW_MIN_MS - 1;
+    expect(await n.checkNow()).toBe(false);
+    expect(checks).toHaveLength(2);
+    clock += 1;
+    expect(await n.checkNow()).toBe(true);
+    expect(checks).toHaveLength(3);
+    const source = notice({ root: null });
+    expect(await source.checkNow()).toBe(true);
+    expect((await source.view(true)).lastCheck).toBeNull();
+    expect(checks).toHaveLength(3);
   });
 
   it('a release that failed here before, or a bundle name that is not ours, is not offered', async () => {
@@ -108,7 +137,8 @@ describe('the check', () => {
     expect((await notice().view(true)).available).toBeNull();
   });
 
-  it('asks at most every 8 h (a few times a day), after a failure every 6 h, and only when a page asks', async () => {
+  it('asks at most every hour, after a failure every hour too, and only when a page asks', async () => {
+    expect([CHECK_EVERY_MS, RETRY_AFTER_FAIL_MS]).toEqual([3_600_000, 3_600_000]);
     const n = notice();
     await n.view(true);
     await n.view(true);
@@ -165,12 +195,12 @@ describe('the install', () => {
     const before = await n.view(true);
     expect(before.canInstall).toBe(true);
     expect(before.facts).toEqual({ sessions: 2, jobs: 1, worktrees: 3, merging: false });
-    expect(n.install('0.2.0', 'phone')).toEqual({ ok: true, to: '0.2.0' });
+    expect(await n.install('0.2.0', 'phone')).toEqual({ ok: true, to: '0.2.0' });
     expect(starts[0]).toEqual([
       '/fake/manager.mjs',
       'update',
       '--from',
-      `https://github.com/agent-tycoon/agent-tycoon/releases/latest/download/${BUNDLE}`,
+      `https://github.com/Keeweon-Choi/agent-tycoon/releases/download/v0.2.0/${BUNDLE}`,
       '--root',
       '/fake/root',
     ]);
@@ -180,8 +210,8 @@ describe('the install', () => {
   it('refuses a version the notice did not offer', async () => {
     const n = notice();
     await n.view(true);
-    expect(n.install('9.9.9', 'x')).toMatchObject({ ok: false, code: 'changed' });
-    expect(n.install(undefined, 'x')).toMatchObject({ ok: false, code: 'changed' });
+    expect(await n.install('9.9.9', 'x')).toMatchObject({ ok: false, code: 'changed' });
+    expect(await n.install(undefined, 'x')).toMatchObject({ ok: false, code: 'changed' });
     expect(starts).toHaveLength(0);
   });
 
@@ -189,33 +219,188 @@ describe('the install', () => {
     const n = notice();
     await n.view(true);
     facts = { ...facts, merging: true };
-    const r = n.install('0.2.0', 'x');
+    const r = await n.install('0.2.0', 'x');
     expect(r).toMatchObject({ ok: false, code: 'merging' });
-    expect((r as { error: string }).error).toContain('병합');
+    expect((r as { error: string }).error).toContain('머지');
     expect(starts).toHaveLength(0);
     facts = { sessions: 5, jobs: 4, worktrees: 9, merging: false };
-    expect(n.install('0.2.0', 'x').ok).toBe(true);
+    expect((await n.install('0.2.0', 'x')).ok).toBe(true);
   });
 
   it('a second press while one runs is postponed, not doubled', async () => {
     const n = notice();
     await n.view(true);
-    expect(n.install('0.2.0', 'x').ok).toBe(true);
-    expect(n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'running' });
+    expect((await n.install('0.2.0', 'x')).ok).toBe(true);
+    expect(await n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'running' });
     expect(starts).toHaveLength(1);
   });
 
-  it('a service that would take the updater down with the daemon is terminal-only', async () => {
+  it("Windows (schtasks): 설치 goes through the manager's own updater task, with no child pid", async () => {
+    const tasks: string[][] = [];
+    const n = notice({
+      serviceKind: 'schtasks',
+      root: dir,
+      startTask: async (args) => {
+        tasks.push(args);
+        return true;
+      },
+    });
+    const v = await n.view(true);
+    expect([v.canInstall, v.terminalOnly]).toEqual([true, false]);
+    expect(await n.install('0.2.0', 'x')).toEqual({ ok: true, to: '0.2.0' });
+    expect(starts).toHaveLength(0); // never a detached child of the daemon
+    expect(tasks).toEqual([
+      [
+        '/fake/manager.mjs',
+        'update',
+        '--background',
+        '--from',
+        `https://github.com/Keeweon-Choi/agent-tycoon/releases/download/v0.2.0/${BUNDLE}`,
+        '--root',
+        dir,
+      ],
+    ]);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dir, 'update-notice.json'), 'utf8')).run.pid,
+    ).toBeUndefined();
+    expect(await n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'running' });
+  });
+
+  it('Windows: a task that does not start is said so, and 설치 can be pressed again', async () => {
+    let ok = false;
+    const n = notice({ serviceKind: 'schtasks', root: dir, startTask: async () => ok });
+    await n.view(true);
+    expect(await n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'spawn' });
+    expect((await n.view(true)).install).toBeNull();
+    ok = true;
+    expect((await n.install('0.2.0', 'x')).ok).toBe(true);
+  });
+
+  it("Windows: settled without a pid, from the manager's lock, across a daemon restart", async () => {
+    const lock = path.join(dir, 'manager.lock');
+    const o = { serviceKind: 'schtasks', root: dir, startTask: async () => true };
+    const n = notice(o);
+    await n.view(true);
+    await n.install('0.2.0', 'x');
+    // Starting: no lock yet, inside the grace.
+    clock += 30_000;
+    expect((await notice(o).view(true)).install?.state).toBe('running');
+    // At work: the updater holds the lock (the daemon restarts as 0.2.0 meanwhile).
+    fs.writeFileSync(
+      lock,
+      JSON.stringify({ pid: 777, op: 'update', startedAt: new Date(clock).toISOString() }),
+    );
+    clock += 10 * 60_000;
+    const alive = (pid: number) => pid === 777;
+    expect((await notice({ ...o, version: '0.2.0', alive }).view(true)).install?.state).toBe(
+      'running',
+    );
+    // Over: the lock is gone (or its pid is dead) and this daemon is the target.
+    fs.rmSync(lock);
+    expect((await notice({ ...o, version: '0.2.0', alive }).view(true)).install).toMatchObject({
+      state: 'done',
+      to: '0.2.0',
+    });
+
+    // A task that never took the lock: failed once the grace is over, with the log tail.
+    fs.rmSync(path.join(dir, 'update-notice.json'));
+    const again = notice(o);
+    await again.view(true);
+    await again.install('0.2.0', 'x');
+    fs.writeFileSync(
+      path.join(dir, 'update.log'),
+      '✖ another manager operation is running: install\n',
+    );
+    clock += 61_000;
+    const failed = await notice(o).view(true);
+    expect(failed.install?.state).toBe('failed');
+    expect(failed.install?.message).toContain('another manager operation');
+  });
+
+  describe('Windows: a run never stays "running" for good', () => {
+    const o = () => ({ serviceKind: 'schtasks', root: dir, startTask: async () => true });
+    const lock = () => path.join(dir, 'manager.lock');
+    const started = async () => {
+      const n = notice(o());
+      await n.view(true);
+      await n.install('0.2.0', 'x');
+      return n;
+    };
+    const setMtime = (file: string, at: number) => fs.utimesSync(file, at / 1000, at / 1000);
+
+    it("an unreadable lock is busy for a minute only (the manager's own rule)", async () => {
+      await started();
+      fs.writeFileSync(lock(), '');
+      clock += 2 * 60_000;
+      setMtime(lock(), clock - 30_000);
+      expect((await notice(o()).view(true)).install?.state).toBe('running');
+      setMtime(lock(), clock - 61_000);
+      const n = notice(o());
+      expect((await n.view(true)).install?.state).toBe('failed');
+      expect((await n.install('0.2.0', 'x')).ok).toBe(true); // 설치 again
+    });
+
+    it('a lock older than the run (another operation, a pid reused since) does not count', async () => {
+      fs.writeFileSync(
+        lock(),
+        JSON.stringify({
+          pid: 777,
+          op: 'update',
+          startedAt: new Date(clock - 60_000).toISOString(),
+        }),
+      );
+      await started();
+      clock += 2 * 60_000;
+      expect((await notice({ ...o(), alive: () => true }).view(true)).install?.state).toBe(
+        'failed',
+      );
+    });
+
+    it('after the hard limit a run is over, whatever a live lock says', async () => {
+      await started();
+      fs.writeFileSync(
+        lock(),
+        JSON.stringify({ pid: 777, op: 'update', startedAt: new Date(clock).toISOString() }),
+      );
+      clock += 2 * 3_600_000 - 1;
+      expect((await notice({ ...o(), alive: () => true }).view(true)).install?.state).toBe(
+        'running',
+      );
+      clock += 1;
+      expect((await notice({ ...o(), alive: () => true }).view(true)).install?.state).toBe(
+        'failed',
+      );
+    });
+
+    it('a source install shows no install state from an old file', async () => {
+      await started();
+      expect((await notice({ root: null }).view(true)).install).toBeNull();
+    });
+  });
+
+  it('a service that would take the updater down with the daemon is terminal-only (macOS launchd)', async () => {
     const n = notice({ serviceKind: 'launchd' });
     const v = await n.view(true);
     expect([v.canInstall, v.terminalOnly]).toEqual([false, true]);
-    expect(n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'terminal_only' });
+    expect(await n.install('0.2.0', 'x')).toMatchObject({ ok: false, code: 'terminal_only' });
+  });
+
+  it('a detached updater whose pid lives on (reused after a reboot) is over after the hard limit', async () => {
+    const n = notice();
+    await n.view(true);
+    await n.install('0.2.0', 'x');
+    clock += 2 * 3_600_000 - 1;
+    expect((await notice().view(true)).install?.state).toBe('running'); // alive: () => true
+    clock += 1;
+    const after = notice();
+    expect((await after.view(true)).install?.state).toBe('failed');
+    expect((await after.install('0.2.0', 'x')).ok).toBe(true);
   });
 
   it('reports the result from the new daemon: its own version is the target, or the install failed (with the log tail)', async () => {
     const started = notice();
     await started.view(true);
-    started.install('0.2.0', 'x');
+    await started.install('0.2.0', 'x');
     // the daemon restarted as 0.2.0 and the installer is gone
     const done = await notice({ version: '0.2.0', alive: () => false }).view(true);
     expect(done.install).toMatchObject({ state: 'done', to: '0.2.0' });
@@ -223,7 +408,7 @@ describe('the install', () => {
     fs.rmSync(path.join(dir, 'update-notice.json'));
     const again = notice();
     await again.view(true);
-    again.install('0.2.0', 'x');
+    await again.install('0.2.0', 'x');
     fs.writeFileSync(path.join(dir, 'update.log'), '✔ ok\n✖ download failed (HTTP 404)\n');
     const failed = await notice({ alive: () => false }).view(true);
     expect(failed.install?.state).toBe('failed');
@@ -295,6 +480,21 @@ describe('routes', () => {
       payload: { version: '0.2.0' },
     });
     expect(r.statusCode).toBe(403);
+  });
+
+  it('POST /api/cld/update/check: same-origin, answers the fresh view, then 429 within a minute', async () => {
+    const { server } = await app();
+    const check = (headers: Record<string, string>) =>
+      server.inject({ method: 'POST', url: '/api/cld/update/check', headers });
+    const same = { origin: 'http://localhost:80', host: 'localhost:80' };
+    expect((await check({ origin: 'http://evil.example', host: 'localhost:80' })).statusCode).toBe(
+      403,
+    );
+    const ok = await check(same);
+    expect([ok.statusCode, ok.json().lastCheck.ok, checks.length]).toEqual([200, true, 2]);
+    const again = await check(same);
+    expect([again.statusCode, again.json().code]).toEqual([429, 'throttled']);
+    expect(checks).toHaveLength(2);
   });
 
   it('a postponed install answers 409 with the reason', async () => {

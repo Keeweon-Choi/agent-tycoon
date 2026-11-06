@@ -1,5 +1,5 @@
 /**
- * P4 (개발실, W3 작업 폴더 정리): the task worktrees worth cleaning up (merged, or no new commit
+ * P4 (개발실, W3 워크트리 정리): the task worktrees worth cleaning up (merged, or no new commit
  * for a day), with each folder's size: measured in the background (FolderSizes) and kept a while,
  * so the list answers at once and its sizes follow.
  */

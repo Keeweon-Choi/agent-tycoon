@@ -162,6 +162,7 @@ export class PtyHostClient {
     const r = await this.request('list');
     for (const t of (r.terminals as TerminalInfo[] | undefined) ?? [])
       if (t.status) this.status.set(t.id, t.status);
+    for (const cb of this.listeners) cb();
   }
 
   private attach(sockPath: string, token: string): Promise<void> {

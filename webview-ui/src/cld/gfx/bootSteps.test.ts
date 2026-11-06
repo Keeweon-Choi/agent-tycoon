@@ -84,3 +84,49 @@ describe('bootView states', () => {
     });
   });
 });
+
+describe('bootView order (owner 11-06 21:14: iso done under a looks still running)', () => {
+  const owner = {
+    ...all({ done: true }),
+    looks: { done: false, part: [0, 2] as const },
+    warm: { done: false },
+    frame: { done: false },
+  };
+
+  it('puts a step that ended before the plan reaches it above the running ones', () => {
+    const v = bootView(owner);
+    expect(v.order.slice(0, 6)).toEqual(['connect', 'office', 'fonts', 'lobby', 'iso', 'looks']);
+    // never a done row under a row that has not ended
+    const ended = v.order.map((id) => v.states[id] === 'done');
+    expect(ended.indexOf(false)).toBe(ended.lastIndexOf(true) + 1);
+  });
+
+  it('lists the ended steps in the order they ended, whichever finishes first', () => {
+    let v = bootView({ ...all({ done: false }), iso: { done: true } });
+    expect(v.order[0]).toBe('iso');
+    v = bootView(
+      { ...all({ done: false }), iso: { done: true }, connect: { done: true } },
+      undefined,
+      v.ended,
+    );
+    expect(v.order.slice(0, 2)).toEqual(['iso', 'connect']);
+    v = bootView(
+      {
+        ...all({ done: false }),
+        iso: { done: true },
+        connect: { done: true },
+        looks: { done: true },
+      },
+      undefined,
+      v.ended,
+    );
+    expect(v.order.slice(0, 3)).toEqual(['iso', 'connect', 'looks']);
+    expect(v.current).toBe('office');
+  });
+
+  it('a skipped step counts as ended; a step not needed is not in the list', () => {
+    const v = bootView({ ...all({ done: false }), iso: null }, new Set(['frame']));
+    expect(v.order[0]).toBe('frame');
+    expect(v.order).not.toContain('iso');
+  });
+});

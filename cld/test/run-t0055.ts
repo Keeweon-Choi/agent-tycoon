@@ -1,16 +1,15 @@
 /**
  * T-0055 visual check: the messenger's jump-to-newest button and the folded
  * usage line. dist/cli.js with the engine's fake claude (one revived project,
- * `alpha`), a stand-in usage endpoint and Codex log (Claude 5h 1% / 7d 66% and Codex
+ * `alpha`), a status-line usage report and Codex log (Claude 5h 1% / 7d 66% and Codex
  * 5h 73% / 27%) and --allow-chat, isolated HOME, a spare port; the real claude
  * is never run.
  *
  * Desktop and iPhone: a long conversation opens at the bottom (no button); up
  * less than a screen (no button); up more (the button); a message while up
  * (the count, the view stays); a tap (smooth scroll, the button hides); a
- * message at the bottom (follows). The usage strip folds to both figures per
- * provider, coloured by the thresholds, one line on desktop, one per provider
- * on a phone, and a tap unfolds it.
+ * message at the bottom (follows). On the phone the usage strip folds to both figures per
+ * provider, coloured by the thresholds, and a tap unfolds it.
  *
  *   npx tsx cld/test/run-t0055.ts <port 18256-18259>
  */
@@ -19,18 +18,18 @@ import { devices } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
   fakeUsage,
-  launchBrowser,
   killFakeSessions,
+  launchBrowser,
   makeEngineHome,
   REPO_ROOT,
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const BASE = `http://127.0.0.1:${port}/`;
@@ -296,67 +295,23 @@ async function main() {
     check((await target.innerText()) === '복사', `${label}: 복사됨 for 1.5 s, then 복사 again`);
   }
 
-  /** The folded usage strip: text, tones, shape, tap to unfold. */
-  async function usageChecks(page: Page, label: string, phone: boolean) {
-    const open = page.getByLabel('사용량', { exact: true });
-    // Owner 10-24: the phone's usage sits at the bottom, folded until opened; the desktop's starts open.
-    if (!phone) {
-      await open.waitFor();
-      await page.getByRole('button', { name: '사용량 접기' }).click();
-    }
-    const folded = page.getByTestId('usage-folded');
+  /** The phone's folded usage row (the control center's): agents on one row, tap opens the sheet. */
+  async function usageChecks(page: Page, label: string) {
+    const folded = page.getByTestId('cc-seg-usage');
     await folded.waitFor();
     const text = (await folded.innerText()).replace(/\s+/g, ' ').trim();
-    check(
-      text === 'Claude 5h 1% · 7d 66% Codex 5h 73% · 7d 27%',
-      `${label}: folded usage reads "${text}"`,
-    );
-    const tones = await folded.evaluate((el) =>
-      [...el.querySelectorAll('span')]
-        .filter((s) => /^\d[hd] \S+%$/.test(s.textContent ?? ''))
-        .map((s) => [s.textContent, s.className] as const),
-    );
-    const tone = (t: string) => tones.find(([x]) => x === t)?.[1] ?? '';
-    check(
-      tone('5h 73%').includes('text-yellow-300') &&
-        tone('5h 1%').includes('text-text') &&
-        tone('7d 66%').includes('text-text') &&
-        !tone('7d 66%').includes('yellow') &&
-        tone('7d 27%').includes('text-text'),
-      `${label}: each figure coloured by the thresholds (73% warn, the rest normal)`,
-    );
-    const names = await folded.locator('strong').evaluateAll((els) =>
-      els.map((e) => {
-        const r = e.getBoundingClientRect();
-        return { name: e.textContent, top: Math.round(r.top) };
-      }),
-    );
-    const height = Math.round((await folded.boundingBox())!.height);
-    if (phone) {
-      check(
-        names.length === 2 && height <= 60,
-        `${label}: on the phone it may wrap between the providers, never inside one (Claude y ${names[0].top}, Codex y ${names[1].top}, ${height} px high)`,
-      );
-    } else {
-      check(
-        names.length === 2 && names[1].top === names[0].top && height < 30,
-        `${label}: one line on desktop (${height} px)`,
-      );
-    }
-    check(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      `${label}: the folded usage fits the width`,
-    );
+    check(/Claude/.test(text) && /Codex/.test(text) && /%/.test(text), `${label}: folded usage reads "${text}"`);
+    const tops = await folded.locator('[data-agent]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    check(tops.length >= 1 && tops.every((y) => y === tops[0]), `${label}: the agents share one row (${tops})`);
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${label}: the folded usage fits the width`);
     await shot(page, `${label}-usage-folded`);
     await folded.click();
-    await open.waitFor();
-    check(
-      (await page.getByTestId('usage-folded').count()) === 0 &&
-        (await open.innerText()).includes('7d 66%'),
-      `${label}: a tap unfolds it`,
-    );
-    await page.getByRole('button', { name: '사용량 접기' }).click(); // folded again, as left
-    await page.getByTestId('usage-folded').waitFor();
+    const sheet = page.getByTestId('cc-usage-sheet');
+    await sheet.waitFor();
+    check((await sheet.innerText()).includes('7d') || (await sheet.innerText()).includes('주간'), `${label}: a tap opens the usage sheet`);
+    await shot(page, `${label}-usage-sheet`);
+    await page.getByTestId('cc-usage-sheet-close').click();
+    await sheet.waitFor({ state: 'detached' });
   }
 
   try {
@@ -379,7 +334,7 @@ async function main() {
     await page.goto(url);
     await page.waitForURL(BASE);
     await hangul(page);
-    await usageChecks(page, 'desktop', false);
+    // hud-v3: the PC has no folded usage strip (its usage panel is run-office-hud-pc's); the phone keeps it.
     await messengerChecks(page, 'desktop', false);
     await codeCopyChecks(page, 'desktop', false);
     await codeCopyChecks(page, 'desktop-http', false, true);
@@ -392,7 +347,7 @@ async function main() {
     await phone2.waitForURL(BASE);
     await hangul(phone2);
     await phone2.addStyleTag({ content: SAFE_AREA });
-    await usageChecks(phone2, 'iphone', true);
+    await usageChecks(phone2, 'iphone');
     await messengerChecks(phone2, 'iphone', true);
     await codeCopyChecks(phone2, 'iphone', true);
     check(

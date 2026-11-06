@@ -15,6 +15,7 @@
  *   - a Codex Worker's runs for that Task run in it (CodexAgent's `taskWorktree`);
  *   - the Lead: recorded only (its session's folder is the project's).
  */
+import { koText } from '../../../../core/src/cld/serverText.js';
 import type { BoardTask } from '../../../../core/src/messages.js';
 import { CLI_NAME } from '../cliName.js';
 import type { RepoManager, WriteResult } from './git/repoManager.js';
@@ -26,7 +27,7 @@ type Reply = Record<string, unknown> & { ok: boolean };
 const refuse = (code: string, error: string) => ({ ok: false as const, code, error });
 
 export interface TaskWorktreeDeps {
-  tasks: Pick<TaskStore, 'get' | 'update' | 'corrupt' | 'unwritable'>;
+  tasks: Pick<TaskStore, 'get' | 'add' | 'update' | 'attach' | 'corrupt' | 'unwritable'>;
   repos: Pick<RepoManager, 'write' | 'worktrees' | 'project'>;
   /** Every engine agent now (the Lead's name is its project's). */
   roster(): RosterAgent[];
@@ -47,7 +48,12 @@ const defaultHolds = (a: RosterAgent) =>
   a.role !== 'lead' && (a.live || (a.provider !== 'codex' && a.wantRunning));
 
 export interface TaskWorktreeRequest {
+  /** '' with `title` (DV4 새 워크트리): a new Task of `project`, made once the checks pass. */
   taskId: string;
+  title?: string;
+  project?: string;
+  /** DV4: the branch the owner named (Worktrees.createForTask `branch`). */
+  branch?: string;
   /** The agent (a name) it is given to; none: nobody yet. */
   assignee?: string | null;
   base?: string;
@@ -95,19 +101,29 @@ export async function worktreeForTask(
   // The Task must be able to say where its work is: no worktree it could not record.
   const blocked = d.tasks.corrupt ?? d.tasks.unwritable;
   if (blocked) return refuse('store_unwritable', blocked);
-  const task: BoardTask | undefined = d.tasks.get(req.taskId);
-  if (!req.taskId || !task) return refuse('unknown_task', `'${req.taskId}' 작업이 없습니다`);
-  if (req.scope && task.project !== req.scope)
-    return refuse('out_of_scope', `'${task.id}' 는 다른 프로젝트의 작업이에요`);
+  const fresh = !req.taskId && !!req.title?.trim() && !!req.project;
+  const found: BoardTask | undefined = fresh ? undefined : d.tasks.get(req.taskId);
+  if (!fresh && !found) return refuse('unknown_task', `'${req.taskId}' 작업이 없습니다`);
+  const project = found?.project ?? req.project!;
+  if (req.scope && project !== req.scope)
+    return { ok: false as const, code: 'out_of_scope', error: koText('task_other_project', { task: found?.id ?? '' }) };
   let agent: RosterAgent | undefined;
   if (req.assignee) {
     agent = d.roster().find((a) => a.name === req.assignee);
     if (!agent?.assignmentId) return refuse('unknown_agent', `'${req.assignee}' 에이전트가 없습니다`);
-    if (agent.project !== task.project)
-      return refuse('out_of_scope', `'${agent.name}' 는 ${task.project} 의 에이전트가 아니에요`);
+    if (agent.project !== project)
+      return { ok: false as const, code: 'out_of_scope', error: koText('agent_other_project', { name: agent.name, project }) };
   }
   const wts = d.repos.worktrees;
-  return d.repos.write(task.project, privileged, source, 'worktreeNew', async (proj) => {
+  return d.repos.write(project, privileged, source, 'worktreeNew', async (proj) => {
+    // DV4: the owner's branch is checked before its Task is made (a refusal leaves nothing).
+    if (req.branch !== undefined) await wts.check(proj, req.branch, req.base);
+    let task = found;
+    if (!task) {
+      const made = d.tasks.add({ project: proj.name, title: req.title!.trim() }, req.by, d.now?.() ?? Date.now(), { createdBy: req.createdBy });
+      if (!made.ok) return refuse(String(made.code ?? 'refused'), String(made.error ?? ''));
+      task = made.task as BoardTask;
+    }
     const had = wts.forTask(proj.name, task.id);
     if (had && !req.reuse)
       return refuse('exists', `Task ${task.id} 에는 이미 worktree 가 있어요: ${WORKTREES_DIR}/${had.task}`);
@@ -125,18 +141,29 @@ export async function worktreeForTask(
         'worktree_in_use',
         `Task ${task.id} 의 worktree(${WORKTREES_DIR}/${had!.task})는 ${holder.name} 가 쓰고 있거나 곧 쓸 거예요. ${holder.name} 를 멈춘 뒤에 다시 맡겨 주세요`,
       );
-    const rec = had
-      ? agent
-        ? await wts.assign(proj, had.task, agent.assignmentId)
-        : had
-      : await wts.createForTask(proj, {
-          taskId: task.id,
-          title: task.title,
-          ...(req.slug !== undefined && { slug: req.slug }),
-          ...(req.base !== undefined && { base: req.base }),
-          ...(agent?.assignmentId && { assignmentId: agent.assignmentId }),
-          createdBy: req.createdBy,
-        });
+    const made = () =>
+      had
+        ? agent
+          ? wts.assign(proj, had.task, agent.assignmentId)
+          : Promise.resolve(had)
+        : wts.createForTask(proj, {
+            taskId: task.id,
+            title: task.title,
+            ...(req.slug !== undefined && { slug: req.slug }),
+            ...(req.base !== undefined && { base: req.base }),
+            ...(req.branch !== undefined && { branch: req.branch }),
+            ...(agent?.assignmentId && { assignmentId: agent.assignmentId }),
+            createdBy: req.createdBy,
+          });
+    let rec: Awaited<ReturnType<typeof made>>;
+    try {
+      rec = await made();
+    } catch (err) {
+      // DV4: the Task just made stays on the board (as delegate_task's does); the refusal names it.
+      if (found) throw err;
+      const why = err instanceof Error ? err.message : String(err);
+      return { ok: false as const, code: 'worktree_failed', error: koText('task_without_worktree', { task: task.id, why }) };
+    }
     if (agent?.assignmentId) d.claims?.set(key, { assignmentId: agent.assignmentId, until: now + CLAIM_MS });
     // The Task says where its work is (a report, by the caller); the daemon observes git later.
     const up = d.tasks.update(task.id, { branch: rec.branch, worktree: rec.path }, req.by);
@@ -160,6 +187,83 @@ export async function worktreeForTask(
   });
 }
 
+/** DV4: what seating an agent needs beyond worktreeForTask (office.ts wires the engine and the messenger). */
+export interface SeatDeps extends TaskWorktreeDeps {
+  /** `run`: one process per message (its runs for the Task go to the worktree by themselves);
+   *  else a session that stays, which starts in its worktree (Engine's `assignedFolder`). */
+  lifetime(name: string): 'session' | 'run' | undefined;
+  /** The engine's own start / restart, and `pty`: its move of a Claude agent into our terminal
+   *  host (engine.run, the gates every engine action has). */
+  engineAction(action: 'start' | 'restart' | 'pty', name: string): Promise<{ ok: boolean; error?: string; note?: string }>;
+  /** T-70: `name`'s session works in `folder` already (seating it there moves nothing). */
+  worksIn(name: string, folder: string): boolean;
+  /** T-70: `name` is a Claude agent still on `claude --bg` while our terminal host is here. */
+  oldStyle(name: string): boolean;
+  /** The messenger's send of the owner's words (queued until the session can take them). */
+  send(req: { to: string; text: string; task: string }): Promise<{ ok: boolean; error?: unknown }>;
+}
+
+export interface SeatRequest extends TaskWorktreeRequest {
+  /** The assignee starts working there now: started, or restarted when it is on (a session moves
+   *  only at its start). A Task that already has its worktree gives that one (no `branch`). */
+  seat?: boolean;
+  /** The first instruction, to the seated agent through the messenger, after its start. */
+  text?: string;
+}
+
+/**
+ * DV4 (M1 새 워크트리, M2 앉히기): the owner's direct path beside the Lead's delegate_task, through
+ * the same steps: the Task's worktree given to the agent (worktreeForTask), the Task's assignee,
+ * then the engine's start or restart so its session works in that folder, then the messenger.
+ * The agent's other worktrees of the project stop being its own (one agent, one worktree).
+ * Never rejects.
+ */
+export async function seatInWorktree(d: SeatDeps, req: SeatRequest, privileged: boolean, source: string): Promise<TaskWorktreeResult> {
+  // The Lead works in its project's own folder: it is never seated (nor restarted for it).
+  if (req.seat && req.assignee && d.roster().find((x) => x.name === req.assignee)?.role === 'lead')
+    return { ok: false, code: 'seat_lead', error: koText('seat_lead') };
+  const r = await worktreeForTask(d, { ...req, reuse: !!req.seat && req.branch === undefined }, privileged, source);
+  if (!r.ok || !req.seat || !r.assignee || !r.assignmentId || !r.taskId || !r.project || !r.task) return r;
+  const { assignee: name, assignmentId, taskId, project } = r;
+  const notes = [`${r.branch} · ${WORKTREES_DIR}/${r.task}`];
+  const wts = d.repos.worktrees;
+  const proj = d.repos.project(project);
+  // One agent, one worktree: its older ones (and their Tasks) are no longer its own.
+  for (const w of wts.all()) {
+    if (!proj || w.project !== project || w.status !== 'active' || w.assignmentId !== assignmentId || w.task === r.task) continue;
+    await wts.assign(proj, w.task, null).catch((err: unknown) => notes.push(`${w.task}: ${String(err)}`));
+    const old = w.taskId ? d.tasks.get(w.taskId) : undefined;
+    if (old?.assignee?.assignmentId === assignmentId) d.tasks.update(old.id, { assignee: null }, req.by);
+  }
+  d.tasks.update(taskId, { assignee: { assignmentId, name } }, req.by);
+  d.tasks.attach(taskId, { kind: 'agent', ref: assignmentId }, req.by);
+  const a = d.roster().find((x) => x.name === name);
+  let send = true;
+  // T-70: a session already in this worktree is left as it is (the 개발실 just opens its terminal).
+  if (a?.live && r.path && d.worksIn(name, r.path)) notes.push(koText('seat_already_there', { name }));
+  else if (a && d.lifetime(name) !== 'run') {
+    // T-70: the owner's seat opens its terminal, so a Claude agent still on `claude --bg` moves into
+    // our host first (the engine's own move: same conversation, a busy one refused with the reason).
+    if (d.oldStyle(name)) {
+      const m = await d.engineAction('pty', name);
+      if (!m.ok) notes.push(koText('seat_pty_failed', { name, why: m.error ?? '' }));
+    }
+    const on = await d.engineAction(a.live ? 'restart' : 'start', name);
+    const why = on.error ?? '';
+    if (on.ok) notes.push(koText(a.live ? 'seat_restarted' : 'seat_started', { name }), ...(on.note ? [on.note] : []));
+    // Still in its old folder: the instruction would be worked there, so it waits for the owner.
+    else if (a.live && req.text?.trim()) {
+      send = false;
+      notes.push(koText('seat_restart_failed', { name, why }));
+    } else notes.push(koText('seat_start_failed', { name, why }));
+  }
+  if (send && req.text?.trim()) {
+    const sent = await d.send({ to: name, text: req.text, task: taskId });
+    notes.push(sent.ok ? koText('seat_text_sent') : koText('seat_text_failed', { why: String(sent.error ?? '') }));
+  }
+  return { ...r, detail: notes.join(' · ') };
+}
+
 /**
  * `cld-gui worktree new --task <id> [--assign <name>] [--base <branch>]` and
  * `cld-gui worktree list [--task <id>]` over the control socket. An agent's
@@ -174,13 +278,15 @@ export async function answerWorktree(
   const scope = who.agent ? who.project : null;
   if (a.op === 'new') {
     const taskId = str(a.task);
-    if (!taskId) return refuse('usage', `사용법: ${CLI_NAME} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>]`);
+    if (!taskId) return refuse('usage', `사용법: ${CLI_NAME} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>]`);
     const r = await worktreeForTask(
       d,
       {
         taskId,
         assignee: str(a.assign) ?? null,
         ...(str(a.base) && { base: str(a.base) }),
+        // The Lead's own naming (type/scope-what) instead of feat/t<id>-<slug>; branchName.ts rules apply.
+        ...(str(a.branch) && { branch: str(a.branch) }),
         scope,
         by: who.by,
         createdBy: who.agent ? `agent:${who.agent}` : 'cli',
@@ -214,14 +320,14 @@ export async function answerWorktree(
     }
     return { ok: true, worktrees };
   }
-  return refuse('usage', `사용법: ${CLI_NAME} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] | worktree list [--task <작업 id>]`);
+  return refuse('usage', `사용법: ${CLI_NAME} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>] | worktree list [--task <작업 id>]`);
 }
 
 /**
  * W3: the Tasks done now that were not in `seen` (ids; null = the store not read yet, nothing
  * merges): each one's worktree branch merges into its base by itself. RepoManager.merge refuses
  * the automatic request for a protected base and for a Task with review notes (those wait for
- * the owner's 병합 in the 작업실). Returns the done ids to remember and the merges started.
+ * the owner's 머지 in the 작업실). Returns the done ids to remember and the merges started.
  */
 export function mergeNewlyDone(
   tasks: Pick<TaskStore, 'list'>,

@@ -209,7 +209,7 @@ async function main() {
     await openOfficeWindow(page); // T-0108: a desktop starts with icons only
     await hangul(page);
     // UI-C1: the job cards are the 작업실's Task tab (alpha's), the 실행 half.
-    await openWorkbenchTab(page, 'Task', { project: 'alpha' });
+    await openWorkbenchTab(page, '이슈', { project: 'alpha' });
     const drawer = page.locator('[data-hud-window="office"]');
     // DEV-BOARD: Task opens on 업무; the job cards are its 실행 half.
     await drawer
@@ -267,7 +267,7 @@ async function main() {
     rss.viewing = rssMb(server.pid!);
 
     // T-0070: the events are in the 알림 list now (the 소식 tab is gone).
-    await page.getByTestId('notice-bell').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     const feedList = page.getByTestId('notice-list');
     // NOTICE-DEDUP (9b64fd70) and 52479a46: the list holds no start row and no sent message.
     for (const text of [
@@ -282,7 +282,7 @@ async function main() {
       'the 알림 list shows job stop and job_end, and neither the job start nor the send',
     );
     await shot(page, 'desktop-feed');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
 
     // ── Phone with iPhone insets ──
     const { page: phone } = await open({
@@ -294,7 +294,7 @@ async function main() {
     });
     await phone.goto(`http://127.0.0.1:${port}/`);
     await hangul(phone, INSETS);
-    await openWorkbenchTab(phone, 'Task', { project: 'alpha', tap: true });
+    await openWorkbenchTab(phone, '이슈', { project: 'alpha', tap: true });
     // DEV-BOARD: Task opens on 업무; the job cards are its 실행 half.
     await phone
       .getByRole('group', { name: '작업 보기' })

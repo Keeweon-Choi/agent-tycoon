@@ -185,6 +185,8 @@ export interface StandaloneAuthOptions {
   configDir?: string;
   /** --allow-approval-requests: new devices may ask a logged-in one (off by default). */
   allowApprovalRequests?: boolean;
+  /** MHO 3.6: this daemon's host id (host.json), which names its session cookie. */
+  hostId?: string | null;
 }
 
 /**
@@ -228,8 +230,11 @@ export class StandaloneAuth {
   readonly audit: AuditLog;
   /** Told when a device-list row is gone: a revoked device's id, an ended session's handle (T-0039). */
   onRowGone?: (id: string) => void;
+  /** MHO 3.6: this host's session cookie name (`sessionCookieName`). */
+  readonly cookieName: string;
 
   constructor(options: StandaloneAuthOptions = {}) {
+    this.cookieName = sessionCookieName(options.hostId);
     if (options.configDir) {
       this.passkeys = new Passkeys(path.join(options.configDir, 'passkeys.json'));
       this.devices = new DeviceKeys(path.join(options.configDir, 'devices.json'));
@@ -671,6 +676,23 @@ export class StandaloneAuth {
     return this.session(id) !== undefined;
   }
 
+  /**
+   * The session cookie value a request carries: this host's own cookie, else (for one release) the
+   * old shared `cld_session`. Two daemons on one browser's localhost no longer read each other's.
+   * Drop the old name one release after MHO 3.6 (the cookie the next page load sets moves it).
+   */
+  sessionIdOf(cookie: string | undefined): string | undefined {
+    return (
+      sessionIdFromCookie(cookie, this.cookieName) ??
+      (this.cookieName === LEGACY_SESSION_COOKIE ? undefined : sessionIdFromCookie(cookie, LEGACY_SESSION_COOKIE))
+    );
+  }
+
+  /** A live session of this host behind a cookie value, its expiry untouched. */
+  hasSession(id: string | undefined): boolean {
+    return !!id && this.liveSessionByHash(hashToken(id)) !== undefined;
+  }
+
   /** Call `close` when this session is signed out; returns the unbind. */
   bindSocket(id: string | undefined, close: () => void): () => void {
     const hash = id ? hashToken(id) : undefined;
@@ -1024,10 +1046,27 @@ export function cleanLabel(raw: unknown, fallback: string): string {
   return label || fallback;
 }
 
+/** The session cookie every daemon shared until MHO 3.6; still read for one release. */
+export const LEGACY_SESSION_COOKIE = 'cld_session';
+
+/**
+ * MHO 3.6: cookies are not separated by port (RFC 6265 8.5), so each host names its own:
+ * `cld_session_<first 8 hex of its host id>`. No host id (host.json unreadable): the old name.
+ */
+export function sessionCookieName(hostId: string | null | undefined): string {
+  const short = /^([0-9a-f]{8})-/i.exec(hostId ?? '')?.[1];
+  return short ? `${LEGACY_SESSION_COOKIE}_${short.toLowerCase()}` : LEGACY_SESSION_COOKIE;
+}
+
 /** Build the cookie sent after code or trusted-Tailscale authentication. */
-export function sessionCookie(sessionId: string, secure: boolean, lifetime?: SessionLifetime): string {
+export function sessionCookie(
+  sessionId: string,
+  secure: boolean,
+  lifetime?: SessionLifetime,
+  name: string = LEGACY_SESSION_COOKIE,
+): string {
   return [
-    `cld_session=${encodeURIComponent(sessionId)}`,
+    `${name}=${encodeURIComponent(sessionId)}`,
     'HttpOnly',
     'SameSite=Strict',
     'Path=/',
@@ -1036,11 +1075,14 @@ export function sessionCookie(sessionId: string, secure: boolean, lifetime?: Ses
   ].join('; ');
 }
 
-export function sessionIdFromCookie(cookie: string | undefined): string | undefined {
+export function sessionIdFromCookie(
+  cookie: string | undefined,
+  wanted: string,
+): string | undefined {
   if (!cookie) return undefined;
   for (const part of cookie.split(';')) {
     const [name, ...value] = part.trim().split('=');
-    if (name === 'cld_session') {
+    if (name === wanted) {
       try {
         return decodeURIComponent(value.join('='));
       } catch {

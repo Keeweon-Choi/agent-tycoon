@@ -50,11 +50,11 @@ export function Modal({
         <div
           role="dialog"
           aria-modal="true"
-          className={`pointer-events-auto bg-bg border-2 border-border rounded-none shadow-pixel min-w-[min(320px,100%)] max-w-full max-h-full overflow-y-auto overflow-x-hidden ${className}`}
+          className={`pointer-events-auto pixel-panel ui-window min-w-[min(320px,100%)] max-w-full max-h-full overflow-y-auto overflow-x-hidden ${className}`}
         >
           {/* Sticky so the close button stays reachable while long content
               (changelog, settings) scrolls under it. */}
-          <div data-modal-title className={`${TITLE_BAR} sticky top-0 z-10 bg-bg mb-10`}>
+          <div data-modal-title className={`${TITLE_BAR} sticky top-0 z-10 mb-10`}>
             <span className="text-accent-text text-2xl">{title}</span>
             <Button variant="ghost" size="icon_md" onClick={onClose}>
               x

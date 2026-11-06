@@ -20,6 +20,9 @@ import {
   type ArchKind,
   type ArchSkeletonAction,
   type LinkRel,
+  type MapStructure,
+  type NodeRef,
+  TASK_SPEC_ID,
   type TraceArch,
   type TraceGraph,
   type TraceItem,
@@ -27,6 +30,7 @@ import {
   type TraceNodeType,
   type TracePick,
   type TraceRecent,
+  type TraceResume,
   type TraceState,
   type TraceTaskReqs,
 } from '../../../../core/src/cld/spec/trace.js';
@@ -52,6 +56,7 @@ import {
   SPEC_ITEM_TITLE_MAX,
   SPEC_ITEMS_PAGE,
   SPEC_ITEMS_PAGE_MAX,
+  SPEC_KIT_CONSTITUTION,
   SPEC_LADDER,
   SPEC_LINK_BULK_MAX,
   SPEC_LINK_HISTORY_MAX,
@@ -119,8 +124,9 @@ import {
   writeArchFile,
 } from './archOwner.js';
 import { cacheFile, deleteCache, emptyCache, entryOf, hasherFor, type MatchCache, matOf, readCache, withoutText, writeCache } from './cache.js';
-import { blockDetail, type ChainReq, featureChain, lightCells, linkedCount, reqLinks, tagOnly } from './chain.js';
+import { blockDetail, type ChainReq, featureChain, filesOn, lightCells, linkedCount, reqLinks, tagOnly } from './chain.js';
 import { type ModRow, moduleRows, type TraceComp, wordsOf } from './compLinks.js';
+import { designMap,type DesignModuleIn } from './design.js';
 import {
   blobOf,
   classify,
@@ -134,7 +140,7 @@ import {
   readRecentCommits,
   walkDocs,
 } from './discover.js';
-import { criteriaOf, extract, type Extracted, fmIdOf, type ItemShape, itemSource, refRows } from './extract.js';
+import { criteriaOf, extract, type Extracted, fmIdOf, type ItemShape, itemSource, refRows, verifyOf } from './extract.js';
 import { isAncestor, readRenames, readRepoEvidence, type RepoEvidence } from './gitEvidence.js';
 import { type Hasher, type Mat, matchSnapshot, sketchOf, type SnapDoc } from './identity.js';
 import {
@@ -149,13 +155,15 @@ import {
   linkKey,
   linksFile,
   type LoadedLinks,
-  type NodeRef,
   readLinks,
   refId,
   type SpecLink,
   writeLinks,
 } from './links.js';
 import { codeKey, type CodeScan } from './mapWorker.js';
+import { adrStatus, openspecOps, shapeOf, shapeOpt } from './shapes.js';
+import { kitId, kitOf, kitOpt, readPlan, readResearch, readSpec, readTasks, STORY_ID } from './speckit.js';
+import { codeIndex, kitBlock, kitCounts, type KitReads, storyTasks } from './speckitMap.js';
 import {
   type Cand,
   COMP_UID_RE,
@@ -178,7 +186,7 @@ import {
   type SpecRegistry,
   writeRegistry,
 } from './store.js';
-import { type FeatureReq, featuresOf, structureOwned } from './structure.js';
+import { type Feature, type FeatureReq, featuresOf, structureOwned } from './structure.js';
 import {
   ACCEPTANCE_FILTERS,
   type AcceptanceFilter,
@@ -231,6 +239,11 @@ export interface SpecDeps {
   merges?: (project: string, n: number) => RepoMerge[];
   /** SPT C1: the 지도's code scan, a short child process (the office: `cld-worker.js spec-map`); none: no structure. */
   specMap?: (folder: string) => Promise<CodeScan | null>;
+  /** BRN K5: the project's Lead's latest renew handoff (the office: agentQueries.resumeHandoff), read
+   *  on a 개요 read only; none: no handoff is shown. */
+  resume?: (project: string) => TraceResume['handoff'];
+  /** RQ3: a new issue on the Task Board (the board's own add, as its 새 이슈); none: no issue is made. */
+  addTask?: (fields: { project: string; title: string; note?: string; owner?: string }, device: string) => { ok: true; id: string } | { ok: false };
 }
 
 export type SpecError = 'corrupt' | 'path' | 'tooMany' | 'off' | 'doc' | 'item' | 'stale' | 'value' | 'save' | 'boundary' | 'link' | 'full' | 'comp' | 'archFull';
@@ -284,6 +297,8 @@ export interface ItemRow {
   line: number;
   /** SPT-P2: its four states (`state` above is the item's own active/retired). */
   trace?: TraceState;
+  /** RQ2: the feature it falls in (featuresOf; requirements documents only), for the 요구사항 tree. */
+  feature?: { key: string; name: string; rule: Feature['rule'] | 'common'; changing?: true };
 }
 
 type DocRef = { uid: string; path: string };
@@ -393,6 +408,9 @@ const VERSION_RE = /^[0-9a-f]{16}$/;
 const live = (d: DocRecord | undefined): d is DocRecord => !!d && d.tracked && d.state !== 'retired';
 /** The match cache may keep this document's text (not git-ignored, not 민감). */
 const textOk = (d: DocRecord | undefined) => !!d && !d.sensitive && d.git !== 'ignored';
+/** K9: how each Spec Kit file of a feature folder is read, and the field of KitReads it fills. */
+const KIT_PARSERS: Record<string, (text: string) => unknown> = { 'spec.md': readSpec, 'tasks.md': readTasks, 'plan.md': readPlan, 'research.md': readResearch };
+const KIT_FIELDS: Record<string, keyof KitReads> = { 'spec.md': 'spec', 'tasks.md': 'tasks', 'plan.md': 'plan', 'research.md': 'research' };
 /** A question's text: masked again, at most SPEC_QUESTION_TEXT_MAX bytes. */
 const questionText = (s: string | undefined): string | undefined => {
   if (s === undefined) return undefined;
@@ -409,10 +427,10 @@ const intIn = (v: unknown, min: number, max: number): number | null => {
 };
 
 /** What a document's items are taken from: its bytes and the switches that change extraction. */
-const itemsKey = (reg: SpecRegistry, d: Pick<DocRecord, 'blob' | 'kind' | 'mode' | 'depth'>): string =>
+const itemsKey = (reg: SpecRegistry, d: Pick<DocRecord, 'blob' | 'kind' | 'mode' | 'depth' | 'path'>): string =>
   crypto
     .createHash('sha256')
-    .update(JSON.stringify([d.blob, d.kind, d.mode, d.depth ?? SPEC_HEADING_DEPTH, reg.shortIds, reg.idPatterns]))
+    .update(JSON.stringify([d.blob, d.kind, d.mode, d.depth ?? SPEC_HEADING_DEPTH, reg.shortIds, reg.idPatterns, ...(shapeOf(d.path) ? ['rq5'] : [])]))
     .digest('hex')
     .slice(0, 16);
 /** SPT-P4C `words`: what a component's label is looked for in (a document that keeps no text: its title only). */
@@ -824,7 +842,12 @@ export class SpecService {
     }
     rows.sort((a, b) => (a.doc !== b.doc ? (a.doc < b.doc ? -1 : 1) : a.line - b.line));
     const page = rows.slice(offset, offset + limit);
-    for (const row of page) row.trace = ix.states.get(row.uid);
+    const feat = this.featureOf(p, reg, ix);
+    for (const row of page) {
+      row.trace = ix.states.get(row.uid);
+      const f = feat(row.uid, row.displayId);
+      if (f) row.feature = f;
+    }
     return { ok: true, value: { enabled: true, rev: reg.rev, total: rows.length, items: page } };
   }
 
@@ -1203,7 +1226,7 @@ export class SpecService {
     if (!titles) this.titles.set(p.projectId, (titles = new Map()));
     /** SPT-P4C: each document's architecture as last read (a re-read replaces its titles). */
     const archBefore = new Map([...titles].map(([u, t]) => [u, { arch: t.arch, held: t.held }]));
-    const optsOf = (d: Pick<DocRecord, 'kind' | 'mode' | 'depth'>) => ({ kind: d.kind, mode: d.mode, depth: d.depth ?? SPEC_HEADING_DEPTH, shortIds: reg.shortIds, idPatterns: reg.idPatterns });
+    const optsOf = (d: Pick<DocRecord, 'kind' | 'mode' | 'depth' | 'path'>) => ({ kind: d.kind, mode: d.mode, depth: d.depth ?? SPEC_HEADING_DEPTH, shortIds: reg.shortIds, idPatterns: reg.idPatterns, ...kitOpt(d.path), ...shapeOpt(d.path) });
     const settled = (st: fs.Stats) => st.size <= SPEC_FILE_MAX_BYTES && now - st.mtimeMs >= SPEC_SETTLE_MS;
     const lstat = (rel: string) => {
       try {
@@ -1299,7 +1322,7 @@ export class SpecService {
       }
       const r = this.readDoc(p, rel, st);
       if (!r) continue;
-      const o = { kind: classify(rel, r.text), mode: 'auto' as const, depth: undefined };
+      const o = { kind: classify(rel, r.text), mode: 'auto' as const, depth: undefined, path: rel };
       kinds.set(rel, o.kind);
       const items = extract(r.text, path.posix.basename(rel), optsOf(o));
       archOf.set(rel, readArch(r.text));
@@ -1412,7 +1435,7 @@ export class SpecService {
       };
       const old = archBefore.get(uid);
       for (const h of old?.held ?? []) keep(h.uid, h.label, h.line);
-      old?.arch?.arch.comps.forEach((c, i) => old.arch!.uids[i] && keep(old.arch!.uids[i], c.label, c.line));
+      old?.arch?.arch.comps.forEach((c, i) => old.arch!.uids[i] && !c.tree && keep(old.arch!.uids[i], c.label, c.line));
       t.arch = { arch: a, uids };
       if (held.size) t.held = [...held].map(([u, h]) => ({ uid: u, ...h }));
       else delete t.held;
@@ -1898,15 +1921,18 @@ export class SpecService {
   private linkComps(p: SpecProject, reg: SpecRegistry): TraceComp[] {
     const out = new Map<string, TraceComp>();
     const docs = [...(this.titles.get(p.projectId) ?? [])].filter(([uid, t]) => t.arch && live(reg.docs[uid])).sort(([a], [b]) => (reg.docs[a].path < reg.docs[b].path ? -1 : 1));
+    // BRN K8: a folder tree line is a design module only, never a link candidate.
+    const trees = new Set<string>();
     for (const [uid, t] of docs)
       t.arch!.arch.comps.forEach((c, i) => {
         const id = t.arch!.uids[i];
-        if (id && !out.has(id) && reg.components[id]?.state === 'active') out.set(id, { uid: id, label: c.label, source: { path: reg.docs[uid].path, line: c.line } });
+        if (id && c.tree) trees.add(id);
+        else if (id && !out.has(id) && reg.components[id]?.state === 'active') out.set(id, { uid: id, label: c.label, source: { path: reg.docs[uid].path, line: c.line } });
       });
     // Held ones (a block refused for a moment loses nothing): their last label, else their UID.
     const held = new Map([...(this.titles.get(p.projectId) ?? [])].flatMap(([doc, t]) => (t.held ?? []).map((h) => [h.uid, { ...h, doc }] as const)));
     for (const [id, c] of Object.entries(reg.components)) {
-      if (out.has(id) || c.state !== 'active' || !live(reg.docs[c.doc])) continue;
+      if (out.has(id) || trees.has(id) || c.state !== 'active' || !live(reg.docs[c.doc])) continue;
       const h = held.get(id);
       out.set(id, { uid: id, label: h?.label ?? id, ...(h && { source: { path: reg.docs[c.doc].path, line: h.line } }) });
     }
@@ -2015,6 +2041,15 @@ export class SpecService {
    * Built from the trace index and the readers it already has; kept per HEAD and rev for at most
    * SPEC_SCAN_MIN_MS (merges and jobs move without one), dropped with the index when nobody reads.
    */
+  /** BRN K5: the 개요's five lines' handoff part, tracking on or off (an unreadable one reads as none). */
+  resume(p: SpecProject): TraceResume {
+    try {
+      return { handoff: this.deps.resume?.(p.name) ?? null };
+    } catch {
+      return { handoff: null };
+    }
+  }
+
   async recent(p: SpecProject): Promise<SpecResult<TraceRecent>> {
     if (this.load(p).corrupt) return { ok: false, error: 'corrupt' };
     if (this.enabled(p)) await this.scanIfDue(p);
@@ -2098,16 +2133,7 @@ export class SpecService {
     const reg = this.enabled(p);
     if (!reg) return { ok: false, error: 'off' };
     this.touchTrace(p, this.now());
-    let c = this.archCache.get(p.projectId);
-    if (!c || c.rev !== reg.rev) this.archCache.set(p.projectId, (c = { rev: reg.rev, layers: new Map() }));
-    let arch = c.layers.get(layer);
-    if (!arch) {
-      const docs = new Map([...(this.titles.get(p.projectId) ?? [])].flatMap(([uid, t]) => (t.arch ? [[uid, t.arch] as const] : [])));
-      c.layers.set(layer, (arch = archGraph(reg, docs, layer)));
-      this.archBuilds++;
-    }
-    // SPT-P4B: the owner's decisions over it, every read (linear, capped lists; a corrupt arch.json reads as none).
-    const owned = applyOwner(arch, this.archOf(p).file, await this.skeletonOf(p, reg));
+    const owned = await this.archOwned(p, reg, layer);
     // SPT-P4C: each component's requirements, from the trace index (its own rev and cache).
     const ix = await this.index(p, reg);
     const last = lastBatch(this.archOf(p).file);
@@ -2129,17 +2155,73 @@ export class SpecService {
     };
   }
 
+  /** The architecture of a layer (built per Registry rev) with the owner's decisions over it, every read (linear, capped lists; a corrupt arch.json reads as none). */
+  private async archOwned(p: SpecProject, reg: SpecRegistry, layer: TraceArch['layer']): Promise<TraceArch> {
+    let c = this.archCache.get(p.projectId);
+    if (!c || c.rev !== reg.rev) this.archCache.set(p.projectId, (c = { rev: reg.rev, layers: new Map() }));
+    let arch = c.layers.get(layer);
+    if (!arch) {
+      const docs = new Map([...(this.titles.get(p.projectId) ?? [])].flatMap(([uid, t]) => (t.arch ? [[uid, t.arch] as const] : [])));
+      c.layers.set(layer, (arch = archGraph(reg, docs, layer)));
+      this.archBuilds++;
+    }
+    return applyOwner(arch, this.archOf(p).file, await this.skeletonOf(p, reg));
+  }
+
+  /**
+   * BRN K8 (project-brain §7): the design modules of the live documents read and of arch.json, met
+   * with the top fold of the code. Its paths: an approved folder or one merged into it (확인함), else
+   * what the documents write (a tree line, a table's path cell, a label that is a path: 글에 적힘).
+   * A tree line is a module of its own, the first of a path in document path order. Built on a map
+   * read with `design=1` only: nobody asks, nothing is built.
+   */
+  private async designOf(p: SpecProject, reg: SpecRegistry, scan: CodeScan | null, code: MapStructure | null) {
+    const owned = await this.archOwned(p, reg, 'composition');
+    const docs = [...(this.titles.get(p.projectId) ?? [])].filter(([uid, t]) => t.arch && live(reg.docs[uid])).sort(([a], [b]) => (reg.docs[a].path < reg.docs[b].path ? -1 : 1));
+    const written = new Map<string, string[]>();
+    const mods: DesignModuleIn[] = [];
+    const treePaths = new Set<string>();
+    for (const [uid, t] of docs)
+      t.arch!.arch.comps.forEach((c, i) => {
+        const id = t.arch!.uids[i];
+        if (!id || !c.path || reg.components[id]?.state !== 'active') return;
+        if (!c.tree) return void (written.has(id) || written.set(id, [c.path]));
+        if (treePaths.has(c.path)) return;
+        treePaths.add(c.path);
+        mods.push({ id, label: c.label, paths: [c.path], by: 'written', source: { path: reg.docs[uid].path, line: c.line } });
+      });
+    for (const n of owned.nodes) {
+      if (n.standing === 'proposed') continue; // a folder proposed from the code is no design
+      const mine = [...(n.folder ? [n.folder] : []), ...(n.folders ?? [])];
+      const theirs = [n.id, ...(n.merged ?? []).map((m) => m.id)].flatMap((u) => written.get(u) ?? []);
+      mods.push({ id: n.id, label: n.label, paths: mine.length ? mine : theirs, by: mine.length ? 'confirmed' : theirs.length ? 'written' : null, ...(n.sources[0] && { source: n.sources[0] }) });
+    }
+    const edges = owned.edges.filter((e) => e.layer === 'composition').map((e) => ({ from: e.from, to: e.to, ...(e.ends && { ends: e.ends }) }));
+    const root = p.folder;
+    // A planned path is the document's text: inside the project folder only, never followed.
+    const exists = (rel: string) => {
+      if (path.isAbsolute(rel) || rel.split('/').includes('..') || forbiddenFilePath(rel)) return false;
+      try {
+        fs.lstatSync(path.join(root, rel));
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    return designMap(mods, edges, scan, code, exists);
+  }
+
   /**
    * SPT C1-C2 (§6.8, §8): the 지도. The features from the trace index (no file read), the structure
    * and the links from the last code scan (a child process, run only when its key changed and
    * SPEC_MAP_MIN_MS passed). `feature`: that feature's requirements and chain; `block`: a cell's
    * detail; `in`: the cells entered ([한 단계 들어가기], `a>b`). Tracking off: an empty map, nothing
-   * scanned, read or run.
+   * scanned, read or run. `hidden`: documents whose requirements are left out (BRN K3's 민감).
    */
-  async map(p: SpecProject, q: { feature?: unknown; in?: unknown; block?: unknown }): Promise<SpecResult<TraceMap>> {
-    const { feature, block, in: into = '' } = q;
+  async map(p: SpecProject, q: { feature?: unknown; in?: unknown; block?: unknown; design?: unknown }, hidden: ReadonlySet<string> = new Set()): Promise<SpecResult<TraceMap>> {
+    const { feature, block, in: into = '', design } = q;
     const bad = (v: unknown) => v !== undefined && (typeof v !== 'string' || v.length > SPEC_PATH_MAX);
-    if (bad(feature) || bad(block) || typeof into !== 'string' || into.length > SPEC_PATH_MAX) return { ok: false, error: 'value' };
+    if (bad(feature) || bad(block) || typeof into !== 'string' || into.length > SPEC_PATH_MAX || (design !== undefined && design !== '1')) return { ok: false, error: 'value' };
     const chain = into ? into.split('>') : [];
     if (chain.length > SPEC_MAP_IN_DEPTH_MAX) return { ok: false, error: 'value' };
     if (this.load(p).corrupt) return { ok: false, error: 'corrupt' };
@@ -2149,10 +2231,12 @@ export class SpecService {
     const t = await this.traced(p);
     if (!t.ok) return t;
     const { reg, ix } = t.value;
-    const reqs = this.featureReqs(p, reg, ix);
+    // `hidden` (the agent tools' 민감 documents): their requirements make no feature, count or link.
+    const reqs = this.featureReqs(p, reg, ix).filter((r) => !hidden.has(r.path));
     const scan = await this.codeScan(p, reg);
     const since = this.now() - SPEC_MAP_RECENT_MS;
-    const links = scan ? reqLinks(scan, this.chainReqs(p, reg, ix, reqs), since, this.taskTitles(ix)) : null;
+    const kit = this.kitReads(p, reg);
+    const links = scan ? reqLinks(scan, this.chainReqs(p, reg, ix, reqs, kit), since, this.taskTitles(ix, kit)) : null;
     // 진행: the scan's own commit read (every branch's commits, not only first-parent; none without a scan).
     if (links) for (const r of reqs) r.progress = !!links.reqs.get(r.uid)?.recent;
     const { features, common } = featuresOf(reqs);
@@ -2163,7 +2247,10 @@ export class SpecService {
     const linked = (uids: readonly string[]) => (links ? linkedCount(links, uids, on) : 0);
     const value: TraceMap = {
       enabled: true,
-      features: features.map(({ uids, source: _s, ...f }) => ({ ...f, linked: linked(uids) })),
+      features: features.map(({ uids, source: _s, ...f }) => {
+        const k = f.rule === 'speckit' ? kit.get(f.short) : undefined;
+        return { ...f, ...(k?.spec?.title && { name: maskText(k.spec.title) }), linked: linked(uids), ...(k && { kit: kitCounts(k) }) };
+      }),
       common: common.map(({ uids: _u, ...c }) => c),
       reqTotal: reqs.length,
       changed: reqs.filter((r) => r.changed).length,
@@ -2180,15 +2267,18 @@ export class SpecService {
       if (!d) return { ok: false, error: 'item' };
       value.block = d;
     }
+    // BRN K8: the design and its drifts, against the top fold (`in` does not move them).
+    if (design === '1') Object.assign(value, await this.designOf(p, reg, scan, chain.length ? (scan ? (structureOwned(scan, [], this.archLabels(p))?.s ?? null) : null) : (owned?.s ?? null)));
     if (feature === undefined) return { ok: true, value };
     const f = features.find((x) => x.key === feature) ?? common.find((x) => x.key === feature);
     if (!f) return { ok: false, error: 'item' };
     const changed = new Set(reqs.filter((r) => r.changed).map((r) => r.uid));
     const named = features.find((x) => x.key === feature);
     const fc = links && scan ? featureChain(links, f.uids, scan.files, on, since) : null;
+    const reads = named?.rule === 'speckit' ? kit.get(named.short) : undefined;
     value.feature = {
       key: f.key,
-      name: named?.name ?? f.key,
+      name: (reads?.spec?.title && maskText(reads.spec.title)) || (named?.name ?? f.key),
       ...(named?.source && { source: named.source }),
       reqs: f.uids.slice(0, SPEC_MAP_FEATURE_REQS_MAX).map((u) => {
         const n = ix.nodes.get(u);
@@ -2206,6 +2296,7 @@ export class SpecService {
       tasks: fc?.tasks ?? [],
       tasksMore: fc?.tasksMore ?? 0,
       week: fc?.week ?? 0,
+      ...(reads && named && { kit: kitBlock(named.short, reads, scan ? codeIndex(scan.files) : null, this.hasConstitution(p)) }),
     };
     return { ok: true, value };
   }
@@ -2215,29 +2306,97 @@ export class SpecService {
    * row names (the SRS 출처 칸), the Task Board Tasks linked to it (confirmed, observed), the folders of
    * the components it is confirmed to realize.
    */
-  private chainReqs(p: SpecProject, reg: SpecRegistry, ix: TraceIndex, reqs: readonly FeatureReq[]): ChainReq[] {
+  private chainReqs(p: SpecProject, reg: SpecRegistry, ix: TraceIndex, reqs: readonly FeatureReq[], kit: ReadonlyMap<string, KitReads>): ChainReq[] {
     const titles = this.titles.get(p.projectId);
     const folders = new Map<string, string[]>();
     for (const c of this.linkComps(p, reg)) if (c.folder) (folders.get(c.uid) ?? folders.set(c.uid, []).get(c.uid)!).push(c.folder);
     return reqs.map((r) => {
       const edges = (ix.adj.get(r.uid) ?? []).map((i) => ix.edges[i]).filter((e) => e.from === r.uid);
       const board = edges.filter((e) => e.rel === 'implements' && (e.status === 'confirmed' || e.status === 'observed')).map((e) => e.to);
-      const row = (titles?.get(r.doc)?.byUid.get(r.uid)?.refs ?? []).filter((id) => /^T-\d{1,5}$/.test(id));
+      const row = (titles?.get(r.doc)?.byUid.get(r.uid)?.refs ?? []).filter((id) => TASK_SPEC_ID.test(id));
+      // K9: a Spec Kit story's tasks.md lines (`[USn]`) are its tasks, the paths they write its files.
+      const story = STORY_ID.exec(r.id);
+      const own = story ? storyTasks(story[1], kit.get(story[1])?.tasks, Number(story[2])) : null;
       return {
         uid: r.uid,
         id: r.id,
-        tasks: [...new Set([...row, ...board])],
+        tasks: [...new Set([...row, ...board, ...(own?.ids ?? [])])],
+        ...(own?.files.length && { written: own.files }),
         folders: edges.filter((e) => e.rel === 'realizes' && e.status === 'confirmed').flatMap((e) => folders.get(e.to) ?? []),
       };
     });
   }
 
   /** The Task Board Tasks' titles in the index (masked), by id. */
-  private taskTitles(ix: TraceIndex): Map<string, string> {
-    return new Map([...ix.nodes.values()].flatMap((n) => (n.type === 'task' && n.title ? [[n.id, n.title] as const] : [])));
+  private taskTitles(ix: TraceIndex, kit: ReadonlyMap<string, KitReads> = new Map()): Map<string, string> {
+    const task = [...ix.nodes.values()].flatMap((n) => (n.type === 'task' && n.title ? [[n.id, n.title] as const] : []));
+    // K9: a Spec Kit task is titled by its line (masked).
+    const spec = [...kit].flatMap(([dir, r]) => (r.tasks?.tasks ?? []).map((t) => [kitId(dir, t.id), maskText(t.text)] as const));
+    return new Map([...task, ...spec]);
+  }
+
+  /**
+   * K9: per Spec Kit feature folder, what its tracked spec.md, tasks.md, plan.md and research.md say
+   * (speckit.ts), read from disk now and parsed again only when a file's size or mtime changed. Only
+   * documents the owner tracks (and keeps text for) are read, like every other reading here.
+   */
+  private kitReads(p: SpecProject, reg: SpecRegistry): Map<string, KitReads> {
+    const out = new Map<string, KitReads>();
+    for (const d of Object.values(reg.docs)) {
+      const k = kitOf(d.path);
+      if (!k || !d.tracked || d.state === 'retired' || d.mode === 'off' || d.mode === 'refs' || !textOk(d)) continue;
+      const r = out.get(k.dir) ?? out.set(k.dir, {}).get(k.dir)!;
+      if (k.file === 'data-model.md') r.dataModel = true;
+      const parse = KIT_PARSERS[k.file];
+      if (!parse) continue;
+      const got = this.kitParsed(p, d.path, parse);
+      if (got !== null) (r as Record<string, unknown>)[KIT_FIELDS[k.file]] = got;
+    }
+    return out;
+  }
+
+  private kitParsed(p: SpecProject, rel: string, parse: (text: string) => unknown): unknown {
+    try {
+      const abs = path.join(p.folder, rel);
+      const st = fs.lstatSync(abs);
+      if (!st.isFile() || st.size > SPEC_FILE_MAX_BYTES) return null;
+      const key = `${st.size}:${st.mtimeMs}`;
+      const hit = this.kitCache.get(`${p.projectId}|${rel}`);
+      if (hit?.key === key) return hit.value;
+      const value = parse(fs.readFileSync(abs, 'utf-8'));
+      this.kitCache.set(`${p.projectId}|${rel}`, { key, value });
+      return value;
+    } catch {
+      return null;
+    }
+  }
+  /** ponytail: one parsed entry per Spec Kit file ever read, never evicted (a few kB each); bound it if projects with thousands of features appear. */
+  private readonly kitCache = new Map<string, { key: string; value: unknown }>();
+
+  /** `.specify/memory/constitution.md` exists: its principles are prose, which is not read. */
+  private hasConstitution(p: SpecProject): boolean {
+    try {
+      return fs.lstatSync(path.join(p.folder, SPEC_KIT_CONSTITUTION)).isFile();
+    } catch {
+      return false;
+    }
   }
 
   /** The requirement documents' live items with what the feature rows light up by: 막힘, 원문 바뀜 (SPT §6.8); 진행 is the code scan's (map()). */
+  /** RQ2: each requirement's feature; a display ID repeated in another document falls in its first copy's feature. */
+  private featureOf(p: SpecProject, reg: SpecRegistry, ix: TraceIndex): (uid: string, id?: string) => ItemRow['feature'] {
+    const { features, common } = featuresOf(this.featureReqs(p, reg, ix));
+    const byUid = new Map<string, NonNullable<ItemRow['feature']>>();
+    for (const f of features) for (const u of f.uids) byUid.set(u, { key: f.key, name: f.name, rule: f.rule, ...(f.changing && { changing: true as const }) });
+    for (const c of common) for (const u of c.uids) byUid.set(u, { key: c.key, name: c.key, rule: 'common' });
+    const byId = new Map<string, NonNullable<ItemRow['feature']>>();
+    for (const [u, f] of byUid) {
+      const id = currentId(reg.items[u]);
+      if (id && !byId.has(id)) byId.set(id, f);
+    }
+    return (uid, id) => byUid.get(uid) ?? (id ? byId.get(id) : undefined);
+  }
+
   private featureReqs(p: SpecProject, reg: SpecRegistry, ix: TraceIndex): FeatureReq[] {
     const since = this.now() - SPEC_MAP_RECENT_MS;
     const titles = this.titles.get(p.projectId);
@@ -2344,6 +2503,11 @@ export class SpecService {
     // ponytail: reads and masks the whole document (≤ SPEC_FILE_MAX_BYTES, 2 MB) and the item's whole section per detail GET before keeping 4 KB; cut the section first if a detail read ever shows in a profile.
     const block = now ? maskText(itemSource(now.text, r.locator.line, r.kind)) : null;
     const criteria = block === null ? [] : criteriaOf(block, r.kind).slice(0, SPEC_CRITERIA_MAX).map(shown);
+    const verify = block === null ? [] : verifyOf(block, r.kind).slice(0, SPEC_CRITERIA_MAX).map(shown);
+    // RQ5: what the document's own shape adds: an OpenSpec delta's change, a decision's status.
+    const doc = t.value.reg.docs[r.doc];
+    const changing = now && shapeOf(doc.path)?.tool === 'openspec' ? openspecOps(now.text).get(r.locator.line) : undefined;
+    const decision = now && doc.kind === 'decision' ? adrStatus(now.text) : undefined;
     const records = this.acceptOf(p).file.records.filter((a) => a.uid === uid).reverse();
     return {
       ok: true,
@@ -2351,6 +2515,9 @@ export class SpecService {
         ...d,
         ...(now && block !== null && { text: questionText(block), version: versionOf(r.textHash, itemSource(now.text, r.locator.line, r.kind)) }),
         ...(criteria.length && { criteria }),
+        ...(verify.length && { verify }),
+        ...(changing && { changing }),
+        ...(decision && { decision }),
         ...(records.length && {
           acceptance: records.map((a) => ({
             state: a.state,
@@ -2370,6 +2537,58 @@ export class SpecService {
     const t = await this.traced(p);
     if (!t.ok) return t.error === 'off' ? { ok: true, value: { enabled: false, edges: [], nodes: [] } } : t;
     return { ok: true, value: { enabled: true, ...taskRequirements(t.value.ix, taskId) } };
+  }
+
+  // ── BRN K3: what the agent tools read besides the routes' reads ──
+
+  /** The agent tools' answer head: the trace rev and HEAD as the 개요 has them (git read at most every SPEC_SCAN_MIN_MS). */
+  async agentHead(p: SpecProject): Promise<{ rev: number; head: string | null }> {
+    return { rev: this.revOf(p), head: (await this.gitSummary(p)).head };
+  }
+
+  /** The documents the owner marked 민감 (their paths) and the items they define (UIDs): the agent tools leave them out of every answer. */
+  sensitive(p: SpecProject): { paths: Set<string>; uids: Set<string> } {
+    const reg = this.load(p).registry;
+    const docs = Object.entries(reg?.docs ?? {}).filter(([, d]) => d.sensitive);
+    const ids = new Set(docs.map(([uid]) => uid));
+    return {
+      paths: new Set(docs.map(([, d]) => d.path)),
+      uids: new Set(Object.entries(reg?.items ?? {}).flatMap(([uid, r]) => (ids.has(r.doc) ? [uid] : []))),
+    };
+  }
+
+  /**
+   * get_task_context's code: the files one Task's requirements reach by the 지도's paths on (the C2
+   * chain, from the last code scan, the same child process as the 지도) and the top cells holding
+   * them, most files first. `null`: no code scan (none wired, or it failed).
+   */
+  async taskCode(p: SpecProject, taskId: string, hidden: ReadonlySet<string> = new Set()): Promise<SpecResult<{ files: string[]; filesTotal: number; modules: Array<{ id: string; name: string; files: number }> } | null>> {
+    const t = await this.traced(p);
+    if (!t.ok) return t;
+    const { reg, ix } = t.value;
+    // A requirement of a document in `hidden` (the agent tools' 민감) reaches no file.
+    const uids = new Set(taskRequirements(ix, taskId).nodes.filter((n) => !hidden.has(n.source?.path ?? '')).map((n) => n.id));
+    const scan = await this.codeScan(p, reg);
+    if (!scan) return { ok: true, value: null };
+    const reqs = this.featureReqs(p, reg, ix).filter((r) => uids.has(r.uid));
+    const kit = this.kitReads(p, reg);
+    const links = reqLinks(scan, this.chainReqs(p, reg, ix, reqs, kit), this.now() - SPEC_MAP_RECENT_MS, this.taskTitles(ix, kit));
+    if (!links) return { ok: true, value: null };
+    const on = new Set(SPEC_MAP_PATHS_ON as TraceMap['pathsOn']);
+    const hit = new Set<number>();
+    for (const u of uids) for (const i of filesOn(links.reqs.get(u), on)) hit.add(i);
+    const owned = structureOwned(scan, [], this.archLabels(p));
+    const per = new Map<number, number>();
+    if (owned) for (const i of hit) if (owned.owner[i] >= 0) per.set(owned.owner[i], (per.get(owned.owner[i]) ?? 0) + 1);
+    const files = [...hit].map((i) => scan.files[i]).sort();
+    return {
+      ok: true,
+      value: {
+        files,
+        filesTotal: files.length,
+        modules: [...per].sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ id: owned!.s.blocks[k].id, name: owned!.s.blocks[k].name, files: n })),
+      },
+    };
   }
 
   /** [연결 추가]'s pickers: this project's Tasks, HEAD's last commits, this project's last jobs; `q` matches the id or the title. */
@@ -2523,6 +2742,33 @@ export class SpecService {
     });
   }
 
+  /**
+   * RQ3 (RQW §2.5): 이 요구사항으로 이슈 만들기. The issue goes on the Task Board (its own add), then
+   * one confirmed `implements` link. A link write that fails leaves the issue as it is: its title
+   * names the display ID, so the trace reads it as 글에 적힘 (`linked: false` says so).
+   */
+  async createIssue(p: SpecProject, uid: string, b: { title?: unknown; note?: unknown; owner?: unknown }, device: string): Promise<SpecResult<{ task: string; linked: boolean }>> {
+    if (!ITEM_UID_RE.test(uid)) return { ok: false, error: 'item' };
+    if (this.load(p).corrupt) return { ok: false, error: 'corrupt' };
+    const reg = this.enabled(p);
+    if (!reg) return { ok: false, error: 'off' };
+    const r = reg.items[uid];
+    if (!r || r.state === 'retired' || !live(reg.docs[r.doc])) return { ok: false, error: 'item' };
+    const str = (v: unknown, max: number) => (v === undefined ? '' : typeof v === 'string' && v.length <= max ? v.trim() : null);
+    const title = str(b.title, SPEC_ITEM_TITLE_MAX);
+    const note = str(b.note, SPEC_LINK_NOTE_MAX);
+    const owner = str(b.owner, SPEC_TITLE_MAX);
+    if (!title || note === null || owner === null || !this.deps.addTask) return { ok: false, error: 'value' };
+    const made = this.deps.addTask({ project: p.name, title, ...(note && { note }), ...(owner && { owner }) }, device);
+    if (!made.ok) return { ok: false, error: 'value' };
+    this.traces.delete(p.projectId); // the new issue is read on the next trace, linked or not
+    const link = await this.addLink(p, { from: uid, to: made.id, rel: 'implements' }, device).catch((err: unknown) => {
+      console.warn(`[Agent Tycoon] spec link to ${made.id} of ${p.name} not saved: ${err instanceof Error ? err.message : String(err)}`);
+      return { ok: false } as const;
+    });
+    return { ok: true, value: { task: made.id, linked: link.ok } };
+  }
+
   /** 확인 / 모두 확인: each observed or suggested key becomes confirmed (all or none). */
   confirmLinks(p: SpecProject, b: { edges?: unknown }, device: string): Promise<SpecResult<SpecLink[]>> {
     return this.linkWrite(p, async (reg, file, at) => {
@@ -2641,7 +2887,7 @@ export class SpecService {
     const d = reg.docs[r.doc];
     const now = this.docNow(p, reg, uid);
     if (!now) return null;
-    const opts = { kind: d.kind, mode: d.mode, depth: d.depth ?? SPEC_HEADING_DEPTH, shortIds: reg.shortIds, idPatterns: reg.idPatterns };
+    const opts = { kind: d.kind, mode: d.mode, depth: d.depth ?? SPEC_HEADING_DEPTH, shortIds: reg.shortIds, idPatterns: reg.idPatterns, ...kitOpt(d.path), ...shapeOpt(d.path) };
     const hit = extract(now.text, path.posix.basename(d.path), opts).find((x) => x.line === r.locator.line && x.shape === r.kind);
     return { raw: itemSource(now.text, r.locator.line, r.kind), textHash: hit?.textHash ?? null, mtimeMs: now.mtimeMs };
   }

@@ -280,7 +280,7 @@ export function IntroBubble({
         ref={bubbleRef}
         role="dialog"
         aria-label={titles[stepId]}
-        className="pixel-panel relative py-10 px-14 leading-[1.4]"
+        className="pixel-panel relative py-10 px-14 leading-[calc(1.4*var(--ui-lh))]"
         style={{ maxWidth }}
       >
         {/* Same close control as the Settings/changelog modals (ui/Modal.tsx):

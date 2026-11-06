@@ -1,10 +1,10 @@
 /**
  * USAGE-FABLE + USAGE-GENERIC check: each provider shows exactly the windows it reported. Claude
  * (an Ultra plan: 7-day only) reads `Claude 7d 16% · F 7d 18%` (the per-model weekly window from
- * the account usage endpoint's limits[]), with no 5h slot and no "not reported"; Codex reads `5h 35% · 7d 6%`.
+ * Claude Code's own /usage report), with no 5h slot and no "not reported"; Codex reads `5h 35% · 7d 6%`.
  * Folded and open, desktop 1280 and phone 393; the tooltip names Fable.
  *
- * dist/cli.js in a temp HOME with a fake OAuth token and a loopback stand-in for the usage endpoint
+ * dist/cli.js in a temp HOME with a status-line report and the engine's fake claude answering /usage
  * (testHome's fakeUsage), spare port, headless Chromium (--disable-gpu).
  * Screenshots: cld/artifacts/usage-generic/.
  *
@@ -109,52 +109,34 @@ async function main() {
     const loginUrl = await daemon.loginUrl();
     const desk = await open({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     await ready(desk, loginUrl);
-    const folded = desk.getByTestId('usage-folded');
-    const label = desk.getByLabel('사용량');
-    // Either state may be the default here; reach both.
-    const state = async (want: 'folded' | 'open') => {
-      for (let i = 0; i < 40; i++) {
-        const isFolded = (await folded.count()) > 0;
-        const isOpen = (await label.count()) > 0;
-        if (want === 'folded' ? isFolded : isOpen) return;
-        if (want === 'open' && isFolded) await folded.click();
-        if (want === 'folded' && isOpen)
-          await desk.getByRole('button', { name: '사용량 접기' }).click();
-        await desk.waitForTimeout(500);
-      }
-      throw new Error(`usage never ${want}`);
-    };
-    await state('folded');
+    // hud-v3: the PC has no usage strip; the corner 메뉴 opens on the usage detail (every provider's windows).
+    await desk.getByTestId('hud-menu').click();
+    const detail = desk.getByTestId('hud-menu-list').getByTestId('usage-detail');
+    await detail.waitFor({ timeout: 30_000 });
     await desk.waitForFunction(
-      () => document.querySelector('[data-testid="usage-folded"]')?.textContent?.includes('F 7d'),
+      () => document.querySelector('[data-testid="usage-detail"]')?.textContent?.includes('F 7d'),
       undefined,
       { timeout: 30_000 },
     );
-    const text = (await folded.innerText()).replace(/\s+/g, ' ');
-    check(/Claude 7d 16% · F 7d 18%/.test(text), `desktop folded: "${text}"`);
-    check(
-      !/Claude 5h/.test(text) && !text.includes('알려 주지'),
-      'desktop folded: no 5h slot for Claude',
-    );
-    check(/Codex 5h 35% · 7d 6%/.test(text), 'desktop folded: Codex shows both windows');
-    check(!/Codex[^C]*F 7d/.test(text), 'desktop folded: Codex has no model window');
-    await shot(desk, 'desktop-folded');
-    await state('open');
-    const fable = desk.locator('[aria-label="사용량"] span[title*="Fable"]');
-    check((await fable.count()) === 1, 'desktop open: one Fable window');
+    const rows = detail.locator('[aria-label="사용량"] > div');
+    const claude = (await rows.filter({ hasText: 'Claude' }).innerText()).replace(/\s+/g, ' ');
+    const codex = (await rows.filter({ hasText: 'Codex' }).innerText()).replace(/\s+/g, ' ');
+    check(/Claude 7d 16%.*F 7d 18%/.test(claude), `desktop menu: "${claude}"`);
+    check(!/5h/.test(claude) && !claude.includes('알려 주지'), 'desktop menu: no 5h slot for Claude');
+    check(/Codex 5h 35%.*7d 6%/.test(codex), 'desktop menu: Codex shows both windows');
+    check(!/F 7d/.test(codex), 'desktop menu: Codex has no model window');
+    await shot(desk, 'desktop-menu');
+    const fable = detail.locator('span[title*="Fable"]');
+    check((await fable.count()) === 1, 'desktop menu: one Fable window');
     const t = (await fable.innerText()).replace(/\s+/g, ' ');
-    check(t.startsWith('F 7d 18%'), `desktop open: "${t}"`);
+    check(t.startsWith('F 7d 18%'), `desktop menu: "${t}"`);
     const title = await fable.getAttribute('title');
-    check(title?.startsWith('Fable 주간 · '), `desktop open: tooltip "${title}"`);
-    const cls = await desk
-      .locator('[aria-label="사용량"] span', { hasText: /^7d 16%/ })
-      .first()
-      .getAttribute('class');
+    check(title?.startsWith('Fable 주간 · '), `desktop menu: tooltip "${title}"`);
+    const cls = await detail.locator('span', { hasText: /^7d 16%/ }).first().getAttribute('class');
     check(
       cls === (await fable.getAttribute('class')),
-      'desktop open: same style as the other windows',
+      'desktop menu: same style as the other windows',
     );
-    await shot(desk, 'desktop-open');
 
     const phone = await open(IPHONE);
     await ready(phone, await daemon.loginUrl());

@@ -4,8 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type { OfficeJob } from '../../../../core/src/messages.js';
 import { setLanguage } from '../../i18n/index.js';
-import { ko } from '../../i18n/ko.js';
-import { contextLeft, contextTone, gaugeTone, gaugeWindows, heatLook, isDaytime, litCells, partyState, runFill, shortReset, stopCells, usageLeft, windowLeft } from './gameState.js';
+import { contextLeft, contextTone, gaugeTone, gaugeWindows, heatLook, isDaytime, litCells, partyState, runFill, stopCells, usageLeft, windowLeft } from './gameState.js';
 
 beforeAll(() => setLanguage('ko'));
 
@@ -63,14 +62,6 @@ describe('HUD', () => {
     expect(windowLeft({ pct: 40, isReset: true })).toBeNull();
     expect(windowLeft({ pct: 61 })).toBe(39);
     expect([gaugeTone(0), gaugeTone(6), gaugeTone(11), gaugeTone(null)]).toEqual(['zero', 'warn', undefined, undefined]);
-  });
-  it('the reset, short', () => {
-    const now = Date.parse('2026-11-03T22:41:00Z');
-    const at = (min: number) => new Date(now + min * 60_000).toISOString();
-    expect(shortReset(at(108), now, false)).toBe('1:48');
-    expect(shortReset(at(3 * 1440 + 60), now, true)).toBe(ko['game.hud.days'].replace('{count}', '3'));
-    expect(shortReset(at(19 * 60 + 5), now, true)).toBe(ko['game.hud.hours'].replace('{count}', '19'));
-    expect(shortReset(null, now, true)).toBeNull();
   });
   it('heat: 85 warm, 95 danger (format.tempTone), at least one cell', () => {
     expect(heatLook(62)).toEqual({ lit: 5, tone: undefined, word: null });

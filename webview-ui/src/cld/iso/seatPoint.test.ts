@@ -79,4 +79,11 @@ describe('isometric seat points', () => {
 
     expect(isoSeatPoint(character(1, 2, Direction.DOWN), seat, [item], catalog)).toBeNull();
   });
+
+  it('draws no one at a seat they are not on (resting on a sofa, its desk still its seatId)', () => {
+    const item = { uid: 'chair', type: 'CUSHIONED_CHAIR_FRONT', col: 4, row: 7 };
+    const seat: Seat = { uid: 'seat', seatCol: 4, seatRow: 7, facingDir: Direction.DOWN, assigned: true };
+
+    expect(isoSeatPoint(character(12, 3, Direction.DOWN), seat, [item], catalog)).toBeNull();
+  });
 });

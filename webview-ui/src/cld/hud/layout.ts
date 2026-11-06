@@ -9,7 +9,7 @@
  * edge, and anything that would leave the screen is pulled back inside.
  */
 
-import { TERMINAL_SIDEBAR_WIDTH_PX } from '../../constants.js';
+import { HUD_DOCK_RESERVE_PX, TERMINAL_SIDEBAR_WIDTH_PX } from '../../constants.js';
 
 export type Corner = 'tl' | 'tr' | 'bl' | 'br';
 export interface Size {
@@ -44,12 +44,10 @@ export interface Entry {
 export interface Layout {
   v: 1;
   items: Record<string, Entry>;
-  /** The preset these places came from (U-29): a saved layout without one is an old free placement and is ignored. */
-  preset?: Preset;
 }
 
 /**
- * U-29: the default UI stays fixed except the layout presets. Free dragging, resizing and the
+ * U-29: the default UI stays fixed. Free dragging, resizing and the
  * size menu of icons and widgets are off for the MVP (post-MVP); the code stays, unreachable
  * from the UI, behind this one switch. The windows are the exception (U-38, below).
  */
@@ -97,7 +95,7 @@ export function migrateSavedWindowIds(value: unknown): unknown {
 export const DRAG_THRESHOLD_PX = 6;
 /** A window never gets smaller than this (when the viewport has room). */
 export const WINDOW_MIN: Size = { w: 280, h: 180 };
-/** Gap between a window or the icon column and the viewport edge. */
+/** Gap between a window and the viewport edge. */
 export const EDGE_GAP_PX = 8;
 /** A default window keeps these gaps to the top and bottom edges (a tall list wants every pixel). */
 const BOTTOM_GAP_PX = 4;
@@ -162,17 +160,16 @@ export function clampRect(rect: Rect, bounds: Size, min?: Size): Rect {
 
 /**
  * A stored place made safe for the current viewport: same corner, offsets and size pulled inside.
- * `room` (default `bounds`) is the part of the bounds the rect may fill; offsets stay measured
- * against `bounds`.
+ * `fit` is the rule that pulls it in (default `clampRect`: wholly inside; a window passes `clampWindowRect`).
  */
 export function clampPlace(
   place: Place,
   size: Size,
   bounds: Size,
   min?: Size,
-  room: Size = bounds,
+  fit: (rect: Rect, bounds: Size, min?: Size) => Rect = clampRect,
 ): Place {
-  const rect = clampRect(rectFromPlace(place, size, bounds), room, min);
+  const rect = fit(rectFromPlace(place, size, bounds), bounds, min);
   const out: Place = {
     corner: place.corner, // a rotation must not flip a thing to the other side
     dx: Math.round(place.corner[1] === 'r' ? bounds.w - rect.x - rect.w : rect.x),
@@ -200,9 +197,9 @@ export function cssAnchor(place: Place): {
   };
 }
 
-/** `rect` moved by (dx, dy), kept on screen. */
-export const moveRect = (rect: Rect, dx: number, dy: number, bounds: Size): Rect =>
-  clampRect({ ...rect, x: rect.x + dx, y: rect.y + dy }, bounds);
+/** `rect` moved by (dx, dy), kept on screen by `fit` (default: wholly inside). */
+export const moveRect = (rect: Rect, dx: number, dy: number, bounds: Size, fit = clampRect): Rect =>
+  fit({ ...rect, x: rect.x + dx, y: rect.y + dy }, bounds);
 
 /** Which sides a resize handle drags: 'e' the right edge, 'se' the bottom-right corner, … */
 export type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -265,11 +262,16 @@ const snapEdge = (v: number, targets: number[]) =>
  * `rect` (already moved) snapped: an edge within SNAP_EDGE_PX of the room's or of
  * `others`' edges sticks to it, else the top-left lands on the grid. Kept on screen.
  */
-export function snapMoveRect(rect: Rect, bounds: Size, others: readonly Rect[] = []): Rect {
+export function snapMoveRect(
+  rect: Rect,
+  bounds: Size,
+  others: readonly Rect[] = [],
+  fit = clampRect,
+): Rect {
   const [xt, yt] = edgeTargets(bounds, others);
   const dx = edgeShift([rect.x, rect.x + rect.w], xt) ?? snapToGrid(rect.x) - rect.x;
   const dy = edgeShift([rect.y, rect.y + rect.h], yt) ?? snapToGrid(rect.y) - rect.y;
-  return clampRect({ ...rect, x: rect.x + dx, y: rect.y + dy }, bounds);
+  return fit({ ...rect, x: rect.x + dx, y: rect.y + dy }, bounds);
 }
 
 /**
@@ -305,9 +307,6 @@ export type WindowId =
   | 'terminal'
   | 'looks'
   | 'devroom';
-/** Icon column: one icon (40 px at 보통) plus its gap, so a window opens beside it. */
-export const ICON_COLUMN_PX = 56;
-
 const DEFAULT_WIDTH: Record<WindowId, number> = {
   office: 360,
   messenger: 680,
@@ -330,7 +329,7 @@ const CASCADE_ORDER: readonly WindowId[] = [
   'devroom',
 ];
 
-/** Where a window opens before the user moved it: tall, against the right edge beside the icon column. */
+/** Where a window opens before the user moved it: tall, against the right edge beside the party. `bounds` is the window room (windowRoom). */
 export function defaultWindowPlace(id: WindowId, bounds: Size, wide = false): Place {
   const want = id === 'office' && wide ? WIDE_OFFICE_WIDTH : DEFAULT_WIDTH[id];
   const w = Math.min(want, Math.round(bounds.w * (wide || id === 'terminal' || id === 'devroom' ? 0.85 : 0.7)));
@@ -338,7 +337,7 @@ export function defaultWindowPlace(id: WindowId, bounds: Size, wide = false): Pl
   const dy = TOP_GAP_PX + step;
   return {
     corner: 'tr',
-    dx: RAIL_PX + ICON_COLUMN_PX + EDGE_GAP_PX + step,
+    dx: RAIL_PX + EDGE_GAP_PX + step,
     dy,
     w,
     h: Math.max(0, bounds.h - dy - BOTTOM_GAP_PX),
@@ -355,6 +354,23 @@ export function defaultWindowPlace(id: WindowId, bounds: Size, wide = false): Pl
 export const TITLE_BAR_PX = 40;
 /** At least this much of a title bar's width stays free of the fixed panels (so it can be grabbed). */
 export const TITLE_GRAB_PX = 48;
+
+/**
+ * A window the user moves or the screen shrinks around: its size fits the screen, its left and right stay
+ * on screen, and it may sink to the screen's bottom edge, even past it: only its title bar must stay fully
+ * on screen so it can always be dragged back. `titleH` is the bar's real height (the 모던 style's is taller
+ * than TITLE_BAR_PX, which stays the fallback and the panel-overlap test's height). The dock's band is NOT reserved here
+ * (windowRoom is for the default place and maximize only).
+ */
+export function clampWindowRect(rect: Rect, bounds: Size, min?: Size, titleH = TITLE_BAR_PX): Rect {
+  const { w, h } = clampSize(rect, bounds, min);
+  return {
+    x: clamp(rect.x, 0, bounds.w - w),
+    y: clamp(rect.y, 0, bounds.h - Math.min(titleH, h)),
+    w,
+    h,
+  };
+}
 
 /** The widest stretch of `rect`'s title bar that no panel covers (px). */
 function freeTitleWidth(rect: Rect, panels: readonly Rect[]): number {
@@ -394,8 +410,10 @@ export function keepTitleGrabbable(rect: Rect, panels: readonly Rect[], room: Si
 
 // ── Maximize (T-0111) ─────────────────────────────────────────
 
-/** The strip along the bottom edge: windows live above it, the 아래 가로 icon row sits in it. */
-export const ICON_ROW_PX = 48;
+/** hud-v3 P0: the room a window OPENS in (defaultWindowPlace), the HUD layer less the floating dock's band at the
+ *  bottom, so the dock never covers a new window's composer or buttons. A window the user drags or resizes may use the
+ *  whole layer (clampWindowRect); a maximized one takes it too (maximizedPlace). */
+export const windowRoom = (bounds: Size): Size => ({ w: bounds.w, h: Math.max(0, bounds.h - HUD_DOCK_RESERVE_PX) });
 
 /** Where a maximized window sits: the whole room, right under the top bar, in front of the panels. */
 export const maximizedPlace = (bounds: Size): Place => ({
@@ -405,101 +423,6 @@ export const maximizedPlace = (bounds: Size): Place => ({
   w: bounds.w,
   h: bounds.h,
 });
-
-// ── Presets (T-0111) ──────────────────────────────────────────
-
-export type Preset = 'right' | 'bottom' | 'work';
-export const PRESETS: readonly { id: Preset }[] = [
-  { id: 'right' },
-  { id: 'bottom' },
-  { id: 'work' },
-];
-
-/** A square icon button at 보통, and the gap between two. */
-export const ICON_PX = 40;
-const ICON_GAP_PX = 8;
-
-export interface PresetResult {
-  layout: Layout;
-  /** Windows the preset opens or closes; the others stay as they are. */
-  open: Partial<Record<WindowId, boolean>>;
-}
-
-/**
- * The layout `preset` says: every icon and window put where it says, nothing else placed. `bounds` is the HUD layer, `icons` the ids of the icons that exist, in order.
- */
-export function applyPreset(
-  _layout: Layout,
-  preset: Preset,
-  bounds: Size,
-  icons: readonly string[],
-): PresetResult {
-  // U-29: only the preset's own places remain; an old free placement of any widget goes.
-  const items: Record<string, Entry> = {};
-  const open: PresetResult['open'] = {};
-  if (preset === 'bottom') {
-    const row = icons.length * ICON_PX + Math.max(0, icons.length - 1) * ICON_GAP_PX;
-    const x0 = snapToGrid((bounds.w - row) / 2);
-    icons.forEach((id, i) => {
-      items[`icon:${id}`] = {
-        place: {
-          corner: 'bl',
-          dx: x0 + i * (ICON_PX + ICON_GAP_PX),
-          dy: (ICON_ROW_PX - ICON_PX) / 2,
-        },
-      };
-    });
-  } else if (preset === 'work') {
-    const room = Math.max(0, bounds.w - RAIL_PX - ICON_COLUMN_PX - EDGE_GAP_PX);
-    const h = Math.max(0, bounds.h - ICON_ROW_PX - 2 * EDGE_GAP_PX);
-    items.messenger = {
-      place: {
-        corner: 'tl',
-        dx: EDGE_GAP_PX,
-        dy: EDGE_GAP_PX,
-        w: snapToGrid(room / 3) - EDGE_GAP_PX,
-        h,
-      },
-    };
-    items.terminal = {
-      place: {
-        corner: 'tr',
-        dx: RAIL_PX + ICON_COLUMN_PX + EDGE_GAP_PX,
-        dy: EDGE_GAP_PX,
-        w: snapToGrid(room / 2),
-        h,
-      },
-    };
-    open.office = false;
-    if (icons.includes('messenger')) open.messenger = true;
-    if (icons.includes('terminal')) open.terminal = true;
-  }
-  return { layout: { v: 1, items, preset }, open };
-}
-
-/** Icons added after layouts were saved (owner 10-24: 파일). */
-export const NEW_ICONS: readonly string[] = ['files', 'devroom'];
-
-/**
- * A saved 아래 가로 row predates `ids`: each missing one takes the next slot after the
- * row's last icon. Elsewhere (오른쪽 세로, no preset) an unplaced icon already flows in
- * the column, its default place, so nothing changes.
- */
-export function withNewIcons(layout: Layout, ids: readonly string[] = NEW_ICONS): Layout {
-  if (layout.preset !== 'bottom') return layout;
-  const row = Object.entries(layout.items)
-    .filter(([id, e]) => id.startsWith('icon:') && e.place?.corner === 'bl')
-    .map(([, e]) => e.place!);
-  if (!row.length) return layout;
-  let dx = Math.max(...row.map((p) => p.dx));
-  const items = { ...layout.items };
-  for (const id of ids) {
-    if (items[`icon:${id}`]) continue;
-    dx += ICON_PX + ICON_GAP_PX;
-    items[`icon:${id}`] = { place: { corner: 'bl', dx, dy: row[0].dy } };
-  }
-  return { ...layout, items };
-}
 
 // ── Persistence ───────────────────────────────────────────────
 
@@ -540,8 +463,6 @@ export function parseLayout(raw: string | null | undefined): Layout {
     if (v !== 1 || typeof items !== 'object' || items === null || Array.isArray(items))
       return emptyLayout();
     const out = emptyLayout();
-    const preset = (data as { preset?: unknown }).preset;
-    if (PRESETS.some((p) => p.id === preset)) out.preset = preset as Preset;
     for (const [savedId, value] of Object.entries(items).slice(0, MAX_ENTRIES)) {
       // UI-DASH: the 작업실 window became the 현황판's 개발 tab; its saved place opens the 현황판.
       const id = savedId === LEGACY_OFFICE_ID || savedId === 'workbench' ? 'office' : savedId;
@@ -566,25 +487,23 @@ export function withEntry(layout: Layout, id: string, change: Partial<Entry>): L
   if (!next.max) delete next.max;
   if (next.place || next.scale !== undefined || next.max) items[id] = next;
   else delete items[id];
-  return { v: 1, items, ...(layout.preset && { preset: layout.preset }) };
+  return { v: 1, items };
 }
 
 /**
- * What a stored layout may place on screen (U-29, U-38): a free window keeps its place and
- * maximize flag; everything else only as a preset's result, never a free placement. Without
- * a preset a non-window keeps nothing (a maximize flag is no placement, but it survives).
+ * What a stored layout may place on screen (U-29, U-38): a free window keeps its place and maximize flag;
+ * everything else keeps nothing (a maximize flag is no placement, but it survives). A `preset` an older
+ * version saved is dropped with the rest.
  */
-export function presetLayoutOnly(layout: Layout): Layout {
+export function keepWindowPlaces(layout: Layout): Layout {
   const out = emptyLayout();
-  if (layout.preset) out.preset = layout.preset;
   for (const [id, entry] of Object.entries(layout.items)) {
     if (windowIsFree(id)) {
       const kept: Entry = {};
       if (entry.place) kept.place = entry.place;
       if (entry.max) kept.max = true;
       if (kept.place || kept.max) out.items[id] = kept;
-    } else if (layout.preset) out.items[id] = entry;
-    else if (entry.max) out.items[id] = { max: true };
+    } else if (entry.max) out.items[id] = { max: true };
   }
   return out;
 }

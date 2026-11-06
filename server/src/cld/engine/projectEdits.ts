@@ -249,8 +249,14 @@ export class ProjectEdits {
   /** D5: why `req` does not fit a 'run' provider's agent (Claude-only options, Codex's effort
    *  words), or null. */
   private providerFields(agent: AgentProvider, req: EngineAction): string | null {
+    const set = (k: keyof EngineAction) => req[k] !== undefined && req[k] !== '' && req[k] !== false && req[k] !== 0;
+    // ACP-1: an ACP agent takes no Claude option and no model or effort (it keeps its own settings).
+    if (agent.protocol === 'acp') {
+      const not = [...CLAUDE_ONLY, 'model', 'effort'].filter((k) => set(k as keyof EngineAction));
+      return not.length ? koText('acp_no_setting', { names: not.join(', ') }) : null;
+    }
     if (agent.capabilities.lifetime !== 'run') return null;
-    const claudeOnly = CLAUDE_ONLY.filter((k) => req[k] !== undefined && req[k] !== '' && req[k] !== false && req[k] !== 0);
+    const claudeOnly = CLAUDE_ONLY.filter(set);
     if (claudeOnly.length) return koText('codex_no_setting', { names: claudeOnly.join(', ') });
     if (req.effort?.trim() && !isCodexEffort(req.effort.trim()))
       return koText('codex_effort', { values: CODEX_EFFORTS.join(' ') });

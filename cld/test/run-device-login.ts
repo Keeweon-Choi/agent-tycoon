@@ -389,7 +389,7 @@ async function main() {
     await a.waitForURL(`${local}/`);
     await inApp(a);
     check(true, 'device A logged in with a code');
-    const cookie = (await aCtx.cookies()).find((c) => c.name === 'cld_session')?.value ?? '';
+    const cookie = (await aCtx.cookies()).find((c) => c.name.startsWith('cld_session'))?.value ?? '';
     check(cookie.length === 43, 'A holds a session cookie');
     const file = path.join(configDir, 'sessions.json');
     const text = fs.readFileSync(file, 'utf-8');

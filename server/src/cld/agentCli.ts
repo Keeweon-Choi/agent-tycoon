@@ -10,6 +10,7 @@ import * as path from 'path';
 
 // The 10 s version-probe timeout lives in server/src/constants.ts (constants policy).
 import { AGENT_CLI_VERSION_TIMEOUT_MS, WINDOWS_LOGON_ENV_CACHE_MS } from '../constants.js';
+import { findOnPath } from './providers/claudeProvider.js';
 
 /** Where `claude` lives when the installer's PATH change did not reach this process. */
 export const claudeInstallDirs = (
@@ -28,6 +29,15 @@ export const claudeInstallDirs = (
       : [p.join(home, '.npm-global', 'bin'), '/usr/local/bin', '/opt/homebrew/bin']),
   ];
 };
+
+/** RQ4: `uvx` (uv), found the way `claude` is: the daemon's PATH, then the folders installers use
+ *  (uv's own installer puts it in ~/.local/bin, older ones in ~/.cargo/bin). Windows: uvx.exe only,
+ *  never a .cmd (that would need a shell). */
+export function findUvx(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string): string | null {
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const dirs = [env.PATH ?? '', ...claudeInstallDirs(platform, home, env), p.join(home, '.cargo', 'bin')];
+  return findOnPath('uvx', dirs.join(p.delimiter), platform, '.EXE');
+}
 
 /** Reads Windows's machine and user environment registry values as one UTF-8 JSON document.
  *  Tests inject this instead of starting PowerShell. */

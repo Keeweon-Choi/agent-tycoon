@@ -22,7 +22,7 @@ export interface TerminalConnectionHandlers {
   onExit(exitCode: number): void;
   onStatusChange(status: TerminalConnectionStatus): void;
   /** cld-gui (T-0078): the server closed the socket for good (a 4xxx close), with its reason
-   *  ('cap', 'no shell', 'shell closed', 'exited', 'proof', ...). */
+   *  ('no shell', 'shell closed', 'exited', 'proof', ...). */
   onRefused?(reason: string): void;
 }
 

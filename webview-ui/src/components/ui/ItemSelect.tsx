@@ -42,7 +42,7 @@ export function ItemSelect({
     <button
       onClick={onClick}
       title={title}
-      className={`p-0 rounded-none cursor-pointer overflow-hidden shrink-0 border-2 flex items-center justify-center ${
+      className={`p-0 rounded-ui-card cursor-pointer overflow-hidden shrink-0 border-ui flex items-center justify-center ${
         selected ? 'border-accent' : 'border-transparent'
       }`}
       style={{ width, height }}

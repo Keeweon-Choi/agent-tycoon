@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 
 import {
   LEGACY_MOBILE_CARD_ORDER_STORAGE_KEY,
@@ -90,24 +89,13 @@ export function reorderByPointer(
   return ids.map((id) => (inGroup(id) ? moved[next++] : id));
 }
 
-/** cld-gui (T-0036): a card in cld mode — its group and name. */
+/** cld-gui (T-0036): a card in cld mode — its group, its name and its temps (the portrait's +N). */
 export interface CardInfo {
   /** Group rank: lower groups come first. */
   group: number;
-  /** The group's header ("오케스트레이터"). */
-  groupLabel: string;
   name: string;
-  /** cld-gui (T-0041): what the card adds under its name ("+N" temps, 퇴근). */
-  extra?: ReactNode;
-  /** The part of `extra` a compact card keeps beside its status dot (퇴근, 야근). */
-  status?: ReactNode;
-  /** PARTY-FRAME: how many temps the card carries (the folded bar's +N). */
   temps?: number;
 }
-
-/** The phone's cards (owner 10-24): compact unless this device expanded them ('1' stored). */
-export const cardsExpanded = (saved: string | null): boolean => saved === '1';
-export const savedCardsExpanded = (expanded: boolean): string => (expanded ? '1' : '0');
 
 /** cld-gui (T-0036): stable sort by group rank, keeping the order inside each group. */
 export function groupOrder(ids: readonly number[], groupOf: (id: number) => number): number[] {

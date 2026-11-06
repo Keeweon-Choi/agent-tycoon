@@ -55,3 +55,37 @@ export const LOOKING_FRESH_MS = 30_000;
 /** After its compactions, a conversation is due for a hand-over once its context is this full
  *  again: below Claude Code's own compaction point, leaving room to finish and write the handoff. */
 export const RENEW_FILL_PCT = 85;
+
+// ── Parties (FEAT-PARTY-V2) ──────────────────────────────────
+
+/** The parties the owner composes (server/src/cld/parties.ts keeps them, the webview edits them):
+ *  at most this many, an id and a name this long, this many members of look keys this long. */
+export const PARTY_MAX = 20;
+export const PARTY_ID_MAX = 40;
+export const PARTY_NAME_MAX = 40;
+export const PARTY_MEMBER_MAX = 200;
+export const PARTY_MEMBER_KEY_MAX = 200;
+/** The default party (everyone): the screen's own, never stored. */
+export const PARTY_DEFAULT_ID = 'all';
+
+// ── The street (MHO §3.4, ADR-0020) ──────────────────────────
+// Another PC's daemon reads this host's narrow street summary with a street token; nothing else.
+
+/** The one route a street token opens (ADR-0020). */
+export const STREET_SUMMARY_PATH = '/api/street/summary';
+/** Where another PC's daemon pairs with a pair code (public in the gate: the code is the credential). */
+export const STREET_PAIR_PATH = '/api/street/pair';
+/** ADR-0020: the street key is HMAC-SHA256(pairing token, this label), the same on both sides. */
+export const STREET_KEY_LABEL = 'agent-tycoon street key v1';
+/** The summary's shape version (`v`, and `?v=` on the request). */
+export const STREET_SUMMARY_VERSION = 1;
+/** At most this many agents in one summary (waiting ones first, so none of them is cut). */
+export const STREET_AGENTS_MAX = 200;
+/** A host or agent name in a summary: at most this many characters. */
+export const STREET_NAME_MAX = 64;
+/** A daemon version string in a summary: at most this many characters. */
+export const STREET_VERSION_MAX = 32;
+/** A summary or pairing reply larger than this is dropped unread. */
+export const STREET_REPLY_BYTES = 32 * 1024;
+/** Neighbours one host reads, and hosts that may read it: at most this many each. */
+export const STREET_PAIRS_MAX = 16;

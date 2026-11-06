@@ -19,7 +19,7 @@ export interface AgentState {
   /** Running sub-agent tools (subToolId -> parent, status, desc), kept by
    *  AgentStateStore.broadcast from the subagentTool* messages so every producer
    *  (transcript, hook, shadow watch) is covered; replayed by resendAgentActivity. */
-  subagentTools: Map<string, { parentToolId: string; status: string; desc?: string }>;
+  subagentTools: Map<string, { parentToolId: string; status: string; desc?: string; path?: string }>;
   activeSubagentToolIds: Map<string, Set<string>>; // parentToolId → active sub-tool IDs
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
   backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)

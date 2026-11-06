@@ -144,7 +144,7 @@ async function main() {
     await hangul(page);
     await openOfficeWindow(page);
     const win = page.locator(DEV_WINDOW);
-    await win.getByRole('button', { name: '개발', exact: true }).click();
+    await win.getByRole('button', { name: '프로젝트', exact: true }).click();
     const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
     await eventually('alpha in the picker', async () => (await picker.locator('option[value="alpha"]').count()) > 0);
     await picker.selectOption('alpha');
@@ -237,7 +237,7 @@ async function main() {
     await hangul(page2);
     await openOfficeWindow(page2);
     const win2 = page2.locator(DEV_WINDOW);
-    await win2.getByRole('button', { name: '개발', exact: true }).click();
+    await win2.getByRole('button', { name: '프로젝트', exact: true }).click();
     await win2.getByRole('button', { name: '문서', exact: true }).click();
     await eventually('the committed row', async () => (await win2.locator('[data-testid="spec-doc"][data-path="docs/plan/TODO.md"]').getAttribute('data-git')) === 'committed');
     await shot(page2, '05-docs-after-commit-restart');
@@ -250,7 +250,7 @@ async function main() {
     await hangul(phone);
     await phone.locator('[data-dock="board"]').tap();
     const pw = phone.locator('[aria-label="현황판 화면"]');
-    const dev = pw.getByRole('button', { name: '개발', exact: true });
+    const dev = pw.getByRole('button', { name: '프로젝트', exact: true });
     if ((await dev.count()) && (await dev.getAttribute('aria-pressed')) !== 'true') await dev.tap();
     await pw.getByRole('button', { name: '개요', exact: true }).tap();
     await pw.getByTestId('spec-cockpit').waitFor({ timeout: 15_000 });

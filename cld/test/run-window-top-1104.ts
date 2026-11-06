@@ -54,7 +54,8 @@ const check = (ok: unknown, text: string) => {
 const geometry = (page: Page) =>
   page.evaluate(() => {
     const out: string[] = [];
-    const bar = document.querySelector('[data-hud-id="usage"]')!.getBoundingClientRect();
+    // hud-v3: the PC has no top bar, so the layer starts at the top of the viewport; an older build's bar still counts.
+    const bar = document.querySelector('[data-hud-id="usage"]')?.getBoundingClientRect() ?? { bottom: 0 };
     const layerEl = document.querySelector<HTMLElement>('[data-hud-layer]')!;
     const layer = layerEl.getBoundingClientRect();
     const near = (a: number, b: number) => Math.abs(a - b) <= 1;
@@ -101,18 +102,18 @@ async function desktop(page: Page, size: { width: number; height: number }, logi
   await page.reload();
   await page.locator('[data-hud-id="icon:office"] button').waitFor({ timeout: 60_000 });
   await page.waitForTimeout(1500);
-  for (const id of ['office', 'notices', 'devroom']) {
+  for (const id of ['office', 'devroom']) {
     await page.locator(`[data-hud-id="icon:${id}"] button`).click();
     await page.waitForTimeout(400);
   }
-  await same(page, tag, 'three windows at their default places');
+  await same(page, tag, 'two windows at their default places');
 
   // A pointerdown on a window brings it to the front (WINMODEL), so the next drag reaches it.
   const front = (id: string) => page.locator(`[data-hud-window="${id}"]`).dispatchEvent('pointerdown');
-  await front('notices');
-  const bar = (await page.getByTestId('hud-title-notices').boundingBox())!;
+  await front('devroom');
+  const bar = (await page.getByTestId('hud-title-devroom').boundingBox())!;
   await drag(page, { x: bar.x + 60, y: bar.y + bar.height / 2 }, { x: bar.x + 60, y: -40 });
-  await same(page, tag, 'a window dragged up past the top bar');
+  await same(page, tag, 'a window dragged up past the top');
 
   await front('office');
   const n = (await page.locator('[data-hud-window="office"] [data-handle="n"]').boundingBox())!;
@@ -127,8 +128,8 @@ async function desktop(page: Page, size: { width: number; height: number }, logi
   await page.waitForTimeout(300);
   await same(page, tag, "scrollIntoView({ block: 'center' }) inside a window");
   await shot('scrolled');
-  // The party head runs past the office's right edge (and the lobby board past its bottom at some sizes).
-  const outside = page.locator('[data-testid="party-open"], [data-testid="lobby-board"] button').last();
+  // The lobby board runs past the office's bottom at some sizes (the party's old 파티 button is gone, FEAT-PARTY-V2).
+  const outside = page.locator('[data-testid="lobby-board"] button').last();
   if (await outside.count()) {
     await outside.evaluate((b: HTMLElement) => b.focus());
     await page.waitForTimeout(300);

@@ -34,7 +34,8 @@ interface TranscriptRecord {
   timestamp?: string;
   compactMetadata?: { trigger?: string; preTokens?: number; postTokens?: number };
   isSidechain?: boolean;
-  message?: { model?: string; usage?: UsageBlock };
+  /** `contextWindow`: ACP-1's usage records carry the window the agent reported (acp/transcript.ts). */
+  message?: { model?: string; usage?: UsageBlock; contextWindow?: number };
 }
 
 /**
@@ -131,7 +132,11 @@ function applyContextTokens(
   // A named model wins over the running estimate -- switching models mid-session
   // genuinely changes the window, and the provider knows it while we're only
   // guessing from what we've seen.
-  agent.maxContextTokens = widenContextWindow(tokens, declared.window ?? agent.maxContextTokens);
+  // A window the agent reported is the window (it is never widened to our guesses).
+  agent.maxContextTokens =
+    declared.basis === 'reported' && declared.window && tokens <= declared.window
+      ? declared.window
+      : widenContextWindow(tokens, declared.window ?? agent.maxContextTokens);
   if (declared.basis) agent.limitBasis = declared.basis;
   agents.broadcast({
     type: 'agentContextUsage',
@@ -217,6 +222,9 @@ export function updateContextUsage(
 /** What the model that wrote this record says about its window. A record naming no
  *  model (a compaction boundary) says nothing and leaves the agent's last word standing. */
 function declaredBy(record: unknown, provider?: HookProvider | null): Declared {
+  const reported = (record as TranscriptRecord | null)?.message?.contextWindow;
+  if (typeof reported === 'number' && Number.isFinite(reported) && reported > 0)
+    return { window: Math.round(reported), basis: 'reported' };
   const model = (record as TranscriptRecord | null)?.message?.model;
   if (typeof model !== 'string' || !model || model === '<synthetic>') return {};
   const window = provider?.contextWindowForModel?.(model);

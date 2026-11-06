@@ -33,6 +33,7 @@ afterEach(() => {
 async function startOffice(opts: {
   claude?: string;
   chat?: boolean;
+  readOnly?: boolean;
   /** Text of ~/.config/agent-tycoon/ez-rules.json. */
   ezRules?: string;
   codexUsageSpawnFn?: typeof spawn;
@@ -54,10 +55,11 @@ async function startOffice(opts: {
   const office = new Office({
     runtime,
     store,
-    readOnly: true,
+    readOnly: opts.readOnly ?? true,
     chat: opts.chat,
     claude,
     home: fake.home,
+    lhmPort: null, // no LHM probe: on WSL a miss costs ~1 s of curl.exe per sample
     defaultLayout: { tiles: [1], furniture: [] },
     codexUsageSpawnFn: opts.codexUsageSpawnFn,
     codexUsageNow: opts.codexUsageNow,
@@ -74,6 +76,36 @@ async function startOffice(opts: {
 }
 
 describe('office with the Claude provider only (no engine)', () => {
+  it("hw-every-os: the sensor tool gets the office's read-only and the socket's step-up", async () => {
+    const ro = await startOffice({});
+    const replies: Array<Record<string, unknown>> = [];
+    const send = (m: Record<string, unknown>) => {
+      replies.push(m);
+    };
+    const refused = (error: string) => ({ type: 'hwSensorToolState', phase: 'refused', error });
+    ro.office.onClientMessage(
+      { type: 'hwSensorTool', action: 'install', consent: true },
+      send,
+      true,
+    );
+    await vi.waitFor(() => expect(replies).toContainEqual(refused('read_only')));
+    ro.office.dispose();
+
+    replies.length = 0;
+    const rw = await startOffice({ readOnly: false });
+    const remote = { remote: true, fresh: () => false };
+    for (const action of ['install', 'nvidiaOn'])
+      rw.office.onClientMessage(
+        { type: 'hwSensorTool', action, consent: true },
+        send,
+        true,
+        undefined,
+        remote,
+      );
+    await vi.waitFor(() => expect(replies.filter((m) => m.error === 'stepup')).toHaveLength(2));
+    expect(replies.some((m) => m.phase !== 'refused')).toBe(false);
+  });
+
   it('publishes and records an early usage reset notice without an engine', async () => {
     const { fake, office, messages } = await startOffice({ claude: 'C-4' });
     (
@@ -254,6 +286,7 @@ describe('office with the Claude provider only (no engine)', () => {
       'hwSample',
       'newAgentPermission', // O4: the starting permission default for new agents (unanswered here)
       'officeSnapshot',
+      'parties', // FEAT-PARTY-V2: always, empty too
       'taskBoard', // 작업 현황 (DEV-BOARD) needs no engine: the office edits it too
       'usageState',
     ]);
@@ -349,7 +382,10 @@ describe('office with the built-in engine', () => {
   it('a new client gets the engine data: jobs, GPU board, Codex tasks, the state and the feed', async () => {
     const { office, messages } = await startEngineOffice({ projects: ROSTER });
     office.onClientOpened(vi.fn()); // the first viewer starts the (async) HW sampling
-    await vi.waitFor(() => expect(messages.some((m) => m.type === 'hwSample')).toBe(true));
+    // The first HW sample can take over a second when the machine is busy (other test files in parallel).
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'hwSample')).toBe(true), {
+      timeout: 5_000,
+    });
     const snap: Array<Record<string, unknown>> = [];
     office.onClientReady((m) => snap.push(m));
     expect(snap.map((m) => m.type)).toEqual(
@@ -640,7 +676,13 @@ describe('office with the built-in engine', () => {
   it('the built-in engine: projects are rooms and characters, engineAction answers the sender', async () => {
     const { home, store, office, messages } = await engineOffice();
     const last = (type: string) => [...messages].reverse().find((m) => m.type === type);
-    expect(last('engineState')).toEqual({ type: 'engineState', projects: [] });
+    expect(last('engineState')).toEqual({
+      type: 'engineState',
+      projects: [],
+      agentCaps: expect.objectContaining({
+        claude: expect.objectContaining({ lifetime: 'session' }),
+      }),
+    });
 
     const answers: Array<Record<string, unknown>> = [];
     const send = (m: Record<string, unknown>) => answers.push(m);

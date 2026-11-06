@@ -69,3 +69,6 @@ packs-private/
 
 # The sheet importer runner photographs the owner's expansion-pack characters: keep them on this PC only (owner 10-25 20:59).
 cld/artifacts/sheet-import/*.png
+
+# A worktree's hand-over note for the next session; it describes local state, never the product.
+HANDOFF.md

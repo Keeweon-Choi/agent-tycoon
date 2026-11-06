@@ -28,11 +28,12 @@
 }
 
 .tg-root {
+  border-radius: var(--ui-r-win);
   position: relative;
-  border: 2px solid var(--color-border);
+  border: var(--ui-bw) solid var(--color-border);
   background: var(--tg-pane);
   color: var(--tg-text);
-  font-family: var(--pixel-font-stack);
+  font-family: var(--ui-font);
   touch-action: none;
 }
 .tg-root .react-flow {
@@ -52,7 +53,7 @@
   --xy-controls-button-border-color: var(--color-border);
   --xy-controls-box-shadow: var(--shadow-pixel);
   --xy-attribution-background-color: var(--tg-node);
-  font-family: var(--pixel-font-stack);
+  font-family: var(--ui-font);
 }
 .tg-root .react-flow__handle {
   opacity: 0;
@@ -63,7 +64,7 @@
   border: 0;
 }
 .tg-root .react-flow__node {
-  border-radius: 0;
+  border-radius: var(--ui-r-card);
 }
 .tg-root .react-flow__node:focus-visible {
   outline: 2px solid var(--tg-line-hi);
@@ -85,8 +86,8 @@
   stroke: var(--tg-line-hi);
 }
 .tg-root .react-flow__edge-text {
-  font-family: var(--pixel-font-stack);
-  font-size: 11px;
+  font-family: var(--ui-font);
+  font-size: max(11px, var(--ui-text-floor));
   fill: var(--tg-text);
 }
 .tg-root .react-flow__edge-textbg {
@@ -97,17 +98,17 @@
 
 /* Controls, minimap, attribution: sharp, 2px, hard shadow. The attribution stays (restyled). */
 .tg-root .react-flow__controls {
-  border: 2px solid var(--color-border);
-  border-radius: 0;
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-card);
 }
 .tg-root .react-flow__controls-button {
-  border-radius: 0;
+  border-radius: var(--ui-r-chip);
   width: 28px;
   height: 28px;
 }
 .tg-root .react-flow__minimap {
-  border: 2px solid var(--color-border);
-  border-radius: 0;
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-card);
   box-shadow: var(--shadow-pixel);
 }
 .tg-root .react-flow__minimap-node.tg-mm-req {
@@ -120,12 +121,12 @@
   fill: var(--tg-box);
 }
 .tg-root .react-flow__attribution {
-  border: 2px solid var(--color-border);
-  border-radius: 0;
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-chip);
   padding: 0 4px;
   margin: 4px;
-  font-family: var(--pixel-font-stack);
-  font-size: 10px;
+  font-family: var(--ui-font);
+  font-size: max(10px, var(--ui-text-floor));
 }
 .tg-root .react-flow__attribution a {
   color: var(--tg-muted);
@@ -136,12 +137,12 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  border: 2px solid var(--k);
-  border-radius: 0;
+  border: var(--ui-bw) solid var(--k);
+  border-radius: var(--ui-r-card);
   background: var(--tg-node);
   color: var(--tg-text);
-  font-size: 12px;
-  line-height: 1.2;
+  font-size: max(12px, var(--ui-text-floor));
+  line-height: calc(1.2 * var(--ui-lh));
   padding: 2px 6px;
   display: flex;
   flex-direction: column;
@@ -155,7 +156,7 @@
 }
 .tg-n--group {
   --k: var(--tg-group);
-  box-shadow: 2px 2px 0px var(--k);
+  box-shadow: var(--ui-drop) var(--k);
 }
 .tg-n--doc {
   --k: var(--tg-doc);
@@ -171,7 +172,7 @@
 }
 .tg-n--comp {
   --k: var(--tg-comp);
-  box-shadow: 2px 2px 0px var(--k);
+  box-shadow: var(--ui-drop) var(--k);
 }
 .tg-n--center {
   border-width: 2px;
@@ -205,15 +206,16 @@
 }
 .tg-sub {
   color: var(--tg-muted);
-  font-size: 11px;
+  font-size: max(11px, var(--ui-text-floor));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .tg-tag {
-  border: 2px solid var(--tg-muted);
+  border-radius: var(--ui-r-chip);
+  border: var(--ui-bw) solid var(--tg-muted);
   color: var(--tg-muted);
-  font-size: 10px;
+  font-size: max(10px, var(--ui-text-floor));
   padding: 0 2px;
   white-space: nowrap;
 }
@@ -260,8 +262,8 @@
   width: 10px;
   height: 10px;
   background: var(--tg-pane);
-  border-left: 2px solid var(--k);
-  border-bottom: 2px solid var(--k);
+  border-left: var(--ui-bw) solid var(--k);
+  border-bottom: var(--ui-bw) solid var(--k);
 }
 
 /* Task: rounded the pixel way, one step cut off each corner (no border-radius). */
@@ -326,7 +328,7 @@
   height: 12px;
   flex: none;
   transform: rotate(45deg);
-  border: 2px solid var(--k);
+  border: var(--ui-bw) solid var(--k);
   background: var(--tg-node);
 }
 .tg-n--fold .tg-diamond {
@@ -341,13 +343,13 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  border: 2px dashed var(--tg-line);
+  border: var(--ui-bw) dashed var(--tg-line);
   background: var(--tg-box);
   pointer-events: none;
 }
 .tg-box-head {
   color: var(--tg-group);
-  font-size: 11px;
+  font-size: max(11px, var(--ui-text-floor));
   padding: 2px 6px;
   white-space: nowrap;
   overflow: hidden;
@@ -356,16 +358,17 @@
 
 /* Overlays on the pane: the provenance of a clicked link, a picked node. */
 .tg-pop {
+  border-radius: var(--ui-r-card);
   position: absolute;
   left: 8px;
   top: 8px;
   z-index: 5;
   max-width: min(320px, calc(100% - 16px));
   background: var(--tg-node);
-  border: 2px solid var(--color-border);
+  border: var(--ui-bw) solid var(--color-border);
   box-shadow: var(--shadow-pixel);
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: max(12px, var(--ui-text-floor));
 }
 
 /* SPT-P4A: the architecture view. A kind's colour is --k: component a box, store a cylinder-like
@@ -451,7 +454,7 @@
 .ag-fold {
   --k: var(--tg-group);
   border-style: dashed;
-  box-shadow: 2px 2px 0px var(--k);
+  box-shadow: var(--ui-drop) var(--k);
   align-items: center;
 }
 .ag-box-head {
@@ -460,7 +463,7 @@
   text-align: left;
   pointer-events: auto;
   cursor: pointer;
-  font-family: var(--pixel-font-stack);
+  font-family: var(--ui-font);
 }
 .tg-root .react-flow__node-archGroup {
   pointer-events: none;
@@ -483,7 +486,7 @@
   outline-offset: 2px;
 }
 .ag-standing {
-  border: 2px solid var(--tg-none);
+  border: var(--ui-bw) solid var(--tg-none);
   padding: 0 4px;
 }
 .ag-standing--approved {

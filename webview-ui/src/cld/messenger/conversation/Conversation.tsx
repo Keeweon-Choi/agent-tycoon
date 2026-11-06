@@ -11,11 +11,13 @@ import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
 import { CHAT_SEND_MAX, chatTarget, readOnlyNote, requestChat } from '../../chat.js';
 import { DevroomLink } from '../../devroom/DevRoom.js';
+import { capsOf, takesDirectChat } from '../../engine.js';
 import { useEngineStore } from '../../engineStore.js';
 import { FatigueBar } from '../../ez/Fatigue.js';
 import { basisHint } from '../../ez/fatigueState.js';
 import { kTokens } from '../../ez/statCardRows.js';
 import { TerminalGlyph } from '../../hud/glyphs.js';
+import { Icon } from '../../icons/Icon.js';
 import { fatigueFor, useCldStore } from '../../officeStore.js';
 import { serverLine, serverText } from '../../serverText.js';
 import { requestStaleRecheck } from '../../staleBuild.js';
@@ -34,8 +36,10 @@ import { AttachmentGallery } from '../AttachmentViewer.js';
 import { DraftChip, sentFiles } from '../BubbleAttachments.js';
 import { keepPhoneComposerFocus } from '../composerFocus.js';
 import { composerHeight } from '../composerGrow.js';
+import { SenderFace } from '../Faces.js';
 import { placeRecords, questionText, setTypewriter, useTypewriter } from '../gameMessenger.js';
 import { shownName } from '../goneNames.js';
+import { Library } from '../Library.js';
 import { Line, QuotePeek, ReplyChip } from '../Line.js';
 import { messageCharacterCount, prepareMessage } from '../longMessage.js';
 import {
@@ -54,8 +58,9 @@ import {
   useMessenger,
 } from '../messengerStore.js';
 import {
+  dayLabel,
   type MessengerProps,
-  Mug,
+  newDay,
   nextRequestId,
   NO_CHIPS,
   PaneClose,
@@ -71,19 +76,27 @@ import { jumpLabel } from '../scrollJump.js';
 import { senderKey, startsRun } from '../senderFace.js';
 import { chordStep, enterSends, enterSendsNow, isTouchDevice } from '../sendKey.js';
 import { filterSlashCommands, slashComplete, slashMenuKey } from '../slashMenu.js';
+import { Thinking } from '../Thinking.js';
 import { useChatSearch } from './useChatSearch.js';
 import { useDraft } from './useDraft.js';
 import { useHistoryJump } from './useHistoryJump.js';
 import { useQuestionTag } from './useQuestionTag.js';
+import { useReturnMark } from './useReturnMark.js';
 import { useStickToBottom } from './useStickToBottom.js';
 
 export function Conversation({
   agentId,
   visualViewportHeight,
   statusFor,
-  getAppearance,
   onClose,
-}: { agentId: number; onClose?: () => void } & Omit<MessengerProps, 'mobile'>) {
+  pane,
+}: {
+  agentId: number;
+  onClose?: () => void;
+  /** DEVROOM-PANE-CHAT: inside a 개발실 pane, whose head names the agent: no head here, and the
+   *  permission card's 터미널에서 보기 switches that pane (null: it has no terminal). */
+  pane?: { onTerminal: (() => void) | null };
+} & Omit<MessengerProps, 'mobile'>) {
   const store = useCldStore();
   const m = useMessenger();
   const row = useRow(agentId);
@@ -130,12 +143,13 @@ export function Conversation({
   const pending = (m.pending[agentId] ?? []).filter((p) => p.state !== 'cancelled');
   const received = m.received[agentId] ?? [];
   const canSend = m.canSend[agentId] ?? contact?.canSend ?? false;
-  // D5 (MVP): a Codex Worker takes work from its Lead or a room, not a person's DM.
-  const codexWorker =
-    engine?.projects.find((project) => project.name === name)?.provider === 'codex';
+  // D5 (MVP): a 'run' agent takes work from its Lead or a room, not a person's DM.
+  const noDirectChat = !takesDirectChat(capsOf(engine, engine?.projects.find((project) => project.name === name)?.provider));
   const typing = row?.busy === true;
   // RENEW-STUCK: its messages wait for the new conversation (즉시 cannot reach the old one).
   const renewing = row?.renewing === true;
+  // K1 (B4): its last renew could not start the new conversation; the next start does.
+  const renewFailed = row?.renewFailed === true;
   const target = chatTarget(agentId, store.officeSnapshot);
   const fatigue = fatigueFor(agentId, store);
   const context = store.contexts[agentId];
@@ -164,8 +178,10 @@ export function Conversation({
   // top visible row fixed as messages, tool lines, and the typing line update.
   const stuck = useRef(true);
   const [away, setAway] = useState(false);
+  const { mark, remember, moved, watch, goBack } = useReturnMark(list);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const { sentinel, historyBusy, historyDone, full, fetchOlder, openQuote, jumpToHit } =
-    useHistoryJump({ agentId, m, items, list, restoring, stuck, setAway });
+    useHistoryJump({ agentId, m, items, list, restoring, stuck, setAway, remember });
   const {
     searchOpen,
     setSearchOpen,
@@ -310,11 +326,9 @@ export function Conversation({
       onPointerDown={keepComposerFocus}
       onClick={chooseAttachments}
     >
-      {touch && (
-        <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
-          attach_file
-        </span>
-      )}
+      <Icon name="paperclip" size={16} pixel={<span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+        attach_file
+      </span>} />
       {t('messenger.attach')}
     </Button>
   );
@@ -453,17 +467,26 @@ export function Conversation({
           }
         }}
       >
-        <header className="shrink-0 border-b border-border px-12 py-6 flex items-center gap-8 min-w-0">
-          <Mug agentId={agentId} getAppearance={getAppearance} />
-          <span className="flex-1 min-w-0">
-            <span className="flex items-center gap-8 min-w-0">
-              <strong className="text-sm truncate">{shown}</strong>
-              <StateDot agentId={agentId} statusFor={statusFor} withLabel />
+        {/* FEAT-MESSENGER-GPT-LOOK: the head: the lead's portrait, the name large, its state and place under it. */}
+        {!pane && (
+        <header
+          className={`msg-head shrink-0 px-12 py-8 min-w-0 pointer-coarse:px-10 pointer-coarse:py-6 ${phone ? 'msg-head-phone' : 'flex flex-wrap items-center gap-x-10 gap-y-6'}`}
+        >
+          <SenderFace name={name} agentId={agentId} portrait />
+          <span className="msg-head-text flex-1 basis-160 min-w-0 flex flex-col gap-4">
+            <span className="msg-head-name flex items-center gap-8 min-w-0">
+              <strong className="text-lg leading-none truncate text-devroom-title" title={shown}>
+                {shown}
+              </strong>
               <WaitMark agentId={agentId} />
             </span>
-            <span className="flex items-center gap-8 min-w-0 text-2xs text-text-muted">
+            <span className="msg-head-state flex items-center gap-8 min-w-0 overflow-hidden text-2xs text-text-muted">
+              <StateDot agentId={agentId} statusFor={statusFor} withLabel />
               {orch && (
                 <span className="truncate" title={orch.dir}>
+                  <span aria-hidden="true" className="text-devroom-card-line">
+                    |{' '}
+                  </span>
                   {serverLine(orch.tab)} · {orch.dir.split('/').filter(Boolean).at(-1) ?? orch.dir}
                 </span>
               )}
@@ -478,55 +501,73 @@ export function Conversation({
               )}
             </span>
           </span>
-          {/* GAME-UI-1 G1 (01): 타자 효과 켬 / 끔 (this browser; a phone keeps its header for the name). */}
-          {!phone && (
-            <button
-              type="button"
-              className="dlg-switch text-2xs shrink-0"
-              aria-pressed={typewriter}
-              data-testid="typing-switch"
-              onClick={() => setTypewriter(!typewriter)}
-            >
-              {t('game.msg.typing')}
-              <span className="dlg-switch-v">{typewriter ? t('game.msg.on') : t('game.msg.off')}</span>
-            </button>
-          )}
-          <Button
-            size="icon_md"
-            aria-label={t('messenger.search')}
-            aria-expanded={searchOpen}
-            onClick={() => (searchOpen ? clearSearch() : setSearchOpen(true))}
+          {/* MSG-HEAD: the buttons are one group that keeps its size and sits right of the text (on a narrow pane it
+              wraps under it), so the name and state lines truncate in the room left over and are never covered. */}
+          <span
+            className="msg-head-tools ml-auto shrink-0 flex items-center gap-10"
+            data-touch-compact={phone || undefined}
           >
-            ⌕
-          </Button>
-          {gone && !store.officeReadOnly && (
-            <Button size="sm" onClick={() => setAskDelete(true)}>
-              {t('projectData.deleteConversation')}
-            </Button>
-          )}
-          {!gone && <DevroomLink name={name} />}
-          {target?.kind === 'background' && (
+            {/* GAME-UI-1 G1 (01): 타자 효과 켬 / 끔 (this browser; a phone keeps its header for the name). */}
+            {!phone && (
+              <button
+                type="button"
+                className="dlg-switch text-2xs shrink-0"
+                aria-pressed={typewriter}
+                data-testid="typing-switch"
+                onClick={() => setTypewriter(!typewriter)}
+              >
+                {t('game.msg.typing')}
+                <span className="dlg-switch-v">{typewriter ? t('game.msg.on') : t('game.msg.off')}</span>
+              </button>
+            )}
             <Button
               size="icon_md"
-              variant={m.terminalHint === agentId ? 'accent' : 'default'}
-              aria-label={t('messenger.openTerminal')}
-              title={
-                m.terminalHint === agentId
-                  ? t('messenger.openTerminalHint')
-                  : t('messenger.openTerminal')
-              }
-              data-hint={m.terminalHint === agentId || undefined}
-              onClick={() => requestChat(agentId, target.id)}
+              aria-label={t('messenger.search')}
+              aria-expanded={searchOpen}
+              onClick={() => (searchOpen ? clearSearch() : setSearchOpen(true))}
             >
-              <TerminalGlyph px={1} />
+              ⌕
             </Button>
-          )}
-          {onClose && <PaneClose onClose={onClose} />}
+            <Button
+              size="icon_md"
+              aria-label={t('msglib.open')}
+              title={t('msglib.open')}
+              aria-expanded={libraryOpen}
+              data-testid="library-open"
+              onClick={() => setLibraryOpen((open) => !open)}
+            >
+              ▤
+            </Button>
+            {gone && !store.officeReadOnly && (
+              <Button size="sm" onClick={() => setAskDelete(true)}>
+                {t('projectData.deleteConversation')}
+              </Button>
+            )}
+            {!gone && <DevroomLink name={name} />}
+            {target?.kind === 'background' && (
+              <Button
+                size="icon_md"
+                variant={m.terminalHint === agentId ? 'accent' : 'default'}
+                aria-label={t('messenger.openTerminal')}
+                title={
+                  m.terminalHint === agentId
+                    ? t('messenger.openTerminalHint')
+                    : t('messenger.openTerminal')
+                }
+                data-hint={m.terminalHint === agentId || undefined}
+                onClick={() => requestChat(agentId, target.id)}
+              >
+                <TerminalGlyph px={1} />
+              </Button>
+            )}
+            {onClose && <PaneClose onClose={onClose} />}
+          </span>
         </header>
+        )}
         {searchOpen && (
           <section
             aria-label={t('messenger.search')}
-            className="shrink-0 border-b-2 border-border px-12 py-8 bg-bg-dark"
+            className="msg-head shrink-0 px-12 py-8"
           >
             <form
               className="flex gap-4 items-center"
@@ -555,7 +596,7 @@ export function Conversation({
                     stepResult('newer');
                   }
                 }}
-                className="flex-1 min-w-0 border-2 border-border bg-bg px-8 py-4 text-sm"
+                className="ui-input flex-1 min-w-0 px-8 py-4 text-sm"
               />
               <Button size="icon_md" type="submit" aria-label={t('messenger.olderResult')}>
                 ∧
@@ -623,10 +664,19 @@ export function Conversation({
           <div
             ref={list}
             data-testid="chat-scroll"
-            className="flex-1 min-h-0 overflow-y-auto px-12 py-8 space-y-8"
-            onScroll={onScroll}
-            onWheel={() => (jumping.current = false)}
-            onTouchStart={() => (jumping.current = false)}
+            className="msg-timeline msg-band flex-1 min-h-0 overflow-y-auto py-10 space-y-10"
+            onScroll={() => {
+              onScroll();
+              watch();
+            }}
+            onWheel={() => {
+              jumping.current = false;
+              moved();
+            }}
+            onTouchStart={() => {
+              jumping.current = false;
+              moved();
+            }}
           >
             <div ref={sentinel} aria-hidden="true" className="h-px" />
             {items && (
@@ -664,6 +714,11 @@ export function Conversation({
                   data-previous-session={item.session ? 'true' : undefined}
                   className={`data-[focused=true]:outline-2 data-[focused=true]:outline-accent${item.session ? ' previous-session' : ''}`}
                 >
+                  {newDay(items, index) && (
+                    <p className="msg-day text-xs" data-testid="day-divider">
+                      <span>{dayLabel(item.at)}</span>
+                    </p>
+                  )}
                   {startsEarlierSession(items, index, historyDone) && (
                     <p
                       className="previous-band text-center text-2xs py-4 px-8 mb-6"
@@ -683,7 +738,7 @@ export function Conversation({
                     currentMatch={hits[activeResult]?.id === item.id}
                     replyAs={name}
                     onReply={
-                      canSend && !store.officeReadOnly && !codexWorker ? setReply : undefined
+                      canSend && !store.officeReadOnly && !noDirectChat ? setReply : undefined
                     }
                     onQuote={openQuote}
                     onQuestionTag={openTag}
@@ -709,6 +764,7 @@ export function Conversation({
                 </div>
               ))
             )}
+            {typing && <Thinking name={shown} />}
             {pending.map((p) => (
               <Pending
                 key={p.requestId}
@@ -735,27 +791,40 @@ export function Conversation({
                 editingHere={pendingEdit?.requestId === p.requestId}
                 permissionWait={!!contact?.permission}
                 onQuote={openQuote}
-                onReply={canSend && !store.officeReadOnly && !codexWorker ? setReply : undefined}
+                onReply={canSend && !store.officeReadOnly && !noDirectChat ? setReply : undefined}
               />
             ))}
-            {typing && (
-              <p
-                className="mr-24 w-fit text-sm px-8 py-4 border border-border text-text-muted"
-                role="status"
-                data-testid="typing"
-              >
-                {t('messenger.state.thinking')}
-                <span className="thinking-dots" aria-label={t('messenger.dotsMoving')}>
-                  ...
-                </span>
-              </p>
-            )}
           </div>
-          {away && (
+          {libraryOpen && (
+            <Library
+              agentId={agentId}
+              name={shown}
+              phone={phone}
+              ticketFor={viewerTicketFor}
+              onClose={() => setLibraryOpen(false)}
+              onGo={(file) => {
+                setLibraryOpen(false);
+                jumpToHit(file);
+              }}
+            />
+          )}
+          {mark && (
             <button
-              key={missed}
               type="button"
-              className={`absolute left-1/2 -translate-x-1/2 bottom-12 min-h-32 px-12 rounded-full border-2 border-accent bg-accent text-white text-xs shadow-pixel pointer-coarse:min-h-44 ${missed > 0 ? 'jump-newest-pop' : 'min-w-32'}`}
+              className="ui-raise absolute left-12 bottom-12 min-h-32 px-12 border-ui rounded-ui-card border-devroom-box-line bg-(--surface-float) text-xs pointer-coarse:min-h-44"
+              aria-label={t('msglib.returnLabel')}
+              data-testid="jump-return"
+              onClick={() => goBack({ bottom: jump, hit: jumpToHit })}
+            >
+              {t('msglib.return')}
+            </button>
+          )}
+          {away && (
+            <Button
+              key={missed}
+              size={missed > 0 ? 'sm' : 'icon_md'}
+              variant="accent"
+              className={`absolute right-8 bottom-12${missed > 0 ? ' msg-jump-pop' : ''}`}
               aria-label={
                 missed > 0
                   ? t('messenger.jumpBottomNew', { count: missed })
@@ -765,12 +834,12 @@ export function Conversation({
               onClick={jump}
             >
               {jumpLabel(missed)}
-            </button>
+            </Button>
           )}
         </div>
         <footer
           ref={footer}
-          className="relative shrink-0 border-t-2 border-border px-12 py-8"
+          className="relative shrink-0 msg-timeline px-12 pt-6 pb-10 pointer-coarse:px-8 pointer-coarse:pb-8"
           onBlur={(e) => {
             if (!pressedIn.current && !footer.current?.contains(e.relatedTarget as Node | null))
               setComposerFocused(false);
@@ -781,7 +850,7 @@ export function Conversation({
             <div
               role="listbox"
               aria-label={t('messenger.slashCommands')}
-              className="absolute bottom-full left-12 right-12 max-h-256 overflow-y-auto border-2 border-border bg-bg shadow-pixel z-10"
+              className="absolute bottom-full left-12 right-12 max-h-256 overflow-y-auto border-ui rounded-ui-card border-border bg-bg shadow-pixel z-10"
             >
               {commands === undefined ? (
                 <p className="px-8 py-6 text-xs text-text-muted">
@@ -828,7 +897,7 @@ export function Conversation({
             <section
               role="dialog"
               aria-label={t('messenger.clearConfirm')}
-              className="mb-6 border-2 border-accent bg-bg-dark px-8 py-6 text-xs flex items-center gap-8"
+              className="mb-6 border-ui rounded-ui-card border-accent bg-bg-dark px-8 py-6 text-xs flex items-center gap-8"
             >
               <p className="flex-1">{t('messenger.clearQuestion')}</p>
               <Button size="sm" onClick={() => setClearPrompt(false)}>
@@ -853,7 +922,7 @@ export function Conversation({
           )}
           {pendingEdit && (
             <div
-              className="mb-6 border-2 border-accent bg-bg-dark px-8 py-6 text-xs flex items-center gap-8"
+              className="mb-6 border-ui rounded-ui-card border-accent bg-bg-dark px-8 py-6 text-xs flex items-center gap-8"
               role="status"
             >
               <span className="flex-1">
@@ -868,7 +937,7 @@ export function Conversation({
           {pendingEdit && pendingReply && !reply && <ReplyChip reply={pendingReply} open={openQuote} />}
           {m.editLost?.agentId === agentId && (
             <div
-              className="mb-6 border-2 border-danger bg-bg-dark px-8 py-6 text-xs flex flex-wrap items-center gap-8"
+              className="mb-6 border-ui rounded-ui-card border-danger bg-bg-dark px-8 py-6 text-xs flex flex-wrap items-center gap-8"
               role="status"
               data-testid="edit-lost"
             >
@@ -918,25 +987,14 @@ export function Conversation({
               close={() => peekDo('close')}
             />
           )}
-          {chips.length > 0 && (
-            <div className="flex flex-wrap gap-4 pb-6" aria-label={t('messenger.attachments')}>
-              {chips.map((chip) => (
-                <DraftChip
-                  key={chip.id}
-                  chip={chip}
-                  remove={() =>
-                    setAttachments(
-                      agentId,
-                      chips.filter((item) => item.id !== chip.id),
-                    )
-                  }
-                />
-              ))}
-            </div>
-          )}
           {renewing && (
             <p className="text-xs text-accent-text pb-6" role="status" data-testid="renewing-note">
               {t('messenger.renewingNote')}
+            </p>
+          )}
+          {renewFailed && (
+            <p className="text-xs text-accent-text pb-6" role="status" data-testid="renew-failed-note">
+              {t('brainK1.renewFailed')}
             </p>
           )}
           {questCard ? (
@@ -948,7 +1006,11 @@ export function Conversation({
               canAnswer={canSend && !store.officeReadOnly}
               visualViewportHeight={visualViewportHeight}
               openTerminal={
-                target?.kind === 'background' ? () => requestChat(agentId, target.id) : null
+                pane
+                  ? pane.onTerminal
+                  : target?.kind === 'background'
+                    ? () => requestChat(agentId, target.id)
+                    : null
               }
             />
           ) : waitWhy === 'question' && !contact?.held ? (
@@ -956,7 +1018,7 @@ export function Conversation({
               agentId={agentId}
               name={shown}
               question={questionText(items)}
-              onAnswer={canSend && !store.officeReadOnly && !codexWorker ? () => box.current?.focus() : null}
+              onAnswer={canSend && !store.officeReadOnly && !noDirectChat ? () => box.current?.focus() : null}
             />
           ) : (
             contact?.held && (
@@ -965,25 +1027,27 @@ export function Conversation({
               </p>
             )
           )}
-          {codexWorker ? (
+          {noDirectChat ? (
             <p className="text-xs text-text-muted" data-testid="no-direct-chat">
-              {t('messenger.codexNoChat')}
+              {t('agentCaps.noDirectChat')}
             </p>
           ) : canSend && !store.officeReadOnly ? (
+            // FEAT-MESSENGER-GPT-LOOK: one raised panel: the text on top; 첨부, the files and 보내기 under it.
             <form
               ref={formRef}
-              className="flex flex-col gap-6"
+              className="msg-composer flex flex-col"
               onSubmit={(e) => {
                 e.preventDefault();
                 void submit();
               }}
             >
-              <div className="flex gap-8 items-end">
+              <div className="flex">
                 <div className="flex-1 min-w-0">
                   <textarea
                     ref={box}
                     aria-label={t('messenger.messageInput')}
-                    className="block w-full min-w-0 bg-bg-dark border-2 border-border px-8 py-4 text-sm resize-none pointer-coarse:min-h-44"
+                    placeholder={pane ? t('devroom.pane.placeholder', { name: shown }) : t('messengerLook.placeholder')}
+                    className="block w-full min-w-0 px-10 pt-8 pb-4 text-sm resize-none placeholder:text-text-muted pointer-coarse:min-h-44"
                     rows={1}
                     maxLength={pendingEdit ? CHAT_SEND_MAX : undefined}
                     value={text}
@@ -1068,7 +1132,7 @@ export function Conversation({
                     }}
                   />
                   {!pendingEdit && messageCharacterCount(text) > CHAT_SEND_MAX && (
-                    <p className="pt-2 text-xs text-text-muted" role="status">
+                    <p className="px-10 pt-2 text-xs text-text-muted" role="status">
                       {t('messenger.longMessageNote', { count: messageCharacterCount(text) })}
                     </p>
                   )}
@@ -1086,41 +1150,60 @@ export function Conversation({
                     event.target.value = '';
                   }}
                 />
-                {!touch && attachButton}
-                <Button
-                  type="submit"
-                  variant="accent"
-                  size="sm"
-                  disabled={sending || uploading || (!text.trim() && !chips.length)}
-                  title={t('messenger.sendShortcut')}
-                  onPointerDown={keepComposerFocus}
-                >
-                  {sending ? t('messenger.send.sending') : t('messenger.sendButton')}
-                </Button>
               </div>
-              {touch && (
-                // UI-PHONE: the text box keeps the row; 첨부 and 즉시 보내기 (named in full, with
-                // its icon) take a row of their own under it.
-                <div className="flex gap-8 justify-between" data-testid="composer-tools">
-                  {attachButton}
-                  {!pendingEdit && (
+              {/* UI-PHONE: 즉시 보내기 is a button there (named in full, with its icon); the files take a line
+                  of their own over the buttons on a phone, beside 첨부 on a desktop. */}
+              <div className="msg-composer-tools flex-wrap px-8 pb-8 pt-4" data-testid="composer-tools">
+                {attachButton}
+                <div
+                  className={`flex-1 min-w-0 flex flex-wrap gap-6 ${touch ? 'order-first basis-full empty:hidden' : ''}`}
+                  aria-label={t('messenger.attachments')}
+                >
+                  {chips.map((chip) => (
+                    <DraftChip
+                      key={chip.id}
+                      chip={chip}
+                      remove={() =>
+                        setAttachments(
+                          agentId,
+                          chips.filter((item) => item.id !== chip.id),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+                {touch && !pendingEdit && (
                     <Button
                       type="button"
                       size="sm"
+                      className="ml-auto"
                       disabled={sending || uploading || renewing || (!text.trim() && !chips.length)}
                       title={renewing ? t('messenger.renewingNote') : t('messenger.sendNowHint')}
                       data-testid="send-now"
                       onPointerDown={keepComposerFocus}
                       onClick={() => void submit(true)}
                     >
-                      <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                      <Icon name="zap" size={16} pixel={<span className="material-symbols-sharp text-[16px]" aria-hidden="true">
                         bolt
-                      </span>
+                      </span>} />
                       {t('uiPhone.sendNow')}
                     </Button>
-                  )}
-                </div>
-              )}
+                )}
+                <Button
+                  type="submit"
+                  variant="accent"
+                  size="sm"
+                  className="px-12"
+                  disabled={sending || uploading || (!text.trim() && !chips.length)}
+                  title={t('messenger.sendShortcut')}
+                  onPointerDown={keepComposerFocus}
+                >
+                  <Icon name="send" size={16} pixel={<span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                    send
+                  </span>} />
+                  {sending ? t('messenger.send.sending') : t('messenger.sendButton')}
+                </Button>
+              </div>
             </form>
           ) : (
             items && (

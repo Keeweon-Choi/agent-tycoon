@@ -313,6 +313,8 @@ export const JUMP_WAIT_MS = 5_000;
 /** CHAT-NAV: older messages are asked for when the top is this close, so a page lands while the reader
  *  is still mid-list (not in the rubber band at the very top, where a phone ignores a scroll set). */
 export const HISTORY_PREFETCH_PX = 400;
+/** The return button goes away once the reader is within this part of a screen of where the jump left. */
+export const RETURN_NEAR_RATIO = 0.5;
 /** CHAT-NAV: a scroll position within this many px of the wanted one is left alone (setting it would
  *  stop a phone's momentum for nothing). */
 export const SCROLL_HOLD_SLACK_PX = 1;
@@ -320,8 +322,6 @@ export const SCROLL_HOLD_SLACK_PX = 1;
 export const NOTICE_PAIR_MS = 15_000;
 export const NOTICE_PULSE_PERIOD_MS = 1_000;
 export const NOTICE_PULSE_COLOR = '#ffd84a';
-/** Feed events this soon after a connection's snapshot began are its replay, not news. */
-export const NOTICE_FEED_REPLAY_MS = 2_000;
 export const NOTICE_DEFAULT_VOLUME = 0.8;
 /** NOTICE-B: the sender's face in a 알림 row (inside a 2px frame, so the slot is 36). */
 export const NOTICE_FACE_PX = 32;
@@ -369,8 +369,8 @@ export const ATTACH_SWIPE_PX = 56;
 /** Two taps this close in time and place are a double tap. */
 export const ATTACH_DOUBLE_TAP_MS = 350;
 export const ATTACH_DOUBLE_TAP_PX = 32;
-/** Projects on the board's first page before "외 N". */
-export const BOARD_PROJECT_ROWS = 8;
+/** News lines on the board's 요약 page (A5). */
+export const BOARD_SUMMARY_FEED_ROWS = 6;
 /** H/W graphs cover the last 60 s (hwSample comes every 2 s while anyone views). */
 export const BOARD_HISTORY_MS = 60_000;
 export const BOARD_HISTORY_SAMPLES = 40;
@@ -485,10 +485,27 @@ export const INTRO_BUBBLE_Z_INDEX = 45;
 export const BYPASS_ANSWER_TIMEOUT_MS = 6000;
 /** ToolOverlay stacking: status label panels (selected one on top), then the
  *  characters' speech bubbles above every label — all below the Intro bubble. */
-/** WINDOW-LAYERS: inside the HUD layer, normal windows are 1..n; the fixed panels (card bar, icon dock)
- *  sit at this z (the elevator panel is the office's, under the whole layer), a maximized window at HUD_MAXIMIZED_Z + its place in the order. */
-export const HUD_PANELS_Z = 20;
-export const HUD_MAXIMIZED_Z = 30;
+/** WINDOW-LAYERS (owner 10-25; 11-06 20:57: what was clicked last is in front): the HUD layer's z scale,
+ *  bottom to top. The pop-up notices; one stack of the windows and the HUD panels (the elevator column, the
+ *  corner, the party, the control center, the dock), `stack` + its place in windowModel's order, a press on
+ *  one brings it to the top, and what a panel opens (the notification list, usage, the menu, the member card)
+ *  rides with it; a maximized window from `maximized`, over the whole stack; the dock's handle over it
+ *  (hud-v3 P0). Dialogs, the step-up and the phone sheets portal to the body, over the whole layer
+ *  (HudIcons HUD_LAYER_Z); the canvas world is under it. */
+export const HUD_Z = { toasts: 0, stack: 10, maximized: 40, dockOverMax: 60 } as const;
+/** hud-v3: the band at the bottom a normal window keeps clear of, so the floating dock never covers its composer
+ *  or buttons (a maximized window still fills the room; its body pads the handle's height). The folded control
+ *  center (hud/ControlCenter.tsx, 154-166 tall) is a panel like the party: a window moved into the bottom-left
+ *  corner and the control center take turns in front, whichever was pressed last (HUD_Z). */
+export const HUD_DOCK_RESERVE_PX = 120;
+/** The folded dock's handle (24 px and its frame) plus air: a maximized window's body pads this much at its foot. */
+export const HUD_DOCK_HANDLE_PX = 32;
+/** hud-v3 (owner 11-06): the inspector, placed beside its portrait, keeps the same band clear (the dock). */
+export const HUD_BOTTOM_RESERVE_PX = HUD_DOCK_RESERVE_PX;
+/** hud-v3 P0: the top-right row (the CPU heat when hot) over the party: its height and the gap under it. */
+export const HUD_CORNER_ROW_PX = 44;
+/** The event log keeps this many recent events. */
+export const HUD_EVENT_LOG_MAX = 30;
 /** SMOOTH2-1104: the DOM overlays' content re-renders at least this often (the net under the change signature). */
 export const OVERLAY_CONTENT_MS = 100;
 export const OVERLAY_LABEL_Z_INDEX = 41;
@@ -561,44 +578,48 @@ export const NAMEPLATE_RING_STROKE_PX = 3;
  * UI-SCALE: the plate's sizes per 화면 크기 step (cld/uiScale.ts), CSS px. Plain
  * px, not times --ui-scale: the owner's numbers per step (10-24 16:07) --
  * 작게 the first plates, 보통 the phone's of 8144de68, 크게 the desktop's of f08882ee.
- * name/level: fonts; ring: the XP ring's outer size; fatigue: the 피로도 row's font,
- * its bar's height and least width; rank/status: CSS px per sprite pixel of the
- * rank icon and of the status icon (zzz, !, lock); nameMax: the name's max width
- * before an ellipsis.
+ * name/level: fonts; ring: the XP ring's outer size; fatigue: the 피로도 row's font
+ * (the opened plate's and 미확인's), barHeight/bar: the plate's 피로도 bar, its height and fixed width
+ * (T-67: the row is "피로도 [bar] 휴식 1/2"); rank/status: CSS px per sprite pixel of the
+ * rank icon and of the status icon (zzz, !, lock); card: every plate's one width per screen style
+ * (T-67, owner 11-06 22:34: what the owner's sample name, Samwise Gamgee in Hangul, needs in that style's
+ * name font beside the rank icon and the XP ring, the larger of Chromium and WebKit rounded up, plus 1 px;
+ * measured by cld/test/run-office-nameplate-fixed.ts MEASURE=1); a longer name ends in an ellipsis. The bar
+ * is as long as lets "피로도 [bar] 휴식 1/2" fit that width in both styles.
  */
 export const NAMEPLATE_SIZES = {
   small: {
-    name: 16,
-    level: 16,
-    ring: 20,
+    name: 14,
+    level: 14,
+    ring: 18,
     fatigue: 12,
     barHeight: 4,
-    barMin: 14,
+    bar: 26,
     rank: 2,
     status: 1,
-    nameMax: 104,
+    card: { modern: 101, pixel: 106 },
   },
   medium: {
-    name: 16,
-    level: 16,
-    ring: 22,
+    name: 14,
+    level: 14,
+    ring: 20,
     fatigue: 14,
     barHeight: 6,
-    barMin: 20,
+    bar: 28,
     rank: 2,
     status: 2,
-    nameMax: 104,
+    card: { modern: 112, pixel: 110 },
   },
   large: {
-    name: 20,
-    level: 20,
-    ring: 26,
+    name: 18,
+    level: 18,
+    ring: 24,
     fatigue: 18,
     barHeight: 6,
-    barMin: 20,
+    bar: 36,
     rank: 3,
     status: 2,
-    nameMax: 150,
+    card: { modern: 142, pixel: 140 },
   },
 } as const;
 /** UI-SCALE: --ui-scale per 화면 크기 step: Tailwind's spacing and text sizes (index.css) times this. */
@@ -612,6 +633,9 @@ export const PHONE_CARD_OTHERS_ALPHA = 0.3;
 export const NAMEPLATE_OVERLAP_SLOP_PX = 4;
 /** The overlap pass runs at most this often (and at once on selection, hover and resize). */
 export const NAMEPLATE_PASS_MS = 200;
+
+/** The room the crowd pass leaves between a nudged plate and what it was stacked against, px. */
+export const NAMEPLATE_CROWD_GAP_PX = 2;
 /** Plates keep this far inside the office's edges. */
 export const NAMEPLATE_EDGE_MARGIN_PX = 2;
 export const FATIGUE_BAR_COLORS = { fresh: '#58d46a', tired: '#f0c43c', worn: '#f0483c' } as const;
@@ -903,20 +927,18 @@ export const CARD_BAR_CARD_WIDTH_PX = 96;
 /** PARTY-FRAME (owner 11-04 (나)): the folded card bar's width, a 56px portrait plus the container's
  *  4px padding and 2px border each side and 2px of air. */
 export const PARTY_FRAME_BAR_PX = 72;
-/** '1': this device keeps the card bar unfolded (the full cards); otherwise it shows portraits only. */
-export const PARTY_FRAME_EXPANDED_STORAGE_KEY = 'cld.party-frame-expanded';
+/** FEAT-PARTY-V2: the party this device shows (the parties themselves are the daemon's, parties.json). */
+export const PARTY_SELECTED_STORAGE_KEY = 'cld.party-selected';
+/** The member card's 기록 tab: the latest notices about the agent. */
+export const MEMBER_CARD_LOG_ROWS = 6;
+/** The member card's 관련 이슈: this many Tasks, then "외 N". */
+export const MEMBER_CARD_TASK_ROWS = 4;
+/** The phone's member sheet: over the office's labels (41-43), under a modal (50) so its confirmations cover it. */
+export const MEMBER_SHEET_Z = 48;
 /** WINDOW-LAYERS: the card bar shows this many cards; more scroll inside it. */
 export const CARD_BAR_MAX_VISIBLE = 10;
 /** Grab width of the drag handle on the panel's left edge. */
 export const TERMINAL_DRAWER_RESIZE_HANDLE_PX = 6;
-/** "이 터미널로 바꾸기" reads the attach cap with this timeout; a slow answer counts as an unknown cap. */
-export const TERMINAL_SWAP_CAP_READ_TIMEOUT_MS = 2_000;
-/** Let the released attach close its socket before mounting the swapped-in tab. */
-export const TERMINAL_SWAP_RELEASE_SETTLE_MS = 150;
-/** Retry a swap's cap refusal while the released attach process exits, then show the usual refusal. */
-export const TERMINAL_SWAP_CAP_RETRY_DELAYS_MS = [300, 600, 1_200, 2_400] as const;
-/** A cap refusal this soon after "이 터미널로 바꾸기" means a viewer this window cannot release holds the slot. */
-export const TERMINAL_SWAP_REFUSAL_WINDOW_MS = 10_000;
 
 // Mug shot: a square crop of the agent's front-facing sprite, focused on the
 // face, shown in each terminal tab in place of an "Agent N" label. Sprites are
@@ -954,6 +976,12 @@ export const IMPORT_PROXY_DENSITY = 4;
 /** PAGE-MEM: an imported sheet the office wears is kept at the density its closest zoom draws
  *  (ZOOM_MAX device px per world px), not its own 12: 0.69 of the pixels, as sharp at every zoom. */
 export const IMPORT_MASTER_DENSITY = ZOOM_MAX;
+/** PERF-WEBVIEW-MEMORY: a worn sheet's masters drawn only at half their density or less are kept
+ *  halved (smoothSprite.ts), never smaller: no zoom up to ZOOM_MAX / 2 has to decode one again. */
+export const SHEET_MASTER_MIN_SCALE = 1 / 2;
+/** ...once the office has not drawn it larger than that for this long (after a close zoom, one
+ *  more close zoom soon would decode it again). */
+export const SHEET_MASTER_SHRINK_MS = 60_000;
 /** SHEET-IMPORT (owner 10-26 03:10): an imported character's world frame (24×44 px, its standing
  *  figure 1.3 classic ones tall), and the density the 64×128 pack characters draw at (3: 1.33
  *  times their 16×32 world size, as tall as an imported one). */
@@ -1160,6 +1188,9 @@ export const QUOTE_PEEK_MAX_PX = 256;
 export const MESSENGER_SPLIT_MIN_PX = 960;
 /** ROOM-THREADS: a tagged room post still unanswered shows its thread's waiting rail this long. */
 export const ROOM_WAITING_MS = 24 * 60 * 60 * 1000;
+/** ROOM-FOLD: the browser setting that remembers which threads are folded, and how many of them it keeps. */
+export const ROOM_FOLD_KEY = 'cld.room-thread-fold';
+export const ROOM_FOLD_MAX = 300;
 // GAME-UI-1 G1 (ideas/messenger 01, 02, 04): the messenger's game motion.
 /** 01: every sentence of a new reply takes this long to type (an English line has more characters than a
  *  Korean one, so the time follows the sentences, and inside one sentence the characters share it evenly) ... */
@@ -1168,8 +1199,8 @@ export const MSG_TYPE_SENTENCE_MS = 533;
 export const MSG_TYPE_MAX_MS = 5000;
 /** 01: ... in whole characters every tick. */
 export const MSG_TYPE_TICK_MS = 40;
-/** 01: the agent's portrait in its dialogue frame ... */
-export const MSG_PORTRAIT_PX = 48;
+/** 01: the portrait in its dialogue frame, the lead's and the boss's alike (75% of the earlier 48/60) ... */
+export const MSG_PORTRAIT_PX = 33;
 /** ... and what the frame adds around it (4 px padding and a 2 px line a side). */
 export const MSG_PORTRAIT_FRAME_PAD_PX = 12;
 /** 02: a confirmed answer's stamp stays on its card this long, then the card folds into a record. */
@@ -1635,6 +1666,11 @@ export const DEVROOM_RESTING_DAYS = 3;
 /** The `…` menu: its width, and the height kept clear under it before it flips up. */
 export const DEVROOM_MENU_W_PX = 300;
 export const DEVROOM_MENU_H_PX = 216;
+/** DV2 실행 row: a running run's log is read again this often while its pane is open (as the job panel);
+ *  the failed lines shown and sent to an agent; the bottom drawer's height (mockup D2). */
+export const DEVROOM_RUN_LOG_MS = 3_000;
+export const DEVROOM_RUN_TAIL_LINES = 12;
+export const DEVROOM_RUN_DRAWER_PX = 160;
 /** The gap between the `…` button and its menu. */
 export const DEVROOM_MENU_GAP_PX = 4;
 /** DEVROOM-FIX: the graph's left edge of a top card (rail, phone), one step in per branch level, and the deepest step drawn. */
@@ -1652,6 +1688,13 @@ export const DEVROOM_OUTPUT_CHIPS_MAX = 6;
 /** DEVROOM-SUBCHAT: a commit chip's message, cut to this many characters. */
 export const DEVROOM_COMMIT_CHIP_CHARS = 40;
 export const DEVROOM_SUBS_DONE_MAX = 20;
+/** DEVROOM-SIDEBAR: distinct paths kept per sub-agent to place it in a worktree, and sub-agents traced per visit. */
+export const DEVROOM_TRACE_PATHS_MAX = 64;
+export const DEVROOM_TRACES_MAX = 200;
+/** DEVROOM-SIDEBAR (owner 11-06 22:11: projects and worktrees must read apart): each tree level's step,
+ *  project head → its worktrees, a worktree → its agent rows. */
+export const DEVROOM_TREE_STEP_PX = 12;
+export const DEVROOM_SIDE_INDENT_PX = 16;
 export const DEVROOM_BOARD_TICK_MS = 15_000;
 /** DEVROOM-BOARD2 (Orca's Done/Idle): after its turn an agent is 끝남 until its last news is this old, then 쉬는 중. */
 export const DEVROOM_DONE_MS = 30 * 60_000;
@@ -1661,6 +1704,14 @@ export const DEVROOM_JUST_NOW_MS = 60_000;
  *  a divider never makes a pane narrower or shorter than this. */
 export const DEVROOM_DROP_EDGE = 0.25;
 export const DEVROOM_PANE_MIN_PX = 220;
+
+// ── DV3 개발실 명령 팔레트 (Ctrl+K, mockup D3) ──
+/** The most lines one group of the palette lists (the rest is a few more letters away). */
+export const DEVROOM_PALETTE_GROUP_MAX = 8;
+/** Above the windows, the dock and the dialogs it opens from (BOARD_FULL_Z_INDEX), under the attachment viewer. */
+export const DEVROOM_PALETTE_Z = 75;
+/** Frames a jump waits for the 개발실 to draw the pane it goes to, before it gives up focusing it. */
+export const DEVROOM_PALETTE_FOCUS_FRAMES = 30;
 
 // ── P4 개발실 병합 tab (mockups-1101/devroom-W2, W3, mockups-1028/orca-tools-K) ──
 /** How long a write's answer is awaited before the step is called lost. */
@@ -1705,8 +1756,13 @@ export const RECENT_FOLD_STORAGE_KEY = 'cld.recentFolded';
 // ── SPT-P1A 개요 / 문서 tabs (cld/spec/) ─────────────────────
 /** The 개요's lists (진행·검토·막힘, recent jobs, recent commits) show this many each. */
 export const SPEC_LIST_SHOWN = 5;
-/** A document UID shown on the 문서 tab: `d_` and this many characters (복사 copies it whole). */
-export const SPEC_UID_SHOWN = 6;
+/** RQ2: the 요구사항 tree reads this many requirements at most (the daemon's SPEC_ITEMS_PAGE_MAX); more says so and asks for a search. */
+export const SPEC_REQS_TREE_MAX = 500;
+/** RQ3: the new issue's title from the requirement, its first characters (RQW §2.5); the daemon takes up to SPEC_ISSUE_TITLE_MAX. */
+export const SPEC_ISSUE_TITLE_SHOWN = 60;
+export const SPEC_ISSUE_TITLE_MAX = 200;
+/** RQ2: the issues the '왜' box names one by one; the rest are one count. */
+export const SPEC_WHY_ISSUES = 2;
 /** The modal layer of the 켜기 window (above the 현황판 window). */
 export const SPEC_DIALOG_Z = 64;
 /** SPT-P1B: the 요구사항 search waits this long after the last key before it asks again. */
@@ -1723,6 +1779,8 @@ export const SPEC_DIFF_CELLS_MAX = 400_000;
 export const SPEC_OVERVIEW_DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const SPEC_OVERVIEW_VIEWED = 5;
 export const SPEC_OVERVIEW_REFETCH_MS = 500;
+/** BRN K5: the 개요's five lines show this many board Tasks for 어디까지 (latest done) and 다음 (top of 할 일). */
+export const RESUME_BOARD_SHOWN = 3;
 
 // ── SPT-P3-GRAPH 그래프 tab and requirement detail (cld/spec/TraceGraph.tsx, ReqDetail.tsx) ──
 /** Node boxes the dagre layout reserves (px, the pixel node components draw inside them). */
@@ -1758,40 +1816,66 @@ export const SPEC_MAP_ARROW_HEAD = 6;
 export const SPEC_MAP_BAR_SEGMENTS = 10;
 export const SPEC_MAP_CHIPS = 2;
 export const SPEC_MAP_LIST_SHOW = 7;
+/** 아키텍처 그래프 (cld/spec/ArchCards.tsx): a card's size and the grid's gaps in flow px, desktop and phone. */
+export const SPEC_CARD = { w: 264, h: 156, gapX: 64, gapY: 56, cols: 3 } as const;
+export const SPEC_CARD_PHONE = { w: 120, h: 92, gapX: 20, gapY: 28, cols: 3 } as const;
+/** A card's inside parts and requirement areas named on it; recent changes in the detail (phone: fewer). */
+export const SPEC_CARD_INSIDE = 3;
+export const SPEC_CARD_REQS = 3;
+export const SPEC_CARD_RECENT = 3;
+export const SPEC_CARD_RECENT_PHONE = 2;
+/** The lines' arrow heads (React Flow markers take a colour, not a CSS variable): plain, two-way, the picked card's. */
+export const SPEC_CARD_LINE = { plain: '#8a8aa6', two: '#e8b41c', on: '#a98fff' } as const;
+/** fitView's padding (a share of the pane). */
+export const SPEC_CARD_FIT_PAD = 0.08;
+/** Icon sizes (px): on a card, on a phone card, in a tree row or a button. The pane's dot grid (gap, dot). */
+export const SPEC_CARD_ICON = { card: 24, phone: 20, small: 12 } as const;
+export const SPEC_CARD_DOTS = { gap: 16, size: 2 } as const;
+/** BRN K8: design modules listed in a picked card's note (the rest is a count). */
+export const SPEC_DESIGN_NOTE_MODULES = 5;
 
 // ── GAME-UI-0 game parts (cld/game/parts.tsx; specs/ui-mock-1103 cockpit D2) ──
 /** An 8x8 pixel icon drawn at 2x. */
 export const GAME_ICON_PX = 16;
 /** SegBar's segments (the mock's 작업 연결 bar). */
 export const GAME_SEGBAR_SEGMENTS = 24;
-/** HI-SCORE digits (0001 / 0272). */
-export const GAME_SCORE_DIGITS = 4;
-/** GAME-UI-1 G2: a HI-SCORE digit rolls one place after the next (ms apart; the roll itself is game.css). */
-export const GAME_ROLL_STEP_MS = 200;
 /** 이번 주 수락: a day's column holds this many cells at most (the number under it is the count); the past-weeks bars are this tall. */
 export const GAME_WEEK_CELLS = 10;
 export const GAME_WEEK_BAR_PX = 36;
-/** A quest card's priority stars (P0 ★★★ … none ☆☆☆). */
-export const GAME_QUEST_STARS = 3;
+/** FEAT-QUESTS-GPT-LOOK: the board's width (px) from which the status groups are columns, and from which a card's detail opens in a side panel. */
+export const QUEST_COLS_MIN_PX = 860;
+export const QUEST_SIDE_MIN_PX = 1180;
 
 // ── GAME-UI-1 G3: party roster, job run, game HUD (cld/game; specs/ui-mock-1103/ideas/agents 05-07) ──
 /** 컨텍스트 남음 at or under this is amber (05). */
 export const GAME_CONTEXT_WARN_PCT = 20;
-/** The party card's context bar, and the card bar's small one. */
-export const GAME_PARTY_SEGMENTS = 10;
+/** The card bar's small context bar. */
 export const GAME_MINI_SEGMENTS = 8;
-/** A party card's figure: world px x this (16x32 -> 48x96). */
-export const GAME_PARTY_FIGURE_ZOOM = 3;
 /** The job runner: world px x this, and its walk (8 fps), only while the card is on screen. */
 export const GAME_RUN_FIGURE_ZOOM = 2;
 export const GAME_RUN_WALK_MS = 125;
 /** The job track's cells. */
 export const GAME_RUN_SEGMENTS = 30;
-/** HUD: the 5-hour window's cells; a window with this much left or less is amber, 0 left is dimmed (07). */
-export const GAME_HUD_5H_SEGMENTS = 8;
-/** HUD-2B: the desktop bar's main window as an HP/MP row (specs/ui-mock-1104/hud2). */
-export const GAME_HUD_ROW_SEGMENTS = 20;
+/** A usage window with this much left or less is amber, 0 left is dimmed (07). */
 export const GAME_USAGE_WARN_LEFT = 10;
+/** FEAT-HUD-CONTROL-CENTER: a usage window's bar (HP cells in 픽셀 감성, one smooth bar in 모던). */
+export const CC_BAR_SEGMENTS = 10;
+/** The folded tile's usage: the agents closest to their limits it shows (the rest are "외 N"). */
+export const CC_FOLDED_AGENTS = 2;
+/** A usage report older than this shows its age ("12분 전 기준"): the status line reports on each Claude reply. */
+export const USAGE_REPORT_FRESH_MS = 5 * 60_000;
+/** A longer window (the week) with this little left still beats a plan's 5-hour window on the folded tile. */
+export const USAGE_URGENT_LEFT_PCT = 10;
+/** AGENT-UPDATE: a successful 업데이트 result stays this long (a failed one stays until the panel closes). */
+export const AGENT_UPDATE_RESULT_MS = 60_000;
+/** AGENT-LATEST: the usage panel's ↻ asks the daemon for the newest CLI versions at most this often (the daemon throttles the same). */
+export const AGENT_LATEST_ASK_GAP_MS = 30_000;
+/** The open control center's latest news rows (모두 보기 opens the notification panel). */
+export const CC_NEWS_ROWS = 3;
+/** An agent logo's brand colour (Simple Icons 16.36.0's hex, cld/icons/agentLogos.ts); black or white marks have none. */
+export const AGENT_LOGO_COLOR = { claude: '#D97757', gemini: '#8E75B2' } as const;
+/** An agent without a logo: its initial on a hue made from its id (0..359, controlCenter.css --mark-hue). */
+export const AGENT_MARK_HUES = 360;
 /** HUD heat gauge: 10 cells from 30 °C, one per 7 °C (the mock's scale; tones from format.tempTone). */
 export const GAME_HEAT_SEGMENTS = 10;
 export const GAME_HEAT_BASE_C = 30;
@@ -1807,3 +1891,22 @@ export const GAME_NIGHT_FROM_H = 18;
  */
 export const FEATURE_INTERIOR = false;
 export const FEATURE_LOOKS_CUSTOM = false;
+
+// ── A5 현황판 (GPT mockup look, panels/Dashboard.tsx) ──
+/** Tasks in progress shown before 더 보기. */
+export const BOARD_LOOK_TASK_ROWS = 6;
+/** Feed events in 최근 활동. */
+export const BOARD_LOOK_ACTIVITY_ROWS = 6;
+/** A face in a row (a mug shot's side). */
+export const BOARD_LOOK_FACE_PX = 24;
+/** Cells of a 시스템 요약 bar. */
+export const BOARD_LOOK_METER_SEGMENTS = 10;
+/** A load from this share reads warn, then bad. */
+export const BOARD_LOOK_WARN_FRAC = 0.7;
+export const BOARD_LOOK_BAD_FRAC = 0.9;
+
+// ── Messenger overall search (ChatSearchAll) ───────────────
+/** The list's find field searches the conversations' text from this many characters on, */
+export const MESSENGER_SEARCH_ALL_MIN_CHARS = 2;
+/** once typing has paused this long (the daemon reads transcripts for each request). */
+export const MESSENGER_SEARCH_ALL_DEBOUNCE_MS = 400;

@@ -109,11 +109,11 @@ async function pressBoard(page: Page, tap: boolean) {
   await page.waitForTimeout(800);
 }
 
-/** The 현황판 is open on its 오케스트레이터 tab. */
+/** The 현황판 is open on its 요약 tab (the old 오케스트레이터 tab, renamed when the tree became a dashboard). */
 async function onStatusTab(page: Page): Promise<boolean> {
   const win = page.locator(DEV_WINDOW).first();
   if (!(await win.isVisible())) return false;
-  const tab = win.getByRole('button', { name: '오케스트레이터', exact: true }).first();
+  const tab = win.getByRole('button', { name: '요약', exact: true }).first();
   return (await tab.getAttribute('aria-pressed')) === 'true';
 }
 
@@ -178,7 +178,7 @@ async function main() {
     await d.page
       .locator(DEV_WINDOW)
       .first()
-      .getByRole('button', { name: '개발', exact: true })
+      .getByRole('button', { name: '프로젝트', exact: true })
       .first()
       .click();
     await pressBoard(d.page, false);

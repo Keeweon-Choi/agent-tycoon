@@ -46,7 +46,10 @@ import {
   CODEX_USAGE_PROBE_TIMEOUT_MS,
 } from '../constants.js';
 import { PALETTE_COUNT } from '../constants.js';
-import { findClaude } from './agentCli.js';
+import { findClaude, findUvx } from './agentCli.js';
+import { AgentLatest } from './agentLatest.js';
+import { specReads } from './agentSpecReads.js';
+import { AgentUpdate } from './agentUpdate.js';
 import type { StandaloneAuth } from './auth.js';
 import { BackgroundStore } from './background.js';
 import { BuildingStore, loadBuilding, placeNewRooms } from './building.js';
@@ -54,6 +57,7 @@ import { CharacterPartStore, registerPartRoutes } from './characterParts.js';
 import { CharacterPresets, registerCharacterRoutes } from './characterPresets.js';
 import type { CharacterSpec } from './characters.js';
 import { CharacterBinder } from './characters.js';
+import { sendTextRefusal } from './chatSend.js';
 import { configDirectory } from './configPath.js';
 import { ensureOwnerToken, ownerTokenMatches } from './controlIdentity.js';
 import type { Lead } from './conversations.js';
@@ -62,9 +66,13 @@ import type { Footprints } from './decor.js';
 import { DecorStore } from './decor.js';
 import { deviceLabel, deviceSource } from './device.js';
 import { Devroom } from './devroom.js';
+import { DevroomRuns } from './devroomRuns.js';
 import type { AgentChoicesReader } from './engine/agentCapabilities.js';
 import { AgentChoicesCache } from './engine/agentCapabilities.js';
+import { AgentQueries, resumeHandoff } from './engine/agentQueries.js';
 import { handleAgentRules, rulesDirFor } from './engine/agentRules.js';
+import { AcpAgent } from './engine/agents/acp/acp.js';
+import { installedPresets } from './engine/agents/acp/presets.js';
 import { CodexAgent } from './engine/agents/codex/codex.js';
 import type { CodexRecord } from './engine/codex.js';
 import { codexJson, CodexTasks, readCodex } from './engine/codex.js';
@@ -72,14 +80,13 @@ import type { Reply } from './engine/control.js';
 import { answerControl, controlPath, listenControl, refuse } from './engine/control.js';
 import { answerDecision, answerMode, approvalsPath, ApprovalStore } from './engine/delegation.js';
 import type { EngineMode } from './engine/engine.js';
-import { Engine, engineOn, nudgeText, renewText } from './engine/engine.js';
+import { Engine, engineOn, nudgeText } from './engine/engine.js';
 import {
   appendEvent,
   EngineEvents,
   eventsPath,
   isoLocal,
   rotateEvents,
-  shortStamp,
 } from './engine/events.js';
 import { EventsTail } from './engine/eventsTail.js';
 import { RepoError } from './engine/git/gitRun.js';
@@ -98,29 +105,34 @@ import {
 import { GpuBoardFold } from './engine/gpuBoard.js';
 import { GroupMessages } from './engine/groupMessages.js';
 import { GroupStore } from './engine/groups.js';
-import { Jobs } from './engine/jobs.js';
-import { leadTermBefore, readLeadHistory } from './engine/leadSwap.js';
+import { Jobs, type KillFn } from './engine/jobs.js';
+import { readLeadHistory } from './engine/leadSwap.js';
 import { LOG_PRUNE_INTERVAL_MS } from './engine/logPolicy.js';
 import { pruneLogs } from './engine/logPrune.js';
 import { McpTools } from './engine/mcpTools.js';
 import type { MESSENGER_TIMING, Typist } from './engine/messenger.js';
 import { Messenger } from './engine/messenger.js';
-import { loadRegistry, registryPath } from './engine/registry.js';
+import { CLAUDE_PTY_PROVIDER, DEFAULT_PROVIDER, loadRegistry, registryPath } from './engine/registry.js';
+import { historyHop, readRenewHistory } from './engine/renewals.js';
 import { CLD_BIN_DIR, cleanEnv } from './engine/sessionEnv.js';
 import { buildSessionPath } from './engine/sessionPath.js';
 import { answerTask, startForTask, tasksPath, TaskStore } from './engine/tasks.js';
-import { answerWorktree, worktreeForTask } from './engine/taskWorktree.js';
+import { answerWorktree, seatInWorktree, worktreeForTask } from './engine/taskWorktree.js';
 import { TurnLedger } from './engine/turnLedger.js';
 import { EzRulesFile, ezRulesPath } from './ezRules.js';
 import { detectHostInfo, listFolders, parseListFolders } from './folders.js';
 import type { SocketStepUp, WsSend } from './hooks.js';
 import { cldHooks } from './hooks.js';
+import { hostLabel, registerHostNameRoute } from './hostName.js';
 import { DiskUsageSource } from './hw/diskUsage.js';
-import { hasHwReadings, HwSource, readTopProcesses, withoutDetail } from './hw/hwSource.js';
+import { hasHwReadings, hwPlatform, HwSource, readTopProcesses, withoutDetail } from './hw/hwSource.js';
+import { LHM_DEFAULT_PORT } from './hw/lhm.js';
+import { SensorTool } from './hw/sensorTool.js';
 import { codexLabel, WHITEBOARD_TYPE } from './layout.js';
 import { LevelStore, OWNER_COUNTED, ownerActionOf } from './levels.js';
 import { MemoStore } from './memos.js';
 import { handleNewAgentPermission, newAgentPermissionMessage } from './newAgentPermission.js';
+import { liveBackgroundAgents } from './office/backgroundAgents.js';
 import { OfficeChat } from './office/chat.js';
 import { engineRoutes } from './office/engineRoutes.js';
 import { type FloorPlan, OfficeFloors } from './office/floors.js';
@@ -129,6 +141,7 @@ import { OfficeRooms } from './office/rooms.js';
 import { WorkerRuns } from './office/workerRuns.js';
 import { registerOwnerProfileRoutes } from './ownerProfile.js';
 import { builtInPacksDir, builtInSheetDirs, PackStore } from './packs.js';
+import { PartyStore } from './parties.js';
 import { PinStore } from './pins.js';
 import { aliasOf, deleteGoneConversation, detachSpecData, type FormerName, purgedNow, purgeSpecData, readNameHistory } from './projectData.js';
 import { parseProjectRepo, ProjectRepos } from './projectRepo.js';
@@ -149,6 +162,7 @@ import { SlashCatalogue } from './slashCommands.js';
 import { spawnSpecMap } from './spec/mapWorker.js';
 import { registerSpecRoutes } from './spec/routes.js';
 import { SpecService } from './spec/service.js';
+import { SpecWorkflow } from './spec/workflow.js';
 import { staffFacts } from './staffStatus.js';
 import {
   realStartPolicyDeps,
@@ -157,12 +171,13 @@ import {
   testStartPolicyDeps,
 } from './startPolicy.js';
 import { engineJobsOutput, localStatusReport } from './statusReport.js';
+import { Street, streetAgents } from './street.js';
 import { TempStaff } from './tempStaff.js';
 import { TrackingFeed } from './tracking/feed.js';
 import { leadHistoryHop } from './transcriptHistory.js';
 import { senderAlias } from './transcriptView.js';
 import { managedInstall, registerUpdateRoutes, UpdateNotice } from './updateNotice.js';
-import { claudeUsageUrl, type EarlyUsageReset, readMacKeychain, UsageSource } from './usage.js';
+import { claudeUsageProbe, type EarlyUsageReset, UsageSource } from './usage.js';
 import { WorktreeWho } from './worktreeWho.js';
 import { WorkViews } from './workView.js';
 
@@ -193,6 +208,11 @@ export const CLD_PTYHOST: string | null =
   ].find((f) => fs.existsSync(f)) ?? null;
 /** How often the temps per room are counted while anyone views (T-0041). */
 const ROOM_SAMPLE_MS = 30_000;
+/** dist/ in an installed bundle, server/src/cld/ in a checkout: the folder holding cld/release/version.json. */
+const bundleRoot = (): string | undefined =>
+  [path.resolve(__dirname, '..'), path.resolve(__dirname, '../../..')].find((dir) =>
+    fs.existsSync(path.join(dir, 'cld', 'release', 'version.json')),
+  );
 const oneLineError = (err: unknown): string => {
   const message = err instanceof Error ? err.message : String(err);
   return message.replace(/[\r\n]+/g, ' ').slice(0, 200);
@@ -214,15 +234,17 @@ export interface OfficeOptions {
   /** Tests: the engine's PTY host script (default dist's); null keeps new agents on `claude --bg`,
    *  the path the Typist and PERM-PROMPT office tests were written for. */
   ptyHostScript?: string | null;
-  /** A `claude attach` runs (~150 MB): no `claude agents --json` beside it. */
+  /** A `claude attach` runs: no `claude agents --json` beside it. */
   attaching?: () => boolean;
   /** `list(spawn)`: spawn is true while someone views. */
   claude: Pick<ClaudeSessions, 'list'> | null;
   hw?: Pick<HwSource, 'sample'>;
-  /** --lhm-port: LibreHardwareMonitor's web server (Windows, WSL; T-0030). */
+  /** --lhm-port: LibreHardwareMonitor's web server (Windows, WSL; T-0030); unset = LHM's default. */
   lhmPort?: number | null;
   /** --nvidia-smi: the binary to query the GPU with, or null (never queried). */
   nvidiaSmi?: string | null;
+  /** nvidia-smi on this machine, on or off: what the H/W screen's switch turns on. */
+  nvidiaSmiFound?: string | null;
   defaultLayout?: Record<string, unknown> | null;
   catalog?: () => Footprints;
   /** Home dir for Claude's projects/ and the engine's files (tests). */
@@ -251,6 +273,15 @@ export interface OfficeOptions {
   messengerTiming?: Partial<typeof MESSENGER_TIMING>;
 }
 
+/** Browser runners only (cld/test/run-devroom-runs.ts): CLD_GUI_TEST_FAKE_KILL names a file where a job
+ *  stop writes `<target> <signal>` instead of sending it, so a runner never signals a real process.
+ *  ponytail: a test switch read from the daemon's environment (like CLD_GUI_TEST_REMOTE); set by mistake
+ *  it only makes 멈추기 not stop. Move it to an Office option set by the runner if more such switches come. */
+const fakeKill =
+  (file: string): KillFn =>
+  (target, signal) =>
+    fs.appendFileSync(file, `${target} ${signal}\n`);
+
 export class Office {
   private claudeData: ClaudeData | null = null;
   private readonly usage: UsageSource;
@@ -274,6 +305,8 @@ export class Office {
   readonly codex: CodexTasks | null;
   /** D5: the Codex provider (Codex Workers' runs on `codex`). */
   private readonly codexAgent: CodexAgent | null;
+  /** ACP-1: one provider per ACP agent installed here (found at start). */
+  private readonly acpAgents: AcpAgent[];
   /** Filled after the HTTP listener selects its port; control status reports it
    * so the install manager never confuses a source daemon for this install. */
   private daemonPort: number | null = null;
@@ -286,6 +319,8 @@ export class Office {
   private mcp: McpTools | null = null;
   private world: World;
   private readonly binder: CharacterBinder;
+  /** K1 (G6): the transcript each engine character's background spawns were read from, by its id. */
+  private readonly spawnsRead = new Map<number, string>();
   private readonly codexBinder: CharacterBinder;
   /** T-0017: preset sheets and the look chosen per character name. */
   readonly characters: CharacterPresets;
@@ -294,13 +329,21 @@ export class Office {
   readonly repos: RepoManager;
   /** P4: the dev room's viewers, stats and settings. */
   readonly devroom: Devroom;
+  /** DV2: the dev room's 실행 row (picked package.json scripts as engine jobs). */
+  private readonly runs: DevroomRuns;
   /** DEVROOM-PROJECT: 프로젝트 추가's check, git init and clone. */
   private readonly projectRepos: ProjectRepos;
   /** P3a: the released-version notice; null for a source install (nothing to update from here). */
-  private readonly updates: UpdateNotice | null;
+  private readonly updates: UpdateNotice;
   /** R3: the start policy and its facts, in 설정. */
   private readonly startPolicy: StartPolicyControl;
-  private readonly hw: Pick<HwSource, 'sample'>;
+  private readonly hw: Pick<HwSource, 'sample'> &
+    Partial<Pick<HwSource, 'redetectLhm' | 'setNvidiaSmi'>>;
+  private readonly sensorTool: SensorTool;
+  /** AGENT-UPDATE: the owner's 업데이트 of an agent CLI (its own update command). */
+  private readonly agentUpdate: AgentUpdate;
+  private readonly agentLatest: AgentLatest;
+  private lhmPort: number;
   /** A cached, on-demand disk walk for hardware-page viewers. */
   private readonly diskUsage: DiskUsageSource;
   /** A sample still running (LHM via curl.exe, nvidia-smi): the next tick waits for it. */
@@ -354,6 +397,8 @@ export class Office {
   private readonly hireLooks = new Map<string, { palette: number; hueShift: number }>();
   /** U-30: the pinned conversations. */
   readonly pins: PinStore;
+  /** FEAT-PARTY-V2: the parties the owner composed. */
+  readonly parties: PartyStore;
   /** PROJECT-DATA: name-history.json as last read (the messenger's aliases and gone contacts). */
   private nameHistory: FormerName[] = [];
   /** BACKGROUND: the isometric office's surroundings. */
@@ -377,6 +422,8 @@ export class Office {
   readonly push: PushService | null;
   /** PERM-PROMPT: engine sessions held by a permission dialog, and what each card shows. */
   private readonly permission: OfficePermissions;
+  /** MHO v1b: the neighbours this host reads and the hosts that read it (street.ts). */
+  readonly street: Street;
   /** The floors, layout and seats (T-0027). */
   private readonly floors: OfficeFloors;
   /** Worker runs and Task worktrees: assignments, the worktree an agent starts in, the end of a run told to its Lead. */
@@ -438,20 +485,57 @@ export class Office {
       readOnly: opts.readOnly,
       configDir: configDirectory(opts.home ?? os.homedir()),
       looking: (send) => !this.hidden.has(send),
-      // W2: the 작업실's "worktree 만들기" (the owner's: createdBy user).
-      taskWorktree: (req, privileged, source) =>
-        worktreeForTask(
-          this.workerRuns.taskWorktreeDeps(),
+      // W2: the 작업실's "worktree 만들기" (the owner's: createdBy user); DV4: the 개발실's 새 작업
+      // 공간 and 앉히기 (seat: the engine's own start or restart, then the messenger).
+      taskWorktree: (req, privileged, source) => {
+        // The first instruction is the owner's chat: the --allow-chat switch and chatSend's text rules.
+        const refusal = req.text === undefined ? null : !this.opts.chat ? refused('chat_off') : sendTextRefusal(req.text);
+        if (refusal) return Promise.resolve({ ok: false, code: refusal.errorCode ?? 'bad_text', error: refusal.error });
+        const device = source.replace(/^gui:/, '');
+        return seatInWorktree(
+          {
+            ...this.workerRuns.taskWorktreeDeps(),
+            lifetime: (name) => {
+              const a = this.engine?.roster().find((x) => x.name === name);
+              return a ? this.engine?.state().agentCaps?.[a.provider]?.lifetime : undefined;
+            },
+            engineAction: (action, name) =>
+              this.engine
+                ? this.engine.run(
+                    action === 'pty'
+                      ? { type: 'engineAction', requestId: `seat-${Date.now()}`, action: 'edit', name, provider: CLAUDE_PTY_PROVIDER }
+                      : { type: 'engineAction', requestId: `seat-${Date.now()}`, action, name },
+                    privileged,
+                    device,
+                    true,
+                  )
+                : Promise.resolve({ ok: false, error: koText('not_engine_project') }),
+            worksIn: (name, folder) => !!this.engine?.worksIn(name, folder),
+            oldStyle: (name) =>
+              !!this.engine &&
+              !this.engine.inPty(name) &&
+              this.engine.roster().find((x) => x.name === name)?.provider === DEFAULT_PROVIDER &&
+              this.engine.providerReady(CLAUDE_PTY_PROVIDER),
+            send: (r) =>
+              this.messenger
+                ? this.messenger.send({ ...r, ifIdle: false, from: null, source: `messenger:${device}` })
+                : Promise.resolve({ ok: false, error: koText('not_engine_project') }),
+          },
           {
             taskId: req.taskId ?? '',
+            ...(req.title && { title: req.title, project: req.project }),
             assignee: req.assignee || null,
             ...(req.base && { base: req.base }),
+            ...(req.branch && { branch: req.branch }),
+            ...(req.seat && { seat: true }),
+            ...(req.text && { text: req.text }),
             by: source,
             createdBy: 'user',
           },
           privileged,
           source,
-        ),
+        );
+      },
       nameOf: (id) => this.workerRuns.nameOfAssignment(id),
       whoDid: (project, wtPath) => this.worktreeWho.of(project, wtPath),
       // Step ④ of the review loop: the boss's queue to the agent, the Task back to doing, a Lead line.
@@ -498,13 +582,53 @@ export class Office {
         });
       },
     });
+    this.runs = new DevroomRuns({
+      file: path.join(configDirectory(opts.home ?? os.homedir()), 'run-scripts.json'),
+      readOnly: !!opts.readOnly,
+      workSpace: (project, task) => this.repos.workSpace(project, task),
+      jobs: () => this.jobs,
+      attach: (taskId, jobId, log, by) => {
+        const r = this.tasks.attach(taskId, { kind: 'job', ref: jobId, log }, by);
+        if (!r.ok) console.warn(`[cld devroom] run ${jobId}: not attached to ${taskId} (${String(r.error)})`);
+      },
+    });
     this.hw =
       opts.hw ??
       new HwSource({
         home: opts.home,
         lhmPort: opts.lhmPort,
         nvidiaSmi: opts.nvidiaSmi,
+        nvidiaSmiFound: opts.nvidiaSmiFound,
       });
+    this.lhmPort = opts.lhmPort ?? LHM_DEFAULT_PORT;
+    // Browser runners' fake installer step (cld/test/run-hw-every-os.ts); unset in every install.
+    // ponytail: an env var names the script the daemon runs; it is the daemon's own environment (set
+    // by the service or the runner), never a request's. Replace with an injected dep if one appears.
+    const sensorScript =
+      process.env.CLD_GUI_TEST_HW_SENSORS ??
+      [bundleRoot()].map((r) => r && path.join(r, 'cld', 'install', 'hwSensors.mjs')).find((f) => f && fs.existsSync(f)) ??
+      null;
+    this.sensorTool = new SensorTool({
+      platform: hwPlatform(),
+      script: sensorScript,
+      port: () => this.lhmPort,
+      home,
+      installed: (port) => {
+        this.lhmPort = port;
+        this.hw.redetectLhm?.(port);
+      },
+      setNvidiaSmi: (on) => this.hw.setNvidiaSmi?.(on) ?? false,
+    });
+    this.agentUpdate = new AgentUpdate({
+      cli: (agent) => this.engine?.agentCli(agent) ?? null,
+      env: () => this.engine?.jobEnv() ?? cleanEnv(process.env, home),
+      home,
+      updated: () => {
+        this.engine?.refreshAgentChoices();
+        this.recompute();
+      },
+    });
+    this.agentLatest = new AgentLatest({ home });
     this.diskUsage = new DiskUsageSource({ home: opts.home });
     this.ezRules = new EzRulesFile(ezRulesPath(opts.home));
     this.building = new BuildingStore(
@@ -545,6 +669,7 @@ export class Office {
     });
     opts.store.on('agentRemoved', (id) => this.levels.forget(id));
     this.pins = new PinStore(path.join(configDirectory(home), 'pins.json'));
+    this.parties = new PartyStore(path.join(configDirectory(home), 'parties.json'));
     this.background = new BackgroundStore(path.join(configDirectory(home), 'background.json'));
     this.tasks = new TaskStore(
       tasksPath(home),
@@ -594,6 +719,16 @@ export class Office {
       jobs: () => this.jobs?.list(true) ?? [],
       // SPT-P3-OVERVIEW: 최근 근거's merges, read from W4's file on a 개요 read only.
       merges: (project, n) => mergeHistory.list(project, n),
+      // BRN K5: the 개요's five lines read the Lead's latest handoff (its inbox, K3's reader) on request.
+      resume: (project) => resumeHandoff(home, project),
+      // RQ3: 이 요구사항으로 이슈 만들기 adds the issue the board's own way (its broadcast tells everyone).
+      addTask: (fields, device) => {
+        const r = this.tasks.add(fields, `gui:${device}`);
+        const id = (r.task as { id?: unknown } | undefined)?.id;
+        if (!r.ok || typeof id !== 'string') return { ok: false };
+        this.levels.ownerDid('tasks'); // OWNER-STATS, as the board's 새 이슈
+        return { ok: true, id };
+      },
       // SPT C1: the 지도's code scan in a short child process (never in the daemon: its memory goes back).
       ...(specWorker && { specMap: spawnSpecMap(specWorker) }),
     });
@@ -602,10 +737,11 @@ export class Office {
       {
         home,
         codexHome: process.env.CODEX_HOME ?? path.join(home, '.codex'),
-        claudeConfigDir: process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'),
-        // ponytail: with a custom CLAUDE_CONFIG_DIR Claude Code names its Keychain item differently: the file only.
-        keychain: process.platform === 'darwin' && !process.env.CLAUDE_CONFIG_DIR ? readMacKeychain : null,
-        usageUrl: claudeUsageUrl(),
+        // The per-model weeks (Fable): the user's own claude, as the engine runs it, answering /usage.
+        probe: opts.engineClaude
+          ? () =>
+              claudeUsageProbe(opts.engineClaude!, this.engine?.jobEnv() ?? cleanEnv(process.env, home), home)
+          : null,
       },
       () => this.publishUsage(),
       (reset) => this.usageResetEarly(reset),
@@ -636,6 +772,22 @@ export class Office {
           log: (line) => console.log(`[cld engine] ${line}`),
         })
       : null;
+    // ACP-1: the installed ACP agents, found once at start. ponytail: one installed later is offered
+    // after the next daemon start.
+    const acpPath = [opts.sessionPath, process.env.PATH].filter(Boolean).join(path.delimiter);
+    this.acpAgents = engineOnHere
+      ? installedPresets({ env: { ...process.env, PATH: acpPath }, home }).map(
+          ({ preset, bin }) =>
+            new AcpAgent({
+              preset,
+              bin,
+              home,
+              env: () => this.engine?.jobEnv() ?? process.env,
+              ask: (name, ask, signal) => this.permission.askAcp(name, ask, signal),
+              log: (line) => console.log(`[cld engine] ${line}`),
+            }),
+        )
+      : [];
     this.engineEvents = engineOnHere
       ? new EngineEvents(eventsPath(home), (e) =>
           this.opts.store.broadcast({ type: 'officeEvent', ...e }),
@@ -645,12 +797,14 @@ export class Office {
       ? new Engine({
           claudePath: opts.engineClaude!,
           ptyHostScript: opts.ptyHostScript !== undefined ? opts.ptyHostScript : CLD_PTYHOST,
-          agentChoices: opts.agentChoices,
+          agentChoices: opts.agentChoices && {
+            discover: (refresh) => this.agentLatest.merge(opts.agentChoices!.discover(refresh)),
+          },
           sessionPath: opts.sessionPath,
           readOnly: opts.readOnly,
           home: opts.home,
           host: this.host,
-          ...(this.codexAgent && { agents: [this.codexAgent] }),
+          agents: [...(this.codexAgent ? [this.codexAgent] : []), ...this.acpAgents],
           changed: () => this.recompute(),
           // D5 (F4): a Worker run's report that did not reach its Lead is tried again.
           tick: () => this.reportWorkerRuns(),
@@ -668,6 +822,19 @@ export class Office {
               source: 'engine',
               kind: 'nudge', // S-05: dropped if a renewal comes first
             }),
+          // K1 (G6): a renew waits while the agent's background sub-agents still run.
+          // Unknown (null) until its character follows the transcript; a binding's spawns from
+          // before it (a daemon restart) are read from the transcript once.
+          subagents: (name) => {
+            const id = this.binder.idOf(`engine:${name}`);
+            const a = id === null ? undefined : this.opts.store.get(id);
+            if (!a?.jsonlFile) return null;
+            if (this.spawnsRead.get(a.id) !== a.jsonlFile) {
+              for (const t of liveBackgroundAgents(a.jsonlFile)) a.backgroundAgentToolIds.add(t);
+              this.spawnsRead.set(a.id, a.jsonlFile);
+            }
+            return a.backgroundAgentToolIds.size;
+          },
           // D3b: the new Lead's first prompt (Tasks, running work, recent events).
           briefing: (project) => ({
             tasks: this.tasks.list({ project }),
@@ -698,10 +865,11 @@ export class Office {
           return a === undefined ? undefined : isGoneName(a) ? koText('gone_agent') : a;
         }
       : undefined;
-    // D3b: a Lead contact's history scrolls back into the old Leads' terms (lead-history.json).
+    // D3b: a Lead contact's history scrolls back into the old Leads' terms (lead-history.json);
+    // K1 (B3): any agent's into the conversation its renew replaced (renew-history.json).
     leadHistoryHop.hop = this.engine
       ? (file, start) =>
-          leadTermBefore(readLeadHistory(home), file, start, (sid) =>
+          historyHop(file, start, readLeadHistory(home), readRenewHistory(home), (sid) =>
             this.engine?.leadProjectOfSession(sid) ?? null,
           )
       : undefined;
@@ -754,6 +922,7 @@ export class Office {
               this.publishJobs();
             },
             worker: opts.worker === undefined ? CLD_WORKER : opts.worker,
+            ...(process.env.CLD_GUI_TEST_FAKE_KILL && { kill: fakeKill(process.env.CLD_GUI_TEST_FAKE_KILL) }),
           })
         : null;
     this.codex =
@@ -768,7 +937,7 @@ export class Office {
                 ok: true,
                 made: await this.repos.worktrees.create(project, task, meta),
               }));
-              if (!r.ok || !('made' in r)) throw new RepoError(r.error ?? '작업 공간을 만들지 못했어요');
+              if (!r.ok || !('made' in r)) throw new RepoError(r.error ?? '워크트리를 만들지 못했어요');
               return r.made;
             },
             folderOf: (name) => this.engine!.folders().find((f) => f.name === name)?.folder ?? null,
@@ -864,6 +1033,14 @@ export class Office {
           turn: (id) => this.rooms.turnOf(id),
         })
       : null;
+    this.street = new Street({
+      home: this.host.home,
+      self: () => hostLabel(this.host.home),
+      version: process.env.CLD_GUI_VERSION ?? '',
+      agents: () =>
+        streetAgents(opts.store.values(), (id) => this.entryOf(id), (id) => !!this.permission.cardFor(id)),
+      broadcast: (m) => opts.store.broadcast(m),
+    });
     this.permission = new OfficePermissions({
       claudePath: this.engine ? opts.engineClaude! : null,
       store: opts.store,
@@ -876,7 +1053,15 @@ export class Office {
       idOf: (key) => this.binder.idOf(key),
       employeeOf: (key) => this.roster.employeeOf(key),
       inPty: (name) => this.engine?.inPty(name),
+      acp: (name) => this.engine?.isAcp(name),
+      ptyAsks: (id) => {
+        const bg = this.entryOf(id)?.bg?.id;
+        const s = bg ? this.engine?.pty.host.status.get(bg) : undefined;
+        return s?.state === 'blocked' && s.kind === 'permission';
+      },
     });
+    // FIX-PERM-RESTART: a PTY terminal's permission dialog with no hook behind it is a card too.
+    this.engine?.pty.host.onChange(() => this.permission.syncPty());
     this.floors = new OfficeFloors({
       opts,
       building: this.building,
@@ -900,16 +1085,17 @@ export class Office {
    * TERM-P3 (ADR-0018): a PTY agent's PermissionRequest hook (control `permission-hook`); the card
    * logic is OfficePermissions.ask.
    */
-  askPermission(name: string, ask: { tool: string; input: Record<string, unknown> }): Promise<'allow' | 'deny' | null> {
+  askPermission(
+    name: string,
+    ask: { tool: string; input: Record<string, unknown>; waitMs?: number; gone?: AbortSignal },
+  ): Promise<'allow' | 'deny' | null> {
     return this.permission.ask(name, ask);
   }
 
   /** The managed install this daemon runs from, with the folder holding its cld/; null for a source install. */
   private installedCopy() {
     // dist/ in an installed bundle, server/src/cld/ in a checkout: the folder holding cld/release/version.json.
-    const repoRoot = [path.resolve(__dirname, '..'), path.resolve(__dirname, '../../..')].find((dir) =>
-      fs.existsSync(path.join(dir, 'cld', 'release', 'version.json')),
-    );
+    const repoRoot = bundleRoot();
     const managed = repoRoot ? managedInstall(repoRoot) : null;
     return repoRoot && managed ? { repoRoot, managed } : null;
   }
@@ -930,16 +1116,15 @@ export class Office {
     );
   }
 
-  private makeUpdateNotice(opts: OfficeOptions): UpdateNotice | null {
+  /** A source install gets one too (managed: false, it never checks), so 설정 can say where its updates come from. */
+  private makeUpdateNotice(opts: OfficeOptions): UpdateNotice {
     const copy = this.installedCopy();
-    if (!copy) return null;
-    const { repoRoot, managed } = copy;
     return new UpdateNotice({
       configDir: configDirectory(opts.home ?? os.homedir()),
-      root: managed.root,
-      version: managed.version,
-      serviceKind: managed.serviceKind,
-      managerPath: path.join(repoRoot, 'cld', 'install', 'manager.mjs'),
+      root: copy?.managed.root ?? null,
+      version: copy?.managed.version ?? null,
+      serviceKind: copy?.managed.serviceKind ?? null,
+      managerPath: copy ? path.join(copy.repoRoot, 'cld', 'install', 'manager.mjs') : '',
       readOnly: !!opts.readOnly,
       facts: () => ({
         sessions: this.engine?.roster().filter((a) => a.live).length ?? 0,
@@ -962,10 +1147,28 @@ export class Office {
         auth,
         path.join(configDirectory(this.opts.home ?? os.homedir()), 'profile'),
       );
-      if (this.updates) registerUpdateRoutes(app, auth, this.updates, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
+      registerUpdateRoutes(app, auth, this.updates, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
       if (this.push) registerPushImageRoute(app, this.push.images);
       registerStartPolicyRoutes(app, auth, this.startPolicy, !!this.opts.readOnly, stepUpFresh, kindOf, actorOf);
-      registerSpecRoutes(app, this.spec, { auth, kindOf, actorOf, readOnly: !!this.opts.readOnly });
+      // RQ4: the engine path's switch lives in the engine's registry; the spec routes reach it only through this.
+      const workflow = new SpecWorkflow({
+        uvx: () => findUvx(process.env, process.platform, this.spec.home),
+        engine: () => {
+          const engine = this.engine;
+          return engine ? { get: (name) => engine.specWorkflow(name), set: (name, on) => engine.setSpecWorkflow(name, on) } : null;
+        },
+      });
+      registerSpecRoutes(app, this.spec, { auth, kindOf, actorOf, stepUpFresh, workflow, readOnly: !!this.opts.readOnly });
+      // MHO 3.6: the host's display name (설정 > 일반).
+      registerHostNameRoute(
+        app,
+        this.host.home,
+        () => this.opts.store.broadcast({ ...this.hostInfo() }),
+        auth,
+        stepUpFresh,
+        kindOf,
+        actorOf,
+      );
     };
     this.started = true;
     // Before load(): its one recompute already folds Claude's rows into the
@@ -1057,6 +1260,7 @@ export class Office {
     this.roster.flushIfDirty();
     this.started = false;
     this.push?.dispose();
+    this.street.dispose();
     this.permission.dispose();
     this.viewers.clear();
     this.hidden.clear();
@@ -1073,6 +1277,7 @@ export class Office {
     this.codex?.dispose();
     this.engineEvents?.dispose();
     this.engine?.dispose();
+    for (const a of this.acpAgents) a.dispose();
     for (const v of this.views.values()) clearInterval(v.timer);
     this.views.clear();
     this.usage.stop();
@@ -1158,6 +1363,7 @@ export class Office {
       });
     }
     this.publish<OfficeSnapshot>(this.officeState());
+    this.permission.syncPty();
     this.tracking.refresh(this.world.agents, codex ?? []);
     // D6: an agent removed shows as (삭제됨) on its tasks.
     const removed = JSON.stringify(this.tasks.removedAssignees());
@@ -1260,6 +1466,7 @@ export class Office {
         provider: key.startsWith('engine:') ? ('engine' as const) : ('claude' as const),
         level: this.levels.view(key),
         ...(key.startsWith('engine:') && this.engine?.renewPending(o.name) && { renewing: true }),
+        ...(key.startsWith('engine:') && this.engine?.renewFailed(o.name) && { renewFailed: true }),
         ...(key.startsWith('engine:') && this.engine?.compacting(o.name) && { compacting: true }),
         ...(key.startsWith('engine:') && this.chat.heldEdits(o.name)),
       })),
@@ -1373,8 +1580,20 @@ export class Office {
             code: 'daemon_error',
             error: '단톡방을 쓸 수 없어요',
           });
+    // BRN K3: the read-only query tools, on the spec reader's reads (bound to the caller's project).
+    const queries = new AgentQueries({
+      home,
+      transcriptOf: (name) => this.world.agents.find((a) => a.key === `engine:${name}`)?.transcript ?? null,
+      folderOf: (name) => engine.folderOf(name) ?? null,
+      rooms: () => this.groupStore?.list() ?? [],
+      timeline: (room, limit) => this.groupMessages?.timeline(room, limit) ?? [],
+      tasks: this.tasks,
+      event: (type, fields) => this.engineEvents?.append(type, 'mcp', fields),
+      spec: specReads(this.spec),
+    });
     // C5a: the agent tools behind the MCP adapter (counters in memory, per daemon).
     const mcp = new McpTools({
+      queries,
       roster: () => engine.roster(),
       tasks: this.tasks,
       queueLength: (name) => messenger.queued.filter((q) => q.to === name).length,
@@ -1429,12 +1648,12 @@ export class Office {
     this.mcp = mcp;
     this.publishApprovals();
     try {
-      this.control = await listenControl(file, (req) =>
+      this.control = await listenControl(file, (req, gone) =>
         answerControl(req, {
           mcp: (agent, tool, input) => mcp.call(agent, tool, input),
           names: () => engine.names(),
           agentOf: (token) => engine.tokens.agentOf(token),
-          permission: (agent, ask) => this.askPermission(agent, ask),
+          permission: (agent, ask) => this.askPermission(agent, { ...ask, gone }),
           isOwner: (credential) => ownerTokenMatches(home, credential),
           projectOf: (name) => engine.projectOf(name),
           engineAction: (req) => engine.run(req, true, 'cli'),
@@ -1542,7 +1761,7 @@ export class Office {
                 }),
           rename: (name, to, source) => engine.rename(name, to, source),
           renew: (name, text, from, source) => {
-            const r = engine.renew(name, renewText(text, from, shortStamp()), source);
+            const r = engine.renew(name, text, source, from);
             return r.ok ? { ok: true, name, renew: 'pending' } : r;
           },
         }),
@@ -1902,11 +2121,18 @@ export class Office {
     send({ type: 'viewerVisibilityAck', visible: !this.hidden.has(send) });
   }
 
+  /** hostInfo with this host's id and display name (MHO 3.6), read now: 설정 can rename it. */
+  private hostInfo() {
+    return { ...this.host, ...hostLabel(this.host.home) };
+  }
+
   /** After webviewReady (and its layoutLoaded): the floors, the latest of
    *  every message type and the feed. */
   onClientReady(send: WsSend): void {
     this.onClientOpened(send);
-    send({ ...this.host }); // every /ws client is logged in (T-0022)
+    send({ ...this.hostInfo() }); // every /ws client is logged in (T-0022)
+    const street = this.street.stateMessage();
+    if (street.neighbours.length) send({ ...street });
     const projects = path.join(this.host.home, 'projects');
     const dismissed = path.join(configDirectory(this.host.home), 'import-suggestion.json');
     if (
@@ -1923,6 +2149,8 @@ export class Office {
     if (memos.memos.length) send({ ...memos });
     const pins = this.pins.message();
     if (pins.keys.length) send({ ...pins });
+    // Always, empty too: a client that reconnects must drop parties deleted while it was away.
+    send({ ...this.parties.message() });
     const background = this.background.message();
     if (background) send({ ...background });
     send({ ...this.tasks.message() });
@@ -1938,6 +2166,7 @@ export class Office {
 
   onClientClosed(send: WsSend): void {
     this.push?.closed(send);
+    this.street.unwatch(send);
     // MSG-HOLD2: a closed page (a reload, a dropped socket) never releases an edit hold.
     this.devroom.onClientClosed(send);
     this.repos.onClientClosed(send);
@@ -2049,6 +2278,7 @@ export class Office {
         reply(m);
       };
     }
+    if (this.street.onClientMessage(msg, send)) return;
     if (msg.type === 'ownerActivity') {
       if (privileged && typeof msg.steps === 'number' && typeof msg.seconds === 'number')
         this.levels.ownerActivity(msg.steps, msg.seconds);
@@ -2064,6 +2294,24 @@ export class Office {
           if (!this.hidden.has(send)) this.requestDiskUsage(send);
         }
       }
+      return;
+    }
+    if (msg.type === 'hwSensorTool') {
+      void this.sensorTool
+        .handle(msg, send, { privileged, readOnly: !!this.opts.readOnly, stepUp })
+        .then(() => this.tickHw())
+        .catch((err) => console.warn(`[cld] hw sensor tool: ${oneLineError(err)}`));
+      return;
+    }
+    if (msg.type === 'agentCliUpdate') {
+      void this.agentUpdate
+        .handle(msg, send, { privileged, readOnly: !!this.opts.readOnly, stepUp })
+        .catch((err) => console.warn(`[Agent Tycoon] agent CLI update: ${oneLineError(err)}`));
+      return;
+    }
+    if (msg.type === 'agentCliLatest') {
+      // AGENT-LATEST: display only; a viewer's panel asks, nothing polls.
+      if (this.engine) void this.agentLatest.refresh(msg.refresh === true).then((changed) => changed && this.recompute());
       return;
     }
     if (msg.type === 'viewerVisibility') {
@@ -2147,6 +2395,14 @@ export class Office {
       else this.opts.store.broadcast({ ...this.pins.message() });
       return;
     }
+    if (msg.type === 'setParties') {
+      const error = !privileged ? '이 접속에는 조작 권한이 없어요' : this.parties.set(msg.parties);
+      if (error) console.warn(`[cld] parties: ${error}`);
+      // Refused or not, the sender gets the truth back; a saved change reaches everyone.
+      if (error) send({ ...this.parties.message() });
+      else this.opts.store.broadcast({ ...this.parties.message() });
+      return;
+    }
     if (msg.type === 'setOfficeBackground') {
       const error = !privileged ? '이 접속에는 조작 권한이 없어요' : this.background.set(msg);
       if (error) console.warn(`[cld] background: ${error}`);
@@ -2169,6 +2425,7 @@ export class Office {
     )
       return;
     if (this.devroom.onClientMessage(msg, send, privileged)) return;
+    if (this.runs.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (this.repos.onClientMessage(msg, send, privileged, deviceSource(deviceLabel(userAgent)), stepUp)) {
       return;
     }
@@ -2194,7 +2451,7 @@ export class Office {
     }
     if (this.chat.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (msg.type === 'permissionAnswer') {
-      void this.permission.answer(msg, privileged, deviceLabel(userAgent)).then(
+      void this.permission.answer(msg, privileged, deviceLabel(userAgent), stepUp).then(
         (result) => (result ? send({ ...result }) : console.warn('[cld] malformed permissionAnswer dropped')),
         (err: unknown) => console.warn(`[cld] permission answer: ${String(err)}`),
       );
@@ -2421,6 +2678,7 @@ export async function startOffice(opts: {
   typist?: Typist;
   lhmPort?: number | null;
   nvidiaSmi?: string | null;
+  nvidiaSmiFound?: string | null;
   pushFile?: string;
   pushHost?: string;
 }): Promise<Office | null> {

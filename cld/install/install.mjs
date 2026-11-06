@@ -14,7 +14,7 @@ import { promisify } from 'node:util';
 
 import configPathModule from '../../core/src/cld/configPath.cjs';
 import { addEntry, badLedgerPath, emptyLedger, EXPOSURE_FILE, parseLedger, unwantedEntries } from '../../core/src/exposureLedger.mjs';
-import { gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn } from './gpuPolicy.mjs';
+import { gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn, writeNvidiaSmiChoice } from './gpuPolicy.mjs';
 import { hwSensorsStep } from './hwSensors.mjs';
 import { CONNECTORS, defaultConnector, realDeps, remoteSetup, revertExposures, SETUP_CHOICES, setupLines } from './remote.mjs';
 
@@ -44,6 +44,7 @@ export function mergeConfig(existing = {}, supplied = {}) {
   delete config.office; // an older config.json may still carry it: dropped when the file is written
   delete config.tailscaleUsers;
   delete config.trustedTailscaleUsers;
+  delete config.chatAttaches; // the terminal cap is gone (11-06): an older config.json may still carry it
   if (typeof config.readOnly !== 'boolean') config.readOnly = defaults.readOnly;
   if (typeof config.chat !== 'boolean') config.chat = defaults.chat;
   if (typeof config.allowTerminal !== 'boolean') config.allowTerminal = defaults.allowTerminal;
@@ -65,7 +66,6 @@ export function daemonArgs(config) {
   if (config.chat) args.push('--allow-chat');
   if (config.allowTerminal) args.push('--allow-terminal');
   if (config.allowApprovalRequests) args.push('--allow-approval-requests');
-  if (Number.isInteger(config.chatAttaches) && config.chatAttaches !== 1) args.push('--chat-attaches', String(config.chatAttaches));
   args.push('--engine', config.engine);
   if (Number.isInteger(config.lhmPort)) args.push('--lhm-port', String(config.lhmPort));
   if (config.nvidiaSmi === true) args.push('--nvidia-smi');
@@ -178,18 +178,17 @@ export async function revertLedger(home, { dryRun = false, deps }) {
 }
 export function findFreePort(start, isFree, end = 18299) { for (let port = start; port <= end; port += 1) if (isFree(port)) return port; return null; }
 
-function usage() { return '사용법: node cld/install/install.mjs [--check|--uninstall [--purge]] [--dry-run] [--remote <local|lan|direct|ssh|duckdns|tailscale|tunnel>] [--client --target user@host] [--ssh-port 2233] [--port 18240] [--engine auto|on|off] [--allow-actions|--read-only] [--allow-chat|--no-chat] [--allow-terminal|--no-terminal] [--chat-attaches 1] [--allow-approval-requests|--no-approval-requests] [--hw-sensors|--no-hw-sensors] [--lhm-port 8085] [--nvidia-smi|--no-nvidia-smi] [--connector local|lan|tailscale|funnel|direct] [--manual-forward] [--ddns name.duckdns.org --ddns-token-file <파일>] [--add-path]'; }
+function usage() { return '사용법: node cld/install/install.mjs [--check|--uninstall [--purge]] [--dry-run] [--remote <local|lan|direct|ssh|duckdns|tailscale|tunnel>] [--client --target user@host] [--ssh-port 2233] [--port 18240] [--engine auto|on|off] [--allow-actions|--read-only] [--allow-chat|--no-chat] [--allow-terminal|--no-terminal] [--allow-approval-requests|--no-approval-requests] [--hw-sensors|--no-hw-sensors] [--lhm-port 8085] [--nvidia-smi|--no-nvidia-smi] [--connector local|lan|tailscale|funnel|direct] [--manual-forward] [--ddns name.duckdns.org --ddns-token-file <파일>] [--add-path]'; }
 export function parseArgs(argv) {
-  const out = { dryRun: false, check: false, uninstall: false, purge: false, remote: false, remoteChoice: undefined, client: false, port: undefined, readOnly: undefined, engine: undefined, chat: undefined, allowTerminal: undefined, chatAttaches: undefined, funnel: undefined, allowApprovalRequests: undefined, hwSensors: undefined, lhmPort: undefined, nvidiaSmi: undefined, connector: undefined, manualForward: false, ddns: undefined, ddnsTokenFile: undefined, target: undefined, sshPort: 2233, legacyTailscaleTrust: false };
+  const out = { dryRun: false, check: false, uninstall: false, purge: false, remote: false, remoteChoice: undefined, client: false, port: undefined, readOnly: undefined, engine: undefined, chat: undefined, allowTerminal: undefined, funnel: undefined, allowApprovalRequests: undefined, hwSensors: undefined, lhmPort: undefined, nvidiaSmi: undefined, connector: undefined, manualForward: false, ddns: undefined, ddnsTokenFile: undefined, target: undefined, sshPort: 2233, legacyTailscaleTrust: false };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i]; const take = () => { const value = argv[++i]; if (!value || value.startsWith('--')) throw new Error(`${flag} 값이 필요합니다`); return value; };
     if (flag === '--dry-run') out.dryRun = true; else if (flag === '--check') out.check = true; else if (flag === '--uninstall') out.uninstall = true; else if (flag === '--purge') out.purge = true; else if (flag === '--remote') { out.remote = true; if (argv[i + 1] && !argv[i + 1].startsWith('--')) out.remoteChoice = argv[++i]; } else if (flag === '--client') out.client = true;
-    else if (flag === '--target') out.target = take(); else if (flag === '--ssh-port') out.sshPort = Number(take()); else if (flag === '--port') out.port = Number(take()); else if (flag === '--engine') out.engine = take(); else if (flag === '--allow-actions') out.readOnly = false; else if (flag === '--read-only') out.readOnly = true; else if (flag === '--allow-chat') out.chat = true; else if (flag === '--no-chat') out.chat = false; else if (flag === '--allow-terminal') out.allowTerminal = true; else if (flag === '--no-terminal') out.allowTerminal = false; else if (flag === '--funnel') out.funnel = true; else if (flag === '--no-funnel') out.funnel = false; else if (flag === '--chat-attaches') out.chatAttaches = Number(take()); else if (flag === '--allow-approval-requests') out.allowApprovalRequests = true; else if (flag === '--no-approval-requests') out.allowApprovalRequests = false; else if (flag === '--hw-sensors') out.hwSensors = true; else if (flag === '--no-hw-sensors') out.hwSensors = false; else if (flag === '--lhm-port') out.lhmPort = Number(take()); else if (flag === '--nvidia-smi') out.nvidiaSmi = true; else if (flag === '--no-nvidia-smi') out.nvidiaSmi = false; else if (flag === '--trust-tailscale-user') { out.legacyTailscaleTrust = true; if (argv[i + 1] && !argv[i + 1].startsWith('--')) i += 1; } else if (flag === '--connector') out.connector = take(); else if (flag === '--manual-forward') out.manualForward = true; else if (flag === '--ddns') out.ddns = take(); else if (flag === '--ddns-token-file') out.ddnsTokenFile = take(); else if (flag === '--add-path') out.addPath = true; else if (flag === '--help' || flag === '-h') out.help = true; else throw new Error(`알 수 없는 옵션: ${flag}`);
+    else if (flag === '--target') out.target = take(); else if (flag === '--ssh-port') out.sshPort = Number(take()); else if (flag === '--port') out.port = Number(take()); else if (flag === '--engine') out.engine = take(); else if (flag === '--allow-actions') out.readOnly = false; else if (flag === '--read-only') out.readOnly = true; else if (flag === '--allow-chat') out.chat = true; else if (flag === '--no-chat') out.chat = false; else if (flag === '--allow-terminal') out.allowTerminal = true; else if (flag === '--no-terminal') out.allowTerminal = false; else if (flag === '--funnel') out.funnel = true; else if (flag === '--no-funnel') out.funnel = false; else if (flag === '--allow-approval-requests') out.allowApprovalRequests = true; else if (flag === '--no-approval-requests') out.allowApprovalRequests = false; else if (flag === '--hw-sensors') out.hwSensors = true; else if (flag === '--no-hw-sensors') out.hwSensors = false; else if (flag === '--lhm-port') out.lhmPort = Number(take()); else if (flag === '--nvidia-smi') out.nvidiaSmi = true; else if (flag === '--no-nvidia-smi') out.nvidiaSmi = false; else if (flag === '--trust-tailscale-user') { out.legacyTailscaleTrust = true; if (argv[i + 1] && !argv[i + 1].startsWith('--')) i += 1; } else if (flag === '--connector') out.connector = take(); else if (flag === '--manual-forward') out.manualForward = true; else if (flag === '--ddns') out.ddns = take(); else if (flag === '--ddns-token-file') out.ddnsTokenFile = take(); else if (flag === '--add-path') out.addPath = true; else if (flag === '--help' || flag === '-h') out.help = true; else throw new Error(`알 수 없는 옵션: ${flag}`);
   }
   if (out.client && !out.target) throw new Error('--client에는 --target user@host가 필요합니다');
   if (!Number.isInteger(out.sshPort) || out.sshPort < 1 || out.sshPort > 65535) throw new Error('올바른 SSH 포트가 아닙니다');
   if (out.port !== undefined && (!Number.isInteger(out.port) || out.port < 1 || out.port > 65535)) throw new Error('올바른 포트가 아닙니다');
-  if (out.chatAttaches !== undefined && !(Number.isInteger(out.chatAttaches) && out.chatAttaches >= 1 && out.chatAttaches <= 10)) throw new Error('--chat-attaches는 1에서 10 사이의 정수입니다');
   if (out.engine !== undefined && !['auto', 'on', 'off'].includes(out.engine)) throw new Error('--engine은 auto, on, off 중 하나입니다');
   if (out.lhmPort !== undefined && !(Number.isInteger(out.lhmPort) && out.lhmPort >= 1 && out.lhmPort <= 65535)) throw new Error('올바른 --lhm-port가 아닙니다');
   if (out.connector !== undefined && !CONNECTORS.includes(out.connector) && out.connector !== 'funnel') throw new Error('--connector는 local, lan, tailscale, funnel, direct 중 하나입니다');
@@ -535,7 +534,7 @@ async function main() {
   try {
     if (options.client) { await applyPlan(clientPlan({ platform, target: options.target, sshPort: options.sshPort }), options.dryRun); console.log('✔ 노트북 연결 설정 계획 완료'); return; }
     await prerequisites(platform, options.dryRun);
-    let config = await loadConfig(home, { port: options.port, readOnly: options.readOnly, chat: options.chat, allowTerminal: options.allowTerminal, chatAttaches: options.chatAttaches, funnel: options.funnel, engine: options.engine, allowApprovalRequests: options.allowApprovalRequests, hwSensors: options.hwSensors, lhmPort: options.lhmPort, nvidiaSmi: options.nvidiaSmi, connector: options.connector === 'lan' || options.connector === 'local' ? options.connector : undefined }, !options.check && !options.uninstall, options.dryRun);
+    let config = await loadConfig(home, { port: options.port, readOnly: options.readOnly, chat: options.chat, allowTerminal: options.allowTerminal, funnel: options.funnel, engine: options.engine, allowApprovalRequests: options.allowApprovalRequests, hwSensors: options.hwSensors, lhmPort: options.lhmPort, nvidiaSmi: options.nvidiaSmi, connector: options.connector === 'lan' || options.connector === 'local' ? options.connector : undefined }, !options.check && !options.uninstall, options.dryRun);
     if (options.check) { await status(platform, home, config); for (const line of gpuRuleLines(gpuRule(home, await gpuTotalMib(home, { nvidiaSmi: nvidiaSmiOptIn(home, config) })))) console.log(line); return; }
     if (options.uninstall) {
       await closeDirect(config, options.dryRun);
@@ -547,7 +546,10 @@ async function main() {
     }
     await installDependencies(options.dryRun); await build(options.dryRun); config = await resolvePort(config, options.dryRun);
     config = await hwSensorsStep(platform, config, { dryRun: options.dryRun }); await loadConfig(home, config, true, options.dryRun);
-    await gpuStep(home, { dryRun: options.dryRun, detect: () => gpuTotalMib(home, { nvidiaSmi: nvidiaSmiOptIn(home, config) }) });
+    // An explicit --nvidia-smi / --no-nvidia-smi decides this run and is written into gpu.json after the
+    // thresholds (written first, so a gpu.json made just for the switch never stops them being written).
+    await gpuStep(home, { dryRun: options.dryRun, detect: () => gpuTotalMib(home, { nvidiaSmi: typeof options.nvidiaSmi === 'boolean' ? options.nvidiaSmi : nvidiaSmiOptIn(home, config) }) });
+    writeNvidiaSmiChoice(home, options.nvidiaSmi, { dryRun: options.dryRun });
     if (platform !== 'win32') await linkLogin(home, options.dryRun);
     if (options.ddns) await writeDdns(home, options);
     await installCli({ platform, home, dryRun: options.dryRun, addPath: options.addPath === true });

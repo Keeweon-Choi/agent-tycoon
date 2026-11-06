@@ -354,7 +354,7 @@ async function main() {
       });
       await closeWindow('office');
 
-      for (const [tab, label] of [['agents', '에이전트'], ['tasks', 'Task'], ['worktrees', 'worktree'], ['changes', '변경']] as const) {
+      for (const [tab, label] of [['agents', '에이전트'], ['tasks', '이슈'], ['worktrees', 'worktree'], ['changes', '변경']] as const) {
         await scene(`workbench-${tab}`, async () => {
           if (!(await win('workbench').isVisible())) await icon('작업실').click();
           await win('workbench').waitFor();

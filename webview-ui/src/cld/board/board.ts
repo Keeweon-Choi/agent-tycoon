@@ -1,28 +1,21 @@
 /**
  * The lobby board (T-0046), its pure rules (the H/W history is hwHistory.ts):
- * the donut maths, the pages and their rotation, the project rows with
- * "외 N", the GPU queue's labels and the ending words. The Node runner tests
+ * the donut maths, the pages and their rotation, the news lines, the GPU
+ * queue's labels and the ending words. The Node runner tests
  * these; BoardPages.tsx draws them and LobbyBoard.tsx places the board.
  */
 import type { GpuEnd, GpuTicket } from '../../../../core/src/messages.js';
 import {
   BOARD_PAGE_MS,
   BOARD_PICK_HOLD_MS,
-  BOARD_PROJECT_ROWS,
   BOARD_RECENT_MS,
 } from '../../constants.js';
 import { t } from '../../i18n/index.js';
-import type { ToolActivity } from '../../office/types.js';
-import { contextPct } from '../ez/fatigueState.js';
-import type { RingState } from '../ez/visuals.js';
 import { timeAgo } from '../format.js';
 import { isFeedNoise } from '../notify/newsList.js';
-import { type CldSnapshot, ezContext, virtualAgentId } from '../officeStore.js';
-import { codexWord, jobWord, spanText } from '../panels/jobs.js';
-import { rowLook } from '../panels/statusTree.js';
+import type { CldSnapshot } from '../officeStore.js';
+import { spanText } from '../panels/jobs.js';
 import { serverLine } from '../serverText.js';
-import { capRows } from '../temps.js';
-import type { WaitReason } from '../waiting.js';
 
 // ── Donuts ───────────────────────────────────────────────────
 
@@ -50,10 +43,10 @@ export function pctText(frac: number): string {
 
 // ── Pages ────────────────────────────────────────────────────
 
-export const BOARD_PAGES = ['projects', 'hw', 'gpu'] as const;
+export const BOARD_PAGES = ['summary', 'hw', 'gpu'] as const;
 export type BoardPage = (typeof BOARD_PAGES)[number];
 export const pageTitle = (page: BoardPage): string =>
-  page === 'projects' ? t('board.page.projects') : page === 'hw' ? 'H/W' : 'GPU';
+  page === 'summary' ? t('boardLook.page') : page === 'hw' ? 'H/W' : 'GPU';
 
 /** The board's turning pages: the one shown, since when, and when a tab was last picked. */
 export interface Rotation {
@@ -63,7 +56,7 @@ export interface Rotation {
 }
 
 export const startRotation = (now: number): Rotation => ({
-  page: 'projects',
+  page: 'summary',
   since: now,
   picked: -Infinity,
 });
@@ -88,89 +81,10 @@ export function rotate(r: Rotation, now: number, hovering: boolean): Rotation {
   return { ...r, page: next, since: now };
 }
 
-// ── 프로젝트 ─────────────────────────────────────────────────
+// ── 요약 ─────────────────────────────────────────────────────
 
-export interface ProjectRow {
-  name: string;
-  agentId: number;
-  ring: RingState;
-  /** 피로도: the context in use, %, or null before its first report. */
-  context: number | null;
-  /** The percent is measured against a window picked from the model's name (shown "≈"). */
-  contextEstimated: boolean;
-  jobs: number;
-  codex: number;
-  work: string | null;
-  /** "3분 전 · 빌드 끝", or null. */
-  last: string | null;
-}
-
-/** Feed kinds too chatty to be a project's notable news. */
+/** Feed kinds too chatty for the board's news. */
 const isNoise = (kind: string): boolean => kind === 'turn_end' || isFeedNoise(kind);
-/** What most needs the user first. */
-const ATTENTION: RingState[] = ['permission', 'waiting', 'working', 'neutral', 'idle', 'off'];
-
-/** One row per project, those that need the user first; past `max`, "외 N". D3b: `workers`
- *  (a project's Workers) are no project rows. */
-export function projectRows(
-  snap: CldSnapshot,
-  agentTools: Record<number, ToolActivity[]>,
-  now: number,
-  max = BOARD_PROJECT_ROWS,
-  workers: ReadonlySet<string> = new Set(),
-  /** Who waits for the user and why (cld/waiting.ts). */
-  reasons: Readonly<Record<number, WaitReason>> = {},
-): { shown: ProjectRow[]; more: number } {
-  const office = snap.officeSnapshot;
-  if (!office) return { shown: [], more: 0 };
-  const ctx = ezContext(snap);
-  const rows = office.orchestrators.filter((o) => !workers.has(o.name)).map((o) => {
-    const agentId = o.agentId ?? virtualAgentId(`orch:${o.name}`);
-    const sample = snap.contexts[agentId];
-    const event = snap.events.find((e) => e.name === o.name && !isNoise(e.kind));
-    const said = event ? serverLine(event.summary) : undefined;
-    const summary = said?.startsWith(`${o.name} `) ? said.slice(o.name.length + 1) : said;
-    const runningJob = snap.officeJobs?.jobs.find((j) => j.project === o.name && !j.ended);
-    const runningCodex = snap.codexTasks?.tasks.find(
-      (t) => t.project === o.name && (t.state === 'running' || t.state === 'limit'),
-    );
-    return {
-      order: o.order,
-      row: {
-        name: o.name,
-        agentId,
-        ring: rowLook(
-          o,
-          o.agentId != null ? agentTools[o.agentId] : undefined,
-          ctx,
-          o.agentId != null && reasons[o.agentId] === 'question',
-        ).ring,
-        context: sample && sample.basis !== 'unknown' ? Math.round(contextPct(sample)) : null,
-        contextEstimated: sample?.basis === 'estimated',
-        jobs: (snap.officeJobs?.jobs ?? []).filter((j) => j.project === o.name && !j.ended).length,
-        codex: (snap.codexTasks?.tasks ?? []).filter(
-          (t) => t.project === o.name && (t.state === 'running' || t.state === 'limit'),
-        ).length,
-        work:
-          [
-            runningJob && `${runningJob.label ?? t('panel.job')} · ${jobWord(runningJob)}`,
-            runningCodex &&
-              `${runningCodex.title ?? runningCodex.spec ?? t('panel.codexJob')} · ${codexWord(runningCodex)}`,
-          ]
-            .filter(Boolean)
-            .join(' / ') || null,
-        last: event ? `${timeAgo(event.ts, now)} · ${summary}` : null,
-      },
-    };
-  });
-  rows.sort(
-    (a, b) => ATTENTION.indexOf(a.row.ring) - ATTENTION.indexOf(b.row.ring) || a.order - b.order,
-  );
-  return capRows(
-    rows.map((r) => r.row),
-    max,
-  );
-}
 
 export const moreText = (more: number): string => t('board.more', { count: more });
 

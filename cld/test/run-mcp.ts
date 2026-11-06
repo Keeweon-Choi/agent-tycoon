@@ -384,7 +384,7 @@ async function main() {
     await names.getByText('alpha-rev', { exact: true }).first().waitFor({ timeout: 30_000 });
     check(true, 'the new Worker’s character is in the office');
     // UI-DASH: the old 작업실 is the 현황판's 개발 tab.
-    await openWorkbenchTab(page, 'Task', { project: 'alpha' });
+    await openWorkbenchTab(page, '이슈', { project: 'alpha' });
     const bench = page.locator('[data-hud-window="office"]');
     const parentCard = bench.locator(`[data-testid="task-card"][data-task-id="${parent.taskId as string}"]`);
     const childCard = parentCard.locator(`[data-testid="task-children"] [data-task-id="${d1.taskId as string}"]`);

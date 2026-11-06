@@ -353,7 +353,7 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
     work('x');
     const out = await wt.cleanup(project, 'x');
     expect(out).toMatchObject({ ok: false, needsForce: true });
-    expect(out.error).toContain('병합되지 않은 커밋 1개');
+    expect(out.error).toContain('머지되지 않은 커밋 1개');
     expect(fs.existsSync(path.join(dir('x'), 'work.txt'))).toBe(true);
     expect(branches()).toContain('task/x');
     expect(records()[0].status).toBe('active');
@@ -370,7 +370,7 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
     expect(out).toEqual({
       ok: true,
       branchDeleted: false,
-      detail: '브랜치 task/x는 병합되지 않아 남겼어요',
+      detail: '브랜치 task/x는 머지되지 않아 남겼어요',
     });
     expect(fs.existsSync(dir('x'))).toBe(false);
     expect(branches()).toContain('task/x');
@@ -392,7 +392,7 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
     expect(await wt.cleanup(project, 'x', { force: true })).toEqual({
       ok: true,
       branchDeleted: false,
-      detail: '브랜치 task/x는 병합되지 않아 남겼어요',
+      detail: '브랜치 task/x는 머지되지 않아 남겼어요',
     });
     expect(fs.existsSync(dir('x'))).toBe(false);
     expect(r.git(['show', 'task/x:loose.txt'])).toBe('l\n');
@@ -421,7 +421,7 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
     expect(await wt.cleanup(project, 'x')).toEqual({
       ok: true,
       branchDeleted: false,
-      detail: '브랜치 task/x는 병합되지 않아 남겼어요',
+      detail: '브랜치 task/x는 머지되지 않아 남겼어요',
     });
     expect(branches()).toContain('task/x');
   });
@@ -430,7 +430,7 @@ describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
     const { rec, wt, project, dir, file } = setup();
     expect(await wt.cleanup(project, 'nope')).toMatchObject({
       ok: false,
-      error: '그런 작업 공간이 없어요',
+      error: '그런 워크트리가 없어요',
     });
     const calls = rec.calls.length;
     expect(await wt.cleanup(project, '../x', { force: true })).toMatchObject({ ok: false });
@@ -671,7 +671,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a Task’s worktree (temp repos)', () => {
     expect(tick.assignedTo('a_bbbbbbbbbb')?.task).toBe(a.task);
     await tick.cleanup(project, a.task);
     expect(tick.assignedTo('a_bbbbbbbbbb')).toMatchObject({ task: a.task, status: 'removed' });
-    await expect(tick.assign(project, a.task, 'a_bbbbbbbbbb')).rejects.toThrow('그런 작업 공간이 없어요');
+    await expect(tick.assign(project, a.task, 'a_bbbbbbbbbb')).rejects.toThrow('그런 워크트리가 없어요');
   });
 
   it('an old (pre-W2) record loads and is written back exactly as it was beside a Task’s', async () => {
@@ -769,5 +769,26 @@ describe.skipIf(!GIT_AVAILABLE)('W2 fix 3: no worktree without its record', () =
     r.git(['branch', 'feat/t4-task']);
     await expect(wt.createForTask(project, { taskId: 'T-4', createdBy: 'cli' })).rejects.toThrow('폴더가 이미 있어요');
     expect(fs.existsSync(path.join(dir('feat-t1-task'), 'w.txt'))).toBe(true); // nothing of theirs touched
+  });
+});
+
+describe.skipIf(!GIT_AVAILABLE)('external worktrees (DEVROOM-SIDEBAR, temp repos)', () => {
+  it('lists the worktrees git has and the engine did not make, read against the main branch', async () => {
+    const { r, wt, project, dir } = setup();
+    await wt.create(project, 'ours');
+    const outside = path.join(r.folder, '.worktrees', 'feat-search');
+    r.git(['worktree', 'add', '-q', outside, '-b', 'feat/search']);
+    fs.writeFileSync(path.join(outside, 'a.txt'), 'a\n');
+    r.git(['add', 'a.txt'], outside);
+    r.git(['commit', '-q', '-m', 'search'], outside);
+    fs.writeFileSync(path.join(outside, 'loose.txt'), 'l\n');
+    r.git(['worktree', 'add', '-q', '--detach', path.join(r.folder, '.worktrees', 'loose')]);
+    const list = await wt.external(project);
+    expect(list).toEqual([
+      expect.objectContaining({ task: 'feat-search', path: outside, branch: 'feat/search', base: 'main', ahead: 1, behind: 0, dirty: 1, merged: false, exists: true }),
+    ]);
+    expect(list.some((w) => w.path === dir('ours'))).toBe(false);
+    // The engine's own list is untouched by it.
+    expect((await wt.list(project)).map((w) => w.task)).toEqual(['ours']);
   });
 });

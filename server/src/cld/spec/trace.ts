@@ -11,8 +11,11 @@ import * as path from 'path';
 import type {
   EvidenceMark,
   Freshness,
+  HowCount,
+  LinkHow,
   LinkRel,
   LinkStatus,
+  ReqFacts,
   TraceEdge,
   TraceEvidence,
   TraceGraph,
@@ -386,6 +389,7 @@ export function buildIndex(inp: TraceInput): TraceIndex {
     const acceptanceReview = acc.review;
     const freshness: Freshness =
       r.state === 'unresolved' ? 'unresolved' : r.state === 'retired' || !live(r.doc) || endGone ? 'missing' : linkReview || acceptanceReview ? 'review' : 'current';
+    const facts = r.state === 'retired' ? undefined : factsOf(mine, uid, taskById, jobById, (sha) => commitBySha.has(sha) || !!inp.known(sha)?.reachable, (sha) => commitBySha.has(sha) || !!inp.known(sha)?.ancestor);
     states.set(uid, {
       work: { total: tasks.length, byStatus },
       evidence,
@@ -393,6 +397,7 @@ export function buildIndex(inp: TraceInput): TraceIndex {
       freshness,
       ...(linkReview && { linkReview }),
       ...(acceptanceReview && { acceptanceReview }),
+      ...(facts && { facts }),
     });
     const node = nodes.get(uid)!;
     node.state = states.get(uid);
@@ -428,6 +433,45 @@ export function buildIndex(inp: TraceInput): TraceIndex {
   for (const [uid, list] of history) history.set(uid, list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)).slice(-SPEC_TRACE_HISTORY_MAX));
 
   return { nodes, edges, adj, states, reqs, groupOf, groups, history, unlinked, deployed };
+}
+
+const HOW: Partial<Record<LinkStatus, LinkHow>> = { confirmed: 'confirmed', observed: 'written', suggested: 'guess' };
+const HOW_RANK: Record<LinkHow, number> = { confirmed: 0, written: 1, guess: 2 };
+const bump = (c: HowCount, h: LinkHow) => void (c[h] = (c[h] ?? 0) + 1);
+
+/** RQ1: a requirement's facts per how each link is known (core reqState reads them); a rejected link counts nowhere. */
+function factsOf(
+  mine: readonly TraceEdge[],
+  uid: string,
+  taskById: ReadonlyMap<string, TraceTask>,
+  jobById: ReadonlyMap<string, TraceJob>,
+  there: (sha: string) => boolean,
+  merged: (sha: string) => boolean,
+): ReqFacts {
+  const f: ReqFacts = { issues: [], commits: {}, merged: {}, runs: {}, passed: {}, reported: {} };
+  const issues = new Map<string, LinkHow>();
+  for (const e of mine) {
+    const h = HOW[e.status];
+    if (!h || e.from !== uid) continue;
+    if (e.rel === 'implements' && taskById.has(e.to) && (!issues.has(e.to) || HOW_RANK[h] < HOW_RANK[issues.get(e.to)!])) issues.set(e.to, h);
+    if (e.rel === 'changes' && there(e.to)) {
+      bump(f.commits, h);
+      if (merged(e.to)) bump(f.merged, h);
+    }
+    const j = e.rel === 'verifies' && e.kind !== 'deploy' ? jobById.get(e.to) : undefined;
+    if (j) {
+      bump(f.runs, h);
+      if (j.exit === 0) bump(f.passed, h);
+    }
+  }
+  for (const [id, h] of issues) {
+    const t = taskById.get(id)!;
+    f.issues.push({ id, status: t.status, how: h });
+    if (t.commits?.value && t.commits.source === 'observed') bump(f.commits, h);
+    if (t.testsPassed?.value && t.testsPassed.source === 'observed') (bump(f.runs, h), bump(f.passed, h));
+    if ((t.testsPassed?.value && t.testsPassed.source === 'reported') || t.reportedDone?.value) bump(f.reported, h);
+  }
+  return f;
 }
 
 /** An id as the history says it: a requirement's display ID, a commit's short SHA, else itself. */

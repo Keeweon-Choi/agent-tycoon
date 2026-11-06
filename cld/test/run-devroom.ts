@@ -4,17 +4,17 @@
  * Four Tasks get worktrees like mockups-1101/devroom-W1b: web-worker busy on its turn, api-worker's
  * Task in review, ui-worker resting, docs-worker's branch merged into main and its Task done.
  * Desktop (Chromium --disable-gpu, 1280x800): the dock opens the dev room, the filter narrows it to
- * shop-web, the cards wear their chips (merged dimmed, last), the `…` menu opens (W1b), 병합 selects
- * the 병합 tab; the messenger's ⌘ opens it on the Lead's trunk; the 작업실 task card opens it on its
+ * shop-web, the cards wear their chips (merged dimmed, last), the `…` menu opens (W1b), 머지 selects
+ * the 머지 tab; the messenger's ⌘ opens it on the Lead's trunk; the 작업실 task card opens it on its
  * worktree; "+ 새 작업 맡기기" reaches the Lead. Phone (390x844, touch): the list with a card
- * expanded to 터미널 / 변경 / 병합 (W5). P4-TERM: the Workers run in our PTY host (claude-pty, the
+ * expanded to 터미널 / 변경 / 머지 (W5). P4-TERM: the Workers run in our PTY host (claude-pty, the
  * default for `worker add`): the picked web-worker's pane on the 터미널 board shows its fake TUI, two
  * sub-agents written into its transcript are listed behind its `서브 2` chip, the footer shows the
  * daemon's stats; the phone's 터미널 sub-page shows the same terminal and the same chip.
  * DEVROOM-PHONE (owner 11-01 13:30): ui-worker's Task conflicts with main, a second project
  * (api-server) shows the phone's project chips, and 30 old Codex worktrees with no Task fold into
  * one `쉬는 작업 30개` row; the phone (390x844 and 360x780) shows compact cards, needs-you first,
- * and every sub-page (터미널, 변경, 병합, 미리보기). Screenshots in cld/artifacts/devroom-phone/
+ * and every sub-page (터미널, 변경, 머지, 미리보기). Screenshots in cld/artifacts/devroom-phone/
  * (w5-vs-now.png: the mock-up beside the phone's list).
  * DEVROOM-NAMES (owner 11-01 16:23): one old Codex run is bound to a temp employee in the roster and
  * changed 15 files, another has a record but no binding (it gets one of the project's employees, kept
@@ -196,7 +196,7 @@ async function main() {
       repo.git(['commit', '-q', '-m', w.title], wt.path);
       wts.push(wt);
     }
-    // docs-worker's branch went into main by hand, its Task is done: ✔ 합쳐짐, dimmed, last.
+    // docs-worker's branch went into main by hand, its Task is done: ✔ 머지됨, dimmed, last.
     repo.git(['merge', '-q', '--no-edit', wts[3].branch], folder);
     check(json(cli('task', 'update', 'T-4', '--status', 'done')).ok === true, 'T-4 done (merged into main)');
     check(json(cli('task', 'update', 'T-2', '--status', 'review')).ok === true, 'T-2 in review');
@@ -284,7 +284,7 @@ async function main() {
     await card(wts[3].task).waitFor({ timeout: 20_000 });
     const order = await win.getByTestId('devroom-card').evaluateAll((els) => els.map((e) => e.getAttribute('data-task')));
     check(order.length === 4 && order.at(-1) === wts[3].task, `four cards, the merged one last (${order.join(', ')})`);
-    check((await win.getByTestId('devroom-resting').innerText()).includes(`쉬는 작업 ${STALE}개`), `the rail folds the ${STALE} resting Codex worktrees into one row`);
+    check((await win.getByTestId('devroom-resting').innerText()).includes(`쉬는 워크트리 ${STALE}개`), `the rail folds the ${STALE} resting Codex worktrees into one row`);
     // DEVROOM-NAMES: unfolded, the bound Codex card names its temp employee under its face.
     await win.getByTestId('devroom-resting').click();
     await card(BOUND).waitFor();
@@ -296,7 +296,7 @@ async function main() {
     await win.getByTestId('devroom-resting').click();
     const chip = (task: string) => card(task).getByTestId('devroom-chip');
     await desk.waitForFunction((t) => document.querySelector(`[data-testid="devroom-card"][data-task="${t}"] [data-testid="devroom-chip"]`)?.getAttribute('data-chip') === 'merged', wts[3].task, { timeout: 20_000 });
-    check(true, 'docs-worker wears ✔ 합쳐짐');
+    check(true, 'docs-worker wears ✔ 머지됨');
     check((await chip(wts[1].task).getAttribute('data-chip')) === 'review', 'api-worker wears ● 검토 대기');
     try {
       await desk.waitForFunction((t) => document.querySelector(`[data-testid="devroom-card"][data-task="${t}"] [data-testid="devroom-chip"]`)?.getAttribute('data-chip') === 'working', wts[0].task, { timeout: 30_000 });
@@ -316,6 +316,8 @@ async function main() {
     const col = win.locator('[data-testid="devroom-pane"][data-agent="web-worker"]');
     await col.waitFor({ timeout: 20_000 });
     check(true, 'web-worker (claude-pty) gets a pane on the board');
+    // DEVROOM-PANE-CHAT: a pane opens in 대화; its 터미널 side shows the PTY.
+    await col.locator('[data-testid="devroom-pane-view"][data-view="terminal"]').click();
     await desk.waitForFunction(
       () => [...document.querySelectorAll<HTMLElement>('[data-testid="devroom-pane"][data-agent="web-worker"] .xterm-rows')].some((el) => el.innerText.includes('fake Claude Code (pty) · web-worker')),
       undefined,
@@ -341,7 +343,7 @@ async function main() {
     await win.getByTestId('devroom-stats').waitFor({ timeout: 20_000 });
     const stats = await win.getByTestId('devroom-stats').innerText();
     check(/터미널 \d+개 · 데몬 메모리 약 \d+ MB/.test(stats), `the footer's stats: ${stats}`);
-    // A card's `…` menu, as in W1b (the mock-up's is on the merged card, whose 병합 has nothing to do).
+    // A card's `…` menu, as in W1b (the mock-up's is on the merged card, whose 머지 has nothing to do).
     await card(wts[2].task).getByTestId('devroom-more').click();
     const menu = win.getByTestId('devroom-menu');
     await menu.waitFor();
@@ -350,14 +352,14 @@ async function main() {
     await desk.waitForTimeout(400);
     await shot(desk, 'W1b-desktop');
 
-    // 병합 in another card's menu picks it and opens the 병합 tab (S4's place).
+    // 머지 in another card's menu picks it and opens the 머지 tab (S4's place).
     await desk.keyboard.press('Escape');
     await card(wts[1].task).getByTestId('devroom-more').click();
     await menu.locator('[data-item="merge"]').click();
     await win.locator('[data-testid="devroom-body"][data-tab="merge"]').waitFor();
-    check(await card(wts[1].task).getAttribute('data-picked'), '병합 picks the card and opens the 병합 tab');
+    check(await card(wts[1].task).getAttribute('data-picked'), '머지 picks the card and opens the 머지 tab');
 
-    // + 새 작업 맡기기: one line to the Lead.
+    // + 리드에게 새 이슈 맡기기: one line to the Lead.
     await win.getByTestId('devroom-new').click();
     const form = desk.getByTestId('devroom-new-task');
     await form.locator('input').fill('쿠폰 할인 계산 추가');
@@ -378,7 +380,7 @@ async function main() {
     await shot(desk, 'I-messenger-link');
 
     // The 작업실 task card's link picks its worktree.
-    await openWorkbenchTab(desk, 'Task', { project: 'shop-web' });
+    await openWorkbenchTab(desk, '이슈', { project: 'shop-web' });
     const wb = desk.locator('[data-hud-window="office"]');
     await wb.locator('[data-testid="task-card"][data-task-id="T-3"]').click();
     await wb.getByTestId('task-devroom').click();
@@ -416,7 +418,7 @@ async function main() {
       `phone: needs-you first, merged last; the ${STALE} Codex folders hidden (${porder.map((x) => x.join(':')).join(', ')})`,
     );
     const resting = list.getByTestId('devroom-resting');
-    check((await resting.innerText()).includes(`쉬는 작업 ${STALE}개`), `phone: one row folds the ${STALE} resting worktrees`);
+    check((await resting.innerText()).includes(`쉬는 워크트리 ${STALE}개`), `phone: one row folds the ${STALE} resting worktrees`);
     check((await list.getByTestId('devroom-count').innerText()).includes('main 에서 3개 작업이 진행돼요'), 'phone: the count line counts the 3 active ones only');
     const tall = (await pcard(wts[0].task).boundingBox())?.height ?? 0;
     check(tall >= 56 && tall <= 74, `phone: a card is compact (${tall} px)`);
@@ -450,7 +452,7 @@ async function main() {
     await pcard('codex-1022-130011').waitFor();
     check((await list.getByTestId('devroom-card').count()) === 4 + STALE, 'phone: 펼치기 shows the resting ones');
     const codexTitle = await pcard('codex-1022-130011').locator('b').innerText();
-    check(codexTitle === 'Codex 작업 · 10-22 13:00', `phone: a Codex folder reads as a label (${codexTitle})`);
+    check(codexTitle === '실행 · 10-22 13:00', `phone: a Codex folder reads as a label (${codexTitle})`);
     check((await pcard('codex-1022-130011').innerText()).includes('codex/codex-1022-130011'), 'phone: its branch in small text');
     // DEVROOM-NAMES: the bound run and the unbound one wear the employee's name and face.
     for (const task of [BOUND, UNBOUND]) {
@@ -502,12 +504,13 @@ async function main() {
     await pcard(wts[0].task).locator('b').tap();
     await pcard(wts[0].task).locator('[data-page="terminal"]').waitFor();
     const pages = await pcard(wts[0].task).locator('[data-page]').evaluateAll((els) => els.map((e) => e.getAttribute('data-page')));
-    check(pages.join() === 'terminal,changes,merge,preview', `phone: a tapped card shows ${pages.join(' / ')}`);
+    check(pages.join() === 'terminal,changes,merge,runs,preview', `phone: a tapped card shows ${pages.join(' / ')}`);
     check(await pcard(wts[0].task).getByTestId('devroom-explorer').isVisible(), 'phone: and 탐색기에서 열기');
     await phone.waitForTimeout(300);
     await shot(phone, 'phone-card-open');
 
     await openSub(wts[0].task, 'terminal', '[data-testid="devroom-phone-term"]', 'phone-terminal-boot');
+    await phone.locator('[data-testid="devroom-phone-term"] [data-testid="devroom-pane-view"][data-view="terminal"]').tap();
     await phone.waitForFunction(
       () => [...document.querySelectorAll<HTMLElement>('[data-testid="devroom-phone-term"] .xterm-rows')].some((el) => el.innerText.includes('fake Claude Code (pty)')),
       undefined,
@@ -528,7 +531,7 @@ async function main() {
     await list.getByTestId('devroom-back').tap();
     await openSub(wts[2].task, 'merge', '[data-testid="merge-conflict"]', 'phone-merge-390');
     const conflict = await phone.getByTestId('merge-conflict').innerText();
-    check(conflict.includes('PC 에서') && conflict.includes('에이전트에게 맡기기') && (await phone.getByTestId('merge-manual').count()) === 0, 'phone: 병합 shows the conflict read-only with 에이전트에게 맡기기');
+    check(conflict.includes('PC 에서') && conflict.includes('에이전트에게 맡기기') && (await phone.getByTestId('merge-manual').count()) === 0, 'phone: 머지 shows the conflict read-only with 에이전트에게 맡기기');
     await list.getByTestId('devroom-back').tap();
     await openSub(wts[0].task, 'preview', '[data-testid="preview-phone"]', 'phone-preview');
     check(true, 'phone: 미리보기 shows the P2 notice');

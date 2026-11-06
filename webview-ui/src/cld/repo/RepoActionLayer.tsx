@@ -52,8 +52,7 @@ export function RepoActionLayer() {
           {text.note && <p className="text-sm text-text-muted mt-4">{text.note}</p>}
           <div className="flex justify-end gap-8 mt-16">
             <Button
-              variant={text.danger ? 'default' : 'accent'}
-              className={text.danger ? 'bg-danger! border-danger!' : ''}
+              variant={text.danger ? 'danger' : 'accent'}
               size="sm"
               onClick={() =>
                 repoConfirmNow(

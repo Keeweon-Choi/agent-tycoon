@@ -28,6 +28,7 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { engineButton } from './engineRow.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0035');
@@ -110,8 +111,9 @@ async function main() {
     await page.addStyleTag({ content: FONT_CSS });
     await page.evaluate(() => document.fonts.load("16px 'FS Pixel Sans'", '가'));
   };
-  const card = (scope: Locator, page: Page, name: string) =>
-    scope.locator('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+  // The 현황판 has no per-project cards any more: a project is its card in the party (its buttons: engineRow).
+  const card = (_scope: unknown, page: Page, name: string) =>
+    page.locator(`[data-testid="agent-card"][title="${name}"]`).first();
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const engineActions = () => sent.filter((m) => m.type === 'engineAction');
@@ -244,7 +246,7 @@ async function main() {
     );
     check(fs.statSync(path.join(projects, 'new-app')).isDirectory(), 'the folder exists');
     const newCard = card(drawer, page, 'new-app');
-    await newCard.getByRole('button', { name: '켜기', exact: true }).waitFor();
+    await (await engineButton(page, 'new-app', '켜기')).waitFor();
     await newCard.scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
     await shot(page, 'desktop-new-folder-added');
@@ -356,8 +358,7 @@ async function main() {
       'phone: mobile-app in the new office 모바일실',
     );
     const pcard = card(panel, phone, 'mobile-app');
-    await pcard.waitFor();
-    await pcard.scrollIntoViewIfNeeded();
+    await pcard.waitFor({ state: 'attached' }); // behind the 현황판 page on a phone
     await phone.waitForTimeout(300);
     await shot(phone, 'phone-office-added');
 

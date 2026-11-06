@@ -990,9 +990,10 @@ export function startRemote(opts: RemoteOptions): {
   };
 
   const previous = cldHooks.registerRoutes;
-  cldHooks.registerRoutes = (fastify, auth, stepUpFresh, actor) => {
+  cldHooks.registerRoutes = (fastify, auth, stepUpFresh, actor, kindOf) => {
     actorOf = actor;
-    previous?.(fastify, auth, stepUpFresh, actor);
+    // Every argument goes on: a dropped kindOf left the spec routes' session-only check dead (11-06).
+    previous?.(fastify, auth, stepUpFresh, actor, kindOf);
     /** S1: opening something wider (or a new secret path) needs a fresh step-up; the host's Bearer token does not. True: it answered. */
     const needStepUp = (request: FastifyRequest, reply: FastifyReply, target: ExposureState | 'always') => {
       const now = kept(state());

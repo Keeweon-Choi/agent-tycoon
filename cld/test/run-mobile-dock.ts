@@ -239,8 +239,8 @@ async function afterChecks(
   await closeDialogs();
   await closeDialogs();
   check(
-    (await phone.getByTestId('mobile-bottom').getByTestId('usage-folded').count()) === 1,
-    'header: the usage line is at the bottom, folded to one line',
+    (await phone.getByTestId('mobile-bottom').getByTestId('cc-seg-usage').count()) === 1,
+    'header: the usage row is at the bottom, folded to one line',
   );
 
   // ── Tap areas of the small controls: at least 44×44 (their hit area, not their drawing) ──
@@ -264,7 +264,7 @@ async function afterChecks(
   for (const [name, sel] of [
     ['the card toggle', '[data-testid="cards-toggle"]'],
     ['설정', '[data-testid="mobile-top-bar"] [aria-label="설정"]'],
-    ['the usage line', '[data-testid="mobile-bottom"] [data-testid="usage-folded"]'],
+    ['the usage line', '[data-testid="mobile-bottom"] [data-testid="cc-seg-usage"]'],
   ] as const) {
     const a = await hitArea(sel);
     check(a.w >= 44 && a.h >= 44, `tap area: ${name} is ${a.w}×${a.h} px`);
@@ -453,15 +453,21 @@ async function afterChecks(
   await tap('board');
   await phone
     .getByRole('navigation', { name: '작업 메뉴' })
-    .getByRole('button', { name: 'HW', exact: true })
+    .getByRole('button', { name: '프로젝트', exact: true })
     .tap();
-  await phone.locator('[aria-label="HW 화면"]').waitFor();
+  const devTab = phone
+    .getByRole('navigation', { name: '작업 메뉴' })
+    .getByRole('button', { name: '프로젝트', exact: true });
+  await phone.locator(`[aria-label="${PAGE_LABEL.board}"]`).waitFor();
   await tap('files');
   await phone.locator(`[aria-label="${PAGE_LABEL.files}"] [aria-label$="파일 탐색기"]`).waitFor();
   check((await active()) === 'files', 'Dock: 파일 opens the explorer');
   await tap('board');
-  await phone.locator('[aria-label="HW 화면"]').waitFor();
-  check((await active()) === 'board', 'Dock: 현황판 comes back on its HW tab');
+  await phone.locator(`[aria-label="${PAGE_LABEL.board}"]`).waitFor();
+  check(
+    (await active()) === 'board' && (await devTab.getAttribute('aria-pressed')) === 'true',
+    'Dock: 현황판 comes back on its 개발 tab',
+  );
   await tap('files');
   await tap('files');
   check((await active()) === 'files', 'Dock: a second tap on 파일 stays (its root), no minimize');
@@ -649,7 +655,7 @@ async function main() {
         // geometry check then measured the joystick off screen.
         return page
           .getByRole('navigation', { name: '작업 메뉴' })
-          .getByRole('button', { name: '개발', exact: true })
+          .getByRole('button', { name: '프로젝트', exact: true })
           .evaluate((el) => (el as HTMLElement).click());
       }
       if (!BEFORE) return dockButton(page, screen).tap();
@@ -960,15 +966,16 @@ async function main() {
       check(
         (await desk.getByTestId('mobile-dock').count()) === 0 &&
           (await desk.getByTestId('mobile-top-bar').count()) === 0 &&
-          (await desk.locator('[data-hud-id="usage"]').count()) === 1,
-        'desktop: no Dock, no phone top bar; the usage bar with its buttons stays on top',
+          (await desk.locator('[data-hud-id="usage"]').count()) === 0 &&
+          (await desk.getByTestId('hud-corner').count()) === 1,
+        'desktop: no Dock, no phone top bar, no top bar at all (hud-v3); the corner with 메뉴 stays',
       );
       const filesIcon = desk.locator('[data-hud-id="icon:files"]').getByRole('button');
       const explorer = desk.locator('[data-hud-window="office"] [aria-label$="파일 탐색기"]');
       check(
         (await filesIcon.getAttribute('aria-label')) === '파일' &&
-          (await desk.locator('[data-hud-id^="icon:"]').count()) === 6,
-        'desktop: the 파일 icon is in the default set (six icons, the 작업실 among them)',
+          (await desk.getByTestId('hud-dock').count()) === 1,
+        'desktop: the 파일 icon is in the floating dock',
       );
       await desk.screenshot({ path: path.join(OUT, 'after-desktop-icons.png') });
       await filesIcon.click();

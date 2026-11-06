@@ -149,7 +149,7 @@ async function main() {
     const devTab = async (page: Page) => {
       await openOfficeWindow(page);
       const win = page.locator(DEV_WINDOW);
-      await win.getByRole('button', { name: '개발', exact: true }).click();
+      await win.getByRole('button', { name: '프로젝트', exact: true }).click();
       const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
       await eventually('alpha in the picker', async () => (await picker.locator('option[value="alpha"]').count()) > 0);
       await picker.selectOption('alpha');
@@ -201,7 +201,7 @@ async function main() {
       await hangul(phone);
       await phone.locator('[data-dock="board"]').tap();
       const pw = phone.locator('[aria-label="현황판 화면"]');
-      const dev = pw.getByRole('button', { name: '개발', exact: true });
+      const dev = pw.getByRole('button', { name: '프로젝트', exact: true });
       if ((await dev.count()) && (await dev.getAttribute('aria-pressed')) !== 'true') await dev.tap();
       await pw.getByRole('navigation', { name: '개발 메뉴' }).getByRole('button', { name: '개요', exact: true }).tap();
       await eventually('phone offer', async () => (await pw.getByTestId('spec-inherit-offer').count()) === 1);
@@ -233,7 +233,7 @@ async function main() {
     await page.reload();
     await hangul(page);
     await openOfficeWindow(page);
-    await page.locator(DEV_WINDOW).getByRole('button', { name: '개발', exact: true }).click();
+    await page.locator(DEV_WINDOW).getByRole('button', { name: '프로젝트', exact: true }).click();
     await shot(page, '04-purged');
     await desk.close();
 
@@ -266,7 +266,7 @@ async function main() {
     await hangul(phone);
     await phone.locator('[data-dock="board"]').tap();
     const pw = phone.locator('[aria-label="현황판 화면"]');
-    const dev = pw.getByRole('button', { name: '개발', exact: true });
+    const dev = pw.getByRole('button', { name: '프로젝트', exact: true });
     if ((await dev.count()) && (await dev.getAttribute('aria-pressed')) !== 'true') await dev.tap();
     await pw.getByRole('navigation', { name: '개발 메뉴' }).getByRole('button', { name: '요구사항', exact: true }).tap();
     await eventually('phone list', async () => (await pw.getByTestId('spec-item').count()) > 0);

@@ -15,6 +15,7 @@ import type { OfficeRoom } from '../../../../core/src/messages.js';
 import { normalizeProjectPath } from '../../../../core/src/normalizeProjectPath.js';
 import type { SpawnFn } from '../spawnJson.js';
 import { spawnJson } from '../spawnJson.js';
+import { isUsageProbeFolder } from '../usageProbeFolder.js';
 import type { AgentEntry } from './types.js';
 import { ENTRY_DEFAULTS } from './types.js';
 
@@ -297,6 +298,9 @@ export class ClaudeSessions {
         // Mid-write or just removed: the last good read, if any.
       }
       if (!this.parsed.has(n)) continue;
+      // The daemon's own `/usage` probe, should the CLI write a session file for it.
+      const cwd = (this.parsed.get(n) as { cwd?: unknown } | null)?.cwd;
+      if (typeof cwd === 'string' && isUsageProbeFolder(cwd)) continue;
       const row = sessionFromFile(this.parsed.get(n), Number.parseInt(n, 10), this.alive);
       if (row === 'unknown') unknown = true;
       else if (row) rows.push(row);

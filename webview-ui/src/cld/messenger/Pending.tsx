@@ -6,8 +6,8 @@ import { Button } from '../../components/ui/Button.js';
 import { t } from '../../i18n/index.js';
 import { splitAttachmentText } from './attachments.js';
 import { BubbleAttachments } from './BubbleAttachments.js';
-import { FACE_COLUMN, FACE_GAP, OWNER_GUTTER_LEFT } from './Faces.js';
-import { Actionable, ActionRow, FoldToggle, ReplyQuote } from './Line.js';
+import { FaceSpacer } from './Faces.js';
+import { Actionable, ActionRow, DialogueBox, FoldToggle, ReplyQuote } from './Line.js';
 import { foldBubble } from './longMessage.js';
 import { copyText, replyDraft } from './messageActions.js';
 import type { PendingSend } from './messengerStore.js';
@@ -70,86 +70,86 @@ export function Pending({
       !failed &&
       !cancelled && { reply: () => onReply(replyDraft(p.messageId!, undefined, copy)) }),
   };
-  return (
-    <div className={`${OWNER_GUTTER_LEFT} flex items-start ${FACE_GAP}`} data-testid="pending" data-state={p.state}>
-      <Actionable actions={bubbleActions} className="min-w-0 flex-1 flex flex-col items-end">
-      <div
-        className={`text-sm whitespace-pre-wrap [overflow-wrap:anywhere] min-w-0 max-w-full px-8 py-4 border-2 border-dashed ${failed || lost ? 'border-danger' : cancelled ? 'border-border text-text-muted opacity-60' : 'border-accent'}`}
-      >
-        {p.replyTo && <ReplyQuote reply={p.replyTo} open={onQuote} />}
-        <BubbleAttachments
-          text={p.text === body ? fold.shown : `${fold.shown}${p.text.slice(body.length)}`}
-          project={project}
-          projectRoot={projectRoot}
-        />
-      </div>
-      {fold.long && <FoldToggle open={open} toggle={() => setOpen((v) => !v)} />}
-      <span className={`text-2xs ${failed || lost ? 'text-danger' : 'text-text-muted'}`} role="status">
-        <ActionRow actions={bubbleActions} before />
-        {failed ? (p.error ?? sendLabel('failed')) : lost ? t('messenger.recall.lost') : sendLabel(p.state)}
-        {p.edited && !cancelled && t('messenger.editedSuffix')}
-        {waiting && p.now && t('messenger.nowSuffix')}
-        {p.state === 'queued' && permissionWait && t('permPrompt.queued')}
-        {p.state === 'queued' &&
-          !lost &&
-          p.inputWait &&
-          t(p.inputWaitLong ? 'messenger.recall.inputWaitLong' : 'messenger.recall.inputWait')}
-        {lost && p.queueId && (
-          <button
-            type="button"
-            className="ml-8 underline text-accent-text pointer-coarse:min-h-44"
-            disabled={p.promoting}
-            onClick={sendNow}
-          >
-            {t('messenger.recall.resend')}
-          </button>
-        )}
-        {/* MSG-HOLD2: which decision applies to this message */}
-        {p.state === 'queued' && p.held && !editingHere && t('messenger.heldSuffix')}
-        {p.state === 'queued' &&
-          !p.held &&
-          p.holdNote === 'editCancelled' &&
-          t('messenger.editCancelledSuffix')}
-        {p.state === 'queued' &&
-          !p.held &&
-          p.holdNote === 'approved' &&
-          t('messenger.approvedSuffix')}
-        {(p.editing || p.cancelling) && t('messenger.processingSuffix')}
-        {p.refusal && <span className="ml-8 text-danger">{p.refusal}</span>}
-      </span>
-      {/* UI-PHONE: the actions are small real buttons on a row of their own (44 px on touch). */}
-      {(approvable || promotable || actions || failed) && (
-        <span className="flex flex-wrap justify-end gap-6 mt-4" data-testid="pending-actions">
-          {approvable && (
-            <Button size="sm" onClick={approve}>
-              {t('messenger.approveOriginal')}
-            </Button>
-          )}
-          {promotable && (
-            <Button size="sm" disabled={p.promoting} onClick={sendNow}>
-              {t('messenger.sendImmediately')}
-            </Button>
-          )}
-          {/* Always shown, on the phone too: a queued message can be sent now, edited or cancelled (10-24 02:48). */}
-          {actions && (
-            <Button size="sm" onClick={edit}>
-              {p.held && !editingHere ? t('messenger.continueEdit') : t('messenger.edit')}
-            </Button>
-          )}
-          {actions && (
-            <Button size="sm" className="text-danger" onClick={cancel}>
-              {t('common.cancel')}
-            </Button>
-          )}
-          {failed && (
-            <Button size="sm" onClick={() => dismissSend(agentId, p.requestId)}>
-              {t('messenger.dismiss')}
-            </Button>
-          )}
-        </span>
+  const hasActions = approvable || promotable || actions || failed;
+  // Inside the box, at the right end of its 대기 중 row (owner 11-06 22:10): the same buttons, smaller.
+  const head = (
+    <>
+      {approvable && (
+        <Button size="sm" onClick={approve}>
+          {t('messenger.approveOriginal')}
+        </Button>
       )}
+      {promotable && (
+        <Button size="sm" disabled={p.promoting} onClick={sendNow}>
+          {t('messenger.sendImmediately')}
+        </Button>
+      )}
+      {/* Always shown, on the phone too: a queued message can be sent now, edited or cancelled (10-24 02:48). */}
+      {actions && (
+        <Button size="sm" onClick={edit}>
+          {p.held && !editingHere ? t('messenger.continueEdit') : t('messenger.edit')}
+        </Button>
+      )}
+      {actions && (
+        <Button size="sm" className="text-danger" onClick={cancel}>
+          {t('common.cancel')}
+        </Button>
+      )}
+      {failed && (
+        <Button size="sm" onClick={() => dismissSend(agentId, p.requestId)}>
+          {t('messenger.dismiss')}
+        </Button>
+      )}
+    </>
+  );
+  return (
+    <div className="msg-line" data-side="mine" data-testid="pending" data-state={p.state}>
+      <Actionable actions={bubbleActions} className="msg-lane">
+        {/* The box of a sent message of mine; only a waiting one is fainter, and its 더보기 sits inside like every bubble's. */}
+        <DialogueBox
+          kind="boss"
+          state={failed || lost ? 'failed' : waiting ? 'waiting' : undefined}
+          head={hasActions ? head : undefined}
+          fold={fold.long ? <FoldToggle open={open} toggle={() => setOpen((v) => !v)} /> : undefined}
+        >
+          <div className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere] max-w-full overflow-hidden">
+            {p.replyTo && <ReplyQuote reply={p.replyTo} open={onQuote} />}
+            <BubbleAttachments
+              text={p.text === body ? fold.shown : `${fold.shown}${p.text.slice(body.length)}`}
+              project={project}
+              projectRoot={projectRoot}
+            />
+          </div>
+        </DialogueBox>
+        <span className={`dlg-foot text-2xs ${failed || lost ? 'text-danger' : 'text-text-muted'}`} role="status">
+          <ActionRow actions={bubbleActions} before />
+          {failed ? (p.error ?? sendLabel('failed')) : lost ? t('messenger.recall.lost') : sendLabel(p.state)}
+          {p.edited && !cancelled && t('messenger.editedSuffix')}
+          {waiting && p.now && t('messenger.nowSuffix')}
+          {p.state === 'queued' && permissionWait && t('permPrompt.queued')}
+          {p.state === 'queued' &&
+            !lost &&
+            p.inputWait &&
+            t(p.inputWaitLong ? 'messenger.recall.inputWaitLong' : 'messenger.recall.inputWait')}
+          {lost && p.queueId && (
+            <button
+              type="button"
+              className="ml-8 underline text-accent-text pointer-coarse:min-h-44"
+              disabled={p.promoting}
+              onClick={sendNow}
+            >
+              {t('messenger.recall.resend')}
+            </button>
+          )}
+          {/* MSG-HOLD2: which decision applies to this message */}
+          {p.state === 'queued' && p.held && !editingHere && t('messenger.heldSuffix')}
+          {p.state === 'queued' && !p.held && p.holdNote === 'editCancelled' && t('messenger.editCancelledSuffix')}
+          {p.state === 'queued' && !p.held && p.holdNote === 'approved' && t('messenger.approvedSuffix')}
+          {(p.editing || p.cancelling) && t('messenger.processingSuffix')}
+          {p.refusal && <span className="ml-8 text-danger">{p.refusal}</span>}
+        </span>
       </Actionable>
-      <span className={`shrink-0 ${FACE_COLUMN}`} aria-hidden="true" />
+      <FaceSpacer />
     </div>
   );
 }

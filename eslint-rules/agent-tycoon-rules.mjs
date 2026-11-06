@@ -3,8 +3,12 @@
  *
  * Rules:
  *   no-inline-colors  — flag hex/rgb/rgba/hsl/hsla color literals (centralize in constants)
- *   pixel-shadow      — flag box-shadow values not using var(--pixel-shadow) or 2px 2px 0px
- *   pixel-font        — flag font-family values not referencing FS Pixel Sans
+ *   pixel-shadow      — flag box-shadow literals that are neither a token (var(--…)) nor the pixel drop (2px 2px 0px)
+ *   pixel-font        — flag font-family literals that are neither a token (var(--…)) nor FS Pixel Sans
+ *
+ * FEAT-UI-MODERN-THEME: two screen styles (모던, 픽셀 감성) share the components, so a shape, shadow or
+ * font comes from a token in webview-ui/src/index.css (--ui-*, --shadow-pixel*, --bevel*, --ui-font)
+ * that each style defines; a literal would look the same in both.
  */
 
 const HEX_COLOR = /#[0-9a-fA-F]{3,8}\b/;
@@ -71,11 +75,12 @@ const pixelShadow = {
     type: 'suggestion',
     docs: {
       description:
-        'Require box-shadow values to use var(--pixel-shadow) or the 2px 2px 0px pattern.',
+        'Require box-shadow values to come from a token (var(--…)) or be the pixel drop 2px 2px 0px.',
     },
     schema: [],
     messages: {
-      found: 'Use `var(--pixel-shadow)` or a hard offset `2px 2px 0px` shadow.',
+      found:
+        'Use a shadow token (`var(--shadow-pixel)`, `var(--bevel)`, `var(--ui-drop) <colour>`, …) so both screen styles draw it.',
     },
   },
   create(context) {
@@ -85,7 +90,7 @@ const pixelShadow = {
         const value = node.value;
         if (value.type !== 'Literal' || typeof value.value !== 'string') return;
         const text = value.value;
-        if (text.includes('var(--pixel-shadow)') || text.includes('2px 2px 0px')) return;
+        if (text === 'none' || text.includes('var(--') || text.includes('2px 2px 0px')) return;
         context.report({ node: value, messageId: 'found' });
       },
     };
@@ -107,11 +112,11 @@ const pixelFont = {
   meta: {
     type: 'suggestion',
     docs: {
-      description: 'Require font-family values to reference FS Pixel Sans.',
+      description: 'Require font-family values to come from a token (var(--…)) or reference FS Pixel Sans.',
     },
     schema: [],
     messages: {
-      found: 'Use the FS Pixel Sans font for UI styling.',
+      found: 'Use the font token (`var(--ui-font)`, `var(--font-data)`, `var(--pixel-font-stack)`) for UI styling.',
     },
   },
   create(context) {
@@ -120,7 +125,7 @@ const pixelFont = {
         if (!isFontFamilyProperty(node)) return;
         const value = node.value;
         if (value.type !== 'Literal' || typeof value.value !== 'string') return;
-        if (value.value.includes('FS Pixel Sans')) return;
+        if (value.value.includes('var(--') || value.value.includes('FS Pixel Sans')) return;
         context.report({ node: value, messageId: 'found' });
       },
     };

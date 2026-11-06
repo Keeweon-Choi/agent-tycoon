@@ -1,0 +1,16 @@
++-o AMDRadeonX5000_AMDNavi14GraphicsAccelerator  <class AMDRadeonX5000_AMDNavi14GraphicsAccelerator, id 0x100000561, registered, matched, active, busy 0 (0 ms), retain 52>
+    {
+      "IOClass" = "AMDRadeonX5000_AMDNavi14GraphicsAccelerator"
+      "IOProviderClass" = "IOPCIDevice"
+      "PerformanceStatistics" = {"VRAM,totalMB"=4096,"hardwareWaitTime"=0,"vramUsedBytes"=1023410176,"Device Utilization %"=41,"GPU Activity(%)"=41,"vramFreeBytes"=3271557120,"recoveryCount"=0}
+      "IOMatchCategory" = "IOAccelerator"
+    }
+    
++-o IntelAccelerator  <class IntelAccelerator, id 0x100000538, registered, matched, active, busy 0 (0 ms), retain 30>
+    {
+      "IOClass" = "IntelAccelerator"
+      "IOProviderClass" = "IOPCIDevice"
+      "PerformanceStatistics" = {"Device Utilization %"=3,"inUseVidMemoryBytes"=0,"GPU Activity(%)"=3,"inUseSysMemoryBytes"=69632000}
+      "IOMatchCategory" = "IOAccelerator"
+    }
+    

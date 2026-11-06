@@ -144,6 +144,47 @@ const TOOLS = [
       ['idempotencyKey', 'task'],
     ),
   },
+  // BRN K3: read-only queries (engine/agentQueries.ts). Each answer starts with {project, rev, asOf, head};
+  // a question they do not cover gets status "not_covered" and what is missing, never a guess.
+  {
+    name: 'get_message',
+    description:
+      'Read only. One message by its id (as ⟨m:id⟩ or ⟨re:id⟩ show it): its text, the line before and after, the sender, the time, and which conversation it is in (your own one-to-one conversation, or a room you are a member of). Another agent\'s one-to-one conversation is never read. Secrets are masked. At most 30 queries a minute over all read tools; answers over 8 KB are cut (truncated).',
+    inputSchema: object({ id: { type: 'string', description: 'The message id, with or without ⟨m: ⟩.' } }, ['id']),
+  },
+  {
+    name: 'get_requirement',
+    description:
+      "Read only. One requirement of your project's tracked documents by its UID (r_…) or display ID (FR-TRC-015): its text, acceptance criteria, its states (change, integration, test, deploy, acceptance), version, links and where each comes from. not_covered when tracking is off, the ID is not defined, or its document is marked sensitive.",
+    inputSchema: object({ id: { type: 'string' } }, ['id']),
+  },
+  {
+    name: 'search_requirements',
+    description: "Read only. Requirements of your project whose display ID or title has the query's words (at most 4 KB).",
+    inputSchema: object({ query: { type: 'string' } }, ['query']),
+  },
+  {
+    name: 'get_related_context',
+    description: 'Read only. What a requirement is linked to (Tasks, commits, jobs, components, other requirements), depth 1 or 2, with each link\'s status (confirmed, observed, suggested) and reason.',
+    inputSchema: object({ id: { type: 'string' }, depth: { type: 'integer', minimum: 1, maximum: 2 } }, ['id']),
+  },
+  {
+    name: 'get_task_context',
+    description:
+      "Read only. A task of your project (default: your newest open task): its fields, the requirements linked to it, the code files and modules those requirements reach on the project map, and its verification facts with their sources. Parts it cannot answer are listed in missing.",
+    inputSchema: object({ taskId: { type: 'string' } }),
+  },
+  {
+    name: 'get_resume_context',
+    description:
+      'Read only. After a renew: your last handoff as you wrote it, the work basis the engine read then (branch, HEAD), the commits and tasks changed since, and the references in it resolved (requirements, tasks, commits). At most 16 KB.',
+    inputSchema: object({}),
+  },
+  {
+    name: 'get_traceability_summary',
+    description: "Read only. Your project's requirement overview: document and requirement counts, what needs checking, the features with how many requirements reach code, and the recent commits and jobs.",
+    inputSchema: object({}),
+  },
 ];
 const NAMES = new Set(TOOLS.map((t) => t.name));
 

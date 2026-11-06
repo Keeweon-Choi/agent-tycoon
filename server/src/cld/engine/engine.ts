@@ -55,6 +55,7 @@ import { turnEnded } from '../providers/claudeProvider.js';
 import type { World } from '../providers/types.js';
 import { STEPUP_REQUIRED } from '../shell/gate.js';
 import type { SpawnFn } from '../spawnJson.js';
+import { gitSummary } from '../statusReport.js';
 import { repliedState } from '../transcriptHistory.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
@@ -76,12 +77,16 @@ import type { StateCtx } from './engineView.js';
 import { applyEngine, engineState, TurnCache } from './engineView.js';
 import { EngineWatch } from './engineWatch.js';
 import { configDir, shortStamp } from './events.js';
+import { createGitRunner, type GitRunner } from './git/gitRun.js';
+import { readRecords } from './git/worktrees.js';
+import { basisLines, handoffFormat, handoffRefs, keepCommits, renewPrompt } from './handoff.js';
 import { loadOrCreateHost } from './host.js';
 import { scanProjects } from './importProjects.js';
 import type { LeadTerm, OldLead, SwapJournal } from './leadSwap.js';
 import {
   applySwap,
   eventLines,
+  fitBriefing,
   leadPrompt,
   promotePair,
   readJournal,
@@ -110,7 +115,7 @@ import {
   saveRegistry,
   sessionName,
 } from './registry.js';
-import { Renewals } from './renewals.js';
+import { Renewals, type RenewRecord } from './renewals.js';
 import { ReviveGuard } from './reviveGuard.js';
 import { CLD_BIN_DIR, cldBinPath, cleanEnv, findSystemdRun } from './sessionEnv.js';
 import {
@@ -184,6 +189,9 @@ export const startedBy = (source: string): 'engine' | 'agent' | 'cli' | 'person'
 export const SWAP_UNFINISHED =
   koText('swap_unfinished');
 
+/** K1 (B2): the task worktrees a renew's work basis lists. */
+const RENEW_WORKTREES_MAX = 10;
+
 /** How every revive notice starts: a waiting one is replaced by the next (writeInbox `replaces`). */
 export const REVIVE_TAG = '[cld-gui 자동 복구 · ';
 /** First message after revive (the 자동 복구 line): why the session was started again. */
@@ -199,14 +207,7 @@ export function reviveText(cause: 'reboot' | 'restart' | 'died', when: string): 
 
 /** The compaction nudge (an opt-in per project). */
 export const nudgeText = (n: number, fillPct: number): string =>
-  `[cld-gui] 이 대화는 컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다. 하던 일을 안전한 지점까지 마치고, 지금 상태·돌고 있는 작업(pid·로그)·다음 할 일을 인수인계 파일로 쓴 뒤, 마지막으로 "$CLD_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
-
-/** The new conversation's first message after renew. */
-export function renewText(handoff: string, file: string | null, when: string): string {
-  const head = `[cld-gui renew · ${when}] 컨텍스트가 포화돼 새 대화로 이어 간다.`;
-  if (!handoff.trim()) return `${head} 하던 일을 이어서 해 달라.`;
-  return `${head} 아래 인수인계${file ? `(${file})` : ''}를 먼저 읽고 하던 일을 이어서 해 달라.\n\n${handoff.trim()}`;
-}
+  `[cld-gui] 이 대화는 컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다. 하던 일을 안전한 지점까지 마치고, 인수인계 파일을 제목 '## 목표' '## 완료' '## 미해결' '## 다음 행동'(있으면 '## 결정' '## 시도했다 버린 것')으로 쓰고 줄마다 [사실]·[판단]·[미확인] 을 단 뒤(돌고 있는 작업은 pid·로그까지), 백그라운드 서브에이전트가 끝나면 마지막으로 "$CLD_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
 
 export interface EngineOptions {
   claudePath: string;
@@ -250,6 +251,9 @@ export interface EngineOptions {
   agents?: AgentProvider[];
   /** D3b: what a new Lead's first prompt lists: the project's Tasks, its running jobs and
    *  Codex tasks ("<title> <id>"), and the events.jsonl records to summarize. */
+  /** K1 (G6): the background sub-agents agent `name`'s live session still runs (the office's
+   *  AgentStateStore); a renew waits until there are none, and while it is not known (null). */
+  subagents?: (name: string) => number | null;
   briefing?: (project: string) => {
     tasks: BoardTask[];
     running: string[];
@@ -316,6 +320,8 @@ export class Engine {
   private sessionPath: string | null = null;
   /** RENEW-STUCK: pending renewals (renewals.ts). */
   private readonly renewals: Renewals;
+  /** K1 (B5): the git runner that checks a handoff's commit references (made on first use). */
+  private git: GitRunner | null = null;
   /** D3b: the two names a promote holds, until it is done. */
   private readonly swapping = new Set<string>();
   /** Projects live at the last refresh (orch_exit when one goes). */
@@ -384,6 +390,8 @@ export class Engine {
       log: (l) => this.log(l),
       event: (...a) => this.opts.event?.(...a),
       writeInbox: (...a) => this.opts.writeInbox?.(...a),
+      compose: (p, r, h) => this.renewCompose(p, r, h),
+      ...(this.opts.subagents && { subagents: this.opts.subagents }),
     });
     this.watcher = new EngineWatch({
       timing: this.t,
@@ -402,7 +410,8 @@ export class Engine {
       holder: (p) => this.holder(p),
       agentOf: (p) => this.agentOf(p),
       notReady: (p) => this.notReady(p),
-      renewing: (name) => this.renewals.has(name),
+      // K1 (B4): one a renew could not start stays down until a person starts it (no retry).
+      renewing: (name) => this.renewals.has(name) || this.renewals.failedStart(name),
       reviveBudget: (name, backoff) => this.reviveBudget(name, backoff),
       reviveOne: (p, cause, firstPrompt) => this.reviveOne(p, cause, firstPrompt),
       patch: (name, fields) => this.patch(name, fields),
@@ -482,10 +491,24 @@ export class Engine {
     return this.find(name)?.provider === CLAUDE_PTY_PROVIDER;
   }
 
+  /** ACP-1: `name` is an ACP agent (its permissions come as ACP requests, never off a screen). */
+  isAcp(name: string): boolean {
+    const p = this.find(name);
+    return !!p && this.agentOf(p)?.protocol === 'acp';
+  }
+
   /** D5: this build has provider `id` and it can start here (its CLI is installed). */
   providerReady(id: string): boolean {
     const agent = this.agents.get(id);
     return !!agent && !agent.ready?.();
+  }
+
+  /** AGENT-UPDATE: provider `id`'s CLI as the engine runs it (bin null: not installed) and its own
+   *  update arguments; null when this build has no such provider or it cannot update itself. */
+  agentCli(id: string): { bin: string | null; update: readonly string[] } | null {
+    const agent = this.agents.get(id);
+    const update = agent?.capabilities.update;
+    return agent?.cliPath && update?.length ? { bin: agent.cliPath(), update } : null;
   }
 
   /** Why `p` cannot be started now: no provider in this build, or the provider's own reason. */
@@ -611,6 +634,7 @@ export class Engine {
   refresh(notify = true): void {
     this.live = this.readLive();
     this.followConversations();
+    this.settleFailedRenewals();
     const live = new Set(this.projects.filter((p) => this.holder(p)).map((p) => p.name));
     for (const name of this.liveNames) {
       if (live.has(name)) continue;
@@ -682,14 +706,62 @@ export class Engine {
     }
   }
 
+  /** K1 (B4): a failed renew whose new conversation is up after all (the daemon died before the
+   *  registry took its id, or the start gave up waiting for it): its own background session under
+   *  another conversation than the one the renew left is that new one, so the renew is over. */
+  private settleFailedRenewals(): void {
+    for (const f of this.renewals.failedList()) {
+      const p = this.find(f.name);
+      const h = p && this.holder(p);
+      if (p && h?.kind === 'background' && !h.resting && h.sessionId && h.sessionId !== f.oldSessionId)
+        this.renewals.recovered(p, h.sessionId);
+    }
+  }
+
   /** Every registered project's folder (T-0020's repository panel); not a Worker's. */
   folders(): Array<{ name: string; folder: string }> {
     return this.leads().map((p) => ({ name: p.name, folder: p.folder }));
   }
 
+  /** RQ4: a project's spec workflow switch and the agent CLIs its agents run (Lead first), or
+   *  null when it is not one of the engine's projects. */
+  specWorkflow(project: string): { on: boolean; clis: string[] } | null {
+    const lead = this.leads().find((p) => p.name === project);
+    if (!lead) return null;
+    const clis = [lead, ...this.projects.filter((p) => p.role && p.projectId === lead.projectId)].map(cliOf);
+    return { on: lead.specWorkflow === 'speckit', clis: [...new Set(clis)] };
+  }
+
+  /** RQ4: switch it; its agents get the layer from their next start. false: not saved. */
+  setSpecWorkflow(project: string, on: boolean): boolean {
+    const lead = this.leads().find((p) => p.name === project);
+    if (!lead) return false;
+    if ((lead.specWorkflow === 'speckit') === on) return true;
+    try {
+      this.commit(
+        this.projects.map((x) => {
+          if (x !== lead) return x;
+          const next: ProjectRecord = { ...x, specWorkflow: 'speckit' };
+          if (!on) delete next.specWorkflow;
+          return next;
+        }),
+      );
+      return true;
+    } catch (err) {
+      this.log(`spec workflow ${project}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  }
+
   /** An agent's own folder (a Worker may work in a worktree), or undefined. */
   folderOf(name: string): string | undefined {
     return this.find(name)?.folder;
+  }
+
+  /** T-70: `name`'s record works in `folder` (a running session started there). */
+  worksIn(name: string, folder: string): boolean {
+    const p = this.find(name);
+    return !!p && samePath(p.folder, folder, this.host);
   }
 
   // ── T-0019: what cld-gui send, job and renew ask ─────────────
@@ -818,6 +890,71 @@ export class Engine {
    *  re-addressing routes them by its cut-off). */
   renewing(name: string): boolean {
     return this.renewals.has(name) || this.swapping.has(name);
+  }
+
+  /** K1 (B2): a v1 renew's first message: the safety lines, the handoff as written, then the work
+   *  basis the engine reads now (the old session, git, task worktrees, and the Lead swap
+   *  briefing's lines). Never rejects: what cannot be read is left out. */
+  private async renewCompose(p: ProjectRecord, r: RenewRecord, h: Live | null) {
+    const now = Date.now();
+    const format = r.format ?? handoffFormat(r.message);
+    const oldId = r.oldSessionId ?? null;
+    const project = (p.role ? this.leadOf(p)?.name : p.name) ?? p.name;
+    let transcript: string | null = null;
+    let base: { head: string | null; branch: string | null } = { head: null, branch: null };
+    let basis = '';
+    let taskIds = new Set<string>();
+    let folder = p.folder;
+    try {
+      const agent = this.agentOf(p);
+      transcript = h ? h.agent.transcript(h) : agent && oldId ? agent.transcript({ cwd: p.folder, sessionId: oldId }) : null;
+      folder = h?.cwd ?? p.folder;
+      const brief = this.opts.briefing?.(project) ?? { tasks: [], running: [], events: [] };
+      taskIds = new Set(brief.tasks.map((t) => t.id));
+      const head = (g: Awaited<ReturnType<typeof gitSummary>>) => g?.recent[0]?.hash.slice(0, 7) ?? null;
+      const records = readRecords(path.join(configDir(this.home), 'worktrees.json'))
+        .filter((w) => w.project === project && w.status === 'active')
+        .slice(0, RENEW_WORKTREES_MAX);
+      const [git, ...trees] = await Promise.all([
+        gitSummary(folder).catch(() => null),
+        ...records.map((w) => gitSummary(w.path).catch(() => null)),
+      ]);
+      base = { head: head(git), branch: git?.branch ?? null };
+      const team = this.projects.filter((x) => x.projectId === p.projectId);
+      basis = fitBriefing(
+        {
+          now,
+          project,
+          tasks: brief.tasks,
+          nameOf: (id) => team.find((x) => (x.role ? x.assignmentId : x.leadAssignmentId) === id)?.name,
+          running: brief.running,
+          workers: team.filter((x) => x.role).map((x) => ({ name: x.name, role: x.role!, on: !!this.holder(x) })),
+          events: eventLines(brief.events, team.map((x) => x.name), now),
+        },
+        (lines) =>
+          [
+            ...basisLines({
+              oldSessionId: oldId,
+              transcript,
+              folder,
+              git: git ? { ...base, changed: git.dirty ?? null } : null,
+              worktrees: records.map((w, i) => ({ path: w.path, branch: trees[i]?.branch ?? w.branch, head: head(trees[i] ?? null) })),
+            }),
+            ...lines,
+          ].join('\n'),
+      );
+    } catch (err) {
+      this.log(`renew "${p.name}": work basis not read (${err instanceof Error ? err.message : String(err)})`);
+    }
+    const text = renewPrompt({ when: shortStamp(now), handoff: r.message, file: r.file ?? null, format, basis });
+    this.git ??= createGitRunner();
+    const refs = await keepCommits(handoffRefs(r.message, taskIds, p.name), this.git, folder);
+    return { text, base, refs, transcript };
+  }
+
+  /** K1 (B4): `name`'s last renew could not start a new conversation; its next start does. */
+  renewFailed(name: string): boolean {
+    return this.renewals.failedStart(name);
   }
 
   /** RENEW-STUCK: a renewal of `name` is pending (the office row's `renewing`). */
@@ -956,10 +1093,11 @@ export class Engine {
    */
   renew(
     name: string,
-    message: string,
+    handoff: string,
     source: string,
+    file: string | null = null,
   ): { ok: true } | { ok: false; code: string; error: string } {
-    return this.renewals.request(name, message, source);
+    return this.renewals.request(name, handoff, source, file);
   }
 
   /** RENAME: the pending renames by assignment id (a rename is for that agent, whatever answers
@@ -1248,6 +1386,7 @@ export class Engine {
       projectOf: (name) => this.projectOf(name),
       gaveUp: (name) => this.guard.gaveUp(name),
       agentOf: (p) => this.agentOf(p),
+      agents: () => this.agents.values(),
       unknownProvider,
       untrusted: this.untrusted,
       trusting: this.trusting,
@@ -1975,6 +2114,10 @@ export class Engine {
     if (folder.error) return fail(folder.error);
     const rules = p.rulesFile ? checkRulesFile(p.rulesFile) : null;
     if (rules) return fail(rules);
+    // K1 (B4): after a renew whose start failed, the next start is the new conversation it was
+    // meant to be (the handoff waits in the inbox as its first message), never the old one.
+    const afterRenew = !newConversation && this.renewals.failedStart(p.name);
+    if (afterRenew) newConversation = true;
     let resume = newConversation ? undefined : p.sessionId;
     let note: string | undefined;
     if (resume && !fs.existsSync(agent.transcript({ cwd: p.folder, sessionId: resume }))) {
@@ -2041,7 +2184,7 @@ export class Engine {
       );
     }, this.t.appearMs);
     if (!s) return fail(koText('session_not_found'));
-    if (resume && s.sessionId !== resume) note = koText('started_as_copy');
+    if (resume && s.sessionId !== resume) note = r.note ?? koText('started_as_copy');
     this.patch(p.name, {
       sessionId: s.sessionId,
       ...(s.id && { backgroundId: s.id }),
@@ -2060,6 +2203,7 @@ export class Engine {
       ...(newConversation && { new_conversation: true }),
       ...(source === 'revive' && { revives_24h: this.guard.count(p.name) }),
     });
+    if (afterRenew) this.renewals.recovered(p, s.sessionId);
     this.opts.started?.(p.name);
     return { ok: true, bgId: s.id ?? printed ?? undefined, ...(note && { note }) };
   }

@@ -7,7 +7,7 @@
  * - with nameplates off (charpack v3 §6A), only the orchestrators carry a name on the canvas overlay;
  * - an idle character shows the zzz status icon, drawn on the canvas;
  * - hovering a sub-agent (desktop) or tapping it (phone) shows its details;
- * - the card bar is grouped by kind, each card named.
+ * (The card bar's group and name checks went with the old cards, FEAT-PARTY-V2: the party is portraits.)
  * Hangul from Malgun Gothic and emoji from Segoe UI Emoji (Windows fonts, read
  * only). Screenshots go to cld/artifacts/t0036/.
  *
@@ -169,16 +169,6 @@ const names = (page: Page): Promise<Array<[string, string]>> =>
       n.closest('[data-testid="agent-overlay"]')?.getAttribute('data-kind') ?? '',
     ]),
   );
-/** The card bar in order: group headers or dividers ('|title') and card names. */
-const cardBar = (page: Page): Promise<string[]> =>
-  page.$$eval('[data-testid="card-group"], [data-testid="card-name"]', (nodes) =>
-    nodes.map((n) =>
-      n.getAttribute('data-testid') === 'card-group'
-        ? `|${n.getAttribute('title')}`
-        : (n.textContent ?? ''),
-    ),
-  );
-
 type Rgb = [number, number, number];
 const palette = propData.palette as Record<string, string>;
 const rgb = (hex: string): Rgb => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
@@ -374,29 +364,7 @@ async function main() {
       ['phone', phone],
     ] as const) {
       if (p === phone) {
-        // T-0041: the sub-agents sit at a spare desk, maybe off this small
-        // screen: the lead's +3 list takes the camera to "fix login", then
-        // let go (a tap on the floor) so a tap selects it again; fresh work.
-        // The phone's cards are compact by default; the +N chip waits for the full ones.
-        if ((await p.getByTestId('cards-toggle').getAttribute('aria-expanded')) !== 'true')
-          await p.getByTestId('cards-toggle').tap();
-        await p.locator('[title="lead"] [data-testid="temp-chip"]').first().tap();
-        // TEMP-PLATES: the sub-agent wears its roster employee's name; the row knows its task.
-        const fixRow = p.locator('[data-testid="temp-row"]').filter({ hasText: 'fix login' });
-        fixId = Number(await fixRow.getAttribute('data-agent-id'));
-        await fixRow.tap();
-        await p.waitForTimeout(1_500);
-        // The camera glides to the sub-agent and may still be on its way (slowly on a slow run): let it arrive
-        // before the floor tap lets go of it.
-        await until('phone: "fix login" is mid-screen', async () => {
-          const a = (await anchors(p)).find((x) => x.id === fixId);
-          const box = await p.locator('[data-testid="office-canvas"]').boundingBox();
-          return !!a && !!box && Math.abs(a.x - (box.x + box.width / 2)) < box.width * 0.3;
-        });
-        // T-0056: the row also opens the temp's work view over the office; close it.
-        const closeWork = p.getByRole('button', { name: '닫기', exact: true });
-        if (await closeWork.count()) await closeWork.first().tap();
-        await p.waitForTimeout(500);
+        // FEAT-PARTY-V2: the lead's +N list (its card's chip) is gone with the old cards; the camera stays.
         const canvas = (await p.locator('[data-testid="office-canvas"]').boundingBox())!;
         // Tap the bare canvas somewhere nobody stands (no label or control over it): deselects.
         const floor = await p.evaluate(() => {
@@ -561,29 +529,6 @@ async function main() {
       await p.locator('[data-modal-title] button').click();
       await stat.waitFor({ state: 'detached' });
       if (p === page) await p.mouse.move(5, 400);
-
-      // 4. Cards: grouped by kind, each named. T-0041: temps have no card of
-      // their own; the lead's card carries +3 (two sub-agents and the scout),
-      // the unowned Codex worker sits under 외주.
-      const bar = await cardBar(p);
-      const groups = bar.filter((x) => x.startsWith('|')).map((x) => x.slice(1));
-      const want = ['오케스트레이터', '외주'];
-      // Desktop: a header before every group; phone: a divider between groups.
-      const wantGroups = p === phone ? want.slice(1) : want;
-      const cards = bar.filter((x) => !x.startsWith('|'));
-      const chips = await p.$$eval('[data-testid="agent-card"]', (nodes) =>
-        nodes.map(
-          (n) =>
-            `${n.querySelector('[data-testid="card-name"]')?.textContent}${n.querySelector('[data-testid="temp-chip"]')?.textContent ?? ''}`,
-        ),
-      );
-      check(
-        groups.join() === wantGroups.join() &&
-          [...cards].sort().join() === 'lead,veteran,외주' &&
-          chips.includes('lead+3') &&
-          chips.includes('외주+1'),
-        `${label}: cards grouped and named, temps as +N (${bar.join(' ')}; ${chips.join(' ')})`,
-      );
     }
     // T-0045: the provider says veteran is mid-turn (session status busy) with no tool
     // running: it thinks (🤔, the activity icon) instead of resting (zzz); then back.
@@ -614,9 +559,6 @@ async function main() {
     check(true, 'not busy again: back to zzz');
     // Up close on the desktop: the camera follows a card's character, zoomed in.
     const office = (await page.locator('[data-testid="office-canvas"]').boundingBox())!;
-    // T-0041: the scout has no card; its row in the lead's +3 list goes to it.
-    await page.locator('[title="lead"] [data-testid="temp-chip"]').first().click();
-    await page.locator('[data-testid="temp-row"]').filter({ hasText: 'scout' }).click();
     await page.mouse.move(office.x + office.width / 2, office.y + office.height / 2);
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -120);
@@ -633,13 +575,6 @@ async function main() {
       await page.waitForTimeout(500);
     }
     await shot(page, 'desktop-closeup-hover');
-    // The desktop card bar up close.
-    const barBox = await page.locator('[data-testid="card-group"]').first().boundingBox();
-    if (barBox)
-      await page.screenshot({
-        path: path.join(OUT, 'desktop-cards.png'),
-        clip: { x: barBox.x - 20, y: 40, width: 120, height: 560 },
-      });
     check(pageErrors.length === 0, `no page errors (${pageErrors.join(' | ') || 'none'})`);
   } finally {
     await browser.close();

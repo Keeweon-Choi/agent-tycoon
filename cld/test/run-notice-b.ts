@@ -191,7 +191,7 @@ async function main() {
       );
       await page.reload();
       await ready(page);
-      const bell = page.locator('[data-testid="notice-bell"]');
+      const bell = page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]');
       if (phone) await bell.tap();
       else await bell.click();
       await page.locator('[data-testid="notice-list"]').waitFor();

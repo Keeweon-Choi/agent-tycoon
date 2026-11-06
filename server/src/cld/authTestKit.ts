@@ -13,8 +13,9 @@ import * as path from 'path';
 import { AgentStateStore } from '../agentStateStore.js';
 import { createHttpServer, type HttpServerHandle } from '../httpServer.js';
 import { StandaloneAuth } from './auth.js';
-import { cldHooks } from './hooks.js';
+import { type CldHooks, cldHooks } from './hooks.js';
 import type { ShellRegistry } from './shell/registry.js';
+import type { Street } from './street.js';
 
 export const TOKEN = 'test-server-token';
 export const HOST = 'office.tail0000.ts.net';
@@ -48,6 +49,11 @@ export function makeFakeDist(): { root: string; staticDir: string } {
     'webview/fonts/galmuri/Galmuri11.woff2': 'woff2',
     'webview/fonts/galmuri/Galmuri11-Bold.woff2': 'woff2',
     'webview/fonts/galmuri/OFL.txt': 'ofl',
+    'webview/fonts/pretendard/Pretendard-Regular.woff2': 'woff2',
+    'webview/fonts/pretendard/Pretendard-SemiBold.woff2': 'woff2',
+    // no longer named by the CSS: on disk here so the gate, not a missing file, is what refuses it
+    'webview/fonts/pretendard/Pretendard-Bold.woff2': 'woff2',
+    'webview/fonts/pretendard/OFL.txt': 'ofl',
     'webview/assets/index-abc.js': 'app()',
     'webview/assets/sheet.png': 'png',
     'login/login.js': 'login()',
@@ -80,14 +86,25 @@ export async function startAuthServer(
     shellRegistry?: ShellRegistry;
     shellHome?: string;
     listen?: boolean;
+    /** With `listen`: the port (tests use 19030-19039), else any free one. */
+    port?: number;
+    /** MHO 3.6: the host id that names the session cookie (absent: the old `cld_session`). */
+    hostId?: string;
+    /** MHO 3.6: the host's display name, for the login page title. */
+    hostName?: () => string;
+    /** More cld routes, registered the way the office registers its own (the real gate around them). */
+    routes?: CldHooks['registerRoutes'];
     /** Exercise legacy HTTP options without restoring their authentication effect. */
     legacyTailscaleTrust?: boolean;
+    /** MHO v1b: the street (pairing and the summary route). */
+    street?: Street;
   } = {},
 ): Promise<AuthServer> {
   const auth = new StandaloneAuth(options);
   // A cld route that would answer 200 if the gate let the request through.
-  cldHooks.registerRoutes = (app) => {
+  cldHooks.registerRoutes = (app, ...rest) => {
     app.get('/cld/characters/:file', async () => 'sheet');
+    options.routes?.(app, ...rest);
   };
   const store = new AgentStateStore();
   const broadcasts: Array<Record<string, unknown>> = [];
@@ -99,12 +116,15 @@ export async function startAuthServer(
     store,
     staticDir,
     listen: options.listen ?? false,
+    port: options.port,
     allowedHosts: options.allowedHosts ?? [HOST],
     ...(options.legacyTailscaleTrust ? { trustedTailscaleUsers: [OWNER] } : {}),
     auth,
+    hostName: options.hostName,
     allowTerminal: options.allowTerminal,
     shellRegistry: options.shellRegistry,
     shellHome: options.shellHome,
+    street: options.street,
   });
   return { ...server, auth, broadcasts };
 }
@@ -116,7 +136,7 @@ export async function stopAuthServer(server: AuthServer | undefined): Promise<vo
 
 /** S1: a fresh step-up on a session (a cookie header or a bare id), as a device-key or passkey proof leaves it. */
 export function proveSession(auth: StandaloneAuth, cookie: string): string {
-  const session = auth.session(/cld_session=([^;\s]+)/.exec(cookie)?.[1] ?? cookie);
+  const session = auth.session(/cld_session(?:_[0-9a-f]{8})?=([^;\s]+)/.exec(cookie)?.[1] ?? cookie);
   if (!session) throw new Error('no such session');
   session.shellProofAt = Date.now();
   return cookie;

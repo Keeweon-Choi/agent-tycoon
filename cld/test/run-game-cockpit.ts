@@ -166,7 +166,7 @@ async function main() {
     const icon = page.locator('[data-hud-id="icon:office"] button');
     await icon.waitFor();
     if (!(await win.isVisible())) await icon.click();
-    await win.getByRole('button', { name: '개발', exact: true }).click();
+    await win.getByRole('button', { name: '프로젝트', exact: true }).click();
     const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
     await eventually('alpha in the picker', async () => (await picker.locator('option[value="alpha"]').count()) > 0);
     await picker.selectOption('alpha');
@@ -339,7 +339,7 @@ async function main() {
     await phone.goto(`http://127.0.0.1:${port}/`);
     await phone.locator('[data-dock="board"]').tap();
     const pw = phone.locator('[aria-label="현황판 화면"]');
-    const dev = pw.getByRole('button', { name: '개발', exact: true });
+    const dev = pw.getByRole('button', { name: '프로젝트', exact: true });
     if ((await dev.count()) && (await dev.getAttribute('aria-pressed')) !== 'true') await dev.tap();
     const pnav = pw.getByRole('navigation', { name: '개발 메뉴' });
     await pnav.getByRole('button', { name: '개요', exact: true }).tap();

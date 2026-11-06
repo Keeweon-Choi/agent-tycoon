@@ -5,10 +5,11 @@ import { Button } from '../components/ui/Button.js';
 import { Modal } from '../components/ui/Modal.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { setLanguage, t, useLanguage } from '../i18n/index.js';
-import { IME_GUARD_OFF_KEY } from '../terminal/imeGuard.js';
 import { AgentRulesOption } from './AgentRulesOption.js';
 import { AccessButton } from './auth/Access.js';
+import { authFetch } from './auth/authApi.js';
 import { SecurityButton } from './auth/SecurityPanel.js';
+import { UpdateOption } from './auth/UpdateOption.js';
 import { bypassReadOnly, chooseBypass, preferredBypassMode, useBypass } from './bypass.js';
 import { isDesktopApp, pageFillsScreen, toggleAppFullscreen } from './desktopApp.js';
 import { PixelSprite } from './ez/PixelSprite.js';
@@ -19,20 +20,19 @@ import { setGameEffects, useGameEffects } from './game/gameMotion.js';
 import { setBackdrop, useBackdrop } from './gfx/backdrop.js';
 import { BackgroundOptions } from './gfx/BackgroundOption.js';
 import { setTitleAtStart, useTitleScene } from './gfx/titleSceneState.js';
-import { applyLayoutPreset, resetLayout } from './hud/hudStore.js';
-import { type Preset, PRESETS } from './hud/layout.js';
+import { resetLayout } from './hud/hudStore.js';
+import { setSummaryStyle, SUMMARY_STYLES, useSummaryStyle } from './hud/summaryStyle.js';
 import { IsoOption } from './iso/IsoOption.js';
 import { fromClock, setOfficeHours, toClock, useOfficeHours } from './officeHours.js';
-import { panelAvailable, useCldStore } from './officeStore.js';
+import { useCldStore } from './officeStore.js';
 import { OwnerPictureOption } from './OwnerPictureOption.js';
 import { getRankStyle, RANK_STYLES, setRankStyle } from './rank.js';
 import { type SettingHint, SettingHintContext, settingsKey } from './settingHint.js';
 import { Choice, OnOff, SettingGroup, SettingRow } from './SettingRow.js';
 import { setSettingsOpener, type SettingsTab } from './settingsOpen.js';
 import { StartPolicyOption } from './StartPolicyOption.js';
-import { AttachCapOption } from './terminal/AttachCapOption.js';
-import { setUiFont, UI_FONTS, useUiFont } from './uiFont.js';
 import { setUiScale, UI_SCALES, useUiScale } from './uiScale.js';
+import { setUiTheme, UI_THEMES, useUiTheme } from './uiTheme.js';
 import { isEdgeScrollOn, setEdgeScroll } from './useGameControls.js';
 
 const BYPASS_MODES = ['ask', 'bypass'] as const;
@@ -101,34 +101,6 @@ function WindowModeOption() {
         onPick={(mode) => choose(mode === 'fullscreen')}
         text={(mode) => t(`windowMode.${mode}`)}
         attr="data-window-mode"
-      />
-    </SettingRow>
-  );
-}
-
-/** U-33: the terminal's Korean (IME) layer. Off = xterm's own path: the way back when a phone keyboard disagrees. */
-function ImeGuardOption() {
-  const [on, setOn] = useState(() => {
-    try {
-      return localStorage.getItem(IME_GUARD_OFF_KEY) !== 'off';
-    } catch {
-      return true;
-    }
-  });
-  return (
-    <SettingRow testId="ime-guard-option" title={t('settings.imeGuard.title')} help={t('settings.imeGuard.help')}>
-      <OnOff
-        label={t('settings.imeGuard.title')}
-        on={on}
-        onChange={(want) => {
-          try {
-            if (want) localStorage.removeItem(IME_GUARD_OFF_KEY);
-            else localStorage.setItem(IME_GUARD_OFF_KEY, 'off');
-            setOn(want);
-          } catch {
-            // No storage (private mode): the layer stays on.
-          }
-        }}
       />
     </SettingRow>
   );
@@ -285,27 +257,25 @@ function InstallAppOptions({ promptEvent, installed, iosSafari, install }: Insta
       note={
         iosSafari &&
         !installed && (
-            <svg
-              aria-label={t('settings.install.share')}
+            // FIX-PHONE-UI-TEXT: the words are text, not SVG text at 11 viewBox units (7 px drawn).
+            <span
               role="img"
-              viewBox="0 0 180 44"
-              className="mt-6 h-40 w-180 text-text-muted"
+              aria-label={t('settings.install.share')}
+              className="mt-6 inline-flex items-center gap-12 px-12 py-6 border-ui border-current rounded-ui-card text-2xs text-text-muted"
             >
-              <rect x="1" y="1" width="178" height="42" rx="5" fill="none" stroke="currentColor" />
-              <path
-                d="M28 28V16m-5 5 5-5 5 5m-10 5h10"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-              <text x="46" y="27" fill="currentColor" fontSize="11">
+              <span className="inline-flex items-center gap-4">
+                <svg viewBox="0 0 16 16" className="w-16 h-16" aria-hidden="true">
+                  <path d="M7 14V2m-5 5 5-5 5 5m-10 5h10" fill="none" stroke="currentColor" strokeWidth="2" />
+                </svg>
                 {t('settings.install.shareShort')}
-              </text>
-              <path d="M78 22h18m-9-9v18" stroke="currentColor" strokeWidth="2" />
-              <text x="104" y="27" fill="currentColor" fontSize="11">
+              </span>
+              <span className="inline-flex items-center gap-4">
+                <svg viewBox="0 0 20 20" className="w-16 h-16" aria-hidden="true">
+                  <path d="M1 10h18m-9-9v18" stroke="currentColor" strokeWidth="2" />
+                </svg>
                 {t('settings.install.homeScreen')}
-              </text>
-            </svg>
+              </span>
+            </span>
         )
       }
     >
@@ -320,6 +290,50 @@ function InstallAppOptions({ promptEvent, installed, iosSafari, install }: Insta
   );
 }
 
+
+/** MHO 3.6: this host's display name (hostInfo.hostName), saved by the daemon; '' = the machine's name. */
+function HostNameOption() {
+  const { hostInfo } = useCldStore();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  if (!hostInfo?.hostName) return null;
+  const save = async () => {
+    try {
+      await authFetch('/api/cld/host-name', { method: 'POST', body: { name: (draft ?? '').trim() } });
+      setDraft(null);
+      setNote(t('hostName.saved'));
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : String(err));
+    }
+  };
+  return (
+    <SettingRow
+      testId="host-name-option"
+      title={t('hostName.title')}
+      help={t('hostName.help')}
+      note={note && <p className="text-sm text-text-muted" role="status">{note}</p>}
+    >
+      <input
+        type="text"
+        maxLength={40}
+        className={`${field} w-160`}
+        aria-label={t('hostName.title')}
+        data-testid="host-name-input"
+        value={draft ?? hostInfo.hostName}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setNote('');
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && draft !== null) void save();
+        }}
+      />
+      <Button size="sm" disabled={draft === null} onClick={() => void save()}>
+        {t('hostName.save')}
+      </Button>
+    </SettingRow>
+  );
+}
 
 const LANGUAGES = ['en', 'ko'] as const;
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
@@ -400,35 +414,6 @@ function OfficeHoursOptions() {
   );
 }
 
-/** T-0111: three ready-made arrangements of the icons and windows (desktop; a phone has pages). */
-function LayoutPresets() {
-  const store = useCldStore();
-  const [picked, setPicked] = useState<Preset | null>(null);
-  const icons = [
-    'office',
-    ...(store.officeSnapshot?.chat ? ['messenger'] : []),
-    'notices',
-    'devroom',
-    ...(panelAvailable('terminal', store) ? ['terminal'] : []),
-    'files',
-  ];
-  return (
-    <SettingRow testId="hud-preset-option" title={t('settings.layoutPresets.title')} help={t('settings.layoutPresets.help')}>
-      <Choice
-        label={t('settings.layoutPresets.title')}
-        options={PRESETS.map((p) => p.id)}
-        value={picked}
-        onPick={(preset) => {
-          applyLayoutPreset(preset, icons);
-          setPicked(preset);
-        }}
-        text={(preset) => t(`settings.layoutPresets.${preset}`)}
-        tip={(preset) => t(`settings.layoutPresets.${preset}Hint`)}
-      />
-    </SettingRow>
-  );
-}
-
 /** GFX2: the title scene at start, and the city seen from above around the office (off: the plain background). */
 function BackdropOptions() {
   const { on } = useBackdrop();
@@ -458,7 +443,8 @@ const FLOOR_VIEWS = [true, false] as const;
 export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRows; trigger?: boolean } = {}) {
   const language = useLanguage();
   const uiScale = useUiScale();
-  const uiFont = useUiFont();
+  const uiTheme = useUiTheme();
+  const summary = useSummaryStyle();
   const gameEffects = useGameEffects();
   const [open, setOpen] = useState(false);
   const [edge, setEdge] = useState(isEdgeScrollOn);
@@ -557,7 +543,7 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
           same note is the first row of the 설정 menu, and a dot on 설정 points to it. */}
       {showHint && !mobile && (
         <div
-          className="fixed right-12 top-52 z-[70] flex max-w-[300px] items-center gap-8 border border-border bg-bg p-8 text-sm shadow-lg"
+          className="fixed right-12 top-52 flex max-w-[300px] items-center gap-8 border border-border bg-bg p-8 text-sm shadow-lg"
           role="status"
         >
           {hintBody}
@@ -649,6 +635,7 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
                       text={(choice) => t(`settings.language.${choice === 'en' ? 'english' : 'korean'}`)}
                     />
                   </SettingRow>
+                  <HostNameOption />
                   <OwnerPictureOption onPickLook={() => setOpen(false)} />
                   <OfficeHoursOptions />
                   <SettingRow testId="changelog-option" title={t('changelog.settingsTitle')} help={t('changelog.settingsHelp')}>
@@ -656,6 +643,7 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
                       {t('changelog.open')}
                     </Button>
                   </SettingRow>
+                  <UpdateOption />
                 </>,
               )}
               {panel(
@@ -674,17 +662,30 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
                       attr="data-ui-scale"
                     />
                   </SettingRow>
-                  {/* UI-FONT: 감성이냐 가독성이냐, per browser (owner 11-01 14:54). */}
-                  <SettingRow testId="ui-font-option" title={t('uiFont.title')} help={t('uiFont.help')}>
+                  {/* FEAT-UI-MODERN-THEME 화면 스타일: 모던 or 픽셀 감성, per browser (owner 11-06 16:15; replaces 글꼴). */}
+                  <SettingRow testId="ui-theme-option" title={t('uiTheme.title')} help={t('uiTheme.help')}>
                     <Choice
-                      label={t('uiFont.title')}
-                      options={UI_FONTS}
-                      value={uiFont}
-                      onPick={setUiFont}
-                      text={(choice) => t(`uiFont.${choice}`)}
-                      attr="data-ui-font"
+                      label={t('uiTheme.title')}
+                      options={UI_THEMES}
+                      value={uiTheme}
+                      onPick={setUiTheme}
+                      text={(choice) => t(`uiTheme.${choice}`)}
+                      attr="data-ui-theme"
                     />
                   </SettingRow>
+                  {/* FEAT-HUD-SUMMARY-STYLES: the PC's bottom-left summary, per browser (owner 11-06 22:23); the phone keeps its own shell. */}
+                  {!mobile && (
+                    <SettingRow testId="summary-style-option" title={t('summaryStyle.title')} help={t('summaryStyle.help')}>
+                      <Choice
+                        label={t('summaryStyle.title')}
+                        options={SUMMARY_STYLES}
+                        value={summary}
+                        onPick={setSummaryStyle}
+                        text={(choice) => t(`summaryStyle.${choice}`)}
+                        attr="data-summary-style"
+                      />
+                    </SettingRow>
+                  )}
                   {/* GAME-UI-0: one switch for every game animation (gameMotion.ts decides, with reduced motion). */}
                   <SettingRow testId="game-motion-option" title={t('game.motion.title')} help={t('game.motion.help')}>
                     <OnOff label={t('game.motion.title')} on={gameEffects} onChange={setGameEffects} />
@@ -748,7 +749,6 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
                       }}
                     />
                   </SettingRow>
-                  {!mobile && <LayoutPresets />}
                   <SettingRow testId="hud-reset-option" title={t('settings.layoutReset.title')} help={t('settings.layoutReset.help')}>
                     <Button size="sm" onClick={resetLayout}>
                       {t('settings.layoutReset.button')}
@@ -782,8 +782,6 @@ export function GameOptions({ phoneRows, trigger = true }: { phoneRows?: PhoneRo
               {panel(
                 'advanced',
                 <>
-                  <AttachCapOption />
-                  <ImeGuardOption />
                   <AgentRulesOption />
                 </>,
               )}

@@ -17,6 +17,7 @@ import {
   AGENT_CLI_RESTART_WAIT_MS,
 } from '../constants.js';
 import { claudeInstallCommand } from './agentCli.js';
+import { readHost } from './engine/host.js';
 import { detectHostInfo } from './folders.js';
 import type { CldHooks, WsSend } from './hooks.js';
 
@@ -47,7 +48,10 @@ export class PlainOffice {
         this.tell(send);
         // the notice's install buttons open a shell in the home folder (CLI-TERMINAL): a full office
         // sends this on ready, a plain one did not, so the buttons stayed disabled
-        send({ ...detectHostInfo() });
+        // MHO 3.6: its id, but no name: only the full office has the route that renames it, and a
+        // name field that cannot save would show (the plain office restarts into the full one).
+        const hostId = readHost(os.homedir())?.hostId;
+        send({ ...detectHostInfo(), ...(hostId && { hostId }) });
         void this.check('viewer');
       },
       onClientClosed: (send) => void this.viewers.delete(send),

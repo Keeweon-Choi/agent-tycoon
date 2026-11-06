@@ -558,7 +558,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
             type="search"
             aria-label={t('files.nameFilter')}
             placeholder={t('files.filterPlaceholder')}
-            className="bg-bg border border-border p-4 min-w-96 flex-1"
+            className="ui-input p-4 min-w-96 flex-1"
             value={filter}
             onChange={(event) => setFilter(event.target.value.toLocaleLowerCase())}
           />

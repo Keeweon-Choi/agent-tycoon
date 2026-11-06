@@ -17,9 +17,10 @@
   --cm-bar-on: #8a7cf8;
 }
 .cm-pane {
+  border-radius: var(--ui-r-win);
   background: var(--cm-pane);
   color: var(--cm-text);
-  border: 2px solid var(--color-border);
+  border: var(--ui-bw) solid var(--color-border);
   padding: 8px;
   min-width: 0;
 }
@@ -32,10 +33,11 @@
   flex-shrink: 0;
 }
 .cm-led {
+  border-radius: var(--ui-r-pill);
   display: inline-block;
   width: 10px;
   height: 10px;
-  border: 2px solid var(--cm-line);
+  border: var(--ui-bw) solid var(--cm-line);
 }
 .cm-led[data-on][data-k='progress'] {
   background: var(--cm-led-progress);
@@ -57,8 +59,8 @@
   min-width: 0;
   text-align: left;
   padding: 4px 6px;
-  border: 2px solid transparent;
-  border-radius: 0;
+  border: var(--ui-bw) solid transparent;
+  border-radius: var(--ui-r-card);
 }
 .cm-row[aria-pressed='true'] {
   border-color: var(--color-accent);
@@ -75,7 +77,7 @@
   color: var(--color-accent-text);
 }
 .cm-band {
-  border-top: 2px dashed var(--cm-line);
+  border-top: var(--ui-bw) dashed var(--cm-line);
   padding-top: 4px;
   margin-top: 8px;
 }
@@ -95,9 +97,9 @@
   padding: 6px 8px;
   background: var(--cm-cell);
   color: var(--cm-text);
-  border: 2px solid var(--cm-line);
-  border-radius: 0;
-  box-shadow: 2px 2px 0px var(--cm-line);
+  border: var(--ui-bw) solid var(--cm-line);
+  border-radius: var(--ui-r-card);
+  box-shadow: var(--ui-drop) var(--cm-line);
   overflow-wrap: anywhere;
   cursor: pointer;
 }
@@ -111,16 +113,16 @@
 }
 .cm-cell[aria-pressed='true'] {
   border-color: var(--color-accent);
-  box-shadow: 2px 2px 0px var(--color-accent);
+  box-shadow: var(--ui-drop) var(--color-accent);
 }
 .cm-cell-name {
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: max(14px, var(--ui-text-floor));
+  line-height: calc(1.4 * var(--ui-lh));
 }
 /* The ⇄ line stays under the name, smaller than it (the Hangul fallback runs taller than the pixel face). */
 .cm-pair {
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: max(11px, var(--ui-text-floor));
+  line-height: calc(1.4 * var(--ui-lh));
 }
 .cm-rails {
   display: grid;
@@ -172,7 +174,7 @@
 }
 .cm-cell[data-lit] {
   border-color: var(--cm-lit);
-  box-shadow: 2px 2px 0px var(--cm-lit);
+  box-shadow: var(--ui-drop) var(--cm-lit);
 }
 .cm-row[data-lit] {
   border-color: var(--cm-lit);
@@ -182,8 +184,8 @@
   padding: 0 4px;
   background: var(--cm-lit);
   color: var(--cm-lit-text);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: max(11px, var(--ui-text-floor));
+  line-height: calc(1.5 * var(--ui-lh));
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -217,10 +219,10 @@
 .cm-chip {
   display: inline-block;
   padding: 0 4px;
-  border: 2px solid var(--cm-line);
-  border-radius: 0;
-  font-size: 11px;
-  line-height: 1.4;
+  border: var(--ui-bw) solid var(--cm-line);
+  border-radius: var(--ui-r-chip);
+  font-size: max(11px, var(--ui-text-floor));
+  line-height: calc(1.4 * var(--ui-lh));
   white-space: nowrap;
 }
 .cm-chain {
@@ -235,13 +237,412 @@
 }
 .cm-table th,
 .cm-table td {
-  border: 2px solid var(--cm-line);
+  border: var(--ui-bw) solid var(--cm-line);
   padding: 2px 3px;
-  font-size: 11px;
+  font-size: max(11px, var(--ui-text-floor));
   text-align: left;
   white-space: nowrap;
 }
 .cm-table [data-off] {
   color: var(--cm-muted);
   opacity: 0.6;
+}
+
+/* 아키텍처 그래프 (ArchCards.tsx; window mock v3-2, phone v3-5, gpt-6's mood). The faces, the card,
+   its tile, chip, dot list and status dot, the rows, the field and the tabs are the shared parts
+   (index.css .ui-*, .pixel-panel); this is only the layout around them and the graph's lines. */
+.ac-root {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr) 320px;
+  gap: 8px;
+  height: 100%;
+  min-height: 560px;
+  color: var(--cm-text);
+}
+.ac-side,
+.ac-main,
+.ac-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+}
+.ac-side,
+.ac-detail {
+  overflow-y: auto;
+}
+.ac-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -8px -8px 0;
+  padding: 6px 8px;
+  border-bottom: var(--ui-bw) solid;
+  font-size: max(12px, var(--ui-text-floor));
+}
+.ac-side .ac-title + .ac-search {
+  margin-top: 0;
+}
+.ac-side > .ac-title:not(:first-child) {
+  margin-top: 4px;
+}
+.ac-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+  font-size: max(12px, var(--ui-text-floor));
+}
+.ac-search {
+  width: 100%;
+  color: var(--cm-text);
+  border-radius: var(--ui-r-card);
+  padding: 4px 6px;
+  font-size: max(12px, var(--ui-text-floor));
+}
+.ac-tree {
+  font-size: max(13px, var(--ui-text-floor));
+}
+.ac-tree-root,
+.ac-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  text-align: left;
+  border-radius: var(--ui-r-card);
+}
+.ac-tree-row[data-depth='1'] {
+  padding-left: 20px;
+}
+.ac-filters {
+  display: flex;
+  flex-direction: column;
+}
+.ac-sep {
+  border-top: var(--ui-bw) dashed var(--cm-line);
+  margin: 4px 0;
+}
+.ac-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: max(12px, var(--ui-text-floor));
+}
+.ac-label {
+  height: 28px;
+}
+.ac-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ac-zoom-v {
+  min-width: 52px;
+  height: 28px;
+  line-height: 24px;
+  text-align: center;
+}
+.ac-legend,
+.ac-sum {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 4px 8px;
+  font-size: max(12px, var(--ui-text-floor));
+  background: var(--surface-head);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.ac-sum {
+  gap: 4px 8px;
+}
+.ac-wire {
+  display: inline-block;
+  width: 20px;
+  border-top: var(--ui-bw) solid var(--cm-arrow);
+}
+.ac-wire[data-k='two'] {
+  border-color: var(--cm-two);
+}
+.ac-flow {
+  flex: 1;
+  min-height: 320px;
+}
+.ac-flow .react-flow {
+  --xy-background-color: var(--surface-body);
+  --xy-background-pattern-dots-color-default: var(--color-devroom-card-line);
+}
+
+/* The card's layout; its face, hover and chosen rings are .ui-card's. */
+.ac-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: var(--cm-text);
+}
+.ac-card[data-near] {
+  border-color: var(--color-devroom-accent-line);
+}
+.ac-card[data-dim] {
+  opacity: 0.6;
+}
+.ac-card[data-kind='rail'] {
+  border-style: dashed;
+}
+.ac-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 4px;
+  min-width: 0;
+}
+.ac-card[data-mobile] .ac-card-head {
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+}
+.ac-card[data-mobile] .ac-tile {
+  width: 32px;
+  height: 32px;
+}
+.ac-card[data-mobile] .ui-status-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.ac-card-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.ac-card-name {
+  font-size: 18px;
+  line-height: calc(1.2 * var(--ui-lh));
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-card[data-mobile] .ac-card-name {
+  font-size: max(15px, var(--ui-text-floor));
+}
+.ac-chip {
+  font-size: max(12px, var(--ui-text-floor));
+  line-height: calc(1.5 * var(--ui-lh));
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ac-card-lines {
+  margin: 4px 8px 0;
+  font-size: max(12px, var(--ui-text-floor));
+  line-height: calc(1.6 * var(--ui-lh));
+}
+
+/* The lines: grey, the two-way ones amber, the picked card's bright and thick, the rest faint. */
+.ac-flow .ac-e .react-flow__edge-path {
+  stroke: var(--cm-arrow);
+  stroke-width: 2;
+}
+.ac-flow .ac-e--bold .react-flow__edge-path {
+  stroke-width: 3;
+}
+.ac-flow .ac-e--two .react-flow__edge-path {
+  stroke: var(--cm-two);
+}
+.ac-flow .ac-e--on .react-flow__edge-path {
+  stroke: var(--glow-in);
+  stroke-width: 4;
+}
+.ac-flow .ac-e--dim {
+  opacity: 0.25;
+}
+
+/* The inspector. */
+.ac-detail-name {
+  font-size: 26px;
+}
+.ac-close {
+  padding: 0 6px;
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-card);
+  background: var(--color-btn-bg);
+}
+.ac-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ac-bullet {
+  border-radius: var(--ui-r-pill);
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  flex-shrink: 0;
+  border: var(--ui-bw) solid var(--color-accent-text);
+}
+.ac-tag {
+  font-size: max(12px, var(--ui-text-floor));
+  line-height: calc(1.6 * var(--ui-lh));
+}
+.ac-rel summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+  list-style: none;
+}
+.ac-rel summary::-webkit-details-marker {
+  display: none;
+}
+.ac-rel ul {
+  padding: 4px 0 4px 24px;
+}
+.ac-rel-arrow {
+  width: 16px;
+  color: var(--color-accent-text);
+}
+.ac-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ac-into {
+  width: 100%;
+}
+
+/* Phone (v3-5): the graph takes the screen, the picked card's sheet sits under it. */
+.ac-phone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ac-phone .ac-flow {
+  flex: none;
+  height: 52vh;
+}
+.ac-phone[data-picked] .ac-flow {
+  height: 30vh;
+}
+.ac-sheet {
+  padding: 8px 10px 12px;
+  background: var(--surface-float);
+  border-width: 2px 0 0;
+  border-style: solid;
+}
+.ac-grip {
+  display: block;
+  width: 48px;
+  height: 6px;
+  margin: 0 auto 8px;
+  border-top: var(--ui-bw) solid var(--color-accent-text);
+  border-bottom: var(--ui-bw) solid var(--color-accent-text);
+}
+
+/* BRN K8: the design on the map (DesignMap.tsx). The tabs are the shared .ui-subtabs/.ui-tab; the
+   ghost is a dashed card, the marks are chips that borrow the amber and red of the lines. */
+.dm-switch {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.dm-mark {
+  align-self: flex-start;
+  margin: 0 8px;
+  font-size: max(12px, var(--ui-text-floor));
+  line-height: calc(1.5 * var(--ui-lh));
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dm-mark[data-mark='none'] {
+  color: var(--cm-two);
+  border-color: var(--cm-two);
+}
+.dm-mark[data-mark='guess'] {
+  color: var(--cm-muted);
+  border-style: dotted;
+}
+.dm-mark[data-mark='ghost'] {
+  margin: 0;
+  color: var(--cm-muted);
+  border-style: dashed;
+}
+.ac-card[data-mark='none'] {
+  border-color: var(--cm-two);
+}
+.ac-card[data-mark='guess'] {
+  border-style: dotted;
+}
+.dm-ghost {
+  border-style: dashed;
+  background: transparent;
+  color: var(--cm-muted);
+}
+.ac-card[data-mobile] .dm-mark {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  margin: 0;
+  padding: 0 4px;
+}
+.dm-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dm-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dm-num {
+  gap: 8px;
+  height: 28px;
+  font-size: max(12px, var(--ui-text-floor));
+  cursor: pointer;
+}
+.dm-num[data-on] {
+  border-color: var(--glow-in);
+}
+.dm-num[data-zero] {
+  color: var(--cm-muted);
+}
+.dm-list {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 4px;
+  font-size: max(12px, var(--ui-text-floor));
+}
+.dm-ex {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 6px;
+  text-align: left;
+}
+.dm-ex:disabled {
+  cursor: default;
+  color: var(--cm-muted);
+}
+.ac-phone .dm-list {
+  max-height: 120px;
 }

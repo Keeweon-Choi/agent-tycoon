@@ -1,7 +1,7 @@
 {
   "names": [
     { "pattern": "(?:^|[/\\\\])install\\.mjs\\b", "name": "배포" },
-    { "pattern": "(?:^|[/\\\\])gate\\.sh\\b", "name": "병합 검사" },
+    { "pattern": "(?:^|[/\\\\])gate\\.sh\\b", "name": "머지 검사" },
     { "pattern": "(?:^|[/\\\\])run-all\\.ts\\b", "name": "브라우저 시험 전체" },
     { "pattern": "cld[/\\\\]test[/\\\\]run-([\\w-]+)\\.ts\\b", "name": "브라우저 시험($1)" },
     { "pattern": "\\bnpm\\s+run\\s+test\\S*|\\bvitest\\b", "name": "시험" },

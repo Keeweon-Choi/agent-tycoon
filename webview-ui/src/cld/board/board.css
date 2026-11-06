@@ -23,7 +23,9 @@
   overflow: hidden;
   container-type: inline-size;
   color: var(--led-text);
-  font-family: var(--font-pixel);
+  font-family: var(
+    --pixel-font-stack
+  ); /* the billboard is the office world: pixel in both styles */
   line-height: 1.2;
   text-shadow: 0 0 0.25em var(--led-glow);
   -webkit-font-smoothing: none;
@@ -95,7 +97,9 @@
   right: calc(var(--cld-safe-right) + 12px);
   width: 44px;
   height: 44px;
-  font-family: var(--font-pixel);
+  font-family: var(
+    --pixel-font-stack
+  ); /* the billboard is the office world: pixel in both styles */
   font-size: 22px;
   color: var(--led-text);
   background: #2b2b45;
@@ -150,6 +154,14 @@
 .led-clock {
   color: var(--led-amber);
   letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+/* hud-v3 P0: the usage left, before the clock. */
+.led-usage {
+  display: inline-flex;
+  gap: 0.6em;
+  color: var(--led-amber);
+  white-space: nowrap;
 }
 
 /* The bottom line: news scrolling by in whole LED steps. */
@@ -194,60 +206,96 @@
   padding-left: 1em;
 }
 
-/* ── 프로젝트 ── */
-.led-rows {
+/* ── 요약 (A5): the dashboard's count cards and its recent activity, at the board's scale ── */
+.led-summary {
   display: flex;
   flex-direction: column;
-  gap: 0.06em;
+  gap: 0.35em;
+  height: 100%;
+  min-height: 0;
 }
-.led-row {
+.led-kpis {
   display: grid;
-  grid-template-columns: 8em 5em 4.2em minmax(7em, 11em) minmax(0, 1fr);
-  align-items: center;
-  column-gap: 0.5em;
-  min-height: 1.25em;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35em;
+}
+.led-kpis > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1em;
+  min-width: 0;
+  padding: 0.25em 0.45em 0.3em;
+  border: 0.1em solid var(--led-grid);
+  border-left-width: 0.3em;
+  border-left-color: var(--led-cpu);
+}
+.led-kpis > li[data-tone='warn'] {
+  border-left-color: var(--led-amber);
+}
+.led-kpis > li[data-tone='bad'] {
+  border-left-color: var(--led-critical);
+}
+.led-kpis > li[data-tone='ok'] {
+  border-left-color: var(--led-ok);
+}
+.led-kpi-label {
+  color: var(--led-muted);
   white-space: nowrap;
-}
-.led-row-head {
-  color: var(--led-amber);
-  min-height: 1.1em;
-}
-.led-row > * {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.led-name {
-  display: flex;
-  align-items: center;
-  gap: 0.35em;
+.led-kpis b {
+  font-weight: normal;
+  font-size: 2.2em;
+  line-height: 1;
 }
-.led-dot {
-  flex: none;
-  width: 0.55em;
-  height: 0.55em;
-}
-.led-blink-waiting {
-  animation: led-blink 1.6s steps(1) infinite;
-}
-.led-blink-permission {
-  animation: led-blink 0.6s steps(1) infinite;
-}
-@keyframes led-blink {
-  50% {
-    opacity: 0.25;
-  }
-}
-.led-state {
+.led-kpis > li[data-zero] b {
   color: var(--led-muted);
 }
-.led-row[data-ring='permission'] .led-state {
-  color: var(--led-text);
+.led-kpis > li[data-tone='warn']:not([data-zero]) b {
+  color: var(--led-amber);
 }
-.led-fatigue {
+.led-kpis > li[data-tone='bad']:not([data-zero]) b {
+  color: var(--led-critical);
+}
+.led-kpis small {
+  color: var(--led-amber);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.led-feed-head {
+  color: var(--led-amber);
+}
+.led-feed {
   display: flex;
-  align-items: center;
-  gap: 0.3em;
+  flex-direction: column;
+  gap: 0.06em;
+  min-height: 0;
+  overflow: hidden;
 }
+.led-feed > li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* UI-PHONE: the wall's copy on a phone, wider than the screen: laid in the part of the board on
+   screen (--led-vis-l / --led-vis-w, LobbyBoard), the tabs too; three cards a row. */
+.led-phone .led-head,
+.led-phone .led-summary {
+  margin-left: var(--led-vis-l, 0);
+  width: var(--led-vis-w, auto);
+  padding: 0 0.4em;
+}
+.led-phone .led-summary {
+  margin-left: calc(var(--led-vis-l, 0.5em) - 0.5em); /* inside .led-body's 0.5em padding */
+}
+.led-phone .led-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A small bar (the H/W temperatures and details). */
 .led-meter {
   flex: none;
   display: inline-block;
@@ -269,31 +317,6 @@
 .led-tone-ok .led-meter > i,
 .led-tone-normal .led-meter > i {
   background: var(--led-ok);
-}
-/* One line: "<work> · <outcome>", cut with an ellipsis (the full line is its title). */
-.led-counts {
-  display: block;
-}
-.led-last {
-  color: var(--led-muted);
-}
-
-/* UI-PHONE: the wall's copy on a phone, wider than the screen: two columns, name and state, laid
-   in the part of the board on screen (--led-vis-l / --led-vis-w, LobbyBoard), the tabs too. */
-.led-phone .led-head,
-.led-phone .led-rows {
-  margin-left: var(--led-vis-l, 0);
-  width: var(--led-vis-w, auto);
-  padding: 0 0.4em;
-}
-.led-phone .led-rows {
-  margin-left: calc(var(--led-vis-l, 0.5em) - 0.5em); /* inside .led-body's 0.5em padding */
-}
-.led-phone .led-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.led-phone .led-row > :nth-child(n + 3) {
-  display: none;
 }
 
 /* ── H/W ── */
@@ -375,6 +398,18 @@
   background: var(--led-amber);
   text-shadow: none;
   padding: 0 0.2em;
+}
+/* hw-every-os: the missing-sensor fix beside its one-line guide. */
+.led-fix {
+  padding: 0 0.4em;
+  background: none;
+  border: 0.1em solid var(--led-grid);
+  color: var(--led-screen);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.led-fix:hover {
+  border-color: var(--led-muted);
 }
 .led-mini .led-hw-toggle {
   cursor: default;
@@ -727,33 +762,11 @@ button.led-temp:hover,
 
 /* A narrow full view (a phone): rows and pages stack. */
 @container (max-width: 32em) {
-  .led-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 0.1em;
-    padding-bottom: 0.3em;
-    border-bottom: 0.1em solid var(--led-grid);
+  .led-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .led-row-head {
-    display: none;
-  }
-  .led-state {
-    justify-self: end;
-  }
-  .led-fatigue::before {
-    content: attr(data-label);
-    color: var(--led-amber);
-    margin-right: 0.2em;
-  }
-  .led-counts {
-    justify-self: end;
-  }
-  .led-counts::before {
-    content: attr(data-label);
-    color: var(--led-amber);
-    margin-right: 0.4em;
-  }
-  .led-last {
-    grid-column: 1 / -1;
+  .led-feed > li {
+    white-space: normal;
   }
   .led-hw {
     flex-direction: column;

@@ -146,6 +146,24 @@ const realOrSame = (p: string): string => {
   }
 };
 
+/** `git worktree list --porcelain`'s entries: the folder, its branch (null: detached), bare, prunable. */
+export function parseWorktreeList(text: string): Array<{ path: string; branch: string | null; bare: boolean; prunable: boolean }> {
+  const out: Array<{ path: string; branch: string | null; bare: boolean; prunable: boolean }> = [];
+  for (const block of text.split('\n\n')) {
+    const lines = block.split('\n');
+    const head = lines.find((l) => l.startsWith('worktree '));
+    if (!head) continue;
+    const b = lines.find((l) => l.startsWith('branch refs/heads/'));
+    out.push({
+      path: head.slice('worktree '.length),
+      branch: b ? b.slice('branch refs/heads/'.length) : null,
+      bare: lines.includes('bare'),
+      prunable: lines.some((l) => l === 'prunable' || l.startsWith('prunable ')),
+    });
+  }
+  return out;
+}
+
 /** The real paths of the repository's worktrees (`git worktree list --porcelain`). */
 async function registeredWorktrees(run: GitRunner, top: string): Promise<Set<string>> {
   const r = await run(top, ['worktree', 'list', '--porcelain'], { env: READ_ENV });
@@ -226,6 +244,9 @@ export interface TaskWorktreeOptions {
   title?: string;
   /** A local branch to start from; default the project's main branch. */
   base?: string;
+  /** DV4 (새 워크트리): the branch the owner named (branchName.ts rules), instead of the Task's
+   *  `feat/t<id>-<slug>`; one that exists is refused, never taken over. */
+  branch?: string;
   assignmentId?: string;
   createdBy: string;
 }
@@ -306,26 +327,15 @@ export class Worktrees {
    */
   async createForTask(project: ProjectFolder, o: TaskWorktreeOptions): Promise<WorktreeRecord> {
     if (!TASK_ID_RE.test(o.taskId)) throw new RepoError(koText('task_id_invalid'), 'bad_name');
-    if (o.base !== undefined && !BASE_RE.test(o.base))
-      throw new RepoError(koText('base_name_invalid', { name: o.base.slice(0, 60) }), 'bad_name');
-    const branch = taskBranch(o.taskId, o.title, o.slug);
-    const task = folderOfBranch(branch);
-    if (checkBranchName(branch) || !TASK_PATTERN.test(task)) throw new RepoError(koText('worktree_name_failed'));
+    const branch = o.branch ?? taskBranch(o.taskId, o.title, o.slug);
+    const task = this.named(branch, o.base, o.branch !== undefined);
     return this.serial(async () => {
-      const { run } = this.o;
-      const top = await repoRoot(run, project.folder);
+      const top = await repoRoot(this.o.run, project.folder);
       const had = readRecords(this.o.file).find(
         (r) => r.project === project.name && r.taskId === o.taskId && r.status === 'active',
       );
       if (had) throw new RepoError(koText('task_has_worktree', { task: o.taskId, dir: WORKTREES_DIR, name: had.task }), 'exists');
-      const base = o.base ?? (await mainBranch(run, top));
-      if (!base) throw new RepoError(koText('base_not_found'), 'no_base');
-      if (!(await commitExists(run, top, `refs/heads/${base}`)))
-        throw new RepoError(koText('base_missing', { branch: base }), 'no_base');
-      if ((await protectedBranches(run, top)).has(branch))
-        throw new RepoError(koText('worktree_protected', { branch }), 'protected');
-      const busy = await operationInProgress(run, top);
-      if (busy) throw new RepoError(koText('repo_busy', { operation: busy }), 'in_progress');
+      const base = await this.ready(project, top, branch, o.base, o.branch !== undefined);
       const at = (this.o.now?.() ?? new Date()).toISOString();
       return this.add(project, top, task, branch, base, `refs/heads/${base}`, {
         taskId: o.taskId,
@@ -333,6 +343,45 @@ export class Worktrees {
         ...(o.assignmentId && { assignmentId: o.assignmentId, assignedAt: at }),
       });
     });
+  }
+
+  /**
+   * DV4: what createForTask would refuse for the owner's `branch` from `base` (a RepoError), checked
+   * before its Task is made so a refusal leaves nothing behind. Resolves to the base it would use.
+   */
+  check(project: ProjectFolder, branch: string, base?: string): Promise<string> {
+    this.named(branch, base, true);
+    return this.serial(async () => this.ready(project, await repoRoot(this.o.run, project.folder), branch, base, true));
+  }
+
+  /** The folder of a Task branch, or a RepoError for an unsafe branch or base name. */
+  private named(branch: string, base: string | undefined, owner: boolean): string {
+    if (base !== undefined && !BASE_RE.test(base))
+      throw new RepoError(koText('base_name_invalid', { name: base.slice(0, 60) }), 'bad_name');
+    const why = checkBranchName(branch);
+    const task = folderOfBranch(branch);
+    if (why || !TASK_PATTERN.test(task)) throw new RepoError(owner && why ? why : koText('worktree_name_failed'), 'bad_name');
+    return task;
+  }
+
+  /** createForTask's checks on the repository (inside serial): the base, a protected target, a
+   *  merge or rebase in progress, a `.worktrees` that is not a folder and, for a branch the owner
+   *  named, one that exists. */
+  private async ready(project: ProjectFolder, top: string, branch: string, want: string | undefined, owner: boolean): Promise<string> {
+    const { run } = this.o;
+    const base = want ?? (await mainBranch(run, top));
+    if (!base) throw new RepoError(koText('base_not_found'), 'no_base');
+    if (!(await commitExists(run, top, `refs/heads/${base}`)))
+      throw new RepoError(koText('base_missing', { branch: base }), 'no_base');
+    if ((await protectedBranches(run, top)).has(branch))
+      throw new RepoError(koText('worktree_protected', { branch }), 'protected');
+    const busy = await operationInProgress(run, top);
+    if (busy) throw new RepoError(koText('repo_busy', { operation: busy }), 'in_progress');
+    if (owner && (await this.taken(project, top, branch))) throw new RepoError(koText('branch_exists', { branch }), 'exists');
+    // `.worktrees` must be a real folder inside the project (add() checks it again).
+    const dir = path.join(top, WORKTREES_DIR);
+    if (lexists(dir) && !fs.lstatSync(dir).isDirectory()) throw new RepoError(koText('worktrees_not_dir', { dir: WORKTREES_DIR }));
+    return base;
   }
 
   /** `branch` (or its folder) is already a worktree of the project, a folder on disk or a git branch. */
@@ -531,9 +580,11 @@ export class Worktrees {
     top: string,
     rec: WorktreeRecord,
     registered: Set<string>,
+    /** The folder itself (an external worktree's), instead of the one rebuilt from the record. */
+    at?: string,
   ): Promise<Inspected> {
     const { run } = this.o;
-    const wt = folderOf(top, rec, registered);
+    const wt = at ?? folderOf(top, rec, registered);
     const dirExists = fs.existsSync(wt);
     const isRegistered = dirExists && registered.has(realOrSame(wt));
     const branchRef = `refs/heads/${rec.branch}`;
@@ -600,6 +651,44 @@ export class Worktrees {
     const registered = await registeredWorktrees(this.o.run, top);
     const all = await Promise.all(active.map((rec) => this.inspect(top, rec, registered)));
     return all.map(({ dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, ...wire }) => wire);
+  }
+
+  /**
+   * DEVROOM-SIDEBAR: the repository's other worktrees (`git worktree list --porcelain`) with no
+   * active record: made by hand or by an agent's own `git worktree add`. Not the project's folder,
+   * not a bare, detached or vanished one. Each is read like a recorded one against the main branch.
+   */
+  async external(project: ProjectFolder): Promise<RepoWorktree[]> {
+    const { run } = this.o;
+    const top = await repoRoot(run, project.folder);
+    const r = await run(top, ['worktree', 'list', '--porcelain'], { env: READ_ENV });
+    if (r.code !== 0) return [];
+    const entries = parseWorktreeList(r.stdout.toString('utf-8'));
+    const registered = new Set(entries.map((e) => realOrSame(e.path)));
+    const ours = new Set(
+      readRecords(this.o.file)
+        .filter((x) => x.project === project.name && x.status === 'active')
+        .map((x) => realOrSame(folderOf(top, x, registered))),
+    );
+    const self = realOrSame(top);
+    // ponytail: detached and vanished worktrees are left out; show them when someone needs them.
+    const others = entries.filter((e) => e.branch && !e.bare && !e.prunable && realOrSame(e.path) !== self && !ours.has(realOrSame(e.path)));
+    if (!others.length) return [];
+    const main = (await mainBranch(run, top)) ?? null;
+    return Promise.all(
+      others.map(async (e) => {
+        const branch = e.branch as string;
+        let created: string;
+        try {
+          created = fs.statSync(e.path).mtime.toISOString();
+        } catch {
+          created = new Date(0).toISOString();
+        }
+        const rec: WorktreeRecord = { project: project.name, task: path.basename(e.path), path: e.path, branch, base: main ?? branch, created, status: 'active' };
+        const { dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, ...wire } = await this.inspect(top, rec, registered, e.path);
+        return wire;
+      }),
+    );
   }
 
   /** Active task worktree `task`'s folder, branch and base, and whether git has the folder as a

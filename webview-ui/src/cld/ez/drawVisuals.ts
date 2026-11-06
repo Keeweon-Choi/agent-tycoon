@@ -53,7 +53,7 @@ import { noticePulse } from '../notify/notices.js';
 import { REST_SPRITES, restFrame, restWatch, sipAnchorOf } from '../rest.js';
 import { sameFloor, tempLeaving } from '../staff.js';
 import { THEME } from '../theme.js';
-import { pixelFontFamily } from '../uiFont.js';
+import { pixelFontFamily } from '../uiTheme.js';
 import pantryData from './pantryProps.json';
 import propData from './props.json';
 import {

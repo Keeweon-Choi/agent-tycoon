@@ -362,6 +362,10 @@ export class ClaudePtyAgent implements AgentProvider {
     return nameMatches(name, base);
   }
 
+  cliPath(): string | null {
+    return fs.existsSync(this.o.claudePath) ? this.o.claudePath : null;
+  }
+
   ready(): string | null {
     if (!this.o.hostScript) return koText('pty_host_missing');
     return fs.existsSync(this.o.claudePath) ? null : koText('claude_missing');
@@ -384,6 +388,7 @@ export class ClaudePtyAgent implements AgentProvider {
       home: this.o.home,
       rulesDir: rulesDirFor(this.o.cldBin ? path.dirname(this.o.cldBin) : null),
       role: p.role ?? 'lead',
+      specWorkflow: p.specWorkflow === 'speckit',
       projectRulesFile: p.rulesFile,
       name: p.name,
       log: this.o.log,

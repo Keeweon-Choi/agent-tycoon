@@ -8,15 +8,22 @@
  * clients that have its conversation open (the new items only), and the
  * contact list (last message, latest reply ids) is republished.
  */
+import * as fs from 'fs';
+
 import { plainText } from '../../../core/src/cld/plainText.js';
 import { stripQuestionTags } from '../../../core/src/cld/questionTag.js';
 import { koText, refused } from '../../../core/src/cld/serverText.js';
-import type { ChatItem, ChatQueued, MessengerContact } from '../../../core/src/messages.js';
+import type {
+  ChatItem,
+  ChatLibraryFile,
+  ChatQueued,
+  MessengerContact,
+} from '../../../core/src/messages.js';
 import type { TurnLedger } from './engine/turnLedger.js';
 import { sendOutbox } from './files/outbox.js';
 import type { WsSend } from './hooks.js';
 import { replyPreview } from './push.js';
-import { chatHistory, chatSearch, type HistoryCursor } from './transcriptHistory.js';
+import { chatFiles, chatHistory, chatSearch, type HistoryCursor } from './transcriptHistory.js';
 import {
   type LineOptions,
   type RoomRef,
@@ -115,6 +122,27 @@ export function readOptions(lead: Lead, employeeOf?: LineOptions['employeeOf']):
   };
 }
 
+/** Marks the files of a library page that are gone from the project folder (a path elsewhere is not looked at). */
+async function withMissing<T extends { files: ChatLibraryFile[] }>(page: T, dir?: string): Promise<T> {
+  const root = dir?.replace(/[\\/]+$/, '');
+  if (!root) return page;
+  const files = await Promise.all(
+    page.files.map(async (file) => {
+      const inside =
+        !!file.path?.startsWith(root) &&
+        /^[\\/]/.test(file.path.slice(root.length)) &&
+        !/(^|[\\/])\.\.([\\/]|$)/.test(file.path);
+      if (!file.path || !inside) return file;
+      const gone = await fs.promises.access(file.path).then(
+        () => false,
+        () => true,
+      );
+      return gone ? { ...file, missing: true } : file;
+    }),
+  );
+  return { ...page, files };
+}
+
 /** A room reply a tail read. `replayed`: the tail started over (a new file, or a jump past one read)
  *  and read it again from the transcript's past, so it is not news: the room's summary is read
  *  again by the view's rule instead of adding it (roomUnread.ts applyRoomReplies). */
@@ -144,6 +172,7 @@ export class Conversations {
   private roomReplyFresh = false;
   private readonly historyBusy = new Map<WsSend, Set<number>>();
   private readonly searchToken = new Map<WsSend, number>();
+  private readonly filesBusy = new Map<WsSend, Set<number>>();
   /** Where each client's last history page stopped, keyed by its oldest item. */
   private readonly cursors = new Map<WsSend, Map<number, HistoryCursor & { id: string }>>();
 
@@ -216,6 +245,7 @@ export class Conversations {
     this.told.delete(send);
     this.historyBusy.delete(send);
     this.searchToken.delete(send);
+    this.filesBusy.delete(send);
     this.cursors.delete(send);
   }
 
@@ -270,6 +300,24 @@ export class Conversations {
             done: false,
             error: String(error),
           }),
+      )
+      .finally(() => busy.delete(agentId));
+  }
+
+  /** The library (ChatFiles): a page of the files exchanged in this conversation. One scan per client and conversation at a time. */
+  files(send: WsSend, agentId: number, requestId: string, before?: string): void {
+    const fail = (extra: { error: string } | ReturnType<typeof refused>) =>
+      send({ type: 'chatFilesResult', requestId, agentId, files: [], done: false, ...extra });
+    const lead = this.leads().find((l) => l.agentId === agentId);
+    if (!lead) return fail(refused('conversation_not_found'));
+    let busy = this.filesBusy.get(send);
+    if (!busy) this.filesBusy.set(send, (busy = new Set()));
+    if (busy.has(agentId)) return fail(refused('conversation_loading'));
+    busy.add(agentId);
+    void chatFiles(lead.transcript, before, readOptions(lead, this.employeeOf))
+      .then(
+        async (page) => send({ type: 'chatFilesResult', requestId, agentId, ...(await withMissing(page, lead.dir)) }),
+        (error: unknown) => fail({ error: String(error) }),
       )
       .finally(() => busy.delete(agentId));
   }

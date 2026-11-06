@@ -1,12 +1,12 @@
 /**
- * P4-S4, the 개발실's 병합 tab and 작업 폴더 정리, end to end: dist/cli.js in a temp HOME on a spare
+ * P4-S4, the 개발실's 머지 tab and 워크트리 정리, end to end: dist/cli.js in a temp HOME on a spare
  * port, a temp repository, the engine's fake claude as Lead `shop-web` and three Workers (never a
  * real claude). Seven Tasks: T-1 clean (and behind main), T-2 in conflict with main on two files
  * (three blocks), T-3..T-5 merged by hand, T-6 and T-7 unmerged and idle for days.
  *
- *   T-1: pre-check (behind) -> 따라잡기 -> K's card -> 병합 -> the card leaves the rail (auto-cleanup)
+ *   T-1: pre-check (behind) -> 따라잡기 -> K's card -> 머지 -> the card leaves the rail (auto-cleanup)
  *   T-2: W2 banner -> 에이전트에게 맡기기 (the Worker gets one message) -> 직접 풀기: pick every block
- *        of both files -> 해결됨으로 표시 (no marker left in the files) -> K's card -> 병합
+ *        of both files -> 해결됨으로 표시 (no marker left in the files) -> K's card -> 머지
  *   W3:  the list (3 merged checked, 2 unmerged not), the auto-cleanup toggle persisted, 정리 removes
  *        the merged ones; an unmerged one goes too and its work stays on its branch.
  * Desktop only (Chromium --disable-gpu, 1280x800). Screenshots in cld/artifacts/p4-s4/.
@@ -272,7 +272,7 @@ async function main() {
     await card(wts['T-2'].task).waitFor({ state: 'detached', timeout: 30_000 });
     check(repo.git(['show', 'main:src/pay/Label.tsx']).includes('결제하기'), 'T-2 is in main with the owner’s picks');
 
-    // ── W3: 작업 폴더 정리. ──
+    // ── W3: 워크트리 정리. ──
     await win.getByTestId('devroom-cleanup').click();
     const rows = win.getByTestId('merge-row');
     await rows.nth(4).waitFor({ timeout: 30_000 });

@@ -79,7 +79,7 @@ const SAMPLE = {
   ],
   warnings: ['nvidia-smi 응답 없음'],
   sources: { cpuTempC: 'sysfs', gpuTempC: 'nvidia-smi' },
-  sensorsHint: false,
+  sensorNotes: [],
 };
 
 /** A daemon socket answering with fake deps; the requests it got. */
@@ -549,6 +549,89 @@ describe('cld-gui CLI', () => {
       expect({ code: r.code, out: r.out }).toEqual({ code: 0, out: '' });
       expect(asked).toHaveLength(3);
     },
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'FIX-PERM-RESTART: a daemon that goes while permission-hook waits is asked again, the same call, with the rest of its time; no daemon at the first ask prints nothing at once',
+    async () => {
+      const h = home();
+      const token = 'P'.repeat(43);
+      const hookInput = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } });
+      const hook = () => cli(h, ['permission-hook'], { env: { CLD_AGENT_TOKEN: token }, input: hookInput });
+      // No daemon at all: Claude's own dialog at once, as before.
+      const t0 = Date.now();
+      expect(await hook()).toEqual({ code: 0, out: '', err: '' });
+      expect(Date.now() - t0).toBeLessThan(5_000);
+      const asked: Array<number | undefined> = [];
+      let gone: (() => void) | null = null;
+      const first = await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        // The first daemon never answers: it goes (a restart) with the wait open.
+        permission: (_agent, ask) => (asked.push(ask.waitMs), gone?.(), new Promise(() => undefined)),
+      });
+      const socks: import('net').Socket[] = [];
+      first.server.on('connection', (s) => socks.push(s));
+      const restarted = new Promise<void>((resolve) => {
+        gone = () => {
+          first.server.close();
+          for (const s of socks) s.destroy();
+          resolve();
+        };
+      });
+      const r = hook();
+      await restarted;
+      await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        permission: (_agent, ask) => (asked.push(ask.waitMs), Promise.resolve('allow')),
+      });
+      const out = await r;
+      expect(out.code).toBe(0);
+      expect(JSON.parse(out.out)).toMatchObject({ hookSpecificOutput: { decision: { behavior: 'allow' } } });
+      expect(asked).toHaveLength(2);
+      expect(asked[0]).toBeGreaterThan(250_000);
+      expect(asked[1]).toBeLessThan(asked[0]!);
+    },
+    30_000,
+  );
+
+  it.runIf(process.platform !== 'win32')(
+    'FIX-PERM-RESTART: a daemon that goes and stays away, or answers an error, is no decision: permission-hook prints nothing',
+    async () => {
+      const h = home();
+      const token = 'P'.repeat(43);
+      const hookInput = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } });
+      const hook = () =>
+        cli(h, ['permission-hook'], { env: { CLD_AGENT_TOKEN: token, CLD_PERMISSION_GONE_MS: '2000' }, input: hookInput });
+      let asked = 0;
+      const socks: import('net').Socket[] = [];
+      const first = await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        permission: () => {
+          asked++;
+          setImmediate(() => {
+            first.server.close();
+            for (const s of socks) s.destroy();
+          });
+          return new Promise(() => undefined);
+        },
+      });
+      first.server.on('connection', (s) => socks.push(s));
+      const t0 = Date.now();
+      expect(await hook()).toEqual({ code: 0, out: '', err: '' });
+      expect(asked).toBe(1);
+      expect(Date.now() - t0).toBeLessThan(10_000);
+      // The daemon's own error (not a lost connection): asked once, no decision, at once.
+      asked = 0;
+      await daemon(h, {
+        agentOf: (t) => (t === token ? 'alpha' : null),
+        permission: () => (asked++, Promise.reject(new Error('boom'))),
+      });
+      const t1 = Date.now();
+      expect(await hook()).toEqual({ code: 0, out: '', err: '' });
+      expect(asked).toBe(1);
+      expect(Date.now() - t1).toBeLessThan(5_000);
+    },
+    30_000,
   );
 
   it('send: sentences, CLD_OUTPUT=json, CLD_SOURCE, exit 0', async () => {

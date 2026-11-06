@@ -72,8 +72,6 @@ export interface CliArgs {
   chat: boolean;
   /** Host explicitly permits trusted devices to open login shells. */
   allowTerminal: boolean;
-  /** cld-gui --chat-attaches <n>: `claude attach` processes at once (~150 MB each; default 1). */
-  chatAttaches?: number;
   /** cld-gui --allow-approval-requests: a new device may ask a logged-in one (T-0022, off by default). */
   approvalRequests: boolean;
   /** cld-gui --engine auto|on|off: the built-in engine (auto = on). */
@@ -170,15 +168,6 @@ export function parseArgs(argv: string[]): CliArgs {
       args.allowTerminal = true;
     } else if (argv[i] === '--allow-approval-requests') {
       args.approvalRequests = true;
-    } else if (argv[i] === '--chat-attaches') {
-      const n = Number(argv[i + 1]);
-      if (!Number.isInteger(n) || n < 1 || n > 10) {
-        throw new CliArgsError(
-          `Invalid --chat-attaches "${argv[i + 1] ?? ''}": expected an integer from 1 to 10.`,
-        );
-      }
-      args.chatAttaches = n;
-      i++;
     } else if (argv[i] === '--lhm-port') {
       const n = Number(argv[i + 1]);
       if (!Number.isInteger(n) || n < MIN_PORT || n > MAX_PORT) {
@@ -217,8 +206,6 @@ Options:
                         these two flags wins)
   --allow-chat          Let logged-in browsers open a Claude background session's
                         terminal (\`claude attach <id>\`; default off)
-  --chat-attaches <n>   \`claude attach\` processes at once, ~150 MB each
-                        (default 1)
   --allow-approval-requests
                         Let a device without a session ask a logged-in one to
                         approve it, by typing its code (default off)
@@ -228,10 +215,11 @@ Options:
                         actions also need --allow-actions
   --lhm-port <n>        Read temperatures from LibreHardwareMonitor's web
                         server on this port (Windows, WSL; set by the
-                        installer's --hw-sensors step)
+                        installer's --hw-sensors step; default 8085)
   --nvidia-smi          Let the HW panel query an NVIDIA GPU with nvidia-smi
-                        when no other source has it (default off; also
-                        "nvidiaSmi": true in ~/.config/agent-tycoon/gpu.json)
+                        when no other source has it (default off;
+                        "nvidiaSmi" in ~/.config/agent-tycoon/gpu.json,
+                        which the H/W screen's switch sets, wins)
   --connector <local|lan|tailscale|direct>
                         How other devices reach the office (default: the
                         connector in ~/.config/agent-tycoon/config.json, else local)
@@ -299,8 +287,18 @@ export function dropDaemonOnlyEnv(env: NodeJS.ProcessEnv = process.env): void {
   for (const key of DAEMON_ONLY_ENV) delete env[key];
 }
 
+/** Longest unhandled-rejection reason the safety net logs. */
+const REJECTION_LOG_MAX = 500;
+
 async function main(): Promise<void> {
   dropDaemonOnlyEnv();
+  // Node 22 ends the process on an unhandled rejection; a daemon must not die for one forgotten
+  // .catch (two reached review on 11-06: the /usage probe, the 개발실 runs). Log one short line and
+  // keep serving; the cause still gets fixed where it lives.
+  process.on('unhandledRejection', (reason) => {
+    const text = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason);
+    console.error(`[Agent Tycoon] unhandled rejection: ${text.slice(0, REJECTION_LOG_MAX)}`);
+  });
   if (process.argv.includes('--self-test')) process.exit(runSelfTest(__dirname));
   let args: CliArgs;
   try {
@@ -362,15 +360,15 @@ async function main(): Promise<void> {
     const attach = claudePath
       ? new ChatManager({
           claudePath,
-          maxPtys: args.chatAttaches,
-          settingsFile: path.join(configDirectory(os.homedir()), 'terminal.json'),
         })
       : undefined;
     const chat = args.chat ? attach : undefined;
-    // cld-gui HW (T-0030): nvidia-smi only when asked for (--nvidia-smi, or gpu.json's
-    // nvidiaSmi, T-0021), and only when it exists.
-    const wantSmi = args.nvidiaSmi || readGpuConfig().nvidiaSmi === true;
-    const nvidiaSmiPath = wantSmi ? findNvidiaSmi() : null;
+    // cld-gui HW (T-0030): nvidia-smi only when asked for (gpu.json's nvidiaSmi, which the H/W
+    // screen's switch sets and which wins, else --nvidia-smi) and only when it exists; found but
+    // off is shown as such.
+    const wantSmi = readGpuConfig().nvidiaSmi ?? args.nvidiaSmi === true;
+    const nvidiaSmiFound = findNvidiaSmi();
+    const nvidiaSmiPath = wantSmi ? nvidiaSmiFound : null;
     if (wantSmi && !nvidiaSmiPath) console.log('[cld] nvidia-smi: asked for, but not found');
 
     // cld-gui: characters from Claude Code (+ the engine's projects), started
@@ -385,8 +383,9 @@ async function main(): Promise<void> {
       typist: attach,
       defaultLayout: assetCache.defaultLayout,
       catalog: () => assetCache.furniture?.catalog ?? [],
-      lhmPort: args.lhmPort ?? null,
+      lhmPort: args.lhmPort,
       nvidiaSmi: nvidiaSmiPath,
+      nvidiaSmiFound,
       // T-0039: Web Push keys and subscriptions beside the login stores.
       pushFile: path.join(configDirectory(os.homedir()), 'push.json'),
       pushHost: args.allowedHosts[0],
@@ -512,6 +511,7 @@ async function main(): Promise<void> {
             }))
           : null,
       allowApprovalRequests: args.approvalRequests,
+      street: office?.street,
     });
     office?.setDaemonPort(config.port);
     hostToken.current = config.token;

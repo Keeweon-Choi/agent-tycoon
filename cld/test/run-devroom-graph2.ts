@@ -187,7 +187,7 @@ async function main() {
     check((await text('main')) === '▾6', `main: ▾ 6, every card of the project (${await text('main')})`);
     check((await text(INTEG)) === '▾3', `${INTEG}: ▾ 3 (${await text(INTEG)})`);
     check((await text('task/codex-1101-091929')) === '▾1', 'the run with a run made from it: ▾ 1');
-    check((await fold('worktree 그래프').count()) === 1, 'the graph header has its own toggle');
+    check((await fold('워크트리').count()) === 1, 'the graph header has its own toggle');
     await shot(desk, 'pc-unfolded');
 
     await fold(INTEG).focus();
@@ -219,7 +219,7 @@ async function main() {
     // The 작업실 card's link picks the Task inside both folds: the way to it unfolds.
     // The maximized dev room covers the dock: minimized first (the 작업실 link brings it back).
     await win.getByTestId('hud-title-devroom').locator('..').getByRole('button', { name: '최소화' }).first().click();
-    await openWorkbenchTab(desk, 'Task', { project: 'shop-web' });
+    await openWorkbenchTab(desk, '이슈', { project: 'shop-web' });
     const wb = desk.locator('[data-hud-window="office"]');
     await wb.locator(`[data-testid="task-card"][data-task-id="${taskId}"]`).click();
     await wb.getByTestId('task-devroom').click();
@@ -230,10 +230,10 @@ async function main() {
       'picking the Task from the 작업실 unfolded main and integ',
     );
     await shot(desk, 'pc-picked-unfolds');
-    await fold('worktree 그래프').click();
+    await fold('워크트리').click();
     check((await win.getByTestId('devroom-graph').count()) === 0 && (await win.getByTestId('devroom-trunk').count()) === 0, 'the whole graph folds to its header');
     await shot(desk, 'pc-graph-folded');
-    await fold('worktree 그래프').click();
+    await fold('워크트리').click();
 
     // ── Phone 390x844 ──
     const phone = await newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });

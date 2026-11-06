@@ -24,6 +24,8 @@ import { parseStatusV2 } from '../engine/git/repoRead.js';
 import { forbiddenFilePath } from '../files/security.js';
 import { frontMatter } from '../tracking/docs.js';
 import { SKIP_DIRS } from '../tracking/settings.js';
+import { OPENSPEC_ARCHIVE, shapeOf } from './shapes.js';
+import { kitOf } from './speckit.js';
 
 export const DOC_KINDS = ['requirements', 'design', 'decision', 'test', 'task', 'plan', 'other', 'log'] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
@@ -113,6 +115,12 @@ const FM_KINDS: Readonly<Record<string, DocKind>> = {
   progress: 'log',
 };
 
+/** K9: the kinds of a Spec Kit feature folder's files (`specs/NNN-name/`); its other files go by the rules below. */
+const KIT_KINDS: Readonly<Record<string, DocKind>> = { 'spec.md': 'requirements', 'tasks.md': 'task', 'plan.md': 'plan', 'research.md': 'decision' };
+
+/** RQ5: an ADR folder: `adr`, `adrs`, `decisions`, `docs-adr`, `architecture-decisions`. */
+const ADR_DIR = /^(?:[\w.]+[-_])?(?:adrs?|decisions?)$/;
+
 /** The kind a document's front matter names, if any (`head`: its first bytes). */
 function fmKind(head: string): DocKind | null {
   const { fields } = frontMatter(head.split(/\r?\n/));
@@ -146,12 +154,18 @@ export function headOf(folder: string, rel: string): string {
 export function classify(rel: string, head?: string): DocKind {
   const fm = head ? fmKind(head) : null;
   if (fm) return fm;
+  // RQ5: Kiro and OpenSpec folders say what each file is; an archived OpenSpec change is a record.
+  const shape = shapeOf(rel);
+  if (shape) return shape.file === 'tasks' ? 'task' : shape.file === 'design' ? 'design' : 'requirements';
+  if (OPENSPEC_ARCHIVE.test(rel)) return 'log';
+  const kit = kitOf(rel);
+  if (kit && Object.hasOwn(KIT_KINDS, kit.file)) return KIT_KINDS[kit.file];
   const segs = rel.toLowerCase().split('/');
   const name = segs.pop()!.replace(/\.md$/, '');
   const inDir = (...names: string[]) => segs.some((s) => names.includes(s));
   if (/^(handoff|progress|changelog|history|journal|worklog)\b/.test(name) || /\d{4}-\d{2}-\d{2}/.test(name) || inDir('handoff', 'logs', 'journal'))
     return 'log';
-  if (inDir('adr', 'adrs', 'decisions') || /^(decisions?|adr-\d)/.test(name)) return 'decision';
+  if (segs.some((s) => ADR_DIR.test(s)) || /^(decisions?|adr-\d)/.test(name)) return 'decision';
   if (inDir('tasks') || /^t-\d+/.test(name) || name === 'tasks') return 'task';
   if (/test[-_ ]?plan|^test_/.test(name) || (inDir('docs') && inDir('test', 'tests'))) return 'test';
   if (inDir('design', 'architecture') || /^(architecture|design)\b|[-_]design$/.test(name)) return 'design';

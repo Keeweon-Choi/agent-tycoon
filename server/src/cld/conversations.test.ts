@@ -257,10 +257,35 @@ describe('messenger history requests', () => {
     const t = setup(1);
     t.conv.history(t.client, 999, 'missing');
     t.conv.search(t.client, 999, 'missing', 'hello');
+    t.conv.files(t.client, 999, 'missing');
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(t.got).toMatchObject([
       { type: 'chatHistoryResult', requestId: 'missing', error: expect.any(String) },
       { type: 'chatSearchResult', requestId: 'missing', error: expect.any(String) },
+      { type: 'chatFilesResult', requestId: 'missing', files: [], error: expect.any(String) },
+    ]);
+  });
+
+  it('the library lists the boss\'s attachments and marks one the project folder no longer holds', async () => {
+    const t = setup(1);
+    const project = dir();
+    t.leads[0].dir = project;
+    const kept = path.join(project, 'kept.png');
+    fs.writeFileSync(kept, 'x');
+    const gone = path.join(project, 'gone.png');
+    const outside = '/nowhere/else.png';
+    fs.writeFileSync(
+      t.leads[0].transcript!,
+      line('user', `see\n[첨부] ${kept} (image/png, 1 KB)\n[첨부] ${gone} (image/png, 1 KB)\n[첨부] ${outside} (image/png, 1 KB)`, 1),
+    );
+    t.conv.files(t.client, 100, 'lib');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const result = t.got[0] as { files: Array<{ name: string; missing?: boolean }>; done: boolean };
+    expect(result.done).toBe(true);
+    expect(result.files.map((f) => [f.name, f.missing])).toEqual([
+      ['kept.png', undefined],
+      ['gone.png', true],
+      ['else.png', undefined], // outside the project folder: not looked at
     ]);
   });
 });

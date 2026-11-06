@@ -95,14 +95,14 @@ export const SERVER_TEXT = {
   root_home: { ko: '홈', en: 'Home' },
   // -- the dev room's 프로젝트 추가 (projectRepo.ts) --
   clone_url_bad: {
-    ko: '복제할 주소가 올바르지 않아요 (https://, ssh://, git@호스트:경로 또는 폴더 경로)',
+    ko: '클론할 주소가 올바르지 않아요 (https://, ssh://, git@호스트:경로 또는 폴더 경로)',
     en: 'That is not a repository address to clone (https://, ssh://, git@host:path or a folder path).',
   },
   clone_exists: { ko: '폴더가 이미 있어요: {folder}', en: 'The folder already exists: {folder}' },
-  clone_running: { ko: '이 폴더로 이미 복제하고 있어요', en: 'A clone into this folder is already running.' },
-  clone_failed: { ko: '복제하지 못했어요: {why}', en: 'Could not clone: {why}' },
-  clone_cancelled: { ko: '복제를 멈추고 받던 폴더를 지웠어요', en: 'The clone was stopped and its half-made folder removed.' },
-  clone_timeout: { ko: '복제가 너무 오래 걸려 멈췄어요', en: 'The clone took too long and was stopped.' },
+  clone_running: { ko: '이 폴더로 이미 클론하고 있어요', en: 'A clone into this folder is already running.' },
+  clone_failed: { ko: '클론하지 못했어요: {why}', en: 'Could not clone: {why}' },
+  clone_cancelled: { ko: '클론을 멈추고 받던 폴더를 지웠어요', en: 'The clone was stopped and its half-made folder removed.' },
+  clone_timeout: { ko: '클론이 너무 오래 걸려 멈췄어요', en: 'The clone took too long and was stopped.' },
   git_init_root: {
     ko: '홈 폴더나 드라이브 맨 위에는 git init 할 수 없어요',
     en: 'git init is not allowed on the home folder or the top of a drive.',
@@ -123,6 +123,15 @@ export const SERVER_TEXT = {
   conversation_not_found: { ko: '이 대화를 찾지 못했어요', en: 'That conversation was not found.' },
   // -- jobs (office.ts, jobs.ts) --
   job_unknown: { ko: '모르는 작업이에요', en: 'That job is not known.' },
+  // -- DV2: the dev room's 실행 row (devroomRuns.ts) --
+  run_no_package: { ko: '이 워크트리에 package.json 이 없거나 읽을 수 없어요', en: 'This worktree has no readable package.json.' },
+  run_unknown: { ko: '고른 실행 단추가 아니에요', en: 'That is not one of the picked run buttons.' },
+  run_bad_pick: { ko: '이 package.json 에 없는 스크립트예요: {script}', en: 'This package.json has no script {script}.' },
+  run_changed: {
+    ko: "'{script}' 명령이 고른 뒤 바뀌었어요 · 고치기에서 다시 골라 주세요",
+    en: "The '{script}' command changed since it was picked. Pick it again under Edit.",
+  },
+  run_running: { ko: "'{script}' 실행이 이 워크트리에서 이미 돌고 있어요", en: "'{script}' is already running in this worktree." },
   // -- Codex usage check --
   usage_denied: {
     ko: '이 접속에는 사용량을 확인할 권한이 없어요',
@@ -299,7 +308,7 @@ export const SERVER_TEXT = {
     en: 'Could not read the list of git worktrees.',
   },
   merge_same: {
-    ko: '같은 브랜치끼리는 병합하지 않아요',
+    ko: '같은 브랜치끼리는 머지하지 않아요',
     en: 'A branch cannot be merged into itself.',
   },
   branch_missing: {
@@ -311,11 +320,11 @@ export const SERVER_TEXT = {
     en: '{target} is behind {upstream}. Pull first.',
   },
   merge_in_progress: {
-    ko: '{target} 를 다른 폴더에서 rebase/bisect 하는 중이에요. 끝낸 뒤 병합해 주세요',
+    ko: '{target} 를 다른 폴더에서 rebase/bisect 하는 중이에요. 끝낸 뒤 머지해 주세요',
     en: '{target} is being rebased or bisected in another folder. Finish that, then merge.',
   },
   merge_dirty: {
-    ko: '{target} 를 쓰는 폴더에 커밋하지 않은 변경 {count}건이 있어요. 정리한 뒤 병합해 주세요',
+    ko: '{target} 를 쓰는 폴더에 커밋하지 않은 변경 {count}건이 있어요. 정리한 뒤 머지해 주세요',
     en: 'The folder that has {target} checked out has {count} uncommitted changes. Clean them up, then merge.',
   },
   git_config_unreadable: {
@@ -323,7 +332,7 @@ export const SERVER_TEXT = {
     en: 'Could not read the git configuration.',
   },
   merge_filters: {
-    ko: '{target} 를 쓰는 폴더의 저장소가 자체 필터(git-crypt, LFS 등)를 써서 자동으로 옮기지 않아요. 그 폴더에서 직접 병합해 주세요',
+    ko: '{target} 를 쓰는 폴더의 저장소가 자체 필터(git-crypt, LFS 등)를 써서 자동으로 옮기지 않아요. 그 폴더에서 직접 머지해 주세요',
     en: 'The folder that has {target} checked out uses its own filters (git-crypt, LFS, ...), so it is not moved automatically. Merge in that folder yourself.',
   },
   merge_moved: {
@@ -339,15 +348,15 @@ export const SERVER_TEXT = {
     en: '{dir} is not a folder.',
   },
   merge_prepare_failed: {
-    ko: '병합 준비를 하지 못했어요: {why}',
+    ko: '머지 준비를 하지 못했어요: {why}',
     en: 'Could not prepare the merge: {why}',
   },
   merge_commit_unreadable: {
-    ko: '병합 커밋을 읽지 못했어요',
+    ko: '머지 커밋을 읽지 못했어요',
     en: 'Could not read the merge commit.',
   },
   merge_failed: {
-    ko: '병합하지 못했어요: {why}',
+    ko: '머지하지 못했어요: {why}',
     en: 'The merge failed: {why}',
   },
   project_unregistered: {
@@ -363,8 +372,8 @@ export const SERVER_TEXT = {
     en: 'Could not read the diff.',
   },
   worktree_missing: {
-    ko: '그런 작업 공간이 없어요',
-    en: 'There is no such workspace.',
+    ko: '그런 워크트리가 없어요',
+    en: 'There is no such worktree.',
   },
   changes_unreadable: {
     ko: '변경을 읽지 못했어요',
@@ -379,15 +388,15 @@ export const SERVER_TEXT = {
     en: '{name}: another action is already running.',
   },
   merge_no_base: {
-    ko: '기준이 브랜치가 아니라 병합할 곳이 없어요',
+    ko: '기준이 브랜치가 아니라 머지할 곳이 없어요',
     en: 'The base is not a branch, so there is nowhere to merge into.',
   },
   merge_protected: {
-    ko: '{target} 는 보호 브랜치라 자동으로 병합하지 않아요. 작업실에서 직접 병합해 주세요',
+    ko: '{target} 는 보호 브랜치라 자동으로 머지하지 않아요. 작업실에서 직접 머지해 주세요',
     en: '{target} is a protected branch, so it is not merged automatically. Merge it yourself in the workshop.',
   },
   merge_review_notes: {
-    ko: '검토 메모가 있는 작업이라 자동으로 병합하지 않아요. 작업실에서 직접 병합해 주세요',
+    ko: '검토 메모가 있는 작업이라 자동으로 머지하지 않아요. 작업실에서 직접 머지해 주세요',
     en: 'This task has review notes, so it is not merged automatically. Merge it yourself in the workshop.',
   },
   task_name_needed: {
@@ -468,7 +477,7 @@ export const SERVER_TEXT = {
   },
   // -- P4 dev room: sync, conflicts, cleanup (engine/git/conflicts.ts, worktrees.ts) --
   sync_agent_busy: {
-    ko: '에이전트가 지금 이 작업 폴더에서 일하고 있어요. 에이전트에게 맡기거나 쉴 때 다시 해 주세요',
+    ko: '에이전트가 지금 이 워크트리에서 일하고 있어요. 에이전트에게 맡기거나 쉴 때 다시 해 주세요',
     en: 'The agent is working in this worktree now. Hand it to the agent, or try again when it is idle.',
   },
   sync_dirty: {
@@ -481,8 +490,8 @@ export const SERVER_TEXT = {
     en: '{count} files conflict with {base}. Choose how to resolve each one.',
   },
   sync_committed: { ko: '충돌을 풀고 합쳤어요', en: 'Conflicts resolved and merged.' },
-  sync_aborted: { ko: '합치기를 취소했어요(작업 폴더는 그대로예요)', en: 'The merge was cancelled (the worktree is as it was).' },
-  no_merge_in_progress: { ko: '진행 중인 합치기가 없어요', en: 'No merge is in progress.' },
+  sync_aborted: { ko: '머지를 취소했어요(워크트리는 그대로예요)', en: 'The merge was cancelled (the worktree is as it was).' },
+  no_merge_in_progress: { ko: '진행 중인 머지가 없어요', en: 'No merge is in progress.' },
   conflicts_left: { ko: '아직 풀지 않은 파일이 {count}개 있어요', en: '{count} files are still unresolved.' },
   conflict_file_unknown: { ko: '충돌 중인 파일이 아니에요', en: 'That file is not in conflict.' },
   conflict_file_unreadable: {
@@ -496,7 +505,7 @@ export const SERVER_TEXT = {
   conflict_blocks_left: { ko: '남은 충돌 {count}개', en: '{count} conflicts left.' },
   conflict_file_resolved: { ko: '이 파일의 충돌을 다 풀었어요', en: 'All conflicts in this file are resolved.' },
   conflict_handoff_header: {
-    ko: '[충돌] Task {task} · 작업 폴더 {worktree} ({path}) 가 {base} 와 겹쳐서 아직 합칠 수 없어요 (파일: {files}). 그 폴더에서 git merge {base} 를 실행해 충돌을 풀어 커밋한 뒤 update_task 로 status 를 review 로 알려 주세요 (Task 가 없으면 리드에게 알려 주세요). 리드가 받았다면 직접 풀거나 워커에게 맡겨 주세요.',
+    ko: '[충돌] Task {task} · 워크트리 {worktree} ({path}) 가 {base} 와 겹쳐서 아직 머지할 수 없어요 (파일: {files}). 그 폴더에서 git merge {base} 를 실행해 충돌을 풀어 커밋한 뒤 update_task 로 status 를 review 로 알려 주세요 (Task 가 없으면 리드에게 알려 주세요). 리드가 받았다면 직접 풀거나 워커에게 맡겨 주세요.',
     en: '[Conflict] Task {task} (worktree {worktree}, {path}) conflicts with {base} and cannot be merged yet (files: {files}). In that folder, run git merge {base}, resolve the conflicts, commit, then report status review with update_task (no Task: tell the Lead). A Lead receiving this resolves it or hands it to a Worker.',
   },
   sys_conflict_handoff: {
@@ -512,7 +521,7 @@ export const SERVER_TEXT = {
   },
   git_failed_why: { ko: 'git 이 실패했어요: {why}', en: 'git failed: {why}' },
   review_lead_header: {
-    ko: '[검토 의견] 리드 {lead} 가 Task {task} · 작업 폴더 {worktree} 의 바뀐 곳에 의견을 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
+    ko: '[검토 의견] 리드 {lead} 가 Task {task} · 워크트리 {worktree} 의 바뀐 곳에 의견을 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
     en: '[Review note] The Lead {lead} left a note on the changes of Task {task} (worktree {worktree}). Fix it, then report status review again with update_task.',
   },
   sys_review_lead: {
@@ -524,7 +533,7 @@ export const SERVER_TEXT = {
     en: '{branch} is already in {target}.',
   },
   merge_done_commit: {
-    ko: '{target} ← {branch} (병합 커밋 {short})',
+    ko: '{target} ← {branch} (머지 커밋 {short})',
     en: '{target} ← {branch} (merge commit {short})',
   },
   stage_too_many: {
@@ -576,7 +585,7 @@ export const SERVER_TEXT = {
     en: 'The push did not finish in time.',
   },
   push_rejected: {
-    ko: '원격에 새 커밋이 있어서 거부됐어요. 먼저 가져와서 합쳐 주세요 (터미널에서 git pull)',
+    ko: '원격에 새 커밋이 있어서 거부됐어요. 먼저 가져와서 머지해 주세요 (터미널에서 git pull)',
     en: 'The remote has new commits, so the push was rejected. Pull and merge first (git pull in a terminal).',
   },
   push_auth: {
@@ -636,8 +645,8 @@ export const SERVER_TEXT = {
     en: 'A task name can use lowercase letters, digits and - only, up to 60 characters.',
   },
   worktree_no_commit: {
-    ko: '커밋이 하나도 없어서 작업 공간을 만들 수 없어요',
-    en: 'There are no commits yet, so a workspace cannot be created.',
+    ko: '커밋이 하나도 없어서 워크트리를 만들 수 없어요',
+    en: 'There are no commits yet, so a worktree cannot be created.',
   },
   task_id_invalid: {
     ko: 'Task id 가 올바르지 않아요',
@@ -648,8 +657,8 @@ export const SERVER_TEXT = {
     en: 'That base branch name is not valid: {name}',
   },
   worktree_name_failed: {
-    ko: '작업 공간 이름을 만들지 못했어요',
-    en: 'Could not make a workspace name.',
+    ko: '워크트리 이름을 만들지 못했어요',
+    en: 'Could not make a worktree name.',
   },
   task_has_worktree: {
     ko: 'Task {task} 에는 이미 worktree 가 있어요: {dir}/{name}',
@@ -671,9 +680,55 @@ export const SERVER_TEXT = {
     ko: '저장소가 {operation} 중이에요. 끝낸 뒤에 만들어 주세요',
     en: 'The repository is in the middle of a {operation}. Create it after that finishes.',
   },
+  // DV4 (taskWorktree.ts): the owner's 새 워크트리 and 앉히기.
+  task_other_project: {
+    ko: "'{task}' 는 다른 프로젝트의 작업이에요",
+    en: "'{task}' is a task of another project.",
+  },
+  agent_other_project: {
+    ko: "'{name}' 는 {project} 의 에이전트가 아니에요",
+    en: "'{name}' is not an agent of {project}.",
+  },
+  seat_lead: {
+    ko: '리드는 워크트리에 앉히지 않아요: 리드의 폴더는 프로젝트 폴더예요',
+    en: "The lead is not seated in a worktree: its folder is the project's.",
+  },
+  task_without_worktree: {
+    ko: '{task} 은 이슈 판에 있지만 워크트리는 만들지 못했어요: {why}',
+    en: '{task} is on the issue board, but its worktree could not be made: {why}',
+  },
+  seat_restarted: {
+    ko: '{name}: 다시 시작해 이 워크트리에 앉혔어요',
+    en: '{name}: restarted to sit in this worktree',
+  },
+  seat_started: {
+    ko: '{name}: 이 워크트리에서 켰어요',
+    en: '{name}: started in this worktree',
+  },
+  seat_already_there: {
+    ko: '{name}은(는) 이미 이 워크트리에서 일하고 있어요',
+    en: '{name} already works in this worktree.',
+  },
+  seat_pty_failed: {
+    ko: '{name}을(를) 새 터미널 방식으로 옮기지 못해 예전 방식으로 켜요: {why}',
+    en: '{name} could not move to the new terminal, so it runs the old way: {why}',
+  },
+  seat_start_failed: {
+    ko: '{name}을(를) 켜지 못했어요: {why}',
+    en: '{name} could not be started: {why}',
+  },
+  seat_restart_failed: {
+    ko: '{name}을(를) 다시 시작하지 못해 첫 지시는 보내지 않았어요: {why}',
+    en: '{name} could not be restarted, so the first instruction was not sent: {why}',
+  },
+  seat_text_sent: { ko: '첫 지시를 보냈어요', en: 'The first instruction was sent.' },
+  seat_text_failed: {
+    ko: '첫 지시를 보내지 못했어요: {why}',
+    en: 'The first instruction could not be sent: {why}',
+  },
   worktree_exists: {
-    ko: '작업 공간 {task}은(는) 이미 있어요',
-    en: 'The workspace {task} already exists.',
+    ko: '워크트리 {task}은(는) 이미 있어요',
+    en: 'The worktree {task} already exists.',
   },
   worktree_folder_exists: {
     ko: '폴더가 이미 있어요: {dir}/{name}',
@@ -696,15 +751,15 @@ export const SERVER_TEXT = {
     en: 'That task name is not valid.',
   },
   worktree_unregistered: {
-    ko: 'git 작업 공간으로 등록돼 있지 않은 폴더라 지우지 않아요',
-    en: 'That folder is not registered as a git workspace, so it is not removed.',
+    ko: 'git 워크트리로 등록돼 있지 않은 폴더라 지우지 않아요',
+    en: 'That folder is not registered as a git worktree, so it is not removed.',
   },
   loss_commits: {
-    ko: '병합되지 않은 커밋 {count}개',
+    ko: '머지되지 않은 커밋 {count}개',
     en: '{count} commits not merged',
   },
   loss_unknown_merge: {
-    ko: '병합됐는지 알 수 없어요 (기준 브랜치가 없어요)',
+    ko: '머지됐는지 알 수 없어요 (기준 브랜치가 없어요)',
     en: 'Cannot tell whether it was merged (the base branch is missing)',
   },
   loss_dirty: {
@@ -716,8 +771,8 @@ export const SERVER_TEXT = {
     en: 'Removing it may lose: {losses}',
   },
   worktree_remove_failed: {
-    ko: '작업 공간을 지우지 못했어요: {why}',
-    en: 'Could not remove the workspace: {why}',
+    ko: '워크트리를 지우지 못했어요: {why}',
+    en: 'Could not remove the worktree: {why}',
   },
   review_notes_unreadable: {
     ko: '검토 메모를 읽거나 저장하지 못했어요',
@@ -728,7 +783,7 @@ export const SERVER_TEXT = {
     en: 'The review note text or line is not valid.',
   },
   review_note_limit: {
-    ko: '작업 공간마다 검토 메모는 200개까지예요',
+    ko: '워크트리마다 검토 메모는 200개까지예요',
     en: 'A worktree can have at most 200 review notes.',
   },
   review_note_missing: {
@@ -744,7 +799,7 @@ export const SERVER_TEXT = {
     en: 'Neither the agent on this task nor its Lead is there to receive the notes.',
   },
   review_send_header: {
-    ko: '[검토 의견] 사장님이 Task {task} · 작업 폴더 {worktree} 의 바뀐 곳에 의견 {count}개를 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
+    ko: '[검토 의견] 사장님이 Task {task} · 워크트리 {worktree} 의 바뀐 곳에 의견 {count}개를 남겼어요. 고친 뒤 update_task 로 status 를 review 로 다시 알려 주세요.',
     en: '[Review notes] The owner left {count} notes on the changes of Task {task} (worktree {worktree}). Fix them, then report status review again with update_task.',
   },
   branch_deleted: {
@@ -756,12 +811,12 @@ export const SERVER_TEXT = {
     en: 'The branch {branch} was kept ({why}).',
   },
   branch_kept_unmerged: {
-    ko: '브랜치 {branch}는 병합되지 않아 남겼어요',
+    ko: '브랜치 {branch}는 머지되지 않아 남겼어요',
     en: 'The branch {branch} was kept because it is not merged.',
   },
   worktree_make_failed: {
-    ko: '작업 공간을 만들지 못했어요: {why}',
-    en: 'Could not create the workspace: {why}',
+    ko: '워크트리를 만들지 못했어요: {why}',
+    en: 'Could not create the worktree: {why}',
   },
   guard_own_hooks: {
     ko: '이 저장소는 자체 hooksPath 를 써서 보호 브랜치 가드 훅을 깔지 않았어요',
@@ -801,8 +856,8 @@ export const SERVER_TEXT = {
     en: 'cld-gui does not know the agent ({id}), so it cannot be started.',
   },
   no_direct_chat: {
-    ko: 'Codex Worker 와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
-    en: 'You do not talk to a Codex Worker directly. Ask its Lead, or call it in a group room.',
+    ko: '이 에이전트와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
+    en: 'You do not talk to this agent directly. Ask its Lead, or call it in a group room.',
   },
   agent_unknown_send: {
     ko: 'cld-gui가 모르는 에이전트({id})라 받을 수 없어요',
@@ -877,8 +932,8 @@ export const SERVER_TEXT = {
     en: "'{name}' is already a Lead. Only a Worker can become a Lead.",
   },
   codex_not_lead: {
-    ko: 'Codex Worker 는 아직 Lead 가 될 수 없어요',
-    en: 'A Codex Worker cannot become a Lead yet.',
+    ko: '이 에이전트는 아직 Lead 가 될 수 없어요',
+    en: 'This agent cannot become a Lead yet.',
   },
   lead_claude_only: {
     ko: 'Lead 는 Claude 에이전트만 될 수 있어요',
@@ -1225,6 +1280,31 @@ export const SERVER_TEXT = {
     ko: 'codex 실행 파일을 찾지 못했어요(PATH)',
     en: 'The codex program was not found (PATH).',
   },
+  // -- ACP-1: agents that speak ACP (engine/agents/acp/) --
+  acp_missing: {
+    ko: '{name} 실행 파일을 찾지 못했어요(설치된 것만 켤 수 있어요)',
+    en: 'The {name} program was not found (only an installed one can start).',
+  },
+  acp_start_failed: {
+    ko: '{name}이(가) 켜지지 않았어요: {why}',
+    en: '{name} did not start: {why}',
+  },
+  acp_auth: {
+    ko: '{name}에 먼저 로그인해 주세요(그 에이전트의 터미널에서 한 번)',
+    en: 'Log in to {name} first (once, in its own terminal).',
+  },
+  acp_started_fresh: {
+    ko: '이 에이전트는 이전 대화를 이어받지 못해 새 대화로 켰어요',
+    en: 'This agent cannot continue its earlier conversation, so a new one was started.',
+  },
+  acp_no_setting: {
+    ko: '이 에이전트는 이 설정을 받지 않아요: {names}',
+    en: 'This agent does not take these settings: {names}',
+  },
+  acp_turn_failed: {
+    ko: '(이번 차례가 오류로 끝났어요: {error})',
+    en: '(This turn ended with an error: {error})',
+  },
   run_stop_failed: {
     ko: '실행을 멈추지 못했어요',
     en: 'Could not stop the run.',
@@ -1268,15 +1348,15 @@ export const SERVER_TEXT = {
   // -- room system lines (groupMessages.ts) --
   sys_assigned: { ko: 'Task {task} 배정: {line}', en: 'Task {task} assigned: {line}' },
   sys_reported: { ko: 'Task {task} 보고: {line}', en: 'Task {task} reported: {line}' },
-  sys_conflict: { ko: 'Task {task} 병합 충돌: {line}', en: 'Task {task} merge conflict: {line}' },
-  sys_merged: { ko: 'Task {task} 병합됨: {line}', en: 'Task {task} merged: {line}' },
+  sys_conflict: { ko: 'Task {task} 머지 충돌: {line}', en: 'Task {task} merge conflict: {line}' },
+  sys_merged: { ko: 'Task {task} 머지됨: {line}', en: 'Task {task} merged: {line}' },
   sys_review: {
     ko: '사장님이 {worker} 에게 검토 의견 {count}개를 보냈어요 (Task {task})',
     en: 'The owner sent {worker} {count} review notes (Task {task})',
   },
   // -- work words: job titles and news lines (core/work.ts, engine/eventSummary.ts) --
   work_default: { ko: '작업', en: 'Job' },
-  work_default_codex: { ko: 'Codex 작업', en: 'Codex task' },
+  work_default_codex: { ko: '실행', en: 'Run' },
   work_task_n: { ko: 'T-{id} 작업', en: 'Task T-{id}' },
   work_started_eul: { ko: '{subject}을 시작했어요', en: 'Started {subject}' },
   work_started_reul: { ko: '{subject}를 시작했어요', en: 'Started {subject}' },
@@ -1405,6 +1485,7 @@ export const SERVER_TEXT = {
   ev_renew_request: { ko: '{who} 교대 요청', en: 'Handoff requested for {who}' },
   ev_renew_done: { ko: '{who} 교대 완료', en: 'Handoff done for {who}' },
   ev_orch_renew: { ko: '{who} 새 대화로 교대', en: '{who} handed off to a new conversation' },
+  ev_orch_renew_free: { ko: '{who} 새 대화로 교대 · 양식 아님', en: '{who} handed off to a new conversation · not in the handoff form' },
   ev_orch_rename: { ko: "{who} 이름을 '{to}'(으)로 바꿈", en: "{who} renamed to '{to}'" },
   ev_orch_rename_failed: {
     ko: '{who} 이름 바꾸기 실패 ({code})',
@@ -1413,6 +1494,10 @@ export const SERVER_TEXT = {
   ev_orch_renew_failed: {
     ko: '{who} 새 대화로 교대 실패 ({code})',
     en: '{who} could not hand off to a new conversation ({code})',
+  },
+  ev_orch_renew_start_failed: {
+    ko: '{who} 교대 실패 · 다음 켤 때 새 대화',
+    en: '{who} could not hand off · the next start is a new conversation',
   },
   ev_revive: { ko: '자동 복구 ({count}곳 시작)', en: 'Auto-recovery ({count} started)' },
   ev_usage_reset_week: {
@@ -2463,7 +2548,7 @@ export const SERVER_TEXT = {
   },
   // -- job names and progress (jobRules.json, jobDigest.ts, jobHistory.ts) --
   jobname_deploy: { ko: '배포', en: 'Deploy' },
-  jobname_merge_check: { ko: '병합 검사', en: 'Merge check' },
+  jobname_merge_check: { ko: '머지 검사', en: 'Merge check' },
   jobname_browser_all: { ko: '브라우저 시험 전체', en: 'All browser tests' },
   jobname_browser: { ko: '브라우저 시험({name})', en: 'Browser test ({name})' },
   jobname_test: { ko: '시험', en: 'Tests' },
@@ -2590,6 +2675,10 @@ export const SERVER_TEXT = {
     ko: '시작 정책은 로그인한 브라우저에서만 바꿀 수 있어요 (호스트 토큰은 에이전트 세션도 읽을 수 있어서요)',
     en: 'The start policy can only be changed from a logged-in browser (agent sessions can read the host token).',
   },
+  host_name_bad: {
+    ko: '호스트 이름은 한 줄, 40자까지예요',
+    en: 'A host name is one line of at most 40 characters.',
+  },
   start_policy_bad: {
     ko: '시작 정책은 on-demand, always, manual 중 하나예요',
     en: 'The start policy is one of on-demand, always or manual.',
@@ -2662,6 +2751,92 @@ export const SERVER_TEXT = {
   spec_arch_full: {
     ko: '아키텍처 기록이 상한에 닿아 더 넣을 수 없어요',
     en: 'The architecture record is full; nothing more can be added.',
+  },
+  // -- the street (MHO v1b, ADR-0020, server/src/cld/street.ts) --
+  street_url_bad: {
+    ko: '옆 건물 주소는 https:// 로 시작하는 그 호스트의 초대 주소예요',
+    en: "A neighbour's address is its invitation address, starting with https://.",
+  },
+  street_https_only: {
+    ko: '다른 PC 와는 https 로만 이어요. 그 호스트의 Tailscale 이나 바깥 주소(https)를 넣어 주세요',
+    en: "Another PC is only paired over https. Enter that host's Tailscale or outside address (https).",
+  },
+  street_pair_refused: {
+    ko: '짝 코드가 틀렸거나 지났어요. 옆 건물에서 새 코드를 받아 주세요',
+    en: 'The pair code is wrong or has expired. Get a new one on the neighbour.',
+  },
+  street_pair_rate: {
+    ko: '짝짓기 시도가 너무 많아요. 잠시 뒤에 다시 해 주세요',
+    en: 'Too many pairing attempts. Try again in a while.',
+  },
+  street_pair_old: {
+    ko: '옆 건물이 옛 버전이라 짝지을 수 없어요. 그 호스트를 업데이트해 주세요',
+    en: 'The neighbour runs an old version that cannot pair. Update that host.',
+  },
+  street_unreachable: {
+    ko: '옆 건물에 닿지 않아요: {why}',
+    en: 'The neighbour cannot be reached: {why}',
+  },
+  street_bad_reply: {
+    ko: '그 주소의 답이 옆 건물의 답이 아니에요',
+    en: "The answer at that address is not a neighbour's.",
+  },
+  street_other_host: {
+    ko: '그 주소에서 짝지은 호스트가 아닌 다른 호스트가 답해요. 옆 건물을 지운 뒤 다시 짝지어 주세요',
+    en: 'A different host than the paired one answers at that address. Remove the neighbour, then pair again.',
+  },
+  street_self: {
+    ko: '그 주소는 이 호스트예요',
+    en: 'That address is this host.',
+  },
+  street_full: {
+    ko: '옆 건물은 {max}곳까지예요',
+    en: 'At most {max} neighbours.',
+  },
+  street_no_identity: {
+    ko: '이 호스트의 id(host.json)를 읽지 못해 짝지을 수 없어요',
+    en: "This host's id (host.json) cannot be read, so it cannot pair.",
+  },
+  street_unknown: {
+    ko: '그런 옆 건물이 없어요',
+    en: 'No such neighbour.',
+  },
+  street_known_elsewhere: {
+    ko: '이 호스트는 이미 다른 주소({url})의 옆 건물로 짝지어져 있어요. 그 옆 건물을 먼저 빼거나 그 주소로 다시 짝지어 주세요',
+    en: 'This host is already paired as a neighbour at another address ({url}). Remove that neighbour first, or pair again at that address.',
+  },
+  street_reader_exists: {
+    ko: '이 PC 는 그 옆 건물과 이미 짝지어져 있어요. 옆 건물의 보안 창에서 이 PC 의 줄을 먼저 지운 뒤 다시 짝지어 주세요',
+    en: "This PC is already paired with that neighbour. Delete this PC's row in the neighbour's security window first, then pair again.",
+  },
+  // -- RQ4 the engine path (server/src/cld/spec/workflow.ts) --
+  spec_workflow_engine: {
+    ko: '엔진이 띄우는 프로젝트가 아니라 에이전트에게 규칙을 넣을 수 없어요',
+    en: "This is not one of the engine's projects, so its agents cannot be given the rules.",
+  },
+  spec_workflow_uv: {
+    ko: '이 PC에서 uv(uvx)를 찾지 못해 Spec Kit 은 설치하지 않았어요. 규칙만으로도 그대로 돼요',
+    en: 'uv (uvx) was not found on this PC, so Spec Kit was not installed. The rules work without it.',
+  },
+  spec_workflow_installed: {
+    ko: '이 프로젝트에 Spec Kit 이 이미 있어요. 아무것도 바꾸지 않았어요',
+    en: 'Spec Kit is already in this project. Nothing was changed.',
+  },
+  spec_workflow_not_installed: {
+    ko: '지울 Spec Kit 통합이 없어요',
+    en: 'There is no Spec Kit integration to remove.',
+  },
+  spec_workflow_busy: {
+    ko: 'Spec Kit 작업이 이미 돌고 있어요. 끝난 뒤 다시 해 주세요',
+    en: 'A Spec Kit run is already going. Try again when it ends.',
+  },
+  spec_workflow_consent: {
+    ko: '보여 드린 설치 계획에 대한 동의가 아니거나 시간이 지났어요. 계획을 다시 보고 동의해 주세요',
+    en: 'This is not a consent to the install plan you were shown, or it expired. Look at the plan again and consent.',
+  },
+  spec_workflow_save: {
+    ko: '설정을 저장하지 못해 그대로 두었어요',
+    en: 'The setting could not be saved, so it was left as it was.',
   },
   // @@MORE
 } as const satisfies Record<string, { ko: string; en: string }>;

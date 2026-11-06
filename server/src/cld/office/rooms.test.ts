@@ -306,3 +306,37 @@ describe('ROOM-THREADS: an open room shows its old threads\' replies', () => {
     expect(reading).toBe(0);
   });
 });
+
+describe('chatSearchAll: the messenger-wide search route', () => {
+  const reply = (sent: unknown[], requestId: string) =>
+    new Promise<{ groups: Array<{ agentId?: number; roomId?: string; hits: Array<{ snippet: string }> }>; error?: string }>((resolve) => {
+      const tick = () => {
+        const found = sent.find((m) => (m as { requestId?: string }).requestId === requestId);
+        found ? resolve(found as never) : setTimeout(tick, 5);
+      };
+      tick();
+    });
+
+  it('answers a member\'s transcript and the room\'s post; a newer request cancels the older; an unprivileged client is refused', async () => {
+    const { rooms } = office(
+      'search-all',
+      { 's.jsonl': line('user', T0 - 60_000, '키워드 직접 대화') + turn(0, '키워드 방 답') },
+      { alpha: 's.jsonl' },
+      [post(0, { alpha: mid(0) }, '@alpha 키워드 글')],
+    );
+    const sent: unknown[] = [];
+    const send = (msg: unknown) => void sent.push(msg);
+    const ask = (requestId: string, privileged = true) =>
+      rooms.onClientMessage({ type: 'chatSearchAll', requestId, query: '키워드' }, { send, privileged });
+    expect(ask('a')).toBe(true);
+    expect(ask('b')).toBe(true); // replaces 'a' before it answers
+    const answer = await reply(sent, 'b');
+    expect(answer.groups.map((g) => g.roomId ?? g.agentId).sort()).toEqual([1, 'room0001']);
+    expect(answer.groups.find((g) => g.agentId === 1)?.hits.map((h) => h.snippet)).toEqual(['키워드 직접 대화']); // the room turn's reply is not a DM
+    expect(answer.groups.find((g) => g.roomId)?.hits[0].snippet).toContain('키워드 글');
+    expect(sent.some((m) => (m as { requestId?: string }).requestId === 'a')).toBe(false);
+    ask('c', false);
+    expect((await reply(sent, 'c')).error).toBeTruthy();
+    expect(sent.filter((m) => (m as { requestId?: string }).requestId === 'c')).toHaveLength(1);
+  });
+});

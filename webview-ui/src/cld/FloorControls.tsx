@@ -13,7 +13,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   TouchEvent,
 } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { BuildingFloor } from '../../../core/src/messages.js';
@@ -44,7 +44,11 @@ import {
   useFloors,
   wanderTiles,
 } from './floors.js';
+import { HudPanel } from './hud/fixedPanels.js';
+import { useHud } from './hud/hudStore.js';
 import { Movable } from './hud/Movable.js';
+import { layerZ } from './hud/windowModel.js';
+import { Icon } from './icons/Icon.js';
 import { useIsoView } from './iso/isoView.js';
 import { useCldStore } from './officeStore.js';
 import { staffWander } from './staff.js';
@@ -98,6 +102,15 @@ function BadgeBubble({ kind }: { kind: FloorBadge }) {
 /** A pixel arrow (CSS), up or down. */
 const Arrow = ({ down = false, className = '' }: { down?: boolean; className?: string }) => (
   <span className={`cld-arrow ${down ? 'cld-arrow-down' : ''} ${className}`} aria-hidden="true" />
+);
+
+/** The elevator's ▲ / ▼: the pixel arrow in 픽셀 감성, a Lucide chevron in 모던 (the doors' lamp colours it while riding). */
+const StepArrow = ({ down = false, moving = false }: { down?: boolean; moving?: boolean }) => (
+  <Icon
+    name={down ? 'chevron-down' : 'chevron-up'}
+    className={moving ? 'cld-moving' : ''}
+    pixel={<Arrow down={down} className={moving ? 'cld-moving' : ''} />}
+  />
 );
 
 /** The doors' CSS animation times, from the same numbers as the store's timers. */
@@ -246,7 +259,7 @@ function ElevatorPanel({
                   disabled={shown >= floors.length - 1}
                   onClick={() => stepFloor(1)}
                 >
-                  <Arrow className={doors && doors.dir !== -1 ? 'cld-moving' : ''} />
+                  <StepArrow moving={!!doors && doors.dir !== -1} />
                 </button>
                 <button
                   type="button"
@@ -271,7 +284,7 @@ function ElevatorPanel({
                   disabled={shown <= 0}
                   onClick={() => stepFloor(-1)}
                 >
-                  <Arrow down className={doors?.dir === -1 ? 'cld-moving' : ''} />
+                  <StepArrow down moving={doors?.dir === -1} />
                 </button>
               </nav>
             )}
@@ -637,11 +650,13 @@ export function FloorLayer({
     <>
       <ElevatorDoors />
       {!isMobile && (
-        <ElevatorPanel
-          canEdit={!officeReadOnly}
-          decorate={interiorOn ? decorate : undefined}
-          officeState={officeState}
-        />
+        <ElevatorLayer>
+          <ElevatorPanel
+            canEdit={!officeReadOnly}
+            decorate={interiorOn ? decorate : undefined}
+            officeState={officeState}
+          />
+        </ElevatorLayer>
       )}
     </>
   );
@@ -743,5 +758,27 @@ export function FloorPicker() {
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * WINDOW-LAYERS (owner 11-06 20:57): the elevator column takes its turn in front with the windows and the
+ * other panels, so it lives in the HUD layer (the panel slot covers the same box as the office region). Its
+ * box is not one of the fixed panels a window's title or the camera keeps clear of (data-hud-unmeasured):
+ * it never was.
+ */
+function ElevatorLayer({ children }: { children: ReactNode }) {
+  const z = layerZ(useHud(), 'elevator');
+  return (
+    <HudPanel>
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: z }}
+        data-hud-panel="elevator"
+        data-hud-unmeasured
+      >
+        {children}
+      </div>
+    </HudPanel>
   );
 }

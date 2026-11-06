@@ -12,6 +12,7 @@ import {
 /** A classic frame's half width, and the world px a taller figure's crop leaves over its head. */
 const FRAME_HALF_W = 8;
 const MUGSHOT_HEAD_MARGIN = 1;
+import type { Picture } from '../office/sprites/pictureBudget.js';
 import { getCachedSprite } from '../office/sprites/spriteCache.js';
 import {
   characterLift,
@@ -20,6 +21,27 @@ import {
   spritesAtZoom,
 } from '../office/sprites/spriteData.js';
 import { Direction } from '../office/types.js';
+
+/**
+ * The `size`² square of `pic` from (sx, sy), drawn into a `side`² canvas. The crop starts left of the
+ * frame (MUGSHOT_CROP_LEFT_COL) and a tall figure's may pass its edges: WebKit (every iPhone browser)
+ * draws nothing from an ImageBitmap whose source rect leaves it, so the rect is cut to the picture
+ * and the destination with it (what Chromium does by itself).
+ */
+function drawCrop(
+  ctx: CanvasRenderingContext2D,
+  pic: Picture,
+  sx: number,
+  sy: number,
+  size: number,
+  side: number,
+): void {
+  const [x0, y0] = [Math.max(sx, 0), Math.max(sy, 0)];
+  const [x1, y1] = [Math.min(sx + size, pic.width), Math.min(sy + size, pic.height)];
+  if (x1 <= x0 || y1 <= y0) return;
+  const k = side / size;
+  ctx.drawImage(pic, x0, y0, x1 - x0, y1 - y0, (x0 - sx) * k, (y0 - sy) * k, (x1 - x0) * k, (y1 - y0) * k);
+}
 
 interface CharacterMugShotProps {
   palette: number;
@@ -79,17 +101,7 @@ export function CharacterMugShot({
         ]
       : [MUGSHOT_CROP_LEFT_COL, MUGSHOT_CROP_TOP_ROW];
     if (lift) ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(
-      full,
-      cropX * MUGSHOT_RENDER_ZOOM,
-      cropY * MUGSHOT_RENDER_ZOOM,
-      side * k,
-      side * k,
-      0,
-      0,
-      side,
-      side,
-    );
+    drawCrop(ctx, full, cropX * MUGSHOT_RENDER_ZOOM, cropY * MUGSHOT_RENDER_ZOOM, side * k, side);
   }, [palette, hueShift]);
 
   return (

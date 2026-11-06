@@ -1,5 +1,5 @@
 /**
- * P4 개발실 병합 tab: the daemon's answers to the pre-check (`repoMergeCheck`), the conflict list
+ * P4 개발실 머지 tab: the daemon's answers to the pre-check (`repoMergeCheck`), the conflict list
  * (`repoConflicts`), the cleanup list (`repoCleanupList`) and the owner's `devroomSettings`, plus
  * `act`, one `repoAction` awaited so a few writes can run in order (resolve file by file, then
  * continue; remove folder by folder). Only the newest answer to a question counts.
@@ -22,7 +22,7 @@ export interface MergeSnapshot {
   /** `project\0task` -> the pre-check. */
   checks: Record<string, RepoMergeCheckResult>;
   conflicts: Record<string, RepoConflictsResult>;
-  /** project -> the 작업 폴더 정리 list (loading until the first answer). */
+  /** project -> the 워크트리 정리 list (loading until the first answer). */
   cleanup: Record<string, RepoCleanupListResult | 'loading'>;
   /** The owner's auto-cleanup setting; the daemon's default (on) until it says. */
   autoCleanup: boolean;
@@ -82,7 +82,7 @@ export function requestCleanup(project: string): void {
   wire.send({ type: 'repoCleanupList', requestId, project });
 }
 
-/** The owner's 병합 후 자동 정리: shown at once, the daemon's `devroomSettings` has the last word. */
+/** The owner's 머지 후 자동 정리: shown at once, the daemon's `devroomSettings` has the last word. */
 export function setAutoCleanup(on: boolean): void {
   set({ autoCleanup: on });
   wire.send({ type: 'devroomSettingsSet', autoCleanupAfterMerge: on });

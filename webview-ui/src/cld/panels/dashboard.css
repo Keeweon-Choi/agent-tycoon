@@ -1,0 +1,554 @@
+/* A5 현황판 (GPT mockup gpt-1): the board's boxes, built on the UI-DEPTH tokens and .ui-* parts
+   (index.css). The board lays itself out by its own width (a container query), so the same markup is
+   the phone's page, a small window and a maximized one: one column, two (the right column under the
+   middle), three. Colours are the app's variables only. */
+
+/* Hangul and ASCII at one size: the data face draws ASCII in the Hangul's Galmuri. In the base layer,
+   beside index.css's `* { font-pixel }`, so a utility (font-mono on a report) still wins. */
+@layer base {
+  .sb,
+  .sb * {
+    font-family: var(--font-data);
+  }
+}
+.sb {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--ui-scale));
+  min-width: 0;
+}
+.sb-muted {
+  color: var(--color-text-muted);
+}
+.sb-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Columns: left 230, middle, right; they wrap as the board narrows (three, then the right one under
+   the other two with its boxes side by side, then one). The right column's boxes wrap in a row, never
+   in a wrapping column: a column line takes its widest text's width and ran out of the window (11-06). ── */
+.sb-cols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: calc(10px * var(--ui-scale));
+}
+.sb-left {
+  flex: 0 0 calc(230px * var(--ui-scale));
+}
+.sb-main {
+  /* The middle takes most of the room the three leave. */
+  flex: 3 1 calc(520px * var(--ui-scale));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--ui-scale));
+}
+.sb-right {
+  flex: 1 0 calc(300px * var(--ui-scale));
+  max-width: 100%;
+  align-content: flex-start;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(10px * var(--ui-scale));
+}
+.sb-right > * {
+  flex: 1 1 calc(300px * var(--ui-scale));
+  min-width: 0;
+}
+/* A phone or a narrow window: one column, what needs the owner first; the rooms and boxes below. */
+@container (max-width: 640px) {
+  .sb-left {
+    flex: 1 1 100%;
+    order: 2;
+  }
+  .sb-main {
+    order: 1;
+  }
+  .sb-right {
+    order: 3;
+  }
+}
+
+/* ── A box: head (icon, title, count, action), body ── */
+.sb-panel {
+  border-radius: var(--ui-r-win);
+  min-width: 0;
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+.sb-head {
+  border-radius: var(--ui-r-win) var(--ui-r-win) 0 0;
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+  min-height: calc(36px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale));
+  background: var(--surface-head);
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: inset 0 1px 0 var(--bevel-hi);
+}
+.sb-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: calc(var(--text-base) * var(--ui-title-scale));
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+}
+.sb-head-icon {
+  color: var(--color-accent-text);
+}
+.sb-count {
+  color: var(--color-text-muted);
+}
+.sb-head-action {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.sb-link {
+  color: var(--color-accent-text);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .sb-link:hover {
+    color: var(--color-devroom-tab-on);
+  }
+}
+/* hw-every-os: one line per missing reading, its fix as a link. */
+.sb-note {
+  margin: calc(4px * var(--ui-scale)) calc(12px * var(--ui-scale));
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sb-empty {
+  padding: calc(14px * var(--ui-scale)) calc(12px * var(--ui-scale));
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ── The count cards ── */
+.sb-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: calc(10px * var(--ui-scale));
+}
+@container (max-width: 900px) {
+  .sb-kpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+/* A phone: three cards over two, no tile, the label over the number. */
+@container (max-width: 520px) {
+  .sb-kpis {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: calc(6px * var(--ui-scale));
+  }
+  .sb-kpi {
+    grid-column: span 2;
+    padding: calc(8px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  }
+  .sb-kpi:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+  /* .sb-kpis first: the base rules below come later in the file. */
+  .sb-kpis .sb-kpi-tile {
+    display: none;
+  }
+  .sb-kpis .sb-kpi-label {
+    white-space: normal;
+    word-break: keep-all;
+  }
+  .sb-kpis .sb-kpi-value {
+    font-size: var(--text-3xl);
+  }
+}
+.sb-kpi {
+  border-radius: var(--ui-r-win);
+  display: flex;
+  align-items: center;
+  gap: calc(12px * var(--ui-scale));
+  min-width: 0;
+  padding: calc(12px * var(--ui-scale)) calc(14px * var(--ui-scale));
+  text-align: left;
+  background: var(--surface-card);
+}
+.sb-kpi-tile {
+  border-radius: var(--ui-r-card);
+  width: calc(44px * var(--ui-scale));
+  height: calc(44px * var(--ui-scale));
+}
+.sb-kpi-tile[data-tone='warn'] {
+  color: var(--color-devroom-conf);
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+}
+.sb-kpi-tile[data-tone='bad'] {
+  color: var(--color-devroom-bad);
+  border-color: var(--color-danger);
+  background: var(--color-devroom-bad-bg);
+}
+.sb-kpi-tile[data-tone='ok'] {
+  color: var(--color-devroom-on-text);
+  border-color: var(--color-devroom-on-line);
+  background: var(--color-devroom-on-bg);
+}
+.sb-kpi-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ui-scale));
+  min-width: 0;
+}
+.sb-kpi-label {
+  color: var(--color-devroom-ctx);
+  font-size: var(--text-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-kpi-value {
+  display: flex;
+  align-items: baseline;
+  gap: calc(6px * var(--ui-scale));
+  font-size: var(--text-4xl);
+  line-height: 1;
+  color: var(--color-devroom-title);
+  font-weight: var(--ui-weight-strong);
+}
+.sb-kpi-value[data-zero] {
+  color: var(--color-text-muted);
+}
+.sb-kpi-value small {
+  font-size: var(--text-xs);
+  color: var(--color-devroom-conf);
+}
+.sb-kpi {
+  cursor: pointer;
+}
+/* What a card counts, shown under it on a press (a phone has no hover). */
+.sb-kpi-hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: normal;
+  word-break: keep-all;
+}
+
+/* ── The projects ── */
+.sb-rooms {
+  list-style: none;
+  margin: 0;
+  padding: calc(6px * var(--ui-scale));
+}
+.sb-room {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+  width: 100%;
+  min-height: calc(30px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale));
+  text-align: left;
+  cursor: pointer;
+}
+.sb-room .game-ico {
+  color: var(--color-text-muted);
+}
+.sb-room[aria-current='true'] .game-ico {
+  color: var(--color-devroom-tab-on);
+}
+.sb-room-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sb-room .sb-num {
+  min-width: calc(24px * var(--ui-scale));
+  padding: 0 calc(4px * var(--ui-scale));
+  text-align: center;
+  color: var(--color-text-muted);
+  background: var(--color-devroom-menu);
+  box-shadow: var(--bevel-in);
+}
+.sb-left section[aria-label] {
+  padding: calc(8px * var(--ui-scale)) calc(10px * var(--ui-scale)) 0;
+  border-top: var(--ui-bw) solid var(--color-devroom-card-line);
+  margin-top: calc(8px * var(--ui-scale));
+}
+
+/* ── 진행 중 이슈: a table of rows; the same columns head and body ── */
+.sb-thead,
+.sb-trow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, calc(150px * var(--ui-scale))) calc(92px * var(--ui-scale));
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale));
+}
+.sb-thead {
+  min-height: calc(28px * var(--ui-scale));
+  background: var(--color-devroom-th);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.sb-tbody {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sb-tbody > li + li {
+  border-top: var(--ui-bw) solid var(--color-devroom-menu-line);
+}
+.sb-trow {
+  width: 100%;
+  min-height: calc(52px * var(--ui-scale));
+  text-align: left;
+  cursor: pointer;
+  grid-template-areas: 'task who state';
+}
+.sb-task {
+  grid-area: task;
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  min-width: 0;
+}
+.sb-id {
+  border-radius: var(--ui-r-chip);
+  flex: none;
+  min-width: calc(54px * var(--ui-scale));
+  justify-content: center;
+}
+.sb-ttitle {
+  display: flex;
+  flex-direction: column;
+  gap: calc(2px * var(--ui-scale));
+  min-width: 0;
+}
+.sb-ttitle > b,
+.sb-ttitle > span > b {
+  font-weight: normal;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+.sb-ttitle small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sb-who {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sb-face {
+  border-radius: var(--ui-r-chip);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(28px * var(--ui-scale));
+  height: calc(28px * var(--ui-scale));
+  overflow: hidden;
+  background: var(--color-devroom-box);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  color: var(--color-text-muted);
+}
+.sb-more {
+  display: block;
+  width: 100%;
+  min-height: calc(30px * var(--ui-scale));
+  border-top: var(--ui-bw) solid var(--color-devroom-menu-line);
+  color: var(--color-text-muted);
+  text-align: center;
+  cursor: pointer;
+}
+/* Narrow: the title on its own line, who and state under it. */
+@container (max-width: 640px) {
+  .sb-thead {
+    display: none;
+  }
+  .sb-trow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'task task'
+      'who state';
+    row-gap: calc(6px * var(--ui-scale));
+    padding-top: calc(8px * var(--ui-scale));
+    padding-bottom: calc(8px * var(--ui-scale));
+  }
+  .sb-trow > .sb-who {
+    grid-area: who;
+  }
+  .sb-trow > .sb-pill {
+    grid-area: state;
+  }
+}
+
+/* A status pill: the tone says it, the word always beside. */
+.sb-pill {
+  border-radius: var(--ui-r-chip);
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(72px * var(--ui-scale));
+  height: calc(24px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale));
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  border: var(--ui-bw) solid var(--color-border);
+  background: var(--color-btn-bg);
+  color: var(--color-text-muted);
+}
+.sb-pill[data-pill='doing'] {
+  color: var(--color-devroom-on-text);
+  border-color: var(--color-devroom-on-line);
+  background: var(--color-devroom-on-bg);
+}
+.sb-pill[data-pill='review'] {
+  color: var(--color-devroom-review);
+  border-color: var(--color-devroom-review-line);
+  background: var(--color-devroom-review-bg);
+}
+.sb-pill[data-pill='question'] {
+  color: var(--color-devroom-blue);
+  border-color: var(--color-devroom-work-line);
+  background: var(--color-devroom-work-bg);
+}
+.sb-pill[data-pill='permission'] {
+  color: var(--color-devroom-conf);
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+}
+.sb-pill[data-pill='blocked'] {
+  color: var(--color-devroom-bad);
+  border-color: var(--color-danger);
+  background: var(--color-devroom-bad-bg);
+}
+
+/* ── 나를 기다림 ── */
+.sb-arow {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  min-height: calc(52px * var(--ui-scale));
+  padding: calc(6px * var(--ui-scale)) calc(10px * var(--ui-scale));
+}
+.sb-arow > .sb-ttitle {
+  flex: 1 1 auto;
+}
+.sb-kind {
+  border-radius: var(--ui-r-chip);
+  flex: none;
+  min-width: calc(64px * var(--ui-scale));
+  justify-content: center;
+}
+.sb-kind[data-reason='permission'] {
+  color: var(--color-devroom-conf);
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+}
+.sb-kind[data-reason='question'] {
+  color: var(--color-devroom-blue);
+  border-color: var(--color-devroom-work-line);
+  background: var(--color-devroom-work-bg);
+}
+.sb-arow .sb-who .sb-face {
+  width: calc(20px * var(--ui-scale));
+  height: calc(20px * var(--ui-scale));
+  border-width: 0;
+}
+
+/* ── 최근 활동 ── */
+.sb-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sb-feed > li {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  min-height: calc(48px * var(--ui-scale));
+  padding: calc(4px * var(--ui-scale)) calc(10px * var(--ui-scale));
+}
+.sb-feed > li + li {
+  border-top: var(--ui-bw) solid var(--color-devroom-menu-line);
+}
+.sb-feed-icon {
+  border-radius: var(--ui-r-card);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(30px * var(--ui-scale));
+  height: calc(30px * var(--ui-scale));
+  background: var(--color-devroom-box);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  color: var(--color-devroom-mine-text);
+  box-shadow: var(--bevel);
+}
+.sb-feed-icon[data-icon='flag'] {
+  color: var(--color-devroom-on-text);
+  border-color: var(--color-devroom-on-line);
+  background: var(--color-devroom-on-bg);
+}
+.sb-feed-icon[data-icon='stop'] {
+  color: var(--color-devroom-bad);
+  border-color: var(--color-danger);
+  background: var(--color-devroom-bad-bg);
+}
+.sb-feed-icon[data-icon='bolt'],
+.sb-feed-icon[data-icon='clock'] {
+  color: var(--color-devroom-conf);
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+}
+
+/* ── 사용량 · 장비 ── */
+.sb-meters {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui-scale));
+  padding: calc(8px * var(--ui-scale)) calc(12px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  border-top: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.sb-meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto calc(64px * var(--ui-scale));
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+}
+.sb-meter > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-text-muted);
+}
+.sb-meter > b {
+  font-weight: normal;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-devroom-title);
+}
+.sb-seg > i {
+  width: 7px;
+  height: 12px;
+}

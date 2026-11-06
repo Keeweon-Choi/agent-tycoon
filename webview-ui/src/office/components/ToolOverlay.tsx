@@ -77,8 +77,6 @@ interface ToolOverlayProps {
   alwaysShowOverlay: boolean;
   /** UI-PHONE: the phone shell: an open summary card dims every other plate. */
   phone?: boolean;
-  /** UI-PHONE: the selected agent's menu is a row of its card (the phone, when menus are on). */
-  cardMenu?: boolean;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -158,7 +156,6 @@ export function ToolOverlay({
   onCloseAgent,
   alwaysShowOverlay,
   phone = false,
-  cardMenu = false,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   // charpack v3 §6A: the nameplates' overlap pass (at once on a new focus or zoom).
@@ -175,7 +172,7 @@ export function ToolOverlay({
   useLayoutEffect(() => {
     live.current.props = {
       officeState, agents, agentTools, subagentTools, subagentCharacters, containerRef,
-      zoom, panRef, onCloseAgent, alwaysShowOverlay, phone, cardMenu,
+      zoom, panRef, onCloseAgent, alwaysShowOverlay, phone,
     };
   });
   useEffect(() => {
@@ -403,14 +400,17 @@ export function ToolOverlay({
               identity={officeIdentity}
               hovered={isHovered}
               selected={isSelected}
-              canClose={!isSub && !cldOffice.readOnly}
-              onClose={() => onCloseAgent(id)}
+              onDeselect={() => {
+                officeState.selectedAgentId = null;
+                officeState.cameraFollowId = null;
+              }}
               bind={bind}
               plateSizes={plateSizes}
               lift={characterLift(ch.palette, ch.hueShift)}
               bounds={bounds}
-              menuName={cardMenu && isSelected ? lookNameOf(id, cldOffice) : undefined}
               dim={cardOpen && !isSelected}
+              lookName={isSelected ? lookNameOf(id, cldOffice) : undefined}
+              characters={officeState.characters}
             />
           );
         }

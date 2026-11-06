@@ -82,6 +82,7 @@ export async function startEngineOffice(
     home,
     engineClaude,
     defaultLayout: { tiles: [1], furniture: [] },
+    lhmPort: null, // no LHM probe: on WSL a miss costs ~1 s of curl.exe per sample
     ...opts.extra,
   });
   let stopped = false;

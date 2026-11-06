@@ -174,6 +174,17 @@ async function main() {
     const leadPane = win.locator('[data-testid="devroom-pane"][data-agent="shop-web"]');
     await leadPane.waitFor({ timeout: 20_000 });
     check(true, "the trunk's pick shows the Lead in the pane");
+    // DEVROOM-PANE-CHAT: panes open in 대화 and the cards sit behind the status chips.
+    const terminals = () =>
+      desk.evaluate(() =>
+        document
+          .querySelectorAll<HTMLElement>('[data-testid="devroom-pane"]:not([data-view="terminal"]) [data-testid="devroom-pane-view"][data-view="terminal"]')
+          .forEach((b) => b.click()),
+      );
+    const strip = async (open = true) => {
+      if ((await win.getByTestId('devroom-strip').count()) !== (open ? 1 : 0)) await win.getByTestId('devroom-status-chip').first().click();
+    };
+    await terminals();
     await desk.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('[data-testid="devroom-pane"][data-agent="shop-web"] .xterm-rows')].some((el) => el.innerText.includes('fake Claude Code (pty)')), undefined, { timeout: 30_000 });
     check(true, "the Lead's pane shows its live terminal");
 
@@ -184,10 +195,12 @@ async function main() {
     const chip = leadPane.getByTestId('devroom-sub-chip');
     await desk.waitForFunction(() => document.querySelector('[data-testid="devroom-pane"][data-agent="shop-web"] [data-testid="devroom-sub-chip"]')?.textContent?.includes('5'), undefined, { timeout: 30_000 });
     check(true, `the Lead's pane wears ${await chip.innerText()}`);
+    await strip();
     const card = win.locator('[data-testid="devroom-agent-card"][data-agent="shop-web"]');
     check((await card.getByTestId('devroom-sub-chip').count()) === 1, "and so does the Lead's card");
     const groups = await win.getByTestId('devroom-agent-group').evaluateAll((els) => els.map((e) => e.getAttribute('data-bucket')));
     check(groups.length >= 1, `the strip groups the cards by status (${groups.join(', ')})`);
+    await strip(false);
     // One sub-agent finishes: its spawn comes back.
     fs.appendFileSync(lead!, `${JSON.stringify(result('tu-s4', '설치 절차를 고쳤어요.'))}\n`);
     await desk.waitForTimeout(1500);
@@ -197,6 +210,7 @@ async function main() {
     await desk.waitForFunction(() => document.querySelectorAll('[data-testid="devroom-pane"]').length === 4, undefined, { timeout: 10_000 });
     const shownAgents = await win.getByTestId('devroom-pane').evaluateAll((els) => els.map((e) => e.getAttribute('data-agent')));
     check(shownAgents.filter(Boolean).length === 3, `2×2: the three agents fill three panes (${shownAgents.join(', ')})`);
+    await terminals();
     await desk.waitForFunction(() => document.querySelectorAll('[data-testid="devroom-pane"] .xterm-rows').length === 3, undefined, { timeout: 30_000 });
     await desk.waitForTimeout(1500);
     await shot(desk, 'pc-board-2x2');
@@ -246,10 +260,13 @@ async function main() {
       }
       await desk.mouse.up();
     };
+    await strip();
     await dragTo('web-worker', 'shop-web', 0.95, 0.5, 'pc-drop-preview');
     await paneOf('web-worker').waitFor({ timeout: 10_000 });
+    await strip();
     await dragTo('api-worker', 'web-worker', 0.5, 0.95);
     await paneOf('api-worker').waitFor({ timeout: 10_000 });
+    await terminals();
     const tree = await win.getByTestId('devroom-split').evaluateAll((els) => els.map((e) => e.getAttribute('data-dir')));
     check(tree.join() === 'row,col', `a card on an edge splits there: the Lead left, two stacked right (${tree.join(', ')})`);
     const divider = win.getByTestId('devroom-divider').first();
@@ -280,6 +297,7 @@ async function main() {
     const term = phone.getByTestId('devroom-phone-term');
     await term.waitFor({ timeout: 20_000 });
     check((await term.getAttribute('data-agent')) === 'shop-web', 'phone: the trunk opens the Lead full screen');
+    await term.locator('[data-testid="devroom-pane-view"][data-view="terminal"]').tap();
     await phone.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('[data-testid="devroom-phone-term"] .xterm-rows')].some((el) => el.innerText.includes('fake Claude Code (pty)')), undefined, { timeout: 30_000 });
     await phone.waitForTimeout(600);
     await shot(phone, 'phone-lead-terminal');

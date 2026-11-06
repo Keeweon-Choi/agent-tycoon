@@ -5,7 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { koText, refused } from '../../../../core/src/cld/serverText.js';
 import type { HostInfo } from '../../../../core/src/messages.js';
-import { type Session, sessionIdFromCookie, type StandaloneAuth } from '../auth.js';
+import { type Session, type StandaloneAuth } from '../auth.js';
 import { sameOriginRequest } from '../authRoutes.js';
 import type { ProjectFolder } from '../engine/git/repoRead.js';
 import { detectHostInfo } from '../folders.js';
@@ -89,7 +89,7 @@ export function registerProjectFileRoutes(
   const session = (
     request: FastifyRequest,
     reply: FastifyReply,
-    found = auth.session(sessionIdFromCookie(request.headers.cookie)),
+    found = auth.session(auth.sessionIdOf(request.headers.cookie)),
   ): Session | undefined => {
     if (!found) {
       reply.code(401).send({ ...refused('login_needed') });
@@ -374,7 +374,7 @@ export function registerProjectFileRoutes(
         reply,
         external !== undefined
           ? auth.liveSessionByHash(external)
-          : auth.session(sessionIdFromCookie(request.headers.cookie)),
+          : auth.session(auth.sessionIdOf(request.headers.cookie)),
       );
       if (!who) return reply;
       const ticket = tickets.consume(request.params.ticket, who.hash);

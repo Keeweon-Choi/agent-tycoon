@@ -24,25 +24,25 @@ interface CharacterMenuProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
   zoom: number;
   panRef: React.RefObject<{ x: number; y: number }>;
-  /** The phone: an agent's menu is in its summary card (only the owner's stays here). */
-  phone?: boolean;
 }
 
-/** The selected character's menu, under its feet (T-0014: 대화, CH-4: 꾸미기). */
+/** The owner's character's menu, under its feet (OWNER-STATS). An agent's actions are its member card's
+ *  (party/MemberCard.tsx, FEAT-PARTY-V2). */
 export function CharacterMenu({
   officeState,
   agentId,
   containerRef,
   zoom,
   panRef,
-  phone = false,
 }: CharacterMenuProps) {
   const { officeSnapshot } = useCldStore();
   const name = agentId !== null && officeSnapshot ? lookNameOf(agentId, officeSnapshot) : undefined;
+  const ch = agentId !== null ? officeState.characters.get(agentId) : undefined;
+  const owner = ch?.cldOwner === true; // OWNER-AVATAR: no chat; its 스탯 is the owner's own (OWNER-STATS)
   // Follow the character while it walks and the camera pans.
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (name === undefined) return;
+    if (name === undefined || !owner) return;
     let raf = 0;
     const tick = (ts: number) => {
       if (frameDue(ts)) setTick((n) => n + 1); // the canvas's frames only
@@ -50,11 +50,10 @@ export function CharacterMenu({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [name]);
+  }, [name, owner]);
 
-  const ch = agentId !== null ? officeState.characters.get(agentId) : undefined;
   const el = containerRef.current;
-  if (name === undefined || !ch || !el) return null;
+  if (name === undefined || !ch || !owner || !el) return null;
   const base = overlayProjection(
     officeState.getLayout(),
     el.getBoundingClientRect(),
@@ -65,10 +64,6 @@ export function CharacterMenu({
   // ISO-PILOT: beside the character where the isometric building drew it.
   const project = isoOverlayFor(ch, window.devicePixelRatio || 1, base)?.project ?? base;
   const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-  const owner = ch.cldOwner === true; // OWNER-AVATAR: no chat; its 스탯 is the owner's own (OWNER-STATS)
-  // UI-PHONE: on a phone an agent's menu is a row of its summary card (CharacterLabel), not a
-  // second box under its feet that the card and the other plates overlapped.
-  if (phone && !owner) return null;
   return (
     <div
       className="absolute -translate-x-1/2 pixel-panel p-2"
@@ -86,22 +81,17 @@ export function CharacterMenu({
   );
 }
 
-/** The menu's buttons (대화 when chat is on, 꾸미기, 스탯): stacked under the feet, or `row` in a
- *  summary card. */
+/** The menu's buttons (대화 when chat is on, 꾸미기, 스탯), stacked under the feet. */
 export function CharacterMenuItems({
   agentId,
   name,
   owner,
-  row = false,
 }: {
   agentId: number;
   name: string;
   owner: boolean;
-  row?: boolean;
 }) {
-  const item = row
-    ? 'flex-1 text-sm whitespace-nowrap px-8 py-2 border-2 border-border hover:bg-btn-hover pointer-events-auto'
-    : 'block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover';
+  const item = 'block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover';
   return (
     <>
       {!owner && <ChatAction agentId={agentId} variant="menu" className={item} />}

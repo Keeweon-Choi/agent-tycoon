@@ -83,6 +83,12 @@ function seatFacingOffset(direction: Direction): { dCol: number; dRow: number } 
   return { dCol: 0, dRow: -1 };
 }
 
+/** Whether the office draws `ch` this frame, the one rule the canvas and its DOM overlays (plates,
+ *  badges, bubbles: overlayPlacer.ts) share. cld-gui (T-0041): one who went home is not drawn (its
+ *  despawn still is); ELEVATOR: one inside the car is not drawn either. */
+export const characterDrawn = (ch: Character): boolean =>
+  (!ch.cldAway || !!ch.matrixEffect) && !ch.cldRide?.hidden;
+
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
@@ -1571,11 +1577,7 @@ export class OfficeState {
    *  is up, the consent greeter. This is the ONE place the greeter joins the
    *  agents — every other consumer reads `characters` and gets agents only. */
   getCharacters(): Character[] {
-    // cld-gui (T-0041): one who went home is not drawn (its despawn still is).
-    // ELEVATOR: one inside the car is not drawn either.
-    const chars = Array.from(this.characters.values()).filter(
-      (c) => (!c.cldAway || c.matrixEffect) && !c.cldRide?.hidden,
-    );
+    const chars = Array.from(this.characters.values()).filter(characterDrawn);
     if (this.greeter) chars.push(this.greeter);
     return chars;
   }

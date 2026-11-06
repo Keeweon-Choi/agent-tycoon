@@ -18,7 +18,6 @@ import type {
   TrackedStatus,
   TrackingSources,
 } from '../../../../core/src/messages.js';
-import { GAME_QUEST_STARS } from '../../constants.js';
 import { codexKind } from '../panels/jobs.js';
 
 export const STATUS_ORDER: BoardTaskStatus[] = ['doing', 'review', 'blocked', 'proposed', 'todo', 'done'];
@@ -519,24 +518,6 @@ export function nowStrip(items: BoardItem[]) {
     .sort((a, b) => first(a) - first(b) || a.key.localeCompare(b.key));
 }
 
-// ── 업무 | 실행: which half of the 작업 tab shows (a notice for a job opens 실행) ──
-
-export type JobsView = 'tasks' | 'runs';
-let view: JobsView = 'tasks';
-const listeners = new Set<() => void>();
-export function setJobsView(next: JobsView): void {
-  if (view === next) return;
-  view = next;
-  listeners.forEach((l) => l());
-}
-const subscribe = (l: () => void) => {
-  listeners.add(l);
-  return () => {
-    listeners.delete(l);
-  };
-};
-export const useJobsView = () => useSyncExternalStore(subscribe, () => view);
-
 // ── U-48 2a: the 문서 출처 answer (trackingSources), per project ──
 
 let docSources: Record<string, TrackingSources> = {};
@@ -554,8 +535,6 @@ const subscribeDocs = (l: () => void) => {
 export const useDocSources = (project: string) => useSyncExternalStore(subscribeDocs, () => docSources[project]);
 
 // ── GAME-UI-1 G2: the quest board (cockpit 09) ──
-/** A quest card's lit stars: P0 3, P1 2, P2 1; none or later 0 (all dim). */
-export const priorityStars = (priority?: string | null): number => (priority === 'P0' ? GAME_QUEST_STARS : priority === 'P1' ? 2 : priority === 'P2' ? 1 : 0);
 
 /** Each card's status by key, to see which ones turned done between two renders. */
 export const statusesOf = (items: readonly Pick<BoardItem, 'key' | 'status'>[]): Map<string, BoardTaskStatus> => new Map(items.map((i) => [i.key, i.status]));
@@ -570,3 +549,22 @@ export function stampDate(iso?: string | null): string {
   const d = new Date(iso ?? '');
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * A card dropped on a status column (Jira-like): the edit to send, the same `taskEdit` the detail
+ * editor sends, or null when there is nothing to do: a read-only screen, an item that is no Task
+ * (a run, an agent's own list line), or the column it is already in. Tasks have no order field, so
+ * a drop within a column changes nothing.
+ */
+export function dropEdit(
+  item: Pick<BoardItem, 'task'> | undefined,
+  to: BoardTaskStatus,
+  readOnly: boolean,
+): { id: string; fields: { status: BoardTaskStatus } } | null {
+  if (readOnly || !item?.task || item.task.status === to) return null;
+  return { id: item.task.id, fields: { status: to } };
+}
+
+/** The board with the moves this screen sent and the daemon has not answered yet: each such card in its new column. */
+export const withMoves = (items: BoardItem[], moves: Readonly<Record<string, BoardTaskStatus>>): BoardItem[] =>
+  items.map((i) => (moves[i.key] && moves[i.key] !== i.status ? { ...i, status: moves[i.key] } : i));

@@ -1,7 +1,8 @@
 /**
- * The jobs half of the 작업실's Task tab (moved from the 현황판's 작업 tab): the 업무 | 실행
- * toggle, with the task board and the job cards (log viewer, stop, folds). It sees what
- * the surrounding CldScope lets it see: one project's items, or the ones with no project.
+ * The 프로젝트 tab's 이슈 (the task board) and the job cards (log viewer, stop, folds), which the
+ * 현황판's own 실행 tab shows (panels/RunsPanel.tsx; owner 11-06 18:24: no 이슈 | 실행 toggle any
+ * more). Both see what the surrounding CldScope lets them see: one project's items, every one, or
+ * the ones with no project.
  */
 import { useEffect, useState } from 'react';
 
@@ -24,7 +25,6 @@ import {
 } from '../panels/jobs.js';
 import { serverLine } from '../serverText.js';
 import { TaskBoardView } from '../taskboard/TaskBoard.js';
-import { setJobsView, useJobsView } from '../taskboard/taskBoardState.js';
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now());
@@ -247,7 +247,7 @@ function JobList({ jobs, now }: { jobs: OfficeJob[]; now: number }) {
   );
 }
 
-function JobsPanel() {
+export function JobsPanel() {
   const { officeJobs } = useCldStore();
   const now = useNow();
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -295,26 +295,12 @@ function JobsPanel() {
   );
 }
 
-/** DEV-BOARD: 업무 (the task board) first, 실행 (the job list). */
+/** DEV-BOARD: the 이슈 tab's board. */
 export function JobsTab() {
   const now = useNow();
-  const view = useJobsView();
   return (
     <div className="space-y-8 min-w-0">
-      <div className="flex gap-4" role="group" aria-label={t('tasks.viewMenu')}>
-        {(['tasks', 'runs'] as const).map((v) => (
-          <Button
-            key={v}
-            size="sm"
-            variant={view === v ? 'active' : 'default'}
-            aria-pressed={view === v}
-            onClick={() => setJobsView(v)}
-          >
-            {t(`tasks.view.${v}`)}
-          </Button>
-        ))}
-      </div>
-      {view === 'tasks' ? <TaskBoardView now={now} /> : <JobsPanel />}
+      <TaskBoardView now={now} />
     </div>
   );
 }

@@ -314,7 +314,7 @@ function doctorExitCode(result) { return result.ok ? 0 : 1; }
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
-/** The two lines orchestrators read before starting a sub-agent: the Claude weekly usage and the running sub-agents. */
+/** The two lines orchestrators read before starting a sub-agent: the weekly usage (named by its agent) and the running sub-agents. */
 function staffLines(result) {
   const u = result.claudeUsage;
   const at = u?.resetsAt ? new Date(u.resetsAt) : null;
@@ -322,8 +322,8 @@ function staffLines(result) {
   const sub = result.subagents ?? { total: 0, byProject: {} };
   const per = Object.entries(sub.byProject).filter(([, n]) => n > 0).map(([name, n]) => `${name} ${n}`);
   return [
-    u ? `Claude 사용량: 주간 ${u.weekPct}%${reset}${typeof u.fiveHourPct === 'number' ? ` · 5시간 ${u.fiveHourPct}%` : ''}` : 'Claude 사용량: 아직 알 수 없습니다',
-    `Claude 서브에이전트: 합계 ${sub.total}${per.length ? ` (${per.join(', ')})` : ''}`,
+    u ? `사용량 · Claude: 주간 ${u.weekPct}%${reset}${typeof u.fiveHourPct === 'number' ? ` · 5시간 ${u.fiveHourPct}%` : ''}` : '사용량 · Claude: 아직 알 수 없습니다',
+    `서브에이전트: 합계 ${sub.total}${per.length ? ` (${per.join(', ')})` : ''}`,
   ];
 }
 
@@ -342,7 +342,7 @@ function statusLines(result) {
   return [
     `✔ 데몬: 실행 중 · ${result.daemon.version ?? '버전 알 수 없음'} · 포트 ${result.daemon.port} · ${result.daemon.uptime ?? '?'}초`,
     `엔진 프로젝트: ${group('on', '켜짐')} · ${group('rest', '쉬는 중')} · ${group('off', '꺼짐')}`,
-    `실행 중 작업: Codex ${tasks.length}${tasks.length ? ` (${tasks.map((t) => t.id).join(', ')})` : ''} · 작업 ${jobs.length}${jobs.length ? ` (${jobs.map((j) => j.id ?? j.pid).join(', ')})` : ''}`,
+    `실행 중: 에이전트 실행 ${tasks.length}${tasks.length ? ` (${tasks.map((t) => t.id).join(', ')})` : ''} · 작업 ${jobs.length}${jobs.length ? ` (${jobs.map((j) => j.id ?? j.pid).join(', ')})` : ''}`,
     `원격 연결: ${remote.connector ?? 'local'} · 바깥 접속 확인됨: ${last}`,
     result.hwLine || 'HW: 아직 측정값이 없습니다',
     ...staffLines(result),

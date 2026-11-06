@@ -4,10 +4,13 @@
  * sensor source per OS:
  * - Linux: sysfs (hwmon and the GPU's DRM device), nothing to install;
  * - Windows and WSL: LibreHardwareMonitor's data.json, on the port the
- *   installer's `--hw-sensors` step set up or found (`--lhm-port`);
- * - macOS: none (powermetrics needs root, the SMC needs native code).
+ *   installer's `--hw-sensors` step set up or found (`--lhm-port`), else LHM's
+ *   own default port (an LHM the user runs is read without the installer);
+ * - macOS: the GPU's load from ioreg, no temperatures (powermetrics needs root,
+ *   the SMC needs native code).
  * NVIDIA through nvidia-smi only when the user turned it on, and only when the
- * OS source left the GPU empty. Every reading names its source (`sources`).
+ * OS source left the GPU empty; found but off is said (`nvidiaSmi`). What is
+ * missing and why is `sensorNotes`. Every reading names its source (`sources`).
  * Sampled only while someone views (Office.wake).
  */
 import * as fs from 'fs';
@@ -20,12 +23,14 @@ import type {
   HwRamDetail,
   HwReadingSource,
   HwSample,
+  HwSensorNote,
 } from '../../../../core/src/messages.js';
 import { configDirectory } from '../configPath.js';
 import { readDxgUsers } from '../engine/gpu.js';
 import { maskText } from '../mask.js';
 import { shortProcessCommand } from './commandDisplay.js';
-import { LhmReader } from './lhm.js';
+import { readIoreg } from './ioreg.js';
+import { LHM_DEFAULT_PORT, LHM_DEFAULT_RETRY_MS, LHM_RETRY_MS, LhmReader } from './lhm.js';
 import { NvidiaSmi } from './nvidiaSmi.js';
 import { readSysfs } from './sysfs.js';
 
@@ -168,10 +173,12 @@ export function hwPlatform(platform: string = process.platform, procVersion?: st
 export interface HwSourceOptions {
   home?: string;
   platform?: HwPlatform;
-  /** Windows/WSL: LHM's web server port, set up or found by the installer; null = no LHM. */
+  /** Windows/WSL: LHM's web server port, set up or found by the installer; unset = LHM's default; null = no LHM. */
   lhmPort?: number | null;
   /** nvidia-smi's path when the user turned the GPU query on; null = never run. */
   nvidiaSmi?: string | null;
+  /** nvidia-smi's path on this machine, on or off (default: `nvidiaSmi`); what `setNvidiaSmi(true)` runs. */
+  nvidiaSmiFound?: string | null;
   /** sysfs root, `/sys` (tests). */
   sysRoot?: string;
   diskPaths?: Array<{ name: string; path: string }>;
@@ -179,7 +186,10 @@ export interface HwSourceOptions {
   /** Test doubles for the LHM and nvidia-smi readers. */
   lhm?: Pick<LhmReader, 'read'> | null;
   nvidia?: (Pick<NvidiaSmi, 'read'> & Partial<Pick<NvidiaSmi, 'readProcesses'>>) | null;
+  /** macOS GPU load (test double); default the real ioreg. */
+  ioreg?: () => Promise<Readings | null>;
 }
+type NvidiaReader = Pick<NvidiaSmi, 'read'> & Partial<Pick<NvidiaSmi, 'readProcesses'>>;
 
 export class HwSource {
   private lastCpu: { idle: number; total: number } | null = null;
@@ -187,25 +197,45 @@ export class HwSource {
   private lastCores: Array<{ idle: number; total: number }> = [];
   private osCores: HwCpuCore[] = [];
   private readonly platform: HwPlatform;
-  private readonly lhm: Pick<LhmReader, 'read'> | null;
-  private readonly nvidia:
-    (Pick<NvidiaSmi, 'read'> & Partial<Pick<NvidiaSmi, 'readProcesses'>>) | null;
+  private lhm: (Pick<LhmReader, 'read'> & Partial<Pick<LhmReader, 'retryNow'>>) | null;
+  private nvidia: NvidiaReader | null;
+  /** The user's switch over `nvidia`: one reader kept, so a hung query of ours is never forgotten. */
+  private nvidiaOn: boolean;
+  private readonly nvidiaFound: string | null;
 
   constructor(private readonly opts: HwSourceOptions = {}) {
     this.platform = opts.platform ?? hwPlatform();
-    const lhmOs = this.platform === 'win32' || this.platform === 'wsl';
     this.lhm =
-      opts.lhm !== undefined
-        ? opts.lhm
-        : lhmOs && opts.lhmPort
-          ? new LhmReader(opts.lhmPort, this.platform === 'wsl')
-          : null;
-    this.nvidia =
-      opts.nvidia !== undefined
-        ? opts.nvidia
-        : opts.nvidiaSmi
-          ? new NvidiaSmi(opts.nvidiaSmi)
-          : null;
+      opts.lhm !== undefined ? opts.lhm : opts.lhmPort === null ? null : this.lhmReader(opts.lhmPort);
+    this.nvidiaFound =
+      opts.nvidiaSmiFound !== undefined ? opts.nvidiaSmiFound : (opts.nvidiaSmi ?? null);
+    const bin = opts.nvidiaSmi ?? this.nvidiaFound;
+    this.nvidia = opts.nvidia !== undefined ? opts.nvidia : bin ? new NvidiaSmi(bin) : null;
+    this.nvidiaOn = opts.nvidia !== undefined ? opts.nvidia !== null : !!opts.nvidiaSmi;
+  }
+
+  /** A port nobody configured is LHM's default, tried again only every few minutes after a miss. */
+  private lhmReader(port?: number): LhmReader | null {
+    return this.platform === 'win32' || this.platform === 'wsl'
+      ? new LhmReader(
+          port ?? LHM_DEFAULT_PORT,
+          this.platform === 'wsl',
+          port === undefined ? LHM_DEFAULT_RETRY_MS : LHM_RETRY_MS,
+        )
+      : null;
+  }
+
+  /** After the office installed or found LHM: read it on `port` (its own one if found elsewhere), at once. */
+  redetectLhm(port?: number): void {
+    if (port !== undefined) this.lhm = this.lhmReader(port);
+    else this.lhm?.retryNow?.();
+  }
+
+  /** The user's nvidia-smi switch; false when there is no nvidia-smi to turn on. */
+  setNvidiaSmi(on: boolean): boolean {
+    if (on && !this.nvidia) return false;
+    this.nvidiaOn = on;
+    return true;
   }
 
   async sample(now = Date.now()): Promise<Sample> {
@@ -218,25 +248,35 @@ export class HwSource {
           sources[k] = source;
         }
     };
+    const notes: HwSensorNote[] = [];
     if (this.platform === 'linux') {
       add(readSysfs(this.opts.sysRoot), 'sysfs');
-      s.sensorsHint = !isSet(s.cpuTempC);
+      if (!isSet(s.cpuTempC)) notes.push('linuxTemps');
     } else if (this.platform === 'win32' || this.platform === 'wsl') {
       const r = this.lhm ? await this.lhm.read(now) : null;
       add(r, 'lhm');
       s.lhm = r !== null;
-      s.sensorsHint = r === null;
+      if (r === null) notes.push('lhm');
+    } else if (this.platform === 'darwin') {
+      add(await (this.opts.ioreg ?? readIoreg)(), 'ioreg');
+      notes.push('macTemps');
     }
     // No LHM per-core readings: the OS's own logical CPUs (clock, load).
     if (!isSet(s.cpuCores) && this.osCores.length) {
       s.cpuCores = this.osCores;
       sources.cpuCores = 'os';
     }
-    if (this.nvidia && (!isSet(s.vramUsedMib) || !isSet(s.vramTotalMib))) {
-      const g = await this.nvidia.read();
+    const nvidia = this.nvidiaOn ? this.nvidia : null;
+    if (nvidia && (!isSet(s.vramUsedMib) || !isSet(s.vramTotalMib))) {
+      const g = await nvidia.read();
       if (g === 'stale') s.warnings.push(koText('nvidia_stale'));
       else add(g, 'nvidia-smi');
     }
+    if (this.nvidiaFound) {
+      s.nvidiaSmi = nvidia ? 'on' : 'off';
+      if (!nvidia && !isSet(s.gpuUtil) && !isSet(s.vramUsedMib)) notes.push('nvidiaOff');
+    }
+    s.sensorNotes = notes;
     // WSL: the /dev/dxg openers (its --query-compute-apps names no process).
     if (this.platform === 'wsl')
       s.gpuProcesses = readDxgUsers(this.opts.procRoot).map(({ pid, usedMib, cmd }) => ({
@@ -245,7 +285,7 @@ export class HwSource {
         cmd,
       }));
     else {
-      const procs = this.nvidia?.readProcesses ? await this.nvidia.readProcesses() : null;
+      const procs = nvidia?.readProcesses ? await nvidia.readProcesses() : null;
       s.gpuProcesses = procs === 'stale' ? null : procs;
       if (procs === 'stale' && !s.warnings.some((w) => w.includes('nvidia-smi 응답 없음')))
         s.warnings.push(koText('nvidia_stale'));

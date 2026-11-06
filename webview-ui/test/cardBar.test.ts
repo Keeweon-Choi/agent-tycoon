@@ -1,13 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  cardsExpanded,
   cardVariant,
   groupOrder,
   loadSavedOrder,
   mergeOrder,
   reorderByPointer,
-  savedCardsExpanded,
   saveOrder,
 } from '../src/components/cardBar.js';
 
@@ -82,19 +80,6 @@ describe('groups', () => {
   });
 });
 
-describe("the phone's cards: compact or expanded (owner 10-24)", () => {
-  it('compact by default: nothing stored, junk, or the collapsed value', () => {
-    expect(cardsExpanded(null)).toBe(false);
-    expect(cardsExpanded('yes')).toBe(false);
-    expect(cardsExpanded(savedCardsExpanded(false))).toBe(false);
-  });
-
-  it('an expand is remembered and read back', () => {
-    expect(cardsExpanded(savedCardsExpanded(true))).toBe(true);
-  });
-});
-
-// Owner 10-24: the desktop's container drags a card along a column of fixed slots (y instead of x).
 describe('the desktop column', () => {
   // Slots 120px apart, so midpoints 60, 180, 300, 420 whatever the order is.
   const slotsOf = (order: number[]) => (id: number) => order.indexOf(id) * 120 + 60;

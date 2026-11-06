@@ -16,6 +16,8 @@
 import { perfCache } from '../../cld/perf.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
+  SHEET_MASTER_MIN_SCALE,
+  SHEET_MASTER_SHRINK_MS,
   WARM_FORCE_EVERY,
   WARM_IDLE_SPARE_MS,
   WARM_SLICE_MS,
@@ -53,8 +55,12 @@ export const isSmooth = (sprite: SpriteData): boolean => smooth.has(sprite);
 
 /** Draw `sprite` the smooth way from now on (`rect`: its master in a sheet; null: itself). */
 export function markSmooth(sprite: SpriteData, rect: MasterRect | null = null): void {
-  if (!smooth.has(sprite))
-    smooth.set(sprite, rect ? { rect, mirror: false } : { rect, own: sprite, mirror: false });
+  if (smooth.has(sprite)) return;
+  smooth.set(sprite, rect ? { rect, mirror: false } : { rect, own: sprite, mirror: false });
+  if (!rect) return;
+  const sheet = sheetOfSrc.get(rect.src);
+  if (sheet) sheet.rects.push(rect);
+  else sheetOfSrc.set(rect.src, { rects: [rect], scale: 1, largeAt: -Infinity });
 }
 
 /** `to` is `from` mirrored and/or adjusted: it draws smooth too, from `from`'s master with the
@@ -73,6 +79,115 @@ export function deriveSmooth(
     mirror: m.mirror !== !!change.mirror,
     adjust: change.adjust ?? m.adjust,
   });
+}
+
+// ── PERF-WEBVIEW-MEMORY: a decoded sheet kept no denser than the office draws it ──
+
+/**
+ * The owner's desktop app held 1.3 GB (11-06 20:19); each worn imported sheet's masters were a
+ * ~19 MB canvas at the closest zoom's density (IMPORT_MASTER_DENSITY), while zoom 5 and under only
+ * ever read their first mip level (half that density) or smaller. So a sheet drawn at half its
+ * density or less, and not larger for SHEET_MASTER_SHRINK_MS (a close zoom, the camera's framing at
+ * the start), is halved in place, once (SHEET_MASTER_MIN_SCALE: the same
+ * exactly-half bilinear levelFor makes per frame, over the whole sheet: the same pixels, a quarter
+ * of the memory), and decoded again at full density (`redecode`, looks.ts) the first time the
+ * office draws it larger than that (a zoom past 5). Only a sheet that can be decoded again is
+ * ever halved.
+ */
+interface SheetMasters {
+  /** Every frame's rect in the sheet (they all move with it). */
+  rects: MasterRect[];
+  /** The share of the decoded master kept now: 1, 1/2, 1/4... */
+  scale: number;
+  /** When the office last drew it larger than SHEET_MASTER_MIN_SCALE (a close zoom). */
+  largeAt: number;
+  /** The master again at full density (set by the loader; none: never halved). */
+  redecode?: () => Promise<HTMLCanvasElement>;
+  /** A redecode is on its way. */
+  densifying?: boolean;
+}
+const sheetOfSrc = new WeakMap<HTMLCanvasElement, SheetMasters>();
+/** The sheets halve() made (levelFor copies their frames out before scaling them). */
+const halved = new WeakSet<CanvasImageSource>();
+
+/** The loader can decode `sprite`'s sheet again at full density: it may be kept halved meanwhile. */
+export function markRedecode(sprite: SpriteData, redecode: () => Promise<HTMLCanvasElement>): void {
+  const src = smooth.get(sprite)?.rect?.src;
+  const sheet = src && sheetOfSrc.get(src);
+  if (sheet) sheet.redecode = redecode;
+}
+
+/** Every rect of `sheet` moves to `next` (scaled by `f`); the mip chains cut from the old one go. */
+function retarget(sheet: SheetMasters, next: HTMLCanvasElement, f: number): void {
+  const old = sheet.rects[0].src;
+  for (const r of sheet.rects) {
+    [r.src, r.x, r.y, r.w, r.h] = [next, r.x * f, r.y * f, r.w * f, r.h * f];
+    chains.delete(r);
+  }
+  for (const [levels, from] of chainSrc)
+    if (from === old) {
+      forgetPicture(levels);
+      chainSrc.delete(levels);
+    }
+  sheetOfSrc.delete(old);
+  sheetOfSrc.set(next, sheet);
+  old.width = old.height = 0; // its memory back now
+}
+
+const even = (n: number) => n % 2 === 0;
+/** Halving keeps every frame on whole pixels, as levelFor's own halving does. */
+const halvable = (sheet: SheetMasters) =>
+  sheet.rects.every((r) => even(r.x) && even(r.y) && even(r.w) && even(r.h)) &&
+  even(sheet.rects[0].src.width) &&
+  even(sheet.rects[0].src.height);
+
+function halve(sheet: SheetMasters): void {
+  const old = sheet.rects[0].src;
+  const half = canvas(old.width / 2, old.height / 2);
+  const ctx = half.getContext('2d')!;
+  // exactly half: bilinear is the 2×2 average, levelFor's first level of every frame at once
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'low';
+  ctx.drawImage(old, 0, 0, half.width, half.height);
+  halved.add(half);
+  retarget(sheet, half, 1 / 2);
+  sheet.scale /= 2;
+}
+
+function densify(sheet: SheetMasters): void {
+  if (sheet.densifying || !sheet.redecode) return;
+  sheet.densifying = true;
+  sheet.redecode().then(
+    (full) => {
+      sheet.densifying = false;
+      const now = sheet.rects[0].src;
+      if (released.has(now)) {
+        full.width = full.height = 0;
+        return;
+      }
+      retarget(sheet, full, 1 / sheet.scale);
+      sheet.scale = 1;
+    },
+    (err: unknown) => console.warn('[Webview] a character sheet could not be decoded again', err),
+  );
+}
+
+/** `m` is about to be drawn `w` device px wide: its sheet is halved while it is drawn at half or
+ *  less, or decoded again when drawn larger than kept. false while it is too coarse for `w` (its
+ *  full copy on the way): nothing built from it then is kept. */
+function masterFits(m: Smooth, w: number): boolean {
+  const sheet = m.rect && sheetOfSrc.get(m.rect.src);
+  if (!sheet?.redecode) return true;
+  const share = (w / m.rect!.w) * sheet.scale;
+  const now = performance.now();
+  if (share > SHEET_MASTER_MIN_SCALE) sheet.largeAt = now;
+  if (share > sheet.scale) {
+    densify(sheet);
+    return false;
+  }
+  if (sheet.scale === 1 && now - sheet.largeAt > SHEET_MASTER_SHRINK_MS && halvable(sheet))
+    halve(sheet);
+  return true;
 }
 
 interface Level {
@@ -142,6 +257,18 @@ function chainOf(sprite: SpriteData, m: Smooth): Level[] {
  *  one is still twice that (each halving an average of 2×2 pixels: bilinear at exactly half). */
 function levelFor(levels: Level[], w: number, h: number): Level {
   let grew = false;
+  // PERF-WEBVIEW-MEMORY: a frame of a halved sheet is copied out first, as its first level was
+  // made on its own before: a scaled draw from part of a sheet skips the mipmap a whole picture
+  // gets, which drew zoom 3 with other pixels.
+  if (levels.length === 1 && halved.has(levels[0].img) && w < levels[0].w) {
+    const from = levels[0];
+    const c = bakePicture(from.w, from.h, (ctx) => {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(from.img, from.x, from.y, from.w, from.h, 0, 0, from.w, from.h);
+    });
+    levels.push({ img: c, x: 0, y: 0, w: c.width, h: c.height });
+    grew = true;
+  }
   for (let l = levels[levels.length - 1]; l.w >= w * 2 && l.h >= h * 2;) {
     const from = l;
     const c = bakePicture(Math.round(l.w / 2), Math.round(l.h / 2), (ctx) => {
@@ -222,6 +349,7 @@ export function releaseMaster(sprite: SpriteData): void {
       levels.length = 1;
       chainSrc.delete(levels);
     }
+  sheetOfSrc.delete(src);
   src.width = src.height = 0;
 }
 
@@ -265,8 +393,9 @@ export function drawSmooth(
   }
   const m = smooth.get(sprite)!;
   if (isReleased(m)) return; // its sheet was let go (releaseMaster)
-  const levels = chainOf(sprite, m);
   const [W, H] = smoothSize(sprite, zoom);
+  const fits = masterFits(m, W);
+  const levels = chainOf(sprite, m);
   const l = levelFor(levels, W, H);
   const up = W >= levels[0].w;
   ctx.save();
@@ -275,6 +404,7 @@ export function drawSmooth(
   if (m.mirror) ctx.setTransform(-1, 0, 0, 1, x + W, y);
   ctx.drawImage(l.img, l.x, l.y, l.w, l.h, m.mirror ? 0 : x, m.mirror ? 0 : y, W, H);
   ctx.restore();
+  if (!fits) return; // its full copy is on the way: built then
   zoomSeen.set(zoom, performance.now());
   let id = missIds.get(sprite);
   if (id === undefined) missIds.set(sprite, (id = missedId++));
@@ -303,6 +433,7 @@ export function smoothPicture(sprite: SpriteData, zoom: number): Picture {
   const W = Math.max(1, Math.round((sprite[0]?.length ?? 0) * zoom));
   const H = Math.max(1, Math.round(sprite.length * zoom));
   if (isReleased(m)) return canvas(W, H); // its sheet was let go: blank, not kept
+  const fits = masterFits(m, W);
   const levels = chainOf(sprite, m);
   // the smallest level still at least the display size (past the master: the master, nearest)
   const l = levelFor(levels, W, H);
@@ -315,6 +446,7 @@ export function smoothPicture(sprite: SpriteData, zoom: number): Picture {
     ctx.drawImage(l.img, l.x, l.y, l.w, l.h, 0, 0, W, H);
     if (m.adjust) adjustPicture(ctx, W, H, m.adjust);
   });
+  if (!fits) return pic; // drawn from a coarser master than it needs: not kept
   pics.set(sprite, pic);
   const zoomPics = pics;
   keepPicture(pic, pictureCost(pic), () => {

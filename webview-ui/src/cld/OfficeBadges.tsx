@@ -9,11 +9,11 @@ export function OfficeBadges({ identity }: { identity: OfficeIdentity }) {
   ].filter((badge): badge is string => typeof badge === 'string');
   if (!badges.length) return null;
   return (
-    <div className="flex flex-wrap justify-center gap-4 max-w-192 mb-4 pointer-events-none">
+    <div className="flex flex-wrap justify-center gap-4 max-w-192 mb-4 pointer-events-none" data-testid="office-badges">
       {badges.map((badge) => (
         <span
           key={badge}
-          className="bg-bg border border-border px-4 text-xs leading-tight text-text whitespace-nowrap shadow-pixel"
+          className="bg-bg border border-border rounded-ui-chip px-4 text-xs leading-tight text-text whitespace-nowrap shadow-pixel"
         >
           {badge}
         </span>

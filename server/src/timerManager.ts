@@ -1,5 +1,5 @@
 import type { AgentStateStore } from './agentStateStore.js';
-import { PERMISSION_MODE_BYPASS, PERMISSION_TIMER_DELAY_MS } from './constants.js';
+import { PERMISSION_MODES_NO_GUESS, PERMISSION_TIMER_DELAY_MS } from './constants.js';
 import { endQuestion, settleQuestion } from './question.js';
 import { hasPromotedBackgroundAgent } from './teamUtils.js';
 import type { AgentState } from './types.js';
@@ -119,7 +119,8 @@ export function startPermissionTimer(
 ): void {
   cancelPermissionTimer(agentId, permissionTimers);
   // A bypass session cannot be waiting on the user: no guess for it or its sub-agents.
-  if (agents.get(agentId)?.permissionMode === PERMISSION_MODE_BYPASS) return;
+  // ACP-1: nor for an agent that asks every permission through its protocol.
+  if (PERMISSION_MODES_NO_GUESS.has(agents.get(agentId)?.permissionMode ?? '')) return;
   const timer = setTimeout(() => {
     permissionTimers.delete(agentId);
     const agent = agents.get(agentId);

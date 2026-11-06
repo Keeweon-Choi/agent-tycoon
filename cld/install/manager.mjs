@@ -266,12 +266,12 @@ export function daemonVbs({ argv, cwd, log }) {
 const TASK_TRIGGER = '$t = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"';
 const TASK_SETTINGS = '$s = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable';
 
-/** Registers (or replaces) the daemon task; only `always` gives it a logon trigger. */
-export function daemonTaskCommand({ name, vbs, startPolicy = 'on-demand' }) {
+/** Registers (or replaces) the daemon task; only `always` gives it a logon trigger. `once`: no restart on failure (the updater task). */
+export function daemonTaskCommand({ name, vbs, startPolicy = 'on-demand', once = false }) {
   const trigger = startPolicy === 'always' ? [TASK_TRIGGER] : [];
   return powershell([
     `$a = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ${psQuote(`//B //Nologo "${vbs}"`)}`,
-    ...trigger, TASK_SETTINGS,
+    ...trigger, once ? TASK_SETTINGS.replace(' -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)', '') : TASK_SETTINGS,
     `Register-ScheduledTask -TaskName ${psQuote(name)} -Action $a${startPolicy === 'always' ? ' -Trigger $t' : ''} -Settings $s -Force | Out-Null`,
   ]);
 }
@@ -316,6 +316,37 @@ export async function endWindowsDaemon(s, deps) {
   return { ended: true, pids };
 }
 
+/**
+ * The office's 설치 on Windows (P3a). The updater stops the daemon (/End on its task, then Stop-Process on its pid),
+ * so it cannot be a child of the daemon or run in the daemon task: it runs as its own one-shot task for this user
+ * (`<daemon task>-update`, replaced each time, no trigger, no admin), hidden the same way (wscript + daemonVbs),
+ * its output in the daemon's update.log. `update --background` registers and runs it, then returns.
+ */
+export const UPDATE_VBS = 'agent-tycoon-update.vbs';
+export const updateTaskName = (service) => `${service}-update`;
+/** The updater waits this long (s) for the manager lock: the daemon's hourly `update --check` holds it up to 60 s. */
+export const UPDATE_LOCK_WAIT_S = 90;
+export function updateTask({ root, service, from, home, node = process.execPath, manager = fileURLToPath(import.meta.url) }) {
+  const name = updateTaskName(service);
+  const file = path.join(root, 'bin', UPDATE_VBS);
+  const log = path.join(path.dirname(configPath(home)), 'update.log');
+  return {
+    name, file,
+    content: daemonVbs({ argv: [node, manager, 'update', '--from', from, '--root', root, '--wait', String(UPDATE_LOCK_WAIT_S)], cwd: root, log }),
+    steps: [req(daemonTaskCommand({ name, vbs: file, once: true })), req(['schtasks', '/Run', '/TN', name])],
+  };
+}
+export async function updateInBackground(o, deps) {
+  if (!o.from) throw new Error('--from <bundle, release folder or URL> is required');
+  const root = o.root ?? installRoot(rootPlatform(deps.platform), deps.home, deps.env);
+  const record = await readRecord(root);
+  if (record?.service?.kind !== 'schtasks') throw new Error(`update --background is for the Windows task service (this install: ${record?.service?.kind ?? 'none'})`);
+  const t = updateTask({ root, service: record.service.name, from: o.from, home: deps.home, node: deps.node, manager: deps.manager });
+  await fs.writeFile(t.file, t.content);
+  for (const step of t.steps) await deps.run(step.cmd, { optional: step.optional });
+  deps.print(`✔ ${t.name} started`);
+}
+
 /** What a service is: its file (none for a scheduled task), rendered content, and the daemon argv. */
 export function renderService({ platform, home, root, version, manifest, config, name = SERVICE, pathNodeDir = null, startPolicy = 'on-demand' }) {
   const run = runtime(root, version, platform, manifest);
@@ -356,7 +387,7 @@ export function servicePlan(kind, op, s, uid = 0) {
     activate: [req(s.xml ? ['schtasks', '/Create', '/F', '/TN', s.name, '/XML', s.xml] : s.create), opt(['schtasks', '/End', '/TN', s.name]), end(true), req(['schtasks', '/Run', '/TN', s.name])],
     start: [req(['schtasks', '/Run', '/TN', s.name])],
     restart: [opt(['schtasks', '/End', '/TN', s.name]), end(true), req(['schtasks', '/Run', '/TN', s.name])],
-    deactivate: [opt(['schtasks', '/End', '/TN', s.name]), end(true), opt(['schtasks', '/Delete', '/F', '/TN', s.name])],
+    deactivate: [opt(['schtasks', '/End', '/TN', s.name]), end(true), opt(['schtasks', '/Delete', '/F', '/TN', s.name]), opt(['schtasks', '/Delete', '/F', '/TN', updateTaskName(s.name)])],
     stop: [req(['schtasks', '/End', '/TN', s.name]), end(false)],
   }[op];
   throw new Error(`no service plan for ${kind}`);
@@ -1361,6 +1392,8 @@ export async function uninstall(o, deps = realDeps()) {
     } else deps.print('✔ 바깥 노출을 닫았습니다');
     if (plan.record.service) {
       await serviceOp(plan.record.service.kind, 'deactivate', plan.record.service, deps);
+      // The updater task's script (updateInBackground) is rewritten per run, not recorded: it goes with the task.
+      if (plan.record.service.kind === 'schtasks') await fs.rm(path.join(root, 'bin', UPDATE_VBS), { force: true });
       const [stillHealthy, stillActive] = await Promise.all([
         Number.isInteger(plan.record.port) ? deps.health?.(plan.record.port).catch(() => null) : null,
         deps.serviceActive?.(plan.record.service).catch(() => false),
@@ -1567,7 +1600,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     if (values[flag]) { const v = argv[++i]; if (v === undefined || v.startsWith('--')) throw new Error(`${flag} needs a value`); o[values[flag]] = v; }
-    else if (flag === '--add-path') o.addPath = true; else if (flag === '--force') o.force = true; else if (flag === '--json') o.json = true; else if (flag === '--check') o.check = true; else if (flag === '--rollback') o.rollback = true;
+    else if (flag === '--add-path') o.addPath = true; else if (flag === '--force') o.force = true; else if (flag === '--json') o.json = true; else if (flag === '--check') o.check = true; else if (flag === '--rollback') o.rollback = true; else if (flag === '--background') o.background = true;
     else if (flag === '--program') o.program = true; else if (flag === '--reset') o.reset = true; else if (flag === '--dry-run') o.dryRun = true; else if (flag === '--yes') o.yes = true; else if (flag === '--stop-agents') o.stopAgents = true; else if (flag === '--ignore-exposure') o.ignoreExposure = true;
     else if (flag === '--allow-second-host') o.allowSecondHost = true;
     else if (flag === '--linger') o.linger = true; else if (flag === '--hold') o.hold = true; else if (flag === '--no-linger') o.linger = false; else if (flag === '--start-policy') { o.startPolicy = argv[++i]; if (!START_POLICIES.includes(o.startPolicy)) throw new Error(`--start-policy is one of ${START_POLICIES.join(', ')}`); }
@@ -1603,7 +1636,8 @@ export async function main(argv, deps = realDeps()) {
     else if (cmd === 'update' && o.check && o.json) { // for the daemon's notice (P3a): one JSON line, nothing else on stdout
       const r = await update(o, { ...deps, print: () => {} });
       deps.print(JSON.stringify({ v: 1, current: r.current, available: r.available, failed: r.failed, bundle: r.bundle, notes: r.notes }));
-    } else if (cmd === 'update') await update(o, deps);
+    } else if (cmd === 'update' && o.background) await updateInBackground(o, deps); // the office's 설치 on Windows (P3a)
+    else if (cmd === 'update') await update(o, deps);
     else if (cmd === 'rollback') { if ((await rollback(o, deps)).ok === false) return 3; }
     else if (cmd === 'open') await open(o, deps);
     else if (cmd === 'start') await start(o, deps);

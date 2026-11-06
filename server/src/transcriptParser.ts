@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { HookProvider } from '../../core/src/provider.js';
 import { rememberToolDesc } from './agentState.js';
 import type { AgentStateStore } from './agentStateStore.js';
+import { toolPath } from './cld/toolPath.js';
 import { toolDescription } from './cld/transcriptView.js';
 import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from './constants.js';
 import { updateContextUsage } from './contextUsage.js';
@@ -291,6 +292,8 @@ export function processTranscriptLine(
                   isSubagentSpawn && typeof block.input?.model === 'string'
                     ? block.input.model
                     : undefined,
+                // cld-gui (DEVROOM-SIDEBAR): what it touches (a watched sub-agent's worktree).
+                path: toolPath(block.input, record.cwd),
               });
             }
           }
@@ -650,6 +653,7 @@ function processProgressRecord(
         const toolName = block.name || '';
         const status = formatToolStatus(toolName, block.input || {});
         const desc = toolDescription(block.input);
+        const subPath = toolPath(block.input, record.cwd);
         // The sub-agent's own record names its real model (not the spawn's alias).
         const rawModel = innerMsg?.model;
         const subModel = typeof rawModel === 'string' && !rawModel.startsWith('<') ? rawModel : undefined;
@@ -685,6 +689,7 @@ function processProgressRecord(
           status,
           ...(desc && { desc }),
           ...(subModel && { model: subModel }),
+          ...(subPath && { path: subPath }),
         });
       }
     }
@@ -794,7 +799,7 @@ function linkTeammates(_agentId: number, agent: AgentState, agents: AgentStateSt
 }
 
 /** Check if a tool_result block indicates an async/background agent launch */
-function isAsyncAgentResult(block: Record<string, unknown>): boolean {
+export function isAsyncAgentResult(block: Record<string, unknown>): boolean {
   const content = block.content;
   if (Array.isArray(content)) {
     for (const item of content) {

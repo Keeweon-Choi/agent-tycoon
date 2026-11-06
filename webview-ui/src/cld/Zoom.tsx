@@ -4,7 +4,7 @@ import { zoomPercent,type ZoomSurface } from './zoomState.js';
 import { useTextZoom } from './zoomStore.js';
 
 const btn =
-  'border-2 border-border bg-btn-bg px-6 min-w-24 leading-[1.4] shadow-pixel hover:bg-btn-hover disabled:opacity-(--btn-disabled-opacity)';
+  'border-2 border-border bg-btn-bg px-6 min-w-24 leading-[calc(1.4*var(--ui-lh))] shadow-pixel hover:bg-btn-hover disabled:opacity-(--btn-disabled-opacity)';
 
 export function ZoomBar({ surface }: { surface: ZoomSurface }) {
   const { zoom, step, reset } = useTextZoom(surface);

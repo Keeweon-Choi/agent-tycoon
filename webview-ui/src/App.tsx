@@ -14,18 +14,19 @@ import { CameraModeControl } from './cld/CameraModeControl.js';
 import { useCldCards } from './cld/cards.js';
 import { CharacterMenu } from './cld/characters/CharacterMenu.js';
 import { lookNameOf, openLooks, useCharacterLooks } from './cld/characters/looks.js';
+import { DevroomPalette } from './cld/devroom/DevroomPalette.js';
 import { DevFxBar } from './cld/director/DevFxBar.js';
 import { engineOpenForm } from './cld/engineStore.js';
 import { StatDetailSheet } from './cld/ez/StatCard.js';
 import { FloorLayer } from './cld/FloorControls.js';
 import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
 import { publishGameLooks } from './cld/game/gameLooks.js';
-import { PartyHost } from './cld/game/Party.js';
 import { BootScreen } from './cld/gfx/BootScreen.js';
 import { TitleScene } from './cld/gfx/TitleScene.js';
 import { closeTitleScene } from './cld/gfx/titleSceneState.js';
 import { useOfficeWarmUp } from './cld/gfx/warmUp.js';
-import { HudIcons, HudLayer } from './cld/hud/HudIcons.js';
+import { ControlCenter, MobileUsage } from './cld/hud/ControlCenter.js';
+import { Dock, HudLayer } from './cld/hud/HudIcons.js';
 import {
   closePages,
   closeWindow,
@@ -45,13 +46,14 @@ import { Messenger } from './cld/messenger/Messenger.js';
 import { messengerGetSnapshot } from './cld/messenger/messengerStore.js';
 import { installCldMock, isCldMock } from './cld/mock.js';
 import { NoticePanel, NoticeToast } from './cld/notify/NoticeLayer.js';
+import { NoticePhonePage } from './cld/notify/NoticePhonePage.js';
 import type { NoticeTarget } from './cld/notify/notices.js';
 import { openTarget } from './cld/notify/openTarget.js';
 import { PushBanner } from './cld/notify/PushBanner.js';
 import { selectOrOpenInfo } from './cld/offDuty.js';
-import { DesktopWindows, MobileOfficePanel, MobilePage } from './cld/OfficeNavigation.js';
+import { DesktopWindows, MobileOfficePanel } from './cld/OfficeNavigation.js';
 import { useCldStore } from './cld/officeStore.js';
-import { MobileTopBar, type OfficePanel, UsageBar, UsageLine } from './cld/panels/OfficePanels.js';
+import { MobileTopBar, type OfficePanel } from './cld/panels/OfficePanels.js';
 import { PerfReadout } from './cld/PerfReadout.js';
 import { RepoActionLayer } from './cld/repo/RepoActionLayer.js';
 import {
@@ -970,7 +972,6 @@ function App() {
             onCloseAgent={handleCloseAgent}
             alwaysShowOverlay={alwaysShowOverlay}
             phone={isMobile}
-            cardMenu={cldMode && isMobile && !officeReadOnly && !editor.isEditMode && !isDebugMode}
           />
           {/* HUD-1B: the desktop's camera strip is the elevator's (FloorControls). */}
           {cldMode && isMobile && <CameraModeControl phone />}
@@ -1136,8 +1137,7 @@ function App() {
         />
       )}
 
-      {/* cld-gui (T-0017): the selected character's menu (cosmetic, so it is
-          there whenever this client may change anything). */}
+      {/* cld-gui (T-0017): the owner's character's menu (an agent's is in its card or inspector). */}
       {cldMode && !officeReadOnly && !editor.isEditMode && !isDebugMode && (
         <CharacterMenu
           officeState={officeState}
@@ -1145,20 +1145,23 @@ function App() {
           containerRef={containerRef}
           zoom={editor.zoom}
           panRef={editor.panRef}
-          phone={isMobile}
         />
       )}
 
-      {/* cld-gui (T-0077): the floating icons and the windows (a phone has its Dock and pages). */}
+      {/* cld-gui (T-0077, hud-v3 P0): the dock, the corner, the control center and the windows (a phone has its Dock and pages). */}
       {cldMode && !isMobile && (
-        <HudLayer dock={<HudIcons terminalWaiting={terminalWaiting} />}>
+        <HudLayer dock={<Dock terminalWaiting={terminalWaiting} />}>
           <DesktopWindows
             agentTools={agentTools}
             subagentTools={subagentTools}
             statusFor={terminalDrawer.statusFor}
             getAppearance={terminalDrawer.getAppearance}
-            getOfficeState={getOfficeState}
+          />
+          {/* FEAT-HUD-CONTROL-CENTER (owner 11-06 17:12): notifications, usage, what runs, the clock, the menu. */}
+          <ControlCenter
+            ids={cldCards.cardIds}
             onOpenNotice={openNotice}
+            notices={<NoticePanel getOfficeState={getOfficeState} onOpen={openNotice} onClose={closeNotices} inWindow />}
           />
         </HudLayer>
       )}
@@ -1187,15 +1190,10 @@ function App() {
           : undefined
       }
     >
-      {/* Typing on the phone: the keyboard leaves little height, the terminal or composer gets it (10-22 20:23). */}
-      {cldMode &&
-        !(isMobile && keyboard.keyboardOpen) &&
-        (isMobile ? (
-          <MobileTopBar />
-        ) : (
-          <UsageBar />
-        ))}
-      {/* The cld top bar already clears the top safe-area inset: below it,
+      {/* Typing on the phone: the keyboard leaves little height, the terminal or composer gets it (10-22 20:23).
+          The PC has no top bar (hud-v3 P0): the office runs to the top, its HUD floats over it. */}
+      {cldMode && isMobile && !keyboard.keyboardOpen && <MobileTopBar />}
+      {/* The phone's top bar already clears the top safe-area inset: below it,
           the phone's toggle and terminal pane must not add it again. */}
       <div
         className={`flex flex-1 min-h-0 overflow-clip ${isMobile ? 'flex-col' : ''}`}
@@ -1225,18 +1223,11 @@ function App() {
                     />
                   )}
                   {cldMode && hud.open.notices && (
-                    <MobilePage
-                      id="notices"
-                      title={t('notice.title')}
-                      label={t('notice.mobilePage')}
+                    <NoticePhonePage
+                      getOfficeState={getOfficeState}
+                      onOpen={openNotice}
                       onClose={closeNotices}
-                    >
-                      <NoticePanel
-                        getOfficeState={getOfficeState}
-                        onOpen={openNotice}
-                        onClose={closeNotices}
-                      />
-                    </MobilePage>
+                    />
                   )}
                   {cldMode && <WorkSheet mobile />}
                 </div>
@@ -1259,9 +1250,9 @@ function App() {
               bottom={
                 cldMode ? (
                   <>
-                    {/* The usage, folded to one line (owner 10-24), is the last row of the page, above the tab
-                        bar: nothing sits under a phone's tab bar. */}
-                    <UsageLine phone />
+                    {/* The usage, folded to one line (owner 10-24; as the desktop control center's, 11-06), is the
+                        last row of the page, above the tab bar: nothing sits under a phone's tab bar. */}
+                    <MobileUsage />
                     <MobileDock
                       active={phoneTabs.tab}
                       onPick={phoneTabs.pick}
@@ -1333,7 +1324,6 @@ function App() {
       <PerfReadout />
       <DevFxBar getOfficeState={getOfficeState} />
       {cldMode && <StatDetailSheet officeState={officeState} />}
-      {cldMode && !isMobile && <PartyHost ids={cldCards.cardIds} describeCard={cldCards.describeCard} />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}
       {/* A plain office (no Claude Code) is not in cld mode: the notice is for exactly that one. */}
@@ -1354,6 +1344,8 @@ function App() {
           yet), whose terminal installs it and needs this device's key (CLI-TERMINAL). */}
       {(cldMode || agentCli !== null) && !isCldMock && <AuthLayer />}
       {cldMode && <RepoActionLayer />}
+      {/* DV3: Ctrl+K from anywhere; top level, as the modals (a phone's track is a transformed ancestor). */}
+      {cldMode && <DevroomPalette phone={isMobile} />}
 
       {!cldMode && (
         <Modal
@@ -1378,7 +1370,7 @@ function App() {
         title={t('upstream.instantDetectionOn')}
         zIndex={52}
       >
-        <div className="text-base text-text px-10" style={{ lineHeight: 1.4 }}>
+        <div className="text-base text-text px-10" style={{ lineHeight: 'calc(1.4 * var(--ui-lh))' }}>
           <p className="mb-8">{t('upstream.hooksIntro')}</p>
           <ul className="mb-8 pl-18 list-disc m-0">
             <li className="text-sm mb-2">{t('upstream.hooksPermission')}</li>

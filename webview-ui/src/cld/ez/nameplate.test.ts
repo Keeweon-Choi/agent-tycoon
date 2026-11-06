@@ -6,9 +6,12 @@ import {
 } from '../../constants.js';
 import {
   clampPlate,
+  type CrowdItem,
+  crowdPlates,
   dimmedPlates,
-  nameMaxPx,
   offAlpha,
+  plateAt,
+  plateLook,
   plateOpacity,
   type PlateRect,
   rankIcon,
@@ -70,11 +73,22 @@ describe('the rank icon', () => {
   });
 });
 
-describe('the name', () => {
-  it("ends in an ellipsis at the size step's max width, in full when opened", () => {
-    expect(nameMaxPx(NAMEPLATE_SIZES.large, false)).toBe(150);
-    expect(nameMaxPx(NAMEPLATE_SIZES.medium, false)).toBe(104);
-    expect(nameMaxPx(NAMEPLATE_SIZES.small, true)).toBeUndefined();
+describe('the plate width and the name (T-67)', () => {
+  it('is one width per screen style and size step, cut at rest, whole when focused, free when opened', () => {
+    for (const sizes of Object.values(NAMEPLATE_SIZES))
+      for (const px of Object.values(sizes.card)) {
+        expect(plateLook(px, false, false)).toEqual({ width: px, name: 'cut' });
+        // Hovered or selected: the same width, the name wraps whole inside it.
+        expect(plateLook(px, true, false)).toEqual({ width: px, name: 'whole' });
+        expect(plateLook(px, true, true)).toEqual({ width: undefined, name: 'whole' });
+      }
+  });
+
+  it('finds the topmost plate under a point', () => {
+    const rs = [rect(1, 0, 0), rect(2, 50, 10)];
+    expect(plateAt(rs, 60, 20)).toBe(2);
+    expect(plateAt(rs, 10, 5)).toBe(1);
+    expect(plateAt(rs, 500, 5)).toBeNull();
   });
 });
 
@@ -183,5 +197,109 @@ describe('edge clamping', () => {
   it('leaves an unmeasured plate, or one wider than the screen, where it is', () => {
     expect(clampPlate(10, 5, undefined, bounds, 2)).toEqual({ x: 10, y: 5 });
     expect(clampPlate(10, 150, { w: 500, h: 40 }, bounds, 2)).toEqual({ x: 10, y: 150 });
+  });
+});
+
+describe('crowdPlates', () => {
+  const box = (left: number, top: number, w: number, h: number) => ({ left, top, right: left + w, bottom: top + h });
+  const item = (key: string, rect: ReturnType<typeof box>, low: boolean, more: Partial<CrowdItem> = {}): CrowdItem => ({
+    key,
+    rect,
+    low,
+    ...more,
+  });
+
+  it('keeps everything that overlaps nothing', () => {
+    const fates = crowdPlates([item('a', box(0, 0, 50, 40), true), item('b', box(100, 0, 50, 40), false)], 4, 2);
+    expect(fates.get('a')).toEqual({ crowd: false, dy: 0 });
+  });
+
+  it('shrinks a low plate off a working one, and rises only when the name still sits on it', () => {
+    const work = item('work', box(0, 0, 60, 40), false);
+    // The low plate's lower half is under the working one: shrunk to 20 high it clears it at once.
+    const clear = crowdPlates([work, item('rest', box(0, 30, 60, 60), true, { small: { w: 40, h: 20 } })], 4, 2);
+    expect(clear.get('rest')).toEqual({ crowd: true, dy: 0 });
+    const stuck = crowdPlates([work, item('rest', box(0, 10, 60, 25), true, { small: { w: 40, h: 20 } })], 4, 2);
+    // Name box 15..35 rises to end 2 px above the working plate's top (0): dy = -37.
+    expect(stuck.get('rest')).toEqual({ crowd: true, dy: -37 });
+  });
+
+  it('stacks two low plates apart, the lower one keeping its place', () => {
+    const fates = crowdPlates(
+      [item('up', box(0, 20, 60, 30), true), item('down', box(0, 30, 60, 30), true)],
+      4,
+      2,
+    );
+    expect(fates.get('down')).toEqual({ crowd: false, dy: 0 });
+    // 'up' (20..50) rises to end at 28: dy = -22.
+    expect(fates.get('up')).toEqual({ crowd: true, dy: -22 });
+  });
+
+  it('hides a feet badge that sits on a plate or another badge, never moves it', () => {
+    const fates = crowdPlates(
+      [
+        item('plate', box(0, 0, 60, 40), false),
+        item('feet-1', box(10, 30, 30, 10), true, { fixed: true }),
+        item('feet-2', box(100, 30, 30, 10), true, { fixed: true }),
+        item('feet-3', box(110, 32, 30, 10), true, { fixed: true }),
+      ],
+      4,
+      2,
+    );
+    expect(fates.get('feet-1')).toEqual({ crowd: true, dy: 0 });
+    // The lower row (feet-3) is placed first, so feet-2 is the one on top of it.
+    expect(fates.get('feet-3')?.crowd).toBe(false);
+    expect(fates.get('feet-2')).toEqual({ crowd: true, dy: 0 });
+  });
+
+  // T-67: the lounge at every zoom. Plates are one width (W); a rested agent's full plate is H high, its name
+  // alone NAME high. Rows of seats a zoom-scaled step apart, one working plate beside them.
+  const W = NAMEPLATE_SIZES.medium.card.modern;
+  const H = 40;
+  const NAME = 22;
+  const lounge = (zoom: number, noise: (key: string) => number): CrowdItem[] => {
+    const items: CrowdItem[] = [item('work', box(100, 100 - H, W, H), false)];
+    for (let i = 0; i < 8; i++) {
+      const left = 100 + (i % 4) * 9.37 * zoom - W / 2;
+      const bottom = 100 + Math.floor(i / 4) * 6.61 * zoom + 0.37 + noise(`r${i}`);
+      items.push(item(`r${i}`, { left, right: left + W, top: bottom - H, bottom }, true, { small: { w: W, h: NAME } }));
+    }
+    return items;
+  };
+  const ZOOMS = Array.from({ length: 37 }, (_, i) => 1 + i / 4); // 1..10, the whole steps and between
+
+  it('places the same inputs the same way every frame, at every zoom', () => {
+    for (const z of ZOOMS) expect(crowdPlates(lounge(z, () => 0), 4, 2)).toEqual(crowdPlates(lounge(z, () => 0), 4, 2));
+  });
+
+  it("is stable fed its own output: the bottoms read back with a rise's sub-pixel noise", () => {
+    // A margin is laid out in 1/64 px, so a nudged plate's un-nudged bottom reads back a hair off; two
+    // plates on one sofa row used to swap places on every pass at some zooms (neus and cex, 11-06).
+    for (const z of ZOOMS) {
+      const first = crowdPlates(lounge(z, () => 0), 4, 2);
+      let fates = first;
+      for (let frame = 1; frame <= 4; frame++) {
+        const sign = frame % 2 ? 1 : -1;
+        const prev = fates;
+        const items = lounge(z, (k) => (prev.get(k)?.dy ? sign / 64 : 0)).map((i) =>
+          prev.get(i.key)?.crowd ? { ...i, was: prev.get(i.key)!.dy } : i,
+        );
+        fates = crowdPlates(items, 4, 2);
+        expect(fates, `zoom ${z} frame ${frame}`).toEqual(first);
+      }
+    }
+  });
+
+  it('keeps a rise less than a px off the one it has, takes a new one a px or more away', () => {
+    const work = item('work', box(0, 0, 60, 40), false);
+    const rest = (was?: number) => item('rest', box(0, 10, 60, 25), true, { small: { w: 60, h: 20 }, was });
+    expect(crowdPlates([work, rest(-37)], 4, 2).get('rest')?.dy).toBe(-37);
+    expect(crowdPlates([work, rest(-36.5)], 4, 2).get('rest')?.dy).toBe(-36.5);
+    expect(crowdPlates([work, rest(-30)], 4, 2).get('rest')?.dy).toBe(-37);
+  });
+
+  it('rises by whole px, never into the gap', () => {
+    for (const z of ZOOMS)
+      for (const fate of crowdPlates(lounge(z, () => 0), 4, 2).values()) expect(Number.isInteger(fate.dy)).toBe(true);
   });
 });

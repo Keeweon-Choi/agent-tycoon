@@ -78,7 +78,7 @@ const USAGE = `사용법:
   ${CLI} trust [--start] <프로젝트 이름 또는 폴더>   그 프로젝트 폴더에서 claude 를 켜 폴더 신뢰 질문에 대신 답함(--start: 답한 뒤 켜기)
   ${CLI} move-pty --all     모든 에이전트를 하나씩 새 터미널로(일하는 중이면 턴이 끝나길 기다림, 최대 30분); --stop 으로 멈춤
   ${CLI} move-pty <이름>   그 에이전트를 새 터미널(우리 PTY 호스트)로 옮김: 턴이 끝난 뒤 옛 세션을 멈추고 같은 대화를 이어 켬
-  ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>]   그 작업의 worktree(브랜치 task/<id>-…)
+  ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>]   그 작업의 worktree(브랜치 기본 feat/t<id>-…)
   ${CLI} worktree list [--task <작업 id>] [--json]
   ${CLI} status [--json]
   ${CLI} doctor [--fix] [--json]
@@ -187,10 +187,12 @@ function request(cmd, args, timeoutMs = 90_000) {
       s.destroy();
       resolve(v);
     };
+    // `lost`: the connection broke or went quiet (not the daemon's own answer).
     const broken = {
       ok: false,
       code: 'daemon_error',
       error: 'cld-gui 데몬의 답을 읽지 못했습니다',
+      lost: true,
     };
     s.setEncoding('utf8');
     s.on('connect', () => {
@@ -214,7 +216,7 @@ function request(cmd, args, timeoutMs = 90_000) {
     s.on('error', () => end(connected ? broken : null));
     s.on('close', () => end(connected ? broken : null));
     s.setTimeout(timeoutMs, () =>
-      end({ ok: false, code: 'daemon_error', error: 'cld-gui 데몬이 답하지 않습니다' }),
+      end({ ok: false, code: 'daemon_error', error: 'cld-gui 데몬이 답하지 않습니다', lost: true }),
     );
   });
 }
@@ -266,10 +268,12 @@ function hwLines(hw) {
   for (const w of hw.warnings ?? [])
     if (!w.startsWith('디스크 '))
       lines.push(w.includes('nvidia-smi 응답 없음') ? 'nvidia-smi 응답 없음' : `경고: ${w}`);
-  if (hw.sensorsHint)
-    lines.push(
-      '온도를 보려면 설치 때 센서 도구를 켜세요 (node cld/install/install.mjs --hw-sensors)',
-    );
+  const notes = hw.sensorNotes ?? [];
+  if (notes.includes('lhm'))
+    lines.push('온도와 GPU를 보려면 LibreHardwareMonitor를 설치하세요 (사무실 H/W 화면의 센서 도구 설치, 또는 node cld/install/install.mjs --hw-sensors)');
+  if (notes.includes('nvidiaOff')) lines.push('GPU 정보를 보려면 사무실 H/W 화면에서 GPU 정보 켜기 (nvidia-smi)');
+  if (notes.includes('linuxTemps')) lines.push('CPU 온도 센서 없음 (가상 머신이면 정상, 실제 PC면 lm-sensors)');
+  if (notes.includes('macTemps')) lines.push('macOS는 관리자 권한 없이 온도·전력을 주지 않습니다');
   return lines;
 }
 
@@ -1035,11 +1039,25 @@ async function worker(rest) {
 
 // ── TERM-P3: a PTY agent's PermissionRequest hook (claudePty.ts permissionHooks) ──
 
+/** Our whole wait: under the hook's own limit (PTY_PERMISSION_HOOK_S, 270 s), so our "no decision"
+ *  comes before Claude ends the hook. */
+const PERMISSION_HOOK_BUDGET_MS = 265_000;
+/** FIX-PERM-RESTART: how long a daemon that went (a deploy restarts it) may stay away while we wait,
+ *  and how often we look for the next one. */
+// ponytail: CLD_PERMISSION_GONE_MS is the tests' (control.test.ts), never set by us; the budget caps it.
+const PERMISSION_DAEMON_GONE_MS = Number(process.env.CLD_PERMISSION_GONE_MS) || 60_000;
+const PERMISSION_RETRY_MS = 1_000;
+
 /**
  * Claude Code runs this with the hook's JSON on stdin and the session's CLD_AGENT_TOKEN in its
  * environment. The daemon shows the owner its card and answers 허용/거부; that answer is printed as
  * the hook's decision. Anything else (no daemon, no answer in time, a refusal) prints nothing and
  * exits 0: Claude then shows its own dialog in the agent's terminal. Never exit 2 (that denies).
+ * FIX-PERM-RESTART (owner 11-06 20:07): a daemon that goes while we wait (a restart) is asked again,
+ * the same call, once it is back (up to PERMISSION_DAEMON_GONE_MS away), with what is left of our
+ * time; with no daemon at the first ask Claude shows its dialog at once, as before. Never on
+ * Windows: the pipe name is machine-wide and we do not know the server, so while ours is away
+ * another user's process could take the name, hear the agent's token and answer allow.
  */
 async function permissionHook() {
   let raw = '';
@@ -1053,8 +1071,29 @@ async function permissionHook() {
   }
   if (!ask || typeof ask.tool_name !== 'string') return exitAfterFlush(0);
   const input = ask.tool_input && typeof ask.tool_input === 'object' ? ask.tool_input : {};
-  const r = await request('permission-hook', { tool: ask.tool_name, input }, 280_000);
-  const behavior = r && r.ok ? r.decision : null;
+  const end = Date.now() + PERMISSION_HOOK_BUDGET_MS;
+  let behavior = null;
+  let reached = false;
+  let goneSince = 0;
+  for (;;) {
+    const left = end - Date.now();
+    if (left <= PERMISSION_RETRY_MS) break;
+    const r = await request('permission-hook', { tool: ask.tool_name, input, waitMs: left - PERMISSION_RETRY_MS }, left);
+    if (r && r.ok) {
+      behavior = r.decision;
+      break;
+    }
+    // A refusal or an error is the daemon's answer; only a daemon that went (nobody listens, or the
+    // connection broke off) is asked again.
+    if (r && !r.lost) break;
+    if (process.platform === 'win32') break; // see above: no knocking on a pipe someone else may hold
+    if (r) {
+      reached = true;
+      goneSince = 0;
+    } else if (!reached) break;
+    else if (Date.now() - (goneSince ||= Date.now()) > PERMISSION_DAEMON_GONE_MS) break;
+    await new Promise((res) => setTimeout(res, PERMISSION_RETRY_MS));
+  }
   if (behavior === 'allow' || behavior === 'deny')
     process.stdout.write(
       `${JSON.stringify({
@@ -1143,9 +1182,9 @@ async function trust(rest) {
 
 // ── W2: a Task's worktree, over the control socket (taskWorktree.ts) ──
 
-const WORKTREE_FLAGS = { '--task': 'task', '--assign': 'assign', '--base': 'base' };
+const WORKTREE_FLAGS = { '--task': 'task', '--assign': 'assign', '--base': 'base', '--branch': 'branch' };
 const WORKTREE_USAGE =
-  `사용법: ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] | worktree list [--task <작업 id>] [--json]`;
+  `사용법: ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>] | worktree list [--task <작업 id>] [--json]`;
 
 async function worktree(rest) {
   const [op, ...args] = rest;
@@ -1159,7 +1198,7 @@ async function worktree(rest) {
       fields[WORKTREE_FLAGS[a]] = args[++i];
     } else return failWith('usage', WORKTREE_USAGE);
   }
-  if (op === 'new' ? !fields.task : op !== 'list' || fields.assign || fields.base) return failWith('usage', WORKTREE_USAGE);
+  if (op === 'new' ? !fields.task : op !== 'list' || fields.assign || fields.base || fields.branch) return failWith('usage', WORKTREE_USAGE);
   const r = await request('worktree', { op, ...fields });
   if (r === null) return off();
   if (op === 'list' && r.ok && !json) {
@@ -1168,7 +1207,7 @@ async function worktree(rest) {
       return exitAfterFlush(0);
     }
     for (const w of r.worktrees ?? []) {
-      const state = !w.exists ? '폴더 없음' : `↑${w.ahead} ↓${w.behind}${w.dirty ? ` 미커밋 ${w.dirty}` : ''}${w.merged ? ' 병합됨' : ''}`;
+      const state = !w.exists ? '폴더 없음' : `↑${w.ahead} ↓${w.behind}${w.dirty ? ` 미커밋 ${w.dirty}` : ''}${w.merged ? ' 머지됨' : ''}`;
       console.log([w.project, w.taskId ?? '-', w.assignee ?? '-', w.branch, w.path, state].join('\t'));
     }
     return exitAfterFlush(0);

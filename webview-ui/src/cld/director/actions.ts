@@ -57,7 +57,7 @@ import type { Character } from '../../office/types.js';
 import { endBreak, type PantryKind, pantryNear, type Rest, startBreak } from '../lounge.js';
 import { compactHolds, restWatch } from '../rest.js';
 import { THEME } from '../theme.js';
-import { pixelFontFamily } from '../uiFont.js';
+import { pixelFontFamily } from '../uiTheme.js';
 import {
   director,
   type FxAction,

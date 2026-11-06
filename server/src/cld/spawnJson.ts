@@ -1,6 +1,6 @@
 /**
  * Run a program by absolute path and parse its stdout as JSON. execFile's
- * semantics (argv array, no shell, timeout) plus stdin = /dev/null, which
+ * semantics (argv array, no shell, timeout) plus stdin = /dev/null (or held open briefly, see holdStdinMs), which
  * execFile cannot do: Node only forwards cwd/env/shell/... from execFile to
  * spawn, never stdio. Runs are queued one at a time, process-wide, so the
  * daemon's RAM peaks at itself plus its largest child, never a sum (T-0013).
@@ -9,6 +9,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { spawn } from 'child_process';
+
+import { SPAWN_JSON_KILL_GRACE_MS } from '../constants.js';
 
 export type SpawnFn = typeof spawn;
 
@@ -54,6 +56,12 @@ export interface SpawnJsonOptions {
   spawnFn?: SpawnFn;
   /** Working directory; defaults to the home directory (see the spawn call). */
   cwd?: string;
+  /** stdout is one JSON value per line (stream-json): resolve the lines that parse, in order. */
+  ndjson?: boolean;
+  /** Give the child an open stdin pipe, nothing written, and end it after this many ms (or when the child is gone); default: /dev/null. */
+  holdStdinMs?: number;
+  /** After the timeout's SIGTERM, SIGKILL our child this much later if it is still there (default SPAWN_JSON_KILL_GRACE_MS). */
+  killGraceMs?: number;
 }
 
 /** A run that did not exit 0 with JSON. `json` is what stdout still parsed to
@@ -66,6 +74,19 @@ export class SpawnJsonError extends Error {
   ) {
     super(message);
   }
+}
+
+/** Each line that parses as JSON; a cut or a non-JSON line is skipped. */
+function jsonLines(text: string): unknown[] {
+  const out: unknown[] = [];
+  for (const line of text.split('\n')) {
+    try {
+      if (line.trim()) out.push(JSON.parse(line));
+    } catch {
+      // not JSON
+    }
+  }
+  return out;
 }
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -86,11 +107,20 @@ function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise
       // Home, not the daemon's repo folder: a program that derives who is calling from its cwd
       // would otherwise take every call for the cld-gui orchestrator's.
       cwd: opts.cwd ?? os.homedir(),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [opts.holdStdinMs ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       shell: false,
       timeout: opts.timeoutMs,
       windowsHide: true,
     });
+    // The timeout only sends SIGTERM: a child that ignores it would hold the queue (and every later caller) for good.
+    const killTimer = setTimeout(
+      () => child.kill?.('SIGKILL'),
+      opts.timeoutMs + (opts.killGraceMs ?? SPAWN_JSON_KILL_GRACE_MS),
+    );
+    const done = () => clearTimeout(killTimer);
+    child.on('exit', done);
+    child.on('close', done);
+    child.on('error', done);
     const chunks: Buffer[] = [];
     let size = 0;
     let errText = '';
@@ -103,6 +133,19 @@ function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise
       if (errText.length < 2000) errText += b.toString('utf-8');
     });
     child.on('error', reject);
+    const stdin = child.stdin;
+    if (stdin) {
+      // EPIPE when the child is already gone, or any other stdin error: never the daemon's problem.
+      stdin.on('error', () => undefined);
+      const hold = setTimeout(() => stdin.end(), opts.holdStdinMs);
+      const release = () => {
+        clearTimeout(hold);
+        stdin.destroy();
+      };
+      child.on('exit', release);
+      child.on('close', release);
+      child.on('error', release);
+    }
     // Killed (timeout, output cap): a grandchild still holding the pipes would
     // otherwise delay 'close' until it exits too.
     child.on('exit', (_code, signal) => {
@@ -115,7 +158,7 @@ function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise
       let json: unknown;
       try {
         const out = Buffer.concat(chunks).toString('utf-8');
-        json = JSON.parse(out);
+        json = opts.ndjson ? jsonLines(out) : JSON.parse(out);
       } catch {
         json = undefined;
       }

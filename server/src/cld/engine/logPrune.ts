@@ -25,6 +25,9 @@ export interface PruneResult {
   codex: Tally;
   /** Processed messenger messages (inbox/<agent>/delivered/). */
   delivered: Tally;
+  /** K1: handoffs a renew could not put into the inbox (renewals/<agent>.json.failed) and the
+   *  records of renews whose start failed (renewals/<agent>.json with `failed`). */
+  renewFailed: Tally;
 }
 export interface PruneOptions {
   home: string;
@@ -154,17 +157,19 @@ export function deliveredDirs(home: string): string[] {
   }
 }
 
-/** Processed inbox messages (and their sidecars) not touched for `keepDays` go; plain files only. */
-function pruneDelivered(o: Required<PruneOptions>): Tally {
+/** Files in `dirs` (those `pick` names) not touched for `keepDays` go; plain files only. Processed
+ *  inbox messages and their sidecars; a renew's `.failed` handoffs (BRN §4.7, 30 days like them). */
+function pruneOld(dirs: string[], o: Required<PruneOptions>, pick: (name: string) => boolean = () => true): Tally {
   const tally: Tally = { count: 0, bytes: 0 };
-  for (const dir of deliveredDirs(o.home)) {
+  for (const dir of dirs) {
     let names: string[];
     try {
+      if (fs.lstatSync(dir).isSymbolicLink()) continue; // may lead anywhere: not ours to prune
       names = fs.readdirSync(dir);
     } catch {
       continue;
     }
-    for (const name of names) {
+    for (const name of names.filter(pick)) {
       try {
         const st = fs.lstatSync(path.join(dir, name));
         if (!st.isFile() || o.now - st.mtimeMs <= o.keepDays * DAY) continue;
@@ -179,6 +184,16 @@ function pruneDelivered(o: Required<PruneOptions>): Tally {
   return tally;
 }
 
+/** A renew record a start failed (B4: kept for the next start; its handoff waits in the inbox,
+ *  which is never pruned): its age is its file's, written at the failure. A pending one is not. */
+function failedStart(file: string): boolean {
+  try {
+    return !!(JSON.parse(fs.readFileSync(file, 'utf-8')) as { failed?: unknown }).failed;
+  } catch {
+    return false; // unreadable: not ours to judge
+  }
+}
+
 export function pruneLogs(opts: PruneOptions): PruneResult {
   const o: Required<PruneOptions> = {
     platform: process.platform,
@@ -190,7 +205,7 @@ export function pruneLogs(opts: PruneOptions): PruneResult {
     ...opts,
   };
   const none = (): Tally => ({ count: 0, bytes: 0 });
-  const result: PruneResult = { jobs: none(), codex: none(), delivered: none() };
+  const result: PruneResult = { jobs: none(), codex: none(), delivered: none(), renewFailed: none() };
   try {
     const jobs = jobsDir(o.home, o.platform);
     // A job is finished once the engine recorded its end (a running job's record has none).
@@ -212,11 +227,15 @@ export function pruneLogs(opts: PruneOptions): PruneResult {
       ),
       o,
     );
-    result.delivered = pruneDelivered(o);
+    result.delivered = pruneOld(deliveredDirs(o.home), o);
+    const renewals = path.join(configDir(o.home), 'renewals');
+    result.renewFailed = pruneOld([renewals], o, (n) => n.endsWith('.json.failed') || (n.endsWith('.json') && failedStart(path.join(renewals, n))));
   } catch (err) {
     o.log(`log prune: ${err instanceof Error ? err.message : String(err)}`);
   }
   const mb = (t: Tally) => `${t.count} (${(t.bytes / 1024 / 1024).toFixed(1)} MB)`;
-  o.log(`log prune: jobs ${mb(result.jobs)}, codex ${mb(result.codex)}, delivered ${mb(result.delivered)} removed`);
+  o.log(
+    `log prune: jobs ${mb(result.jobs)}, codex ${mb(result.codex)}, delivered ${mb(result.delivered)}, renew handoffs ${mb(result.renewFailed)} removed`,
+  );
   return result;
 }

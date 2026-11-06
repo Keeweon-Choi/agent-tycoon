@@ -4,17 +4,22 @@
  * engine actions (engineStore: one request per agent, the step-up retry, a toast);
  * the form also shows the engine's refusal itself.
  */
+import '../hud/controlCenter.css';
+
 import { useEffect, useState } from 'react';
 
-import type { EngineProject } from '../../../../core/src/messages.js';
+import type { AgentChoices, EngineProject } from '../../../../core/src/messages.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
+import { capsOf, choosesPermission, meteredTag, takesDirectChat } from '../engine.js';
 import { engineSubmit, useEngineStore } from '../engineStore.js';
+import { AgentMark } from '../icons/AgentMark.js';
 import { InheritChoice } from '../InheritChoice.js';
 import {
   emptyWorkerForm,
+  providerName,
   workerFields,
   type WorkerForm,
   workerFormError,
@@ -28,7 +33,18 @@ const send = (action: 'add' | 'promote', name: string, fields: Record<string, un
   engineSubmit((m) => transport.send(m), transport.state === 'connected', action, name, fields);
 
 /** 'Lead 로' on a Worker's row, and its confirmation. */
-export function PromoteButton({ name, project }: { name: string; project: string }) {
+export function PromoteButton({
+  name,
+  project,
+  className = button,
+  role,
+}: {
+  name: string;
+  project: string;
+  /** The member card's ⋯ menu draws it as one of its rows (FEAT-PARTY-V2). */
+  className?: string;
+  role?: string;
+}) {
   const { busy } = useEngineStore();
   const [open, setOpen] = useState(false);
   const [oldLead, setOldLead] = useState<'worker' | 'stop'>('worker');
@@ -36,7 +52,8 @@ export function PromoteButton({ name, project }: { name: string; project: string
     <>
       <button
         type="button"
-        className={button}
+        className={className}
+        role={role}
         disabled={busy[name] !== undefined}
         onClick={() => setOpen(true)}
       >
@@ -90,7 +107,7 @@ export function PromoteButton({ name, project }: { name: string; project: string
 }
 
 /** "+ Worker": a Worker of `project`, with the choices the installed CLI lists. */
-export function AddWorker({ project }: { project: string }) {
+export function AddWorker({ project, label, className }: { project: string; label?: string; className?: string }) {
   const { state, busy, toast } = useEngineStore();
   const engine: EngineProject[] = state?.projects ?? [];
   const folder = engine.find((p) => p.name === project && !p.role)?.folder ?? '';
@@ -107,11 +124,13 @@ export function AddWorker({ project }: { project: string }) {
     else setOpen(false);
     setPending(null);
   }, [pending, busy, toast]);
-  // D5: Claude or Codex, among those installed here; the picker only when there are both.
-  const providers = workerProviders(state?.agentChoices);
-  const codex = f.provider === 'codex';
-  const choices = state?.agentChoices?.[f.provider];
-  const choice = (key: 'model' | 'effort' | 'permissionMode', label: string, ids: string[] = []) => (
+  // D5: Claude or Codex, among those installed here; ACP-1: and every installed ACP agent. The
+  // picker only when there is more than one.
+  const providers = workerProviders(state?.agentChoices, state?.agentCaps);
+  const caps = capsOf(state, f.provider);
+  const choices = (state?.agentChoices as Record<string, AgentChoices | undefined> | undefined)?.[f.provider];
+  // A list the agent does not give (an ACP agent keeps its own settings) is no choice.
+  const choice = (key: 'model' | 'effort' | 'permissionMode', label: string, ids: string[] = []) => ids.length > 0 && (
     <label className="block text-xs">
       {label}
       <select
@@ -119,7 +138,7 @@ export function AddWorker({ project }: { project: string }) {
         value={f[key]}
         onChange={(e) => setF({ ...f, [key]: e.target.value })}
       >
-        <option value="">{t(codex ? 'workbench.worker.codexDefault' : 'workbench.worker.default')}</option>
+        <option value="">{t('workbench.worker.default')}</option>
         {ids.map((id) => (
           <option key={id} value={id}>
             {id}
@@ -134,20 +153,20 @@ export function AddWorker({ project }: { project: string }) {
     const name = f.name.trim();
     setError(null);
     setPending(name);
-    send('add', name, { ...workerFields(f, project, folder), ...(inheritFrom && { inheritFrom }) });
+    send('add', name, { ...workerFields(f, project, folder, caps), ...(inheritFrom && { inheritFrom }) });
   };
   return (
     <>
       <button
         type="button"
-        className={button}
+        className={className ?? button}
         onClick={() => {
           setF(emptyWorkerForm(folder));
           setError(null);
           setOpen(true);
         }}
       >
-        {t('workbench.addWorker')}
+        {label ?? t('workbench.addWorker')}
       </button>
       <Modal
         isOpen={open}
@@ -164,25 +183,35 @@ export function AddWorker({ project }: { project: string }) {
           }}
         >
           {providers.length > 1 && (
-            <label className="block text-xs">
-              {t('workbench.worker.agent')}
-              <select
-                className={input}
-                value={f.provider}
-                data-testid="worker-provider"
-                onChange={(e) => {
-                  const provider = e.target.value as WorkerForm['provider'];
-                  // A Codex Worker without a folder works in a task worktree per Task: start empty.
-                  setF({ ...emptyWorkerForm(provider === 'codex' ? '' : folder, provider), name: f.name, role: f.role });
-                }}
-              >
-                {providers.map((p) => (
-                  <option key={p} value={p}>
-                    {t(`workbench.provider.${p}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <fieldset className="block text-xs">
+              <legend>{t('workbench.worker.agent')}</legend>
+              {/* ACP-1: each agent with its own mark (a native select cannot show one). */}
+              <div className="flex flex-wrap gap-6 mt-4" role="radiogroup" data-testid="worker-provider" aria-label={t('workbench.worker.agent')}>
+                {providers.map((p) => {
+                  const pc = capsOf(state, p);
+                  const tag = meteredTag(pc);
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      role="radio"
+                      aria-checked={f.provider === p}
+                      data-provider={p}
+                      className={`${button} inline-flex items-center gap-6 rounded-ui-chip ${f.provider === p ? 'bg-active-bg border-accent' : ''}`}
+                      onClick={() => {
+                        // A 'run' Worker without a folder works in a task worktree per Task: start empty.
+                        const run = !takesDirectChat(pc);
+                        setF({ ...emptyWorkerForm(run ? '' : folder, p), name: f.name, role: f.role });
+                      }}
+                    >
+                      <AgentMark id={p} name={providerName(p, pc)} className="cc-mark" />
+                      {providerName(p, pc)}
+                      {tag && <span className="text-text-muted">{tag}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
           )}
           <label className="block text-xs">
             {t('workbench.worker.name')}
@@ -221,7 +250,7 @@ export function AddWorker({ project }: { project: string }) {
               onChange={(e) => setF({ ...f, folder: e.target.value })}
             />
             <span className="text-text-muted">
-              {t(codex ? 'workbench.worker.folderHelpCodex' : 'workbench.worker.folderHelp')}
+              {t(takesDirectChat(caps) ? 'workbench.worker.folderHelp' : 'workbench.worker.folderHelpCodex')}
             </span>
           </label>
           {open && (
@@ -229,7 +258,7 @@ export function AddWorker({ project }: { project: string }) {
           )}
           {choice('model', t('workbench.worker.model'), choices?.models)}
           {choice('effort', t('workbench.worker.effort'), choices?.efforts)}
-          {!codex && choice('permissionMode', t('workbench.worker.permissionMode'), choices?.permissionModes)}
+          {choosesPermission(caps) && choice('permissionMode', t('workbench.worker.permissionMode'), choices?.permissionModes)}
           {error && (
             <p role="alert" className="text-xs text-red-400 break-words">
               {error}

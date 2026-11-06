@@ -8,22 +8,18 @@
 import { type CSSProperties, useSyncExternalStore } from 'react';
 
 import {
-  applyPreset,
   emptyLayout,
   type Entry,
+  keepWindowPlaces,
   type Layout,
   LAYOUT_KEY,
   migrateSavedWindowIds,
   parseLayout,
   type Place,
-  type Preset,
-  presetLayoutOnly,
   type ScaleStep,
   serializeLayout,
-  type Size,
   type WindowId,
   withEntry,
-  withNewIcons,
 } from './layout.js';
 import {
   back,
@@ -35,9 +31,12 @@ import {
   minimize,
   type OfficeTab,
   openOrFocus,
+  PANEL_IDS,
+  type PanelId,
   type Step,
   type Tab,
   tabPress,
+  toFront,
   type WinState,
   withPhone,
 } from './windowModel.js';
@@ -114,7 +113,7 @@ function load(): Layout {
     const data = migrateSavedWindowIds(parsed);
     if (JSON.stringify(data) !== JSON.stringify(parsed))
       localStorage.setItem(LAYOUT_KEY, JSON.stringify(data));
-    return withNewIcons(presetLayoutOnly(parseLayout(JSON.stringify(data))));
+    return keepWindowPlaces(parseLayout(JSON.stringify(data)));
   } catch {
     return emptyLayout(); // storage blocked: defaults for this visit
   }
@@ -133,7 +132,7 @@ function save(layout: Layout): void {
       open = undefined;
     }
     const saved = open === undefined ? layout : { ...layout, open, minimized };
-    if (Object.keys(layout.items).length === 0 && open === undefined && !layout.preset)
+    if (Object.keys(layout.items).length === 0 && open === undefined)
       localStorage.removeItem(LAYOUT_KEY);
     else localStorage.setItem(LAYOUT_KEY, serializeLayout(saved));
   } catch {
@@ -150,7 +149,8 @@ let snapshot: HudSnapshot = {
   open: { ...savedOpen, messenger: false, looks: false },
   officeTab: 'status',
   boardTab: 'status',
-  order: ['office', 'messenger', 'notices', 'terminal', 'looks', 'devroom'],
+  // The panels start under every window; a press on one brings it in front (WINDOW-LAYERS).
+  order: [...PANEL_IDS, 'office', 'messenger', 'notices', 'terminal', 'looks', 'devroom'],
   minimized: loadSavedMinimized({ ...savedOpen, messenger: false }),
 };
 const listeners = new Set<() => void>();
@@ -180,6 +180,14 @@ export const openWindow = (id: WindowId) => run((s) => openOrFocus(s, id));
 /** The window's ×; on a phone, the page goes out of sight as it was. */
 export const closeWindow = (id: WindowId) => run((s) => close(s, id));
 export const leaveNoticesWindow = () => run(leaveNotices);
+/** A press on a HUD panel: it comes in front of the windows and the other panels (WINDOW-LAYERS). */
+export const panelToFront = (id: PanelId) => run((s) => toFront(s, id));
+/** The PC's 알림 is the expanded event log, not a window (A4): open and not folded away means expanded. */
+export const noticesExpanded = (s: Pick<WinState, 'open' | 'minimized'>) =>
+  s.open.notices === true && s.minimized.notices !== true;
+/** The bell: expand the notification panel, or fold it. */
+export const toggleNotices = () =>
+  run((s) => (noticesExpanded(s) ? close(s, 'notices') : openOrFocus(s, 'notices')));
 export const minimizeWindow = (id: WindowId) => run((s) => minimize(s, id));
 /** A PC icon (taskbar rules). */
 export const pressIcon = (icon: Icon) => run((s) => iconPress(s, icon));
@@ -218,7 +226,7 @@ export function usePageStyle(id: WindowId): CSSProperties {
 
 /** UI-C1: the tabs the window still has; a name from an older state (jobs, codex, and hw since
  *  building-a-1104: the board's full H/W screen replaced it) is 현황판. */
-export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'files'];
+export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'runs', 'files'];
 export const normalizeOfficeTab = (tab: unknown): OfficeTab =>
   OFFICE_TABS.find((id) => id === tab) ?? 'status';
 
@@ -253,25 +261,6 @@ function change(id: string, entry: Partial<Entry>): void {
 export const setPlace = (id: string, place: Place | undefined) => change(id, { place });
 export const setScale = (id: string, scale: ScaleStep) => change(id, { scale });
 export const clearEntry = (id: string) => change(id, { place: undefined, scale: undefined });
-
-// ── Presets (T-0111) ──────────────────────────────────────────
-
-let hudBounds: Size | null = null;
-/** The HUD layer reports its size, so a preset can place things for the screen it is on. */
-export const setHudBounds = (size: Size | null) => void (hudBounds = size);
-
-/**
- * 오른쪽 세로 / 아래 가로 / 작업용: icons and windows to where the preset puts them. Returns
- * which windows to open or close; nothing before the layer is measured.
- */
-export function applyLayoutPreset(preset: Preset, icons: readonly string[]): void {
-  if (!hudBounds) return;
-  const result = applyPreset(snapshot.layout, preset, hudBounds, icons);
-  save(result.layout);
-  update({ layout: result.layout, minimized: {} });
-  for (const [id, on] of Object.entries(result.open) as [WindowId, boolean | undefined][])
-    if (on !== undefined) (on ? openWindow : closeWindow)(id);
-}
 
 /** 화면 배치 초기화: every position, size and scale back to the defaults. */
 export function resetLayout(): void {

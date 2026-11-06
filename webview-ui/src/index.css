@@ -27,9 +27,57 @@
   unicode-range: U+0021-007E;
 }
 
+/* FEAT-UI-MODERN-THEME: the 모던 style's face for every DOM text (--ui-font below), the app only (the login page keeps its own). Pretendard
+   v1.3.9 by Kil Hyung-jin, SIL OFL 1.1 (public/fonts/pretendard/). The app's sizes were set for the
+   pixel faces, drawn at two thirds (Galmuri's size-adjust above): 70% puts the 22 px base at 15.4 px,
+   as in the GPT mockups, and Pretendard's Hangul still sits a little under Galmuri's, so every box
+   that fit the pixel text fits this one (raw small sizes take --ui-text-floor). Only a
+   page on 모던 asks for the files (픽셀 감성 never names the family). FIX-PHONE-MODERN-TYPOGRAPHY: SemiBold answers
+   for every strong weight (600-700), as the mockups' names and heads; Bold read as blots on a phone. */
+@font-face {
+  font-family: 'Pretendard';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/pretendard/Pretendard-Regular.woff2') format('woff2');
+  size-adjust: 70%;
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-style: normal;
+  font-weight: 600 700;
+  font-display: swap;
+  src: url('/fonts/pretendard/Pretendard-SemiBold.woff2') format('woff2');
+  size-adjust: 70%;
+}
+/* FIX-PHONE-FONTS: our files are public (authRoutes.ts), so every device draws Pretendard from them; until
+   they arrive (font-display: swap on a slow line) or if they fail, the system's Hangul face stands in
+   at the same 70%, so the text does not grow by half and overflow its boxes (system-ui is unscaled). */
+@font-face {
+  font-family: 'Pretendard Fallback';
+  font-weight: 400;
+  src: local('Apple SD Gothic Neo Regular'), local('AppleSDGothicNeo-Regular'), local('Malgun Gothic'),
+    local('MalgunGothic'), local('Noto Sans KR Regular'), local('NotoSansKR-Regular'),
+    local('Noto Sans CJK KR Regular'), local('NotoSansCJKkr-Regular');
+  size-adjust: 70%;
+}
+@font-face {
+  font-family: 'Pretendard Fallback';
+  font-weight: 600 700;
+  src: local('Apple SD Gothic Neo SemiBold'), local('AppleSDGothicNeo-SemiBold'), local('Apple SD Gothic Neo Bold'), local('AppleSDGothicNeo-Bold'), local('Malgun Gothic Bold'),
+    local('MalgunGothicBold'), local('Noto Sans KR Bold'), local('NotoSansKR-Bold'),
+    local('Noto Sans CJK KR Bold'), local('NotoSansCJKkr-Bold');
+  size-adjust: 70%;
+}
+
 :root {
+  /* A blank line between paragraphs of a message or a document: visible as a gap, in both styles (owner 11-06 22:07). */
+  --ui-para-gap: 0.75em;
   /* Core palette */
   --color-bg: #1e1e2e;
+  /* An agent without a logo: its own hue (from its id) at this saturation and lightness (cld/icons/agentLogos.ts). */
+  --agent-mark-s: 55%;
+  --agent-mark-l: 42%;
   --color-bg-dark: #181828;
   --color-bg-thumb: #2a2a3a;
   --color-border: #4a4a6a;
@@ -153,7 +201,6 @@
   --stamp-ink: var(--color-accent-text);
 
   /* GAME-UI-0 (specs/ui-mock-1103 cockpit D2, calm): the game parts' tokens, existing colours by alias. */
-  --font-data: 'Galmuri11 ASCII', 'FS Pixel Sans', 'Galmuri11', sans-serif; /* IDs, SHAs, big numbers */
   --led-on: #74ad70; /* --color-status-success one step down */
   --led-on-line: #4a7a4f; /* --color-devroom-on-line one step down */
   --led-half: var(--color-status-permission);
@@ -175,8 +222,45 @@
   --coin: var(--color-devroom-conf);
   --coin-line: var(--color-devroom-conf-line);
 
-  /* Shadow */
-  --shadow-pixel: 2px 2px 0px #0a0a14;
+  /* UI-DEPTH (GPT mock-ups 11-04, windows-v3): depth inside the pixel rules. The bevel is
+     98.css's raised/sunken field (MIT, jdan/98.css: two inset 1 px shadows, light top-left, dark
+     bottom-right, swapped when pressed); the press is NES.css's button (MIT, nostalgic-css/NES.css:
+     the shade flips and the face drops). Techniques only, no library: these tokens and the .ui-*
+     classes below. No blur anywhere. */
+  /* Surfaces by height: window body < its head < a card < something floating. */
+  --surface-body: #16162a;
+  --surface-head: #1d1d33;
+  --surface-card: var(--color-devroom-card);
+  --surface-float: #2b2a44;
+  --color-border-hi: #7d7aa8; /* a hovered border */
+  --window-line: var(--color-devroom-main-line);
+  --bevel-hi: rgba(255, 255, 255, 0.16);
+  --bevel-lo: rgba(0, 0, 0, 0.5);
+  --shadow-ink: #0a0a14;
+  /* A title bar's three steps, lightest on top. */
+  --head-step-1: #363364;
+  --head-step-2: #2a2850;
+  --head-step-3: var(--surface-head);
+  --head-step-px: 3px;
+  /* The chosen thing's light: two accent rings, no glow. */
+  --glow-in: #c9b8ff;
+  --glow-out: var(--color-accent);
+  --focus-ring: var(--color-devroom-title);
+  /* A chip's or badge's cut corner. */
+  --notch: 2px;
+  --ui-motion: 100ms;
+  /* FEAT-MESSENGER-GPT-LOOK (GPT mockup 2): the messenger's own layers, on top of the UI-DEPTH surfaces. */
+  --msg-rail: #1a1a30; /* the conversation list, a step above the timeline */
+  --msg-timeline: #121224; /* the deepest layer: bubbles float on it */
+  --msg-row-on: #4330b0; /* the chosen conversation, lit in the accent */
+  --msg-row-on-line: #a996ff;
+  --msg-bubble: #23233c;
+  --msg-bubble-line: #4f4b78;
+  --msg-mine: #241c52; /* the boss's own bubble: the accent outline on a deep violet */
+  --msg-mine-line: #7c62ff;
+  --msg-file: #1b1b33; /* a file card inside a bubble, sunk a step */
+  --msg-col: 55px; /* the avatar column of the conversation's band: the frame (45) and its gap (10), each side */
+  --msg-band-max: 710px; /* the band (both margins and the box) is at most this wide, centred, however wide the window */
 
   /* Non-utility values */
   --vignette: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
@@ -198,25 +282,170 @@
   --cld-touch-min: 44px;
   --cld-safe-left: env(safe-area-inset-left, 0px);
 
-  /* UI-FONT 글꼴 (cld/uiFont.ts sets data-ui-font on <html>): 픽셀 감성 is FS Pixel Sans for Latin,
-     읽기 쉬움 puts Galmuri11 first for printable ASCII (fonts.css), the face that draws the Hangul. */
+  /* The pixel face (cld/uiTheme.ts sets data-ui-theme on <html>): 픽셀 감성 is FS Pixel Sans for Latin,
+     모던 puts Galmuri11 first for printable ASCII (fonts.css), the face that draws the Hangul, as the
+     canvas does (constants.ts PIXEL_FONT_FAMILY_READABLE): the office world's DOM parts (.ui-world, the billboard). */
   --pixel-font-stack: 'FS Pixel Sans', 'Galmuri11', sans-serif;
 }
-:root[data-ui-font='readable'] {
+:root,
+.ui-world {
+  /* FEAT-UI-MODERN-THEME 화면 스타일 (cld/uiTheme.ts): every shape, shadow and font of the DOM UI reads
+     these. The values here are 픽셀 감성, today's look exactly; :root[data-ui-theme='modern'] below
+     swaps them for the GPT mockups' (rounded, 1 px lines, soft drops, Pretendard). The office world's
+     DOM parts (the lobby billboard) carry .ui-world: this rule puts the pixel values back there. The
+     characters' nameplates are UI and follow the style (owner 11-06 18:14). */
+  --ui-font: var(--pixel-font-stack); /* every DOM text (Tailwind font-pixel) */
+  --ui-weight-strong: 400; /* a title or a name: the pixel faces have no bold */
+  --ui-title-scale: 1; /* a panel's or window's title: a step bigger in modern, as the mockups' heads */
+  --ui-win-title: var(--text-sm); /* a window's or dialog's name in its head */
+  --ui-head-icon: 16px; /* the icon before it */
+  --ui-text-render: auto; /* modern: geometricPrecision, so small Pretendard keeps its spacing (no whole-px advances) */
+  --ui-ms-fill: 1; /* Material Symbols: filled in pixel, outlined in modern (beside the Lucide outlines) */
+  --ui-text-floor: 0px; /* the least a raw px font size draws at: the pixel faces stay crisp small, Pretendard does not */
+  --ui-text-2xs: 16px; /* Tailwind text-2xs before --ui-scale (the smallest step) */
+  /* Tailwind's leading-* (its defaults): 모던 draws them at its face's 70% below. */
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  /* A CSS file's own unitless line height is written `calc(1.4 * var(--ui-lh))`: 1 here, 0.7 for 모던
+     on a phone (below), as the leading-* steps. */
+  --ui-lh: 1;
+  --font-data: 'Galmuri11 ASCII', 'FS Pixel Sans', 'Galmuri11', sans-serif; /* IDs, SHAs, big numbers */
+  --ui-bw: 2px; /* a frame's line (Tailwind border-ui) */
+  --ui-r-win: 0px; /* a window, a dialog, a floating panel */
+  --ui-r-card: 0px; /* a card, a field, a button, a tab */
+  --ui-r-chip: 0px; /* a chip, a tag, a small key */
+  --ui-r-pill: 0px; /* a status pill, a counter, a dot */
+  --ui-ease: steps(2, end); /* a hover or press: whole steps in pixel, a curve in modern */
+  --ui-glow: 0 0 0 2px var(--glow-out); /* the chosen item's ring */
+  --ui-drop: 2px 2px 0px; /* a drop in a part's own colour: `box-shadow: var(--ui-drop) <colour>` */
+  /* A chip's or badge's cut corner (a polygon in pixel, a radius in modern). */
+  --ui-notch-clip: polygon(
+    var(--notch) 0,
+    calc(100% - var(--notch)) 0,
+    100% var(--notch),
+    100% calc(100% - var(--notch)),
+    calc(100% - var(--notch)) 100%,
+    var(--notch) 100%,
+    0 calc(100% - var(--notch)),
+    0 var(--notch)
+  );
+  /* Shadows (UI-DEPTH: 98.css's bevel, NES.css's hard drop; see :root above). */
+  --shadow-pixel: 2px 2px 0px #0a0a14;
+  --bevel: inset 1px 1px 0 var(--bevel-hi), inset -1px -1px 0 var(--bevel-lo);
+  --bevel-in: inset 1px 1px 0 var(--bevel-lo), inset -1px -1px 0 var(--bevel-hi);
+  --shadow-pixel-1: 1px 1px 0 var(--shadow-ink);
+  --shadow-pixel-3: 3px 3px 0 var(--shadow-ink);
+  --shadow-pixel-4: 4px 4px 0 var(--shadow-ink);
+}
+:root[data-ui-theme='modern'] {
   --pixel-font-stack: 'Galmuri11 ASCII', 'FS Pixel Sans', 'Galmuri11', sans-serif;
+  /* 모던 (GPT mockups gpt-1..7): rounded corners, 1 px lines, soft drops with a faint top highlight. */
+  --ui-font: 'Pretendard', 'Pretendard Fallback', system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-data: var(--ui-font);
+  --ui-weight-strong: 600;
+  --ui-title-scale: 1.18;
+  /* FIX-PHONE-MODERN-TYPOGRAPHY (owner 11-06 21:08, an iPhone): the app's sizes and line heights were set
+     for the pixel faces, and Pretendard draws at 70% of the size it is given (size-adjust above). The
+     smallest step and the floor draw at 12 px (17.143 x 0.7), not 11.2; a unitless line height is a
+     multiple of the size given, not the size drawn, so the inherited 1.5 (Tailwind's base) and the
+     leading-* steps are multiplied by 0.7 here: body text at 1.5 of what it draws, as the mockups, where
+     it drew at 2.1. Pretendard is set slightly tight for Korean UI (-2% of the drawn base), and a line
+     breaks between Korean words, not inside one (a word longer than its line still breaks). Numbers stay
+     proportional: Pretendard's tabular 1 spreads a date apart, so only the counts that tick ask for
+     tabular-nums themselves. Tailwind's base already sets -webkit-text-size-adjust: 100%. */
+  --ui-text-2xs: 17.143px;
+  --ui-text-floor: calc(var(--ui-text-2xs) * var(--ui-scale));
+  --leading-tight: 0.875;
+  --leading-snug: 0.963;
+  --leading-normal: 1.05;
+  --leading-relaxed: 1.138;
+  line-height: var(--leading-normal);
+  letter-spacing: calc(-0.02em * 0.7);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --ui-text-render: geometricPrecision;
+  --ui-ms-fill: 0;
+  --ui-win-title: var(--text-xl);
+  --ui-head-icon: 22px;
+  --ui-bw: 1px;
+  --ui-r-win: 8px;
+  --ui-r-card: 6px;
+  --ui-r-chip: 4px;
+  --ui-r-pill: 999px;
+  --ui-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ui-glow: 0 0 12px 1px rgba(124, 98, 255, 0.55);
+  --ui-drop: 0 2px 8px;
+  --ui-notch-clip: none;
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --bevel-in: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-pixel: 0 2px 6px rgba(0, 0, 0, 0.32);
+  --shadow-pixel-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-pixel-3: 0 6px 16px rgba(0, 0, 0, 0.38);
+  --shadow-pixel-4: 0 14px 36px rgba(0, 0, 0, 0.5);
+  /* A flat head, one step above the body, as the mockups' windows draw it. */
+  --head-step-1: var(--surface-head);
+  --head-step-2: var(--surface-head);
+  --focus-ring: var(--color-accent-bright);
+  /* Lines a touch lighter at 1 px, so a panel's edge reads as well as the 2 px one did. */
+  --win-line: #3c3b5c;
+  --hud-line: #3a3958;
+  --color-devroom-card-line: #47466a;
+}
+/* FIX-PHONE-UI-TEXT (owner 11-06 21:50, an iPhone): the screens' own unitless line heights (party,
+   notices, usage, messenger, quests, ...) were set for the pixel faces, so in 모던 they drew at 1.43x
+   (Pretendard at 70%): the phone takes them at 0.7 like the leading-* steps. The phone only, as
+   MOBILE_MEDIA_QUERY (constants.ts); the desktop keeps them as they are. */
+@media (max-width: 768px), (pointer: coarse) and (max-width: 1024px) {
+  :root[data-ui-theme='modern'] {
+    --ui-lh: 0.7;
+  }
+  /* The page is dark: WebKit drew the native selects (알림's sort) and checkboxes (파일) light, their
+     light text on white. A line breaks between Korean words in 픽셀 감성 too (모던 does everywhere,
+     above); the world's parts keep theirs. A field's text or placeholder that does not fit ends in an
+     ellipsis, not a cut glyph. */
+  :root {
+    color-scheme: dark;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+  input {
+    text-overflow: ellipsis;
+  }
+  .ui-world {
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+}
+/* The office world's DOM parts keep the pixel text inside a 모던 page (their tokens are the :root ones above). */
+:root[data-ui-theme='modern'] .ui-world {
+  line-height: var(--leading-normal);
+  letter-spacing: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
 }
 
 @theme inline {
   /* 1px base so Tailwind spacing maps directly to pixels (pixel-art project) */
   --spacing: calc(1px * var(--ui-scale));
 
-  --font-pixel: var(--pixel-font-stack);
+  --font-pixel: var(--ui-font);
+  /* FEAT-UI-MODERN-THEME: the shape tokens as utilities (rounded-ui-win, rounded-ui-card, ...). */
+  --radius-ui-win: var(--ui-r-win);
+  --radius-ui-card: var(--ui-r-card);
+  --radius-ui-chip: var(--ui-r-chip);
+  --radius-ui-pill: var(--ui-r-pill);
   /* DEVROOM-SUBVIEW: a sub-agent's transcript reads like a terminal; Galmuri draws the Hangul a mono face lacks. */
   --font-transcript: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Galmuri11', monospace;
 
   /* Text sizes (pixel-art scale, base = 22px) */
   --text-*: initial;
-  --text-2xs: calc(16px * var(--ui-scale));
+  --text-2xs: calc(var(--ui-text-2xs) * var(--ui-scale));
   --text-xs: calc(18px * var(--ui-scale));
   --text-sm: calc(20px * var(--ui-scale));
   --text-base: calc(22px * var(--ui-scale));
@@ -314,9 +543,39 @@
   --color-review-sent-line: var(--color-review-sent-line);
   --color-review-go: var(--color-review-go);
   --color-review-go-line: var(--color-review-go-line);
+  --color-border-hi: var(--color-border-hi);
+  --color-surface-body: var(--surface-body);
+  --color-surface-head: var(--surface-head);
+  --color-surface-card: var(--surface-card);
+  --color-surface-float: var(--surface-float);
 
   /* Shadow */
   --shadow-pixel: var(--shadow-pixel);
+}
+
+/* FEAT-UI-MODERN-THEME: a frame's line from the token (2 px in pixel, 1 px in modern). */
+@utility border-ui {
+  border-width: var(--ui-bw);
+}
+@utility border-t-ui {
+  border-top-width: var(--ui-bw);
+}
+@utility border-b-ui {
+  border-bottom-width: var(--ui-bw);
+}
+@utility border-l-ui {
+  border-left-width: var(--ui-bw);
+}
+@utility border-r-ui {
+  border-right-width: var(--ui-bw);
+}
+@utility border-x-ui {
+  border-left-width: var(--ui-bw);
+  border-right-width: var(--ui-bw);
+}
+@utility border-y-ui {
+  border-top-width: var(--ui-bw);
+  border-bottom-width: var(--ui-bw);
 }
 
 /* MSG-POLISH: a message from the previous session: a sepia rail and a faint tint on the left,
@@ -327,7 +586,8 @@
   padding-left: 4px;
 }
 .previous-band {
-  border: 2px solid var(--color-previous-border);
+  border: var(--ui-bw) solid var(--color-previous-border);
+  border-radius: var(--ui-r-card);
   background: var(--color-previous-bg);
   color: var(--color-previous-text);
 }
@@ -374,6 +634,7 @@
     /* No rubber-banding — the app owns all scrolling (canvas pan, xterm,
        card bar). */
     overscroll-behavior: none;
+    text-rendering: var(--ui-text-render);
     /* Whatever peeks out during keyboard show/hide or overscroll must be
        office-dark, never browser-white. */
     background: var(--color-bg-dark);
@@ -415,7 +676,7 @@
   }
   ::-webkit-scrollbar-thumb {
     background: var(--color-border);
-    border-radius: 0;
+    border-radius: var(--ui-r-pill);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: var(--color-accent);
@@ -450,10 +711,267 @@
     @apply font-mono;
   }
 
-  /* Panel with standard pixel-art border + shadow */
+  /* Panel with standard pixel-art border + shadow: the window body's surface, bevelled. */
   .pixel-panel {
-    @apply bg-bg border-2 border-border rounded-none shadow-pixel;
+    @apply bg-surface-body border-ui border-border rounded-ui-win;
+    box-shadow: var(--bevel), var(--shadow-pixel-3);
   }
+
+  /* ── UI-DEPTH parts (tokens in :root). Every part is a class so a hover is CSS only: no React
+     state, no render; a transition runs only while a state changes, transform and box-shadow only. */
+
+  /* A window or a dialog: the accent line round it, the highest drop. */
+  .ui-window {
+    border-color: var(--window-line);
+    box-shadow: var(--bevel), var(--shadow-pixel-4);
+  }
+  /* A window's head: three steps, lightest on top, a dark line under it. */
+  .ui-head {
+    background: linear-gradient(
+      to bottom,
+      var(--head-step-1) 0 var(--head-step-px),
+      var(--head-step-2) var(--head-step-px) calc(var(--head-step-px) * 2),
+      var(--head-step-3) calc(var(--head-step-px) * 2)
+    );
+    border-bottom-color: var(--color-devroom-card-line);
+    color: var(--color-devroom-title);
+    font-weight: var(--ui-weight-strong);
+  }
+  .ui-head-icon {
+    display: inline-grid;
+    place-items: center;
+    color: var(--color-devroom-mine-text);
+  }
+  /* The dock's 16-grid glyph at 1:1, the size of a head button's glyph. */
+  .ui-head-icon > svg {
+    width: var(--ui-head-icon);
+    height: var(--ui-head-icon);
+  }
+
+  /* Raised (98.css): light top-left, dark bottom-right, a hard drop. `.ui-raise` also moves:
+     1 px up on hover, 1 px down and the bevel swapped on press (NES.css). */
+  .ui-bevel,
+  .ui-raise {
+    box-shadow: var(--bevel), var(--ui-ring, 0 0 0 0 transparent), var(--shadow-pixel);
+  }
+  .ui-raise {
+    transition:
+      transform var(--ui-motion) var(--ui-ease),
+      box-shadow var(--ui-motion) var(--ui-ease);
+  }
+  @media (hover: hover) {
+    .ui-raise:hover:not(:disabled):not([aria-disabled='true']) {
+      transform: translateY(-1px);
+      box-shadow: var(--bevel), var(--ui-ring, 0 0 0 0 transparent), var(--shadow-pixel-3);
+    }
+  }
+  .ui-raise:active:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(1px);
+    box-shadow: var(--bevel-in), var(--ui-ring, 0 0 0 0 transparent), var(--shadow-pixel-1);
+  }
+  /* Sunken (98.css field): inputs, wells. */
+  .ui-sunken {
+    box-shadow: var(--bevel-in);
+  }
+  /* The chosen or the active one: two accent rings (its border and one outside it), no blur. */
+  .ui-on,
+  .ui-raise[aria-selected='true'],
+  .ui-tab[aria-selected='true'],
+  .ui-card[aria-selected='true'],
+  .ui-card[data-selected] {
+    --ui-ring: var(--ui-glow);
+    border-color: var(--glow-in);
+  }
+  .ui-raise:focus-visible,
+  .ui-card:focus-visible,
+  .ui-input:focus-visible,
+  .ui-row:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Tabs, two rows (GPT 개발실): the main row on the window, the sub row in a rail box. */
+  .ui-tabs {
+    display: flex;
+    align-items: center;
+    gap: calc(8px * var(--ui-scale));
+  }
+  .ui-subtabs {
+    display: flex;
+    align-items: center;
+    gap: calc(6px * var(--ui-scale));
+    padding: calc(4px * var(--ui-scale));
+    background: var(--color-devroom-rail);
+    border: var(--ui-bw) solid var(--color-devroom-card-line);
+    border-radius: var(--ui-r-card);
+    box-shadow: var(--bevel-in);
+  }
+  .ui-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(6px * var(--ui-scale));
+    height: calc(32px * var(--ui-scale));
+    padding: 0 calc(12px * var(--ui-scale));
+    white-space: nowrap;
+    background: var(--color-btn-bg);
+    color: var(--color-text);
+    border: var(--ui-bw) solid var(--color-border);
+    border-radius: var(--ui-r-card);
+    cursor: pointer;
+  }
+  .ui-subtabs .ui-tab {
+    height: calc(28px * var(--ui-scale));
+    padding: 0 calc(10px * var(--ui-scale));
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .ui-tab:disabled {
+    cursor: default;
+    opacity: var(--btn-disabled-opacity);
+  }
+  @media (hover: hover) {
+    .ui-tab:hover:not(:disabled) {
+      border-color: var(--color-border-hi);
+    }
+  }
+  .ui-tab[aria-selected='true'] {
+    background: var(--color-active-bg);
+    color: var(--color-devroom-tab-on);
+  }
+  .ui-subtabs .ui-tab[aria-selected='true'] {
+    border-color: var(--glow-in);
+    box-shadow: var(--bevel), var(--ui-ring);
+  }
+
+  /* A card (GPT 아키텍처): an icon tile, a name, a kind chip, a dot list, a status dot. */
+  .ui-card {
+    position: relative;
+    background: var(--surface-card);
+    border: var(--ui-bw) solid var(--color-devroom-box-line);
+    border-radius: var(--ui-r-card);
+    box-shadow: var(--bevel), var(--ui-ring, 0 0 0 0 transparent), var(--shadow-pixel);
+  }
+  button.ui-card,
+  .ui-card[role='button'] {
+    cursor: pointer;
+    transition:
+      transform var(--ui-motion) var(--ui-ease),
+      box-shadow var(--ui-motion) var(--ui-ease);
+  }
+  @media (hover: hover) {
+    button.ui-card:hover,
+    .ui-card[role='button']:hover {
+      transform: translateY(-1px);
+      border-color: var(--color-devroom-accent-line);
+    }
+  }
+  .ui-card-tile {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: calc(40px * var(--ui-scale));
+    height: calc(40px * var(--ui-scale));
+    background: var(--color-devroom-box);
+    border: var(--ui-bw) solid var(--color-devroom-box-line);
+    border-radius: var(--ui-r-card);
+    color: var(--color-devroom-mine-text);
+    box-shadow: var(--bevel);
+  }
+  .ui-dots {
+    list-style: none;
+    margin: 0;
+    padding: calc(8px * var(--ui-scale)) 0 0;
+    border-top: var(--ui-bw) solid var(--color-devroom-card-line);
+  }
+  .ui-dots > li {
+    position: relative;
+    padding-left: calc(14px * var(--ui-scale));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-dots > li::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: calc(50% - 2px);
+    width: 4px;
+    height: 4px;
+    border-radius: var(--ui-r-pill);
+    background: var(--color-accent-text);
+  }
+  .ui-status-dot {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 12px;
+    height: 12px;
+    border-radius: var(--ui-r-chip);
+    background: var(--color-border);
+    box-shadow: var(--bevel);
+  }
+  .ui-status-dot[data-tone='ok'] {
+    background: var(--color-status-success);
+  }
+  .ui-status-dot[data-tone='warn'] {
+    background: var(--color-devroom-conf);
+  }
+  .ui-status-dot[data-tone='bad'] {
+    background: var(--color-danger);
+  }
+  .ui-status-dot[data-tone='busy'] {
+    background: var(--color-devroom-blue);
+  }
+
+  /* A chip and a badge: pixel corners cut by clip-path (no radius), so they carry no drop. */
+  .ui-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 calc(6px * var(--ui-scale));
+    white-space: nowrap;
+    background: var(--color-devroom-box);
+    border: var(--ui-bw) solid var(--color-devroom-box-line);
+    border-radius: var(--ui-r-chip);
+    color: var(--color-devroom-mine-text);
+  }
+  .ui-notch {
+    clip-path: var(--ui-notch-clip);
+  }
+  .ui-badge {
+    background: var(--color-danger);
+    border: var(--ui-bw) solid var(--color-devroom-bad);
+    border-radius: var(--ui-r-pill);
+    color: var(--color-text);
+  }
+
+  /* A list row: a hover band, the chosen row framed. */
+  .ui-row {
+    border: var(--ui-bw) solid transparent;
+    border-radius: var(--ui-r-card);
+  }
+  @media (hover: hover) {
+    .ui-row:hover {
+      background: var(--color-btn-bg);
+    }
+  }
+  .ui-row[aria-selected='true'],
+  .ui-row[aria-current='true'] {
+    background: var(--color-active-bg);
+    border-color: var(--window-line);
+  }
+
+  /* A text or search field: sunken, the accent border while typing. */
+  .ui-input {
+    background: var(--color-devroom-menu);
+    border: var(--ui-bw) solid var(--color-border);
+    border-radius: var(--ui-r-card);
+    box-shadow: var(--bevel-in);
+  }
+  .ui-input:focus {
+    border-color: var(--color-accent-bright);
+  }
+
 
   /* Horizontal carousel for editor items */
   .carousel {
@@ -690,11 +1208,11 @@
   }
 
   /* Material Symbols defaults for this project: Sharp style (imported in
-     main.tsx at weight 700), FILL 1, GRAD 0, opsz 24. The package CSS pins
+     main.tsx at weight 700), FILL 1 (0 in modern, --ui-ms-fill), GRAD 0, opsz 24. The package CSS pins
      font-size to 24px; 1em instead, so an icon tracks the text beside it. */
   .material-symbols-sharp {
     font-variation-settings:
-      'FILL' 1,
+      'FILL' var(--ui-ms-fill),
       'GRAD' 0,
       'opsz' 24;
     font-size: 1em;
@@ -759,44 +1277,6 @@
   }
 }
 
-/* U-34: the box is always the width of three dots (a dot is narrower than 1ch in
-   this font, so growing the width jumped 0 -> 3); the dots are uncovered one at
-   a time from the left: 0, 1, 2, 3, then round again (THINKING_DOT_FRAME_SEC x 4). */
-@keyframes thinking-dots {
-  0% {
-    clip-path: inset(0 100% 0 0);
-  }
-  25% {
-    clip-path: inset(0 66.667% 0 0);
-  }
-  50% {
-    clip-path: inset(0 33.333% 0 0);
-  }
-  75% {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-.thinking-dots {
-  display: inline-block;
-  vertical-align: bottom;
-  white-space: nowrap;
-  animation: thinking-dots 1.6s steps(1, end) infinite;
-}
-.jump-newest-pop {
-  animation: jump-newest-pop 180ms steps(2, end);
-}
-@keyframes jump-newest-pop {
-  0% {
-    transform: translateX(-50%) scale(1);
-  }
-  50% {
-    transform: translateX(-50%) scale(1.12);
-  }
-  100% {
-    transform: translateX(-50%) scale(1);
-  }
-}
 @keyframes floating-toast-shimmer {
   0%,
   65%,
@@ -815,22 +1295,36 @@
   background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 14%) 50%, transparent 65%);
   animation: floating-toast-shimmer 3.8s ease-in-out infinite;
 }
+/* UI-DEPTH: the parts change state at once when the device or 게임 효과 asks for less motion
+   (gameMotion.ts sets data-game-motion; the media query covers a page before it runs). */
+:root[data-game-motion='off'] :is(.ui-raise, .ui-card) {
+  transition: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .thinking-dots {
-    width: auto;
-    animation: none;
-    font-size: 0;
-  }
-
-  .thinking-dots::after {
-    content: '…';
-    font-size: 1rem;
-  }
-  .jump-newest-pop {
-    animation: none;
+  .ui-raise,
+  .ui-card {
+    transition: none;
   }
   .floating-toast-frame::after {
     animation: none;
   }
 }
 
+
+/* A crowded off-duty or asleep plate (useNameplates.ts): the name alone, so it never piles on a working one.
+   Its feet badges (퇴근, 야근, rank) hide when they would sit on another plate or badge. */
+[data-testid='agent-overlay'][data-crowd] :is(
+    [data-testid='office-badges'],
+    [data-testid='rest-bubble'],
+    [data-testid='status-icon'],
+    [data-testid='plate-dot'],
+    [data-testid='rank-icon'],
+    [data-testid='level-ring'],
+    [data-testid='fatigue'],
+    [data-testid='fatigue-unknown']
+  ) {
+  display: none;
+}
+[data-testid='feet-badges'][data-crowd] {
+  visibility: hidden;
+}

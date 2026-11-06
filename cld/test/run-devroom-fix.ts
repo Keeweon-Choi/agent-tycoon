@@ -243,7 +243,7 @@ async function main() {
     await win.getByTestId('merge-abort').click();
     await desk.waitForTimeout(1_000);
 
-    // ── 작업 폴더 정리: answered at once, sized after, no overlap. ──
+    // ── 워크트리 정리: answered at once, sized after, no overlap. ──
     await win.getByTestId('devroom-cleanup').click();
     const rows = win.getByTestId('merge-row');
     await rows.first().waitFor({ timeout: 30_000 });

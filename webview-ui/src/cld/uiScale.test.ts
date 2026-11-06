@@ -63,9 +63,9 @@ describe('UI-SCALE setting', () => {
   });
 
   it("looks up the nameplate's sizes per step (owner 10-24)", () => {
-    expect(nameplateSizes('small')).toMatchObject({ name: 16, ring: 20, fatigue: 12, rank: 2, nameMax: 104 });
-    expect(nameplateSizes('medium')).toMatchObject({ name: 16, ring: 22, fatigue: 14, rank: 2, nameMax: 104 });
-    expect(nameplateSizes('large')).toMatchObject({ name: 20, ring: 26, fatigue: 18, rank: 3, nameMax: 150 });
+    expect(nameplateSizes('small')).toMatchObject({ name: 14, ring: 18, fatigue: 12, rank: 2 });
+    expect(nameplateSizes('medium')).toMatchObject({ name: 14, ring: 20, fatigue: 14, rank: 2 });
+    expect(nameplateSizes('large')).toMatchObject({ name: 18, ring: 24, fatigue: 18, rank: 3 });
     expect(nameplateSizes('medium')).toBe(NAMEPLATE_SIZES.medium);
   });
 });

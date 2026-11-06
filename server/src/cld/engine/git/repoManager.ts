@@ -53,6 +53,7 @@ import type {
   ReviewSendResult,
 } from '../../../../../core/src/messages.js';
 import { DEVROOM_CHANGES_KEEP_MS } from '../../../constants.js';
+import { SEND_TEXT_MAX } from '../../chatSend.js';
 import type { SocketStepUp, WsSend } from '../../hooks.js';
 import { STEPUP_REQUIRED } from '../../shell/gate.js';
 import { branchTips, cleanupRows, FolderSizes } from './cleanupList.js';
@@ -191,7 +192,7 @@ export function parseReviewNoteWrite(msg: Record<string, unknown>): ReviewNoteWr
 
 /** A well-formed repoAction, or null (the UI never sends anything else). */
 export function parseRepoAction(msg: Record<string, unknown>): RepoAction | null {
-  const { action, project, paths, message, task, force, taskId, assignee, base, path: file, choices } = msg;
+  const { action, project, paths, message, task, force, taskId, assignee, base, path: file, choices, branch, title, seat, text } = msg;
   if (!requestId(msg.requestId) || !isText(project, NAME_MAX) || project === '') return null;
   if (typeof action !== 'string' || !(ACTIONS as readonly string[]).includes(action)) return null;
   if (paths !== undefined) {
@@ -201,7 +202,10 @@ export function parseRepoAction(msg: Record<string, unknown>): RepoAction | null
   if (message !== undefined && !isText(message, COMMIT_MESSAGE_MAX * 2)) return null;
   if (task !== undefined && !isText(task, NAME_MAX)) return null;
   if (force !== undefined && typeof force !== 'boolean') return null;
-  for (const v of [taskId, assignee, base]) if (v !== undefined && !isText(v, NAME_MAX)) return null;
+  for (const v of [taskId, assignee, base, branch]) if (v !== undefined && !isText(v, NAME_MAX)) return null;
+  if (title !== undefined && !isText(title, NAME_MAX)) return null;
+  if (text !== undefined && !isText(text, SEND_TEXT_MAX)) return null;
+  if (seat !== undefined && typeof seat !== 'boolean') return null;
   if (file !== undefined && (!isText(file, PATH_MAX) || file === '')) return null;
   if (choices !== undefined) {
     if (!Array.isArray(choices) || choices.length > CHOICES_MAX) return null;
@@ -221,6 +225,10 @@ export function parseRepoAction(msg: Record<string, unknown>): RepoAction | null
     ...(base !== undefined ? { base: base as string } : {}),
     ...(file !== undefined && { path: file as string }),
     ...(choices !== undefined && { choices: choices as RepoConflictChoice[] }),
+    ...(branch !== undefined && { branch: branch as string }),
+    ...(title !== undefined && { title: title as string }),
+    ...(seat !== undefined && { seat: seat as boolean }),
+    ...(text !== undefined && { text: text as string }),
   };
 }
 
@@ -298,7 +306,7 @@ export class RepoManager {
   private readonly reviewSending = new Set<string>();
   /** P4: conflict pre-checks, by project, task, base commit and branch commit (null: failed). */
   private readonly conflictCache = new Map<string, string[] | null>();
-  /** P4 작업 폴더 정리: folder sizes, measured in the background and kept a while. */
+  /** P4 워크트리 정리: folder sizes, measured in the background and kept a while. */
   private readonly sizes = new FolderSizes();
   /** P4: one pre-check at a time, for the whole daemon. */
   private conflictChecking = false;
@@ -520,8 +528,15 @@ export class RepoManager {
       if (!repo.ok) return { type: 'repoState', ...repo };
       const top = await repoRoot(this.run, proj.folder);
       const worktrees = await this.worktreeRows(proj, top, true);
+      const externalWorktrees = await this.externalRows(proj, top);
       const merges = this.history.list(name, 20);
-      return { type: 'repoState', ...repo, worktrees, ...(merges.length && { merges }) };
+      return {
+        type: 'repoState',
+        ...repo,
+        worktrees,
+        ...(externalWorktrees.length && { externalWorktrees }),
+        ...(merges.length && { merges }),
+      };
     } catch (err) {
       console.warn(`[cld repo] ${JSON.stringify(name)}: ${String(err)}`);
       return { type: 'repoState', project: name, ok: false, ...refused('git_run_failed') };
@@ -553,6 +568,18 @@ export class RepoManager {
         ...(tip && { lastChange: tip.at }),
         ...(conflicts && { conflicts }),
       };
+    });
+  }
+
+  /** DEVROOM-SIDEBAR: the worktrees git has that the engine did not make, with their last commit's time. */
+  private async externalRows(proj: ProjectFolder, top: string): Promise<RepoWorktree[]> {
+    // ponytail: four git calls per external worktree each poll (REPO_POLL_MS, only while viewed); cache by HEAD if a repository has dozens.
+    const list = await this.worktrees.external(proj).catch(() => [] as RepoWorktree[]);
+    if (!list.length) return list;
+    const tips = await branchTips(this.run, top);
+    return list.map((w) => {
+      const tip = tips.get(w.branch);
+      return tip ? { ...w, lastChange: tip.at } : w;
     });
   }
 
@@ -888,6 +915,12 @@ export class RepoManager {
     stepUp?: SocketStepUp,
   ): Promise<RepoActionResult> {
     const { action, project: name } = req;
+    // DV4: a worktree made, or an agent seated (started or restarted in it), from a remote
+    // device needs a fresh step-up, as moving an agent's folder does (engine needsStepUp).
+    if (action === 'worktreeNew' && stepUp?.remote && !stepUp.fresh()) {
+      this.log(`worktreeNew ${JSON.stringify(name).slice(0, 66)}: step-up needed ${source}`);
+      return { type: 'repoActionResult', requestId: req.requestId, action, project: name, ok: false, error: STEPUP_REQUIRED };
+    }
     const out: WriteResult =
       action === 'worktreeNew'
         ? await (this.o.taskWorktree?.(req, privileged, source) ??
@@ -926,6 +959,20 @@ export class RepoManager {
     const rec = find();
     if (!rec) throw new RepoError(koText('worktree_missing'));
     return { rec, spec };
+  }
+
+  /** DV2 실행 row: the folder of worktree `task` of registered project `project` ('' = the project's
+   *  own folder), with its issue and agent; null when it is not one this daemon knows (or is gone). */
+  async workSpace(project: string, task: string): Promise<{ path: string; taskId?: string; assignmentId?: string } | null> {
+    const proj = this.project(project);
+    if (!proj) return null;
+    if (task === '') return { path: proj.folder };
+    try {
+      const { rec, spec } = await this.taskWorktree(proj, task);
+      return spec.exists ? { path: spec.path, ...(rec.taskId && { taskId: rec.taskId }), ...(rec.assignmentId && { assignmentId: rec.assignmentId }) } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** P4: sync / resolve / mergeContinue / mergeAbort inside the task worktree (conflicts.ts). */
@@ -983,7 +1030,7 @@ export class RepoManager {
     }
   }
 
-  /** P4 병합 tab: whether task worktree `task` merges now, and how (nothing changes). */
+  /** P4 머지 tab: whether task worktree `task` merges now, and how (nothing changes). */
   private async mergeCheck(req: { requestId: string; project: string; task: string }): Promise<RepoMergeCheckResult> {
     const head = { type: 'repoMergeCheckResult' as const, requestId: req.requestId, project: req.project, task: req.task };
     const proj = this.project(req.project);
@@ -1043,7 +1090,7 @@ export class RepoManager {
     }
   }
 
-  /** P4 작업 폴더 정리: merged or idle worktrees, sized now. */
+  /** P4 워크트리 정리: merged or idle worktrees, sized now. */
   private async cleanupList(
     req: { requestId: string; project: string },
     again?: (m: RepoCleanupListResult) => void,

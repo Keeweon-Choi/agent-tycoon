@@ -50,7 +50,7 @@ export function Dropdown({ isOpen, children, className = '', fitViewport = false
       <div
         ref={panelRef}
         style={fitViewport ? { maxHeight } : undefined}
-        className={`bg-bg border-2 border-border rounded-none shadow-pixel p-4 ${
+        className={`pixel-panel bg-surface-float p-4 ${
           fitViewport ? 'flex flex-col' : ''
         } ${className}`}
       >
@@ -70,7 +70,7 @@ export function DropdownItem({ onClick, children, className = '' }: DropdownItem
   return (
     <button
       onClick={onClick}
-      className={`block w-full text-left py-2 px-12 bg-transparent border-none rounded-none cursor-pointer whitespace-nowrap hover:bg-btn-bg ${className}`}
+      className={`block w-full text-left py-2 px-12 bg-transparent border-none rounded-ui-card cursor-pointer whitespace-nowrap ui-row ${className}`}
     >
       {children}
     </button>

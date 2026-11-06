@@ -265,7 +265,7 @@ export function LobbyBoard({
       {inView && rect && (
         <div
           ref={wallRef}
-          className={`led-board led-mini ${live ? '' : 'led-frozen'} ${phone ? 'led-phone' : ''}`}
+          className={`ui-world led-board led-mini ${live ? '' : 'led-frozen'} ${phone ? 'led-phone' : ''}`}
           data-testid="lobby-board"
           data-live={live}
           style={{ ...rect, fontSize: em, zIndex: BOARD_Z_INDEX }}
@@ -380,7 +380,7 @@ function FullBoard({
       onClick={(e) => e.target === e.currentTarget && closeOverlay('cldBoard', onClose)}
     >
       <div
-        className={`led-board led-full ${narrow ? 'led-full-narrow' : ''}`}
+        className={`ui-world led-board led-full ${narrow ? 'led-full-narrow' : ''}`}
         style={{ fontSize: narrow ? BOARD_FULL_EM_PX : fit }}
         onPointerEnter={(e) => e.pointerType === 'mouse' && onHover(true)}
         onPointerLeave={() => onHover(false)}

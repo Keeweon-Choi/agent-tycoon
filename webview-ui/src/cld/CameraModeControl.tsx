@@ -8,6 +8,7 @@ import { t } from '../i18n/index.js';
 import { setCameraMode, useCameraMode } from './cameraMode.js';
 import { PixelIcon } from './game/parts.js';
 import { showTitleScene } from './gfx/titleSceneState.js';
+import { Icon } from './icons/Icon.js';
 import { followOwner } from './useGameControls.js';
 
 /** `phone`: the group is a covered strip for the framing (UI-PHONE: the framed rooms and the lobby
@@ -26,6 +27,7 @@ export function CameraModeControl({ phone = false }: { phone?: boolean }) {
     return (
       <nav className="cld-camera-strip" aria-label={t('gfx.camera.label')} data-testid="camera-modes">
         <button type="button" className="cld-camera-btn" aria-label={t(free ? 'gfx.camera.free' : 'gfx.camera.auto')} {...toggle}>
+          <Icon name="camera" pixel={null} />
           {t(free ? 'gfx.camera.freeShort' : 'gfx.camera.autoShort')}
         </button>
         <button type="button" className="cld-camera-btn" aria-label={t('owner.me')} title={t('owner.followHint')} data-testid="owner-follow" onClick={followOwner}>

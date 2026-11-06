@@ -10,7 +10,6 @@ import {
   clientAddress,
   isPublicListener,
   type Session,
-  sessionIdFromCookie,
   type StandaloneAuth,
 } from '../auth.js';
 import { sameOriginRequest } from '../authRoutes.js';
@@ -53,7 +52,7 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
   const hostAllowed = (request: FastifyRequest) =>
     opts.allowedHostnames.has(normalizeHostname(request.headers.host) ?? '');
   const session = (request: FastifyRequest) =>
-    auth.session(sessionIdFromCookie(request.headers.cookie));
+    auth.session(auth.sessionIdOf(request.headers.cookie));
   const device = (s: Session) => auth.rowId(s);
   const requestClient = (request: FastifyRequest) => {
     const forwarded = request.headers['x-forwarded-for'];
@@ -178,7 +177,7 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
         socket.close(WS_CLOSE_NO_SESSION, 'no shell');
         return;
       }
-      const unbind = auth.bindSocket(sessionIdFromCookie(request.headers.cookie), () =>
+      const unbind = auth.bindSocket(auth.sessionIdOf(request.headers.cookie), () =>
         socket.close(WS_CLOSE_UNAUTHORIZED, 'signed out'),
       );
       const send = (data: string) => {

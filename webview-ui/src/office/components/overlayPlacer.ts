@@ -11,6 +11,7 @@
  */
 import { drawnShift } from '../../cld/floors.js';
 import { isoFrame, isoOverlayFor } from '../../cld/iso/render.js';
+import { characterDrawn } from '../engine/officeState.js';
 import type { OverlayProjection } from '../projection.js';
 import type { Character } from '../types.js';
 
@@ -66,8 +67,10 @@ export function createPlacer() {
     const b = base!;
     // ISO-PILOT: in the isometric building everything is placed from where it drew the feet; a
     // character off the floor in focus shows its bubble only.
-    const iso = isoOverlayFor(ch, dpr, b);
-    const shift = iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, ch.y);
+    // Not drawn (gone home, in the elevator's car): nothing of it is placed either.
+    const drawn = characterDrawn(ch);
+    const iso = drawn ? isoOverlayFor(ch, dpr, b) : null;
+    const shift = !drawn ? null : iso ? (iso.focused ? 0 : 1) : isoFrame() ? null : drawnShift(layout, ch.y);
     const project =
       iso?.project ?? (shift ? { ...b, toScreenY: (y: number) => b.toScreenY(y + shift) } : b);
     v = { project, shift };

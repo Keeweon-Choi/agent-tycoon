@@ -232,7 +232,7 @@ async function main() {
 
     // ── 4. A read-only daemon still refuses setup from an outside device. ──
     const cookie = (await host.context().cookies())
-      .filter((item) => item.name === 'cld_session')
+      .filter((item) => item.name.startsWith('cld_session'))
       .map((item) => `${item.name}=${item.value}`)
       .join('; ');
     check(cookie !== '', 'the local browser has a session for the read-only refusal check');

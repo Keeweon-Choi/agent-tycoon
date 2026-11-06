@@ -23,6 +23,7 @@ import type {
   ChatPendingResult,
   ChatQueued,
   ChatReply,
+  ChatSearchAllResult,
   ChatSearchResult,
   ChatSend,
   ChatSendNow,
@@ -46,9 +47,11 @@ import type {
 import type { TabStatus } from '../../components/AgentCard.js';
 import { CHAT_REQUEST_TIMEOUT_MS, MSG_QUEST_RECORDS_MAX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+// Called only when a result arrives (officeStore imports this module too).
+import { STEPUP_REQUIRED, stepUpFailedText } from '../auth/authApi.js';
+import { requestStepUp } from '../auth/stepUp.js';
 import { closeWindow, hudSubscribe, openWindow, windowShown } from '../hud/hudStore.js';
 import { type Presence, presenceWord } from '../officeHours.js';
-// Called only when a result arrives (officeStore imports this module too).
 import { serverLine, serverText } from '../serverText.js';
 import type { AttachmentChip } from './attachments.js';
 import type { QuestRecord } from './gameMessenger.js';
@@ -163,7 +166,11 @@ export interface MessengerSnapshot {
   /** A permission notice of this lead's background session was opened: 터미널로 보기 stands out. */
   terminalHint: number | null;
   /** Notice target waiting for the conversation to load. */
-  pendingJump: { agentId: number; at: number; id?: string } | null;
+  pendingJump: { agentId: number; at: number; id?: string; query?: string } | null;
+  /** A search hit in a group room waiting for the room's timeline: the post `id` to scroll to. */
+  pendingRoomJump: { roomId: string; id: string } | null;
+  /** The list's overall text search (ChatSearchAll): the request in flight, then its answer. */
+  searchAll: { requestId: string; busy: boolean; result?: ChatSearchAllResult } | null;
   historyDone: Record<number, boolean>;
   historyBusy: Record<number, string>;
   historyError: Record<number, string>;
@@ -208,6 +215,9 @@ export interface PermissionAnswerState {
   allow?: boolean;
   at?: number;
   folded?: boolean;
+  /** ACP-1: the option pressed; `retried`: sent once more after a step-up. */
+  optionId?: string;
+  retried?: boolean;
 }
 
 function loadRead(): Record<string, string> {
@@ -244,6 +254,8 @@ const initial = (): MessengerSnapshot => ({
   pinned: [],
   terminalHint: null,
   pendingJump: null,
+  pendingRoomJump: null,
+  searchAll: null,
   historyDone: {},
   historyBusy: {},
   historyError: {},
@@ -268,6 +280,8 @@ let snapshot = initial();
 const listeners = new Set<() => void>();
 const replyListeners = new Set<(r: LeadReply) => void>();
 let seq = 0;
+/** ACP-1: how the last card answer went out (a step-up's retry goes the same way). */
+let answerSend: ((m: PermissionAnswer) => void) | null = null;
 
 const emit = () => listeners.forEach((l) => l());
 const set = (next: Partial<MessengerSnapshot>) => {
@@ -701,6 +715,7 @@ export function messengerHandleMessage(
     | ChatPendingResult
     | ChatHistoryResult
     | ChatSearchResult
+    | ChatSearchAllResult
     | GroupRooms
     | GroupTimeline
     | GroupActionResult
@@ -809,6 +824,11 @@ export function messengerHandleMessage(
     set({ searchBusy: busy, searchResults: { ...snapshot.searchResults, [msg.agentId]: msg } });
     return;
   }
+  if (msg.type === 'chatSearchAllResult') {
+    if (snapshot.searchAll?.requestId !== msg.requestId) return; // a newer search, or none, replaced it
+    set({ searchAll: { requestId: msg.requestId, busy: false, result: msg } });
+    return;
+  }
   if (msg.type === 'messengerContacts') {
     const read = { ...snapshot.read };
     let baseline = false;
@@ -860,6 +880,29 @@ export function messengerHandleMessage(
   if (msg.type === 'permissionAnswerResult') {
     const mine = snapshot.permissionAnswers[msg.agentId];
     if (mine?.requestId !== msg.requestId) return;
+    if (!msg.ok && msg.error === STEPUP_REQUIRED && !mine.retried && answerSend) {
+      // ACP-1: "always allow" from a remote device: prove the device, then the same answer once more.
+      const send = answerSend;
+      const failed = () => {
+        const now = snapshot.permissionAnswers[msg.agentId];
+        if (now?.requestId === msg.requestId)
+          set({ permissionAnswers: { ...snapshot.permissionAnswers, [msg.agentId]: { ...now, error: stepUpFailedText() } } });
+      };
+      void requestStepUp().then((ok) => {
+        if (!ok || snapshot.permissionAnswers[msg.agentId]?.requestId !== msg.requestId) return failed();
+        const requestId = `${Date.now().toString(36)}-p${++seq}`;
+        set({ permissionAnswers: { ...snapshot.permissionAnswers, [msg.agentId]: { ...mine, requestId, retried: true } } });
+        send({
+          type: 'permissionAnswer',
+          requestId,
+          agentId: msg.agentId,
+          toolId: mine.toolId,
+          allow: mine.allow !== false,
+          ...(mine.optionId && { optionId: mine.optionId }),
+        });
+      }, failed);
+      return;
+    }
     const answered = msg.ok && msg.result === 'answered';
     const at = Date.now();
     set({
@@ -1008,7 +1051,8 @@ function syncPanes(prev: MessengerSnapshot): void {
  *  permission ask that may need the terminal). */
 export function openMessenger(
   agentId?: number,
-  opts: { terminal?: boolean; at?: number; id?: string } = {},
+  /** `query`: the words a search found it by; the conversation shows them marked, as its own search does. */
+  opts: { terminal?: boolean; at?: number; id?: string; query?: string } = {},
 ): void {
   openWindow('messenger'); // in front, as it was (a minimized one comes back)
   if (agentId === undefined) return;
@@ -1018,8 +1062,46 @@ export function openMessenger(
     activeRoom: null,
     terminalHint: opts.terminal ? agentId : null,
     pendingJump:
-      opts.at === undefined ? null : { agentId, at: opts.at, ...(opts.id && { id: opts.id }) },
+      opts.at === undefined
+        ? null
+        : { agentId, at: opts.at, ...(opts.id && { id: opts.id }), ...(opts.query && { query: opts.query }) },
   });
+}
+
+/** A group room opened at the post a search found. */
+export function openRoomAt(roomId: string, id: string): void {
+  showRoom(roomId);
+  set({ pendingRoomJump: { roomId, id } });
+}
+
+export function clearPendingRoomJump(roomId: string): void {
+  if (snapshot.pendingRoomJump?.roomId === roomId) set({ pendingRoomJump: null });
+}
+
+/** The list's overall text search: the request is in flight until its answer (or the time-out) comes. */
+export function requestSearchAll(requestId: string): void {
+  set({ searchAll: { requestId, busy: true } });
+  setTimeout(() => {
+    if (snapshot.searchAll?.requestId !== requestId || !snapshot.searchAll.busy) return;
+    set({
+      searchAll: {
+        requestId,
+        busy: false,
+        result: {
+          type: 'chatSearchAllResult',
+          requestId,
+          groups: [],
+          truncated: false,
+          error: t('messenger.error.search'),
+        },
+      },
+    });
+  }, CHAT_REQUEST_TIMEOUT_MS);
+}
+
+/** The search field was emptied (or the list left): the answer, and any still on its way, are dropped. */
+export function clearSearchAll(): void {
+  if (snapshot.searchAll) set({ searchAll: null });
 }
 
 export function clearPendingJump(agentId: number): void {
@@ -1189,13 +1271,16 @@ export function messengerAnswerPermission(
   agentId: number,
   card: PermissionWait,
   allow: boolean,
+  /** ACP-1: the option pressed on a card that lists them. */
+  optionId?: string,
 ): void {
   if (snapshot.permissionAnswers[agentId] && !snapshot.permissionAnswers[agentId].result && !snapshot.permissionAnswers[agentId].error)
     return; // one answer at a time
   const requestId = `${Date.now().toString(36)}-p${++seq}`;
   const { toolId } = card;
-  set({ permissionAnswers: { ...snapshot.permissionAnswers, [agentId]: { requestId, toolId, card, allow } } });
-  send({ type: 'permissionAnswer', requestId, agentId, toolId, allow });
+  answerSend = send;
+  set({ permissionAnswers: { ...snapshot.permissionAnswers, [agentId]: { requestId, toolId, card, allow, ...(optionId && { optionId }) } } });
+  send({ type: 'permissionAnswer', requestId, agentId, toolId, allow, ...(optionId && { optionId }) });
 }
 
 /** GAME-UI-1 G1 (02): a folded record's words: the dialog's title and its first line. */

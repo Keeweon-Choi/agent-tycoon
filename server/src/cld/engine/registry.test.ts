@@ -19,6 +19,7 @@ import {
   saveRegistry,
   splitRegistry,
 } from './registry.js';
+import { RENEW_HISTORY_VERSION } from './renewals.js';
 import { TASKS_VERSION } from './tasks.js';
 
 const dirs: string[] = [];
@@ -75,6 +76,7 @@ describe('project registry versions', () => {
     expect(release.dataSchema['assignments.json']).toBe(ASSIGNMENTS_VERSION);
     expect(release.dataSchema['tasks.json']).toBe(TASKS_VERSION);
     expect(release.dataSchema['lead-history.json']).toBe(LEAD_HISTORY_VERSION); // D3b
+    expect(release.dataSchema['renew-history.json']).toBe(RENEW_HISTORY_VERSION); // K1
   });
 
   it('reads a legacy array into records with fresh well-formed ids', () => {
@@ -484,6 +486,20 @@ describe('Workers in assignments.json (D3)', () => {
     project({ name: 'beta', projectId: 'p_bbbbbbbbbb', leadAssignmentId: 'a_bbbbbbbbbb' });
   const worker = (name: string, id: string, overrides: Partial<ProjectRecord> = {}) =>
     project({ name, role: 'worker', assignmentId: id, title: undefined, ...overrides });
+
+  it("ACP-1: an ACP Worker's own session id (no UUID) keeps the registry readable; a Claude one still must be a UUID", () => {
+    const target = file();
+    saveRegistry(target, [
+      alpha(),
+      worker('alpha-g1', 'a_cccccccccc', { provider: 'gemini', sessionId: 'mock-2532390-1', backgroundId: 'ses_01:x/y', wantRunning: true }),
+    ]);
+    const loaded = loadRegistry(target);
+    expect(loaded.broken).toBeNull();
+    expect(loaded.projects.find((p) => p.name === 'alpha-g1')).toMatchObject({ sessionId: 'mock-2532390-1', backgroundId: 'ses_01:x/y' });
+    const claude = file();
+    saveRegistry(claude, [alpha(), worker('alpha-c', 'a_dddddddddd', { sessionId: 'mock-2532390-1', wantRunning: true })]);
+    expect(loadRegistry(claude).broken).not.toBeNull();
+  });
 
   it('a Lead and two Workers round-trip; a Worker takes its folder and room from its project', () => {
     const target = file();

@@ -73,6 +73,8 @@ export type ServerMessage =
   | OfficeJobs
   | HwSample
   | DiskUsage
+  | HwSensorToolState
+  | AgentCliUpdateState
   | UsageState
   | CodexUsageCheckResult
   | AgentCliState
@@ -84,6 +86,8 @@ export type ServerMessage =
   | ChatTranscript
   | ChatHistoryResult
   | ChatSearchResult
+  | ChatSearchAllResult
+  | ChatFilesResult
   | WorkContent
   | ChatSendResult
   | ChatPendingResult
@@ -104,6 +108,8 @@ export type ServerMessage =
   | ProjectRepoResult
   | ProjectRepoProgress
   | JobActionResult
+  | RunScriptsResult
+  | JobStartResult
   | ViewerVisibilityAck
   | BuildingState
   | HostInfo
@@ -111,13 +117,16 @@ export type ServerMessage =
   | PushState
   | WhiteboardMemos
   | PinnedConversations
+  | Parties
   | GoneConversationDeleteResult
   | OfficeBackground
   | TaskBoard
   | DelegationApprovals
   | TrackedItems
   | TrackingSources
-  | SpecChanged;
+  | SpecChanged
+  | StreetState
+  | StreetEnterResult;
 
 export type ClientMessage =
   | WebviewReady
@@ -165,6 +174,8 @@ export type ClientMessage =
   | ChatView
   | ChatHistory
   | ChatSearch
+  | ChatSearchAll
+  | ChatFiles
   | WorkView
   | ChatSend
   | ChatSendNow
@@ -187,8 +198,13 @@ export type ClientMessage =
   | ProjectRepo
   | ProjectRepoCancel
   | JobAction
+  | RunScripts
+  | JobStart
   | ViewerVisibility
   | HwView
+  | HwSensorTool
+  | AgentCliUpdate
+  | AgentCliLatest
   | OwnerActivity
   | AddFloor
   | RenameFloor
@@ -201,6 +217,7 @@ export type ClientMessage =
   | PushUnsubscribe
   | SetWhiteboardMemo
   | SetConversationPin
+  | SetParties
   | GoneConversationDelete
   | SetOfficeBackground
   | TaskEdit
@@ -209,7 +226,9 @@ export type ClientMessage =
   | AgentRulesRequest
   | NewAgentPermissionRequest
   | DelegationDecision
-  | TrackingSettings;
+  | TrackingSettings
+  | StreetWatch
+  | StreetEnter;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -273,6 +292,7 @@ export interface AgentToolStart {
   runInBackground?: boolean;
   isTeammateSpawn?: boolean;
   model?: string;
+  path?: string;
 }
 
 export interface AgentToolDone {
@@ -305,6 +325,7 @@ export interface SubagentToolStart {
   status: string;
   desc?: string;
   model?: string;
+  path?: string;
 }
 
 export interface SubagentToolDone {
@@ -703,7 +724,7 @@ export interface PackPreset {
 export interface CharacterPart {
   id: string;
   slot: CharacterPartSlot;
-  kind: AnonymousSchema_287;
+  kind: AnonymousSchema_289;
   gender?: CharacterGender;
   name?: string;
   ramp: string[];
@@ -732,7 +753,7 @@ export type CharacterPartSlot =
   | 'hair'
   | 'acc';
 
-export type AnonymousSchema_287 = 'sheet' | 'head';
+export type AnonymousSchema_289 = 'sheet' | 'head';
 
 export interface CharacterPartHd {
   density?: CharacterPartDensity;
@@ -811,6 +832,7 @@ export interface RepoState {
   statUnstaged?: string;
   statStaged?: string;
   worktrees?: RepoWorktree[];
+  externalWorktrees?: RepoWorktree[];
   merges?: RepoMerge[];
 }
 
@@ -973,7 +995,7 @@ export interface ReviewNoteResult {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_451;
+  op: AnonymousSchema_454;
   id?: string;
   ok: boolean;
   error?: string;
@@ -981,7 +1003,7 @@ export interface ReviewNoteResult {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_451 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_454 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSendResult {
   type: 'reviewSendResult';
@@ -1127,6 +1149,7 @@ export interface OfficeOrchestrator {
   provider?: OrchestratorProvider;
   level?: OfficeLevel;
   renewing?: boolean;
+  renewFailed?: boolean;
   shellWait?: boolean;
   compacting?: boolean;
   heldEdits?: number;
@@ -1242,6 +1265,7 @@ export interface OfficeJob {
   stopped?: boolean;
   stopPct?: number | null;
   stopLine?: string | null;
+  run?: OfficeJobRun;
 }
 
 export interface JobProgress {
@@ -1253,6 +1277,14 @@ export interface JobProgress {
 }
 
 export type GpuJobState = 'queued' | 'leased' | 'done';
+
+export interface OfficeJobRun {
+  task: string;
+  script: string;
+  role: RunRole;
+}
+
+export type RunRole = 'dev' | 'test' | 'typecheck' | 'other';
 
 export interface HwSample {
   type: 'hwSample';
@@ -1286,7 +1318,8 @@ export interface HwSample {
   disks: HwDisk[];
   warnings: string[];
   sources?: Record<string, HwReadingSource>;
-  sensorsHint?: boolean | null;
+  sensorNotes?: HwSensorNote[];
+  nvidiaSmi?: HwNvidiaSmiState;
 }
 
 export interface HwCpuCore {
@@ -1346,7 +1379,11 @@ export interface HwDisk {
 
 export type HwDiskView = 'wsl' | 'windows';
 
-export type HwReadingSource = 'lhm' | 'sysfs' | 'nvidia-smi' | 'os';
+export type HwReadingSource = 'lhm' | 'sysfs' | 'nvidia-smi' | 'ioreg' | 'os';
+
+export type HwSensorNote = 'lhm' | 'nvidiaOff' | 'macTemps' | 'linuxTemps';
+
+export type HwNvidiaSmiState = 'on' | 'off';
 
 export interface DiskUsage {
   type: 'diskUsage';
@@ -1356,13 +1393,39 @@ export interface DiskUsage {
 }
 
 export interface DiskUsageRow {
-  kind: AnonymousSchema_693;
+  kind: AnonymousSchema_699;
   bytes: number;
   partial: boolean;
 }
 
-export type AnonymousSchema_693 =
+export type AnonymousSchema_699 =
   'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
+
+export interface HwSensorToolState {
+  type: 'hwSensorToolState';
+  phase: HwSensorToolPhase;
+  lines?: string[];
+  canInstall?: boolean;
+  ok?: boolean;
+  error?: string;
+}
+
+export type HwSensorToolPhase = 'plan' | 'running' | 'done' | 'refused';
+
+export interface AgentCliUpdateState {
+  type: 'agentCliUpdateState';
+  agent: string;
+  phase: AgentCliUpdatePhase;
+  ok?: boolean;
+  before?: string;
+  after?: string;
+  lines?: string[];
+  manual?: boolean;
+  command?: string;
+  error?: string;
+}
+
+export type AgentCliUpdatePhase = 'running' | 'done' | 'refused';
 
 export interface UsageState {
   type: 'usageState';
@@ -1375,6 +1438,7 @@ export interface UsageProvider {
   name: string;
   windows: UsageLimitWindow[];
   models?: UsageModel[];
+  at?: string;
 }
 
 export interface UsageLimitWindow {
@@ -1400,16 +1464,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_716;
+  state: AnonymousSchema_739;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_716 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_739 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_720;
+  language: AnonymousSchema_743;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1418,15 +1482,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_720 = 'ko' | 'en';
+export type AnonymousSchema_743 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_727;
+  mode: AnonymousSchema_750;
   error?: string;
 }
 
-export type AnonymousSchema_727 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_750 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1588,9 +1652,51 @@ export interface ChatSearchHit {
   snippet: string;
   session?: string;
   sessionStart?: number;
+  sender?: string;
 }
 
 export type ChatSearchKind = 'user' | 'assistant';
+
+export interface ChatSearchAllResult {
+  type: 'chatSearchAllResult';
+  requestId: string;
+  groups: ChatSearchAllGroup[];
+  truncated: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface ChatSearchAllGroup {
+  agentId?: number;
+  roomId?: string;
+  hits: ChatSearchHit[];
+  more: boolean;
+}
+
+export interface ChatFilesResult {
+  type: 'chatFilesResult';
+  requestId: string;
+  agentId: number;
+  files: ChatLibraryFile[];
+  next?: string;
+  done: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface ChatLibraryFile {
+  id: string;
+  at: number;
+  kind: ChatSearchKind;
+  name: string;
+  path?: string;
+  type?: string;
+  sizeKb?: number;
+  unavailable?: boolean;
+  missing?: boolean;
+}
 
 export interface WorkContent {
   type: 'workContent';
@@ -1696,7 +1802,16 @@ export interface PermissionWait {
   tool?: string;
   detail?: string;
   asker?: string;
+  options?: PermissionOption[];
 }
+
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: PermissionOptionKind;
+}
+
+export type PermissionOptionKind = 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
 
 export interface MessengerRoomReply {
   id: string;
@@ -1788,6 +1903,7 @@ export interface EngineState {
   projects: EngineProject[];
   warnings?: string[];
   agentChoices?: InstalledAgentChoices;
+  agentCaps?: Record<string, EngineAgentCaps>;
   moveAll?: EngineMoveAllProgress;
 }
 
@@ -1824,12 +1940,30 @@ export interface InstalledAgentChoices {
 
 export interface AgentChoices {
   version?: string;
+  latest?: string;
   models: string[];
   efforts: string[];
   permissionModes?: string[];
   defaultModel?: string;
   defaultEffort?: string;
 }
+
+export interface EngineAgentCaps {
+  approvalPolicy: string[];
+  sandbox?: string[];
+  attach?: 'pty';
+  lifetime: EngineAgentLifetime;
+  limits: boolean;
+  usageRefresh: boolean;
+  context: boolean;
+  billing: EngineAgentBilling;
+  name?: string;
+  update?: boolean;
+}
+
+export type EngineAgentLifetime = 'session' | 'run';
+
+export type EngineAgentBilling = 'plan' | 'metered' | 'unknown';
 
 export interface EngineMoveAllProgress {
   done: number;
@@ -1907,13 +2041,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1026;
+  status: AnonymousSchema_1091;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1026 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1091 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -1972,14 +2106,51 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1054;
+  state: AnonymousSchema_1119;
 }
 
-export type AnonymousSchema_1054 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1119 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
   error: boolean;
+}
+
+export interface RunScriptsResult {
+  type: 'runScriptsResult';
+  requestId: string;
+  project: string;
+  task: string;
+  ok: boolean;
+  scripts: RunScript[];
+  picks: RunPick[];
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface RunScript {
+  name: string;
+  cmd: string;
+}
+
+export interface RunPick {
+  script: string;
+  role: RunRole;
+  changed?: boolean;
+}
+
+export interface JobStartResult {
+  type: 'jobStartResult';
+  requestId: string;
+  project: string;
+  task: string;
+  scriptId: string;
+  ok: boolean;
+  id?: string;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
 }
 
 export interface ViewerVisibilityAck {
@@ -2019,6 +2190,8 @@ export interface HostInfo {
   distro?: string;
   mnt?: string;
   utcOffsetMin?: number;
+  hostId?: string;
+  hostName?: string;
 }
 
 export type HostOs = 'linux' | 'wsl' | 'darwin' | 'win32';
@@ -2075,6 +2248,17 @@ export interface WhiteboardMemo {
 export interface PinnedConversations {
   type: 'pinnedConversations';
   keys: string[];
+}
+
+export interface Parties {
+  type: 'parties';
+  parties: Party[];
+}
+
+export interface Party {
+  id: string;
+  name: string;
+  members: string[];
 }
 
 export interface GoneConversationDeleteResult {
@@ -2335,6 +2519,44 @@ export interface SpecChanged {
   rev: number;
 }
 
+export interface StreetState {
+  type: 'streetState';
+  neighbours: StreetNeighbour[];
+}
+
+export interface StreetNeighbour {
+  hostId: string;
+  name: string;
+  url: string;
+  state: StreetNeighbourState;
+  reason?: StreetNeighbourReason;
+  version?: string;
+  lastSeen: number | null;
+  agents: StreetAgent[];
+  waiting: number;
+}
+
+export type StreetNeighbourState =
+  'unknown' | 'online' | 'off' | 'unreachable' | 'old' | 'unpaired';
+
+export type StreetNeighbourReason =
+  'other_host' | 'tls' | 'timeout' | 'network' | 'bad_reply' | 'http' | 'clock';
+
+export interface StreetAgent {
+  name: string;
+  state: StreetAgentState;
+}
+
+export type StreetAgentState = 'working' | 'waiting' | 'idle' | 'off';
+
+export interface StreetEnterResult {
+  type: 'streetEnterResult';
+  hostId: string;
+  url?: string;
+  error?: string;
+  errorCode?: string;
+}
+
 export interface WebviewReady {
   type: 'webviewReady';
 }
@@ -2518,6 +2740,10 @@ export interface RepoAction {
   taskId?: string;
   assignee?: string;
   base?: string;
+  branch?: string;
+  title?: string;
+  seat?: boolean;
+  text?: string;
   path?: string;
   choices?: RepoConflictChoice[];
 }
@@ -2536,7 +2762,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1333;
+  op: AnonymousSchema_1447;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2545,7 +2771,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1333 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1447 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2618,6 +2844,19 @@ export interface ChatSearch {
   query: string;
 }
 
+export interface ChatSearchAll {
+  type: 'chatSearchAll';
+  requestId: string;
+  query: string;
+}
+
+export interface ChatFiles {
+  type: 'chatFiles';
+  agentId: number;
+  requestId: string;
+  before?: string;
+}
+
 export interface WorkView {
   type: 'workView';
   kind: WorkKind;
@@ -2671,6 +2910,7 @@ export interface PermissionAnswer {
   agentId: number;
   toolId: string;
   allow: boolean;
+  optionId?: string;
 }
 
 export interface GroupView {
@@ -2690,14 +2930,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1418;
+  action: AnonymousSchema_1540;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1418 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1540 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2799,6 +3039,22 @@ export interface JobAction {
   id: string;
 }
 
+export interface RunScripts {
+  type: 'runScripts';
+  requestId: string;
+  project: string;
+  task: string;
+  picks?: RunPick[];
+}
+
+export interface JobStart {
+  type: 'jobStart';
+  requestId: string;
+  project: string;
+  task: string;
+  scriptId: string;
+}
+
 export interface ViewerVisibility {
   type: 'viewerVisibility';
   visible: boolean;
@@ -2807,6 +3063,24 @@ export interface ViewerVisibility {
 export interface HwView {
   type: 'hwView';
   on: boolean;
+}
+
+export interface HwSensorTool {
+  type: 'hwSensorTool';
+  action: HwSensorToolAction;
+  consent?: boolean;
+}
+
+export type HwSensorToolAction = 'plan' | 'install' | 'nvidiaOn' | 'nvidiaOff';
+
+export interface AgentCliUpdate {
+  type: 'agentCliUpdate';
+  agent: string;
+}
+
+export interface AgentCliLatest {
+  type: 'agentCliLatest';
+  refresh?: boolean;
 }
 
 export interface OwnerActivity {
@@ -2864,12 +3138,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1512;
+  lang?: AnonymousSchema_1650;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1512 = 'en' | 'ko';
+export type AnonymousSchema_1650 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -2885,6 +3159,11 @@ export interface SetConversationPin {
   type: 'setConversationPin';
   key: string;
   pinned: boolean;
+}
+
+export interface SetParties {
+  type: 'setParties';
+  parties: Party[];
 }
 
 export interface GoneConversationDelete {
@@ -2925,19 +3204,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1534;
+  language: AnonymousSchema_1674;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1534 = 'ko' | 'en';
+export type AnonymousSchema_1674 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1538;
+  mode: AnonymousSchema_1678;
 }
 
-export type AnonymousSchema_1538 = 'ask' | 'bypass';
+export type AnonymousSchema_1678 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';
@@ -2956,4 +3235,14 @@ export interface TrackingSettings {
   project: string;
   settings?: TrackingProjectSettings;
   hide?: string;
+}
+
+export interface StreetWatch {
+  type: 'streetWatch';
+  on: boolean;
+}
+
+export interface StreetEnter {
+  type: 'streetEnter';
+  hostId: string;
 }

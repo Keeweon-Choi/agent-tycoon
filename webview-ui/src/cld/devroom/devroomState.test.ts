@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { EngineProject, RepoWorktree } from '../../../../core/src/messages.js';
+import { setProviderCapabilities } from '../../office/toolUtils.js';
 import {
   agentsOn,
   type Chip,
@@ -28,16 +29,16 @@ const wt = (over: Partial<RepoWorktree> = {}): RepoWorktree => ({
   merged: false,
   ...over,
 });
-const quiet = { wait: null, busy: false, notesSent: false };
+const quiet = { wait: null, state: 'resting' as const, notesSent: false };
 
 describe('chipOf', () => {
   it('takes the strongest state first', () => {
     expect(chipOf({ wt: wt({ conflicts: ['a', 'b'] }), ...quiet, wait: 'permission' })).toBe('conflict');
-    expect(chipOf({ wt: wt(), ...quiet, wait: 'permission', busy: true })).toBe('approve');
-    expect(chipOf({ wt: wt(), ...quiet, wait: 'question', busy: true })).toBe('question');
-    expect(chipOf({ wt: wt(), task: { status: 'review' }, ...quiet, busy: true })).toBe('review');
+    expect(chipOf({ wt: wt(), ...quiet, wait: 'permission', state: 'working' })).toBe('approve');
+    expect(chipOf({ wt: wt(), ...quiet, wait: 'question', state: 'working' })).toBe('question');
+    expect(chipOf({ wt: wt(), task: { status: 'review' }, ...quiet, state: 'working' })).toBe('review');
     expect(chipOf({ wt: wt(), task: { status: 'doing' }, ...quiet, notesSent: true })).toBe('fixing');
-    expect(chipOf({ wt: wt(), task: { status: 'doing' }, ...quiet, busy: true })).toBe('working');
+    expect(chipOf({ wt: wt(), task: { status: 'doing' }, ...quiet, state: 'working' })).toBe('working');
     expect(chipOf({ wt: wt(), ...quiet })).toBe('idle');
   });
 
@@ -80,6 +81,8 @@ describe('the terminal tab', () => {
     agent('down', { role: 'worker', live: false, bgId: undefined }),
   ];
   const orchs = engine.map((p, i) => ({ name: p.name, agentId: i + 1 }));
+  const caps = { approvalPolicy: [], lifetime: 'session' as const, limits: true, usageRefresh: false, context: true, billing: 'plan' as const };
+  const capsFor = (name: string) => (name === 'cx' ? caps : { ...caps, attach: 'pty' as const });
   const names = (wt: RepoWorktree | null, tasks = []) => agentsOn('shop', wt, engine, tasks).map((p) => p.name);
 
   it('a worktree shows its Worker, then the Reviewers pointed at it (folder or open Task); the trunk its Lead', () => {
@@ -91,15 +94,19 @@ describe('the terminal tab', () => {
   });
 
   it('only a running claude-pty agent gets a live terminal', () => {
-    const col = (name: string) => columnOf(engine.find((p) => p.name === name)!, orchs);
+    const col = (name: string) => columnOf(engine.find((p) => p.name === name)!, orchs, capsFor(name));
     expect(col('web')).toEqual({ kind: 'live', name: 'web', agentId: 2, bgId: 'bg-web' });
-    expect(col('cx').kind).toBe('codex');
+    expect(col('cx').kind).toBe('none'); // its agent has no terminal (caps), whoever it is
+    // ACP-1: one that works in runs links them; a session agent (ACP) has only its 대화.
+    expect(columnOf(engine.find((p) => p.name === 'cx')!, orchs, { ...caps, lifetime: 'run' })).toMatchObject({ kind: 'none', runs: true });
+    expect(columnOf(engine.find((p) => p.name === 'cx')!, orchs, { ...caps, lifetime: 'session' })).not.toHaveProperty('runs');
+    expect(columnOf(engine.find((p) => p.name === 'web')!, orchs, undefined).kind).toBe('live'); // caps not known yet
     expect(col('old').kind).toBe('old');
     expect(col('down').kind).toBe('off');
   });
 
   it('one sub column per running sub-agent, numbered across the agents, titled by its spawn', () => {
-    const cols = ['web', 'rev', 'cx'].map((n) => columnOf(engine.find((p) => p.name === n)!, orchs));
+    const cols = ['web', 'rev', 'cx'].map((n) => columnOf(engine.find((p) => p.name === n)!, orchs, capsFor(n)));
     const subs = {
       2: { 'tu-a': [{ toolId: 's1', status: 'Bash: npm test', done: true }], 'tu-b': [] },
       3: { 'tu-c': [{ toolId: 's2', status: 'Read x', done: false }] },
@@ -113,6 +120,20 @@ describe('the terminal tab', () => {
       [3, '', 1],
     ]);
     expect(subColumns(cols, { 2: {} }, tools)).toEqual([]); // subagentClear took the last one
+  });
+
+  it('DEVROOM-SIDEBAR: a running spawn with no tool rows yet is a sub-agent too; a finished one is not', () => {
+    setProviderCapabilities({ readingTools: [], subagentToolNames: ['Agent'] });
+    const cols = [columnOf(engine.find((p) => p.name === 'web')!, orchs, capsFor('web'))];
+    const tools = {
+      2: [
+        { toolId: 'tu-q', toolName: 'Agent', status: 'Subtask: quiet', desc: 'quiet', done: false },
+        { toolId: 'tu-end', toolName: 'Agent', status: 'Subtask: end', desc: 'end', done: true },
+        { toolId: 'b1', toolName: 'Bash', status: 'Bash', done: false },
+      ],
+    };
+    expect(subColumns(cols, { 2: {} }, tools).map((s) => [s.key, s.desc, s.done])).toEqual([['2:tu-q', 'quiet', false]]);
+    setProviderCapabilities({ readingTools: [], subagentToolNames: [] });
   });
 });
 

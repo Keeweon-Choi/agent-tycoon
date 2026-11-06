@@ -5,7 +5,7 @@ import { isDaytime } from './game/gameState.js';
 import { PixelIcon } from './game/parts.js';
 import { hostTime } from './officeHours.js';
 import { useCldStore } from './officeStore.js';
-import { useUiFont } from './uiFont.js';
+import { useUiTheme } from './uiTheme.js';
 
 /** Stands in for the weekday while the date line is split around it. */
 const WEEKDAY_MARK = '\u0001';
@@ -14,11 +14,20 @@ const HANGUL = /[\u3131-\uD79D]/;
 /** Milliseconds to the next minute change. */
 const toNextMinute = (now: number): number => 60_000 - (now % 60_000);
 
-/** The top bar's clock: "10.24 (금) 22:28" in the HOST's time (the one office hours use), ticking once a minute.
+/** The phone top bar's clock: "10.24 (금) 22:28" in the HOST's time (the one office hours use), ticking once a minute.
  *  The bars centre it (owner 10-24) and pass the Tailwind text size their height allows. `game` (GAME-UI-1,
  *  ideas/agents 07): the sun or the moon beside it and the day's 24 cells under it, this hour's lit. */
-export function HostClock({ size = 'text-2xl', game = false }: { size?: string; game?: boolean }) {
-  const readable = useUiFont() === 'readable';
+export function HostClock({
+  size = 'text-2xl',
+  game = false,
+  part = 'full',
+}: {
+  size?: string;
+  game?: boolean;
+  /** The control center's pieces: the weekday and time (folded), the time or the date alone (its 시간 tile). */
+  part?: 'full' | 'short' | 'time' | 'date';
+}) {
+  const readable = useUiTheme() === 'modern';
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -46,16 +55,25 @@ export function HostClock({ size = 'text-2xl', game = false }: { size?: string; 
       data-testid="host-clock"
       title={t('clock.title')}
     >
-      {/* A narrow phone keeps only the time. */}
-      <span className="max-[359px]:hidden">
-        {before}
-        {/* The pixel font's digits are about half the height of a Hangul syllable (Galmuri, 1.4x
-            the Latin cap height): the weekday is drawn smaller so the clock reads evenly. 읽기 쉬움
-            draws the digits in Galmuri too (UI-FONT), so the weekday keeps the clock's size. */}
-        <span className={HANGUL.test(weekday) && !readable ? 'text-[0.7em]' : undefined}>{weekday}</span>
-        {after}{' '}
-      </span>
-      {time}
+      {part === 'short' ? (
+        `${weekday} ${time}`
+      ) : part === 'time' ? (
+        time
+      ) : (
+        <>
+          {/* A narrow phone keeps only the time. */}
+          <span className="max-[359px]:hidden">
+            {before}
+            {/* The pixel font's digits are about half the height of a Hangul syllable (Galmuri, 1.4x
+                the Latin cap height): the weekday is drawn smaller so the clock reads evenly. 읽기 쉬움
+                draws the digits in Galmuri too (UI-FONT), so the weekday keeps the clock's size. */}
+            <span className={HANGUL.test(weekday) && !readable ? 'text-[0.7em]' : undefined}>{weekday}</span>
+            {after}
+            {part === 'full' && ' '}
+          </span>
+          {part === 'full' && time}
+        </>
+      )}
     </span>
   );
   if (!game) return clock;

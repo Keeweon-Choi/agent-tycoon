@@ -56,7 +56,7 @@ import {
 } from './traceModel.js';
 
 const muted = 'text-text-muted text-xs';
-const selectCls = 'bg-bg border-2 border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
+const selectCls = 'bg-bg border-ui rounded-ui-card border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
 const TYPE_ORDER: readonly TraceNodeType[] = [
   'group',
   'req',

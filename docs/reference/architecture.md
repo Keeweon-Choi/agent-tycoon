@@ -51,6 +51,9 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     teamUtils.ts                     isInlineTeammateOf, getInlineTeammates, hasInlineTeammates
     types.ts                         ServerAgentState
     constants.ts                     All timing/scanning constants
+    cld/                             Agent Tycoon daemon: auth, office, chat, files, hw, ...
+      engine/                        Claude background-session engine (sessions, renew handoffs, agent query tools)
+      spec/                          Project Brain: project map, requirement tracing, Spec Kit and design readers
   __tests__/                         28 Vitest files
   manual-hook-events.http            Manual hook testing helper (REST-Client format)
 
@@ -69,7 +72,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
     notificationSound.ts             Web Audio API chime
     changelogData.ts                 Changelog modal content
     components/                      React UI (toolbars, modals, settings)
-      BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, InfoModal.tsx,
+      BottomToolbar.tsx, ZoomControls.tsx, SettingsModal.tsx, ChangelogModal.tsx,
       Tooltip.tsx, DebugView.tsx, ui/Button.tsx, ...
       AgentCard.tsx, AgentCardBar.tsx  Agent cards (mug shot + status dot); the right-edge bar on desktop
       cardBar.ts                     Pure card-bar rules: cardVariant, mergeOrder, reorderByPointer (Node-tested)
@@ -109,6 +112,9 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       useTerminalDrawer.ts           Terminal-pane model for both shells: active/shown pane, socket status, card lookups
       useIsMobile.ts                 Mobile breakpoint
       useKeyboardViewport.ts         Samples the viewport: keyboard open (key bar) + iOS shell clamp height
+    cld/                             Agent Tycoon UI: hud (dock, inspector, event log), board, notify, ...
+      messenger/                     Messenger window (conversations, library, attachments)
+      devroom/                       Devroom window (agents, changes, merge, preview); its map lives in cld/spec/
     office/
       types.ts                       OfficeLayout, Character, etc. + re-exports constants
       toolUtils.ts                   STATUS_TO_TOOL mapping, extractToolName (DOM-free; defaultZoom lives in useEditorActions)
@@ -153,14 +159,10 @@ e2e/                                 Playwright suite (standalone daemon + mock-
     webview.ts                       Settings/modal helpers
     hooks.ts                         Hook server lifecycle helpers
     standalone.ts                    Standalone server + WebSocket browser helpers
-    internal-agent.ts                spawnInternalAgentAndWait
-    lifecycle.ts                     Reusable scenario fragments
     team.ts                          Team config seeding + teammate helpers
     allure-labels.ts                 @area:<tag> → Allure epic
   tests/
-    claude/hooks-on/                 basic.spec.ts, lifecycle.spec.ts, teams.spec.ts
-    claude/hooks-off/                lifecycle.spec.ts, matrix.spec.ts
-    standalone/                      hooks.spec.ts
+    standalone/                      ui, hooks, mobile, terminal, launch-drawer, directory-modal (.spec.ts)
   README.md                          Auto-generated test inventory (regen via npm run e2e:inventory)
 
 scripts/

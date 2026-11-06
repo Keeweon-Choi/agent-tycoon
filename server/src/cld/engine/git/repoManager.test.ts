@@ -311,7 +311,7 @@ describe.skipIf(!GIT_AVAILABLE)('worktreeRemove over the client message path', (
     expect(fs.existsSync(wtDir)).toBe(true);
 
     const done = await act('worktreeRemove', { task: 'feat', force: true });
-    expect(done).toMatchObject({ ok: true, detail: '브랜치 task/feat는 병합되지 않아 남겼어요' });
+    expect(done).toMatchObject({ ok: true, detail: '브랜치 task/feat는 머지되지 않아 남겼어요' });
     expect(done.needsForce).toBeUndefined();
     expect(fs.existsSync(wtDir)).toBe(false);
 

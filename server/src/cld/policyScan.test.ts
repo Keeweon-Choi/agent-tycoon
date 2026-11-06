@@ -104,9 +104,24 @@ const ALLOWED: Allowed[] = [
     why: "RULES-DEFAULT (owner 10-24): the product ships generic default rules and the settings page edits the user's own global rules file; no PC's own rules",
   },
   {
+    path: /^server\/src\/cld\/spec\/workflow\.ts$/,
+    markers: ['rules-file'],
+    why: 'RQ4: names the files we must not touch; never reads or writes them',
+  },
+  {
+    path: /^cld\/rules\/spec-workflow\.(ko|en)\.md$/,
+    markers: ['rules-file'],
+    why: 'RQ4: names the files we must not touch; never reads or writes them',
+  },
+  {
     path: /^webview-ui\/src\/cld\/modelBadges\.ts$/,
     markers: ['model-name'],
     why: "T-0041 badges show, as a letter, the model a store already names (a spawn's model input, a Codex task's model field); nothing is chosen or assigned by them",
+  },
+  {
+    path: /^server\/src\/cld\/spec\/languageTable\.generated\.ts$/,
+    markers: ['model-name'],
+    why: "generated from GitHub Linguist and tokei data (K7a): `sol` is the Solidity file extension, not a model name",
   },
   {
     path: /^server\/src\/cld\/engine\/gpu\.ts$/,
@@ -128,7 +143,7 @@ const ALLOWED: Allowed[] = [
 const SKIP_DIRS = new Set(['node_modules', 'target', 'icons', 'dist']);
 const SKIP_FILES = /\.(png|ico|icns|lock|map)$|package-lock\.json$/;
 const COMMENT_EXT = /\.(ts|tsx|mjs|js|rs|sh|ps1|css)$/;
-const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#)/;
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#|\{\/\*)/; // {/* */}: a JSX comment
 
 export interface Finding {
   file: string;

@@ -30,6 +30,7 @@ import * as path from 'path';
 
 import { fixJosa } from '../../../../core/src/cld/josa.js';
 import { koText } from '../../../../core/src/cld/serverText.js';
+import { taskSeq } from '../../../../core/src/cld/spec/trace.js';
 import type { BoardExecution, BoardTask, TaskBoard } from '../../../../core/src/messages.js';
 import { CLI_NAME } from '../cliName.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
@@ -390,6 +391,17 @@ function observeOne(e: Execution, src: ExecutionSources, at: string): Execution 
   return isDeepStrictEqual(n, e) ? e : n;
 }
 
+/** DV2: the last of the just-ended runs of the script the owner picked as 테스트 (devroomRuns.ts)
+ *  that ended with a code is the task's observed testsRan / testsPassed (its exit code, never an
+ *  agent's words); a run the owner stopped tells nothing. */
+function testFacts(ended: Execution[], src: ExecutionSources, at: string): Pick<Task, 'testsRan' | 'testsPassed'> {
+  const r = ended
+    .map((e) => (e.kind === 'job' ? src.job(e.ref) : null))
+    .filter((j) => j?.run?.role === 'test' && typeof j.exit === 'number' && !j.stopped)
+    .at(-1);
+  return r ? { testsRan: observed(true, at), testsPassed: observed(r.exit === 0, at) } : {};
+}
+
 function applyPatch(base: Task, p: Patch): Task {
   const next = { ...base } as Record<string, unknown>;
   for (const [k, v] of Object.entries(p)) {
@@ -596,7 +608,7 @@ export class TaskStore {
       const executions = t.executions.map((e) => (e.endedAt ? e : observeOne(e, src, at)));
       if (executions.every((e, i) => e === t.executions![i])) return t;
       changed = true;
-      return { ...t, executions };
+      return { ...t, executions, ...testFacts(executions.filter((e, i) => e.endedAt && !t.executions![i].endedAt), src, at) };
     });
     return changed && this.commit(next, { ok: true }).ok;
   }
@@ -768,10 +780,7 @@ function parentProblem(tasks: Task[], task: Task): string | null {
 /** `T-<n>`, one past the highest generated so far. */
 function nextId(tasks: Task[]): string {
   let n = 0;
-  for (const t of tasks) {
-    const m = /^T-(\d+)$/.exec(t.id);
-    if (m) n = Math.max(n, Number(m[1]));
-  }
+  for (const t of tasks) n = Math.max(n, taskSeq(t.id) ?? 0);
   return `T-${n + 1}`;
 }
 

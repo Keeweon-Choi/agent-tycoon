@@ -214,7 +214,7 @@ async function main() {
       check((await toasts()).length === 2, `${label}: the job made one more toast, at its end`);
 
       // 3. The bell list.
-      const bell = page.getByTestId('notice-bell');
+      const bell = page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]');
       await tap(bell);
       const items = page.getByTestId('notice-item');
       await until(`${label}: the rows`, async () => (await items.count()) >= 2);

@@ -8,6 +8,7 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /** Pinned downloads. The SHA-256s are GitHub's release digests, the same in winget's manifests. */
 export const LHM = Object.freeze({
@@ -261,4 +262,29 @@ export async function hwSensorsStep(platform, config, { dryRun = false, uninstal
   for (let i = 0; i < 30; i += 1) { if (await lhmAnswers(platform, plan.waitPort)) { console.log(`✔ 센서 도구: LibreHardwareMonitor :${plan.waitPort}`); return { ...next, lhmPort: plan.waitPort }; } await delay(2000); }
   console.log(`! LibreHardwareMonitor가 :${plan.waitPort}에서 아직 응답하지 않습니다(다음 로그인 때 켜집니다). 포트가 예약돼 막혔으면(netsh int ipv4 show excludedportrange protocol=tcp) --lhm-port <다른 포트>로 다시 실행하세요.`);
   return { ...next, lhmPort: plan.waitPort };
+}
+
+/** The office's 센서 도구 설치 (server/src/cld/hw/sensorTool.ts): `node hwSensors.mjs plan|install --port <p>`.
+ *  `plan` detects (read-only) and prints {lines, install, lhmPort} as one JSON line; `install` runs this
+ *  step as the installer does (its own lines, the one UAC prompt) and ends with {ok, lhmPort}. */
+export async function officeCommand(argv, platform) {
+  const [cmd, flag, value] = argv;
+  const port = flag === '--port' && Number(value) > 0 ? Number(value) : LHM.port;
+  if (platform !== 'win32' && platform !== 'wsl') return { install: false, lines: [], lhmPort: null };
+  if (cmd === 'plan') {
+    const plan = hwSensorsPlan({ platform, detection: await detectLhm(platform, port), port });
+    return { lines: plan.lines.filter((l) => !l.includes('--no-hw-sensors')), install: !!plan.script, lhmPort: plan.lhmPort ?? null };
+  }
+  if (cmd !== 'install') throw new Error(`unknown command: ${cmd}`);
+  const next = await hwSensorsStep(platform, { lhmPort: port });
+  const lhmPort = next.lhmPort ?? port;
+  return { ok: await lhmAnswers(platform, lhmPort), lhmPort };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const platform = process.platform === 'linux' && /microsoft/i.test(fs.existsSync('/proc/version') ? fs.readFileSync('/proc/version', 'utf8') : '') ? 'wsl' : process.platform;
+  officeCommand(process.argv.slice(2), platform).then(
+    (out) => console.log(JSON.stringify(out)),
+    (err) => { console.error(String(err?.message ?? err)); process.exit(1); },
+  );
 }

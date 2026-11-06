@@ -78,6 +78,12 @@ function sourceOf(
     [src.width, src.height] = [img.width, img.height];
     src.getContext('2d')!.putImageData(img, 0, 0);
   }
+  return mastersAt(src, masterDensity);
+}
+
+/** The decoded sheet `src` scaled down to `masterDensity` (the big one let go), or itself. */
+export function mastersAt(src: HTMLCanvasElement, masterDensity = IMPORT_DENSITY): Masters {
+  const img = { width: src.width, height: src.height };
   const scale = Math.min(1, masterDensity / IMPORT_DENSITY);
   if (scale === 1) return { src, scale };
   const small = document.createElement('canvas');

@@ -503,6 +503,46 @@ export class GroupMessages {
     return [...posts.values()].slice(-Math.max(1, limit));
   }
 
+  /**
+   * The room's own posts that hold `folded` (the lower-cased words), newest first, for the messenger-wide
+   * search: the newest `segments` log files, a line parsed only when it holds the words. `snippet` makes
+   * the post's text into what is sent (null: drop it). A member's reply lives in its transcript, not in
+   * this log, and is not searched.
+   */
+  // ponytail: a segment is read whole (a room's month is megabytes); a streaming reader if a room outgrows that.
+  searchPosts(
+    room: GroupRoom,
+    folded: string,
+    opts: { segments: number; maxHits: number; cancelled: () => boolean; snippet: (text: string) => string | null },
+  ): { hits: Array<{ id: string; at: number; sender: string | null; snippet: string }>; truncated: boolean } {
+    const hits: Array<{ id: string; at: number; sender: string | null; snippet: string }> = [];
+    const files = roomSegments(groupTimelineDir(this.opts.home), room.id);
+    const quick = !/["\\\u0000-\u001f]/.test(folded);
+    for (let i = files.length - 1; i >= 0; i--) {
+      if (files.length - 1 - i >= opts.segments) return { hits, truncated: true };
+      const text = readSegment(files[i]);
+      if (text === null) continue;
+      const lines = text.split('\n');
+      for (let k = lines.length - 1; k >= 0; k--) {
+        if (opts.cancelled()) return { hits: [], truncated: false };
+        if (quick && !lines[k].toLocaleLowerCase().includes(folded)) continue;
+        let record: TimelineRecord;
+        try {
+          record = JSON.parse(lines[k]) as TimelineRecord;
+        } catch {
+          continue;
+        }
+        if (record?.kind !== 'post' || record.post.system || typeof record.post.text !== 'string') continue;
+        const snippet = opts.snippet(record.post.text);
+        if (snippet === null) continue;
+        if (hits.length >= opts.maxHits) return { hits, truncated: true };
+        const { id, at, sender } = record.post;
+        hits.push({ id, at, sender, snippet });
+      }
+    }
+    return { hits, truncated: false };
+  }
+
   /** Transcript reads are deliberately supplied by the office only while a room is open: once
    *  per member, the part that can answer posts at or after `since` (the oldest tagged post shown).
    *  ROOM-THREADS: `earlierFor` (the open room only) reaches a post older than that part that

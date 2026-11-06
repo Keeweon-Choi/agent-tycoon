@@ -301,7 +301,7 @@ export const ReviewDiff = memo(function ReviewDiff({
       {view.loading && !view.text && <p className={`${muted} p-8`}>{t('repo.diffLoading')}</p>}
       {view.error && <p className="text-xs text-devroom-bad p-8">{view.error}</p>}
       <div
-        className={`whitespace-pre bg-devroom-term py-2 leading-[1.55] ${phone ? 'text-2xs' : 'text-xs'}`}
+        className={`whitespace-pre bg-devroom-term py-2 leading-[calc(1.55*var(--ui-lh))] ${phone ? 'text-2xs' : 'text-xs'}`}
         style={{ fontSize: scaledSize(phone ? 'var(--text-2xs)' : 'var(--text-xs)', zoom) }}
         aria-label="diff"
         data-testid="review-diff"

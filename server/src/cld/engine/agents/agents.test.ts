@@ -138,6 +138,11 @@ describe('D4: the agent provider seam', () => {
       naming: 'numbered',
       usage: 'statusLine',
       lifetime: 'session',
+      limits: true,
+      usageRefresh: false,
+      context: true,
+      billing: 'plan',
+      update: ['update'],
     });
     const claude = new ClaudeAgent({
       claudePath: '/c/claude',
@@ -540,6 +545,12 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
     expect(t.agent(t.e, 'alpha-a').bgId).toBeUndefined();
     expect(t.agent(t.e, 'alpha-a').sessionId).toBeUndefined();
     expect(JSON.stringify(t.e.state())).not.toContain('rest:');
+    // The UI reads what each provider can do, never its name.
+    const caps = t.e.state().agentCaps!;
+    expect(caps.claude).toMatchObject({ lifetime: 'session', attach: 'pty', context: true, limits: true, billing: 'plan' });
+    expect(caps.runner).toMatchObject({ lifetime: 'run', approvalPolicy: ['never'] });
+    expect(caps.runner).not.toHaveProperty('attach');
+    expect(caps.runner).not.toHaveProperty('sandbox');
     expect(t.roster()).toMatchObject({ live: false, busy: false, wantRunning: true }); // down
     const office = t.e.apply({ rooms: [], agents: [] }).agents.find((a) => a.name === 'alpha-a')!;
     expect(office).toMatchObject({ state: 'running', busy: false, pid: null, sessionId: null, bg: null, transcript: null });
@@ -577,7 +588,7 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
     expect(await t.m.send({ to: 'alpha-a', text: '안녕', ifIdle: false, from: null, source: 'messenger:mac' })).toEqual({
       ok: false,
       code: 'no_direct_chat',
-      error: 'Codex Worker 와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
+      error: '이 에이전트와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
     });
     // The project (a Claude Lead) is not refused.
     expect(t.e.refuses('alpha', { from: null, source: 'messenger:mac' })).toBeNull();
@@ -606,7 +617,7 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
       transcript: null,
     };
     expect(e.apply({ rooms: [], agents: [row] }).agents.map((a) => a.key)).toContain('name:alpha-a');
-    expect(await r.act(e, 'promote', 'alpha-a')).toMatchObject({ ok: false, error: 'Codex Worker 는 아직 Lead 가 될 수 없어요' });
+    expect(await r.act(e, 'promote', 'alpha-a')).toMatchObject({ ok: false, error: '이 에이전트는 아직 Lead 가 될 수 없어요' });
   });
 });
 
@@ -964,5 +975,46 @@ describe('TERM-P3: move every agent to the new terminal (the owner\'s queue)', (
     expect(answers).toEqual([{ type: 'engineMoveAllResult', ok: false, error: expect.any(String) }]);
     expect(r.events.filter((x) => x.type === 'pty_move')).toEqual([]);
     expect(r.e.state().moveAll).toBeUndefined();
+  });
+});
+
+describe('RQ4: the spec workflow layer (the project switch)', () => {
+  /** Every file under a folder, project-relative (the daemon must add none of its own there). */
+  const tree = (dir: string): string[] =>
+    (fs.readdirSync(dir, { recursive: true }) as string[]).map((f) => f.replace(/\\/g, '/')).sort();
+
+  it('Lead and Worker start with it only while it is on; off again, the next start has none; the project folder gets nothing', async () => {
+    const r = home(undefined, { binDir: CLD_BIN_DIR });
+    fs.writeFileSync(path.join(r.home, '.config', 'agent-tycoon', 'ui-language'), 'en\n');
+    const e = r.boot();
+    const before = tree(r.alpha);
+    const layer = (argv: string[]) => fs.readFileSync(argv[argv.indexOf('--append-system-prompt-file') + 1], 'utf-8');
+    const starts = async () => {
+      expect((await r.act(e, 'start', 'alpha')).ok).toBe(true);
+      expect((await r.act(e, 'start', 'alpha-a')).ok).toBe(true);
+      const both = r.claudeCalls().filter((a) => a[0] === '--bg').slice(-2).map(layer);
+      expect((await r.act(e, 'stop', 'alpha')).ok).toBe(true);
+      expect((await r.act(e, 'stop', 'alpha-a')).ok).toBe(true);
+      return both;
+    };
+    expect(e.specWorkflow('alpha')).toEqual({ on: false, clis: ['claude'] });
+    for (const text of await starts()) expect(text).not.toContain('# Spec workflow');
+    expect(e.setSpecWorkflow('alpha', true)).toBe(true);
+    expect(e.specWorkflow('alpha')).toEqual({ on: true, clis: ['claude'] });
+    // kept on the project (projects.json), never on an assignment; the Worker's record carries it
+    const disk = JSON.parse(fs.readFileSync(registryPath(r.home), 'utf-8')) as { projects: Array<Record<string, unknown>> };
+    expect(disk.projects[0].specWorkflow).toBe('speckit');
+    expect(fs.readFileSync(path.join(path.dirname(registryPath(r.home)), 'assignments.json'), 'utf-8')).not.toContain('specWorkflow');
+    expect(loadRegistry(registryPath(r.home)).projects.map((p) => [p.name, p.specWorkflow])).toEqual([['alpha', 'speckit'], ['alpha-a', 'speckit']]);
+    const [lead, worker] = await starts();
+    // after the role's built-in rules, before the user's: the order every layer keeps
+    expect(lead).toMatch(/^# Agent Tycoon[^]*\n# Lead [^]*\n\n# Spec workflow [^]*specs\/NNN-short-name\/spec\.md/);
+    expect(worker).toMatch(/^# Agent Tycoon[^]*\n# Worker [^]*\n\n# Spec workflow /);
+    expect(e.setSpecWorkflow('alpha', false)).toBe(true);
+    for (const text of await starts()) expect(text).not.toContain('# Spec workflow');
+    expect(loadRegistry(registryPath(r.home)).projects.every((p) => p.specWorkflow === undefined)).toBe(true);
+    expect(tree(r.alpha)).toEqual(before); // no .claude/, CLAUDE.md or AGENTS.md from the daemon
+    expect(e.specWorkflow('nope')).toBeNull();
+    expect(e.setSpecWorkflow('nope', true)).toBe(false);
   });
 });

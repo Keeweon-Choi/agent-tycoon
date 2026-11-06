@@ -1,5 +1,4 @@
 import {
-  IME_GUARD_OFF_KEY,
   IME_START,
   imeFlush,
   type ImeOut,
@@ -26,14 +25,6 @@ const EVENTS = [
 /** Input types that are not typing: xterm (or the clipboard code) already sent them. */
 const NOT_TYPED = /^insertFrom(Paste|Drop|Yank)/;
 
-function guardOff(): boolean {
-  try {
-    return localStorage.getItem(IME_GUARD_OFF_KEY) === 'off';
-  } catch {
-    return false;
-  }
-}
-
 export interface ImeInput {
   /** Send what is still open (before a key bar key or a paste goes in). */
   flush: () => void;
@@ -49,7 +40,6 @@ export function attachImeInput(
   send: (data: string) => void,
   font: () => { family: string; sizePx: number },
 ): ImeInput {
-  if (guardOff()) return { flush: () => undefined, detach: () => undefined };
   let state: ImeState = IME_START;
   let endTimer: ReturnType<typeof setTimeout> | null = null;
   // xterm sent a keypress itself (space, punctuation) without cancelling it: the

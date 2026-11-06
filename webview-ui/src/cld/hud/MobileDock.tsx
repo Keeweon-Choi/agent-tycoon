@@ -26,6 +26,8 @@ interface Item {
   /** The HUD icon it stands for (runners and the desktop share the id). */
   hudId?: string;
   name: string;
+  /** FIX-PHONE-UI-TEXT: the word under the icon (short: the full name can be two lines in English). */
+  label: string;
   ariaLabel?: string;
   badge?: number;
   badgeTestId?: string;
@@ -54,14 +56,15 @@ export function MobileDock({
       ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }, [active]);
   const items: Item[] = [
-    { screen: 'office', name: t('dock.office'), glyph: <HomeGlyph /> },
-    { screen: 'board', hudId: 'office', name: t('hud.office'), glyph: <BoardGlyph /> },
+    { screen: 'office', name: t('dock.office'), label: t('phoneText.dock.office'), glyph: <HomeGlyph /> },
+    { screen: 'board', hudId: 'office', name: t('hud.office'), label: t('phoneText.dock.board'), glyph: <BoardGlyph /> },
     ...(store.officeSnapshot?.chat
       ? [
           {
             screen: 'messenger',
             hudId: 'messenger',
             name: t('hud.messenger'),
+            label: t('phoneText.dock.messenger'),
             ariaLabel: messages ? t('hud.unreadMessages', { count: messages }) : undefined,
             badge: messages,
             badgeTestId: 'messenger-unread',
@@ -69,23 +72,25 @@ export function MobileDock({
           } satisfies Item,
         ]
       : []),
-    { screen: 'files', hudId: 'files', name: t('hud.files'), glyph: <FolderGlyph /> },
+    { screen: 'files', hudId: 'files', name: t('hud.files'), label: t('phoneText.dock.files'), glyph: <FolderGlyph /> },
     {
       screen: 'notices',
       hudId: 'notices',
       name: t('hud.notices'),
+      label: t('phoneText.dock.notices'),
       ariaLabel: notices ? t('hud.unreadNotices', { count: notices }) : undefined,
       badge: notices,
       badgeTestId: 'notice-unread',
       glyph: <BellGlyph />,
     },
-    { screen: 'devroom', hudId: 'devroom', name: t('hud.devroom'), glyph: <CommandGlyph /> },
+    { screen: 'devroom', hudId: 'devroom', name: t('hud.devroom'), label: t('phoneText.dock.devroom'), glyph: <CommandGlyph /> },
     ...(panelAvailable('terminal', store)
       ? [
           {
             screen: 'terminal',
             hudId: 'terminal',
             name: t('hud.terminal'),
+            label: t('phoneText.dock.terminal'),
             ariaLabel: terminalWaiting
               ? t('hud.waitingTerminals', { count: terminalWaiting })
               : undefined,
@@ -101,7 +106,7 @@ export function MobileDock({
       ref={nav}
       aria-label={t('dock.label')}
       data-testid="mobile-dock"
-      className="flex gap-4 overflow-x-auto overscroll-x-contain [scrollbar-width:none] border-t-2 border-border pt-6 pl-[calc(var(--cld-safe-left)+4px)] pr-[calc(var(--cld-safe-right)+4px)]"
+      className="flex gap-4 overflow-x-auto overscroll-x-contain [scrollbar-width:none] border-t-ui border-border pt-6 pl-[calc(var(--cld-safe-left)+4px)] pr-[calc(var(--cld-safe-right)+4px)]"
     >
       {items.map((item) => {
         const on = item.screen === active;
@@ -119,10 +124,11 @@ export function MobileDock({
               aria-label={item.ariaLabel ?? item.name}
               aria-current={on ? 'page' : undefined}
               title={item.name}
-              className={`relative flex-1 min-w-44 h-44 flex items-center justify-center rounded-none border-2 ${on ? 'border-accent text-accent-text bg-active-bg' : 'border-border bg-bg text-text-muted'}`}
+              className={`relative flex-1 min-w-44 min-h-44 py-4 flex flex-col items-center justify-center gap-3 rounded-ui-card border-ui ui-raise ${on ? 'ui-on text-accent-text bg-active-bg' : 'border-border bg-btn-bg text-text-muted'}`}
               onClick={() => onPick(item.screen)}
             >
               {item.glyph}
+              <span className="max-w-full truncate px-2 text-2xs leading-none">{item.label}</span>
               <Badge count={item.badge ?? 0} testId={item.badgeTestId} />
             </button>
           </span>

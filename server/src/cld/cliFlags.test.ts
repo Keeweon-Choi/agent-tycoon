@@ -16,15 +16,14 @@ describe('cld-gui CLI flags', () => {
     expect(parseArgs(['--allow-actions', '--read-only']).readOnly).toBe(true);
     expect(parseArgs(['--read-only', '--allow-actions']).readOnly).toBe(false);
   });
-  it('--allow-chat turns chat on; it is off by default; --chat-attaches takes 1-10', () => {
+  it('--allow-chat turns chat on; it is off by default; an old --chat-attaches is ignored', () => {
     expect(parseArgs([]).chat).toBe(false);
     expect(parseArgs(['--allow-chat']).chat).toBe(true);
-    expect(parseArgs([]).chatAttaches).toBeUndefined();
-    expect(parseArgs(['--chat-attaches', '2']).chatAttaches).toBe(2);
-    for (const bad of ['0', '11', 'x', '1.5']) {
-      expect(() => parseArgs(['--chat-attaches', bad])).toThrow(CliArgsError);
-    }
-    expect(() => parseArgs(['--chat-attaches'])).toThrow(CliArgsError);
+    // An existing service unit may still pass it: unknown flags fall through, so the daemon starts.
+    expect(parseArgs(['--allow-chat', '--chat-attaches', '2', '--port', '18250'])).toMatchObject({
+      chat: true,
+      port: 18250,
+    });
   });
   it('--engine defaults to auto and accepts on/off only', () => {
     expect(parseArgs([]).engine).toBe('auto');

@@ -188,7 +188,7 @@ async function main() {
     // ── 4. desktop ──
     await openOfficeWindow(page);
     const win = page.locator(DEV_WINDOW);
-    await win.getByRole('button', { name: '개발', exact: true }).click();
+    await win.getByRole('button', { name: '프로젝트', exact: true }).click();
     const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
     await eventually('alpha in the picker', async () => (await picker.locator('option[value="alpha"]').count()) > 0);
     await picker.selectOption('alpha');
@@ -196,6 +196,7 @@ async function main() {
     const tab = (n: string) => win.getByRole('navigation', { name: '개발 메뉴' }).getByRole('button', { name: n, exact: true });
     const p0 = Date.now();
     await tab('지도').click();
+    await win.locator('[data-testid="map-sub"][data-sub="modules"]').click(); // 아키텍처 그래프 opens first
     await eventually('the cells', async () => (await win.getByTestId('map-cell').count()) >= 9);
     console.log(`perf: 지도 tab first paint: ${Date.now() - p0} ms`);
     const arrows = Number(await win.getByTestId('map-arrows').getAttribute('data-count'));
@@ -251,12 +252,13 @@ async function main() {
     await phone.addStyleTag({ content: FONT_CSS });
     await phone.locator('[data-dock="board"]').tap();
     const pw = phone.locator('[aria-label="현황판 화면"]');
-    const dev = pw.getByRole('button', { name: '개발', exact: true });
+    const dev = pw.getByRole('button', { name: '프로젝트', exact: true });
     if ((await dev.count()) && (await dev.getAttribute('aria-pressed')) !== 'true') await dev.tap();
     const ppicker = pw.getByRole('combobox', { name: '개발 프로젝트' });
     await eventually('alpha in the phone picker', async () => (await ppicker.locator('option[value="alpha"]').count()) > 0);
     await ppicker.selectOption('alpha');
     await pw.getByRole('navigation', { name: '개발 메뉴' }).getByRole('button', { name: '지도', exact: true }).tap();
+    await phone.locator('[data-testid="map-sub"][data-sub="modules"]').tap();
     await eventually('phone features', async () => (await phone.getByTestId('map-feature').count()) > 0);
     check(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), '5: no horizontal scroll at 390 px');
     await shot(phone, '06-phone-features');

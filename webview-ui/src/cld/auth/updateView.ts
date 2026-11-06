@@ -15,6 +15,8 @@ export interface UpdateView {
   terminalOnly: boolean;
   command: string;
   install: { state: 'running' | 'done' | 'failed'; to: string; message: string } | null;
+  /** The last check (epoch ms), null before the first or for a source install. */
+  lastCheck: { at: number; ok: boolean; reason?: string } | null;
 }
 
 /**

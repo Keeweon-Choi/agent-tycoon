@@ -43,6 +43,7 @@ export function useHistoryJump({
   restoring,
   stuck,
   setAway,
+  remember,
 }: {
   agentId: number;
   m: MessengerSnapshot;
@@ -51,6 +52,8 @@ export function useHistoryJump({
   restoring: RefObject<boolean>;
   stuck: RefObject<boolean>;
   setAway: Dispatch<SetStateAction<boolean>>;
+  /** A jump is about to scroll: where the reader is now is where the way back goes. */
+  remember: () => void;
 }) {
   const sentinel = useRef<HTMLDivElement>(null);
   const prepend = useRef<{ height: number; top: number } | null>(null);
@@ -145,6 +148,7 @@ export function useHistoryJump({
     );
     if (!row) return;
     stuck.current = false;
+    remember();
     setAway(true);
     // The marked word of a search hit, not the middle of a tall bubble (its fold may still open: Line).
     (row.querySelector('mark.bg-search-current') ?? row).scrollIntoView({ block: 'center' });
@@ -164,6 +168,7 @@ export function useHistoryJump({
     agentId,
     m.tailLive,
     waitedOut,
+    remember,
   ]);
   useEffect(() => {
     if (!targetItem) return;
@@ -197,7 +202,7 @@ export function useHistoryJump({
     [agentId],
   );
   const jumpToHit = useCallback(
-    (hit: ChatSearchHit) => {
+    (hit: Pick<ChatSearchHit, 'id' | 'at'>) => {
       setJumpLoading(agentId, true);
       stuck.current = false;
       setTargetItem({ id: hit.id, at: hit.at });

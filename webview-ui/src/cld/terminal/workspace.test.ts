@@ -8,9 +8,6 @@ import {
   closeTab,
   emptyWorkspace,
   focusedKey,
-  focusPane,
-  heldElsewhere,
-  leastRecentAttached,
   openTab,
   paneCount,
   paneOf,
@@ -24,7 +21,6 @@ import {
   showTab,
   splitDown,
   splitRight,
-  swapCapRetryDelay,
   tabLabels,
   type Workspace,
 } from './workspace.js';
@@ -166,39 +162,6 @@ describe('closing', () => {
     const next = closeTab(ws, 'shell:aaaa');
     expect(next.rows).toEqual(ws.rows);
     expect(next.tabs.map((t) => t.key)).toEqual(['shell:bbbb']);
-  });
-});
-
-describe('which agent tab to let go of', () => {
-  it('the least recently focused one that holds an attach, never the one asking', () => {
-    let ws = open(c, d, a);
-    ws = showTab(ws, 'agent:c0000001');
-    ws = showTab(ws, 'agent:d0000002');
-    expect(leastRecentAttached(ws, ['agent:c0000001', 'agent:d0000002'], 'agent:e')).toBe(
-      'agent:c0000001',
-    );
-    ws = focusPane(showTab(ws, 'agent:c0000001'), 0, 0);
-    expect(leastRecentAttached(ws, ['agent:c0000001', 'agent:d0000002'], 'agent:e')).toBe(
-      'agent:d0000002',
-    );
-    expect(leastRecentAttached(ws, ['agent:c0000001'], 'agent:c0000001')).toBeNull();
-    expect(leastRecentAttached(ws, [], 'agent:c0000001')).toBeNull();
-    expect(leastRecentAttached(ws, ['agent:gone'], 'agent:c0000001')).toBeNull();
-  });
-});
-
-describe('a cap refusal after a swap', () => {
-  it("is another viewer's slot only when this window just let go of its own", () => {
-    expect(heldElsewhere(1_000, 4_000, 10_000)).toBe(true);
-    expect(heldElsewhere(1_000, 11_000, 10_000)).toBe(true); // the edge counts
-    expect(heldElsewhere(1_000, 11_001, 10_000)).toBe(false); // a later refusal is the plain cap
-    expect(heldElsewhere(undefined, 4_000, 10_000)).toBe(false); // never swapped
-  });
-
-  it('uses each bounded retry delay before giving the cap refusal back to the user', () => {
-    const delays = [300, 600, 1_200] as const;
-    expect(delays.map((_, retry) => swapCapRetryDelay(retry, delays))).toEqual(delays);
-    expect(swapCapRetryDelay(delays.length, delays)).toBeNull();
   });
 });
 

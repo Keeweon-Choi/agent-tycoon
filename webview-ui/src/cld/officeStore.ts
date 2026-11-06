@@ -18,7 +18,6 @@ import type {
   OfficeSnapshot,
   PersonPreset,
   ServerMessage,
-  StatusOutput,
   TaskBoard,
   TempEmployee,
   TrackedItems,
@@ -31,6 +30,9 @@ import { whiteboardHandleMessage } from './board/whiteboard.js';
 import { bypassHandleMessage } from './bypass.js';
 import { devroomHandleResult, devroomSetStats } from './devroom/devroomStore.js';
 import { mergeHandleMessage, mergeHandleResult } from './devroom/mergeStore.js';
+import { runHandleMessage } from './devroom/runStore.js';
+import { seatHandleResult } from './devroom/seatStore.js';
+import { subWhereHandle } from './devroom/subWhere.js';
 import { CompactBreakWatch, director, InheritWatch, TempStaffWatch } from './director/director.js';
 import { engineGetSnapshot, engineHandleMessage } from './engineStore.js';
 import { type EzContext, PLAIN_CONTEXT } from './ez/activity.js';
@@ -46,9 +48,12 @@ import {
 import { floorsHandleMessage } from './floors.js';
 import { isOff, type OfficePanel } from './format.js';
 import { backgroundHandleMessage } from './gfx/bg/settings.js';
+import { agentUpdateHandleMessage } from './hud/agentUpdate.js';
+import { sensorToolHandleMessage } from './hwSensorTool.js';
 import { jobHandleMessage } from './jobStore.js';
 import { messengerConnectionLost, messengerHandleMessage } from './messenger/messengerStore.js';
 import { cldNoticeEvent, cldNoticeReplay, cldPreviewOpen, cldPushState } from './notify/notices.js';
+import { partiesHandleMessage } from './party/parties.js';
 import { repoHandleMessage } from './repo/repoStore.js';
 import { newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
 import { compactHolds, levelWatch, rebirthWatch, restWatch } from './rest.js';
@@ -97,7 +102,6 @@ export interface CldSnapshot {
   /** The user's EZ phrase rules; null until (unless) the daemon sends some. */
   ezRules: EzRules | null;
   events: OfficeEvent[];
-  statusByName: Record<string, StatusOutput>;
   /** officeAccess: this connection may change nothing (its action controls are hidden). */
   officeReadOnly: boolean;
   terminalEnabled: boolean;
@@ -132,7 +136,6 @@ const empty: CldSnapshot = {
   gpuBoard: null,
   ezRules: null,
   events: [],
-  statusByName: {},
   officeReadOnly: true,
   terminalEnabled: false,
   hostInfo: null,
@@ -211,6 +214,7 @@ export function ezContext(snap: CldSnapshot = snapshot): EzContext {
 }
 
 export function cldHandleMessage(msg: ServerMessage): void {
+  subWhereHandle(msg); // DEVROOM-SIDEBAR: where each sub-agent works
   switch (msg.type) {
     case 'characterPresets':
       snapshot = { ...snapshot, characterPresets: msg };
@@ -318,9 +322,6 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'previewOpen':
       cldPreviewOpen(msg); // P4 S6: a phone asked this PC for a 미리보기
       break;
-    case 'statusOutput':
-      snapshot = { ...snapshot, statusByName: { ...snapshot.statusByName, [msg.name]: msg } };
-      break;
     case 'agentCliState':
       snapshot = { ...snapshot, agentCli: msg };
       break;
@@ -338,7 +339,7 @@ export function cldHandleMessage(msg: ServerMessage): void {
       };
       break;
     case 'hostInfo':
-      cldNoticeReplay(); // a connection's snapshot: its feed is history (T-0039)
+      cldNoticeReplay(msg.hostId); // a connection's snapshot: its feed is a replay (T-0039)
       snapshot = { ...snapshot, hostInfo: msg };
       break;
     case 'folderList':
@@ -350,6 +351,7 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'chatTranscript':
     case 'chatHistoryResult':
     case 'chatSearchResult':
+    case 'chatSearchAllResult':
     case 'chatSendResult':
     case 'chatPendingResult':
     case 'permissionAnswerResult':
@@ -376,9 +378,18 @@ export function cldHandleMessage(msg: ServerMessage): void {
     case 'newAgentPermission':
       bypassHandleMessage(msg); // O4: the permission mode new agents start with
       return;
+    case 'hwSensorToolState':
+      sensorToolHandleMessage(msg); // hw-every-os: the missing-sensor fixes
+      return;
+    case 'agentCliUpdateState':
+      agentUpdateHandleMessage(msg); // AGENT-UPDATE: an agent CLI's own update
+      return;
     case 'buildingState':
       floorsHandleMessage(msg); // the floors keep their own state (T-0027)
       if (msg.error) cldToast(t('office.floor'), serverText(msg), 'error');
+      return;
+    case 'parties':
+      partiesHandleMessage(msg); // FEAT-PARTY-V2: the composed parties keep their own store
       return;
     case 'whiteboardMemos':
       whiteboardHandleMessage(msg); // the memos keep their own state (T-0065)
@@ -390,14 +401,15 @@ export function cldHandleMessage(msg: ServerMessage): void {
       repoHandleMessage(msg, cldToast); // the repository panel (T-0020) keeps its own state
       if (msg.type === 'repoActionResult') {
         devroomHandleResult(msg, cldToast); // the dev room's 따라잡기
-        mergeHandleResult(msg); // its 병합 tab's own writes
+        mergeHandleResult(msg); // its 머지 tab's own writes
+        seatHandleResult(msg); // DV4: its 새 워크트리 and 앉히기
       }
       return;
     case 'repoMergeCheckResult':
     case 'repoConflictsResult':
     case 'repoCleanupListResult':
     case 'devroomSettings':
-      mergeHandleMessage(msg); // the dev room's 병합 tab keeps its own state
+      mergeHandleMessage(msg); // the dev room's 머지 tab keeps its own state
       return;
     case 'devroomStats':
       devroomSetStats(msg); // the dev room's footer
@@ -409,6 +421,10 @@ export function cldHandleMessage(msg: ServerMessage): void {
       return;
     case 'jobActionResult':
       jobHandleMessage(msg, cldToast); // the engine's job logs and stops (T-0019)
+      return;
+    case 'runScriptsResult':
+    case 'jobStartResult':
+      runHandleMessage(msg); // DV2: the dev room's 실행 row
       return;
     default:
       return;

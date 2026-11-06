@@ -30,6 +30,7 @@ import type { HookProvider } from '../../core/src/provider.js';
 import type { TeamProvider } from '../../core/src/teamProvider.js';
 import { createAgentState } from './agentState.js';
 import type { AgentStateStore } from './agentStateStore.js';
+import { isUsageProbeFolder } from './cld/usageProbeFolder.js';
 import {
   BACKGROUND_RECOVERY_FRESH_MS,
   BACKGROUND_RECOVERY_OPEN_TOOL_MAX_MS,
@@ -832,6 +833,12 @@ export function adoptExternalSessionFromHook(
   persistAgents: () => void,
   onAgentCreated?: (agent: AgentState) => void,
 ): void {
+  // The daemon's own `/usage` probe is never an agent, whatever the CLI did with its flags.
+  if (
+    isUsageProbeFolder(cwd) ||
+    (transcriptPath && isUsageProbeFolder(path.dirname(transcriptPath)))
+  )
+    return;
   if (transcriptPath) {
     // File-based provider (Claude, Codex): adopt with JSONL file watching
     // Guard: don't adopt if file is already tracked by an agent
@@ -914,6 +921,7 @@ function adoptExternalSession(
   persistAgents: () => void,
   directoryName?: string,
 ): void {
+  if (isUsageProbeFolder(projectDir)) return; // the daemon's own `/usage` probe (usageProbeFolder.ts)
   const id = nextAgentIdRef.current++;
   // Decide whether to replay the existing file content or skip to its end.
   //

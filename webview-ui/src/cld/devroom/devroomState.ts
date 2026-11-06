@@ -3,11 +3,15 @@
  * rail, the remembered filter, the 터미널 tab's columns. devroomStore.ts keeps the state, WorktreeRail.tsx and
  * DevRoomPhone.tsx draw it.
  */
-import type { BoardTask, EngineProject, OfficeOrchestrator, RepoWorktree } from '../../../../core/src/messages.js';
+import type { BoardTask, EngineAgentCaps, EngineProject, OfficeOrchestrator, RepoWorktree } from '../../../../core/src/messages.js';
 import { DEVROOM_GRAPH_MAX_DEPTH } from '../../constants.js';
+import { isSubagentToolName } from '../../office/toolUtils.js';
 import type { ToolActivity } from '../../office/types.js';
 import { PTY_PROVIDER } from '../engine.js';
+import type { LeadState } from '../messenger/messengerStore.js';
+import { rowBusy } from '../turnState.js';
 import type { WaitReason } from '../waiting.js';
+import { projectAgents, stateGroup } from './agentBoard.js';
 
 /** The rail's chips, strongest first (plan 1.1). */
 export type Chip = 'conflict' | 'approve' | 'question' | 'review' | 'fixing' | 'working' | 'idle' | 'merged';
@@ -15,10 +19,10 @@ export type Chip = 'conflict' | 'approve' | 'question' | 'review' | 'fixing' | '
 export interface ChipInput {
   wt: RepoWorktree;
   task?: Pick<BoardTask, 'status'>;
-  /** The assignee waits for the person: a permission (! 승인) or a question (cld/waiting.ts). */
+  /** Why the assignee waits for the person: a permission (! 승인) or a question (cld/waiting.ts). */
   wait: WaitReason | null;
-  /** The assignee is in a turn. */
-  busy: boolean;
+  /** The assignee's state, as the board's cards read it (agentBoard.stateGroup; 'off' with nobody on it). */
+  state: LeadState;
   /** Review notes on this worktree were sent to its Worker. */
   notesSent: boolean;
 }
@@ -33,13 +37,15 @@ export const conflictsOf = (wt: RepoWorktree): number => wt.conflicts?.length ??
 export const isMerged = (wt: RepoWorktree, task?: Pick<BoardTask, 'status'>): boolean =>
   wt.merged && (wt.merge?.ok === true || task?.status === 'done');
 
-export function chipOf({ wt, task, wait, busy, notesSent }: ChipInput): Chip {
+export function chipOf({ wt, task, wait, state, notesSent }: ChipInput): Chip {
   if (isMerged(wt, task)) return 'merged';
   if (conflictsOf(wt) > 0) return 'conflict';
-  if (wait) return wait === 'permission' ? 'approve' : 'question';
+  const group = stateGroup(state);
+  // A wait with no reason known (a session held on its terminal) asks for the person's 승인.
+  if (wait || group === 'needs') return wait === 'question' ? 'question' : 'approve';
   if (task?.status === 'review') return 'review';
   if (task?.status === 'doing' && notesSent) return 'fixing';
-  if (busy) return 'working';
+  if (group === 'working') return 'working';
   return 'idle';
 }
 
@@ -70,10 +76,11 @@ export const shownProjects = (all: readonly string[], filter: string | null): st
 
 // ── 터미널 tab: one column per agent on the pick, one per running sub-agent of theirs ──
 
-/** live: its PTY-host terminal; codex: no terminal; old: not in our PTY host; off: not running. */
+/** live: its PTY-host terminal; none: its agent has no terminal (caps.attach; `runs`: it works in
+ *  runs, shown in the 현황판's 실행); old: not in our PTY host; off: not running. */
 export type AgentColumn =
   | { kind: 'live'; name: string; agentId: number | null; bgId: string }
-  | { kind: 'codex' | 'old' | 'off'; name: string; agentId: number | null };
+  | { kind: 'none' | 'old' | 'off'; name: string; agentId: number | null; runs?: true };
 
 export interface SubColumn {
   key: string;
@@ -112,9 +119,13 @@ export function agentsOn(
   ];
 }
 
-export function columnOf(p: EngineProject, orchs: readonly Pick<OfficeOrchestrator, 'name' | 'agentId'>[]): AgentColumn {
+export function columnOf(
+  p: EngineProject,
+  orchs: readonly Pick<OfficeOrchestrator, 'name' | 'agentId'>[],
+  caps: EngineAgentCaps | undefined,
+): AgentColumn {
   const agentId = orchs.find((o) => o.name === p.name)?.agentId ?? null;
-  if (p.provider === 'codex') return { kind: 'codex', name: p.name, agentId };
+  if (caps && !caps.attach) return { kind: 'none', name: p.name, agentId, ...(caps.lifetime === 'run' && { runs: true as const }) };
   if (p.provider !== PTY_PROVIDER) return { kind: 'old', name: p.name, agentId };
   if (!p.live || !p.bgId) return { kind: 'off', name: p.name, agentId };
   return { kind: 'live', name: p.name, agentId, bgId: p.bgId };
@@ -133,8 +144,13 @@ export function subColumns(
   let n = 0;
   return cols.flatMap((c) => {
     const id = c.agentId;
-    if (id === null || c.kind === 'codex') return [];
-    return Object.entries(subs[id] ?? {}).map(([parent, lines]) => {
+    if (id === null || c.kind === 'none') return [];
+    const rows = subs[id] ?? {};
+    // DEVROOM-SIDEBAR: a running spawn with no tool rows yet (just spawned, between its calls after a
+    // reload: the daemon replays only running calls) is a sub-agent too.
+    // ponytail: a named spawn (a Teammate-to-be) is listed here too until its teammate takes over.
+    const quiet = (tools[id] ?? []).filter((x) => !x.done && !(x.toolId in rows) && isSubagentToolName(x.toolName)).map((x) => [x.toolId, []] as const);
+    return [...Object.entries(rows), ...quiet].map(([parent, lines]) => {
       const spawn = tools[id]?.find((x) => x.toolId === parent);
       return { key: `${id}:${parent}`, n: ++n, desc: spawn?.desc ?? spawn?.status ?? '', lines, agentId: id, parent, done: spawn?.done === true };
     });
@@ -233,3 +249,52 @@ export function graphLines<T extends { wt: Pick<RepoWorktree, 'branch' | 'base'>
 
 /** The graph's left edge at `depth`; the steps past DEVROOM_GRAPH_MAX_DEPTH are drawn at the same place. */
 export const graphLeft = (depth: number, left: number, step: number): number => left + Math.min(depth, DEVROOM_GRAPH_MAX_DEPTH) * step;
+
+// ── DV4 new worktree and seating (seatStore.ts, NewSpace.tsx) ──────────────
+
+export const WORKTREES_DIR = '.worktrees';
+
+/** Where the engine puts a branch's worktree: `.worktrees/<branch with / as ->` (branchName.ts). */
+export const folderOf = (branch: string): string => `${WORKTREES_DIR}/${branch.trim().replace(/\//g, '-')}`;
+/** The folder name a card carries (RepoWorktree.task). */
+export const taskOf = (branch: string): string => branch.trim().replace(/\//g, '-');
+
+export type SeatState = 'off' | 'idle' | 'busy';
+
+export interface SeatAgent {
+  name: string;
+  state: SeatState;
+  /** The card (folder name) of another worktree it sits in, if any. */
+  elsewhere: string | null;
+  /** Seating it means a restart: it is on and its session stays (a session moves only at its start). */
+  restarts: boolean;
+}
+
+/** The project's Workers and Reviewers (the Lead works in the project's own folder), with their state. */
+export function seatAgents(
+  project: string,
+  engine: readonly EngineProject[],
+  orchs: readonly Pick<OfficeOrchestrator, 'name' | 'provider' | 'state' | 'busy' | 'shellWait' | 'renewing'>[],
+  worktrees: readonly Pick<RepoWorktree, 'task' | 'assignee'>[],
+  caps: (provider: string | undefined) => EngineAgentCaps | undefined,
+  here: string | null = null,
+): SeatAgent[] {
+  return projectAgents(project, engine)
+    .filter((p) => !!p.role)
+    .map((p) => {
+      const orch = orchs.find((o) => o.name === p.name);
+      const state: SeatState = !p.live ? 'off' : orch && rowBusy(orch) === true ? 'busy' : 'idle';
+      const other = worktrees.find((w) => w.assignee === p.name && w.task !== here);
+      return { name: p.name, state, elsewhere: other?.task ?? null, restarts: !!p.live && caps(p.provider)?.lifetime !== 'run' };
+    });
+}
+
+/** The bases a worktree can start from: the project's branch, then the worktrees' branches. */
+export function baseChoices(trunk: string | undefined, worktrees: readonly Pick<RepoWorktree, 'branch'>[]): string[] {
+  return [...new Set([trunk ?? 'main', ...worktrees.map((w) => w.branch)])];
+}
+
+/** A new Task's title when no issue is linked: the first instruction's first line, else the branch. */
+export const titleFor = (text: string, branch: string): string =>
+  (text.split('\n').find((l) => l.trim())?.trim() ?? branch.trim()).slice(0, 200);
+

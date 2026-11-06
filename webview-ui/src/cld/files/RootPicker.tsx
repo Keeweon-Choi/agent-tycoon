@@ -9,7 +9,7 @@ import type { FileRoot } from './filesStore.js';
 /** `● 작업 중` -> `작업 중`: the dev room's chip words without its leading glyph. */
 const plain = (chip: string) => chip.replace(/^[●!✔]\s*/, '');
 
-/** `ᚠ main ▾  작업 폴더 고르기`: the project's main folder or one of its open task worktrees (W4). */
+/** `ᚠ main ▾  워크트리 고르기`: the project's main folder or one of its open task worktrees (W4). */
 export function RootPicker({
   root,
   project,

@@ -202,7 +202,12 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
           : koText('ev_orch_rename', { who, to: str(e.to) ?? '?' });
       break;
     case 'orch_renew':
-      summary = e.ok === false ? koText('ev_orch_renew_failed', { who, code: str(e.code) ?? '?' }) : koText('ev_orch_renew', { who });
+      summary =
+        e.ok === false
+          ? e.code === 'start_failed'
+            ? koText('ev_orch_renew_start_failed', { who })
+            : koText('ev_orch_renew_failed', { who, code: str(e.code) ?? '?' })
+          : koText(e.format === 'free' ? 'ev_orch_renew_free' : 'ev_orch_renew', { who });
       break;
     case 'revive':
       summary = koText('ev_revive', { count: arr(e.started).length });

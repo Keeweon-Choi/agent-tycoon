@@ -8,9 +8,8 @@
  *    messenger (T-0043); the terminal-bound alpha-orchestrator's conversation
  *    is read-only; the background beta-task's 터미널로 보기 opens its terminal
  *    as a tab of the terminal workspace (T-0078), two phone profiles join that
- *    attach, gamma-review's tab is refused by the cap (1) until 이 터미널로
- *    바꾸기 swaps it in, the 설정 cap (2) lets both attach, x on a tab ends its
- *    attach, and old-job (a row without a pid: killed by a reboot) is refused.
+ *    attach, gamma-review's tab attaches at once beside it (there is no cap),
+ *    x on a tab ends its attach, and old-job (a row without a pid: killed by a reboot) is refused.
  * (Sending from the chat view is the engine messenger's: run-messenger.ts.)
  * C. without --allow-chat: nothing of it is there.
  *
@@ -24,7 +23,6 @@ import * as path from 'path';
 import { WebSocket } from 'ws';
 
 import type { FakeHome } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   FAKE_CLAUDE,
@@ -459,57 +457,22 @@ async function main() {
       'one `claude attach a0000016` process for all three viewers',
     );
     fs.writeFileSync(path.join(OUT, 'desktop-terminal.txt'), `${await termText(page)}\n`);
-    // T-0078: another background session's terminal is a second tab. The cap (1) keeps it from
-    // attaching; its pane offers 이 터미널로 바꾸기, which lets beta-task go and attaches this one.
+    // T-0078: another background session's terminal is a second tab. There is no cap (11-06):
+    // it attaches at once, beside beta-task's, one process each.
     await openConversation(page, 'gamma-review');
     await messenger
       .getByRole('region', { name: 'gamma-review 대화' })
       .getByRole('button', { name: '터미널로 보기' })
       .click();
     await page.getByRole('button', { name: '메신저 닫기' }).click();
-    const swap = page.getByRole('button', { name: '이 터미널로 바꾸기' });
-    await swap.waitFor();
-    check(
-      (await page.getByTestId('terminal-overlay').getByText('gamma-review').count()) === 1 &&
-        JSON.stringify(attachIds()) === JSON.stringify(['a0000016']),
-      'cap 1: the second tab names gamma-review and offers 이 터미널로 바꾸기; beta-task keeps its attach',
-    );
-    await shot(page, 'desktop-cap-reached');
-    await swap.click();
     await waitForTerm(page, 'fake claude attach a0000017');
     await page.waitForTimeout(1000);
     check(
-      JSON.stringify(attachIds()) === JSON.stringify(['a0000017']),
-      'swapping: gamma-review attaches, beta-task lets go: still one attach process',
+      JSON.stringify(attachIds().sort()) === JSON.stringify(['a0000016', 'a0000017']) &&
+        (await page.getByTestId('terminal-overlay').count()) === 0,
+      'no cap: the second tab attaches at once, one attach process each, no refusal overlay',
     );
-    // 설정: the number of agent terminals at once (default = --chat-attaches, here 1).
-    await topBarButton(page, '설정');
-    await page.getByRole('tab', { name: '고급', exact: true }).click(); // SETTINGS-TABS: the cap is in the 고급 tab
-    const capGroup = page.getByRole('group', { name: '동시에 붙일 에이전트 터미널' });
-    await capGroup.waitFor();
-    check(
-      (await capGroup.getByRole('button', { pressed: true }).innerText()) === '1' &&
-        (await capGroup.getByRole('button').count()) === 4 &&
-        (await page.getByText('하나에 약 150MB').count()) === 1,
-      '설정: 1 to 4, now 1, with the cost "하나에 약 150MB"',
-    );
-    await capGroup.getByRole('button', { name: '2', exact: true }).click();
-    await page.waitForTimeout(500);
-    const kept = JSON.parse(
-      fs.readFileSync(path.join(configDirectory(a.home), 'terminal.json'), 'utf8'),
-    ) as { chatAttaches: number };
-    check(kept.chatAttaches === 2, '설정: the daemon kept the cap (terminal.json)');
-    await shot(page, 'desktop-settings-cap');
-    await page.mouse.click(5, 450); // the backdrop closes the dialog
-    // Applied live: beta-task's tab (let go) now fits next to gamma-review's without a swap.
-    await page.getByRole('tab', { name: /beta-task/ }).click();
-    await page.getByRole('button', { name: '이 터미널로 바꾸기' }).click();
-    await waitForTerm(page, 'fake claude attach a0000016');
-    await page.waitForTimeout(1000);
-    check(
-      JSON.stringify(attachIds().sort()) === JSON.stringify(['a0000016', 'a0000017']),
-      'cap 2 applied without a restart: both agent terminals attached (one process each)',
-    );
+    await shot(page, 'desktop-two-attaches');
     // x only detaches: the attach of that tab ends, the session was never ours to stop.
     await page.getByRole('button', { name: /gamma-review 터미널 닫기/ }).click();
     await page.waitForTimeout(1000);
@@ -539,10 +502,9 @@ async function main() {
     await stop();
     const chatLog = serverLog.join('').match(/\[cld\] chat: .*/g) ?? [];
     check(
-      chatLog.filter((l) => l.includes(' attach "')).length === 5 &&
-        chatLog.filter((l) => l.includes(' detach "')).length === 5 &&
-        chatLog.filter((l) => l.includes('refused')).length === 2 &&
-        chatLog.some((l) => l.includes('refused "a0000017"')) && // the cap
+      chatLog.filter((l) => l.includes(' attach "')).length === 4 && // beta-task: desktop + 2 phones, gamma-review
+        chatLog.filter((l) => l.includes(' detach "')).length === 4 &&
+        chatLog.filter((l) => l.includes('refused')).length === 1 &&
         chatLog.some((l) => l.includes('refused "a0000018"')) &&
         chatLog.some((l) => l.includes('gui:ios')) &&
         chatLog.some((l) => l.includes('gui:android')),
@@ -567,10 +529,10 @@ async function main() {
       'TC-154: without --allow-chat there is no 대화, no 대화 열기 and no claude.ai link',
     );
     await shot(off, 'desktop-chat-off');
-    const cookie = (await offCtx.cookies()).find((c) => c.name === 'cld_session');
+    const cookie = (await offCtx.cookies()).find((c) => c.name.startsWith('cld_session'));
     const status = await new Promise<number>((resolve) => {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/cld/attach/a0000016`, {
-        headers: { cookie: `cld_session=${cookie?.value ?? ''}` },
+        headers: { cookie: `${cookie?.name ?? 'cld_session'}=${cookie?.value ?? ''}` },
       });
       ws.once('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
       ws.once('open', () => resolve(101));

@@ -1,18 +1,20 @@
 /**
- * T-0029: the 현황판 tree, rooms (an engine project's room, or a project folder)
- * → orchestrators. Grouping, each row's look and a room's summary are pure.
- * Which nodes are open and the filter are remembered per device in
- * localStorage, behind try/catch: a blocked store starts from the defaults.
+ * The office's rooms (an engine project's room, or a project folder) → orchestrators, and how an
+ * orchestrator reads like its office character (pure). A5: the 현황판's filter (the room picked and
+ * the unticked Task states), remembered per device in localStorage behind try/catch: a blocked store
+ * starts from the defaults. (The orchestrator tree it once kept is gone: the party is the one list.)
  */
 import { useSyncExternalStore } from 'react';
 
-import type { OfficeOrchestrator, OfficeSnapshot, StatusView } from '../../../../core/src/messages.js';
+import type { OfficeOrchestrator, OfficeSnapshot } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import type { ToolActivity } from '../../office/types.js';
 import { describeActivity, type EzContext } from '../ez/activity.js';
 import { characterVisual, type RingState } from '../ez/visuals.js';
 import { isOff, stateLabel } from '../format.js';
+import { type CldSnapshot, ezContext } from '../officeStore.js';
 import { engineTurn, rowBusy } from '../turnState.js';
+import type { WaitReason } from '../waiting.js';
 
 export interface Room {
   name: string;
@@ -91,101 +93,56 @@ export function rowState(ring: RingState): RowState {
   return 'working';
 }
 
-export type TreeFilter = 'all' | 'working' | 'waiting' | 'off';
-export const FILTERS: readonly TreeFilter[] = ['all', 'working', 'waiting', 'off'];
-export const passesFilter = (filter: TreeFilter, ring: RingState): boolean =>
-  filter === 'all' || rowState(ring) === filter;
-
-/** What most needs the user first: a collapsed room's badge is the first of
- *  these any of its rows has. */
-const WORST_FIRST: RingState[] = ['permission', 'waiting', 'working', 'neutral', 'idle', 'off'];
-
-export interface RoomSummary {
-  working: number;
-  waiting: number;
-  off: number;
-  worst: RingState;
+/** Every project's Lead (its Workers left out, as the rooms leave them) as its character's ring. */
+export function leadRings(
+  snap: CldSnapshot,
+  tools: Readonly<Record<number, ToolActivity[]>>,
+  reasons: Readonly<Record<number, WaitReason>>,
+  workers: ReadonlySet<string>,
+): RingState[] {
+  const ctx = ezContext(snap);
+  return (snap.officeSnapshot?.orchestrators ?? [])
+    .filter((o) => !workers.has(o.name))
+    .map((o) => rowLook(o, o.agentId != null ? tools[o.agentId] : undefined, ctx, o.agentId != null && reasons[o.agentId] === 'question').ring);
 }
 
-export function roomSummary(rings: RingState[]): RoomSummary {
-  const states = rings.map(rowState);
-  const count = (state: RowState) => states.filter((s) => s === state).length;
-  return {
-    working: count('working'),
-    waiting: count('waiting'),
-    off: count('off'),
-    worst: WORST_FIRST.find((ring) => rings.includes(ring)) ?? 'off',
-  };
+// ── The board's filter, per device ────────────────────────────
+
+export interface BoardFilter {
+  /** The one room the board shows (the left column's pick), or every room. */
+  room: string | null;
 }
 
-/**
- * 프로젝트 현황 is open: the daemon reads the project's local report every 10 s for this viewer until the returned cleanup, run on
- * collapse or unmount, turns it off. The section's effect is exactly this.
- */
-export function watchProjectStatus(name: string, send: (msg: StatusView) => void): () => void {
-  send({ type: 'statusView', name, on: true });
-  return () => send({ type: 'statusView', name, on: false });
-}
+const DEFAULT_FILTER: BoardFilter = { room: null };
+export const BOARD_FILTER_KEY = 'cld.board-filter';
 
-// ── Open nodes and the filter, per device ─────────────────────
-
-export type TreeLevel = 'room' | 'orch';
-
-export interface TreeState {
-  /** Each level's default (모두 펼치기 / 모두 접기 set both); `open` holds the
-   *  nodes toggled away from it, keyed `room:<name>` / `orch:<name>`. */
-  rooms: boolean;
-  orchs: boolean;
-  open: Record<string, boolean>;
-  filter: TreeFilter;
-}
-
-/** Rooms open, orchestrators closed: each room lists its orchestrators' one-line looks. */
-const DEFAULT_TREE: TreeState = { rooms: true, orchs: false, open: {}, filter: 'all' };
-export const STATUS_TREE_KEY = 'cld.status-tree';
-
-export function parseTree(raw: string | null): TreeState {
+export function parseFilter(raw: string | null): BoardFilter {
   let parsed: unknown = null;
   try {
     parsed = JSON.parse(raw ?? 'null');
   } catch {
     /* junk: the defaults */
   }
-  if (!parsed || typeof parsed !== 'object') return DEFAULT_TREE;
-  const v = parsed as Partial<Record<keyof TreeState, unknown>>;
-  const open =
-    v.open && typeof v.open === 'object' && !Array.isArray(v.open)
-      ? Object.fromEntries(
-          Object.entries(v.open).filter((e): e is [string, boolean] => typeof e[1] === 'boolean'),
-        )
-      : {};
-  return {
-    rooms: typeof v.rooms === 'boolean' ? v.rooms : DEFAULT_TREE.rooms,
-    orchs: typeof v.orchs === 'boolean' ? v.orchs : DEFAULT_TREE.orchs,
-    open,
-    filter: FILTERS.find((id) => id === v.filter) ?? 'all',
-  };
+  if (!parsed || typeof parsed !== 'object') return DEFAULT_FILTER;
+  const v = parsed as Partial<Record<keyof BoardFilter, unknown>>;
+  return { room: typeof v.room === 'string' ? v.room : null };
 }
 
-export function isOpen(tree: TreeState, level: TreeLevel, name: string): boolean {
-  return tree.open[`${level}:${name}`] ?? (level === 'room' ? tree.rooms : tree.orchs);
-}
-
-function read(): TreeState {
+function read(): BoardFilter {
   try {
-    return parseTree(localStorage.getItem(STATUS_TREE_KEY));
+    return parseFilter(localStorage.getItem(BOARD_FILTER_KEY));
   } catch {
-    return DEFAULT_TREE;
+    return DEFAULT_FILTER;
   }
 }
 
-let tree = read();
+let filter = read();
 const listeners = new Set<() => void>();
 
-function set(next: TreeState): void {
-  tree = next;
+function set(next: BoardFilter): void {
+  filter = next;
   try {
-    localStorage.setItem(STATUS_TREE_KEY, JSON.stringify(next));
+    localStorage.setItem(BOARD_FILTER_KEY, JSON.stringify(next));
   } catch {
     // Private mode or a locked-down webview: this visit still remembers it.
   }
@@ -198,23 +155,13 @@ const subscribe = (listener: () => void) => {
     listeners.delete(listener);
   };
 };
-export const statusTree = () => tree;
-export const useStatusTree = () => useSyncExternalStore(subscribe, statusTree);
+export const boardFilter = () => filter;
+export const useBoardFilter = () => useSyncExternalStore(subscribe, boardFilter);
 
-export function toggleNode(level: TreeLevel, name: string): void {
-  const key = `${level}:${name}`;
-  const next = !isOpen(tree, level, name);
-  const open = { ...tree.open, [key]: next };
-  if (next === (level === 'room' ? tree.rooms : tree.orchs)) delete open[key];
-  set({ ...tree, open });
-}
-
-/** 모두 펼치기 / 모두 접기: both levels, rooms and orchestrators seen later too. */
-export const setAllOpen = (open: boolean) => set({ ...tree, rooms: open, orchs: open, open: {} });
-export const setTreeFilter = (filter: TreeFilter) => set({ ...tree, filter });
+export const setRoomFilter = (room: string | null) => set({ ...filter, room });
 
 /** What a page load does: read the stored state again (tests). */
-export function reloadStatusTree(): void {
-  tree = read();
+export function reloadBoardFilter(): void {
+  filter = read();
   listeners.forEach((listener) => listener());
 }

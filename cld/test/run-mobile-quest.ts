@@ -162,43 +162,23 @@ async function main() {
     await until('unfolded', async () => (await card.getAttribute('data-folded')) === null && (await request.count()) === 1);
     check(true, 'phone: 펼치기 opens it again');
     if (!questOnly) {
-      // The usage strip (folded by default): two rows, same columns, one ▶, the figures labelled.
-      const strip = ph.page.getByTestId('usage-folded');
-      await until('the phone usage strip', async () => (await strip.count()) === 1 && (await strip.locator('[data-testid="usage-gauge"]').count()) === 2, 30_000);
-      const claude = strip.locator('[data-provider="claude"]');
-      const codex = strip.locator('[data-provider="codex"]');
-      const cText = (await claude.innerText()).replace(/\s+/g, ' ');
-      const xText = (await codex.innerText()).replace(/\s+/g, ' ');
-      check(/남음 39%/.test(cText), `phone: Claude reads "남음 39%" ("${cText}")`);
-      check(/모름/.test(xText) && !xText.includes('초기화됨'), `phone: Codex reads 모름, not 초기화됨 ("${xText}")`);
-      const lit = await codex.locator('.game-segbar').getAttribute('data-lit');
-      check(lit === '0', `phone: Codex's bar is empty (${lit} cells lit)`);
-      const cb = (await claude.boundingBox())!;
-      const xb = (await codex.boundingBox())!;
-      const barX = async (l: Locator) => (await l.locator('.game-segbar').boundingBox())!.x;
-      check(Math.abs(cb.x - xb.x) <= 1 && Math.abs((await barX(claude)) - (await barX(codex))) <= 1 && xb.y > cb.y, `phone: the two rows start and their bars start at the same x (${Math.round(cb.x)}/${Math.round(xb.x)})`);
-      check((await strip.locator('svg.w-14').count()) === 1, 'phone: one ▶ for both rows');
-      const title = await claude.locator('[data-window="7d"]').getAttribute('title');
-      check(/주간 61% 사용 · 남음 39% · \d\d-\d\d \d\d:\d\d 초기화/.test(title ?? ''), `phone: the window's title reads both ways ("${title}")`);
+      // The usage row (the desktop control center's folded usage): Claude's figure on one row, a tap opens the sheet.
+      const strip = ph.page.getByTestId('cc-seg-usage');
+      await until('the phone usage row', async () => (await strip.count()) === 1 && (await strip.locator('[data-agent="claude"]').count()) === 1, 30_000);
+      check((await strip.locator('[data-agent="claude"]').getAttribute('data-left')) === '39', 'phone: Claude has 39% left on the row');
       await strip.tap();
-      const detail = ph.page.getByTestId('usage-detail-window').first();
-      await detail.waitFor({ timeout: 5_000 });
-      const dText = await ph.page.getByLabel('사용량', { exact: true }).innerText();
-      check(/주간 61% 사용 · 남음 39%/.test(dText) && /모름/.test(dText), `phone: the open detail says used and left ("${dText.replace(/\s+/g, ' ')}")`);
-      const fits = async (w: number) => {
+      const sheet = ph.page.getByTestId('cc-usage-sheet');
+      await sheet.waitFor({ timeout: 5_000 });
+      const dText = (await sheet.innerText()).replace(/\s+/g, ' ');
+      check(/39%/.test(dText) && /모름/.test(dText) && !dText.includes('초기화됨'), `phone: the sheet says what is left, Codex 모름 ("${dText}")`);
+      for (const w of [360, 390]) {
         await ph.page.setViewportSize({ width: w, height: 844 });
         await wait(300);
-        return ph.page.evaluate(() => {
-          const right = Math.max(...[...document.querySelectorAll('[data-testid="usage-detail-window"]')].map((el) => el.getBoundingClientRect().right));
-          return { right: Math.round(right), width: window.innerWidth, scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
-        });
-      };
-      for (const w of [360, 390]) {
-        const f = await fits(w);
-        check(!f.scroll && f.right <= f.width, `phone ${w}: the open detail wraps inside the screen (right edge ${f.right} <= ${f.width}, no sideways scroll)`);
+        const f = await ph.page.evaluate(() => ({ right: Math.round(document.querySelector('[data-testid="cc-usage-sheet"]')!.getBoundingClientRect().right), width: window.innerWidth, scroll: document.documentElement.scrollWidth > window.innerWidth + 1 }));
+        check(!f.scroll && f.right <= f.width, `phone ${w}: the sheet fits the screen (right edge ${f.right} <= ${f.width}, no sideways scroll)`);
         await shot(`phone-usage-open-${w}`, ph.page);
       }
-      await ph.page.getByRole('button', { name: '사용량 접기' }).tap();
+      await ph.page.getByTestId('cc-usage-sheet-close').tap();
     }
     // 답하기: the card folds and the composer has the focus, on screen with the keyboard's half height gone.
     await card.getByTestId('question-answer').tap();

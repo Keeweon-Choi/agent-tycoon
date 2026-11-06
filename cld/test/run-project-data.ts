@@ -14,7 +14,7 @@
  *
  *   npx tsx cld/test/run-project-data.ts [port 18266|18267]
  */
-import type { Browser, Locator, Page } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 import { devices } from '@playwright/test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -32,6 +32,7 @@ import {
   REPO_ROOT,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
+import { engineButton, engineRow } from './engineRow.js';
 
 const port = Number(process.argv[2]) || 18266;
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/project-data');
@@ -166,8 +167,6 @@ async function main() {
     };
     const hangul = (p: Page) => p.addStyleTag({ content: FONT_CSS });
     const shot = (p: Page, name: string) => p.screenshot({ path: path.join(OUT, `${name}.png`) });
-    const card = (scope: Locator, p: Page, name: string) =>
-      scope.locator('article').filter({ has: p.getByRole('heading', { name, exact: true }) });
 
     const { ctx: desk, page } = await open({ viewport: { width: 1400, height: 900 } });
     await page.goto(await daemon.loginUrl());
@@ -190,9 +189,8 @@ async function main() {
     await page.locator('[data-hud-window="messenger"]').getByRole('button', { name: '최소화', exact: true }).click();
 
     // ── The remove dialog with its purge box (desktop) ──
-    const drawer = page.getByRole('complementary', { name: '사무실 정보' });
-    const betaCard = card(drawer, page, 'beta');
-    await betaCard.getByRole('button', { name: '삭제', exact: true }).click();
+    const betaCard = await engineRow(page, 'beta'); // the engine buttons are in the inspector now
+    await (await engineButton(page, 'beta', '삭제')).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.waitFor();
     const box = dialog.getByRole('checkbox');
@@ -245,8 +243,8 @@ async function main() {
     await phone.goto(`http://127.0.0.1:${port}/`);
     await hangul(phone);
     await phone.locator('[data-hud-id^="icon:"]').getByRole('button', { name: '현황판', exact: true }).click();
-    const panel = phone.getByLabel('현황판 화면');
-    await card(panel, phone, 'tycoon-admin').getByRole('button', { name: '삭제', exact: true }).tap();
+    await phone.getByLabel('현황판 화면').waitFor();
+    await (await engineButton(phone, 'tycoon-admin', '삭제')).tap();
     const pdialog = phone.getByRole('alertdialog');
     await pdialog.waitFor();
     await pdialog.getByRole('checkbox').check();

@@ -28,6 +28,14 @@ describe('overlayPlacer', () => {
     expect(at(3)).not.toBe(at(2));
   });
 
+  it('places nothing of a character the office does not draw (gone home, in the elevator car)', () => {
+    const p = createPlacer();
+    p.frame(frame(2), layout, 1);
+    expect(p.viewOf(ch(32, 48)).shift).toBe(0);
+    expect(p.viewOf({ ...ch(32, 48), id: 8, cldAway: true } as Character).shift).toBeNull();
+    expect(p.viewOf({ ...ch(32, 48), id: 9, cldRide: { hidden: true } } as unknown as Character).shift).toBeNull();
+  });
+
   it('snaps to the device pixel grid like the paint of left/top did', () => {
     const p = createPlacer();
     const c = ch(1.3, 2.7);

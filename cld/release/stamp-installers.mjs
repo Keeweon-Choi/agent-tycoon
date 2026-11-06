@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Stamp the one-line installers for a release (P4; trust model: cld/INSTALL.md, H §5.4).
 //
-//   node cld/release/stamp-installers.mjs --release <dir> [--out <dir>] [--base-url <url>] [--targets linux-x64,...] [--version <v>]
+//   node cld/release/stamp-installers.mjs --release <dir> [--out <dir>] [--pub <file>] [--base-url <url>] [--targets linux-x64,...] [--version <v>]
 //
 // cld/install/install.sh and install.ps1 are templates. This fills in the version, the release base URL,
-// the release public key (<dir>/agent-tycoon-release.pub) and the SHA-256 of every daemon bundle of that
-// version listed in <dir>/SHA256SUMS; install.ps1 also gets the SHA-256 of the stamped install.sh (what it
+// the release public key (the committed cld/release/agent-tycoon-release.pub, or --pub) and the SHA-256 of every
+// daemon bundle of that version found in <dir> (CI holds no signing key: the owner signs afterwards); install.ps1 also gets the SHA-256 of the stamped install.sh (what it
 // runs inside a WSL distro). The scripts check the bundle against this table before unpacking anything,
 // so the trust root is the script itself, not the download. Writes <out>/install.sh and <out>/install.ps1.
 import crypto from 'node:crypto';
@@ -13,11 +13,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BUNDLE_RE } from './bundle/verify.mjs';
+import { BUNDLE_RE, sha256File } from './bundle/verify.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-/** ponytail: placeholder until the public repository exists (P9); the one place the release URL is set. */
-export const RELEASE_BASE_URL = 'https://github.com/agent-tycoon/agent-tycoon/releases/download/v{version}';
+/** The one place the release URL is set: the public repository's release downloads. */
+export const RELEASE_BASE_URL = 'https://github.com/Keeweon-Choi/agent-tycoon/releases/download/v{version}';
 export const TARGETS = ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64', 'win-x64'];
 const PLACEHOLDER = /@@[A-Z0-9_]+@@/g;
 
@@ -66,7 +66,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = process.argv.slice(2);
   const opt = (flag) => { const i = args.indexOf(flag); return i < 0 ? undefined : args[i + 1]; };
   const release = opt('--release');
-  if (!release) { console.error('usage: stamp-installers.mjs --release <dir> [--out <dir>] [--base-url <url>] [--targets a,b] [--version <v>]'); process.exit(2); }
+  if (!release) { console.error('usage: stamp-installers.mjs --release <dir> [--out <dir>] [--pub <file>] [--base-url <url>] [--targets a,b] [--version <v>]'); process.exit(2); }
   try {
     const version = opt('--version') ?? JSON.parse(fs.readFileSync(path.join(ROOT, 'cld', 'release', 'version.json'), 'utf8')).version;
     const out = path.resolve(opt('--out') ?? release);
@@ -75,8 +75,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       ps1: fs.readFileSync(path.join(ROOT, 'cld', 'install', 'install.ps1'), 'utf8'),
       version,
       baseUrl: opt('--base-url'),
-      pubPem: fs.readFileSync(path.join(release, 'agent-tycoon-release.pub'), 'utf8'),
-      sumsText: fs.readFileSync(path.join(release, 'SHA256SUMS'), 'utf8'),
+      pubPem: fs.readFileSync(opt('--pub') ?? path.join(ROOT, 'cld', 'release', 'agent-tycoon-release.pub'), 'utf8'),
+      sumsText: fs.readdirSync(release).filter((n) => BUNDLE_RE.test(n)).sort().map((n) => `${sha256File(path.join(release, n))}  ${n}\n`).join(''),
       targets: opt('--targets')?.split(','),
     });
     fs.mkdirSync(out, { recursive: true });

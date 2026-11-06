@@ -434,7 +434,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         const r = rig('success', { rulesDir });
         const cfg = path.join(r.home, '.config/agent-tycoon');
         fs.writeFileSync(path.join(cfg, 'ui-language'), 'en\n');
-        return { r, cfg };
+        return { r, cfg, rulesDir };
       };
       const promptOf = (r: ReturnType<typeof rig>, id: string) =>
         fs.readFileSync(path.join(codexDir(r.home), `${id}.prompt.md`), 'utf-8');
@@ -472,6 +472,18 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         expect(promptOf(r, id)).toBe(`USER-RULES\n\n---\n\n${prompt}`);
         await r.until(id, (x) => x.state === 'done');
         expect(r.events().find((e) => e.type === 'codex_start')).not.toHaveProperty('playbook');
+      });
+
+      it('RQ4: a switched-on project\'s Worker gets the spec workflow layer after its playbook, before the user\'s; off, none', async () => {
+        const { r, cfg, rulesDir } = setup();
+        fs.writeFileSync(path.join(cfg, 'rules.md'), 'USER-RULES\n');
+        fs.writeFileSync(path.join(rulesDir, 'spec-workflow.en.md'), 'SHIPPED-SPEC-WORKFLOW\n');
+        const on = await r.start({ spec: '', worker: { name: 'alpha-w1', assignmentId: 'a_wwwwwwwwww', prompt, role: 'worker', specWorkflow: true } });
+        await r.until(on.id as string, (x) => x.state === 'done');
+        expect(promptOf(r, on.id as string)).toBe(`SHIPPED-DEFAULT\n\nSHIPPED-WORKER\n\nSHIPPED-SPEC-WORKFLOW\n\nUSER-RULES\n\n---\n\n${prompt}`);
+        const off = await r.start({ spec: '', worker: { name: 'alpha-w1', assignmentId: 'a_wwwwwwwwww', prompt, role: 'worker' } });
+        await r.until(off.id as string, (x) => x.state === 'done');
+        expect(promptOf(r, off.id as string)).toBe(`SHIPPED-DEFAULT\n\nSHIPPED-WORKER\n\nUSER-RULES\n\n---\n\n${prompt}`);
       });
 
       it('a plain `cld-gui codex` spec run: the engine adds nothing', async () => {

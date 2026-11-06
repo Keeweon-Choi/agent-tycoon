@@ -66,8 +66,6 @@ interface MovableProps {
   className?: string;
   /** z-index once moved (inside the HUD layer it is unnecessary). */
   z?: number;
-  /** A bottom-preset dock item stays in the responsive row, not its old saved pixel slot. */
-  flowInBottomPreset?: boolean;
   children: ReactNode;
 }
 
@@ -76,7 +74,6 @@ export function Movable({
   label,
   className = '',
   z,
-  flowInBottomPreset = false,
   children,
 }: MovableProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -125,7 +122,7 @@ export function Movable({
 
   const placed =
     live ??
-    ((!flowInBottomPreset || hud.layout.preset !== 'bottom') && entry?.place && bounds
+    (entry?.place && bounds
       ? clampPlace(entry.place, size, bounds)
       : null);
 

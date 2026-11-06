@@ -20,7 +20,7 @@ const same = (a: readonly Rect[], b: readonly Rect[]) =>
 export function measurePanels(layer: HTMLElement, slot: HTMLElement): readonly Rect[] {
   const room = layer.getBoundingClientRect();
   const next = [...slot.querySelectorAll<HTMLElement>('[data-hud-fixed]')]
-    .filter((el) => el.offsetParent !== null)
+    .filter((el) => el.offsetParent !== null && el.closest('[data-hud-unmeasured]') === null)
     .map((el) => {
       const box = el.getBoundingClientRect();
       return {

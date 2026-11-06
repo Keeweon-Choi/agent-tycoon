@@ -321,16 +321,16 @@ async function main() {
       'the panel lists the five loose changes under 스테이지 안 됨',
     );
     check(
-      (await panel.getByText('작업 공간').count()) === 0,
+      (await panel.getByText('워크트리').count()) === 0,
       'W1: the 변경 tab holds the changes only, the worktree list is its own tab',
     );
     await go('worktree');
-    await panel.getByText('작업 공간 (2)').waitFor();
+    await panel.getByText('워크트리 (2)').waitFor();
     check(
-      (await panel.getByText('작업 공간 (2)').count()) === 1 &&
-        (await panel.getByText('병합 안 됨').count()) === 1 &&
+      (await panel.getByText('워크트리 (2)').count()) === 1 &&
+        (await panel.getByText('머지 안 됨').count()) === 1 &&
         (await panel.getByText('변경 1건').count()) === 1,
-      '작업 공간 lists login (unmerged, 1 change) and docs (merged)',
+      '워크트리 lists login (unmerged, 1 change) and docs (merged)',
     );
     await go('변경');
     await panel.getByText('main → origin/main').waitFor();
@@ -514,15 +514,15 @@ async function main() {
     // Worktrees: the stronger confirmation, then the plain one.
     await go('worktree');
     const loginRow = panel
-      .getByLabel('작업 공간', { exact: true })
+      .getByLabel('워크트리', { exact: true })
       .locator('li')
       .filter({ hasText: 'login' });
     await loginRow.getByRole('button', { name: '지우기' }).click();
     await dialog.waitFor();
     const text = (await dialog.textContent()) ?? '';
     check(
-      text.includes('작업 공간 login을 지울까요?') &&
-        text.includes('병합되지 않은 커밋 1개') &&
+      text.includes('워크트리 login을 지울까요?') &&
+        text.includes('머지되지 않은 커밋 1개') &&
         text.includes('커밋하지 않은 변경 1건') &&
         text.includes('task/login는 남겨요'),
       'removing an unmerged worktree names what would be lost',
@@ -539,7 +539,7 @@ async function main() {
     );
     await loginRow.getByRole('button', { name: '지우기' }).click();
     await dialog.getByRole('button', { name: '버리고 지우기', exact: true }).click();
-    await toast(page, '작업 공간을 지웠어요');
+    await toast(page, '워크트리를 지웠어요');
     await loginRow.waitFor({ state: 'detached' });
     check(
       !fs.existsSync(wtDir('login')) &&
@@ -547,7 +547,7 @@ async function main() {
       'login is gone, its branch with the unmerged commit stays',
     );
     const docsRow = panel
-      .getByLabel('작업 공간', { exact: true })
+      .getByLabel('워크트리', { exact: true })
       .locator('li')
       .filter({ hasText: 'docs' });
     await docsRow.getByRole('button', { name: '지우기' }).click();
@@ -559,7 +559,7 @@ async function main() {
     );
     await dialog.getByRole('button', { name: '지우기', exact: true }).click();
     // The list empties when the result's fresh state arrives (the toast text repeats).
-    await panel.getByLabel('작업 공간', { exact: true }).waitFor({ state: 'detached' });
+    await panel.getByLabel('워크트리', { exact: true }).waitFor({ state: 'detached' });
     check(
       !fs.existsSync(wtDir('docs')) && !gitOut(['branch', '--list', 'task/docs']),
       'docs is gone with its branch',
@@ -613,7 +613,7 @@ async function main() {
     const ppanelRoot = phone.getByLabel('현황판 화면');
     const { panel: ppanel, go: pgo } = await openBench(phone, ppanelRoot, true);
     await pgo('worktree');
-    await ppanel.getByText('작업 공간 (1)').waitFor();
+    await ppanel.getByText('워크트리 (1)').waitFor();
     await pgo('변경');
     await ppanel.getByText('main → origin/main').waitFor();
     await ppanel.evaluate((el) => el.scrollIntoView({ block: 'start' }));
@@ -665,13 +665,13 @@ async function main() {
     await safe.waitForTimeout(500);
     await noStrips(safe, '작업실 변경 tab');
     await sgo('worktree');
-    await spanel.getByText('작업 공간 (1)').waitFor();
-    await spanel.getByLabel('작업 공간', { exact: true }).scrollIntoViewIfNeeded();
+    await spanel.getByText('워크트리 (1)').waitFor();
+    await spanel.getByLabel('워크트리', { exact: true }).scrollIntoViewIfNeeded();
     await safe.waitForTimeout(500);
-    await noStrips(safe, '작업실 worktree tab scrolled to 작업 공간');
+    await noStrips(safe, '작업실 worktree tab scrolled to 워크트리');
     await shot(safe, 'phone-safe-worktrees');
     await spanel
-      .getByLabel('작업 공간', { exact: true })
+      .getByLabel('워크트리', { exact: true })
       .getByRole('button', { name: '지우기' })
       .tap();
     const sdialog = safe.getByRole('alertdialog');
@@ -679,7 +679,7 @@ async function main() {
     await shot(safe, 'phone-safe-confirm');
     await noStrips(safe, 'worktree confirm dialog');
     await sdialog.getByRole('button', { name: '버리고 지우기', exact: true }).tap();
-    const stoast = safe.getByRole('status').filter({ hasText: '작업 공간을 지웠어요' });
+    const stoast = safe.getByRole('status').filter({ hasText: '워크트리를 지웠어요' });
     await stoast.waitFor({ timeout: 10_000 });
     await shot(safe, 'phone-safe-toast');
     await noStrips(safe, 'toast');

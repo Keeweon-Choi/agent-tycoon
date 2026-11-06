@@ -46,7 +46,7 @@ const TABS: Array<[string, string[]]> = [
   ['화면', ['ui-scale-option', 'floor-view-option', 'nameplates-option', 'rank-icon-option', 'hud-reset-option']],
   ['접속', ['access-option']],
   ['보안', ['bypass-option', 'security-open-option']],
-  ['고급', ['ime-guard-option']],
+  ['고급', ['agent-rules-option']],
 ];
 /** A tab must not need more than this many screens of scrolling (the real numbers are printed). */
 const MAX_SCREENS = 2.5;
@@ -215,18 +215,18 @@ async function main() {
       // Every panel's settings are in some tab: nothing dropped.
       const all = TABS.flatMap(([, ids]) => ids);
       for (const id of [...all, 'access-option']) check((await page.getByTestId(id).count()) >= 1, `${tag}: ${id} exists`);
-      if (!mobile) check((await page.getByTestId('hud-preset-option').count()) === 1, `${tag}: layout presets exist`);
+      check((await page.getByTestId('hud-preset-option').count()) === 0, `${tag}: no layout presets setting`);
       check((await page.getByText('가장자리 스크롤').count()) + (mobile ? 1 : 0) >= 1, `${tag}: edge scrolling setting exists`);
 
       if (!mobile) {
         // ── The keys: ←→ pick in a choice, ↓ to the next row, Esc closes ──
         await page.getByRole('tab', { name: '화면', exact: true }).click();
-        const font = page.getByTestId('ui-font-option');
-        await font.locator('[aria-pressed="true"]').focus();
+        const style = page.getByTestId('ui-theme-option');
+        await style.locator('[aria-pressed="true"]').focus();
         await page.keyboard.press('ArrowRight');
-        check((await font.locator('[data-ui-font="readable"]').getAttribute('aria-pressed')) === 'true', `${tag}: → picks 읽기 쉬움`);
+        check((await style.locator('[data-ui-theme="pixel"]').getAttribute('aria-pressed')) === 'true', `${tag}: → picks 픽셀 감성`);
         await page.keyboard.press('ArrowLeft');
-        check((await font.locator('[data-ui-font="pixel"]').getAttribute('aria-pressed')) === 'true', `${tag}: ← picks 픽셀 감성 again`);
+        check((await style.locator('[data-ui-theme="modern"]').getAttribute('aria-pressed')) === 'true', `${tag}: ← picks 모던 again`);
         await page.keyboard.press('ArrowDown');
         check((await page.getByTestId('game-motion-option').locator('[data-setting-row]').getAttribute('data-picked')) === 'true', `${tag}: ↓ goes to 게임 효과, picked`);
         check(((await page.getByTestId('settings-hint').textContent()) ?? '').startsWith('게임 효과'), `${tag}: the picked row's help is on the hint line`);

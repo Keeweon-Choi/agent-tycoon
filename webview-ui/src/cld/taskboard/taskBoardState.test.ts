@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { BoardTask, CodexTask, OfficeJob, TrackedItem, TrackedItems } from '../../../../core/src/messages.js';
 import {
   assigneeOf,
+  type BoardItem,
   boardItems,
   confirmedTasks,
   DONE_SHOWN,
+  dropEdit,
   filterChoices,
   filterItems,
   goalProgress,
@@ -15,12 +17,12 @@ import {
   NO_FILTER,
   nowStrip,
   observedRuns,
-  priorityStars,
   stampDate,
   statusesOf,
   toggleGoalFilter,
   trackedColumn,
   trackedCount,
+  withMoves,
 } from './taskBoardState.js';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 14, min)).toISOString();
@@ -427,10 +429,6 @@ describe('document items on the board (U-48 2a)', () => {
 });
 
 describe('GAME-UI-1 G2 quest board', () => {
-  it('priority stars: P0 3, P1 2, P2 1, none or later 0', () => {
-    expect(['P0', 'P1', 'P2', 'later', undefined, null].map(priorityStars)).toEqual([3, 2, 1, 0, 0, 0]);
-  });
-
   it('newlyDone: only a card seen not done that is done now; a card first seen done never stamps again', () => {
     const before = statusesOf([
       { key: 'a', status: 'review' },
@@ -449,5 +447,24 @@ describe('GAME-UI-1 G2 quest board', () => {
   it('stampDate: local MM.DD, empty for no time', () => {
     expect(stampDate(new Date(2026, 10, 3, 22).toISOString())).toBe('11.03');
     expect([stampDate(undefined), stampDate('nope')]).toEqual(['', '']);
+  });
+});
+
+describe('FEAT-BOARD-LESS: moving a card like Jira', () => {
+  const card = (status: BoardTask['status']) => {
+    const task = { id: 'T-1', project: 'p', title: 't', status, source: 'reported', createdAt: '', updatedAt: '', history: [] } as BoardTask;
+    return { key: 'task:p/T-1', task, status } as BoardItem;
+  };
+  it('a drop on another column is the detail editor\'s status edit; same column, read-only or no Task: nothing', () => {
+    expect(dropEdit(card('todo'), 'doing', false)).toEqual({ id: 'T-1', fields: { status: 'doing' } });
+    expect(dropEdit(card('todo'), 'todo', false)).toBeNull();
+    expect(dropEdit(card('todo'), 'doing', true)).toBeNull();
+    expect(dropEdit({ task: undefined }, 'doing', false)).toBeNull();
+    expect(dropEdit(undefined, 'doing', false)).toBeNull();
+  });
+  it('a sent move shows the card in its new column until the board answers', () => {
+    const items = [card('todo')];
+    expect(withMoves(items, { [items[0].key]: 'doing' })[0].status).toBe('doing');
+    expect(withMoves(items, {})[0]).toBe(items[0]);
   });
 });

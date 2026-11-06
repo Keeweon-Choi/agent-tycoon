@@ -1,4 +1,3 @@
-import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -8,22 +7,20 @@ import type {
   UsageState,
 } from '../../../core/src/messages.js';
 import {
-  CLAUDE_KEYCHAIN_SERVICE,
-  CLAUDE_KEYCHAIN_TIMEOUT_MS,
-  CLAUDE_USAGE_API_FILE,
-  CLAUDE_USAGE_BACKOFF_MAX_MS,
-  CLAUDE_USAGE_BETA,
-  CLAUDE_USAGE_MIN_GAP_MS,
+  CLAUDE_USAGE_REPORT_MAX_BYTES,
   CLAUDE_USAGE_STALE_MS,
-  CLAUDE_USAGE_TIMEOUT_MS,
-  CLAUDE_USAGE_URL,
-  CLAUDE_USAGE_USER_AGENT,
   USAGE_EARLY_RESET_MIN_FUTURE_MS,
   USAGE_EARLY_RESET_MIN_NEXT_SHIFT_MS,
+  USAGE_PROBE_MIN_GAP_MS,
+  USAGE_PROBE_STDIN_HOLD_MS,
+  USAGE_PROBE_TIMEOUT_MS,
   USAGE_REFRESH_MS,
 } from '../constants.js';
 import { configDirectory } from './configPath.js';
 import { rateLimitsIn } from './engine/codex.js';
+import { type SpawnFn, spawnJson, SpawnJsonError } from './spawnJson.js';
+import { readText } from './tracking/tracker.js';
+import { usageProbeDir } from './usageProbeFolder.js';
 
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
 const num = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
@@ -33,14 +30,11 @@ const obj = (x: unknown): Record<string, unknown> | null =>
 const providerNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' };
 const providerName = (id: string): string => providerNames[id] ?? id;
 
-function provider(
-  id: string,
-  name: string,
-  windows: UsageLimitWindow[],
-  models?: UsageProviderState['models'],
-): UsageProviderState {
-  return { id, name, windows, ...(models?.length ? { models } : {}) };
-}
+const provider = (id: string, name: string, windows: UsageLimitWindow[]): UsageProviderState => ({
+  id,
+  name,
+  windows,
+});
 
 type Usage = Omit<UsageState, 'type'>;
 export type UsageProvider = string;
@@ -60,12 +54,15 @@ function slot(
 ): UsageLimitWindow | null {
   const p = num(pct);
   const at = num(resetsAtSec);
-  if (p === null) return null;
+  // The sources document 0-100; anything else is junk, not a full window (>= 100 holds delegation back).
+  if (p === null || p < 0 || p > 100) return null;
   if (at !== null && at * 1000 <= now) return { id, pct: null, resetAt: null, isReset: true };
+  // A junk resets_at past Date's range (~8.64e12 s) would make toISOString throw: no reset time instead.
+  const reset = at === null ? null : new Date(Math.round(at * 1000));
   return {
     id,
     pct: p,
-    resetAt: at === null ? null : new Date(Math.round(at * 1000)).toISOString(),
+    resetAt: reset && !Number.isNaN(reset.getTime()) ? reset.toISOString() : null,
   };
 }
 
@@ -99,186 +96,129 @@ export function earlyResets(previous: Usage | null, next: Usage, now: number): E
   return out;
 }
 
-type UsageModel = NonNullable<UsageProviderState['models']>[number];
+/** Where cld/bin/cld-gui-statusline.js keeps the last `rate_limits` Claude Code handed it. */
+export const claudeUsageFile = (home: string): string =>
+  path.join(configDirectory(home), 'usage-claude.json');
 
 /**
- * Claude's account usage as the endpoint answers it: `five_hour` / `seven_day`
- * (`utilization`, `resets_at` ISO) and the per-model weekly windows, from
- * `limits[]` (`kind: 'weekly_scoped'`, `percent`, `scope.model.display_name`,
- * e.g. Fable) or a flat `seven_day_<family>`. Only what it
- * reported (Ultra has no five_hour); null when it reported nothing we know.
+ * Claude's usage as Claude Code last reported it to the status line of a session we started
+ * (https://code.claude.com/docs/en/statusline: `rate_limits.five_hour` / `seven_day`, each
+ * `used_percentage` 0-100 and `resets_at` in epoch seconds; Pro, Max and Ultra only, after a
+ * session's first response, only the windows the plan has), with `at` (the status line's `ts`),
+ * when it came. A passed reset stays a reset marker until a fresh report; no file is no windows
+ * (unknown). Never Claude Code's credentials (ADR-0016 decision 7).
  */
-export function claudeApiUsage(data: unknown, now = Date.now()): UsageProviderState | null {
-  const d = obj(data);
-  if (!d) return null;
+export function claudeOwnUsage(file: string, now = Date.now()): UsageProviderState {
+  let raw: Record<string, unknown> | null = null;
+  // A regular file only, never through a link, a FIFO or a device (they could hang the daemon), and small.
+  const text = readText(file, true, CLAUDE_USAGE_REPORT_MAX_BYTES);
+  try {
+    if (typeof text === 'string') raw = obj(JSON.parse(text));
+  } catch {
+    // a broken file: unknown
+  }
   const window = (id: string, key: string) => {
-    const w = obj(d[key]);
-    const at = Date.parse(str(w?.resets_at) ?? '');
-    return w ? slot(id, w.utilization, Number.isFinite(at) ? at / 1000 : null, now) : null;
+    const w = obj(raw?.[key]);
+    return w ? slot(id, w.used_percentage, w.resets_at, now) : null;
   };
   const windows = [window('5h', 'five_hour'), window('7d', 'seven_day')].filter(
     (w): w is UsageLimitWindow => w !== null,
   );
-  const models: UsageModel[] = [];
-  const model = (family: string, pct: unknown, reset: unknown) => {
-    const p = num(pct);
-    const r = str(reset);
-    const at = Date.parse(r ?? '');
-    if (p === null || models.some((m) => m.family === family)) return;
-    if (Number.isFinite(at) && at <= now) return; // an elapsed week: no stale percent
-    models.push({ family, pct: p, reset: Number.isFinite(at) ? r : null });
+  const at = Date.parse(str(raw?.ts) ?? '');
+  return {
+    ...provider('claude', providerName('claude'), windows),
+    // A report time ahead of the clock is junk too: no age shown rather than "fresh" forever.
+    ...(windows.length > 0 &&
+      Number.isFinite(at) &&
+      at <= now && { at: new Date(at).toISOString() }),
   };
-  for (const raw of Array.isArray(d.limits) ? d.limits : []) {
-    const limit = obj(raw);
-    const name = str(obj(obj(limit?.scope)?.model)?.display_name);
-    if (limit?.kind === 'weekly_scoped' && name)
-      model(name.toLowerCase(), limit.percent, limit.resets_at);
-  }
-  // ponytail: any flat seven_day_<word> with a number is read as a model's week; a non-model one would show too.
-  for (const [key, value] of Object.entries(d)) {
-    const family = /^seven_day_([a-z]+)$/.exec(key)?.[1];
-    const w = obj(value);
-    if (family && w) model(family, w.utilization, w.resets_at);
-  }
-  return windows.length || models.length
-    ? provider('claude', providerName('claude'), windows, models)
-    : null;
 }
 
-/** Claude Code's credentials JSON (file or Keychain item) -> its OAuth access token, unless expired. */
-export function oauthToken(text: string | null, now = Date.now()): string | null {
-  if (!text) return null;
-  try {
-    const oauth = obj(obj(JSON.parse(text))?.claudeAiOauth);
-    const token = str(oauth?.accessToken);
-    const expires = num(oauth?.expiresAt);
-    return token && (expires === null || expires > now) ? token : null;
-  } catch {
-    return null; // never rethrown: a parse error can quote the text
-  }
+type UsageModel = NonNullable<UsageProviderState['models']>[number];
+
+/** Claude Code's own `/usage` report, as the probe last got it (raw: windows become slots when shown). */
+export interface ClaudeUsageReport {
+  /** When the probe got it (epoch ms). */
+  at: number;
+  windows: Array<{ id: string; pct: number; resetsAtSec: number | null }>;
+  models: UsageModel[];
 }
 
-/** The Keychain item's JSON, or null. */
-export type ReadKeychain = () => Promise<string | null>;
-
-/** macOS: Claude Code's Keychain item; a missing item, a denial or a dialog left open gives null. */
-export const readMacKeychain: ReadKeychain = () =>
-  new Promise((resolve) => {
-    execFile(
-      'security',
-      ['find-generic-password', '-s', CLAUDE_KEYCHAIN_SERVICE, '-w'],
-      { timeout: CLAUDE_KEYCHAIN_TIMEOUT_MS },
-      (error, stdout) => resolve(error ? null : String(stdout).trim() || null),
-    );
-  });
-
-/** The usage endpoint, or a loopback stand-in a test daemon names (never a remote one). */
-export function claudeUsageUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const test = env.CLD_GUI_TEST_CLAUDE_USAGE_URL;
-  try {
-    if (test && new URL(test).protocol === 'http:' && new URL(test).hostname === '127.0.0.1')
-      return test;
-  } catch {
-    // not a URL: the real endpoint
-  }
-  return CLAUDE_USAGE_URL;
-}
-
-interface Reply {
-  status: number;
-  body: unknown;
-  /** The raw Retry-After header, when the server sent one. */
-  retryAfter?: string | null;
-}
-
-/** Retry-After as milliseconds from `now`: delta-seconds or an HTTP date; null when absent or unreadable. */
-export function retryAfterMs(header: string | null | undefined, now: number): number | null {
-  const text = header?.trim();
-  if (!text) return null;
-  const ms = /^\d+$/.test(text) ? Number(text) * 1000 : Date.parse(text) - now;
-  return Number.isFinite(ms) ? Math.max(0, ms) : null;
-}
-
-/** curl with everything (the token too) on stdin, so nothing shows in the process list. */
-function curlUsage(url: string, token: string): Promise<Reply | null> {
-  // The token goes inside a quoted config line: anything but token characters could add options.
-  if (!/^[\w.~+/=-]+$/.test(token)) return Promise.resolve(null);
-  const config = [
-    `url = "${url}"`,
-    `header = "Authorization: Bearer ${token}"`,
-    `header = "anthropic-beta: ${CLAUDE_USAGE_BETA}"`,
-    'header = "Accept: application/json"',
-    `user-agent = "${CLAUDE_USAGE_USER_AGENT}"`,
-    'silent',
-    'write-out = "\\n%{http_code}"',
-    '',
-  ].join('\n');
-  return new Promise((resolve) => {
-    const child = execFile(
-      'curl',
-      ['-K', '-'],
-      { timeout: CLAUDE_USAGE_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
-      (error, stdout) => {
-        if (error) return resolve(null);
-        const cut = stdout.lastIndexOf('\n');
-        const status = Number(stdout.slice(cut + 1));
-        let body: unknown = null;
-        try {
-          body = JSON.parse(stdout.slice(0, cut));
-        } catch {
-          // a non-JSON body: no figures
-        }
-        resolve(Number.isInteger(status) ? { status, body } : null);
-      },
-    );
-    child.on('error', () => resolve(null));
-    child.stdin?.on('error', () => undefined); // curl missing: EPIPE
-    child.stdin?.end(config);
-  });
-}
-
-async function requestUsage(url: string, token: string): Promise<Reply> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
-      'anthropic-beta': CLAUDE_USAGE_BETA,
-      'User-Agent': CLAUDE_USAGE_USER_AGENT,
-    },
-    signal: AbortSignal.timeout(CLAUDE_USAGE_TIMEOUT_MS),
-  });
-  const body: unknown = await response.json().catch(() => null);
-  // Some Linux Node builds get 403 for their TLS fingerprint where curl gets through (claude-dashboard's finding).
-  if (response.status === 403) return (await curlUsage(url, token)) ?? { status: 403, body: null };
-  return { status: response.status, body, retryAfter: response.headers.get('retry-after') };
-}
-
-/** Where cld/bin/cld-gui-statusline.js keeps Claude Code's own rate_limits. */
-export const claudeUsageFile = (home: string): string =>
-  path.join(configDirectory(home), 'usage-claude.json');
-
-const claudeApiFile = (home: string): string =>
-  path.join(configDirectory(home), CLAUDE_USAGE_API_FILE);
+/** `/usage`'s report kinds that are a window we already show (the per-model weeks go to `models`). */
+const REPORT_WINDOWS: Record<string, string> = { session: '5h', weekly_all: '7d' };
 
 /**
- * Claude Code's own 5-hour and 7-day windows, as the status line of an engine
- * session last saw them (`used_percentage`, `resets_at` in epoch seconds), only
- * the windows it reported (an Ultra plan has no 5-hour one); empty when there is
- * no such file or nothing in it was source-reported. A passed
- * source reset remains visible as a reset marker until a fresh reading arrives.
+ * The `usage_report` Claude Code attaches to the assistant message that answers `/usage` in
+ * stream-json (https://code.claude.com/docs/en/agent-sdk/typescript, SDKUsageReport:
+ * `rate_limits.limits[]` of `{kind, group, percent, resets_at (ISO), scope.model.display_name,
+ * severity, is_active}`). `weekly_scoped` with a model is that model's week (e.g. Fable),
+ * `weekly_all` the week, `session` the five hours; other kinds, a percent outside 0-100 or an
+ * unreadable time are skipped. null when no line carries a report with a limits list (an API-key
+ * login, an older CLI, or `limits: null` when the CLI's own fetch had not come back in time, about
+ * one probe in two on 11-06): no reading, so the figures from the last good probe stay.
  */
-export function claudeOwnUsage(file: string, now = Date.now()): UsageLimitWindow[] {
-  let raw: Record<string, { used_percentage?: unknown; resets_at?: unknown } | undefined>;
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch {
-    return [];
+export function claudeUsageReport(lines: unknown, now = Date.now()): ClaudeUsageReport | null {
+  for (const line of Array.isArray(lines) ? lines : []) {
+    const m = obj(line);
+    const report = m?.type === 'assistant' ? obj(m.usage_report) : null;
+    if (!report) continue;
+    const limits = obj(report.rate_limits)?.limits;
+    if (!Array.isArray(limits)) continue;
+    const windows: ClaudeUsageReport['windows'] = [];
+    const models: UsageModel[] = [];
+    for (const raw of limits) {
+      const limit = obj(raw);
+      const pct = num(limit?.percent);
+      if (!limit || pct === null || pct < 0 || pct > 100) continue;
+      const resetMs = Date.parse(str(limit.resets_at) ?? '');
+      const reset = Number.isFinite(resetMs) ? new Date(resetMs).toISOString() : null;
+      const kind = str(limit.kind) ?? '';
+      // Own keys only: a kind named "constructor" must not find Object.prototype's.
+      const window = Object.hasOwn(REPORT_WINDOWS, kind) ? REPORT_WINDOWS[kind] : undefined;
+      const model = str(obj(obj(limit.scope)?.model)?.display_name)
+        ?.trim()
+        .toLowerCase();
+      if (window && !windows.some((w) => w.id === window))
+        windows.push({ id: window, pct, resetsAtSec: reset ? resetMs / 1000 : null });
+      else if (kind === 'weekly_scoped' && model && !models.some((x) => x.family === model))
+        models.push({ family: model, pct, reset });
+    }
+    return { at: now, windows: windows.sort((a, b) => a.id.localeCompare(b.id)), models };
   }
-  if (!raw || typeof raw !== 'object') return [];
-  return [
-    slot('5h', raw.five_hour?.used_percentage, raw.five_hour?.resets_at, now),
-    slot('7d', raw.seven_day?.used_percentage, raw.seven_day?.resets_at, now),
-  ].filter((window): window is UsageLimitWindow => window !== null);
+  return null;
+}
+
+/** The arguments of the `/usage` probe: no model call, no transcript, no hooks, plugins or MCP. */
+export const USAGE_PROBE_ARGS = [
+  '-p',
+  '/usage',
+  '--output-format',
+  'stream-json',
+  '--verbose',
+  '--no-session-persistence',
+  '--safe-mode',
+];
+
+/** Run the user's own `claude` once for `/usage` in our empty probe folder; its stream-json lines. */
+export function claudeUsageProbe(
+  claude: string,
+  env: NodeJS.ProcessEnv,
+  home: string,
+  spawnFn?: SpawnFn,
+): Promise<unknown> {
+  const cwd = usageProbeDir(home);
+  fs.mkdirSync(cwd, { recursive: true });
+  return spawnJson(claude, USAGE_PROBE_ARGS, {
+    env,
+    cwd,
+    timeoutMs: USAGE_PROBE_TIMEOUT_MS,
+    ndjson: true,
+    // A closed stdin makes the CLI report limits: null (it answers before its background limits fetch
+    // arrives). A CLI with the 3 s stdin grace proceeds by itself, one that reads stdin to EOF proceeds
+    // when we end it: either way the fetch has had time.
+    holdStdinMs: USAGE_PROBE_STDIN_HOLD_MS,
+    spawnFn,
+  });
 }
 
 /** Up to `n` newest `.jsonl` files under `dir` (Codex's sessions/YYYY/MM/DD/rollout-<time>-…). */
@@ -364,102 +304,164 @@ export function codexOwnUsage(codexHome: string, now = Date.now()): UsageLimitWi
 }
 
 /**
- * Usage for the office's bar, viewer-gated: Claude from its account usage
- * endpoint with Claude Code's own OAuth token (at most once per refresh
- * interval), else from its status-line data (engine sessions); Codex from its
- * own session logs. A provider nobody reports has no windows: shown as unknown, never guessed.
+ * Usage for the office's bar, viewer-gated: Claude from the status line's reports (re-read the
+ * moment the status line rewrites its file, and on each refresh), Codex from its own session logs.
+ * A provider nobody reports has no windows: shown as unknown, never guessed.
  */
 export class UsageSource {
   usage: Usage | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private watcher: fs.FSWatcher | null = null;
   private viewing = false;
-  private refreshing: Promise<void> | null = null;
   private previous: Usage | null = null;
-  /** No endpoint request before this (epoch ms): the refresh interval, or longer while backing off. */
-  private nextRequestAt = 0;
-  /** Failures in a row that call for backing off (429, 5xx, network); a success resets it. */
-  private failures = 0;
-  /** The last usable endpoint reading; shown while backing off until CLAUDE_USAGE_STALE_MS. */
-  private good: { at: number; claude: UsageProviderState } | null = null;
-  private keychainOff = false;
-  private readonly warned = new Set<string>();
+  private codex: UsageProviderState = provider('codex', providerName('codex'), []);
+  private report: ClaudeUsageReport | null = null;
+  private probing = false;
+  private probedAt = Number.NEGATIVE_INFINITY;
+  private probeWarned = false;
 
   constructor(
     readonly opts: {
       home: string;
       codexHome: string;
-      /** $CLAUDE_CONFIG_DIR or ~/.claude: where Claude Code keeps `.credentials.json`. */
-      claudeConfigDir: string;
-      /** macOS: Claude Code's Keychain item, tried before the file; null elsewhere. */
-      keychain?: ReadKeychain | null;
-      usageUrl?: string;
+      /** Claude Code's `/usage` (claudeUsageProbe); none without an engine `claude`. */
+      probe?: (() => Promise<unknown>) | null;
     },
     private readonly onChange: (usage: Usage) => void,
     private readonly onEarlyReset: (reset: EarlyUsageReset) => void = () => undefined,
-  ) {
-    // A restart keeps the last endpoint reading (the per-model windows the status line never has);
-    // a fresh one also holds off the first request, which would draw a 429 right after a deploy.
-    try {
-      const saved = JSON.parse(fs.readFileSync(claudeApiFile(opts.home), 'utf-8')) as {
-        at?: unknown;
-        claude?: UsageProviderState;
-      };
-      if (typeof saved.at === 'number' && saved.claude?.id === 'claude') {
-        this.good = { at: saved.at, claude: saved.claude };
-        const age = Date.now() - saved.at;
-        if (age >= 0 && age < CLAUDE_USAGE_MIN_GAP_MS)
-          this.nextRequestAt = saved.at + CLAUDE_USAGE_MIN_GAP_MS;
-      }
-    } catch {
-      // no file or an unreadable one: the first request decides
-    }
-  }
+  ) {}
 
   setViewing(on: boolean): void {
     if (on === this.viewing) return;
     this.viewing = on;
     if (on) {
-      void this.refresh();
-      this.timer = setInterval(() => void this.refresh(), USAGE_REFRESH_MS);
+      this.read();
+      this.timer = setInterval(() => this.read(), USAGE_REFRESH_MS);
+      this.watch();
       return;
     }
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.watcher?.close();
+    this.watcher = null;
   }
 
   stop(): void {
     this.setViewing(false);
   }
 
-  /** An explicit user action may refresh without changing the viewing cadence. */
+  /** An explicit user action (the usage refresh): reads again and asks `/usage` past its gap. */
   async refreshNow(): Promise<void> {
-    if (this.refreshing) await this.refreshing;
-    await this.refresh();
+    this.read(true);
   }
 
-  private refresh(): Promise<void> {
-    if (this.refreshing) return this.refreshing;
-    const reading = this.read();
-    this.refreshing = reading;
-    void reading.finally(() => {
-      if (this.refreshing === reading) this.refreshing = null;
-    });
-    return reading;
-  }
-
-  private async read(): Promise<void> {
-    const now = Date.now();
-    const live = await this.claudeLive(now);
-    const claude =
-      live ??
-      provider(
-        'claude',
-        providerName('claude'),
-        claudeOwnUsage(claudeUsageFile(this.opts.home), now),
+  /** Both sources now. Runs from a timer and a watch callback: nothing in it may take the daemon down. */
+  private read(probeNow = false): void {
+    try {
+      const now = Date.now();
+      this.codex = provider(
+        'codex',
+        providerName('codex'),
+        codexOwnUsage(this.opts.codexHome, now),
       );
-    const codex = provider('codex', providerName('codex'), codexOwnUsage(this.opts.codexHome, now));
+      this.publish(this.claude(now), now);
+      this.probe(now, probeNow);
+    } catch (err) {
+      this.warnOnce(err);
+    }
+  }
+
+  /**
+   * Claude: the status line's windows or the `/usage` report's, whichever came later, and the
+   * report's per-model weeks (the status line has none). A model week whose reset passed is dropped.
+   */
+  private claude(now: number): UsageProviderState {
+    const line = claudeOwnUsage(claudeUsageFile(this.opts.home), now);
+    const report = this.report;
+    if (!report) return line;
+    const lineAt = line.at ? Date.parse(line.at) : Number.NEGATIVE_INFINITY;
+    // Window by window, the newer source: a report with only the week keeps the status line's five hours.
+    const fromReport = report.windows
+      .map((w) => slot(w.id, w.pct, w.resetsAtSec, now))
+      .filter((w): w is UsageLimitWindow => w !== null);
+    const [newer, older] =
+      report.at > lineAt ? [fromReport, line.windows] : [line.windows, fromReport];
+    const windows = [...newer, ...older.filter((o) => !newer.some((n) => n.id === o.id))].sort(
+      (a, b) => a.id.localeCompare(b.id),
+    );
+    // A report this old is no longer a reading (the probe has failed for hours); a model week without a reset would stay forever.
+    const models =
+      now - report.at >= CLAUDE_USAGE_STALE_MS
+        ? []
+        : report.models.filter((m) => !m.reset || Date.parse(m.reset) > now);
+    const at =
+      report.at > lineAt && fromReport.length > 0 ? new Date(report.at).toISOString() : line.at;
+    return {
+      ...provider('claude', providerName('claude'), windows),
+      ...(models.length > 0 && { models }),
+      ...(at && { at }),
+    };
+  }
+
+  /** `/usage` at most every USAGE_PROBE_MIN_GAP_MS while viewed (or on a click), one at a time. */
+  private probe(now: number, force: boolean): void {
+    const run = this.opts.probe;
+    if (!run || this.probing || (!force && now - this.probedAt < USAGE_PROBE_MIN_GAP_MS)) return;
+    this.probing = true;
+    this.probedAt = now;
+    let running: Promise<unknown>;
+    try {
+      running = run(); // a probe that throws before it returns a promise must not leave `probing` set
+    } catch (err) {
+      running = Promise.reject(err);
+    }
+    void running
+      .then((lines) => {
+        const report = claudeUsageReport(lines, Date.now());
+        if (report) this.report = report;
+        else this.warnProbe('no usage_report in its answer');
+      })
+      .catch((err: unknown) =>
+        this.warnProbe(err instanceof SpawnJsonError && err.timedOut ? 'timed out' : 'failed'),
+      )
+      .finally(() => {
+        this.probing = false;
+        if (this.viewing) this.claudeReported();
+      });
+  }
+
+  /** A fixed text only: the CLI's output can name paths and the account. */
+  private warnProbe(kind: string): void {
+    if (this.probeWarned) return;
+    this.probeWarned = true;
+    console.warn(`[Agent Tycoon] Claude /usage: ${kind}; the status line's figures stay`);
+  }
+
+  /** The status line rewrote its file (or `/usage` answered): Claude alone, sent only when it changed. */
+  private claudeReported(): void {
+    try {
+      const now = Date.now();
+      const claude = this.claude(now);
+      const before = this.usage?.providers.find((p) => p.id === 'claude');
+      if (JSON.stringify(before) !== JSON.stringify(claude)) this.publish(claude, now);
+    } catch (err) {
+      this.warnOnce(err);
+    }
+  }
+
+  private warned = false;
+  /** Only the error's name: a message could quote a path or the report. */
+  private warnOnce(err: unknown): void {
+    if (this.warned) return;
+    this.warned = true;
+    console.warn(
+      `[Agent Tycoon] usage: a reading failed (${err instanceof Error ? err.name : 'error'}); keeping the last one`,
+    );
+  }
+
+  private publish(claude: UsageProviderState, now: number): void {
     // ponytail: Claude and Codex by name; an agent added later (ACP) brings its own reading.
-    const usage = { ts: new Date(now).toISOString(), providers: [claude, codex] };
+    const usage = { ts: new Date(now).toISOString(), providers: [claude, this.codex] };
     for (const reset of earlyResets(this.previous, usage, now)) this.onEarlyReset(reset);
     this.previous = usage;
     this.usage = usage;
@@ -467,89 +469,23 @@ export class UsageSource {
   }
 
   /**
-   * The token, read fresh each time and held only for this call: the Keychain
-   * (macOS) first, then `.credentials.json`. Never logged, stored or sent on.
+   * The status line's folder, so a report shows as it lands (it writes a temp file and renames it).
+   * fs.watch can miss on some platforms (lessons: Windows); the refresh timer re-reads it anyway.
    */
-  private async claudeToken(now: number): Promise<string | null> {
-    if (this.opts.keychain && !this.keychainOff) {
-      const item = await this.opts.keychain();
-      // ponytail: one failed Keychain read (or a dialog that timed out) stops them until restart, so no dialog repeats.
-      if (item === null) this.keychainOff = true;
-      const token = oauthToken(item, now);
-      if (token) return token;
-    }
-    try {
-      const file = path.join(this.opts.claudeConfigDir, '.credentials.json');
-      return oauthToken(await fs.promises.readFile(file, 'utf-8'), now);
-    } catch {
-      return null;
-    }
-  }
-
-  /** Claude's reading from the usage endpoint; null (the status-line file decides) when unavailable. */
-  private async claudeLive(now: number): Promise<UsageProviderState | null> {
-    if (now < this.nextRequestAt) return this.shown(now);
-    // An expired or missing token makes no request: Claude Code refreshes it on its next turn.
-    const token = await this.claudeToken(now);
-    if (!token) {
-      this.nextRequestAt = 0;
-      this.good = null;
-      return null;
-    }
-    this.nextRequestAt = now + CLAUDE_USAGE_MIN_GAP_MS;
-    let backOff = false;
-    let wait: number | null = null;
-    try {
-      const reply = await requestUsage(this.opts.usageUrl ?? CLAUDE_USAGE_URL, token);
-      if (reply.status < 200 || reply.status >= 300) {
-        this.warnOnce(`HTTP ${reply.status}`);
-        backOff = reply.status === 429 || reply.status >= 500; // 401/403: no figures, no extra wait
-        wait = retryAfterMs(reply.retryAfter, now);
-        if (!backOff) this.good = null;
-      } else {
-        const claude = claudeApiUsage(reply.body, now);
-        this.good = claude && { at: now, claude };
-        if (this.good) this.keep(this.good);
-        this.failures = 0;
-        if (!claude) this.warnOnce('an answer without any known window');
-      }
-    } catch (err) {
-      this.warnOnce(`request failed (${err instanceof Error ? err.name : 'error'})`);
-      backOff = true;
-    }
-    if (backOff) {
-      this.failures++;
-      const own = USAGE_REFRESH_MS * 2 ** this.failures;
-      this.nextRequestAt =
-        now + Math.min(Math.max(wait ?? own, CLAUDE_USAGE_MIN_GAP_MS), CLAUDE_USAGE_BACKOFF_MAX_MS);
-    }
-    return this.shown(now);
-  }
-
-  /** Only the parsed state and its time, never the token or a header; atomic like the other config files. */
-  private keep(good: { at: number; claude: UsageProviderState }): void {
-    const file = claudeApiFile(this.opts.home);
-    const tmp = `${file}.${process.pid}.tmp`;
+  private watch(): void {
+    const file = claudeUsageFile(this.opts.home);
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(tmp, JSON.stringify(good));
-      fs.renameSync(tmp, file);
+      const watcher = fs.watch(path.dirname(file), (_event, name) => {
+        if (name === path.basename(file) && this.viewing) this.claudeReported();
+      });
+      watcher.on('error', () => {
+        watcher.close();
+        if (this.watcher === watcher) this.watcher = null;
+      });
+      this.watcher = watcher;
     } catch {
-      // ponytail: a failed save only loses the reading across a restart
+      // no watch: the refresh timer still reads the file
     }
-  }
-
-  /** The last good reading unless it is older than CLAUDE_USAGE_STALE_MS. */
-  private shown(now: number): UsageProviderState | null {
-    return this.good && now - this.good.at < CLAUDE_USAGE_STALE_MS ? this.good.claude : null;
-  }
-
-  /** Never with the token: only a status, an error's name or a fixed text. */
-  private warnOnce(kind: string): void {
-    if (this.warned.has(kind)) return;
-    this.warned.add(kind);
-    console.warn(
-      `[Agent Tycoon] Claude usage endpoint: ${kind}; using the last or status-line reading`,
-    );
   }
 }

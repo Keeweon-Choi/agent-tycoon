@@ -7,13 +7,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { RepoError } from './git/gitRun.js';
 import { RepoManager } from './git/repoManager.js';
 import type { TempRepo } from './git/testRepo.js';
 import { GIT_AVAILABLE, makeTempRepo, recording } from './git/testRepo.js';
 import type { WorktreeRecord } from './git/worktrees.js';
 import type { RosterAgent } from './mcpTools.js';
 import { tasksPath, TaskStore } from './tasks.js';
-import { answerWorktree, CLAIM_MS, worktreeForTask } from './taskWorktree.js';
+import { answerWorktree, CLAIM_MS, type SeatDeps, seatInWorktree, worktreeForTask } from './taskWorktree.js';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -266,5 +267,193 @@ describe.skipIf(!GIT_AVAILABLE)('W2: cld-gui worktree new|list', () => {
     const mine = (await answerWorktree(d, { op: 'list' }, lead)).worktrees as Array<Record<string, unknown>>;
     expect(mine.map((w) => w.project)).toEqual(['alpha', 'alpha']);
     expect(await answerWorktree(d, { op: 'list', task: 'T-2' }, lead)).toMatchObject({ ok: false, code: 'unknown_task' });
+  });
+});
+
+describe.skipIf(!GIT_AVAILABLE)('DV4: the owner makes a worktree and seats an agent in it', () => {
+  function seatRig() {
+    const s = rig();
+    const calls: string[] = [];
+    const sent: Array<{ to: string; text: string; task: string }> = [];
+    const lifetimes: Record<string, 'session' | 'run'> = { 'alpha-w1': 'session', 'alpha-c1': 'run' };
+    let answer: { ok: boolean; error?: string; note?: string } = { ok: true };
+    const answerWith = (a: typeof answer) => {
+      answer = a;
+    };
+    // T-70: where each agent's session works now, and which still run `claude --bg`.
+    const at: Record<string, string> = {};
+    const old = new Set<string>();
+    const answers: Record<string, typeof answer> = {};
+    const d: SeatDeps = {
+      ...s.d,
+      lifetime: (name) => lifetimes[name],
+      engineAction: (action, name) => {
+        calls.push(`${action} ${name}`);
+        return Promise.resolve(answers[action] ?? answer);
+      },
+      worksIn: (name, folder) => at[name] === folder,
+      oldStyle: (name) => old.has(name),
+      send: (r) => {
+        sent.push(r);
+        return Promise.resolve({ ok: true });
+      },
+    };
+    const seat = (req: Partial<Parameters<typeof seatInWorktree>[1]>) =>
+      seatInWorktree(d, { taskId: '', by: 'gui:web', createdBy: 'user', seat: true, ...req }, true, 'gui:web');
+    return { ...s, calls, sent, seat, answerWith, at, old, answers };
+  }
+
+  it('M1 with no issue: a new Task, the owner’s branch from the chosen base, the agent restarted there, the first instruction with the Task', async () => {
+    const s = seatRig();
+    s.r.git(['branch', 'dev']);
+    const out = await s.seat({ title: '쿠폰 적용 순서', project: 'alpha', branch: 'feat/cart-coupon', base: 'dev', assignee: 'alpha-w1', text: '쿠폰을 합계 뒤로' });
+    expect(out).toMatchObject({ ok: true, taskId: 'T-1', task: 'feat-cart-coupon', branch: 'feat/cart-coupon', base: 'dev', assignee: 'alpha-w1' });
+    const at = path.join(s.r.folder, '.worktrees', 'feat-cart-coupon');
+    expect(fs.existsSync(at)).toBe(true);
+    expect(s.records()[0]).toMatchObject({ taskId: 'T-1', branch: 'feat/cart-coupon', base: 'dev', assignmentId: 'a_bbbbbbbbbb', createdBy: 'user' });
+    expect(s.tasks.get('T-1')).toMatchObject({ project: 'alpha', title: '쿠폰 적용 순서', branch: 'feat/cart-coupon', worktree: at, assignee: { name: 'alpha-w1' } });
+    // alpha-w1 is on: its session moves only at a start, so it is restarted (the engine's own action).
+    expect(s.calls).toEqual(['restart alpha-w1']);
+    expect(s.sent).toEqual([{ to: 'alpha-w1', text: '쿠폰을 합계 뒤로', task: 'T-1' }]);
+    expect(out.detail).toContain('다시 시작해 이 워크트리에 앉혔어요');
+  });
+
+  it('a branch that exists is refused with its name, and nothing is made: no Task, no worktree, no start', async () => {
+    const s = seatRig();
+    s.r.git(['branch', 'feat/cart-coupon']);
+    const out = await s.seat({ title: 'x', project: 'alpha', branch: 'feat/cart-coupon', assignee: 'alpha-w1' });
+    expect(out).toMatchObject({ ok: false, code: 'exists' });
+    expect(out.error).toContain('feat/cart-coupon');
+    expect(s.tasks.list()).toEqual([]);
+    expect(fs.existsSync(path.join(s.cfg, 'worktrees.json'))).toBe(false);
+    expect(s.calls).toEqual([]);
+    // A name outside the rules is refused the same way.
+    expect(await s.seat({ title: 'x', project: 'alpha', branch: 'Cart Coupon' })).toMatchObject({ ok: false, code: 'bad_name' });
+    expect(s.tasks.list()).toEqual([]);
+  });
+
+  it('M1 with an issue: that Task gets the worktree; an agent of one process per message is not started', async () => {
+    const s = seatRig();
+    const t = s.add('T-7 쿠폰');
+    const out = await s.seat({ taskId: t.id, branch: 'fix/coupon-order', assignee: 'alpha-c1', text: 'go' });
+    expect(out).toMatchObject({ ok: true, taskId: t.id, task: 'fix-coupon-order' });
+    expect(s.tasks.list()).toHaveLength(1);
+    expect(s.calls).toEqual([]);
+    expect(s.sent).toEqual([{ to: 'alpha-c1', text: 'go', task: t.id }]);
+  });
+
+  it('M2 seating on a card: the Task’s worktree given to an agent that is off, started there; its older worktree is no longer its own', async () => {
+    const s = seatRig();
+    s.roster[1].live = false;
+    const a = s.add('a');
+    const b = s.add('b');
+    await s.seat({ taskId: a.id, branch: 'feat/a-one', assignee: 'alpha-w1' });
+    await s.make({ taskId: b.id });
+    s.calls.length = 0;
+    const out = await s.seat({ taskId: b.id, assignee: 'alpha-w1' });
+    expect(out).toMatchObject({ ok: true, taskId: b.id, reused: true, assignee: 'alpha-w1' });
+    const byTask = Object.fromEntries(s.records().map((x) => [x.taskId, x.assignmentId]));
+    expect(byTask).toEqual({ [a.id]: undefined, [b.id]: 'a_bbbbbbbbbb' });
+    // F2: the older Task no longer names it either (the rail, the board and the Lead agree).
+    expect(s.tasks.get(a.id)?.assignee ?? null).toBeNull();
+    expect(s.tasks.get(b.id)?.assignee).toMatchObject({ name: 'alpha-w1' });
+    expect(s.calls).toEqual(['start alpha-w1']);
+    expect(s.sent).toEqual([]);
+  });
+
+  it('F1 a restart that fails sends no first instruction (it would be worked in the old folder), and says why', async () => {
+    const s = seatRig();
+    s.answerWith({ ok: false, error: '터미널에서 쓰는 중이에요' });
+    const out = await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x', assignee: 'alpha-w1', text: 'go' });
+    expect(out.ok).toBe(true);
+    expect(s.calls).toEqual(['restart alpha-w1']);
+    expect(s.sent).toEqual([]);
+    expect(out.detail).toContain('첫 지시는 보내지 않았어요: 터미널에서 쓰는 중이에요');
+  });
+
+  it('F5 the engine’s own note on the start (a new conversation) reaches the owner', async () => {
+    const s = seatRig();
+    s.answerWith({ ok: true, note: '새 대화로 시작했어요' });
+    const out = await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x', assignee: 'alpha-w1' });
+    expect(out.detail).toContain('다시 시작해 이 워크트리에 앉혔어요 · 새 대화로 시작했어요');
+  });
+
+  it('T-70 an agent already working in that worktree is left as it is (no restart), the instruction still goes', async () => {
+    const s = seatRig();
+    const t = s.add('a');
+    await s.seat({ taskId: t.id, branch: 'feat/a-one', assignee: 'alpha-w1' });
+    s.calls.length = 0;
+    s.at['alpha-w1'] = s.records()[0].path;
+    const out = await s.seat({ taskId: t.id, assignee: 'alpha-w1', text: 'go' });
+    expect(out).toMatchObject({ ok: true, reused: true, assignee: 'alpha-w1' });
+    expect(s.calls).toEqual([]);
+    expect(s.sent).toEqual([{ to: 'alpha-w1', text: 'go', task: t.id }]);
+    expect(out.detail).toContain('이미 이 워크트리에서 일하고 있어요');
+    // Off in that folder: it is started there.
+    s.roster[1].live = false;
+    await s.seat({ taskId: t.id, assignee: 'alpha-w1' });
+    expect(s.calls).toEqual(['start alpha-w1']);
+  });
+
+  it('T-70 a Claude agent still on claude --bg moves into our terminal host first; a refused move says why and it runs the old way', async () => {
+    const s = seatRig();
+    s.old.add('alpha-w1');
+    s.roster[1].live = false;
+    await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x', assignee: 'alpha-w1' });
+    expect(s.calls).toEqual(['pty alpha-w1', 'start alpha-w1']);
+    s.calls.length = 0;
+    s.roster[1].live = true;
+    s.answers.pty = { ok: false, error: '아직 일하는 중이에요' };
+    const out = await s.seat({ title: 'y', project: 'alpha', branch: 'feat/y', assignee: 'alpha-w1' });
+    expect(s.calls).toEqual(['pty alpha-w1', 'restart alpha-w1']);
+    expect(out.detail).toContain('새 터미널 방식으로 옮기지 못해 예전 방식으로 켜요: 아직 일하는 중이에요');
+  });
+
+  it('F4 the Lead is never seated (nor restarted)', async () => {
+    const s = seatRig();
+    const out = await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x', assignee: 'alpha' });
+    expect(out).toMatchObject({ ok: false, code: 'seat_lead' });
+    expect(s.calls).toEqual([]);
+    expect(s.tasks.list()).toEqual([]);
+  });
+
+  it('F3 .worktrees as a file is refused before a Task is made; a failure after it names the Task', async () => {
+    const s = seatRig();
+    fs.writeFileSync(path.join(s.r.folder, '.worktrees'), 'x');
+    expect(await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x' })).toMatchObject({ ok: false });
+    expect(s.tasks.list()).toEqual([]);
+    fs.rmSync(path.join(s.r.folder, '.worktrees'));
+    const wts = s.repos.worktrees;
+    wts.createForTask = () => Promise.reject(new RepoError('git worktree add 이 실패했어요'));
+    const out = await s.seat({ title: 'x', project: 'alpha', branch: 'feat/x', assignee: 'alpha-w1', text: 'go' });
+    expect(out).toMatchObject({ ok: false, code: 'worktree_failed' });
+    expect(out.error).toContain('T-1 은 이슈 판에 있지만 워크트리는 만들지 못했어요: git worktree add 이 실패했어요');
+    expect(s.tasks.list().map((t) => t.id)).toEqual(['T-1']);
+    expect(s.calls).toEqual([]);
+    expect(s.sent).toEqual([]);
+  });
+
+  it('from a remote device every worktreeNew needs a fresh step-up (and this PC or a fresh one goes through)', async () => {
+    const s = seatRig();
+    let reached = 0;
+    const repos: RepoManager = new RepoManager({
+      projects: () => [{ name: 'alpha', folder: s.r.folder }],
+      readOnly: false,
+      configDir: s.cfg,
+      run: s.rec.run,
+      pollMs: 60_000,
+      log: () => undefined,
+      taskWorktree: () => {
+        reached++;
+        return Promise.resolve({ ok: true });
+      },
+    });
+    cleanup.push(() => repos.dispose());
+    const req = { type: 'repoAction' as const, requestId: 'q', action: 'worktreeNew' as const, project: 'alpha', title: 'x', branch: 'feat/x', seat: true };
+    expect(await repos.runAction(req, true, 'gui:phone', { remote: true, fresh: () => false })).toMatchObject({ ok: false, error: 'stepup' });
+    expect(reached).toBe(0);
+    expect(await repos.runAction(req, true, 'gui:phone', { remote: true, fresh: () => true })).toMatchObject({ ok: true });
+    expect(await repos.runAction(req, true, 'gui:web', { remote: false, fresh: () => false })).toMatchObject({ ok: true });
+    expect(reached).toBe(2);
   });
 });

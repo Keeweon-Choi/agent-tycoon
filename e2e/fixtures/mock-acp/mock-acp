@@ -1,0 +1,154 @@
+#!/usr/bin/env node
+// ACP-1: a mock ACP agent (never a real one). Speaks ACP v1 over stdio (newline-delimited JSON-RPC)
+// from a scenario file: $MOCK_ACP_SCENARIO, else $HOME/mock-acp.json. Every message it reads, and
+// its argv and folder, go as JSON lines to $MOCK_ACP_LOG, else $HOME/mock-acp.log.
+//
+// Scenario: {
+//   "caps": { "loadSession": bool, "resume": bool, "close": bool },   // initialize's answer
+//   "auth": bool,                // session/new answers auth_required (-32000)
+//   "sessionId": "id",           // session/new's id (default mock-<pid>-<n>)
+//   "stderr": "text",            // written to stderr at start (masking tests)
+//   "turns": [[step, ...], ...]  // one per session/prompt, in order; the last one repeats
+// }
+// Steps: {"say": "text"} message chunks · {"tool": {toolCallId, kind, title, rawInput, locations}}
+// a pending tool_call · {"toolDone": id, "failed": bool} · {"plan": [{content, status}]} ·
+// {"usage": {used, size}} · {"compaction": true} · {"ask": {toolCall, options}} a
+// request_permission it waits on, then says `outcome:<optionId|cancelled>` · {"sleep": ms} ·
+// {"waitCancel": true} until session/cancel · {"raw": "line"} written as is (hostile tests) ·
+// {"update": {...}} any session/update · {"exit": code}.
+// The prompt answers end_turn, or cancelled after a session/cancel.
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const home = process.env.HOME || process.env.USERPROFILE || '.';
+const logFile = process.env.MOCK_ACP_LOG || path.join(home, 'mock-acp.log');
+const log = (o) => {
+  try {
+    fs.appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), pid: process.pid, ...o })}\n`);
+  } catch {
+    /* no log */
+  }
+};
+let scenario = {};
+try {
+  scenario = JSON.parse(fs.readFileSync(process.env.MOCK_ACP_SCENARIO || path.join(home, 'mock-acp.json'), 'utf8'));
+} catch {
+  /* defaults */
+}
+log({ start: true, argv: process.argv.slice(2), cwd: process.cwd() });
+if (scenario.stderr) process.stderr.write(`${scenario.stderr}\n`);
+
+const send = (o) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...o })}\n`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let nextId = 1000;
+const waiting = new Map();
+let sessions = 0;
+let prompts = 0;
+let cancelled = false;
+let onCancel = null;
+
+const request = (method, params) =>
+  new Promise((resolve) => {
+    const id = nextId++;
+    waiting.set(id, resolve);
+    send({ id, method, params });
+  });
+const update = (sessionId, u) => send({ method: 'session/update', params: { sessionId, update: u } });
+
+async function turn(id, sessionId, steps) {
+  cancelled = false;
+  for (const s of steps) {
+    if (cancelled) break;
+    if (s.say !== undefined) {
+      const text = String(s.say);
+      const half = Math.ceil(text.length / 2);
+      for (const part of [text.slice(0, half), text.slice(half)].filter(Boolean))
+        update(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: part } });
+    } else if (s.tool) update(sessionId, { sessionUpdate: 'tool_call', status: 'pending', kind: 'other', title: 'tool', ...s.tool });
+    else if (s.toolDone) update(sessionId, { sessionUpdate: 'tool_call_update', toolCallId: s.toolDone, status: s.failed ? 'failed' : 'completed' });
+    else if (s.plan) update(sessionId, { sessionUpdate: 'plan', entries: s.plan.map((e) => ({ priority: 'medium', status: 'pending', ...e })) });
+    else if (s.usage) update(sessionId, { sessionUpdate: 'usage_update', ...s.usage });
+    else if (s.compaction) {
+      update(sessionId, { sessionUpdate: 'compaction_update', compactionId: 'c1', status: 'in_progress' });
+      update(sessionId, { sessionUpdate: 'compaction_update', compactionId: 'c1', status: 'completed' });
+    } else if (s.update) update(sessionId, s.update);
+    else if (s.ask) {
+      const r = await request('session/request_permission', { sessionId, ...s.ask });
+      const outcome = r.result?.outcome;
+      log({ answer: r });
+      update(sessionId, {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: `outcome:${outcome?.outcome === 'selected' ? outcome.optionId : (outcome?.outcome ?? 'error')}` },
+      });
+    } else if (s.sleep) await sleep(s.sleep);
+    else if (s.waitCancel) await new Promise((r) => (cancelled ? r() : (onCancel = r)));
+    else if (s.raw !== undefined) process.stdout.write(`${s.raw}\n`);
+    else if (s.exit !== undefined) process.exit(s.exit);
+  }
+  send({ id, result: { stopReason: cancelled ? 'cancelled' : 'end_turn' } });
+}
+
+function handle(m) {
+  log({ got: m });
+  if (m.id !== undefined && !m.method) {
+    const resolve = waiting.get(m.id);
+    waiting.delete(m.id);
+    resolve?.(m);
+    return;
+  }
+  const caps = scenario.caps || {};
+  switch (m.method) {
+    case 'initialize':
+      return send({
+        id: m.id,
+        result: {
+          protocolVersion: 1,
+          agentInfo: { name: 'mock-acp', version: '1' },
+          agentCapabilities: {
+            loadSession: !!caps.loadSession,
+            sessionCapabilities: { ...(caps.resume && { resume: {} }), ...(caps.close && { close: {} }) },
+          },
+          authMethods: [],
+        },
+      });
+    case 'session/new':
+      if (scenario.auth) return send({ id: m.id, error: { code: -32000, message: 'Authentication required' } });
+      return send({ id: m.id, result: { sessionId: scenario.sessionId || `mock-${process.pid}-${++sessions}` } });
+    case 'session/resume':
+      return send({ id: m.id, result: {} });
+    case 'session/load':
+      // The replay a load sends: never written again by the client.
+      update(m.params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'replayed' } });
+      return send({ id: m.id, result: {} });
+    case 'session/close':
+      return send({ id: m.id, result: {} });
+    case 'session/prompt': {
+      const turns = scenario.turns || [[{ say: 'ok' }]];
+      void turn(m.id, m.params.sessionId, turns[Math.min(prompts++, turns.length - 1)] || []);
+      return;
+    }
+    case 'session/cancel':
+      cancelled = true;
+      onCancel?.();
+      return;
+    default:
+      if (m.id !== undefined) send({ id: m.id, error: { code: -32601, message: `Method not found: ${m.method}` } });
+  }
+}
+
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  buf += d;
+  for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+    const line = buf.slice(0, i);
+    buf = buf.slice(i + 1);
+    try {
+      handle(JSON.parse(line));
+    } catch (err) {
+      log({ bad: line.slice(0, 200), err: String(err) });
+    }
+  }
+});
+process.stdin.on('end', () => process.exit(0));

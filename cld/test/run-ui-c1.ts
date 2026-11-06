@@ -175,13 +175,13 @@ async function main() {
         `${view}: no horizontal scroll (${what})`,
       );
 
-    // ── 1. The 현황판 window: three tabs; the folder icon is its 파일 mode ──
+    // ── 1. The 현황판 window: two tabs (요약, 개발); the folder icon is its 파일 mode ──
     if (tap) await click(page.locator('[data-hud-id="icon:office"] button').first());
     else await openOfficeWindow(page);
     const nav = page.getByRole('navigation', { name: tap ? '작업 메뉴' : '사무실 메뉴' });
     await nav.waitFor();
     const tabs = (await nav.getByRole('button').allInnerTexts()).map((x) => x.trim());
-    check(JSON.stringify(tabs) === JSON.stringify(['오케스트레이터', '개발', 'HW']), `${view}: the 현황판 has the tabs ${tabs.join(' | ')}`);
+    check(JSON.stringify(tabs) === JSON.stringify(['요약', '개발']), `${view}: the 현황판 has the tabs ${tabs.join(' | ')}`);
     await shot(page, `${view}-board-two-tabs`);
     await click(page.locator('[data-hud-id="icon:files"] button'));
     const explorer = page.locator('section[aria-label="파일 탐색"]');
@@ -238,7 +238,7 @@ async function main() {
     await click(fold); // folded again
 
     // ── 3. Task tab, 실행: the project's jobs and a readable log ──
-    await openWorkbenchTab(page, 'Task', { project: P, tap });
+    await openWorkbenchTab(page, '이슈', { project: P, tap });
     await click(win.getByRole('group', { name: '작업 보기' }).getByRole('button', { name: '실행', exact: true }));
     const runCard = win.locator(`[data-job-ref="${runId}"]`);
     await runCard.waitFor();

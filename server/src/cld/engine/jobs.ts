@@ -20,7 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { type Coded, type Refused, refused } from '../../../../core/src/cld/serverText.js';
-import type { OfficeJob } from '../../../../core/src/messages.js';
+import type { OfficeJob, OfficeJobRun } from '../../../../core/src/messages.js';
 import { digestJobLog, maskJobLog } from '../jobDigest.js';
 import { cmdKey, estimateProgress, rememberDuration } from '../jobHistory.js';
 import { deriveJobName, readNameRules } from '../jobNames.js';
@@ -261,6 +261,8 @@ export interface JobRecord {
   kind?: 'codex';
   /** D5: the Codex Worker whose run this is (its end is that run's, told elsewhere). */
   agent?: string;
+  /** DV2: the dev room's 실행 row started it (devroomRuns.ts): worktree, script, role. */
+  run?: OfficeJobRun;
 }
 
 /** A GPU job's reservation: done once ended, leased once the wrapper wrote `<id>.gpu`, else queued. */
@@ -414,6 +416,8 @@ export class Jobs {
     gpu?: { vramGib: number | null; exclusive: boolean; label: string | null };
     /** A Codex task's worker: `prepare` writes the task record before it starts. */
     codex?: { bin: string; prepare: (jobId: string, log: string) => void; id?: string; agent?: string };
+    /** DV2: a 실행 row run (devroomRuns.ts). */
+    run?: OfficeJobRun;
   }): { ok: true; id: string; pid: number; log: string } | Fail {
     const cmd = req.cmd.trim();
     if (!cmd) return fail('usage', '명령이 없습니다');
@@ -521,6 +525,7 @@ export class Jobs {
       ...(req.gpu && { gpu: true }),
       ...(req.codex && { kind: 'codex' as const }),
       ...(req.codex?.agent && { agent: req.codex.agent }),
+      ...(req.run && { run: req.run }),
     };
     this.save(record);
     this.opts.events.append('job_start', req.source, {
@@ -574,6 +579,7 @@ export class Jobs {
         progress: r.ended || gpu.gpu === 'queued' ? null : this.progressOf(r),
         ...(r.ended && r.exit !== 0 && r.stopped !== true && this.stopOf(r, r.ended)),
         ...(r.gpu && gpu),
+        ...(r.run && { run: r.run }),
       };
     });
   }

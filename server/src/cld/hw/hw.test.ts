@@ -18,6 +18,7 @@ import {
   readTopProcesses,
   withoutDetail,
 } from './hwSource.js';
+import { IOREG_ARGS, parseIoreg } from './ioreg.js';
 import { LHM_RETRY_MS, LhmReader, parseLhm } from './lhm.js';
 import { findNvidiaSmi, NvidiaSmi, nvidiaSmiStuck, parseNvidiaCsv } from './nvidiaSmi.js';
 import { readSysfs } from './sysfs.js';
@@ -459,18 +460,18 @@ describe('LHM data.json', () => {
       throw new Error('ECONNREFUSED');
     });
     const curl = vi.fn(async () => tree);
-    const direct = new LhmReader(8085, true, { http: vi.fn(async () => tree), curl });
+    const direct = new LhmReader(8085, true, LHM_RETRY_MS, { http: vi.fn(async () => tree), curl });
     expect((await direct.read(0))?.cpuTempC).toBe(60);
     expect(curl).not.toHaveBeenCalled(); // mirrored networking or Windows itself
 
-    const nat = new LhmReader(18085, true, { http: refuse, curl });
+    const nat = new LhmReader(18085, true, LHM_RETRY_MS, { http: refuse, curl });
     expect((await nat.read(0))?.gpuTempC).toBe(40);
     expect(curl).toHaveBeenCalledWith('http://localhost:18085/data.json');
 
     const curlFails = vi.fn(async () => {
       throw new Error('exit 7');
     });
-    const win = new LhmReader(8085, false, { http: refuse, curl: curlFails });
+    const win = new LhmReader(8085, false, LHM_RETRY_MS, { http: refuse, curl: curlFails });
     expect(await win.read(0)).toBeNull();
     expect(curlFails).not.toHaveBeenCalled(); // Windows itself: no curl.exe
     expect(refuse).toHaveBeenCalledTimes(2);
@@ -639,14 +640,20 @@ describe('HwSource: one sensor source per OS', () => {
   const linux = (fixture: string, extra = {}) =>
     new HwSource({ platform: 'linux', sysRoot: sysTree(fixture), home: os.tmpdir(), ...extra });
 
-  it('macOS: the OS readings only, no sensor hint', async () => {
+  it('macOS: the OS readings, the GPU load from ioreg, and why there are no temperatures', async () => {
     const dir = tmp('cld-hw-');
-    const own = await new HwSource({ home: dir, platform: 'darwin' }).sample();
+    const own = await new HwSource({
+      home: dir,
+      platform: 'darwin',
+      ioreg: async () => parseIoreg(fs.readFileSync(path.join(FIXTURES, 'ioreg-apple-m1.txt'), 'utf-8')),
+    }).sample();
     expect(own).toMatchObject({ stale: false, warnings: [] });
     expect(own.ramTotalGib).toBeGreaterThan(0);
     expect(own.gpuTempC).toBeUndefined();
-    expect(own.sources).toMatchObject({ ramUsedGib: 'os', ramTotalGib: 'os', disks: 'os' });
-    expect(own.sensorsHint).toBeUndefined(); // macOS: nothing the installer could add
+    expect(own.sources).toMatchObject({ ramUsedGib: 'os', ramTotalGib: 'os', disks: 'os', gpuUtil: 'ioreg' });
+    expect(own.gpuUtil).toBe(0.23);
+    expect(own.sensorNotes).toEqual(['macTemps']); // nothing to install: said, not offered
+    expect(own.nvidiaSmi).toBeUndefined();
     expect(own.disks[0]).toMatchObject({ name: '~', totalGib: expect.any(Number) });
   });
 
@@ -656,12 +663,12 @@ describe('HwSource: one sensor source per OS', () => {
       cpuTempC: 54,
       gpuTempC: 45,
       vramTotalMib: 16368,
-      sensorsHint: false,
+      sensorNotes: [],
     });
     expect(s.sources).toMatchObject({ cpuTempC: 'sysfs', gpuUtil: 'sysfs', ramUsedGib: 'os' });
     expect(s.lhm).toBeUndefined();
     const bare = await linux('wsl2-this-pc').sample();
-    expect(bare.sensorsHint).toBe(true);
+    expect(bare.sensorNotes).toEqual(['linuxTemps']);
     expect(Object.values(bare.sources ?? {})).not.toContain('sysfs');
   });
 
@@ -669,7 +676,7 @@ describe('HwSource: one sensor source per OS', () => {
     const tree = lhmFixture();
     const read = vi.fn(async () => parseLhm(tree));
     const withLhm = await new HwSource({ platform: 'wsl', lhm: { read } }).sample();
-    expect(withLhm).toMatchObject({ lhm: true, sensorsHint: false, cpuTempC: 60, gpuTempC: 40 });
+    expect(withLhm).toMatchObject({ lhm: true, sensorNotes: [], cpuTempC: 60, gpuTempC: 40 });
     expect(withLhm.sources).toMatchObject({
       cpuTempC: 'lhm',
       vramUsedMib: 'lhm',
@@ -680,11 +687,11 @@ describe('HwSource: one sensor source per OS', () => {
       platform: 'win32',
       lhm: { read: async () => null },
     }).sample();
-    expect(down).toMatchObject({ lhm: false, sensorsHint: true });
+    expect(down).toMatchObject({ lhm: false, sensorNotes: ['lhm'] });
     expect(down.cpuTempC).toBeUndefined();
-    // No --lhm-port: nothing to read and nothing probed.
+    // lhmPort null: nothing to read and nothing probed.
     const none = await new HwSource({ platform: 'wsl', lhmPort: null }).sample();
-    expect(none).toMatchObject({ lhm: false, sensorsHint: true });
+    expect(none).toMatchObject({ lhm: false, sensorNotes: ['lhm'] });
   });
 
   it('WSL with LHM: both RAM views and the GPU list; the disks say which side they are on', async () => {
@@ -849,8 +856,89 @@ describe('hasHwReadings (cld-gui hw)', () => {
   it('a sample of nothing is no sample; any number or disk is one', () => {
     const empty = { ts: '2026-10-22T10:00:00+09:00', stale: false, disks: [], warnings: ['x'] };
     expect(hasHwReadings(empty)).toBe(false);
-    expect(hasHwReadings({ ...empty, cpuUtil: null, sensorsHint: true })).toBe(false);
+    expect(hasHwReadings({ ...empty, cpuUtil: null, sensorNotes: ['lhm'] })).toBe(false);
     expect(hasHwReadings({ ...empty, ramUsedGib: 1 })).toBe(true);
     expect(hasHwReadings({ ...empty, disks: [{ name: '~', freeGib: 1 }] })).toBe(true);
+  });
+});
+
+describe('every OS: what is missing says why, and what fixes it (hw-every-os)', () => {
+  it('ioreg: Apple Silicon and Intel both give Device Utilization %, the busiest GPU counts', () => {
+    const read = (f: string) => parseIoreg(fs.readFileSync(path.join(FIXTURES, f), 'utf-8'));
+    expect(read('ioreg-apple-m1.txt')).toEqual({ gpuUtil: 0.23 });
+    expect(read('ioreg-intel-amd.txt')).toEqual({ gpuUtil: 0.41 }); // AMD at 41 %, the iGPU at 3 %
+    expect(parseIoreg('+-o IOAccelerator  <class IOAccelerator>\n')).toBeNull();
+    expect(IOREG_ARGS).toEqual(['-r', '-d', '1', '-c', 'IOAccelerator']);
+  });
+
+  it('nvidia-smi CSV fixture: the query columns in order, [N/A] left out', () => {
+    const csv = fs.readFileSync(path.join(FIXTURES, 'nvidia-smi-query.csv'), 'utf-8');
+    expect(parseNvidiaCsv(csv)).toEqual({
+      gpuUtil: 0.37,
+      vramUsedMib: 1596,
+      vramTotalMib: 8192,
+      gpuTempC: 48,
+    });
+  });
+
+  it('nvidia-smi found but off: said (nvidiaOff), never run; the switch turns it on and off', async () => {
+    const log = path.join(tmp('cld-nv-'), 'runs');
+    process.env.FAKE_NVIDIA_LOG = log;
+    const src = new HwSource({
+      platform: 'linux',
+      sysRoot: sysTree('wsl2-this-pc'),
+      home: os.tmpdir(),
+      nvidiaSmi: null,
+      nvidiaSmiFound: path.join(FAKE_BIN, 'nvidia-smi'),
+    });
+    const off = await src.sample();
+    expect(off).toMatchObject({ nvidiaSmi: 'off', sensorNotes: ['linuxTemps', 'nvidiaOff'] });
+    expect(off.gpuUtil).toBeUndefined();
+    expect(fs.existsSync(log)).toBe(false);
+    expect(src.setNvidiaSmi(true)).toBe(true);
+    const on = await src.sample();
+    expect(on).toMatchObject({ nvidiaSmi: 'on', gpuUtil: 0.37, sensorNotes: ['linuxTemps'] });
+    expect(on.sources).toMatchObject({ gpuUtil: 'nvidia-smi' });
+    expect(src.setNvidiaSmi(false)).toBe(true);
+    expect((await src.sample()).nvidiaSmi).toBe('off');
+    // No nvidia-smi on the machine: no switch, no note.
+    const none = new HwSource({ platform: 'linux', sysRoot: sysTree('wsl2-this-pc'), home: os.tmpdir() });
+    expect(none.setNvidiaSmi(true)).toBe(false);
+    expect((await none.sample()).nvidiaSmi).toBeUndefined();
+  });
+
+  it('AMD on Linux: sysfs fills the GPU, so nvidia-smi off is not a missing reading', async () => {
+    const s = await new HwSource({
+      platform: 'linux',
+      sysRoot: sysTree('intel-coretemp-amdgpu'),
+      home: os.tmpdir(),
+      nvidiaSmiFound: path.join(FAKE_BIN, 'nvidia-smi'),
+    }).sample();
+    expect(s).toMatchObject({ nvidiaSmi: 'off', sensorNotes: [] });
+    expect(s.sources).toMatchObject({ gpuUtil: 'sysfs' });
+  });
+
+  it("Windows without --lhm-port: LHM's own default port is read, and redetect reads at once", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url);
+      throw new Error('ECONNREFUSED');
+    });
+    try {
+      const src = new HwSource({ platform: 'win32', home: os.tmpdir(), diskPaths: [] });
+      expect((await src.sample()).sensorNotes).toEqual(['lhm']);
+      await src.sample(); // within the back-off: not probed again
+      expect(urls).toEqual(['http://127.0.0.1:8085/data.json']);
+      src.redetectLhm();
+      await src.sample();
+      src.redetectLhm(18085);
+      await src.sample();
+      expect(urls.slice(1)).toEqual([
+        'http://127.0.0.1:8085/data.json',
+        'http://127.0.0.1:18085/data.json',
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

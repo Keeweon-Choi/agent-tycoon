@@ -3,20 +3,19 @@ import { type ReactNode, useRef } from 'react';
 import type { AgentAppearance, TabStatus } from '../components/AgentCard.js';
 import { Button } from '../components/ui/Button.js';
 import { t } from '../i18n/index.js';
-import type { OfficeState } from '../office/engine/officeState.js';
 import type { ToolActivity } from '../office/types.js';
 import { closeLooks, looksTitle, useLooksUi } from './characters/looks.js';
 import { LooksBody } from './characters/LooksWindow.js';
 import { DevRoom } from './devroom/DevRoom.js';
 import { DevroomLooks, useDevroomTitle } from './devroom/devroomData.js';
+import { PalettePill } from './devroom/DevroomPalette.js';
 import { DevRoomPhone } from './devroom/DevRoomPhone.js';
 import { desktopTabs, officeTabLabel, panelTitle } from './format.js';
-import { closeWindow, leaveNoticesWindow, showOffice, useHud, usePageStyle } from './hud/hudStore.js';
+import { closeWindow, showOffice, useHud, usePageStyle } from './hud/hudStore.js';
 import { HudWindow } from './hud/HudWindow.js';
 import type { WindowId } from './hud/layout.js';
 import { Messenger } from './messenger/Messenger.js';
 import { closeMessenger } from './messenger/messengerStore.js';
-import { NoticePanel, type OpenTarget } from './notify/NoticeLayer.js';
 import { OfficePanelContent } from './panels/OfficePanels.js';
 import { TerminalWorkspace } from './terminal/TerminalWorkspace.js';
 import { Workbench } from './workbench/Workbench.js';
@@ -46,20 +45,24 @@ function OfficeWindowBody({ agentTools, ...looks }: PanelProps & LooksProps) {
   return (
     <>
       {/* UI-C1: the 파일 mode (the folder icon) has no tab strip; the 현황판 has 오케스트레이터, 개발 and HW. */}
+      {/* A5: the board's pages as raised tabs (GPT mockup gpt-1); its name is the window's title (FEAT-BOARD-LESS: 현황판 once). */}
       {officeTab !== 'files' && (
-        <nav className="flex gap-4 overflow-x-auto pb-8 shrink-0" aria-label={t('nav.officeMenu')}>
-          {desktopTabs.map((tab) => (
-            <Button
-              key={tab.id}
-              size="sm"
-              variant={officeTab === tab.id ? 'active' : 'default'}
-              aria-pressed={officeTab === tab.id}
-              onClick={() => showOffice(tab.id)}
-            >
-              {officeTabLabel(tab.id)}
-            </Button>
-          ))}
-        </nav>
+        <div className="flex items-center gap-16 pb-10 shrink-0 min-w-0">
+          <nav className="flex gap-8 overflow-x-auto min-w-0 p-2" aria-label={t('nav.officeMenu')}>
+            {desktopTabs.map((tab) => (
+              <Button
+                key={tab.id}
+                size="md"
+                className="min-w-96"
+                variant={officeTab === tab.id ? 'active' : 'default'}
+                aria-pressed={officeTab === tab.id}
+                onClick={() => showOffice(tab.id)}
+              >
+                {officeTabLabel(tab.id)}
+              </Button>
+            ))}
+          </nav>
+        </div>
       )}
       {officeTab === 'dev' ? (
         <DevSection {...looks} />
@@ -77,18 +80,14 @@ type SubagentTools = Record<number, Record<string, ToolActivity[]>>;
 
 interface DesktopWindowsProps extends PanelProps, LooksProps {
   subagentTools: SubagentTools;
-  getOfficeState: () => OfficeState;
-  onOpenNotice: OpenTarget;
 }
 
-/** The desktop's floating windows (T-0077): 현황판, 메신저, 알림, 개발실 and 터미널, each only while open. */
+/** The desktop's floating windows (T-0077): 현황판, 메신저, 개발실 and 터미널, each only while open. */
 export function DesktopWindows({
   agentTools,
   subagentTools,
   statusFor,
   getAppearance,
-  getOfficeState,
-  onOpenNotice,
 }: DesktopWindowsProps) {
   const hud = useHud();
   const looksFor = useLooksUi().picker;
@@ -143,25 +142,11 @@ export function DesktopWindows({
           <Messenger mobile={false} statusFor={statusFor} getAppearance={getAppearance} />
         </HudWindow>
       )}
-      {hud.open.notices && (
-        <HudWindow
-          id="notices"
-          title={t('nav.notices')}
-          closeLabel={t('nav.noticesClose')}
-          onClose={() => closeWindow('notices')}
-        >
-          <NoticePanel
-            getOfficeState={getOfficeState}
-            onOpen={onOpenNotice}
-            onClose={leaveNoticesWindow}
-            inWindow
-          />
-        </HudWindow>
-      )}
       {hud.open.devroom && (
         <HudWindow
           id="devroom"
           title={devroomTitle}
+          bar={<PalettePill />}
           closeLabel={t('devroom.close')}
           onClose={() => closeWindow('devroom')}
         >
@@ -232,15 +217,12 @@ export function MobilePage({
       aria-label={label}
     >
       {!bare && (
-        <div className="shrink-0 border-b-2 border-border px-12 py-4 flex items-center justify-between gap-8">
-          {tabs ?? <strong className="text-sm min-w-0 truncate">{title}</strong>}
-          <button
-            type="button"
-            className="shrink-0 text-xs border border-border px-8 py-4 pointer-coarse:min-h-44"
-            onClick={onClose}
-          >
+        // FIX-PHONE-UI-TEXT: the same head as the messenger's page (its title's size, its 사무실 button).
+        <div className="msg-head shrink-0 px-12 py-8 flex items-center justify-between gap-8">
+          {tabs ?? <strong className="text-lg text-devroom-title min-w-0 truncate">{title}</strong>}
+          <Button size="sm" className="shrink-0" onClick={onClose}>
             {t('nav.office')}
-          </button>
+          </Button>
         </div>
       )}
       {children}

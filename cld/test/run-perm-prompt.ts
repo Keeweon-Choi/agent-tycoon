@@ -200,7 +200,7 @@ async function main() {
       40_000,
     );
     await page.waitForTimeout(500);
-    await page.locator('[data-testid="notice-bell"]').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     await asked(page).first().waitFor({ timeout: 10_000 });
     const text = (await asked(page).first().textContent()) ?? '';
     check(text.includes('alpha'), `desktop: the 🔐 notice names alpha ("${text}")`);

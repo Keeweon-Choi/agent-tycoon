@@ -9,7 +9,9 @@ import type {
   EngineAction,
   EngineActionKind,
   EngineActionResult,
+  EngineAgentCaps,
   EngineProject,
+  EngineState,
 } from '../../../core/src/messages.js';
 import { t } from '../i18n/index.js';
 import { confirmText, objectParticle } from './actionText.js';
@@ -19,6 +21,35 @@ export type SessionAction = 'start' | 'stop' | 'restart';
 
 /** TERM-P1 (ADR-0018): the provider id of Claude in our own PTY host. */
 export const PTY_PROVIDER = 'claude-pty';
+/** The provider an EngineProject without `provider` has. */
+export const DEFAULT_PROVIDER = 'claude';
+
+/** What an agent of `provider` can do (an EngineProject's `provider`, Claude when absent); undefined
+ *  until the engine says. Features follow these, never a provider's name. */
+export const capsOf = (state: Pick<EngineState, 'agentCaps'> | null | undefined, provider: string | undefined): EngineAgentCaps | undefined =>
+  state?.agentCaps?.[provider ?? DEFAULT_PROVIDER];
+
+/** A person talks to it in a DM and it can lead ('run': one process per message, work comes from its Lead or a room). */
+/** AGENT-UPDATE: the installed CLI's version for provider `id`, as the engine read it (agentChoices). */
+export const cliVersionOf = (state: Pick<EngineState, 'agentChoices'> | null | undefined, id: string): string | undefined =>
+  (state?.agentChoices as Record<string, { version?: string } | undefined> | undefined)?.[id]?.version;
+
+/** AGENT-LATEST: the newest published version the daemon found for provider `id` (display only). */
+export const cliLatestOf = (state: Pick<EngineState, 'agentChoices'> | null | undefined, id: string): string | undefined =>
+  (state?.agentChoices as Record<string, { latest?: string } | undefined> | undefined)?.[id]?.latest;
+
+export const takesDirectChat = (caps: EngineAgentCaps | undefined): boolean => caps?.lifetime !== 'run';
+
+/** An agent's empty usage row: one sentence for every agent that never reports its limits; else not read yet. */
+export const noLimitsText = (caps: EngineAgentCaps | undefined): string =>
+  t(caps?.limits === false ? 'agentCaps.noLimits' : 'controlCenter.noLimit');
+
+/** The small tag of an agent billed per use (an API key, per request), or null: shown beside its name. */
+export const meteredTag = (caps: EngineAgentCaps | undefined): string | null =>
+  caps?.billing === 'metered' ? t('agentCaps.metered') : null;
+
+/** Its approval policy is a choice (one value, e.g. 'never', is no choice: no permission picker). */
+export const choosesPermission = (caps: EngineAgentCaps | undefined): boolean => !caps || caps.approvalPolicy.length > 1;
 
 export const engineLabel = (action: EngineActionKind): string => t(`engine.action.${action}`);
 const done = (action: EngineActionKind): string => t(`engine.done.${action}`);

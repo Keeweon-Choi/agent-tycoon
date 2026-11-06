@@ -49,9 +49,8 @@ export function EditActionBar({ editor, editorState: es }: EditActionBarProps) {
         <div className="flex gap-4 items-center" role="alertdialog" aria-labelledby="edit-reset-confirmation">
           <span id="edit-reset-confirmation" className="text-base text-reset-text">Reset?</span>
           <Button
-            variant="default"
+            variant="danger"
             size="md"
-            className="bg-danger text-white"
             onClick={() => {
               setShowResetConfirm(false);
               editor.handleReset();

@@ -12,7 +12,7 @@
  * step inside the tab to its root first (the tab's own store knows its sub-route: the
  * messenger's conversation, the 현황판's tab).
  */
-import { HUD_MAXIMIZED_Z } from '../../constants.js';
+import { HUD_Z } from '../../constants.js';
 import type { OfficePanel } from '../format.js';
 import type { WindowId } from './layout.js';
 
@@ -20,14 +20,21 @@ import type { WindowId } from './layout.js';
 export type OfficeTab = Exclude<OfficePanel, 'terminal'>;
 export type BoardTab = Exclude<OfficeTab, 'files'>;
 
+/** The HUD panels that take turns in front with the windows (WINDOW-LAYERS). */
+export const PANEL_IDS = ['elevator', 'corner', 'party', 'controlCenter', 'dock'] as const;
+export type PanelId = (typeof PANEL_IDS)[number];
+/** A member of the HUD's one stack: a window or a panel. */
+export type LayerId = WindowId | PanelId;
+const isWindow = (id: LayerId): id is WindowId => !(PANEL_IDS as readonly string[]).includes(id);
+
 export interface WinState {
   /** The phone shell: one page shows at a time. */
   phone: boolean;
   open: Record<WindowId, boolean>;
   /** Out of sight, still mounted (and on the PC, its icon still lit). */
   minimized: Partial<Record<WindowId, boolean>>;
-  /** Last touched last: the z order. */
-  order: readonly WindowId[];
+  /** Last touched last: the z order of the windows and the panels (PANEL_IDS). */
+  order: readonly LayerId[];
   officeTab: OfficeTab;
   /** The last tab other than 파일: the 현황판 reopens on it after 파일 (owner 10-24). */
   boardTab: BoardTab;
@@ -55,7 +62,7 @@ export interface Step {
   root?: Exclude<Tab, 'office'>;
 }
 
-const shown = (s: WinState): WindowId[] => s.order.filter((id) => s.open[id] && !s.minimized[id]);
+const shown = (s: WinState): WindowId[] => s.order.filter(isWindow).filter((id) => s.open[id] && !s.minimized[id]);
 
 const without = (m: WinState['minimized'], id: WindowId): WinState['minimized'] => {
   const rest = { ...m };
@@ -70,12 +77,15 @@ export function status(s: WinState, id: WindowId): WinStatus {
 }
 
 /**
- * WINDOW-LAYERS (owner 10-25): the HUD layer's z order, decided here and nowhere else. Normal
- * windows are 1..n by order (last touched on top), under the fixed panels (constants HUD_PANELS_Z: the card
- * bar, the icon dock); a maximized window sits over them (HUD_MAXIMIZED_Z + order).
+ * WINDOW-LAYERS (owner 10-25; 11-06 20:57): a window's or a panel's z in the HUD layer (constants HUD_Z),
+ * decided here and nowhere else: one stack by order (last pressed on top), a maximized window over all of it.
  */
-export const windowZ = (s: Pick<WinState, 'order'>, id: WindowId, maximized: boolean): number =>
-  (maximized ? HUD_MAXIMIZED_Z : 0) + s.order.indexOf(id) + 1;
+export const layerZ = (s: Pick<WinState, 'order'>, id: LayerId, maximized = false): number =>
+  (maximized ? HUD_Z.maximized : HUD_Z.stack) + s.order.indexOf(id) + 1;
+
+/** A press on a panel: it goes to the top of the stack (a window's press opens it in front, openOrFocus). */
+export const toFront = (s: WinState, id: PanelId): WinState =>
+  s.order.at(-1) === id ? s : { ...s, order: [...s.order.filter((m) => m !== id), id] };
 
 /** 현황판 and 파일 share one window: each icon is lit only in its own mode. */
 export function iconStatus(s: WinState, icon: Icon): WinStatus {
@@ -99,7 +109,9 @@ export const showsAgentCards = (tab: Tab, view: 'office' | 'terminal'): boolean 
  *  alone: whatever showed is minimized, kept as it was. */
 export function openOrFocus(s: WinState, id: WindowId, tab?: OfficeTab): WinState {
   const sameTab = id !== 'office' || tab === undefined || tab === s.officeTab;
-  if (sameTab && status(s, id) === 'front' && (!s.phone || shown(s).length === 1)) return s;
+  // The front window under a panel pressed since is not yet on top (WINDOW-LAYERS): it moves up.
+  const onTop = status(s, id) === 'front' && s.order.at(-1) === id;
+  if (sameTab && onTop && (!s.phone || shown(s).length === 1)) return s;
   const minimized = { ...without(s.minimized, id) };
   if (s.phone) for (const other of shown(s)) if (other !== id) minimized[other] = true;
   const next: WinState = {

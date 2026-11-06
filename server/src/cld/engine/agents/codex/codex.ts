@@ -32,6 +32,12 @@ export const CODEX_CAPABILITIES: AgentCapabilities = {
   naming: 'none',
   usage: null,
   lifetime: 'run',
+  limits: true,
+  usageRefresh: true,
+  context: false,
+  // ponytail: a ChatGPT plan login; an OPENAI_API_KEY login is metered and still says plan.
+  billing: 'plan',
+  update: ['update'],
 };
 
 export const CODEX_MISSING = koText('codex_missing');
@@ -116,6 +122,11 @@ export class CodexAgent implements AgentProvider {
 
   nameMatches(): boolean {
     return false;
+  }
+
+  /** The codex the runs use (found on the jobs' PATH, as engine/codex.ts does). */
+  cliPath(): string | null {
+    return findOnPath(this.o.platform === 'win32' ? 'codex.cmd' : 'codex', this.o.path());
   }
 
   ready(): string | null {
@@ -211,6 +222,7 @@ export class CodexAgent implements AgentProvider {
           prompt: text,
           role: p.role,
           ...(p.rulesFile && { rulesFile: p.rulesFile }),
+          ...(p.specWorkflow === 'speckit' && { specWorkflow: true as const }),
           ...(task && { task }),
           ...(!fresh && last?.sid && { resume: last.sid }),
           ...(o.messageId && { messageId: o.messageId }),

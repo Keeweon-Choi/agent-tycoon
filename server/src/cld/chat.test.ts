@@ -127,8 +127,6 @@ function setup(
   opts: {
     sessions?: () => ClaudeSession[];
     idleMs?: number;
-    maxPtys?: number;
-    settingsFile?: string;
   } = {},
 ) {
   const ptys: FakePty[] = [];
@@ -152,8 +150,6 @@ function setup(
     },
     pty,
     idleMs: opts.idleMs,
-    maxPtys: opts.maxPtys,
-    settingsFile: opts.settingsFile,
     log: (line) => logs.push(line),
   });
   return { chat, ptys, spawns, logs, listCalls: () => listCalls };
@@ -395,85 +391,20 @@ describe('chat manager', () => {
     expect(ptys[0].written).toEqual(['early']);
   });
 
-  it('gates: one attach by default, the next session refused in Korean', async () => {
+  it('no cap: any number of sessions attach at once, each with its own PTY; a second viewer shares one', async () => {
     const t = setup();
-    const first = new FakeSocket();
-    await t.chat.join('a0000016', first);
-    const second = new FakeSocket();
-    await t.chat.join('a0000017', second);
-    expect(t.spawns).toHaveLength(1);
-    expect(second.closed?.[0]).toBe(WS_CLOSE_NO_SESSION);
-    expect(second.text()).toContain('동시에 열 수 있는 대화는 1개까지예요');
-    expect(first.closed).toBeNull();
-    const viewer = new FakeSocket();
-    await t.chat.join('a0000016', viewer); // another viewer of the open one still joins
-    expect(viewer.closed).toBeNull();
-    // Switching chats: the old sockets close, then the new session joins.
-    first.close();
-    viewer.close();
-    const switched = new FakeSocket();
-    await t.chat.join('a0000017', switched);
-    expect(switched.closed).toBeNull();
-    expect(t.spawns.map((x) => x.args[1])).toEqual(['a0000016', 'a0000017']);
-  });
-
-  it('gates: --chat-attaches 3 allows three, the 4th refused; the 3 keep running', async () => {
-    const t = setup({ maxPtys: 3 });
     const open = [new FakeSocket(), new FakeSocket(), new FakeSocket()];
     for (const [i, id] of ['a0000016', 'a0000017', 'a0000018'].entries()) {
       await t.chat.join(id, open[i]);
     }
-    const fourth = new FakeSocket();
-    await t.chat.join('a0000019', fourth);
-    expect(t.spawns).toHaveLength(3);
-    expect(fourth.closed?.[0]).toBe(WS_CLOSE_NO_SESSION);
-    expect(fourth.text()).toContain('동시에 열 수 있는 대화는 3개까지예요');
+    expect(t.spawns.map((x) => x.args[1])).toEqual(['a0000016', 'a0000017', 'a0000018']);
     expect(open.every((s) => s.closed === null)).toBe(true);
-    expect(t.ptys.every((p) => p.killed.length === 0)).toBe(true);
     const viewer = new FakeSocket();
-    await t.chat.join('a0000017', viewer); // a viewer of an open one still joins
+    await t.chat.join('a0000017', viewer); // a viewer of an open one joins its PTY
     expect(viewer.closed).toBeNull();
+    expect(t.spawns).toHaveLength(3);
     expect(t.chat.size).toBe(3);
-  });
-
-  it('the 설정 cap: 1 to 4 only, kept in terminal.json (0600), applied live, never kills an open attach', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-chat-cap-'));
-    const file = path.join(dir, 'config', 'terminal.json');
-    const t = setup({ maxPtys: 1, settingsFile: file });
-    expect(t.chat.maxAttaches).toBe(1);
-    expect(t.chat.defaultAttaches).toBe(1);
-    for (const bad of [0, 5, -1, 1.5, '2', null, undefined, NaN])
-      expect(t.chat.setMaxAttaches(bad), String(bad)).toBe(false);
-    expect(t.chat.maxAttaches).toBe(1);
-    expect(fs.existsSync(file)).toBe(false);
-
-    const a = new FakeSocket();
-    await t.chat.join('a0000016', a);
-    const refused = new FakeSocket();
-    await t.chat.join('a0000017', refused);
-    expect(refused.closed).toEqual([WS_CLOSE_NO_SESSION, 'cap']); // a pane offers 이 터미널로 바꾸기
-    // Without a restart the second one fits.
-    expect(t.chat.setMaxAttaches(2)).toBe(true);
-    const b = new FakeSocket();
-    await t.chat.join('a0000017', b);
-    expect(b.closed).toBeNull();
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ chatAttaches: 2 });
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    // Lowering it again keeps both attaches; a third session is what is refused.
-    expect(t.chat.setMaxAttaches(1)).toBe(true);
-    expect(t.chat.size).toBe(2);
     expect(t.ptys.every((p) => p.killed.length === 0)).toBe(true);
-    const c = new FakeSocket();
-    await t.chat.join('a0000018', c);
-    expect(c.closed).toEqual([WS_CLOSE_NO_SESSION, 'cap']);
-    // A restart keeps the chosen value, not the flag's; a broken file falls back to the flag.
-    expect(setup({ maxPtys: 3, settingsFile: file }).chat.maxAttaches).toBe(1);
-    expect(setup({ maxPtys: 3, settingsFile: file }).chat.defaultAttaches).toBe(3);
-    fs.writeFileSync(file, '{"chatAttaches": 9}');
-    expect(setup({ maxPtys: 3, settingsFile: file }).chat.maxAttaches).toBe(3);
-    fs.writeFileSync(file, 'nonsense');
-    expect(setup({ settingsFile: file }).chat.maxAttaches).toBe(1);
-    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it('never passes Ctrl+Z to the PTY', async () => {
@@ -1123,29 +1054,14 @@ describe('chat route', () => {
     expect(await attempt(port, 'a0000016', { cookie })).toEqual({ status: 404 });
   });
 
-  it("/api/chat-attaches: a login to read, the page's own origin to change, 1 to 4 only", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-chat-cap-'));
-    const t = setup({ settingsFile: path.join(dir, 'terminal.json') });
+  it('/api/chat-attaches is gone: no cap to read or change', async () => {
+    const t = setup();
     const { port, cookie } = await start(t.chat);
     const url = `http://127.0.0.1:${String(port)}/api/chat-attaches`;
-    const ok = {
-      cookie,
-      origin: `http://127.0.0.1:${String(port)}`,
-      'content-type': 'application/json',
-    };
-    expect((await fetch(url)).status).toBe(401);
-    const got = await fetch(url, { headers: { cookie } });
-    expect(await got.json()).toEqual({ attaches: 1, default: 1, min: 1, max: 4, live: 0 });
-    const put = (attaches: unknown, headers: Record<string, string> = ok) =>
-      fetch(url, { method: 'PUT', headers, body: JSON.stringify({ attaches }) });
-    expect((await put(2, { 'content-type': 'application/json' })).status).toBe(401);
-    expect((await put(2, { ...ok, origin: 'http://evil.example' })).status).toBe(403);
-    for (const bad of [0, 5, '3', null]) expect((await put(bad)).status, String(bad)).toBe(400);
-    expect(t.chat.maxAttaches).toBe(1);
-    expect((await put(3)).status).toBe(200);
-    expect(t.chat.maxAttaches).toBe(3);
-    expect((await (await fetch(url, { headers: { cookie } })).json()).attaches).toBe(3);
-    fs.rmSync(dir, { recursive: true, force: true });
+    for (const method of ['GET', 'PUT']) {
+      const res = await fetch(url, { method, headers: { cookie } });
+      expect(res.status, method).toBe(404);
+    }
   });
 
   it('the /ws gate: no cookie, a wrong one or a token are 401; a foreign Origin closes 4003', async () => {

@@ -189,14 +189,14 @@ async function main() {
     const b = (await desk.getByTestId('lobby-board').boundingBox())!;
     await desk.mouse.click(b.x + b.width / 2, b.y + b.height * 0.6);
     await desk.getByTestId('board-full').waitFor({ timeout: 5_000 });
-    const row = desk.locator('[data-testid="board-full"] [data-testid="board-project"]').first();
-    check((await row.getAttribute('data-ring')) === 'waiting', `the board's ${LEAD} row reads waiting (${await row.innerText()})`);
+    // e18c8bf3: the board has no per-project rows any more; its 나를 기다림 line (above) is what names the lead.
     await shot(desk, 'pc-2-board-full');
     await desk.getByTestId('board-full').getByTestId('board-waiting').click();
     const dash = desk.locator(DEV_WINDOW).first();
     await dash.waitFor({ timeout: 5_000 });
-    await eventually('현황판 질문 대기', async () => (await marks(dash).count()) > 0, 10_000);
-    check(true, '현황판 오케스트레이터: 질문 대기 on the card');
+    // The dashboard lists what waits for the owner (its 나를 기다림 list names the lead); it has no wait marks.
+    await eventually('현황판 질문 대기', async () => (await dash.getByText(LEAD).count()) > 0, 10_000);
+    check(true, '현황판 요약: the waiting lead is listed');
     await shot(desk, 'pc-3-status');
 
     await desk.locator('[data-hud-id="icon:messenger"]').getByRole('button').click();
@@ -214,6 +214,8 @@ async function main() {
     await room.waitFor({ timeout: 20_000 });
     await room.getByTestId('hud-title-devroom').dblclick();
     await room.getByTestId('devroom-trunk').first().click();
+    // DEVROOM-PANE-CHAT: the cards sit behind the status chips (나를 기다림 first).
+    await room.getByTestId('devroom-status-chip').first().click();
     const card = room.locator(`[data-testid="devroom-agent-card"][data-agent="${LEAD}"]`);
     await card.waitFor({ timeout: 20_000 });
     check((await card.getAttribute('data-bucket')) === 'needs', 'dev room: the card is in 나를 기다림');
@@ -232,8 +234,8 @@ async function main() {
     check((await phone.getByTestId('board-full').getByTestId('board-waiting').innerText()).includes(LEAD), 'phone: the full board says who');
     await shot(phone, 'phone-1-board');
     await phone.getByTestId('board-full').getByTestId('board-waiting').tap();
-    await eventually('phone 현황판 질문 대기', async () => (await marks(phone.locator('body')).count()) > 0, 10_000);
-    check(true, 'phone: 현황판 질문 대기');
+    await eventually('phone 현황판 질문 대기', async () => (await phone.locator('[aria-label="현황판 화면"]').getByText(LEAD).count()) > 0, 10_000);
+    check(true, 'phone: 현황판 요약 lists the waiting lead');
     await shot(phone, 'phone-2-status');
     await phone.goBack().catch(() => undefined);
     await phone.locator('[data-dock="messenger"]').tap();

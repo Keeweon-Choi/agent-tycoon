@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { HUD_MAXIMIZED_Z, HUD_PANELS_Z } from '../../constants.js';
+import { HUD_Z } from '../../constants.js';
 import {
   activeTab,
   back,
@@ -8,14 +8,17 @@ import {
   home,
   iconPress,
   iconStatus,
+  type LayerId,
+  layerZ,
   leaveNotices,
   minimize,
   openOrFocus,
+  PANEL_IDS,
   showsAgentCards,
   status,
   type Tab,
   tabPress,
-  windowZ,
+  toFront,
   type WinState,
   withPhone,
 } from './windowModel.js';
@@ -212,21 +215,53 @@ describe('crossing the breakpoint', () => {
 
 describe('window layers (WINDOW-LAYERS)', () => {
   const s: WinState = { ...pc, order: ['messenger', 'terminal', 'office'] };
+  const withPanels: WinState = { ...pc, order: [...PANEL_IDS, ...pc.order] };
+  const z = (st: WinState, id: LayerId, maximized = false) => layerZ(st, id, maximized);
 
-  it('normal windows go by order, all under the fixed panels', () => {
-    const z = (['messenger', 'terminal', 'office'] as const).map((id) => windowZ(s, id, false));
-    expect(z).toEqual([1, 2, 3]);
-    expect(Math.max(...z)).toBeLessThan(HUD_PANELS_Z);
+  it('one scale: notices < the stack < a maximized window < the dock handle', () => {
+    const bands = [HUD_Z.toasts, HUD_Z.stack, HUD_Z.maximized, HUD_Z.dockOverMax];
+    expect([...bands].sort((a, b) => a - b)).toEqual(bands);
+    const all = withPanels.order.map((id) => z(withPanels, id));
+    expect(Math.min(...all)).toBeGreaterThan(HUD_Z.toasts);
+    expect(Math.max(...all)).toBeLessThan(HUD_Z.maximized);
+    const maxed = pc.order.map((id) => z(withPanels, id, true));
+    expect(Math.max(...maxed)).toBeLessThan(HUD_Z.dockOverMax);
   });
 
-  it('a maximized window is over the panels, whatever its place in the order', () => {
-    expect(windowZ(s, 'messenger', true)).toBeGreaterThan(HUD_PANELS_Z);
-    expect(windowZ(s, 'messenger', true)).toBeGreaterThan(HUD_PANELS_Z + 5);
-    expect(windowZ(s, 'messenger', true)).toBe(HUD_MAXIMIZED_Z + 1);
+  it('windows go by order, the panels start under every window', () => {
+    expect((['messenger', 'terminal', 'office'] as const).map((id) => z(s, id))).toEqual([
+      HUD_Z.stack + 1,
+      HUD_Z.stack + 2,
+      HUD_Z.stack + 3,
+    ]);
+    const panels = PANEL_IDS.map((id) => z(withPanels, id));
+    const windows = pc.order.map((id) => z(withPanels, id));
+    expect(Math.max(...panels)).toBeLessThan(Math.min(...windows));
   });
 
-  it('restoring puts the window back under the panels at its old place in the order', () => {
-    expect(windowZ(s, 'terminal', false)).toBe(2);
+  it('clicking a panel puts it above a window; clicking the window puts it back', () => {
+    const open = openOrFocus(withPanels, 'messenger');
+    expect(z(open, 'messenger')).toBeGreaterThan(z(open, 'dock'));
+    const dock = toFront(open, 'dock');
+    expect(z(dock, 'dock')).toBeGreaterThan(z(dock, 'messenger'));
+    expect(status(dock, 'messenger')).toBe('front'); // still the front window: its icon minimizes it
+    expect(toFront(dock, 'dock')).toBe(dock); // already on top: nothing changes
+    const back = openOrFocus(dock, 'messenger');
+    expect(z(back, 'messenger')).toBeGreaterThan(z(back, 'dock'));
+    const cc = toFront(back, 'controlCenter');
+    expect(z(cc, 'controlCenter')).toBeGreaterThan(z(cc, 'messenger'));
+    expect(z(cc, 'messenger')).toBeGreaterThan(z(cc, 'dock'));
+  });
+
+  it('a maximized window stays over every panel, whatever was pressed', () => {
+    const pressed = PANEL_IDS.reduce(toFront, openOrFocus(withPanels, 'messenger'));
+    expect(z(pressed, 'messenger', true)).toBeGreaterThan(
+      Math.max(...PANEL_IDS.map((id) => z(pressed, id))),
+    );
+  });
+
+  it('restoring puts the window back at its old place in the order', () => {
+    expect(z(s, 'terminal')).toBe(HUD_Z.stack + 2);
   });
 });
 
@@ -236,7 +271,7 @@ describe('NOTICE-STACK: opening from the notice window', () => {
     const t = openOrFocus(leaveNotices(s), 'messenger');
     expect(status(t, 'notices')).toBe('behind');
     expect(status(t, 'messenger')).toBe('front');
-    expect(windowZ(t, 'messenger', false)).toBeGreaterThan(windowZ(t, 'notices', false));
+    expect(layerZ(t, 'messenger')).toBeGreaterThan(layerZ(t, 'notices'));
     const w = openOrFocus(leaveNotices(openOrFocus(pc, 'notices')), 'devroom'); // a closed target opens
     expect(status(w, 'notices')).toBe('behind');
     expect(status(w, 'devroom')).toBe('front');

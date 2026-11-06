@@ -5,7 +5,8 @@
  * events) stays in engine.ts and reaches an agent only through this. Each
  * agent is driven by the provider its assignment names (`provider` in
  * assignments.json, 'claude' when absent). Claude Code (agents/claude/) is
- * the first implementation; D5 adds Codex (agents/codex/, Workers only) and D7 ACP beside it.
+ * the first implementation; D5 adds Codex (agents/codex/, Workers only) and ACP-1 every agent
+ * that speaks ACP (agents/acp/, one instance per installed preset).
  */
 import type { ProjectRecord } from '../registry.js';
 
@@ -45,6 +46,20 @@ export interface AgentCapabilities {
    *  that is on and has no run is a resting session the engine makes (holder()). With
    *  `naming: 'none'` sessions are found by assignment id, never by name. */
   lifetime: 'session' | 'run';
+  /** Its 5-hour and 7-day plan limits reach the usage store (from wherever: `usage` above, its logs). */
+  limits: boolean;
+  /** Its usage can be re-read on demand (Codex: one small turn, usage.ts). */
+  usageRefresh: boolean;
+  /** How full its context is gets reported (the gauge, fatigue, renew). */
+  context: boolean;
+  /** How it is billed: 'plan' (a flat-rate subscription), 'metered' (per use: an API key, per
+   *  request), 'unknown'. The UI tags 'metered' agents, never by name. */
+  billing: 'plan' | 'metered' | 'unknown';
+  /** ACP-1: the agent's product name, shown as is (a provider without one has its own UI word). */
+  name?: string;
+  /** AGENT-UPDATE: the CLI's own self-update arguments (`<cli> ...update`), run as written with the
+   *  binary cliPath() names; absent: it cannot update itself, so no update is offered. */
+  update?: readonly string[];
 }
 
 /** A live session as the engine sees it (Claude: ~/.claude/sessions/<pid>.json). */
@@ -75,6 +90,8 @@ export type StartResult =
       id: string | null;
       /** C7a: the role playbook the session got (`<role>-<hash>`), for the start event. */
       playbook?: string;
+      /** ACP-1: what the owner should know about this start (it could not continue the conversation). */
+      note?: string;
     }
   | {
       ok: false;
@@ -124,6 +141,8 @@ export interface AgentProvider {
   daemonUp?(): boolean | null;
   /** Something about the agent's daemon the user should know, or null. */
   warning?(): string | null;
+  /** AGENT-UPDATE: the absolute path of the CLI this provider runs, or null when it is not installed. */
+  cliPath?(): string | null;
   /** D5: why this provider cannot start anything here now (its CLI is not installed), or null. */
   ready?(): string | null;
   /** D5: a provider that takes a message itself (Codex: one run per message); the messenger

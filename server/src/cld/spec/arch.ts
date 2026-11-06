@@ -20,12 +20,15 @@ import {
   SPEC_ARCH_NODES_MAX,
   SPEC_ARCH_RETIRED_PER_DOC,
   SPEC_ARCH_SOURCE_MAX,
+  SPEC_ARCH_TREE_LINES_MAX,
   SPEC_ARCH_UNSUPPORTED_MAX,
   SPEC_ITEM_TITLE_MAX,
 } from '../../constants.js';
 import { maskText } from '../mask.js';
 import { cellsOf, clean, FENCE, headerOf, TABLE_ROW, TABLE_SEP } from '../tracking/docs.js';
+import { pathsOf } from './compLinks.js';
 import { norm } from './extract.js';
+import { languageOf } from './languages.js';
 import { type MSeq, parseMermaid } from './mermaid.js';
 import type { SpecRegistry } from './store.js';
 
@@ -40,6 +43,10 @@ export interface ArchComp {
   group?: string;
   /** The lines of the participants that are this component. */
   also: number[];
+  /** BRN K8: its planned path as written (masked): a tree line, a table's path cell, a label that is one path. */
+  path?: string;
+  /** BRN K8: a folder tree line: a design module only (never drawn in the architecture, never a link candidate). */
+  tree?: true;
 }
 export interface ArchGroupIn {
   key: string;
@@ -79,6 +86,57 @@ const MERMAID = /^\s*(```|~~~)\s*mermaid\b/i;
 /** A component table's name column and its dependency column (headerOf folds case and a trailing `(…)`). */
 const COMP_COL = /^(구성\s*요소|컴포넌트|components?|모듈)$/;
 const DEP_COL = /^(의존(성)?|연결|depends(\s+on)?)$/;
+/** BRN K8: a component table's path column (`자리(제안)` reads as `자리`). */
+const PATH_COL = /^(경로|자리|위치|폴더|파일|paths?|location|folder|directory|files?)$/;
+/** The one path a label is, or undefined (`server/src/cld/engine`, in quotes or backticks or not). */
+const labelPath = (label: string): string | undefined => {
+  const ps = pathsOf(label);
+  return ps.length === 1 && ps[0] === label.trim().replace(/^[`'"]+|[`'"]+$/g, '').replace(/^\.\//, '') ? ps[0] : undefined;
+};
+
+// ── BRN K8: folder trees (project-brain §7.1) ──
+/** A fence a folder tree may be in: no language, or a text one. */
+const PLAIN_FENCE = /^\s*(```|~~~)\s*(text|txt|plain|plaintext|tree)?\s*$/i;
+/** The heading of a section a tree is in (`Directory map`, `Project Structure`, `폴더 구조`). */
+const TREE_HEAD = /structure|layout|director(y|ies)|\btree\b|\bmap\b|구조|트리|폴더|디렉[터토]리/i;
+/** A tree drawn with lines (`├── models/`): Spec Kit's plan.md, `tree`'s output. */
+const TREE_GLYPH = /^[\s│|]*[├└]──/;
+const TREE_PART = /^[\w.@~+-]+(?:\/[\w.@~+-]+)*\/?$/;
+const HAS_EXT = /\.[A-Za-z0-9]+$/;
+const HEADING = /^#{1,6}\s+(.+?)\s*#*\s*$/;
+const treePart = (s: string) => TREE_PART.test(s) && (s.includes('/') || HAS_EXT.test(s)) && !s.split('/').some((x) => x === '..' || x === '.');
+
+/**
+ * A folder tree's entries (`line`: 1-based within the block): each line's leading path, or every path
+ * of a line made only of paths (`src/hooks/ components/   React side`, `a.ts, b.ts`: the ones after
+ * the first in its folder, `src/components/`), under the folder line above it at a smaller indent
+ * (`├──`, `│` count as indent). A description after two spaces is left out. A file in no code language
+ * (`asyncapi.yaml`) is no module. Paths only: never `..`, never absolute.
+ */
+// ponytail: indentation decides the parent; a tree that indents children less than their folder, or a tab-indented one mixed with spaces, reads flat.
+export function treeEntries(lines: readonly string[]): Array<{ path: string; line: number }> {
+  const out: Array<{ path: string; line: number }> = [];
+  const stack: Array<{ col: number; path: string }> = [];
+  lines.forEach((raw, k) => {
+    if (raw.length > SPEC_ARCH_LINE_MAX) return;
+    const m = /^([\s│├└─|]*)(\S.*)?$/.exec(raw);
+    if (!m?.[2]) return;
+    const parts = m[2].split(/\s{2,}|\t/)[0].split(' ').map((x) => x.replace(/^\.\//, '').replace(/,$/, ''));
+    if (!treePart(parts[0])) return;
+    const all = parts.every(treePart) ? parts : [parts[0]];
+    const col = m[1].length;
+    while (stack.length && stack.at(-1)!.col >= col) stack.pop();
+    const parent = stack.at(-1)?.path ?? '';
+    const first = all[0].replace(/\/$/, '');
+    const beside = first.includes('/') ? first.slice(0, first.lastIndexOf('/') + 1) : '';
+    for (const [n, x] of all.entries()) {
+      const full = parent + (n ? beside : '') + x;
+      if (x.endsWith('/') || languageOf(full)) out.push({ path: full, line: k + 1 });
+    }
+    if (all.length === 1 && all[0].endsWith('/')) stack.push({ col, path: parent + all[0] });
+  });
+  return out;
+}
 const sha16 = (s: string) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 /** A label's fingerprint. */
 export const fpOf = (label: string): string => sha16(norm(label));
@@ -116,11 +174,16 @@ function readAll(text: string): DocArch {
     if (rows > SPEC_ARCH_DOC_COMPS_MAX || out.links.length > SPEC_ARCH_DOC_LINKS_MAX || work > SPEC_ARCH_DOC_COMPS_MAX + SPEC_ARCH_DOC_LINKS_MAX) throw new TooBig(line);
   };
   let block = 0;
+  let heading = '';
+  const trees: Array<{ fence: number; lines: string[] }> = [];
   for (let i = 0; i < lines.length; i++) {
     if (FENCE.test(lines[i])) {
       let j = i + 1;
       while (j < lines.length && !FENCE.test(lines[j])) j++;
-      if (MERMAID.test(lines[i])) {
+      if (PLAIN_FENCE.test(lines[i])) {
+        const body = lines.slice(i + 1, j);
+        if (TREE_HEAD.test(heading) || body.some((l) => TREE_GLYPH.test(l))) trees.push({ fence: i + 1, lines: body });
+      } else if (MERMAID.test(lines[i])) {
         const src = lines.slice(i + 1, j).join('\n');
         const b = block++;
         const fence = i + 1; // 1-based; the block's line k is the document's fence + k
@@ -143,7 +206,9 @@ function readAll(text: string): DocArch {
             if (subOf.has(n.id)) continue; // an edge to a subgraph names the group
             const sg = f.groupOf.get(n.id);
             at.set(n.id, out.comps.length);
-            out.comps.push({ block: b, node: nodeKey(n.id), label: shown(n.label), kind: n.shape === 'cylinder' ? 'store' : 'component', line: fence + n.line, ...(sg !== undefined && { group: key(sg) }), also: [] });
+            const label = shown(n.label);
+            const p = labelPath(label);
+            out.comps.push({ block: b, node: nodeKey(n.id), label, kind: n.shape === 'cylinder' ? 'store' : 'component', line: fence + n.line, ...(sg !== undefined && { group: key(sg) }), also: [], ...(p && { path: p }) });
             grow(fence + n.line);
           }
           const end = (id: string) => (subOf.has(id) ? key(subOf.get(id)!) : at.get(id)!);
@@ -160,10 +225,13 @@ function readAll(text: string): DocArch {
       i = j;
       continue;
     }
+    const hd = HEADING.exec(lines[i]);
+    if (hd) heading = hd[1];
     if (TABLE_ROW.test(lines[i]) && TABLE_SEP.test(lines[i + 1] ?? '')) {
       const head = headerOf(lines[i]);
       const c = head.findIndex((h) => COMP_COL.test(h));
       const d = head.findIndex((h) => DEP_COL.test(h));
+      const pc = head.findIndex((h) => PATH_COL.test(h));
       let end = i + 2;
       while (end < lines.length && TABLE_ROW.test(lines[end])) end++;
       if (c >= 0) {
@@ -181,7 +249,9 @@ function readAll(text: string): DocArch {
           if (index === undefined) {
             index = out.comps.length;
             byLabel.set(norm(label), index);
-            out.comps.push({ block: b, node: nodeKey(`#${k - i - 1}`), label, kind: 'component', line: k + 1, also: [] });
+            const cell = pc >= 0 ? (cells[pc] ?? '') : '';
+            const p = (cell.length <= SPEC_ARCH_LINE_MAX ? pathsOf(cell)[0] : undefined) ?? labelPath(label);
+            out.comps.push({ block: b, node: nodeKey(`#${k - i - 1}`), label, kind: 'component', line: k + 1, also: [], ...(p && { path: p }) });
           } else out.comps[index].also.push(k + 1);
           // A cell longer than a line is not read as names (one 2 MB cell cost a second on every read).
           if (d >= 0 && (cells[d] ?? '').length <= SPEC_ARCH_LINE_MAX) deps.push({ index, deps: cells[d] ?? '', line: k + 1 });
@@ -225,6 +295,26 @@ function readAll(text: string): DocArch {
     for (const m of seq.messages) {
       out.links.push({ from: at.get(m.from)!, to: at.get(m.to)!, layer: 'interaction', label: shown(m.text), line: fence + m.line });
       grow(fence + m.line, 0);
+    }
+  }
+  // BRN K8: the trees last, numbered after every other block (a document's diagrams and tables keep
+  // their numbers); a tree line's node is its path, so moving it keeps its UID. Their own cap: past
+  // SPEC_ARCH_TREE_LINES_MAX the rest is not read, and the document's diagrams are never refused for them.
+  let treeLines = 0;
+  for (const t of trees) {
+    const b = block++;
+    const seen = new Map<string, number>();
+    for (const e of treeEntries(t.lines)) {
+      if (++treeLines > SPEC_ARCH_TREE_LINES_MAX) break;
+      const line = t.fence + e.line;
+      const label = shown(e.path);
+      const hit = seen.get(label);
+      if (hit !== undefined) {
+        out.comps[hit].also.push(line);
+        continue;
+      }
+      seen.set(label, out.comps.length);
+      out.comps.push({ block: b, node: nodeKey(`tree:${e.path}`), label, kind: 'component', line, also: [], path: label, tree: true });
     }
   }
   return out;
@@ -355,7 +445,7 @@ export function archGraph(reg: SpecRegistry, docs: ReadonlyMap<string, { arch: D
     for (const g of arch.groups) groups.push({ id: gid(g.key), label: g.label, ...(g.parent && { parent: gid(g.parent) }), source: src(g.line) });
     arch.comps.forEach((c, i) => {
       const id = uids[i];
-      if (!id || nodes.has(id) || reg.components[id]?.state !== 'active') return;
+      if (!id || c.tree || nodes.has(id) || reg.components[id]?.state !== 'active') return;
       nodes.set(id, { id, label: c.label, kind: c.kind, from: 'doc', standing: 'doc', diagram: `${doc}:${c.block}`, ...(c.group && { group: gid(c.group) }), sources: [src(c.line), ...c.also.map(src)] });
     });
     const end = (e: number | string) => (typeof e === 'number' ? uids[e] : gid(e));

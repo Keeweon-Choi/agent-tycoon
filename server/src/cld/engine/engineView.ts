@@ -6,6 +6,7 @@ import * as fs from 'fs';
 
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type {
+  EngineAgentCaps,
   EngineProject,
   EngineState,
   OfficeRoom,
@@ -14,7 +15,7 @@ import { turnEnded } from '../providers/claudeProvider.js';
 import type { AgentEntry, World } from '../providers/types.js';
 import { ENTRY_DEFAULTS } from '../providers/types.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
-import type { AgentProvider } from './agents/types.js';
+import type { AgentCapabilities, AgentProvider } from './agents/types.js';
 import { MESSENGER_TIMING, tail, turnOver } from './messenger.js';
 import type { ProjectRecord } from './registry.js';
 import { DEFAULT_PROVIDER, roomOf } from './registry.js';
@@ -33,6 +34,8 @@ export interface StateCtx {
   projectOf: (name: string) => string | null;
   gaveUp: (name: string) => string | undefined;
   agentOf: (p: ProjectRecord) => AgentProvider | undefined;
+  /** Every provider this build has (their capabilities go to the UI). */
+  agents: () => Iterable<AgentProvider>;
   /** What the office shows for an agent whose provider this build does not have. */
   unknownProvider: (id: string) => string;
   untrusted: Set<string>;
@@ -116,8 +119,25 @@ export function engineState(ctx: StateCtx): EngineState {
       };
     }),
     ...(Object.keys(choices).length > 0 && { agentChoices: choices }),
+    agentCaps: Object.fromEntries([...ctx.agents()].map((a) => [a.id, capsView(a.capabilities)])),
     ...(warnings.length > 0 && { warnings }),
     ...(ctx.moveAllRun && { moveAll: { done: ctx.moveAllRun.done, total: ctx.moveAllRun.total } }),
+  };
+}
+
+/** The UI's part of a provider's capabilities (the engine-only ones stay here). */
+export function capsView(c: AgentCapabilities): EngineAgentCaps {
+  return {
+    approvalPolicy: [...c.approvalPolicy],
+    ...(c.sandbox && { sandbox: [...c.sandbox] }),
+    ...(c.attach && { attach: c.attach }),
+    lifetime: c.lifetime,
+    limits: c.limits,
+    usageRefresh: c.usageRefresh,
+    context: c.context,
+    billing: c.billing,
+    ...(c.name && { name: c.name }),
+    ...(!!c.update?.length && { update: true as const }),
   };
 }
 

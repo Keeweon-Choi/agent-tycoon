@@ -11,7 +11,7 @@
  *
  *   npx tsx cld/test/run-auto-trust.ts <port 18256-18259>
  */
-import type { Browser, Locator, Page } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -28,6 +28,7 @@ import {
   startDaemon,
 } from '../../server/src/cld/testHome.js';
 import { configDirectory } from '../../server/src/cld/configPath.js';
+import { engineButton, engineRow } from './engineRow.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/auto-trust');
@@ -94,8 +95,6 @@ async function main() {
     await page.addStyleTag({ content: FONT_CSS });
     await page.evaluate(() => document.fonts.load("16px 'FS Pixel Sans'", '가'));
   };
-  const card = (scope: Locator, page: Page, name: string) =>
-    scope.locator('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
   const shot = (page: Page, name: string) => page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const toast = (page: Page, text: string) =>
     page.getByRole('status').filter({ hasText: text }).waitFor({ timeout: 20_000 });
@@ -119,8 +118,8 @@ async function main() {
     await shot(page, 'desktop-add-form');
     await form.getByRole('button', { name: '추가', exact: true }).click();
     await toast(page, '추가했어요');
-    const alpha = card(drawer, page, 'alpha-app');
-    await alpha.getByRole('button', { name: '켜기', exact: true }).click();
+    const alpha = await engineRow(page, 'alpha-app'); // the engine buttons are in the inspector now
+    await (await engineButton(page, 'alpha-app', '켜기')).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.waitFor();
     await dialog.getByRole('button', { name: '켜기', exact: true }).click();
@@ -128,7 +127,7 @@ async function main() {
     await shot(page, 'desktop-trusting');
     check(true, `the card shows ${RUNNING} while it runs`);
     await toast(page, '대신 답하고 켰어요');
-    await alpha.getByRole('button', { name: '끄기', exact: true }).waitFor({ timeout: 20_000 });
+    await (await engineButton(page, 'alpha-app', '끄기')).waitFor({ timeout: 20_000 });
     check(!fs.existsSync(path.join(alphaDir, '.fake-untrusted')), 'the fake recorded the answer');
     check((await alpha.getByText(RUNNING).count()) === 0, `${RUNNING} goes away`);
     await shot(page, 'desktop-started');
@@ -153,8 +152,8 @@ async function main() {
     await shot(phone, 'phone-add-form');
     await pform.getByRole('button', { name: '추가', exact: true }).tap();
     await toast(phone, '추가했어요');
-    const beta = card(panel, phone, 'beta-app');
-    await beta.getByRole('button', { name: '켜기', exact: true }).tap();
+    const beta = await engineRow(phone, 'beta-app');
+    await (await engineButton(phone, 'beta-app', '켜기')).tap();
     const pdialog = phone.getByRole('alertdialog');
     await pdialog.waitFor();
     await pdialog.getByRole('button', { name: '켜기', exact: true }).tap();

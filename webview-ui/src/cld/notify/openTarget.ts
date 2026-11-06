@@ -1,16 +1,14 @@
 /**
  * T-0043 (10-22 01:3x): a notice's click opens where it came from — a lead's
- * conversation in the messenger, a job card or a Codex run in the 작업실 (UI-C1), or the
+ * conversation in the messenger, a job card or a Codex run in the 현황판's 실행 tab, or the
  * character. The same for the toast, the bell's list and a Web Push's url.
  */
 import type { NoticeTarget } from '../../../../core/src/cld/notices.js';
 import { openSecurity } from '../auth/securityOpen.js';
 import { openPreview } from '../devroom/devroomStore.js';
-import { engineGetSnapshot } from '../engineStore.js';
+import { openJobs } from '../game/openJobs.js';
 import { openMessenger, showRoomById } from '../messenger/messengerStore.js';
 import { cldGetSnapshot, virtualAgentId } from '../officeStore.js';
-import { setJobsView } from '../taskboard/taskBoardState.js';
-import { pickerEntryOf, workbenchProjects } from '../workbench/workbenchState.js';
 import { openWorkbench, setWorkbenchTab } from '../workbench/workbenchStore.js';
 
 export const FOCUS_MS = 4_000;
@@ -78,19 +76,8 @@ export function openTarget(t: NoticeTarget, deps: OpenDeps): boolean {
     case 'job':
     case 'codex': {
       if (!(t.open === 'job' ? snap.officeJobs : snap.codexTasks)) return false;
-      // The item's project (a Worker's is its Lead's), or 프로젝트 없음 for one nobody owns.
-      const item =
-        t.open === 'job'
-          ? snap.officeJobs?.jobs.find((j) => (j.id ?? `pid:${j.pid}`) === t.id)
-          : snap.codexTasks?.tasks.find((x) => x.id === t.id);
-      const engine = engineGetSnapshot().state?.projects;
-      setWorkbenchTab(t.open === 'job' ? 'tasks' : 'agents');
-      if (t.open === 'job') setJobsView('runs'); // the job cards are the Task tab's 실행 half
-      openWorkbench(
-        item
-          ? pickerEntryOf(item.project, workbenchProjects(snap.officeSnapshot, engine), engine)
-          : undefined,
-      );
+      // The 실행 tab on every project, so the run is in the list whatever was filtered before.
+      openJobs();
       if (t.id) reveal(t.open, t.id);
       return true;
     }

@@ -42,6 +42,7 @@ async function start() {
     home,
     engineClaude: claudePath,
     defaultLayout: { tiles: [1], furniture: [] },
+    lhmPort: null,
   });
   cleanup.push(() => {
     office.dispose();

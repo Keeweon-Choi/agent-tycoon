@@ -151,6 +151,7 @@ export class AgentStateStore {
           parentToolId: m.parentToolId as string,
           status: m.status as string,
           ...(typeof m.desc === 'string' && { desc: m.desc }),
+          ...(typeof m.path === 'string' && { path: m.path }),
         });
         break;
       case 'subagentToolDone':

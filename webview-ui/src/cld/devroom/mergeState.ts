@@ -1,9 +1,11 @@
 /**
- * P4 개발실 병합 tab, its pure rules: the pre-check list (K), what the owner picked per conflict
+ * P4 개발실 머지 tab, its pure rules: the pre-check list (K), what the owner picked per conflict
  * block (W2) and the choices `resolve` sends, the cleanup table's numbers (W3). mergeStore.ts keeps
  * the daemon's answers, MergeTab / ConflictView / CleanupView draw them.
  */
 import type {
+  BoardFactBool,
+  OfficeJob,
   RepoCleanupRow,
   RepoConflictBlock,
   RepoConflictChoice,
@@ -12,6 +14,7 @@ import type {
 } from '../../../../core/src/messages.js';
 import { MERGE_CONTEXT_LINES, MERGE_KIB, MERGE_SIZE_DECIMALS } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import { clock } from './runState.js';
 
 // ── pre-check (A4) ───────────────────────────────────────────
 
@@ -28,8 +31,9 @@ export interface PreCheck {
 export const fixingLock = (check: Pick<RepoMergeCheckResult, 'notesFixing'>, taskStatus?: string): boolean =>
   (check.notesFixing ?? 0) > 0 && taskStatus === 'doing';
 
-/** The list under 「병합하기 전에」: behind the base, uncommitted changes, notes being fixed, tests. */
-export function preChecks(check: RepoMergeCheckResult, testsPassed: boolean): PreCheck[] {
+/** The list under 「머지하기 전에」: behind the base, uncommitted changes, notes being fixed, tests
+ *  (`tests`: testsLine's, or null for none). */
+export function preChecks(check: RepoMergeCheckResult, tests: Pick<PreCheck, 'ok' | 'text'> | null): PreCheck[] {
   const base = check.target ?? '';
   const behind = check.behind ?? 0;
   const dirty = check.dirty ?? 0;
@@ -45,8 +49,22 @@ export function preChecks(check: RepoMergeCheckResult, testsPassed: boolean): Pr
       ? { id: 'fixing', ok: false, text: t('merge.check.fixing', { count: fixing }) }
       : { id: 'fixing', ok: true, text: t('merge.check.fixingOk') },
   ];
-  if (testsPassed) list.push({ id: 'tests', ok: true, text: t('devroom.tests') });
+  if (tests) list.push({ id: 'tests', ...tests });
   return list;
+}
+
+/**
+ * G15: the tests line. An observed result (the 실행 row's 테스트 run, devroomRuns.ts) with its exit code
+ * and time, from the newest test run when it ended with a code (`테스트 실행 · 종료 코드 0 · 18:12`), else
+ * from the fact alone; a reported pass keeps the old line; nothing known, no line.
+ */
+export function testsLine(fact: BoardFactBool | undefined, run: OfficeJob | undefined): Pick<PreCheck, 'ok' | 'text'> | null {
+  if (fact?.source === 'observed') {
+    if (run?.ended && typeof run.exit === 'number' && !run.stopped)
+      return { ok: run.exit === 0, text: t('devroom.run.preCheck', { code: run.exit, time: clock(run.ended) }) };
+    return { ok: fact.value, text: t(fact.value ? 'devroom.run.preCheckPass' : 'devroom.run.preCheckFail', { time: clock(fact.at) }) };
+  }
+  return fact?.value === true ? { ok: true, text: t('devroom.tests') } : null;
 }
 
 // ── conflict blocks (W2) ─────────────────────────────────────
@@ -109,7 +127,7 @@ export function segments(text: string, blocks: readonly RepoConflictBlock[], aro
   return out;
 }
 
-// ── 작업 폴더 정리 (W3) ──────────────────────────────────────
+// ── 워크트리 정리 (W3) ──────────────────────────────────────
 
 /** Merged ones come checked, the unmerged ones do not (their work stays only on the branch). */
 export const defaultChecked = (rows: readonly RepoCleanupRow[]): Set<string> =>

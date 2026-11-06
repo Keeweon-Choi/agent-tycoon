@@ -25,8 +25,10 @@ const hintOf = (look: FatigueLook): string | undefined =>
 
 /**
  * DNF-style stamina bar, "피로도 72%": green, then yellow when tired, red from the yawns.
- * `compact`: the nameplate's second row, "피로도 [bar] 72% · 휴식 1/2" in one line
- * the plate's width (the bar takes what the words leave), at the 화면 크기 step's sizes.
+ * `compact`: the nameplate's second row at the 화면 크기 step's sizes. Slim (no `barPx`, the
+ * plate at rest): the bar alone, the plate's whole width; the percent and the compactions
+ * are in the meter's value for readers and in the opened plate. Opened (`barPx`):
+ * "피로도 [bar] 72% · 휴식 1/2" in one line.
  */
 export function FatigueBar({
   look,
@@ -35,34 +37,64 @@ export function FatigueBar({
 }: {
   look: FatigueLook;
   compact?: NameplateSizes;
-  /** A fixed bar length (the summary popover), not whatever the plate leaves. */
+  /** A fixed bar length (the opened plate); without it the compact bar is slim. */
   barPx?: number;
 }) {
+  const meter = {
+    role: 'meter',
+    'aria-label': t('activity.fatigue'),
+    'aria-valuetext': fatigueText(look),
+    'aria-valuemin': 0,
+    'aria-valuemax': 100,
+    'aria-valuenow': look.value,
+    title: hintOf(look),
+    'data-testid': 'fatigue',
+    'data-tone': look.tone,
+  } as const;
+  if (compact && !barPx)
+    // T-67 (owner 11-06 22:34): "피로도 [bar] 휴식 1/2" in the plate's one width, the bar a fixed length.
+    return (
+      <span
+        className="flex items-center gap-3 w-full min-w-0 leading-none whitespace-nowrap text-text-muted"
+        style={{ fontSize: `max(${compact.fatigue}px, var(--ui-text-floor))` }}
+        data-slim=""
+        {...meter}
+      >
+        <span aria-hidden className="shrink-0" data-testid="fatigue-label">
+          {t('activity.fatigue')}
+        </span>
+        <span
+          className="block shrink-0 border border-border rounded-ui-pill overflow-hidden bg-bg-dark"
+          style={{ width: compact.bar, height: compact.barHeight }}
+        >
+          <span
+            className="block h-full"
+            style={{ width: `${look.value}%`, background: FATIGUE_BAR_COLORS[look.tone] }}
+          />
+        </span>
+        <span
+          aria-hidden
+          className={`truncate min-w-0 ${look.renew ? 'font-bold text-yellow-300' : 'text-text'}`}
+          data-testid="compaction-text"
+          data-renew={look.renew}
+        >
+          {compactionText(look)}
+        </span>
+      </span>
+    );
   if (compact)
     return (
       <span
         className="flex items-center gap-4 w-full leading-none whitespace-nowrap text-text-muted"
         style={{ fontSize: compact.fatigue }}
-        role="meter"
-        aria-label={t('activity.fatigue')}
-        aria-valuetext={fatigueText(look)}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={look.value}
-        title={hintOf(look)}
-        data-testid="fatigue"
-        data-tone={look.tone}
+        {...meter}
       >
         <span aria-hidden data-testid="fatigue-label">
           {t('activity.fatigue')}
         </span>
         <span
-          className={`block border border-border bg-bg-dark ${barPx ? 'shrink-0' : 'flex-1'}`}
-          style={
-            barPx
-              ? { width: barPx, height: compact.barHeight }
-              : { minWidth: compact.barMin, height: compact.barHeight }
-          }
+          className="block border border-border bg-bg-dark shrink-0"
+          style={{ width: barPx, height: compact.barHeight }}
         >
           <span
             className="block h-full"
@@ -85,14 +117,14 @@ export function FatigueBar({
     );
   return (
     <span
-      className="flex items-center gap-4 leading-none"
+      className="flex items-center gap-4 min-w-0 leading-none"
       role="meter"
       aria-label={t('activity.fatigue')}
       aria-valuetext={fatigueText(look)}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={look.value}
-      title={hintOf(look)}
+      title={[fatigueText(look), hintOf(look)].filter(Boolean).join('\n')}
       data-testid="fatigue"
       data-tone={look.tone}
     >
@@ -102,7 +134,7 @@ export function FatigueBar({
           style={{ width: `${look.value}%`, background: FATIGUE_BAR_COLORS[look.tone] }}
         />
       </span>
-      <span className="text-2xs whitespace-nowrap" data-testid="fatigue-text">
+      <span className="text-2xs truncate" data-testid="fatigue-text">
         {t('activity.fatigue')} {contextPctText(look.value, look.basis)}% ·{' '}
         <span
           className={look.renew ? 'font-bold text-yellow-300' : undefined}
@@ -120,11 +152,12 @@ export function FatigueBar({
 export function UnknownFatigue({ compact }: { compact: NameplateSizes }) {
   return (
     <span
-      className="flex items-center gap-4 w-full leading-none whitespace-nowrap text-text-muted"
-      style={{ fontSize: compact.fatigue }}
+      className="flex items-center gap-3 w-full min-w-0 leading-none whitespace-nowrap text-text-muted"
+      style={{ fontSize: `max(${compact.fatigue}px, var(--ui-text-floor))` }}
       data-testid="fatigue-unknown"
     >
-      {t('activity.fatigue')} <span className="text-text">{t('activity.fatigueUnknown')}</span>
+      <span className="shrink-0">{t('activity.fatigue')}</span>
+      <span className="truncate min-w-0 text-text">{t('activity.fatigueUnknown')}</span>
     </span>
   );
 }
@@ -207,7 +240,7 @@ export function LevelRing({ ring, sizes }: { ring: Ring; sizes: { ring: number; 
           />
         )}
       </svg>
-      <span className="relative font-bold" style={{ fontSize: sizes.level }}>
+      <span className="relative font-bold" style={{ fontSize: `max(${sizes.level}px, var(--ui-text-floor))` }}>
         {ring.level}
       </span>
     </span>
@@ -223,7 +256,7 @@ export function RestBubble({ className = '' }: { className?: string }) {
   return (
     <button
       type="button"
-      className={`pointer-events-auto flex items-center gap-4 border-2 px-6 py-2 text-2xs leading-tight text-left shadow-pixel ${className}`}
+      className={`pointer-events-auto flex items-center gap-4 border-ui rounded-ui-card px-6 py-2 text-2xs leading-tight text-left shadow-pixel ${className}`}
       style={{
         background: REST_BUBBLE_BG,
         borderColor: REST_BUBBLE_BORDER,

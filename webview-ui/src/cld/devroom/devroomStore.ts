@@ -17,8 +17,21 @@ export const DEVROOM_KEY = 'cld.devroom.v1';
 
 export const PREVIEW_KEY = 'cld.devroom.preview.v1';
 
-/** The right area: S2's terminal, S3's 변경, S4's 병합, S6's 미리보기 and S4's 작업 폴더 정리 view. */
-export type DevroomTab = 'terminal' | 'changes' | 'merge' | 'preview' | 'cleanup';
+/** DEVROOM-SIDEBAR: the external worktrees hidden on this device (their paths). */
+export const HIDDEN_KEY = 'cld.devroom.hidden.v1';
+
+/** The rail's agent row clicked: the agent whose pane shows (a sub-agent's lead), the sub-agent's
+ *  key (SubRow.key) or null, and a stamp so a second click on the same row shows it again. */
+export interface AgentPick {
+  project: string;
+  name: string;
+  sub: string | null;
+  at: number;
+}
+
+/** The right area: S2's terminal, S3's 변경, S4's 머지, S6's 미리보기 and S4's 워크트리 정리 view;
+ *  `runs` is the phone's 실행 page only (DV2; the PC shows the 실행 row and panes). */
+export type DevroomTab = 'terminal' | 'changes' | 'merge' | 'preview' | 'cleanup' | 'runs';
 
 export interface Picked {
   project: string;
@@ -42,6 +55,9 @@ export interface DevroomSnapshot {
   previews: Readonly<Record<string, string>>;
   /** The footer's `터미널 N개 · 데몬 메모리 약 X MB` (the daemon sends it while the dev room is viewed). */
   stats: DevroomStats | null;
+  /** DEVROOM-SIDEBAR: the agent row last clicked (null after a worktree's own click). */
+  agent: AgentPick | null;
+  hidden: Readonly<Record<string, true>>;
 }
 
 export const pickKey = (project: string, task: string | null): string => `${project}\0${task ?? ''}`;
@@ -51,6 +67,15 @@ function readFilter(): string | null {
     return parseFilter(localStorage.getItem(DEVROOM_KEY));
   } catch {
     return null; // storage blocked: every project for this visit
+  }
+}
+
+function readHidden(): Record<string, true> {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(HIDDEN_KEY) ?? '[]');
+    return Array.isArray(raw) ? Object.fromEntries(raw.filter((p): p is string => typeof p === 'string').map((p) => [p, true as const])) : {};
+  } catch {
+    return {}; // storage blocked or not JSON: none hidden this visit
   }
 }
 
@@ -77,6 +102,8 @@ let snapshot: DevroomSnapshot = {
   page: null,
   previews: readPreviews(),
   stats: null,
+  agent: null,
+  hidden: readHidden(),
 };
 const listeners = new Set<() => void>();
 
@@ -101,10 +128,29 @@ export function setDevroomFilter(project: string | null): void {
   set({ filter: project, menu: null });
 }
 
-/** A card or the trunk. The trunk has no 변경 or 병합: its tab falls back to the terminal. */
+/** A card or the trunk. The trunk has no 변경 or 머지: its tab falls back to the terminal. */
 export function pickWorktree(project: string, task: string | null): void {
   const tab = task === null && snapshot.tab !== 'terminal' ? 'terminal' : snapshot.tab;
-  set({ picked: { project, task }, tab, menu: null });
+  set({ picked: { project, task }, tab, menu: null, agent: null });
+}
+
+let agentClicks = 0;
+/** DEVROOM-SIDEBAR: an agent row: its worktree picked, the agent (or the sub-agent's transcript) in the pane. */
+export function pickAgent(project: string, task: string | null, name: string, sub: string | null): void {
+  set({ picked: { project, task }, tab: 'terminal', menu: null, agent: { project, name, sub, at: ++agentClicks } });
+}
+
+/** Hide (or show again) external worktree `path` on this device. */
+export function toggleHidden(path: string): void {
+  const hidden = { ...snapshot.hidden };
+  if (hidden[path]) delete hidden[path];
+  else hidden[path] = true;
+  try {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(Object.keys(hidden)));
+  } catch {
+    // Private mode: this visit still keeps it.
+  }
+  set({ hidden });
 }
 export const setDevroomTab = (tab: DevroomTab) => set({ tab, menu: null });
 export const toggleMenu = (key: string | null) =>
@@ -135,7 +181,7 @@ export const devroomSetStats = (stats: DevroomStats) => set({ stats });
 export const expandCard = (key: string) =>
   set({ expanded: snapshot.expanded === key ? null : key });
 export const openDevroomPage = (project: string, task: string | null, page: DevroomTab) =>
-  set({ picked: { project, task }, page, tab: page, menu: null });
+  set({ picked: { project, task }, page, tab: page, menu: null, agent: null });
 /** Back on the phone: the sub-page closes first (true when there was one). */
 export function closeDevroomPage(): boolean {
   if (snapshot.page === null) return false;
@@ -150,7 +196,7 @@ export function closeDevroomPage(): boolean {
 export function openDevRoom(project: string, task: string | null = null): void {
   if (snapshot.filter !== null && snapshot.filter !== project) setDevroomFilter(project);
   const key = pickKey(project, task);
-  set({ picked: { project, task }, tab: 'terminal', menu: null, expanded: key, page: null });
+  set({ picked: { project, task }, tab: 'terminal', menu: null, expanded: key, page: null, agent: null });
   openWindow('devroom');
 }
 

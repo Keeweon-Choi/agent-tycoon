@@ -20,6 +20,7 @@
  *   attach <id>     resumes a stopped job, like Claude; then ./session-tui.cjs (T-0019:
  *                   the input line cld-gui send types into)
  *   rm <id>         removes a job
+ *   -p /usage ...   the daemon's usage probe: stream-json with $HOME/fake-usage-report.json as usage_report
  *   (no arguments, or the trust run's --settings … --strict-mcp-config)
  *                   interactive: ./trust-tui.cjs, the folder-trust dialog (AUTO-TRUST)
  *   -n NAME [--resume SID] [flags]   (no --bg; TERM-P1)
@@ -61,6 +62,50 @@ if (!ours) {
 const jobsDir = path.join(HOME, '.claude', 'jobs');
 const sessDir = path.join(HOME, '.claude', 'sessions');
 const args = process.argv.slice(2);
+// The daemon's `/usage` probe (usage.ts): stream-json, its usage_report the one a test left in
+// fake-usage-report.json (testHome.fakeUsage), none without it (as for an API-key login). Logged
+// apart so every other test's call list stays as it was.
+if (args[0] === '-p' && args[1] === '/usage') {
+  fs.appendFileSync(
+    path.join(HOME, 'fake-claude-usage.log'),
+    `${JSON.stringify({ argv: args, cwd: process.cwd(), t: Date.now() })}\n`,
+  );
+  let report = null;
+  try {
+    report = JSON.parse(fs.readFileSync(path.join(HOME, 'fake-usage-report.json'), 'utf8'));
+  } catch {
+    /* no report */
+  }
+  const line = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
+  const answer = () => {
+    line({ type: 'system', subtype: 'init', session_id: 'fake-usage' });
+    line({
+      type: 'assistant',
+      session_id: 'fake-usage',
+      message: { content: [{ type: 'text', text: 'usage' }] },
+      ...(report && { usage_report: report }),
+    });
+    line({ type: 'result', subtype: 'success', total_cost_usd: 0, session_id: 'fake-usage' });
+    process.exit(0);
+  };
+  // With a file fake-usage-stdin the fake answers only at stdin's EOF (a CLI that reads stdin to
+  // EOF) and logs how stdin behaved: still open 1 s in?, and when EOF came.
+  if (fs.existsSync(path.join(HOME, 'fake-usage-stdin'))) {
+    const t0 = Date.now();
+    let openAt1s = false;
+    const probe = setTimeout(() => (openAt1s = true), 1000);
+    process.stdin.resume();
+    process.stdin.on('end', () => {
+      clearTimeout(probe);
+      fs.writeFileSync(
+        path.join(HOME, 'fake-usage-stdin.log'),
+        JSON.stringify({ openAt1s, eofMs: Date.now() - t0 }),
+      );
+      answer();
+    });
+  } else answer();
+  return; // the rest is not this command's (a CommonJS module may return)
+}
 let stdin = '';
 if (args[0] === '--bg') {
   try {

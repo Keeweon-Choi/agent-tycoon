@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChatItem, GroupPostItem } from '../../../../core/src/messages.js';
 import { ROOM_WAITING_MS } from '../../constants.js';
-import { roomThreads, threadTone } from './roomThreads.js';
+import { roomThreads, threadReplies, threadTone } from './roomThreads.js';
 
 const NOW = 1_800_000_000_000;
 const said = (id: string, kind: ChatItem['kind'] = 'assistant'): ChatItem => ({ id, at: NOW - 1000, kind, text: id });
@@ -67,5 +67,25 @@ describe('ROOM-THREADS: threads', () => {
     const lost = post('p1', { replyTo: { id: 'gone', text: 'old' } });
     const system = post('s1', { system: true, replyTo: { id: 'p1', text: 'p1' } });
     expect(roomThreads([lost, system]).map((t) => t.posts.map((p) => p.id))).toEqual([['p1'], ['s1']]);
+  });
+});
+
+describe('ROOM-FOLD: what a folded thread says', () => {
+  const at = (n: number, over: Partial<ChatItem> = {}): ChatItem => ({ ...said(`i${n}`), at: NOW + n, ...over });
+  it('counts the members\' lines and the reply posts, and names the last speaker', () => {
+    const root = post('p', {
+      targets: ['alpha', 'beta'],
+      replies: [
+        { member: 'alpha', items: [at(1), at(2, { kind: 'tool' })] },
+        { member: 'beta', items: [at(5)] },
+      ],
+    });
+    const answer = post('q', { at: NOW + 3, sender: undefined, replyTo: { id: 'i1', text: 'x' } });
+    expect(threadReplies({ posts: [root, answer] })).toEqual({ count: 3, last: { name: 'beta', at: NOW + 5 } });
+    expect(threadReplies({ posts: [root, answer, post('r', { at: NOW + 9, sender: 'alpha' })] }).last).toEqual({ name: 'alpha', at: NOW + 9 });
+  });
+
+  it('a thread nobody answered has no replies and no last speaker', () => {
+    expect(threadReplies({ posts: [post('p')] })).toEqual({ count: 0, last: null });
   });
 });

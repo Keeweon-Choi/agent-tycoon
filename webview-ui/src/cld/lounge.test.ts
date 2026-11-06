@@ -186,13 +186,10 @@ describe('the rest spot (LOUNGE)', () => {
     expect(a.seat && seats.includes(a.seat)).toBe(true);
     expect(b.seat && seats.includes(b.seat)).toBe(true);
     expect(a.seat).not.toBe(b.seat);
-    // the sofa is full: the third takes a free lounge tile, never a machine's tile or an edge
-    const c = restSpotFor(os, os.characters.get(3)!);
-    expect(c.seat).toBeNull();
-    expect(os.layout.areaTiles![c.tile.row * COLS + c.tile.col]).toBe(LOUNGE);
-    expect(c.tile.row).toBeGreaterThan(1);
-    expect(c.tile.row).toBeLessThan(ROWS - 2);
-    expect([7, 8, 9].map((col) => `${col},3`)).not.toContain(`${c.tile.col},${c.tile.row}`);
+    // the sofa is full: the third dozes at its own desk, never standing round the sofa
+    const ch3 = os.characters.get(3)!;
+    const desk = os.seats.get(ch3.seatId!)!;
+    expect(restSpotFor(os, ch3)).toEqual({ tile: { col: desk.seatCol, row: desk.seatRow }, seat: ch3.seatId });
   });
 
   it('falls back to its own desk when the floor has no lounge, and counts the lobby benches', () => {
@@ -436,8 +433,7 @@ describe('resting in the lounge (LOUNGE)', () => {
     expect(at(ch)).toEqual(where);
     os.rebuildFromLayout(oneFloor(LOUNGE, false)); // the sofa was removed in the editor
     run(os, 5);
-    expect(ch.cldRest!.spot.seat).toBeNull();
-    expect(ch.cldRest!.phase).toBe('rest');
+    expect(ch.cldRest!.spot.seat).toBe(ch.seatId); // no rest seat left: it dozes at its desk
   });
 
   it('ten resting characters keep the office out of the full frame rate (nothing animates)', () => {

@@ -134,7 +134,7 @@ async function main() {
       say('alpha', 'user', `<task-notification>\n<summary>${task}</summary>\n<status>completed</status>\n</task-notification>`);
       await wait(1_200);
       say('alpha', 'assistant', reply);
-      const bell = page.getByTestId('notice-bell');
+      const bell = page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]');
       await bell.waitFor({ timeout: 20_000 });
       await tap(bell);
       const items = page.getByTestId('notice-item').filter({ hasText: 'alpha' });

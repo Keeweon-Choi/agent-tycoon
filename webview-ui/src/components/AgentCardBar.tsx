@@ -1,12 +1,18 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { PartyButton, PartyPortrait } from '../cld/game/Party.js';
+import { PartyPortrait, PartyWaiting } from '../cld/game/Party.js';
 import { HudPanel, usePanelSlot } from '../cld/hud/fixedPanels.js';
+import { panelToFront, useHud } from '../cld/hud/hudStore.js';
+import { setInspectorSlot } from '../cld/hud/inspectorSlot.js';
+import { layerZ } from '../cld/hud/windowModel.js';
+import { usePartyColumn } from '../cld/party/partyColumn.js';
+import { staffSnapshot } from '../cld/staff.js';
 import {
   CARD_BAR_MAX_VISIBLE,
+  HUD_BOTTOM_RESERVE_PX,
+  HUD_CORNER_ROW_PX,
   PARTY_FRAME_BAR_PX,
-  PARTY_FRAME_EXPANDED_STORAGE_KEY,
   TERMINAL_SIDEBAR_WIDTH_PX,
 } from '../constants.js';
 import { t } from '../i18n/index.js';
@@ -15,24 +21,13 @@ import type { AgentAppearance, TabStatus } from './AgentCard.js';
 import { AgentCard } from './AgentCard.js';
 import {
   type CardInfo,
-  cardsExpanded,
   cardVariant,
   groupOrder,
   loadSavedOrder,
   mergeOrder,
   reorderByPointer,
-  savedCardsExpanded,
   saveOrder,
 } from './cardBar.js';
-
-/** PARTY-FRAME: this device's choice, folded (portraits) unless it unfolded the bar. */
-function loadExpanded(): boolean {
-  try {
-    return cardsExpanded(localStorage.getItem(PARTY_FRAME_EXPANDED_STORAGE_KEY));
-  } catch {
-    return false;
-  }
-}
 
 interface AgentCardBarProps {
   /** Agents to show, top to bottom. */
@@ -92,18 +87,10 @@ export function AgentCardBar({
 }: AgentCardBarProps) {
   const [savedOrder, setSavedOrder] = useState<number[]>(loadSavedOrder);
   const [draggingId, setDraggingId] = useState<number | null>(null);
-  const [expanded, setExpanded] = useState(loadExpanded);
-  // PARTY-FRAME (owner 11-04 (나)): the cld bar folds to a column of portraits; upstream's stays as it was.
-  const folded = !!describeCard && !expanded;
+  // PARTY-FRAME (owner 11-04 (나)): the cld bar is a column of portraits (FEAT-PARTY-V2, owner 11-06 17:49:
+  // no unfolding into the old orchestrator cards); upstream's stays as it was.
+  const folded = !!describeCard;
   const width = folded ? PARTY_FRAME_BAR_PX : TERMINAL_SIDEBAR_WIDTH_PX;
-  const fold = (next: boolean) => {
-    setExpanded(!next);
-    try {
-      localStorage.setItem(PARTY_FRAME_EXPANDED_STORAGE_KEY, savedCardsExpanded(!next));
-    } catch {
-      // Storage blocked: the choice holds for this page.
-    }
-  };
   const cardRefs = useRef(new Map<number, HTMLElement>());
   // WINDOW-LAYERS: past CARD_BAR_MAX_VISIBLE cards the list scrolls (its tags and the + stay put).
   const listRef = useRef<HTMLDivElement>(null);
@@ -111,10 +98,14 @@ export function AgentCardBar({
   const inHud = usePanelSlot() !== null;
   const groupOf = describeCard ? (id: number) => describeCard(id)?.group ?? 0 : undefined;
   const merged = useMemo(() => mergeOrder(savedOrder, agentIds), [savedOrder, agentIds]);
-  const ids = groupOf ? groupOrder(merged, groupOf) : merged;
-  // The window listeners below outlive a render: they read the latest order through these.
-  const idsRef = useRef(ids);
-  idsRef.current = ids;
+  // FEAT-PARTY-V2: the cld column shows the chosen party (everyone by default); its head picks and composes.
+  const ordered = groupOf ? groupOrder(merged, groupOf) : merged;
+  const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name));
+  const ids = party.shown;
+  // The window listeners below outlive a render: they read the latest order through these. A drag reorders
+  // the whole column (the cards another party hides are not laid out, so they keep their places).
+  const idsRef = useRef(ordered);
+  idsRef.current = ordered;
   const groupOfRef = useRef(groupOf);
   groupOfRef.current = groupOf;
   // Runs after every render; a same-value set does not render again, so it settles at once.
@@ -124,6 +115,53 @@ export function AgentCardBar({
     const last = cards?.[CARD_BAR_MAX_VISIBLE - 1];
     setListCap(last && cards.length > CARD_BAR_MAX_VISIBLE ? last.offsetTop + last.offsetHeight : null);
   });
+  // hud-v3 (owner 11-06 15:26): the inspector opens beside the selected employee's portrait, its top on that
+  // row, kept inside the room above the bottom HUD (the dock). A selection from the world scrolls the
+  // party to its portrait first. Re-placed on the party's scroll, the inspector's size and a window resize.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement | null>(null);
+  const idCount = ids.length;
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    const wrap = wrapRef.current;
+    const list = listRef.current;
+    if (!slot || !wrap || !list || focusedAgentId === null) return;
+    // A temp (a sub-agent, a teammate) has no portrait: its card opens beside its lead's, else at the top
+    // (owner 11-06 20:22: a sub-agent's card kept the last portrait's place and ran below the window).
+    const leadId = staffSnapshot().temps.find((x) => x.id === focusedAgentId)?.leadId;
+    const card = cardRefs.current.get(focusedAgentId) ?? (leadId == null ? undefined : cardRefs.current.get(leadId));
+    card?.scrollIntoView({ block: 'nearest' });
+    const place = () => {
+      const room = (wrap.offsetParent as HTMLElement | null)?.clientHeight ?? window.innerHeight;
+      // The card is never taller than the room between the party's top inset and the bottom HUD.
+      const fit = room - HUD_BOTTOM_RESERVE_PX - wrap.offsetTop;
+      slot.style.setProperty('--mc-room', `${Math.max(0, Math.floor(fit))}px`);
+      // A card the owner dragged stays where it was dropped (cld/hud/Inspector.tsx keeps it on screen).
+      const el = slot.firstElementChild as HTMLElement | null;
+      if (el?.dataset.dragged !== undefined) return;
+      const want = card ? card.getBoundingClientRect().top - wrap.getBoundingClientRect().top : 0;
+      // The real height, up to a whole px (offsetHeight rounds a fraction down, past the band).
+      const height = Math.ceil(el?.getBoundingClientRect().height ?? 0);
+      slot.style.top = `${Math.floor(Math.max(0, Math.min(want, fit - height)))}px`;
+    };
+    place();
+    const resizes = new ResizeObserver(place);
+    resizes.observe(slot);
+    list.addEventListener('scroll', place);
+    window.addEventListener('resize', place);
+    return () => {
+      resizes.disconnect();
+      list.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+    };
+  }, [focusedAgentId, idCount]);
+  // WINDOW-LAYERS: the member card rides with the party, so a card that opens (from a portrait or the world)
+  // brings the party in front of the windows; a press on the party does too (HudLayer).
+  const hud = useHud();
+  const cards = describeCard !== undefined;
+  useEffect(() => {
+    if (inHud && cards && focusedAgentId !== null) panelToFront('party');
+  }, [inHud, cards, focusedAgentId]);
   if (agentIds.length === 0 && !onAdd) return null;
 
   // ponytail: a mouse (or pen) drags; a touch screen on the desktop layout keeps the click only.
@@ -172,25 +210,44 @@ export function AgentCardBar({
 
   return (
     <HudPanel>
-    {/* In the HUD layer (cld desktop) the bar hangs from the room's top, as tall as its cards (PARTY-FRAME),
-        over normal windows; elsewhere it stays the flex sibling that overlays the office's right edge. */}
+    {/* In the HUD layer (cld desktop) the bar sits centred on the right edge (hud-v3 P0, FEAT-PARTY-V2), as tall as
+        its cards (PARTY-FRAME), in the HUD's one stack (last pressed in front); elsewhere it stays the flex sibling that overlays the office's
+        right edge. */}
     <div
-      className={`flex flex-col items-center py-4 pointer-events-none ${inHud ? 'absolute top-0 right-0 max-h-full' : 'relative z-30 h-full shrink-0'}`}
+      ref={wrapRef}
+      // FEAT-PARTY-V2 (owner 11-06 18:14): in the HUD the party sits centred on the window's height however
+      // many it lists (the same inset above and below; it scrolls inside when taller).
+      className={`flex flex-col items-center py-4 pointer-events-none ${inHud ? 'absolute right-0 justify-center' : 'relative z-30 h-full shrink-0'}`}
       style={{
         width,
-        ...(!inHud && { marginLeft: -width }),
+        ...(inHud
+          ? { top: HUD_CORNER_ROW_PX, bottom: HUD_CORNER_ROW_PX, zIndex: layerZ(hud, 'party') }
+          : { marginLeft: -width }),
       }}
+      data-hud-panel={inHud ? 'party' : undefined}
     >
+      {/* hud-v3 P0: the selected employee's inspector opens left of the bar (CharacterLabel draws into it),
+          beside its portrait (the effect above sets its top), over the portraits' 기다림 tails. */}
+      {inHud && describeCard && (
+        <div
+          ref={(el) => {
+            slotRef.current = el;
+            setInspectorSlot(el);
+          }}
+          className="absolute top-4 right-full mr-8 z-10 pointer-events-none"
+          data-testid="inspector-slot"
+        />
+      )}
       <div
-        className={`pixel-panel pointer-events-auto flex flex-col items-center min-h-0 max-h-full select-none ${folded ? 'gap-4 p-4' : 'gap-6 p-6'}`}
+        className={`pixel-panel pointer-events-auto flex flex-col items-center min-h-0 max-h-full select-none ${inHud ? 'ui-window' : ''} ${folded ? 'gap-4 p-4' : 'gap-6 p-6'}`}
         style={{ width: width - (folded ? 4 : 8) }}
         data-folded={folded || undefined}
         data-testid="card-container"
         data-hud-fixed
         onPointerDown={onPointerDown}
       >
-        {/* cld-gui (GAME-UI-1): the party roster opens from the bar's head. */}
-        {describeCard && <PartyButton folded={folded} onFold={fold} />}
+        {party.head}
+        {describeCard && <PartyWaiting ids={ids} />}
         {/* ponytail: a folded list that scrolls (past CARD_BAR_MAX_VISIBLE) clips the 기다림 tails; they
             hang outside it otherwise. */}
         <div
@@ -198,22 +255,11 @@ export function AgentCardBar({
           className={`relative flex flex-col items-center min-h-0 ${folded ? 'gap-4' : 'gap-6'} ${folded && listCap === null ? '' : 'overflow-y-auto'}`}
           style={listCap === null ? undefined : { maxHeight: listCap }}
         >
-          {ids.map((agentId, i) => {
+          {ids.map((agentId) => {
             const info = describeCard?.(agentId);
-            const header =
-              !folded && info && (i === 0 || describeCard?.(ids[i - 1])?.group !== info.group) ? (
-                <span
-                  className="sticky top-0 z-10 shrink-0 w-full truncate text-center bg-bg border-2 border-border px-2 text-[length:calc(14px*var(--ui-scale))] leading-tight text-text-muted"
-                  title={info.groupLabel}
-                  data-testid="card-group"
-                >
-                  {info.groupLabel}
-                </span>
-              ) : null;
             return (
-              <Fragment key={agentId}>
-                {header}
                 <div
+                  key={agentId}
                   ref={(el) => {
                     if (el) cardRefs.current.set(agentId, el);
                     else cardRefs.current.delete(agentId);
@@ -243,13 +289,9 @@ export function AgentCardBar({
                       onSelect={onSelect}
                       onClose={onClose}
                       showClose={showClose}
-                      name={info?.name}
-                      extra={info?.extra}
-                      onCustomize={onCustomize}
                     />
                   )}
                 </div>
-              </Fragment>
             );
           })}
         </div>

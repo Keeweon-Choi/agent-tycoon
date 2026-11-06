@@ -8,10 +8,11 @@ import path from 'node:path';
 import test from 'node:test';
 import zlib from 'node:zlib';
 
+import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
 import { PUB, SIG, SUMS, writeSumsAndSign } from '../release/bundle/sign.mjs';
 import { currentOs, sha256File } from '../release/bundle/verify.mjs';
-import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, newRecord, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, servicePlan, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
-import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
+import { configPath as configPathOf } from './install.mjs';
+import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, main, newRecord, parseArgs, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, servicePlan, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `manager-${name}-`));
 const key = crypto.generateKeyPairSync('ed25519').privateKey;
@@ -1002,10 +1003,53 @@ test('R5: stopping the Windows service ends the task, then the daemon itself (it
   // Nothing answers with our token: only the task is ended.
   calls.length = 0;
   await serviceOp('schtasks', 'deactivate', s, { ...deps, healthPid: async () => null });
-  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'powershell.exe -NoProfile', 'schtasks /Delete']);
+  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'powershell.exe -NoProfile', 'schtasks /Delete', 'schtasks /Delete']);
+  assert.deepEqual(calls[3], ['schtasks', '/Delete', '/F', '/TN', 'agent-tycoon-update'], 'the updater task goes with the service');
   const fallback = Buffer.from(calls[1].at(-1), 'base64').toString('utf16le');
   assert.match(fallback, /ProcessId -ne/);
   assert.match(fallback, /GetFileName\(\$node\) -ieq 'node\.exe'/);
+});
+
+test('P3a: the office\'s 설치 on Windows runs the updater as its own hidden one-shot task (not a child of the daemon), output in update.log', async () => {
+  const home = tmp('winupdate'); const { root } = await managerRecord(home);
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
+  const record = await readRecord(root);
+  const calls = []; const lines = [];
+  const deps = { home, platform: 'win32', print: (l) => lines.push(l), node: 'C:\\AT\\versions\\1.0.0\\node\\node.exe', manager: 'C:\\AT\\versions\\1.0.0\\cld\\install\\manager.mjs', run: async (cmd) => { calls.push(cmd); return { ok: true, stdout: '', stderr: '' }; } };
+  const from = 'https://github.com/Keeweon-Choi/agent-tycoon/releases/latest/download/agent-tycoon-daemon-1.1.0-win-x64.tar.gz';
+  // A systemd (or any non-task) install never gets one: the daemon starts its updater detached itself there.
+  assert.equal(await main(['update', '--background', '--from', from, '--root', root], deps), 1);
+  assert.equal(calls.length, 0);
+  record.service = { name: 'agent-tycoon', kind: 'schtasks', file: path.join(root, 'bin', 'agent-tycoon-daemon.vbs') };
+  await writeRecord(root, record);
+  assert.equal(await main(['update', '--background', '--from', from, '--root', root], deps), 0);
+  assert.equal(calls.length, 2);
+  const script = Buffer.from(calls[0].at(-1), 'base64').toString('utf16le');
+  assert.match(script, /-TaskName 'agent-tycoon-update'/);
+  assert.match(script, /-Execute 'wscript\.exe' -Argument '\/\/B \/\/Nologo ".*agent-tycoon-update\.vbs"'/);
+  assert.doesNotMatch(script, /RestartCount|-Trigger/, 'one shot: no restart on failure, no logon trigger');
+  assert.match(script, /-Force/, 'a previous updater task is replaced');
+  assert.deepEqual(calls[1], ['schtasks', '/Run', '/TN', 'agent-tycoon-update']);
+  const vbs = fs.readFileSync(path.join(root, 'bin', 'agent-tycoon-update.vbs')).subarray(2).toString('utf16le');
+  assert.match(vbs, /sh\.Run\(".*", 0, True\)/, 'hidden (0), like the daemon task');
+  assert.ok(vbs.includes(`""${deps.node}"" ""${deps.manager}"" ""update"" ""--from"" ""${from}"" ""--root"" ""${root}"" ""--wait"" ""90""`));
+  // The daemon's hourly check holds the manager lock for up to a minute: the updater waits for it instead of failing LOCKED.
+  assert.equal(parseArgs(['--wait', '90']).wait, 90_000);
+  assert.ok(vbs.includes(`>> ""${path.join(path.dirname(configPathOf(home)), 'update.log')}"" 2>&1`));
+  assert.deepEqual(lines, ['✔ agent-tycoon-update started']);
+});
+
+test('P3a: uninstall removes the Windows updater task\'s script, so the install folder can go', async () => {
+  const home = tmp('uninstall-updatevbs'); const { root } = await managerRecord(home);
+  const record = await readRecord(root);
+  record.service = { name: 'agent-tycoon', kind: 'schtasks', file: null };
+  await writeRecord(root, record);
+  const vbs = path.join(root, 'bin', 'agent-tycoon-update.vbs');
+  fs.mkdirSync(path.dirname(vbs), { recursive: true }); fs.writeFileSync(vbs, 'x');
+  const fake = uninstallDeps(home);
+  assert.equal((await uninstall({ program: true, yes: true }, fake)).code, 0);
+  assert.equal(fs.existsSync(vbs), false);
+  assert.equal(fake.calls.some((line) => line.includes('agent-tycoon-update.vbs')), false, 'not listed as left behind');
 });
 
 test('R5: uninstall takes our folder (only it) back out of the Windows user Path that --add-path added', async () => {

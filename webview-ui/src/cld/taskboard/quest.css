@@ -1,77 +1,365 @@
-/* GAME-UI-1 G2 (specs/ui-mock-1103 cockpit 09): the 이슈 board as a quest board. Each card is a
-   pinned request on dark paper: id and priority stars, title, requirement chip and evidence
-   lights, the assignee's face; done cards are dimmed under a 완료 stamp. Narrow boxes keep one
-   list (the order the board has); a wide board lays the status groups out as columns, 할 일 to
-   끝남. Tokens are aliases of existing ones (the mock's --quest-*). */
-.quest-board {
-  container-type: inline-size;
-}
-.quest-cols {
+/* FEAT-QUESTS-GPT-LOOK (GPT mockup 4, 이슈 보드): the 이슈 board as a quest board, with depth. A row of
+   count tiles and the MVP, a filter bar (sunken), the status groups as raised-head columns over a
+   sunken well, raised cards (98.css bevel, NES.css press: index.css .ui-card), pills by tone, and on a
+   wide board a detail side panel. Narrow boxes keep one list (the order the board has); the layout is
+   TaskBoard.tsx's data-layout (list | cols | side, QUEST_*_PX in constants.ts). Tokens are the
+   existing ones; no blur, no radius. */
+.quest-summary {
   display: grid;
+  grid-template-columns: repeat(var(--quest-tiles), minmax(0, 1fr));
   gap: 8px;
 }
+.quest-tile {
+  border-radius: var(--ui-r-win);
+  position: relative;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-card);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+/* A list (a narrow window, a phone): the tiles in one row, name over number, no icon tile. */
+[data-layout='list'] .quest-tile:not(.quest-mvp) > .ui-card-tile {
+  display: none;
+}
+[data-layout='list'] .quest-tile:not(.quest-mvp) {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 6px 8px;
+}
+.quest-tile:not(.quest-mvp) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+}
+.quest-tile > .ui-card-tile {
+  grid-row: span 2;
+}
+.quest-tile-k {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quest-tile-v {
+  font-family: var(--font-data);
+  font-size: calc(32px * var(--ui-scale));
+  line-height: 1;
+}
+.quest-tile-v[data-zero] {
+  color: var(--color-text-muted);
+}
+.quest-tile[data-tone='doing'] {
+  border-color: var(--color-devroom-work-line);
+}
+.quest-tile[data-tone='doing'] .ui-card-tile {
+  color: var(--color-devroom-theirs-text);
+}
+.quest-tile[data-tone='review'] {
+  border-color: var(--color-devroom-review-line);
+}
+.quest-tile[data-tone='review'] .ui-card-tile {
+  color: var(--color-devroom-review);
+}
+.quest-tile[data-tone='blocked'] {
+  border-color: var(--color-danger);
+}
+.quest-tile[data-tone='blocked'] .ui-card-tile {
+  color: var(--color-devroom-bad);
+}
+.quest-tile[data-tone='done'] {
+  border-color: var(--color-devroom-on-line);
+}
+.quest-tile[data-tone='done'] .ui-card-tile {
+  color: var(--color-devroom-ok);
+}
+.quest-mvp {
+  grid-column: 1 / -1;
+}
+.quest-mvp-rows {
+  display: grid;
+  gap: 4px 24px;
+}
+[data-layout='cols'] .quest-mvp,
+[data-layout='side'] .quest-mvp {
+  grid-column: 1 / -1;
+}
+[data-layout='cols'] .quest-mvp-rows,
+[data-layout='side'] .quest-mvp-rows {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+/* A progress bar: the done share in the accent, the active share one step lighter. */
+.quest-bar {
+  border-radius: var(--ui-r-pill);
+  display: flex;
+  height: 10px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--led-well);
+  border: var(--ui-bw) solid var(--color-border);
+  box-shadow: var(--bevel-in);
+}
+.quest-bar > span {
+  flex: none;
+  height: 100%;
+  background: var(--color-accent);
+}
+.quest-bar > [data-active] {
+  opacity: 0.5;
+}
+
+/* 지금 하는 일: a raised row per owner. */
+.quest-now {
+  border-radius: var(--ui-r-win);
+  padding: 10px;
+  background: var(--surface-body);
+  border: var(--ui-bw) solid var(--color-border);
+  box-shadow: var(--bevel), var(--shadow-pixel-3);
+}
+.quest-now-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0;
+  list-style: none;
+}
+.quest-now-row {
+  padding: 8px 10px;
+}
+.quest-now-row > ul {
+  list-style: none;
+  padding: 0;
+}
+/* A small heading: an accent square, then the words. */
+.quest-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+.quest-h::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--color-accent-text);
+}
+summary.quest-h {
+  display: list-item;
+  list-style-position: inside;
+}
+summary.quest-h::before {
+  content: none;
+}
+
+/* The filter bar: sunken, the search first. */
+.quest-filters {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel-in);
+}
+.quest-search {
+  position: relative;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.quest-search > svg {
+  position: absolute;
+  left: 8px;
+  top: calc(50% - 8px);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.quest-search > input {
+  width: 100%;
+  height: calc(28px * var(--ui-scale));
+  padding: 0 8px 0 32px;
+  color: var(--color-text);
+}
+.quest-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The status groups: a list, or columns once the board is wide. A column is a raised head over a sunken well. */
+.quest-cols {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.quest-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* FEAT-BOARD-LESS: the column a dragged card would land in. */
+.quest-col[data-drop] {
+  border-radius: var(--ui-r-card);
+  outline: var(--ui-bw) dashed var(--color-devroom-accent-line);
+  outline-offset: 2px;
+  background: var(--color-active-bg);
+}
+/* While a card is dragged an empty column is a real target, not a strip. */
+.quest-board[data-dragging] .quest-well {
+  min-height: 120px;
+}
+.quest-card[draggable='true'] {
+  cursor: grab;
+}
+.quest-dev {
+  margin-top: 6px;
+}
 .quest-colh {
+  border-radius: var(--ui-r-card);
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 0 10px;
-  background: var(--hud-tile);
-  border: 2px solid var(--color-border);
-  color: var(--color-text-muted);
+  min-height: 44px;
+  padding: 0 8px 0 10px;
+  background: var(--surface-head);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+.quest-colt {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-text);
 }
 .quest-colv {
   margin-left: auto;
   font-family: var(--font-data);
-  font-size: calc(36px * var(--ui-scale));
+  font-size: calc(24px * var(--ui-scale));
   line-height: 1;
-  color: var(--color-text);
+}
+.quest-col[data-status='doing'] .quest-colh {
+  border-color: var(--color-devroom-work-line);
+}
+.quest-col[data-status='review'] .quest-colh,
+.quest-col[data-status='proposed'] .quest-colh {
+  border-color: var(--color-devroom-review-line);
+}
+.quest-col[data-status='blocked'] .quest-colh {
+  border-color: var(--color-danger);
+}
+.quest-col[data-status='done'] .quest-colh {
+  border-color: var(--color-devroom-on-line);
+}
+.quest-col[data-status='doing'] .quest-colt > svg {
+  color: var(--color-devroom-theirs-text);
+}
+.quest-col[data-status='review'] .quest-colt > svg,
+.quest-col[data-status='proposed'] .quest-colt > svg {
+  color: var(--color-devroom-review);
+}
+.quest-col[data-status='done'] .quest-colt > svg {
+  color: var(--color-devroom-ok);
 }
 .quest-well {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
   padding: 8px;
-  background: var(--hud-tile);
-  border: 2px solid var(--color-border);
+  list-style: none;
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel-in);
 }
-@container (min-width: 1000px) {
-  .quest-cols {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    align-items: start;
-    gap: 12px;
-  }
-  .quest-col[data-status='todo'] {
-    order: 0;
-  }
-  .quest-col[data-status='proposed'] {
-    order: 1;
-  }
-  .quest-col[data-status='doing'] {
-    order: 2;
-  }
-  .quest-col[data-status='review'] {
-    order: 3;
-  }
-  .quest-col[data-status='blocked'] {
-    order: 4;
-  }
-  .quest-col[data-status='done'] {
-    order: 5;
-  }
+[data-layout='cols'] .quest-cols,
+[data-layout='side'] .quest-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+[data-layout='side'] .quest-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+[data-layout='side'] .quest-cols {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.quest-col[data-order='0'] {
+  order: 0;
+}
+.quest-col[data-order='1'] {
+  order: 1;
+}
+.quest-col[data-order='2'] {
+  order: 2;
+}
+.quest-col[data-order='3'] {
+  order: 3;
+}
+.quest-col[data-order='4'] {
+  order: 4;
+}
+.quest-col[data-order='5'] {
+  order: 5;
+}
+[data-layout='list'] .quest-col {
+  order: 0;
 }
 
+/* The side panel: a window of its own beside the columns. */
+.quest-side {
+  border-radius: var(--ui-r-win);
+  position: sticky;
+  top: 0;
+  flex: 0 0 340px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--surface-body);
+  border: var(--ui-bw) solid var(--window-line);
+}
+.quest-side-head {
+  border-radius: var(--ui-r-win) var(--ui-r-win) 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.quest-side-head .quest-id {
+  flex: 1;
+}
+.quest-side-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+/* A card: raised, lifts on hover, ringed when chosen (index.css .ui-card). */
 .quest-card {
-  position: relative;
   min-width: 0;
   padding: 10px 10px 8px;
-  background: var(--color-bg-thumb);
-  border: 2px solid var(--color-border);
-  box-shadow: var(--shadow-pixel);
+  list-style: none;
+  transition:
+    transform var(--ui-motion) var(--ui-ease),
+    border-color var(--ui-motion) var(--ui-ease);
 }
-.quest-pin {
-  position: absolute;
-  top: -8px;
-  left: calc(50% - 8px);
-  color: var(--color-accent-text);
+@media (hover: hover) {
+  .quest-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--color-devroom-accent-line);
+  }
 }
 .quest-body {
   display: grid;
@@ -94,18 +382,117 @@
   font-size: calc(24px * var(--ui-scale));
   line-height: 1;
 }
-.quest-stars {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 2px;
-  color: var(--color-text);
-}
-.quest-stars .quest-off {
-  color: var(--hud-seg);
-}
 .quest-title {
   font-weight: 400;
+  line-height: calc(1.4 * var(--ui-lh));
 }
+.quest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.quest-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.quest-card-foot > .quest-who {
+  flex: 1;
+}
+.quest-children {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0 12px;
+  padding: 0;
+}
+
+/* A pill: a status, a priority, a goal. Neutral by default; the tone sets border, fill and ink. */
+.quest-pill {
+  border-radius: var(--ui-r-chip);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: var(--ui-bw) solid var(--color-border);
+  line-height: calc(1.5 * var(--ui-lh));
+  white-space: nowrap;
+}
+.quest-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+}
+.quest-pill[data-tone='accent'] {
+  background: var(--color-devroom-mine-bg);
+  border-color: var(--color-devroom-review-line);
+  color: var(--color-devroom-mine-text);
+}
+.quest-pill[data-tone='busy'] {
+  background: var(--color-devroom-work-bg);
+  border-color: var(--color-devroom-work-line);
+  color: var(--color-devroom-theirs-text);
+}
+.quest-pill[data-tone='review'] {
+  background: var(--color-devroom-review-bg);
+  border-color: var(--color-devroom-review-line);
+  color: var(--color-devroom-review);
+}
+.quest-pill[data-tone='ok'] {
+  background: var(--color-devroom-resolved-bg);
+  border-color: var(--color-devroom-on-line);
+  color: var(--color-devroom-ok);
+}
+.quest-pill[data-tone='warn'] {
+  background: var(--color-devroom-conf-bg);
+  border-color: var(--color-devroom-conf-line);
+  color: var(--color-devroom-conf-text);
+}
+.quest-pill[data-tone='bad'] {
+  background: var(--color-review-del-bg);
+  border-color: var(--color-danger);
+  color: var(--color-devroom-bad);
+}
+.quest-pill[data-tone='muted'] {
+  background: var(--color-devroom-done-bg);
+  border-color: var(--color-devroom-card-line);
+  color: var(--color-text-muted);
+}
+
+/* A card's open detail: sunken into it. */
+.quest-detail {
+  border-radius: var(--ui-r-card);
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--surface-body);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel-in);
+}
+.quest-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border-bottom: var(--ui-bw) solid var(--win-line);
+}
+.quest-fact:last-child {
+  border-bottom: 0;
+}
+.quest-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  align-items: end;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+
 .quest-req {
   display: flex;
   flex-wrap: wrap;
@@ -116,11 +503,12 @@
   color: var(--color-text-muted);
 }
 .quest-chip {
+  border-radius: var(--ui-r-chip);
   padding: 0 6px;
-  border: 2px solid var(--chip-line);
+  border: var(--ui-bw) solid var(--chip-line);
   font-family: var(--font-data);
   font-size: calc(24px * var(--ui-scale));
-  line-height: 1.1;
+  line-height: calc(1.1 * var(--ui-lh));
   white-space: nowrap;
 }
 .quest-chip[data-status='observed'] {
@@ -137,7 +525,8 @@
   min-width: 0;
 }
 .quest-who > :first-child {
-  border: 2px solid var(--color-border);
+  border-radius: var(--ui-r-chip);
+  border: var(--ui-bw) solid var(--color-border);
   background: var(--hud-tile);
   box-sizing: content-box;
 }
@@ -153,9 +542,38 @@
 .quest-stamp {
   position: absolute;
   right: 10px;
-  top: 36px;
+  bottom: 8px;
   pointer-events: none;
 }
 .quest-stamp .game-stamp {
   background: var(--color-bg-thumb);
+}
+.quest-editor > label:nth-last-child(2) {
+  grid-column: 1 / -1;
+}
+.quest-editor > button {
+  justify-self: start;
+}
+/* A list: the filters two to a row, each name over its select. */
+[data-layout='list'] .quest-filters {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid;
+}
+[data-layout='list'] .quest-search {
+  grid-column: 1 / -1;
+}
+[data-layout='list'] .quest-filter {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+[data-layout='list'] .quest-filter > select {
+  width: 100%;
+}
+[data-layout='list'] .quest-filter > span {
+  font-size: var(--text-2xs);
+}
+/* A done card's 완료 stamp sits at its lower right: the foot leaves it room. */
+.quest-card[data-done] > .quest-body .quest-card-foot {
+  padding-right: 84px;
 }

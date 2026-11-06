@@ -13,7 +13,7 @@
  * while the daemon logs the broken entry once. Screenshots use Hangul from
  * malgun.ttf (read only). T-0059/ENV-2: with no Claude token and no usage
  * source the top bar says usage is unknown and shows no numbers (negative control); 프로젝트 현황 works from a card's own git folder; then
- * the daemon restarts with a token and a stand-in usage endpoint and the strip shows its
+ * the daemon restarts with a status-line usage report and the strip shows its
  * numbers, still without office. A hard deadline and SIGINT/SIGTERM/SIGHUP kill the server.
  *
  *   npx tsx cld/test/run-vanilla.ts <port 18256-18259>
@@ -244,7 +244,7 @@ async function main() {
         (await drawer.getByRole('button', { name: 'Codex', exact: true }).count()) === 0,
       'the 현황판 has no 작업 or Codex tab any more',
     );
-    await openWorkbenchTab(page, 'Task');
+    await openWorkbenchTab(page, '이슈');
     const bench = page.locator('[data-hud-window="office"]');
     check(
       (await bench.getByRole('button', { name: '이슈', exact: true }).count()) === 1 &&
@@ -258,14 +258,14 @@ async function main() {
       (await drawer.getByRole('button', { name: '소식', exact: true }).count()) === 0,
       'no 소식 tab',
     );
-    await page.getByTestId('notice-bell').click();
+    await page.locator('[data-testid="notice-bell"], [data-testid="cc-seg-notices"]').click();
     await page.waitForTimeout(300);
     check(
       (await page.getByText('아직 알림이 없어요', { exact: false }).count()) === 1,
       '알림: empty, no error',
     );
     await shot(page, 'vanilla-panel-feed');
-    await page.getByRole('button', { name: '알림 닫기' }).click();
+    await page.getByTestId('cc-seg-notices').click();
     await drawer.getByRole('button', { name: 'HW', exact: true }).click();
     await page.waitForTimeout(300);
     const hwText = await drawer.innerText();
@@ -440,7 +440,7 @@ async function main() {
     await shot(again, 'vanilla-project-status');
     check(!fs.existsSync(trapLog), 'the local report ran no office, tmux or nvidia-smi');
 
-    // T-0059: the daemon restarts with a token and a stand-in usage endpoint; the strip shows its numbers.
+    // T-0059: the daemon restarts with a status-line usage report; the strip shows its numbers.
     for (const p of [page, phone, again]) await p.context().close(); // no reconnect noise
     await daemon.stop();
     const usage = await fakeUsage(fake.home, { fiveHour: 42, sevenDay: 16 }, { fiveHour: 35, sevenDay: 6 });

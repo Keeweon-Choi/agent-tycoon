@@ -34,7 +34,7 @@ import { isGhostHeadlessAgentsEnabled } from './office/engine/renderer.js';
 import { isWalkable } from './office/layout/tileMap.js';
 import { carpetJunctionCase } from './office/sprites/carpetTiles.js';
 import { pictureStats } from './office/sprites/pictureBudget.js';
-import { warmPending } from './office/sprites/smoothSprite.js';
+import { isSmooth, warmPending } from './office/sprites/smoothSprite.js';
 import { getCachedSprite } from './office/sprites/spriteCache.js';
 import {
   getCharacterSprites,
@@ -234,6 +234,9 @@ declare global {
       sheetLoads?: () => [number, number];
       /** PAGE-MEM: the picture budget now (bytes, pictures, the limit, how many it let go). */
       pictures?: () => ReturnType<typeof pictureStats>;
+      /** PERF-WEBVIEW-MEMORY: a hash of every detailed frame of the preset palettes loaded,
+       *  built at each world zoom (what the office would draw), per palette. */
+      sheetDigest?: (zooms: number[]) => Record<string, string>;
       /** HD64-SAMPLE: walk character `id` to a tile (false: no path). */
       walkTo?: (id: number, col: number, row: number) => boolean;
       /** HD64-SAMPLE: the density palette/hue draws at `zoom` (its LOD there). */
@@ -389,6 +392,29 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
   hooks.pictures = pictureStats;
   hooks.sheetLoads = sheetLoads;
   hooks.walkTo = (id, col, row) => officeStateRef.current?.walkToTile(id, col, row) ?? false;
+  hooks.sheetDigest = (zooms) => {
+    const out: Record<string, string> = {};
+    const scratch = document.createElement('canvas');
+    const ctx = scratch.getContext('2d', { willReadFrequently: true })!;
+    for (let p = 1000; p < 1032; p++) {
+      const s = getCharacterSprites(p, 0);
+      const first = Object.values(s.walk)[0]?.[0];
+      if (!first || !isSmooth(first)) continue;
+      let h = 0x811c9dc5;
+      for (const zoom of zooms)
+        for (const set of [s.walk, s.typing, s.reading])
+          for (const frames of Object.values(set))
+            for (const f of frames) {
+              const pic = getCachedSprite(f, zoom / s.density);
+              [scratch.width, scratch.height] = [pic.width, pic.height];
+              ctx.drawImage(pic, 0, 0);
+              const d = ctx.getImageData(0, 0, pic.width, pic.height).data;
+              for (let i = 0; i < d.length; i++) h = Math.imul(h ^ d[i], 0x01000193);
+            }
+      out[p] = (h >>> 0).toString(16);
+    }
+    return out;
+  };
   hooks.drawnDensity = (palette, hue, zoom) =>
     spritesAtZoom(getCharacterSprites(palette, hue), zoom).density;
   hooks.cacheBuildMs = (palette, hue, zoom) => {

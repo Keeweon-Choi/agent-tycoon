@@ -12,22 +12,22 @@
  * already runs elsewhere (a terminal) a second time.
  *
  * One PTY per session, shared by its viewers: Claude gives every attach of a
- * session one geometry anyway, and each attach costs ~150 MB (spike,
- * cld/tasks/progress/T-0014.md). The upstream PtySession mirror replays the
- * screen to late joiners. The RAM budget (everything cld-gui starts, under
- * 300 MB while watched; the daemon is ~85 MB) allows one attach by default.
+ * session one geometry anyway (spike, cld/tasks/progress/T-0014.md). The
+ * upstream PtySession mirror replays the screen to late joiners. There is no
+ * cap on how many attaches run at once (the owner dropped it 11-06: an attach
+ * costs far less than it did).
  *
  * Input: Ctrl+Z is dropped (it detaches the attach, for every viewer), and so
  * is ← while Claude offers its agent view, which reaches every session on the
  * machine and dispatches new ones; if that view shows anyway, the attach is
  * killed. Lifetime: the child exiting closes the viewers; the last viewer
  * leaving kills the PTY, and so does a safety net when it has no open viewer
- * for 2 minutes; at most `maxPtys` (default 1) at once.
+ * for 2 minutes.
  * Log: one line per attach, detach or refusal, never terminal content.
  */
 import type { IBufferLine } from '@xterm/headless';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -55,20 +55,12 @@ import type {
   TypeResult,
   Typist,
 } from './engine/messenger.js';
-import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { maskText } from './mask.js';
 import type { ClaudeSession } from './providers/claudeProvider.js';
 import { CLAUDE_TIMEOUT_MS, parseAgents, processAlive } from './providers/claudeProvider.js';
 import type { PtyHostClient } from './ptyhost/client.js';
 import { spawnJson } from './spawnJson.js';
 
-/** Default cap on attach processes (`--chat-attaches`): ~150 MB each. */
-export const CHAT_MAX_PTYS = 1;
-/** The 설정 value's range (T-0078): what a person may choose, however high the flag went. */
-export const CHAT_ATTACHES_MIN = 1;
-export const CHAT_ATTACHES_MAX = 4;
-/** The close reason of a refusal for the cap, so a pane can offer "이 터미널로 바꾸기". */
-export const CHAT_CAP_REASON = 'cap';
 export const CHAT_IDLE_MS = 2 * 60_000;
 /** cld-gui send's typing (T-0019): the attach's first screen takes ~2 s; Enter
  *  waits for the paste to land; the input line clears when it is submitted. */
@@ -489,8 +481,6 @@ export const CHAT_TEXT = {
   listFailed: 'Claude 세션 목록을 읽지 못했어요. 잠시 뒤 다시 열어 주세요.',
   noPty: '터미널 모듈을 불러오지 못해 대화를 열 수 없어요.',
   agentView: '에이전트 목록은 여기서 열 수 없어 대화를 닫았어요. 대화 버튼으로 다시 열 수 있어요.',
-  tooMany: (n: number) =>
-    `동시에 열 수 있는 대화는 ${n}개까지예요. 다른 대화를 닫고 다시 열어 주세요.`,
 };
 
 /**
@@ -888,10 +878,6 @@ export interface ChatOptions {
   /** node-pty; required on first use when absent (tests inject a fake). */
   pty?: PtyModule;
   idleMs?: number;
-  /** Attach processes at once (`--chat-attaches`, default CHAT_MAX_PTYS); the 설정 value, once chosen, replaces it. */
-  maxPtys?: number;
-  /** Where the chosen cap is kept (`terminal.json`, 0600); absent: not kept. */
-  settingsFile?: string;
   /** Home whose ~/.claude/sessions records process start times (tests). */
   home?: string;
   /** Extra environment for the attach (tests: the fake claude's log). */
@@ -903,27 +889,11 @@ export interface ChatOptions {
 
 export class ChatManager implements Typist {
   private readonly ptys = new Map<string, ChatPty>();
-  /** TERM-P1: terminals of our PTY host, joined there (no attach, no cap: a viewer costs a stream). */
+  /** TERM-P1: terminals of our PTY host, joined there (no attach: a viewer costs a stream). */
   private ptyHost: PtyTerminals | null = null;
   private serial = 0;
-  /** The cap now: the chosen value if there is one, else the flag's. */
-  private max: number;
 
-  constructor(private readonly opts: ChatOptions) {
-    this.max = this.stored() ?? opts.maxPtys ?? CHAT_MAX_PTYS;
-  }
-
-  private stored(): number | null {
-    if (!this.opts.settingsFile) return null;
-    try {
-      const n = (readJson(this.opts.settingsFile) as { chatAttaches?: unknown } | null)
-        ?.chatAttaches;
-      return validAttaches(n) ? n : null;
-    } catch {
-      return null;
-    }
-  }
-
+  constructor(private readonly opts: ChatOptions) {}
   /** TERM-P1: the engine's PTY-host agents (set once the office is up). */
   usePtyHost(terminals: PtyTerminals | null): void {
     this.ptyHost = terminals;
@@ -932,41 +902,6 @@ export class ChatManager implements Typist {
   /** An id of our PTY host: never one to `claude attach`. */
   private inHost(id: string): boolean {
     return !!this.ptyHost?.has(id);
-  }
-
-  /** What `--chat-attaches` (or the built-in default) says: the value before anyone chose. */
-  get defaultAttaches(): number {
-    return this.opts.maxPtys ?? CHAT_MAX_PTYS;
-  }
-
-  /** Attach processes allowed at once. */
-  get maxAttaches(): number {
-    return this.max;
-  }
-
-  /**
-   * Choose the cap (1 to 4), kept and applied at once: an attach already open
-   * stays until its last viewer leaves, new ones count against the new cap.
-   * False for anything else.
-   */
-  setMaxAttaches(n: unknown): boolean {
-    if (!validAttaches(n)) return false;
-    this.max = n;
-    if (this.opts.settingsFile) {
-      try {
-        const old = readJson(this.opts.settingsFile);
-        writeJsonAtomic(this.opts.settingsFile, {
-          ...(old && typeof old === 'object' ? old : {}),
-          chatAttaches: n,
-        });
-      } catch (err) {
-        this.log(
-          `could not keep the attach cap: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    this.log(`attach cap is now ${n}`);
-    return true;
   }
 
   /** Live attach PTYs. */
@@ -991,8 +926,7 @@ export class ChatManager implements Typist {
    * cld-gui send (T-0019): type into background session `id`, which the
    * engine just found live in ~/.claude/sessions (a stopped session is never
    * attached: `claude attach` would resume it). Through its open chat, else
-   * an attach of its own that ends after; sends are one at a time and do not
-   * count against `maxPtys` (~150 MB for a few seconds).
+   * an attach of its own that ends after; sends are one at a time.
    */
   async type(id: string, text: string, o: TypeOptions = {}): Promise<TypeResult> {
     if (!ID.test(id) || this.inHost(id)) return 'failed';
@@ -1030,7 +964,7 @@ export class ChatManager implements Typist {
   }
 
   /** PERM-PROMPT: the whole permission dialog on session `id`'s screen (ChatPty.readPermissionDialog),
-   *  through its open chat or an attach of its own that ends after (~150 MB for a few seconds). */
+   *  through its open chat or an attach of its own that ends after. */
   async readPermissionDialog(id: string): Promise<string | null> {
     // TERM-P3: only a `claude --bg` agent's dialog is read here; a PTY-host agent's comes from its PermissionRequest hook.
     if (!ID.test(id) || this.inHost(id)) return null;
@@ -1056,10 +990,10 @@ export class ChatManager implements Typist {
     const early: string[] = [];
     let input: ((raw: string) => void) | null = null;
     socket.on('message', (raw) => (input ? input(raw.toString()) : early.push(raw.toString())));
-    const refuse = (text: string, reason = 'refused') => {
+    const refuse = (text: string) => {
       this.log(`refused ${JSON.stringify(id.slice(0, 64))} gui:${device}: ${text}`);
       notice(socket, text);
-      socket.close(WS_CLOSE_NO_SESSION, reason);
+      socket.close(WS_CLOSE_NO_SESSION, 'refused');
     };
     if (this.ptyHost && ID.test(id) && this.ptyHost.has(id)) {
       const host = this.ptyHost.host;
@@ -1100,10 +1034,7 @@ export class ChatManager implements Typist {
       for (const raw of early) input(raw);
       return;
     }
-    const max = this.max;
     // Every request checks a fresh list, also to join an attach already open.
-    // The cap is checked after it: a client switching chats closes the old
-    // socket just before opening the new one.
     let found: ClaudeSession | string;
     try {
       found = attachable(ID.test(id) ? await this.list() : [], id, this.opts.home);
@@ -1114,7 +1045,6 @@ export class ChatManager implements Typist {
     if (typeof found === 'string') return refuse(found);
     let pty = this.ptys.get(id);
     if (!pty) {
-      if (this.ptys.size >= max) return refuse(CHAT_TEXT.tooMany(max), CHAT_CAP_REASON);
       pty = this.spawn(id, found.name || id);
       if (!pty) return refuse(CHAT_TEXT.noPty);
       this.ptys.set(id, pty);
@@ -1178,51 +1108,11 @@ export class ChatManager implements Typist {
   }
 }
 
-function validAttaches(n: unknown): n is number {
-  return (
-    typeof n === 'number' && Number.isInteger(n) && n >= CHAT_ATTACHES_MIN && n <= CHAT_ATTACHES_MAX
-  );
-}
-
 /** node-pty, required at runtime: a native module esbuild must leave alone (see
  *  terminal/ptyModule.ts). No probe spawn: the daemon runs only `claude` here. */
 export function loadPty(): PtyModule {
   const req: NodeRequire = require;
   return req(PTY_MODULE_CANDIDATES[0]) as PtyModule;
-}
-
-type RouteAuth = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-
-/**
- * 설정's "동시에 붙일 에이전트 터미널" (T-0078): GET the cap and its range, PUT a
- * new one (1 to 4) that applies at once. Behind the same login as the chat
- * socket; a PUT also needs the page's own origin.
- */
-export function registerChatSettingsRoutes(
-  app: FastifyInstance,
-  chat: ChatManager,
-  auth: RouteAuth,
-  sameOrigin: (request: FastifyRequest) => boolean,
-): void {
-  app.get('/api/chat-attaches', { preHandler: auth }, async () => ({
-    attaches: chat.maxAttaches,
-    default: chat.defaultAttaches,
-    min: CHAT_ATTACHES_MIN,
-    max: CHAT_ATTACHES_MAX,
-    live: chat.size,
-  }));
-  app.put<{ Body: { attaches?: unknown } | undefined }>(
-    '/api/chat-attaches',
-    { preHandler: auth },
-    async (request, reply) => {
-      if (!sameOrigin(request)) return reply.code(403).send({ error: 'origin' });
-      if (!chat.setMaxAttaches(request.body?.attaches))
-        return reply
-          .code(400)
-          .send({ error: `${CHAT_ATTACHES_MIN}에서 ${CHAT_ATTACHES_MAX} 사이의 정수여야 해요` });
-      return { attaches: chat.maxAttaches };
-    },
-  );
 }
 
 /** `/cld/attach/:id`. `reject` is the /ws gate: a close code and reason, or null.

@@ -12,6 +12,8 @@ import { CODEX_EFFORTS } from './codex.js';
 
 export interface AgentChoices {
   version?: string;
+  /** AGENT-LATEST: the newest published version (display only), added by AgentLatest.merge. */
+  latest?: string;
   models: string[];
   efforts: string[];
   /** D3b: the --permission-mode choices the help lists (absent when it lists none). */
@@ -106,7 +108,7 @@ export function parseCodexConfig(
   };
 }
 
-function versionOf(stdout: string): string | undefined {
+export function versionOf(stdout: string): string | undefined {
   return stdout.trim().match(/\d+(?:\.\d+)+/)?.[0];
 }
 

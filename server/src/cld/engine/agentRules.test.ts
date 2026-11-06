@@ -107,6 +107,18 @@ describe('composition', () => {
     expect(w.playbook).toBeNull();
   });
 
+  it('RQ4: the spec workflow layer only when the project switched it on, after the built-in, before the user; kept with built-in off', () => {
+    fs.writeFileSync(path.join(rulesDir, 'spec-workflow.en.md'), 'EN-SPEC\n');
+    user('USER\n');
+    const env = { LANG: 'en_US.UTF-8' };
+    expect(composeRules({ home, rulesDir, env })).toBe('EN-DEFAULT\n\nUSER');
+    expect(composeRules({ home, rulesDir, env, specWorkflow: true })).toBe('EN-DEFAULT\n\nEN-SPEC\n\nUSER');
+    expect(composeRules({ home, rulesDir, env, specWorkflow: true, builtin: false })).toBe('EN-SPEC\n\nUSER');
+    // the shipped files are real: both languages exist and say where the spec goes
+    const shippedDir = path.join(__dirname, '..', '..', '..', '..', 'cld', 'rules');
+    for (const lang of ['ko', 'en']) expect(fs.readFileSync(path.join(shippedDir, `spec-workflow.${lang}.md`), 'utf-8')).toContain('specs/NNN-');
+  });
+
   it('the playbook version names the role and changes with the shipped text', () => {
     playbooks();
     const o = { home, rulesDir, role: 'worker' as const, env: { LANG: 'C' }, name: 'w', log: () => undefined };

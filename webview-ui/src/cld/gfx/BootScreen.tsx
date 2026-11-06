@@ -83,6 +83,7 @@ function Boot({ layoutReady }: { layoutReady: boolean }) {
     let asked: unknown = null;
     let raf = 0;
     let last = '';
+    let ended: BootStepId[] = [];
     const tick = () => {
       // Nothing else moves while this shows: the queue gets more of the frame than the office's slice.
       pumpWarm(BOOT_WARM_SLICE_MS);
@@ -121,7 +122,8 @@ function Boot({ layoutReady }: { layoutReady: boolean }) {
       const giveUp = new Set(
         elapsed > BOOT_GIVE_UP_MS ? BOOT_STEPS.map((s) => s.id).filter(skippable) : [],
       );
-      const v = bootView(reports, giveUp);
+      const v = bootView(reports, giveUp, ended);
+      ended = v.ended;
       const shown: Shown = {
         ...v,
         alert: !office && elapsed > BOOT_ALERT_MS,
@@ -187,7 +189,7 @@ function Boot({ layoutReady }: { layoutReady: boolean }) {
           className="self-start"
         />
         <ol className="m-0 p-0 list-none flex flex-col gap-2 text-sm" aria-live="polite">
-          {BOOT_STEPS.map(({ id }) => {
+          {(v?.order ?? BOOT_STEPS.map((s) => s.id)).map((id) => {
             const state = v ? v.states[id] : 'wait';
             if (!state) return null; // not needed here
             return (

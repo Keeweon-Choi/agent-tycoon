@@ -7,7 +7,6 @@
  */
 import { useEffect, useState } from 'react';
 
-import type { EngineProject } from '../../../../core/src/messages.js';
 import { CharacterMugShot } from '../../components/CharacterMugShot.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
@@ -23,24 +22,19 @@ import type { OfficeState } from '../../office/engine/officeState.js';
 import { openLooks } from '../characters/looks.js';
 import { chatTarget } from '../chat.js';
 import { ChatAction } from '../ChatAction.js';
-import { employeeFatigue, employeeOf } from '../employees.js';
 import { engineLabel } from '../engine.js';
-import { engineAsk, useEngineProject, useEngineStore } from '../engineStore.js';
-import { activityElapsed, characterKind, characterName, elapsedText, kindLabel } from '../kinds.js';
-import { modelName } from '../modelBadges.js';
-import { fatigueFor, identityForAgent, restsOf, useCldStore, virtualAgentId } from '../officeStore.js';
-import { rankName, rankOfLevel } from '../rank.js';
-import { staffSnapshot, useStaff } from '../staff.js';
+import { engineAsk, useEngineStore } from '../engineStore.js';
+import { useCldStore } from '../officeStore.js';
+import { useStaff } from '../staff.js';
 import { useCanAct } from '../useCanAct.js';
 import { LevelRing } from './Fatigue.js';
-import { basisHint, fatigueRules } from './fatigueState.js';
+import { basisHint } from './fatigueState.js';
 import { ringOf } from './nameplate.js';
 import { OwnerStatBody } from './OwnerStatCard.js';
 import {
   canStartProject,
   fatigueLine,
   kTokens,
-  placeOf,
   readStatFull,
   restValue,
   type StatFacts,
@@ -48,61 +42,19 @@ import {
   writeStatFull,
 } from './statCardRows.js';
 import { openStatDetail, useStatDetailId } from './statDetail.js';
-import { characterVisualOf } from './visuals.js';
+import { statFactsOf, type StatFactsPlus } from './statFacts.js';
 
-/** The facts behind character `id`'s detail view, from the stores the office already keeps. */
-function useStatFacts(
-  id: number,
-  officeState: OfficeState,
-): StatFacts & { palette: number; hueShift: number; project: EngineProject | undefined } {
+function useStatFacts(id: number, officeState: OfficeState): StatFactsPlus {
   const store = useCldStore();
+  const staff = useStaff();
+  const projects = useEngineStore().state?.projects;
   // The office's characters change without the store (a look applied, a palette set): look again now and then.
   const [, setTick] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => setTick((n) => n + 1), STAT_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, []);
-  const office = store.officeSnapshot;
-  const ch = officeState.characters.get(id);
-  const identity = identityForAgent(id, office, store.codexTasks);
-  // An orchestrator at home or off has no character, only its row.
-  const row = office?.orchestrators.find((o) => (o.agentId ?? virtualAgentId(`orch:${o.name}`)) === id);
-  const away = !!useStaff().away[id];
-  const name = ch ? characterName(ch, office, store.codexTasks) : (identity?.label ?? row?.name ?? '');
-  const engine = useEngineProject(name);
-  const kind = ch ? characterKind(ch, office, store.codexTasks) : null;
-  const employee = employeeOf(id, store);
-  const temp = staffSnapshot().temps.find((x) => x.id === id);
-  const level = identity?.level ?? employee?.level ?? null;
-  const rankId = rankOfLevel(level?.level);
-  const sample = store.contexts[id];
-  const fatigue =
-    fatigueFor(id, store) ??
-    (employee ? employeeFatigue(employee, fatigueRules(store.ezRules?.fatigue)) : null);
-  const leadId = temp?.leadId ?? ch?.leadAgentId;
-  const lead = leadId !== undefined && leadId !== null ? officeState.characters.get(leadId) : undefined;
-  const visual = characterVisualOf(id);
-  const activity = visual ? `${visual.icon} ${visual.text}` : null;
-  return {
-    name,
-    kind: kind ? kindLabel(kind) : null,
-    lead: lead ? characterName(lead, office, store.codexTasks) : null,
-    task: temp?.task || null,
-    level,
-    rank: rankId ? rankName(rankId) : null,
-    fatigue,
-    tokens: sample ? { used: sample.tokens, max: sample.max, basis: sample.basis } : null,
-    rests: restsOf(id, store),
-    activity,
-    elapsed: activity ? elapsedText(activityElapsed(id, activity)) : null,
-    model: temp?.model ? modelName(temp.model, temp.modelId) : (engine?.model ?? null),
-    effort: engine?.effort ?? null,
-    employee: employee ? t('character.tempEmployee') : null,
-    place: row ? placeOf(row, engine, away) : null,
-    project: engine,
-    palette: ch?.palette ?? 0,
-    hueShift: ch?.hueShift ?? 0,
-  };
+  return statFactsOf(id, officeState.characters, store, staff, projects);
 }
 
 const TILE = 'border-2 border-border bg-bg-dark shadow-pixel p-8 flex flex-col gap-4 min-w-0';

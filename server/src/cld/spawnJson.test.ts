@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { SpawnFn } from './spawnJson.js';
 import { commandArgv, spawnJson } from './spawnJson.js';
@@ -44,6 +44,72 @@ describe('spawnJson', () => {
     expect(s.running()).toEqual(['b']);
     await s.finish('b');
     await expect(Promise.all([a, b])).resolves.toEqual([{}, {}]);
+  });
+});
+
+describe('spawnJson stdin', () => {
+  const eofAt = `const t=Date.now();process.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({ms:Date.now()-t})))`;
+
+  it('gives the child an immediately closed stdin by default', async () => {
+    const out = (await spawnJson(process.execPath, ['-e', eofAt], { timeoutMs: 10_000 })) as { ms: number };
+    expect(out.ms).toBeLessThan(500);
+  });
+
+  it('holds stdin open for holdStdinMs, then ends it', async () => {
+    const out = (await spawnJson(process.execPath, ['-e', eofAt], { timeoutMs: 10_000, holdStdinMs: 700 })) as {
+      ms: number;
+    };
+    expect(out.ms).toBeGreaterThanOrEqual(600);
+    expect(out.ms).toBeLessThan(5_000);
+  });
+
+  it('does not wait for the hold when the child exits first', async () => {
+    const t = Date.now();
+    await spawnJson(process.execPath, ['-e', 'console.log("{}")'], { timeoutMs: 10_000, holdStdinMs: 60_000 });
+    expect(Date.now() - t).toBeLessThan(5_000);
+  });
+});
+
+describe('spawnJson cleanup', () => {
+  it('a child that ignores SIGTERM is killed after the grace, and the queue goes on', async () => {
+    const stubborn = `process.on('SIGTERM',()=>{});setInterval(()=>{},1000)`;
+    const t = Date.now();
+    const first = spawnJson(process.execPath, ['-e', stubborn], {
+      timeoutMs: 300,
+      killGraceMs: 300,
+    });
+    const second = spawnJson(process.execPath, ['-e', 'console.log("{}")'], { timeoutMs: 10_000 });
+    await expect(first).rejects.toMatchObject({ timedOut: true });
+    expect(Date.now() - t).toBeLessThan(8_000);
+    await expect(second).resolves.toEqual({});
+  });
+
+  it('the stdin hold timer is cleared when the child is gone (nothing ends a dead stdin later)', async () => {
+    vi.useFakeTimers();
+    try {
+      const end = vi.fn();
+      const child = new EventEmitter() as EventEmitter & Record<string, unknown>;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = Object.assign(new EventEmitter(), { end, destroy: vi.fn() });
+      child.kill = vi.fn();
+      const run = spawnJson('held', [], {
+        timeoutMs: 100_000,
+        holdStdinMs: 5_000,
+        spawnFn: (() => child) as unknown as SpawnFn,
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      (child.stdout as EventEmitter).emit('data', Buffer.from('{}'));
+      child.emit('exit', 0, null);
+      child.emit('close', 0, null);
+      await run;
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(end).not.toHaveBeenCalled();
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

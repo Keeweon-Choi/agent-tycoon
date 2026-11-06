@@ -18,6 +18,7 @@ const view = (over: Partial<UpdateView> = {}): UpdateView => ({
   terminalOnly: false,
   command: 'agty update --from x',
   install: null,
+  lastCheck: null,
   ...over,
 });
 

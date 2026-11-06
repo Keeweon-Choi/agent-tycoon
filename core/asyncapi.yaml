@@ -171,6 +171,8 @@ components:
         - $ref: '#/components/schemas/OfficeJobs'
         - $ref: '#/components/schemas/HwSample'
         - $ref: '#/components/schemas/DiskUsage'
+        - $ref: '#/components/schemas/HwSensorToolState'
+        - $ref: '#/components/schemas/AgentCliUpdateState'
         - $ref: '#/components/schemas/UsageState'
         - $ref: '#/components/schemas/CodexUsageCheckResult'
         # cld-gui: the agent CLI notice (AGENT-CLI)
@@ -184,6 +186,8 @@ components:
         - $ref: '#/components/schemas/ChatTranscript'
         - $ref: '#/components/schemas/ChatHistoryResult'
         - $ref: '#/components/schemas/ChatSearchResult'
+        - $ref: '#/components/schemas/ChatSearchAllResult'
+        - $ref: '#/components/schemas/ChatFilesResult'
         - $ref: '#/components/schemas/WorkContent'
         - $ref: '#/components/schemas/ChatSendResult'
         - $ref: '#/components/schemas/ChatPendingResult'
@@ -206,6 +210,9 @@ components:
         - $ref: '#/components/schemas/ProjectRepoProgress'
         # cld-gui: engine jobs (T-0019)
         - $ref: '#/components/schemas/JobActionResult'
+        # cld-gui: the dev room's 실행 row (DV2)
+        - $ref: '#/components/schemas/RunScriptsResult'
+        - $ref: '#/components/schemas/JobStartResult'
         # cld-gui: who is watching (T-0025)
         - $ref: '#/components/schemas/ViewerVisibilityAck'
         # cld-gui: floors (T-0027)
@@ -219,6 +226,8 @@ components:
         - $ref: '#/components/schemas/WhiteboardMemos'
         # cld-gui: pinned conversations (U-30)
         - $ref: '#/components/schemas/PinnedConversations'
+        # cld-gui: the parties the owner composes (FEAT-PARTY-V2)
+        - $ref: '#/components/schemas/Parties'
         # cld-gui: a removed agent's conversation deleted (PROJECT-DATA)
         - $ref: '#/components/schemas/GoneConversationDeleteResult'
         # cld-gui: the isometric office's background (BACKGROUND)
@@ -233,6 +242,9 @@ components:
         - $ref: '#/components/schemas/TrackingSources'
         # cld-gui: a project's spec Registry changed (SPT-P1A)
         - $ref: '#/components/schemas/SpecChanged'
+        # cld-gui: the street, neighbours on other PCs (MHO v1b, ADR-0020)
+        - $ref: '#/components/schemas/StreetState'
+        - $ref: '#/components/schemas/StreetEnterResult'
       discriminator: type
 
     ClientMessage:
@@ -286,6 +298,8 @@ components:
         - $ref: '#/components/schemas/ChatView'
         - $ref: '#/components/schemas/ChatHistory'
         - $ref: '#/components/schemas/ChatSearch'
+        - $ref: '#/components/schemas/ChatSearchAll'
+        - $ref: '#/components/schemas/ChatFiles'
         - $ref: '#/components/schemas/WorkView'
         - $ref: '#/components/schemas/ChatSend'
         - $ref: '#/components/schemas/ChatSendNow'
@@ -310,9 +324,15 @@ components:
         - $ref: '#/components/schemas/ProjectRepoCancel'
         # cld-gui: engine jobs (T-0019)
         - $ref: '#/components/schemas/JobAction'
+        # cld-gui: the dev room's 실행 row (DV2)
+        - $ref: '#/components/schemas/RunScripts'
+        - $ref: '#/components/schemas/JobStart'
         # cld-gui: who is watching (T-0025)
         - $ref: '#/components/schemas/ViewerVisibility'
         - $ref: '#/components/schemas/HwView'
+        - $ref: '#/components/schemas/HwSensorTool'
+        - $ref: '#/components/schemas/AgentCliUpdate'
+        - $ref: '#/components/schemas/AgentCliLatest'
         # cld-gui: the owner's own stats (OWNER-STATS)
         - $ref: '#/components/schemas/OwnerActivity'
         # cld-gui: floors (T-0027)
@@ -332,6 +352,8 @@ components:
         - $ref: '#/components/schemas/SetWhiteboardMemo'
         # cld-gui: pinned conversations (U-30)
         - $ref: '#/components/schemas/SetConversationPin'
+        # cld-gui: the parties the owner composes (FEAT-PARTY-V2)
+        - $ref: '#/components/schemas/SetParties'
         - $ref: '#/components/schemas/GoneConversationDelete'
         # cld-gui: the isometric office's background (BACKGROUND)
         - $ref: '#/components/schemas/SetOfficeBackground'
@@ -347,6 +369,9 @@ components:
         - $ref: '#/components/schemas/DelegationDecision'
         # cld-gui: a project's planning documents as tracked items (U-48 phase 2a)
         - $ref: '#/components/schemas/TrackingSettings'
+        # cld-gui: the street, neighbours on other PCs (MHO v1b, ADR-0020)
+        - $ref: '#/components/schemas/StreetWatch'
+        - $ref: '#/components/schemas/StreetEnter'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -522,6 +547,14 @@ components:
             input, e.g. opus, sonnet, haiku), when it names one. The office
             badges the sub-agent with it (T-0041); a spawn that inherits its
             lead's model sends none.
+        path:
+          type: string
+          description: >-
+            DEVROOM-SIDEBAR: the path the call touches, when it names one (a
+            file or folder input, a Bash `cd <dir>` or `git -C <dir>`; a Bash,
+            Grep or Glob call without one: the record's working folder),
+            absolute. The dev room places a sub-agent in the worktree its
+            calls touch most.
 
     AgentToolDone:
       description: Agent finished executing a tool.
@@ -600,6 +633,14 @@ components:
             The model the sub-agent's own transcript names (message.model, e.g.
             claude-sonnet-5-5), when it names one: a watched spawn that asked
             for no model, or one resumed with no spawn call to read it from.
+        path:
+          type: string
+          description: >-
+            DEVROOM-SIDEBAR: the path the call touches, when it names one (a
+            file or folder input, a Bash `cd <dir>` or `git -C <dir>`; a Bash,
+            Grep or Glob call without one: the record's working folder),
+            absolute. The dev room places a sub-agent in the worktree its
+            calls touch most.
 
     SubagentToolDone:
       description: Sub-agent finished a tool.
@@ -2471,6 +2512,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RepoWorktree'
+        externalWorktrees:
+          description: |
+            DEVROOM-SIDEBAR: the repository's other git worktrees (`git
+            worktree list`) the daemon has no record of: made by hand or by an
+            agent's own `git worktree add`. Not the project's own folder, not a
+            detached or vanished one. `task` is the folder's name, `base` the
+            project's main branch (ahead/behind count against it), `created`
+            the folder's time. Absent: none. Never offered to the engine's
+            sync, merge or cleanup.
+          type: array
+          items:
+            $ref: '#/components/schemas/RepoWorktree'
         merges:
           description: |
             W4: the project's merge history, newest first, at most 20 (the
@@ -3062,6 +3115,31 @@ components:
           type: string
         base:
           type: string
+        branch:
+          description: |
+            DV4 worktreeNew - the new branch the owner named (`<type>/<what>`,
+            lower case ASCII and hyphens; folder `.worktrees/<branch with / as
+            ->`) instead of the Task's `feat/t<id>-<slug>`. One that exists (a
+            branch, a folder or a work space) is refused and nothing is made.
+          type: string
+        title:
+          description: |
+            DV4 worktreeNew without `taskId` - a new Task of `project` with
+            this title, made only once the branch checks pass.
+          type: string
+        seat:
+          description: |
+            DV4 worktreeNew - the `assignee` starts working there now: started
+            when off, restarted when on (a session moves only at its start); an
+            agent of one process per message is not started. A Task that
+            already has its worktree gives that one (with no `branch`). The
+            agent's other work spaces of the project stop being its own. From
+            a remote device every worktreeNew needs a fresh step-up (`error:
+            stepup`).
+          type: boolean
+        text:
+          description: DV4 worktreeNew with `seat` - the first instruction, to the seated agent through the messenger.
+          type: string
         path:
           description: P4 resolve - the conflicted file.
           type: string
@@ -3195,7 +3273,7 @@ components:
 
     RepoMergeCheck:
       description: |
-        Before the 병합 button: can task worktree `task` merge into its base
+        Before the 머지 button: can task worktree `task` merge into its base
         now? Answered with `repoMergeCheckResult` to the sender. Nothing
         changes (a dry run: `git merge-tree --write-tree` on git 2.38+, else a
         merge in a temporary worktree that is thrown away).
@@ -3359,7 +3437,7 @@ components:
 
     RepoCleanupList:
       description: |
-        The 작업 폴더 정리 view: the project's task worktrees that are merged
+        The 워크트리 정리 view: the project's task worktrees that are merged
         or have been idle (no new commit) for a day. Answered with
         `repoCleanupListResult`; sizes are measured for this answer only.
       type: object
@@ -3730,6 +3808,12 @@ components:
             turn to end, or starting the new conversation). Its messages wait for the new
             conversation, and its character stays at work. Absent when none is.
           type: boolean
+        renewFailed:
+          description: |
+            K1 (BRN §3.2 B4): an engine project whose last renew could not start its new
+            conversation. Nothing retries it; its next start (a person's) is a new conversation
+            whose first message is the handoff (best-effort). Absent otherwise.
+          type: boolean
         shellWait:
           description: |
             STATE-SYNC: an engine project whose main turn is over while a background shell it
@@ -3973,6 +4057,24 @@ components:
             of the last few, else the last line), masked like the log view, at most
             200 characters. Absent on other jobs, and never sent to an unprivileged
             (read-only) connection: it is a log line (httpServer, wsAuth.readOnlyView).
+        run:
+          $ref: '#/components/schemas/OfficeJobRun'
+
+    OfficeJobRun:
+      description: |
+        DV2: a job the dev room's 실행 row started (`jobStart`): its work space
+        (`task`, the task worktree's folder name, '' for the project's own
+        folder), the picked script and what the owner picked it for.
+      type: object
+      additionalProperties: false
+      required: [task, script, role]
+      properties:
+        task:
+          type: string
+        script:
+          type: string
+        role:
+          $ref: '#/components/schemas/RunRole'
 
     GpuJobState:
       type: string
@@ -3995,9 +4097,27 @@ components:
           type: boolean
 
     HwReadingSource:
-      description: Where a reading came from. `lhm` = LibreHardwareMonitor's `data.json` (Windows, WSL); `sysfs` = Linux `/sys/class/hwmon` and the GPU's DRM device; `nvidia-smi` = opt-in NVIDIA query; `os` = the daemon's own CPU, memory and disk counters.
+      description: Where a reading came from. `lhm` = LibreHardwareMonitor's `data.json` (Windows, WSL); `sysfs` = Linux `/sys/class/hwmon` and the GPU's DRM device; `nvidia-smi` = opt-in NVIDIA query; `ioreg` = macOS `ioreg -c IOAccelerator` (GPU load, no root); `os` = the daemon's own CPU, memory and disk counters.
       type: string
-      enum: [lhm, sysfs, nvidia-smi, os]
+      enum: [lhm, sysfs, nvidia-smi, ioreg, os]
+
+    HwNvidiaSmiState:
+      description: Present only when nvidia-smi is on this machine; `off` until the user turns it on (a GPU query can hang while a big job fills VRAM).
+      type: string
+      enum: ['on', 'off']
+
+    HwSensorToolAction:
+      type: string
+      enum: [plan, install, nvidiaOn, nvidiaOff]
+
+    HwSensorToolPhase:
+      type: string
+      enum: [plan, running, done, refused]
+
+    HwSensorNote:
+      description: Why some readings are missing, and so what can fix it. `lhm` = Windows/WSL with no LibreHardwareMonitor answering (the office can install it, `hwSensorTool`); `nvidiaOff` = nvidia-smi is on this machine but off (the GPU is not read; `hwSensorTool` turns it on); `macTemps` = macOS gives no temperatures or power without root; `linuxTemps` = Linux found no CPU temperature sensor.
+      type: string
+      enum: [lhm, nvidiaOff, macTemps, linuxTemps]
 
     HwSample:
       description: Latest HW sample from the daemon's own sampler. Numbers are null or absent when not collected (no sensor tool, GPU skipped). `stale` is true when `ts` is older than 30 s. Utilizations (`cpuUtil`, `gpuUtil`) are fractions from 0 to 1.
@@ -4087,9 +4207,13 @@ components:
           description: Source of each reading present in this sample, by field name (e.g. `cpuTempC` -> `lhm`, `disks` -> `os`).
           additionalProperties:
             $ref: '#/components/schemas/HwReadingSource'
-        sensorsHint:
-          description: True when temperatures are missing and the installer's `--hw-sensors` step can add them.
-          type: [boolean, 'null']
+        sensorNotes:
+          description: Why readings are missing and what fixes each (empty when nothing is missing that could be had).
+          type: array
+          items:
+            $ref: '#/components/schemas/HwSensorNote'
+        nvidiaSmi:
+          $ref: '#/components/schemas/HwNvidiaSmiState'
 
     DiskUsage:
       description: A disk-card snapshot measured only when an allowed viewer opens the hardware page. Rows can be partial when the bounded walk reaches its time cap.
@@ -4171,9 +4295,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/UsageModel'
+        at:
+          description: When the provider last reported these figures (ISO), e.g. the status-line report Claude Code handed a session. Absent when the source carries no time.
+          type: string
 
     UsageState:
-      description: Provider usage, read by the daemon while anyone views (Claude's account usage endpoint with Claude Code's own OAuth token, else Claude Code's status-line rate_limits from engine sessions; Codex's own session logs). A provider with no windows has no reported usage information.
+      description: Provider usage, read by the daemon while anyone views (Claude from the rate_limits Claude Code hands the status line of the sessions the engine starts, as they arrive, and its per-model weeks from Claude Code's own /usage report; Codex from its own session logs). Never from an agent's credentials. A provider with no windows has no reported usage information.
       type: object
       additionalProperties: false
       required: [type, providers]
@@ -4753,6 +4880,41 @@ components:
         query:
           type: string
 
+    ChatSearchAll:
+      description: |
+        The messenger's overall search: user and assistant text in every
+        conversation (one-to-one and group rooms), bounded (searchAll.ts). A new
+        request cancels this client's previous one.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, query]
+      properties:
+        type:
+          const: chatSearchAll
+        requestId:
+          type: string
+        query:
+          type: string
+
+    ChatFiles:
+      description: |
+        The conversation's library: the files exchanged in it, newest first, a page
+        at a time (the files the boss attached and the files the lead sent), read
+        from the transcript chain. `before` is the previous result's `next`.
+        Answered only to a logged-in client; nothing runs while no one asks.
+      type: object
+      additionalProperties: false
+      required: [type, agentId, requestId]
+      properties:
+        type:
+          const: chatFiles
+        agentId:
+          type: integer
+        requestId:
+          type: string
+        before:
+          type: string
+
     ChatItemKind:
       description: |
         `result` (a tool's output, trimmed) appears in `workContent` only, never
@@ -5094,6 +5256,55 @@ components:
           type: string
         sessionStart:
           type: number
+        sender:
+          description: A group room post's sender (absent - the boss).
+          type: string
+
+    ChatSearchAllGroup:
+      description: |
+        The matches in one conversation, newest first: a one-to-one one
+        (`agentId`) or a group room (`roomId`). `more`: it holds further
+        matches than are listed.
+      type: object
+      additionalProperties: false
+      required: [hits, more]
+      properties:
+        agentId:
+          type: integer
+        roomId:
+          type: string
+        hits:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSearchHit'
+        more:
+          type: boolean
+
+    ChatSearchAllResult:
+      description: |
+        Matching conversations, the one with the newest match first. `truncated`:
+        a limit (results, bytes read per conversation or in all, time) ended the
+        search before it had looked everywhere.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, groups, truncated]
+      properties:
+        type:
+          const: chatSearchAllResult
+        requestId:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatSearchAllGroup'
+        truncated:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
 
     ChatSearchResult:
       description: |
@@ -5114,6 +5325,66 @@ components:
           items:
             $ref: '#/components/schemas/ChatSearchHit'
         truncated:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    ChatLibraryFile:
+      description: |
+        One file exchanged in a conversation. `id` and `at` are the message's (a
+        client jumps to it as to a search hit); `kind` says who sent it. `path` is
+        absolute, as in `ChatAttachment` (absent: the lead's copy could not be made,
+        `unavailable`). `missing`: the file is no longer on disk (known only for
+        files inside the project folder).
+      type: object
+      additionalProperties: false
+      required: [id, at, kind, name]
+      properties:
+        id:
+          type: string
+        at:
+          type: number
+        kind:
+          $ref: '#/components/schemas/ChatSearchKind'
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+        sizeKb:
+          type: number
+        unavailable:
+          type: boolean
+        missing:
+          type: boolean
+
+    ChatFilesResult:
+      description: |
+        A page of at most 30 files. `next` (absent on the last page) is the `before`
+        of the following request. `done`: no further page (the chain, within its
+        read budget, has been listed).
+      type: object
+      additionalProperties: false
+      required: [type, requestId, agentId, files, done]
+      properties:
+        type:
+          const: chatFilesResult
+        requestId:
+          type: string
+        agentId:
+          type: integer
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatLibraryFile'
+        next:
+          type: string
+        done:
           type: boolean
         error:
           type: string
@@ -5360,6 +5631,9 @@ components:
         hook instead: `toolId` is `hook:<n>`, `tool` and `detail` come from
         the hook's tool call (its description and whole command), and the
         answer is the hook's decision (no screen is read or typed into).
+        ACP-1: an ACP agent asks through session/request_permission: `toolId`
+        is `acp:<n>` and `options` lists what it offers; the card shows one
+        button per option and the answer names one (`optionId`).
       type: object
       additionalProperties: false
       required: [toolId]
@@ -5372,6 +5646,29 @@ components:
           type: string
         asker:
           type: string
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionOption'
+
+    PermissionOption:
+      description: |
+        ACP-1: one answer an ACP agent offers for a permission request. `kind` is
+        ACP's; `name` is the agent's own words (untrusted, shown as a tooltip).
+      type: object
+      additionalProperties: false
+      required: [optionId, name, kind]
+      properties:
+        optionId:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/PermissionOptionKind'
+
+    PermissionOptionKind:
+      type: string
+      enum: [allow_once, allow_always, reject_once, reject_always]
 
     PermissionAnswer:
       description: |
@@ -5392,6 +5689,11 @@ components:
           type: string
         allow:
           type: boolean
+        optionId:
+          description: |
+            ACP-1: the option pressed on a card that lists `options` (required
+            there; its kind must agree with `allow`).
+          type: string
 
     PermissionAnswerOutcome:
       type: string
@@ -5610,6 +5912,118 @@ components:
           type: integer
           minimum: 0
 
+    HwSensorTool:
+      description: |
+        The missing-sensor fixes. `plan`: detect LibreHardwareMonitor (read-only) and answer the installer's own consent text.
+        `install` (Windows/WSL): run the installer's `--hw-sensors` install path (one Windows admin prompt on the host), only
+        with `consent: true` after this socket was given the plan, from a privileged connection on a daemon that is not
+        read-only, and from a remote device only with a fresh step-up. `nvidiaOn`/`nvidiaOff`: the nvidia-smi opt-in, stored
+        in gpu.json. Answered by `hwSensorToolState`.
+      type: object
+      additionalProperties: false
+      required: [type, action]
+      properties:
+        type:
+          const: hwSensorTool
+        action:
+          $ref: '#/components/schemas/HwSensorToolAction'
+        consent:
+          type: boolean
+
+    AgentCliUpdate:
+      description: |
+        AGENT-UPDATE: update agent provider `agent`'s CLI with its own update command (the provider's
+        declared arguments, the binary the engine runs for it; nothing else comes from the client). Only
+        from a privileged connection on a daemon that is not read-only, from a remote device only with a
+        fresh step-up, one run per CLI at a time. Answered by `agentCliUpdateState`.
+      type: object
+      additionalProperties: false
+      required: [type, agent]
+      properties:
+        type:
+          const: agentCliUpdate
+        agent:
+          description: An agent provider id (an `engineState.agentCaps` key whose `update` is true).
+          type: string
+          maxLength: 64
+
+    AgentCliLatest:
+      description: |
+        AGENT-LATEST: the usage panel is open (or its refresh was pressed): the daemon looks up the newest
+        published version of each agent CLI (npm registry, display only, at most once an hour and 30 s apart,
+        `refresh` skips the hour) and puts it in `engineState.agentChoices[agent].latest`. Never installs anything.
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: agentCliLatest
+        refresh:
+          type: boolean
+
+    AgentCliUpdateState:
+      description: |
+        Point-to-point answer to `agentCliUpdate`. `running` while it runs; `done` with `ok` (the command
+        exited 0 in time), the CLI's `--version` `before` and `after` (absent when it printed none) and its
+        own last `lines` (escape codes stripped, secrets masked, capped); `error: timeout` when it was
+        stopped. `manual`: the version did not change and the CLI said it cannot update itself (a package
+        manager owns it), with the `command` it gave when it gave one. `refused` with `error`: read_only, stepup, unsupported (no update command), missing
+        (the CLI is not installed) or busy (this CLI is updating already).
+      type: object
+      additionalProperties: false
+      required: [type, agent, phase]
+      properties:
+        type:
+          const: agentCliUpdateState
+        agent:
+          type: string
+        phase:
+          $ref: '#/components/schemas/AgentCliUpdatePhase'
+        ok:
+          type: boolean
+        before:
+          type: string
+        after:
+          type: string
+        lines:
+          type: array
+          items:
+            type: string
+        manual:
+          type: boolean
+        command:
+          type: string
+        error:
+          type: string
+
+    AgentCliUpdatePhase:
+      type: string
+      enum: [running, done, refused]
+
+    HwSensorToolState:
+      description: |
+        Point-to-point answer to `hwSensorTool`. `plan`: `lines` is the installer's consent text, `canInstall` whether there is
+        anything to install. `running` while the install runs; `done` with the step's own lines and `ok` (LHM answers now).
+        `refused` with `error`: read_only, consent, stepup, busy, unsupported, unavailable, not_found or write_failed.
+      type: object
+      additionalProperties: false
+      required: [type, phase]
+      properties:
+        type:
+          const: hwSensorToolState
+        phase:
+          $ref: '#/components/schemas/HwSensorToolPhase'
+        lines:
+          type: array
+          items:
+            type: string
+        canInstall:
+          type: boolean
+        ok:
+          type: boolean
+        error:
+          type: string
+
     HwView:
       description: HW panel opened or closed on this socket; the daemon samples each second only while a visible viewer has it open.
       type: object
@@ -5762,8 +6176,73 @@ components:
             type: string
         agentChoices:
           $ref: '#/components/schemas/InstalledAgentChoices'
+        agentCaps:
+          type: object
+          description: |
+            Every agent provider this build has, by id (an EngineProject's `provider`, `claude`
+            when absent): what it can do. The UI reads these, never a provider's name.
+          additionalProperties:
+            $ref: '#/components/schemas/EngineAgentCaps'
         moveAll:
           $ref: '#/components/schemas/EngineMoveAllProgress'
+
+    EngineAgentCaps:
+      description: |
+        One provider's capabilities (server AgentCapabilities, the UI's part). A missing one
+        shows one neutral sentence, the same for every agent.
+      type: object
+      additionalProperties: false
+      required: [approvalPolicy, lifetime, limits, usageRefresh, context, billing]
+      properties:
+        approvalPolicy:
+          description: Its own approval-policy values; more than one offers the permission choice.
+          type: array
+          items:
+            type: string
+        sandbox:
+          description: Its sandbox values; absent when it has none.
+          type: array
+          items:
+            type: string
+        attach:
+          description: How a person joins a live session (a terminal); absent when there is none.
+          const: pty
+        lifetime:
+          $ref: '#/components/schemas/EngineAgentLifetime'
+        limits:
+          description: Its 5-hour and 7-day plan limits reach usageState.
+          type: boolean
+        usageRefresh:
+          description: Its usage can be re-read on demand (usageCheck).
+          type: boolean
+        context:
+          description: How full its context is gets reported (the gauge, fatigue).
+          type: boolean
+        billing:
+          $ref: '#/components/schemas/EngineAgentBilling'
+        name:
+          description: |
+            ACP-1: the agent's product name, shown as is (an ACP agent); absent for one the UI
+            names itself (Claude, Codex).
+          type: string
+        update:
+          description: AGENT-UPDATE, its CLI updates itself (`agentCliUpdate`); absent when it cannot.
+          type: boolean
+
+    EngineAgentBilling:
+      description: |
+        How the agent is billed: `plan` (a flat-rate subscription: Claude, Codex logins),
+        `metered` (per use: an API key, per request), `unknown`. The UI tags `metered` agents
+        ("유료 API") wherever their usage or name shows.
+      type: string
+      enum: [plan, metered, unknown]
+
+    EngineAgentLifetime:
+      description: |
+        `session`: a session that stays; `run`: one process per message, so no direct chat
+        from a person and no Lead.
+      type: string
+      enum: [session, run]
 
     EngineMoveAllProgress:
       description: |
@@ -5782,6 +6261,9 @@ components:
       required: [models, efforts]
       properties:
         version:
+          type: string
+        latest:
+          description: AGENT-LATEST, the newest version published for this CLI (display only); absent until looked up or when the lookup failed.
           type: string
         models:
           type: array
@@ -6329,6 +6811,149 @@ components:
         id:
           type: string
 
+    RunRole:
+      description: |
+        DV2: what a picked script is for. `test`: when its run ends, the exit code
+        becomes the work space's issue's observed testsRan / testsPassed.
+      type: string
+      enum: [dev, test, typecheck, other]
+
+    RunScript:
+      description: One `scripts` entry of a work space's package.json as read (the command masked).
+      type: object
+      additionalProperties: false
+      required: [name, cmd]
+      properties:
+        name:
+          type: string
+        cmd:
+          type: string
+
+    RunPick:
+      description: |
+        DV2: a script the owner made a 실행 button, kept in the daemon's config
+        per project with the command it had when picked. `changed` (answers
+        only): this work space's script is no longer that command, so it does
+        not run until the owner picks it again.
+      type: object
+      additionalProperties: false
+      required: [script, role]
+      properties:
+        script:
+          type: string
+        role:
+          $ref: '#/components/schemas/RunRole'
+        changed:
+          type: boolean
+
+    RunScripts:
+      description: |
+        DV2: the 실행 row of work space `task` of `project` ('' = the project's
+        own folder): the daemon reads that folder's package.json `scripts`
+        (read only, size-capped) and answers with them and the project's picks.
+        With `picks`, the project's picks are replaced first (each must name a
+        script of this package.json; privileged, not read-only). Nothing runs.
+        Answered with `runScriptsResult` to the sender only.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task]
+      properties:
+        type:
+          const: runScripts
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        picks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunPick'
+
+    RunScriptsResult:
+      description: Answer to one `runScripts`; `error` (Korean) when refused or unreadable.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, ok, scripts, picks]
+      properties:
+        type:
+          const: runScriptsResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        ok:
+          type: boolean
+        scripts:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunScript'
+        picks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RunPick'
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    JobStart:
+      description: |
+        DV2: run picked script `scriptId` in work space `task` of `project` as an
+        engine job. The daemon finds the command in its own stored picks and the
+        folder among the work spaces it knows; nothing of a command, path or
+        argv comes from the client. Privileged, not read-only; a remote session
+        needs a fresh step-up (`error: stepup`), like the engine's dangerous
+        actions. Refused while the same script runs in that work space, or when
+        the work space's script is no longer the picked command. Stopping is
+        `jobAction` stop. Answered with `jobStartResult` to the sender only.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, scriptId]
+      properties:
+        type:
+          const: jobStart
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        scriptId:
+          type: string
+
+    JobStartResult:
+      description: Answer to one `jobStart`; `id` the engine job's id when it started.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, project, task, scriptId, ok]
+      properties:
+        type:
+          const: jobStartResult
+        requestId:
+          type: string
+        project:
+          type: string
+        task:
+          type: string
+        scriptId:
+          type: string
+        ok:
+          type: boolean
+        id:
+          type: string
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
     JobActionResult:
       description: |
         Answer to one `jobAction`: `log` and `truncated` for a log, `error`
@@ -6525,6 +7150,55 @@ components:
         type: { const: setConversationPin }
         key: { type: string }
         pinned: { type: boolean }
+
+    Parties:
+      description: |
+        FEAT-PARTY-V2: the parties the owner composed (the party column's
+        selector): every one, sent at `webviewReady` (empty too, so a client
+        that reconnects drops parties deleted meanwhile) and to everyone when
+        they change, so phone and PC agree. The default party (everyone) is
+        the screen's own and never listed. Limits: core/src/constants.ts PARTY_*.
+      type: object
+      additionalProperties: false
+      required: [type, parties]
+      properties:
+        type: { const: parties }
+        parties:
+          type: array
+          items:
+            $ref: '#/components/schemas/Party'
+
+    Party:
+      description: |
+        One party: a stable id, the name the owner gave it and its members by
+        look key (a character's name, `emp:<id>` for a temp employee), in the
+        owner's order. A member not in the office is kept and not shown.
+      type: object
+      additionalProperties: false
+      required: [id, name, members]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        members:
+          type: array
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 200 }
+
+    SetParties:
+      description: |
+        Replace the composed parties (at most 20; the last write wins).
+        Privileged; answered by `parties` to everyone, or to the sender alone
+        with what is kept when it is refused.
+      type: object
+      additionalProperties: false
+      required: [type, parties]
+      properties:
+        type: { const: setParties }
+        parties:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/Party'
     GoneConversationDelete:
       description: |
         PROJECT-DATA: delete a removed agent's one-to-one conversation ("(알 수 없음)" in the
@@ -7239,7 +7913,10 @@ components:
         `distro` (WSL): the distribution, for `\\wsl.localhost\<distro>\…`;
         `mnt` (WSL): where the Windows drives are mounted. `utcOffsetMin`:
         the host's local time zone, minutes east of UTC when sent, so every
-        client reads office hours (T-0041) on the host's clock.
+        client reads office hours (T-0041) on the host's clock. `hostId`
+        (MHO 3.6): this daemon's stable random id (host.json; absent when that
+        file cannot be read). `hostName`: its display name, set in 설정, else
+        the machine's name; sent again to every client when it changes.
       type: object
       additionalProperties: false
       required: [type, os, home, pathStyle, sep, caseInsensitive]
@@ -7262,6 +7939,137 @@ components:
           type: string
         utcOffsetMin:
           type: integer
+        hostId:
+          type: string
+        hostName:
+          type: string
+
+    # ── cld-gui: the street (MHO v1b, ADR-0020) ──────────────────
+
+    StreetState:
+      description: |
+        The neighbours this host reads (other PCs paired in 보안 > 옆 건물) and what each last
+        said. Sent to a client that starts watching (`streetWatch {on: true}`), after each round
+        of asking (every STREET_POLL_MS while a client watches), after a pairing or removal,
+        and after `webviewReady` when there is a neighbour. Names, states and counts only: the
+        neighbour's street token never leaves the daemon.
+      type: object
+      additionalProperties: false
+      required: [type, neighbours]
+      properties:
+        type:
+          const: streetState
+        neighbours:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreetNeighbour'
+
+    StreetNeighbour:
+      description: |
+        One neighbour. `state`: `unknown` not asked yet; `online` it answered (agents, waiting);
+        `off` its address answers but its daemon does not; `unreachable` no answer, or one not to
+        trust (`reason`: `tls`, `timeout`, `network`, `bad_reply`, `http` a plain-http address,
+        `clock` it refused our signature and its clock is over two minutes off ours, not asked again);
+        `old` its daemon has no street (update it); `unpaired` pair it again, not asked again: it
+        refused our signed request (deleted there), or `reason: other_host` a different host id
+        answered at its address and was dropped.
+        `lastSeen`: when it last answered (ms), null never. `url`: its https address, where
+        `streetEnter` sends the owner (to log in there with its own login).
+      type: object
+      additionalProperties: false
+      required: [hostId, name, url, state, lastSeen, agents, waiting]
+      properties:
+        hostId:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+        state:
+          $ref: '#/components/schemas/StreetNeighbourState'
+        reason:
+          $ref: '#/components/schemas/StreetNeighbourReason'
+        version:
+          type: string
+        lastSeen:
+          type: [integer, 'null']
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreetAgent'
+        waiting:
+          description: How many of its agents wait on the owner (a permission or a question).
+          type: integer
+          minimum: 0
+
+    StreetAgent:
+      description: An agent on a neighbour, as its street summary names it (`waiting` waits on the owner).
+      type: object
+      additionalProperties: false
+      required: [name, state]
+      properties:
+        name:
+          type: string
+        state:
+          $ref: '#/components/schemas/StreetAgentState'
+
+    StreetNeighbourState:
+      type: string
+      enum: [unknown, online, off, unreachable, old, unpaired]
+
+    StreetNeighbourReason:
+      type: string
+      enum: [other_host, tls, timeout, network, bad_reply, http, clock]
+
+    StreetAgentState:
+      type: string
+      enum: [working, waiting, idle, off]
+
+    StreetWatch:
+      description: |
+        The street is on this client's screen (`on: true`) or no longer is. The daemon asks its
+        neighbours only while at least one client watches, and stops at once when none does
+        (a closed socket counts as off).
+      type: object
+      additionalProperties: false
+      required: [type, on]
+      properties:
+        type:
+          const: streetWatch
+        on:
+          type: boolean
+
+    StreetEnter:
+      description: The owner enters a neighbour's building; answered with `streetEnterResult`.
+      type: object
+      additionalProperties: false
+      required: [type, hostId]
+      properties:
+        type:
+          const: streetEnter
+        hostId:
+          type: string
+
+    StreetEnterResult:
+      description: |
+        Where to open the neighbour: its https address (`url`), in the same window (desktop app)
+        or a new tab, where the owner logs in with that host's own login (its own session cookie,
+        named per host). No credential for the neighbour passes through this daemon. `error`
+        (and `errorCode`) when no such neighbour is paired.
+      type: object
+      additionalProperties: false
+      required: [type, hostId]
+      properties:
+        type:
+          const: streetEnterResult
+        hostId:
+          type: string
+        url:
+          type: string
+        error:
+          type: string
+        errorCode:
+          type: string
 
     HostOs:
       type: string

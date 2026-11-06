@@ -1,0 +1,855 @@
+/* FEAT-HUD-CONTROL-CENTER (ControlCenter.tsx), the measurements of specs/ui-mock-1106/bottom-left/src/make2.mjs.
+   One layout for both screen styles: the shape, line, drop and face come from the theme's tokens (index.css), and
+   픽셀 감성 adds its game look below (a title bar with a marquee strip, studs, HP cells, LED digits). The control
+   center keeps clear of the dock: no part is wider than the layer's half less the dock's half (7 buttons, 168) and
+   a gap and the corner's 8 (188 in all). */
+
+.cc {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: calc(50% - 188px);
+  max-height: calc(100% - 16px);
+  pointer-events: auto;
+  font-size: var(--text-xs);
+  line-height: calc(1.35 * var(--ui-lh));
+  color: var(--color-text);
+}
+.cc [hidden] {
+  display: none;
+}
+.cc button {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cc-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  min-height: 0;
+}
+
+/* ── small parts ── */
+.cc-strong {
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-text);
+}
+.cc-muted {
+  color: var(--color-text-muted);
+}
+.cc-accent {
+  display: inline-flex;
+  color: var(--color-accent-text);
+}
+.cc-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cc-nowrap {
+  white-space: nowrap;
+}
+.cc-ell {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cc-num,
+.cc-pct,
+.cc-count,
+.cc-led,
+.cc-win-reset {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+.cc-num {
+  font-weight: var(--ui-weight-strong);
+}
+.cc-pct {
+  font-weight: var(--ui-weight-strong);
+  white-space: nowrap;
+}
+.cc-pct[data-tone='warn'] {
+  color: var(--seg-warn);
+}
+.cc-pct[data-tone='zero'] {
+  color: var(--seg-bad);
+}
+.cc-count {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--ui-r-pill);
+  background: var(--color-danger);
+  color: var(--color-text);
+  font-size: var(--text-2xs);
+  line-height: 1;
+}
+.cc-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--ui-r-chip);
+  background: var(--color-accent);
+  color: var(--color-text);
+  font-size: var(--text-2xs);
+  font-weight: var(--ui-weight-strong);
+  line-height: 1;
+}
+/* An agent's logo sits on the page colour; one without a logo wears its own hue (icons/AgentMark.tsx). */
+.cc-mark[data-mark='logo'] {
+  padding: 2px;
+  background: var(--color-bg);
+}
+.cc-mark[data-mark='initial'] {
+  background: hsl(var(--mark-hue) var(--agent-mark-s) var(--agent-mark-l));
+  color: var(--color-text);
+}
+.cc-dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--ui-r-pill);
+  background: var(--color-accent-text);
+}
+.cc-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-card);
+  background: var(--color-btn-bg);
+  box-shadow: var(--bevel);
+}
+.cc-btn-lg {
+  width: 36px;
+  height: auto;
+}
+.cc-btn[data-on],
+.cc-btn[aria-expanded='true'] {
+  background: var(--color-active-bg);
+  border-color: var(--glow-in);
+}
+@media (hover: hover) {
+  .cc-btn:hover,
+  button.cc-seg:hover,
+  button.cc-tile:hover,
+  .cc-menu > button:hover {
+    border-color: var(--color-accent);
+  }
+  .cc-news:hover,
+  .cc-head-btn:hover {
+    background: var(--hud-tile);
+  }
+}
+
+/* ── the usage bar: what is LEFT (SegBar). 모던: one smooth pill; 픽셀 감성: HP cells. ── */
+.game-segbar.cc-bar {
+  flex: 1 1 60px;
+  min-width: 40px;
+  max-width: 100px;
+}
+.game-segbar.cc-bar-sm {
+  flex: 0 1 70px;
+}
+.game-segbar.cc-bar > i {
+  flex: 1;
+  width: auto;
+  height: 12px;
+}
+:root[data-ui-theme='modern'] .game-segbar.cc-bar {
+  gap: 0;
+  padding: 0;
+  height: 6px;
+  border: 0;
+  border-radius: var(--ui-r-pill);
+  overflow: hidden;
+  background: var(--hud-seg);
+}
+:root[data-ui-theme='modern'] .game-segbar.cc-bar > i {
+  height: 100%;
+  background: transparent;
+}
+:root[data-ui-theme='modern'] .game-segbar.cc-bar > i[data-on] {
+  background: var(--color-accent);
+}
+:root[data-ui-theme='modern'] .game-segbar.cc-bar[data-tone='warn'] > i[data-on] {
+  background: var(--seg-warn);
+}
+:root[data-ui-theme='modern'] .game-segbar.cc-bar[data-tone='bad'] > i[data-on] {
+  background: var(--seg-bad);
+}
+
+/* ── folded: the tile of separate targets (380 wide) ── */
+.cc-tile-folded {
+  /* 380: a plan's two windows side by side need the room (owner 11-06 22:23; was 360). */
+  width: 380px;
+  gap: 6px;
+  padding: 7px;
+}
+.cc-line {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 36px;
+}
+.cc-seg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+  border: var(--ui-bw) solid var(--hud-line);
+  border-radius: var(--ui-r-card);
+  background: var(--hud-tile);
+  box-shadow: var(--bevel);
+  white-space: nowrap;
+}
+.cc-seg[data-on] {
+  background: var(--color-active-bg);
+  border-color: var(--glow-in);
+  box-shadow: var(--bevel-in);
+}
+.cc-seg-usage {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 3px 10px;
+}
+.cc-fold-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  min-width: 0;
+}
+.cc-fold-name {
+  flex: 0 1 56px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cc-fold-wins {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+.cc-fold-w {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+.cc-fold-win {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+/* A plan with two windows (owner 11-06 22:23): 5시간 and 주간 side by side, so the bars and the gaps get narrower. */
+.cc-fold-wins[data-n='2'] {
+  gap: 7px;
+}
+.cc-fold-wins[data-n='2'] .game-segbar.cc-bar-sm {
+  flex: 0 0 34px;
+  min-width: 34px;
+}
+
+/* ── FEAT-HUD-SUMMARY-STYLES (owner 11-06 22:23): 카드 쌓기 (mockup A) and 얇은 상태줄 (mockup B), the same parts and tokens ── */
+.cc-cards {
+  width: 392px;
+  padding: 0;
+  overflow: hidden;
+}
+.cc-cards > * + *,
+.cc-card-agent + .cc-card-agent {
+  border-top: var(--ui-bw) solid var(--hud-line);
+}
+.cc-cards-usage {
+  display: flex;
+  flex-direction: column;
+  max-height: 232px;
+  overflow-y: auto;
+}
+.cc-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  background: none;
+  white-space: nowrap;
+}
+button.cc-card[data-on],
+.cc-card[aria-expanded='true'] {
+  background: var(--color-active-bg);
+}
+@media (hover: hover) {
+  button.cc-card:hover {
+    background: var(--hud-tile);
+  }
+}
+.cc-card-body {
+  padding: 0 12px 6px;
+  background: var(--hud-tile);
+}
+.cc-card-body .cc-agent-head {
+  min-height: 0;
+}
+.cc-card-body .cc-agent-head > .cc-mark,
+.cc-card-body .cc-agent-head > .cc-strong:first-of-type {
+  display: none;
+}
+.cc-card-body .cc-agent {
+  padding-top: 2px;
+}
+.cc:has(> .cc-strip) {
+  /* The thin line runs to the dock's left edge (mockup B: 628 at 1600); 136 = the dock's half (5 buttons, 픽셀 감성's the widest) and the gaps. */
+  max-width: calc(50% - 136px);
+}
+:root:not([data-ui-theme='modern']) .cc:has(> .cc-strip) {
+  /* 픽셀 감성's dock is wider (its labels are). */
+  max-width: calc(50% - 144px);
+}
+.cc-strip {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  padding: 6px;
+}
+.cc-strip > .cc-btn,
+.cc-strip > .cc-seg {
+  flex: 0 0 auto;
+  height: 36px;
+}
+.cc-strip > .cc-seg {
+  gap: 10px;
+  padding: 0 10px;
+}
+.cc-strip .cc-fold-row {
+  height: auto;
+  gap: 6px;
+}
+.cc-strip .game-segbar.cc-bar-sm {
+  flex: 0 0 40px;
+  min-width: 40px;
+}
+/* The notice preview gives way first (owner: one row at every width). */
+.cc-strip > .cc-strip-notices {
+  flex: 1 1 150px;
+  min-width: 44px;
+  max-width: 220px;
+}
+@media (max-width: 1279px) {
+  .cc-strip {
+    gap: 4px;
+    padding: 4px;
+  }
+  .cc-strip > .cc-seg {
+    gap: 5px;
+    padding: 0 5px;
+  }
+  .cc-strip > .cc-strip-notices {
+    min-width: 32px;
+  }
+  /* 픽셀 감성's wide glyphs leave no room for the HP cells here: the figure alone. */
+  :root:not([data-ui-theme='modern']) .cc-strip .game-segbar {
+    display: none;
+  }
+  .cc-strip .cc-fold-win,
+  .cc-strip .cc-running-word {
+    display: none;
+  }
+  .cc-strip .game-segbar.cc-bar-sm {
+    flex-basis: 20px;
+    min-width: 20px;
+  }
+}
+.cc-pop-menu {
+  width: 196px;
+  padding: 6px;
+}
+.cc .cc-menu.cc-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cc .cc-menu.cc-menu-list > button {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 10px;
+  height: 38px;
+  padding: 0 10px;
+  border-width: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+}
+@media (hover: hover) {
+  .cc .cc-menu.cc-menu-list > button:hover {
+    background: var(--hud-tile);
+  }
+}
+
+/* ── the usage list: the same rows for every agent, scrolling inside ── */
+.cc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+}
+.cc-head-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.cc-usage-list {
+  max-height: 204px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.cc-agent {
+  padding: 6px 0 4px;
+}
+.cc-agent + .cc-agent {
+  border-top: var(--ui-bw) solid var(--hud-line);
+}
+.cc-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+.cc-agent-head > button:first-of-type {
+  margin-left: auto;
+}
+/* AGENT-UPDATE: the row's 업데이트 (a word, not a glyph) and how it went. */
+.cc-btn-text {
+  width: auto;
+  height: 24px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+.cc-btn-text:disabled {
+  cursor: progress;
+  color: var(--color-text-muted);
+}
+.cc-update {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 2px 26px;
+}
+.cc-update-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cc-update-cmd {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: var(--ui-bw) solid var(--glow-in);
+  border-radius: var(--ui-r-card);
+  background: var(--color-active-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-2xs);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.cc-update-lines {
+  margin: 0;
+  max-height: 72px;
+  overflow-y: auto;
+  font: inherit;
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cc-win {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 24px;
+  padding-left: 26px;
+}
+.cc-win-label {
+  flex: 0 0 76px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cc-win-left {
+  flex: 0 0 auto;
+  min-width: 84px;
+  white-space: nowrap;
+}
+.cc-win-reset {
+  /* A date, not a count that ticks: Pretendard's tabular 1 is as wide as an 8 and spread
+     "11-13 20:00" apart on the iPhone (owner 11-06 21:10). The pixel faces have no such figures. */
+  font-variant-numeric: normal;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+/* FIX-PHONE-UI-TEXT: on a phone the reset fitted beside "100% 남음" but not beside "85% 남음", so the
+   sheet's rows broke differently: it always takes its own line there (MOBILE_MEDIA_QUERY). */
+@media (max-width: 768px), (pointer: coarse) and (max-width: 1024px) {
+  .cc-win-reset {
+    flex-basis: 100%;
+    text-align: right;
+  }
+}
+
+/* ── the usage part alone, over the folded tile ── */
+.cc-pop-usage {
+  width: 470px;
+  padding: 8px 14px 8px;
+}
+.cc-pop-usage .cc-head {
+  padding-bottom: 6px;
+  border-bottom: var(--ui-bw) solid var(--hud-line);
+}
+.cc-pop-usage .cc-usage-list {
+  max-height: 250px;
+}
+
+/* ── the notification panel, over the folded tile: 80 % of its old 760 x 720 (owner 11-06 16:15) ── */
+.cc-pop-notices {
+  flex: 0 1 auto;
+  width: 608px;
+  height: 576px;
+  padding: 10px;
+}
+
+/* ── open: the whole control center (500 wide) ── */
+.cc-center {
+  width: 500px;
+}
+.cc-title {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px 0 12px;
+  border-bottom: var(--ui-bw) solid;
+}
+:root[data-ui-theme='modern'] .cc-title {
+  background: none;
+  border-bottom-color: transparent;
+}
+.cc-title > .cc-strong {
+  font-size: calc(var(--text-sm) * var(--ui-title-scale));
+}
+.cc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+}
+.cc-box {
+  position: relative;
+  padding: 8px 12px;
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  border-radius: var(--ui-r-win);
+  background: var(--surface-card);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+:root[data-ui-theme='modern'] .cc-box {
+  border-color: var(--color-devroom-card-line);
+}
+.cc-news {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.cc-pair {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.cc-tile {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.cc-led-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px 12px;
+}
+.cc-led-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.cc-led {
+  font-size: var(--text-2xl);
+  font-weight: var(--ui-weight-strong);
+  line-height: calc(1.15 * var(--ui-lh));
+}
+.cc-menu {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.cc .cc-menu > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  height: 64px;
+  padding: 0 4px;
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  border-radius: var(--ui-r-win);
+  background: var(--surface-card);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+  font-size: var(--text-xs);
+  text-align: center;
+  white-space: nowrap;
+}
+:root[data-ui-theme='modern'] .cc .cc-menu > button {
+  border-color: var(--color-devroom-card-line);
+}
+.cc-menu > button > .game-ico {
+  width: 20px;
+  height: 20px;
+  color: var(--color-accent-text);
+}
+
+/* ── 픽셀 감성 only: the arcade frame ── */
+/* The digits in the data face (Galmuri, as the mockups): FS Pixel Sans draws them too small to read. */
+@font-face {
+  font-family: 'Galmuri11 Digits';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/galmuri/Galmuri11.woff2') format('woff2');
+  size-adjust: 66.667%;
+  unicode-range: U+0025, U+002B, U+002D-003A;
+}
+/* Every element: the base layer sets the face on `*`, so it is not inherited. Not the icon glyphs:
+   this rule is unlayered and would beat their base-layer face, drawing the ligature names as words. */
+:root:not([data-ui-theme='modern']) .cc,
+:root:not([data-ui-theme='modern']) .cc *:not(.material-symbols-sharp) {
+  font-family: 'Galmuri11 Digits', var(--ui-font);
+}
+.cc-coin,
+.cc-marquee {
+  display: none;
+}
+:root:not([data-ui-theme='modern']) .cc-coin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: var(--score-gold);
+  box-shadow: inset -2px -2px 0 var(--bevel-lo);
+}
+:root:not([data-ui-theme='modern']) .cc-marquee {
+  display: block;
+  flex: 0 0 6px;
+  margin-bottom: 10px;
+  background: repeating-linear-gradient(90deg, var(--window-line) 0 6px, transparent 6px 12px);
+  opacity: 0.55;
+}
+:root:not([data-ui-theme='modern']) .cc-title {
+  height: 34px;
+}
+:root:not([data-ui-theme='modern']) .cc-box::before,
+:root:not([data-ui-theme='modern']) .cc-box::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  width: 4px;
+  height: 4px;
+  background: var(--window-line);
+}
+:root:not([data-ui-theme='modern']) .cc-box::before {
+  left: 2px;
+}
+:root:not([data-ui-theme='modern']) .cc-box::after {
+  right: 2px;
+}
+:root:not([data-ui-theme='modern']) .cc-agent + .cc-agent {
+  border-top-style: dotted;
+}
+:root:not([data-ui-theme='modern']) .cc-mark,
+:root:not([data-ui-theme='modern']) .cc-count {
+  border: var(--ui-bw) solid var(--color-bg);
+  box-shadow: var(--bevel);
+}
+:root:not([data-ui-theme='modern']) .cc-mark {
+  flex-basis: 22px;
+  width: 22px;
+  height: 22px;
+}
+:root:not([data-ui-theme='modern']) .cc-count {
+  min-width: 22px;
+  height: 22px;
+}
+:root:not([data-ui-theme='modern']) .cc-dot {
+  background: var(--color-accent-text);
+}
+:root:not([data-ui-theme='modern']) .cc-line {
+  height: 38px;
+}
+:root:not([data-ui-theme='modern']) .cc-fold-row {
+  height: 26px;
+}
+:root:not([data-ui-theme='modern']) .cc-tile-folded {
+  padding: 6px;
+}
+/* LED scoreboards: 실행 중 green, 시간 gold, each number over its word. */
+:root:not([data-ui-theme='modern']) .cc-led-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+:root:not([data-ui-theme='modern']) .cc-led {
+  display: inline-block;
+  padding: 2px 6px 0;
+  border: var(--ui-bw) solid var(--hud-line);
+  background: var(--color-bg);
+  box-shadow: var(--bevel-in);
+  color: var(--seg-ok);
+  font-size: var(--text-3xl);
+  font-weight: 400;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+:root:not([data-ui-theme='modern']) .cc-led-time {
+  align-self: flex-start;
+  color: var(--score-gold);
+}
+.cc-led-time > span {
+  color: inherit;
+}
+:root:not([data-ui-theme='modern']) .cc-modern-only {
+  display: none;
+}
+/* A narrow tile (the 1024 layout): the scoreboards a size smaller, side by side. */
+@container (max-width: 180px) {
+  .cc-led-row {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .cc .cc-led {
+    font-size: var(--text-lg);
+  }
+}
+
+/* ── the phone: the folded usage row above the dock, and its bottom sheet (MobileUsage.tsx) ── */
+.cc-phone {
+  font-size: var(--text-xs);
+  line-height: calc(1.35 * var(--ui-lh));
+  color: var(--color-text);
+}
+.cc-phone button {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.cc-phone-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 calc(var(--cld-safe-right) + 10px) 0 calc(var(--cld-safe-left) + 10px);
+  border: 0;
+  border-top: var(--ui-bw) solid var(--color-border);
+  background: none;
+  white-space: nowrap;
+}
+.cc-phone-row[aria-expanded='true'] {
+  background: var(--color-active-bg);
+}
+.cc-phone-row .cc-fold-row {
+  flex: 0 0 auto;
+  gap: 4px;
+  height: auto;
+}
+/* Nothing shrinks: PhoneUsage measures the overflow and steps down (phoneFolded) until the row fits. */
+.cc-phone-row .cc-fold-name {
+  flex: 0 0 auto;
+}
+.cc-phone-row .cc-fold-wins {
+  gap: 5px;
+}
+.cc-phone-row .cc-fold-w {
+  gap: 3px;
+}
+/* Short or landscape phones leave the row out, as the old strip was (the top bar, page head and dock take half). */
+@media (orientation: landscape) and (max-height: 500px) {
+  .cc-phone-row {
+    display: none;
+  }
+}
+.cc-sheet-back {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+.cc-sheet {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  max-height: 78dvh;
+  padding: 8px calc(var(--cld-safe-right) + 14px) max(12px, var(--cld-safe-bottom)) calc(var(--cld-safe-left) + 14px);
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.cc-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: var(--ui-bw) solid var(--hud-line);
+}
+.cc-sheet .cc-usage-list {
+  max-height: none;
+  min-height: 0;
+  padding-right: 0;
+}

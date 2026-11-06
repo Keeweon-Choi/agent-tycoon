@@ -1,5 +1,5 @@
 /**
- * The board's three pages (T-0046), the same on the lobby wall and in the
+ * The board's three pages (T-0046: 요약, H/W, GPU), the same on the lobby wall and in the
  * full view: sizes are in em (the caller sets the font size), so the board
  * scales with the camera; charts are canvases drawn at device-pixel size.
  */
@@ -7,14 +7,13 @@ import { memo, useContext, useEffect, useRef, useState } from 'react';
 
 import type { DiskUsage, GpuTicket, HwSample } from '../../../../core/src/messages.js';
 import {
-  ACTIVITY_RING_COLORS,
   BOARD_AREA_ALPHA,
   BOARD_COLORS,
   BOARD_HW_CORE_COLS,
   BOARD_HW_CORE_ROWS,
   BOARD_HW_MINI_BARS,
   BOARD_HW_MINI_DONUTS,
-  BOARD_PROJECT_ROWS,
+  BOARD_SUMMARY_FEED_ROWS,
 } from '../../constants.js';
 import { t, useLanguage } from '../../i18n/index.js';
 import { getCharacterSprites } from '../../office/sprites/spriteData.js';
@@ -23,9 +22,8 @@ import { Direction } from '../../office/types.js';
 import { transport } from '../../transport/index.js';
 import { diskBytes, diskMeasuredAt } from '../diskCard.js';
 import { useEngineStore } from '../engineStore.js';
-import { contextPctText } from '../ez/fatigueState.js';
-import { ringWord } from '../ez/visuals.js';
-import { hwSections, hwSensorsHint, percentTone, tempTone } from '../format.js';
+import { hostDateTime, tempTone, usageWindowTitle } from '../format.js';
+import { gaugeWindows, windowLeft } from '../game/gameState.js';
 import {
   capSlots,
   cpuCoreRows,
@@ -37,11 +35,11 @@ import {
   type HwFigure,
   ramFigures,
 } from '../hwDetail.js';
+import { HwSensorNotes } from '../HwSensorNotes.js';
 import {
   DETAIL_CPU,
   gpuDetail,
   type HwOpen,
-  type HwViewKind,
   type HwViewModel,
   hwViewModel,
   openDetail,
@@ -50,6 +48,9 @@ import {
   useHwPrefs,
 } from '../hwView.js';
 import type { CldSnapshot } from '../officeStore.js';
+import { kpis } from '../panels/dashboardModel.js';
+import { workCounts } from '../panels/jobs.js';
+import { leadRings, rowState } from '../panels/statusTree.js';
 import { serverLine } from '../serverText.js';
 import { capRows } from '../temps.js';
 import { useWaitReasons } from '../waiting.js';
@@ -62,7 +63,6 @@ import {
   moreText,
   pageTitle,
   pctText,
-  projectRows,
   recentEnds,
   sinceText,
   tickerItems,
@@ -139,16 +139,18 @@ export const BoardView = memo(
             {t('board.waiting.count', { count: waiting.length })}
             {waiting.length > 0 && <span className="led-wait-who"> · {waiting.join(', ')}</span>}
           </button>
-          <span className="led-clock" aria-hidden="true">
-            {new Date(now).toTimeString().slice(0, 5)}
+          {/* hud-v3 P0: what the PC top bar showed lives here now: the usage left and the host's date and time. */}
+          <BoardUsage snap={snap} />
+          <span className="led-clock" aria-hidden="true" data-testid="board-clock">
+            {hostDateTime(now, snap.hostInfo?.utcOffsetMin ?? -new Date().getTimezoneOffset())}
           </span>
         </div>
         <div className={`led-body led-page-${page}`} data-testid="board-page" data-page={page}>
-          {page === 'projects' && <ProjectsPage snap={snap} agentTools={agentTools} now={now} />}
+          {page === 'summary' && <SummaryPage snap={snap} agentTools={agentTools} now={now} waiting={waiting.length} />}
           {page === 'hw' && <HwPage snap={snap} />}
           {page === 'gpu' && <GpuPage snap={snap} now={now} lookOf={lookOf} />}
         </div>
-        <Ticker items={tickerItems(snap.events, now)} />
+        {page !== 'summary' && <Ticker items={tickerItems(snap.events, now)} />}
       </>
     );
   },
@@ -164,73 +166,77 @@ export const BoardView = memo(
       a.onWaiting === b.onWaiting),
 );
 
-// ── 프로젝트 ─────────────────────────────────────────────────
+/** Each provider's main window left ("Claude 남음 39%"), the top bar's gauges in one LED line; its hover title has the detail. */
+function BoardUsage({ snap }: { snap: CldSnapshot }) {
+  const providers = snap.usageState?.providers ?? [];
+  if (!providers.length) return null;
+  return (
+    <span className="led-usage" data-testid="board-usage">
+      {providers.map((provider) => {
+        const { main } = gaugeWindows(provider.windows, true);
+        const left = windowLeft(main);
+        return (
+          <span key={provider.id} title={main ? usageWindowTitle(main) : undefined} data-provider={provider.id}>
+            {provider.name} {left === null ? t('usage.unknownShort') : t('game.hud.leftPct', { pct: left })}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
-function ProjectsPage({
+// ── 요약 ─────────────────────────────────────────────────────
+
+/**
+ * A5 (owner 11-06 15:26: the party is the one list of orchestrators): the 현황판 dashboard's summary at
+ * the board's scale, its count cards and its recent activity (the ticker would only repeat it here).
+ */
+function SummaryPage({
   snap,
   agentTools,
   now,
+  waiting,
 }: {
   snap: CldSnapshot;
   agentTools: Record<number, ToolActivity[]>;
   now: number;
+  waiting: number;
 }) {
   const engineProjects = useEngineStore().state?.projects;
   const workers = new Set((engineProjects ?? []).filter((p) => p.role).map((p) => p.name));
   const reasons = useWaitReasons();
-  const { shown, more } = projectRows(snap, agentTools, now, BOARD_PROJECT_ROWS, workers, reasons);
-  if (!shown.length) return <p className="led-empty">{t('board.noProjects')}</p>;
+  const cards = kpis({
+    working: leadRings(snap, agentTools, reasons, workers).filter((r) => rowState(r) === 'working').length,
+    waiting,
+    tasks: snap.taskBoard?.tasks ?? [],
+    work: workCounts(snap.officeJobs?.jobs ?? [], snap.codexTasks?.tasks ?? []),
+    now,
+  });
+  const feed = tickerItems(snap.events, now, BOARD_SUMMARY_FEED_ROWS);
   return (
-    <ol className="led-rows">
-      <li className="led-row led-row-head" aria-hidden="true">
-        <span>{t('board.page.projects')}</span>
-        <span>{t('board.column.status')}</span>
-        <span>{t('board.column.fatigue')}</span>
-        <span>{t('board.column.work')}</span>
-        <span>{t('board.column.recent')}</span>
-      </li>
-      {shown.map((r) => {
-        const tone = r.context === null ? null : percentTone(r.context);
-        return (
-          <li key={r.name} className="led-row" data-testid="board-project" data-ring={r.ring}>
-            <span className="led-name">
-              <Dot color={ACTIVITY_RING_COLORS[r.ring].rim} blink={r.ring} />
-              {r.name}
-            </span>
-            <span className="led-state">{ringWord(r.ring)}</span>
-            <span
-              className={`led-fatigue led-tone-${tone ?? 'none'}`}
-              data-label={t('board.column.fatigue')}
-              title={r.contextEstimated ? t('ctxsrc.estimatedHint') : undefined}
-            >
-              {r.context === null ? (
-                <span className="led-muted">-</span>
-              ) : (
-                <>
-                  <span className="led-meter" aria-hidden="true">
-                    <i style={{ width: `${Math.min(100, r.context)}%` }} />
-                  </span>
-                  {contextPctText(r.context, r.contextEstimated ? 'estimated' : 'reported')}%
-                </>
-              )}
-            </span>
-            <span
-              className="led-counts"
-              title={r.work ?? undefined}
-              data-label={t('board.column.work')}
-            >
-              {r.work ?? <span className="led-muted">-</span>}
-            </span>
-            <span className="led-last">{r.last ?? ''}</span>
+    <div className="led-summary">
+      <ol className="led-kpis" aria-label={t('boardLook.page')}>
+        {cards.map((k) => (
+          <li key={k.id} data-testid="board-led-kpi" data-kpi={k.id} data-tone={k.tone} data-zero={k.value === 0 || undefined}>
+            <span className="led-kpi-label">{t(`boardLook.kpi.${k.id}`)}</span>
+            <b>{k.value}</b>
+            {k.queued ? <small>{t('game.hud.queued', { count: k.queued })}</small> : null}
           </li>
-        );
-      })}
-      {more > 0 && (
-        <li className="led-more" data-testid="board-more">
-          {moreText(more)}
-        </li>
+        ))}
+      </ol>
+      <p className="led-feed-head">{t('status.recent')}</p>
+      {feed.length ? (
+        <ol className="led-feed">
+          {feed.map((line, i) => (
+            <li key={i} data-testid="board-led-activity">
+              {line}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="led-muted">{t('hudpc.log.empty')}</p>
       )}
-    </ol>
+    </div>
   );
 }
 
@@ -242,10 +248,6 @@ function Ticker({ items }: { items: string[] }) {
       <span className="led-ticker-run">{items.join('   ◆   ')}</span>
     </div>
   );
-}
-
-function Dot({ color, blink }: { color: string; blink?: string }) {
-  return <span className={`led-dot led-blink-${blink ?? 'none'}`} style={{ background: color }} />;
 }
 
 // ── H/W ──────────────────────────────────────────────────────
@@ -288,6 +290,8 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
         />
       </div>
       <div className="led-side">
+        {/* What to install or turn on comes first: below the disks it would be out of sight. */}
+        {mode !== 'mini' && <HwSensorNotes hw={hw} look="board" />}
         {toggle && (
           <button
             type="button"
@@ -309,32 +313,23 @@ function HwPage({ snap }: { snap: CldSnapshot }) {
           <HwOverview hw={hw} m={m} mode={mode} diskUsage={snap.diskUsage} />
         )}
         {hw.stale && <p className="led-warn">{t('hardware.stale')}</p>}
-        {mode !== 'mini' && <HwNotes hw={hw} view={m.view} />}
+        {mode !== 'mini' && <HwNotes hw={hw} />}
       </div>
     </div>
   );
 }
 
 /** building-a-1104: what only the 현황판's old HW tab said, now on the full board (that tab is
- *  gone, owner 11-04 20:28): how to get the temperatures, the sampler's warnings, and where each
- *  reading comes from. */
-function HwNotes({ hw, view }: { hw: HwSample; view: HwViewKind }) {
-  const sources = hwSections(hw, view)
-    .flatMap((card) => card.rows.map((r) => r.source && `${card.title} ${r.label} ${r.source}`))
-    .filter((x): x is string => !!x);
+ *  gone, owner 11-04 20:28): the sampler's warnings. No measurement sources (owner 11-06 18:37:
+ *  too busy); what to install for a missing reading is HwSensorNotes, at the top of the side. */
+function HwNotes({ hw }: { hw: HwSample }) {
   return (
     <>
-      {hw.sensorsHint && <p className="led-muted" data-testid="board-hw-hint">{hwSensorsHint()}</p>}
       {hw.warnings.map((w) => (
         <p key={w} className="led-warn" data-testid="board-hw-warning">
           ⚠ {serverLine(w)}
         </p>
       ))}
-      {sources.length > 0 && (
-        <p className="led-muted led-sources" data-testid="board-hw-sources">
-          {t('board.sources')} · {[...new Set(sources)].join(' · ')}
-        </p>
-      )}
     </>
   );
 }

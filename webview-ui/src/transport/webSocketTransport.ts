@@ -145,8 +145,9 @@ export class WebSocketTransport implements MessageTransport {
     }
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-    } else {
-      // Queue messages while connecting (flushed in onopen)
+    } else if (message.type !== 'permissionAnswer') {
+      // Queue messages while connecting (flushed in onopen). Never an answer to a permission card:
+      // after a reconnect the daemon (maybe a new one) may show another call under the same id.
       this.pendingMessages.push(message);
     }
   }

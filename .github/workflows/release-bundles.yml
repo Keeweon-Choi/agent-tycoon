@@ -1,0 +1,207 @@
+# Daemon bundles (P1): one self-contained bundle per OS/CPU, built on that platform's own
+# runner (node-pty is native), unpacked and booted without a system Node, then uploaded.
+# On a v* tag the bundles, the stamped install.sh/install.ps1 (cld/release/stamp-installers.mjs) and
+# release-notes.txt are attached to a DRAFT release.
+#
+# CI holds NO signing key and no secret at all. The matrix signs its bundle with a throwaway key only to
+# self-test it. The owner's publisher (cld/release/publish.mjs, on the owner's PC) downloads the draft,
+# writes SHA256SUMS over the bundles and release-notes.txt, signs it with the release key, uploads
+# SHA256SUMS, SHA256SUMS.sig and agent-tycoon-release.pub, verifies and publishes. The installers carry the
+# public key committed at cld/release/agent-tycoon-release.pub.
+
+name: Release bundles
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-bundles-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: Bundle ${{ matrix.target }}
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-24.04 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm }
+          - { target: darwin-arm64, runner: macos-15 }
+          - { target: darwin-x64, runner: macos-15-intel }
+          - { target: win-x64, runner: windows-2025 }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install build dependencies
+        run: npm ci
+        env:
+          HUSKY: '0'
+
+      - name: Build bundle
+        shell: bash
+        run: node cld/release/bundle/build.mjs --out out
+        env:
+          AGENT_TYCOON_DOWNLOADS: ${{ runner.temp }}/downloads
+
+      - name: Verify and unpack
+        shell: bash
+        run: |
+          bundle=$(ls out/agent-tycoon-daemon-*-${{ matrix.target }}.tar.*)
+          node cld/release/bundle/verify.mjs "$bundle" out/SHA256SUMS out/SHA256SUMS.sig out/agent-tycoon-release.pub --extract "$RUNNER_TEMP/bundle"
+          {
+            echo "### ${{ matrix.target }}"
+            echo "- bundle: \`$(basename "$bundle")\`, $(wc -c < "$bundle" | tr -d ' ') bytes"
+            echo "- unpacked: $(du -sk "$RUNNER_TEMP/bundle" | cut -f1) KiB"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Self-test and boot (no system Node)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          d="$RUNNER_TEMP/bundle"
+          h=$(mktemp -d)
+          version=$(node -p "require('./cld/release/version.json').version")
+          env -i PATH=/usr/bin:/bin sh -c 'command -v node || echo "no node on PATH=/usr/bin:/bin"'
+          env -i HOME="$h" PATH=/usr/bin:/bin "$d/node/bin/node" "$d/dist/cli.js" --self-test
+          cd "$RUNNER_TEMP"
+          env -i HOME="$h" PATH=/usr/bin:/bin "$d/node/bin/node" "$d/dist/cli.js" --port 18257 --engine off > daemon.log 2>&1 &
+          pid=$!
+          body=
+          for _ in $(seq 1 60); do
+            body=$(curl -fsS http://127.0.0.1:18257/api/health) && break
+            sleep 0.5
+          done
+          kill "$pid" || true
+          echo "health: $body"
+          if ! echo "$body" | grep -q "\"service\":\"cld-gui\",\"version\":\"$version\""; then
+            cat daemon.log
+            exit 1
+          fi
+
+      - name: Self-test and boot (no system Node, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $d = "$env:RUNNER_TEMP\bundle"
+          $h = (New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\home").FullName
+          $version = (Get-Content cld/release/version.json | ConvertFrom-Json).version
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $env:USERPROFILE = $h
+          $env:HOME = $h
+          & "$d\node\node.exe" "$d\dist\cli.js" --self-test
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $p = Start-Process -FilePath "$d\node\node.exe" -ArgumentList "`"$d\dist\cli.js`" --port 18257 --engine off" -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\daemon.log" -RedirectStandardError "$env:RUNNER_TEMP\daemon.err"
+          $health = $null
+          foreach ($i in 1..60) {
+            try { $health = Invoke-RestMethod http://127.0.0.1:18257/api/health; break } catch { Start-Sleep -Milliseconds 500 }
+          }
+          Stop-Process -Id $p.Id -Force
+          "health: $($health | ConvertTo-Json -Compress)"
+          if ($health.service -ne 'cld-gui' -or $health.version -ne $version) {
+            Get-Content "$env:RUNNER_TEMP\daemon.log", "$env:RUNNER_TEMP\daemon.err"
+            exit 1
+          }
+
+      # P4: the one-line installers, stamped for this bundle only, install it with the bundle's own
+      # Node (no system Node on PATH) and the daemon answers with the release version.
+      - name: One-line install from the stamped install.sh
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          node cld/release/stamp-installers.mjs --release out --out "$RUNNER_TEMP/stamped" --pub out/agent-tycoon-release.pub --targets ${{ matrix.target }}
+          version=$(node -p "require('./cld/release/version.json').version")
+          h=$(mktemp -d)
+          env -i HOME="$h" PATH=/usr/bin:/bin sh "$RUNNER_TEMP/stamped/install.sh" --from out --yes --gui no --launch no --service detached --port 18258
+          body=$(curl -fsS http://127.0.0.1:18258/api/health)
+          echo "health: $body"
+          echo "$body" | grep -q "\"service\":\"cld-gui\",\"version\":\"$version\""
+
+      - name: One-line install from the stamped install.ps1 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node cld/release/stamp-installers.mjs --release out --out "$env:RUNNER_TEMP\stamped" --pub out/agent-tycoon-release.pub --targets win-x64
+          $version = (Get-Content cld/release/version.json | ConvertFrom-Json).version
+          & "$env:RUNNER_TEMP\stamped\install.ps1" --from out --yes --gui no --launch no --service detached --port 18259
+          $health = Invoke-RestMethod http://127.0.0.1:18259/api/health
+          "health: $($health | ConvertTo-Json -Compress)"
+          if ($health.service -ne 'cld-gui' -or $health.version -ne $version) { exit 1 }
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            out/agent-tycoon-daemon-*
+            out/SHA256SUMS
+            out/SHA256SUMS.sig
+            out/agent-tycoon-release.pub
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download bundles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: bundle-*
+          path: artifacts
+
+      - name: Collect bundles and notes
+        run: |
+          version=$(node -p "require('./cld/release/version.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match cld/release/version.json ($version)"
+            exit 1
+          fi
+          if [ ! -f cld/release/release-notes.txt ]; then echo "cld/release/release-notes.txt is missing from the tagged commit"; exit 1; fi
+          mkdir release
+          cp artifacts/*/agent-tycoon-daemon-* release/
+          cp cld/release/release-notes.txt release/release-notes.txt
+
+      - name: Stamp install.sh and install.ps1 for this release
+        # Version, release URL, the committed release public key and every bundle's SHA-256 go into the scripts (P4 trust root).
+        run: node cld/release/stamp-installers.mjs --release release
+
+      - name: Attach to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+            --title "Agent Tycoon $GITHUB_REF_NAME" \
+            --notes-file release/release-notes.txt \
+            release/*

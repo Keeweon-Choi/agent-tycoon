@@ -61,6 +61,8 @@ export interface LoginPageOptions {
   device?: boolean;
   /** I1: the language of the words in the page (the script that follows follows the browser). */
   lang?: TextLang;
+  /** MHO 3.6: this host's display name, after the title (two daemons in one browser). */
+  host?: string;
 }
 
 export function loginPage({
@@ -70,9 +72,11 @@ export function loginPage({
   approval,
   device,
   lang = 'en',
+  host,
 }: LoginPageOptions): string {
   const w = (code: ServerTextCode) => SERVER_TEXT[code][lang];
   const app = w('app_name');
+  const title = fillText(w('login_title'), { app });
   return `<!doctype html>
 <html lang="${lang}">
 <head>
@@ -86,7 +90,7 @@ export function loginPage({
 <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png?v=3">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png?v=3">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=3">
-<title>${escapeHtml(fillText(w('login_title'), { app }))}</title>
+<title>${escapeHtml(host ? `${title} · ${host}` : title)}</title>
 <link rel="stylesheet" href="login/login.css">
 <script type="module" src="login/login.js"></script>
 </head>

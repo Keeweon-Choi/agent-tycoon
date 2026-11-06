@@ -16,8 +16,7 @@ import {
   showRoom,
 } from '../messenger/messengerStore.js';
 import { cldHandleMessage, cldResetForTests } from '../officeStore.js';
-import { NO_PROJECT } from '../workbench/workbenchState.js';
-import { workbenchGetSnapshot } from '../workbench/workbenchStore.js';
+import { runsProject, setRunsProject } from '../panels/runsFilter.js';
 import { mergeNews } from './newsList.js';
 import {
   bindNoticeOffice,
@@ -29,11 +28,13 @@ import {
   DEFAULT_SETTINGS,
   markAllRead,
   markRead,
+  type Notice,
   noticeGoesTo,
   noticePulse,
   noticeSnapshot,
   noticesResetForTests,
   noticeVerdict,
+  permissionOver,
   setNoticeSettings,
   unreadCount,
 } from './notices.js';
@@ -199,9 +200,9 @@ describe('notices in the office', () => {
 
   it('a job that ended is a notice; the replayed history is not', () => {
     const base = { type: 'officeEvent' as const, source: null, name: 'veteran' };
-    cldNoticeReplay(T0 - 1_000); // a connection's snapshot, its feed right behind
+    cldNoticeReplay('h1', T0); // a connection's snapshot, its feed right behind
     cldNoticeEvent(
-      { ...base, ts: new Date(T0).toISOString(), kind: 'job_end', summary: 'old' },
+      { ...base, ts: new Date(T0 - 1_000).toISOString(), kind: 'job_end', summary: 'old' },
       T0,
     );
     cldNoticeEvent({ ...base, ts: new Date(T0).toISOString(), kind: 'turn_end', summary: 'x' }, T0);
@@ -219,6 +220,52 @@ describe('notices in the office', () => {
       cause: 'job',
       agentId: 7,
       text: '\uc791\uc5c5 \ub05d: veteran (exit 0)',
+    });
+  });
+
+  describe('a job end is announced once, when it ended (owner 11-06: #40 came back as new)', () => {
+    const base = { type: 'officeEvent' as const, source: null, name: 'cld-gui' };
+    const end = (at: number, summary: string): OfficeEvent => ({
+      ...base,
+      ts: new Date(at).toISOString(),
+      kind: 'job_end',
+      summary,
+    });
+    const HOUR = 3_600_000;
+
+    it('a slow replay, a full list and a restart never bring an old end back', () => {
+      cldNoticeReplay('h1', T0);
+      // The browser held the old end's notice, then 50 newer ones pushed it off the list.
+      cldNoticeEvent(end(T0 + 1_000, 'old #40'), T0 + 1_000);
+      for (let i = 0; i < 50; i++) cldNoticeEvent(end(T0 + HOUR * (i + 1), `n${i}`), T0 + HOUR * (i + 1));
+      expect(noticeSnapshot().items.some((n) => n.text === 'old #40')).toBe(false);
+      const shown = noticeSnapshot().items.length;
+      // Daemon restart: the same feed again, oldest first, and the page was busy for far longer
+      // than any replay window before the old end came through.
+      const later = T0 + 60 * HOUR;
+      cldNoticeReplay('h1', later);
+      cldNoticeEvent(end(T0 + 1_000, 'old #40'), later + 30_000);
+      for (let i = 0; i < 50; i++) cldNoticeEvent(end(T0 + HOUR * (i + 1), `n${i}`), later + 30_000);
+      expect(noticeSnapshot().items).toHaveLength(shown);
+      expect(noticeSnapshot().items.some((n) => n.text === 'old #40')).toBe(false);
+    });
+
+    it('an end that happened while the browser was away is announced once, with its end time', () => {
+      cldNoticeReplay('h1', T0);
+      cldNoticeEvent(end(T0 + 1_000, 'seen'), T0 + 1_000);
+      const ended = T0 + 10 * 60_000;
+      const back = T0 + 20 * 60_000;
+      cldNoticeReplay('h1', back); // reconnect
+      cldNoticeEvent(end(T0 + 1_000, 'seen'), back);
+      cldNoticeEvent(end(ended, 'missed'), back);
+      expect(noticeSnapshot().items.map((n) => [n.text, n.at])).toEqual([
+        ['missed', ended],
+        ['seen', T0 + 1_000],
+      ]);
+      cldNoticeReplay('h1', back + 1_000); // and again: the same feed, nothing new
+      cldNoticeEvent(end(T0 + 1_000, 'seen'), back + 1_000);
+      cldNoticeEvent(end(ended, 'missed'), back + 1_000);
+      expect(noticeSnapshot().items).toHaveLength(2);
     });
   });
 
@@ -529,7 +576,7 @@ describe('read marks and where a notice opens (T-0043, 10-22 01:3x)', () => {
   });
 });
 
-describe('UI-C1: a job or Codex notice opens the workbench on the item', () => {
+describe('UI-C1: a job or Codex notice opens the runs on the item', () => {
   const deps = { goToAgent: () => true, officeHas: () => true };
   beforeEach(() => {
     setup();
@@ -557,18 +604,13 @@ describe('UI-C1: a job or Codex notice opens the workbench on the item', () => {
     } as never);
   });
 
-  it('a job: Task tab, on its project; no project → no project', () => {
+  it("a job or a Codex run: the status board's runs tab, on every project (owner 11-06 18:24), whatever was filtered", () => {
+    setRunsProject('ghost');
     expect(openTarget({ open: 'job', id: 'j1' }, deps)).toBe(true);
-    expect(workbenchGetSnapshot()).toEqual({ project: 'veteran', tab: 'tasks' });
-    expect(openTarget({ open: 'job', id: 'j2' }, deps)).toBe(true);
-    expect(workbenchGetSnapshot()).toEqual({ project: NO_PROJECT, tab: 'tasks' });
-  });
-
-  it('a Codex run: agents tab, on its project; one of a project not in the picker → no project', () => {
-    expect(openTarget({ open: 'codex', id: 'c1' }, deps)).toBe(true);
-    expect(workbenchGetSnapshot()).toEqual({ project: 'veteran', tab: 'agents' });
+    expect([hudGetSnapshot().open.office, hudGetSnapshot().officeTab, runsProject()]).toEqual([true, 'runs', null]);
+    setRunsProject('veteran');
     expect(openTarget({ open: 'codex', id: 'c2' }, deps)).toBe(true);
-    expect(workbenchGetSnapshot()).toEqual({ project: NO_PROJECT, tab: 'agents' });
+    expect([hudGetSnapshot().officeTab, runsProject()]).toEqual(['runs', null]);
   });
 });
 
@@ -702,5 +744,31 @@ describe('ROOM-NOTICE: each member\'s reply in a room is its own notice, like a 
       active: null,
       activeRoom: 'release',
     });
+  });
+});
+
+describe('FIX-PERM-RESTART: a permission notice whose wait is over', () => {
+  const notice = (lead: string): Notice => ({
+    id: 'n1',
+    cause: 'permission',
+    agentId: 7,
+    name: lead,
+    text: 'x',
+    at: 1,
+    read: false,
+    target: { open: 'chat', lead, terminal: true },
+  });
+  const rows = [
+    { name: 'alpha', provider: 'engine' },
+    { name: 'solo', provider: 'claude' },
+  ];
+  it("is over when the engine lead's contact carries no card; not while it does, nor for other leads or causes", () => {
+    expect(permissionOver(notice('alpha'), rows, [{ name: 'alpha' }])).toBe(true);
+    expect(permissionOver(notice('alpha'), rows, [{ name: 'alpha', permission: { toolId: '' } }])).toBe(false);
+    // Contacts not in yet: unknown.
+    expect(permissionOver(notice('alpha'), rows, [])).toBe(false);
+    // A Claude session's permission is not on its contact: unknown.
+    expect(permissionOver(notice('solo'), rows, [{ name: 'solo' }])).toBe(false);
+    expect(permissionOver({ ...notice('alpha'), cause: 'question' }, rows, [{ name: 'alpha' }])).toBe(false);
   });
 });

@@ -152,26 +152,6 @@ export function cldMockMessages(): ServerMessage[] {
       summary,
     }),
   );
-  orchestrators.forEach(({ name }, i) =>
-    messages.push({
-      type: 'statusOutput',
-      name,
-      cmd: 'git status --short',
-      isDefault: true,
-      exit: 0,
-      output: i % 2 ? '\uc791\uc5c5 \ud2b8\ub9ac\uac00 \uae68\ub057\ud569\ub2c8\ub2e4.' : ' M src/main.ts\n?? notes.md',
-      truncated: false,
-      git: {
-        branch: i % 2 ? 'main' : `feature/${name}`,
-        dirty: i % 2 ? 0 : 2,
-        recent: [
-          { hash: 'a12bc34', subject: '\ud654\uba74 \uc0c1\ud0dc \uac1c\uc120', time: isoMinutesAgo(40) },
-          { hash: 'de45f67', subject: '\uc791\uc5c5 \ub85c\uadf8 \uc815\ub9ac', time: isoMinutesAgo(140) },
-          { hash: '987abcd', subject: '\ucd08\uae30 \uc124\uc815', time: isoMinutesAgo(500) },
-        ],
-      },
-    }),
-  );
   return messages;
 }
 

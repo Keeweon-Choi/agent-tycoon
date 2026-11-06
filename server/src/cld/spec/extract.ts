@@ -12,9 +12,11 @@ import * as crypto from 'crypto';
 import { maskText } from '../mask.js';
 import { cellsOf, clean, FENCE, frontMatter, headerOf, HEADING, idsOf, parseDoc, statusColumn, statusWord, TABLE_ROW, TABLE_SEP } from '../tracking/docs.js';
 import type { DocKind } from './discover.js';
+import { kiroId, kiroReq, kiroTaskRefs, openspecName, readKiroTasks, type Shape } from './shapes.js';
+import { kitId, readSpec, taskFromTitle } from './speckit.js';
 import type { DocMode } from './store.js';
 
-export const ITEM_SHAPES = ['row', 'heading', 'reqhead', 'check', 'fm'] as const;
+export const ITEM_SHAPES = ['row', 'heading', 'reqhead', 'check', 'fm', 'bullet'] as const;
 export type ItemShape = (typeof ITEM_SHAPES)[number];
 
 export interface Extracted {
@@ -43,6 +45,10 @@ export interface ExtractOptions {
   depth: number;
   shortIds: boolean;
   idPatterns: readonly string[];
+  /** K9: the Spec Kit feature folder the document sits in (`002-checkout`): its stories, FR/SC lines and tasks get `<folder>/<number>` display IDs. */
+  speckit?: string;
+  /** RQ5: the Kiro / OpenSpec folder the document sits in (shapes.ts): `<feature>/R3` display IDs, `_Requirements:` references, requirement names as titles. */
+  shape?: Shape;
 }
 
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
@@ -122,22 +128,55 @@ export function extract(text: string, fileName: string, o: ExtractOptions): Extr
     for (let j = i + 1; j < lines.length && !level[j]; j++) out.push(lines[j]);
     return ids.all(out.join('\n'));
   };
+  const sh = o.shape;
+  /** RQ5: a Kiro task's `_Requirements: 1.1, 2.3_` lines, as `<feature>/R1` references by the task's line. */
+  const kiroRefs = new Map(sh?.tool === 'kiro' && sh.file === 'tasks' ? readKiroTasks(text).map((t) => [t.line, kiroTaskRefs(sh.feature, t)] as const) : []);
   const raw: Array<Omit<Extracted, 'ordinal' | 'parent' | 'textHash' | 'section'> & { body: string }> = [];
   const taken = new Set<number>();
   for (const e of parsed.entries) {
     const i = e.line - 1;
     if (e.kind === 'row') raw.push({ shape: 'row', displayId: e.id, title: e.title, line: e.line, body: rowBody.get(e.line) ?? e.title, refs: e.refs });
     else if (e.kind === 'heading' && e.id) raw.push({ shape: 'heading', displayId: e.id, title: withoutId(e.title, e.id), line: e.line, body: section(i), refs: ownRefs(i) });
-    else if (e.kind === 'check' && CHECK_KINDS.includes(o.kind)) raw.push({ shape: 'check', title: e.title, line: e.line, body: e.title, refs: e.refs });
-    else continue;
+    else if (e.kind === 'check' && CHECK_KINDS.includes(o.kind)) {
+      const kt = o.speckit && fileName.toLowerCase() === 'tasks.md' ? taskFromTitle(e.title) : null;
+      if (!kt) raw.push({ shape: 'check', title: e.title, line: e.line, body: e.title, refs: [...e.refs, ...(kiroRefs.get(e.line) ?? [])] });
+      // K9: `T001 [P] [US1] text` is task 001 of this feature; the story and FR numbers it names are its refs.
+      else {
+        const refs = [...(kt.story !== undefined ? [kitId(o.speckit!, `US${kt.story}`)] : []), ...kt.frs.map((f) => kitId(o.speckit!, f))];
+        raw.push({ shape: 'check', displayId: kitId(o.speckit!, kt.id), title: kt.text, line: e.line, body: e.title, refs });
+      }
+    } else continue;
     taken.add(e.line);
+  }
+  // K9: a Spec Kit spec.md's user stories (a heading), FR and SC lines (a bullet).
+  if (o.speckit && o.kind === 'requirements' && fileName.toLowerCase() === 'spec.md') {
+    const spec = readSpec(text);
+    const own = (shape: ItemShape, num: string, title: string, line: number, body: string) => {
+      if (taken.has(line)) return;
+      taken.add(line);
+      raw.push({ shape, displayId: kitId(o.speckit!, num), title, line, body, refs: [] });
+    };
+    for (const st of spec.stories) own('heading', `US${st.n}`, st.title, st.line, section(st.line - 1));
+    for (const r of [...spec.frs, ...spec.scs]) own('bullet', r.id, r.text, r.line, lines[r.line - 1]);
   }
   const h1s = level.filter((l) => l === 1).length;
   for (let i = end; i < lines.length; i++) {
     if (!level[i] || taken.has(i + 1)) continue;
     const title = clean(HEADING.exec(lines[i])![2]);
     if (ids.atStart(title)) continue; // an ID heading parseDoc capped
-    if (REQUIREMENT.test(title)) raw.push({ shape: 'reqhead', title, line: i + 1, body: section(i), refs: ownRefs(i) });
+    if (REQUIREMENT.test(title)) {
+      // RQ5: in a Kiro requirements.md `### Requirement 3[: name]` is requirement 3 of the feature; in an OpenSpec spec the name is the title.
+      const kiro = sh?.tool === 'kiro' && sh.file === 'requirements' && level[i] === 3 ? kiroReq(title) : null;
+      const named = sh?.tool === 'openspec' ? openspecName(title) : null;
+      raw.push({
+        shape: 'reqhead',
+        ...(kiro && sh?.tool === 'kiro' && { displayId: kiroId(sh.feature, kiro.n) }),
+        title: kiro?.name || named || title,
+        line: i + 1,
+        body: section(i),
+        refs: ownRefs(i),
+      });
+    }
     // A single `#` is the document's title, not a section.
     else if (o.mode === 'headings' && level[i] <= o.depth && (level[i] > 1 || h1s > 1))
       raw.push({ shape: 'heading', title, line: i + 1, body: section(i), refs: ownRefs(i) });
@@ -190,14 +229,31 @@ export function itemSource(text: string, line: number, shape: ItemShape): string
     const h = tableHead(lines, i);
     return h < 0 ? lines[i] : [lines[h], lines[h + 1], lines[i]].join('\n');
   }
-  if (shape === 'check') return lines[i];
+  if (shape === 'check' || shape === 'bullet') return lines[i];
   if (shape === 'fm') return lines.slice(frontMatter(lines).end).join('\n');
   return lines.slice(i, sectionEnd(lines, i)).join('\n');
 }
 
-const CRITERIA_COLUMN = /^(인수\s*기준|검증|acceptance(\s+criteria)?|완료\s*조건)$/;
+const CRITERIA_COLUMN = /^(인수\s*기준|acceptance(\s+criteria)?|완료\s*조건)$/;
+/** RQ5: our SRS's `검증` column says how to check the requirement (확인 방법), which is not an acceptance criterion. */
+const VERIFY_COLUMN = /^(검증|검증\s*방법|확인\s*방법|verification|how\s+to\s+verify)$/i;
 const CRITERIA_HEADING = /^(done when|tests?|검증|인수\s*기준|완료\s*조건|acceptance(\s+criteria)?)$/i;
 const SCENARIO = /^scenario\b/i;
+
+/** A row block's (itemSource: header, separator, row) cell under the first header the pattern names, one entry per `<br>`; a row without its header has no column to read. */
+function columnOf(lines: string[], column: RegExp): string[] {
+  if (lines.length < 3) return [];
+  const col = headerOf(lines[0]).findIndex((c) => column.test(c));
+  return (col < 0 ? '' : (cellsOf(lines[2])[col] ?? ''))
+    .split(/<br\s*\/?>/i)
+    .map(clean)
+    .filter(Boolean);
+}
+/** RQ5: how to check the requirement (확인 방법), from a row's `검증` column; other shapes name none. */
+export const verifyOf = (block: string, shape: ItemShape): string[] => (shape === 'row' ? columnOf(block.split(/\r?\n/), VERIFY_COLUMN) : []);
+/** K9: Spec Kit's `**Acceptance Scenarios**:` label over a numbered `Given … When … Then …` list. */
+const SCENARIO_LABEL = /^\s*\*{0,2}Acceptance Scenarios\*{0,2}\s*:?\*{0,2}\s*$/i;
+const NUMBERED = /^\s*\d{1,3}[.)]\s+(.*)$/;
 const LIST_ITEM = /^\s*(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/;
 
 /**
@@ -209,20 +265,18 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/;
  */
 export function criteriaOf(block: string, shape: ItemShape): string[] {
   const lines = block.split(/\r?\n/);
-  if (shape === 'check' || !lines.length) return [];
-  if (shape === 'row') {
-    // itemSource: header, separator, row; a row without its header has no column to read.
-    if (lines.length < 3) return [];
-    const col = headerOf(lines[0]).findIndex((c) => CRITERIA_COLUMN.test(c));
-    const cell = col < 0 ? '' : (cellsOf(lines[2])[col] ?? '');
-    return cell
-      .split(/<br\s*\/?>/i)
-      .map(clean)
-      .filter(Boolean);
-  }
+  if (shape === 'check' || shape === 'bullet' || !lines.length) return [];
+  if (shape === 'row') return columnOf(lines, CRITERIA_COLUMN);
   const out: string[] = [];
   // A heading's block starts with its own heading (skipped); a front-matter document's is its body.
   for (let j = shape === 'fm' ? 0 : 1; j < lines.length; j++) {
+    if (SCENARIO_LABEL.test(lines[j])) {
+      for (let k = j + 1; k < lines.length && !HEADING.test(lines[k]) && !/^\s*(\*\*|---)/.test(lines[k]); k++) {
+        const item = NUMBERED.exec(lines[k]);
+        if (item) out.push(clean(item[1]));
+      }
+      continue;
+    }
     const h = HEADING.exec(lines[j]);
     const title = h ? clean(h[2]) : '';
     if (!h || !(CRITERIA_HEADING.test(title) || SCENARIO.test(title))) continue;

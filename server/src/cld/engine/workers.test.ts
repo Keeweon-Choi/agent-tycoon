@@ -282,7 +282,10 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     });
     expect(r.agent(e, 'alpha-a').sessionId).not.toBe(old);
     expect(r.agent(e, 'alpha').sessionId).toBe(lead);
-    expect(r.inbox).toEqual([{ name: 'alpha-a', text: 'HANDOFF' }]);
+    // K1: the handoff goes in whole, under the safety lines and above the engine's work basis.
+    expect(r.inbox.map((m) => m.name)).toEqual(['alpha-a']);
+    expect(r.inbox[0].text).toContain('\nHANDOFF\n');
+    expect(r.inbox[0].text).toContain('Worker: alpha-a');
   });
 
   it('compaction counts and the opt-in nudge are per agent', async () => {

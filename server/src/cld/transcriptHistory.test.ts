@@ -3,7 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 
-import { chatHistory, chatSearch, repliedState } from './transcriptHistory.js';
+import { historyHop, readRenewHistory, renewHistoryPath } from './engine/renewals.js';
+import { chatFiles, chatHistory, chatSearch, leadHistoryHop, repliedState } from './transcriptHistory.js';
 import { chatItems, TranscriptTail } from './transcriptView.js';
 
 const root = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cld-history-'));
@@ -170,6 +171,30 @@ describe('transcript history', () => {
     expect(page.items[0].session).toBe('oldest');
     expect(page.items[3].session).toBeUndefined();
     expect(page.done).toBe(true);
+  });
+
+  it('lists the files exchanged, newest first, a page at a time, across sessions', async () => {
+    const dir = root();
+    const current = path.join(dir, 'current.jsonl');
+    const sent = (n: number) => record(2 * n, `look ${n}\n[첨부] /p/20260101-000000-f${n}.png (image/png, ${n} KB)`);
+    write(path.join(dir, 'previous.jsonl'), [sent(0)]);
+    write(current, [
+      ...Array.from({ length: 35 }, (_, n) => sent(n + 1)),
+      record(99, 'here\n[첨부] /src/report.pdf'), // a lead's file: read through the outbox
+      record(100, 'plain text, no file'),
+    ]);
+    const outbox = (source: string) => ({ name: 'report.pdf', path: `${source}.copy`, type: 'application/pdf', sizeKb: 2 });
+    const first = await chatFiles(current, undefined, { outbox });
+    expect(first.files).toHaveLength(30);
+    expect(first.files[0]).toMatchObject({ kind: 'assistant', name: 'report.pdf', path: '/src/report.pdf.copy' });
+    expect(first.files[1]).toMatchObject({ kind: 'user', name: 'f35.png', sizeKb: 35, type: 'image/png' });
+    expect(first.done).toBe(false);
+    const rest = await chatFiles(current, first.next, { outbox });
+    expect(rest.files.map((f) => f.name)).toEqual(['f6.png', 'f5.png', 'f4.png', 'f3.png', 'f2.png', 'f1.png', 'f0.png']);
+    expect(rest.files.at(-1)?.id).toBeTruthy();
+    expect(rest.done).toBe(true);
+    expect(rest.next).toBeUndefined();
+    expect(await chatFiles(null)).toEqual({ files: [], done: true });
   });
 
   it('searches text in both sessions, newest first, caps hits and validates queries', async () => {
@@ -355,5 +380,35 @@ describe('REPLY-FULL: is the replied message still in the agent\'s context?', ()
     write(path.join(dir, 'new.jsonl'), [said(100, '새 대화')]);
     expect(await repliedState(path.join(dir, 'new.jsonl'), 'cccccccc', MARK, T0)).toEqual({ text: '지난 대화의 말' });
     expect(await repliedState(path.join(dir, 'new.jsonl'), 'zzzzzzzz', MARK, T0)).toBe('missing');
+  });
+
+  it('K1 (B3): after a renew the recorded history, not the folder guess, says which conversation came before', async () => {
+    const home = root();
+    const dir = root();
+    write(path.join(dir, 'old.jsonl'), [boss(1, 'cccccccc', '교대 전 대화의 말'), said(2, '네')]);
+    // An unrelated session of the same folder that ended later: the folder guess would take it.
+    write(path.join(dir, 'other.jsonl'), [boss(50, 'dddddddd', '다른 세션의 말')]);
+    write(path.join(dir, 'new.jsonl'), [said(100, '새 대화')]);
+    const newFile = path.join(dir, 'new.jsonl');
+    // Negative control: the guess takes the unrelated session for this agent's earlier one.
+    expect(await repliedState(newFile, 'dddddddd', MARK, T0)).toEqual({ text: '다른 세션의 말' });
+    fs.mkdirSync(path.dirname(renewHistoryPath(home)), { recursive: true });
+    const oldFile = path.join(dir, 'old.jsonl');
+    fs.writeFileSync(
+      renewHistoryPath(home),
+      JSON.stringify({ v: 1, terms: [{ name: 'alpha', sessionId: 'old', next: 'new', transcript: oldFile, bytes: fs.statSync(oldFile).size, endedAt: T0 + 3_000 }] }),
+    );
+    leadHistoryHop.hop = (file, start) => historyHop(file, start, [], readRenewHistory(home), () => null);
+    try {
+      // The reply rule (an earlier conversation: the whole text) holds through the recorded hop.
+      expect(await repliedState(newFile, 'cccccccc', MARK, T0 + 99_000)).toEqual({ text: '교대 전 대화의 말' });
+      expect(await repliedState(newFile, 'dddddddd', MARK, T0)).toBe('missing');
+      // A conversation the history does not name still falls back to the guess.
+      expect(historyHop(path.join(dir, 'other.jsonl'), T0 + 50_000, [], readRenewHistory(home), () => null)).toBeNull();
+      const page = await chatHistory(newFile);
+      expect(page.items.map((x) => x.session)).toEqual(['old', 'old', undefined]);
+    } finally {
+      leadHistoryHop.hop = undefined;
+    }
   });
 });

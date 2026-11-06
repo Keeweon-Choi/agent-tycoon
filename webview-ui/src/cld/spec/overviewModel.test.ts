@@ -5,7 +5,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import { SPEC_OVERVIEW_DONE_WINDOW_MS, SPEC_OVERVIEW_VIEWED } from '../../constants.js';
-import { parseViewed, pushViewed, questLights, rollDigits, showText, taskCounts, weekView } from './overviewModel.js';
+import { parseViewed, pushViewed, questLights, showText, taskCounts, weekView } from './overviewModel.js';
 
 const NOW = Date.parse('2026-11-03T12:00:00Z');
 const task = (status: string, updatedAt = '2026-11-03T10:00:00Z', project = 'alpha') => ({ project, status: status as 'done', updatedAt });
@@ -51,7 +51,7 @@ describe('SPT-P3-OVERVIEW model', () => {
       }
     };
     walk(path.join(__dirname, 'Overview.tsx'));
-    expect([...seen].map((f) => path.basename(f))).toEqual(expect.arrayContaining(['Overview.tsx', 'SpecTabs.tsx', 'ReqDetail.tsx', 'overviewModel.ts']));
+    expect([...seen].map((f) => path.basename(f))).toEqual(expect.arrayContaining(['Overview.tsx', 'SpecTabs.tsx', 'overviewModel.ts']));
   });
 
   it("GAME-UI-0 questLights: the requirement's evidence, else the Task's own facts; a half light says why when the data does", () => {
@@ -73,18 +73,6 @@ describe('SPT-P3-OVERVIEW model', () => {
 });
 
 describe('GAME-UI-1 G2 model', () => {
-  it('rollDigits: 0009 → 0010 rolls the ones then the tens; zeros in front dimmed; a fall does not roll', () => {
-    expect(rollDigits(9, 10)).toEqual([
-      { was: '0', now: '0', lead: true },
-      { was: '0', now: '0', lead: true },
-      { was: '0', now: '1', lead: false, roll: 1 },
-      { was: '9', now: '0', lead: false, roll: 0 },
-    ]);
-    expect(rollDigits(10, 9).some((c) => c.roll !== undefined)).toBe(false);
-    expect(rollDigits(0, 0).map((c) => c.lead)).toEqual([true, true, true, false]);
-    expect(rollDigits(9999, 10000).map((c) => c.now).join('')).toBe('10000');
-  });
-
   it('weekView: a new record (gold) only past a real best; cells capped, rejected on top; future days apart', () => {
     const days = (a: number[], r: number[] = []) => a.map((accepted, i) => ({ accepted, rejected: r[i] ?? 0 }));
     const calm = weekView({ start: '2026-11-02', today: 1, days: days([4, 5, 0, 0, 0, 0, 0], [0, 1]), weeks: [3, 0, 7, 11, 14] });

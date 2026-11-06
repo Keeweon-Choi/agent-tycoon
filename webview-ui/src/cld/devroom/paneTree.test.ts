@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { closeAt, drop, fillTree, leaves, LEAVES_MAX, type PaneNode, parseTree, preset, resize } from './paneTree.js';
+import { closeAt, drop, fillTree, leaves, LEAVES_MAX, type PaneNode, parseTree, preset, resize, setView } from './paneTree.js';
 
 const names = (n: PaneNode) => leaves(n).map((l) => l.name);
 
@@ -52,5 +52,16 @@ describe('the pane tree (DEVROOM-SUBVIEW, Orca-style free layout)', () => {
     expect(parseTree({ dir: 'row', a: { leaf: 'a' }, ratio: 0.5 })).toBeNull();
     expect(parseTree({ dir: 'diag', a: { leaf: 1 }, b: { leaf: 'b' }, ratio: 0.5 })).toBeNull();
     expect(parseTree('x')).toBeNull();
+  });
+
+  it('a pane keeps its view (chat by default), an old tree without views still loads, a view moves with its agent', () => {
+    const old = parseTree({ dir: 'row', a: { leaf: 'lead' }, b: { leaf: 'w1' }, ratio: 0.5 })!;
+    expect(leaves(old).map((l) => l.view)).toEqual(['chat', 'chat']);
+    const term = setView(old, ['b'], 'terminal');
+    expect(parseTree(JSON.parse(JSON.stringify(term)))).toEqual(term);
+    expect(parseTree({ leaf: 'x', view: 'video' })).toEqual({ leaf: 'x' });
+    expect(leaves(drop(term, ['a'], 'center', 'w1')).map((l) => `${l.name}:${l.view}`)).toEqual(['w1:terminal', 'lead:chat']);
+    expect(leaves(drop(term, ['a'], 'left', 'w1')).map((l) => `${l.name}:${l.view}`)).toEqual(['w1:terminal', 'lead:chat']);
+    expect(fillTree(term, ['lead', 'w1'])).toEqual(term);
   });
 });

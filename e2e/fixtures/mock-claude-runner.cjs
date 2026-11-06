@@ -491,6 +491,12 @@ async function playScenario(homeDir, scenario, context) {
 }
 
 async function main() {
+  // The daemon's `/usage` probe: an answer without a usage report (as for an API-key login),
+  // never a scenario claimed or a session played.
+  if (process.argv[2] === '-p' && process.argv[3] === '/usage') {
+    process.stdout.write(`${JSON.stringify({ type: 'result', subtype: 'success', total_cost_usd: 0 })}\n`);
+    return;
+  }
   const sessionId = parseSessionId(process.argv.slice(2));
   const cwd = process.cwd();
   const homeDir = os.homedir();

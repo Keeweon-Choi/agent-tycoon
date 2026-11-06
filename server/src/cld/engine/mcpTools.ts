@@ -19,6 +19,7 @@
  */
 import type { BoardTask } from '../../../../core/src/messages.js';
 import { SEND_TEXT_MAX } from '../chatSend.js';
+import { type AgentQueries, QUERY_TOOLS } from './agentQueries.js';
 import type { DelegationDeps } from './delegation.js';
 import { Delegator, LIMITS, MCP_SOURCE } from './delegation.js';
 import type { GroupPost } from './groupMessages.js';
@@ -80,6 +81,8 @@ export interface McpDeps {
   }): Promise<Reply>;
   /** C6: delegate_task's parts; absent, delegate_task answers rejected/unavailable. */
   delegation?: DelegationDeps;
+  /** BRN K3: the read-only query tools (agentQueries.ts); absent, they answer unavailable. */
+  queries?: AgentQueries;
   now?: () => number;
 }
 
@@ -138,6 +141,7 @@ export class McpTools {
     for (const k of [...this.pairs.keys()])
       if (k.split('\0').some((n) => names.includes(n))) this.pairs.delete(k);
     this.delegator?.forget(names);
+    this.d.queries?.forget(names);
   }
 
   /** One tool call by agent `me` (already identified by its token). */
@@ -155,6 +159,10 @@ export class McpTools {
       return this.delegator.call(self, roster, input);
     }
     if (!self || !self.project) return fail('no_identity', 'this session is not a known agent');
+    if (QUERY_TOOLS.has(tool))
+      return this.d.queries
+        ? this.d.queries.call(self, tool, input)
+        : fail('unavailable', 'the query tools are not available in this daemon');
     const key = input.idempotencyKey;
     if (key !== undefined && (typeof key !== 'string' || !key || key.length > 200))
       return fail('bad_input', 'idempotencyKey must be a string of 1-200 characters');

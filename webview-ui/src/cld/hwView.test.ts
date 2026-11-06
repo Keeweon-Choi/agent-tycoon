@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { HwSample } from '../../../core/src/messages.js';
 import { setLanguage } from '../i18n/index.js';
-import { hwSections } from './format.js';
 import {
   getHwPrefs,
   HW_PREFS_KEY,
@@ -161,36 +160,6 @@ describe('the remembered detail', () => {
   });
 });
 
-describe('HW tab rows follow the view', () => {
-  const rows = (hw: HwSample, view: 'wsl' | 'windows') =>
-    hwSections(hw, view)
-      .flatMap((s) => s.rows.map((r) => `${s.title}|${r.label}|${r.text}`))
-      .join('\n');
-
-  it('WSL view: the distro RAM and its disk; Windows view: the host RAM and the drives', () => {
-    const wsl = rows(wslHost(), 'wsl');
-    expect(wsl).toContain('|RAM|3.2 / 16 GiB');
-    expect(wsl).toContain('|WSL|200 / 1000 GiB (20%)');
-    expect(wsl).not.toContain('Windows RAM');
-    expect(wsl).not.toContain('|C:|');
-    const windows = rows(wslHost(), 'windows');
-    expect(windows).toContain('|Windows RAM|21.5 / 48 GiB');
-    expect(windows).toContain('|D:|1960 / 2000 GiB (98%)');
-    expect(windows).not.toContain('|WSL|');
-  });
-
-  it('the CPU and memory cards carry the fold the tab hangs their detail on', () => {
-    const folds = hwSections(wslHost({ cpuTempC: 50 }), 'wsl').map((s) => [s.title, s.fold]);
-    expect(folds).toContainEqual(['CPU', 'cpu']);
-    expect(folds).toContainEqual(['Memory · disks', 'ram']);
-  });
-
-  it('several GPUs get a card each, all of them regardless of the view', () => {
-    const titles = hwSections(wslHost(), 'windows').map((s) => s.title);
-    expect(titles).toEqual(['GPU · Test GPU Alpha', 'GPU · Test GPU Beta', 'Memory · disks']);
-  });
-});
-
 describe('gpu fallbacks', () => {
   it('nvidia-smi VRAM in the single fields fills the first GPU; same-named GPUs get distinct cards', () => {
     const twins = wslHost({
@@ -204,10 +173,8 @@ describe('gpu fallbacks', () => {
     const [first, second] = hwViewModel(twins, 'wsl').gpus;
     expect(first).toMatchObject({ vramUsedMib: 900, vramTotalMib: 8192 });
     expect(second.vramUsedMib).toBeUndefined();
-    const titles = hwSections(twins)
-      .map((s) => s.title)
-      .filter((x) => x.startsWith('GPU'));
-    expect(new Set(titles).size).toBe(titles.length);
+    const keys = hwViewModel(twins, 'wsl').gpus.map((g) => g.key);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

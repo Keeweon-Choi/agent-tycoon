@@ -154,7 +154,7 @@ async function main() {
     // ── B. the graph and the detail on that data ──
     await openOfficeWindow(page);
     const win = page.locator(DEV_WINDOW);
-    await win.getByRole('button', { name: '개발', exact: true }).click();
+    await win.getByRole('button', { name: '프로젝트', exact: true }).click();
     const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
     await eventually('alpha in the picker', async () => (await picker.locator('option[value="alpha"]').count()) > 0);
     await picker.selectOption('alpha');

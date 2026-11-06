@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { derivedGpuPolicy, detectVramMib, gpuJsonPath, gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn } from './gpuPolicy.mjs';
+import { derivedGpuPolicy, detectVramMib, gpuJsonPath, gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn, writeNvidiaSmiChoice } from './gpuPolicy.mjs';
 import {
-  encodePowerShell, hwSensorsPlan, LHM, linuxSensors, parseHttpServiceState, parseTasklist, PAWNIO,
+  encodePowerShell, hwSensorsPlan, LHM, officeCommand, linuxSensors, parseHttpServiceState, parseTasklist, PAWNIO,
   renderLhmAdminScript, renderLhmConfig, renderLhmInstallScript, renderLhmUninstallAdminScript, renderLhmUninstallScript,
 } from './hwSensors.mjs';
 import {
@@ -96,12 +96,11 @@ test('chat is off by default; --allow-chat stores chat: true and starts the daem
   assert.ok(daemonArgs(chat).includes('--allow-chat'));
   assert.ok(!daemonArgs(mergeConfig({ chat: true }, { chat: false })).includes('--allow-chat'));
   assert.match(renderSystemdUnit({ repo, home, node, config: chat }), /--allow-chat/);
-  assert.ok(!daemonArgs(chat).includes('--chat-attaches')); // default 1
-  assert.equal(parseArgs(['--chat-attaches', '2']).chatAttaches, 2);
-  assert.throws(() => parseArgs(['--chat-attaches', '0']));
-  const two = mergeConfig({ chat: true }, { chatAttaches: 2 });
-  const args = daemonArgs(two);
-  assert.equal(args[args.indexOf('--chat-attaches') + 1], '2');
+  // The terminal cap is gone (11-06): an older config.json's chatAttaches is dropped, never passed on.
+  const old = mergeConfig({ chat: true, chatAttaches: 2 });
+  assert.equal(old.chatAttaches, undefined);
+  assert.ok(!daemonArgs(old).includes('--chat-attaches'));
+  assert.throws(() => parseArgs(['--chat-attaches', '2']));
 });
 
 test('approval requests are off by default; the flag turns them on (T-0022)', () => {
@@ -560,6 +559,9 @@ test('T-0094: the installer reads the GPU size from a hw.json, and calls nvidia-
     fs.mkdirSync(path.dirname(gpuJsonPath(home)), { recursive: true });
     fs.writeFileSync(gpuJsonPath(home), '{"nvidiaSmi":true}');
     assert.equal(nvidiaSmiOptIn(home, {}), true);
+    fs.writeFileSync(gpuJsonPath(home), '{"nvidiaSmi":false}');
+    assert.equal(nvidiaSmiOptIn(home, { nvidiaSmi: true }), false); // the office's switch turned it off
+    fs.writeFileSync(gpuJsonPath(home), '{"nvidiaSmi":true}');
     const hw = path.join(home, '.local/share/cld-gui/hw.json');
     fs.mkdirSync(path.dirname(hw), { recursive: true });
     fs.writeFileSync(hw, JSON.stringify({ ts: '2020-01-01T00:00:00Z', gpu: { vram_total_mib: 12288 } }));
@@ -660,4 +662,30 @@ test('S6: a broken or newer exposure ledger is never overwritten or deleted', as
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('hw-every-os: the office command (plan|install) answers nothing to install off Windows/WSL and probes nothing', async () => {
+  assert.deepEqual(await officeCommand(['plan', '--port', '8085'], 'linux'), { install: false, lines: [], lhmPort: null });
+  assert.deepEqual(await officeCommand(['install'], 'darwin'), { install: false, lines: [], lhmPort: null });
+});
+
+test('hw-every-os: an explicit --nvidia-smi / --no-nvidia-smi is written into gpu.json, other keys kept', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-smi-'));
+  const quiet = { log: () => {} };
+  try {
+    const file = gpuJsonPath(home);
+    assert.equal(writeNvidiaSmiChoice(home, undefined, quiet), false); // no flag this run: nothing written
+    assert.equal(fs.existsSync(file), false);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ exclusiveGib: 12, nvidiaSmi: true })); // the office switch turned it on
+    assert.equal(writeNvidiaSmiChoice(home, false, quiet), true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { exclusiveGib: 12, nvidiaSmi: false });
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(nvidiaSmiOptIn(home, { nvidiaSmi: true }), false); // the reinstall's flag holds
+    assert.equal(writeNvidiaSmiChoice(home, true, { ...quiet, dryRun: true }), true);
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).nvidiaSmi, false); // a dry run writes nothing
+    fs.writeFileSync(file, '{ broken');
+    assert.equal(writeNvidiaSmiChoice(home, true, quiet), false);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{ broken'); // never overwritten
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

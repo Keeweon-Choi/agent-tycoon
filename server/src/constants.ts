@@ -7,27 +7,18 @@ export const PROJECT_SCAN_INTERVAL_MS = 1000;
 // ── cld-gui sources ─────────────────────────────────────────
 /** Usage refresh cadence while an office viewer is present. */
 export const USAGE_REFRESH_MS = 120_000;
-/** Claude's account usage endpoint (the one Claude Code's own /usage reads), with the user's OAuth token. */
-export const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
-/** The beta header that endpoint requires for an OAuth bearer token. */
-export const CLAUDE_USAGE_BETA = 'oauth-2025-04-20';
-export const CLAUDE_USAGE_USER_AGENT = 'agent-tycoon';
-/** One usage request (fetch or its curl retry) gives up after this. */
-export const CLAUDE_USAGE_TIMEOUT_MS = 10_000;
-/** At most one usage request per refresh interval, whatever asks (a reconnect, the refresh icon); the
- *  slack keeps a timer tick that fires a hair early from skipping a whole interval. */
-export const CLAUDE_USAGE_MIN_GAP_MS = USAGE_REFRESH_MS - 5_000;
-/** After a 429, a 5xx or a network error the next usage request waits USAGE_REFRESH_MS doubled per failure
- *  in a row (4, 8, 16 min ...), or the server's Retry-After; either way at most this long. */
-export const CLAUDE_USAGE_BACKOFF_MAX_MS = 30 * 60_000;
-/** While backing off, the last good endpoint reading (per-model figures included) stays shown until it is this old. */
+/** `agty status` uses the status line's saved report (no viewer, so no reading in memory) while it is younger than this. */
 export const CLAUDE_USAGE_STALE_MS = 6 * 3_600_000;
-/** The last good endpoint reading, kept next to usage-claude.json (the status line's) so a restart still shows per-model windows. */
-export const CLAUDE_USAGE_API_FILE = 'usage-claude-api.json';
-/** macOS: the Keychain item Claude Code keeps its OAuth credentials in. */
-export const CLAUDE_KEYCHAIN_SERVICE = 'Claude Code-credentials';
-/** A Keychain read that would wait on a permission dialog is given up after this. */
-export const CLAUDE_KEYCHAIN_TIMEOUT_MS = 3_000;
+/** The status line's report is two small windows; anything bigger at that path is not one. */
+export const CLAUDE_USAGE_REPORT_MAX_BYTES = 64 * 1024;
+/** Claude Code's `/usage` (the per-model weeks the status line lacks): at most this often while someone views. */
+export const USAGE_PROBE_MIN_GAP_MS = 5 * 60_000;
+/** One `/usage` run gives up after this (it calls no model, so it answers in seconds; it holds stdin for 4 s of it). */
+export const USAGE_PROBE_TIMEOUT_MS = 15_000;
+/** The `/usage` child's stdin stays open this long: its background limits fetch needs a few seconds after start (the CLI's own stdin wait is 3 s). */
+export const USAGE_PROBE_STDIN_HOLD_MS = 4_000;
+/** spawnJson: a child that ignored the timeout's SIGTERM is killed (SIGKILL) this long after it, so it cannot block the process-wide queue. */
+export const SPAWN_JSON_KILL_GRACE_MS = 3_000;
 /** An on-demand Codex turn only refreshes its locally-written rate-limit log. */
 export const CODEX_USAGE_PROBE_TIMEOUT_MS = 60_000;
 /** Let an on-demand probe close gracefully before the daemon escalates its timeout. */
@@ -110,6 +101,11 @@ export const BACKGROUND_RECOVERY_OPEN_TOOL_MAX_MS = 30 * 60_000;
 /** `permissionMode` a transcript's `permission-mode` record carries when the session
  *  skips permission prompts (--dangerously-skip-permissions). */
 export const PERMISSION_MODE_BYPASS = 'bypassPermissions';
+/** ACP-1: an ACP agent's transcript (acp/transcript.ts): it asks every permission through ACP, so a
+ *  quiet tool call is never a permission wait either. */
+export const PERMISSION_MODE_ASKS_EXACTLY = 'acp';
+/** Modes under which the office never guesses a permission wait. */
+export const PERMISSION_MODES_NO_GUESS: ReadonlySet<string> = new Set([PERMISSION_MODE_BYPASS, PERMISSION_MODE_ASKS_EXACTLY]);
 
 /** Renew before Claude Code's own compaction point (core/src/constants.ts). */
 export { RENEW_FILL_PCT } from '../../core/src/constants.js';
@@ -254,6 +250,20 @@ export const HUE_SHIFT_MAX_DEG = 360;
 export const CHAT_SEARCH_MAX_BYTES = 64 * 1024 * 1024;
 /** Maximum search matches returned to one client. */
 export const CHAT_SEARCH_MAX_HITS = 50;
+/** The messenger-wide search (searchAll.ts), bounded so a big history never stalls a PC that also does heavy work:
+ *  at most this many results in all, and per conversation, */
+export const ALL_SEARCH_MAX_HITS = 60;
+export const ALL_SEARCH_HITS_PER_CONVERSATION = 4;
+/** the newest this many transcript bytes per conversation (the earlier sessions of a conversation share them), */
+export const ALL_SEARCH_BYTES_PER_CONVERSATION = 4 * 1024 * 1024;
+/** and this long in all, then the answer goes out with what was found. */
+export const ALL_SEARCH_MAX_MS = 3000;
+/** A message's text around a match that is masked before its snippet is cut (characters each way). */
+export const CHAT_SEARCH_MASK_WINDOW = 8000;
+/** The longest a room-post search reads (months of a room's log, newest first). */
+export const ALL_SEARCH_ROOM_SEGMENTS = 3;
+/** Files one library page returns (ends on a message boundary, so a message with several may pass it). */
+export const CHAT_LIBRARY_PAGE = 30;
 
 /** cld-gui (S6): a confirmed connector change closes the connection it came through this long after answering, so the page gets the result and can move. */
 export const CUT_GRACE_MS = 5000;
@@ -269,6 +279,21 @@ export const AGENT_CLI_RECHECK_MIN_GAP_MS = 5_000;
 export const WINDOWS_LOGON_ENV_CACHE_MS = 5_000;
 /** AGENT-CLI: maximum time spent proving a discovered Claude Code candidate works. */
 export const AGENT_CLI_VERSION_TIMEOUT_MS = 10_000;
+/** AGENT-UPDATE: an agent CLI's own self-update (`claude update`, `codex update`) gets this long before it is stopped. */
+export const AGENT_CLI_UPDATE_TIMEOUT_MS = 5 * 60_000;
+/** AGENT-UPDATE: after the timeout's SIGTERM, how long before the CLI is killed and its pipes are closed. */
+export const AGENT_CLI_UPDATE_KILL_GRACE_MS = 5_000;
+/** AGENT-UPDATE: what the update run may print before it is cut off (bytes), and how many of its last lines the owner sees. */
+export const AGENT_CLI_UPDATE_MAX_BYTES = 4 * 1024 * 1024;
+export const AGENT_CLI_UPDATE_LINES = 12;
+/** AGENT-LATEST: the newest published version of an agent CLI (display only), read from the npm registry over HTTPS. */
+export const AGENT_LATEST_REGISTRY = 'https://registry.npmjs.org/';
+export const AGENT_LATEST_PACKAGES = { claude: '@anthropic-ai/claude-code', codex: '@openai/codex' } as const;
+/** AGENT-LATEST: a lookup gives up after this long, reads at most this many bytes, and a CLI is asked again after the TTL (a forced one after the gap). */
+export const AGENT_LATEST_TIMEOUT_MS = 5_000;
+export const AGENT_LATEST_MAX_BYTES = 256 * 1024;
+export const AGENT_LATEST_TTL_MS = 60 * 60_000;
+export const AGENT_LATEST_MIN_GAP_MS = 30_000;
 /** AGENT-CLI: after ordering the restart, the plain daemon waits this long to be replaced before it says the restart failed. */
 export const AGENT_CLI_RESTART_WAIT_MS = 30_000;
 /** AGENT-CLI: the service manager command that restarts the daemon gives up after this long. */
@@ -320,6 +345,10 @@ export const PTY_MOVE_ALL_WAIT_MS = 30 * 60_000;
  * answer by then the hook gives no decision and Claude shows its own dialog in the agent's terminal.
  */
 export const PTY_PERMISSION_WAIT_MS = 4 * 60_000;
+/** FIX-PERM-RESTART: a hook asking again right after our start may beat the engine finding its
+ *  agent: for this long after the start its ask waits for the agent (looking this often). */
+export const PTY_PERMISSION_READY_MS = 30_000;
+export const PTY_PERMISSION_READY_POLL_MS = 500;
 /** Claude Code's own limit on that hook (seconds): above our wait, so our "no decision" comes first. */
 export const PTY_PERMISSION_HOOK_S = 270;
 /** TERM-P3: a move's rollback waits this long for the agent's host terminals to close (SIGKILL after TERMINAL_KILL_GRACE_MS). */
@@ -385,6 +414,27 @@ export const SPEC_ITEM_TITLE_MAX = 200;
 /** The 요구사항 list: rows per page by default, and at most. */
 export const SPEC_ITEMS_PAGE = 200;
 export const SPEC_ITEMS_PAGE_MAX = 500;
+
+// RQ4: the optional official Spec Kit install (server/src/cld/spec/workflow.ts).
+/** The Spec Kit release `uvx --from` runs, as shown (a new one is read, files and options, before it goes here). */
+export const SPEC_KIT_VERSION = 'v1.3.1';
+/** …pinned by its commit (v1.3.1's annotated tag points here; a tag can move, the release is not immutable).
+ *  ponytail: Spec Kit's own Python dependencies still float (it ships no lock file); uv resolves them at
+ *  run time. A `--with` pin list or a vendored wheel if that ever matters. */
+export const SPEC_KIT_COMMIT = '51f03cfccfe20e6744aefbb76c50521fdf306673';
+export const SPEC_KIT_SOURCE = 'git+https://github.com/github/spec-kit.git';
+/** The core commands a v1.3.1 integration writes one skill each for (templates/commands/*.md). */
+export const SPEC_KIT_COMMANDS: readonly string[] = ['analyze', 'checklist', 'clarify', 'constitution', 'converge', 'implement', 'plan', 'specify', 'tasks'];
+/** One `uvx … specify` run: the first downloads Spec Kit and maybe a Python. */
+export const SPEC_KIT_RUN_TIMEOUT_MS = 5 * 60_000;
+export const SPEC_KIT_OUTPUT_MAX_BYTES = 256 * 1024;
+/** A shown plan can be consented to this long, once, by the session it was shown to. */
+export const SPEC_KIT_CONSENT_TTL_MS = 10 * 60_000;
+/** The report's list of created files stops here (the count is whole). */
+export const SPEC_KIT_REPORT_FILES_MAX = 200;
+/** The before/after listing of Spec Kit's folders stops here. */
+export const SPEC_KIT_WALK_MAX = 5_000;
+
 /** The 요구사항 search text, at most. */
 export const SPEC_QUERY_MAX = 100;
 // ── SPT-P1C identity ladder, match cache, questions ──
@@ -596,8 +646,19 @@ export const SPEC_MAP_BLOCK_RECENT_MAX = 5;
 export const SPEC_MAP_BLOCK_TAGS_MAX = 6;
 /** A feature's tasks listed in the chain, at most ('+N'). */
 export const SPEC_MAP_FEATURE_TASKS_MAX = 50;
+/** K9: a Spec Kit folder's lists in the map answer (stories, FR/SC, tasks, plan paths, decisions), at most each, and one line's text at most this many characters. */
+export const SPEC_KIT_LIST_MAX = 200;
+export const SPEC_KIT_TEXT_MAX = 300;
+/** Spec Kit's constitution file, whose prose the rules do not read (the page says so). */
+export const SPEC_KIT_CONSTITUTION = '.specify/memory/constitution.md';
 /** The folder skeleton: at most this many folders proposed (top folders first, then one level below). */
 export const SPEC_ARCH_SKELETON_MAX = 60;
+/** BRN K8: a document's folder tree lines read, at most (past it the rest of its trees are not read; its diagrams are). */
+export const SPEC_ARCH_TREE_LINES_MAX = 500;
+/** BRN K8: the design modules, arrows and drift items a map answer carries, at most (the counts are whole). */
+export const SPEC_MAP_DESIGN_MODULES_MAX = 300;
+export const SPEC_MAP_DESIGN_EDGES_MAX = 500;
+export const SPEC_MAP_DRIFT_ITEMS_MAX = 100;
 
 // ── LOOKS-MEM: the character scan never inflates a sheet it already knows ──
 /** A PNG's signature, IHDR and the colour/interlace bytes: all the scan reads of a sheet to judge it. */
@@ -606,3 +667,74 @@ export const PNG_HEAD_BYTES = 33;
 export const THUMB_CACHE_DIR = 'cache/thumbs';
 /** Part of a thumbnail's cache key: raise it when `thumbOf` draws differently. */
 export const THUMB_CACHE_VERSION = 1;
+/** K1 (G6): how much of a transcript's end the one-time background sub-agent scan reads (a spawn
+ *  older than that is not seen: ponytail, the whole file if renews ever miss one). */
+export const BACKGROUND_SCAN_BYTES = 8 * 1024 * 1024;
+
+// ── BRN K3: the agent query tools (read only; BRN Appendix A.4, v0.1 Q12) ──
+/** Query calls an agent may make a minute (every query tool together), and the window. */
+export const AGENT_QUERY_PER_MINUTE = 30;
+export const AGENT_QUERY_WINDOW_MS = 60_000;
+/** A query answer's JSON at most (bytes): most tools, search_requirements, get_resume_context. */
+export const AGENT_QUERY_BYTES = 8 * 1024;
+export const AGENT_QUERY_SEARCH_BYTES = 4 * 1024;
+export const AGENT_QUERY_RESUME_BYTES = 16 * 1024;
+/** get_message: the neighbour lines' text at most (characters); the message itself is capped by the bytes. */
+export const AGENT_QUERY_LINE_MAX = 300;
+/** search_requirements: rows asked of the spec reader at most. */
+export const AGENT_QUERY_SEARCH_ROWS = 30;
+/** get_task_context: files and modules listed at most. */
+export const AGENT_QUERY_FILES_MAX = 40;
+export const AGENT_QUERY_MODULES_MAX = 12;
+/** get_resume_context: commits since the handoff's HEAD, Tasks changed since, at most; the git read's limits. */
+export const AGENT_QUERY_SINCE_COMMITS = 20;
+export const AGENT_QUERY_SINCE_TASKS = 20;
+export const AGENT_QUERY_GIT_MS = 5_000;
+export const AGENT_QUERY_GIT_BYTES = 64 * 1024;
+/** get_message: the newest posts read of each room the caller is in (an older post is not found). */
+export const AGENT_QUERY_ROOM_POSTS = 500;
+/** The asked arguments as the agent_query event records them, at most (characters). */
+export const AGENT_QUERY_ASK_MAX = 200;
+
+// ── BRN K5: the 개요's five lines (the Lead's latest handoff, read on request) ──
+/** Lines kept of each handoff section, and characters of a line, at most. */
+export const RESUME_SECTION_ITEMS = 5;
+export const RESUME_ITEM_CHARS = 200;
+
+// ── The street (MHO v1b, ADR-0020) ───────────────────────────
+/** A neighbour's summary is asked for this often, and only while some client watches the street. */
+export const STREET_POLL_MS = 10_000;
+/** One summary or pairing call to another PC gives up after this long. */
+export const STREET_FETCH_TIMEOUT_MS = 5_000;
+/** A pair code lives this long (as a short login code, NFR-SEC-016), once, and one at a time. */
+export const STREET_PAIR_CODE_MS = 5 * 60_000;
+/** A signed summary request is good this long either side of the reader's clock (ADR-0020 M1). */
+export const STREET_SIG_WINDOW_MS = 2 * 60_000;
+/** One reader gets at most one summary this often (a leaked key cannot hammer the host). */
+export const STREET_SUMMARY_MIN_MS = 2_000;
+
+// ── ACP-1: agents that speak ACP (engine/agents/acp/) ──
+/** initialize plus session/new (or resume/load) must answer within this, or the child is ended. */
+export const ACP_START_MS = 60_000;
+/** session/close is waited for this long on a stop, then the child is ended anyway. */
+export const ACP_CLOSE_MS = 2_000;
+/** After SIGTERM, SIGKILL our child this much later if it is still there. */
+export const ACP_KILL_GRACE_MS = 3_000;
+/** One JSON-RPC message from an agent, at most (a longer line closes its connection). */
+export const ACP_MESSAGE_MAX_BYTES = 8 * 1024 * 1024;
+/** One assistant text record in the transcript, at most (characters; the rest is cut). */
+export const ACP_TEXT_MAX = 64 * 1024;
+/** One field an agent gives (a tool title, a command, a path, an option name), at most. */
+export const ACP_FIELD_MAX = 2_000;
+/** Permission options a card shows at most (ACP defines four kinds). */
+export const ACP_OPTIONS_MAX = 8;
+/** Permission requests one ACP session may hold open at once; more are answered `cancelled`. */
+export const ACP_ASKS_MAX = 4;
+/** Tool calls one ACP transcript keeps open (never ended) at most; more are not written. */
+export const ACP_OPEN_TOOLS_MAX = 1_000;
+/** An ACP transcript's size past which only our prompts and turn ends are written (bytes). */
+export const ACP_TRANSCRIPT_MAX_BYTES = 128 * 1024 * 1024;
+/** Plan entries written at most. */
+export const ACP_PLAN_MAX = 50;
+/** The end of an agent's stderr kept for the log when it fails to start (bytes). */
+export const ACP_STDERR_KEEP = 2_048;

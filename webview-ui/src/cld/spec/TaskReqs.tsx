@@ -19,7 +19,8 @@ import { LinkChip, ReqDetail } from './ReqDetail.js';
 import { itemPath, type TraceItem, traceWrite, useTrace } from './traceApi.js';
 
 const muted = 'text-text-muted text-xs';
-const inputCls = 'bg-bg border-2 border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
+const inputCls =
+  'bg-bg border-ui rounded-ui-card border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
 const ORDER: Record<LinkStatus, number> = { confirmed: 0, observed: 1, suggested: 2, rejected: 3 };
 
 type ItemRow = { uid: string; displayId?: string; title: string; doc: string; line: number };
@@ -53,7 +54,7 @@ function ReqPicker({
   );
   return (
     <div
-      className="border-2 border-border p-6 space-y-6 min-w-0 w-full"
+      className="border-ui rounded-ui-card border-border p-6 space-y-6 min-w-0 w-full"
       data-testid="spec-issues-picker"
     >
       <div className="flex gap-6 min-w-0">
@@ -128,7 +129,7 @@ export function ReqFilter({
     );
   return (
     <span
-      className="flex items-center gap-4 border-2 border-accent px-4 text-xs min-w-0"
+      className="flex items-center gap-4 border-ui rounded-ui-card border-accent px-4 text-xs min-w-0"
       data-testid="spec-issues-chip"
       data-uid={value.uid}
     >

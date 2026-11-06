@@ -191,7 +191,10 @@ export interface ControlDeps {
   moveAll?(stop: boolean): { ok: true; total?: number } | { ok: false; error?: string };
   /** TERM-P3: a PTY agent's PermissionRequest hook (`cld-gui permission-hook`): the owner's
    *  answer, or null (no answer in time, or no card for it: Claude shows its own dialog). */
-  permission?(agent: string, ask: { tool: string; input: Record<string, unknown> }): Promise<'allow' | 'deny' | null>;
+  permission?(
+    agent: string,
+    ask: { tool: string; input: Record<string, unknown>; waitMs?: number },
+  ): Promise<'allow' | 'deny' | null>;
   /** `cld-gui task …` (DEV-BOARD): `by` is the caller (its token's project, else its source). */
   task?(
     args: Record<string, unknown>,
@@ -441,7 +444,9 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       const tool = str(a.tool);
       if (!tool) return refuse('usage', 'tool 이 없습니다');
       const input = a.input && typeof a.input === 'object' && !Array.isArray(a.input) ? (a.input as Record<string, unknown>) : {};
-      const decision = await d.permission(agent, { tool: tool.slice(0, 200), input });
+      // FIX-PERM-RESTART: a hook asking again after our restart has only the rest of its time.
+      const waitMs = typeof a.waitMs === 'number' && Number.isFinite(a.waitMs) ? a.waitMs : undefined;
+      const decision = await d.permission(agent, { tool: tool.slice(0, 200), input, ...(waitMs !== undefined && { waitMs }) });
       return { ok: true, decision };
     }
     case 'move-pty': {
@@ -507,13 +512,16 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
  */
 export async function listenControl(
   file: string,
-  handle: (req: ControlRequest) => Promise<Reply>,
+  /** `gone`: aborted when the caller hangs up before its answer (a hook Claude ended). */
+  handle: (req: ControlRequest, gone: AbortSignal) => Promise<Reply>,
   log: (line: string) => void = (l) => console.log(`[cld engine] ${l}`),
   platform: NodeJS.Platform = process.platform,
 ): Promise<net.Server | null> {
   const server = net.createServer((socket) => {
     let buf = '';
     let done = false;
+    const hungUp = new AbortController();
+    socket.on('close', () => hungUp.abort());
     socket.setEncoding('utf-8');
     socket.setTimeout(120_000, () => socket.destroy());
     socket.on('error', () => undefined);
@@ -534,7 +542,7 @@ export async function listenControl(
       const answer =
         'ok' in req
           ? Promise.resolve(req)
-          : handle(req).catch((err: unknown) => {
+          : handle(req, hungUp.signal).catch((err: unknown) => {
               log(`control: ${err instanceof Error ? err.message : String(err)}`);
               return refuse('daemon_error', 'cld-gui 데몬에서 오류가 났습니다');
             });

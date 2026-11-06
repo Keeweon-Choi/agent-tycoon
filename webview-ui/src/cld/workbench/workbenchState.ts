@@ -7,22 +7,25 @@ import type {
   BoardTask,
   CodexTask,
   EngineAction,
+  EngineAgentCaps,
   EngineProject,
   EngineState,
   OfficeOrchestrator,
   OfficeSnapshot,
 } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
-import { NAME_RE } from '../engine.js';
+import { choosesPermission, DEFAULT_PROVIDER, NAME_RE } from '../engine.js';
 import type { CldSnapshot } from '../officeStore.js';
 import { codexKind } from '../panels/jobs.js';
 import { rowBusy } from '../turnState.js';
 
-/** SPT-P1A/P1B/P3 (SPT §6.1): the Project Cockpit tabs (개요, 이슈, 요구사항, 그래프, 문서), then the operations ones (에이전트, 변경). */
-export const WORKBENCH_TABS = ['cockpit', 'tasks', 'reqs', 'graph', 'docs', 'agents', 'changes'] as const;
+/** SPT-P1A/P1B/P3 (SPT §6.1): the Project Cockpit tabs (지금 상황, 이슈, 요구사항, 지도). The operations
+ *  ones (에이전트, 변경) left the 현황판 (owner 11-06 18:24): commanding agents is the 개발실's, the runs the 실행 tab's.
+ *  RQ2: 문서 went into 요구사항 (its ⚙ sheet and 확인할 것). */
+export const WORKBENCH_TABS = ['cockpit', 'tasks', 'reqs', 'graph'] as const;
+/** RQ2: a tab a device may still remember, and the one it opens now. */
+const OLD_TABS: Record<string, WorkbenchTab> = { docs: 'reqs' };
 export type WorkbenchTab = (typeof WORKBENCH_TABS)[number];
-/** The operations tabs a phone folds under 더보기. */
-export const OPS_TABS: readonly WorkbenchTab[] = ['agents', 'changes'];
 /** Owner Q1 (SPT §14): with no tab remembered the 현황판 opens on 개요; a remembered tab wins. */
 export const DEFAULT_TAB: WorkbenchTab = 'cockpit';
 
@@ -30,7 +33,7 @@ export const DEFAULT_TAB: WorkbenchTab = 'cockpit';
  *  valid project name (NAME_RE), so no project can collide with it. */
 export const NO_PROJECT = '?none';
 /** The tabs the 프로젝트 없음 entry has: no Lead, no repository. */
-export const NO_PROJECT_TABS: readonly WorkbenchTab[] = ['agents', 'tasks'];
+export const NO_PROJECT_TABS: readonly WorkbenchTab[] = ['tasks'];
 /** Finished Codex runs shown on a project's 에이전트 tab; the rest sit behind one fold. */
 export const CODEX_FINISHED_SHOWN = 3;
 
@@ -47,7 +50,7 @@ export function parseSaved(raw: string | null): WorkbenchSaved {
     const data = JSON.parse(raw) as { project?: unknown; tab?: unknown };
     return {
       project: typeof data.project === 'string' && data.project ? data.project : null,
-      tab: WORKBENCH_TABS.find((tab) => tab === data.tab) ?? DEFAULT_TAB,
+      tab: WORKBENCH_TABS.find((tab) => tab === data.tab) ?? (typeof data.tab === 'string' ? OLD_TABS[data.tab] : undefined) ?? DEFAULT_TAB,
     };
   } catch {
     return fallback;
@@ -263,8 +266,8 @@ export function codexWorkerView(
 
 /** D3b: the "+ Worker" form, all strings. */
 export interface WorkerForm {
-  /** D5: which agent runs it. */
-  provider: 'claude' | 'codex';
+  /** D5: which agent runs it (an agentCaps id: Claude, Codex, ACP-1's installed ACP agents). */
+  provider: string;
   name: string;
   role: 'worker' | 'reviewer';
   folder: string;
@@ -298,6 +301,7 @@ export function workerFields(
   f: WorkerForm,
   project: string,
   projectFolder: string,
+  caps?: EngineAgentCaps,
 ): Partial<EngineAction> {
   const folder = f.folder.trim();
   return {
@@ -306,11 +310,22 @@ export function workerFields(
     ...(folder && folder !== projectFolder && { folder }),
     ...(f.model && { model: f.model }),
     ...(f.effort && { effort: f.effort }),
-    // D5: a Codex Worker has no permission mode (Codex exec never asks).
-    ...(f.provider === 'codex' ? { provider: 'codex' } : f.permissionMode && { permissionMode: f.permissionMode }),
+    ...(f.provider !== DEFAULT_PROVIDER && { provider: f.provider }),
+    // D5: an agent with one approval policy (Codex exec never asks) takes no permission mode.
+    ...(f.permissionMode && choosesPermission(caps) && { permissionMode: f.permissionMode }),
   };
 }
 
-/** D5: the agents the form offers: those installed here (agentChoices), Claude first. */
-export const workerProviders = (choices: EngineState['agentChoices']): WorkerForm['provider'][] =>
-  (['claude', 'codex'] as const).filter((p) => !!choices?.[p]);
+/** D5: the agents the form offers: those installed here (agentChoices), Claude first; ACP-1: then
+ *  every installed ACP agent (an agentCaps entry with its own name). */
+export const workerProviders = (
+  choices: EngineState['agentChoices'],
+  caps?: EngineState['agentCaps'],
+): WorkerForm['provider'][] => [
+  ...(['claude', 'codex'] as const).filter((p) => !!choices?.[p]),
+  ...Object.keys(caps ?? {}).filter((id) => !!caps?.[id]?.name),
+];
+
+/** An agent's name in the form: its own (an ACP agent's product name), else ours. */
+export const providerName = (id: string, caps: EngineAgentCaps | undefined): string =>
+  caps?.name ?? t(`workbench.provider.${id as 'claude' | 'codex'}`);

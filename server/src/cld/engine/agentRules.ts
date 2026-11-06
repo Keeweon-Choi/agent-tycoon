@@ -6,9 +6,12 @@
  *   1. the product's built-in rules, when the host keeps them enabled (next to cld/bin; they
  *      update with the engine): the shared default.<ko|en>.md, then (C7a, OSD-J) the role's
  *      playbook <lead|worker|reviewer>.<ko|en>.md,
- *   2. the user's global rules, ~/.config/agent-tycoon/rules.md (written only by the settings page),
- *   3. the agent's own `rulesFile`, if set.
- * A missing or unreadable layer is skipped; the engine never writes layers 2 and 3.
+ *   2. (RQ4) the spec workflow, spec-workflow.<ko|en>.md, only for a project its owner switched
+ *      on (`specWorkflow`); a project choice, so it goes in even when the host turned the
+ *      built-in rules off,
+ *   3. the user's global rules, ~/.config/agent-tycoon/rules.md (written only by the settings page),
+ *   4. the agent's own `rulesFile`, if set.
+ * A missing or unreadable layer is skipped; the engine never writes layers 3 and 4.
  */
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -90,13 +93,19 @@ export const builtinRules = (rulesDir: string | null, lang: RulesLang, role: Rul
 
 export const readUserRules = (home: string): string => read(userRulesPath(home));
 
-/** Built-in (shared + role) + user + project, blank-line separated; '' when all are empty.
- *  The shipped layer is left out when the host switch is off or `builtin: false`. */
+/** RQ4: the spec workflow layer a switched-on project's sessions get. */
+export const specWorkflowRules = (rulesDir: string | null, lang: RulesLang): string =>
+  shipped(rulesDir, 'spec-workflow', lang);
+
+/** Built-in (shared + role) + spec workflow + user + project, blank-line separated; '' when all
+ *  are empty. The shipped role layer is left out when the host switch is off or `builtin: false`;
+ *  the spec workflow layer only follows `specWorkflow` (the project's switch). */
 export function composeRules(o: {
   home: string;
   rulesDir: string | null;
   role?: RulesRole;
   builtin?: boolean;
+  specWorkflow?: boolean;
   projectRulesFile?: string | null;
   env?: NodeJS.ProcessEnv;
 }): string {
@@ -104,6 +113,7 @@ export function composeRules(o: {
     o.builtin === false || !useBuiltInRules(o.home)
       ? ''
       : builtinRules(o.rulesDir, rulesLanguage(o.home, o.env), o.role ?? 'lead'),
+    o.specWorkflow ? specWorkflowRules(o.rulesDir, rulesLanguage(o.home, o.env)) : '',
     readUserRules(o.home).trim(),
     o.projectRulesFile ? read(o.projectRulesFile).trim() : '',
   ]

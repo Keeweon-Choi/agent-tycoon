@@ -66,6 +66,7 @@ export function promotePair(
     folder: l.folder,
     ...(l.room !== undefined && { room: l.room }),
     ...(l.cloned && { cloned: true as const }),
+    ...(l.specWorkflow && { specWorkflow: l.specWorkflow }),
     ...pick(w, AGENT_OWN),
     ...pick(l, LEAD_SEAT),
     wantRunning: true,
@@ -282,23 +283,28 @@ export function eventLines(
   return lines.slice(-max);
 }
 
-export interface LeadBriefing {
-  when: string;
+/** K1 (BRN §3.2 B2): what both a new Lead's first message (leadPrompt) and a renew's work basis
+ *  list about the project: one shape, so the two briefings never drift apart. */
+export interface BriefingParts {
   /** The clock "recently finished" is measured against. */
   now: number;
   project: string;
-  worker: string;
-  oldLead: OldLead;
-  workerTranscript: string | null;
-  leadTranscript: string | null;
   /** The project's Tasks (any status; the open ones are listed). */
   tasks: BoardTask[];
-  /** An assignee's name after the swap, by its assignment id. */
+  /** An assignee's name (after a swap), by its assignment id. */
   nameOf: (assignmentId: string) => string | undefined;
   /** Jobs and Codex tasks of the project still running ("<title> <id>"). */
   running: string[];
   workers: Array<{ name: string; role: string; on: boolean }>;
   events: string[];
+}
+
+export interface LeadBriefing extends BriefingParts {
+  when: string;
+  worker: string;
+  oldLead: OldLead;
+  workerTranscript: string | null;
+  leadTranscript: string | null;
 }
 
 /** When `t` last moved to its status `done` or `review` (its history), within 24 h of `now`. */
@@ -310,8 +316,9 @@ function finishedAt(t: BoardTask, now: number): number | null {
   return now - at <= DAY_MS ? at : null;
 }
 
-/** The new Lead's first message: names, ids, titles, statuses and event one-liners only. */
-export function leadPrompt(b: LeadBriefing): string {
+/** The briefing lines (open Tasks, recently finished ones, running work, Workers, recent events)
+ *  inside `frame`, cut to `max` characters: fewer Tasks first, then fewer finished, then fewer events. */
+export function fitBriefing(b: BriefingParts, frame: (lines: string[]) => string, max = PROMPT_MAX): string {
   const open = b.tasks
     .filter((t) => t.status !== 'done')
     .sort((x, y) => (y.updatedAt ?? '').localeCompare(x.updatedAt ?? ''));
@@ -330,9 +337,7 @@ export function leadPrompt(b: LeadBriefing): string {
     ].join(' · ');
   const build = (shown: number, done: number, events: string[]) => {
     const more = open.length - shown;
-    return [
-      `[cld-gui Lead 교체 · ${b.when}] 이제 너는 프로젝트 '${b.project}' 의 Lead 다. 사용자와 다른 에이전트는 '${b.project}' 로 너를 부른다.`,
-      `이전 Lead 는 이제 Worker '${b.worker}'(${b.oldLead === 'worker' ? '켜짐' : '멈춤'}) 다. 너의 Worker 시절 대화: ${b.workerTranscript ?? '없음'}. 이전 Lead 대화: ${b.leadTranscript ?? '없음'} (필요하면 읽어라).`,
+    return frame([
       `열린 Task (${open.length}개):${open.length ? '' : ' 없음'}`,
       ...open.slice(0, shown).map(taskLine),
       ...(more > 0 ? [`… ${more}개 더 — get_task_status`] : []),
@@ -349,18 +354,28 @@ export function leadPrompt(b: LeadBriefing): string {
         : ['Worker: 없음']),
       `최근 이벤트 (24시간, ${events.length}줄):${events.length ? '' : ' 없음'}`,
       ...events,
-      '먼저 Task 현황을 확인하고, 필요하면 Worker 에게 맡겨 이어서 진행하라. 할 일이 없으면 기다린다.',
-    ].join('\n');
+    ]);
   };
   let shown = Math.min(open.length, TASKS_MAX);
   let done = Math.min(finished.length, FINISHED_MAX);
   let events = b.events.slice(-EVENTS_MAX);
   let text = build(shown, done, events);
-  while (text.length > PROMPT_MAX && shown > 0) text = build(--shown, done, events);
-  while (text.length > PROMPT_MAX && done > 0) text = build(shown, --done, events);
-  while (text.length > PROMPT_MAX && events.length)
-    text = build(shown, done, (events = events.slice(1)));
-  return text.slice(0, PROMPT_MAX);
+  while (text.length > max && shown > 0) text = build(--shown, done, events);
+  while (text.length > max && done > 0) text = build(shown, --done, events);
+  while (text.length > max && events.length) text = build(shown, done, (events = events.slice(1)));
+  return text.slice(0, max);
+}
+
+/** The new Lead's first message: names, ids, titles, statuses and event one-liners only. */
+export function leadPrompt(b: LeadBriefing): string {
+  return fitBriefing(b, (lines) =>
+    [
+      `[cld-gui Lead 교체 · ${b.when}] 이제 너는 프로젝트 '${b.project}' 의 Lead 다. 사용자와 다른 에이전트는 '${b.project}' 로 너를 부른다.`,
+      `이전 Lead 는 이제 Worker '${b.worker}'(${b.oldLead === 'worker' ? '켜짐' : '멈춤'}) 다. 너의 Worker 시절 대화: ${b.workerTranscript ?? '없음'}. 이전 Lead 대화: ${b.leadTranscript ?? '없음'} (필요하면 읽어라).`,
+      ...lines,
+      '먼저 Task 현황을 확인하고, 필요하면 Worker 에게 맡겨 이어서 진행하라. 할 일이 없으면 기다린다.',
+    ].join('\n'),
+  );
 }
 
 /** The old Lead's notice when it goes on as a Worker. */
@@ -380,11 +395,23 @@ export function leadTermBefore(
   start: number,
   projectOf: (sessionId: string) => string | null,
 ): { file: string; end: number } | null {
+  const t = leadTermOf(terms, file, start, projectOf);
+  return t ? { file: t.transcript, end: t.bytes } : null;
+}
+
+/** leadTermBefore's term itself (K1: the renew history weighs its `endedAt` against it). */
+export function leadTermOf(
+  terms: LeadTerm[],
+  file: string,
+  start: number,
+  projectOf: (sessionId: string) => string | null,
+): LeadTerm | null {
   const sid = path.basename(file, '.jsonl');
   const projectId = projectOf(sid) ?? terms.find((t) => t.sessionId === sid)?.projectId;
   if (!projectId) return null;
-  const t = terms
-    .filter((x) => x.projectId === projectId && x.sessionId !== sid && x.endedAt <= start)
-    .sort((a, b) => b.endedAt - a.endedAt)[0];
-  return t ? { file: t.transcript, end: t.bytes } : null;
+  return (
+    terms
+      .filter((x) => x.projectId === projectId && x.sessionId !== sid && x.endedAt <= start)
+      .sort((a, b) => b.endedAt - a.endedAt)[0] ?? null
+  );
 }

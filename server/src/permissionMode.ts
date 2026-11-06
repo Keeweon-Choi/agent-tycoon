@@ -1,5 +1,5 @@
 import type { AgentStateStore } from './agentStateStore.js';
-import { PERMISSION_MODE_BYPASS } from './constants.js';
+import { PERMISSION_MODES_NO_GUESS } from './constants.js';
 import { readTranscriptTail } from './contextUsage.js';
 import { cancelPermissionTimer } from './timerManager.js';
 
@@ -22,7 +22,7 @@ export function applyPermissionMode(
   const agent = agents.get(agentId);
   if (!agent || typeof mode !== 'string') return;
   agent.permissionMode = mode;
-  if (mode !== PERMISSION_MODE_BYPASS) return;
+  if (!PERMISSION_MODES_NO_GUESS.has(mode)) return;
   cancelPermissionTimer(agentId, permissionTimers);
   // Hooks mode shows real PermissionRequest state; only the guess is ours to clear.
   if (agent.permissionSent && !agent.hookDelivered) {

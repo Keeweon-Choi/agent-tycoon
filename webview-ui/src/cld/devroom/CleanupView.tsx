@@ -1,5 +1,5 @@
 /**
- * P4 개발실 W3 (mockups-1101/devroom-W3): 작업 폴더 정리. The merged or long-resting task folders of
+ * P4 개발실 W3 (mockups-1101/devroom-W3): 워크트리 정리. The merged or long-resting task folders of
  * a project with their size, a checkbox each (merged ones come checked, unmerged ones do not) and
  * the auto-cleanup toggle. The button removes the checked folders one after the other with the
  * existing `worktreeRemove`; an unmerged one is removed with `force`, which keeps its work on its

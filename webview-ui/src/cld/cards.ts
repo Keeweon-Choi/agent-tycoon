@@ -5,19 +5,18 @@
  * T-0041: temps (sub-agents, teammates, Codex workers) get no card of their
  * own. Their lead's card carries "+N" for them; temps with no lead card (a
  * Codex task no orchestrator owns) gather under one 외주 card, the first such
- * temp's. An orchestrator gone home keeps its card, marked 퇴근.
+ * temp's. An orchestrator gone home keeps its card. The party draws them as portraits
+ * (game/Party.tsx), the lead's team is its member card's 관계 tab (party/MemberCard.tsx).
  */
-import { createElement, Fragment, useMemo } from 'react';
+import { useMemo } from 'react';
 
 import type { CardInfo } from '../components/cardBar.js';
 import type { SubagentCharacter } from '../hooks/useExtensionMessages.js';
 import { useLanguage } from '../i18n/index.js';
 import type { OfficeState } from '../office/engine/officeState.js';
-import { PartyMark } from './game/Party.js';
-import { cardInfo, characterKind, characterName, KIND_ORDER } from './kinds.js';
-import { useCldStore, virtualAgentId } from './officeStore.js';
+import { cardInfo, characterKind, KIND_ORDER } from './kinds.js';
+import { useCldStore } from './officeStore.js';
 import { useStaff } from './staff.js';
-import { DutyMark, TempChip } from './TempList.js';
 import { groupTemps, outsourcedLabel } from './temps.js';
 
 const TEMP_KINDS = new Set(['subagent', 'teammate', 'codex']);
@@ -42,46 +41,14 @@ export function useCldCards(
     const leads = agents.filter((id) => !isTemp(id));
     const { byLead, outsourced } = groupTemps(temps, new Set(leads));
     const outsourcedCard = outsourced[0]?.id;
-    const project = (id: number) =>
-      officeState.orchestrators.find((o) => (o.agentId ?? virtualAgentId(`orch:${o.name}`)) === id)
-        ?.name ?? null;
     return {
       cardIds: outsourcedCard === undefined ? leads : [...leads, outsourcedCard],
       describeCard: (id: number) => {
-        if (id === outsourcedCard)
-          return {
-            group: KIND_ORDER.length,
-            groupLabel: outsourcedName,
-            name: outsourcedName,
-            temps: outsourced.length,
-            extra: createElement(TempChip, {
-              rows: outsourced,
-              title: outsourcedName,
-              project: null,
-              outsourced: true,
-            }),
-          };
+        if (id === outsourcedCard) return { group: KIND_ORDER.length, name: outsourcedName, temps: outsourced.length };
         const ch = os.characters.get(id);
         if (!ch) return undefined;
-        const info = cardInfo(ch, officeState, codexTasks, labels.get(id));
-        const rows = byLead.get(id) ?? [];
-        return {
-          ...info,
-          temps: rows.length,
-          status: createElement(DutyMark, { id }),
-          extra: createElement(
-            Fragment,
-            null,
-            createElement(DutyMark, { id }),
-            createElement(TempChip, {
-              rows,
-              title: characterName(ch, officeState, codexTasks),
-              project: project(id),
-            }),
-            // GAME-UI-1 (05): the context strip and the state icon.
-            createElement(PartyMark, { id }),
-          ),
-        };
+        const { group, name } = cardInfo(ch, officeState, codexTasks, labels.get(id));
+        return { group, name, temps: byLead.get(id)?.length ?? 0 };
       },
     };
   }, [getOfficeState, agents, subagents, officeState, codexTasks, temps, outsourcedName]);

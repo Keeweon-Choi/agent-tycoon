@@ -1,11 +1,9 @@
 /**
- * SPT-P1A/P1B: the 현황판's 요구사항 and 문서 tabs, the 명세 추적 card and its 켜기 window, one lazy
- * chunk (the 개요 is Overview.tsx, SPT-P3-OVERVIEW, built on this card and useSpec).
- * 요구사항 lists the tracked documents' items (by display ID, or 문서 · 절 without one) with the four
- * states (SPT-P3: 작업, 근거, 수용, 최신), a row opens the requirement detail (ReqDetail); 문서 lists
- * the tracked documents with their UIDs, extraction switches and the 확인할 것 alerts, and (SPT-P1C) 같은 항목 확인
- * with the old-text diff, 확인 권장, 최근 판정 with 나누기/합치기, 참조만 하는 표 and 민감. Fetched when shown and
- * again on `specChanged`, never polled.
+ * SPT-P1A/P1B, RQ2: the spec pieces the 개요 (Overview.tsx) and the merged 요구사항 tab (ReqsTab.tsx)
+ * share, one lazy chunk: the spec route call and useSpec, the 명세 추적 card and its 켜기 window, the
+ * 이어받기 offers, and (SPT-P1C) the old 문서 tab's parts the 요구사항 tab now holds: the alerts (its
+ * ⚙ sheet), 같은 항목 확인 with the old-text diff, 확인 권장 and 최근 판정 with 나누기/합치기 (its
+ * [확인할 것 N]). Fetched when shown and again on `specChanged`, never polled.
  */
 import '../../i18n/specStrings.js';
 
@@ -14,38 +12,32 @@ import { useEffect, useMemo, useState } from 'react';
 import type { TraceAcceptanceWeek } from '../../../../core/src/cld/spec/trace.js';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
-import { SPEC_DEPTH_MAX, SPEC_DIALOG_Z, SPEC_SEARCH_WAIT_MS, SPEC_UID_SHOWN } from '../../constants.js';
+import { SPEC_DIALOG_Z, SPEC_SEARCH_WAIT_MS } from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
-import { writeClipboardText } from '../../terminal/clipboard.js';
 import { openProjectFile } from '../files/explorerState.js';
 import { timeAgo } from '../format.js';
-import { Led } from '../game/parts.js';
 import { cldToast } from '../officeStore.js';
 import { serverText } from '../serverText.js';
-import { tabFocus, useCanAct, useNow } from '../workbench/workbenchStore.js';
-import { Digits } from './Digits.js';
-import { showText } from './overviewModel.js';
-import { ReqDetail } from './ReqDetail.js';
+import { useCanAct, useNow } from '../workbench/workbenchStore.js';
+import type { DocRow } from './reqsModel.js';
 import { useSpecRev } from './specStore.js';
-import type { ItemTrace } from './traceApi.js';
-import { EVIDENCE_AXES, evidenceReason, ledOf, workText } from './traceModel.js';
 import { wordDiff } from './wordDiff.js';
 
 type Axis = 'change' | 'integration' | 'test' | 'deploy';
-const KINDS = ['requirements', 'design', 'decision', 'test', 'task', 'plan', 'other', 'log'] as const;
+// eslint-disable-next-line react-refresh/only-export-components -- shared with ReqsTab.tsx in the same lazy chunk
+export const KINDS = ['requirements', 'design', 'decision', 'test', 'task', 'plan', 'other', 'log'] as const;
 type Kind = (typeof KINDS)[number];
 type Git = 'committed' | 'modified' | 'untracked' | 'ignored' | 'not-git';
-const GIT_KEY: Record<Git, TranslationKey> = {
+// eslint-disable-next-line react-refresh/only-export-components -- shared with ReqsTab.tsx in the same lazy chunk
+export const GIT_KEY: Record<Git, TranslationKey> = {
   committed: 'spec.git.committed',
   modified: 'spec.git.modified',
   untracked: 'spec.git.untracked',
   ignored: 'spec.git.ignored',
   'not-git': 'spec.git.notGit',
 };
-const kindText = (k: Kind) => t(`spec.kind.${k}`);
-const MODES = ['auto', 'headings', 'off', 'refs'] as const;
-type Mode = (typeof MODES)[number];
-const DEPTHS = Array.from({ length: SPEC_DEPTH_MAX }, (_, i) => i + 1);
+// eslint-disable-next-line react-refresh/only-export-components -- shared with ReqsTab.tsx in the same lazy chunk
+export const kindText = (k: Kind) => t(`spec.kind.${k}`);
 
 export interface Summary {
   enabled: boolean;
@@ -88,24 +80,8 @@ interface Candidate {
   git: Git;
   preselect: boolean;
 }
-interface DocRow {
-  uid: string;
-  path: string;
-  kind: Kind;
-  mode: Mode;
-  depth: number;
-  tracked: boolean;
-  state: 'active' | 'retired' | 'unresolved';
-  git: Git;
-  changedAt: string;
-  size: number;
-  mtimeMs: number;
-  fresh: boolean;
-  sensitive: boolean;
-  items: number;
-}
 type DocRef = { uid: string; path: string };
-type Alert =
+export type Alert =
   | { type: 'duplicateIds'; docs: DocRef[]; repeater?: DocRef; count: number; ids: string[]; places: Array<{ uid: string; doc: string; line: number }> }
   | { type: 'newDoc'; uid: string; path: string }
   | { type: 'revived'; count: number; places: Place[] }
@@ -122,10 +98,10 @@ interface QCand {
   state: string;
   text?: string;
 }
-type Question =
+export type Question =
   | { kind: 'item' | 'reuse'; uid: string; displayId?: string; title: string; doc: string; line: number; text?: string; cands: QCand[] }
   | { kind: 'doc'; uid: string; doc: string; items: number; cands: QCand[] };
-interface ReviewRow {
+export interface ReviewRow {
   uid: string;
   displayId?: string;
   title: string;
@@ -134,7 +110,7 @@ interface ReviewRow {
   score: number;
 }
 type How = 'T1' | 'T1n' | 'T2' | 'T2r' | 'T3' | 'new' | 'unresolved' | 'reuse' | 'retired' | 'owner-same' | 'owner-new' | 'owner-split' | 'owner-merge' | 'owner-ok';
-interface DecisionRow {
+export interface DecisionRow {
   uid: string;
   how: How;
   score?: number;
@@ -147,20 +123,6 @@ interface DecisionRow {
   canSplit: boolean;
   mergeInto?: Array<{ uid: string; displayId?: string; doc: string; line: number }>;
 }
-interface ItemRow {
-  uid: string;
-  displayId?: string;
-  title: string;
-  section: string;
-  doc: string;
-  docUid: string;
-  kind: Kind;
-  state: 'active' | 'retired' | 'unresolved';
-  line: number;
-  /** SPT-P3: the four states (P2 adds them to the list). */
-  trace?: ItemTrace;
-}
-
 const muted = 'text-text-muted text-xs';
 const selectCls = 'bg-bg border border-border px-4 py-2 text-xs pointer-coarse:min-h-44 min-w-0';
 const baseName = (p: string) => p.split('/').pop() ?? p;
@@ -169,7 +131,8 @@ const openDoc = (project: string, rel: string, d?: DocRow) =>
   openProjectFile(project, { name: baseName(rel), path: rel, kind: 'file', size: d?.size ?? 0, mtime: d?.mtimeMs ?? 0 });
 const base = (project: string) => `/api/cld/spec/${encodeURIComponent(project)}`;
 
-async function call<T>(project: string, route: string, body?: object): Promise<T> {
+// eslint-disable-next-line react-refresh/only-export-components -- shared with ReqsTab.tsx in the same lazy chunk
+export async function call<T>(project: string, route: string, body?: object): Promise<T> {
   const r = await fetch(`${base(project)}/${route}`, {
     credentials: 'same-origin',
     cache: 'no-store',
@@ -228,7 +191,7 @@ const counts = <K extends string>(m: Partial<Record<K, number>>, label: (k: K) =
 
 // ── 켜기 window ─────────────────────────────────────────
 
-function EnableDialog({ project, onClose }: { project: string; onClose: () => void }) {
+export function EnableDialog({ project, onClose }: { project: string; onClose: () => void }) {
   const [list, setList] = useState<{ docs: Candidate[]; capped: boolean } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
@@ -248,6 +211,15 @@ function EnableDialog({ project, onClose }: { project: string; onClose: () => vo
       live = false;
     };
   }, [project]);
+  // RQW §2.7 문서 직접 고르기: a path typed in, checked by the daemon as a ticked one.
+  const [typed, setTyped] = useState('');
+  const addTyped = () => {
+    const p = typed.trim().replace(/^\.?\//, '');
+    if (!p) return;
+    setList((l) => (l && !l.docs.some((d) => d.path === p) ? { ...l, docs: [...l.docs, { path: p, kind: 'requirements', git: 'committed', preselect: true }] } : l));
+    setPicked((s) => new Set(s).add(p));
+    setTyped('');
+  };
   const toggle = (p: string) =>
     setPicked((s) => {
       const next = new Set(s);
@@ -284,6 +256,20 @@ function EnableDialog({ project, onClose }: { project: string; onClose: () => vo
           <>
             {list.capped && <p className={muted}>{t('spec.wizard.capped')}</p>}
             {list.docs.length === 0 && <p className={muted}>{t('spec.wizard.none')}</p>}
+            <div className="flex gap-6 min-w-0">
+              <input
+                aria-label={t('reqs.wizard.path')}
+                placeholder={t('reqs.wizard.pathHint')}
+                className={`${selectCls} flex-1`}
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addTyped()}
+                data-testid="spec-wizard-path"
+              />
+              <Button size="sm" onClick={addTyped} disabled={!typed.trim()} data-testid="spec-wizard-add">
+                {t('reqs.wizard.add')}
+              </Button>
+            </div>
             <div className="overflow-y-auto min-h-0 space-y-8">
               {KINDS.map((k) => {
                 const docs = list.docs.filter((d) => d.kind === k);
@@ -324,7 +310,7 @@ function EnableDialog({ project, onClose }: { project: string; onClose: () => vo
 }
 
 /** 이어받기 (SPT §2.8): each orphaned Registry this project may be, with its evidence; nothing moves until the owner picks. */
-function InheritOffers({ project, offers }: { project: string; offers: Offer[] }) {
+export function InheritOffers({ project, offers }: { project: string; offers: Offer[] }) {
   const canAct = useCanAct();
   const now = useNow();
   const [busy, setBusy] = useState(false);
@@ -338,7 +324,7 @@ function InheritOffers({ project, offers }: { project: string; offers: Offer[] }
       .finally(() => setBusy(false));
   };
   return (
-    <div className="border-2 border-border p-6 mb-6 min-w-0" data-testid="spec-inherit">
+    <div className="border-ui rounded-ui-card border-border p-6 mb-6 min-w-0" data-testid="spec-inherit">
       <p className="text-accent-text mb-4">{t('spec.inherit.title')}</p>
       <ul className="space-y-6">
         {offers.map((o) => (
@@ -458,16 +444,8 @@ export function SpecCard({
   );
 }
 
-// ── 문서 ────────────────────────────────────────────────
-
-/** Tracking off on the 문서 tab: the same card as the 개요's. */
-function OffCard({ project }: { project: string }) {
-  const { data } = useSpec<Summary>(project, 'summary');
-  return data ? <SpecCard project={project} summary={data} onOpenDocs={() => undefined} onOpenReqs={() => undefined} /> : null;
-}
-
 /** 확인할 것 (SPT §2.7): display IDs defined in more than one place, one line per set of documents; documents tracked by themselves. */
-function Alerts({
+export function Alerts({
   project,
   alerts,
   docs,
@@ -601,7 +579,7 @@ function Diff({ before, now }: { before: string; now: string }) {
 }
 
 /** 같은 항목 확인 (SPT §2.7): each open question with its candidates, evidence and answers. */
-function Questions({ questions, act }: { questions: Question[]; act: (route: string, body: object) => void }) {
+export function Questions({ questions, act }: { questions: Question[]; act: (route: string, body: object) => void }) {
   const canAct = useCanAct();
   if (!questions.length) return null;
   return (
@@ -665,7 +643,7 @@ function Questions({ questions, act }: { questions: Question[]; act: (route: str
 }
 
 /** 확인 권장 (SPT 0.3): T3 matches under 0.7, not blocking. */
-function Review({ rows, act }: { rows: ReviewRow[]; act: (route: string, body: object) => void }) {
+export function Review({ rows, act }: { rows: ReviewRow[]; act: (route: string, body: object) => void }) {
   const canAct = useCanAct();
   if (!rows.length) return null;
   return (
@@ -699,7 +677,7 @@ function Review({ rows, act }: { rows: ReviewRow[]; act: (route: string, body: o
 }
 
 /** 최근 판정 (SPT §2.5): each item's latest decision, with 나누기 and 합치기. */
-function Decisions({ rows, act }: { rows: DecisionRow[]; act: (route: string, body: object) => void }) {
+export function Decisions({ rows, act }: { rows: DecisionRow[]; act: (route: string, body: object) => void }) {
   const canAct = useCanAct();
   const now = useNow();
   const [into, setInto] = useState<Record<string, string>>({});
@@ -749,315 +727,15 @@ function Decisions({ rows, act }: { rows: DecisionRow[]; act: (route: string, bo
   );
 }
 
-export function DocsTab({ project }: { project: string }) {
-  const canAct = useCanAct();
-  const { data, error, reload } = useSpec<{ enabled: boolean; docs: DocRow[]; alerts: Alert[] }>(project, 'docs');
-  const q = useSpec<{ enabled: boolean; questions: Question[]; review: ReviewRow[] }>(project, 'questions');
-  const dec = useSpec<{ enabled: boolean; decisions: DecisionRow[] }>(project, 'decisions');
-  const now = useNow();
-  const reloadAll = () => {
-    reload();
-    q.reload();
-    dec.reload();
-  };
-  const set = (uid: string, body: Partial<Pick<DocRow, 'kind' | 'tracked' | 'mode' | 'depth' | 'sensitive'>> | { seen: true }) =>
-    call(project, `docs/${uid}`, body).then(reloadAll, (err: Error) => cldToast(t('spec.card.title'), err.message, 'error'));
-  const act = (route: string, body: object) =>
-    void call(project, route, body).then(
-      () => {
-        cldToast(t('spec.card.title'), t('spec.done'), 'ok');
-        reloadAll();
-      },
-      (err: Error) => cldToast(t('spec.card.title'), err.message, 'error'),
-    );
-  const copy = (uid: string) =>
-    void writeClipboardText(uid).then((ok) =>
-      cldToast(t('spec.card.title'), ok ? t('spec.docs.copied') : t('spec.docs.copyFailed'), ok ? 'ok' : 'error'),
-    );
-  if (error) return <p className="text-red-400 text-xs" role="alert">{error}</p>;
-  if (!data) return <p className={muted}>{t('spec.wizard.loading')}</p>;
-  if (!data.enabled)
-    return (
-      <div className="space-y-8" data-testid="spec-docs" data-enabled="false">
-        <p className={muted}>{t('spec.docs.off')}</p>
-        <OffCard project={project} />
-      </div>
-    );
-  return (
-    <div className="space-y-8 min-w-0 text-xs">
-      <Questions questions={q.data?.questions ?? []} act={act} />
-      <Review rows={q.data?.review ?? []} act={act} />
-      <Alerts
-        project={project}
-        alerts={data.alerts}
-        docs={data.docs}
-        onSeen={(uid) => void set(uid, { seen: true })}
-        onRefs={(uid) => void set(uid, { mode: 'refs' })}
-        act={act}
-      />
-      <ul className="space-y-4 min-w-0" data-testid="spec-docs" data-enabled="true">
-        {data.docs.map((d) => (
-          <li
-            key={d.uid}
-            className={`pixel-panel p-8 min-w-0 ${d.tracked && d.state === 'active' ? '' : 'opacity-65'}`}
-            data-testid="spec-doc"
-            data-path={d.path}
-            data-uid={d.uid}
-            data-git={d.git}
-            data-mode={d.mode}
-            data-items={d.items}
-          >
-            <div className="flex flex-wrap items-center gap-6 min-w-0">
-              <button type="button" className="underline break-all text-left min-w-0 flex-1" onClick={() => openDoc(project, d.path, d)}>
-                {d.path}
-              </button>
-              {d.fresh && <Tag testId="spec-doc-new">{t('spec.docs.new')}</Tag>}
-              <Tag testId="spec-doc-git">{t(GIT_KEY[d.git])}</Tag>
-              {d.state === 'retired' && <Tag>{t('spec.docs.retired')}</Tag>}
-              {d.state === 'unresolved' && <Tag testId="spec-doc-unresolved">{t('spec.docs.unresolved')}</Tag>}
-              {d.sensitive && <Tag>{t('spec.docs.sensitive')}</Tag>}
-            </div>
-            <div className="flex flex-wrap items-center gap-8 mt-4 min-w-0">
-              <span className="font-mono" title={d.uid}>
-                {d.uid.slice(0, 2 + SPEC_UID_SHOWN)}
-              </span>
-              <Button size="sm" onClick={() => copy(d.uid)} aria-label={t('spec.docs.copy')}>
-                {t('spec.docs.copy')}
-              </Button>
-              <span className={muted}>{t('spec.docs.changed', { when: timeAgo(d.changedAt, now) })}</span>
-              <span className={muted}>{t('spec.docs.items', { count: d.items })}</span>
-              {canAct ? (
-                <>
-                  <label className="flex items-center gap-4">
-                    {t('spec.docs.kind')}
-                    <select className={selectCls} value={d.kind} onChange={(e) => void set(d.uid, { kind: e.target.value as Kind })}>
-                      {KINDS.map((k) => (
-                        <option key={k} value={k}>
-                          {kindText(k)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-4">
-                    {t('spec.docs.mode')}
-                    <select
-                      className={selectCls}
-                      value={d.mode}
-                      onChange={(e) => void set(d.uid, { mode: e.target.value as Mode })}
-                      data-testid="spec-doc-mode"
-                    >
-                      {MODES.map((m) => (
-                        <option key={m} value={m}>
-                          {t(`spec.mode.${m}`)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {d.mode === 'headings' && (
-                    <label className="flex items-center gap-4">
-                      {t('spec.docs.depth')}
-                      <select
-                        className={selectCls}
-                        value={d.depth}
-                        onChange={(e) => void set(d.uid, { depth: Number(e.target.value) })}
-                        data-testid="spec-doc-depth"
-                      >
-                        {DEPTHS.map((n) => (
-                          <option key={n} value={n}>
-                            {t('spec.docs.depthLevel', { level: n })}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label className="flex items-center gap-4 pointer-coarse:min-h-44">
-                    <input type="checkbox" checked={d.tracked} onChange={(e) => void set(d.uid, { tracked: e.target.checked })} />
-                    {t('spec.docs.tracked')}
-                  </label>
-                  <label className="flex items-center gap-4 pointer-coarse:min-h-44" title={t('spec.docs.sensitiveHint')}>
-                    <input
-                      type="checkbox"
-                      checked={d.sensitive}
-                      onChange={(e) => void set(d.uid, { sensitive: e.target.checked })}
-                      data-testid="spec-doc-sensitive"
-                    />
-                    {t('spec.docs.sensitive')}
-                  </label>
-                </>
-              ) : (
-                <span className={muted}>
-                  {kindText(d.kind)} · {t(`spec.mode.${d.mode}`)}
-                </span>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-      <Decisions rows={dec.data?.decisions ?? []} act={act} />
-    </div>
-  );
-}
-
 // ── 요구사항 ────────────────────────────────────────────
 
 /** `value`, `wait` after it last changed (the list's search text, the 개요's specChanged burst). */
-function useSettled<T>(value: T, wait = SPEC_SEARCH_WAIT_MS): T {
+// eslint-disable-next-line react-refresh/only-export-components -- shared with ReqsTab.tsx in the same lazy chunk
+export function useSettled<T>(value: T, wait = SPEC_SEARCH_WAIT_MS): T {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
     const timer = setTimeout(() => setSettled(value), wait);
     return () => clearTimeout(timer);
   }, [value, wait]);
   return settled;
-}
-
-/** SPT-P3-ACCEPT: 수용▾ (the daemon filters, as it does the other list filters). */
-const ACCEPTANCE_FILTERS = ['none', 'validate', 'accepted', 'rejected', 'review'] as const;
-type AcceptanceFilter = (typeof ACCEPTANCE_FILTERS)[number] | '';
-
-export function ReqsTab({ project, mobile = false }: { project: string; mobile?: boolean }) {
-  // SPT-P3-OVERVIEW: opened from a 개요 number, on its filter (every kind) or on a requirement's detail.
-  const [focus] = useState(() => tabFocus('reqs')?.key ?? '');
-  const [open, setOpen] = useState<string | null>(focus.startsWith('item:') ? focus.slice(5) : null);
-  const [kind, setKind] = useState<Kind | ''>(focus ? '' : 'requirements');
-  const [show, setShow] = useState(focus.startsWith('show:') ? focus.slice(5) : '');
-  const [doc, setDoc] = useState('');
-  const [text, setText] = useState('');
-  const [retired, setRetired] = useState(false);
-  // SPT-P3-ACCEPT: a 개요 acceptance number opens on `acc:<state>`; its own dimension, it combines with `show`.
-  const [acceptance, setAcceptance] = useState<AcceptanceFilter>(() => {
-    const a = focus.startsWith('acc:') ? focus.slice(4) : '';
-    return (ACCEPTANCE_FILTERS as readonly string[]).includes(a) ? (a as AcceptanceFilter) : '';
-  });
-  const q = useSettled(text.trim());
-  const query = new URLSearchParams({ ...(kind && { kind }), ...(doc && { doc }), ...(q && { q }), ...(retired && { state: 'all' }), ...(show && { show }), ...(acceptance && { acceptance }) }).toString();
-  const { data, error } = useSpec<{ enabled: boolean; total: number; items: ItemRow[] }>(project, query ? `items?${query}` : 'items');
-  const { data: docs } = useSpec<{ enabled: boolean; docs: DocRow[] }>(project, 'docs');
-  const tracked = (docs?.docs ?? []).filter((d) => d.tracked && d.state === 'active');
-  if (error) return <p className="text-red-400 text-xs" role="alert">{error}</p>;
-  if (!data) return <p className={muted}>{t('spec.wizard.loading')}</p>;
-  if (!data.enabled)
-    return (
-      <div className="space-y-8" data-testid="spec-reqs" data-enabled="false">
-        <p className={muted}>{t('spec.docs.off')}</p>
-        <OffCard project={project} />
-      </div>
-    );
-  return (
-    <div className="flex gap-8 min-w-0 items-start">
-      <div className="space-y-8 min-w-0 flex-1 text-xs" data-testid="spec-reqs" data-enabled="true">
-        <div className="pixel-panel p-8 flex flex-wrap items-center gap-8 min-w-0">
-          <select aria-label={t('spec.reqs.kind')} className={selectCls} value={kind} onChange={(e) => setKind(e.target.value as Kind | '')} data-testid="spec-reqs-kind">
-            <option value="">{t('spec.reqs.allKinds')}</option>
-            {KINDS.map((k) => (
-              <option key={k} value={k}>
-                {kindText(k)}
-              </option>
-            ))}
-          </select>
-          <select aria-label={t('spec.reqs.doc')} className={`${selectCls} max-w-full`} value={doc} onChange={(e) => setDoc(e.target.value)} data-testid="spec-reqs-doc">
-            <option value="">{t('spec.reqs.allDocs')}</option>
-            {tracked.map((d) => (
-              <option key={d.uid} value={d.uid}>
-                {d.path}
-              </option>
-            ))}
-          </select>
-          <input
-            type="search"
-            aria-label={t('spec.reqs.search')}
-            placeholder={t('spec.reqs.searchHint')}
-            className={`${selectCls} flex-1 min-w-[8rem]`}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            data-testid="spec-reqs-search"
-          />
-          <select aria-label={t('spec.accept.filter')} className={selectCls} value={acceptance} onChange={(e) => setAcceptance(e.target.value as AcceptanceFilter)} data-testid="spec-reqs-acceptance">
-            <option value="">{t('spec.accept.filterAll')}</option>
-            {ACCEPTANCE_FILTERS.map((a) => (
-              <option key={a} value={a}>
-                {a === 'review' ? t('spec.accept.filterReview') : t(`spec.acc.${a}`)}
-              </option>
-            ))}
-          </select>
-          <label className="flex items-center gap-4 pointer-coarse:min-h-44">
-            <input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} data-testid="spec-reqs-retired" />
-            {t('spec.reqs.retired')}
-          </label>
-          {show && (
-            <Button size="sm" variant="active" onClick={() => setShow('')} aria-label={t('spec.overview.clearShow', { what: showText(show) })} data-testid="spec-reqs-show" data-show={show}>
-              {showText(show)} ✕
-            </Button>
-          )}
-          <span className={muted} data-testid="spec-reqs-count">
-            {data.total > data.items.length ? t('spec.reqs.shown', { total: data.total, shown: data.items.length }) : t('spec.reqs.count', { count: data.total })}
-          </span>
-        </div>
-        {!data.items.length && <p className={muted}>{t('spec.reqs.none')}</p>}
-        {data.items.length > 0 && (
-          <p className={`${muted} grid grid-cols-4 gap-6 px-4`} aria-hidden>
-            <span>{t('spec.reqs.colWork')}</span>
-            <span>{t('spec.reqs.colEvidence')}</span>
-            <span>{t('spec.reqs.colAcceptance')}</span>
-            <span>{t('spec.reqs.colFreshness')}</span>
-          </p>
-        )}
-        <ul className="min-w-0" aria-label={t('spec.tab.reqs')}>
-          {data.items.map((r) => (
-            <li key={r.uid} data-testid="spec-item" data-uid={r.uid} data-id={r.displayId ?? ''} data-state={r.state}>
-              <button
-                type="button"
-                className={`w-full text-left border-b border-border px-4 py-4 block min-w-0 pointer-coarse:min-h-44 ${r.state === 'retired' ? 'opacity-65' : ''} ${open === r.uid ? 'bg-active-bg' : ''}`}
-                aria-pressed={open === r.uid}
-                onClick={() => setOpen(r.uid)}
-              >
-                <span className="flex flex-wrap items-center gap-6 min-w-0">
-                  {/* A display ID in the code font; 문서 · 절 (any script) in the UI font. */}
-                  <span className={`${r.displayId ? 'font-mono' : ''} break-all min-w-0 flex-1`} title={t('spec.reqs.colId')} data-testid="spec-item-id">
-                    {r.displayId ?? (r.section ? `${baseName(r.doc)} · ${r.section}` : baseName(r.doc))}
-                  </span>
-                  <Tag>{kindText(r.kind)}</Tag>
-                  <Tag testId="spec-item-state">{t(`spec.state.${r.state}`)}</Tag>
-                </span>
-                <span className="block break-words" title={t('spec.reqs.colTitle')}>
-                  {r.title || t('spec.reqs.gone')}
-                </span>
-                <span className={`${muted} block break-all`} title={t('spec.reqs.colDoc')}>
-                  {r.doc} · {t('spec.reqs.line', { line: r.line })}
-                </span>
-                <span className="grid grid-cols-4 gap-6 mt-2" data-testid="spec-item-trace">
-                  <span title={t('spec.reqs.colWork')} data-col="work">
-                    {r.trace?.work?.total && workText(r.trace) ? <Digits text={workText(r.trace)} /> : '—'}
-                  </span>
-                  <span className="inline-flex items-center gap-2" data-col="evidence">
-                    {EVIDENCE_AXES.map((k) => {
-                      const led = ledOf(r.trace?.evidence?.[k]);
-                      return <Led key={k} state={led} reason={evidenceReason(k, led)} />;
-                    })}
-                  </span>
-                  <span title={t('spec.reqs.colAcceptance')} data-col="acceptance">
-                    {/* GAME-UI-1: 수락 a small framed mark, 반려 a dashed one; the rest words. */}
-                    <span
-                      className={
-                        r.trace?.acceptance?.current === 'accepted'
-                          ? 'inline-block border-2 border-text-muted px-6 text-text'
-                          : r.trace?.acceptance?.current === 'rejected'
-                            ? 'inline-block border-2 border-dashed border-text-muted px-6 text-text-muted'
-                            : ''
-                      }
-                    >
-                      {t(`spec.acc.${r.trace?.acceptance?.current ?? 'none'}`)}
-                    </span>
-                  </span>
-                  <span title={t('spec.reqs.colFreshness')} data-col="freshness">
-                    {r.trace?.freshness ? t(`spec.fresh.${r.trace.freshness}`) : '—'}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {open && <ReqDetail project={project} uid={open} mobile={mobile} onClose={() => setOpen(null)} />}
-    </div>
-  );
 }

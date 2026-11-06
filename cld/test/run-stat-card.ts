@@ -125,33 +125,23 @@ async function main() {
     await phone.addStyleTag({ content: FONT_CSS });
     const card = phone.locator('[data-testid="agent-card"]').first();
     await card.waitFor({ timeout: 30_000 });
-    await until('the summary shows after a card tap', async () => {
+    // FEAT-PARTY-V2: a tap opens the member card as the bottom sheet (the old in-place summary and its menu row
+    // are gone); 스탯 is its 능력치 tab, the 스탯 window is in its ⋯.
+    const sheet = phone.locator('[data-testid="inspector"][data-sheet]');
+    await until('the member sheet shows after a card tap', async () => {
       await card.tap();
-      return (await phone.locator('[data-testid="agent-overlay"] [data-testid="agent-details"]').count()) > 0;
+      return (await sheet.count()) > 0;
     });
-    const overlay = phone.locator('[data-testid="agent-overlay"]').filter({ has: phone.locator('[data-testid="agent-details"]') });
-    await until('the menu is up', async () => (await phone.getByRole('menuitem').count()) >= 3, 5_000);
     await phone.waitForTimeout(800);
-    const box = (await overlay.boundingBox())!;
-    console.log(`popover: ${Math.round(box.width)}x${Math.round(box.height)}`);
-    check(box.height < 844 * 0.25, `the summary popover is short (${Math.round(box.height)} px of 844)`);
-    check((await phone.getByRole('menuitem').count()) === 3, 'the menu has 3 buttons');
-    // UI-PHONE: the menu is the card's own bottom row, and the other plates step back.
-    check(
-      (await overlay.locator('[data-testid="card-menu"] [role="menuitem"]').count()) === 3,
-      'the menu is a row of the summary card',
-    );
-    const others = await phone
-      .locator('[data-testid="agent-overlay"]')
-      .filter({ hasNot: phone.locator('[data-testid="agent-details"]') })
-      .evaluateAll((els) => els.map((e) => Number(getComputedStyle(e).opacity)));
-    check(others.length > 0 && others.every((o) => o <= 0.3), `the other plates are dimmed (${others.join(',')})`);
-    const text = (await overlay.textContent()) ?? '';
-    check(!/엔진이 관리|이어 붙일/.test(text), 'no internal wording in the summary');
-    check(/환생 4회/.test(text) && /25%/.test(text), `rebirths and fatigue read in the summary (${text.slice(0, 80)})`);
+    const text = (await sheet.textContent()) ?? '';
+    check(!/엔진이 관리|이어 붙일/.test(text), 'no internal wording in the card');
+    check(/25%/.test(text), `fatigue reads on the card (${text.slice(0, 80)})`);
+    await sheet.getByTestId('member-tab-stats').tap();
+    check(/환생\s*4회/.test((await sheet.textContent()) ?? ''), 'rebirths read on the 능력치 tab');
     await shot(phone, 'phone-summary-menu');
 
-    await phone.locator('[data-testid="stat-open"]').tap();
+    await sheet.getByTestId('member-more').tap();
+    await sheet.getByTestId('member-more-stats').tap();
     const detail = phone.locator('[data-testid="stat-detail"]');
     await detail.waitFor({ timeout: 5_000 });
     check(await detail.locator('[data-testid="stat-tiles"]').isVisible(), 'the detail opens as big tiles');

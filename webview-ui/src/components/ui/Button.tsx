@@ -1,6 +1,9 @@
 import type { ButtonHTMLAttributes } from 'react';
 
-const base = 'border-2 rounded-none cursor-pointer';
+// UI-DEPTH: a raised face (bevel, hard drop) that lifts on hover and sinks on press, all in CSS
+// (index.css .ui-raise); ghost stays flat.
+const base = 'border-ui rounded-ui-card cursor-pointer';
+const raised = `${base} ui-raise`;
 
 // UI-CONSISTENCY: one height per size (sm = every row's and panel's button, md = a dialog's
 // main action), text centred, one line, a 44 px target on touch.
@@ -21,11 +24,12 @@ const sizes = {
 } as const;
 
 const variants = {
-  default: `${base} bg-btn-bg border-transparent hover:bg-btn-hover`,
-  active: `${base} bg-active-bg border-accent`,
-  disabled: `${base} bg-btn-bg border-transparent cursor-default opacity-[var(--btn-disabled-opacity)]`,
-  accent: `${base} bg-accent! hover:bg-accent-bright! border-accent hover:border-accent-bright`,
-  ghost: `${base} bg-transparent text-text-muted border-transparent hover:text-text`,
+  default: `${raised} bg-btn-bg border-border hover:border-border-hi`,
+  active: `${raised} ui-on bg-active-bg text-devroom-tab-on`,
+  disabled: `${base} ui-bevel bg-btn-bg border-border cursor-default opacity-[var(--btn-disabled-opacity)]`,
+  accent: `${raised} bg-accent! hover:bg-accent-bright! border-devroom-accent-line hover:border-devroom-tab-on text-white`,
+  danger: `${raised} bg-devroom-bad-bg border-danger hover:border-devroom-bad text-white`,
+  ghost: `${base} bg-transparent text-text-muted border-transparent hover:text-text hover:bg-btn-bg`,
 } as const;
 
 type ButtonVariant = keyof typeof variants;

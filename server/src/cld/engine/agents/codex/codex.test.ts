@@ -121,6 +121,15 @@ describe('the Codex provider', () => {
     expect(r.attached).toEqual([['T-1', `codex:${r.records[0].id}`, 'w1']]);
   });
 
+  it('RQ4: a Worker of a switched-on project carries the switch into its run; off, the run has none', async () => {
+    const r = rig();
+    expect(await r.agent.deliver(r.worker({ specWorkflow: 'speckit' }), 'x', { task: 'T-1' })).toBe('typed');
+    expect(r.asked[0].worker).toMatchObject({ specWorkflow: true });
+    r.end();
+    expect(await r.agent.deliver(r.worker(), 'y', { task: 'T-2' })).toBe('typed');
+    expect(r.asked[1].worker).not.toHaveProperty('specWorkflow');
+  });
+
   it('a new Task, no folder of its own: a new task worktree of the project (git), else the project folder', async () => {
     const git = rig();
     expect(await git.agent.deliver(git.worker(), 'x', { task: 'T-1' })).toBe('typed');
@@ -227,5 +236,12 @@ describe('the Codex provider', () => {
     expect(await r.agent.deliver(r.worker(), 'x', {})).toBe('failed');
     expect(r.asked).toEqual([]);
     expect(rig().agent.ready()).toBeNull();
+  });
+
+  it('AGENT-UPDATE: cliPath() is the codex on the runs\' PATH, null when missing; it declares `codex update`', () => {
+    expect(rig({ codexOnPath: false }).agent.cliPath()).toBeNull();
+    const found = rig().agent.cliPath();
+    expect(found && path.basename(found)).toBe(process.platform === 'win32' ? 'codex.cmd' : 'codex');
+    expect(rig().agent.capabilities.update).toEqual(['update']);
   });
 });

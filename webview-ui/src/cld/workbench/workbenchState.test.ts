@@ -21,6 +21,7 @@ import {
   pickerEntryOf,
   pickerProjects,
   projectOfAgent,
+  providerName,
   resolveProject,
   scopeToProject,
   scopeToUnowned,
@@ -58,20 +59,22 @@ const proj = (name: string, over: Partial<EngineProject> = {}): EngineProject =>
 
 describe('the workbench remembers per device', () => {
   it('reads what was saved and falls back on anything else', () => {
-    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'changes' }))).toEqual({
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'graph' }))).toEqual({
       project: 'alpha',
-      tab: 'changes',
+      tab: 'graph',
     });
+    // 에이전트 and 변경 left the 현황판 (11-06): a device that remembered one opens on the default.
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'changes' })).tab).toBe(DEFAULT_TAB);
     for (const raw of [null, '', 'not json', '{"project":3,"tab":"nope"}'])
       expect(parseSaved(raw)).toEqual({ project: null, tab: DEFAULT_TAB });
   });
 
-  it('SPT-P3-FINISH: the overview tab is the default (owner Q1); a remembered tab, even agents, still wins', () => {
+  it('SPT-P3-FINISH: the overview tab is the default (owner Q1); a remembered tab still wins', () => {
     expect(DEFAULT_TAB).toBe('cockpit');
     expect(parseSaved(null).tab).toBe('cockpit');
-    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'agents' })).tab).toBe('agents');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'tasks' })).tab).toBe('tasks');
     expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'cockpit' })).tab).toBe('cockpit');
-    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'docs' })).tab).toBe('docs');
+    expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'docs' })).tab).toBe('reqs'); // RQ2: 문서 went into 요구사항
     expect(parseSaved(JSON.stringify({ project: 'alpha', tab: 'reqs' })).tab).toBe('reqs');
   });
 
@@ -253,12 +256,21 @@ describe('D5: a Codex Worker on the agents tab and in the + Worker form', () => 
     expect(teamOf('alpha', null, engine)[0]).not.toHaveProperty('provider');
   });
 
-  it('the form offers the agents installed here; a Codex Worker is sent with its provider and no permission mode', () => {
+  it('the form offers the agents installed here; an agent with one approval policy is sent with its provider and no permission mode', () => {
     expect(workerProviders({ claude: { models: [], efforts: [] }, codex: { models: [], efforts: [] } })).toEqual(['claude', 'codex']);
     expect(workerProviders({ claude: { models: [], efforts: [] } })).toEqual(['claude']);
     expect(workerProviders(undefined)).toEqual([]);
+    // ACP-1: every installed ACP agent (a caps entry with its own name) after ours.
+    const acp = { approvalPolicy: ['ask'], lifetime: 'session' as const, limits: false, usageRefresh: false, context: false, billing: 'metered' as const, name: 'GitHub Copilot' };
+    const plain = { ...acp, name: undefined, billing: 'plan' as const };
+    expect(workerProviders({ claude: { models: [], efforts: [] } }, { claude: plain, copilot: acp })).toEqual(['claude', 'copilot']);
+    expect(providerName('copilot', acp)).toBe('GitHub Copilot');
+    expect(workerFields({ ...emptyWorkerForm('/w/alpha', 'copilot'), name: 'g' }, 'alpha', '/w/alpha', acp)).toEqual({ role: 'worker', project: 'alpha', provider: 'copilot' });
     const f = { ...emptyWorkerForm('/w/alpha', 'codex'), name: 'c', model: 'model-a', effort: 'high', permissionMode: 'plan' };
-    expect(workerFields(f, 'alpha', '/w/alpha')).toEqual({ role: 'worker', project: 'alpha', model: 'model-a', effort: 'high', provider: 'codex' });
+    const caps = { approvalPolicy: ['never'], lifetime: 'run' as const, limits: true, usageRefresh: true, context: false, billing: 'plan' as const };
+    expect(workerFields(f, 'alpha', '/w/alpha', caps)).toEqual({ role: 'worker', project: 'alpha', model: 'model-a', effort: 'high', provider: 'codex' });
+    // The capability decides, not the name: the same provider with a choice of policies keeps it.
+    expect(workerFields(f, 'alpha', '/w/alpha', { ...caps, approvalPolicy: ['ask', 'never'] })).toMatchObject({ permissionMode: 'plan' });
     expect(emptyWorkerForm('/w/alpha').provider).toBe('claude');
   });
 });

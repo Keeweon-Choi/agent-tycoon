@@ -84,7 +84,7 @@
   padding: 0 calc(var(--cld-safe-right) + 12px) 0 calc(var(--cld-safe-left) + 12px);
 }
 .attach-actions .attach-btn {
-  font-size: 14px;
+  font-size: max(14px, var(--ui-text-floor));
 }
 .attach-title {
   flex: 1 1 auto;
@@ -108,7 +108,7 @@
 }
 .attach-title-meta {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: max(14px, var(--ui-text-floor));
   white-space: nowrap;
   color: #b8b8d0;
 }
@@ -137,7 +137,7 @@
     gap: 6px;
   }
   .attach-title-meta {
-    font-size: 13px;
+    font-size: max(13px, var(--ui-text-floor));
   }
   .attach-close {
     min-width: 48px;
@@ -150,11 +150,11 @@
   .attach-actions .attach-btn {
     min-width: 40px;
     padding: 0 8px;
-    font-size: 12px;
+    font-size: max(12px, var(--ui-text-floor));
   }
 }
 .attach-text {
-  font-size: 14px;
+  font-size: max(14px, var(--ui-text-floor));
   padding: 4px 8px;
   background: #0a0a14cc;
   min-width: 56px;
@@ -209,7 +209,7 @@
 }
 .attach-file-meta,
 .attach-note {
-  font-size: 13px;
+  font-size: max(13px, var(--ui-text-floor));
   color: #b8b8d0;
 }
 .attach-text-preview {
@@ -223,7 +223,7 @@
   overflow: auto;
   border: 2px solid currentColor;
   font-family: monospace;
-  font-size: 14px;
+  font-size: max(14px, var(--ui-text-floor));
   line-height: 1.5;
   text-align: left;
   white-space: pre;
@@ -260,7 +260,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: max(14px, var(--ui-text-floor));
   color: #b8b8d0;
   pointer-events: none;
 }

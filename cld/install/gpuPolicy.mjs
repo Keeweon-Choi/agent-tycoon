@@ -61,10 +61,33 @@ export async function gpuTotalMib(home, { nvidiaSmi = false, smi = detectVramMib
   return hwJsonVramMib(home) ?? (nvidiaSmi ? await smi() : null);
 }
 
-/** The user's nvidia-smi opt-in: the daemon's config (--nvidia-smi) or gpu.json's `nvidiaSmi`. */
+/** The user's nvidia-smi opt-in: gpu.json's `nvidiaSmi` (the office's H/W switch sets it) when set, else the
+ *  daemon's config (--nvidia-smi); the same rule as the daemon's cli.ts. */
 export function nvidiaSmiOptIn(home, config) {
-  if (config?.nvidiaSmi === true) return true;
-  try { return JSON.parse(fs.readFileSync(gpuJsonPath(home), 'utf8'))?.nvidiaSmi === true; } catch { return false; }
+  let stored;
+  try { stored = JSON.parse(fs.readFileSync(gpuJsonPath(home), 'utf8'))?.nvidiaSmi; } catch { /* none */ }
+  return typeof stored === 'boolean' ? stored : config?.nvidiaSmi === true;
+}
+
+/** An explicit --nvidia-smi / --no-nvidia-smi this run: written into gpu.json (every other key kept,
+ *  0600, tmp + rename) so the flag and the office's H/W switch stay one setting. A broken gpu.json is
+ *  left alone and said. Returns whether the file now holds `on`. */
+export function writeNvidiaSmiChoice(home, on, { dryRun = false, log = console.log } = {}) {
+  if (typeof on !== 'boolean') return false;
+  const file = gpuJsonPath(home);
+  let current = {};
+  try { current = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') current = null; }
+  if (!current || typeof current !== 'object' || Array.isArray(current)) { log(`! ${file} 을 읽지 못해 nvidia-smi 설정(${on ? '켬' : '끔'})을 적지 않았습니다`); return false; }
+  if (current.nvidiaSmi === on) return true;
+  const body = `${JSON.stringify({ ...current, nvidiaSmi: on }, null, 2)}\n`;
+  if (dryRun) { log(`DRY-RUN file ${file} (0600): nvidiaSmi ${on}`); return true; }
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, body, { mode: 0o600 });
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
+  log(`✔ nvidia-smi ${on ? '켬' : '끔'}: ${file}`);
+  return true;
 }
 
 const numbers = (j) => Object.fromEntries(['exclusiveGib', 'sharedBudgetGib', 'liveLimitGib'].filter((k) => typeof j?.[k] === 'number' && Number.isFinite(j[k]) && j[k] >= 0).map((k) => [k, j[k]]));

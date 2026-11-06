@@ -22,6 +22,7 @@ import { forgetDevice } from './deviceKey.js';
 import { deviceKindKey, devicePathKey } from './deviceListView.js';
 import { Relogin } from './Relogin.js';
 import { RemoteSection } from './Remote.js';
+import { StreetSection } from './StreetSection.js';
 
 interface PasskeyRow {
   id: string;
@@ -318,6 +319,8 @@ export function SecurityModal({ onClose }: { onClose: () => void }) {
             </>
           )}
         </section>
+        <StreetSection />
+
         <section className={SECTION} data-testid="passkey-section">
           <h3 className="text-base m-0">{t('auth.passkeys')}</h3>
           <p className="text-xs text-text-muted m-0">{t('settabs.passkeysOptional')}</p>

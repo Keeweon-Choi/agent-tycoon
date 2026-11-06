@@ -11,6 +11,7 @@ import type { ClientMessageContext, WsSend } from '../hooks.js';
 import type { AgentEntry } from '../providers/types.js';
 import type { TurnInfo } from '../push.js';
 import { applyRoomReplies, RoomSummaries, type RoomSummary } from '../roomUnread.js';
+import { searchAll } from '../searchAll.js';
 import { currentTurn, type RoomRef } from '../transcriptView.js';
 
 interface RoomDeps {
@@ -28,6 +29,8 @@ interface RoomDeps {
 export class OfficeRooms {
   /** Open room timelines are the only reason to read member transcripts for replies. */
   private readonly groupViews = new Map<WsSend, Set<string>>();
+  /** The messenger-wide search each client last asked for: a newer one cancels it. */
+  private readonly searchToken = new Map<WsSend, number>();
   /** C3: each room's list summary, kept incrementally (roomUnread.ts). */
   private readonly roomSummaries = new RoomSummaries((room) => this.buildRoomSummary(room));
 
@@ -51,6 +54,12 @@ export class OfficeRooms {
         if (!mine.size) this.groupViews.delete(send);
         this.letGoEarlier();
       }
+      return true;
+    }
+    if (msg.type === 'chatSearchAll') {
+      if (!this.deps.opts.chat || typeof msg.requestId !== 'string' || typeof msg.query !== 'string')
+        return true;
+      this.searchAll(send, msg.requestId, msg.query, privileged);
       return true;
     }
     if (msg.type === 'groupPost') {
@@ -117,7 +126,36 @@ export class OfficeRooms {
     return false;
   }
 
+  /** The overall search (ChatSearchAll): every conversation's text, bounded (searchAll.ts). */
+  private searchAll(send: WsSend, requestId: string, query: string, privileged: boolean): void {
+    const answer = (rest: Record<string, unknown>) =>
+      send({ type: 'chatSearchAllResult', requestId, groups: [], truncated: false, ...rest });
+    if (!privileged) return answer(refused('no_permission'));
+    const token = (this.searchToken.get(send) ?? 0) + 1;
+    this.searchToken.set(send, token);
+    const cancelled = () => this.searchToken.get(send) !== token;
+    const messages = this.deps.groupMessages;
+    void searchAll(
+      query,
+      {
+        leads: this.deps.leads(),
+        rooms: this.deps.groupStore?.list() ?? [],
+        roomPosts: (room, folded, opts) =>
+          messages ? messages.searchPosts(room, folded, opts) : { hits: [], truncated: false },
+      },
+      cancelled,
+    ).then(
+      (result) => {
+        if (!cancelled()) answer(result);
+      },
+      (error: unknown) => {
+        if (!cancelled()) answer({ error: String(error) });
+      },
+    );
+  }
+
   onClientClosed(send: WsSend): void {
+    this.searchToken.delete(send);
     this.groupViews.delete(send);
     this.letGoEarlier();
   }

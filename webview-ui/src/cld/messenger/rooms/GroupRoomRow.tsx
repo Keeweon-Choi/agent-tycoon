@@ -8,6 +8,8 @@ import { ATTACH_ACCEPT } from '../../../constants.js';
 import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
 import { CHAT_SEND_MAX } from '../../chat.js';
+import { PixelIcon } from '../../game/parts.js';
+import { Icon } from '../../icons/Icon.js';
 import { FOCUS_MS } from '../../notify/openTarget.js';
 import { cldOwnToast, useCldStore } from '../../officeStore.js';
 import { serverLine } from '../../serverText.js';
@@ -28,8 +30,9 @@ import { OwnerFace, SenderFace } from '../Faces.js';
 import { Actionable, ActionRow, type BubbleActions, Line, ReplyChip, ReplyQuote } from '../Line.js';
 import { messageCharacterCount, prepareMessage } from '../longMessage.js';
 import { copyText, replyDraft } from '../messageActions.js';
-import { setGroupAttachments, useMessenger } from '../messengerStore.js';
-import { NO_CHIPS } from '../parts.js';
+import { clearPendingRoomJump, setGroupAttachments, useMessenger } from '../messengerStore.js';
+import { bubbleClock, NO_CHIPS } from '../parts.js';
+import { unseenReplies, useThreadFold } from '../roomFold.js';
 import {
   canonicalizeMentions,
   chooseMention,
@@ -38,7 +41,7 @@ import {
   mentionDisplay,
   replyPrefill,
 } from '../roomMentions.js';
-import { type RoomThread, roomThreads, ThreadTone, threadTone } from '../roomThreads.js';
+import { type RoomThread, roomThreads, type ThreadReplies, threadReplies, type ThreadTone, threadTone } from '../roomThreads.js';
 import { enterSends, isTouchDevice } from '../sendKey.js';
 import { RoomEditor } from './RoomEditor.js';
 
@@ -104,6 +107,14 @@ export function GroupRoomRow({
     }
   }, [groupError]);
   const timeline = m.groupTimelines[room.id];
+  // A search hit in this room: once its timeline is here, scroll to the post (as a tapped quote does).
+  const roomJump = m.pendingRoomJump?.roomId === room.id ? m.pendingRoomJump.id : null;
+  useEffect(() => {
+    if (!roomJump || !timeline) return;
+    clearPendingRoomJump(room.id);
+    window.requestAnimationFrame(() => openQuote(roomJump)); // after the posts are drawn and the scroll keeps its place
+     
+  }, [roomJump, timeline, room.id]);
   // ROOM-THREADS: a waiting rail turns plain a day on, also while the room stays open.
   const now = useNow();
   const threads = useMemo(
@@ -222,7 +233,7 @@ export function GroupRoomRow({
   return (
     <div className="flex-1 flex flex-col">
       <AttachmentGallery files={viewerFiles} ticketFor={viewerTicketFor}>
-        <div className="flex-1 flex flex-col px-8 pb-8 space-y-6 text-xs">
+        <div className="msg-band flex-1 flex flex-col pt-8 pb-8 space-y-8 text-xs">
           {manage && !officeReadOnly && room.id !== 'all' && (
             <div className="flex flex-wrap gap-4">
               <Button size="sm" onClick={() => setEditing('rename')}>
@@ -320,13 +331,14 @@ export function GroupRoomRow({
           )}
           {/* UI-FIX 1: the composer sits at the bottom of the pane, as in a DM, also while
               the room is short (it followed the last post, mid-screen). */}
-          <div className="mt-auto sticky bottom-0 bg-bg pt-6 space-y-6">
+          <div className="mt-auto sticky bottom-0 msg-timeline pt-6 pb-2 space-y-6">
           {!officeReadOnly && reply && <ReplyChip reply={reply} cancel={() => setReply(null)} />}
           {officeReadOnly ? (
             <p className="text-text-muted">{t('messenger.roomReadOnly')}</p>
           ) : (
+            // FEAT-MESSENGER-GPT-LOOK: the DM's composer panel: the text on top, 첨부, the files and 보내기 under it.
             <form
-              className="relative flex gap-4 items-end"
+              className="msg-composer relative flex flex-col"
               onSubmit={(event) => {
                 event.preventDefault();
                 void post();
@@ -388,10 +400,10 @@ export function GroupRoomRow({
                     }
                   }}
                   placeholder={t('messenger.mentionPlaceholder')}
-                  className="w-full min-w-0 border border-border bg-bg px-4 py-2 resize-none"
+                  className="block w-full min-w-0 px-10 pt-8 pb-4 resize-none placeholder:text-text-muted"
                 />
                 {messageCharacterCount(text) > CHAT_SEND_MAX && (
-                  <p className="pt-2 text-text-muted" role="status">
+                  <p className="px-10 pt-2 text-text-muted" role="status">
                     {t('messenger.longMessageNote', { count: messageCharacterCount(text) })}
                   </p>
                 )}
@@ -399,7 +411,7 @@ export function GroupRoomRow({
                   <div
                     role="listbox"
                     aria-label={t('messenger.mentionSuggestions')}
-                    className="absolute z-10 bottom-full mb-2 max-w-full border-2 border-border bg-bg shadow-pixel flex flex-wrap p-2 gap-2"
+                    className="room-mentions absolute z-10 bottom-full mb-2 max-w-full flex flex-wrap p-4 gap-4"
                   >
                     {suggestions.map((name, index) => (
                       <button
@@ -407,7 +419,7 @@ export function GroupRoomRow({
                         type="button"
                         role="option"
                         aria-selected={index === choice}
-                        className={`px-6 py-4 text-left pointer-coarse:min-h-44 ${index === choice ? 'bg-active-bg text-accent-text' : 'hover:bg-btn-hover'}`}
+                        className={`room-mention px-8 py-4 text-left pointer-coarse:min-h-44 ${index === choice ? 'bg-active-bg text-accent-text' : 'hover:bg-btn-hover'}`}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => acceptMention(name)}
                       >
@@ -429,43 +441,62 @@ export function GroupRoomRow({
                   event.target.value = '';
                 }}
               />
-              <Button
-                size="sm"
-                disabled={uploading || chips.length >= MAX_ATTACHMENTS}
-                onClick={() => picker.current?.click()}
-              >
-                {t('messenger.attach')}
-              </Button>
-              <Button
-                size="sm"
-                variant="accent"
-                type="submit"
-                disabled={uploading || (!text.trim() && !chips.length)}
-              >
-                {uploading ? t('messenger.uploading') : t('messenger.sendButton')}
-              </Button>
+              <div className="msg-composer-tools flex-wrap px-8 pb-8 pt-4">
+                <Button
+                  size="sm"
+                  disabled={uploading || chips.length >= MAX_ATTACHMENTS}
+                  onClick={() => picker.current?.click()}
+                >
+                  <Icon
+                    name="paperclip"
+                    size={16}
+                    pixel={
+                      <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                        attach_file
+                      </span>
+                    }
+                  />
+                  {t('messenger.attach')}
+                </Button>
+                <div className="flex-1 min-w-0 flex flex-wrap gap-6" aria-label={t('messenger.attachments')}>
+                  {chips.map((chip) => (
+                    <DraftChip
+                      key={chip.id}
+                      chip={chip}
+                      remove={() =>
+                        setGroupAttachments(
+                          room.id,
+                          chips.filter((item) => item.id !== chip.id),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+                <Button
+                  size="sm"
+                  variant="accent"
+                  type="submit"
+                  className="px-12"
+                  disabled={uploading || (!text.trim() && !chips.length)}
+                >
+                  <Icon
+                    name="send"
+                    size={16}
+                    pixel={
+                      <span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                        send
+                      </span>
+                    }
+                  />
+                  {uploading ? t('messenger.uploading') : t('messenger.sendButton')}
+                </Button>
+              </div>
             </form>
           )}
           {!officeReadOnly && (
             <p className="truncate text-text-muted" data-testid="room-hint">
               {t('uiFix.roomHint')}
             </p>
-          )}
-          {chips.length > 0 && (
-            <div className="space-y-2">
-              {chips.map((chip) => (
-                <DraftChip
-                  key={chip.id}
-                  chip={chip}
-                  remove={() =>
-                    setGroupAttachments(
-                      room.id,
-                      chips.filter((item) => item.id !== chip.id),
-                    )
-                  }
-                />
-              ))}
-            </div>
           )}
           {(attachmentError || refused) && (
             <p role="alert" className="text-danger">
@@ -479,18 +510,11 @@ export function GroupRoomRow({
   );
 }
 
-/** ROOM-THREADS: the thread's left rail (static class names, so Tailwind sees them). */
-const TONE_CLASS: Record<ThreadTone, string> = {
-  [ThreadTone.notice]: 'border-l-2 border-l-room-notice',
-  [ThreadTone.waiting]: 'border-l-2 border-l-accent',
-  [ThreadTone.plain]: '',
-};
-
-/** The ↳ mark before a thread reply, drawn in pixels (the pixel font has no such arrow). */
+/** The ↳ mark before a thread reply, drawn in pixels (the pixel font has no such arrow); 모던 draws the reply's guide line instead. */
 function ReplyArrow() {
   return (
     <svg
-      className="shrink-0 text-text-muted w-[10px] h-[10px] mt-4"
+      className="room-arrow shrink-0 text-text-muted w-[10px] h-[10px] mt-4"
       viewBox="0 0 10 10"
       fill="currentColor"
       shapeRendering="crispEdges"
@@ -520,7 +544,20 @@ function postActions(post: GroupPostItem, onReply?: (reply: ChatReply) => void):
   };
 }
 
-/** A post's delivery line: its mode, each target's state, and its actions. */
+/** Who wrote a post, and when. */
+function PostHead({ post }: { post: GroupPostItem }) {
+  return (
+    <div className="room-who flex items-center gap-8 min-w-0">
+      {post.sender ? <SenderFace name={post.sender} /> : <OwnerFace />}
+      <strong className="room-name text-sm truncate min-w-0">{post.sender ?? t('msgui3.me')}</strong>
+      <time className="shrink-0 text-2xs text-text-muted" dateTime={new Date(post.at).toISOString()}>
+        {bubbleClock(post.at)}
+      </time>
+    </div>
+  );
+}
+
+/** A post's delivery line: its mode, one tag per target with its state, and its actions. */
 function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: BubbleActions; top: boolean }) {
   const delivery = (state: GroupPostItem['delivery'][string]) =>
     state === 'delivered'
@@ -531,20 +568,27 @@ function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: Bubb
           ? t('messenger.delivery.off')
           : t('messenger.delivery.waiting');
   return (
-    <p className="text-text-muted flex flex-wrap gap-x-6 gap-y-2" aria-label={t('messenger.deliveryStatus')}>
+    <p className="room-status text-text-muted text-2xs" aria-label={t('messenger.deliveryStatus')}>
       {post.notice ? (
-        <span data-testid="room-mode">
+        <span className="room-mode" data-testid="room-mode" data-kind="notice">
+          <Icon name="megaphone" size={12} pixel={null} />
           {t('room.mode.notice', {
             done: post.targets.filter((member) => post.delivery[member] === 'delivered').length,
             total: post.targets.length,
           })}
         </span>
       ) : (
-        post.targets.length > 0 && <span data-testid="room-mode">{t('room.mode.now')}</span>
+        post.targets.length > 0 && (
+          <span className="room-mode" data-testid="room-mode">
+            <Icon name="zap" size={12} pixel={null} />
+            {t('room.mode.now')}
+          </span>
+        )
       )}
       {!post.notice &&
         post.targets.map((member) => (
-          <span key={member} className="border border-border px-4">
+          <span key={member} className="room-tag" data-state={post.delivery[member]}>
+            <Icon name="at-sign" size={11} pixel={null} />
             {member}: {delivery(post.delivery[member])}
           </span>
         ))}
@@ -562,13 +606,13 @@ function MemberReplies({ post, onReply, onQuote }: { post: GroupPostItem } & Rep
         <section
           key={reply.messageId ?? reply.member}
           data-message-id={reply.messageId}
-          className="border-t border-border pt-4 flex items-start gap-6"
+          className="room-reply"
           aria-label={t('messenger.replyLabel', { name: reply.member })}
         >
           <ReplyArrow />
           <SenderFace name={reply.member} />
           <div className="min-w-0 flex-1 space-y-2">
-            <strong className="text-peer-name">{reply.member}</strong>
+            <strong className="room-name text-peer-name text-sm">{reply.member}</strong>
             {reply.items
               .filter((i) => i.kind === 'assistant')
               .map((item) => (
@@ -586,7 +630,7 @@ function MemberReplies({ post, onReply, onQuote }: { post: GroupPostItem } & Rep
   );
 }
 
-/** ROOM-THREADS: a 답글 in the thread, drawn as a member's answer is (↳, face, name), then its own answers. */
+/** ROOM-THREADS: a 답글 in the thread, drawn as a member's answer is (face, name), then its own answers. */
 function ThreadAnswer({ post, root, onReply, onQuote }: { post: GroupPostItem; root: string } & ReplyHandlers) {
   const actions = postActions(post, onReply);
   return (
@@ -597,21 +641,69 @@ function ThreadAnswer({ post, root, onReply, onQuote }: { post: GroupPostItem; r
       className="space-y-4 data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
     >
       <section
-        className="border-t border-border pt-4 flex items-start gap-6"
+        className="room-reply"
         aria-label={t('messenger.replyLabel', { name: post.sender ?? t('msgui3.me') })}
       >
         <ReplyArrow />
         {post.sender ? <SenderFace name={post.sender} /> : <OwnerFace />}
         <div className="min-w-0 flex-1 space-y-2">
-          <strong className="text-text-muted">{post.sender ?? t('msgui3.me')}</strong>
+          <span className="flex items-baseline gap-8">
+            <strong className="room-name text-sm">{post.sender ?? t('msgui3.me')}</strong>
+            <time className="text-2xs text-text-muted" dateTime={new Date(post.at).toISOString()}>
+              {bubbleClock(post.at)}
+            </time>
+          </span>
           {/* The thread's first post needs no quote; a member's answer in it does. */}
           {post.replyTo && post.replyTo.id !== root && <ReplyQuote reply={post.replyTo} open={onQuote} />}
-          <BubbleAttachments text={post.text} />
+          <div className="room-body text-sm">
+            <BubbleAttachments text={post.text} />
+          </div>
           <PostStatus post={post} actions={actions} top={false} />
         </div>
       </section>
       <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
     </Actionable>
+  );
+}
+
+/** ROOM-FOLD: the one line between a thread's first post and its replies: how many, who spoke last, what is new. */
+function ThreadFold({
+  count,
+  last,
+  folded,
+  unseen,
+  toggle,
+}: {
+  count: number;
+  last: ThreadReplies['last'];
+  folded: boolean;
+  unseen: number;
+  toggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="room-fold text-2xs"
+      data-testid="thread-fold"
+      data-folded={folded || undefined}
+      aria-expanded={!folded}
+      title={folded ? t('roomFold.expand') : t('messenger.collapse')}
+      onClick={toggle}
+    >
+      <Icon name={folded ? 'chevron-down' : 'chevron-up'} size={14} pixel={<PixelIcon name={folded ? 'next' : 'up'} size={12} />} />
+      <strong>{t('roomFold.count', { count })}</strong>
+      {folded && last && (
+        <span className="room-fold-last truncate min-w-0">
+          {t('roomFold.last', { name: last.name ?? t('msgui3.me'), time: bubbleClock(last.at) })}
+        </span>
+      )}
+      {!folded && <span className="room-fold-last">{t('messenger.collapse')}</span>}
+      {folded && unseen > 0 && (
+        <span className="room-fold-new" data-testid="thread-new">
+          {t('roomFold.new', { count: unseen })}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -622,14 +714,17 @@ function RoomThreadView({
   onQuote,
 }: { thread: RoomThread; tone: ThreadTone } & ReplyHandlers) {
   const [post, ...answers] = thread.posts;
+  const { folds, fold, unfold } = useThreadFold();
   // C4: a system event (Task assigned, reported, …): one short muted line, no bubble.
   if (post.system)
     return (
-      <p data-keep={post.id} className="text-text-muted text-center">
+      <p data-keep={post.id} className="room-system text-2xs text-text-muted">
         {serverLine(post.text)}
       </p>
     );
   const actions = postActions(post, onReply);
+  const { count, last } = threadReplies(thread);
+  const folded = count > 0 && post.id in folds;
   return (
     <Actionable
       as="article"
@@ -637,19 +732,31 @@ function RoomThreadView({
       data-keep={post.id}
       data-testid="room-thread"
       data-tone={tone}
-      className={`border border-border ${TONE_CLASS[tone]} bg-bg-dark p-6 space-y-4 data-[focused=true]:outline-2 data-[focused=true]:outline-accent`}
+      className="room-thread space-y-6 data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
     >
-      <div className="flex items-center gap-6">
-        {post.sender ? <SenderFace name={post.sender} /> : <OwnerFace />}
-        <p className="text-text-muted">{post.sender ?? t('msgui3.me')}</p>
-      </div>
+      <PostHead post={post} />
       {post.replyTo && <ReplyQuote reply={post.replyTo} open={onQuote} />}
-      <BubbleAttachments text={post.text} />
+      <div className="room-body text-sm">
+        <BubbleAttachments text={post.text} />
+      </div>
       <PostStatus post={post} actions={actions} top />
-      <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
-      {answers.map((answer) => (
-        <ThreadAnswer key={answer.id} post={answer} root={post.id} onReply={onReply} onQuote={onQuote} />
-      ))}
+      {count > 0 && (
+        <ThreadFold
+          count={count}
+          last={last}
+          folded={folded}
+          unseen={unseenReplies(folds, post.id, count)}
+          toggle={() => (folded ? unfold(post.id) : fold(post.id, count))}
+        />
+      )}
+      {!folded && (
+        <div className="room-replies space-y-6">
+          <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
+          {answers.map((answer) => (
+            <ThreadAnswer key={answer.id} post={answer} root={post.id} onReply={onReply} onQuote={onQuote} />
+          ))}
+        </div>
+      )}
     </Actionable>
   );
 }

@@ -46,16 +46,6 @@ export function useChangeKey<T>(value: T, when: (prev: T, next: T) => boolean = 
   return key;
 }
 
-// ── The party roster (Party.tsx, PartyWindow.tsx) ──
-/** Open or not (one viewer, one window). */
-let partyOpen = false;
-export function openParty(next: boolean): void {
-  if (partyOpen === next) return;
-  partyOpen = next;
-  listeners.forEach((l) => l());
-}
-export const usePartyOpen = () => useSyncExternalStore(subscribe, () => partyOpen);
-
 export const STATE_ICON: Record<PartyState, IconName> = { work: 'hammer', ask: 'ask', lock: 'lock', rest: 'zzz' };
 
 /** One member's state and what is left of its context (null: it has not said, Codex). */

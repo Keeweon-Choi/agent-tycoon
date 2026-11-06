@@ -9,7 +9,6 @@ import type { ChildProcess } from 'child_process';
 import { execFileSync, spawn } from 'child_process';
 import { buildSync } from 'esbuild';
 import * as fs from 'fs';
-import * as http from 'http';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
@@ -19,6 +18,7 @@ import { configDirectory, officeDirectory } from './configPath.js';
 import { registryPath, saveRegistry } from './engine/registry.js';
 import { findOnPath } from './providers/claudeProvider.js';
 import { ptyhostPaths } from './ptyhost/protocol.js';
+import { claudeUsageFile } from './usage.js';
 
 export const REPO_ROOT = path.resolve(__dirname, '../../..');
 export const FAKE_CLAUDE = path.join(REPO_ROOT, 'cld/test/fake-claude');
@@ -146,8 +146,7 @@ export const TERMINAL_RENDERER_KEY = 'cld.terminal-renderer';
 export const CAMERA_MODE_KEY = 'cld.camera-mode';
 /** webview-ui/src/cld/gfx/titleScene.ts TITLE_KEY. */
 export const TITLE_SCENE_KEY = 'cld.title-scene';
-/** webview-ui/src/constants.ts PARTY_FRAME_EXPANDED_STORAGE_KEY and ELEVATOR_LIST_OPEN_STORAGE_KEY. */
-export const PARTY_FRAME_EXPANDED_KEY = 'cld.party-frame-expanded';
+/** webview-ui/src/constants.ts ELEVATOR_LIST_OPEN_STORAGE_KEY. */
 export const ELEVATOR_LIST_OPEN_KEY = 'cld.elevator-list-open';
 /** webview-ui/src/cld/notify/push.ts DISMISSED_KEY: a time stamp, the banner stays away a week from it. */
 const PUSH_BANNER_DISMISSED_KEY = 'cld.push-banner-dismissed';
@@ -183,7 +182,7 @@ export async function topBarButton(page: Page, name: string, timeout?: number): 
 /** UI-DASH: the 현황판 (desktop window or the phone's Dock page), whose 개발 tab is the old 작업실. */
 export const DEV_WINDOW = '[data-hud-window="office"], [aria-label="현황판 화면"]';
 
-/** UI-C1: the 현황판's 개발 tab (the old 작업실) on `tab` (its button's name: '에이전트', 'Task',
+/** UI-C1: the 현황판's 개발 tab (the old 작업실) on `tab` (its button's name: '에이전트', '이슈',
  *  ...), and on `project` when given ('?none' is 프로젝트 없음). Opens the 현황판 through its icon
  *  only while it is not showing, so the icon never toggles it shut. */
 export async function openWorkbenchTab(
@@ -199,7 +198,7 @@ export async function openWorkbenchTab(
     await press(icon);
     await win.waitFor();
   }
-  const dev = win.getByRole('button', { name: '개발', exact: true });
+  const dev = win.getByRole('button', { name: '프로젝트', exact: true }); // dash.tab.dev (11-06: 개발 → 프로젝트)
   if ((await dev.getAttribute('aria-pressed')) !== 'true') await press(dev);
   const picker = win.getByRole('combobox', { name: '개발 프로젝트' });
   await picker.waitFor();
@@ -242,10 +241,10 @@ export async function launchBrowser(
     [TITLE_SCENE_KEY, 'off'],
   ];
   if (!officeHours) defaults.push([OFFICE_HOURS_KEY, '{"on":false}']);
-  // PARTY-FRAME: the runners written before it read the full cards (names, temps) and click the floor
-  // buttons, so their pages start unfolded with the floor list open; `partyFrame: true` keeps the
-  // page defaults (folded portraits, the ▲ 1F ▼ strip alone), for run-party-frame.ts.
-  if (!partyFrame) defaults.push([PARTY_FRAME_EXPANDED_KEY, '1'], [ELEVATOR_LIST_OPEN_KEY, '1']);
+  // PARTY-FRAME: the runners written before it click the floor buttons, so their pages start with the
+  // floor list open; `partyFrame: true` keeps the page default (the ▲ 1F ▼ strip alone), for
+  // run-party-frame.ts. The party is portraits only since FEAT-PARTY-V2 (no unfolded cards).
+  if (!partyFrame) defaults.push([ELEVATOR_LIST_OPEN_KEY, '1']);
   if (!pushBanner) defaults.push([PUSH_BANNER_DISMISSED_KEY, String(Date.now())]);
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (options) => {
@@ -289,7 +288,7 @@ export async function assertPortFree(...ports: number[]): Promise<void> {
   }
 }
 
-function hostToken(home: string): string | undefined {
+export function hostToken(home: string): string | undefined {
   for (const file of ['server.json', 'standalone-token']) {
     try {
       const value = fs.readFileSync(path.join(officeDirectory(home), file), 'utf-8').trim();
@@ -372,8 +371,9 @@ export interface Daemon {
   stop(): Promise<void>;
 }
 
-/** The agent CLIs a test daemon must never find for real: only the fakes it is given. */
-const REAL_AGENT_BINS = ['codex', 'claude'];
+/** The agent CLIs (and RQ4's Spec Kit runners) a test daemon must never find for real: only the
+ *  fakes it is given. */
+const REAL_AGENT_BINS = ['codex', 'claude', 'uvx', 'specify'];
 
 /** D5 (F7): a test daemon's PATH: `fakes` first (the fake claude or codex folders, as given),
  *  then the caller's PATH without any folder that holds a real `codex` or `claude` (the user's
@@ -449,37 +449,56 @@ export function startDaemon(
 }
 
 /**
- * The usage bar's sources in a test HOME: Claude's account usage endpoint as a loopback stand-in
- * (a fake token in `.claude/.credentials.json`; pass `env` to startDaemon) answering the given
- * percents (a window left out is one the plan does not have), and a Codex session log.
+ * The usage bar's sources in a test HOME: a status-line report from an engine session (what
+ * cld-gui-statusline.js keeps from Claude Code's `rate_limits`; a window left out is one the plan
+ * does not have), with `fable` a /usage report for the engine's fake claude (a model's week), and a
+ * Codex session log. `env` is empty: kept so runners pass it to startDaemon as before.
  */
 export async function fakeUsage(
   home: string,
   claude: { fiveHour?: number; sevenDay?: number; fable?: number },
   codex: { fiveHour: number; sevenDay: number },
 ): Promise<{ env: Record<string, string> }> {
-  const at = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+  const at = (h: number) => Math.floor(Date.now() / 1000) + h * 3600;
   const window = (pct: number | undefined, h: number) =>
-    pct === undefined ? null : { utilization: pct, resets_at: at(h) };
-  const fable = { kind: 'weekly_scoped', percent: claude.fable, resets_at: at(120) };
-  const answer = JSON.stringify({
-    five_hour: window(claude.fiveHour, 2),
-    seven_day: window(claude.sevenDay, 60),
-    limits:
-      claude.fable === undefined ? [] : [{ ...fable, scope: { model: { display_name: 'Fable' } } }],
-  });
-  const oauth = { accessToken: 'fake-token', expiresAt: Date.now() + 86_400_000 };
-  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+    pct === undefined ? undefined : { used_percentage: pct, resets_at: at(h) };
+  const file = claudeUsageFile(home);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
-    path.join(home, '.claude', '.credentials.json'),
-    JSON.stringify({ claudeAiOauth: oauth }),
+    file,
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      five_hour: window(claude.fiveHour, 2),
+      seven_day: window(claude.sevenDay, 60),
+    }),
   );
+  // The engine's fake claude answers the daemon's /usage probe with this (a model's week: Fable).
+  if (claude.fable !== undefined)
+    fs.writeFileSync(
+      path.join(home, 'fake-usage-report.json'),
+      JSON.stringify({
+        session: { total_cost_usd: 0, model_usage: {} },
+        rate_limits: {
+          limits: [
+            {
+              kind: 'weekly_scoped',
+              group: 'weekly',
+              percent: claude.fable,
+              resets_at: new Date(at(120) * 1000).toISOString(),
+              scope: { model: { display_name: 'Fable' } },
+              severity: 'normal',
+              is_active: true,
+            },
+          ],
+        },
+      }),
+    );
   const sessions = path.join(home, '.codex', 'sessions', '2026', '10', '23');
   fs.mkdirSync(sessions, { recursive: true });
   const limit = (pct: number, minutes: number, h: number) => ({
     used_percent: pct,
     window_minutes: minutes,
-    resets_at: Math.floor(Date.now() / 1000) + h * 3600,
+    resets_at: at(h),
   });
   const rateLimits = {
     primary: limit(codex.fiveHour, 300, 3),
@@ -487,13 +506,7 @@ export async function fakeUsage(
   };
   const line = { type: 'event_msg', payload: { type: 'token_count', rate_limits: rateLimits } };
   fs.writeFileSync(path.join(sessions, 'rollout-usage.jsonl'), `${JSON.stringify(line)}\n`);
-  const server = http.createServer((_req, res) =>
-    res.writeHead(200, { 'content-type': 'application/json' }).end(answer),
-  );
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  server.unref(); // lives as long as the runner
-  const { port } = server.address() as net.AddressInfo;
-  return { env: { CLD_GUI_TEST_CLAUDE_USAGE_URL: `http://127.0.0.1:${port}/api/oauth/usage` } };
+  return { env: {} };
 }
 
 /** The engine's stateful fake `claude` (T-0018), as `<home>/bin/claude`. */
@@ -561,9 +574,11 @@ export function killFakeSessions(home: string): void {
  */
 export function removeTestHome(home: string): void {
   try {
-    fs.rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    // Node waits retryDelay longer on each retry (100, 200, ... ms): about 2 s in all. 20 x 250 ms was
+    // 52 s, past the 10 s hook timeout, whenever a writer outlived its office's stop on a busy PC.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 });
   } catch (err) {
-    // ponytail: a writer still busy after 5 s leaves its temp HOME to the OS temp cleanup
+    // ponytail: a writer still busy after ~2 s leaves its temp HOME to the OS temp cleanup
     console.warn(`[test] ${home} not removed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

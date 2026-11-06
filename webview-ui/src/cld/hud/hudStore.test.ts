@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { applyPreset, LAYOUT_KEY, serializeLayout } from './layout.js';
+import { LAYOUT_KEY } from './layout.js';
 
 /** A Map-backed localStorage for the store's load at import time. */
 function seedStorage(entries: Record<string, string>): void {
@@ -15,27 +15,6 @@ function seedStorage(entries: Record<string, string>): void {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.resetModules();
-});
-
-describe('hudStore load (owner 10-24: the files icon)', () => {
-  it('a bottom row saved before the files icon gets it right after the terminal icon', async () => {
-    const old = applyPreset({ v: 1, items: {} }, 'bottom', { w: 1200, h: 800 }, [
-      'office',
-      'messenger',
-      'notices',
-      'terminal',
-    ]).layout;
-    seedStorage({ [LAYOUT_KEY]: serializeLayout(old) });
-    const { hudGetSnapshot } = await import('./hudStore.js');
-    const { items } = hudGetSnapshot().layout;
-    const terminal = old.items['icon:terminal']!.place!;
-    expect(items['icon:files']?.place).toEqual({
-      corner: 'bl',
-      dx: terminal.dx + 48,
-      dy: terminal.dy,
-    });
-    expect(items['icon:terminal']).toEqual(old.items['icon:terminal']);
-  });
 });
 
 describe('UI-DASH: the workbench is the status board dev tab', () => {

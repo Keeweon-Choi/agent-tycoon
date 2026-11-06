@@ -30,7 +30,7 @@ import {
 } from '../office/layout/furnitureCatalog.js';
 import { findPath, isWalkable } from '../office/layout/tileMap.js';
 import type { PlacedFurniture } from '../office/types.js';
-import { type Character, CharacterState, Direction, TILE_SIZE, TileType } from '../office/types.js';
+import { type Character, CharacterState, Direction, TILE_SIZE } from '../office/types.js';
 import { floorIndexAt, floorRects } from './walk.js';
 
 type Tile = { col: number; row: number };
@@ -162,26 +162,6 @@ function band(os: OfficeState, row: number): { top: number; bottom: number } {
     ? { top: rects[k].row, bottom: rects[k].row + rects[k].rows }
     : { top: 0, bottom: os.tileMap.length };
 }
-const zoneAt = (os: OfficeState, t: Tile): string | null =>
-  os.layout.areaTiles?.[t.row * os.layout.cols + t.col] ?? null;
-/** On the floor's outer edge (next to the void): where the office door is, never a place to rest. */
-function onEdge(os: OfficeState, t: Tile, b: { top: number; bottom: number }): boolean {
-  return [
-    [-1, 0],
-    [1, 0],
-    [0, -1],
-    [0, 1],
-  ].some(([dc, dr]) => {
-    const [c, r] = [t.col + dc, t.row + dr];
-    return (
-      r < b.top ||
-      r >= b.bottom ||
-      os.tileMap[r]?.[c] === undefined ||
-      os.tileMap[r][c] === TileType.VOID
-    );
-  });
-}
-
 /** What other characters hold: the seats and tiles they rest on, stand on or head for. */
 function claimedBy(os: OfficeState, self: number): { seats: Set<string>; tiles: Set<string> } {
   const seats = new Set<string>();
@@ -222,7 +202,7 @@ function walkTo(os: OfficeState, ch: Character, to: Tile): boolean {
 
 /**
  * Where an off-duty character rests: a free sofa or bench seat on its floor (the lounge's, and
- * on floor 1 the lobby's), else a free tile in the lounge, else its own desk. The nearest one it
+ * on floor 1 the lobby's), else its own desk. The nearest one it
  * can walk to (by elevator when it stands on another floor). Never a spot another character
  * rests on or heads for.
  */
@@ -244,18 +224,8 @@ export function restSpotFor(os: OfficeState, ch: Character): RestSpot {
     .map(([uid, s]) => ({ uid, tile: { col: s.seatCol, row: s.seatRow } }))
     .sort((a, c) => dist(from, a.tile) - dist(from, c.tile));
   for (const s of seats) if (reachable(os, from, s.tile)) return { tile: s.tile, seat: s.uid };
-  const used = new Set(machinesOn(os, b).map((m) => key(m.stand)));
-  const tiles = os.walkableTiles
-    .filter(
-      (t) =>
-        onFloor(t) &&
-        isLoungeZone(zoneAt(os, t)) &&
-        !taken.tiles.has(key(t)) &&
-        !used.has(key(t)) &&
-        !onEdge(os, t, b),
-    )
-    .sort((a, c) => dist(from, a) - dist(from, c));
-  for (const t of tiles) if (reachable(os, from, t)) return { tile: t, seat: null };
+  // FIX-OFFICE-REST-CROWD (11-06 21:10): more off duty than rest seats, the rest doze at their own
+  // desks; standing on the lounge's free tiles they piled up round the sofa, plates and all.
   if (desk && ch.seatId) return { tile: { col: desk.seatCol, row: desk.seatRow }, seat: ch.seatId };
   return { tile: from, seat: null };
 }

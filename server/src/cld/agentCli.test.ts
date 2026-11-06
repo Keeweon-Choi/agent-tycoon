@@ -8,6 +8,7 @@ import {
   claudeInstallDirs,
   type ClaudeVersionResult,
   findClaude,
+  findUvx,
   readWindowsMachinePath,
   readWindowsUserPath,
   windowsLogonEnv,
@@ -33,6 +34,18 @@ const fakeClaude = (dir: string, body = 'echo "2.1.310 (Claude Code)"'): string 
 };
 afterEach(() => {
   for (const d of tmp.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+});
+
+describe.skipIf(process.platform === 'win32')('findUvx (RQ4)', () => {
+  it('the daemon PATH first, then uv\'s install folder; never runs it', () => {
+    const h = home();
+    const onPath = mkdir(h, 'p');
+    const local = mkdir(h, '.local', 'bin');
+    fs.writeFileSync(path.join(local, 'uvx'), '#!/bin/sh\nexit 9\n', { mode: 0o755 });
+    expect(findUvx({ PATH: onPath }, 'linux', h)).toBe(path.join(local, 'uvx'));
+    fs.writeFileSync(path.join(onPath, 'uvx'), '#!/bin/sh\nexit 9\n', { mode: 0o755 });
+    expect(findUvx({ PATH: onPath }, 'linux', h)).toBe(path.join(onPath, 'uvx'));
+  });
 });
 
 describe('findClaude (linux/macOS, real fake dirs)', () => {

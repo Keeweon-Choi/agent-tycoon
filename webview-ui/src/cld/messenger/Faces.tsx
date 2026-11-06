@@ -18,11 +18,15 @@ export const FACE_COLUMN = 'w-[34px] h-[34px]';
 export const PORTRAIT_FRAME_PX = MSG_PORTRAIT_PX + MSG_PORTRAIT_FRAME_PAD_PX;
 /** The gap between a face and its dialogue box. */
 export const FACE_GAP = 'gap-[10px]';
-/** The agent's command lines, 더보기 and times start on its dialogue box: the portrait frame (60) and the gap (10). */
-export const FACE_GUTTER_LEFT = 'ml-[70px]';
-/** Room the agent's lines leave on the right, and the boss's on the left (the mock's player side is narrower). */
-export const AGENT_GUTTER_RIGHT = 'mr-[40px]';
-export const OWNER_GUTTER_LEFT = 'ml-[64px]';
+/** The band's margins (--msg-col, the same on both sides, gameMessenger.css .msg-line): the agent's command lines
+ *  and cards start on its dialogue box, and leave the room the owner's avatar column takes on the right. */
+export const FACE_GUTTER_LEFT = 'ml-(--msg-col)';
+export const AGENT_GUTTER_RIGHT = 'mr-(--msg-col)';
+
+/** Where a face goes when the run's earlier line already shows it: the frame's width, empty. */
+export function FaceSpacer() {
+  return <span className="msg-face shrink-0" style={{ width: PORTRAIT_FRAME_PX }} aria-hidden="true" />;
+}
 
 /**
  * A sender's face: the mug shot the agent cards draw (the look the office shows). `execution`
@@ -57,7 +61,7 @@ export function SenderFace({
     <span
       className={
         portrait
-          ? 'dlg-pf flex items-center justify-center text-text-muted'
+          ? 'dlg-pf msg-face flex items-center justify-center text-text-muted'
           : `shrink-0 ${FACE_COLUMN} border border-border flex items-center justify-center text-2xs text-text-muted`
       }
       style={portrait ? { width: PORTRAIT_FRAME_PX, height: PORTRAIT_FRAME_PX } : undefined}
@@ -68,18 +72,28 @@ export function SenderFace({
       {appearance ? (
         <CharacterMugShot palette={appearance.palette} hueShift={appearance.hueShift} size={portrait ? MSG_PORTRAIT_PX : FACE_PX} />
       ) : (
-        <span aria-hidden="true">{[...label][0]}</span>
+        <span aria-hidden="true" className="leading-none">
+          {[...label][0]}
+        </span>
       )}
     </span>
   );
 }
 
-/** MSG-UI3: the owner's face: the uploaded profile picture, else a plain bust drawn in code. */
-export function OwnerFace() {
+/**
+ * MSG-UI3: the owner's face: the uploaded profile picture, else a plain bust drawn in code. `portrait`: the
+ * conversation's frame, the same size as the lead's, everything centred in it.
+ */
+export function OwnerFace({ portrait }: { portrait?: boolean }) {
   const url = useOwnerPicture();
   return (
     <span
-      className={`shrink-0 ${FACE_COLUMN} border border-border flex items-center justify-center overflow-hidden text-text-muted`}
+      className={
+        portrait
+          ? 'dlg-pf msg-face flex items-center justify-center text-text-muted'
+          : `shrink-0 ${FACE_COLUMN} border border-border flex items-center justify-center overflow-hidden text-text-muted`
+      }
+      style={portrait ? { width: PORTRAIT_FRAME_PX, height: PORTRAIT_FRAME_PX } : undefined}
       data-testid="owner-face"
       data-picture={url ? 'custom' : 'default'}
     >
@@ -95,7 +109,7 @@ export function OwnerFace() {
       ) : (
         <svg
           viewBox="0 0 16 16"
-          className="w-[24px] h-[24px]"
+          className={portrait ? 'w-full h-full' : 'w-[24px] h-[24px]'}
           fill="currentColor"
           shapeRendering="crispEdges"
           aria-hidden="true"

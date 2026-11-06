@@ -6,8 +6,17 @@ import { setLanguage, t } from '../../i18n/index.js';
 import { presenceOf, presenceWord } from '../officeHours.js';
 import { cldConnectionLost, cldHandleMessage } from '../officeStore.js';
 import { type AttachmentChip, composeAttachmentText } from './attachments.js';
+
+const stepUp = vi.hoisted(() => ({ ok: true, asked: 0 }));
+vi.mock('../auth/stepUp.js', () => ({
+  requestStepUp: () => {
+    stepUp.asked++;
+    return Promise.resolve(stepUp.ok);
+  },
+}));
 import {
   chatViewClosed,
+  clearSearchAll,
   closeConversation,
   closeRoomTab,
   contactKey,
@@ -40,9 +49,11 @@ import {
   onLeadReply,
   openConversation,
   openMessenger,
+  openRoomAt,
   questLabel,
   requestHistory,
   requestSearch,
+  requestSearchAll,
   saveDraft,
   saveDraftReply,
   settle,
@@ -876,6 +887,29 @@ describe('GAME-UI-1 G1: quest records and the delivered badge', () => {
     cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[1].requestId, agentId: 8, ok: true, result: 'noDialog' });
     expect(snap().questRecords[8]).toBeUndefined();
   });
+  it('ACP-1: "always allow" refused for a step-up proves the device and goes once more, the same option', async () => {
+    const sent: Array<{ requestId: string; toolId: string; allow: boolean; optionId?: string }> = [];
+    const acp = { toolId: 'acp:b00700000000:1', tool: 'Bash', options: [{ optionId: 'ok-always', name: 'Always', kind: 'allow_always' as const }] };
+    stepUp.asked = 0;
+    stepUp.ok = true;
+    messengerAnswerPermission((m) => sent.push(m), 9, acp, true, 'ok-always');
+    cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[0].requestId, agentId: 9, ok: false, error: 'stepup' });
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(stepUp.asked).toBe(1);
+    expect(sent[1]).toMatchObject({ toolId: acp.toolId, allow: true, optionId: 'ok-always' });
+    expect(sent[1].requestId).not.toBe(sent[0].requestId);
+    // Refused again: no third try, the refusal shows.
+    cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[1].requestId, agentId: 9, ok: false, error: 'stepup' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sent).toHaveLength(2);
+    expect(snap().permissionAnswers[9].error).toBeTruthy();
+    // The step-up not proved: nothing goes again.
+    stepUp.ok = false;
+    messengerAnswerPermission((m) => sent.push(m), 10, acp, true, 'ok-always');
+    cldHandleMessage({ type: 'permissionAnswerResult', requestId: sent[2].requestId, agentId: 10, ok: false, error: 'stepup' });
+    await vi.waitFor(() => expect(snap().permissionAnswers[10].error).toBeTruthy());
+    expect(sent).toHaveLength(3);
+  });
   it('notes when a send is delivered (sent), not when it is queued', () => {
     const sent: Array<{ requestId: string }> = [];
     messengerSend((m) => sent.push(m), true, 1, 'alpha', 'a');
@@ -889,5 +923,31 @@ describe('GAME-UI-1 G1: quest records and the delivered badge', () => {
     cldHandleMessage({ type: 'chatSendResult', requestId: sent[1].requestId, name: 'beta', ok: true });
     expect(snap().delivered[1]).toBeUndefined();
     expect(snap().delivered[2]).toBeGreaterThan(0);
+  });
+});
+
+describe('the list\'s overall text search', () => {
+  beforeEach(() => messengerResetForTests());
+  const answer = (requestId: string) =>
+    cldHandleMessage({ type: 'chatSearchAllResult', requestId, groups: [{ agentId: 1, hits: [], more: false }], truncated: true });
+
+  it('takes the answer of the request in flight only; a newer one or a cleared field drops the older', () => {
+    requestSearchAll('s1');
+    requestSearchAll('s2');
+    answer('s1');
+    expect(snap().searchAll).toMatchObject({ requestId: 's2', busy: true });
+    answer('s2');
+    expect(snap().searchAll).toMatchObject({ requestId: 's2', busy: false, result: { truncated: true } });
+    clearSearchAll();
+    answer('s2');
+    expect(snap().searchAll).toBeNull();
+  });
+
+  it('a hit opens its conversation at the message with the words, a room at its post', () => {
+    openMessenger(5, { at: 10, id: 'x', query: 'deploy' });
+    expect(snap().pendingJump).toEqual({ agentId: 5, at: 10, id: 'x', query: 'deploy' });
+    openRoomAt('r1', 'p1');
+    expect(snap().activeRoom).toBe('r1');
+    expect(snap().pendingRoomJump).toEqual({ roomId: 'r1', id: 'p1' });
   });
 });

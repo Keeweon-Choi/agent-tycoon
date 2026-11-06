@@ -18,12 +18,7 @@
  * it), which the keyboard may still rewrite. Keys xterm handles (Enter, space, arrows, ASCII, a key bar
  * key) send everything still open first (imeFlush). Text the IME takes back
  * after the PTY had it (Gboard reopening a word) becomes DELs.
- *
- * `localStorage['cld.ime-guard'] = 'off'` switches the layer off (xterm's own
- * path: for comparing, and if a device's keyboard ever disagrees with it).
  */
-
-export const IME_GUARD_OFF_KEY = 'cld.ime-guard';
 
 export interface ImeState {
   /** The textarea's value as last seen. */

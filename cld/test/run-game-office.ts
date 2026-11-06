@@ -1,13 +1,13 @@
 /**
  * GAME-UI-1 G3 on the REAL API: dist/cli.js in a temp HOME (the engine's fake claude as `claude-pty`, never a
  * real agent), four Leads (alpha, beta, delta, eta) whose transcripts put them in the four states (일하는 중,
- * 나를 기다림, 허락 기다림, 쉬는 중) with real context usage; the usage endpoint and Codex log faked
+ * 나를 기다림, 허락 기다림, 쉬는 중) with real context usage; the status-line usage report and Codex log faked
  * (testHome.fakeUsage: Claude 5h 38% · 7d 59% used, Codex 12% · 27%); a loopback LHM data.json for the CPU
  * temperature (--lhm-port; the daemon's own hw sampling while someone watches); three live jobs in alpha (a tqdm
  * log at 45%, a median-estimated one, a first run), our own `sleep` processes.
- *  1. 07 HUD: the gauges show what is LEFT (62% 1:xx, 주 41%), the job counter 3, the heat 62° quiet; at 88°
+ *  1. 07 HUD (hud-v3: the usage panel, the corner and the 메뉴): the panel shows what is LEFT (62%), the job counter 3, no heat chip at 62°; at 88°
  *     amber 뜨거움 and one nudge (frames), at 96° red 위험; 1280 wide folds the day cells
- *  2. 05 party: every card in the card bar has its context strip and state icon; the 파티 window lists the
+ *  2. 05 party: every card in the card bar has its context strip and state icon (the 파티 window is gone since FEAT-PARTY-V2); it listed the
  *     four with their state, context left (delta under 20%: amber), model and Lv; a card opens the stats
  *  3. 06 job run: the top running job walks (frames), fills from tqdm / the median, the first run fills
  *     nothing; exit 0 → CLEAR · exit 0 and three coins once (frames), the counter rolls to 2; exit 1 →
@@ -195,10 +195,12 @@ async function main() {
     check(true, 'the four Leads run (fake claude-pty)');
     browser = await launchBrowser();
     const desk = await newPage(DESK);
-    await desk.getByTestId('usage-folded').waitFor({ timeout: 30_000 });
+    await desk.getByTestId('usage-panel').waitFor({ timeout: 30_000 }); // hud-v3: the PC's usage is the panel at the bottom right
     // The four states, each with a real context sample, written while the page watches (a card's activity
     // counts from its first live event, as the card bar's dot does).
-    await eventually('four party marks', async () => (await desk.getByTestId('party-mark').count()) >= 4, 30_000);
+    // FEAT-PARTY-V2: the card bar's marks are the party's portraits (each carries its state).
+    const portraits = desk.locator('[data-testid="agent-card"][data-portrait]');
+    await eventually('four party portraits', async () => (await portraits.count()) >= 4, 30_000);
     const [alpha, beta, delta, eta] = LEADS;
     // alpha runs a Bash call that keeps reporting progress: working, never a permission wait.
     append(alpha.name, { type: 'user', message: { content: 'usage.ts 를 읽어 주세요' } }, said(alpha.model, alpha.tokens, [{ type: 'tool_use', id: 'toolu_alpha1', name: 'Bash', input: { command: 'cat usage.ts', description: 'usage.ts 읽기' } }]));
@@ -209,56 +211,29 @@ async function main() {
 
 
     // ── 07 HUD ──
-    const gauge = (id: string) => desk.locator(`[data-testid="usage-gauge"][data-provider="${id}"]`);
+    // hud-v3: the PC has no top bar. The usage panel shows each provider's main window (what is left), the corner
+    // shows a hot CPU only, and the job counter sits in the 메뉴 (its row is in the DOM, hidden, while the menu is shut).
+    const gauge = (id: string) => desk.locator(`[data-testid="usage-panel-provider"][data-provider="${id}"]`);
+    const openMenu = async (p: Page) => {
+      if ((await p.getByTestId('hud-menu').getAttribute('aria-expanded')) !== 'true') await p.getByTestId('hud-menu').click();
+    };
     await eventually('Claude gauge 62% left', async () => (await gauge('claude').innerText()).includes('62%'));
     const claudeText = (await gauge('claude').innerText()).replace(/\s+/g, ' ');
-    check(/62%/.test(claudeText) && /41%/.test(claudeText) && /\d:\d\d/.test(claudeText), `Claude gauge shows what is left with h:mm (${claudeText})`);
-    check((await gauge('claude').locator('[data-window="5h"] .game-segbar').getAttribute('data-lit')) === '13', 'Claude 5h: 13 of 20 cells (62% left; HUD-2B rows)');
+    check(/62%/.test(claudeText), `Claude gauge shows what is left (${claudeText})`);
+    check(Number(await gauge('claude').locator('.game-segbar').getAttribute('data-lit')) >= 4, 'Claude 5h: about 5 of 8 cells lit (62% left)');
     const codexText = (await gauge('codex').innerText()).replace(/\s+/g, ' ');
-    check(/88%/.test(codexText) && /73%/.test(codexText), `Codex gauge 88% · 주 73% (${codexText})`);
-    await eventually('heat 62°', async () => (await desk.getByTestId('hud-heat').count()) > 0 && (await desk.getByTestId('hud-heat').innerText()).includes('62°'), 20_000);
-    check((await attr(desk, '[data-testid="hud-heat"]', 'data-tone')) === null, 'heat 62°: quiet (no tone)');
+    check(/88%/.test(codexText), `Codex gauge 88% (${codexText})`);
+    check((await desk.getByTestId('hud-heat').count()) === 0, 'heat 62°: the corner shows a CPU chip only when it runs hot');
     await eventually('job counter 3', async () => (await attr(desk, '[data-testid="hud-jobs"]', 'data-count')) === '3', 20_000);
     check(true, 'job counter: 3 running');
-    check((await desk.locator('.game-clock .game-day > i').count()) === 24, 'the game clock: 24 day cells');
-    const hour = Number(await attr(desk, '.game-clock', 'data-hour'));
-    check((await desk.locator('.game-clock [data-icon]').getAttribute('data-icon')) === (hour >= 6 && hour < 18 ? 'sun' : 'moon'), `the clock's icon for ${hour}h`);
-    // HUD-2B: the gauges are rows (Claude over Codex); the job counter, the heat and 메뉴 share one line.
-    const oneLine = async (p: Page) => {
-      const tops = await p.locator('[data-testid="hud-jobs"], [data-testid="hud-heat"], [data-testid="hud-menu"]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-      const rows = await p.locator('[data-testid="usage-gauge"]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-      return new Set(tops).size === 1 && rows.length === 2 && rows[1] > rows[0] ? tops : null;
-    };
-    check(await oneLine(desk), '1400 wide: the gauges in two rows; the job counter, the heat and 메뉴 on one line');
-    const bar = desk.locator('[data-testid="usage-folded"]').locator('xpath=ancestor::div[contains(@class,"pixel-panel")][1]');
+    const bar = desk.getByTestId('usage-panel');
     await shot(bar, 'hud-desktop-1400');
 
-    // ── 05 party: the card bar's marks ──
-    const markState = async (name: string) =>
-      desk.locator(`[data-testid="agent-card"][title="${name}"] [data-testid="party-mark"]`).getAttribute('data-state');
+    // ── 05 party: each portrait's state ──
+    const markState = async (name: string) => portraits.and(desk.locator(`[title="${name}"]`)).getAttribute('data-state');
     for (const l of LEADS) await eventually(`${l.name} is ${l.state}`, async () => (await markState(l.name)) === l.state, 30_000);
-    check(true, 'card bar: alpha work, beta ask, delta lock (after the permission timer), eta rest');
+    check(true, 'party: alpha work, beta ask, delta lock (after the permission timer), eta rest');
     await shot(desk, 'desktop-office');
-
-    // ── 05 party window ──
-    await desk.getByTestId('party-open').click();
-    await desk.getByTestId('party-window').waitFor();
-    const cards = desk.getByTestId('party-card');
-    check((await cards.count()) === 4, 'the party window lists the four');
-    const card = (name: string) => cards.filter({ hasText: name });
-    const left = Number(await card('delta').getByTestId('party-context').getAttribute('data-left'));
-    check(left <= 20 && (await card('delta').locator('.game-segbar').getAttribute('data-tone')) === 'warn', `delta: ${left}% context left, amber`);
-    check((await card('alpha').getAttribute('data-state')) === 'work' && (await card('beta').getAttribute('data-state')) === 'ask', 'party cards carry the states');
-    check(/Opus/.test(await card('alpha').innerText()) && /Haiku/.test(await card('delta').innerText()), 'party cards name the model');
-    check((await desk.getByTestId('party-energy').getAttribute('data-left')) === '41', 'party energy: Claude weekly 41% left, one bar');
-    check((await card('beta').locator('button[data-fx="ask"]').count()) === 1, "beta's lit 나를 기다림 opens the conversation");
-    await shot(desk, 'desktop-party');
-    await card('alpha').click();
-    await eventually('stat detail', async () => (await desk.getByRole('dialog').count()) >= 2, 5_000);
-    check(true, 'a party card opens the stat detail');
-    await desk.keyboard.press('Escape');
-    for (const x of await desk.locator('[data-modal-title] button').all().then((b) => b.reverse())) await x.click().catch(() => undefined);
-    await eventually('party closed', async () => (await desk.getByTestId('party-window').count()) === 0, 5_000);
 
     // ── 07 heat: 88 amber with one nudge, 96 red ──
     lhm.set(88);
@@ -273,9 +248,10 @@ async function main() {
     lhm.set(96);
     await eventually('heat 96 bad', async () => (await attr(desk, '[data-testid="hud-heat"]', 'data-tone')) === 'bad', 15_000);
     check(/96°/.test(await heat.innerText()), 'heat 96°: red, 위험');
-    await shot(bar, 'hud-desktop-hot');
+    await shot(desk.getByTestId('hud-corner'), 'hud-desktop-hot');
 
     // ── 06 job run ──
+    await openMenu(desk);
     await desk.getByTestId('hud-jobs').click();
     const dev = desk.locator('[data-hud-window="office"]');
     await dev.waitFor();
@@ -335,17 +311,16 @@ async function main() {
     check(true, '로그 opens the log');
     await shot(dev, 'desktop-jobs-ended');
 
-    // ── 1280 wide: the day cells fold first ──
+    // ── 1280 wide ──
     await desk.setViewportSize({ width: 1280, height: 800 });
     await wait(400);
-    check(!(await desk.locator('.game-day').first().isVisible()), '1280 wide: the day cells fold');
-    check(await oneLine(desk), '1280 wide: still two rows and one line');
     await shot(bar, 'hud-desktop-1280');
     await desk.context().close();
 
     // ── 게임 효과 off: the plate without coins ──
     const still = await newPage(DESK, false);
     check((await still.evaluate(() => document.documentElement.dataset.gameMotion)) === 'off', '게임 효과 off: data-game-motion=off');
+    await still.getByTestId('hud-menu').click();
     await still.getByTestId('hud-jobs').click();
     const dev2 = still.locator('[data-hud-window="office"]');
     await dev2.getByRole('combobox', { name: '개발 프로젝트' }).selectOption('alpha');
@@ -366,10 +341,10 @@ async function main() {
     await top.getByTestId('hud-jobs').waitFor({ timeout: 30_000 });
     await eventually('phone hot chip', async () => (await top.getByTestId('hud-heat').count()) === 1, 15_000);
     check(/96°/.test(await top.getByTestId('hud-heat').innerText()), 'phone: the job chip and the hot 96° chip on top');
-    const strip = phone.getByTestId('usage-folded');
-    check((await strip.locator('[data-window="7d"]').count()) === 0 && (await strip.locator('[data-window="5h"]').count()) === 2, 'phone: only the 5-hour gauges below');
-    const ptops = await strip.getByTestId('usage-gauge').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
-    check(ptops.length === 2 && ptops[0] === ptops[1], `phone: the two 5-hour gauges side by side (${ptops})`);
+    const strip = phone.getByTestId('cc-seg-usage');
+    const rows = await strip.locator('[data-agent]').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    // FEAT-PHONE-CONTROL-CENTER: the desktop control center's folded usage, on one row.
+    check(rows.length >= 1 && rows.every((y) => y === rows[0]), `phone: the folded usage is one row (${rows})`);
     check(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'phone: no horizontal scroll');
     await shot(phone, 'phone-office');
     await phone.context().close();

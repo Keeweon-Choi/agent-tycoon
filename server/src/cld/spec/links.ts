@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { EvidenceKind, LinkRel } from '../../../../core/src/cld/spec/trace.js';
+import type { EvidenceKind, LinkRel, NodeRef } from '../../../../core/src/cld/spec/trace.js';
 import { opaqueId } from '../engine/registry.js';
 import { readJson, writeJsonAtomic } from '../jsonFile.js';
 import { specDirectory } from './store.js';
@@ -17,14 +17,6 @@ export const LINKS_VERSION = 1;
 export const LINK_ID_RE = /^l_[a-z2-7]{10}$/;
 export const LINK_RELS = ['implements', 'changes', 'verifies', 'discusses', 'realizes', 'refs'] as const;
 export const EVIDENCE_KINDS = ['unit', 'integration', 'deploy', 'other'] as const;
-
-export type NodeRef =
-  | { t: 'req'; uid: string }
-  | { t: 'task'; id: string }
-  | { t: 'commit'; sha: string }
-  | { t: 'job'; id: string }
-  | { t: 'msg'; where: string; id: string }
-  | { t: 'comp'; uid: string };
 
 /** The other end each relation names (SPT §4.3's table). */
 export const END_OF: Record<LinkRel, NodeRef['t']> = {

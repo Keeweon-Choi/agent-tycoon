@@ -35,9 +35,13 @@ const OUR_RULES: Array<[RegExp, string]> = [
 
 /** Longer lines are cut first: a line is for reading, and the cut bounds the regex work. */
 const LINE_MAX = 2000;
+/** A line longer than this is cut (with '…') before it is masked. */
+export const MASK_LINE_MAX = LINE_MAX;
 const ENV_LINE = /^\s*(export\s+)?[A-Z][A-Z0-9_]{2,}=\S*/;
 /** This many `NAME=value` lines in a row is an environment dump. */
 const ENV_RUN = 4;
+const PEM_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+const PEM_END = /-----END [A-Z ]*PRIVATE KEY-----/;
 export const ENV_DUMP_NOTE = '(환경 변수 출력은 보여 주지 않아요)';
 
 const maskLine = (line: string): string => {
@@ -71,6 +75,12 @@ export function maskText(text: string): string {
       continue;
     }
     out.push(maskLine(lines[i]));
+    // A PEM private key's body lines carry the key: everything through its END line goes (to the
+    // text's end when there is none); maskLine already turned the BEGIN line into the note.
+    if (PEM_BEGIN.test(lines[i]) && !PEM_END.test(lines[i])) {
+      do i++;
+      while (i < lines.length && !PEM_END.test(lines[i]));
+    }
     i++;
   }
   return out.join('\n');

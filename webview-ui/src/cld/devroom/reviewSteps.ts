@@ -1,6 +1,6 @@
 /**
  * The review loop's six steps (mockups-1101/review-loop-R4): 변경 보기, 의견 달기, 보내기,
- * 에이전트가 고침, 다시 보기, 병합. Which one is "지금 여기" follows from the notes, the send in
+ * 에이전트가 고침, 다시 보기, 머지. Which one is "지금 여기" follows from the notes, the send in
  * flight, the Task and the worktree: the strip at the top of the 다시 보기 view just draws it.
  */
 export const REVIEW_STEPS = ['look', 'note', 'send', 'fix', 'again', 'merge'] as const;

@@ -10,7 +10,7 @@ import { drawnView, mirrorSprite } from '../../cld/iso/sprites.js';
 import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
 import { perfFrame, perfOn } from '../../cld/perf.js';
 import { serverLine } from '../../cld/serverText.js';
-import { pixelFontFamily } from '../../cld/uiFont.js';
+import { pixelFontFamily } from '../../cld/uiTheme.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
   AREA_ACTIVE_ALPHA_MULTIPLIER,

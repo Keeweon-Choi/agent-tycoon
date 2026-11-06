@@ -34,6 +34,7 @@ import {
   startDaemon,
   writeEngineProjects,
 } from '../../server/src/cld/testHome.js';
+import { engineButton, engineRow } from './engineRow.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0032');
@@ -218,8 +219,9 @@ async function main() {
     }
     await page.evaluate(() => document.fonts.load("16px 'FS Pixel Sans'", '가'));
   };
-  const card = (scope: Locator, page: Page, name: string) =>
-    scope.locator('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+  // The 현황판 has no per-project cards any more: a project is its card in the party (its buttons: engineRow).
+  const card = (_scope: unknown, page: Page, name: string) =>
+    page.locator(`[data-testid="agent-card"][title="${name}"]`).first();
   const shot = (page: Page, name: string) =>
     page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const actions = (type: string) => sent.filter((m) => m.type === type);
@@ -261,12 +263,11 @@ async function main() {
       hostInfo?.os === 'wsl' && hostInfo.distro === 'TestDistro' && hostInfo.home === home,
       'hostInfo arrived once logged in',
     );
-    const alphaCard = card(drawer, page, 'alpha');
+    const alphaCard = await engineRow(page, 'alpha');
     check(
-      (await alphaCard.getByText('엔진', { exact: true }).count()) === 1 &&
-        (await alphaCard.getByRole('button', { name: '설정', exact: true }).count()) === 1 &&
-        (await alphaCard.getByRole('button', { name: '삭제', exact: true }).count()) === 1,
-      'an existing engine project: 엔진 badge, 설정 and 삭제',
+      (await (await engineButton(page, 'alpha', '설정')).count()) === 1 &&
+        (await (await engineButton(page, 'alpha', '삭제')).count()) === 1,
+      'an existing engine project: 설정 and 삭제 (in the inspector)',
     );
     await shot(page, 'desktop-cards');
 
@@ -350,13 +351,8 @@ async function main() {
         added.folder === path.join(home, 'projects/alpha-app'),
       'added through an engineAction',
     );
-    const newCard = card(drawer, page, 'alpha-app');
-    await newCard.getByRole('button', { name: '켜기', exact: true }).waitFor();
-    check(
-      (await newCard.getByText('엔진', { exact: true }).count()) === 1,
-      'the new card: 엔진 badge',
-    );
-    await newCard.scrollIntoViewIfNeeded();
+    const newCard = await engineRow(page, 'alpha-app');
+    await (await engineButton(page, 'alpha-app', '켜기')).waitFor();
     await page.waitForTimeout(300);
     await shot(page, 'desktop-added');
 
@@ -403,8 +399,7 @@ async function main() {
     await toast(phone, '추가했어요');
     check(actions('engineAction').at(-1)?.name === 'beta-lib', 'phone: added through engineAction');
     const pcard = card(panel, phone, 'beta-lib');
-    await pcard.waitFor();
-    await pcard.scrollIntoViewIfNeeded();
+    await pcard.waitFor({ state: 'attached' }); // behind the 현황판 page on a phone
     await phone.waitForTimeout(300);
     await shot(phone, 'phone-added');
     await desk.close();

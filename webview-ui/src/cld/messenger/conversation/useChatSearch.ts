@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatSearchHit } from '../../../../../core/src/messages.js';
 import { transport } from '../../../transport/index.js';
@@ -14,7 +14,7 @@ export function useChatSearch({
 }: {
   agentId: number;
   m: MessengerSnapshot;
-  jumpToHit: (hit: ChatSearchHit) => void;
+  jumpToHit: (hit: Pick<ChatSearchHit, 'id' | 'at'>) => void;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -22,6 +22,8 @@ export function useChatSearch({
   const [searchRequest, setSearchRequest] = useState('');
   const [activeResult, setActiveResult] = useState(-1);
   const [listOpen, setListOpen] = useState(false);
+  // The hit the list's overall search was opened at: the first jump goes to it, not to the newest match.
+  const [focus, setFocus] = useState<{ id: string; at: number } | null>(null);
   const searchResult = m.searchResults[agentId];
   const hits = useMemo(() => searchResult?.hits ?? [], [searchResult]);
   const clearSearch = useCallback(() => {
@@ -31,6 +33,7 @@ export function useChatSearch({
     setSearchRequest('');
     setActiveResult(-1);
     setListOpen(false);
+    setFocus(null);
   }, []);
   useEffect(() => {
     if (!searchOpen) return;
@@ -57,11 +60,36 @@ export function useChatSearch({
     const timer = window.setTimeout(search, 180);
     return () => window.clearTimeout(timer);
   }, [searchOpen, query, searched, search]);
+  // Opened from the list's overall search at a hit: this conversation's own search bar opens with the same
+  // words (marked in the lines, stepping between matches) and the jump lands on that hit.
+  const jump = m.pendingJump;
   useEffect(() => {
-    if (searchResult?.requestId !== searchRequest || m.searchBusy[agentId] || !hits.length) return;
+    if (jump?.agentId !== agentId || !jump.query || !jump.id) return;
+    const requestId = nextRequestId();
+    setSearchOpen(true);
+    setQuery(jump.query);
+    setSearched(jump.query);
+    setSearchRequest(requestId);
+    setActiveResult(-1);
+    setFocus({ id: jump.id, at: jump.at });
+    requestSearch(agentId, requestId);
+    transport.send({ type: 'chatSearch', agentId, requestId, query: jump.query });
+  }, [jump, agentId]);
+  const jumpedFor = useRef('');
+  useEffect(() => {
+    if (searchResult?.requestId !== searchRequest || m.searchBusy[agentId]) return;
+    if (focus) {
+      const index = hits.findIndex((hit) => hit.id === focus.id);
+      jumpedFor.current = searchRequest;
+      setFocus(null);
+      setActiveResult(index);
+      jumpToHit(index >= 0 ? hits[index] : focus); // past the search's newest matches: by time, as the history jump
+      return;
+    }
+    if (!hits.length || jumpedFor.current === searchRequest) return; // the focused jump above was this request's
     setActiveResult(0);
     jumpToHit(hits[0]);
-  }, [searchResult, searchRequest, m.searchBusy, agentId, hits, jumpToHit]);
+  }, [searchResult, searchRequest, m.searchBusy, agentId, hits, jumpToHit, focus]);
   const stepResult = (direction: 'older' | 'newer') => {
     const next = stepSearchResult(activeResult, hits.length, direction);
     if (next < 0) return;

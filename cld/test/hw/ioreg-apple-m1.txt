@@ -1,0 +1,12 @@
++-o AGXAcceleratorG13G  <class AGXAcceleratorG13G, id 0x10000052a, registered, matched, active, busy 0 (13 ms), retain 105>
+    {
+      "IOClass" = "AGXAcceleratorG13G"
+      "CFBundleIdentifier" = "com.apple.AGXG13G"
+      "IOProviderClass" = "AppleARMIODevice"
+      "model" = "Apple M1"
+      "gpu-core-count" = 8
+      "IOMatchCategory" = "IOAccelerator"
+      "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=1427701760,"Tiler Utilization %"=19,"recoveryCount"=0,"lastRecoveryTime"=0,"Renderer Utilization %"=21,"TiledSceneBytes"=1179648,"Device Utilization %"=23,"SplitSceneCount"=0,"Allocated PB Size"=168820736,"In use system memory"=362774528}
+      "AGXParameterBufferMaxSize" = 1073741824
+    }
+    

@@ -1,0 +1,623 @@
+/* A4: the 알림 window's body (NoticeCenter.tsx). Colours are :root tokens (index.css), depth comes from
+   the shared .ui-* parts (tabs, card, row, input, raise); this file only lays them out. The panel is a
+   size container: from 560 px on the filter column stands left of the list with 모두 확인 at its
+   foot, narrower (the 420 px window, the phone) the column folds under the tabs behind the filter
+   button and the actions sit under the list. A card is a container too: its buttons move beside the
+   text from 480 px on. */
+
+.nc {
+  container: nc / inline-size;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: calc(8px * var(--ui-scale));
+}
+
+/* ── Head: the bell tile, the headline, the settings button ── */
+.nc-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+}
+.nc-head-text {
+  min-width: 0;
+  flex: 1;
+}
+.nc-headline {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  min-width: 0;
+  font-size: var(--text-base);
+  line-height: calc(1.2 * var(--ui-lh));
+  color: var(--color-devroom-title);
+}
+.nc-sub {
+  margin-top: calc(2px * var(--ui-scale));
+  font-size: var(--text-xs);
+  line-height: calc(1.3 * var(--ui-lh));
+  color: var(--color-text-muted);
+}
+@container nc (max-width: 520px) {
+  .nc-sub {
+    display: none;
+  }
+}
+
+.nc-glyph {
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.nc-dot {
+  flex: 0 0 auto;
+  width: calc(6px * var(--ui-scale));
+  height: calc(6px * var(--ui-scale));
+  background: var(--tone, var(--color-accent-text));
+}
+
+/* A count: a small sunken plate. */
+.nc-count {
+  border-radius: var(--ui-r-pill);
+  flex: 0 0 auto;
+  min-width: calc(24px * var(--ui-scale));
+  padding: 0 calc(5px * var(--ui-scale));
+  font-size: var(--text-xs);
+  line-height: calc(20px * var(--ui-scale));
+  text-align: center;
+  color: var(--color-text);
+  background: var(--color-devroom-menu);
+  box-shadow: var(--bevel-in);
+}
+
+/* ── Tabs (the shared .ui-tabs): they share the width, the label gives way before the count ── */
+.nc-center {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: calc(8px * var(--ui-scale));
+}
+.nc-tabs {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: calc(6px * var(--ui-scale));
+  padding-bottom: calc(6px * var(--ui-scale));
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.nc-tabs .ui-tab {
+  /* narrow: three on the first row, two on the second, each sharing its row */
+  flex: 1 1 calc(33% - 6px * var(--ui-scale));
+  justify-content: center;
+  padding: 0 calc(8px * var(--ui-scale));
+  font-size: var(--text-xs);
+}
+/* The tab's glyph: wide windows only (the narrow tabs need the room for their labels). */
+.nc-tab-glyph {
+  display: none;
+}
+/* An unread notice in the tab: its count plate takes the accent. */
+.nc-count[data-fresh] {
+  background: var(--color-accent);
+  box-shadow: var(--bevel);
+}
+.nc-tabs .ui-tab[aria-selected='true'] {
+  background: var(--color-accent);
+  border-color: var(--glow-in);
+  color: var(--color-text);
+}
+
+/* ── Body: tools, filter column, foot, list ── */
+.nc-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: 'tools' 'side' 'list' 'foot';
+  gap: calc(8px * var(--ui-scale));
+}
+.nc-tools {
+  grid-area: tools;
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+}
+.nc-search {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+.nc-search .nc-glyph {
+  position: absolute;
+  top: 50%;
+  left: calc(8px * var(--ui-scale));
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.nc-search input {
+  width: 100%;
+  height: calc(28px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale)) 0 calc(32px * var(--ui-scale));
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+.nc-sort {
+  height: calc(28px * var(--ui-scale));
+  padding: 0 calc(6px * var(--ui-scale));
+  font-size: var(--text-xs);
+  color: var(--color-text);
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .nc-search input,
+  .nc-sort {
+    height: 44px;
+  }
+}
+
+/* The filter column: a sunken rail, as the GPT mock-up's left box. */
+.nc-side {
+  border-radius: var(--ui-r-card);
+  grid-area: side;
+  display: none;
+  align-content: start;
+  gap: calc(2px * var(--ui-scale));
+  min-height: 0;
+  overflow-y: auto;
+  padding: calc(6px * var(--ui-scale));
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel-in);
+}
+.nc-center[data-filters='open'] .nc-side {
+  /* narrow: the groups are rows of chips under the tabs, scrolling inside a capped box */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-height: calc(200px * var(--ui-scale));
+}
+.nc-center[data-filters='open'] .nc-row {
+  width: auto;
+}
+.nc-center[data-filters='open'] .nc-side-title {
+  flex: 0 0 100%;
+}
+.nc-side-title {
+  margin: calc(6px * var(--ui-scale)) 0 0;
+  padding: 0 calc(6px * var(--ui-scale));
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+}
+.nc-row {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+  width: 100%;
+  min-height: calc(24px * var(--ui-scale));
+  padding: 0 calc(6px * var(--ui-scale));
+  font-size: var(--text-xs);
+  text-align: left;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.nc-row[aria-current='true'] {
+  background: var(--color-accent);
+  border-color: var(--glow-in);
+  box-shadow: var(--bevel);
+}
+.nc-row-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .nc-row {
+    min-height: 44px;
+  }
+}
+
+.nc-foot {
+  grid-area: foot;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6px * var(--ui-scale));
+}
+.nc-foot > * {
+  flex: 1 1 auto;
+}
+
+.nc-scroll {
+  grid-area: list;
+  min-height: 0;
+  overflow-y: auto;
+  /* room for a card's lift and drop at the edges */
+  padding: calc(2px * var(--ui-scale)) calc(4px * var(--ui-scale)) calc(4px * var(--ui-scale))
+    calc(2px * var(--ui-scale));
+}
+.nc-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--ui-scale));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (pointer: coarse) {
+  .nc-tabs .ui-tab {
+    min-height: 44px;
+  }
+}
+@container nc (min-width: 560px) {
+  .nc-tabs {
+    flex-wrap: nowrap;
+  }
+  .nc-tabs .ui-tab {
+    flex: 1 1 0;
+  }
+  .nc-tab-glyph {
+    display: inline-grid;
+  }
+  .nc-body {
+    grid-template-columns: calc(176px * var(--ui-scale)) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'side tools' 'side list' 'foot list';
+    column-gap: calc(10px * var(--ui-scale));
+  }
+  .nc-side,
+  .nc-center[data-filters='open'] .nc-side {
+    display: grid;
+    max-height: none;
+  }
+  .nc-center[data-filters='open'] .nc-row {
+    width: 100%;
+  }
+  .nc-center[data-filters='open'] .nc-side-title {
+    flex: none;
+  }
+  .nc-filter-toggle {
+    display: none;
+  }
+  .nc-foot {
+    flex-direction: column;
+  }
+}
+
+/* ── A group's header: fold, glyph, label, count ── */
+.nc-group-li {
+  list-style: none;
+}
+.nc-group {
+  border-radius: var(--ui-r-card);
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  width: 100%;
+  height: calc(28px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale)) 0 calc(4px * var(--ui-scale));
+  font-size: var(--text-sm);
+  color: var(--color-devroom-title);
+  text-align: left;
+  cursor: pointer;
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel);
+}
+.nc-group[style] {
+  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 14%, var(--color-devroom-rail));
+}
+@media (hover: hover) {
+  .nc-group:hover {
+    border-color: var(--color-border-hi);
+  }
+}
+.nc-group > .nc-count {
+  margin-left: calc(2px * var(--ui-scale));
+}
+@media (pointer: coarse) {
+  .nc-group {
+    height: 44px;
+  }
+}
+
+/* ── A card: kind badge | face and text | buttons ── */
+.nc-li {
+  container: nc-card / inline-size;
+  list-style: none;
+}
+.nc-card {
+  display: grid;
+  grid-template-columns: calc(54px * var(--ui-scale)) minmax(0, 1fr);
+  grid-template-areas: 'badge main' 'badge act' 'detail detail';
+  overflow: hidden;
+  /* read: flat and quiet, but still its importance's hue */
+  background: var(--surface-body);
+  border-color: color-mix(in srgb, var(--tone) 45%, var(--color-devroom-card-line));
+  box-shadow: var(--bevel);
+}
+.nc-card[data-unread] {
+  background: var(--surface-card);
+  border-color: var(--tone);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
+.nc-badge {
+  grid-area: badge;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(2px * var(--ui-scale));
+  padding: calc(4px * var(--ui-scale));
+  font-size: var(--text-2xs);
+  line-height: 1;
+  color: color-mix(in srgb, var(--tone) 70%, var(--color-text-muted));
+  background: color-mix(in srgb, var(--tone) 10%, var(--color-devroom-block));
+  border-right: var(--ui-bw) solid color-mix(in srgb, var(--tone) 45%, var(--color-devroom-card-line));
+}
+.nc-badge .nc-glyph {
+  font-size: 22px;
+}
+.nc-card[data-unread] .nc-badge {
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 20%, var(--surface-body));
+  border-right-color: var(--tone);
+}
+.nc-main {
+  grid-area: main;
+  display: flex;
+  align-items: flex-start;
+  gap: calc(10px * var(--ui-scale));
+  min-width: 0;
+  padding: calc(8px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  text-align: left;
+  cursor: pointer;
+}
+.nc-main:disabled {
+  cursor: default;
+}
+@media (hover: hover) {
+  .nc-main:not(:disabled):hover {
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  }
+}
+.nc-face {
+  border-radius: var(--ui-r-chip);
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: calc(36px * var(--ui-scale));
+  height: calc(36px * var(--ui-scale));
+  background: var(--color-bg-dark);
+  border: var(--ui-bw) solid var(--color-border);
+  box-shadow: var(--bevel-in);
+}
+.nc-card[data-unread] .nc-face {
+  border-color: var(--tone);
+}
+.nc-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(2px * var(--ui-scale));
+  min-width: 0;
+}
+.nc-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(8px * var(--ui-scale));
+}
+.nc-title {
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: calc(1.25 * var(--ui-lh));
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-text) 62%, transparent);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nc-card[data-unread] .nc-title {
+  color: var(--color-devroom-title);
+}
+.nc-title.is-open,
+.nc-note.is-open {
+  -webkit-line-clamp: unset;
+  display: block;
+}
+.nc-when {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.nc-note {
+  font-size: var(--text-xs);
+  line-height: calc(1.3 * var(--ui-lh));
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nc-meta {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.nc-act {
+  grid-area: act;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: calc(6px * var(--ui-scale));
+  padding: 0 calc(10px * var(--ui-scale)) calc(8px * var(--ui-scale));
+}
+.nc-act[data-cut] {
+  visibility: hidden;
+}
+.nc-act .nc-glyph {
+  font-size: 16px;
+}
+.nc-detail {
+  grid-area: detail;
+  margin: 0;
+  padding: calc(6px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  font-size: var(--text-2xs);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+  border-top: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+
+@container nc-card (min-width: 480px) {
+  .nc-card {
+    grid-template-columns: calc(54px * var(--ui-scale)) minmax(0, 1fr) auto;
+    grid-template-areas: 'badge main act' 'detail detail detail';
+  }
+  .nc-act {
+    flex-wrap: nowrap;
+    align-items: center;
+    align-self: center;
+    padding: 0 calc(10px * var(--ui-scale)) 0 0;
+  }
+}
+
+/* ── Empty ── */
+.nc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+  padding: calc(32px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  text-align: center;
+}
+.nc-empty .ui-card-tile {
+  width: calc(48px * var(--ui-scale));
+  height: calc(48px * var(--ui-scale));
+}
+.nc-empty .nc-glyph {
+  font-size: 24px;
+}
+.nc-empty-title {
+  margin-top: calc(4px * var(--ui-scale));
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+.nc-empty-note {
+  max-width: 300px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ── The phone's page (NoticeCenter `phone`, T-68): the head row is the page's own, the category chips,
+   search, sort and the facet chips sit in a bottom sheet behind one filter button. Written after the
+   container query so a landscape phone (560 px and wider) keeps this layout too; a desktop window never
+   gets .nc-phone, so its panel is untouched. ── */
+.nc-phone-head {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  min-width: 0;
+}
+.nc-phone-head .nc-head-text {
+  min-width: 0;
+}
+.nc-phone-head .nc-headline {
+  margin: 0;
+}
+.nc-center.nc-phone {
+  position: relative;
+}
+.nc-phone-bar {
+  display: flex;
+  flex: 0 0 auto;
+}
+.nc-filter-btn {
+  min-width: 0;
+  max-width: 100%;
+}
+.nc-filter-btn[data-narrowed] {
+  border-color: var(--color-accent-text);
+}
+.nc-center.nc-phone .nc-body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: 'list' 'foot';
+}
+.nc-center.nc-phone .nc-foot {
+  flex-direction: row;
+}
+.nc-sheet-back {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  border: 0;
+  background: none;
+  cursor: default;
+}
+.nc-sheet {
+  border-radius: var(--ui-r-card) var(--ui-r-card) 0 0;
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--ui-scale));
+  max-height: 92%;
+  overflow-y: auto;
+  padding: calc(10px * var(--ui-scale));
+  background: var(--color-devroom-rail);
+  border: var(--ui-bw) solid var(--color-devroom-card-line);
+  box-shadow: var(--bevel);
+}
+.nc-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8px * var(--ui-scale));
+  color: var(--color-devroom-title);
+}
+.nc-sheet .nc-tabs {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.nc-sheet .nc-tabs .ui-tab {
+  flex: 1 1 calc(33% - 6px * var(--ui-scale));
+}
+.nc-sheet .nc-tab-glyph {
+  display: none;
+}
+.nc-center.nc-phone .nc-sheet .nc-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.nc-center.nc-phone .nc-sheet .nc-row {
+  width: auto;
+}
+.nc-center.nc-phone .nc-sheet .nc-side-title {
+  flex: 0 0 100%;
+}

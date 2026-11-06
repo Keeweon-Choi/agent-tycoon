@@ -215,12 +215,12 @@ async function main() {
     await wb.getByRole('button', { name: '+ Worker', exact: true }).click();
     const form = desk.getByRole('form', { name: 'alpha 에 Worker 추가' });
     await form.waitFor();
-    await form.getByLabel('에이전트').selectOption('codex');
+    await form.getByTestId('worker-provider').locator('[data-provider="codex"]').click();
     await form.getByLabel('이름').fill('alpha-w1');
     const models = await form.getByLabel('모델').locator('option').allInnerTexts();
     const efforts = await form.getByLabel('effort').locator('option').allInnerTexts();
     check(
-      JSON.stringify(models) === JSON.stringify(['Codex 기본', 'model-a', 'model-b']) && efforts.includes('xhigh'),
+      JSON.stringify(models) === JSON.stringify(['기본', 'model-a', 'model-b']) && efforts.includes('xhigh'),
       `the Codex form: Codex's models (${models.join('/')}) and efforts (${efforts.join('/')})`,
     );
     check((await form.getByLabel('권한 모드').count()) === 0, 'the Codex form has no permission mode');

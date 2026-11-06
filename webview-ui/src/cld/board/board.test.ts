@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { HwSample,OfficeSnapshot } from '../../../../core/src/messages.js';
+import type { HwSample } from '../../../../core/src/messages.js';
 import {
   BOARD_HISTORY_MS,
   BOARD_PAGE_MS,
@@ -8,7 +8,6 @@ import {
   BOARD_RECENT_MS,
 } from '../../constants.js';
 import { setLanguage } from '../../i18n/index.js';
-import { cldGetSnapshot, cldHandleMessage, cldResetForTests } from '../officeStore.js';
 import {
   donutArc,
   donutFrac,
@@ -17,7 +16,6 @@ import {
   moreText,
   pctText,
   pickPage,
-  projectRows,
   recentEnds,
   rotate,
   startRotation,
@@ -133,8 +131,8 @@ describe('page rotation', () => {
   it('turns every BOARD_PAGE_MS, round and round', () => {
     let r = startRotation(0);
     r = rotate(r, BOARD_PAGE_MS - 1, false);
-    expect(r.page).toBe('projects');
-    for (const [k, page] of (['hw', 'gpu', 'projects'] as const).entries()) {
+    expect(r.page).toBe('summary');
+    for (const [k, page] of (['hw', 'gpu', 'summary'] as const).entries()) {
       r = rotate(r, (k + 1) * BOARD_PAGE_MS, false);
       expect(r.page).toBe(page);
     }
@@ -143,9 +141,9 @@ describe('page rotation', () => {
 
   it('holds while the pointer is over the board, then gives the page its full time', () => {
     let r = rotate(startRotation(0), 30_000, true);
-    expect(r.page).toBe('projects');
+    expect(r.page).toBe('summary');
     r = rotate(r, 31_000, false);
-    expect(r.page).toBe('projects');
+    expect(r.page).toBe('summary');
     expect(rotate(r, 30_000 + BOARD_PAGE_MS, false).page).toBe('hw');
   });
 
@@ -154,7 +152,7 @@ describe('page rotation', () => {
     r = rotate(r, BOARD_PICK_HOLD_MS - 1, false);
     expect(r.page).toBe('gpu');
     r = rotate(r, BOARD_PICK_HOLD_MS + BOARD_PAGE_MS, false);
-    expect(r.page).toBe('projects');
+    expect(r.page).toBe('summary');
   });
 });
 
@@ -199,102 +197,8 @@ describe('the GPU line', () => {
   });
 });
 
-describe('the projects page', () => {
-  afterEach(() => cldResetForTests());
-  const orch = (name: string, order: number, busy: boolean | null = false) => ({
-    name,
-    dir: `/w/${name}`,
-    tab: 'orch',
-    order,
-    state: 'running' as const,
-    busy,
-    remoteControl: { on: false, url: null },
-    compactions: 0,
-    alive: true,
-    agentId: 100 + order,
-  });
-  const office = (n: number): OfficeSnapshot => ({
-    type: 'officeSnapshot',
-    readOnly: true,
-    tabs: [{ name: 'orch', kind: 'orch', order: 0 }],
-    orchestrators: Array.from({ length: n }, (_, k) => orch(`p${k}`, k)),
-  });
-
-  it('up to 8 rows, then "\uc678 N"', () => {
-    cldHandleMessage(office(11));
-    const { shown, more } = projectRows(cldGetSnapshot(), {}, NOW);
-    expect(shown).toHaveLength(8);
-    expect(more).toBe(3);
-    expect(moreText(more)).toBe('\uc678 3');
-    cldHandleMessage(office(8));
-    expect(projectRows(cldGetSnapshot(), {}, NOW).more).toBe(0);
-  });
-
-  it('D3b: a project’s Workers are no project rows', () => {
-    cldHandleMessage(office(3));
-    expect(projectRows(cldGetSnapshot(), {}, NOW, 8, new Set(['p1'])).shown.map((r) => r.name).sort()).toEqual(['p0', 'p2']);
-  });
-
-  it('who needs the user first; context %, running jobs and Codex, the last notable event', () => {
-    cldHandleMessage(office(3));
-    const permission = [
-      { toolId: 't', status: 'Bash', toolName: 'Bash', done: false, permissionWait: true },
-    ];
-    cldHandleMessage({
-      type: 'agentContextUsage',
-      id: 102,
-      contextTokens: 50_000,
-      maxContextTokens: 200_000,
-    });
-    cldHandleMessage({
-      type: 'officeJobs',
-      jobs: [
-        { pid: 1, project: 'p2', cmd: 'x', label: '\ubc30\ud3ec' },
-        { pid: 2, project: 'p2', cmd: 'y', ended: iso(1000) },
-      ],
-    });
-    cldHandleMessage({
-      type: 'codexTasks',
-      tasks: [{ id: 'c', project: 'p2', state: 'running' }],
-    });
-    for (const [kind, summary, ago] of [
-      ['job_end', '\ubc30\ud3ec\uac00 \ub05d\ub0ac\uc5b4\uc694', 180_000],
-      ['turn_end', 'p2 \ud134 \ub05d', 60_000],
-    ] as const)
-      cldHandleMessage({ type: 'officeEvent', ts: iso(ago), kind, name: 'p2', summary });
-    const { shown } = projectRows(cldGetSnapshot(), { 102: permission }, NOW);
-    expect(shown[0]).toMatchObject({
-      name: 'p2',
-      ring: 'permission',
-      context: 25,
-      jobs: 1,
-      codex: 1,
-      work: '\ubc30\ud3ec · \uc2e4\ud589 \uc911 / Codex \uc791\uc5c5 · \uc2e4\ud589 \uc911',
-      last: '3\ubd84 \uc804 · \ubc30\ud3ec\uac00 \ub05d\ub0ac\uc5b4\uc694',
-    });
-    expect(shown.slice(1).map((r) => r.name)).toEqual(['p0', 'p1']);
-    expect(shown[1]).toMatchObject({ context: null, jobs: 0, codex: 0, last: null });
-  });
-
-  it('a job in the GPU queue and a Codex limit wait read as waits, not running (U-03)', () => {
-    cldHandleMessage(office(3));
-    cldHandleMessage({
-      type: 'officeJobs',
-      jobs: [{ pid: 1, project: 'p2', cmd: 'x', label: '\ud559\uc2b5', gpu: 'queued', started: null }],
-    });
-    cldHandleMessage({
-      type: 'codexTasks',
-      tasks: [{ id: 'c', project: 'p2', state: 'limit', title: '\uc791\uc5c5' }],
-    });
-    expect(projectRows(cldGetSnapshot(), {}, NOW).shown.find((r) => r.name === 'p2')?.work).toBe(
-      '\ud559\uc2b5 · GPU \ub300\uae30 / \uc791\uc5c5 · \ud55c\ub3c4 \ub300\uae30',
-    );
-    cldHandleMessage({
-      type: 'codexTasks',
-      tasks: [{ id: 'c', project: 'p2', state: 'running', title: '\uc791\uc5c5', started: null }],
-    });
-    expect(projectRows(cldGetSnapshot(), {}, NOW).shown.find((r) => r.name === 'p2')?.work).toContain('\uc2e4\ud589 \ub300\uae30');
-  });
+describe('"\uc678 N"', () => {
+  it('what did not fit', () => expect(moreText(3)).toBe('\uc678 3'));
 });
 
 describe('the ticker', () => {

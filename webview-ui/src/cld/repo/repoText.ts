@@ -13,7 +13,7 @@ import type {
 import type { TranslationKey } from '../../i18n/en.js';
 import { getLanguage, t } from '../../i18n/index.js';
 import { objectParticle } from '../actionText.js';
-import { serverLine, serverText } from '../serverText.js';
+import { serverLine, serverNote, serverText } from '../serverText.js';
 
 /** W2: the worktree made for Task `taskId` (its record says so), if there is one. */
 export const worktreeOfTask = (worktrees: readonly RepoWorktree[] | undefined, taskId: string | undefined) =>
@@ -267,7 +267,7 @@ export function resultToast(r: RepoActionResult): {
   // A sync that stopped on a conflict still succeeded: the detail says what is left to do.
   if (r.conflicts?.length && r.detail) return { text: serverLine(r.detail), tone: 'info' };
   const done = t(DONE[r.action]) + (r.cleaned ? ` · ${t('repo.done.cleaned')}` : '');
-  return { text: r.detail ? `${done} · ${serverLine(r.detail)}` : done, tone: 'ok' };
+  return { text: r.detail ? `${done} · ${serverNote(r.detail)}` : done, tone: 'ok' };
 }
 
 export type DiffKind = 'add' | 'del' | 'hunk' | 'meta' | 'ctx';
