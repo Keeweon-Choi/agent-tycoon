@@ -213,7 +213,7 @@ export function useSubs(cols: readonly AgentColumn[], live: readonly SubColumn[]
 }
 
 /** A sub-agent's dot: done once its spawn came back, a permission wait, a call under way, else idle. */
-const subDot = (s: SubRow, perm: boolean): Dot =>
+export const subDot = (s: SubRow, perm: boolean): Dot =>
   !s.running ? 'done' : perm ? 'permission' : s.lines.some((l) => !l.done) ? 'working' : 'idle';
 
 /**

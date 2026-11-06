@@ -40,14 +40,16 @@ import { openWork } from '../work/workStore.js';
 import { PromoteButton } from '../workbench/AgentActions.js';
 import { openWorkbench } from '../workbench/workbenchStore.js';
 import { type MemberAction, memberActions, memberTasks } from './memberActions.js';
+import { Relations } from './TeamBits.js';
 import { useDismiss } from './useDismiss.js';
+import { useTeam } from './useTeam.js';
 
 type Tab = 'overview' | 'stats' | 'log' | 'team';
 const TABS: { id: Tab; icon: LucideName; pixel: 'person' | 'bolt' | 'scroll' | 'case' }[] = [
   { id: 'overview', icon: 'user', pixel: 'person' },
   { id: 'stats', icon: 'zap', pixel: 'bolt' },
   { id: 'log', icon: 'scroll-text', pixel: 'scroll' },
-  // 관계: only with real data, the temps it leads (T-0041's team list).
+  // 관계: only with real data: the temps it leads (T-0041's team list), the Workers and sub-agents around it (T-71).
   { id: 'team', icon: 'users', pixel: 'case' },
 ];
 
@@ -89,6 +91,9 @@ export function MemberCard(p: MemberCardProps) {
   const project = projects?.find((x) => x.name === p.name);
   const temp = staff.temps.find((x) => x.id === p.id);
   const team = staff.temps.filter((x) => x.leadId === p.id);
+  // T-71: a Lead's Workers and sub-agents, a Worker's Lead and the rest of its team.
+  const related = useTeam(p.into === null);
+  const hasRelations = related.relations(p.id).length > 0;
   const { main, more } = memberActions({
     chat: !!chatTarget(p.id, store.officeSnapshot),
     work: !!temp?.work,
@@ -173,7 +178,7 @@ export function MemberCard(p: MemberCardProps) {
         </div>
       </div>
       <div className="mc-tabs ui-subtabs" role="tablist" aria-label={t('partyV2.card.tabs')}>
-        {TABS.filter((x) => x.id !== 'team' || team.length > 0).map((x) => (
+        {TABS.filter((x) => x.id !== 'team' || team.length > 0 || hasRelations).map((x) => (
           <button
             key={x.id}
             type="button"
@@ -205,10 +210,15 @@ export function MemberCard(p: MemberCardProps) {
             </Section>
           ))}
         {tab === 'log' && <Log id={p.id} name={p.name} />}
-        {tab === 'team' && team.length > 0 && (
-          <Section title={t('partyV2.card.team')} count={team.length} testId="member-team">
-            <TempSummary rows={team} project={project?.name ?? null} />
-          </Section>
+        {tab === 'team' && (
+          <>
+            {hasRelations && <Relations id={p.id} team={related} />}
+            {team.length > 0 && (
+              <Section title={t('partyV2.card.team')} count={team.length} testId="member-team">
+                <TempSummary rows={team} project={project?.name ?? null} />
+              </Section>
+            )}
+          </>
         )}
       </div>
     </Inspector>

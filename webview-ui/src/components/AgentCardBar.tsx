@@ -102,6 +102,7 @@ export function AgentCardBar({
   const ordered = groupOf ? groupOrder(merged, groupOf) : merged;
   const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name));
   const ids = party.shown;
+  const rows = party.rows;
   // The window listeners below outlive a render: they read the latest order through these. A drag reorders
   // the whole column (the cards another party hides are not laid out, so they keep their places).
   const idsRef = useRef(ordered);
@@ -247,6 +248,7 @@ export function AgentCardBar({
         onPointerDown={onPointerDown}
       >
         {party.head}
+        {party.card}
         {describeCard && <PartyWaiting ids={ids} />}
         {/* ponytail: a folded list that scrolls (past CARD_BAR_MAX_VISIBLE) clips the 기다림 tails; they
             hang outside it otherwise. */}
@@ -255,16 +257,17 @@ export function AgentCardBar({
           className={`relative flex flex-col items-center min-h-0 ${folded ? 'gap-4' : 'gap-6'} ${folded && listCap === null ? '' : 'overflow-y-auto'}`}
           style={listCap === null ? undefined : { maxHeight: listCap }}
         >
-          {ids.map((agentId) => {
+          {rows.map(({ id: agentId, depth }) => {
             const info = describeCard?.(agentId);
             return (
                 <div
                   key={agentId}
+                  data-depth={depth || undefined}
                   ref={(el) => {
                     if (el) cardRefs.current.set(agentId, el);
                     else cardRefs.current.delete(agentId);
                   }}
-                  className={draggingId === agentId ? 'opacity-70' : undefined}
+                  className={`${depth ? 'party-worker' : ''} ${draggingId === agentId ? 'opacity-70' : ''}`}
                 >
                   {folded ? (
                     <PartyPortrait
@@ -273,7 +276,9 @@ export function AgentCardBar({
                       look={getAppearance(agentId)}
                       temps={info?.temps ?? 0}
                       variant={cardVariant(agentId, { activeId: activeAgentId, focusedId: focusedAgentId })}
-                      onSelect={onSelect}
+                      onSelect={(id) => {
+                        if (!party.press?.(id)) onSelect(id);
+                      }}
                       onCustomize={onCustomize}
                     />
                   ) : (
@@ -291,6 +296,7 @@ export function AgentCardBar({
                       showClose={showClose}
                     />
                   )}
+                  {party.subs(agentId)}
                 </div>
             );
           })}

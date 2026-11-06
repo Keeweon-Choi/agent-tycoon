@@ -180,7 +180,7 @@ export async function extractBundle(bundle, dest, expect, { print = console.log 
   return manifest;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (flag) => {
     const i = args.indexOf(flag);

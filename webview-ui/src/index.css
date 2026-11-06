@@ -278,6 +278,8 @@
   --cld-toast-bottom: calc(var(--cld-safe-bottom) + 112px * var(--ui-scale));
   /* UI-SCALE 화면 크기 (cld/uiScale.ts sets it on <html>): spacing and text sizes follow it. */
   --ui-scale: 1;
+  /* T-71: a Lead's Worker in the party, one indent step in (a smaller portrait on a branch line). */
+  --party-worker-zoom: 0.8;
   /* NOTICE-B: the least a finger target measures, whatever the button draws (WCAG 2.5.5, Apple HIG). */
   --cld-touch-min: 44px;
   --cld-safe-left: env(safe-area-inset-left, 0px);

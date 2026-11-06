@@ -50,7 +50,7 @@ export function writeSumsAndSign(dir, names, key) {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const i = args.indexOf('--key');
   const keyFile = i < 0 ? undefined : args.splice(i, 2)[1];

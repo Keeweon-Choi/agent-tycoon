@@ -129,6 +129,7 @@ export function MobileAgentBar({
   // FEAT-PARTY-V2 (owner 11-06 18:54): the cld strip is the chosen party, the desktop's parties and choice.
   const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name), true);
   const displayIds = party.shown;
+  const rows = party.rows;
   const [draggingId, setDraggingId] = useState<number | null>(null);
   // Compact is the default; one control opens the full cards, folds the strip away,
   // then restores its compact form. This stays a viewer-only preference. The party (cld) has
@@ -414,6 +415,7 @@ export function MobileAgentBar({
             {party.head && (
               <div className="party-strip-head" data-testid="party-strip-head">
                 {party.head}
+                {party.card}
                 <PartyWaiting ids={displayIds} />
               </div>
             )}
@@ -422,7 +424,7 @@ export function MobileAgentBar({
               className={`flex items-stretch gap-6 overflow-x-auto no-scrollbar flex-1 min-w-0 ${describeCard ? 'party-strip' : ''}`}
               data-testid={describeCard ? 'party-strip' : undefined}
             >
-              {displayIds.map((agentId) => {
+              {rows.map(({ id: agentId, depth }) => {
                 const variant = cardVariant(agentId, {
                   activeId: activeAgentId,
                   focusedId: focusedAgentId,
@@ -436,7 +438,8 @@ export function MobileAgentBar({
                       else cardRefs.current.delete(agentId);
                     }}
                     onTouchStart={handleCardTouchStart(agentId)}
-                    className={`shrink-0 flex items-stretch transition-transform ${
+                    data-depth={depth || undefined}
+                    className={`shrink-0 flex ${describeCard ? 'flex-col items-center' : 'items-stretch'} transition-transform ${depth ? 'party-worker' : ''} ${
                       draggingId === agentId ? 'relative z-10 -translate-y-4 opacity-70' : ''
                     }`}
                   >
@@ -447,7 +450,9 @@ export function MobileAgentBar({
                         look={getAppearance(agentId)}
                         temps={info?.temps ?? 0}
                         variant={variant}
-                        onSelect={onSelectAgent}
+                        onSelect={(id) => {
+                          if (!party.press?.(id)) onSelectAgent(id);
+                        }}
                       />
                     ) : (
                       <AgentCard
@@ -462,6 +467,7 @@ export function MobileAgentBar({
                         mobileExpanded={expanded}
                       />
                     )}
+                    {party.subs(agentId)}
                   </div>
                 );
               })}

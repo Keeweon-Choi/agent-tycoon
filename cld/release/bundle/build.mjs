@@ -128,12 +128,20 @@ function walk(dir) {
     }));
 }
 
-/** Drop what a runtime never needs: workspace links, .bin shims, empty dirs. */
+/** A name every tar reads the same way. */
+const ASCII_NAME = /^[\x20-\x7e]+$/;
+
+/**
+ * Drop what a runtime never needs: workspace links, .bin shims, non-ASCII names, empty dirs.
+ * Non-ASCII: the only ones are a dependency's test fixture (@fastify/send "snow ☃"), and the tar on the
+ * Windows runner wrote them so Windows tar.exe cannot read the entry ("empty or unreadable filename"),
+ * which fails install.ps1 even though it unpacks none of node_modules (T-72).
+ */
 function pruneNodeModules(dir) {
   for (const { e, rel } of walk(dir)) {
     const full = path.join(dir, rel);
     if (!fs.existsSync(full) && !e.isSymbolicLink()) continue; // under a removed dir
-    if (e.isSymbolicLink() || (e.isDirectory() && e.name === '.bin'))
+    if (e.isSymbolicLink() || (e.isDirectory() && e.name === '.bin') || !ASCII_NAME.test(e.name))
       fs.rmSync(full, { recursive: true, force: true });
   }
   const removeEmpty = (d) => {
@@ -245,6 +253,7 @@ async function main() {
   const files = {};
   for (const { e, rel } of walk(stage).sort((a, b) => (a.rel < b.rel ? -1 : 1))) {
     if (e.isSymbolicLink()) throw new Error(`symlink in bundle: ${rel}`);
+    if (!rel.split('/').every((n) => ASCII_NAME.test(n))) throw new Error(`non-ASCII name in bundle (Windows tar.exe cannot read it): ${rel}`);
     if (e.isFile()) files[rel] = sha256File(path.join(stage, rel));
   }
   const manifest = {

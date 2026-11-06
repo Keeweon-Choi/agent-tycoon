@@ -140,6 +140,16 @@ export function pickAgent(project: string, task: string | null, name: string, su
   set({ picked: { project, task }, tab: 'terminal', menu: null, agent: { project, name, sub, at: ++agentClicks } });
 }
 
+/**
+ * T-71: the party opens the dev room on one agent: a Worker's terminal, or (with `sub`) a sub-agent's read-only
+ * transcript. The phone shows the terminal as its sub-page, as a rail row does.
+ */
+export function openDevRoomOn(project: string, task: string | null, name: string, sub: string | null, phone = false): void {
+  openDevRoom(project, task);
+  if (phone) openDevroomPage(project, task, 'terminal');
+  pickAgent(project, task, name, sub);
+}
+
 /** Hide (or show again) external worktree `path` on this device. */
 export function toggleHidden(path: string): void {
   const hidden = { ...snapshot.hidden };

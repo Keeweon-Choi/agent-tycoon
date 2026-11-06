@@ -102,3 +102,18 @@ test('wsl.exe argv: --exec (no shell re-parse in the distro), every value its ow
   assert.deepEqual(wslPathArgv('Ubuntu', 'C:\\Users\\John Smith\\x.sh'), ['-d', 'Ubuntu', '--exec', 'wslpath', '-u', 'C:\\Users\\John Smith\\x.sh']);
   assert.deepEqual(wslOpenArgv('Ubuntu').slice(0, 5), ['-d', 'Ubuntu', '--exec', 'sh', '-c']);
 });
+
+// macOS: install.sh runs the wizard from /tmp, a symlink to /private/tmp; a path.resolve() main check missed it and the wizard exited 0 doing nothing (T-72).
+test('the wizard runs when started through a symlinked folder', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wizard-link-'));
+  try {
+    fs.symlinkSync(path.dirname(new URL(import.meta.url).pathname), path.join(dir, 'install'));
+    const r = spawnSync(process.execPath, [path.join(dir, 'install', 'wizard.mjs')], { encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr); // reached main(): no --bundle/--pub
+    assert.match(r.stderr, /--bundle and --pub are required/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

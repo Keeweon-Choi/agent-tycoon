@@ -521,3 +521,89 @@
 .mc-sheet .mc-act {
   min-height: 56px;
 }
+
+/* ── T-71: a Lead's team in an owner-composed party ── */
+/* A Worker sits one step in: a smaller portrait on a branch line (the column), lower than its Lead's (the strip). */
+.party-worker {
+  zoom: var(--party-worker-zoom);
+  align-self: flex-end;
+  padding-left: 4px;
+  border-left: calc(var(--ui-bw) * 2) solid var(--hud-line);
+}
+/* The sub-agents under a Lead: a small icon each, coloured by its state; +N past the last. */
+.party-subs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 2px;
+  max-width: 100%;
+}
+.party-sub {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 2px;
+  border: var(--ui-bw) solid var(--hud-line);
+  border-radius: var(--ui-r-chip);
+  background: var(--color-btn-bg);
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  line-height: 1;
+  cursor: pointer;
+}
+.party-sub:hover {
+  background: var(--color-btn-hover);
+}
+.party-sub[data-dot='working'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+.party-sub[data-dot='permission'] {
+  border-color: var(--color-accent-text);
+  color: var(--color-accent-text);
+}
+.party-sub[data-dot='done'] {
+  opacity: 0.5;
+}
+/* The phone's finger: the icon keeps a touch target around its small art. */
+@media (pointer: coarse) {
+  .party-sub {
+    min-width: 28px;
+    height: 28px;
+  }
+}
+.party-sub-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: var(--ui-bw) solid var(--hud-line);
+  border-radius: var(--ui-r-card);
+  color: var(--color-text-muted);
+}
+.party-sub-face[data-dot='working'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+.mc-state[data-dot='working'] .mc-dot {
+  background: var(--color-devroom-ok);
+}
+.mc-state[data-dot='permission'] .mc-dot {
+  background: var(--seg-warn);
+}
+/* A relation row is a button on the card's grid. */
+.mc-rel {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mc-rel:hover {
+  background: var(--color-btn-hover);
+}

@@ -38,18 +38,18 @@ A character drawn translucent because its agent is headless — the visual short
 _Avoid_: faded, dimmed, transparent, inactive (that's a status)
 
 **Sub-agent**:
-An unnamed piece of delegated work spawned by an agent, visualized with its own character near its parent — around it, not in a seat. Not an Agent (no session of its own) and not a Teammate (no name). It exists only for the duration of its task, which may outlive the parent's turn. Having no name is what makes it a sub-agent. In the engine these are the sessions a Lead runs on its own; the devroom lists each under the worktree it touches, read-only.
+An unnamed piece of delegated work spawned by an agent, visualized with its own character near its parent — around it, not in a seat. Not an Agent (no session of its own) and not a Teammate (no name). It exists only for the duration of its task, which may outlive the parent's turn. Having no name is what makes it a sub-agent. In the engine these are the sessions a Lead runs on its own; the devroom lists each under the worktree it touches, read-only. How deep they may nest is each owner's choice (this one keeps a single level: no sub-agent of a sub-agent).
 _Avoid_: subtask (UI label prefix only)
 
 **Team**:
 A Lead plus the Teammates it spawned. A team exists because a teammate was spawned — whether or not the CLI recorded one. A CLI's team registry is evidence of a team, never its definition.
 
 **Lead**:
-The project's orchestrator (오케스트레이터): the one agent the owner talks to in the messenger, in charge of the whole project — it plans, delegates and integrates. The messenger shows Leads only. In a Claude Code agent team, the agent that spawned the teammates is likewise that Team's lead.
+The project's orchestrator (오케스트레이터): the one agent the owner talks to in the messenger, in charge of the whole project — it plans, delegates and integrates. The messenger shows Leads only. An orchestrator may run a Claude Code agent team; the agent that spawned the teammates is that Team's lead.
 _Avoid_: parent (that's the sub-agent relationship)
 
 **Worker**:
-An agent working on one worktree of a project with its own session and terminal: seated there by the owner in the devroom (Orca-style: the owner makes the worktree and picks the Worker) or given a Task by the Lead. It works on its own, but the Lead stays in charge of the project, so important changes go through a conversation with the Lead. Workers live in the devroom, not in the messenger.
+An agent working on one worktree of a project with its own session and terminal: seated there by the owner in the devroom (Orca-style: the owner makes the worktree and picks the Worker) or given a Task by the Lead. The owner instructs it directly in its terminal. It works on its own, but the Lead stays in charge of the project, so important changes go through a conversation with the Lead. Workers live in the devroom, not in the messenger.
 _Avoid_: teammate (the agent-team relationship), staff (a UI flavour word)
 
 **Teammate**:

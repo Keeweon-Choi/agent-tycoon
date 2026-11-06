@@ -3256,6 +3256,17 @@ export const en = {
   'devroomSide.marks': '{ahead} ahead · {behind} behind · {dirty} changed files',
   'devroomSide.headCount': '{worktrees} worktrees · {agents} agents',
   'devroomSide.agents': 'Agents of {name}',
+  'partyTeam.subIcon': 'Sub-agent: {task} · {state}',
+  'partyTeam.subMore': '{count} more sub-agents',
+  'partyTeam.subTask': 'No task text yet',
+  'partyTeam.cardTitle': 'Sub-agent',
+  'partyTeam.of': 'Spawned by {name}',
+  'partyTeam.related': 'Connected',
+  'partyTeam.none': 'No one else is connected.',
+  'partyTeam.openWorker': 'Open {name} in the dev room (terminal)',
+  'partyTeam.openSub': 'Open its transcript in the dev room (read-only)',
+  'partyTeam.openLead': 'Open {name} in the messenger',
+  'partyTeam.close': 'Close',
 } as const satisfies Record<string, string>;
 
 /** The keys of this file: the main bundle's own strings. */

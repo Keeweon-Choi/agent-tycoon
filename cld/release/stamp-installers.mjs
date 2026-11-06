@@ -62,7 +62,7 @@ export function stampInstallers({ sh, ps1, version, baseUrl = RELEASE_BASE_URL.r
   return { sh: stampedSh, ps1: fill(ps1, values) };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   const opt = (flag) => { const i = args.indexOf(flag); return i < 0 ? undefined : args[i + 1]; };
   const release = opt('--release');

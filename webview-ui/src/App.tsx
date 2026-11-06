@@ -14,6 +14,7 @@ import { CameraModeControl } from './cld/CameraModeControl.js';
 import { useCldCards } from './cld/cards.js';
 import { CharacterMenu } from './cld/characters/CharacterMenu.js';
 import { lookNameOf, openLooks, useCharacterLooks } from './cld/characters/looks.js';
+import { DevroomTools } from './cld/devroom/devroomData.js';
 import { DevroomPalette } from './cld/devroom/DevroomPalette.js';
 import { DevFxBar } from './cld/director/DevFxBar.js';
 import { engineOpenForm } from './cld/engineStore.js';
@@ -1176,7 +1177,7 @@ function App() {
   // the terminal panel. Mobile: a column — the sliding office/terminal track
   // on top, the agent-card bar pinned along the bottom.
   return (
-    <>
+    <DevroomTools.Provider value={{ agentTools, subagentTools }}>
     {boot}
     <div
       className="w-full h-full relative overflow-clip flex flex-col"
@@ -1466,7 +1467,7 @@ function App() {
         <MigrationNotice onDismiss={() => setMigrationNoticeDismissed(true)} />
       )}
     </div>
-    </>
+    </DevroomTools.Provider>
   );
 }
 

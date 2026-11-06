@@ -585,7 +585,8 @@ export const NAMEPLATE_RING_STROKE_PX = 3;
  * (T-67, owner 11-06 22:34: what the owner's sample name, Samwise Gamgee in Hangul, needs in that style's
  * name font beside the rank icon and the XP ring, the larger of Chromium and WebKit rounded up, plus 1 px;
  * measured by cld/test/run-office-nameplate-fixed.ts MEASURE=1); a longer name ends in an ellipsis. The bar
- * is as long as lets "피로도 [bar] 휴식 1/2" fit that width in both styles.
+ * is as long as lets "피로도 [bar] 휴식 1/2" fit that width in both styles. Owner 11-06 23:11: the bar read too
+ * small, so each card is ~20% wider (+20/+22/+28 px) and all of it went to the bar.
  */
 export const NAMEPLATE_SIZES = {
   small: {
@@ -594,10 +595,10 @@ export const NAMEPLATE_SIZES = {
     ring: 18,
     fatigue: 12,
     barHeight: 4,
-    bar: 26,
+    bar: 46,
     rank: 2,
     status: 1,
-    card: { modern: 101, pixel: 106 },
+    card: { modern: 121, pixel: 126 },
   },
   medium: {
     name: 14,
@@ -605,10 +606,10 @@ export const NAMEPLATE_SIZES = {
     ring: 20,
     fatigue: 14,
     barHeight: 6,
-    bar: 28,
+    bar: 50,
     rank: 2,
     status: 2,
-    card: { modern: 112, pixel: 110 },
+    card: { modern: 134, pixel: 132 },
   },
   large: {
     name: 18,
@@ -616,10 +617,10 @@ export const NAMEPLATE_SIZES = {
     ring: 24,
     fatigue: 18,
     barHeight: 6,
-    bar: 36,
+    bar: 64,
     rank: 3,
     status: 2,
-    card: { modern: 142, pixel: 140 },
+    card: { modern: 170, pixel: 168 },
   },
 } as const;
 /** UI-SCALE: --ui-scale per 화면 크기 step: Tailwind's spacing and text sizes (index.css) times this. */
@@ -929,6 +930,8 @@ export const CARD_BAR_CARD_WIDTH_PX = 96;
 export const PARTY_FRAME_BAR_PX = 72;
 /** FEAT-PARTY-V2: the party this device shows (the parties themselves are the daemon's, parties.json). */
 export const PARTY_SELECTED_STORAGE_KEY = 'cld.party-selected';
+/** T-71: sub-agent icons under a Lead's portrait; past this many the last one reads +N. */
+export const PARTY_SUB_ICONS_MAX = 3;
 /** The member card's 기록 tab: the latest notices about the agent. */
 export const MEMBER_CARD_LOG_ROWS = 6;
 /** The member card's 관련 이슈: this many Tasks, then "외 N". */

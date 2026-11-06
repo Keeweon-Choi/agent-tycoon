@@ -270,4 +270,4 @@ export async function main(argv, { env = process.env, print = console.log } = {}
   } finally { p.close(); }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });
+if (process.argv[1] && fssync.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

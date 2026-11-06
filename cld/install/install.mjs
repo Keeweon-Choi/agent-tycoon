@@ -561,4 +561,4 @@ async function main() {
   } catch (error) { console.error(`✖ 실패: ${error.message}`); process.exitCode = 1; }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && fssync.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main();
