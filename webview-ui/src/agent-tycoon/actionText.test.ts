@@ -10,12 +10,12 @@ describe('texts', () => {
     expect(ACTION_LABEL).toEqual({ start: '\ucf1c\uae30', quit: '\ub044\uae30', restart: '\uc7ac\uc2dc\uc791' });
   });
   it('confirmation questions with the right particle', () => {
-    expect(confirmText('restart', 'wayfinder')).toEqual({
-      question: 'wayfinder\ub97c \uc7ac\uc2dc\uc791\ud560\uae4c\uc694?',
+    expect(confirmText('restart', 'harvester')).toEqual({
+      question: 'harvester\ub97c \uc7ac\uc2dc\uc791\ud560\uae4c\uc694?',
       note: '\ud558\ub358 \uc77c\uc774 \uc7a0\uae50 \ub04a\uae38 \uc218 \uc788\uc5b4\uc694.',
     });
-    expect(confirmText('start', 'pofol').question).toBe('pofol\uc744 \ucf24\uae4c\uc694?');
-    expect(confirmText('quit', 'aixon').question).toBe('aixon\uc744 \ub04c\uae4c\uc694?');
+    expect(confirmText('start', 'pearl').question).toBe('pearl\uc744 \ucf24\uae4c\uc694?');
+    expect(confirmText('quit', 'lemon').question).toBe('lemon\uc744 \ub04c\uae4c\uc694?');
     expect([objectParticle('\uc0ac\ubb34\uc2e4'), objectParticle('\uad00\ub9ac'), objectParticle('wt7')]).toEqual([
       '\uc744',
       '\ub97c',

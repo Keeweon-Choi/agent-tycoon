@@ -42,9 +42,9 @@ const STORE: Record<string, string> = {
 type Mode = 'work' | 'rest';
 const CREW: Array<[string, Mode]> = [
   ['agent-tycoon', 'work'],
-  ['wayfinder', 'work'],
+  ['harvester', 'work'],
 ];
-const REST_NAMES = ['cex', 'neus', 'tycoon-admin', 'pofol', 'atlas', 'borealis', 'cinder', 'delta', 'ember', 'fjord'];
+const REST_NAMES = ['fox', 'iris', 'studio-admin', 'pearl', 'atlas', 'borealis', 'cinder', 'delta', 'ember', 'fjord'];
 const assistant = (content: object[]) => ({
   type: 'assistant',
   message: { model: 'claude-opus-4-7', content, usage: { input_tokens: 10, cache_read_input_tokens: 40_000, output_tokens: 200 } },

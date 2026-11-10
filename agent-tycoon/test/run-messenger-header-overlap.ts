@@ -46,7 +46,7 @@ const SCALE = ['small', 'large'].includes(process.env.MSGHEAD_SCALE ?? '') ? pro
 const PHASE = process.env.MSGHEAD_PHASE === 'before' ? 'before' : 'after';
 const OUT = path.join(REPO_ROOT, 'agent-tycoon/artifacts/fix-messenger-actions-below');
 const DEADLINE_MS = 300_000;
-const LEADS = ['agent-tycoon', 'pofol', 'keeweon-portfolio-site-redesign', 'echo'];
+const LEADS = ['agent-tycoon', 'pearl', 'kestrel-portfolio-site-redesign', 'echo'];
 const LONG = '긴 이야기를 이어서 적어요 하나 둘 셋 넷 다섯 여섯 일곱 여덟. '.repeat(14);
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SAFE_AREA = ':root { --agty-safe-top: 47px !important; --agty-safe-bottom: 34px !important; }';
@@ -90,10 +90,10 @@ function seedNotices(): unknown[] {
     ...(target ? { target } : {}),
   });
   return [
-    n(1, 'turnEnd', 'pofol', '일을 마쳤어요 · 연습 문제 정리', 2, false, { open: 'job', id: '4242' }),
+    n(1, 'turnEnd', 'pearl', '일을 마쳤어요 · 연습 문제 정리', 2, false, { open: 'job', id: '4242' }),
     n(2, 'permission', 'agent-tycoon', '허락을 기다려요 · Bash: rm -rf dist/', 5, false),
     n(3, 'job', 'agent-tycoon', '배포 검사가 끝났어요', 31, false, { open: 'job', id: '4243' }),
-    n(4, 'question', 'pofol', '질문이 있어요 · 배포 전에 스테이징부터 볼까요?', 49, false),
+    n(4, 'question', 'pearl', '질문이 있어요 · 배포 전에 스테이징부터 볼까요?', 49, false),
   ];
 }
 

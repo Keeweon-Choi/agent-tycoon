@@ -18,7 +18,7 @@ function deps(over: Partial<ScanDeps> & { answers?: Record<string, string | null
     wslMode: null,
     port: 18240,
     directPort: 18443,
-    user: 'choi',
+    user: 'user',
     lanIp: '192.168.0.5',
     ownAddresses: ['127.0.0.1', '192.168.0.5'],
     run: async (command, args) => answers[[command, ...args].join(' ')] ?? null,
@@ -82,14 +82,14 @@ describe('what is already there, per platform', () => {
     }));
     expect(texts(r)[0]).toContain('2222번');
     expect(r.steps[0].fix).toContain('198.51.100.4');
-    expect(r.ssh).toEqual({ host: '203.0.113.9', port: 2222, user: 'choi' });
-    expect(copied(r)).toEqual(['ssh -N -L 18240:127.0.0.1:18240 -p 2222 choi@203.0.113.9']);
+    expect(r.ssh).toEqual({ host: '203.0.113.9', port: 2222, user: 'user' });
+    expect(copied(r)).toEqual(['ssh -N -L 18240:127.0.0.1:18240 -p 2222 user@203.0.113.9']);
     expect(r.steps[0].suggest).toBe('ssh');
   });
 
   it('macOS: no session yet, the LAN address; the default port needs no -p', async () => {
     const r = await scanExisting(deps({ platform: 'darwin', sshd: async () => ({ open: true, banner: '' }) }));
-    expect(copied(r)).toEqual(['ssh -N -L 18240:127.0.0.1:18240 choi@192.168.0.5']);
+    expect(copied(r)).toEqual(['ssh -N -L 18240:127.0.0.1:18240 user@192.168.0.5']);
   });
 
   it('native Windows: its OpenSSH (port from ProgramData), our firewall rules, portproxy and a running cloudflared', async () => {
@@ -106,7 +106,7 @@ describe('what is already there, per platform', () => {
         return answers[[command, ...args].join(' ')] ?? null;
       },
     }));
-    expect(r.ssh).toEqual({ host: '192.168.0.5', port: 22, user: 'choi' });
+    expect(r.ssh).toEqual({ host: '192.168.0.5', port: 22, user: 'user' });
     const all = texts(r).join('\n');
     expect(all).toContain('agent-tycoon-18240');
     expect(all).toContain('cloudflared가 이미 돌고 있어요 (1개)');
@@ -123,8 +123,8 @@ describe('what is already there, per platform', () => {
       windowsAddresses: async () => ['192.168.0.12', '172.24.176.1'],
       answers: { 'netsh.exe interface portproxy show v4tov4': NETSH },
     }));
-    expect(r.ssh).toEqual({ host: '192.168.0.12', port: 2233, user: 'choi' });
-    expect(copied(r)[0]).toBe('ssh -N -L 18240:127.0.0.1:18240 -p 2233 choi@192.168.0.12');
+    expect(r.ssh).toEqual({ host: '192.168.0.12', port: 2233, user: 'user' });
+    expect(copied(r)[0]).toBe('ssh -N -L 18240:127.0.0.1:18240 -p 2233 user@192.168.0.12');
     const all = texts(r).join('\n');
     // The SSH relay is reported with the SSH card, not again as a stranger's forward.
     expect(all).not.toContain('2233번을 172.24.0.10:2233');

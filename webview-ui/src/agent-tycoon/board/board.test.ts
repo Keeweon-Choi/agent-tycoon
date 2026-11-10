@@ -157,7 +157,7 @@ describe('page rotation', () => {
 });
 
 describe('the GPU line', () => {
-  const t = { id: 'g-1', project: 'pofol', exclusive: false, ts: iso(125_000), ticket: 7 };
+  const t = { id: 'g-1', project: 'pearl', exclusive: false, ts: iso(125_000), ticket: 7 };
 
   it('ticket, VRAM and wait', () => {
     expect(ticketText(7)).toBe('#07');

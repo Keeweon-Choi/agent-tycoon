@@ -44,9 +44,9 @@ const STORE: Record<string, string> = {
 type Mode = 'work' | 'rest';
 const CREW: Array<[string, Mode]> = [
   ['agent-tycoon', 'work'],
-  ['wayfinder', 'work'],
-  ['pofol', 'work'], // on 2F
-  ['neus', 'rest'],
+  ['harvester', 'work'],
+  ['pearl', 'work'], // on 2F
+  ['iris', 'rest'],
 ];
 const assistant = (content: object[]) => ({
   type: 'assistant',
@@ -82,10 +82,10 @@ async function main() {
     JSON.stringify({
       version: 1,
       perProject: false,
-      floors: ['1', '2', '3'].map((id) => ({ id, name: `${id}F`, rooms: [], characters: id === '2' ? ['pofol'] : [] })),
+      floors: ['1', '2', '3'].map((id) => ({ id, name: `${id}F`, rooms: [], characters: id === '2' ? ['pearl'] : [] })),
     }),
   );
-  const projects = ['tycoon-admin', 'cex'].map((name) => {
+  const projects = ['studio-admin', 'fox'].map((name) => {
     const folder = path.join(home, 'ws', name);
     fs.mkdirSync(folder, { recursive: true });
     return { name, folder };
@@ -180,12 +180,12 @@ async function main() {
       const { ctx, page } = await open(theme);
       await page.screenshot({ path: path.join(OUT, `${PREFIX}-${theme}-1f.png`) });
       const first = await platesOnFigures(page, `${theme} 1F`);
-      check(!hasPlate(first, 'pofol'), `${theme} 1F: no plate for pofol (on 2F)`);
+      check(!hasPlate(first, 'pearl'), `${theme} 1F: no plate for pearl (on 2F)`);
       await page.getByTestId('elevator-up').click();
       await page.waitForTimeout(3000);
       await page.screenshot({ path: path.join(OUT, `${PREFIX}-${theme}-2f.png`) });
       const second = await platesOnFigures(page, `${theme} 2F`);
-      check(hasPlate(second, 'pofol'), `${theme} 2F: pofol's plate`);
+      check(hasPlate(second, 'pearl'), `${theme} 2F: pearl's plate`);
       check(!second.some((p) => hasPlate(first, p.name)), `${theme} 2F: none of 1F's plates`);
       await page.getByTestId('elevator-down').click();
       await page.waitForTimeout(3000);

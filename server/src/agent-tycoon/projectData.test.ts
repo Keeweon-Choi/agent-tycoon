@@ -158,7 +158,7 @@ describe('projectData', () => {
   it('reserved names are never an agent\'s name', () => {
     for (const n of ['owner', 'Owner', '사장', 'agty']) expect(checkName(n)).toMatch(/쓸 수 없어요/);
     for (const n of ['emp:1', '~a_abcdefghij', 'room:x', '$meta']) expect(checkName(n)).toMatch(/이름은/);
-    expect(checkName('tycoon-admin')).toBeNull();
+    expect(checkName('studio-admin')).toBeNull();
   });
 
   it('move to the gone name: detached (no member), the rest under it, its repository records too', () => {

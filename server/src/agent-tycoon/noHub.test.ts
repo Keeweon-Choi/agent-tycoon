@@ -25,7 +25,6 @@ export const FORBIDDEN: Array<{ id: string; re: RegExp }> = [
   { id: 'hub-flag', re: /--hub\b/ },
   { id: 'HubCli', re: /HubCli/ },
   { id: 'hubAction', re: /hubAction|HubAction/ },
-  { id: 'hub-ops-restart', re: /hub-ops restart/ },
 ];
 
 /** The ids of every forbidden pattern a text matches. */
@@ -84,7 +83,6 @@ describe('no hub in the tycoon', () => {
     expect(hubTraces('new HubCli()')).toEqual(expect.arrayContaining(['HubCli', 'hub-word']));
     expect(hubTraces("msg.type === 'hubAction'")).toEqual(expect.arrayContaining(['hubAction', 'hub-word']));
     expect(hubTraces('type HubActionKind')).toEqual(expect.arrayContaining(['hubAction', 'hub-word']));
-    expect(hubTraces('hub-ops restart')).toEqual(expect.arrayContaining(['hub-ops-restart', 'hub-word']));
     expect(hubTraces('const hubX = 1')).toContain('hub-word');
     expect(hubTraces('// the old Hub panel')).toContain('hub-word');
     expect(hubTraces('github.com')).toEqual([]);

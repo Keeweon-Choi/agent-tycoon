@@ -160,7 +160,7 @@ function seedJobs(home: string, alive: number[]): void {
     jobs.push(
       job({
         pid: 7000 + i,
-        project: 'pofol',
+        project: 'pearl',
         cmd: `python train.py --api-key ${SECRET}`,
         log: `${logs}/1021-1${String(i).padStart(2, '0')}000-run${i}.log`,
         started: iso(200 + i * 10),
@@ -386,7 +386,7 @@ async function main() {
     const fold = page.getByTestId('job-fold');
     check((await fold.count()) === 1, `${view}: one fold line`);
     check(
-      ((await fold.textContent()) ?? '').trim() === 'pofol 끝난 작업 20개 · 실패 1',
+      ((await fold.textContent()) ?? '').trim() === 'pearl 끝난 작업 20개 · 실패 1',
       `${view}: the fold says "${(await fold.textContent())?.trim()}"`,
     );
     await shot(page, `${view}-jobs`);

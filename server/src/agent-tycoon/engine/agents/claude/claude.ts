@@ -452,7 +452,7 @@ export class ClaudeAgent implements AgentProvider {
    * T-0014), and its turn is still open on a tool call: a question or
    * permission its terminal shows, where typed input does not stick. Claude
    * also lists a session whose turn simply ended waiting for a reply as
-   * `blocked` (pofol 10-22 14:28: "Worked for 20s", an empty input line); a
+   * `blocked` (pearl 10-22 14:28: "Worked for 20s", an empty input line); a
    * message is the answer then. One spawn, only when a message is about to go
    * in, so at most once per retry pause. PERM-PROMPT: `waitingFor` naming a
    * permission prompt is held whatever the transcript says (a background

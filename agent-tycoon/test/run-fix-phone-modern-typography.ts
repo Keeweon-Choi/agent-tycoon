@@ -32,7 +32,7 @@ if (!(port >= 19350 && port <= 19359)) throw new Error('port must be 19350-19359
 const TAG = process.env.TAG ?? 'after';
 const OUT = path.join(REPO_ROOT, 'agent-tycoon/artifacts/fix-phone-modern-typography');
 const DEADLINE_MS = 480_000;
-const LEADS = ['agent-tycoon', 'savetax-mk.2', 'keeweon-portfolio'];
+const LEADS = ['agent-tycoon', 'postbox-mk.2', 'kestrel-portfolio'];
 const STORE: Record<string, string> = { 'agty.title-scene': 'off', 'agty.office-iso': 'on', 'agty.floor': '1', 'agty.floor-view': 'one' };
 const lines: string[] = [];
 const log = (s: string) => (lines.push(s), console.log(s));

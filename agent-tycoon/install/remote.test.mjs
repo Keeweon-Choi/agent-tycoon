@@ -240,15 +240,15 @@ test('recorded tailscale outputs: consent link, Funnel allowed, what is publishe
 });
 
 test('Tailscale install steps per platform: admin steps exactly as typed', () => {
-  assert.deepEqual(installSteps('wsl', { user: 'choi' }).install, [
+  assert.deepEqual(installSteps('wsl', { user: 'user' }).install, [
     ['sh', '-c', 'curl -fsSL https://tailscale.com/install.sh | sh'],
   ]);
-  assert.deepEqual(installSteps('linux', { user: 'choi' }).up, [
+  assert.deepEqual(installSteps('linux', { user: 'user' }).up, [
     'sudo',
     'tailscale',
     'up',
     '--qr',
-    '--operator=choi',
+    '--operator=user',
   ]);
   assert.deepEqual(installSteps('win32').install, [
     ['winget', 'install', '--id', 'Tailscale.Tailscale', '-e'],

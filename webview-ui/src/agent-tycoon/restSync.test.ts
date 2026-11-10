@@ -10,7 +10,7 @@ const resting = (busy: boolean | null) => {
   const tiles: TileType[] = Array.from({ length: 3 * 8 }, () => TileType.FLOOR_1);
   const layout: OfficeLayout = { version: 1, cols: 8, rows: 3, tiles, furniture: [] };
   const office = new OfficeState(layout);
-  office.addAgent(VIRTUAL, 0, 0, undefined, true, 'cex'); // what the officeSnapshot path does
+  office.addAgent(VIRTUAL, 0, 0, undefined, true, 'fox'); // what the officeSnapshot path does
   const ch = office.characters.get(VIRTUAL)!;
   office.selectedAgentId = VIRTUAL;
   syncUnattachedActive(office, [{ id: VIRTUAL, busy }]);

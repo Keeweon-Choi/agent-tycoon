@@ -37,7 +37,7 @@ const PHONE: BrowserContextOptions = {
 const DESKTOP: BrowserContextOptions = { viewport: { width: 1280, height: 900 } };
 const USE_SSH = '노트북에서 아래 명령 한 줄로 붙어요. 새 포트를 열지 않는 가장 비공개인 길이에요';
 const sshLine = (sshPort: number, host: string) =>
-  `ssh -N -L ${port}:127.0.0.1:${port}${sshPort === 22 ? '' : ` -p ${sshPort}`} choi@${host}`;
+  `ssh -N -L ${port}:127.0.0.1:${port}${sshPort === 22 ? '' : ` -p ${sshPort}`} user@${host}`;
 
 const base = {
   natKind: 'open', upnp: true, relayReady: false, tailscaleInstalled: false,

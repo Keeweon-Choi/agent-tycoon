@@ -123,11 +123,11 @@ test('P7: the record lookups (read only): each WSL distro through wsl.exe --exec
 });
 
 test('P7: a Korean Windows user folder (cp949 console) is read through PowerShell with UTF-8 output, not cmd echo', async () => {
-  const user = 'C:\\Users\uAE40\uAE30\uC6D0\\AppData\\Local';
+  const user = 'C:\\Users\uD64D\uAE38\uB3D9\\AppData\\Local';
   // The old read: cmd echoes cp949 bytes, which Node decodes as UTF-8 and mangles.
-  const cp949 = Buffer.from([0x43, 0x3a, 0x5c, 0xb1, 0xe8, 0xb1, 0xe2, 0xbf, 0xf8]); // C:\ + the cp949 bytes of the name
+  const cp949 = Buffer.from([0x43, 0x3a, 0x5c, 0xc8, 0xab, 0xb1, 0xe6, 0xb5, 0xbf]); // C:\ + the cp949 bytes of the name
   assert.match(cp949.toString('utf8'), /\uFFFD/);
-  assert.equal(new TextDecoder('euc-kr').decode(cp949), 'C:\\\uAE40\uAE30\uC6D0');
+  assert.equal(new TextDecoder('euc-kr').decode(cp949), 'C:\\\uD64D\uAE38\uB3D9');
   const cmds = [];
   const out = await sideRecords.wsl(async (cmd) => {
     cmds.push(cmd);

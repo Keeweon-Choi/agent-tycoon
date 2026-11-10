@@ -49,7 +49,7 @@ const FONT_CSS = `@font-face { font-family: 'FS Pixel Sans'; src: url('/__t0016/
   unicode-range: U+2190-21FF, U+2300-23FF, U+2600-27BF, U+2B00-2BFF, U+FE0F, U+200D, U+1F000-1FAFF; }`;
 const DEADLINE_MS = 180_000;
 /** Nothing of this PC, and no GPU budget (4.5 or 6 GiB, not part of a longer number), may appear on screen. */
-const NEVER_ON_SCREEN: RegExp[] = [/orch-pofol|pofol|ops|rules\.md/, /(?<![\d.])(4\.5|6)\s?GiB/];
+const NEVER_ON_SCREEN: RegExp[] = [/orch-pearl|pearl|ops|rules\.md/, /(?<![\d.])(4\.5|6)\s?GiB/];
 /** Messages only a office provider sends. */
 // officeJobs and codexTasks are the built-in engine's (on without a office, T-0019, T-0021), not office data.
 const OFFICE_ONLY_MESSAGES = ['officeEvent', 'statusOutput'];

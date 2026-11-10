@@ -23,7 +23,7 @@ const NOW = Date.parse('2026-10-22T12:00:00+09:00');
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
 const job = (over: Partial<OfficeJob>): OfficeJob => ({
   pid: 1,
-  project: 'pofol',
+  project: 'pearl',
   cmd: 'python train.py --token SECRET',
   started: ago(12),
   ended: null,
@@ -85,7 +85,7 @@ describe('tense', () => {
 });
 
 describe('order, folding and the cap', () => {
-  const ended = (pid: number, minAgo: number, exit: number, project = 'pofol') =>
+  const ended = (pid: number, minAgo: number, exit: number, project = 'pearl') =>
     job({ pid, project, started: ago(minAgo + 5), ended: ago(minAgo), exit });
 
   it('running first, newest first; recent ended after, newest first', () => {
@@ -113,7 +113,7 @@ describe('order, folding and the cap', () => {
     expect(plan.cards.map((j) => j.pid)).toEqual([400]);
     expect(plan.folds.map(foldText)).toEqual([
       'atlas \ub05d\ub09c \uc791\uc5c5 1\uac1c',
-      'pofol \ub05d\ub09c \uc791\uc5c5 23\uac1c · \uc2e4\ud328 2',
+      'pearl \ub05d\ub09c \uc791\uc5c5 23\uac1c · \uc2e4\ud328 2',
     ]);
   });
 
@@ -156,7 +156,7 @@ describe('waiting is not running (U-03)', () => {
 describe('Codex tasks wait too (U-03)', () => {
   const task = (over: Partial<CodexTask>): CodexTask => ({
     id: 'c1',
-    project: 'pofol',
+    project: 'pearl',
     state: 'running',
     created: ago(10),
     started: ago(8),
@@ -183,7 +183,7 @@ describe('Codex tasks wait too (U-03)', () => {
 describe('the hourglass count follows state (U-04)', () => {
   const codex = (over: Partial<CodexTask>): CodexTask => ({
     id: 'c1',
-    project: 'pofol',
+    project: 'pearl',
     state: 'running',
     started: ago(8),
     ...over,

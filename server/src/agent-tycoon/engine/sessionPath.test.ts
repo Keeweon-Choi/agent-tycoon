@@ -71,10 +71,10 @@ describe('sessionPath', () => {
   });
 
   it('a Korean user folder in the Windows PATH (UTF-8 output, maybe a BOM) is converted intact', () => {
-    const f = fakes({ win: '\uFEFFC:\\Users\\\uAE40\uAE30\uC6D0\\bin;C:\\Windows\r\n' });
-    const dirs = new Set([...DIRS, '/mnt/c/Users/\uAE40\uAE30\uC6D0/bin']);
+    const f = fakes({ win: '\uFEFFC:\\Users\\\uD64D\uAE38\uB3D9\\bin;C:\\Windows\r\n' });
+    const dirs = new Set([...DIRS, '/mnt/c/Users/\uD64D\uAE38\uB3D9/bin']);
     expect(buildSessionPath({ ...f.opts, isDir: (p: string) => dirs.has(p) })).toContain(
-      '/mnt/c/Users/\uAE40\uAE30\uC6D0/bin:/mnt/c/Windows',
+      '/mnt/c/Users/\uD64D\uAE38\uB3D9/bin:/mnt/c/Windows',
     );
   });
 

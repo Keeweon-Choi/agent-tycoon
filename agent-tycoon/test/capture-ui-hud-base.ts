@@ -41,13 +41,13 @@ type Mode = 'work' | 'wait' | 'perm' | 'error' | 'rest';
 /** [name, mode, context tokens (of the window the daemon assumes), the tools a working one cycles]. */
 const CREW: Array<[string, Mode, number, string[]]> = [
   ['agent-tycoon', 'work', 62_000, ['Edit', 'Read', 'Bash']],
-  ['pofol', 'work', 118_000, ['Read', 'Grep']],
-  ['wayfinder', 'work', 31_000, ['Bash', 'Edit']],
-  ['aixon', 'work', 154_000, ['Write', 'Read']],
-  ['neus', 'wait', 88_000, []],
-  ['smartglass', 'perm', 47_000, []],
-  ['savetax', 'error', 171_000, []],
-  ['keeweon', 'rest', 12_000, []],
+  ['pearl', 'work', 118_000, ['Read', 'Grep']],
+  ['harvester', 'work', 31_000, ['Bash', 'Edit']],
+  ['lemon', 'work', 154_000, ['Write', 'Read']],
+  ['iris', 'wait', 88_000, []],
+  ['sunglasses', 'perm', 47_000, []],
+  ['postbox', 'error', 171_000, []],
+  ['kestrel', 'rest', 12_000, []],
 ];
 
 const assistant = (content: object[], tokens: number) => ({

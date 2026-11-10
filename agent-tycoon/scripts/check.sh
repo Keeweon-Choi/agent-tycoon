@@ -244,6 +244,12 @@ run_integration() {
   run test-install node --test agent-tycoon/install/*.test.mjs
   run test-core node --test core/src/*.test.mjs
   run test-bundle node --test agent-tycoon/release/bundle/*.test.mjs
+  # The export tooling and its tree-wide name test are private: the public export does not have them.
+  if [[ -f agent-tycoon/release/release.test.mjs ]]; then
+    run test-release node --test agent-tycoon/release/release.test.mjs
+  else
+    skip test-release "release tooling is not in this tree"
+  fi
   run docs-check node agent-tycoon/scripts/docs-check.mjs --root agent-tycoon
   trace_drift
   run no-trace node agent-tycoon/scripts/no-trace.mjs

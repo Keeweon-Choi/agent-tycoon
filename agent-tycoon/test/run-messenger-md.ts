@@ -59,7 +59,7 @@ const REPLY = [
   '',
   '| 프로젝트 | 상태 | 마지막 빌드 | 담당자 이름이 아주 긴 칸 | 메모가 길게 이어지는 칸 |',
   '| :-- | :-: | --: | --- | --- |',
-  '| alpha | **성공** | 12:03 | Keeweon Choi (agent-tycoon owner) | 배포 후 확인 완료 |',
+  '| alpha | **성공** | 12:03 | Sample User (agent-tycoon owner) | 배포 후 확인 완료 |',
   '| beta | 실패 | 11:48 | someone-with-a-long-name | 테스트 2개 실패, 재시도 필요 |',
   '',
   '```bash',

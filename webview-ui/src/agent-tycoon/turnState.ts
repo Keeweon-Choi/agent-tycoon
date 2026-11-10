@@ -2,7 +2,7 @@ import type { OfficeOrchestrator } from '../../../core/src/messages.js';
 import type { AgentActivity } from '../components/AgentCard.js';
 
 /**
- * STATE-SYNC (owner 11-04 21:24, pofol waiting on its training job showed 쉬는 중 in the office and
+ * STATE-SYNC (owner 11-04 21:24, pearl waiting on its training job showed 쉬는 중 in the office and
  * the party while the engine had it at work): what the engine says of a session it runs, the one
  * rule the character, its card, the party, the messenger, the dev room and the terminal tabs read.
  * The tool rows only refine it (which tool), they never decide rest for an engine session.

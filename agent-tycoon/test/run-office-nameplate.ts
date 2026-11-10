@@ -28,12 +28,12 @@ const STORE = { 'agty.title-scene': 'off', 'agty.office-iso': 'on', 'agty.floor'
 type Mode = 'work' | 'wait' | 'perm' | 'rest';
 const CREW: Array<[string, Mode, number]> = [
   ['agent-tycoon', 'work', 62_000],
-  ['pofol', 'work', 118_000],
-  ['wayfinder', 'work', 31_000],
-  ['neus', 'wait', 88_000],
-  ['smartglass', 'perm', 47_000],
-  ['savetax', 'rest', 171_000],
-  ['keeweon', 'rest', 12_000],
+  ['pearl', 'work', 118_000],
+  ['harvester', 'work', 31_000],
+  ['iris', 'wait', 88_000],
+  ['sunglasses', 'perm', 47_000],
+  ['postbox', 'rest', 171_000],
+  ['kestrel', 'rest', 12_000],
 ];
 const assistant = (content: object[], tokens: number) => ({
   type: 'assistant',
@@ -190,7 +190,7 @@ async function main() {
         check(plates.every((p) => p.radius === '0px' && p.line === '2px' && !p.dot), 'pixel: sharp, 2 px, no dot');
       }
       // A hovered plate (the activity line joins it).
-      const id = await page.locator('[data-nameplate]', { has: page.locator('[data-name="wayfinder"]') }).first().getAttribute('data-agent-id');
+      const id = await page.locator('[data-nameplate]', { has: page.locator('[data-name="harvester"]') }).first().getAttribute('data-agent-id');
       const head = await page.locator(`[data-testid="status-icon-anchor"][data-agent-id="${id}"]`).boundingBox();
       if (head) {
         const focus = page.locator('[data-nameplate][data-focus]').first();

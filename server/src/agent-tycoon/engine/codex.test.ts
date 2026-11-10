@@ -233,9 +233,9 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
   () => {
     it('makes the worktree in a repository subfolder when called there, while containing outside callers', async () => {
       const setupProject = (repo: ReturnType<typeof makeTempRepo>) => {
-        const project = path.join(repo.root, 'pofol');
+        const project = path.join(repo.root, 'pearl');
         fs.mkdirSync(project);
-        fs.renameSync(repo.folder, path.join(project, '01_pill-detection'));
+        fs.renameSync(repo.folder, path.join(project, '01_sample-app'));
         return project;
       };
 
@@ -243,14 +243,14 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         projectFolder: setupProject,
       });
       const insidePaths = {
-        nestedRepo: path.join(inside.repo.root, 'pofol', '01_pill-detection'),
+        nestedRepo: path.join(inside.repo.root, 'pearl', '01_sample-app'),
       };
       const created = await inside.start({ worktree: true, cwd: insidePaths.nestedRepo });
       expect(created).toMatchObject({ ok: true });
       expect(created.worktree).toContain(path.join(insidePaths.nestedRepo, '.worktrees'));
 
       const atTop = rig('success', { projectFolder: setupProject });
-      const topPaths = { project: path.join(atTop.repo.root, 'pofol') };
+      const topPaths = { project: path.join(atTop.repo.root, 'pearl') };
       expect(await atTop.start({ worktree: true, cwd: topPaths.project })).toMatchObject({
         code: 'worktree_failed',
         error: expect.stringContaining('git 저장소가 아니에요'),
@@ -267,14 +267,14 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
 
     it('a caller folder cannot escape the project by .. or a symlink: the project folder is used', async () => {
       const setupProject = (repo: ReturnType<typeof makeTempRepo>) => {
-        const project = path.join(repo.root, 'pofol');
+        const project = path.join(repo.root, 'pearl');
         fs.mkdirSync(project);
         // A repository next to the project, and a way in from the project to it.
         fs.symlinkSync(repo.folder, path.join(project, 'link-out'));
         return project;
       };
       const r = rig('success', { projectFolder: setupProject });
-      const project = path.join(r.repo.root, 'pofol');
+      const project = path.join(r.repo.root, 'pearl');
       fs.mkdirSync(path.join(project, 'sub'));
       const refused = { code: 'worktree_failed', error: expect.stringContaining('git 저장소가') };
       // Through the symlink: its real path is the outside repository.
@@ -286,9 +286,9 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         await r.start({ worktree: true, cwd: path.join(project, 'sub', '..', '..', 'clone') }),
       ).toMatchObject(refused);
       // A sibling whose name only starts with the project's name.
-      fs.symlinkSync(r.repo.folder, path.join(r.repo.root, 'pofol-evil'));
+      fs.symlinkSync(r.repo.folder, path.join(r.repo.root, 'pearl-evil'));
       expect(
-        await r.start({ worktree: true, cwd: path.join(r.repo.root, 'pofol-evil') }),
+        await r.start({ worktree: true, cwd: path.join(r.repo.root, 'pearl-evil') }),
       ).toMatchObject(refused);
       expect(fs.existsSync(path.join(r.repo.folder, '.worktrees'))).toBe(false);
     });

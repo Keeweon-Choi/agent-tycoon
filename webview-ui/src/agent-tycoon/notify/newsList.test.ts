@@ -21,7 +21,7 @@ const notice = (over: Partial<Notice>): Notice => ({
   id: 'n1',
   cause: 'turnEnd',
   agentId: 7,
-  name: 'wayfinder',
+  name: 'harvester',
   text: '\uc77c\uc744 \ub9c8\ucce4\uc5b4\uc694',
   at: T0,
   read: false,
@@ -31,7 +31,7 @@ const event = (over: Partial<OfficeEvent>): OfficeEvent => ({
   type: 'officeEvent',
   ts: new Date(T0).toISOString(),
   kind: 'compacted',
-  name: 'wayfinder',
+  name: 'harvester',
   summary: '\ub300\ud654\ub97c \uc904\uc600\uc5b4\uc694',
   ...over,
 });
@@ -134,10 +134,10 @@ describe('one list of notices and events (T-0070)', () => {
       [
         event({
           kind: 'turn_end',
-          summary: 'wayfinder \ud134 \ub05d',
+          summary: 'harvester \ud134 \ub05d',
           ts: new Date(T0 + 60_000).toISOString(),
         }),
-        event({ kind: 'turn_end', summary: 'wayfinder \ud134 \ub05d' }),
+        event({ kind: 'turn_end', summary: 'harvester \ud134 \ub05d' }),
       ],
     );
     expect(turns.map((i) => i.at - T0)).toEqual([60_000, 0]);
@@ -146,7 +146,7 @@ describe('one list of notices and events (T-0070)', () => {
   it('NOTICE-DEDUP: a lead\'s reply stands for its turn end in the list too', () => {
     const list = mergeNews(
       [notice({ cause: 'reply', text: 'done' })],
-      [event({ kind: 'turn_end', summary: 'wayfinder \ud134 \ub05d' })],
+      [event({ kind: 'turn_end', summary: 'harvester \ud134 \ub05d' })],
     );
     expect(list.map((i) => i.notice?.cause)).toEqual(['reply']);
   });

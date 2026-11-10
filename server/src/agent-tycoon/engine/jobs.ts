@@ -102,7 +102,7 @@ export function jobArgv(
       ? {
           file: o.script ?? 'script',
           // script's pty starts at 0x0 without a terminal, and tqdm then draws no bar at all
-          // (pofol 10-22 15:33): give it a size first.
+          // (pearl 10-22 15:33): give it a size first.
           args: [
             '-qfc',
             `stty cols ${JOB_PTY_COLS} rows ${JOB_PTY_ROWS} 2>/dev/null; exec ${bash} -lc "$AGTY_JOB_RUN"`,

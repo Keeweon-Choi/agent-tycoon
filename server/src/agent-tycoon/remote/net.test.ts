@@ -191,7 +191,7 @@ describe('WSL message (Windows-side steps)', () => {
   it('reads Windows addresses from ipconfig in any language', () => {
     const korean =
       '이더넷 어댑터 이더넷:\r\n   IPv4 \xc1\xd6\xbc\xd2 . . . . . . . . . : 203.0.113.10(\xb1\xe2\xba\xbb)\r\n   서브넷 마스크 . . : 255.255.255.0\r\n' +
-      '이더넷 어댑터 vEthernet (WSL):\r\n   IPv4 Address. . . . . . . . . . . : 172.20.0.1\r\n   Default Gateway . . : 121.173.204.1\r\n';
+      '이더넷 어댑터 vEthernet (WSL):\r\n   IPv4 Address. . . . . . . . . . . : 172.20.0.1\r\n   Default Gateway . . : 203.0.113.1\r\n';
     expect(parseIpconfig(korean)).toEqual(['203.0.113.10', '172.20.0.1']);
     expect(parseIpconfig('')).toEqual([]);
   });

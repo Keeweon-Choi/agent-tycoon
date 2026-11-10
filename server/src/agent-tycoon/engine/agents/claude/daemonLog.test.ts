@@ -34,7 +34,7 @@ describe('parseIdleRetire', () => {
     expect(parseIdleRetire(log, ['29655fd9-background-agent'])).toBeNull();
   });
 
-  it('reads the minutes Claude 2.1.310 writes (cex retired after 61 idle minutes, 10-26)', () => {
+  it('reads the minutes Claude 2.1.310 writes (fox retired after 61 idle minutes, 10-26)', () => {
     const log = [
       '[2026-10-25T15:08:58.660Z] [bg] bg retire b3985e0f: idle-prompt, idle 61m',
       '[2026-10-25T15:08:58.786Z] [bg] bg settled b3985e0f (done)',

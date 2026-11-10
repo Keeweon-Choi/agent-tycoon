@@ -32,8 +32,8 @@ const SEED = path.join(REPO_ROOT, 'server/src/agent-tycoon/fixtures/dev-board-se
 const CLI = path.join(REPO_ROOT, 'agent-tycoon/bin/agty');
 const INIT = `globalThis.__name = (fn) => fn; window.__AGENT_TYCOON_E2E = true;`;
 const STORE: Record<string, string> = { 'agty.title-scene': 'off', 'agty.office-iso': 'on', 'agty.floor': '1', 'agty.floor-view': 'one' };
-const CREW = ['agent-tycoon', 'pofol', 'wayfinder', 'savetax', 'neus'];
-const RENAME: Record<string, string> = { '워커 A': 'wayfinder', '워커 B': 'pofol', 'Codex 워커': 'savetax', 'agent-tycoon-orchestrator': 'agent-tycoon' };
+const CREW = ['agent-tycoon', 'pearl', 'harvester', 'postbox', 'iris'];
+const RENAME: Record<string, string> = { '워커 A': 'harvester', '워커 B': 'pearl', 'Codex 워커': 'postbox', 'agent-tycoon-orchestrator': 'agent-tycoon' };
 
 function session(home: string, n: number, name: string) {
   const cwd = `/work/${name}`;

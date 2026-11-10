@@ -293,10 +293,10 @@ describe('local control channel', () => {
         { cmd: 'send', cwd, source: 'cli', args: { to: 'beta', text: 'x', from } },
         deps,
       );
-    await req('/w/alpha', 'savetax');
-    await req('/tmp', 'savetax');
+    await req('/w/alpha', 'postbox');
+    await req('/tmp', 'postbox');
     await req('/tmp', null);
-    expect(got).toEqual(['alpha', 'savetax', null]);
+    expect(got).toEqual(['alpha', 'postbox', null]);
     expect(await req('/tmp', 'bad name!')).toMatchObject({ ok: false, code: 'usage' });
   });
 
@@ -921,7 +921,7 @@ describe('agty CLI', () => {
         { name: 'beta', folder: path.join(h, 'work/beta'), wantRunning: false },
       ]),
     );
-    const r = await cli(h, ['send', '--from', 'savetax', 'beta', 'line\x07 one'], {
+    const r = await cli(h, ['send', '--from', 'postbox', 'beta', 'line\x07 one'], {
       cwd: path.join(h, 'work/alpha'),
       env: { AGTY_OUTPUT: 'json' },
     });

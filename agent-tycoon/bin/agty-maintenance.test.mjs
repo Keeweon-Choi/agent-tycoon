@@ -90,10 +90,10 @@ const upStatus = (extra) => maintenance.status({
 
 test('status shows the Claude weekly usage (5-hour only when known) and the sub-agents per project', async () => {
   const resetsAt = new Date(2026, 10, 5, 9, 30).toISOString();
-  const result = await upStatus({ claudeUsage: { weekPct: 84, resetsAt, fiveHourPct: 12 }, subagents: { total: 4, byProject: { 'agent-tycoon': 3, neus: 1, idle: 0 } } });
+  const result = await upStatus({ claudeUsage: { weekPct: 84, resetsAt, fiveHourPct: 12 }, subagents: { total: 4, byProject: { 'agent-tycoon': 3, iris: 1, idle: 0 } } });
   const lines = maintenance.statusLines(result);
   assert.ok(lines.includes('사용량 · Claude: 주간 84% (초기화 11-05 09:30) · 5시간 12%'));
-  assert.ok(lines.includes('서브에이전트: 합계 4 (agent-tycoon 3, neus 1)'));
+  assert.ok(lines.includes('서브에이전트: 합계 4 (agent-tycoon 3, iris 1)'));
   assert.deepEqual(result.claudeUsage, { weekPct: 84, resetsAt, fiveHourPct: 12 });
   assert.equal(result.subagents.byProject['agent-tycoon'], 3);
   const no5h = maintenance.statusLines(await upStatus({ claudeUsage: { weekPct: 40, resetsAt } }));

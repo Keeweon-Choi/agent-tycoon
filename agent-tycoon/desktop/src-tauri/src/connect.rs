@@ -548,14 +548,14 @@ mod tests {
             )
         );
         assert_eq!(
-            login_args("choi@host", 2233, "~/.local/bin/agty-login", &keys()).join(" "),
-            format!("-p 2233 {k} -o BatchMode=yes -- choi@host ~/.local/bin/agty-login")
+            login_args("user@host", 2233, "~/.local/bin/agty-login", &keys()).join(" "),
+            format!("-p 2233 {k} -o BatchMode=yes -- user@host ~/.local/bin/agty-login")
         );
-        let register = register_args("choi@host", 2233, &keys());
+        let register = register_args("user@host", 2233, &keys());
         assert_eq!(
             register.join(" "),
             format!(
-                "-p 2233 {k} -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 -- choi@host {APPEND_KEY}"
+                "-p 2233 {k} -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15 -- user@host {APPEND_KEY}"
             )
         );
         // The password goes through askpass: never BatchMode, and nothing secret in argv.
@@ -571,7 +571,7 @@ mod tests {
             r"-q|-t|ed25519|-N||-C|agent-tycoon@LAPTOP-1|-f|C:\x y\id_ed25519"
         );
         assert_eq!(key_comment("DESKTOP-AB12"), "agent-tycoon@DESKTOP-AB12");
-        assert_eq!(key_comment("최 의 PC; rm"), "agent-tycoon@PCrm");
+        assert_eq!(key_comment("사용자 의 PC; rm"), "agent-tycoon@PCrm");
         assert_eq!(key_comment(""), "agent-tycoon@pc");
         assert!(valid_public_key(
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB agent-tycoon@PC"
@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     fn host_keys() {
-        assert_eq!(host_of("choi@Host.Example"), "Host.Example");
+        assert_eq!(host_of("user@Host.Example"), "Host.Example");
         assert_eq!(known_name("Host.Example", 2233), "[host.example]:2233");
         assert_eq!(known_name("h", 22), "h");
         let scan = "[Host.Example]:2233 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA+b/c=\n";
@@ -631,14 +631,14 @@ mod tests {
     #[test]
     fn permission_denied() {
         for yes in [
-            "choi@host: Permission denied (publickey,password).",
-            "choi@host: Permission denied (publickey,keyboard-interactive).",
+            "user@host: Permission denied (publickey,password).",
+            "user@host: Permission denied (publickey,keyboard-interactive).",
             "Permission denied, please try again.\nchoi@host: Permission denied (publickey,password).",
         ] {
             assert!(wants_password(yes), "{yes}");
         }
         for no in [
-            "choi@host: Permission denied (publickey).",
+            "user@host: Permission denied (publickey).",
             "Host key verification failed.",
             "ssh: connect to host h port 2233: Connection refused",
             "",
@@ -729,22 +729,22 @@ mod tests {
 
     #[test]
     fn targets() {
-        for ok in ["choi@host", "a.b-c_d@x.example", "u@10.0.0.2"] {
+        for ok in ["user@host", "a.b-c_d@x.example", "u@10.0.0.2"] {
             assert!(valid_target(ok), "{ok}");
         }
         let bad = [
             "-oProxyCommand=x",
             "-oProxyCommand=calc@host",
-            "choi@-oProxyCommand=x",
+            "user@-oProxyCommand=x",
             "-oProxyCommand@host",
-            "choi@-p22",
+            "user@-p22",
             "host",
             "@host",
-            "choi@",
+            "user@",
             "a@b@c",
-            "choi@host;calc",
-            "choi@host x",
-            "choi@ho$t",
+            "user@host;calc",
+            "user@host x",
+            "user@ho$t",
             "",
         ];
         for bad in bad {
@@ -891,8 +891,8 @@ mod tests {
             assert_eq!(classify(stay, office), Nav::Stay, "{stay}");
         }
         for out in [
-            "https://claude.ai/chat/1",
-            "https://claude.ai/code/session_01Q4hidBRaSYMi6pW8uBMvBv",
+            "https://claude.ai/chat/EXAMPLE",
+            "https://claude.ai/code/session_EXAMPLE",
             "https://tailscale.com/download",
             "https://github.com/pixel-agents-hq/pixel-agents#readme",
             "https://office.tail0000.ts.net.evil.com/",
@@ -920,7 +920,7 @@ mod tests {
     fn external_link_origins() {
         for (url, logged) in [
             (
-                "https://claude.ai/code/session_01Q4hidBRaSYMi6pW8uBMvBv?x=SECRET#y",
+                "https://claude.ai/code/session_EXAMPLE?x=SECRET#y",
                 "https://claude.ai",
             ),
             ("https://tailscale.com/download", "https://tailscale.com"),
@@ -965,7 +965,7 @@ mod tests {
 
     #[test]
     fn hints() {
-        assert!(ssh_hint("choi@host: Permission denied (publickey).").contains("authorized_keys"));
+        assert!(ssh_hint("user@host: Permission denied (publickey).").contains("authorized_keys"));
         assert!(ssh_hint("Host key verification failed.").contains("호스트 키"));
         assert!(ssh_hint("ssh: connect to host h port 22: Connection refused").contains("포트"));
     }

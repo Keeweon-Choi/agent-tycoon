@@ -64,13 +64,13 @@ const STORE: Record<string, string> = {
 type Mode = 'work' | 'wait' | 'perm' | 'rest';
 const CREW: Array<[string, Mode, number, string[]]> = [
   ['agent-tycoon', 'work', 62_000, ['Edit', 'Read', 'Bash']],
-  ['pofol', 'work', 118_000, ['Read', 'Grep']],
-  ['wayfinder', 'work', 31_000, ['Bash', 'Edit']],
-  ['aixon', 'work', 154_000, ['Write', 'Read']],
-  ['neus', 'wait', 88_000, []],
-  ['smartglass', 'perm', 47_000, []],
-  ['savetax', 'rest', 171_000, []],
-  ['keeweon', 'rest', 12_000, []],
+  ['pearl', 'work', 118_000, ['Read', 'Grep']],
+  ['harvester', 'work', 31_000, ['Bash', 'Edit']],
+  ['lemon', 'work', 154_000, ['Write', 'Read']],
+  ['iris', 'wait', 88_000, []],
+  ['sunglasses', 'perm', 47_000, []],
+  ['postbox', 'rest', 171_000, []],
+  ['kestrel', 'rest', 12_000, []],
 ];
 
 const assistant = (content: object[], tokens: number) => ({
@@ -504,8 +504,8 @@ async function main() {
     await page.getByTestId('party-name-save').click();
     await page.waitForTimeout(300);
     const picks = page.getByTestId('party-pick');
-    await picks.filter({ hasText: 'pofol' }).click();
-    await picks.filter({ hasText: 'neus' }).click();
+    await picks.filter({ hasText: 'pearl' }).click();
+    await picks.filter({ hasText: 'iris' }).click();
     await shot(page, 'pc-1600x1000-party-members');
     await page.getByTestId('party-members-done').click();
     await page.waitForTimeout(600);
@@ -682,8 +682,8 @@ async function main() {
       await p.getByTestId('party-name').fill('모바일');
       await p.getByTestId('party-name-save').tap();
       await p.waitForTimeout(300);
-      await p.getByTestId('party-pick').filter({ hasText: 'aixon' }).tap();
-      await p.getByTestId('party-pick').filter({ hasText: 'savetax' }).tap();
+      await p.getByTestId('party-pick').filter({ hasText: 'lemon' }).tap();
+      await p.getByTestId('party-pick').filter({ hasText: 'postbox' }).tap();
       await p.getByTestId('party-members-done').tap();
       await p.waitForTimeout(600);
       check((await phonePortraits.count()) === 2 && /모바일/.test(await head.innerText()), `phone: the new party shows its two (${await phonePortraits.count()})`);

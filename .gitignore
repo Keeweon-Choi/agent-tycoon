@@ -33,7 +33,13 @@ allure-report/
 !.env.example
 
 # Project-specific
+# Claude Code's local folder stays out at any depth, except the install skill the README points at.
 .claude
+!/.claude/
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/agty-install/
 .mcp.json
 /sprites-export
 .vercel/

@@ -158,4 +158,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
-        run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $(find installers -type f)
+        # One asset per file, spaces in the name turned into dashes: the NSIS installer is
+        # "Agent Tycoon_<version>_x64-setup.exe", and an unquoted $(find ...) split it (v0.1.0-rc.5).
+        run: |
+          # No installers (or no folder) is a failure, not a green step with nothing attached.
+          [ -n "$(find installers -type f 2>/dev/null | head -n 1)" ] || { echo "no installers to attach"; exit 1; }
+          find installers -type f -print0 | while IFS= read -r -d '' file; do
+            name=$(basename "$file" | tr ' ' '-')
+            cp "$file" "$RUNNER_TEMP/$name"
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/$name"
+          done

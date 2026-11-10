@@ -1,13 +1,13 @@
 /**
  * RENAME + PROJECT-DATA visual check: dist/cli.js in a temp HOME (the engine fake as `claude`) with
  * two running projects, alpha and beta, each with a conversation, a look and a level.
- *  - `agty rename --project alpha tycoon-admin` (the owner's CLI): applied after the turn, the
- *    session back as `-n tycoon-admin --resume <its id>`; its look and level follow, and the
- *    messenger lists tycoon-admin with alpha's history.
+ *  - `agty rename --project alpha studio-admin` (the owner's CLI): applied after the turn, the
+ *    session back as `-n studio-admin --resume <its id>`; its look and level follow, and the
+ *    messenger lists studio-admin with alpha's history.
  *  - The remove dialog with its purge box, desktop and phone; beta removed with the box on: its
  *    level, look and inbox gone, its conversation file kept, and the messenger shows it as
  *    "(알 수 없음)" with its history, read-only (its own note).
- *  - 대화방 지우기 (desktop: beta; phone: tycoon-admin removed without the box): the confirmation,
+ *  - 대화방 지우기 (desktop: beta; phone: studio-admin removed without the box): the confirmation,
  *    then its own conversation files gone (a renamed agent's copy and the conversation it
  *    continued), the other agent's kept, the contact off the list.
  * Screenshots in agent-tycoon/artifacts/project-data/.
@@ -141,19 +141,19 @@ async function main() {
     put('inbox/beta/1700000000000-x.md', 'pending for beta');
 
     // ── Rename (the owner's CLI) ──
-    const r = cli('rename', '--project', 'alpha', 'tycoon-admin');
-    check(r.ok === true && r.to === 'tycoon-admin', `agty rename --project alpha tycoon-admin: accepted (${JSON.stringify(r)})`);
-    await eventually('tycoon-admin live', () => !!session('tycoon-admin'));
+    const r = cli('rename', '--project', 'alpha', 'studio-admin');
+    check(r.ok === true && r.to === 'studio-admin', `agty rename --project alpha studio-admin: accepted (${JSON.stringify(r)})`);
+    await eventually('studio-admin live', () => !!session('studio-admin'));
     // `claude --bg` resumes with flags into a copy holding the conversation (ADR-0013 §12); the fake
     // only makes the new id, so the copy's file is made here as Claude would.
-    const renamed = session('tycoon-admin')!;
+    const renamed = session('studio-admin')!;
     if (renamed.sessionId !== alpha.sessionId)
       fs.copyFileSync(transcriptPath(alpha.cwd, alpha.sessionId, home), transcriptPath(renamed.cwd, renamed.sessionId, home));
-    const resumed = engineCalls(home).map((c) => c.argv.join(' ')).filter((c) => c.startsWith('--bg -n tycoon-admin'));
-    check(resumed.some((c) => c.includes(`--resume ${alpha.sessionId}`)), `restarted as -n tycoon-admin --resume ${alpha.sessionId.slice(0, 8)}`);
-    await eventually('the registry says tycoon-admin', () => read('projects.json').projects.some((p: { name: string }) => p.name === 'tycoon-admin'));
-    check(JSON.stringify(read('characters.json')['tycoon-admin']) === JSON.stringify({ palette: 3, hueShift: 90 }) && !read('characters.json').alpha, 'the look follows the new name');
-    await eventually('the level follows', () => read('levels.json').levels['engine:tycoon-admin']?.xp >= 350 && !read('levels.json').levels['engine:alpha']);
+    const resumed = engineCalls(home).map((c) => c.argv.join(' ')).filter((c) => c.startsWith('--bg -n studio-admin'));
+    check(resumed.some((c) => c.includes(`--resume ${alpha.sessionId}`)), `restarted as -n studio-admin --resume ${alpha.sessionId.slice(0, 8)}`);
+    await eventually('the registry says studio-admin', () => read('projects.json').projects.some((p: { name: string }) => p.name === 'studio-admin'));
+    check(JSON.stringify(read('characters.json')['studio-admin']) === JSON.stringify({ palette: 3, hueShift: 90 }) && !read('characters.json').alpha, 'the look follows the new name');
+    await eventually('the level follows', () => read('levels.json').levels['engine:studio-admin']?.xp >= 350 && !read('levels.json').levels['engine:alpha']);
     check(true, 'Lv/XP/환생 follow the new name (levels.json)');
 
     browser = await launchBrowser();
@@ -173,17 +173,17 @@ async function main() {
     await page.waitForURL(`http://127.0.0.1:${port}/`);
     await openOfficeWindow(page);
     await hangul(page);
-    await page.locator('[data-testid="agent-overlay"] [data-testid="agent-name"]').getByText('tycoon-admin', { exact: true }).first().waitFor({ timeout: 20_000 });
+    await page.locator('[data-testid="agent-overlay"] [data-testid="agent-name"]').getByText('studio-admin', { exact: true }).first().waitFor({ timeout: 20_000 });
     await shot(page, 'desktop-renamed-office');
 
     const messengerOf = (p: Page) => p.getByRole('region', { name: '메신저', exact: true });
     const contact = (p: Page, n: string) =>
       messengerOf(p).getByRole('list', { name: '연락처' }).getByRole('button', { name: new RegExp(`^${n.replace(/[()]/g, '\\$&')}( 안 읽음 \\d+)?$`) });
     await page.getByRole('button', { name: /^메신저/ }).click();
-    await contact(page, 'tycoon-admin').click();
-    const conv = messengerOf(page).getByRole('region', { name: 'tycoon-admin 대화' });
+    await contact(page, 'studio-admin').click();
+    const conv = messengerOf(page).getByRole('region', { name: 'studio-admin 대화' });
     await conv.getByText('alpha 의 지난 대화 한 줄').waitFor({ timeout: 20_000 });
-    check(true, "the messenger lists tycoon-admin with alpha's history");
+    check(true, "the messenger lists studio-admin with alpha's history");
     await shot(page, 'desktop-renamed-messenger');
     // The messenger window sits over the 사무실 정보 drawer: minimized for the board's buttons.
     await page.locator('[data-hud-window="messenger"]').getByRole('button', { name: '최소화', exact: true }).click();
@@ -244,7 +244,7 @@ async function main() {
     await hangul(phone);
     await phone.locator('[data-hud-id^="icon:"]').getByRole('button', { name: '현황판', exact: true }).click();
     await phone.getByLabel('현황판 화면').waitFor();
-    await (await engineButton(phone, 'tycoon-admin', '삭제')).tap();
+    await (await engineButton(phone, 'studio-admin', '삭제')).tap();
     const pdialog = phone.getByRole('alertdialog');
     await pdialog.waitFor();
     await pdialog.getByRole('checkbox').check();
@@ -252,7 +252,7 @@ async function main() {
     await shot(phone, 'phone-remove-dialog-purge');
     await pdialog.getByRole('checkbox').uncheck();
     await pdialog.getByRole('button', { name: '삭제', exact: true }).tap();
-    await eventually('tycoon-admin removed', () => !read('projects.json').projects.some((p: { name: string }) => p.name === 'tycoon-admin'));
+    await eventually('studio-admin removed', () => !read('projects.json').projects.some((p: { name: string }) => p.name === 'studio-admin'));
     check(fs.existsSync(renamedFile) && fs.existsSync(alphaFile), 'phone: removed without the box; its conversation files kept');
 
     // ── 대화방 지우기 (phone) ──

@@ -1,8 +1,9 @@
 /**
  * NFR-CMP-009 / ADR-0014 (TC-168): the product ships mechanisms; the policies
- * (a rules file, model assignments, GPU budgets, CPU pinning, this PC's
- * tab and project names) are the user's to bring. This scan fails when one of
- * those markers shows up in our code (ADR-0011, ADR-0014 item 4).
+ * (a rules file, model assignments, GPU budgets, CPU pinning) are the user's
+ * to bring. This scan fails when one of those markers shows up in our code
+ * (ADR-0011, ADR-0014 item 4). This PC's own project names are kept out of the
+ * shipped tree by the private export gate (agent-tycoon/release/check.mjs).
  *
  * A marker that is fine somewhere goes in ALLOWED with the reason; the list is
  * short on purpose. Tests and fixtures name what they forbid, so they are exempt.
@@ -63,11 +64,6 @@ const MARKERS: Marker[] = [
     id: 'model-name',
     why: 'model names come from the data source (Codex, the project settings), never from a table of ours',
     re: /\b(opus|sonnet|haiku|astra|sol|terra|luna)\b|\bgpt-\d/i,
-  },
-  {
-    id: 'pc-name',
-    why: "this PC's tab and project names: a name is read from the provider's data",
-    re: /\borch-pofol\b|\b(pofol|wayfinder|aixon|savetax|smartglass|keeweon-portfolio)\b/i,
   },
   {
     id: 'gpu-threshold',
@@ -243,9 +239,6 @@ describe('the scan itself', () => {
     ['model-name', "const model = 'claude-opus-4';", "const x = 'solid';"],
     ['model-name', "const m = 'gpt-5.6-terra';", 'const gpt = 5;'],
     ['model-name', "{ label: 'Sol' }", 'const solar = 1; // terrain'],
-    ['pc-name', "const room = 'orch-pofol';", "const room = 'orch-alpha';"],
-    ['pc-name', "label: 'smartglass',", "label: 'glasses',"],
-    ['pc-name', "const project = 'wayfinder';", "const project = 'compass';"],
     ['gpu-threshold', 'const SHARED_GIB = 4.5; // 4.5 GiB for sharing', 'const gap = 4.5;'],
     ['gpu-threshold', 'const live = j.live_limit_gib;', 'const live = j.limit;'],
     ['cpu-pinning', "run('nice -n 10 taskset -c 4,5 npm test');", "run('nice');"],
@@ -256,7 +249,7 @@ describe('the scan itself', () => {
 
   it('skips comment lines in code, not in prose; allows the engine its own switches only', () => {
     const root = tree({
-      'server/src/agent-tycoon/c.ts': '// the pofol agent\n/**\n * rules.md\n */\nconst x = 1;\n',
+      'server/src/agent-tycoon/c.ts': '// the alpha agent\n/**\n * rules.md\n */\nconst x = 1;\n',
       'webview-ui/src/agent-tycoon/notes.md': '# notes\nsee rules.md\n',
       'server/src/agent-tycoon/engine/run.ts':
         "args.push('--append-system-prompt-file');\nconst r = 'rules.md';\n",

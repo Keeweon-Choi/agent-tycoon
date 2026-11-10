@@ -57,11 +57,11 @@ describe('subagentFacts', () => {
       emp('claude:a', 'agent-tycoon'),
       emp('claude:b', 'agent-tycoon'),
       emp('claude:c', 'agent-tycoon'),
-      emp('claude:d', 'neus'),
-      emp('claude:e', 'neus', false),
-      emp('codex:1', 'neus'),
+      emp('claude:d', 'iris'),
+      emp('claude:e', 'iris', false),
+      emp('codex:1', 'iris'),
     ];
-    expect(subagentFacts(staff)).toEqual({ total: 4, byProject: { 'agent-tycoon': 3, neus: 1 } });
+    expect(subagentFacts(staff)).toEqual({ total: 4, byProject: { 'agent-tycoon': 3, iris: 1 } });
   });
   it('is zero with none', () => {
     expect(subagentFacts([])).toEqual({ total: 0, byProject: {} });

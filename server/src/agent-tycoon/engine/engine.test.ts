@@ -273,22 +273,22 @@ describe('engine pieces', () => {
         null,
         undefined,
         () => ({
-          Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+          Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
           JAVA_HOME: 'C:\\Java\\user',
           SHARED: 'user',
-          KOREAN_HOME: 'C:\\Users\\최\\tools',
+          KOREAN_HOME: 'C:\\Users\\사용자\\tools',
           home: 'C:\\registry-home',
         }),
       ),
     ).toEqual({
-      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
       SystemRoot: 'C:\\W',
       LOCALAPPDATA: 'C:\\u\\AppData\\Local',
       PSModulePath: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\Modules',
       PROCESSOR_ARCHITECTURE: 'AMD64',
       JAVA_HOME: 'C:\\Java\\user',
       SHARED: 'user',
-      KOREAN_HOME: 'C:\\Users\\최\\tools',
+      KOREAN_HOME: 'C:\\Users\\사용자\\tools',
       HOME: 'C:\\u',
     });
   });
@@ -331,11 +331,11 @@ describe('engine pieces', () => {
       'C:\\r\\agent-tycoon\\bin',
       'C:\\b',
       () => ({
-        Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+        Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
         agty_bin: 'C:\\registry\\agty.cmd',
       }),
     );
-    expect(win.Path).toBe('C:\\r\\agent-tycoon\\bin;C:\\Windows\\System32;C:\\Users\\최\\bin;C:\\b');
+    expect(win.Path).toBe('C:\\r\\agent-tycoon\\bin;C:\\Windows\\System32;C:\\Users\\사용자\\bin;C:\\b');
     expect(win.AGTY_BIN).toMatch(/agty\.cmd$/);
     expect(win.agty_bin).toBeUndefined();
     // This checkout's CLI, found from the module (dist/ or the source tree).

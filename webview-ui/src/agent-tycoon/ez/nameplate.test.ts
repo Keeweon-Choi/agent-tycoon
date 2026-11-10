@@ -274,7 +274,7 @@ describe('crowdPlates', () => {
 
   it("is stable fed its own output: the bottoms read back with a rise's sub-pixel noise", () => {
     // A margin is laid out in 1/64 px, so a nudged plate's un-nudged bottom reads back a hair off; two
-    // plates on one sofa row used to swap places on every pass at some zooms (neus and cex, 11-06).
+    // plates on one sofa row used to swap places on every pass at some zooms (iris and fox, 11-06).
     for (const z of ZOOMS) {
       const first = crowdPlates(lounge(z, () => 0), 4, 2);
       let fates = first;

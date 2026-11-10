@@ -37,7 +37,7 @@ describe('josa', () => {
     expect(josa('pencil', '(으)로')).toBe('로');
     expect(josa('agty-gui', '이/가')).toBe('가'); // 아이
     expect(josa('SELF', '을/를')).toBe('를'); // 셀프
-    expect(josa('wayfinder', '을/를')).toBe('를'); // 파인더
+    expect(josa('harvester', '을/를')).toBe('를'); // 하베스터
     expect(josa('server', '이/가')).toBe('가'); // 서버
     expect(josa('string', '이/가')).toBe('이'); // 스트링
   });

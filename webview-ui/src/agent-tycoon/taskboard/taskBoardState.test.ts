@@ -38,7 +38,7 @@ const task = (o: Partial<BoardTask> & { id: string }): BoardTask => ({
 });
 const codex: CodexTask[] = [
   { id: 'c-run', project: 'agent-tycoon', state: 'running', model: 'm1', started: at(5), branch: 'task/s4' },
-  { id: 'c-free', project: 'pofol', state: 'limit', started: at(1) },
+  { id: 'c-free', project: 'pearl', state: 'limit', started: at(1) },
 ];
 const jobs: OfficeJob[] = [
   { id: 'c-run', pid: 1, project: 'agent-tycoon', cmd: 'codex', started: at(5) }, // the Codex task's own job
@@ -135,7 +135,7 @@ describe('task board (DEV-BOARD)', () => {
     const items = boardItems(tasks, codex, jobs);
     expect(filterItems(items, { ...NO_FILTER, goal: 'Security' }).map((i) => i.id)).toEqual(['P0']);
     expect(filterItems(items, { ...NO_FILTER, project: 'alpha' }).map((i) => i.id)).toEqual(['j-1', 'j-2']);
-    expect(filterChoices(items).projects).toEqual(['agent-tycoon', 'alpha', 'pofol']);
+    expect(filterChoices(items).projects).toEqual(['agent-tycoon', 'alpha', 'pearl']);
   });
 
   it('SPT-P3-ISSUES: filters by priority and by a requirement (its confirmed Tasks only), with the others', () => {

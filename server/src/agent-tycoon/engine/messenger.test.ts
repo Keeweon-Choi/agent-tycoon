@@ -1377,7 +1377,7 @@ describe('messages through the attach (fake claude, real PTY)', () => {
     await new Promise((res) => setTimeout(res, 400));
     expect(typedLog()).toHaveLength(6);
     expect(messenger.held('alpha')).toBe(true);
-    // Still `blocked`, but the turn is over (pofol 10-22 14:28: "Worked for 20s", an
+    // Still `blocked`, but the turn is over (pearl 10-22 14:28: "Worked for 20s", an
     // empty input line): it waits for a reply, and the message goes in.
     const answered = JSON.stringify({
       type: 'user',

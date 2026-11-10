@@ -1,7 +1,7 @@
 /**
- * STATE-SYNC check (owner 11-04 21:24: pofol waiting on its training job read 쉬는 중 in the office
+ * STATE-SYNC check (owner 11-04 21:24: pearl waiting on its training job read 쉬는 중 in the office
  * while the engine had it on). dist/cli.js with --engine on in a temp HOME whose `claude` is the
- * engine fake: the project `pofol` runs in our PTY host (claude-pty). Headless Chromium without a
+ * engine fake: the project `pearl` runs in our PTY host (claude-pty). Headless Chromium without a
  * GPU, desktop 1280x800, the page clock installed so 31 minutes pass at once.
  * Scenes, each read from the DOM on every surface (the character's status icon, the party
  * portrait, the messenger's contact dot and conversation header):
@@ -82,13 +82,13 @@ interface Look {
 const WORK_RING = '일하는 중';
 const REST_RING = '쉬는 중';
 
-/** pofol's state on every surface, from the DOM only (any build). */
+/** pearl's state on every surface, from the DOM only (any build). */
 async function look(page: Page, id: number): Promise<Look> {
   return page.evaluate((id) => {
     const q = (sel: string) => document.querySelector(sel);
     const messenger = q('section[aria-label="메신저"]');
-    const contact = [...(messenger?.querySelectorAll('li') ?? [])].find((li) => li.textContent?.includes('pofol'));
-    const header = q('section[aria-label="pofol 대화"]');
+    const contact = [...(messenger?.querySelectorAll('li') ?? [])].find((li) => li.textContent?.includes('pearl'));
+    const header = q('section[aria-label="pearl 대화"]');
     return {
       character: q(`[data-testid="agent-overlay"][data-agent-id="${id}"] [data-testid="status-icon"]`)?.getAttribute('aria-label') ?? '(none)',
       // The party: its portrait (folded bar) or its card's state icon (the card bar).
@@ -122,11 +122,11 @@ async function main() {
   const host = ptyhostPaths(home);
   fs.writeFileSync(path.join(configDirectory(home), 'config.json'), JSON.stringify({ accessChosen: true, port }));
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
-  const folder = path.join(home, 'work', 'pofol');
+  const folder = path.join(home, 'work', 'pearl');
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(
     path.join(configDirectory(home), 'projects.json'),
-    JSON.stringify([{ name: 'pofol', folder, room: '개발실', wantRunning: true, provider: 'claude-pty' }]),
+    JSON.stringify([{ name: 'pearl', folder, room: '개발실', wantRunning: true, provider: 'claude-pty' }]),
   );
   const terminals = () => {
     try {
@@ -145,7 +145,7 @@ async function main() {
     for (const f of fs.readdirSync(dir)) {
       try {
         const s = JSON.parse(read(path.join(dir, f))) as { name?: string; status?: string };
-        if (s.name === 'pofol') return s.status;
+        if (s.name === 'pearl') return s.status;
       } catch {
         /* being written */
       }
@@ -165,7 +165,7 @@ async function main() {
     process.exit(1);
   }, DEADLINE_MS);
   try {
-    await until('pofol runs in the PTY host', () => terminals().length > 0, 60_000);
+    await until('pearl runs in the PTY host', () => terminals().length > 0, 60_000);
     const [term] = terminals();
     await sleep(1_500);
     const type = async (text: string) => {
@@ -187,18 +187,18 @@ async function main() {
     await page.addStyleTag({ content: HIDE });
     const idOf = () =>
       page.$$eval('[data-testid="agent-overlay"]', (nodes) => {
-        const n = nodes.find((x) => x.querySelector('[data-testid="agent-name"]')?.textContent === 'pofol');
+        const n = nodes.find((x) => x.querySelector('[data-testid="agent-name"]')?.textContent === 'pearl');
         return n ? Number(n.getAttribute('data-agent-id')) : null;
       });
-    await until('pofol is in the office', async () => (await idOf()) !== null, 45_000);
+    await until('pearl is in the office', async () => (await idOf()) !== null, 45_000);
     const closeInfo = page.getByRole('button', { name: '정보 창 닫기' });
     if (await closeInfo.count()) await closeInfo.click();
     const openMessenger = async () => {
       const messenger = page.getByRole('region', { name: '메신저', exact: true });
       if (!(await messenger.count()))
         await page.getByRole('button', { name: /^메신저/ }).first().click({ timeout: 60_000 });
-      await messenger.getByRole('list', { name: '연락처' }).getByRole('button', { name: /pofol/ }).first().click();
-      await page.getByRole('region', { name: 'pofol 대화' }).waitFor();
+      await messenger.getByRole('list', { name: '연락처' }).getByRole('button', { name: /pearl/ }).first().click();
+      await page.getByRole('region', { name: 'pearl 대화' }).waitFor();
     };
     await openMessenger();
     await sleep(6_000); // past the page's settle window

@@ -53,8 +53,8 @@ test('tunnel installs cloudflared or opens only the tunnel', () => {
   assert.deepEqual(kinds('tunnel', { cloudflaredInstalled: true }), ['tunnel']);
 });
 test('SSH copies the exact laptop line', () => {
-  assert.equal(plan('ssh', { sshUser: 'choi', sshHost: 'home.example' })[0].actions[0].text,
-    'ssh -N -L 18240:127.0.0.1:18240 choi@home.example');
+  assert.equal(plan('ssh', { sshUser: 'user', sshHost: 'home.example' })[0].actions[0].text,
+    'ssh -N -L 18240:127.0.0.1:18240 user@home.example');
   assert.match(plan('ssh', { platform: 'win32' })[0].actions[1].text, /Add-WindowsCapability.*OpenSSH.Server/);
   assert.equal(plan('ssh', { platform: 'darwin' })[0].actions[1].text, 'sudo systemsetup -setremotelogin on');
 });
@@ -63,9 +63,9 @@ test('REMOTE-XPLAT SSH per platform: WSL uses Windows OpenSSH; an SSH already th
   assert.match(wsl.actions[1].text, /Add-WindowsCapability/);
   assert.match(wsl.guide, /관리자 PowerShell/);
   assert.match(plan('ssh', { platform: 'darwin' })[0].guide, /원격 로그인/);
-  const found = plan('ssh', { sshFound: true, sshUser: 'choi', sshHost: '192.168.0.12', sshPort: 2233 })[0];
+  const found = plan('ssh', { sshFound: true, sshUser: 'user', sshHost: '192.168.0.12', sshPort: 2233 })[0];
   assert.equal(found.actions.length, 1);
-  assert.equal(found.actions[0].text, 'ssh -N -L 18240:127.0.0.1:18240 -p 2233 choi@192.168.0.12');
+  assert.equal(found.actions[0].text, 'ssh -N -L 18240:127.0.0.1:18240 -p 2233 user@192.168.0.12');
 });
 test('REMOTE-XPLAT WSL mirrored never gets the portproxy step; NAT does', () => {
   assert.deepEqual(kinds('direct', { wslMode: 'mirrored', relayReady: false }), ['direct']);
@@ -98,7 +98,7 @@ test('unknown choice is refused', () => assert.throws(() => plan('wrong'), /알 
 
 test('an account name with a space is quoted so the one-line SSH tunnel still pastes', async () => {
   const { sshTunnelCommand } = await import('./remoteSetupPlan.mjs');
-  assert.equal(sshTunnelCommand({ port: 18240, sshPort: 22, user: 'Keeweon Choi', host: '192.168.0.12' }),
-    'ssh -N -L 18240:127.0.0.1:18240 "Keeweon Choi@192.168.0.12"');
-  assert.equal(sshTunnelCommand({ port: 18240, sshPort: 22, user: 'choi', host: 'h' }), 'ssh -N -L 18240:127.0.0.1:18240 choi@h');
+  assert.equal(sshTunnelCommand({ port: 18240, sshPort: 22, user: 'Sample User', host: '192.168.0.12' }),
+    'ssh -N -L 18240:127.0.0.1:18240 "Sample User@192.168.0.12"');
+  assert.equal(sshTunnelCommand({ port: 18240, sshPort: 22, user: 'user', host: 'h' }), 'ssh -N -L 18240:127.0.0.1:18240 user@h');
 });

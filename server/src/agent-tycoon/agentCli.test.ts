@@ -271,25 +271,25 @@ describe('Windows logon environment', () => {
         SHARED: 'machine',
       },
       User: {
-        Path: 'C:\\Users\\최\\bin',
+        Path: 'C:\\Users\\사용자\\bin',
         JAVA_HOME: 'C:\\Java\\user',
         gopath: 'C:\\go\\user',
-        KOREAN_HOME: 'C:\\Users\\최\\tools',
+        KOREAN_HOME: 'C:\\Users\\사용자\\tools',
         SHARED: 'user',
       },
     });
 
   it('joins PATH, lets user values win case-insensitively, and preserves Unicode', () => {
     expect(readWindowsMachinePath(env, query)).toBe('C:\\Windows\\System32');
-    expect(readWindowsUserPath(env, query)).toBe('C:\\Users\\최\\bin');
+    expect(readWindowsUserPath(env, query)).toBe('C:\\Users\\사용자\\bin');
     expect(windowsLogonEnv(env, query)).toEqual({
-      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
       JAVA_HOME: 'C:\\Java\\user',
       gopath: 'C:\\go\\user',
       SHARED: 'user',
-      KOREAN_HOME: 'C:\\Users\\최\\tools',
+      KOREAN_HOME: 'C:\\Users\\사용자\\tools',
     });
-    expect(windowsLogonPath(env, query)).toBe('C:\\Windows\\System32;C:\\Users\\최\\bin');
+    expect(windowsLogonPath(env, query)).toBe('C:\\Windows\\System32;C:\\Users\\사용자\\bin');
   });
 
   it('uses one reader invocation for two quick calls', () => {
@@ -299,7 +299,7 @@ describe('Windows logon environment', () => {
       return query();
     };
     expect(windowsLogonEnv(env, cached)?.JAVA_HOME).toBe('C:\\Java\\user');
-    expect(windowsLogonEnv(env, cached)?.KOREAN_HOME).toBe('C:\\Users\\최\\tools');
+    expect(windowsLogonEnv(env, cached)?.KOREAN_HOME).toBe('C:\\Users\\사용자\\tools');
     expect(calls).toBe(1);
   });
 

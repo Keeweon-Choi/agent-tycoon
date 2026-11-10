@@ -504,7 +504,7 @@ async function main() {
       // — The dashed box of a queued boss message: all four sides, a composer attachment opens the viewer.
       const box2 = m2.getByRole('textbox', { name: '보낼 글' });
       await box2.fill(
-        '- 터미널 화면에서 이미 어떤 에이전트 터미널 볼지 고를 수 있기 때문에 필요없음\n\n[알림 질문 및 개선 건]\n_ 메신저에서 확인해야 하는 메시지(단톡, 갠톡) 알림은 그대로 유지\n- agent-tycoon -> agent-tycoon 메시지, agent-tycoon \' hub-ops -> agent-tycoon 메시지 같이 내용 확인할 수 없는 게 출처가 어딘지 파악하고, 필요없으면 알림 아예 안 보내게 막아야 토큰 낭비일듯\n- \'확인 필요\'의 기준이 뭐야?',
+        '- 터미널 화면에서 이미 어떤 에이전트 터미널 볼지 고를 수 있기 때문에 필요없음\n\n[알림 질문 및 개선 건]\n_ 메신저에서 확인해야 하는 메시지(단톡, 갠톡) 알림은 그대로 유지\n- agent-tycoon -> agent-tycoon 메시지, agent-tycoon \' studio-ops -> agent-tycoon 메시지 같이 내용 확인할 수 없는 게 출처가 어딘지 파악하고, 필요없으면 알림 아예 안 보내게 막아야 토큰 낭비일듯\n- \'확인 필요\'의 기준이 뭐야?',
       );
       await m2.locator('input[type="file"]').setInputFiles(PNG);
       const draft = m2.getByTestId('draft-open');

@@ -7719,7 +7719,7 @@ components:
       type: object
       additionalProperties: false
       required: [system, key]
-      description: Reserved for a later Jira/CollabOps sync (none now).
+      description: Reserved for a later Jira-style sync (none now).
       properties:
         system: { type: string }
         key: { type: string }

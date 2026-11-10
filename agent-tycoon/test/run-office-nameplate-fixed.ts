@@ -45,9 +45,9 @@ const FRAMES = 90;
 /** The owner's sample name (11-06 22:34): the card is as wide as it needs, and the rests as "휴식 1/2". */
 const SAMPLE = '샘와이즈 깃지';
 const SAMPLE_RESTS = '휴식 1/2';
-const LONG = 'tycoon-admin-dashboard-backend-service';
-const CREW = ['agent-tycoon', 'wayfinder'];
-const REST_NAMES = ['neus', 'tycoon-admin', LONG, 'cex', 'pofol', 'atlas'];
+const LONG = 'studio-admin-dashboard-backend-service';
+const CREW = ['agent-tycoon', 'harvester'];
+const REST_NAMES = ['iris', 'studio-admin', LONG, 'fox', 'pearl', 'atlas'];
 const assistant = (content: object[]) => ({
   type: 'assistant',
   message: { model: 'claude-opus-4-7', content, usage: { input_tokens: 10, cache_read_input_tokens: 40_000, output_tokens: 200 } },
@@ -279,7 +279,7 @@ async function main() {
         await frameCheck(page, `desktop ${theme} step ${step}`);
         if (step === 2 || step === 5) {
           await page.screenshot({ path: path.join(OUT, `${PREFIX}desktop-${theme}-zoom-${step}.png`) });
-          const p = step === 5 ? await page.locator('[data-nameplate]:has([data-name="neus"])').boundingBox() : null;
+          const p = step === 5 ? await page.locator('[data-nameplate]:has([data-name="iris"])').boundingBox() : null;
           if (p && p.x > 0 && p.y > 0 && p.x < 1600 && p.y < 1000)
             await page.screenshot({ path: path.join(OUT, `${PREFIX}desktop-${theme}-lounge.png`), clip: { x: Math.max(0, Math.min(1000, p.x - 300)), y: Math.max(0, Math.min(640, p.y - 160)), width: 600, height: 360 } });
         }

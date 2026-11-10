@@ -192,12 +192,12 @@ describe('chat: login environment', () => {
 
   it('keeps Windows logon variables with the spelling Windows supplied', () => {
     expect(loginEnvFrom(base, 'win32', () => ({
-      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
       JAVA_HOME: 'C:\\Java',
       SHARED: 'user',
-      KOREAN_HOME: 'C:\\Users\\최\\tools',
+      KOREAN_HOME: 'C:\\Users\\사용자\\tools',
     }))).toEqual({
-      Path: 'C:\\Windows\\System32;C:\\Users\\최\\bin',
+      Path: 'C:\\Windows\\System32;C:\\Users\\사용자\\bin',
       SystemRoot: 'C:\\Windows',
       LOCALAPPDATA: 'C:\\Users\\Ada\\AppData\\Local',
       TEMP: 'C:\\Users\\Ada\\AppData\\Local\\Temp',
@@ -206,7 +206,7 @@ describe('chat: login environment', () => {
       'ProgramFiles(x86)': 'C:\\Program Files (x86)',
       JAVA_HOME: 'C:\\Java',
       SHARED: 'user',
-      KOREAN_HOME: 'C:\\Users\\최\\tools',
+      KOREAN_HOME: 'C:\\Users\\사용자\\tools',
     });
   });
 

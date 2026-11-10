@@ -46,13 +46,13 @@ const STORE: Record<string, string> = {
 type Mode = 'work' | 'wait' | 'perm' | 'rest';
 const CREW: Array<[string, Mode, number, string[]]> = [
   ['agent-tycoon', 'work', 62_000, ['Edit', 'Read', 'Bash']],
-  ['pofol', 'work', 118_000, ['Read', 'Grep']],
-  ['wayfinder', 'work', 31_000, ['Bash', 'Edit']],
-  ['aixon', 'work', 154_000, ['Write', 'Read']],
-  ['neus', 'wait', 88_000, []],
-  ['smartglass', 'perm', 47_000, []],
-  ['savetax', 'rest', 171_000, []],
-  ['keeweon', 'rest', 12_000, []],
+  ['pearl', 'work', 118_000, ['Read', 'Grep']],
+  ['harvester', 'work', 31_000, ['Bash', 'Edit']],
+  ['lemon', 'work', 154_000, ['Write', 'Read']],
+  ['iris', 'wait', 88_000, []],
+  ['sunglasses', 'perm', 47_000, []],
+  ['postbox', 'rest', 171_000, []],
+  ['kestrel', 'rest', 12_000, []],
 ];
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
@@ -60,13 +60,13 @@ const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 const TASKS = [
   ['T-42', 'agent-tycoon', 'P9-NOTE 공개 내보내기', 'doing', 12, true],
   ['G3', 'agent-tycoon', '웹뷰 세 가지(WebView2·WKWebView·WebKitGTK)와 데스크톱 앱 첫 실행의 화면 차이 정리', 'review', 25, false],
-  ['T-53', 'wayfinder', 'ISO 아이소메트릭 다층 건물', 'doing', 40, false],
-  ['P7', 'pofol', 'Windows 기본 데몬', 'todo', 90, false],
-  ['U-39', 'aixon', '공지 전 여섯 출처 라이선스 정리', 'blocked', 33, false],
-  ['T-60', 'smartglass', '렌즈 보정 값 저장', 'doing', 8, true],
+  ['T-53', 'harvester', 'ISO 아이소메트릭 다층 건물', 'doing', 40, false],
+  ['P7', 'pearl', 'Windows 기본 데몬', 'todo', 90, false],
+  ['U-39', 'lemon', '공지 전 여섯 출처 라이선스 정리', 'blocked', 33, false],
+  ['T-60', 'sunglasses', '렌즈 보정 값 저장', 'doing', 8, true],
   ['T-31', 'agent-tycoon', '배포 #34 검사설치', 'done', 50, true],
-  ['T-32', 'pofol', '포트폴리오 첫 화면', 'done', 120, false],
-  ['T-12', 'neus', '뉴스 요약 규칙', 'done', 60 * 30, false],
+  ['T-32', 'pearl', '포트폴리오 첫 화면', 'done', 120, false],
+  ['T-12', 'iris', '뉴스 요약 규칙', 'done', 60 * 30, false],
 ] as const;
 
 const assistant = (content: object[], tokens: number) => ({
@@ -146,11 +146,11 @@ function seedRecords(home: string, jobPid: number) {
   fs.writeFileSync(
     path.join(cfg, 'events.jsonl'),
     [
-      { type: 'orch_start', ts: ago(95), source: 'engine', name: 'neus', resumed: true },
-      { type: 'job_end', ts: ago(46), source: 'cli', project: 'pofol', id: 'j-build', label: '빌드', exit: 1 },
-      { type: 'delegate', ts: ago(34), source: 'engine', from: 'agent-tycoon', to: 'wayfinder', task: 'T-53' },
+      { type: 'orch_start', ts: ago(95), source: 'engine', name: 'iris', resumed: true },
+      { type: 'job_end', ts: ago(46), source: 'cli', project: 'pearl', id: 'j-build', label: '빌드', exit: 1 },
+      { type: 'delegate', ts: ago(34), source: 'engine', from: 'agent-tycoon', to: 'harvester', task: 'T-53' },
       { type: 'task_report', ts: ago(22), source: 'engine', from: 'agent-tycoon', task: 'G3', status: 'review' },
-      { type: 'job_start', ts: ago(15), source: 'cli', project: 'aixon', id: 'j-train', label: '학습' },
+      { type: 'job_start', ts: ago(15), source: 'cli', project: 'lemon', id: 'j-train', label: '학습' },
       { type: 'job_end', ts: ago(13), source: 'cli', project: 'agent-tycoon', id: 'j-deploy', label: '배포 #34 검사설치', exit: 0 },
       { type: 'job_end', ts: ago(9), source: 'cli', project: 'agent-tycoon', id: 'j-deploy2', label: '배포 #44: 모던 테마(기본)-픽셀 감성-알림 색과 메신저 정렬·겹침 수정 검사 설치', exit: 0 },
     ]
@@ -167,9 +167,9 @@ function seedRecords(home: string, jobPid: number) {
       JSON.stringify({ id, project, cmd, desc, dir: `/work/${project}`, tab: null, tty: false, log: path.join(jobs, `${id}.log`), boot, source: 'cli', ...rec }),
     );
   };
-  job('j-train', 'aixon', '학습', 'python train.py', { pid: jobPid, pstart: statOf(jobPid), started: ago(15), ended: null, exit: null });
+  job('j-train', 'lemon', '학습', 'python train.py', { pid: jobPid, pstart: statOf(jobPid), started: ago(15), ended: null, exit: null });
   job('j-deploy', 'agent-tycoon', '배포 #34 검사설치', './deploy.sh', { pid: null, pstart: null, started: ago(20), ended: ago(13), exit: 0 });
-  job('j-build', 'pofol', '빌드', 'npm run build', { pid: null, pstart: null, started: ago(50), ended: ago(46), exit: 1 });
+  job('j-build', 'pearl', '빌드', 'npm run build', { pid: null, pstart: null, started: ago(50), ended: ago(46), exit: 1 });
 }
 
 async function main() {
@@ -360,7 +360,7 @@ async function main() {
         // The issue board is one press away from the 현황판.
         await win(page).getByTestId('board-issues-open').click();
         await page.getByTestId('task-board').waitFor();
-        await win(page).getByRole('combobox', { name: '개발 프로젝트' }).selectOption('pofol');
+        await win(page).getByRole('combobox', { name: '개발 프로젝트' }).selectOption('pearl');
         await page.waitForTimeout(1200);
         check(await page.getByTestId('task-board').isVisible(), 'the 현황판 opens the issue board');
         const subTabs = await win(page).getByRole('navigation', { name: '개발 메뉴' }).getByRole('button').allInnerTexts();
@@ -377,7 +377,7 @@ async function main() {
         const card = page.locator('[data-testid="task-card"][data-task-id="P7"]');
         const doing = page.locator('[data-testid="task-group"][data-status="doing"]');
         check((await card.getAttribute('data-task-status')) === 'todo', 'P7 starts in 할 일');
-        // By hand: pofol has nothing in 진행 중, so that column shows only once the drag has begun.
+        // By hand: pearl has nothing in 진행 중, so that column shows only once the drag has begun.
         const from = (await card.boundingBox())!;
         await page.mouse.move(from.x + from.width / 2, from.y + 20);
         await page.mouse.down();
