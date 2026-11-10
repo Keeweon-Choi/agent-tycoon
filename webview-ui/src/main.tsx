@@ -9,14 +9,17 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import App from './App.tsx';
+import { installErrorReports, reportError } from './cld/errorReport.js';
 import { installExternalLinks } from './cld/externalLinks.js';
 import { installInputPolicy } from './cld/inputPolicy.js';
 import { isCldMock } from './cld/mock.js';
 import { cldGetSnapshot, cldSubscribe } from './cld/officeStore.js';
+import { RegionBoundary } from './cld/RegionBoundary.js';
 import { PIXEL_FONT_PRELOAD, PIXEL_FONT_PRELOAD_TEXT } from './constants.js';
 import { getLanguage, t } from './i18n/index.js';
 
 async function main() {
+  installErrorReports(); // T-74: an uncaught error or rejection reaches the daemon log
   installInputPolicy(); // G1: game areas get no browser menu / drag
   installExternalLinks(); // G2: another origin never replaces the app
   // The page's name in its language (index.html and the manifest carry the English one), and
@@ -41,9 +44,14 @@ async function main() {
     const { initBrowserMock } = await import('./browserMock.js');
     await initBrowserMock();
   }
-  createRoot(document.getElementById('root')!).render(
+  // T-74: past every region's boundary, a render error still leaves its cause in the daemon log.
+  createRoot(document.getElementById('root')!, {
+    onUncaughtError: (error, info) => reportError('boundary', error, 'root', info.componentStack),
+  }).render(
     <StrictMode>
-      <App />
+      <RegionBoundary region="root" className="absolute inset-0 m-auto h-fit w-fit">
+        <App />
+      </RegionBoundary>
     </StrictMode>,
   );
 }

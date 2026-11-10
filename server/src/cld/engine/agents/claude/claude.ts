@@ -104,7 +104,7 @@ export const statusLineCommand = (cldBin: string, node = process.execPath): stri
   `"${node}" "${path.join(path.dirname(cldBin), 'cld-gui-statusline.js')}"`;
 
 /** C5a: the MCP adapter beside the CLI (cld/bin/cld-gui-mcp.js), as the sessions name it. */
-export const MCP_SERVER_NAME = 'cld-gui';
+export const MCP_SERVER_NAME = 'agty';
 export const mcpServerScript = (cldBin: string): string =>
   path.join(path.dirname(cldBin), 'cld-gui-mcp.js');
 export const mcpConfigPath = (home: string): string => path.join(configDir(home), 'mcp-config.json');
@@ -328,7 +328,7 @@ export interface ClaudeAgentOptions {
   env: NodeJS.ProcessEnv;
   /** systemd-run path, or null for setsid. */
   systemdRun: string | null;
-  /** T-0019: cld-gui's CLI for sessions (CLD_BIN), or null. */
+  /** T-0019: agty's CLI for sessions (CLD_BIN), or null. */
   cldBin: string | null;
   /** The PATH every session gets, or null when the service's own stands. */
   sessionPath: string | null;

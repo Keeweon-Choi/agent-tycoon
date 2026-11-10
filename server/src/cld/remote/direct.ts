@@ -263,7 +263,7 @@ export class DirectConnector {
   }
 
   private log(line: string): void {
-    (this.deps.log ?? ((l: string) => console.log(`[cld remote] ${l}`)))(line);
+    (this.deps.log ?? ((l: string) => console.log(`[agty remote] ${l}`)))(line);
   }
 
   /** WSL NAT: Windows' portproxy is the way in (asked once; the mode can't change under us). */

@@ -40,7 +40,7 @@ const subscribe = (l: () => void) => {
   return () => void listeners.delete(l);
 };
 export const workbenchGetSnapshot = () => snapshot;
-export const useWorkbench = () => useSyncExternalStore(subscribe, workbenchGetSnapshot);
+export const useWorkbench = () => useSyncExternalStore(subscribe, workbenchGetSnapshot, workbenchGetSnapshot);
 
 // SPT-P3-OVERVIEW: a tab opened on a filter (a 개요 number). Not remembered: a filter is a visit,
 // read by the tab when it mounts and gone with the next plain tab or project switch.
@@ -57,6 +57,17 @@ export function openTab(tab: WorkbenchTab, key: string, label?: string): void {
   focus = { tab, key, ...(label && { label }) };
   set({ tab });
 }
+const ISSUE_KEY = 'task:';
+/** T-73: the issue board on `project`, the Task `id`'s card open. */
+export function openIssue(project: string, id: string): void {
+  openWorkbench(project);
+  openTab('tasks', `${ISSUE_KEY}${id}`);
+}
+/** The Task the board was last asked to open (a new object per ask, so a repeat ask is seen), else null. */
+export const issueFocus = (): { id: string; ask: TabFocus } | null => {
+  const ask = tabFocus('tasks');
+  return ask?.key.startsWith(ISSUE_KEY) ? { id: ask.key.slice(ISSUE_KEY.length), ask } : null;
+};
 
 export const setWorkbenchProject = (project: string) => {
   focus = null;

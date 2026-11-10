@@ -490,7 +490,7 @@ function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
 describe('TYPIST-STALE: a typed message is submitted once, whole, or it says so (11-04 laptop)', () => {
   const MSG = '[사장 · 메신저 · 11-04 21:43] ⟨m:vtujnxny⟩\nㅎㅇ';
   const REVIVE =
-    '[cld-gui 자동 복구 · 11-02 20:37] 컴퓨터가 다시 켜져서 엔진이 이 대화를 다시 띄웠다.\n\n[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽';
+    '[agty 자동 복구 · 11-02 20:37] 컴퓨터가 다시 켜져서 엔진이 이 대화를 다시 띄웠다.\n\n[사장 · 메신저 · 10-28 21:38] ⟨m:z44duxtf⟩\n안뇽';
 
   it('negative control: the fake ConPTY submits a CR inside a paste as its own turn (the header alone, as on the laptop)', async () => {
     const h = conptyHost({ markers: false });

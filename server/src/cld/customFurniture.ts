@@ -152,10 +152,10 @@ export function registerFurnitureRoutes(
       if (no) return no;
       const result = saveCustomFurniture(opts.dir, opts.catalog(), request.body);
       if ('error' in result) {
-        console.warn(`[cld] furniture: save refused: ${result.error}`);
+        console.warn(`[agty] furniture: save refused: ${result.error}`);
         return reply.code(400).send(result);
       }
-      console.log(`[cld] furniture: saved ${result.id}`);
+      console.log(`[agty] furniture: saved ${result.id}`);
       await opts.reload();
       return result;
     },
@@ -168,7 +168,7 @@ export function registerFurnitureRoutes(
       if (no) return no;
       const result = removeCustomFurniture(opts.dir, request.params.id);
       if ('error' in result) return reply.code(400).send(result);
-      console.log(`[cld] furniture: removed ${request.params.id}`);
+      console.log(`[agty] furniture: removed ${request.params.id}`);
       await opts.reload();
       return result;
     },

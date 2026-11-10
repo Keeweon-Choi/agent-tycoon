@@ -112,7 +112,7 @@ async function main() {
       return files
         .sort((a, b) => path.basename(a).localeCompare(path.basename(b)))
         .map((f) => fs.readFileSync(f, 'utf-8'))
-        .filter((t) => t.includes('[cld-gui renew · '));
+        .filter((t) => t.includes('[agty renew · '));
     };
     await until('alpha runs', () => !!sessionId(), 60_000);
     const first = sessionId()!;
@@ -122,7 +122,7 @@ async function main() {
     const handoffFile = path.join(home, 'handoff.md');
     fs.writeFileSync(handoffFile, sections.map((h, i) => `${h}\n- [사실] 칸 ${i} (커밋 ${sha}, FR-OFC-001)`).join('\n'));
     const r1 = cli('renew', '--project', 'alpha', handoffFile);
-    check(r1.ok === true, `cld-gui renew accepted (${JSON.stringify(r1)})`);
+    check(r1.ok === true, `agty renew accepted (${JSON.stringify(r1)})`);
     await until('the first renew is over', () => renews().length === 1, 60_000);
     check(renews()[0].ok === true && renews()[0].format === 'ok', `orch_renew ok, format ok (${JSON.stringify(renews()[0])})`);
     const second = sessionId()!;

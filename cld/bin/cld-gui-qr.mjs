@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A QR code for a link, in terminal block characters (uqr, pinned in the repo's
 // package.json). uqr draws the light modules, so it reads as dark-on-light on a
-// dark terminal. Used by cld-gui-login --qr and the installer's last step.
+// dark terminal. Used by agty login --qr and the installer's last step.
 import { renderUnicodeCompact } from 'uqr';
 
 const text = process.argv[2];

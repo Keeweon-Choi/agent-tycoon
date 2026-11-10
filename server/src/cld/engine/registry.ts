@@ -754,7 +754,7 @@ export function migrateRegistry(
   } catch (err) {
     const reason = `could not migrate projects.json to v2: ${err instanceof Error ? err.message : String(err)}`;
     log(`${file}: ${reason}`);
-    return `${reason} — 원래 파일은 그대로예요. 디스크 공간과 ${path.dirname(file)} 의 권한을 확인한 뒤 cld-gui 를 다시 시작하세요(그때까지 꺼진 에이전트를 되살리지 않아요)`;
+    return `${reason} — 원래 파일은 그대로예요. 디스크 공간과 ${path.dirname(file)} 의 권한을 확인한 뒤 agty 를 다시 시작하세요(그때까지 꺼진 에이전트를 되살리지 않아요)`;
   }
   log(
     `projects.json: migrated to v2, a lead assignment for each of its ${projects.length} projects in assignments.json (v1 kept as ${kept})`,

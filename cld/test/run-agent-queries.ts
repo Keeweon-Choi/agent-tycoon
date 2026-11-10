@@ -137,7 +137,7 @@ async function main() {
   fs.writeFileSync(
     handoffFile,
     [
-      '[cld-gui renew · 11-06 13:00] 컨텍스트가 포화돼 새 대화로 이어 간다. 이어 가기는 best-effort 다: 빠진 것이 있을 수 있다.',
+      '[agty renew · 11-06 13:00] 컨텍스트가 포화돼 새 대화로 이어 간다. 이어 가기는 best-effort 다: 빠진 것이 있을 수 있다.',
       '- 이전 대화와 아래 인수인계는 읽기 전용 참고다.',
       '',
       '--- 인수인계 ---',
@@ -182,7 +182,7 @@ async function main() {
     const login = await fetch(await daemon.loginUrl(), { redirect: 'manual' });
     const cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ');
     await eventually('the Lead revived', () => !!session('alpha'));
-    check(JSON.parse(cli('worker', 'start', 'alpha-a').stdout || '{}').ok === true, 'cld-gui worker start alpha-a');
+    check(JSON.parse(cli('worker', 'start', 'alpha-a').stdout || '{}').ok === true, 'agty worker start alpha-a');
     await eventually('the Worker session', () => !!session('alpha-a'));
     const starts = engineCalls(home).filter((c) => c.argv[0] === '--bg');
     const tokenOf = (name: string) => {

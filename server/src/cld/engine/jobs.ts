@@ -1,5 +1,5 @@
 /**
- * cld-gui job, jobs and stop (T-0019, cld/docs/design/cld-cli.md §6): the
+ * agty job, jobs and stop (T-0019, cld/docs/design/cld-cli.md §6): the
  * user's long commands, started detached by the daemon when an orchestrator
  * asks over the local socket. The web UI only lists them, reads their logs
  * and stops them.
@@ -257,7 +257,7 @@ export interface JobRecord {
   gpu?: boolean;
   /** Set only when the user explicitly stopped this job. */
   stopped?: boolean;
-  /** The Codex worker of a `cld-gui codex` task (T-0021): not listed as a job. */
+  /** The Codex worker of a `agty codex` task (T-0021): not listed as a job. */
   kind?: 'codex';
   /** D5: the Codex Worker whose run this is (its end is that run's, told elsewhere). */
   agent?: string;
@@ -295,7 +295,7 @@ export function startedOf(dir: string, r: JobRecord): string | null {
   }
 }
 
-/** A record as `cld-gui jobs` prints it (HIF §3, plus id and tty). */
+/** A record as `agty jobs` prints it (HIF §3, plus id and tty). */
 export const jobJson = (r: JobRecord, dir = '') => ({
   id: r.id,
   pid: r.pid,
@@ -542,7 +542,7 @@ export class Jobs {
     return { ok: true, id, pid, log };
   }
 
-  /** `cld-gui jobs`: running ones and those ended in the last 24 h (all with `all`).
+  /** `agty jobs`: running ones and those ended in the last 24 h (all with `all`).
    *  Codex workers are tasks, not jobs (`withCodex` for the Codex side). */
   list(all = false, withCodex = false): JobRecord[] {
     this.reconcile();
@@ -554,7 +554,7 @@ export class Jobs {
     );
   }
 
-  /** `cld-gui jobs`' rows. */
+  /** `agty jobs`' rows. */
   json(all = false) {
     return this.list(all).map((r) => jobJson(r, this.dir));
   }
@@ -584,7 +584,7 @@ export class Jobs {
     });
   }
 
-  /** `cld-gui stop <id|pid>`, the job panel's 멈추기: the job's process groups, SIGTERM. */
+  /** `agty stop <id|pid>`, the job panel's 멈추기: the job's process groups, SIGTERM. */
   stop(target: string, source: string): { ok: true; pid: number; id: string } | Fail {
     this.reconcile();
     const r = this.records().find(
@@ -765,7 +765,7 @@ export class Jobs {
   private jobEnv(callerPath: string | undefined, cmd: string, exitFile: string): NodeJS.ProcessEnv {
     const env = this.opts.env();
     const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
-    // The caller's PATH (what its shell would use), behind the cld-gui bin dir the clean env put first.
+    // The caller's PATH (what its shell would use), behind the agty bin dir the clean env put first.
     if (callerPath) {
       const first = env.CLD_BIN ? path.dirname(env.CLD_BIN) : null;
       // Then what the engine's PATH has that the caller's lacks (a job from an old session still finds curl.exe).
@@ -857,6 +857,6 @@ export class Jobs {
   }
 
   private log(line: string): void {
-    (this.opts.log ?? ((l: string) => console.log(`[cld engine] ${l}`)))(line);
+    (this.opts.log ?? ((l: string) => console.log(`[agty engine] ${l}`)))(line);
   }
 }

@@ -7,7 +7,7 @@
  *
  *   <root>/versions/<version>/   unpacked bundle (private Node, dist/, cld/, manifest.json)
  *   <root>/current               -> versions/<version>  (Windows: current.txt holding the version)
- *   <root>/bin/agty              launcher running the private Node of `current` (+ cld-gui, the compatible name)
+ *   <root>/bin/agty              launcher running the private Node of `current` (an earlier install's bin/cld-gui stays)
  *   <root>/install.json          the install record (0600): everything the manager made, with hashes
  *   <root>/manager.lock          one install/update at a time
  *
@@ -37,7 +37,7 @@ import { rollback, update } from './update.mjs';
 const require = createRequire(import.meta.url);
 const { configDirectory } = configPathModule;
 const maintenance = require('../bin/cld-gui-maintenance.js');
-const { CLI_NAME, LEGACY_CLI_NAME } = require('../bin/cld-brand.js');
+const { CLI_NAME } = require('../bin/cld-brand.js');
 const execFile = promisify(execFileCallback);
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -194,18 +194,18 @@ export async function unpack(root, bundle, verified, record, print = console.log
   return manifest;
 }
 
-// ── Launchers (bin/agty, bin/cld-gui) ────────────────────────────────
+// ── Launchers (bin/agty; T-80: no new bin/cld-gui, an earlier install's stays and keeps working) ──
 
 export const LAUNCHER_MARK = 'Agent Tycoon launcher, written by the manager';
 /** name -> content. They resolve `current` when run, so an update needs no rewrite. */
 export function launchers(root, platform, manifest) {
   if (posix(platform)) {
     const body = `#!/bin/sh\n# ${LAUNCHER_MARK}: runs the private Node of the current version, never the user's.\nroot=${shellQuote(root)}\nexec "$root/current/${manifest.node.path}" "$root/current/cld/bin/cld-gui" "$@"\n`;
-    return { [CLI_NAME]: body, [LEGACY_CLI_NAME]: body };
+    return { [CLI_NAME]: body };
   }
   const node = manifest.node.path.replaceAll('/', '\\');
   const body = `@echo off\r\nrem ${LAUNCHER_MARK}\r\nsetlocal\r\nset /p AT_VERSION=<"%~dp0..\\current.txt"\r\n"%~dp0..\\versions\\%AT_VERSION%\\${node}" "%~dp0..\\versions\\%AT_VERSION%\\cld\\bin\\cld-gui" %*\r\n`;
-  return { [`${CLI_NAME}.cmd`]: body, [`${LEGACY_CLI_NAME}.cmd`]: body };
+  return { [`${CLI_NAME}.cmd`]: body };
 }
 
 // ── Services ─────────────────────────────────────────────────────────────────
@@ -429,9 +429,9 @@ export async function serviceOp(kind, op, s, deps) {
   }
 }
 
-// ── Adopting an older cld-gui install (H §2.3) ───────────────────────────────
+// ── Adopting an older agty install (H §2.3) ───────────────────────────────
 
-/** The source installer's service, if there is one and it is the cld-gui daemon. */
+/** The source installer's service, if there is one and it is the agty daemon. */
 export async function detectOld({ platform, home, run }) {
   if (platform === 'win32') {
     const q = await run(['schtasks', '/Query', '/TN', OLD_SERVICE, '/XML'], { optional: true });
@@ -450,7 +450,7 @@ export async function detectOld({ platform, home, run }) {
 /**
  * Takes over the old service once: its file is kept in <root>/adopted/ (for revertAdoption), it is
  * stopped and disabled, its file removed (only if unchanged since read), and ~/.local/bin links that
- * pointed at the repo's cld-gui now point at our launcher. Data (~/.config/agent-tycoon etc.) is not touched.
+ * pointed at the repo's CLI now point at our agty launcher. Data (~/.config/agent-tycoon etc.) is not touched.
  */
 export async function adoptOld(old, { root, record, kind, deps }) {
   const backup = path.join(root, 'adopted', old.file ? path.basename(old.file) : `${OLD_SERVICE}.task.xml`);
@@ -464,11 +464,11 @@ export async function adoptOld(old, { root, record, kind, deps }) {
   const links = [];
   if (old.repo && posix(deps.platform)) {
     const repoCli = path.join(old.repo, 'cld', 'bin', 'cld-gui');
-    for (const name of ['cld-gui', 'cld']) {
+    for (const name of [CLI_NAME, 'cld-gui', 'cld']) {
       const link = path.join(deps.home, '.local', 'bin', name);
       const to = await fs.readlink(link).catch(() => null);
       if (to === null || path.resolve(path.dirname(link), to) !== repoCli) continue;
-      await linkOwned(record, link, path.join(root, 'bin', 'cld-gui'));
+      await linkOwned(record, link, path.join(root, 'bin', CLI_NAME));
       links.push({ path: link, previous: to });
     }
   }
@@ -493,7 +493,8 @@ export async function revertAdoption({ root, record, deps }) {
     await fs.writeFile(a.service.file, content);
   }
   for (const link of a.links) {
-    if (record.files[link.path] !== `symlink:${path.join(root, 'bin', 'cld-gui')}`) continue;
+    // ours: pointed at the agty launcher, or at bin/cld-gui when an install before T-80 adopted it
+    if (![CLI_NAME, 'cld-gui'].some((name) => record.files[link.path] === `symlink:${path.join(root, 'bin', name)}`)) continue;
     await fs.rm(link.path, { force: true }); await fs.symlink(link.previous, link.path); delete record.files[link.path];
   }
   await serviceOp(kind, 'activate', { name: a.service.name, label: launchLabel(a.service.name), file: a.service.file, xml: a.service.file ? undefined : a.service.backup }, deps);
@@ -637,7 +638,7 @@ async function linkCli(record, root, deps, consent) {
   if (!(deps.env.PATH ?? '').split(path.delimiter).some((p) => path.resolve(p || '.') === local)) {
     deps.print(`! ${local} is not on PATH; nothing linked. Run it as ${path.join(bin, CLI_NAME)}, or add ${bin} to PATH yourself.`); return;
   }
-  for (const name of [CLI_NAME, LEGACY_CLI_NAME]) {
+  for (const name of [CLI_NAME]) { // T-80: links an earlier install made (cld-gui) stay and are not rewritten
     const link = path.join(local, name); const target = path.join(bin, name);
     const stat = await fs.lstat(link).catch(() => null);
     const mine = record.files[link] === `symlink:${target}`;
@@ -645,7 +646,7 @@ async function linkCli(record, root, deps, consent) {
     await linkOwned(record, link, target);
     if (!record.cli.links.includes(link)) record.cli.links.push(link);
   }
-  deps.print(`✔ ${CLI_NAME}, ${LEGACY_CLI_NAME} linked in ${local}`);
+  deps.print(`✔ ${CLI_NAME} linked in ${local}`);
 }
 
 /** `doctor --fix`: restore only links explicitly recorded as ours. */
@@ -984,7 +985,7 @@ export async function install(o, deps = realDeps()) {
     if (!SERVICE_KINDS.includes(kind)) throw new Error(`--service must be one of ${SERVICE_KINDS.join(', ')}`);
     // A test host beside the live one (P7 test mode) never takes over another install's service.
     const old = record.adopted || besides ? null : await detectOld(deps);
-    if (old?.foreign) deps.print(`! ${old.file} is not the cld-gui daemon; left as it is`);
+    if (old?.foreign) deps.print(`! ${old.file} is not the agty daemon; left as it is`);
     else if (old && kind === 'dry-run') deps.print(`DRY-RUN: would adopt the ${old.name} service (${old.file ?? 'scheduled task'})`);
     else if (old) { await adoptOld(old, { root, record, kind, deps }); deps.print(`✔ adopted the ${old.name} service${old.repo ? ` (source install ${old.repo}; the repo is left as it is)` : ''}`); }
 

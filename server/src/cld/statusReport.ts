@@ -78,7 +78,7 @@ export async function localStatusReport(
   dir: string,
   output: string,
 ): Promise<Omit<StatusOutput, 'type'>> {
-  // ponytail: a local-only status command set by cld-gui on this host is the upgrade path.
+  // ponytail: a local-only status command set by agty on this host is the upgrade path.
   return {
     name,
     cmd: null,

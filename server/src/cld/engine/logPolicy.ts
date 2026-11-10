@@ -1,7 +1,7 @@
 /**
  * How long and how large the engine's logs may get (U-42). The numbers live here
  * and nowhere else; `cld/bin/cld-gui-sizes.js` prints the same rules for
- * `cld-gui doctor` (logPrune.test.ts keeps the two in step).
+ * `agty doctor` (logPrune.test.ts keeps the two in step).
  */
 
 /** Logs of finished jobs and Codex tasks older than this are removed. */

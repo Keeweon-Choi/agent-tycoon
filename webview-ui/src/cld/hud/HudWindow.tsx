@@ -24,6 +24,7 @@ import { Button } from '../../components/ui/Button.js';
 import { TITLE_BAR, WINDOW_PAD } from '../../components/ui/windowChrome.js';
 import { HUD_DOCK_HANDLE_PX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
+import { RegionBoundary } from '../RegionBoundary.js';
 import { useFixedPanels } from './fixedPanels.js';
 import {
   BellGlyph,
@@ -316,7 +317,9 @@ export function HudWindow({
         className={`flex flex-col flex-1 min-h-0 ${WINDOW_PAD}`}
         style={maximized ? { paddingBottom: HUD_DOCK_HANDLE_PX } : undefined}
       >
-        {children}
+        <RegionBoundary region={id} className="m-auto">
+          {children}
+        </RegionBoundary>
       </div>
       {free &&
         !maximized &&

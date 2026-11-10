@@ -18,7 +18,7 @@ const ENV_KEEP_OS: Partial<Record<NodeJS.Platform, readonly string[]>> = {
   win32: WINDOWS_LOGIN_ENV,
 };
 
-/** This checkout's cld/bin (the `cld-gui` CLI, T-0019): from dist/ or from server/src/cld/engine/. */
+/** This checkout's cld/bin (the `agty` CLI, T-0019): from dist/ or from server/src/cld/engine/. */
 export const CLD_BIN_DIR: string | null =
   [path.resolve(__dirname, '..'), path.resolve(__dirname, '../../../..')]
     .map((root) => path.join(root, 'cld', 'bin'))
@@ -29,7 +29,7 @@ export const cldBinPath = (dir: string, platform: NodeJS.Platform = process.plat
 
 /**
  * The environment of everything the engine starts. With `binDir`, agents find
- * the cld-gui CLI whatever the user's shell config: CLD_BIN is its absolute
+ * the agty CLI whatever the user's shell config: CLD_BIN is its absolute
  * path and its folder comes first on PATH (T-0019). The CLI is a Node script
  * (`#!/usr/bin/env node`), so the daemon's own Node folder goes LAST (ENV-1):
  * a machine whose only Node is the one we ship still runs it, and a user's

@@ -191,10 +191,10 @@ describe('D4: the agent provider seam', () => {
     // D5 (6.3): revive leaves it alone (no start tried); a person's start says why.
     await vi.waitFor(() => expect(r.logs.some((l) => /"alpha-a": no agent provider "nope" in this build; not revived/.test(l))).toBe(true));
     expect(e.registryProblem()).toBeNull();
-    expect(r.agent(e, 'alpha-a')).toMatchObject({ live: false, downNote: 'cld-gui가 모르는 에이전트(nope)라 켤 수 없어요' });
+    expect(r.agent(e, 'alpha-a')).toMatchObject({ live: false, downNote: 'agty가 모르는 에이전트(nope)라 켤 수 없어요' });
     expect(await r.act(e, 'start', 'alpha-a')).toMatchObject({
       ok: false,
-      error: 'cld-gui가 모르는 에이전트(nope)라 켤 수 없어요',
+      error: 'agty가 모르는 에이전트(nope)라 켤 수 없어요',
     });
     expect(r.logs.filter((l) => l.includes('"alpha-a": no agent provider "nope" in this build; not started'))).toHaveLength(1);
     expect(r.claudeCalls().filter((a) => a[0] === '--bg')).toEqual([['--bg', '-n', 'alpha']]);
@@ -285,7 +285,7 @@ describe('D4: the agent provider seam', () => {
     ]);
     // C5a: the one file names our adapter on the daemon's Node, and no token (the session's env carries it).
     expect(JSON.parse(fs.readFileSync(mcp, 'utf-8'))).toEqual({
-      mcpServers: { 'cld-gui': { command: process.execPath, args: [path.join(CLD_BIN_DIR!, 'cld-gui-mcp.js')] } },
+      mcpServers: { agty: { command: process.execPath, args: [path.join(CLD_BIN_DIR!, 'cld-gui-mcp.js')] } },
     });
     expect(fs.existsSync(path.join(CLD_BIN_DIR!, 'cld-gui-mcp.js'))).toBe(true);
     for (const argv of [lead, worker]) expect(argv).not.toContain('--strict-mcp-config');
@@ -413,14 +413,14 @@ describe('D5 (6.3): an assignment of an unknown provider gathers nothing', () =>
     for (let i = 0; i < 3; i++) await watch();
     expect(inbox.filter((m) => m.name === 'alpha-a')).toEqual([]);
     expect(r.logs.filter((l) => l.includes('"alpha-a"'))).toEqual([
-      '[cld engine] "alpha-a": no agent provider "nope" in this build; not revived',
+      '[agty engine] "alpha-a": no agent provider "nope" in this build; not revived',
     ]);
-    expect(r.agent(e, 'alpha-a')).toMatchObject({ live: false, wantRunning: true, downNote: 'cld-gui가 모르는 에이전트(nope)라 켤 수 없어요' });
+    expect(r.agent(e, 'alpha-a')).toMatchObject({ live: false, wantRunning: true, downNote: 'agty가 모르는 에이전트(nope)라 켤 수 없어요' });
     expect(e.providerReady('nope')).toBe(false);
     expect(e.providerReady('claude')).toBe(true);
     expect(e.refuses('alpha-a', { from: 'alpha', source: 'mcp' })).toEqual({
       code: 'unknown_provider',
-      error: 'cld-gui가 모르는 에이전트(nope)라 받을 수 없어요',
+      error: 'agty가 모르는 에이전트(nope)라 받을 수 없어요',
     });
     expect(e.refuses('alpha', { from: null, source: 'messenger:mac' })).toBeNull();
   });
@@ -558,7 +558,7 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
     expect(await t.m.send(fromLead('첫 일', 'T-1'))).toMatchObject({ ok: true, delivered: 'pane' });
     expect(t.run.delivered).toHaveLength(1);
     expect(t.run.delivered[0]).toMatchObject({ name: 'alpha-a', task: 'T-1' });
-    expect(t.run.delivered[0].text).toMatch(/^\[cld-gui · alpha에게서 · Task T-1 · .*\] ⟨m:[a-z2-7]{8}⟩\n첫 일$/);
+    expect(t.run.delivered[0].text).toMatch(/^\[agty · alpha에게서 · Task T-1 · .*\] ⟨m:[a-z2-7]{8}⟩\n첫 일$/);
     t.e.refresh();
     expect(t.roster()).toMatchObject({ live: true, busy: true });
     expect(await t.m.send(fromLead('둘째 일'))).toMatchObject({ ok: true, delivered: 'queued' });

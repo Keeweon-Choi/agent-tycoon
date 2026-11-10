@@ -499,7 +499,7 @@ export function decorFromSave(
           y: item.row - room.y,
           ...('color' in item && { color: item.color }),
         });
-      else console.warn(`[cld] decor: furniture ${item.uid} has no room; dropped`);
+      else console.warn(`[agty] decor: furniture ${item.uid} has no room; dropped`);
     }
     for (const item of base.furniture) {
       if (local.some((f) => f.uid === item.uid)) continue;
@@ -551,7 +551,7 @@ export class DecorStore {
       else {
         // A decor.json this build cannot read (a newer version): kept as it is, never saved over.
         this.foreign = true;
-        console.warn(`[cld] decor: ${file} is not a version this build reads; left untouched`);
+        console.warn(`[agty] decor: ${file} is not a version this build reads; left untouched`);
       }
     } catch {
       const aside = `${file}.corrupt-${Date.now()}`;
@@ -560,7 +560,7 @@ export class DecorStore {
       } catch {
         /* file disappeared */
       }
-      console.warn(`[cld] decor: invalid JSON moved to ${aside}`);
+      console.warn(`[agty] decor: invalid JSON moved to ${aside}`);
     }
   }
   exists(): boolean {

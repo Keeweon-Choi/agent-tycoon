@@ -343,7 +343,7 @@ describe('remote access on a real server', () => {
     const secret = r.remote.direct?.secret ?? '';
     expect(canonical).toBe(`https://${PUBLIC}/${secret}/`);
 
-    // the host CLI (cld-gui-login --qr): the code and the canonical URL
+    // the host CLI (agty login --qr): the code and the canonical URL
     const minted = await r.server.app.inject({
       method: 'POST',
       url: '/api/login-code',
@@ -583,7 +583,7 @@ describe('remote access on a real server', () => {
       r = await run({ configDir }); // a restart with direct on: the startup line names the URL
       expect(r.remote.direct?.secret).toBe(secret);
       await waitFor(() =>
-        expect(lines.some((l) => l.includes('[cld remote] connector direct: https://'))).toBe(true),
+        expect(lines.some((l) => l.includes('[agty remote] connector direct: https://'))).toBe(true),
       );
       expect(lines.filter((l) => l.includes(secret))).toEqual([]);
     } finally {
@@ -1074,8 +1074,8 @@ describe('S6: a change that would cut the connection it came through', () => {
       vi.useRealTimers();
       log.restore();
     }
-    expect(log.lines).toContain('[cld remote] connector lan → local (setup local; via lan)');
-    expect(log.lines.some((l) => l.startsWith('[cld remote] lan off (setup local'))).toBe(true);
+    expect(log.lines).toContain('[agty remote] connector lan → local (setup local; via lan)');
+    expect(log.lines.some((l) => l.startsWith('[agty remote] lan off (setup local'))).toBe(true);
     expect(JSON.parse(fs.readFileSync(`${configDir}/config.json`, 'utf8'))).toMatchObject({ connector: 'local' });
   });
 
@@ -1092,8 +1092,8 @@ describe('S6: a change that would cut the connection it came through', () => {
       log.restore();
     }
     expect(await lanUp(port)).toBe(false);
-    expect(log.lines).toContain('[cld remote] connector lan → local (setup local; via local; host token)');
-    expect(log.lines).toContain('[cld remote] lan off (setup local)');
+    expect(log.lines).toContain('[agty remote] connector lan → local (setup local; via local; host token)');
+    expect(log.lines).toContain('[agty remote] lan off (setup local)');
   });
 
   it('S-10: turning the LAN off closes the WebSockets that came in over it', async () => {
@@ -1266,8 +1266,8 @@ describe('S6: a change that would cut the connection it came through', () => {
       }
       expect(commands.filter((c) => c.endsWith('off'))).toEqual(['tailscale serve --https=443 off']);
       expect(ledgerOf(configDir)).toEqual([]);
-      expect(log.lines).toContain('[cld remote] connector tailscale → direct (setup direct; via local; host token)');
-      expect(log.lines).toContain('[cld remote] tailscale serve off (setup direct)');
+      expect(log.lines).toContain('[agty remote] connector tailscale → direct (setup direct; via local; host token)');
+      expect(log.lines).toContain('[agty remote] tailscale serve off (setup direct)');
     });
 
     it('a serve config that is not in the ledger is never touched', async () => {
@@ -1300,7 +1300,7 @@ describe('S6: a change that would cut the connection it came through', () => {
     }
     expect(ts.commands).toEqual(['tailscale funnel --https=443 off']);
     expect(ts.live()).toBeNull();
-    expect(log.lines).toContain('[cld remote] tailscale funnel off (startup)');
+    expect(log.lines).toContain('[agty remote] tailscale funnel off (startup)');
   });
 
   describe('Serve ↔ Funnel on our one 443 handler converges in place', () => {
@@ -1426,8 +1426,8 @@ describe('S6: a change that would cut the connection it came through', () => {
     expect(JSON.parse(fs.readFileSync(`${configDir}/config.json`, 'utf8'))).toMatchObject({ connector: 'tailscale', funnel: true });
     expect(ledgerOf(configDir)).toMatchObject([{ kind: 'tailscale', host: tailnet.host, port, funnel: true, by: 'daemon' }]);
     expect(fs.statSync(`${configDir}/exposure.json`).mode & 0o777).toBe(0o600);
-    expect(log.lines).toContain('[cld remote] tailscale funnel on (setup funnel)');
-    expect(log.lines).toContain('[cld remote] connector local → tailscale funnel (setup funnel; via local; host token)');
+    expect(log.lines).toContain('[agty remote] tailscale funnel on (setup funnel)');
+    expect(log.lines).toContain('[agty remote] connector local → tailscale funnel (setup funnel; via local; host token)');
   });
 
   describe('a recorded tunnel pid (fake /proc, fake kill)', () => {

@@ -543,7 +543,7 @@ describe('parallel calls and approvals', () => {
     expect(new ApprovalStore(file).get(asked.approvalId as string)?.caller).toBe('alpha');
   });
 
-  it('cld-gui task mode: shows and sets a project’s mode; an agent may read it, not set it', () => {
+  it('agty task mode: shows and sets a project’s mode; an agent may read it, not set it', () => {
     const w = world();
     const projects = ['alpha', 'beta'];
     expect(answerMode(w.approvals, { op: 'mode' }, { project: 'alpha' }, projects)).toEqual({ ok: true, project: 'alpha', mode: 'auto' });

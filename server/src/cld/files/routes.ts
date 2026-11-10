@@ -59,7 +59,7 @@ function audit(
   size: number,
 ): void {
   console.log(
-    `[cld files] ${action} device=${JSON.stringify(session.label)} project=${JSON.stringify(project)} path=${JSON.stringify(relative)} size=${size}`,
+    `[agty files] ${action} device=${JSON.stringify(session.label)} project=${JSON.stringify(project)} path=${JSON.stringify(relative)} size=${size}`,
   );
 }
 

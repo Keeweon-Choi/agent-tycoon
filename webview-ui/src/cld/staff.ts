@@ -10,7 +10,7 @@
  * Cosmetic only: nothing here touches an agent. The game loop calls
  * staffStep a few times a second; useExtensionMessages hands removals of
  * temps over (deferRemoval) so they can linger, and asks before seating a
- * Codex worker again (codexWanted). Off the cld office (no officeState) every
+ * Codex worker again (codexWanted). Off the agty office (no officeState) every
  * hook answers "as upstream".
  */
 import { useSyncExternalStore } from 'react';
@@ -191,7 +191,7 @@ export function sameFloor(a: Character, b: Character): boolean {
   return !rects || floorIndexAt(rects, a.tileRow) === floorIndexAt(rects, b.tileRow);
 }
 
-/** The director only runs in the cld office. */
+/** The director only runs in the agty office. */
 const active = () => office !== null && cldGetSnapshot().officeSnapshot !== null;
 const lingerMs = () => officeHours().lingerMin * 60_000;
 /** The host's offset (T-0041 hostInfo), else this browser's. */
@@ -264,7 +264,7 @@ export function noteSubagent(id: number, label: string, model: string | undefine
 /** Whether a Codex task has a character: working, still lingering, or ended
  *  within the linger time (a page opened just after it finished). */
 export function codexWanted(task: CodexTask, id: number, now = Date.now()): boolean {
-  // The cld office only (asked before the game loop's first step, too).
+  // The agty office only (asked before the game loop's first step, too).
   if (!cldGetSnapshot().officeSnapshot) return true;
   if (!isFinishedCodex(task.state)) {
     goneCodex.delete(id);
@@ -785,7 +785,7 @@ export function staffStep(os: OfficeState, dt: number, now = Date.now()): void {
     if (officeState && officeState !== loading.office && loading.settleAt === null)
       loading.settleAt = clock + STAFF_SETTLE_SEC;
     if (!officeState && waited > STAFF_HOLD_MAX_SEC) {
-      // No cld office after all (no office snapshot): let everyone be seen.
+      // No agty office after all (no office snapshot): let everyone be seen.
       for (const ch of os.characters.values()) if (recs.get(ch.id)?.held) ch.cldAway = false;
       recs.clear();
       loading = null;

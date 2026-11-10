@@ -1,5 +1,5 @@
 /**
- * T-0021 `cld-gui codex`: the daemon side (CodexTasks) with the real worker
+ * T-0021 `agty codex`: the daemon side (CodexTasks) with the real worker
  * (workerMain.ts bundled into a temp file) run as an engine job, against the
  * fake `codex` (cld/test/fake-codex/codex): success, limit then resume,
  * failure, stop, refusals and recovery. Never the real codex. A temp git
@@ -79,7 +79,7 @@ function rig(
   const repo = makeTempRepo({ push: false });
   const projectFolder = o.projectFolder?.(repo) ?? repo.folder;
   const home = path.join(repo.root, 'home');
-  // The engine project `alpha` (the notice's receiver; projects.json read by `cld-gui send`).
+  // The engine project `alpha` (the notice's receiver; projects.json read by `agty send`).
   fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
   fs.writeFileSync(
     path.join(home, '.config/agent-tycoon/projects.json'),
@@ -185,7 +185,7 @@ function rig(
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>)
       .filter((e) => String(e.type).startsWith('codex_'));
-  /** Notices `cld-gui send` queued (no daemon here): their texts. */
+  /** Notices `agty send` queued (no daemon here): their texts. */
   const notices = () => {
     const dir = path.join(home, '.config/agent-tycoon/queue');
     return fs.existsSync(dir)
@@ -229,7 +229,7 @@ function rig(
 }
 
 describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
-  'cld-gui codex with a fake codex',
+  'agty codex with a fake codex',
   () => {
     it('makes the worktree in a repository subfolder when called there, while containing outside callers', async () => {
       const setupProject = (repo: ReturnType<typeof makeTempRepo>) => {
@@ -348,7 +348,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       expect(n).toHaveLength(1);
       expect(n[0]).toMatchObject({ to: 'alpha', source: 'codex' });
       expect(n[0].text).toMatch(
-        new RegExp(`^\\[cld-gui codex\\] 작업 ${id} 끝: done · 폴더 .* · 커밋 1개 · 로그 `),
+        new RegExp(`^\\[agty codex\\] 작업 ${id} 끝: done · 폴더 .* · 커밋 1개 · 로그 `),
       );
       // A task, not a job; the office's row says who runs it.
       expect(r.jobs.list(true).map((j) => j.id)).toEqual([]);
@@ -361,7 +361,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       });
     });
 
-    it('D5 pins `cld-gui codex`: the whole argv of a new run (no model or effort), and of its resume after a limit', async () => {
+    it('D5 pins `agty codex`: the whole argv of a new run (no model or effort), and of its resume after a limit', async () => {
       const r = rig('limit');
       const res = await r.start();
       const id = res.id as string;
@@ -374,19 +374,19 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       expect(first.stdin).toBe('# Task\nDo the thing.\n');
       expect(second.argv).toEqual(['exec', 'resume', '--json', '-c', rootsArg, done.sid, RESUME_TEXT]);
       expect(second.stdin).toBe('');
-      // The record has none of a Worker run's fields; the end notice still goes (cld-gui send).
+      // The record has none of a Worker run's fields; the end notice still goes (agty send).
       for (const k of ['agent', 'assignmentId', 'task', 'resume', 'messageId', 'room', 'summary'])
         expect(done).not.toHaveProperty(k);
       expect(fs.existsSync(path.join(codexDir(r.home), `${id}.last.md`))).toBe(false);
       const texts = (await r.noticesN(2)).map((n) => n.text);
       expect(texts).toHaveLength(2);
-      expect(texts.every((t) => t.startsWith(`[cld-gui codex] 작업 ${id} `))).toBe(true);
+      expect(texts.every((t) => t.startsWith(`[agty codex] 작업 ${id} `))).toBe(true);
     });
 
     it('D5: a Worker run: its message as the prompt (0600), -o, a new thread; summary from the last message; no notice', async () => {
       const r = rig('success');
       fs.writeFileSync(path.join(r.home, 'fake-codex.json'), JSON.stringify({ message: '고쳤어요 · 커밋 1개' }));
-      const prompt = '[cld-gui · alpha에게서 · Task T-1 · 10-24 12:00] ⟨m:abcdefgh⟩\n로그인 고치기';
+      const prompt = '[agty · alpha에게서 · Task T-1 · 10-24 12:00] ⟨m:abcdefgh⟩\n로그인 고치기';
       const res = await r.start({
         spec: '',
         worker: { name: 'alpha-w1', assignmentId: 'a_wwwwwwwwww', prompt, task: 'T-1', messageId: 'abcdefgh', title: 'T-1 로그인 고치기' },
@@ -424,7 +424,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
     });
 
     describe('C7b: the rules a Worker run starts with', () => {
-      const prompt = '[cld-gui · alpha에게서 · 10-24 12:00]\n로그인 고치기';
+      const prompt = '[agty · alpha에게서 · 10-24 12:00]\n로그인 고치기';
       const setup = () => {
         const rulesDir = path.join(os.tmpdir(), `c7b-rules-${process.pid}-${Math.random().toString(36).slice(2)}`);
         fs.mkdirSync(rulesDir);
@@ -486,7 +486,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
         expect(promptOf(r, off.id as string)).toBe(`SHIPPED-DEFAULT\n\nSHIPPED-WORKER\n\nUSER-RULES\n\n---\n\n${prompt}`);
       });
 
-      it('a plain `cld-gui codex` spec run: the engine adds nothing', async () => {
+      it('a plain `agty codex` spec run: the engine adds nothing', async () => {
         const { r, cfg } = setup();
         fs.writeFileSync(path.join(cfg, 'rules.md'), 'USER-RULES\n');
         const res = await r.start();
@@ -499,7 +499,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
     it('D5: a Worker follow-up resumes its thread with the new prompt; a limit then resumes it with RESUME_TEXT, sandbox kept', async () => {
       const r = rig('limit');
       const sid = '0000aaaa-0000-4000-8000-000000000001';
-      const prompt = '[cld-gui · alpha에게서 · 10-24 12:00]\n이어서';
+      const prompt = '[agty · alpha에게서 · 10-24 12:00]\n이어서';
       const res = await r.start({ spec: '', worker: { name: 'alpha-w1', assignmentId: 'a_wwwwwwwwww', prompt, resume: sid } });
       expect(res).toMatchObject({ ok: true });
       const id = res.id as string;
@@ -581,7 +581,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')(
       expect((await r.noticesN(1)).at(-1)?.text).toContain('끝: failed');
     });
 
-    it('cld-gui stop <task id>: the worker and codex end, state stopped', async () => {
+    it('agty stop <task id>: the worker and codex end, state stopped', async () => {
       const r = rig('hang');
       const res = await r.start();
       const id = res.id as string;
@@ -1009,10 +1009,10 @@ describe('the limit wait never spins hot', () => {
 });
 
 /**
- * TOKEN-GUARD (TG-05, TG-13): a `cld-gui codex` task stuck on a usage limit whose reset time
+ * TOKEN-GUARD (TG-05, TG-13): a `agty codex` task stuck on a usage limit whose reset time
  * cannot be read. Every lap used to send the orchestrator a notice (one woken Lead turn every
  * 5 minutes) and retry blindly every 5 minutes for 300 laps. No real codex, no daemon: the
- * runs are fake children that write their JSON line, and `cld-gui send` is a script that logs.
+ * runs are fake children that write their JSON line, and `agty send` is a script that logs.
  */
 describe('TOKEN-GUARD: a limit with an unknown reset', () => {
   function limitRig(
@@ -1109,6 +1109,7 @@ describe('TOKEN-GUARD: a limit with an unknown reset', () => {
     expect(rc).not.toBe(0);
     const limitNotices = r.sends().filter((t) => t.includes('사용량 한도에 걸렸다'));
     expect(limitNotices).toHaveLength(1);
+    expect(limitNotices[0]).toContain('(멈추기: "$CLD_BIN" stop '); // an agent's text names the path the engine gave it
     expect(r.sends().filter((t) => t.includes('끝: failed'))).toHaveLength(1);
     // Backoff: 1, 2, 4, ... polls, then the cap (the default is an hour); never a hot spin.
     expect(r.sleeps.slice(0, 5)).toEqual([1_000, 2_000, 4_000, 8_000, 16_000]);

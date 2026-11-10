@@ -166,8 +166,8 @@ function cliNameStatus(deps, name, platform = deps.platform) {
 function cliNameCheck(deps) {
   const r = cliNameStatus(deps, CLI_NAME);
   if (r.state === 'ours') return check(CLI_NAME, true, `${r.path} 가 이 도구를 실행합니다`, null, 'info');
-  if (r.state === 'other') return check(CLI_NAME, true, `${r.path} 는 다른 프로그램입니다 — ${LEGACY_CLI_NAME} 를 쓰세요`, `${LEGACY_CLI_NAME} 로 실행하거나 그 프로그램의 이름을 바꾼 뒤 설치기를 다시 실행하세요.`, 'warning');
-  return check(CLI_NAME, true, `PATH 에 없습니다 — ${LEGACY_CLI_NAME} 를 쓰세요`, '설치기(node cld/install/install.mjs)를 다시 실행하면 PATH 에 놓입니다.', 'warning');
+  if (r.state === 'other') return check(CLI_NAME, true, `${r.path} 는 다른 프로그램입니다 — 이 도구는 ${deps.platform === 'win32' ? `node "${path.win32.join(__dirname, LEGACY_CLI_NAME)}"` : path.join(__dirname, LEGACY_CLI_NAME)} 로 실행하세요`, '그 프로그램의 이름을 바꾼 뒤 설치기를 다시 실행하세요.', 'warning');
+  return check(CLI_NAME, true, 'PATH 에 없습니다', '설치기(node cld/install/install.mjs)를 다시 실행하면 PATH 에 놓입니다.', 'warning');
 }
 function agentCli(deps, name, platform, home) {
   if (platform === 'win32') {

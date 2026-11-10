@@ -1,5 +1,5 @@
 /**
- * Test helpers for cld remote (T-0024): certificates made locally, a fake
+ * Test helpers for agty remote (T-0024): certificates made locally, a fake
  * router, a fake issuer, an HTTPS client. Never used at runtime; nothing here
  * touches a real router, STUN server or certificate authority.
  */

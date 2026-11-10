@@ -1,6 +1,6 @@
 /**
  * Character looks in the office (T-0017). The server's `characterPresets`
- * (in the cld store) names a look per character; preset sheets are fetched
+ * (in the agty store) names a look per character; preset sheets are fetched
  * and decoded once per version, like char_N, into the same sprite cache; the
  * office characters' palettes follow. A preset that is missing or fails to
  * load leaves the character's default look.
@@ -351,7 +351,7 @@ function loadSheet(
       sheets.set(url, palette);
     } catch (err) {
       console.warn(
-        `[cld] character sheet ${url}: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty] character sheet ${url}: ${err instanceof Error ? err.message : String(err)}`,
       );
       sheets.set(url, 'failed');
     }
@@ -378,7 +378,7 @@ function composedPalette(name: string, look: CharacterChoice, provider: string |
   let palette = composed.get(key);
   if (palette === undefined) {
     const c = compose(look, { templates: getCharacterTemplates(), provider, parts: customParts });
-    if (c.fellBack) console.warn(`[cld] look ${name}: ${c.fellBack}`);
+    if (c.fellBack) console.warn(`[agty] look ${name}: ${c.fellBack}`);
     palette = nextPalette++;
     setCustomCharacter(palette, c.sheet, c.mugshot);
     setSipAnchor(palette, c.sip);

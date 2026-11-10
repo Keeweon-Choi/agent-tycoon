@@ -309,7 +309,7 @@ export class SpecWorkflow {
       let failed: WorkflowReport['failed'];
       let out = '';
       for (const args of runs) {
-        console.log(`[cld spec] spec kit: uvx ${args.slice(2).join(' ')} in the project's folder`);
+        console.log(`[agty spec] spec kit: uvx ${args.slice(2).join(' ')} in the project's folder`);
         const r = await this.run(uvx, args, folder);
         out = r.out;
         if (r.code !== 0) {
@@ -322,7 +322,7 @@ export class SpecWorkflow {
       const now = listing(folder);
       const files = diff === 'added' ? [...now].filter((f) => !listed.has(f)) : [...listed].filter((f) => !now.has(f));
       files.sort();
-      if (changed.length) console.warn(`[cld spec] spec kit changed files it was told to leave: ${changed.join(', ')}`);
+      if (changed.length) console.warn(`[agty spec] spec kit changed files it was told to leave: ${changed.join(', ')}`);
       return {
         ok: !failed && !changed.length,
         files: files.slice(0, SPEC_KIT_REPORT_FILES_MAX),

@@ -67,7 +67,7 @@ describe('BYPASS-ACCEPT through the engine', () => {
     expect(s.bypassRuns()).toHaveLength(1);
     expect(s.bypassRuns()[0].cwd).toBe(folder);
     expect(fs.existsSync(path.join(folder, '.fake-bypass-needed'))).toBe(false);
-    expect(s.logs).toContain('[cld engine] "alpha": Bypass Permissions warning answered; starting again');
+    expect(s.logs).toContain('[agty engine] "alpha": Bypass Permissions warning answered; starting again');
   });
 
   it('a new bypass folder answers trust and Bypass together and reports both to the person', async () => {

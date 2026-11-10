@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
+import { RegionBoundary } from '../cld/RegionBoundary.js';
 import { TERMINAL_DRAWER_RESIZE_HANDLE_PX } from '../constants.js';
 import type { TerminalConnectionStatus } from '../terminal/terminalClient.js';
 import type { AgentAppearance, TabStatus } from './AgentCard.js';
@@ -28,7 +29,7 @@ interface TerminalDrawerProps {
   /** An agent's tab status dot (null until first activity). */
   statusFor: (agentId: number) => TabStatus | null;
   onStatusChange: (agentId: number, status: TerminalConnectionStatus) => void;
-  /** cld-gui (T-0036): card groups and names (AgentCardBar). */
+  /** agty (T-0036): card groups and names (AgentCardBar). */
   describeCard?: (agentId: number) => CardInfo | undefined;
   /** The card container's + (AgentCardBar.onAdd); absent for a read-only client. */
   onAddCard?: () => void;
@@ -68,16 +69,18 @@ export function TerminalDrawer({
     <div className="h-full shrink-0 flex">
       {/* The cards are the panel's tabs — clicking one selects that agent's
           pane (App also reopens the panel if it's closed). */}
-      <AgentCardBar
-        agentIds={agentIds}
-        activeAgentId={shownAgentId}
-        getAppearance={getAppearance}
-        statusFor={statusFor}
-        onSelect={onSelectAgent}
-        onClose={onCloseAgent}
-        describeCard={describeCard}
-        onAdd={onAddCard}
-      />
+      <RegionBoundary region="party" className="m-8 self-center">
+        <AgentCardBar
+          agentIds={agentIds}
+          activeAgentId={shownAgentId}
+          getAppearance={getAppearance}
+          statusFor={statusFor}
+          onSelect={onSelectAgent}
+          onClose={onCloseAgent}
+          describeCard={describeCard}
+          onAdd={onAddCard}
+        />
+      </RegionBoundary>
 
       {/* Terminal panel — opens to the right of the card bar. display:none
           (not unmount) while closed: the panes stay mounted so xterm buffers

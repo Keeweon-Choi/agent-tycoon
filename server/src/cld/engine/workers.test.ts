@@ -425,7 +425,7 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     expect(await r.act(e, 'stop', 'alpha')).toMatchObject({ ok: true, note: '이미 꺼져 있어요' });
     expect(readLiveSessions(r.home).filter((s) => s.kind === 'background')).toHaveLength(1);
     expect(e.sessionOf('gamma')).toEqual(gamma);
-    expect(r.logs.filter((l) => /^\[cld engine\] "alpha": .*also matches "gamma"/.test(l))).toHaveLength(1);
+    expect(r.logs.filter((l) => /^\[agty engine\] "alpha": .*also matches "gamma"/.test(l))).toHaveLength(1);
   });
 
   it('D5 (6.1): apply() folds a contested office row by its conversation id only; one log line per agent and session', async () => {
@@ -531,7 +531,7 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     expect(cwdOf('alpha-a')).toBe(wt);
     const stored = loadRegistry(registryPath(r.home)).projects.find((p) => p.name === 'alpha-a')!;
     expect([stored.folder, stored.workFolder]).toEqual([wt, wt]);
-    expect(r.logs).toContain(`[cld engine] "alpha-a": starts in ${wt} (W2: its Task's worktree)`);
+    expect(r.logs).toContain(`[agty engine] "alpha-a": starts in ${wt} (W2: its Task's worktree)`);
     // The worktree removed: back to the project's folder (its own folder cleared).
     await r.act(e, 'stop', 'alpha-a');
     given['alpha-a'] = r.alpha;
@@ -545,7 +545,7 @@ describe('D3: a project’s Lead and Workers are separate agents', () => {
     given['alpha-a'] = outside;
     expect((await r.act(e, 'start', 'alpha-a')).ok).toBe(true);
     expect(cwdOf('alpha-a')).toBe(r.alpha);
-    expect(r.logs.some((l) => l.startsWith(`[cld engine] "alpha-a": not moved to ${outside}`))).toBe(true);
+    expect(r.logs.some((l) => l.startsWith(`[agty engine] "alpha-a": not moved to ${outside}`))).toBe(true);
     // The Lead's folder is the project's: never asked.
     given.alpha = wt;
     expect((await r.act(e, 'start', 'alpha')).ok).toBe(true);
@@ -665,7 +665,7 @@ describe('D3b: promoting a Worker to its project’s Lead', () => {
     // The prompts, the old Lead's term, the event.
     const lead = fs.readdirSync(cfgFile(r.home, 'inbox', 'alpha')).filter((f) => f.startsWith('0-lead-'));
     expect(lead).toHaveLength(1);
-    expect(fs.readFileSync(cfgFile(r.home, 'inbox', 'alpha', lead[0]), 'utf8')).toMatch(/^\[cld-gui Lead 교체 · .*\] 이제 너는 프로젝트 'alpha' 의 Lead 다/);
+    expect(fs.readFileSync(cfgFile(r.home, 'inbox', 'alpha', lead[0]), 'utf8')).toMatch(/^\[agty Lead 교체 · .*\] 이제 너는 프로젝트 'alpha' 의 Lead 다/);
     expect(fs.readdirSync(cfgFile(r.home, 'inbox', 'alpha-a')).filter((f) => f.startsWith('0-role-'))).toHaveLength(1);
     const history = JSON.parse(fs.readFileSync(cfgFile(r.home, 'lead-history.json'), 'utf8')) as { terms: Array<{ sessionId: string }> };
     expect(history.terms.map((t) => t.sessionId)).toEqual([old.lead]);
@@ -910,7 +910,7 @@ describe('D3b: after the swap', () => {
   it('F1: a commit that cannot write the registry fails, starts nothing and refuses every change until a restart rolls it forward', async () => {
     const t = await cutBeforeRegistry();
     const { r, e } = t;
-    expect(t.out).toMatchObject({ ok: false, error: '교체를 끝내지 못했어요. cld-gui 를 다시 시작하면 이어서 끝내요' });
+    expect(t.out).toMatchObject({ ok: false, error: '교체를 끝내지 못했어요. agty 를 다시 시작하면 이어서 끝내요' });
     expect(engineCalls(r.home).slice(t.calls).filter((c) => c.argv[0] === '--bg')).toEqual([]); // nothing started
     expect(['alpha', 'alpha-a'].map((n) => r.agent(e, n).live)).toEqual([false, false]);
     const journal = JSON.parse(fs.readFileSync(path.join(t.cfg, 'lead-swap.json'), 'utf8')) as { phase?: string };

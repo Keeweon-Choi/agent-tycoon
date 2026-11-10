@@ -97,7 +97,7 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
-  /** cld-gui (ELEVATOR): the elevators between floors, for findPath. */
+  /** agty (ELEVATOR): the elevators between floors, for findPath. */
   links?: Parameters<typeof findPath>[6],
 ): void {
   ch.frameTimer += dt;
@@ -276,7 +276,7 @@ export function updateCharacter(
       ch.dir = directionBetween(ch.tileCol, ch.tileRow, nextTile.col, nextTile.row);
 
       const walkSpeed = ch.keyboardWalk ? KEY_WALK_SPEED_PX_PER_SEC : WALK_SPEED_PX_PER_SEC;
-      // cld-gui (OWNER-AVATAR): a diagonal step is a longer way, walked at the same pace.
+      // agty (OWNER-AVATAR): a diagonal step is a longer way, walked at the same pace.
       const diagonal = nextTile.col !== ch.tileCol && nextTile.row !== ch.tileRow;
       ch.cldDiagRow = diagonal ? (nextTile.row > ch.tileRow ? 1 : -1) : undefined;
       ch.moveProgress += (walkSpeed / TILE_SIZE / (diagonal ? Math.SQRT2 : 1)) * dt;
@@ -302,7 +302,7 @@ export function updateCharacter(
         ch.heldWalkQueued = undefined;
       }
 
-      // If became active while wandering, repath to seat (cld-gui C1: not on a coffee break)
+      // If became active while wandering, repath to seat (agty C1: not on a coffee break)
       if (ch.isActive && ch.seatId && !ch.cldRest?.brk) {
         const seat = seats.get(ch.seatId);
         if (seat) {

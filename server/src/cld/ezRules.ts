@@ -120,7 +120,7 @@ const commandRule = (o: unknown): EzCommandRule =>
 function fatigue(x: unknown, note: Note): EzFatigue | undefined {
   if (x === undefined) return undefined;
   if (!isObj(x)) {
-    note('[cld] ez-rules.json: "fatigue" must be an object; ignored');
+    note('[agty] ez-rules.json: "fatigue" must be an object; ignored');
     return undefined;
   }
   const out: EzFatigue = {};
@@ -128,14 +128,14 @@ function fatigue(x: unknown, note: Note): EzFatigue | undefined {
     const range = Object.hasOwn(FATIGUE_RANGES, key)
       ? FATIGUE_RANGES[key as keyof EzFatigue]
       : undefined;
-    if (!range) note(`[cld] ez-rules.json: fatigue.${key}: unknown field; ignored`);
+    if (!range) note(`[agty] ez-rules.json: fatigue.${key}: unknown field; ignored`);
     else if (
       !Number.isInteger(value) ||
       (value as number) < range[0] ||
       (value as number) > range[1]
     )
       note(
-        `[cld] ez-rules.json: fatigue.${key}: not a whole number ${range[0]}..${range[1]}; ignored`,
+        `[agty] ez-rules.json: fatigue.${key}: not a whole number ${range[0]}..${range[1]}; ignored`,
       );
     else out[key as keyof EzFatigue] = value as number;
   }
@@ -145,21 +145,21 @@ function fatigue(x: unknown, note: Note): EzFatigue | undefined {
 function section<T>(list: unknown, name: string, parse: (o: unknown) => T, note: Note): T[] {
   if (list === undefined) return [];
   if (!Array.isArray(list)) {
-    note(`[cld] ez-rules.json: "${name}" must be a list; ignored`);
+    note(`[agty] ez-rules.json: "${name}" must be a list; ignored`);
     return [];
   }
   const out: T[] = [];
   list.forEach((item, i) => {
     if (i >= RULES_MAX) {
       if (i === RULES_MAX)
-        note(`[cld] ez-rules.json: "${name}" keeps its first ${RULES_MAX} rules`);
+        note(`[agty] ez-rules.json: "${name}" keeps its first ${RULES_MAX} rules`);
       return;
     }
     try {
       out.push(parse(item));
     } catch (err) {
       if (!(err instanceof Bad)) throw err;
-      note(`[cld] ez-rules.json: ${name}[${i}]: ${err.message}; rule ignored`);
+      note(`[agty] ez-rules.json: ${name}[${i}]: ${err.message}; rule ignored`);
     }
   });
   return out;
@@ -171,22 +171,22 @@ export function parseEzRules(text: string, note: Note): EzRuleSet | null {
   try {
     json = JSON.parse(text);
   } catch {
-    note('[cld] ez-rules.json: not valid JSON; file ignored');
+    note('[agty] ez-rules.json: not valid JSON; file ignored');
     return null;
   }
   if (!isObj(json)) {
     note(
-      '[cld] ez-rules.json: expected an object with "tools", "commands" and/or "fatigue"; file ignored',
+      '[agty] ez-rules.json: expected an object with "tools", "commands" and/or "fatigue"; file ignored',
     );
     return null;
   }
   if (json.v !== undefined && json.v !== 1) {
-    note(`[cld] ez-rules.json: unsupported v=${String(json.v)}; file ignored`);
+    note(`[agty] ez-rules.json: unsupported v=${String(json.v)}; file ignored`);
     return null;
   }
   for (const key of Object.keys(json)) {
     if (!['v', 'tools', 'commands', 'fatigue'].includes(key)) {
-      note(`[cld] ez-rules.json: unknown field "${key}" ignored`);
+      note(`[agty] ez-rules.json: unknown field "${key}" ignored`);
     }
   }
   const numbers = fatigue(json.fatigue, note);
@@ -220,7 +220,7 @@ export class EzRulesFile {
       this.seen = null;
       this.rules = null;
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        this.note(`[cld] ez-rules.json: cannot read it (${(err as NodeJS.ErrnoException).code})`);
+        this.note(`[agty] ez-rules.json: cannot read it (${(err as NodeJS.ErrnoException).code})`);
       }
       return null;
     }
@@ -242,17 +242,17 @@ export class EzRulesFile {
 
   private read(stat: fs.Stats): EzRuleSet | null {
     if (!stat.isFile()) {
-      this.note('[cld] ez-rules.json: not a regular file; ignored');
+      this.note('[agty] ez-rules.json: not a regular file; ignored');
       return null;
     }
     if (stat.size > FILE_MAX_BYTES) {
-      this.note(`[cld] ez-rules.json: larger than ${FILE_MAX_BYTES / 1024} KiB; file ignored`);
+      this.note(`[agty] ez-rules.json: larger than ${FILE_MAX_BYTES / 1024} KiB; file ignored`);
       return null;
     }
     try {
       return parseEzRules(fs.readFileSync(this.file, 'utf-8'), this.note);
     } catch (err) {
-      this.note(`[cld] ez-rules.json: cannot read it (${(err as NodeJS.ErrnoException).code})`);
+      this.note(`[agty] ez-rules.json: cannot read it (${(err as NodeJS.ErrnoException).code})`);
       return null;
     }
   }

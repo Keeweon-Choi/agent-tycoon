@@ -1,5 +1,5 @@
 /**
- * The exposure ledger (S6, threat T10): what cld-gui opened outside this PC
+ * The exposure ledger (S6, threat T10): what agty opened outside this PC
  * that nothing else closes again — `tailscale serve`/Funnel, the quick
  * tunnel's cloudflared, the Windows portproxy the person added for direct.
  * (Direct, UPnP and the LAN listener are closed by the daemon itself.)

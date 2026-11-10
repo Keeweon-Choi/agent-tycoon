@@ -92,7 +92,7 @@ export async function startAuthServer(
     hostId?: string;
     /** MHO 3.6: the host's display name, for the login page title. */
     hostName?: () => string;
-    /** More cld routes, registered the way the office registers its own (the real gate around them). */
+    /** More agty routes, registered the way the office registers its own (the real gate around them). */
     routes?: CldHooks['registerRoutes'];
     /** Exercise legacy HTTP options without restoring their authentication effect. */
     legacyTailscaleTrust?: boolean;
@@ -101,7 +101,7 @@ export async function startAuthServer(
   } = {},
 ): Promise<AuthServer> {
   const auth = new StandaloneAuth(options);
-  // A cld route that would answer 200 if the gate let the request through.
+  // A agty route that would answer 200 if the gate let the request through.
   cldHooks.registerRoutes = (app, ...rest) => {
     app.get('/cld/characters/:file', async () => 'sheet');
     options.routes?.(app, ...rest);

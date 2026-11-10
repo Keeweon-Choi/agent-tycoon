@@ -410,7 +410,7 @@ describe('local control channel', () => {
   });
 });
 
-describe('cld-gui CLI', () => {
+describe('agty CLI', () => {
   it.skipIf(process.platform !== 'linux')(
     'SEC-CONTROL: an agent that drops CLD_AGENT_TOKEN, or runs agty through a job of this daemon, is not the owner',
     async () => {
@@ -979,7 +979,7 @@ describe('S7: who is speaking over the socket', () => {
     expect(r.code).toBe(0);
     expect(sent).toHaveLength(1);
     expect(typedHeader(sent[0])).not.toMatch(/사장/);
-    expect(typedHeader(sent[0])).toMatch(/^\[cld-gui · 보냄 · /);
+    expect(typedHeader(sent[0])).toMatch(/^\[agty · 보냄 · /);
     // Not through the CLI either: the socket itself refuses the app's sources.
     for (const source of ['messenger:x', 'gui:laptop'])
       expect(parseControl(JSON.stringify({ v: 1, cmd: 'send', cwd: '/w', source }))).toMatchObject({
@@ -994,7 +994,7 @@ describe('S7: who is speaking over the socket', () => {
       env: { CLD_SOURCE: 'messenger:x', CLD_AGENT_TOKEN: TOKEN },
     });
     expect(sent[0]).toMatchObject({ from: 'alpha', source: 'cli' });
-    expect(typedHeader(sent[0])).toMatch(/^\[cld-gui · alpha에게서 · /);
+    expect(typedHeader(sent[0])).toMatch(/^\[agty · alpha에게서 · /);
   });
 
   it('a forged token is no identity: labelled like any untokened caller, never the owner', async () => {

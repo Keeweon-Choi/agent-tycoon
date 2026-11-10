@@ -127,7 +127,7 @@ test('systemd unit has absolute paths and all daemon flags', () => {
   assert.match(unit, /--allowed-host office\.ts\.net/);
   assert.match(unit, /Environment=PATH=\/absolute\/home\/\.local\/bin:\/absolute\/node\/bin/);
   assert.match(unit, /^Restart=on-failure$/m); // a crash or kill -9 comes back; a clean exit (stop, a future idle exit) stays down
-  assert.match(unit, /^KillMode=process$/m); // claude daemon and bg sessions started by us must survive a cld-gui restart (ops OQ-14 §0-3)
+  assert.match(unit, /^KillMode=process$/m); // claude daemon and bg sessions started by us must survive an agty restart (ops OQ-14 §0-3)
   assert.match(unit, /^Nice=5$/m);
   // MEM-IDLE: glibc hands freed memory back (idle RSS under the 100 MB budget)
   assert.match(unit, /^Environment=MALLOC_MMAP_THRESHOLD_=131072$/m);
@@ -230,7 +230,7 @@ test('T-0019: Windows user Path gets the cld-gui folder once, and loses only it 
   assert.deepEqual(parseArgs(['--add-path']).addPath, true);
 });
 
-test('T-0019: agty and cld-gui are linked; cld only when free; foreign commands survive', async () => {
+test('T-80: only agty is linked (no cld-gui or cld alias); earlier links stay and uninstall removes ours; foreign commands survive', async () => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-inst-'));
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-repo-'));
   const target = path.join(repo, 'cld', 'bin', 'cld-gui');
@@ -239,42 +239,38 @@ test('T-0019: agty and cld-gui are linked; cld only when free; foreign commands 
   try {
     await installCli({ platform: 'linux', home: h, repo, taken: async () => false, env: { PATH: bin } });
     assert.equal(fs.readlinkSync(path.join(bin, 'agty')), target);
-    assert.equal(fs.readlinkSync(path.join(bin, 'cld-gui')), target);
-    assert.equal(fs.readlinkSync(path.join(bin, 'cld')), target);
+    assert.equal(fs.existsSync(path.join(bin, 'cld-gui')), false);
+    assert.equal(fs.existsSync(path.join(bin, 'cld')), false);
     await installCli({ platform: 'linux', home: h, repo, taken: async () => true, env: { PATH: bin } }); // rerun: ours stays
     assert.equal(fs.readlinkSync(path.join(bin, 'agty')), target);
+    // Links an earlier install made are neither removed nor rewritten by install, and uninstall takes ours.
+    fs.symlinkSync(target, path.join(bin, 'cld-gui')); fs.symlinkSync(target, path.join(bin, 'cld'));
+    await installCli({ platform: 'linux', home: h, repo, taken: async () => true, env: { PATH: bin } });
+    assert.equal(fs.readlinkSync(path.join(bin, 'cld-gui')), target);
     assert.equal(fs.readlinkSync(path.join(bin, 'cld')), target);
     await removeCli({ platform: 'linux', home: h, repo });
-    assert.equal(fs.existsSync(path.join(bin, 'agty')), false);
-    assert.equal(fs.existsSync(path.join(bin, 'agent-tycoon')), false); // never installed any more
-    assert.equal(fs.existsSync(path.join(bin, 'cld-gui')), false);
-    // The name answers to something else (an alias): cld-gui only.
-    await installCli({ platform: 'linux', home: h, repo, taken: async (n) => n === 'cld', env: { PATH: bin } });
-    assert.equal(fs.existsSync(path.join(bin, 'cld')), false);
-    assert.ok(lines.includes('cld 이름은 이미 쓰고 있어 cld-gui로만 설치했습니다'));
-    await removeCli({ platform: 'linux', home: h, repo });
+    for (const n of ['agty', 'agent-tycoon', 'cld-gui', 'cld']) assert.equal(fs.existsSync(path.join(bin, n)), false, n);
+    // The name answers to something else: nothing is created, and the message gives the script path.
     fs.writeFileSync(path.join(bin, 'agty'), '#!/bin/sh\nexec another "$@"\n');
     await installCli({ platform: 'linux', home: h, repo, taken: async (n) => n === 'agty', env: { PATH: bin } });
     assert.equal(fs.readFileSync(path.join(bin, 'agty'), 'utf8'), '#!/bin/sh\nexec another "$@"\n');
-    assert.equal(fs.readlinkSync(path.join(bin, 'cld-gui')), target);
-    assert.ok(lines.includes('agty 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. cld-gui 를 쓰세요'));
+    assert.equal(fs.existsSync(path.join(bin, 'cld-gui')), false);
+    assert.ok(lines.includes(`agty 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. 직접 부르려면 ${target} 을 쓰세요`));
     assert.ok(!lines.some((l) => l.includes('agent-tycoon')));
     await removeCli({ platform: 'linux', home: h, repo });
     assert.ok(fs.existsSync(path.join(bin, 'agty')));
     fs.rmSync(path.join(bin, 'agty'));
-    // A foreign file and a foreign link under that name are left alone, also by uninstall.
+    // A foreign file and a foreign link under an old alias's name are left alone by uninstall.
     fs.writeFileSync(path.join(bin, 'cld'), '#!/bin/sh\nexec claude "$@"\n');
+    fs.symlinkSync('/usr/bin/claude', path.join(bin, 'cld-gui'));
     await installCli({ platform: 'linux', home: h, repo, taken: async () => false, env: { PATH: bin } });
-    assert.equal(fs.readFileSync(path.join(bin, 'cld'), 'utf8'), '#!/bin/sh\nexec claude "$@"\n');
     await removeCli({ platform: 'linux', home: h, repo });
-    assert.ok(fs.existsSync(path.join(bin, 'cld')));
-    fs.rmSync(path.join(bin, 'cld')); fs.symlinkSync('/usr/bin/claude', path.join(bin, 'cld'));
-    await installCli({ platform: 'linux', home: h, repo, taken: async () => false, env: { PATH: bin } });
-    assert.equal(fs.readlinkSync(path.join(bin, 'cld')), '/usr/bin/claude');
+    assert.equal(fs.readFileSync(path.join(bin, 'cld'), 'utf8'), '#!/bin/sh\nexec claude "$@"\n');
+    assert.equal(fs.readlinkSync(path.join(bin, 'cld-gui')), '/usr/bin/claude');
   } finally { console.log = log; fs.rmSync(h, { recursive: true, force: true }); fs.rmSync(repo, { recursive: true, force: true }); }
 });
 
-test('T-0019: Windows writes all owned command files and leaves a foreign agty alone', async () => {
+test('T-80: Windows writes agty.cmd only, keeps earlier cld-gui.cmd, and leaves a foreign agty alone', async () => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-win-'));
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-repo-'));
   const env = { LOCALAPPDATA: path.join(h, 'AppData', 'Local'), PATH: '' };
@@ -282,16 +278,22 @@ test('T-0019: Windows writes all owned command files and leaves a foreign agty a
   const lines = []; const log = console.log; console.log = (l) => lines.push(String(l));
   try {
     await installCli({ platform: 'win32', home: h, repo, env, taken: async () => false });
-    for (const name of ['agty.cmd', 'cld-gui.cmd', 'cld.cmd']) assert.ok(fs.readFileSync(path.join(bin, name), 'utf8').includes(CLI_MARK));
-    assert.equal(fs.existsSync(path.join(bin, 'agent-tycoon.cmd')), false);
+    assert.ok(fs.readFileSync(path.join(bin, 'agty.cmd'), 'utf8').includes(CLI_MARK));
+    for (const name of ['cld-gui.cmd', 'cld.cmd', 'agent-tycoon.cmd']) assert.equal(fs.existsSync(path.join(bin, name)), false, name);
     await installCli({ platform: 'win32', home: h, repo, env, taken: async () => true });
     assert.ok(fs.readFileSync(path.join(bin, 'agty.cmd'), 'utf8').includes(CLI_MARK));
+    // An alias an earlier install wrote stays on install, and uninstall removes it with agty.cmd.
+    fs.writeFileSync(path.join(bin, 'cld-gui.cmd'), winCliCmd(repo));
+    await installCli({ platform: 'win32', home: h, repo, env, taken: async () => true });
+    assert.ok(fs.existsSync(path.join(bin, 'cld-gui.cmd')));
     await removeCli({ platform: 'win32', home: h, repo, env });
+    assert.equal(fs.existsSync(path.join(bin, 'agty.cmd')), false);
+    assert.equal(fs.existsSync(path.join(bin, 'cld-gui.cmd')), false);
     fs.mkdirSync(bin, { recursive: true }); fs.writeFileSync(path.join(bin, 'agty.cmd'), '@echo foreign\r\n');
     await installCli({ platform: 'win32', home: h, repo, env, taken: async (n) => n === 'agty' });
     assert.equal(fs.readFileSync(path.join(bin, 'agty.cmd'), 'utf8'), '@echo foreign\r\n');
-    assert.ok(fs.readFileSync(path.join(bin, 'cld-gui.cmd'), 'utf8').includes(CLI_MARK));
-    assert.ok(lines.includes('agty 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. cld-gui 를 쓰세요'));
+    assert.equal(fs.existsSync(path.join(bin, 'cld-gui.cmd')), false);
+    assert.ok(lines.includes(`agty 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. 직접 부르려면 node "${path.win32.join(repo, 'cld', 'bin', 'cld-gui')}" 을 쓰세요`)); // a command that runs on Windows
     await removeCli({ platform: 'win32', home: h, repo, env });
     assert.ok(fs.existsSync(path.join(bin, 'agty.cmd')));
   } finally { console.log = log; fs.rmSync(h, { recursive: true, force: true }); fs.rmSync(repo, { recursive: true, force: true }); }

@@ -254,7 +254,7 @@ export function registerStartPolicyRoutes(
       const failed = await control.change(policy, request.body?.linger === true);
       if (failed) return reply.code(409).send(failed);
       console.log(
-        `[cld start-policy] ${policy}${request.body?.linger === true ? ' --linger' : ''} by ${actorOf?.(request) ?? 'device'}`,
+        `[agty start-policy] ${policy}${request.body?.linger === true ? ' --linger' : ''} by ${actorOf?.(request) ?? 'device'}`,
       );
       return { ok: true, view: await control.view(true) };
     },

@@ -1,12 +1,12 @@
 /**
  * DEV-BOARD check: dist/cli.js in an isolated HOME on a spare port, headless
- * Chromium with --disable-gpu. The seed list goes in with `cld-gui task import`,
+ * Chromium with --disable-gpu. The seed list goes in with `agty task import`,
  * S4 is linked to a running Codex task (`--codex`), and the 작업 tab must:
  * - open on 업무 with the 지금 하는 일 strip: the Codex owner's S4 with the observed
  *   Codex state beside it (관측), no percentage anywhere;
  * - show the seeded cards in their status groups (S1 under 검토, 끝남 folded);
  * - take a status change in the card editor (U-15 할 일 → 진행 중) that
- *   `cld-gui task list --json` then reports, and move the card without a reload;
+ *   `agty task list --json` then reports, and move the card without a reload;
  * - follow a CLI change live (S1 → 막힘);
  * - on a phone (393x852), list the same groups with nothing wider than the screen.
  * Screenshots go to cld/artifacts/taskboard/.
@@ -232,10 +232,10 @@ async function main() {
     await shot(desk, 'desktop-detail');
     await u15.getByRole('button', { name: '저장' }).click();
     await until(
-      'cld-gui task list reports U-15 doing',
+      'agty task list reports U-15 doing',
       () => listed().find((t) => t.id === 'U-15')?.status === 'doing',
     );
-    check(true, 'desktop: the status change reached the store (cld-gui task list --json)');
+    check(true, 'desktop: the status change reached the store (agty task list --json)');
     await until(
       'desktop: U-15 moves to 진행 중 without a reload',
       async () => (await cardStatus(desk, 'U-15')) === 'doing',

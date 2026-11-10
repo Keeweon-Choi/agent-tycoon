@@ -185,7 +185,7 @@ function realStartTask(args: string[], log: string): Promise<boolean> {
       (err, _out, stderr) => {
         if (err)
           console.warn(
-            `[cld update] the updater task did not start: ${String(stderr || err.message).trim()}`,
+            `[agty update] the updater task did not start: ${String(stderr || err.message).trim()}`,
           );
         resolve(!err || !!err.killed); // timed out: the task may be running; settle() tells (lock, grace)
       },
@@ -264,7 +264,7 @@ export class UpdateNotice {
     try {
       writeJsonAtomic(this.file, this.state);
     } catch (err) {
-      console.warn(`[cld update] could not write ${this.file}: ${String(err)}`);
+      console.warn(`[agty update] could not write ${this.file}: ${String(err)}`);
     }
   }
 
@@ -327,7 +327,7 @@ export class UpdateNotice {
         notes: found && typeof r.notes === 'string' ? r.notes : null,
       };
     } catch (err) {
-      console.warn(`[cld update] check failed: ${(err as Error).message}`);
+      console.warn(`[agty update] check failed: ${(err as Error).message}`);
       this.state = {
         ...this.state,
         checkedAt: this.now(),
@@ -489,7 +489,7 @@ export class UpdateNotice {
         return no('spawn', '업데이트를 시작하지 못했어요');
       }
       this.save();
-      console.log(`[cld update] install ${to} started by ${who} (its own task)`);
+      console.log(`[agty update] install ${to} started by ${who} (its own task)`);
       return { ok: true, to };
     }
     const args = [this.o.managerPath, 'update', '--from', from, '--root', this.o.root!];
@@ -497,7 +497,7 @@ export class UpdateNotice {
     if (pid === null) return no('spawn', '업데이트를 시작하지 못했어요');
     this.state.run = { state: 'running', to: s.available, pid, startedAt: this.now() };
     this.save();
-    console.log(`[cld update] install ${s.available} started by ${who} (pid ${pid})`);
+    console.log(`[agty update] install ${s.available} started by ${who} (pid ${pid})`);
     return { ok: true, to: s.available };
   }
 }

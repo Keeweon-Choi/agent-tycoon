@@ -263,7 +263,7 @@ function restoreSaved(deps, saved, written) {
 
 async function restore(dependencies = {}, options = {}) {
   const deps = realDeps(dependencies);
-  if (await deps.daemonRunning()) return { ok: false, error: 'cld-gui 를 멈춘 뒤 다시 하세요' };
+  if (await deps.daemonRunning()) return { ok: false, error: 'agty 를 멈춘 뒤 다시 하세요' };
   let files;
   try { files = verifyArchive(deps, options.file); } catch (error) { return { ok: false, error: error.message }; }
   const targets = files.map((entry) => ({ ...entry, target: archivePath(deps.home, entry.relative) }));

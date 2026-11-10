@@ -690,8 +690,8 @@ async function main() {
     // ── 6. Audit ──
     await stopDaemon(on);
     const log = on.log.join('');
-    const opens = log.match(/\[cld shell\] open /g)?.length ?? 0;
-    const closes = log.match(/\[cld shell\] close /g)?.length ?? 0;
+    const opens = log.match(/\[agty shell\] open /g)?.length ?? 0;
+    const closes = log.match(/\[agty shell\] close /g)?.length ?? 0;
     check(opens === 3 && closes === 3, `audit: 3 open and 3 close lines (${opens}/${closes})`);
     check(
       log.includes('reason=revoked') && log.includes('reason=requested by='),
@@ -705,7 +705,7 @@ async function main() {
       path.join(OUT, 'daemon-audit.txt'),
       log
         .split('\n')
-        .filter((l) => l.includes('[cld shell]'))
+        .filter((l) => l.includes('[agty shell]'))
         .join('\n') + '\n',
     );
     check(shellsLeft(fake.home).length === 0, 'no shell left running in the temp HOME');

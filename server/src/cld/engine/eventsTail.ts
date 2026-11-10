@@ -16,7 +16,7 @@ export class EventsTail {
 
   constructor(
     readonly file: string,
-    private readonly warn: (msg: string) => void = (m) => console.warn(`[cld events] ${m}`),
+    private readonly warn: (msg: string) => void = (m) => console.warn(`[agty events] ${m}`),
   ) {}
 
   /** Start at the end of the file; return its last `max` events (no side effects). */

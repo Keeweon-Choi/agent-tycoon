@@ -528,7 +528,7 @@ describe('collector additions', () => {
       diskPaths: [],
     }).sample();
     expect(s.gpuProcesses).toEqual([{ pid: 4242, usedMib: null, cmd: 'python' }]);
-    expect(s.topProcesses).toBeUndefined(); // on demand only (cld-gui hw)
+    expect(s.topProcesses).toBeUndefined(); // on demand only (agty hw)
   });
 
   it('reads configured disk thresholds and marks a drive low', async () => {
@@ -784,7 +784,7 @@ describe('HwSource: one sensor source per OS', () => {
     expect(mac.ramDetail).toBeUndefined();
   });
 
-  it('`cld-gui hw` prints the sample without the detail fields, and their sources', () => {
+  it('`agty hw` prints the sample without the detail fields, and their sources', () => {
     const sample = {
       ts: 't',
       stale: false,
@@ -852,7 +852,7 @@ describe('HwSource: one sensor source per OS', () => {
   }, 40_000);
 });
 
-describe('hasHwReadings (cld-gui hw)', () => {
+describe('hasHwReadings (agty hw)', () => {
   it('a sample of nothing is no sample; any number or disk is one', () => {
     const empty = { ts: '2026-10-22T10:00:00+09:00', stale: false, disks: [], warnings: ['x'] };
     expect(hasHwReadings(empty)).toBe(false);

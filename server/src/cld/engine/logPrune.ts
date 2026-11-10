@@ -201,7 +201,7 @@ export function pruneLogs(opts: PruneOptions): PruneResult {
     keepDays: LOG_KEEP_DAYS,
     capBytes: LOG_DIR_CAP_BYTES,
     unlink: (f) => fs.unlinkSync(f),
-    log: (l) => console.log(`[cld engine] ${l}`),
+    log: (l) => console.log(`[agty engine] ${l}`),
     ...opts,
   };
   const none = (): Tally => ({ count: 0, bytes: 0 });

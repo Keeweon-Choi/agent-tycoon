@@ -1,5 +1,5 @@
 /**
- * The cld-gui office: merges the providers into one World, keeps one
+ * The agty office: merges the providers into one World, keeps one
  * character per entry, generates the office layout, and sends the contract
  * messages (officeState, codexTasks, officeJobs, hwSample, usageState, gpuBoard,
  * officeEvent, statusOutput) -- broadcast on change and as snapshots to each new client.
@@ -255,7 +255,7 @@ export interface OfficeOptions {
   agentChoices?: AgentChoicesReader;
   /** The PATH engine sessions and jobs get (engine/sessionPath.ts), built once at start. */
   sessionPath?: string | null;
-  /** T-0019: types cld-gui sends into background sessions (the chat's attach manager). */
+  /** T-0019: types agty sends into background sessions (the chat's attach manager). */
   typist?: Typist;
   /** T-0039: push.json (the standalone CLI's ~/.config/agent-tycoon); none: no Web Push. */
   pushFile?: string;
@@ -476,7 +476,7 @@ export class Office {
       task: (id) => this.tasks.get(id),
       setStatus: (id, status, by) => {
         const r = this.tasks.update(id, { status }, by);
-        if (!r.ok) console.warn(`[cld] review ${id}: status not moved (${String(r.error)})`);
+        if (!r.ok) console.warn(`[agty] review ${id}: status not moved (${String(r.error)})`);
       },
       leadLine: (lead, task, text) => this.groupMessages?.system({ kind: 'review', task, from: lead, text }),
     };
@@ -561,7 +561,7 @@ export class Office {
     this.projectRepos = new ProjectRepos({
       host: this.host,
       readOnly: !!opts.readOnly,
-      log: (line) => console.log(`[cld] projectRepo: ${line}`),
+      log: (line) => console.log(`[agty] projectRepo: ${line}`),
     });
     this.devroom = new Devroom({
       file: path.join(configDirectory(opts.home ?? os.homedir()), 'devroom.json'),
@@ -589,7 +589,7 @@ export class Office {
       jobs: () => this.jobs,
       attach: (taskId, jobId, log, by) => {
         const r = this.tasks.attach(taskId, { kind: 'job', ref: jobId, log }, by);
-        if (!r.ok) console.warn(`[cld devroom] run ${jobId}: not attached to ${taskId} (${String(r.error)})`);
+        if (!r.ok) console.warn(`[agty devroom] run ${jobId}: not attached to ${taskId} (${String(r.error)})`);
       },
     });
     this.hw =
@@ -759,7 +759,7 @@ export class Office {
           },
           attach: (task, run, by) => {
             const r = this.tasks.attach(task, run, by);
-            if (!r.ok) console.warn(`[cld] codex ${run.ref}: not attached to ${task} (${String(r.error)})`);
+            if (!r.ok) console.warn(`[agty] codex ${run.ref}: not attached to ${task} (${String(r.error)})`);
           },
           taskTitle: (task) => this.tasks.get(task)?.title,
           // W2: the Task's recorded worktree, when it is this Worker's or nobody's.
@@ -769,7 +769,7 @@ export class Office {
             const r = this.jobs?.stop(job, 'manager');
             return r?.ok ? { ok: true } : { ok: false, error: r && !r.ok ? r.error : undefined };
           },
-          log: (line) => console.log(`[cld engine] ${line}`),
+          log: (line) => console.log(`[agty engine] ${line}`),
         })
       : null;
     // ACP-1: the installed ACP agents, found once at start. ponytail: one installed later is offered
@@ -784,7 +784,7 @@ export class Office {
               home,
               env: () => this.engine?.jobEnv() ?? process.env,
               ask: (name, ask, signal) => this.permission.askAcp(name, ask, signal),
-              log: (line) => console.log(`[cld engine] ${line}`),
+              log: (line) => console.log(`[agty engine] ${line}`),
             }),
         )
       : [];
@@ -1184,7 +1184,7 @@ export class Office {
     // Read-only too: it limits office actions, not the engine (revive, messenger) it still runs.
     if (this.engine && (await controlAnswers(control)))
       throw new Error(
-        `another cld-gui daemon already runs the engine for this HOME (${control} answers); not starting a second one`,
+        `another agty daemon already runs the engine for this HOME (${control} answers); not starting a second one`,
       );
     this.engine?.start();
     this.spec.remember(); // SPT-P1D: the projects' ids by name (the engine has just loaded them), before any remove
@@ -1233,7 +1233,7 @@ export class Office {
       onClientClosed: (send: WsSend) => this.onClientClosed(send),
     });
     console.log(
-      `[cld] office: ${this.world.agents.length} characters in ${this.world.rooms.length} rooms; providers: ${[
+      `[agty] office: ${this.world.agents.length} characters in ${this.world.rooms.length} rooms; providers: ${[
         this.opts.claude && 'claude',
         this.engine && 'engine',
       ]
@@ -1249,7 +1249,7 @@ export class Office {
       this.engineEvents?.rotate();
       this.groupMessages?.maintain();
     } catch (err) {
-      console.warn(`[cld engine] log prune: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty engine] log prune: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1325,7 +1325,7 @@ export class Office {
       this.recompute();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg !== this.lastClaudeError) console.warn(`[cld] ${msg}`);
+      if (msg !== this.lastClaudeError) console.warn(`[agty] ${msg}`);
       this.lastClaudeError = msg;
     }
   }
@@ -1374,7 +1374,7 @@ export class Office {
     // 프로젝트마다 층 (T-0027): a new room gets its floor before anyone sees it.
     if (this.building.data.perProject) {
       const { error, changed } = this.building.apply((b) => placeNewRooms(b, this.floors.roomLabels()));
-      if (error && error !== this.lastBuildingError) console.warn(`[cld] building: ${error}`);
+      if (error && error !== this.lastBuildingError) console.warn(`[agty] building: ${error}`);
       this.lastBuildingError = error ?? '';
       if (changed) this.floors.publishBuilding();
     }
@@ -1552,7 +1552,7 @@ export class Office {
     this.publish({ type: 'officeJobs', jobs });
   }
 
-  // ── Engine E2 (T-0019): the cld-gui CLI's local socket ──────
+  // ── Engine E2 (T-0019): the agty CLI's local socket ──────
 
   private async startControl(): Promise<void> {
     const engine = this.engine;
@@ -1564,7 +1564,7 @@ export class Office {
     try {
       ensureOwnerToken(home); // SEC-CONTROL: the owner's CLI reads it; made before anyone asks
     } catch (err) {
-      console.warn(`[cld engine] owner token: ${err instanceof Error ? err.message : String(err)}; owner commands over ${file} are refused`);
+      console.warn(`[agty engine] owner token: ${err instanceof Error ? err.message : String(err)}; owner commands over ${file} are refused`);
     }
     const groupPost = (r: { room: string; text: string; from: string | null; source: string }) =>
       this.groupMessages
@@ -1766,9 +1766,9 @@ export class Office {
           },
         }),
       );
-      if (this.control) console.log(`[cld engine] cld-gui commands on ${file}`);
+      if (this.control) console.log(`[agty engine] agty commands on ${file}`);
     } catch (err) {
-      console.warn(`[cld engine] ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty engine] ${file}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -1939,7 +1939,7 @@ export class Office {
   // ── HW ──────────────────────────────────────────────────────
 
   /**
-   * `cld-gui hw`: the latest sample a viewer's tick produced while it is
+   * `agty hw`: the latest sample a viewer's tick produced while it is
    * fresh, else one sample on demand (nobody viewing means no tick runs).
    * No timer of its own.
    */
@@ -1974,7 +1974,7 @@ export class Office {
         this.publish({ type: 'hwSample', ...(await this.hw.sample()) });
         this.publishGpu();
       } catch (err) {
-        console.warn(`[cld] hw: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[agty] hw: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         this.sampling = false;
       }
@@ -1999,7 +1999,7 @@ export class Office {
       .then((usage) => {
         if (this.hwViewers.has(send) && this.viewers.has(send) && !this.hidden.has(send)) send({ ...usage });
       })
-      .catch((err) => console.warn(`[cld] disk usage: ${oneLineError(err)}`));
+      .catch((err) => console.warn(`[agty] disk usage: ${oneLineError(err)}`));
   }
 
   /** The worker sees a hw.json while a GPU ticket waits for admission. */
@@ -2012,7 +2012,7 @@ export class Office {
     try {
       writeCollectorGpuHw(q, await this.hw.sample());
     } catch (err) {
-      console.warn(`[cld] GPU HW: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty] GPU HW: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       this.gpuHwSampling = false;
     }
@@ -2056,7 +2056,7 @@ export class Office {
       : typeof uid !== 'string' || typeof text !== 'string' || !isBoard(uid)
         ? '이 화이트보드를 찾지 못했어요'
         : this.memos.set(uid, text, by);
-    if (error) console.warn(`[cld] memo: ${error}`);
+    if (error) console.warn(`[agty] memo: ${error}`);
     // Refused or not, the sender gets the truth back; a saved memo reaches everyone.
     if (error) send({ ...this.memos.message() });
     else this.opts.store.broadcast({ ...this.memos.message() });
@@ -2102,7 +2102,7 @@ export class Office {
     if (this.viewers.has(send)) return;
     this.viewers.add(send);
     this.lookedAt.set(send, Date.now());
-    console.log(`[cld] viewer connected (${this.watching()} watching)`);
+    console.log(`[agty] viewer connected (${this.watching()} watching)`);
     if (this.watching() === 1) this.wake();
   }
 
@@ -2113,7 +2113,7 @@ export class Office {
     if (this.viewers.has(send) && visible === this.hidden.has(send)) {
       if (visible) this.hidden.delete(send);
       else this.hidden.add(send);
-      console.log(`[cld] viewer ${visible ? 'back' : 'hidden'} (${this.watching()} watching)`);
+      console.log(`[agty] viewer ${visible ? 'back' : 'hidden'} (${this.watching()} watching)`);
       if (visible && this.watching() === 1) this.wake();
       if (!visible && this.watching() === 0) this.sleep();
       this.updateHwCadence();
@@ -2180,7 +2180,7 @@ export class Office {
     this.conversations.drop(send);
     this.rooms.onClientClosed(send);
     this.work.drop(send);
-    console.log(`[cld] viewer left (${this.watching()} watching)`);
+    console.log(`[agty] viewer left (${this.watching()} watching)`);
     if (wasLooking && this.watching() === 0) this.sleep();
   }
 
@@ -2300,7 +2300,7 @@ export class Office {
       void this.sensorTool
         .handle(msg, send, { privileged, readOnly: !!this.opts.readOnly, stepUp })
         .then(() => this.tickHw())
-        .catch((err) => console.warn(`[cld] hw sensor tool: ${oneLineError(err)}`));
+        .catch((err) => console.warn(`[agty] hw sensor tool: ${oneLineError(err)}`));
       return;
     }
     if (msg.type === 'agentCliUpdate') {
@@ -2325,7 +2325,7 @@ export class Office {
         privileged,
         readOnly: !!this.opts.readOnly,
         stepUp,
-        log: (l) => console.warn(`[cld] ${l}`),
+        log: (l) => console.warn(`[agty] ${l}`),
       });
       return;
     }
@@ -2336,7 +2336,7 @@ export class Office {
         readOnly: !!this.opts.readOnly,
         stepUp,
         broadcast: (m) => this.opts.store.broadcast(m as never),
-        log: (l) => console.warn(`[cld] ${l}`),
+        log: (l) => console.warn(`[agty] ${l}`),
       });
       return;
     }
@@ -2380,7 +2380,7 @@ export class Office {
             : { ok: true, deleted: r.deleted, ...(r.failed.length && refused('data_not_moved', { stores: r.failed.join(', ') })) }),
       });
       if (r !== null)
-        console.log(`[cld] gone conversation ${String(msg.name)}: ${r.deleted} conversation file(s) deleted${r.failed.length ? `; kept: ${r.failed.join(', ')}` : ''}`);
+        console.log(`[agty] gone conversation ${String(msg.name)}: ${r.deleted} conversation file(s) deleted${r.failed.length ? `; kept: ${r.failed.join(', ')}` : ''}`);
       return;
     }
     if (msg.type === 'setConversationPin') {
@@ -2389,7 +2389,7 @@ export class Office {
         : typeof msg.key !== 'string' || typeof msg.pinned !== 'boolean'
           ? '이 대화를 찾지 못했어요'
           : this.pins.set(msg.key, msg.pinned);
-      if (error) console.warn(`[cld] pin: ${error}`);
+      if (error) console.warn(`[agty] pin: ${error}`);
       // Refused or not, the sender gets the truth back; a saved pin reaches everyone.
       if (error) send({ ...this.pins.message() });
       else this.opts.store.broadcast({ ...this.pins.message() });
@@ -2397,7 +2397,7 @@ export class Office {
     }
     if (msg.type === 'setParties') {
       const error = !privileged ? '이 접속에는 조작 권한이 없어요' : this.parties.set(msg.parties);
-      if (error) console.warn(`[cld] parties: ${error}`);
+      if (error) console.warn(`[agty] parties: ${error}`);
       // Refused or not, the sender gets the truth back; a saved change reaches everyone.
       if (error) send({ ...this.parties.message() });
       else this.opts.store.broadcast({ ...this.parties.message() });
@@ -2405,7 +2405,7 @@ export class Office {
     }
     if (msg.type === 'setOfficeBackground') {
       const error = !privileged ? '이 접속에는 조작 권한이 없어요' : this.background.set(msg);
-      if (error) console.warn(`[cld] background: ${error}`);
+      if (error) console.warn(`[agty] background: ${error}`);
       // Refused or not, the sender gets the truth back; a saved look reaches everyone.
       if (error) send({ ...this.background.current() });
       else this.opts.store.broadcast({ ...this.background.current() });
@@ -2435,25 +2435,25 @@ export class Office {
     }
     if (msg.type === 'projectRepo') {
       const req = parseProjectRepo(msg);
-      if (!req) console.warn('[cld] malformed projectRepo dropped');
+      if (!req) console.warn('[agty] malformed projectRepo dropped');
       else
         void this.projectRepos.handle(req, privileged, stepUp, (p) => send({ ...p })).then(
           (r) => send({ ...r }),
-          (err: unknown) => console.warn(`[cld] projectRepo: ${String(err)}`),
+          (err: unknown) => console.warn(`[agty] projectRepo: ${String(err)}`),
         );
       return;
     }
     if (msg.type === 'listFolders') {
       const req = parseListFolders(msg);
-      if (!req) console.warn('[cld] malformed listFolders dropped');
+      if (!req) console.warn('[agty] malformed listFolders dropped');
       else send({ ...this.folderList(req, privileged) });
       return;
     }
     if (this.chat.onClientMessage(msg, { send, privileged, userAgent, stepUp })) return;
     if (msg.type === 'permissionAnswer') {
       void this.permission.answer(msg, privileged, deviceLabel(userAgent), stepUp).then(
-        (result) => (result ? send({ ...result }) : console.warn('[cld] malformed permissionAnswer dropped')),
-        (err: unknown) => console.warn(`[cld] permission answer: ${String(err)}`),
+        (result) => (result ? send({ ...result }) : console.warn('[agty] malformed permissionAnswer dropped')),
+        (err: unknown) => console.warn(`[agty] permission answer: ${String(err)}`),
       );
       return;
     }
@@ -2561,7 +2561,7 @@ export class Office {
     if (!this.nameHistory.some((e) => e.as === name && e.gone && !e.gone.deleted)) return null;
     let r: { deleted: number; failed: string[] } | null = null;
     this.projectDataChange(() => {
-      r = deleteGoneConversation(home, name, (l) => console.warn(`[cld] ${l}`), this.engine?.registeredSessionIds() ?? []);
+      r = deleteGoneConversation(home, name, (l) => console.warn(`[agty] ${l}`), this.engine?.registeredSessionIds() ?? []);
       return r?.failed ?? [];
     }, [name]);
     return r;
@@ -2633,7 +2633,7 @@ export class Office {
       for (const s of this.views.get(name)?.sends ?? []) s(out);
     } catch (err) {
       console.warn(
-        `[cld status] report ${name}: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty status] report ${name}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -2674,7 +2674,7 @@ export async function startOffice(opts: {
   engineMode?: EngineMode;
   defaultLayout?: Record<string, unknown> | null;
   catalog?: () => Footprints;
-  /** T-0019: types cld-gui sends (the attach manager). */
+  /** T-0019: types agty sends (the attach manager). */
   typist?: Typist;
   lhmPort?: number | null;
   nvidiaSmi?: string | null;
@@ -2684,17 +2684,17 @@ export async function startOffice(opts: {
 }): Promise<Office | null> {
   const claudePath = findClaude();
   if (!claudePath) {
-    console.log('[cld] claude not found: plain office');
+    console.log('[agty] claude not found: plain office');
     return null;
   }
   const claude = new ClaudeSessions(
     path.join(os.homedir(), '.claude/sessions'),
     new ClaudeAgentsSource(claudePath),
   );
-  console.log(`[cld] claude: ${claudePath} (sessions from ${claude.dir})`);
+  console.log(`[agty] claude: ${claudePath} (sessions from ${claude.dir})`);
   const mode = opts.engineMode ?? 'off';
   const engineClaude = engineOn(mode) ? claudePath : undefined;
-  console.log(`[cld] engine ${engineClaude ? 'on' : 'off'} (--engine ${mode})`);
+  console.log(`[agty] engine ${engineClaude ? 'on' : 'off'} (--engine ${mode})`);
   const office = new Office({
     ...opts,
     claude,

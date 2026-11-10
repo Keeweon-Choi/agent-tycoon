@@ -614,7 +614,7 @@ function FloorEditor() {
 }
 
 /**
- * The building on the office (cld mode): the doors on both shells, the panel
+ * The building on the office (agty mode): the doors on both shells, the panel
  * on a desktop. Idle characters wander on their own floor, and a character
  * carried off the canvas is let go wherever the mouse is released.
  */

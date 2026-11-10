@@ -16,7 +16,7 @@
       { "name": "화면 빌드", "start": "npm run build:webview", "done": "✔ 빌드" },
       { "name": "설정", "start": "DRY-RUN file .*config\\.json|설정" },
       { "name": "서비스 다시 켜기", "start": "systemctl --user (?:enable|restart)|✔ systemd 사용자 서비스" },
-      { "name": "끝", "done": "cld-gui 준비 완료|첫 기기:" }
+      { "name": "끝", "done": "agty 준비 완료|cld-gui 준비 완료|첫 기기:" }
     ] },
     { "command": "gate\\.sh", "dynamic": "gate" },
     { "command": "run-all\\.ts", "dynamic": "run-all" },

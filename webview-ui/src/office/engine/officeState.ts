@@ -84,7 +84,7 @@ function seatFacingOffset(direction: Direction): { dCol: number; dRow: number } 
 }
 
 /** Whether the office draws `ch` this frame, the one rule the canvas and its DOM overlays (plates,
- *  badges, bubbles: overlayPlacer.ts) share. cld-gui (T-0041): one who went home is not drawn (its
+ *  badges, bubbles: overlayPlacer.ts) share. agty (T-0041): one who went home is not drawn (its
  *  despawn still is); ELEVATOR: one inside the car is not drawn either. */
 export const characterDrawn = (ch: Character): boolean =>
   (!ch.cldAway || !!ch.matrixEffect) && !ch.cldRide?.hidden;
@@ -96,15 +96,15 @@ export class OfficeState {
   blockedTiles: Set<string>;
   furniture: FurnitureInstance[];
   walkableTiles: Array<{ col: number; row: number }>;
-  /** cld-gui (T-0027): where an idle character may wander (its own floor);
+  /** agty (T-0027): where an idle character may wander (its own floor);
    *  every walkable tile when unset. */
   wanderTiles: ((ch: Character) => Array<{ col: number; row: number }>) | null = null;
-  /** cld-gui (ELEVATOR): each floor's elevator (null: one floor) and the links they give
+  /** agty (ELEVATOR): each floor's elevator (null: one floor) and the links they give
    *  the pathfinder between floors. */
   cldElevators: Elevator[] | null = null;
   cldLinks: FloorLinks | null = null;
   private cldDoorsMoving = false;
-  /** cld-gui (LOUNGE): a pantry machine's picture while somebody uses it (furniture uid -> the
+  /** agty (LOUNGE): a pantry machine's picture while somebody uses it (furniture uid -> the
    *  catalog type of its current state); absent: the idle picture the layout names. Read by the
    *  isometric view (C1: its machines play the same states). */
   readonly cldPantry = new Map<string, string>();
@@ -198,7 +198,7 @@ export class OfficeState {
     const elevators = this.cldElevators;
     this.cldElevators = findElevators(layout, this.tileMap, this.blockedTiles);
     this.cldLinks = elevatorLinks(this.cldElevators);
-    // cld-gui (ELEVATOR): floors whose rows moved carry their characters along.
+    // agty (ELEVATOR): floors whose rows moved carry their characters along.
     if (!shift)
       carryAcrossFloors(before, layout, this.characters.values(), elevators, this.cldElevators);
     this.rebuildFurnitureInstances();
@@ -236,7 +236,7 @@ export class OfficeState {
 
     // First pass: try to keep characters at their existing seats
     const seatless = new Set<Character>();
-    // cld-gui (ELEVATOR): a seat now on another floor (its room moved) is reached by elevator;
+    // agty (ELEVATOR): a seat now on another floor (its room moved) is reached by elevator;
     // the first office with floors (the page's default one before) seats everyone at once.
     const riders: Character[] = [];
     const moved = !!floorRects(before) && !!floorRects(layout);
@@ -266,7 +266,7 @@ export class OfficeState {
             riders.push(ch);
             continue;
           }
-          // cld-gui (LOUNGE): one resting off duty keeps its desk but stays where it rests.
+          // agty (LOUNGE): one resting off duty keeps its desk but stays where it rests.
           if (ch.cldRest) continue;
           // Snap character to seat position
           ch.tileCol = seat.seatCol;
@@ -332,7 +332,7 @@ export class OfficeState {
       ) {
         this.relocateCharacterToWalkable(ch);
       } else if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
-        // cld-gui (ELEVATOR): on a tile the new office walled in: the nearest floor on its floor.
+        // agty (ELEVATOR): on a tile the new office walled in: the nearest floor on its floor.
         const near = nearestOnFloor(layout, this.walkableTiles, ch);
         if (near) {
           Object.assign(ch, {
@@ -499,7 +499,7 @@ export class OfficeState {
    * preserves pre-Areas single-stage behavior (skips Stage 1; Stage 2 picks
    * unzoned seats from a layout without `areaTiles`, which is every seat).
    */
-  /** cld-gui (T-0066): for a seat whose chair the user removed, the chair the server
+  /** agty (T-0066): for a seat whose chair the user removed, the chair the server
    *  names (`cldSeats`; null: none, the character works in place); a seat that is there is
    *  itself; undefined: no word. */
   private cldSeat(seatId: string | null | undefined): string | null | undefined {
@@ -770,7 +770,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch) return;
     if (ch.matrixEffect === 'despawn') return; // already despawning
-    ch.cldAway = false; // cld-gui (T-0041): removed means gone, home or not
+    ch.cldAway = false; // agty (T-0041): removed means gone, home or not
     // Free seat and clear selection immediately
     if (ch.seatId) {
       const seat = this.seats.get(ch.seatId);
@@ -1113,7 +1113,7 @@ export class OfficeState {
     if (ch) {
       const wasActive = ch.isActive;
       ch.isActive = active;
-      // cld-gui (C1): on a coffee break the character finishes it; the director brings it back.
+      // agty (C1): on a coffee break the character finishes it; the director brings it back.
       if (ch.cldRest?.brk) return this.rebuildFurnitureInstances();
       if (shouldReturnToSeat(wasActive, active)) {
         ch.keyboardWalk = undefined;
@@ -1165,9 +1165,9 @@ export class OfficeState {
       }
     }
 
-    // cld-gui (ELEVATOR): the elevators are drawn with the furniture.
+    // agty (ELEVATOR): the elevators are drawn with the furniture.
     const elevators = this.cldElevators?.map((e) => e.instance) ?? [];
-    // cld-gui (LOUNGE): a machine in use shows its state.
+    // agty (LOUNGE): a machine in use shows its state.
     const pantry = (items: PlacedFurniture[]) =>
       this.cldPantry.size
         ? items.map((i) =>
@@ -1208,7 +1208,7 @@ export class OfficeState {
     this.furniture = [...layoutToFurnitureInstances(pantry(modifiedFurniture)), ...elevators];
   }
 
-  /** cld-gui (LOUNGE): show a machine in one of its states (a catalog type), or idle again (null). */
+  /** agty (LOUNGE): show a machine in one of its states (a catalog type), or idle again (null). */
   setPantryType(uid: string, type: string | null): void {
     if (this.cldPantry.get(uid) === (type ?? undefined)) return;
     if (type === null) this.cldPantry.delete(uid);
@@ -1460,7 +1460,7 @@ export class OfficeState {
     for (const ch of this.characters.values()) {
       const effect = advanceMatrixEffect(ch, dt);
       if (effect !== 'none') {
-        // cld-gui (T-0041): one who went home is kept, out of sight.
+        // agty (T-0041): one who went home is kept, out of sight.
         if (effect === 'despawned' && ch.cldAway) ch.matrixEffect = null;
         else if (effect === 'despawned') toDelete.push(ch.id);
         continue; // skip normal FSM while the effect is (or just was) active
@@ -1469,14 +1469,14 @@ export class OfficeState {
         ch.cldRide = undefined;
         continue;
       }
-      // cld-gui (ELEVATOR): a visit ends with the next work; a ride holds the character.
+      // agty (ELEVATOR): a visit ends with the next work; a ride holds the character.
       if (ch.cldVisit) visitStep(this, ch);
       if (
         (ch.cldRide || (ch.state === CharacterState.WALK && ch.path.length > 0)) &&
         rideStep(ch, dt, this.cldElevators)
       )
         continue;
-      // cld-gui (LOUNGE): one resting off duty is its own: still, or at a machine (a walk is the FSM's).
+      // agty (LOUNGE): one resting off duty is its own: still, or at a machine (a walk is the FSM's).
       if (ch.cldRest && restStep(this, ch, dt)) continue;
 
       // Temporarily unblock own seat so character can pathfind to it. cld
@@ -1535,7 +1535,7 @@ export class OfficeState {
     }
   }
 
-  /** cld-gui (T-0075): does anything on the office move — a walker, a spawn/despawn effect, a
+  /** agty (T-0075): does anything on the office move — a walker, a spawn/despawn effect, a
    *  fading bubble, a pet on the move? false: only the slow typing/reading frames change, 10 fps
    *  shows them. PAGE-MEM: hasEffects() is the part that needs the full rate on its own. */
   isAnimating(): boolean {
@@ -1566,7 +1566,7 @@ export class OfficeState {
     const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
     for (const ch of this.characters.values()) {
       if (ch.isSubagent || ch.cldOwner) continue;
-      // cld-gui (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
+      // agty (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
       const seatId = ch.cldVisit ? ch.cldVisit.homeSeat : ch.seatId;
       seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId };
     }

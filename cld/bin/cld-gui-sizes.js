@@ -1,6 +1,6 @@
 'use strict';
 
-// `cld-gui doctor`'s "data sizes" (U-42): read-only. The numbers repeat
+// `agty doctor`'s "data sizes" (U-42): read-only. The numbers repeat
 // server/src/cld/engine/logPolicy.ts (the daemon does the pruning);
 // logPrune.test.ts keeps the two in step.
 const fs = require('fs');

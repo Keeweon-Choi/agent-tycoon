@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { BoardTask, ReviewNote } from '../../../../core/src/messages.js';
+import type { BoardTask, RepoWorktree, ReviewNote } from '../../../../core/src/messages.js';
 import { setLanguage, t } from '../../i18n/index.js';
 import { diffRows } from './repoText.js';
 import {
+  askedByWorker,
   inRange,
   lineRange,
   newlyInReview,
@@ -13,6 +14,7 @@ import {
   reviewKey,
   reviewResetForTests,
   reviewSendNotes,
+  reviewTarget,
   unsentNotes,
 } from './reviewStore.js';
 
@@ -94,6 +96,28 @@ describe('review ready', () => {
     const before = { tasks: [task('T-1', 'doing'), task('T-2', 'review')] };
     const after = { tasks: [task('T-1', 'review'), task('T-2', 'review'), task('T-3', 'review')] };
     expect(newlyInReview(before, after).map((x) => x.id)).toEqual(['T-1']);
+  });
+});
+
+describe('review notice rule (T-73)', () => {
+  const engine = [
+    { name: 'Marvin', role: undefined },
+    { name: 'Wren', role: 'worker' as const },
+  ];
+  const by = (name?: string, owner?: BoardTask['owner']) =>
+    ({ assignee: name ? { assignmentId: 'a', name } : undefined, owner }) as BoardTask;
+  it('asks only for a Worker assignee', () => {
+    expect(askedByWorker(by('Wren'), engine)).toBe(true);
+    expect(askedByWorker(by('Marvin'), engine)).toBe(false);
+    expect(askedByWorker(by('Wren', { kind: 'lead', name: 'Marvin' }), engine)).toBe(false);
+    expect(askedByWorker(by(undefined), engine)).toBe(false);
+    expect(askedByWorker(by('Gone'), [])).toBe(true);
+  });
+  it('opens the worktree review, else the issue', () => {
+    const wts = [{ task: 'feat-x', taskId: 'T-1' }] as RepoWorktree[];
+    expect(reviewTarget({ id: 'T-1', project: 'p' }, wts)).toEqual({ kind: 'review', project: 'p', worktree: 'feat-x' });
+    expect(reviewTarget({ id: 'T-2', project: 'p' }, wts)).toEqual({ kind: 'issue', project: 'p', id: 'T-2' });
+    expect(reviewTarget({ id: 'T-2', project: 'p' }, undefined)).toEqual({ kind: 'issue', project: 'p', id: 'T-2' });
   });
 });
 

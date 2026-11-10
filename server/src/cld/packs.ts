@@ -179,7 +179,7 @@ export function loadPack(dir: string, builtIn: boolean): LoadedPack | { error: s
   const local = new Map<string, string>(); // pack-local id -> namespaced
   for (const p of Array.isArray(raw.parts) ? raw.parts.slice(0, MAX_PACK_PARTS) : []) {
     const fail = (why: string) =>
-      console.warn(`[cld] pack ${id}: part ${JSON.stringify(p?.id)} skipped (${why})`);
+      console.warn(`[agty] pack ${id}: part ${JSON.stringify(p?.id)} skipped (${why})`);
     if (
       !isObj(p) ||
       typeof p.id !== 'string' ||
@@ -281,7 +281,7 @@ export function loadPack(dir: string, builtIn: boolean): LoadedPack | { error: s
     if (!isObj(pr) || typeof pr.id !== 'string' || !PACK_ID.test(pr.id) || !name) continue;
     const look = presetLook(pr.look, local);
     if (!look) {
-      console.warn(`[cld] pack ${id}: preset ${pr.id} skipped (not a person look)`);
+      console.warn(`[agty] pack ${id}: preset ${pr.id} skipped (not a person look)`);
       continue;
     }
     presets.push({
@@ -379,7 +379,7 @@ export class PackStore {
         }
         const pack = loadPack(dir, builtIn);
         if ('error' in pack) {
-          console.warn(`[cld] pack ${name} skipped (${pack.error})`);
+          console.warn(`[agty] pack ${name} skipped (${pack.error})`);
           continue;
         }
         if (!found.has(pack.summary.id)) found.set(pack.summary.id, pack); // a built-in id wins

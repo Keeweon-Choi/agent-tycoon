@@ -21,6 +21,7 @@ import * as path from 'path';
 
 import { koText } from '../../../../core/src/cld/serverText.js';
 import type { BoardTask } from '../../../../core/src/messages.js';
+import { LABEL } from '../labels.js';
 import { configDir, shortStamp } from './events.js';
 import { summarizeEvent } from './eventSummary.js';
 import { readdressFiles, writeAtomic } from './messenger.js';
@@ -370,7 +371,7 @@ export function fitBriefing(b: BriefingParts, frame: (lines: string[]) => string
 export function leadPrompt(b: LeadBriefing): string {
   return fitBriefing(b, (lines) =>
     [
-      `[cld-gui Lead 교체 · ${b.when}] 이제 너는 프로젝트 '${b.project}' 의 Lead 다. 사용자와 다른 에이전트는 '${b.project}' 로 너를 부른다.`,
+      `[${LABEL} Lead 교체 · ${b.when}] 이제 너는 프로젝트 '${b.project}' 의 Lead 다. 사용자와 다른 에이전트는 '${b.project}' 로 너를 부른다.`,
       `이전 Lead 는 이제 Worker '${b.worker}'(${b.oldLead === 'worker' ? '켜짐' : '멈춤'}) 다. 너의 Worker 시절 대화: ${b.workerTranscript ?? '없음'}. 이전 Lead 대화: ${b.leadTranscript ?? '없음'} (필요하면 읽어라).`,
       ...lines,
       '먼저 Task 현황을 확인하고, 필요하면 Worker 에게 맡겨 이어서 진행하라. 할 일이 없으면 기다린다.',
@@ -380,7 +381,7 @@ export function leadPrompt(b: LeadBriefing): string {
 
 /** The old Lead's notice when it goes on as a Worker. */
 export const roleNotice = (project: string, worker: string, when: string): string =>
-  `[cld-gui Lead 교체 · ${when}] Lead 는 이제 '${project}' 다. 너는 Worker '${worker}' 이다. 맡은 Task 만 하고 새 일은 create_task 로 Lead 에게 제안하라. 하던 Lead 일은 새 Lead 가 이어받으니 안전한 지점에서 멈추고 기다린다.`;
+  `[${LABEL} Lead 교체 · ${when}] Lead 는 이제 '${project}' 다. 너는 Worker '${worker}' 이다. 맡은 Task 만 하고 새 일은 create_task 로 Lead 에게 제안하라. 하던 Lead 일은 새 Lead 가 이어받으니 안전한 지점에서 멈추고 기다린다.`;
 
 /**
  * §3.4 the project chat's scroll-back: the transcript a Lead contact's history continues

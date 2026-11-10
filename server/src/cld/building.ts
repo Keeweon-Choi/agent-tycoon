@@ -1,5 +1,5 @@
 /**
- * The building (T-0027): the office's floors, kept by cld-gui in
+ * The building (T-0027): the office's floors, kept by agty in
  * ~/.config/agent-tycoon/building.json. The office is generated plus decor
  * (decor.ts); layout.json is read once for migration. With no building.json there is one floor
  * holding every room, the office as it was.
@@ -245,7 +245,7 @@ export function loadBuilding(file: string): BuildingData {
   } catch {
     /* gone already */
   }
-  console.warn(`[cld] ${path.basename(file)} is not a building; moved to ${aside}, one floor`);
+  console.warn(`[agty] ${path.basename(file)} is not a building; moved to ${aside}, one floor`);
   return defaultBuilding();
 }
 

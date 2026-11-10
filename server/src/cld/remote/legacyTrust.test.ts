@@ -28,6 +28,6 @@ it('reads old Tailscale trust configuration, ignores it, and warns once at start
     deps: { lanIp: null, wslMode: async () => null },
   });
   expect(warn).toHaveBeenCalledTimes(1);
-  expect(warn).toHaveBeenCalledWith(`[cld auth] ${TAILSCALE_AUTOLOGIN_RETIRED}`);
+  expect(warn).toHaveBeenCalledWith(`[agty auth] ${TAILSCALE_AUTOLOGIN_RETIRED}`);
   await remote.dispose();
 });

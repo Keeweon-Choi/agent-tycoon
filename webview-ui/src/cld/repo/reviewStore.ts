@@ -7,6 +7,8 @@ import { useSyncExternalStore } from 'react';
 
 import type {
   BoardTask,
+  EngineProject,
+  RepoWorktree,
   ReviewNote,
   ReviewNoteResult,
   ReviewNotes,
@@ -18,7 +20,7 @@ import type {
 import { t } from '../../i18n/index.js';
 import { serverText } from '../serverText.js';
 import type { ToastSink } from './repoStore.js';
-import type { DiffRow } from './repoText.js';
+import { type DiffRow, worktreeOfTask } from './repoText.js';
 
 export interface NotesView {
   notes: ReviewNote[];
@@ -131,6 +133,35 @@ export function newlyInReview(
   return after.tasks.filter(
     (task) => task.status === 'review' && was.has(task.id) && was.get(task.id) !== 'review',
   );
+}
+
+/**
+ * T-73: the 검토 대기 notice is for the owner's decision on a Worker's work, so it names only a Task a
+ * Worker (an assignee that is not a Lead) asks to have reviewed: no Task without an assignee, none
+ * a Lead moved on its own.
+ */
+export function askedByWorker(
+  task: Pick<BoardTask, 'assignee' | 'owner'>,
+  engine: readonly Pick<EngineProject, 'name' | 'role'>[],
+): boolean {
+  const who = task.assignee?.name;
+  if (!who || task.owner?.kind === 'lead') return false;
+  return !engine.some((p) => !p.role && p.name === who);
+}
+
+/** Where the notice leads: the review of the Task's worktree, else the issue board on that Task. */
+export type ReviewTarget =
+  | { kind: 'review'; project: string; worktree: string }
+  | { kind: 'issue'; project: string; id: string };
+
+export function reviewTarget(
+  task: Pick<BoardTask, 'id' | 'project'>,
+  worktrees: readonly RepoWorktree[] | undefined,
+): ReviewTarget {
+  const wt = worktreeOfTask(worktrees, task.id);
+  return wt
+    ? { kind: 'review', project: task.project, worktree: wt.task }
+    : { kind: 'issue', project: task.project, id: task.id };
 }
 
 // ── Wire ────────────────────────────────────────────────────

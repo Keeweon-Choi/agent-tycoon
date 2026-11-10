@@ -65,24 +65,24 @@ export interface CliArgs {
   legacyTailscaleTrust: boolean;
   /** --rotate-token: replace the persisted server token before starting. */
   rotateToken: boolean;
-  /** cld-gui: the office changes nothing (no project, job or repository write). On by
+  /** agty: the office changes nothing (no project, job or repository write). On by
    *  default; --allow-actions turns it off, --read-only back on (the last of the two wins). */
   readOnly: boolean;
-  /** cld-gui --allow-chat: logged-in browsers may open `claude attach` on background sessions. */
+  /** agty --allow-chat: logged-in browsers may open `claude attach` on background sessions. */
   chat: boolean;
   /** Host explicitly permits trusted devices to open login shells. */
   allowTerminal: boolean;
-  /** cld-gui --allow-approval-requests: a new device may ask a logged-in one (T-0022, off by default). */
+  /** agty --allow-approval-requests: a new device may ask a logged-in one (T-0022, off by default). */
   approvalRequests: boolean;
-  /** cld-gui --engine auto|on|off: the built-in engine (auto = on). */
+  /** agty --engine auto|on|off: the built-in engine (auto = on). */
   engine: EngineMode;
-  /** cld-gui --lhm-port <n>: read LibreHardwareMonitor's data.json on this port (Windows, WSL). */
+  /** agty --lhm-port <n>: read LibreHardwareMonitor's data.json on this port (Windows, WSL). */
   lhmPort?: number;
-  /** cld-gui --nvidia-smi: the HW sampler may query an NVIDIA GPU with nvidia-smi (off by default). */
+  /** agty --nvidia-smi: the HW sampler may query an NVIDIA GPU with nvidia-smi (off by default). */
   nvidiaSmi?: boolean;
-  /** cld-gui --connector (T-0024); unset: ~/.config/agent-tycoon/config.json, else local. */
+  /** agty --connector (T-0024); unset: ~/.config/agent-tycoon/config.json, else local. */
   connector?: Connector;
-  /** cld-gui --direct-port: the HTTPS port the router forwards 443 to (default 18443). */
+  /** agty --direct-port: the HTTPS port the router forwards 443 to (default 18443). */
   directPort?: number;
 }
 
@@ -251,7 +251,7 @@ function reportTerminalStatus(
   _enabledByFlag: boolean,
 ): void {
   void ptyManager;
-  console.log('[Agent Tycoon] Terminal disabled in cld-gui.');
+  console.log('[Agent Tycoon] Terminal disabled in agty.');
 }
 
 async function issueLoginCode(
@@ -353,25 +353,25 @@ async function main(): Promise<void> {
     // Create runtime first (before server.start, so we can pass it in)
     const runtime = new AgentRuntime(store, claudeProvider);
 
-    // cld-gui chat (T-0014): off unless asked for, and only with a claude to attach.
-    // The same attach manager types cld-gui sends (T-0019); nothing runs until used.
+    // agty chat (T-0014): off unless asked for, and only with a claude to attach.
+    // The same attach manager types agty sends (T-0019); nothing runs until used.
     const claudePath = findClaude();
-    if (args.chat && !claudePath) console.log('[cld] chat off: claude not found');
+    if (args.chat && !claudePath) console.log('[agty] chat off: claude not found');
     const attach = claudePath
       ? new ChatManager({
           claudePath,
         })
       : undefined;
     const chat = args.chat ? attach : undefined;
-    // cld-gui HW (T-0030): nvidia-smi only when asked for (gpu.json's nvidiaSmi, which the H/W
+    // agty HW (T-0030): nvidia-smi only when asked for (gpu.json's nvidiaSmi, which the H/W
     // screen's switch sets and which wins, else --nvidia-smi) and only when it exists; found but
     // off is shown as such.
     const wantSmi = readGpuConfig().nvidiaSmi ?? args.nvidiaSmi === true;
     const nvidiaSmiFound = findNvidiaSmi();
     const nvidiaSmiPath = wantSmi ? nvidiaSmiFound : null;
-    if (wantSmi && !nvidiaSmiPath) console.log('[cld] nvidia-smi: asked for, but not found');
+    if (wantSmi && !nvidiaSmiPath) console.log('[agty] nvidia-smi: asked for, but not found');
 
-    // cld-gui: characters from Claude Code (+ the engine's projects), started
+    // agty: characters from Claude Code (+ the engine's projects), started
     // before the server so the first client already sees the whole office.
     const office = await startOffice({
       runtime,
@@ -441,7 +441,7 @@ async function main(): Promise<void> {
       console.log('[Agent Tycoon] Assets reloaded (external directory change)');
     };
 
-    // cld-gui remote (T-0024): LAN and public listeners, invitations' address.
+    // agty remote (T-0024): LAN and public listeners, invitations' address.
     const hostToken: { current?: string } = {};
     const remote = startRemote({
       connector: args.connector,
@@ -505,9 +505,9 @@ async function main(): Promise<void> {
                 hostScript: CLD_PTYHOST,
                 env: cleanEnv(process.env, os.homedir()),
                 systemdRun: findSystemdRun(),
-                log: (line) => console.log(`[cld shell] ${line}`),
+                log: (line) => console.log(`[agty shell] ${line}`),
               }),
-              log: (line) => console.log(`[cld shell] ${line}`),
+              log: (line) => console.log(`[agty shell] ${line}`),
             }))
           : null,
       allowApprovalRequests: args.approvalRequests,
@@ -529,14 +529,14 @@ async function main(): Promise<void> {
     runtime.hooksEnabled.current = false;
     runtime.watchAllSessions.current = adapter.getSetting('agent-tycoon.watchAllSessions', false);
 
-    console.log('[Agent Tycoon] Hooks disabled in cld-gui.');
+    console.log('[Agent Tycoon] Hooks disabled in agty.');
 
     // Start scanning for external sessions (Claude running in user's terminal)
     const cwd = process.cwd();
     const dirs = claudeProvider.getSessionDirs?.(cwd);
     if (dirs && dirs[0]) {
       const projectDir = dirs[0];
-      // cld-gui: the office's providers own the characters; adopting the cwd's
+      // agty: the office's providers own the characters; adopting the cwd's
       // sessions as well would duplicate them.
       if (!office) {
         console.log(`[Agent Tycoon] Scanning project dir: ${projectDir}`);

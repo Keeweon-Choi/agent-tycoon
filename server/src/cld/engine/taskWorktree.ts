@@ -1,6 +1,6 @@
 /**
  * W2: the one operation "a worktree for a Task" (B §2 Worktree, F-16), used by
- * the 작업실 (repoAction `worktreeNew`), `cld-gui worktree new` and
+ * the 작업실 (repoAction `worktreeNew`), `agty worktree new` and
  * `delegate_task({ task: { worktree: 'new' } })`: in the Task's project, the
  * git layer's createForTask (branch `feat/t<id>-<slug>` from the main branch or
  * a named base, `.worktrees/`, refusals there), through RepoManager.write (the
@@ -265,8 +265,8 @@ export async function seatInWorktree(d: SeatDeps, req: SeatRequest, privileged: 
 }
 
 /**
- * `cld-gui worktree new --task <id> [--assign <name>] [--base <branch>]` and
- * `cld-gui worktree list [--task <id>]` over the control socket. An agent's
+ * `agty worktree new --task <id> [--assign <name>] [--base <branch>]` and
+ * `agty worktree list [--task <id>]` over the control socket. An agent's
  * token keeps it to its own project (and agents of it); the owner's CLI sees all.
  */
 export async function answerWorktree(

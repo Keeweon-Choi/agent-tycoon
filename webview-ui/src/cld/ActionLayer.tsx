@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 
+import { Button } from '../components/ui/Button.js';
 import { transport } from '../transport/index.js';
 import { listenForAppDownloads } from './desktopApp.js';
 import { EngineLayer } from './EngineControls.js';
@@ -38,10 +39,23 @@ export function ActionLayer() {
               className="w-max max-w-[min(420px,calc(100vw-32px))] cursor-pointer"
               frameClassName={`px-12 py-8 text-sm break-words ${toast.tone === 'error' ? 'text-red-400' : toast.tone === 'info' ? 'text-yellow-300' : 'text-text'}`}
               onDismiss={() => cldDismissToast(toast.id)}
-              onTap={() => cldDismissToast(toast.id)}
+              onTap={() => {
+                toast.open?.run();
+                cldDismissToast(toast.id);
+              }}
             >
               <strong className="mr-8">{toast.name}</strong>
               {toast.text}
+              {toast.open && (
+                <Button
+                  size="sm"
+                  variant="accent"
+                  className="ml-8 align-middle"
+                  data-testid="toast-open"
+                >
+                  {toast.open.label}
+                </Button>
+              )}
             </FloatingToast>
       )}
       <EngineLayer />

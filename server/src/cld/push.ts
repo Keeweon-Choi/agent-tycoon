@@ -73,7 +73,7 @@ const ENDPOINT_MAX = 2048;
 export const PUSH_PREVIEW_MAX = 120;
 /** U-49: the same message from the same sender again within this is one turn's end reported twice (a hook and the idle timer), not a new message. */
 export const PUSH_REPEAT_MS = 30_000;
-/** U-49: the counters in push.json are written at most this often (cld-gui doctor reads them). */
+/** U-49: the counters in push.json are written at most this often (agty doctor reads them). */
 const STATS_SAVE_MS = 60_000;
 
 export interface PushSubscriptionRow {
@@ -192,7 +192,7 @@ export class PushStore {
     try {
       raw = readJson(file);
     } catch (err) {
-      console.warn(`[cld push] ${file} could not be read, push off (file kept): ${errText(err)}`);
+      console.warn(`[agty push] ${file} could not be read, push off (file kept): ${errText(err)}`);
       return;
     }
     if (raw === null) {
@@ -201,7 +201,7 @@ export class PushStore {
     } else if (isPushFile(raw)) {
       this.data = raw;
     } else {
-      console.warn(`[cld push] ${file} is not a push file, push off (file kept)`);
+      console.warn(`[agty push] ${file} is not a push file, push off (file kept)`);
     }
   }
 
@@ -259,7 +259,7 @@ export class PushStore {
     try {
       writeJsonAtomic(this.file, this.data);
     } catch (err) {
-      console.warn(`[cld push] could not save ${this.file}: ${errText(err)}`);
+      console.warn(`[agty push] could not save ${this.file}: ${errText(err)}`);
     }
   }
 }
@@ -376,10 +376,10 @@ export async function sendPush(
     });
     if (res.status === 404 || res.status === 410) return 'gone';
     if (res.ok) return 'sent';
-    console.warn(`[cld push] push service answered ${res.status}`);
+    console.warn(`[agty push] push service answered ${res.status}`);
     return 'failed';
   } catch (err) {
-    console.warn(`[cld push] push failed: ${err instanceof Error ? err.name : 'error'}`);
+    console.warn(`[agty push] push failed: ${err instanceof Error ? err.name : 'error'}`);
     return 'failed';
   }
 }
@@ -499,7 +499,7 @@ export class PushService {
     }
   }
 
-  /** U-49: what went out and what was left, for `cld-gui doctor` (push.json, at most once a minute). */
+  /** U-49: what went out and what was left, for `agty doctor` (push.json, at most once a minute). */
   private count(key: string): void {
     this.stats[key] = (this.stats[key] ?? 0) + 1;
     if (this.statsTimer) return;
@@ -517,7 +517,7 @@ export class PushService {
     auth.onRowGone = (id) => {
       previous?.(id);
       if (this.opts.store.removeWhere((s) => s.device === id))
-        console.log('[cld push] subscription of a revoked device removed');
+        console.log('[agty push] subscription of a revoked device removed');
     };
     // O3: composed too; the toast and the audit line stay where they are.
     const previousEvent = auth.onDeviceEvent;
@@ -558,7 +558,7 @@ export class PushService {
       if (sub.device === event.id && (event.event === 'new' || event.event === 'unknown')) continue;
       void sendPush(sub, payload(sub.lang ?? 'ko'), vapid, store.subject, this.opts.fetchFn).then((result) => {
         if (result === 'gone' && store.removeWhere((s) => s.endpoint === sub.endpoint))
-          console.log('[cld push] subscription expired at the push service: removed');
+          console.log('[agty push] subscription expired at the push service: removed');
       });
     }
   }
@@ -602,12 +602,12 @@ export class PushService {
     }
     const sub = parsePushSubscribe(msg);
     if (!sub) {
-      console.warn('[cld push] malformed pushSubscribe dropped');
+      console.warn('[agty push] malformed pushSubscribe dropped');
       send(this.state(send, koText('push_registration_invalid')));
       return true;
     }
     store.set({ ...sub, device, createdAt: Date.now() });
-    console.log('[cld push] a device subscribed');
+    console.log('[agty push] a device subscribed');
     send(this.state(send));
     return true;
   }
@@ -621,7 +621,7 @@ export class PushService {
   private noteSkipped(reason: string, now: number): void {
     this.skipped++;
     if (now - this.skipLoggedAt < PUSH_SKIP_LOG_MS) return;
-    console.warn(`[cld push] ${this.skipped} notice(s) not pushed: ${reason}`);
+    console.warn(`[agty push] ${this.skipped} notice(s) not pushed: ${reason}`);
     this.skipped = 0;
     this.skipLoggedAt = now;
   }
@@ -885,19 +885,19 @@ export class PushService {
       sends.push(
         sendPush(sub, { ...payload, body: textIn(sub.lang ?? 'ko', payload.body), ...(label && { imageLabel: textIn(sub.lang ?? 'ko', label) }) }, vapid, store.subject, this.opts.fetchFn).then((result) => {
           if (result === 'gone' && store.removeWhere((s) => s.endpoint === sub.endpoint))
-            console.log('[cld push] subscription expired at the push service: removed');
+            console.log('[agty push] subscription expired at the push service: removed');
           return result;
         }),
       );
     }
     if (!sends.length) return;
-    // One line per batch, no content: whether pushes go out is visible in `cld-gui logs`.
+    // One line per batch, no content: whether pushes go out is visible in `agty logs`.
     void Promise.all(sends).then((results) => {
       const ok = results.filter((r) => r === 'sent').length;
       const bad = results.length - ok;
       for (let i = 0; i < results.length; i++)
         this.count(`${results[i] === 'sent' ? 'sent' : 'failed'}.${cause}`);
-      console.log(`[cld push] sent ${cause} to ${ok} device(s)${bad ? `, ${bad} failed` : ''}`);
+      console.log(`[agty push] sent ${cause} to ${ok} device(s)${bad ? `, ${bad} failed` : ''}`);
     });
   }
 }

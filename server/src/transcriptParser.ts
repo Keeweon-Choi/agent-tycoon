@@ -287,12 +287,12 @@ export function processTranscriptLine(
                 permissionActive: agent.permissionSent,
                 runInBackground,
                 isTeammateSpawn: isTeammateSpawn || undefined,
-                // cld-gui (T-0041): the model a spawn asked for, for its badge.
+                // agty (T-0041): the model a spawn asked for, for its badge.
                 model:
                   isSubagentSpawn && typeof block.input?.model === 'string'
                     ? block.input.model
                     : undefined,
-                // cld-gui (DEVROOM-SIDEBAR): what it touches (a watched sub-agent's worktree).
+                // agty (DEVROOM-SIDEBAR): what it touches (a watched sub-agent's worktree).
                 path: toolPath(block.input, record.cwd),
               });
             }

@@ -350,37 +350,37 @@ export class RepoManager {
     switch (msg.type) {
       case 'repoView': {
         const req = parseRepoView(msg);
-        if (!req) console.warn('[cld repo] malformed repoView dropped');
+        if (!req) console.warn('[agty repo] malformed repoView dropped');
         else if (privileged) this.view(req, send);
         return true;
       }
       case 'repoDiffRequest': {
         const req = parseRepoDiff(msg);
-        if (!req) console.warn('[cld repo] malformed repoDiffRequest dropped');
+        if (!req) console.warn('[agty repo] malformed repoDiffRequest dropped');
         else if (privileged) void this.diff(req, send);
         return true;
       }
       case 'repoWorktreeRequest': {
         const req = parseRepoWorktree(msg);
-        if (!req) console.warn('[cld repo] malformed repoWorktreeRequest dropped');
+        if (!req) console.warn('[agty repo] malformed repoWorktreeRequest dropped');
         else if (privileged) void this.worktreeDetail(req, send);
         return true;
       }
       case 'reviewNotesRequest': {
         const req = parseReviewNotes(msg);
-        if (!req) console.warn('[cld repo] malformed reviewNotesRequest dropped');
+        if (!req) console.warn('[agty repo] malformed reviewNotesRequest dropped');
         else if (privileged) void this.listReviewNotes(req, send, true);
         return true;
       }
       case 'reviewNoteWrite': {
         const req = parseReviewNoteWrite(msg);
-        if (!req) console.warn('[cld repo] malformed reviewNoteWrite dropped');
+        if (!req) console.warn('[agty repo] malformed reviewNoteWrite dropped');
         else if (privileged) void this.writeReviewNote(req, send, source);
         return true;
       }
       case 'reviewSend': {
         const req = parseReviewSend(msg);
-        if (!req) console.warn('[cld repo] malformed reviewSend dropped');
+        if (!req) console.warn('[agty repo] malformed reviewSend dropped');
         else if (privileged) void this.sendReview(req, send, source);
         return true;
       }
@@ -388,7 +388,7 @@ export class RepoManager {
       case 'repoConflicts':
       case 'repoCleanupList': {
         const req = parseTaskRequest(msg, msg.type !== 'repoCleanupList');
-        if (!req) console.warn(`[cld repo] malformed ${msg.type} dropped`);
+        if (!req) console.warn(`[agty repo] malformed ${msg.type} dropped`);
         else if (privileged) {
           const answer =
             msg.type === 'repoMergeCheck'
@@ -398,18 +398,18 @@ export class RepoManager {
                 : this.cleanupList(req, (m) => send({ ...m }));
           void answer.then(
             (m) => send({ ...m }),
-            (err: unknown) => console.warn(`[cld repo] ${String(msg.type)}: ${String(err)}`),
+            (err: unknown) => console.warn(`[agty repo] ${String(msg.type)}: ${String(err)}`),
           );
         }
         return true;
       }
       case 'repoAction': {
         const req = parseRepoAction(msg);
-        if (!req) console.warn('[cld repo] malformed repoAction dropped');
+        if (!req) console.warn('[agty repo] malformed repoAction dropped');
         else {
           void this.runAction(req, privileged, source, stepUp).then(
             (result) => send({ ...result }),
-            (err: unknown) => console.warn(`[cld repo] action: ${String(err)}`),
+            (err: unknown) => console.warn(`[agty repo] action: ${String(err)}`),
           );
         }
         return true;
@@ -538,7 +538,7 @@ export class RepoManager {
         ...(merges.length && { merges }),
       };
     } catch (err) {
-      console.warn(`[cld repo] ${JSON.stringify(name)}: ${String(err)}`);
+      console.warn(`[agty repo] ${JSON.stringify(name)}: ${String(err)}`);
       return { type: 'repoState', project: name, ok: false, ...refused('git_run_failed') };
     }
   }
@@ -591,7 +591,7 @@ export class RepoManager {
       .then(
         (files) => files,
         (err: unknown) => {
-          console.warn(`[cld repo] conflict pre-check ${w.task}: ${String(err)}`);
+          console.warn(`[agty repo] conflict pre-check ${w.task}: ${String(err)}`);
           return null;
         },
       )
@@ -623,7 +623,7 @@ export class RepoManager {
         : await readDiff(this.run, proj.folder, req);
       reply({ ok: true, ...page });
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] diff: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] diff: ${String(err)}`);
       reply({ ok: false, error: err instanceof RepoError ? err.message : koText('diff_failed') });
     }
   }
@@ -667,7 +667,7 @@ export class RepoManager {
       this.keepChanges(`${proj.name}\0${req.task}\0${req.since ?? ''}`, changes);
       reply({ ok: true, ...detail, guard: guardNote(guard) });
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] worktree detail: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] worktree detail: ${String(err)}`);
       reply({ ok: false, error: err instanceof RepoError ? err.message : koText('changes_unreadable') });
     }
   }
@@ -757,7 +757,7 @@ export class RepoManager {
         ...(last?.sentHead && { sentHead: last.sentHead }),
       });
     } catch (err) {
-      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[cld repo] review notes: ${String(err)}`);
+      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[agty repo] review notes: ${String(err)}`);
       reply({ ok: false, notes: [], error: err instanceof Error ? err.message : koText('review_notes_unreadable') });
     }
   }
@@ -792,7 +792,7 @@ export class RepoManager {
       reply({ ok: true, ...(id && { id }) });
       void this.broadcastReviewNotes(req.project, req.task);
     } catch (err) {
-      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[cld repo] review note write: ${String(err)}`);
+      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[agty repo] review note write: ${String(err)}`);
       reply({ ok: false, ...(err instanceof Error ? { error: err.message } : { error: koText('review_notes_unreadable') }) });
     }
   }
@@ -850,7 +850,7 @@ export class RepoManager {
       void this.broadcastReviewNotes(project, task);
       return out;
     } catch (err) {
-      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[cld repo] review send: ${String(err)}`);
+      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[agty repo] review send: ${String(err)}`);
       return { ok: false, error: err instanceof Error ? err.message : koText('review_notes_unreadable') };
     } finally {
       if (mine) this.reviewSending.delete(key);
@@ -887,7 +887,7 @@ export class RepoManager {
         body: input.body,
       }, `agent:${input.lead}`, identity).id;
     } catch (err) {
-      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[cld repo] lead review note: ${String(err)}`);
+      if (!(err instanceof RepoError || err instanceof ReviewNotesError)) console.warn(`[agty repo] lead review note: ${String(err)}`);
       return { ok: false, code: 'refused', error: err instanceof Error ? err.message : koText('review_notes_unreadable') };
     }
     const out = await this.deliverReview(input.project, input.task, source, { only: id, lead: input.lead });
@@ -1025,7 +1025,7 @@ export class RepoManager {
         ? { ok: true, detail: koText('handoff_done', { to: out.to ?? '' }) }
         : { ok: false, code: out.errorCode ?? 'refused', error: out.error ?? koText('handoff_no_target') };
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] handoff: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] handoff: ${String(err)}`);
       return { ok: false, code: 'git_failed', error: err instanceof RepoError ? err.message : koText('git_run_failed') };
     }
   }
@@ -1070,7 +1070,7 @@ export class RepoManager {
         notesFixing: fixing,
       };
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] merge check: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] merge check: ${String(err)}`);
       return { ...head, ok: false, error: err instanceof RepoError ? err.message : koText('git_run_failed') };
     }
   }
@@ -1085,7 +1085,7 @@ export class RepoManager {
       if (!spec.exists) throw new RepoError(koText('worktree_missing'));
       return { ...head, ok: true, ...(await listConflicts(this.run, spec.path)) };
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] conflicts: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] conflicts: ${String(err)}`);
       return { ...head, ok: false, error: err instanceof RepoError ? err.message : koText('git_run_failed') };
     }
   }
@@ -1114,11 +1114,11 @@ export class RepoManager {
       // The sizes not known yet are measured after this answer; the same request is answered again then.
       if (unsized.length && again)
         void this.sizes.measure(unsized).then(() => this.cleanupList(req)).then(again, (err: unknown) => {
-          console.warn(`[cld repo] cleanup sizes: ${String(err)}`);
+          console.warn(`[agty repo] cleanup sizes: ${String(err)}`);
         });
       return { ...head, ok: true, rows };
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] cleanup list: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] cleanup list: ${String(err)}`);
       return { ...head, ok: false, error: err instanceof RepoError ? err.message : koText('git_run_failed') };
     }
   }
@@ -1149,7 +1149,7 @@ export class RepoManager {
     try {
       out = await fn(proj);
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] ${what}: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] ${what}: ${String(err)}`);
       out = {
         ok: false,
         code: (err instanceof RepoError && err.code) || 'git_failed',
@@ -1238,7 +1238,7 @@ export class RepoManager {
         return { ok: false, code: STEPUP_REQUIRED, error: STEPUP_REQUIRED };
       } else out = await mergeBranches(this.run, top, rec.branch, target);
     } catch (err) {
-      if (!(err instanceof RepoError)) console.warn(`[cld repo] merge: ${String(err)}`);
+      if (!(err instanceof RepoError)) console.warn(`[agty repo] merge: ${String(err)}`);
       out = { ok: false, code: 'git_failed', error: err instanceof RepoError ? err.message : koText('git_run_failed') };
     }
     try {
@@ -1251,7 +1251,7 @@ export class RepoManager {
         ...out,
       });
     } catch (err) {
-      console.warn(`[cld repo] merge history not written: ${String(err)}`);
+      console.warn(`[agty repo] merge history not written: ${String(err)}`);
     }
     this.log(
       `merge ${JSON.stringify(proj.name).slice(0, 66)} ${rec.task}: ${out.ok ? out.kind : `failed (${out.code})`} ${((Date.now() - started) / 1000).toFixed(1)}s ${o.source}`,
@@ -1285,7 +1285,7 @@ export class RepoManager {
       if (r.ok) this.reviewNotes.remove(proj.name, task);
       return r.ok;
     } catch (err) {
-      console.warn(`[cld repo] auto-cleanup ${task}: ${String(err)}`);
+      console.warn(`[agty repo] auto-cleanup ${task}: ${String(err)}`);
       return false;
     }
   }
@@ -1298,7 +1298,7 @@ export class RepoManager {
         try {
           this.reviewNotes.remove(proj.name, req.task);
         } catch (err) {
-          console.warn(`[cld repo] review notes not removed: ${String(err)}`);
+          console.warn(`[agty repo] review notes not removed: ${String(err)}`);
         }
       }
       return {
@@ -1330,6 +1330,6 @@ export class RepoManager {
   }
 
   private log(line: string): void {
-    (this.o.log ?? console.log)(`[cld repo] action ${line}`);
+    (this.o.log ?? console.log)(`[agty repo] action ${line}`);
   }
 }

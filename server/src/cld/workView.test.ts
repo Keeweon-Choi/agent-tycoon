@@ -4,7 +4,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import { refused } from '../../../core/src/cld/serverText.js';
-import { ARGS_MAX, lineItems, RESULT_MAX, spawnLineItems, toolArgs } from './transcriptView.js';
+import { ARGS_MAX, lineItems, MCP_ARGS_MAX, RESULT_MAX, spawnLineItems, toolArgs } from './transcriptView.js';
 import {
   fileReader,
   MAX_OPEN_PER_CLIENT,
@@ -332,6 +332,36 @@ describe('WorkViews', () => {
     views.view((m) => sent.push(m), { kind: 'teammate', agentId: 1 }, true);
     await views.poll();
     expect(JSON.stringify(sent)).not.toContain('hunter2hunter2');
+  });
+
+  describe('MCP tool args outside the work view', () => {
+    const toolLine = (name: string, input: Record<string, unknown>) =>
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name, input }] } });
+    const update = { taskId: 'T-59', status: 'done', note: 'n' };
+    const UPDATE = 'mcp__agty__update_task';
+
+    it('carry the key input', () => {
+      const [item] = lineItems(toolLine(UPDATE, update));
+      expect(item.args).toContain('taskId: T-59');
+      expect(item.args).toContain('status: done');
+    });
+    it('keep short fields behind a long note, within the cap', () => {
+      const [item] = lineItems(toolLine(UPDATE, { note: 'x'.repeat(1000), taskId: 'T-59', status: 'done' }));
+      expect(item.args).toContain('taskId: T-59');
+      expect(item.args).toContain('status: done');
+      expect(item.args!.length).toBeLessThanOrEqual(MCP_ARGS_MAX + 1);
+    });
+    it('mask a token-shaped value', () => {
+      const token = `${['sk', 'ant', 'api03'].join('-')}-${'A'.repeat(40)}`;
+      const [item] = lineItems(toolLine(UPDATE, { taskId: 'T-59', note: `key ${token}` }));
+      expect(item.args).not.toContain('A'.repeat(20));
+    });
+    it('leave other tools without args, and the work view whole', () => {
+      expect(lineItems(toolLine('Bash', { command: 'ls' }))[0].args).toBeUndefined();
+      const long = { ...update, note: 'x'.repeat(500) };
+      const [item] = lineItems(toolLine(UPDATE, long), 0, { results: true });
+      expect(item.args).toContain('x'.repeat(500));
+    });
   });
 
   it('toolArgs: the main argument, a search with its path, else the short scalars; capped', () => {

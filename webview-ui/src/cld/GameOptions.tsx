@@ -119,7 +119,7 @@ function readTab(): SettingsTab {
   }
 }
 
-/** Over the office's overlays and panels, like the other cld dialogs. */
+/** Over the office's overlays and panels, like the other agty dialogs. */
 const OPTIONS_Z_INDEX = 60;
 
 /** OPTIONS-3A: a game options screen on a desktop, one size whatever the tab (960 x 768 or the
@@ -209,7 +209,7 @@ function useInstallApp() {
       void navigator.serviceWorker
         .register(new URL('sw.js', document.baseURI))
         .catch((error: unknown) =>
-          console.warn('[cld install] service worker registration failed', error),
+          console.warn('[agty install] service worker registration failed', error),
         );
     }
     return () => {

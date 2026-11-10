@@ -26,7 +26,7 @@ export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
  *  handshake carries the server token as `?token=`, exactly like `/ws` (see
  *  server/src/wsAuth.ts); the frame shapes are in terminalFrames.ts. */
 export const TERMINAL_WS_PREFIX = '/terminal';
-/** cld-gui chat (T-0014): `/cld/attach/:id` streams `claude attach <id>` of a
+/** agty chat (T-0014): `/cld/attach/:id` streams `claude attach <id>` of a
  *  Claude background session in the terminal frames above. */
 export const CHAT_WS_PREFIX = '/cld/attach';
 
@@ -38,7 +38,7 @@ export const TRANSPORT_STATE_CONNECTED = 'connected';
 export const TRANSPORT_STATE_RECONNECTING = 'reconnecting';
 export const TRANSPORT_STATE_DISCONNECTED = 'disconnected';
 
-// ── Notices (cld-gui T-0039) ─────────────────────────────────
+// ── Notices (agty T-0039) ─────────────────────────────────
 
 /** The same notice kind for the same target at most once in this window (FR-NTF-003). */
 export const NOTICE_COOLDOWN_MS = 5 * 60_000;
@@ -89,3 +89,13 @@ export const STREET_VERSION_MAX = 32;
 export const STREET_REPLY_BYTES = 32 * 1024;
 /** Neighbours one host reads, and hosts that may read it: at most this many each. */
 export const STREET_PAIRS_MAX = 16;
+
+// ── Webview error reports (T-74, `webviewError`) ──
+/** The error's message, at most this many characters. */
+export const WEBVIEW_ERROR_MESSAGE_MAX = 500;
+/** The top of the stack and of the component stack, each at most this many characters. */
+export const WEBVIEW_ERROR_STACK_MAX = 2000;
+/** The error boundary's region name. */
+export const WEBVIEW_ERROR_REGION_MAX = 64;
+/** Lines of a stack kept (its top: where it broke). */
+export const WEBVIEW_ERROR_STACK_LINES = 12;

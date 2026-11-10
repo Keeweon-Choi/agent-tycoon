@@ -178,7 +178,7 @@ export class AuditLog {
     } catch (err) {
       if (this.warned) return;
       this.warned = true;
-      console.warn(`[cld audit] could not write ${this.file}: ${String(err)}`);
+      console.warn(`[agty audit] could not write ${this.file}: ${String(err)}`);
     }
   }
 

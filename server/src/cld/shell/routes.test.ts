@@ -364,7 +364,7 @@ describe('shells', () => {
       label: 'Laptop',
     });
     const audit = log.mock.calls.flat().join('\n');
-    expect(audit).toContain('[cld shell] open device="Laptop"');
+    expect(audit).toContain('[agty shell] open device="Laptop"');
     expect(audit).toContain('reason=revoked');
     expect(audit).not.toContain('secret');
   });

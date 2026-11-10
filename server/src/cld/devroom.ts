@@ -75,12 +75,12 @@ export class Devroom {
   /** True when `msg` was a dev room message (also a malformed one, which is dropped). */
   onClientMessage(msg: Record<string, unknown>, send: WsSend, privileged: boolean): boolean {
     if (msg.type === 'devroomView') {
-      if (typeof msg.on !== 'boolean') console.warn('[cld devroom] malformed devroomView dropped');
+      if (typeof msg.on !== 'boolean') console.warn('[agty devroom] malformed devroomView dropped');
       else if (privileged) this.view(send, msg.on);
       return true;
     }
     if (msg.type === 'devroomSettingsSet') {
-      if (typeof msg.autoCleanupAfterMerge !== 'boolean') console.warn('[cld devroom] malformed devroomSettingsSet dropped');
+      if (typeof msg.autoCleanupAfterMerge !== 'boolean') console.warn('[agty devroom] malformed devroomSettingsSet dropped');
       else if (!privileged || this.o.readOnly) send({ ...this.settings() });
       else this.set(msg.autoCleanupAfterMerge, send);
       return true;
@@ -89,7 +89,7 @@ export class Devroom {
       const { project, task, url } = msg;
       const open = typeof url === 'string' && (url === '' ? '' : loopbackUrl(url));
       if (typeof project !== 'string' || typeof task !== 'string' || !SAFE_NAME.test(project) || !SAFE_NAME.test(task) || open === false || open === null)
-        console.warn('[cld devroom] malformed or non-loopback previewAsk dropped');
+        console.warn('[agty devroom] malformed or non-loopback previewAsk dropped');
       else if (privileged) this.o.previewOpen({ type: 'previewOpen', project, task, url: open });
       return true;
     }
@@ -115,9 +115,9 @@ export class Devroom {
       fs.mkdirSync(path.dirname(this.o.file), { recursive: true, mode: 0o700 });
       writeJsonAtomic(this.o.file, { autoCleanupAfterMerge: on });
       this.auto = on;
-      (this.o.log ?? console.log)(`[cld devroom] autoCleanupAfterMerge ${on ? 'on' : 'off'}`);
+      (this.o.log ?? console.log)(`[agty devroom] autoCleanupAfterMerge ${on ? 'on' : 'off'}`);
     } catch (err) {
-      console.warn(`[cld devroom] settings not written: ${String(err)}`);
+      console.warn(`[agty devroom] settings not written: ${String(err)}`);
     }
     const m = this.settings();
     send({ ...m });

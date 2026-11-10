@@ -1,6 +1,6 @@
 /**
- * T-0036: the card bars in the cld office: every card says its group and
- * name (kinds.ts). Without office (no cld office) the bars stay upstream's.
+ * T-0036: the card bars in the agty office: every card says its group and
+ * name (kinds.ts). Without office (no agty office) the bars stay upstream's.
  *
  * T-0041: temps (sub-agents, teammates, Codex workers) get no card of their
  * own. Their lead's card carries "+N" for them; temps with no lead card (a

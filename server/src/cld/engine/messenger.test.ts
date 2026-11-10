@@ -169,25 +169,25 @@ describe('messages', () => {
   it('header: the sender, the app user, or cld-gui (office header, MM-DD HH:MM)', () => {
     const created = new Date(2026, 9, 21, 23, 5).getTime();
     expect(header({ from: 'beta', source: 'cli', created })).toBe(
-      '[cld-gui · beta에게서 · 10-21 23:05]',
+      '[agty · beta에게서 · 10-21 23:05]',
     );
     expect(header({ from: null, source: 'gui:iphone', created })).toBe(
       '[사용자 · 앱(gui:iphone) · 10-21 23:05]',
     );
-    expect(header({ from: null, source: 'cli', created })).toBe('[cld-gui · 보냄 · 10-21 23:05]');
+    expect(header({ from: null, source: 'cli', created })).toBe('[agty · 보냄 · 10-21 23:05]');
     // Any sender reads the same, orchestrators and office's own names alike (NFR-CMP-009).
     expect(header({ from: 'codex', source: 'cli', created })).toBe(
-      '[cld-gui · codex에게서 · 10-21 23:05]',
+      '[agty · codex에게서 · 10-21 23:05]',
     );
     expect(header({ from: 'ops', source: 'cli', created })).toBe(
-      '[cld-gui · ops에게서 · 10-21 23:05]',
+      '[agty · ops에게서 · 10-21 23:05]',
     );
     // C6: a delegated Task names its id and the delegating agent; with no agent, no Task part.
     expect(header({ from: 'alpha', source: 'mcp', created, task: 'T-12', messageId: 'abcdefgh' })).toBe(
-      '[cld-gui · alpha에게서 · Task T-12 · 10-21 23:05] ⟨m:abcdefgh⟩',
+      '[agty · alpha에게서 · Task T-12 · 10-21 23:05] ⟨m:abcdefgh⟩',
     );
     expect(header({ from: null, source: 'engine', created, task: 'T-12' })).toBe(
-      '[cld-gui · 보냄 · 10-21 23:05]',
+      '[agty · 보냄 · 10-21 23:05]',
     );
   });
 
@@ -380,15 +380,15 @@ describe('messages', () => {
   it('D5 (6.3): an agent of an unknown provider: refused (no queue or inbox file); its queued files wait untouched', async () => {
     const r = rig();
     r.engine.refuses = (n) =>
-      n === 'beta' ? { code: 'unknown_provider', error: 'cld-gui가 모르는 에이전트(nope)라 받을 수 없어요' } : null;
+      n === 'beta' ? { code: 'unknown_provider', error: 'agty가 모르는 에이전트(nope)라 받을 수 없어요' } : null;
     expect(await r.m.send(send('beta', 'hi', false, 'alpha'))).toEqual({
       ok: false,
       code: 'unknown_provider',
-      error: 'cld-gui가 모르는 에이전트(nope)라 받을 수 없어요',
+      error: 'agty가 모르는 에이전트(nope)라 받을 수 없어요',
     });
     expect(r.queueFiles()).toEqual([]);
     expect(r.inbox('beta')).toEqual([]);
-    // A file `cld-gui send` queued while the daemon was off: no inbox move, no drop.
+    // A file `agty send` queued while the daemon was off: no inbox move, no drop.
     fs.writeFileSync(
       path.join(r.m.queueDir, '20261021-230000-000-aaaa.json'),
       JSON.stringify({ v: 1, to: 'beta', text: 'old', from: null, source: 'cli', ifIdle: false, created: 1 }),
@@ -406,7 +406,7 @@ describe('messages', () => {
     expect(off).toEqual({ ok: true, delivered: 'inbox', reason: 'off', messageId: ID });
     // The inbox file carries the same header, mark and all (C2).
     expect(r.readInbox('alpha')).toEqual([
-      `[cld-gui · beta에게서 · 10-21 23:05] ⟨m:${(off as { messageId: string }).messageId}⟩\nbuild is green`,
+      `[agty · beta에게서 · 10-21 23:05] ⟨m:${(off as { messageId: string }).messageId}⟩\nbuild is green`,
     ]);
     r.sessions.set('beta', 'terminal');
     expect(await r.m.send(send('beta', 'x', false, null))).toMatchObject({
@@ -428,7 +428,7 @@ describe('messages', () => {
     expect(r.typed).toEqual([
       {
         id: 'a1b2c3d4',
-        text: `[cld-gui · beta에게서 · 10-21 23:05] ⟨m:${(sent as { messageId: string }).messageId}⟩\nline one\nline two`,
+        text: `[agty · beta에게서 · 10-21 23:05] ⟨m:${(sent as { messageId: string }).messageId}⟩\nline one\nline two`,
       },
     ]);
     const [e] = r.events();
@@ -462,7 +462,7 @@ describe('messages', () => {
     expect(
       await r.m.send({ ...send('alpha', '/compact', false, 'beta'), raw: true }),
     ).toMatchObject({ ok: true, delivered: 'pane' });
-    expect(r.typed[2].text).toMatch(/^\[cld-gui · beta에게서 · /);
+    expect(r.typed[2].text).toMatch(/^\[agty · beta에게서 · /);
     expect(r.typed[2].text).toMatch(/\n\/compact$/);
   });
 
@@ -1054,7 +1054,7 @@ describe('messages', () => {
     ['a renew handoff file first', true],
   ])('C2: an inbox delivered as one turn (%s) shows no mark and binds to its last message', async (_case, handoff) => {
     const r = rig();
-    if (handoff) r.m.writeInbox('alpha', '[cld-gui renew] 이어서 할 일: 배포 마무리');
+    if (handoff) r.m.writeInbox('alpha', '[agty renew] 이어서 할 일: 배포 마무리');
     r.advance(1_000);
     const one = await r.m.send(boss('alpha', '첫 글'));
     r.advance(1_000);
@@ -1083,7 +1083,7 @@ describe('messages', () => {
     const second = items.find((i) => i.kind === 'user' && i.messageId === ids[1])!;
     expect(second.text).not.toMatch(/⟨m:[a-z2-7]{8}⟩$/m);
     expect(second.text).toContain('둘째 글 〈m:zzzzzzzz⟩ 그대로');
-    expect(items[0].text.startsWith(handoff ? '[cld-gui renew] 이어서 할 일' : '첫 글')).toBe(true);
+    expect(items[0].text.startsWith(handoff ? '[agty renew] 이어서 할 일' : '첫 글')).toBe(true);
   });
 
   it('the start hook types the inbox as one first message, then moves it to delivered/', async () => {
@@ -1099,7 +1099,7 @@ describe('messages', () => {
     // As is: each inbox file keeps its own header and mark.
     expect(r.typed[0].text).toMatch(
       new RegExp(
-        `^\\[cld-gui · beta에게서 · 10-21 23:05\\]${MARK}\\none\\n\\n\\[cld-gui · 보냄 · 10-21 23:05\\]${MARK}\\ntwo$`,
+        `^\\[agty · beta에게서 · 10-21 23:05\\]${MARK}\\none\\n\\n\\[agty · 보냄 · 10-21 23:05\\]${MARK}\\ntwo$`,
       ),
     );
     await vi.waitFor(() => expect(r.inbox('alpha')).toHaveLength(0));
@@ -1162,7 +1162,7 @@ describe('messages', () => {
     );
   });
 
-  it('resumes queue files written while the daemon was off (cld-gui send)', async () => {
+  it('resumes queue files written while the daemon was off (agty send)', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-msg-'));
     cleanup.push(() => removeTestHome(home));
     const q: QueuedSend = {
@@ -1271,7 +1271,7 @@ describe('messages through the attach (fake claude, real PTY)', () => {
     expect(started).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(typedLog()).toHaveLength(1), LOADED_MS);
     expect(typedLog()[0]).toMatch(
-      new RegExp(`^\\[cld-gui · 보냄 · \\d\\d-\\d\\d \\d\\d:\\d\\d\\]${MARK}\\rwaiting for you$`),
+      new RegExp(`^\\[agty · 보냄 · \\d\\d-\\d\\d \\d\\d:\\d\\d\\]${MARK}\\rwaiting for you$`),
     );
     // Its turn (FAKE_TURN_MS) is running: queued, typed when it is done.
     const busy = await messenger.send(send('alpha', 'second', false, null));
@@ -1711,7 +1711,7 @@ describe('TOKEN-GUARD: the messenger', () => {
     expect(r.typed).toHaveLength(1);
     const text = r.typed[0].text;
     expect(text.match(/⟨m:[a-z2-7]{8}⟩/g)).toHaveLength(3);
-    expect(text).toMatch(/report 1\n\n\[cld-gui · gamma에게서 · [^\]]+\] ⟨m:[a-z2-7]{8}⟩\nreport 2\n\n\[cld-gui · 보냄 · /);
+    expect(text).toMatch(/report 1\n\n\[agty · gamma에게서 · [^\]]+\] ⟨m:[a-z2-7]{8}⟩\nreport 2\n\n\[agty · 보냄 · /);
     expect(r.queueFiles()).toEqual([]);
     expect(r.events().filter((e) => e.type === 'send' && e.delivered === 'pane')).toHaveLength(3);
   });
@@ -2486,7 +2486,7 @@ describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () 
 });
 
 describe('TYPIST-STALE: stale input, piled notices and a queue that waits past the turn (11-04 laptop)', () => {
-  const REVIVE = '[cld-gui 자동 복구 · ';
+  const REVIVE = '[agty 자동 복구 · ';
 
   it('a new revive notice replaces one still waiting in the inbox; other inbox files stay (negative: without replaces both pile up)', () => {
     const r = rig();
@@ -2500,6 +2500,14 @@ describe('TYPIST-STALE: stale input, piled notices and a queue that waits past t
     r.m.writeInbox('beta', `${REVIVE}a]`);
     r.m.writeInbox('beta', `${REVIVE}b]`);
     expect(r.readInbox('beta')).toHaveLength(2);
+  });
+
+  it('T-80: a revive notice written under the old [cld-gui ...] tag is replaced too when both tags are given', () => {
+    const r = rig();
+    const OLD = '[cld-gui 자동 복구 · ';
+    r.m.writeInbox('alpha', `${OLD}11-02 20:37] 다시 띄웠다.`);
+    expect(r.m.writeInbox('alpha', `${REVIVE}11-03 09:51] 다시 띄웠다.`, [REVIVE, OLD])).toBe(true);
+    expect(r.readInbox('alpha')).toEqual([`${REVIVE}11-03 09:51] 다시 띄웠다.`]);
   });
 
   it('a revive notice a start already queued is replaced too; the other inbox messages it held go with the next start', () => {

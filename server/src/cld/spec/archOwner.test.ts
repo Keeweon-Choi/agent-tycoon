@@ -485,7 +485,7 @@ describe.skipIf(!GIT_AVAILABLE)('the arch routes', () => {
     const same = { origin: 'http://localhost:80', host: 'localhost:80', 'x-session': 'ok' };
     const call = (method: 'POST' | 'PATCH' | 'DELETE', url: string, payload?: object, headers: Record<string, string> = same) =>
       server.inject({ method, url: `/api/cld/spec/alpha/arch/${url}`, headers, ...(payload && { payload }) });
-    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec]'));
+    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec]'));
     return { ...t, call, same, audits };
   }
 
@@ -518,7 +518,7 @@ describe.skipIf(!GIT_AVAILABLE)('the arch routes', () => {
     expect((await t.call('DELETE', `components/${api}`)).statusCode).toBe(400);
     const lines = t.audits();
     expect(lines.map((l) => l.split(' ')[2])).toEqual(['arch-approve', 'arch-add', 'arch-edit', 'arch-relate', 'arch-unrelate', 'arch-merge', 'arch-unmerge', 'arch-skeleton', 'arch-delete']);
-    expect(lines[0]).toBe(`[cld spec] arch-approve device="Test phone" project="alpha" ${flow.doc} ${flow.block} ${flow.version}`);
+    expect(lines[0]).toBe(`[agty spec] arch-approve device="Test phone" project="alpha" ${flow.doc} ${flow.block} ${flow.version}`);
     const jsonl = fs.readFileSync(path.join(t.home, '.config/agent-tycoon/audit.jsonl'), 'utf-8');
     for (const text of [lines.join('\n'), jsonl]) expect(text).not.toMatch(/secret/i);
     const host = await app({ host: true });

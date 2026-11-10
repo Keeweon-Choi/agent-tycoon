@@ -132,7 +132,7 @@ describe('GroupMessages', () => {
     const groups = new GroupMessages({ home: h, store, messenger });
     expect(await groups.post({ room: '출시팀', text: '@alpha 시켜', from: '사장', source: 'cli' })).toMatchObject({ ok: false });
     expect(calls).toEqual([]);
-    expect(await groups.post({ room: '출시팀', text: '@alpha 시켜', from: null, source: 'cli' })).toMatchObject({ ok: true, post: { sender: 'cld-gui' } });
+    expect(await groups.post({ room: '출시팀', text: '@alpha 시켜', from: null, source: 'cli' })).toMatchObject({ ok: true, post: { sender: 'agty' } });
     expect(await groups.post({ room: '출시팀', text: '@alpha 시켜', from: null, source: 'messenger:pc' })).toMatchObject({ ok: true, post: { sender: null } });
   });
 
@@ -320,7 +320,7 @@ describe('C4: system lines in rooms (F-18)', () => {
     groups.system({ kind: 'assigned', task: 'T-7', from: 'alpha', to: 'alpha-w1', detail: '로그인\n고치기' });
     const room = store.find('개발')!;
     expect(groups.timeline(room)).toEqual([
-      expect.objectContaining({ sender: 'cld-gui', text: 'Task T-7 배정: alpha → alpha-w1 · 로그인 고치기', targets: [], system: true }),
+      expect.objectContaining({ sender: 'agty', text: 'Task T-7 배정: alpha → alpha-w1 · 로그인 고치기', targets: [], system: true }),
     ]);
     expect(groups.timeline(store.find('리드')!)).toEqual([]);
     expect(groups.timeline(store.find('전체')!)).toEqual([]);

@@ -4,15 +4,15 @@
  * session: it only lists them. cld-gui's own state (registry, queue, inbox,
  * events, jobs, the local socket) lives in a temp dir; Claude's is the real
  * ~/.claude (its login). Steps:
- *   1. cld-gui send to the project while it is off: the inbox
+ *   1. agty send to the project while it is off: the inbox
  *   2. start (engine): the inbox is typed in as the first message (prompt 1)
  *   3. Claude's cross-session socket: a message from a non-session sender to
  *      a bypassPermissions session (the orchestrators' mode) is held, no turn
- *   4. cld-gui send to the live idle session: typed in at once (prompt 2;
+ *   4. agty send to the live idle session: typed in at once (prompt 2;
  *      skipped if step 3 was delivered after all)
  *   5. renew with typing switched off (no third prompt): the old session is
  *      stopped and gone before the new one starts; no " (2)" name
- *   6. a cld-gui job in its own systemd user scope
+ *   6. an agty job in its own systemd user scope
  *   7. claude stop, rm, purge; the temp dirs go
  *
  *   npx tsx cld/test/real-smoke-e2.ts --yes-real-claude [--only-live]
@@ -203,7 +203,7 @@ async function main() {
     );
     log('add', add);
     if (!onlyLive)
-      log('cld-gui send while off', await cli(['send', name, 'Reply with just the word one.']));
+      log('agty send while off', await cli(['send', name, 'Reply with just the word one.']));
 
     // 2. Start: the inbox is the first message.
     const started = await engine.run(
@@ -309,7 +309,7 @@ async function main() {
     // 4. A send to the live, idle session.
     if (!peerDelivered) {
       const live = await cli(['send', '--if-idle', name, 'Reply with just the word two.']);
-      log('cld-gui send while live and idle', live);
+      log('agty send while live and idle', live);
       const second = await until(
         () =>
           replies(s1.sessionId).length > before.replies &&
@@ -334,7 +334,7 @@ async function main() {
     fs.writeFileSync(handoff, '# handoff\nnothing to do');
     const oldSid = s1.sessionId;
     const renew = await cli(['renew', '--project', name, handoff]);
-    log('cld-gui renew', renew);
+    log('agty renew', renew);
     const renewed = await until(() => {
       const lines = fs
         .readFileSync(eventsPath(state), 'utf-8')
@@ -366,7 +366,7 @@ async function main() {
 
     // 6. A job in its own scope.
     const job = await cli(['job', 'echo hi from a real job; sleep 2'], folder);
-    log('cld-gui job', { ...job, log: String(job.log).replace(state, '<state>') });
+    log('agty job', { ...job, log: String(job.log).replace(state, '<state>') });
     try {
       log('its cgroup', fs.readFileSync(`/proc/${String(job.pid)}/cgroup`, 'utf-8').trim());
     } catch {

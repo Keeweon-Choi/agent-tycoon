@@ -91,7 +91,7 @@ function Boot({ layoutReady }: { layoutReady: boolean }) {
       const snap = cldGetSnapshot();
       // The layout arrives over the socket (a development mock delivers it without one).
       const connected = transport.state === 'connected' || layout.current;
-      // ponytail: a page without the cld office (no snapshot ever) passes after BOOT_GIVE_UP_MS
+      // ponytail: a page without the agty office (no snapshot ever) passes after BOOT_GIVE_UP_MS
       const office = layout.current && (snap.officeSnapshot !== null || elapsed > BOOT_GIVE_UP_MS);
       if (office) marks.office ??= drawn;
       const presets = snap.characterPresets;

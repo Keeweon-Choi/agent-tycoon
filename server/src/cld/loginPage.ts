@@ -102,7 +102,7 @@ export function loginPage({
 <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="1234 5678" spellcheck="false" autocapitalize="off" required autofocus>
 <p class="error" id="error" role="alert">${escapeHtml(textIn(lang, error))}</p>
 <button type="submit" class="primary">${escapeHtml(w('login_submit'))}</button>
-<p class="hint">${fillText(escapeHtml(w('login_hint')), { add: `<b>${escapeHtml(w('login_add_device'))}</b>`, cmd: '<code>cld-gui-login</code>' })}</p>
+<p class="hint">${fillText(escapeHtml(w('login_hint')), { add: `<b>${escapeHtml(w('login_add_device'))}</b>`, cmd: '<code>agty login</code>' })}</p>
 </form>
 <div class="others">
 ${passkey ? `<button type="button" id="passkey" hidden>${escapeHtml(w('login_passkey'))}</button>\n` : ''}${approval ? `<button type="button" id="approval" class="small" hidden>${escapeHtml(w('login_approval'))}</button>\n` : ''}</div>
@@ -125,7 +125,7 @@ export function sendEnterPage(reply: FastifyReply): FastifyReply {
     .headers(HEADERS)
     .type('text/html; charset=utf-8')
     .send(
-      '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta http-equiv="refresh" content="0;url=/">\n<title>cld-gui</title>\n</head>\n<body></body>\n</html>\n',
+      '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta http-equiv="refresh" content="0;url=/">\n<title>agty</title>\n</head>\n<body></body>\n</html>\n',
     );
 }
 

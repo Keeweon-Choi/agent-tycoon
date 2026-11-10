@@ -327,7 +327,7 @@ export function registerStandaloneAuth(
       auth.limiter.fail(keys);
       return reply.code(401).send({ ...refused('device_login_failed') });
     }
-    console.log(`[cld auth] "${device.label}" logged back in with its device key`);
+    console.log(`[agty auth] "${device.label}" logged back in with its device key`);
     const session = auth.deviceLogin(device, sessionLifetime(request));
     setSessionCookie(request, reply, auth, session.id, session);
     return { ok: true };
@@ -387,7 +387,7 @@ export function registerStandaloneAuth(
       );
       if ('error' in result) return reply.code(result.status).send({ error: result.error });
       console.log(
-        `[cld auth] device key ${result.isNew ? 'registered' : 'replaced'}: "${result.device.label}" (${origin})`,
+        `[agty auth] device key ${result.isNew ? 'registered' : 'replaced'}: "${result.device.label}" (${origin})`,
       );
       return { deviceId: result.device.id };
     },
@@ -431,7 +431,7 @@ export function registerStandaloneAuth(
       ...contextOf(request),
     });
     // The origin only: the direct address's path is its secret (T-0024), never logged.
-    console.log(`[cld auth] ${auto === undefined ? '' : 'automatic '}move code for "${session.label}" to ${new URL(target).origin}`);
+    console.log(`[agty auth] ${auto === undefined ? '' : 'automatic '}move code for "${session.label}" to ${new URL(target).origin}`);
     return { url: `${target}/login?code=${code}`, expiresIn };
   });
 
@@ -443,7 +443,7 @@ export function registerStandaloneAuth(
       // The last resort: the host's own token (never from outside) can always turn it off.
       if (on === false && request.headers.authorization !== undefined && hostBearerValid(request, token)) {
         if (!devices?.setPasskeyRequired(false)) return reply.code(400).send({ ...refused('setting_change_failed') });
-        console.log('[cld auth] passkey required off, by the host token');
+        console.log('[agty auth] passkey required off, by the host token');
         auth.audit.write({ kind: 'passkeyRequired', detail: 'off', by: 'host', ...contextOf(request) });
         return { passkeyRequired: false };
       }
@@ -462,7 +462,7 @@ export function registerStandaloneAuth(
         return reply.code(400).send({ ...refused('setting_change_failed') });
       // On: a key proof taken while it was off must not outlive it.
       if (on) auth.dropKeyProofs();
-      console.log(`[cld auth] passkey required ${on ? 'on' : 'off'}, from "${session.label}"`);
+      console.log(`[agty auth] passkey required ${on ? 'on' : 'off'}, from "${session.label}"`);
       auth.audit.write({
         kind: 'passkeyRequired',
         detail: on ? 'on' : 'off',
@@ -579,7 +579,7 @@ export function registerStandaloneAuth(
         (session.deviceId && devices?.get(session.deviceId)?.id) || null,
       );
       if ('error' in result) return reply.code(400).send(result);
-      console.log(`[cld auth] passkey registered: "${result.name}" (${result.rpID})`);
+      console.log(`[agty auth] passkey registered: "${result.name}" (${result.rpID})`);
       // Under 필수 the first passkey ends the key's step-ups: proofs taken by key end with them.
       auth.dropKeyProofs();
       // A new credential is news to the other devices: a stolen cookie alone
@@ -623,7 +623,7 @@ export function registerStandaloneAuth(
         return reply.code(404).send();
       if (key.deviceId !== null) return reply.code(409).send({ ...refused('passkey_already_bound') });
       passkeys!.bind(key.id, deviceId);
-      console.log('[cld auth] passkey assigned to a device');
+      console.log('[agty auth] passkey assigned to a device');
       return { ok: true };
     },
   );
@@ -640,7 +640,7 @@ export function registerStandaloneAuth(
       by: auth.actorLabel(session),
       ...contextOf(request),
     });
-    console.log('[cld auth] passkey removed');
+    console.log('[agty auth] passkey removed');
     return { ok: true };
   });
 
@@ -739,7 +739,7 @@ export function registerStandaloneAuth(
     });
     const self = !auth.validSession(auth.sessionIdOf(request.headers.cookie));
     console.log(
-      `[cld auth] signed out a device${self ? ' (its own)' : ''} from "${session.label}"`,
+      `[agty auth] signed out a device${self ? ' (its own)' : ''} from "${session.label}"`,
     );
     // This host's cookie goes, and the old shared one too when it names a live session here: the
     // next request would otherwise fall back to it and still be signed in. Another host's stays.
@@ -761,7 +761,7 @@ export function registerStandaloneAuth(
     if (!session || !stepUp(session, reply)) return reply;
     const count = auth.revokeOthers(auth.sessionIdOf(request.headers.cookie));
     auth.audit.write({ kind: 'revokeOthers', detail: count, by: auth.actorLabel(session), ...contextOf(request) });
-    console.log(`[cld auth] signed out ${count} other session(s) from "${session.label}"`);
+    console.log(`[agty auth] signed out ${count} other session(s) from "${session.label}"`);
     return { count };
   });
 
@@ -841,7 +841,7 @@ export function registerStandaloneAuth(
     },
   );
 
-  // The host CLI approves by the code it was told: cld-gui-login --approve.
+  // The host CLI approves by the code it was told: agty login --approve.
   app.post<{ Body: { code?: unknown } | undefined }>(
     '/api/device-approval',
     async (request, reply) => {
@@ -850,7 +850,7 @@ export function registerStandaloneAuth(
       const code = typeof request.body?.code === 'string' ? request.body.code : '';
       const keys = [ipKey(requestClient(request)), codeKey(code)];
       if (auth.limiter.blocked(keys)) return reply.code(429).send({ error: LOGIN_ERRORS.tooMany });
-      if (!approvals.approveByCode(code, 'the host (cld-gui-login)')) {
+      if (!approvals.approveByCode(code, 'the host (agty login)')) {
         auth.limiter.fail(keys);
         return reply.code(400).send({ ok: false });
       }
@@ -935,13 +935,13 @@ export function registerStandaloneAuth(
       if (direct && auth.directCodeLock.fail(DIRECT_LOCK_KEY)) {
         auth.audit.write({ kind: 'lockout', detail: 'direct', ...contextOf(request) });
         console.warn(
-          '[cld auth] code login on the direct listener locked for an hour: 10 failed attempts in an hour',
+          '[agty auth] code login on the direct listener locked for an hour: 10 failed attempts in an hour',
         );
       }
       if (short && auth.shortCodeLock.fail(SHORT_LOCK_KEY)) {
         auth.audit.write({ kind: 'lockout', detail: 'short', ...contextOf(request) });
         console.warn(
-          '[cld auth] short-code login locked for 10 minutes: 20 failed attempts in 10 minutes',
+          '[agty auth] short-code login locked for 10 minutes: 20 failed attempts in 10 minutes',
         );
       }
       return page(request, reply, 401, LOGIN_ERRORS.badCode);
@@ -1201,7 +1201,7 @@ export function moveTarget(
 
 /**
  * Where a new device opens an invitation, with no trailing slash: the
- * canonical address (cld remote, T-0024: the direct URL with its secret path,
+ * canonical address (agty remote, T-0024: the direct URL with its secret path,
  * the Tailscale name or the LAN URL); without one, the serve name, else this
  * request's origin. NB: with the direct connector it is more than an origin.
  */

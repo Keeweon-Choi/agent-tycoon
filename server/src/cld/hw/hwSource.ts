@@ -119,7 +119,7 @@ export function readRamDetail(proc = '/proc'): HwRamDetail | null {
   };
 }
 
-/** Linux /proc: the top 5 by CPU (lifetime average, like `ps`), for `cld-gui hw` on demand only. */
+/** Linux /proc: the top 5 by CPU (lifetime average, like `ps`), for `agty hw` on demand only. */
 export function readTopProcesses(
   proc = '/proc',
 ): Array<{ pid: number; cpuPct: number; rssMib: number; command: string }> {
@@ -383,7 +383,7 @@ export class HwSource {
   }
 }
 
-/** The per-core and memory detail only the boards read; `cld-gui hw` prints a sample without them. */
+/** The per-core and memory detail only the boards read; `agty hw` prints a sample without them. */
 const DETAIL_FIELDS = [
   'cpuCores',
   'cpuCoresW',

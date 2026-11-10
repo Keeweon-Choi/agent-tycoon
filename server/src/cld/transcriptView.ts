@@ -29,6 +29,7 @@ import { koText, ROOM_NOTICE_END, ROOM_NOTICE_LINE } from '../../../core/src/cld
 import type { ChatAttachment, ChatEmployee, ChatItem, ChatReply } from '../../../core/src/messages.js';
 import { formatToolStatus } from '../providers/hook/claude/claude.js';
 import { SENT_MAX, sentLines } from './files/outbox.js';
+import { LABEL_ANY } from './labels.js';
 import { maskText } from './mask.js';
 
 /** One backward read of a (re)load, and the largest jump an append is followed through. */
@@ -46,6 +47,10 @@ const USER_TEXT_MAX = 24_000;
 const TOOL_DESC_MAX = 200;
 /** DEVROOM-SUBVIEW: a tool call's arguments in the work view (a long heredoc is cut). */
 export const ARGS_MAX = 600;
+/** A MCP tool call's arguments in the messenger rows: the whole line, and each value (a long `note` must not push `taskId` out). */
+export const MCP_ARGS_MAX = 200;
+const MCP_ARG_VALUE_MAX = 40;
+const MCP_PREFIX = 'mcp__';
 /** The argument a terminal shows for a call, first found; with none, every short scalar one as `key: value`. */
 const MAIN_ARGS = ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query'];
 /** Long or already shown elsewhere (desc, the prompt item, a diff). */
@@ -55,13 +60,14 @@ const WRAPPER = /^<(command-|local-command|system-reminder|bash-|user-prompt-sub
 /** The header line of a message the boss sent through the app: the engine
  *  messenger's for a `gui:` source. */
 const BOSS_HEADER = /^\[(?:사장 · 메신저|사용자 · 앱\(gui:[A-Za-z0-9._:-]*\)) · [^\]\n]*\]\n/;
-/** A peer's header line (another orchestrator, the ops agent): `cld-gui send`'s
+/** A peer's header line (another orchestrator, the ops agent): `agty send`'s
  *  `<name>에게서`, and the older tool's `<name> 오케스트레이터가 보냄` (or `<name> 가 보냄`) still in old transcripts. Group 1/2 = the name. */
-const PEER_HEADER = /^\[cld-gui · ([^\]\n]+?)에게서 · [^\]\n]*\]\n/;
-/** The header line of a sender nobody named (`cld-gui send` with no `from`, an older tool's unknown sender): a notice. */
-const SYSTEM_HEADER = /^\[cld-gui · 보냄 · [^\]\n]*\]\n/;
+// T-80: the label reads `agty` now and `cld-gui` in old transcripts (labels.ts LABEL_ANY; drop the old one a release later).
+const PEER_HEADER = new RegExp(`^\\[${LABEL_ANY} · ([^\\]\\n]+?)에게서 · [^\\]\\n]*\\]\\n`);
+/** The header line of a sender nobody named (`agty send` with no `from`, an older tool's unknown sender): a notice. */
+const SYSTEM_HEADER = new RegExp(`^\\[${LABEL_ANY} · 보냄 · [^\\]\\n]*\\]\\n`);
 /** Notices that are their own first line, tag and all (Codex's end, the engine's recovery, an older tool's renew): kept whole. */
-const SYSTEM_TAG = /^\[cld-gui (?:codex|renew|자동 복구)[\] ·]/;
+const SYSTEM_TAG = new RegExp(`^\\[${LABEL_ANY} (?:codex|renew|자동 복구)[\\] ·]`);
 /** Background-task completion records are notifications, not boss prompts. */
 const TASK_NOTIFICATION = /^<task-notification>/;
 /** The peer label shown for a background task's completion notice. */
@@ -549,8 +555,10 @@ export function toolDescription(input: unknown): string | undefined {
   return trimmed ? maskText(trimmed).slice(0, TOOL_DESC_MAX) : undefined;
 }
 
+const clip = (t: string, max: number): string => (t.length > max ? `${t.slice(0, max)}…` : t);
+
 /** DEVROOM-SUBVIEW: a tool call's arguments as a terminal shows them: `npm test`, `src/a.ts`, `path: src, glob: *.ts`. */
-export function toolArgs(input: unknown): string | undefined {
+export function toolArgs(input: unknown, mcp = false): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
   const o = input as Record<string, unknown>;
   const main = MAIN_ARGS.find((k) => typeof o[k] === 'string' && o[k] !== '');
@@ -558,10 +566,11 @@ export function toolArgs(input: unknown): string | undefined {
     ? [String(o[main]), typeof o.path === 'string' && main === 'pattern' ? `in ${o.path}` : ''].filter(Boolean).join(' ')
     : Object.entries(o)
         .filter(([k, v]) => !SKIP_ARGS.has(k) && ['string', 'number', 'boolean'].includes(typeof v) && v !== '')
-        .map(([k, v]) => `${k}: ${String(v)}`)
+        .map(([k, v]) => `${k}: ${mcp ? clip(maskText(String(v)), MCP_ARG_VALUE_MAX) : String(v)}`)
         .join(', ');
-  const t = line.trim();
-  return t ? (t.length > ARGS_MAX ? `${t.slice(0, ARGS_MAX)}…` : t) : undefined;
+  const t = (mcp ? maskText(line) : line).trim();
+  const max = mcp ? MCP_ARGS_MAX : ARGS_MAX;
+  return t ? clip(t, max) : undefined;
 }
 
 /** A `SendUserFile` call's files (the first SENT_MAX) and caption; null when it names no file. */
@@ -684,7 +693,9 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
           continue;
         }
         const desc = toolDescription(b.input);
-        const args = opts.results ? toolArgs(b.input) : undefined;
+        // The messenger gets a short, masked line for MCP calls only (its rows name the key input).
+        const mcp = b.name.startsWith(MCP_PREFIX);
+        const args = opts.results || mcp ? toolArgs(b.input, !opts.results) : undefined;
         add({
           kind: 'tool',
           toolName: b.name,

@@ -1,7 +1,7 @@
 /**
  * T-0019 visual check: dist/cli.js with --engine on --allow-actions
  * in an isolated HOME (the engine fake as `claude`), on a spare port. The
- * `cld-gui` CLI starts jobs from a project folder over the daemon's local
+ * `agty` CLI starts jobs from a project folder over the daemon's local
  * socket; the job panel shows them like office's (progress bar, 엔진), reads a
  * log and stops one after its confirmation; the feed shows the engine's
  * events; a send to a project that is off lands in its inbox. Phone too, with
@@ -14,6 +14,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import {
   assertPortFree,
   killFakeSessions,
@@ -25,7 +26,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/t0019');
@@ -158,14 +158,14 @@ async function main() {
     ]);
     check(
       long.code === 0 && long.out.ok === true && /-alpha$/.test(String(long.out.id)),
-      `cld-gui job: ${JSON.stringify(long.out)}`,
+      `agty job: ${JSON.stringify(long.out)}`,
     );
     const short = cli(['job', 'echo hello from a job; exit 3']);
     check(short.code === 0 && short.out.ok === true, 'a second job that ends with exit 3');
     const unknown = cli(['stop', '999999']);
     check(
       unknown.code === 1 && unknown.out.code === 'no_such_job',
-      'cld-gui stop of no job: exit 1, no_such_job',
+      'agty stop of no job: exit 1, no_such_job',
     );
     const sent = cli(['send', 'alpha', 'build is green']);
     check(
@@ -193,7 +193,7 @@ async function main() {
     check(
       spoof.status === 0 &&
         spoofed.length === 1 &&
-        spoofed[0].startsWith('[cld-gui · 보냄 · ') &&
+        spoofed[0].startsWith('[agty · 보냄 · ') &&
         !spoofed[0].includes('사장 ·'),
       `CLD_SOURCE=messenger:x send: no owner header in what alpha receives (${JSON.stringify(spoofed[0]?.split('\n', 1)[0])})`,
     );
@@ -322,7 +322,7 @@ async function main() {
           .map((r) => r.exit)
           .sort()
           .join() === '3,',
-      `cld-gui jobs: both ended (exit 3 and null after the stop): ${JSON.stringify(rows.map((r) => [r.id, r.exit]))}`,
+      `agty jobs: both ended (exit 3 and null after the stop): ${JSON.stringify(rows.map((r) => [r.id, r.exit]))}`,
     );
     const events = fs
       .readFileSync(path.join(configDirectory(home), 'events.jsonl'), 'utf-8')

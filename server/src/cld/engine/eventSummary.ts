@@ -8,6 +8,7 @@ import { koText } from '../../../../core/src/cld/serverText.js';
 import { codexOutcome, jobOutcome, workAction, workNotice } from '../../../../core/src/cld/work.js';
 import type { OfficeEvent } from '../../../../core/src/messages.js';
 import { deriveJobName } from '../jobNames.js';
+import { LABEL } from '../labels.js';
 import { maskText } from '../mask.js';
 
 type Obj = Record<string, unknown>;
@@ -56,7 +57,7 @@ export const WORKER_RUN_END = 'codex_worker_end';
 /** A send with no `from` is the boss's own: the app (with its device) or the terminal; the engine's own is the daemon's. */
 function senderOf(source: string | null): string {
   if (source?.startsWith('gui:')) return koText('ev_me', { device: source.slice(4) });
-  return source === 'engine' ? 'cld-gui' : koText('ev_owner');
+  return source === 'engine' ? LABEL : koText('ev_owner');
 }
 
 export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {

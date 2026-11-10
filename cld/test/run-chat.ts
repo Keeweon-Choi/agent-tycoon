@@ -500,7 +500,7 @@ async function main() {
     await page.getByRole('button', { name: /old-job 터미널 닫기/ }).click();
     await desk.close();
     await stop();
-    const chatLog = serverLog.join('').match(/\[cld\] chat: .*/g) ?? [];
+    const chatLog = serverLog.join('').match(/\[agty\] chat: .*/g) ?? [];
     check(
       chatLog.filter((l) => l.includes(' attach "')).length === 4 && // beta-task: desktop + 2 phones, gamma-review
         chatLog.filter((l) => l.includes(' detach "')).length === 4 &&

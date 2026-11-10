@@ -1,7 +1,7 @@
 /**
  * The job panel's engine jobs (T-0019): their logs and stops. Only jobs with
  * an `id` (the engine's) can be read or stopped here; starting one is the
- * `cld-gui job` CLI's alone.
+ * `agty job` CLI's alone.
  */
 import { useSyncExternalStore } from 'react';
 

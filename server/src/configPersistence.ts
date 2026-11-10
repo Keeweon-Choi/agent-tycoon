@@ -86,7 +86,7 @@ const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   showHostDirectories: false,
 };
 
-/** cld-gui: change the defaults of settings the user has never set (the
+/** agty: change the defaults of settings the user has never set (the
  *  office turns labels and room names on). An explicit user choice wins. */
 export function setAdapterSettingDefaults(
   defaults: Partial<Pick<AdapterSettings, 'alwaysShowLabels' | 'showAreas'>>,

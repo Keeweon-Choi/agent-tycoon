@@ -2,8 +2,8 @@
  * dist/cld-worker.js (T-0021): what runs outside the daemon.
  *
  *   gpu-run                       the `job --gpu` wrapper (its job's env: CLD_GPU_*)
- *   codex <id>                    a `cld-gui codex` task's worker (CLD_CODEX)
- *   gpu [--json]                  the reservation board        } `cld-gui gpu …`
+ *   codex <id>                    a `agty codex` task's worker (CLD_CODEX)
+ *   gpu [--json]                  the reservation board        } `agty gpu …`
  *   gpu run [opts] -- <command>   foreground, with --wait      } (cld-cli.md §13)
  *   gpu cancel <id> | move <id> <n>                            }
  *   spec-map <folder>             SPT C1: the 지도's code scan, one JSON on stdout (spec/mapWorker.ts)

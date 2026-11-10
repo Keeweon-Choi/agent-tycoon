@@ -2,7 +2,7 @@
  * Agent session tokens (S7, onboarding-security D-threats A1/A2): who is
  * calling over the control socket. The engine hands each Claude session it
  * starts its own CLD_AGENT_TOKEN (random 32 bytes, base64url) through the
- * `--settings` env; `cld-gui` sends it with every request, and the daemon
+ * `--settings` env; `agty` sends it with every request, and the daemon
  * maps it back to the project. Rotated on every fresh start (start, restart,
  * revive, renew), dropped on remove. A bare wake resume carries no flags, so
  * that session keeps the token it already has.

@@ -84,7 +84,7 @@ export class OfficeFloors {
     if (msg.type === 'resetRoomDecor') {
       if (privileged && typeof msg.room === 'string') {
         const error = this.deps.decor.save(resetDecorRoom(this.deps.decor.data, msg.room));
-        if (error) console.warn(`[cld] decor: ${error}`);
+        if (error) console.warn(`[agty] decor: ${error}`);
         else this.publishBuilding(true);
       }
       return true;
@@ -211,7 +211,7 @@ export class OfficeFloors {
       return next;
     });
     if (changed) {
-      console.log(`[cld] building: ${overflow.length} room(s) spilled to the next floor`);
+      console.log(`[agty] building: ${overflow.length} room(s) spilled to the next floor`);
       this.publishBuilding();
     }
   }
@@ -290,7 +290,7 @@ export class OfficeFloors {
   saveLayout(layout: Record<string, unknown>, send: WsSend): true {
     const base = typeof layout.cldBase === 'string' ? this.bases.get(layout.cldBase) : this.plan();
     if (!base) {
-      console.warn('[cld] decor: an edit of an office no longer known; not kept');
+      console.warn('[agty] decor: an edit of an office no longer known; not kept');
       send({ type: 'layoutLoaded', layout: this.layoutFor() });
       return true;
     }
@@ -301,12 +301,12 @@ export class OfficeFloors {
       this.deps.opts.catalog?.() ?? [],
     );
     if (typeof next === 'string') {
-      console.warn(`[cld] decor: ${next}; not kept`);
+      console.warn(`[agty] decor: ${next}; not kept`);
       return true;
     }
     const error = this.deps.decor.save(next);
     if (error) {
-      console.warn(`[cld] decor: ${error}`);
+      console.warn(`[agty] decor: ${error}`);
       return true;
     }
     send({ type: 'layoutLoaded', layout: this.layoutFor() });
@@ -333,10 +333,10 @@ export class OfficeFloors {
     const unrelated = typeof next === 'string';
     const data = unrelated ? { version: 1 as const, rooms: {} } : next;
     const error = this.deps.decor.save(data);
-    if (error) console.warn(`[cld] decor: migration: ${error}`);
-    else if (unrelated) console.log('[cld] decor: layout.json is not a cld office; no longer used');
+    if (error) console.warn(`[agty] decor: migration: ${error}`);
+    else if (unrelated) console.log('[agty] decor: layout.json is not an agty office; no longer used');
     else
-      console.log(`[cld] decor: layout.json converted (${Object.keys(data.rooms).length} rooms)`);
+      console.log(`[agty] decor: layout.json converted (${Object.keys(data.rooms).length} rooms)`);
   }
 
   seatFor(agentId: number): string | undefined {
@@ -446,10 +446,10 @@ export class OfficeFloors {
       return 'error' in next ? next : this.tidy(next);
     });
     if (failure.error) {
-      console.warn(`[cld] ${msg.type}: ${failure.error}`);
+      console.warn(`[agty] ${msg.type}: ${failure.error}`);
       send({ ...this.buildingState(failure) });
     } else if (changed) {
-      console.log(`[cld] building: ${msg.type} (${this.deps.building.data.floors.length} floors)`);
+      console.log(`[agty] building: ${msg.type} (${this.deps.building.data.floors.length} floors)`);
       this.publishBuilding();
     }
     return true;

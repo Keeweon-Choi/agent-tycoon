@@ -142,7 +142,7 @@ export class LevelStore {
       } catch {
         /* file disappeared */
       }
-      console.warn(`[cld] levels: invalid JSON moved to ${aside}`);
+      console.warn(`[agty] levels: invalid JSON moved to ${aside}`);
       return;
     }
     const o = (raw as { owner?: Partial<OwnerEntry> } | null)?.owner;
@@ -280,7 +280,7 @@ export class LevelStore {
     try {
       writeJsonAtomic(this.file, { v: 1, levels: Object.fromEntries(this.entries), owner: this.owner });
     } catch (err) {
-      console.warn(`[cld] levels: ${String(err)}`);
+      console.warn(`[agty] levels: ${String(err)}`);
     }
     this.changed();
   }

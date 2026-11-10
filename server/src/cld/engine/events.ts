@@ -2,7 +2,7 @@
  * The engine's event log (T-0019, cld/docs/design/cld-cli.md §8):
  * ~/.config/agent-tycoon/events.jsonl, one JSON line per event in this shape
  * ({v, ts, type, source, ...}), each line under 4 KB and written with one
- * append (O_APPEND), so the feed can tail it. The daemon writes it; `cld-gui send` does too while the
+ * append (O_APPEND), so the feed can tail it. The daemon writes it; `agty send` does too while the
  * daemon is off.
  */
 import * as fs from 'fs';
@@ -42,7 +42,7 @@ export function shortStamp(t = Date.now()): string {
 export function rotateEvents(
   file: string,
   max = EVENTS_ROTATE_BYTES,
-  log: (line: string) => void = (l) => console.log(`[cld engine] ${l}`),
+  log: (line: string) => void = (l) => console.log(`[agty engine] ${l}`),
 ): boolean {
   try {
     const size = fs.statSync(file).size;
@@ -68,7 +68,7 @@ export function appendEvent(
 ): boolean {
   const line = JSON.stringify({ v: 1, ts: isoLocal(now), type, source, ...fields });
   if (Buffer.byteLength(line) >= LINE_MAX) {
-    console.warn(`[cld engine] event ${type} dropped: over ${LINE_MAX} bytes`);
+    console.warn(`[agty engine] event ${type} dropped: over ${LINE_MAX} bytes`);
     return false;
   }
   try {
@@ -76,7 +76,7 @@ export function appendEvent(
     fs.appendFileSync(file, `${line}\n`, { mode: 0o600 });
     return true;
   } catch (err) {
-    console.warn(`[cld engine] ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[agty engine] ${file}: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }
@@ -100,7 +100,7 @@ export class EngineEvents {
     private readonly listener: (e: FeedItem) => void = () => undefined,
     private readonly now: () => number = Date.now,
   ) {
-    this.tail = new EventsTail(file, (m) => console.warn(`[cld engine] ${m}`));
+    this.tail = new EventsTail(file, (m) => console.warn(`[agty engine] ${m}`));
   }
 
   /** The feed from the file's last lines (at start; nothing is sent). */

@@ -163,7 +163,7 @@ export class SensorTool {
     this.busy = true;
     this.planned.delete(send); // one consent, one run
     console.log(
-      "[cld] hw: installing the sensor tool (LibreHardwareMonitor) on the owner's request",
+      "[agty] hw: installing the sensor tool (LibreHardwareMonitor) on the owner's request",
     );
     send({ type: 'hwSensorToolState', phase: 'running' });
     let timedOut = false;
@@ -202,7 +202,7 @@ export class SensorTool {
         writeJsonAtomic(file, { ...current, nvidiaSmi: on });
       } catch (err) {
         this.d.setNvidiaSmi(!on);
-        console.warn(`[cld] hw: gpu.json: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn(`[agty] hw: gpu.json: ${err instanceof Error ? err.message : String(err)}`);
         error = 'write_failed';
       }
     if (error) send({ type: 'hwSensorToolState', phase: 'refused', error });

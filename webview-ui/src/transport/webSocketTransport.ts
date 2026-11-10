@@ -10,7 +10,7 @@ import { reconnectDelayMs } from './reconnectBackoff.js';
 import type { MessageTransport, TransportState } from './types.js';
 
 /**
- * cld-gui (T-0025): the key of a message that sets this client's state on the
+ * agty (T-0025): the key of a message that sets this client's state on the
  * server, which the server forgets with the socket — the handshake, the page's
  * visibility, the panels it watches — or null. `on: false` ends that state.
  */
@@ -42,7 +42,7 @@ export function viewerBeat(hidden: boolean): ClientMessage | null {
  * Connects to the Agent Tycoon server via WebSocket for bidirectional messaging.
  * Includes automatic reconnection with exponential backoff and message queuing.
  *
- * cld-gui (T-0025): every new socket re-sends the session (sessionKey), so a
+ * agty (T-0025): every new socket re-sends the session (sessionKey), so a
  * reconnect re-requests the state; a page coming back to the foreground
  * reconnects at once when its socket is gone or does not answer, and a hidden
  * page neither counts as a viewer nor keeps reconnect timers.
@@ -210,7 +210,7 @@ export class WebSocketTransport implements MessageTransport {
     }, delay);
   }
 
-  // ── cld-gui (T-0025): the page's visibility ──────────────────
+  // ── agty (T-0025): the page's visibility ──────────────────
 
   private watchPage(): void {
     if (this.watchingPage) return;

@@ -292,7 +292,7 @@ export function ToolOverlay({
     );
   };
 
-  // select-none (cld-gui T-0025/T-0045): a drag across the office never selects the labels.
+  // select-none (agty T-0025/T-0045): a drag across the office never selects the labels.
   return (
     <div className="contents select-none">
       {allIds.map((id) => {
@@ -366,7 +366,7 @@ export function ToolOverlay({
         }
 
         // cld T-0026: the ring, prop and head badge for this activity; the
-        // canvas renderer draws the first two (cld office only).
+        // canvas renderer draws the first two (agty office only).
         const visual = characterVisual(activity, !!officeIdentity?.off);
         // Every character's ring, on this floor or not: the staff rules (야근, 퇴근) read it.
         publishCharacterRing(id, visual.ring);

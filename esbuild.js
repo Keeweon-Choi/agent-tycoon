@@ -9,7 +9,7 @@ const watch = process.argv.includes('--watch');
 const pkgVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'),
 ).version;
-/** cld-gui product version (P1): one source, cld/release/version.json. */
+/** agty product version (P1): one source, cld/release/version.json. */
 const productVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'cld', 'release', 'version.json'), 'utf-8'),
 ).version;
@@ -123,7 +123,7 @@ async function main() {
   await buildLoginPage();
 }
 
-/** cld-gui (T-0022): the login page's script and style, served at /login/*
+/** agty (T-0022): the login page's script and style, served at /login/*
  *  without a session, so they stay out of the session-gated app bundle. */
 async function buildLoginPage() {
   const src = path.join(__dirname, 'webview-ui', 'src', 'cld', 'login');
@@ -143,7 +143,7 @@ async function buildLoginPage() {
   console.log('✓ Built login page → dist/login/');
 }
 
-/** cld-gui (T-0021): the GPU wrapper and the Codex worker, run outside the daemon. */
+/** agty (T-0021): the GPU wrapper and the Codex worker, run outside the daemon. */
 async function buildWorker() {
   await esbuild.build({
     entryPoints: ['server/src/cld/engine/workerMain.ts'],
@@ -157,7 +157,7 @@ async function buildWorker() {
   });
 }
 
-/** cld-gui TERM-P1 (ADR-0018): our PTY host, its own small process (no Fastify, no engine). */
+/** agty TERM-P1 (ADR-0018): our PTY host, its own small process (no Fastify, no engine). */
 async function buildPtyHost() {
   await esbuild.build({
     entryPoints: ['server/src/cld/ptyhost/hostMain.ts'],
@@ -207,7 +207,7 @@ const cliOptions = {
     // See server/src/terminal/ptyModule.ts.
     '@lydell/node-pty',
     'node-pty',
-    // cld-gui direct connector (T-0024): loaded from node_modules only when a
+    // agty direct connector (T-0024): loaded from node_modules only when a
     // certificate is issued, instead of 1.4 MB (axios, node-forge) parsed at every start.
     'acme-client',
   ],

@@ -56,7 +56,7 @@ export class SubagentWatch {
   private readonly liveToolIds = new Map<number, Set<string>>();
   /** Shadow id → the model its transcript names (read once found), for the sub's badge. */
   private readonly models = new Map<number, string>();
-  /** cld-gui (TEMP-PLATES): the sub-agent's own context snapshot (its transcript's
+  /** agty (TEMP-PLATES): the sub-agent's own context snapshot (its transcript's
    *  message.usage, the main agents' rule), for its employee's 피로도. Not broadcast. */
   onContext: (
     leadId: number,
@@ -171,7 +171,7 @@ export class SubagentWatch {
    *  Everything not listed here (agentTokenUsage, agentTeamInfo, the shadow's
    *  own nested subagent* messages) is deliberately dropped: the sub-character
    *  has no team badge and no sub-sub-characters. Its context goes to `onContext`
-   *  only (cld-gui's employee plate), never onto the main store.
+   *  only (agty's employee plate), never onto the main store.
    *
    *  Per-tool dones are DEFERRED to the sub's turn end: emitting them as they
    *  happen made the sub-character flap between typing and idle on every

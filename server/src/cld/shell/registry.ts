@@ -369,7 +369,7 @@ export class ShellRegistry {
       saved = readJson(this.file);
     } catch (err) {
       console.warn(
-        `[cld shell] shells.json unreadable: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty shell] shells.json unreadable: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     const rows = parseShells(saved).filter((row) => !this.shells.has(row.id));
@@ -382,7 +382,7 @@ export class ShellRegistry {
         const left = row ? this.idleMs - (this.now() - row.lastActivity) : 0;
         if (!row || left <= 0) {
           void host.call('kill', { t: t.id });
-          if (row) console.log(`[cld shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
+          if (row) console.log(`[agty shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
           continue;
         }
         const entry = {
@@ -420,7 +420,7 @@ export class ShellRegistry {
       const left = this.idleMs - (this.now() - row.lastActivity);
       if (left <= 0) {
         tmux.killSession(row.id);
-        console.log(`[cld shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
+        console.log(`[agty shell] close device=${JSON.stringify(row.label)} id=${row.id} reason=idle`);
         continue;
       }
       const entry = {
@@ -435,7 +435,7 @@ export class ShellRegistry {
       } catch (err) {
         clearTimeout(entry.timer);
         console.warn(
-          `[cld shell] could not attach ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+          `[agty shell] could not attach ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
         continue;
       }
@@ -448,7 +448,7 @@ export class ShellRegistry {
 
   private restored(row: PersistedShell): void {
     console.log(
-      `[cld shell] restored device=${JSON.stringify(row.label)} cwd=${JSON.stringify(row.cwd)} id=${row.id}`,
+      `[agty shell] restored device=${JSON.stringify(row.label)} cwd=${JSON.stringify(row.cwd)} id=${row.id}`,
     );
   }
 
@@ -503,7 +503,7 @@ export class ShellRegistry {
       writeJsonAtomic(this.file, { version: 1, shells: this.snapshot() });
     } catch (err) {
       console.warn(
-        `[cld shell] could not write shells.json: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty shell] could not write shells.json: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -524,7 +524,7 @@ export class ShellRegistry {
    */
   private audit(action: 'open' | 'close', entry: ShellEntry, reason?: string): void {
     console.log(
-      `[cld shell] ${action} device=${JSON.stringify(entry.label)} row=${entry.deviceId} cwd=${JSON.stringify(entry.cwd)} id=${entry.id}${reason ? ` reason=${reason}` : ''}`,
+      `[agty shell] ${action} device=${JSON.stringify(entry.label)} row=${entry.deviceId} cwd=${JSON.stringify(entry.cwd)} id=${entry.id}${reason ? ` reason=${reason}` : ''}`,
     );
     this.broadcast({
       type: 'shellNotice',
@@ -543,7 +543,7 @@ export function hostShellRegistry(
   host: PtyHostClient | null,
 ): ShellRegistry {
   const home = os.homedir();
-  if (!host) console.log('[cld shell] no PTY host: shells end with the daemon');
+  if (!host) console.log('[agty shell] no PTY host: shells end with the daemon');
   return new ShellRegistry(undefined, broadcast, Date.now, SHELL_IDLE_MS, {
     host,
     file: path.join(configDirectory(home), 'shells.json'),

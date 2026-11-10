@@ -160,6 +160,27 @@ describe('/ws connection gate', () => {
     expect(readHooksConsent()).toBe(false);
   });
 
+  // T-74: a webviewError report is one log line (webviewErrors'), not also the generic "WS client message".
+  it('logs a webviewError report once, without the generic client-message line', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { port, auth } = await startStandalone();
+      const result = await connect(port, { ...auth, Origin: `http://127.0.0.1:${port.toString()}` });
+      sockets.push(result.socket);
+      result.socket.send(JSON.stringify({ type: 'webviewError', source: 'error', message: 'boom' }));
+      result.socket.send(JSON.stringify({ type: 'webviewReady' }));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const clientLines = log.mock.calls.filter((c) => c[0] === '[Agent Tycoon] WS client message:');
+      expect(clientLines.map((c) => c[1])).toContain('webviewReady'); // the generic line still exists
+      expect(clientLines.map((c) => c[1])).not.toContain('webviewError');
+      expect(err.mock.calls.filter((c) => String(c[0]).startsWith('[Webview] error: boom')).length).toBe(1);
+    } finally {
+      log.mockRestore();
+      err.mockRestore();
+    }
+  });
+
   // 2. The SPA's own origin (what the browser sends after loading the page from
   //    this very server) connects normally.
   it('accepts a same-origin standalone connection', async () => {

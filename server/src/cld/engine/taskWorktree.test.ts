@@ -1,7 +1,7 @@
 /**
  * W2: "a worktree for a Task" (taskWorktree.ts) over a temp repository, a real Task store and
  * a real RepoManager: what it makes and records, who it is given to, every refusal (nothing
- * made), the one-write-per-repository rule, and `cld-gui worktree new|list`'s answers.
+ * made), the one-write-per-repository rule, and `agty worktree new|list`'s answers.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -226,7 +226,7 @@ describe.skipIf(!GIT_AVAILABLE)('W2: a worktree for a Task', () => {
   });
 });
 
-describe.skipIf(!GIT_AVAILABLE)('W2: cld-gui worktree new|list', () => {
+describe.skipIf(!GIT_AVAILABLE)('W2: agty worktree new|list', () => {
   const owner = { by: 'cli', agent: null, project: null };
   it('new: the owner’s CLI for any project; an agent’s token only for its own project’s Tasks', async () => {
     const s = rig();

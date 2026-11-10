@@ -15,6 +15,7 @@ import {
   shownProjects,
   subColumns,
 } from './devroomState.js';
+import { rememberSubs, sameSubs } from './subagents.js';
 
 const wt = (over: Partial<RepoWorktree> = {}): RepoWorktree => ({
   task: 't',
@@ -133,6 +134,18 @@ describe('the terminal tab', () => {
       ],
     };
     expect(subColumns(cols, { 2: {} }, tools).map((s) => [s.key, s.desc, s.done])).toEqual([['2:tu-q', 'quiet', false]]);
+    setProviderCapabilities({ readingTools: [], subagentToolNames: [] });
+  });
+
+  it('T-74: a quiet sub-agent is the same row on every call, so useSubs settles instead of looping', () => {
+    setProviderCapabilities({ readingTools: [], subagentToolNames: ['Agent'] });
+    const cols = [columnOf(engine.find((p) => p.name === 'web')!, orchs, capsFor('web'))];
+    const tools = { 2: [{ toolId: 'tu-q', toolName: 'Agent', status: 'Subtask: quiet', desc: 'quiet', done: false }] };
+    const agents = new Set([2]);
+    // What useSubs does after each render: remember the live rows, store them only when they changed.
+    const first = rememberSubs([], subColumns(cols, { 2: {} }, tools), agents, 1, 5);
+    const again = rememberSubs(first, subColumns(cols, { 2: {} }, tools), agents, 2, 5);
+    expect(sameSubs(again, first)).toBe(true);
     setProviderCapabilities({ readingTools: [], subagentToolNames: [] });
   });
 });

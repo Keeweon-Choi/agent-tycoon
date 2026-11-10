@@ -78,7 +78,7 @@ function seed(file: string, dir: string): void {
     ['assistant', '배포 계획: 빌드, 시험, 올리기 순서로 갈게요.'],
     ['user', notice('Background command "npm run build" completed (exit code 0)')],
     ['assistant', '빌드가 끝났어요. 시험을 돌릴게요.'],
-    ['user', '[cld-gui 자동 복구] 세션을 다시 이었어요'],
+    ['user', '[agty 자동 복구] 세션을 다시 이었어요'],
     ['assistant', '인수인계 전 마지막 보고: 시험이 모두 통과했어요.'],
   ];
   fs.writeFileSync(
@@ -91,7 +91,7 @@ function seed(file: string, dir: string): void {
     ['assistant', '네, 이어서 정리할게요.'],
     ['user', notice('Agent "문서 점검" completed', '문서 12개를 확인했고 고칠 곳은 없어요.')],
     ['user', notice('Background command "npm test" completed (exit code 0)')],
-    ['user', '[cld-gui 자동 복구] 세션을 다시 이었어요'],
+    ['user', '[agty 자동 복구] 세션을 다시 이었어요'],
     ['user', `${TARGET}\n[\ucca8\ubd80] /tmp/20261101-090000-plan.png (image/png, 2 KB)`],
     ...Array.from({ length: 10 }, (_, i): ['user' | 'assistant', string] => [
       'assistant',

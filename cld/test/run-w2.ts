@@ -11,7 +11,7 @@
  * - the Lead hands T-2 to alpha-c1 (delegate_task task.id): its Codex run works in T-2's
  *   worktree (the fake commits), the Execution counts that commit (observed);
  * - delegate_task({ worktree: 'new' }) gives T-3 a worktree for alpha-w1 and the message names it;
- * - `cld-gui worktree list --json` says the same.
+ * - `agty worktree list --json` says the same.
  * Screenshots in cld/artifacts/w2/ (desktop 1280x800, phone iPhone 13).
  *
  *   nice -n 10 npx tsx cld/test/run-w2.ts <port 18256-18259>
@@ -173,8 +173,8 @@ async function main() {
     await eventually('the Lead revived', () => !!session('alpha'));
 
     // A Claude Worker and a Codex Worker, two Tasks.
-    check(json(cli('worker', 'add', 'alpha', 'alpha-w1')).ok === true, 'cld-gui worker add alpha alpha-w1 (Claude)');
-    check(json(cli('worker', 'add', 'alpha', 'alpha-c1', '--provider', 'codex')).ok === true, 'cld-gui worker add alpha alpha-c1 --provider codex');
+    check(json(cli('worker', 'add', 'alpha', 'alpha-w1')).ok === true, 'agty worker add alpha alpha-w1 (Claude)');
+    check(json(cli('worker', 'add', 'alpha', 'alpha-c1', '--provider', 'codex')).ok === true, 'agty worker add alpha alpha-c1 --provider codex');
     check(json(cli('worker', 'start', 'alpha-c1')).ok === true, 'alpha-c1 on (resting)');
     const t1 = json(cli('task', 'add', 'Login page', '--project', 'alpha', '--assignee', 'alpha-w1'));
     const t2 = json(cli('task', 'add', 'API docs', '--project', 'alpha', '--assignee', 'alpha-c1'));
@@ -236,7 +236,7 @@ async function main() {
     await shot(desk, 'tasks-with-worktrees');
 
     // alpha-w1's next start is in its worktree; its work lands there only.
-    check(json(cli('worker', 'start', 'alpha-w1')).ok === true, 'cld-gui worker start alpha-w1');
+    check(json(cli('worker', 'start', 'alpha-w1')).ok === true, 'agty worker start alpha-w1');
     await eventually('alpha-w1 live', () => !!session('alpha-w1'));
     check(session('alpha-w1')!.cwd === w1.path, `alpha-w1's session runs in ${w1.path}`);
     check(engineCalls(home).some((c) => c.argv[0] === '--bg' && c.argv[2] === 'alpha-w1' && c.cwd === w1.path), 'the fake claude was started there');
@@ -284,10 +284,10 @@ async function main() {
     const listed = json(cli('worktree', 'list')).worktrees as Array<Record<string, any>>;
     check(
       JSON.stringify(listed.map((w) => [w.taskId, w.assignee, w.ahead])) === JSON.stringify([['T-1', 'alpha-w1', 1], ['T-2', 'alpha-c1', 1], [d3.taskId, 'alpha-w1', 0]]),
-      `cld-gui worktree list: ${JSON.stringify(listed.map((w) => [w.taskId, w.assignee, w.ahead]))}`,
+      `agty worktree list: ${JSON.stringify(listed.map((w) => [w.taskId, w.assignee, w.ahead]))}`,
     );
     const again = json(cli('worktree', 'new', '--task', 'T-1'));
-    check(again.ok === false && again.code === 'exists', `cld-gui worktree new --task T-1 again: refused (${again.error})`);
+    check(again.ok === false && again.code === 'exists', `agty worktree new --task T-1 again: refused (${again.error})`);
 
     // The phone.
     const phone = await newPage({ ...devices['iPhone 13'] });

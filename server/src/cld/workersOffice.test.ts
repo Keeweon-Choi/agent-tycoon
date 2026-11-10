@@ -188,7 +188,7 @@ describe('D3b: after promoting a Worker', () => {
     expect(tasks.get(assigned.id)!.assignee).toEqual({ assignmentId: ids.alpha, name: 'alpha-a' });
     // The new Lead's first typed message is the swap prompt.
     await vi.waitFor(() => expect(t.typed.some((x) => x.id === t.bg('alpha'))).toBe(true), WAIT);
-    expect(t.typed.find((x) => x.id === t.bg('alpha'))!.text).toMatch(/^\[cld-gui Lead 교체 · /);
+    expect(t.typed.find((x) => x.id === t.bg('alpha'))!.text).toMatch(/^\[agty Lead 교체 · /);
     await vi.waitFor(() => expect(view()).toEqual(before), WAIT);
 
     // The project chat (its new Lead's fresh conversation) scrolls back into the old Lead's.
@@ -338,7 +338,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')('D5: a Codex Worke
       // The prompt: the office's header naming the Lead and the Task, and the Codex delivery line.
       const call = JSON.parse(fs.readFileSync(path.join(t.home, 'fake-codex.log'), 'utf-8').split('\n')[0]) as { argv: string[]; stdin: string };
       // C7b: a new thread's prompt starts with the shipped Worker rules, then `---`, then the message.
-      expect(call.stdin.split('\n---\n').at(-1)!.trimStart()).toMatch(new RegExp(`^\\[cld-gui · alpha에게서 · Task ${taskId} · `));
+      expect(call.stdin.split('\n---\n').at(-1)!.trimStart()).toMatch(new RegExp(`^\\[agty · alpha에게서 · Task ${taskId} · `));
       expect(call.stdin).toContain('마지막 메시지에 결과·커밋·남은 일을 짧게 적어 주세요');
       expect(call.argv).toContain('model-a');
       // The Lead: one line under the Worker's name with the facts and the report (the second try:
@@ -349,7 +349,7 @@ describe.runIf(GIT_AVAILABLE && process.platform !== 'win32')('D5: a Codex Worke
       expect(told()).toEqual([]);
       (office as unknown as { reportWorkerRuns(): void }).reportWorkerRuns();
       await vi.waitFor(() => expect(told()).toHaveLength(1), { timeout: 30_000, interval: 100 });
-      expect(told()[0].text).toMatch(new RegExp(`^\\[cld-gui · alpha-w1에게서 · Task ${taskId} · `));
+      expect(told()[0].text).toMatch(new RegExp(`^\\[agty · alpha-w1에게서 · Task ${taskId} · `));
       expect(told()[0].text).toContain('끝남 · exit 0 · 커밋 1개');
       expect(told()[0].text).toContain('보고(Worker 의 말):\n로그인 고쳤어요. 남은 일 없음');
       // No contractor character for a Worker's run; its own character is there.

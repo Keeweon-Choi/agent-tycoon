@@ -283,7 +283,17 @@ test('cliNameStatus tells our agty from another program and from nothing', () =>
   assert.equal(mine.state, 'ours');
 });
 
-test('doctor reports a foreign agty as a warning that points to cld-gui, never as a failure', async () => {
+test('T-80: on Windows the foreign-agty warning gives a command that runs (node "<script>")', async () => {
+  const base = commandFixture([]);
+  const result = await maintenance.doctor({
+    platform: 'win32', home, node: '22.14.0', exists: () => true, readFile: () => config, realpath: (f) => f,
+    command: (c) => (c.join(' ') === 'where agty.cmd' ? { ok: true, stdout: 'C:\\Other\\agty.cmd\n' } : base(c)),
+    writable: () => true, disk: () => 0.45, health: async () => true,
+  });
+  assert.match(maintenance.doctorLines(result).join('\n'), /⚠ agty: C:\\Other\\agty\.cmd 는 다른 프로그램입니다 — 이 도구는 node "[^"]*cld-gui" 로 실행하세요/);
+});
+
+test('doctor reports a foreign agty as a warning that points to the script path, never as a failure', async () => {
   const calls = [];
   const base = commandFixture(calls);
   const result = await maintenance.doctor({
@@ -292,5 +302,5 @@ test('doctor reports a foreign agty as a warning that points to cld-gui, never a
     writable: () => true, disk: () => 0.45, health: async () => true,
   });
   assert.equal(result.ok, true);
-  assert.match(maintenance.doctorLines(result).join('\n'), /⚠ agty: \/usr\/bin\/agty 는 다른 프로그램입니다 — cld-gui 를 쓰세요/);
+  assert.match(maintenance.doctorLines(result).join('\n'), /⚠ agty: \/usr\/bin\/agty 는 다른 프로그램입니다 — 이 도구는 \S+\/cld\/bin\/cld-gui 로 실행하세요/);
 });

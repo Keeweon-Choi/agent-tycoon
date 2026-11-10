@@ -367,7 +367,7 @@ describe('dist/cli.js entry-point guard', () => {
       // before the "server running" line, which health readiness follows).
       await new Promise((resolve) => setTimeout(resolve, 500));
       expect(fs.existsSync(path.join(tmpHome, '.claude', 'settings.json'))).toBe(false);
-      expect(output()).toContain('Hooks disabled in cld-gui');
+      expect(output()).toContain('Hooks disabled in agty');
     });
   });
 

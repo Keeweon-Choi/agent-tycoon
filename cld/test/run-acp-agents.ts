@@ -4,7 +4,7 @@
  * of our own: never a real agent. Headless Chromium (--disable-gpu).
  * - the + Worker form (개발실 → 새 워크트리 → 새 에이전트 만들기…) lists Gemini with its mark;
  *   picking it adds alpha-g1 (provider gemini);
- * - `cld-gui worker start alpha-g1`, a message from the messenger: its words, a folded tool line,
+ * - `agty worker start alpha-g1`, a message from the messenger: its words, a folded tool line,
  *   the plan, then a permission card with the agent's options; 이번만 허용 reaches the agent once;
  * - the 개발실 대화 pane of alpha-g1 (on its task worktree) shows the conversation; its terminal
  *   side links the chat (no terminal for an ACP agent).
@@ -180,7 +180,7 @@ async function main() {
     const taskId = json(cli('task', 'add', '빌드 정리', '--project', 'alpha', '--assignee', 'alpha-g1', '--status', 'doing')).task?.id as string;
     check(json(cli('worktree', 'new', '--task', taskId, '--assign', 'alpha-g1')).ok === true, `${taskId} gets a 워크트리 for alpha-g1`);
     const started = json(cli('worker', 'start', 'alpha-g1'));
-    check(started.ok === true, `cld-gui worker start alpha-g1 (${JSON.stringify(started).slice(0, 200)})`);
+    check(started.ok === true, `agty worker start alpha-g1 (${JSON.stringify(started).slice(0, 200)})`);
     await eventually('the mock was initialized and has a session', () => mockLog().some((l) => l.got?.method === 'session/new'), 30_000);
     const argv = mockLog().find((l) => l.start)!;
     check(JSON.stringify(argv.argv) === JSON.stringify(['--acp']), `the agent got exactly its preset argv (${JSON.stringify(argv.argv)})`);

@@ -30,7 +30,7 @@ describe('event summaries', () => {
         '사장 → b 메시지',
       );
     expect(summarizeEvent({ type: 'send', ts: 't', source: 'engine', to: 'b' })!.summary).toBe(
-      'cld-gui → b 메시지',
+      'agty → b 메시지',
     );
     // Every kind the engine writes has words: none shows as its raw code.
     for (const [type, fields] of [
@@ -168,7 +168,7 @@ describe('event summaries', () => {
     expect(
       summarizeEvent({ type: 'job_end', ts: 't', id: 'c2', kind: 'codex', exit: 0 }),
     ).toMatchObject({ kind: 'job_end' });
-    // A `cld-gui codex` task is as before.
+    // A `agty codex` task is as before.
     expect(
       summarizeEvent({ type: 'codex_end', ts: 't', id: 'c2', project: 'alpha', state: 'done' }),
     ).toMatchObject({ kind: 'codex_end', name: 'alpha' });

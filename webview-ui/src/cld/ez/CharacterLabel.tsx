@@ -1,5 +1,5 @@
 /**
- * T-0036: a character's DOM overlay in the cld office (EZ mode). A named
+ * T-0036: a character's DOM overlay in the agty office (EZ mode). A named
  * character carries a small RPG nameplate (charpack v3 §6A): the status icon,
  * its rank icon, its name and its level in an XP ring, the 피로도 bar below;
  * an unnamed one only the status icon the canvas draws above its head.
@@ -40,6 +40,7 @@ import { OfficeBadges } from '../OfficeBadges.js';
 import type { OfficeIdentity } from '../officeStore.js';
 import { MemberCard } from '../party/MemberCard.js';
 import { getRankStyle, rankName, rankOfLevel } from '../rank.js';
+import { RegionBoundary } from '../RegionBoundary.js';
 import { staffHides, staffSnapshot } from '../staff.js';
 import { TempRank } from '../TempList.js';
 import { nameplateSizes, useUiScale } from '../uiScale.js';
@@ -168,7 +169,7 @@ export function CharacterLabel({
   const staff = staffSnapshot();
   const engineProject = useEngineProject(name);
   const orchestratorModel = modelEffortLabel(engineProject?.model, engineProject?.effort);
-  // hud-v3 P0: with an inspector slot (the cld desktop), the plate stays short and the inspector shows the rest.
+  // hud-v3 P0: with an inspector slot (the agty desktop), the plate stays short and the inspector shows the rest.
   const inspector = useInspectorSlot();
   // LOUNGE: off duty it is still in the building, resting: its own label, with 퇴근 at its feet.
   const offDuty = !!staff.away[ch.id];
@@ -417,21 +418,24 @@ export function CharacterLabel({
           </div>
         </div>
       </div>
+      {/* T-74: the member card (its Relations tab reads the party's team) breaks alone, not the office's labels. */}
       {selected && (
-        <MemberCard
-          id={ch.id}
-          name={name}
-          palette={ch.palette}
-          hueShift={ch.hueShift}
-          activity={{ icon: visual.icon, text: visual.text, ring: visual.ring }}
-          rawActivity={rawActivity}
-          rankText={rankText}
-          rankIcon={rankIconNode}
-          lookName={lookName}
-          characters={characters}
-          into={inspector}
-          onClose={onDeselect}
-        />
+        <RegionBoundary region="member">
+          <MemberCard
+            id={ch.id}
+            name={name}
+            palette={ch.palette}
+            hueShift={ch.hueShift}
+            activity={{ icon: visual.icon, text: visual.text, ring: visual.ring }}
+            rawActivity={rawActivity}
+            rankText={rankText}
+            rankIcon={rankIconNode}
+            lookName={lookName}
+            characters={characters}
+            into={inspector}
+            onClose={onDeselect}
+          />
+        </RegionBoundary>
       )}
     </>
   );

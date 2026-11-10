@@ -138,7 +138,7 @@ const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 const README = `# 캐릭터 프리셋
 
-cld-gui 사무실 캐릭터 그림을 두는 폴더입니다. 데몬이 이 폴더를 지켜보다가 바뀌면 화면에 바로 반영합니다.
+agty 사무실 캐릭터 그림을 두는 폴더입니다. 데몬이 이 폴더를 지켜보다가 바뀌면 화면에 바로 반영합니다.
 
 ## 형식
 
@@ -641,7 +641,7 @@ export class CharacterPresets {
       const readme = path.join(this.dir, 'README.md');
       if (!fs.existsSync(readme)) fs.writeFileSync(readme, README);
     } catch (err) {
-      console.warn(`[cld] characters: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty] characters: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.loadAssignments();
     this.scan();
@@ -911,7 +911,7 @@ export class CharacterPresets {
       fs.renameSync(tmp, cached);
     } catch (err) {
       console.warn(
-        `[cld] characters: thumbnail cache: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty] characters: thumbnail cache: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     return t;
@@ -936,7 +936,7 @@ export class CharacterPresets {
   ): boolean {
     if (msg.type !== 'setCharacter') return false;
     const refuse = (reason: CharacterRefusalReason) => {
-      console.warn(`[cld] setCharacter ${JSON.stringify(msg.key)}: refused (${reason})`);
+      console.warn(`[agty] setCharacter ${JSON.stringify(msg.key)}: refused (${reason})`);
       send?.({
         type: 'characterRefused',
         key: typeof msg.key === 'string' ? msg.key.slice(0, MAX_KEY_LENGTH) : '',
@@ -991,7 +991,7 @@ export class CharacterPresets {
     this.scan();
     if (!this.assign(key, { preset: id })) return { error: 'characters.json is full' };
     const warning = check.warning?.text;
-    if (warning) console.warn(`[cld] characters: ${id} saved with a warning: ${warning}`);
+    if (warning) console.warn(`[agty] characters: ${id} saved with a warning: ${warning}`);
     return warning ? { id, warning } : { id };
   }
 
@@ -1070,7 +1070,7 @@ export class CharacterPresets {
       });
     }
     this.scan();
-    console.log(`[cld] characters: imported ${id} (${cut.format}, ${conv.report.ms} ms)`);
+    console.log(`[agty] characters: imported ${id} (${cut.format}, ${conv.report.ms} ms)`);
     return { id, format: cut.format };
   }
 
@@ -1226,7 +1226,7 @@ export class CharacterPresets {
       if (!over) break;
       const victim = victims.shift();
       if (victim === undefined) {
-        const line = `[cld] characters.json not saved: more than ${MAX_STORE_ENTRIES} characters or ${MAX_STORE_BYTES} bytes`;
+        const line = `[agty] characters.json not saved: more than ${MAX_STORE_ENTRIES} characters or ${MAX_STORE_BYTES} bytes`;
         if (!this.logged.has(line)) console.warn(line);
         this.logged.add(line);
         return false;
@@ -1248,7 +1248,7 @@ export class CharacterPresets {
       this.stored = { count, bytes };
     } catch (err) {
       console.warn(
-        `[cld] characters.json not saved: ${err instanceof Error ? err.message : String(err)}`,
+        `[agty] characters.json not saved: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     this.assignments = assignments;
@@ -1292,7 +1292,7 @@ export class CharacterPresets {
       // Kept as characters.json.bak-<time> before the first save replaces it.
       this.storeUnreadable = true;
       console.warn(
-        `[cld] characters.json is not a JSON object of at most ${MAX_STORE_READ_BYTES} bytes: every character has its default look`,
+        `[agty] characters.json is not a JSON object of at most ${MAX_STORE_READ_BYTES} bytes: every character has its default look`,
       );
       return;
     }
@@ -1305,14 +1305,14 @@ export class CharacterPresets {
               const parsed = parseAutoPin(pin);
               if (parsed) this.auto.set(name, parsed);
             }
-        } else console.warn('[cld] characters.json: $meta is not an object (rewritten)');
+        } else console.warn('[agty] characters.json: $meta is not an object (rewritten)');
         continue;
       }
       const choice = parseAppearance(value);
       if (validKey(key) && choice) this.assignments[key] = choice;
       else {
         this.foreign[key] = value;
-        console.warn(`[cld] characters.json: ignored ${JSON.stringify(key)}`);
+        console.warn(`[agty] characters.json: ignored ${JSON.stringify(key)}`);
       }
     }
     // An older daemon can change the entry while retaining $meta. Only the exact v1 look this
@@ -1379,7 +1379,7 @@ export class CharacterPresets {
     const key = `${name}:${st.size}:${st.mtimeMs}`;
     if (this.logged.has(key)) return;
     this.logged.add(key);
-    console.warn(`[cld] characters: ignored ${name}: ${why}`);
+    console.warn(`[agty] characters: ignored ${name}: ${why}`);
   }
 
   private writeAtomic(name: string, data: Buffer | string): void {
@@ -1433,7 +1433,7 @@ export function registerCharacterRoutes(
         return reply.code(403).send({ ...refused('origin_mismatch') });
       const result = await presets.saveSheet(request.body);
       if ('error' in result) {
-        console.warn(`[cld] characters: upload refused: ${result.error}`);
+        console.warn(`[agty] characters: upload refused: ${result.error}`);
         return reply.code(400).send(result);
       }
       return result;
@@ -1448,7 +1448,7 @@ export function registerCharacterRoutes(
         return reply.code(403).send({ ...refused('origin_mismatch') });
       const result = presets.importSheet(request.body, save);
       if ('error' in result) {
-        console.warn(`[cld] characters: sheet import refused: ${result.error}`);
+        console.warn(`[agty] characters: sheet import refused: ${result.error}`);
         return reply.code(400).send(result);
       }
       return result;

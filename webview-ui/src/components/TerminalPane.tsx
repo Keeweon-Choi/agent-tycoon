@@ -46,11 +46,11 @@ interface TerminalPaneProps {
    *  mobile key bar injects keys the software keyboard doesn't have and
    *  pastes clipboard text. */
   onRegisterInput?: (agentId: number, handle: TerminalInputHandle | null) => void;
-  /** cld-gui (T-0078): the server closed this socket for good, with its reason. */
+  /** agty (T-0078): the server closed this socket for good, with its reason. */
   onRefused?: (agentId: number, reason: string) => void;
-  /** cld-gui (T-0078): before every (re)connect (a shell's step-up). */
+  /** agty (T-0078): before every (re)connect (a shell's step-up). */
   prepare?: TerminalConnectionOptions['prepare'];
-  /** cld-gui (T-0078): the pane says these instead of upstream's "[process exited with code N]";
+  /** agty (T-0078): the pane says these instead of upstream's "[process exited with code N]";
    *  `reconnecting` is written once when the socket drops, `gone` when the server no longer has
    *  the terminal, `ended` when it ended. Absent: upstream's behaviour. */
   messages?: TerminalMessages;
@@ -73,7 +73,7 @@ export interface TerminalInputHandle {
    *  the running app has turned that mode on — Claude Code has, and without
    *  the markers a multiline paste would submit at its first newline. */
   paste: (data: string) => void;
-  /** Put the keyboard focus in this terminal (cld-gui: 터미널로 보기 on a desktop). */
+  /** Put the keyboard focus in this terminal (agty: 터미널로 보기 on a desktop). */
   focus: () => void;
   /** Claude Code's running-turn line ("esc to interrupt") is on the screen. */
   busy?: () => boolean;

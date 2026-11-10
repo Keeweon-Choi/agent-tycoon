@@ -426,7 +426,7 @@ describe.skipIf(!GIT_AVAILABLE)('the acceptance route', () => {
     });
     const same = { origin: 'http://localhost:80', host: 'localhost:80', 'x-session': 'ok' };
     const post = (payload: object, headers: Record<string, string> = same) => server.inject({ method: 'POST', url: '/api/cld/spec/alpha/acceptance', headers, payload });
-    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec]'));
+    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec]'));
     return { ...t, post, same, audits };
   }
 
@@ -443,7 +443,7 @@ describe.skipIf(!GIT_AVAILABLE)('the acceptance route', () => {
     const ok = await t.post(body);
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ ok: true, state: 'accepted' });
-    expect(t.audits()).toEqual([`[cld spec] accept device="Test phone" project="alpha" uid=${u} state=accepted`]);
+    expect(t.audits()).toEqual([`[agty spec] accept device="Test phone" project="alpha" uid=${u} state=accepted`]);
     const jsonl = fs.readFileSync(path.join(t.home, '.config/agent-tycoon/audit.jsonl'), 'utf-8');
     expect((JSON.parse(jsonl.trim().split('\n').at(-1)!) as { detail: string }).detail).toBe(`accept ${PROJECT_ID} ${u} accepted`);
     expect(jsonl).not.toContain('secret-ish');

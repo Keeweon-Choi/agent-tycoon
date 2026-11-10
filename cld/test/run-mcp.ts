@@ -1,7 +1,7 @@
 /**
  * C5a: the MCP adapter end to end with the fake claude. dist/cli.js in a temp
  * HOME, one project with its Lead and a registered Worker (started through
- * `cld-gui worker`); the adapter started the way Claude Code starts it from the
+ * `agty worker`); the adapter started the way Claude Code starts it from the
  * generated --mcp-config (its command and args, the session's environment with
  * the token the engine handed that session). Checks: the argv carries
  * --mcp-config and no --strict-mcp-config; list_agents from the Lead lists the
@@ -174,7 +174,7 @@ async function main() {
     };
     await daemon.loginUrl(); // up
     await eventually('the Lead revived', () => !!session('alpha'));
-    check(json(cli('worker', 'start', 'alpha-a')).ok === true, 'cld-gui worker start alpha-a');
+    check(json(cli('worker', 'start', 'alpha-a')).ok === true, 'agty worker start alpha-a');
     await eventually('the Worker session', () => !!session('alpha-a'));
 
     // The argv each session got, and the token in it (the session's environment).
@@ -257,14 +257,14 @@ async function main() {
       typed().some((t) => t.id === session('alpha-a')!.jobId && t.text.includes('MCP 로 보내는 리뷰 요청')),
     );
     const dm = typed().find((t) => t.text.includes('MCP 로 보내는 리뷰 요청'))!;
-    check(/^\[cld-gui · alpha에게서 · /.test(dm.text) && !dm.text.includes('사장'), `the Worker's session got it from the Lead: ${dm.text.split('\n')[0]}`);
+    check(/^\[agty · alpha에게서 · /.test(dm.text) && !dm.text.includes('사장'), `the Worker's session got it from the Lead: ${dm.text.split('\n')[0]}`);
 
     const posted = await lead.call('post_to_group', { room: '팀방', text: '@alpha-a 회의록 확인해 주세요' });
     check(posted.status === 'posted' && posted.mentioned.join() === 'alpha-a', `post_to_group: ${JSON.stringify(posted)}`);
     const read = json(cli('groups', 'read', '팀방'));
     check(
       (read.posts as Array<{ sender: string; text: string }>).some((p) => p.sender === 'alpha' && p.text.includes('회의록')),
-      'the post is in the room (cld-gui groups read 팀방), sent by alpha',
+      'the post is in the room (agty groups read 팀방), sent by alpha',
     );
     await eventually('the mention typed into the Worker', () =>
       typed().some((t) => t.id === session('alpha-a')!.jobId && t.text.includes('회의록')),
@@ -307,7 +307,7 @@ async function main() {
     await eventually('the Task typed into the Worker', () => typedFor('alpha-a', 'API 테스트 작성').length === 1);
     const handed = typedFor('alpha-a', 'API 테스트 작성')[0].text;
     check(
-      handed.startsWith(`[cld-gui · alpha에게서 · Task ${d1.taskId as string} · `) && handed.includes('로그인·로그아웃 경로') && !handed.includes('사장'),
+      handed.startsWith(`[agty · alpha에게서 · Task ${d1.taskId as string} · `) && handed.includes('로그인·로그아웃 경로') && !handed.includes('사장'),
       `the Worker's session got the Task from the Lead: ${handed.split('\n')[0]}`,
     );
     const child = json(cli('task', 'show', d1.taskId as string, '--json')).task;
@@ -373,7 +373,7 @@ async function main() {
       `the new Worker's first prompt is the Task: ${first[0]?.text.split('\n')[0]}`,
     );
     const workers = json(cli('worker', 'list')).workers as Array<{ name: string; role: string; live: boolean }>;
-    check(workers.some((w) => w.name === 'alpha-rev' && w.role === 'reviewer' && w.live), 'cld-gui worker list: alpha-rev, a reviewer, on');
+    check(workers.some((w) => w.name === 'alpha-rev' && w.role === 'reviewer' && w.live), 'agty worker list: alpha-rev, a reviewer, on');
 
     // The office, the 작업실.
     browser = await launchBrowser();

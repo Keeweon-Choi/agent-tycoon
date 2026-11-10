@@ -205,7 +205,7 @@ it('refuses protected folders in a chosen root: ., .., encoding, case, symlinks,
     });
     expect(minted.statusCode, JSON.stringify(payload)).toBe(403);
   }
-  expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('[cld files]'));
+  expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('[agty files]'));
 });
 
 it('requires Origin for ticket creation and consumes a same-session URL once', async () => {
@@ -296,7 +296,7 @@ it('allows SVG image tickets, sandboxes inline HTML, and scopes the sensitive sw
   expect(inline.headers['content-type']).toContain('text/html');
   expect(inline.headers['content-security-policy']).toMatch(/default-src 'none'.*; sandbox$/);
   expect(inline.headers['content-security-policy']).not.toContain('allow-scripts');
-  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[cld files] preview'));
+  expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[agty files] preview'));
   expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('alert(1)'));
   const html = await app.inject({
     method: 'POST',

@@ -1,10 +1,10 @@
 /**
  * D3 / GP-4 shape: dist/cli.js in a temp HOME (the engine fake as `claude`), one
- * project with its Lead and two Workers added and started through `cld-gui worker`.
+ * project with its Lead and two Workers added and started through `agty worker`.
  * Checks: three sessions and three characters; the messenger lists the project
  * (= its Lead) with its Workers collapsed under it; the project conversation
  * reaches the Lead, a Worker DM that Worker, a room mention only the mentioned
- * Worker, and `cld-gui send <project>` the Lead. Screenshots in cld/artifacts/d3/.
+ * Worker, and `agty send <project>` the Lead. Screenshots in cld/artifacts/d3/.
  *
  * W1 (the 작업실): the project is a git clone with a loose change and one task
  * worktree, a second project `beta` has a task of its own. The 현황판 card has no
@@ -16,9 +16,9 @@
  * D3b: the 현황판 lists the projects only (no Worker card). "+ Worker" in the 작업실
  * adds alpha-c (a refusal shows in the form; its row and its character appear).
  * EX-7a, both modes: 'Lead 로' on alpha-a in the 작업실 (the old Lead goes on as
- * Worker alpha-a), and later `cld-gui worker promote alpha-b --old stop`; sampled every
+ * Worker alpha-a), and later `agty worker promote alpha-b --old stop`; sampled every
  * 20 ms meanwhile: never two Leads of alpha on disk, never two live sessions named
- * alpha. The new Lead's first typed message is the swap prompt; `cld-gui send alpha`
+ * alpha. The new Lead's first typed message is the swap prompt; `agty send alpha`
  * reaches it. EX-7b: the Lead stopped, Worker alpha-b finishes a Task with its own
  * token, then the swap: the new Lead's prompt lists it, the Task keeps its assignee
  * (by assignment id), and the project chat scrolls back into the old Lead's turns.
@@ -32,6 +32,7 @@ import { execFile, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { makeTempRepo } from '../../server/src/cld/engine/git/testRepo.js';
 import { Worktrees } from '../../server/src/cld/engine/git/worktrees.js';
 import { joinRegistry } from '../../server/src/cld/engine/registry.js';
@@ -48,7 +49,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/d3');
@@ -159,11 +159,11 @@ async function main() {
     await eventually('the Lead revived', () => !!session('alpha'));
 
     // Two Workers through the owner's CLI (the engine action), one in a worktree of the project.
-    check(json(cli('worker', 'add', 'alpha', 'alpha-a', '--model', 'sonnet')).ok === true, 'cld-gui worker add alpha alpha-a');
-    check(json(cli('worker', 'add', 'alpha', 'alpha-b', '--folder', tree)).ok === true, 'cld-gui worker add alpha alpha-b --folder <worktree>');
+    check(json(cli('worker', 'add', 'alpha', 'alpha-a', '--model', 'sonnet')).ok === true, 'agty worker add alpha alpha-a');
+    check(json(cli('worker', 'add', 'alpha', 'alpha-b', '--folder', tree)).ok === true, 'agty worker add alpha alpha-b --folder <worktree>');
     const taken = json(cli('worker', 'add', 'alpha', 'alpha'));
     check(taken.ok === false && String(taken.error).includes('이미 있는 이름'), 'a Worker cannot take the project’s name');
-    for (const w of ['alpha-a', 'alpha-b']) check(json(cli('worker', 'start', w)).ok === true, `cld-gui worker start ${w}`);
+    for (const w of ['alpha-a', 'alpha-b']) check(json(cli('worker', 'start', w)).ok === true, `agty worker start ${w}`);
     await eventually('three sessions', () => AGENTS.every((n) => session(n)));
     const sessions = AGENTS.map((n) => session(n)!);
     check(new Set(sessions.map((s) => s.sessionId)).size === 3 && new Set(sessions.map((s) => s.jobId)).size === 3, 'three separate sessions (ids and jobs)');
@@ -171,7 +171,7 @@ async function main() {
     const listed = json(cli('worker', 'list')).workers as Array<{ name: string; project: string; live: boolean }>;
     check(
       JSON.stringify(listed.map((w) => [w.name, w.project, w.live])) === JSON.stringify([['alpha-a', 'alpha', true], ['alpha-b', 'alpha', true]]),
-      'cld-gui worker list: both Workers of alpha, live',
+      'agty worker list: both Workers of alpha, live',
     );
     const stored = JSON.parse(fs.readFileSync(path.join(cfg, 'assignments.json'), 'utf8')) as { v: number; assignments: Array<{ role: string; name?: string }> };
     check(stored.v === 2 && stored.assignments.map((a) => a.name ?? a.role).sort().join() === 'alpha-a,alpha-b,lead,lead', 'assignments.json v2: the two Leads (alpha, beta) and alpha’s two Workers');
@@ -303,12 +303,12 @@ async function main() {
     await room.getByText('alpha-a: 받았어요').waitFor({ timeout: 20_000 });
     await page.screenshot({ path: path.join(OUT, 'room-mention.png') });
 
-    // `cld-gui send <project>` reaches the Lead.
+    // `agty send <project>` reaches the Lead.
     const leadBefore = typedTo('alpha').length;
     const sent = json(cli('send', 'alpha', 'CLI 에서 프로젝트에게'));
-    check(sent.ok === true, 'cld-gui send alpha');
+    check(sent.ok === true, 'agty send alpha');
     await eventually('the CLI message typed', () => typedTo('alpha').length > leadBefore);
-    check(typed().filter((t) => t.text.includes('CLI 에서 프로젝트에게')).every((t) => t.id === session('alpha')!.jobId), 'cld-gui send <project> reaches the Lead’s session');
+    check(typed().filter((t) => t.text.includes('CLI 에서 프로젝트에게')).every((t) => t.id === session('alpha')!.jobId), 'agty send <project> reaches the Lead’s session');
 
     const phone = await browser.newContext({ ...devices['iPhone 13'] });
     const phonePage: Page = await phone.newPage();
@@ -589,12 +589,12 @@ async function main() {
     check(watched.leads === 1 && watched.sessions <= 1 && watched.samples > 10, `EX-7a (worker): at most one Lead of alpha on disk and one live "alpha" session in ${watched.samples} samples`);
     check(assignmentId('alpha-a') === ids0.lead && liveNamed('alpha') === 1 && liveNamed('alpha-a') === 1, 'EX-7a (worker): alpha is alpha-a’s assignment, the old Lead goes on as Worker alpha-a');
     const firstToNew = typed().slice(typedBefore).find((x) => x.id === session('alpha')!.jobId)!;
-    check(firstToNew.text.startsWith('[cld-gui Lead 교체') && firstToNew.text.includes('열린 Task'), 'EX-7a: the new Lead’s first message is the swap prompt (open Tasks listed)');
+    check(firstToNew.text.startsWith('[agty Lead 교체') && firstToNew.text.includes('열린 Task'), 'EX-7a: the new Lead’s first message is the swap prompt (open Tasks listed)');
     console.log(`--- first prompt (EX-7a) ---\n${firstToNew.text.replaceAll('\r', '\n')}\n---`);
     const toNew = typedTo('alpha').length;
-    check(json(cli('send', 'alpha', 'EX-7a 뒤 CLI 에서 프로젝트에게')).ok === true, 'cld-gui send alpha after the swap');
+    check(json(cli('send', 'alpha', 'EX-7a 뒤 CLI 에서 프로젝트에게')).ok === true, 'agty send alpha after the swap');
     await eventually('the CLI message typed', () => typedTo('alpha').length > toNew, 30_000);
-    check(typed().filter((x) => x.text.includes('EX-7a 뒤 CLI 에서')).every((x) => x.id === session('alpha')!.jobId), 'EX-7a: cld-gui send alpha reaches the new Lead');
+    check(typed().filter((x) => x.text.includes('EX-7a 뒤 CLI 에서')).every((x) => x.id === session('alpha')!.jobId), 'EX-7a: agty send alpha reaches the new Lead');
     await eventually('the agents tab after the swap', () => true);
     await wb.locator('[data-testid="workbench-agent"][data-name="alpha"]').getByText('Lead').first().waitFor();
     await d3.waitForTimeout(1_000);
@@ -635,7 +635,7 @@ async function main() {
       );
     const promoted = await cliAsync('worker', 'promote', 'alpha-b', '--old', 'stop');
     watched = stopWatch();
-    check(promoted.ok === true && termLead === null, `EX-7a (stop): cld-gui worker promote alpha-b --old stop (${String(promoted.error ?? 'ok')})`);
+    check(promoted.ok === true && termLead === null, `EX-7a (stop): agty worker promote alpha-b --old stop (${String(promoted.error ?? 'ok')})`);
     check(watched.leads === 1 && watched.sessions <= 1, `EX-7a (stop): at most one Lead of alpha and one live "alpha" session in ${watched.samples} samples`);
     check(assignmentId('alpha') === ids0.b && assignmentId('alpha-b') === ids0.a && liveNamed('alpha-b') === 0 && liveNamed('alpha') === 1, 'EX-7a (stop): alpha is alpha-b’s assignment; the old Lead is Worker alpha-b, off');
     // D1: a later ordinary start of the demoted Worker (it holds the old Lead's conversation)

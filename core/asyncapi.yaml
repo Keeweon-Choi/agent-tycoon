@@ -355,6 +355,8 @@ components:
         # cld-gui: the parties the owner composes (FEAT-PARTY-V2)
         - $ref: '#/components/schemas/SetParties'
         - $ref: '#/components/schemas/GoneConversationDelete'
+        # cld-gui: a render error or an uncaught one in the page, for the daemon log (T-74)
+        - $ref: '#/components/schemas/WebviewError'
         # cld-gui: the isometric office's background (BACKGROUND)
         - $ref: '#/components/schemas/SetOfficeBackground'
         # cld-gui: 작업 현황 (DEV-BOARD)
@@ -3804,7 +3806,7 @@ components:
           $ref: '#/components/schemas/OfficeLevel'
         renewing:
           description: |
-            RENEW-STUCK: an engine project whose `cld-gui renew` is pending (waiting for its
+            RENEW-STUCK: an engine project whose `agty renew` is pending (waiting for its
             turn to end, or starting the new conversation). Its messages wait for the new
             conversation, and its character stays at work. Absent when none is.
           type: boolean
@@ -3915,7 +3917,7 @@ components:
           description: The compactions counted in the sub-agent's own transcript.
 
     CodexTasks:
-      description: Codex delegations from the engine's `cld-gui codex` (T-0021). Each running or limit-waiting task is a contractor character (`agentId`).
+      description: Codex delegations from the engine's `agty codex` (T-0021). Each running or limit-waiting task is a contractor character (`agentId`).
       type: object
       additionalProperties: false
       required: [type, tasks]
@@ -3977,13 +3979,13 @@ components:
           description: Who runs the task (T-0021).
         agent:
           type: string
-          description: D5 — the Codex Worker whose message this run carries; absent for a `cld-gui codex` run.
+          description: D5 — the Codex Worker whose message this run carries; absent for a `agty codex` run.
         task:
           type: string
           description: D5 — the Task a Worker's run is an Execution of.
 
     OfficeJobs:
-      description: The engine's background jobs (`cld-gui job`, T-0019), with progress parsed server-side from the last `\r` segment of the log (tqdm). Sent whenever the engine runs (an empty list included).
+      description: The engine's background jobs (`agty job`, T-0019), with progress parsed server-side from the last `\r` segment of the log (tqdm). Sent whenever the engine runs (an empty list included).
       type: object
       additionalProperties: false
       required: [type, jobs]
@@ -4168,7 +4170,7 @@ components:
         hostRamDetail:
           $ref: '#/components/schemas/HwHostRamDetail'
         gpus:
-          description: Every GPU the sensor source lists (LHM), a discrete card first; the first one also fills the single-GPU fields above, which older clients and `cld-gui hw` read.
+          description: Every GPU the sensor source lists (LHM), a discrete card first; the first one also fills the single-GPU fields above, which older clients and `agty hw` read.
           type: array
           items:
             $ref: '#/components/schemas/HwGpu'
@@ -4181,7 +4183,7 @@ components:
         hostRamTotalGib:
           type: [number, 'null']
         topProcesses:
-          description: '`cld-gui hw` only (on demand): the top 5 processes by CPU, command lines masked.'
+          description: '`agty hw` only (on demand): the top 5 processes by CPU, command lines masked.'
           type: array
           items:
             $ref: '#/components/schemas/HwTopProcess'
@@ -4979,8 +4981,11 @@ components:
           description: |
             DEVROOM-SUBVIEW: a tool call's arguments in one string (the command,
             the path, the pattern or query it was given), so the dev room shows
-            the call the way a terminal does. Only in `workContent`, capped and
-            masked like `text`.
+            the call the way a terminal does. In `workContent` every tool call
+            has it (capped, masked like `text`); in the conversation items
+            (messenger, history, group rooms) only an MCP tool call (`mcp__`)
+            has it, as a shorter line of `key: value` pairs, each value cut,
+            masked where it is made.
           type: string
         failed:
           description: |
@@ -5894,6 +5899,38 @@ components:
         visible:
           type: boolean
 
+    WebviewErrorSource:
+      description: What caught a webview error (T-74).
+      type: string
+      enum: [boundary, error, rejection]
+    WebviewError:
+      description: |
+        T-74: something broke in the page (an error boundary caught a render error, or a
+        `window` `error` / `unhandledrejection`), so a blank screen leaves its cause in the
+        daemon log as `[Webview] ...`. Capped by the page (message, the top of the stack and
+        of the component stack) and again by the daemon, which masks secrets, rate-limits per
+        socket and drops a malformed one. No answer.
+      type: object
+      additionalProperties: false
+      required: [type, source, message]
+      properties:
+        type:
+          const: webviewError
+        source:
+          $ref: '#/components/schemas/WebviewErrorSource'
+        region:
+          description: The error boundary's region (root, messenger, devroom, party, ...).
+          type: string
+          maxLength: 64
+        message:
+          type: string
+          maxLength: 500
+        stack:
+          type: string
+          maxLength: 2000
+        componentStack:
+          type: string
+          maxLength: 2000
     OwnerActivity:
       description: |
         OWNER-STATS: the owner's character's steps (tiles walked) and the seconds this page was
@@ -6403,7 +6440,7 @@ components:
         on, the old Lead takes the Worker's former name and becomes a Worker
         (`oldLead: worker`, the default: its conversation resumed) or stays
         stopped (`oldLead: stop`). The project's chat, rooms, mentions and
-        `cld-gui send <project>` reach the new Lead; Tasks and records stay.
+        `agty send <project>` reach the new Lead; Tasks and records stay.
       type: object
       additionalProperties: false
       required: [type, requestId, action, name]
@@ -6796,7 +6833,7 @@ components:
         last 64 KB of its log (each line as the terminal last showed it),
         `stop` sends its process groups SIGTERM. Both need a privileged
         client; `stop` also needs --allow-actions (the client confirms
-        first). Starting jobs is only for the local `cld-gui` CLI. Answered
+        first). Starting jobs is only for the local `agty` CLI. Answered
         with `jobActionResult` to the sender only.
       type: object
       additionalProperties: false

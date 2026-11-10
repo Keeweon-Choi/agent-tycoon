@@ -1,7 +1,7 @@
 /**
  * RENAME + PROJECT-DATA visual check: dist/cli.js in a temp HOME (the engine fake as `claude`) with
  * two running projects, alpha and beta, each with a conversation, a look and a level.
- *  - `cld-gui rename --project alpha tycoon-admin` (the owner's CLI): applied after the turn, the
+ *  - `agty rename --project alpha tycoon-admin` (the owner's CLI): applied after the turn, the
  *    session back as `-n tycoon-admin --resume <its id>`; its look and level follow, and the
  *    messenger lists tycoon-admin with alpha's history.
  *  - The remove dialog with its purge box, desktop and phone; beta removed with the box on: its
@@ -142,7 +142,7 @@ async function main() {
 
     // ── Rename (the owner's CLI) ──
     const r = cli('rename', '--project', 'alpha', 'tycoon-admin');
-    check(r.ok === true && r.to === 'tycoon-admin', `cld-gui rename --project alpha tycoon-admin: accepted (${JSON.stringify(r)})`);
+    check(r.ok === true && r.to === 'tycoon-admin', `agty rename --project alpha tycoon-admin: accepted (${JSON.stringify(r)})`);
     await eventually('tycoon-admin live', () => !!session('tycoon-admin'));
     // `claude --bg` resumes with flags into a copy holding the conversation (ADR-0013 §12); the fake
     // only makes the new id, so the copy's file is made here as Claude would.

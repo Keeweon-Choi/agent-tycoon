@@ -1452,14 +1452,14 @@ async function main() {
 
     // ════ T-0087: who sent each message ════
     // gamma's transcript gets a boss message, a Codex notice and a peer's message
-    // (ops through `cld-gui send`), the way the engine's messenger types them.
+    // (ops through `agty send`), the way the engine's messenger types them.
     say('gamma', 'user', '[사장 · 메신저 · 10-22 14:10]\n사장이 직접 보낸 말');
     say(
       'gamma',
       'user',
-      '[cld-gui · 보냄 · 10-22 14:12]\n[cld-gui codex] 작업 a1b2 끝: done · 폴더 /work/gamma · 커밋 2개',
+      '[agty · 보냄 · 10-22 14:12]\n[agty codex] 작업 a1b2 끝: done · 폴더 /work/gamma · 커밋 2개',
     );
-    say('gamma', 'user', '[cld-gui · ops에게서 · 10-22 14:15]\n규칙 추가했으니 확인해 줘');
+    say('gamma', 'user', '[agty · ops에게서 · 10-22 14:15]\n규칙 추가했으니 확인해 줘');
     {
       const { ctx, page: p87 } = await open({
         viewport: { width: 1280, height: 800 },
@@ -1480,7 +1480,7 @@ async function main() {
       await g.getByText('규칙 추가했으니 확인해 줘').waitFor();
       const boss = g.locator('[data-from="boss"]', { hasText: '사장이 직접 보낸 말' });
       const peer = g.locator('[data-from="peer"]', { hasText: '규칙 추가했으니 확인해 줘' });
-      const sys = g.locator('[data-from="system"]', { hasText: '[cld-gui codex] 작업 a1b2 끝' });
+      const sys = g.locator('[data-from="system"]', { hasText: '[agty codex] 작업 a1b2 끝' });
       check(
         (await boss.count()) === 1 && (await peer.count()) === 1 && (await sys.count()) === 1,
         'one message of each shape: data-from boss, peer, system',
@@ -1490,7 +1490,7 @@ async function main() {
         "the peer's bubble carries its name",
       );
       check(
-        (await g.getByText('[cld-gui ·').count()) === 0 &&
+        (await g.getByText('[agty ·').count()) === 0 &&
           (await g.getByText('[사장 ·').count()) === 0,
         'no header line is shown in any of the three',
       );
@@ -1633,7 +1633,7 @@ async function main() {
     await anon.close();
     await pctx.close();
 
-    const sends = serverLog.join('').match(/\[cld engine\] send .*/g) ?? [];
+    const sends = serverLog.join('').match(/\[agty engine\] send .*/g) ?? [];
     fs.writeFileSync(path.join(OUT, 'send-log.txt'), `${sends.join('\n')}\n`);
     check(
       sends.some((l) => l.includes('"alpha" gui:linux: pane')) &&

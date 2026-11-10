@@ -296,13 +296,13 @@ export const PERMISSION_NOTE_2_START_SEC = 0.12;
 export const PERMISSION_NOTE_DURATION_SEC = 0.15;
 export const PERMISSION_VOLUME = 0.12;
 
-// ── Job Sound (cld-gui T-0039: a job or Codex task finished) ──
+// ── Job Sound (agty T-0039: a job or Codex task finished) ──
 export const JOB_NOTES_HZ = [1046.5, 1318.51, 1567.98]; // C6 E6 G6
 export const JOB_NOTE_STEP_SEC = 0.08;
 export const JOB_NOTE_DURATION_SEC = 0.14;
 export const JOB_VOLUME = 0.1;
 
-// ── Notices (cld-gui T-0039: toast, pulse, bell) ───────────
+// ── Notices (agty T-0039: toast, pulse, bell) ───────────
 /** The bell keeps this many notices. */
 export const NOTICE_LIST_MAX = 50;
 export const NOTICE_TOAST_MS = 6_000;
@@ -318,7 +318,7 @@ export const RETURN_NEAR_RATIO = 0.5;
 /** CHAT-NAV: a scroll position within this many px of the wanted one is left alone (setting it would
  *  stop a phone's momentum for nothing). */
 export const SCROLL_HOLD_SLACK_PX = 1;
-/** cld-gui (T-0043): a turn end and a messenger reply this close together are one notice. */
+/** agty (T-0043): a turn end and a messenger reply this close together are one notice. */
 export const NOTICE_PAIR_MS = 15_000;
 export const NOTICE_PULSE_PERIOD_MS = 1_000;
 export const NOTICE_PULSE_COLOR = '#ffd84a';
@@ -326,7 +326,7 @@ export const NOTICE_DEFAULT_VOLUME = 0.8;
 /** NOTICE-B: the sender's face in a 알림 row (inside a 2px frame, so the slot is 36). */
 export const NOTICE_FACE_PX = 32;
 
-// ── The lobby board (cld-gui T-0046) ─────────────────────────
+// ── The lobby board (agty T-0046) ─────────────────────────
 /** The board's furniture type (server/src/cld/layout.ts BOARD_TYPE). */
 export const BOARD_TYPE = 'LED_BOARD';
 /** The LED screen inside the board sprite, sprite px (cld/scripts/gen-lobby-assets.ts). */
@@ -404,7 +404,7 @@ export const BOARD_HW_CORE_COLS = 3;
 /** Area fill under a line: the series hue as a wash. */
 export const BOARD_AREA_ALPHA = 0.22;
 
-// ── Whiteboard memos (cld-gui T-0065) ─────────────────────────
+// ── Whiteboard memos (agty T-0065) ─────────────────────────
 /** The whiteboard's furniture type (server/src/cld/layout.ts WHITEBOARD_TYPE). */
 export const WHITEBOARD_TYPE = 'WHITEBOARD';
 /** The writable face inside the 32x32 whiteboard sprite, in sprite px (its white inside the frame). */
@@ -432,7 +432,7 @@ export const CHANGELOG_SEEN_STORAGE_KEY = 'cld.changelogSeen';
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
-/** cld-gui (T-0075): the office canvas, and the overlays that share its pacer,
+/** agty (T-0075): the office canvas, and the overlays that share its pacer,
  *  draw this often while nothing on it moves (the typing and reading frames
  *  change slower than that, so idle characters look the same). Motion, and
  *  input on the office, take it back to the full frame rate on the very frame
@@ -891,13 +891,13 @@ export const MAX_PET_ID_LENGTH = 128;
 /** Reconnect backoff ladder shared by the /ws transport and every terminal
  *  socket (transport/reconnectBackoff.ts). The last rung repeats. */
 export const WS_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 4_000] as const;
-/** cld-gui (T-0025): coming back to the foreground, a socket that stays silent
+/** agty (T-0025): coming back to the foreground, a socket that stays silent
  *  this long is taken for dead and replaced at once (iOS cuts a backgrounded
  *  home-screen app's network without closing its sockets). The /ws socket is
  *  asked (viewerVisibility); a terminal socket that was hidden this long and
  *  heard nothing for as long is simply reopened (its screen replays). */
 export const WS_HEARTBEAT_MS = 3_000;
-/** cld-gui (U-49): while the page shows, it repeats "showing" to the daemon this often. The daemon counts
+/** agty (U-49): while the page shows, it repeats "showing" to the daemon this often. The daemon counts
  *  a device as looking only for LOOKING_FRESH_MS (core) after the last one, so a phone page that was suspended
  *  (its socket stays open, its timers stop) stops silencing pushes. Well under a third of that window. */
 export const LOOKING_BEAT_MS = 10_000;
@@ -1733,6 +1733,8 @@ export const MERGE_SIZE_DECIMALS = 1;
 // ── P4 검토 (review-loop R2/R4) ──────────────────────────────────────
 /** DEVROOM-PERF: the open review's changed-file list is asked again this often while it is on screen (ms). */
 export const DEVROOM_CHANGES_POLL_MS = 1_000;
+/** T-73: how long the 검토 대기 notice waits for the daemon's repository answer before it opens the issue board. */
+export const REVIEW_TOAST_WAIT_MS = 3_000;
 
 // ── Explorer editor (P4 S5) ──────────────────────────────────
 /** While a file is open for editing, its disk hash is read this often (only while the page is visible). */
@@ -1913,3 +1915,12 @@ export const BOARD_LOOK_BAD_FRAC = 0.9;
 export const MESSENGER_SEARCH_ALL_MIN_CHARS = 2;
 /** once typing has paused this long (the daemon reads transcripts for each request). */
 export const MESSENGER_SEARCH_ALL_DEBOUNCE_MS = 400;
+/** An MCP tool row names its key input (an issue title, a recipient) up to this many characters. */
+export const TOOL_ROW_INPUT_MAX = 40;
+/** Consecutive rows of one tool fold into one row from this many on. */
+export const TOOL_RUN_MIN = 2;
+
+// ── T-74: error reports to the daemon (cld/errorReport.ts) ──
+/** Reports one page sends per window at most (a render loop would otherwise flood the socket). */
+export const ERROR_REPORT_BURST = 10;
+export const ERROR_REPORT_WINDOW_MS = 60_000;

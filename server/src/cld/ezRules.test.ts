@@ -77,7 +77,7 @@ describe('ez-rules.json: a file that cannot be used is ignored whole, with one l
     const { lines, note } = log();
     expect(parseEzRules(text, note)).toBeNull();
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('[cld] ez-rules.json');
+    expect(lines[0]).toContain('[agty] ez-rules.json');
     expect(lines[0]).toContain(why);
   });
 });

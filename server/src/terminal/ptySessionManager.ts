@@ -32,11 +32,11 @@ export interface CreatePtySessionOptions {
   cwd: string;
   /** Extra env layered over the server's own process.env. */
   env?: Record<string, string>;
-  /** cld-gui (T-0052): `env` is the whole environment, process.env is not inherited. */
+  /** agty (T-0052): `env` is the whole environment, process.env is not inherited. */
   replaceEnv?: boolean;
   cols?: number;
   rows?: number;
-  /** cld-gui TERM-P2: Windows, node-pty's own conpty.dll (the PTY host's agents only). */
+  /** agty TERM-P2: Windows, node-pty's own conpty.dll (the PTY host's agents only). */
   useConptyDll?: boolean;
 }
 

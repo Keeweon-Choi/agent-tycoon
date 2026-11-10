@@ -1,7 +1,7 @@
 /**
  * AGENT-CLI: the plain office (the daemon found no Claude Code) says what to install and how, with a
  * 다시 찾기 button for a viewer that may change things. It can fold out of the terminal's way.
- * It is shown inline (no toast layer): a plain office is not in cld mode.
+ * It is shown inline (no toast layer): a plain office is not in agty mode.
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';

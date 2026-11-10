@@ -46,7 +46,7 @@ it('the \ud130\ubbf8\ub110 tab shows only when the host allows terminals (T-0052
 
 it('only the answer to a click goes over the windows; pushed notices stay under them', () => {
   cldResetForTests();
-  const task = (id: string, status: BoardTask['status']) => ({ id, project: 'p', status }) as BoardTask;
+  const task = (id: string, status: BoardTask['status']) => ({ id, project: 'p', status, assignee: { assignmentId: 'a', name: 'Wren' } }) as BoardTask;
   cldHandleMessage({ type: 'taskBoard', tasks: [task('T-1', 'doing')] });
   const under = (tone: string) => {
     expect(cldGetSnapshot().toast).toMatchObject({ tone });

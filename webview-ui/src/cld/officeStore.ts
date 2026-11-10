@@ -55,7 +55,8 @@ import { messengerConnectionLost, messengerHandleMessage } from './messenger/mes
 import { cldNoticeEvent, cldNoticeReplay, cldPreviewOpen, cldPushState } from './notify/notices.js';
 import { partiesHandleMessage } from './party/parties.js';
 import { repoHandleMessage } from './repo/repoStore.js';
-import { newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
+import { askedByWorker, newlyInReview, reviewHandleMessage } from './repo/reviewStore.js';
+import { openTaskReview } from './repo/reviewToast.js';
 import { compactHolds, levelWatch, rebirthWatch, restWatch } from './rest.js';
 import { serverLine, serverText } from './serverText.js';
 import { specHandleMessage } from './spec/specStore.js';
@@ -69,6 +70,8 @@ export interface ActionToast {
   text: string;
   tone: 'ok' | 'info' | 'error';
   duration?: number;
+  /** Pressing the toast does this (T-73): `label` is the button that says so. */
+  open?: { label: string; run: () => void };
   /** The answer to the user's own click (cldOwnToast): drawn over every window and the viewer. */
   own?: boolean;
 }
@@ -247,8 +250,17 @@ export function cldHandleMessage(msg: ServerMessage): void {
       snapshot = { ...snapshot, taskBoard: board };
       if (error) cldToast(t('tasks.toast'), error, 'error');
       // ponytail: the 검토 대기 notice is this screen's toast only; a bell/push entry needs a new notice cause.
-      for (const task of newlyInReview(before, board))
-        cldToast(t('review.waitingToast'), t('review.waitingLine', { name: task.assignee?.name ?? task.project, id: task.id }), 'info');
+      // T-73: only a Worker's ask (not a Lead's own to-do), and pressing it opens that Task's review.
+      const engine = engineGetSnapshot().state?.projects ?? [];
+      for (const task of newlyInReview(before, board).filter((x) => askedByWorker(x, engine)))
+        cldToast(
+          t('review.waitingToast'),
+          t('review.waitingLine', { name: task.assignee?.name ?? task.project, id: task.id }),
+          'info',
+          undefined,
+          undefined,
+          { label: t('review.toastOpen'), run: () => openTaskReview(task) },
+        );
       break;
     }
     case 'trackedItems': {
@@ -459,10 +471,11 @@ export function cldToast(
   tone: ActionToast['tone'],
   duration?: number,
   own?: boolean,
+  open?: ActionToast['open'],
 ): void {
   snapshot = {
     ...snapshot,
-    toast: { id: ++toastSeq, name, text, tone, duration, ...(own && { own }) },
+    toast: { id: ++toastSeq, name, text, tone, duration, ...(own && { own }), ...(open && { open }) },
   };
   emit();
 }
@@ -485,8 +498,10 @@ export function cldOwnToast(
 export function actionToastDuration({
   tone,
   duration,
-}: Pick<ActionToast, 'tone' | 'duration'>): number {
-  return duration ?? (tone === 'error' ? 8_000 : 4_000);
+  open,
+}: Pick<ActionToast, 'tone' | 'duration' | 'open'>): number {
+  // A toast with something to press gets the time to read and press it.
+  return duration ?? (tone === 'error' || open ? 8_000 : 4_000);
 }
 
 function emit(): void {

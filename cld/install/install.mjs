@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** A dependency-free installer for cld-gui.  The exported helpers are pure. */
+/** A dependency-free installer for agty.  The exported helpers are pure. */
 import { execFile as execFileCallback, spawn as spawnChild } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fssync from 'node:fs';
@@ -18,7 +18,7 @@ import { gpuRule, gpuRuleLines, gpuStep, gpuTotalMib, nvidiaSmiOptIn, writeNvidi
 import { hwSensorsStep } from './hwSensors.mjs';
 import { CONNECTORS, defaultConnector, realDeps, remoteSetup, revertExposures, SETUP_CHOICES, setupLines } from './remote.mjs';
 
-const { CLI_NAME, LEGACY_CLI_NAME } = createRequire(import.meta.url)('../bin/cld-brand.js');
+const { CLI_NAME } = createRequire(import.meta.url)('../bin/cld-brand.js');
 export const { configDirectory, legacyConfigDirectory, officeDirectory, legacyOfficeDirectory } = configPathModule;
 const execFile = promisify(execFileCallback);
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -271,9 +271,9 @@ async function linkLogin(home, dryRun) {
   await fs.mkdir(path.dirname(link), { recursive: true }); await fs.rm(link, { force: true }); await fs.symlink(target, link);
 }
 
-// ── The agent CLI on PATH (T-0019, cld/docs/design/cld-cli.md §2): `agty` is the
-// default and `cld-gui` the backward-compatible name; the short `cld` is added only
-// when nothing else answers to that name. Never over a foreign file.
+// ── The agent CLI on PATH (T-0019, cld/docs/design/cld-cli.md §2): `agty` only (T-80).
+// `agty` and `cld` are no longer created, but links an earlier install made stay
+// (other projects' scripts may call them) and uninstall still removes ours. Never over a foreign file.
 export const CLI_MARK = 'rem cld-gui: written by cld/install/install.mjs';
 const RC_MARK = '# cld-gui';
 /** The Windows launcher for the repo's script (ours: it carries CLI_MARK). */
@@ -320,35 +320,29 @@ export async function winPath(update, dryRun) {
   await command(['powershell', '-NoProfile', '-NonInteractive', '-Command', BROADCAST], { dryRun, optional: true, timeout: 10000 }); // WM_SETTINGCHANGE: new terminals see it
   return 'written';
 }
-const cliBusy = () => `${CLI_NAME} 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. ${LEGACY_CLI_NAME} 를 쓰세요`;
-/** Install `agty` and `cld-gui` (and `cld` when free). `taken` is injectable for tests. */
+const cliBusy = (target) => `${CLI_NAME} 이름은 이미 다른 프로그램이 쓰고 있어 만들지 않았습니다. 직접 부르려면 ${target} 을 쓰세요`;
+/** Install `agty` (T-80: no `cld-gui` or `cld` alias any more). `taken` is injectable for tests. */
 export async function installCli({ platform, home = os.homedir(), dryRun = false, addPath = false, env = process.env, repo = repoRoot, taken = (name) => nameTaken(name, platform, env.SHELL) }) {
-  const busy = 'cld 이름은 이미 쓰고 있어 cld-gui로만 설치했습니다';
   if (platform === 'win32') {
     const dir = winBin(home, env); const content = winCliCmd(repo);
     const write = async (name) => { const file = path.join(dir, name); const old = await fs.readFile(file, 'utf8').catch(() => null); if (old !== null && !old.includes(CLI_MARK)) return false; if (dryRun) console.log(`DRY-RUN file ${file}`); else { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(file, content); } return true; };
-    if (!(await write('cld-gui.cmd'))) console.log(`! ${path.join(dir, 'cld-gui.cmd')} 파일이 이미 있어 그대로 둡니다`);
     {
       const file = path.join(dir, `${CLI_NAME}.cmd`);
       const ours = (await fs.readFile(file, 'utf8').catch(() => '')).includes(CLI_MARK);
-      if (!ours) { if ((await fs.lstat(file).catch(() => null)) || (await taken(CLI_NAME))) console.log(cliBusy()); else await write(`${CLI_NAME}.cmd`); }
+      // Taken: the message gives `node "<script>"`, since the script has no extension and a bare path does not run on Windows.
+      if (!ours) { if ((await fs.lstat(file).catch(() => null)) || (await taken(CLI_NAME))) console.log(cliBusy(`node "${path.win32.join(repo, 'cld', 'bin', 'cld-gui')}"`)); else await write(`${CLI_NAME}.cmd`); }
     }
-    const shortOurs = (await fs.readFile(path.join(dir, 'cld.cmd'), 'utf8').catch(() => '')).includes(CLI_MARK);
-    if (shortOurs || !(await taken('cld'))) await write('cld.cmd'); else console.log(busy);
-    await winPath((value) => pathWith(value, dir), dryRun); console.log(`✔ ${CLI_NAME} (${dir}): 별칭 ${LEGACY_CLI_NAME} (cld는 비어 있을 때)`); return;
+    await winPath((value) => pathWith(value, dir), dryRun); console.log(`✔ ${CLI_NAME} (${dir})`); return;
   }
   const bin = path.join(home, '.local', 'bin'); const target = path.join(repo, 'cld', 'bin', 'cld-gui');
-  if (dryRun) { console.log(`DRY-RUN: ln -s ${target} ${path.join(bin, CLI_NAME)}; ln -s ${target} ${path.join(bin, 'cld-gui')}; ln -s ${target} ${path.join(bin, 'cld')} (그 이름이 비어 있을 때만)`); return; }
-  if (!(await linkInto(path.join(bin, 'cld-gui'), target, true))) console.log(`! ${path.join(bin, 'cld-gui')} 파일이 이미 있어 그대로 둡니다`);
+  if (dryRun) { console.log(`DRY-RUN: ln -s ${target} ${path.join(bin, CLI_NAME)}`); return; }
   {
     const link = path.join(bin, CLI_NAME);
     if (!(await ourLink(link, target))) {
-      if ((await fs.lstat(link).catch(() => null)) || (await taken(CLI_NAME))) console.log(cliBusy());
+      if ((await fs.lstat(link).catch(() => null)) || (await taken(CLI_NAME))) console.log(cliBusy(target));
       else await linkInto(link, target, false);
     }
   }
-  const short = path.join(bin, 'cld');
-  if (!(await ourLink(short, target))) { if ((await fs.lstat(short).catch(() => null)) || (await taken('cld'))) console.log(busy); else await linkInto(short, target, false); }
   if (platform === 'darwin' && !onPath(bin, env.PATH)) {
     const { rc, line } = pathExport(env.SHELL, home);
     if (!addPath) console.log(`! ~/.local/bin 이 PATH 에 없습니다. 이 한 줄을 셸 설정에 넣거나 설치에 --add-path 를 주세요:\n  echo '${line}' >> ${rc}`);
@@ -556,8 +550,8 @@ async function main() {
     await startService(platform, config, home, options); await waitHealthy(config.port, options.dryRun);
     if (options.remote || options.connector === 'direct' || options.connector === 'tailscale' || options.connector === 'funnel') { console.log('\n=== 밖에서도 접속하기 ==='); config = await remoteStep(config, platform, home, options); }
     if (platform === 'wsl' && (config.connector === 'lan' || config.connector === 'direct')) await wslNote(config, options.dryRun);
-    const url = await loginUrl(config, options.dryRun); console.log('\n=== cld-gui 준비 완료 ==='); await printQr(url, options.dryRun);
-    console.log(`첫 기기: 휴대폰 카메라로 QR을 찍거나 이 주소를 여세요 (10분 동안 한 번)\n${url}\n아이폰: 연 다음 공유 → "홈 화면에 추가", 그 앱 안에서 8자리 코드를 넣으세요. 한 번 붙은 기기는 다음부터 저절로 들어와요(기기 키).\n다른 기기: 로그인한 기기의 "기기 추가"(주소 + 8자리 코드 + QR, 어디서든), 또는 ${platform === 'win32' ? 'cld/bin/cld-gui-login' : '~/.local/bin/cld-gui-login'} 이 주는 코드\n`);
+    const url = await loginUrl(config, options.dryRun); console.log('\n=== agty 준비 완료 ==='); await printQr(url, options.dryRun);
+    console.log(`첫 기기: 휴대폰 카메라로 QR을 찍거나 이 주소를 여세요 (10분 동안 한 번)\n${url}\n아이폰: 연 다음 공유 → "홈 화면에 추가", 그 앱 안에서 8자리 코드를 넣으세요. 한 번 붙은 기기는 다음부터 저절로 들어와요(기기 키).\n다른 기기: 로그인한 기기의 "기기 추가"(주소 + 8자리 코드 + QR, 어디서든), 또는 ${platform === 'win32' ? 'cld/bin/cld-gui-login' : 'agty login'} 이 주는 코드\n`);
   } catch (error) { console.error(`✖ 실패: ${error.message}`); process.exitCode = 1; }
 }
 

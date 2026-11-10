@@ -56,6 +56,7 @@ import { DesktopWindows, MobileOfficePanel } from './cld/OfficeNavigation.js';
 import { useCldStore } from './cld/officeStore.js';
 import { MobileTopBar, type OfficePanel } from './cld/panels/OfficePanels.js';
 import { PerfReadout } from './cld/PerfReadout.js';
+import { RegionBoundary } from './cld/RegionBoundary.js';
 import { RepoActionLayer } from './cld/repo/RepoActionLayer.js';
 import {
   busyForStaleBuild,
@@ -325,14 +326,14 @@ function App() {
   // The card container's + (owner 10-24): the same 오케스트레이터 추가 as the settings, for a client that may act.
   const addOrchestrator =
     officeSnapshot?.readOnly === false && !storeReadOnly ? () => engineOpenForm(null) : undefined;
-  // cld chat (T-0014): a chat's terminal is a tab of the terminal workspace (T-0078), not a
+  // agty chat (T-0014): a chat's terminal is a tab of the terminal workspace (T-0078), not a
   // pane of this drawer.
   const paneAgentIds = terminalAgentIds;
   const panesAvailable = terminalAvailable && !officeSnapshot?.readOnly;
-  // cld-gui: the office's own controls stay view-only; --allow-actions
+  // agty: the office's own controls stay view-only; --allow-actions
   // (officeState.readOnly false) enables only the office action buttons (T-0010).
   const effectiveReadOnly = officeReadOnly || cldMode;
-  const hud = useHud(); // cld-gui (T-0077, WINMODEL): the windows, the phone's tabs
+  const hud = useHud(); // agty (T-0077, WINMODEL): the windows, the phone's tabs
 
   // Show migration notice once layout reset is detected
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = useState(false);
@@ -374,11 +375,11 @@ function App() {
     useCallback((onChange: () => void) => getOfficeState().subscribeSelection(onChange), []),
     () => getOfficeState().selectedAgentId,
   );
-  // cld-gui (T-0017): characters wear the look chosen for their name.
+  // agty (T-0017): characters wear the look chosen for their name.
   useCharacterLooks(getOfficeState, agents, layoutReady, subagentCharacters);
   // SHEET-IMPORT: the office's pictures built while the lobby shows (or in idle time)
   useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady, isoView, isMobile);
-  // cld-gui (T-0036): cards grouped by kind and named, sub-agents included.
+  // agty (T-0036): cards grouped by kind and named, sub-agents included.
   const cldCards = useCldCards(getOfficeState, agents, subagentCharacters);
 
   // Standalone only: every input here stays false/empty under VS Code. Owns the
@@ -408,7 +409,7 @@ function App() {
     focusedAgentId,
     launchAgent: launchIntoDirectory,
   });
-  // cld-gui (T-0043): the pages live on the office side of the sliding track.
+  // agty (T-0043): the pages live on the office side of the sliding track.
   useEffect(() => {
     if (isMobile && phoneTabs.tab !== 'office' && mobileShell.view === 'terminal')
       mobileShell.toggleView();
@@ -422,7 +423,7 @@ function App() {
     // Only at load: a later breakpoint crossing keeps what is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // cld-gui (T-0039): a notice's tap goes to its character (on a phone, back to the office).
+  // agty (T-0039): a notice's tap goes to its character (on a phone, back to the office).
   const goToAgent = useCallback(
     (id: number): boolean => {
       // False while the character is held out of sight (a page still settling): the caller asks again.
@@ -882,7 +883,7 @@ function App() {
             style={{ background: 'var(--vignette)' }}
           />
 
-          {/* cld-gui (T-0053): the cld office edits decor, so a privileged client gets the editor. */}
+          {/* agty (T-0053): the agty office edits decor, so a privileged client gets the editor. */}
           {editor.isEditMode && editor.isDirty && !officeReadOnly && (
             <EditActionBar editor={editor} editorState={editorState} />
           )}
@@ -961,6 +962,7 @@ function App() {
               );
             })()}
 
+          <RegionBoundary region="hud" className="absolute left-1/2 top-8 -translate-x-1/2 z-30">
           <ToolOverlay
             officeState={officeState}
             agents={agents}
@@ -974,6 +976,7 @@ function App() {
             alwaysShowOverlay={alwaysShowOverlay}
             phone={isMobile}
           />
+          </RegionBoundary>
           {/* HUD-1B: the desktop's camera strip is the elevator's (FloorControls). */}
           {cldMode && isMobile && <CameraModeControl phone />}
           {/* JOYSTICK: the direction keys (walk the selected or the owner's character, or pan the
@@ -1078,8 +1081,8 @@ function App() {
         onOpenChangelog={handleOpenChangelog}
       />
 
-      {/* The hooks ask is the original (upstream) tour; the cld office has none, so there only O4's steps show
-          (and the upstream surfaces get none of them: the remote step needs the cld login layer). */}
+      {/* The hooks ask is the original (upstream) tour; the agty office has none, so there only O4's steps show
+          (and the upstream surfaces get none of them: the remote step needs the agty login layer). */}
       {((!cldMode && intro) || onboarding) && (
         <IntroBubble
           officeState={officeState}
@@ -1106,7 +1109,7 @@ function App() {
         />
       )}
 
-      {/* cld-gui (T-0046): the lobby's 전광판 on its board, and its full view. */}
+      {/* agty (T-0046): the lobby's 전광판 on its board, and its full view. */}
       {cldMode && !isDebugMode && !editor.isEditMode && (
         <LobbyBoard
           officeState={officeState}
@@ -1119,7 +1122,7 @@ function App() {
           waiting={agentsWaiting}
         />
       )}
-      {/* cld-gui (T-0065): the memos on the whiteboards; a tap opens one (not while decorating). */}
+      {/* agty (T-0065): the memos on the whiteboards; a tap opens one (not while decorating). */}
       {cldMode && !isDebugMode && (!isoView || editor.isEditMode) && (
         <WhiteboardMemos
           officeState={officeState}
@@ -1130,7 +1133,7 @@ function App() {
           readOnly={officeReadOnly}
         />
       )}
-      {/* cld-gui (T-0027): the elevator: floor panel (desktop) and doors. */}
+      {/* agty (T-0027): the elevator: floor panel (desktop) and doors. */}
       {cldMode && !isDebugMode && (
         <FloorLayer
           officeState={officeState}
@@ -1138,7 +1141,7 @@ function App() {
         />
       )}
 
-      {/* cld-gui (T-0017): the owner's character's menu (an agent's is in its card or inspector). */}
+      {/* agty (T-0017): the owner's character's menu (an agent's is in its card or inspector). */}
       {cldMode && !officeReadOnly && !editor.isEditMode && !isDebugMode && (
         <CharacterMenu
           officeState={officeState}
@@ -1149,8 +1152,9 @@ function App() {
         />
       )}
 
-      {/* cld-gui (T-0077, hud-v3 P0): the dock, the corner, the control center and the windows (a phone has its Dock and pages). */}
+      {/* agty (T-0077, hud-v3 P0): the dock, the corner, the control center and the windows (a phone has its Dock and pages). */}
       {cldMode && !isMobile && (
+        <RegionBoundary region="hud" className="absolute left-8 bottom-8 z-30">
         <HudLayer dock={<Dock terminalWaiting={terminalWaiting} />}>
           <DesktopWindows
             agentTools={agentTools}
@@ -1159,12 +1163,15 @@ function App() {
             getAppearance={terminalDrawer.getAppearance}
           />
           {/* FEAT-HUD-CONTROL-CENTER (owner 11-06 17:12): notifications, usage, what runs, the clock, the menu. */}
-          <ControlCenter
-            ids={cldCards.cardIds}
-            onOpenNotice={openNotice}
-            notices={<NoticePanel getOfficeState={getOfficeState} onOpen={openNotice} onClose={closeNotices} inWindow />}
-          />
+          <RegionBoundary region="hud" className="absolute left-8 bottom-8 z-30">
+            <ControlCenter
+              ids={cldCards.cardIds}
+              onOpenNotice={openNotice}
+              notices={<NoticePanel getOfficeState={getOfficeState} onOpen={openNotice} onClose={closeNotices} inWindow />}
+            />
+          </RegionBoundary>
         </HudLayer>
+        </RegionBoundary>
       )}
 
       {!isCldMock && <ConnectionIndicator />}
@@ -1216,12 +1223,14 @@ function App() {
                     />
                   )}
                   {cldMode && hud.open.messenger && (
-                    <Messenger
-                      mobile
-                      visualViewportHeight={keyboard.visualHeight}
-                      statusFor={terminalDrawer.statusFor}
-                      getAppearance={terminalDrawer.getAppearance}
-                    />
+                    <RegionBoundary region="messenger" className="absolute inset-x-8 top-8 z-50">
+                      <Messenger
+                        mobile
+                        visualViewportHeight={keyboard.visualHeight}
+                        statusFor={terminalDrawer.statusFor}
+                        getAppearance={terminalDrawer.getAppearance}
+                      />
+                    </RegionBoundary>
                   )}
                   {cldMode && hud.open.notices && (
                     <NoticePhonePage
@@ -1295,25 +1304,27 @@ function App() {
               />
             ) : (
               !isDebugMode && (
-                <AgentCardBar
-                  agentIds={cldCards.cardIds}
-                  describeCard={cldCards.describeCard}
-                  onAdd={addOrchestrator}
-                  focusedAgentId={focusedAgentId}
-                  getAppearance={terminalDrawer.getAppearance}
-                  statusFor={terminalDrawer.statusFor}
-                  onSelect={handleCardSelect}
-                  onClose={handleCloseAgent}
-                  showClose={!effectiveReadOnly}
-                  onCustomize={
-                    cldMode && !officeReadOnly
-                      ? (id) => {
-                          const name = officeSnapshot && lookNameOf(id, officeSnapshot);
-                          if (name) openLooks(name);
-                        }
-                      : undefined
-                  }
-                />
+                <RegionBoundary region="party" className="absolute right-8 top-1/2 -translate-y-1/2 z-30">
+                  <AgentCardBar
+                    agentIds={cldCards.cardIds}
+                    describeCard={cldCards.describeCard}
+                    onAdd={addOrchestrator}
+                    focusedAgentId={focusedAgentId}
+                    getAppearance={terminalDrawer.getAppearance}
+                    statusFor={terminalDrawer.statusFor}
+                    onSelect={handleCardSelect}
+                    onClose={handleCloseAgent}
+                    showClose={!effectiveReadOnly}
+                    onCustomize={
+                      cldMode && !officeReadOnly
+                        ? (id) => {
+                            const name = officeSnapshot && lookNameOf(id, officeSnapshot);
+                            if (name) openLooks(name);
+                          }
+                        : undefined
+                    }
+                  />
+                </RegionBoundary>
               )
             )}
             {cldMode && <WorkSheet mobile={false} />}
@@ -1327,7 +1338,7 @@ function App() {
       {cldMode && <StatDetailSheet officeState={officeState} />}
       {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
       {cldMode && <PushBanner />}
-      {/* A plain office (no Claude Code) is not in cld mode: the notice is for exactly that one. */}
+      {/* A plain office (no Claude Code) is not in agty mode: the notice is for exactly that one. */}
       <AgentCliNotice />
       {showStaleBuildBanner && (
         <StaleBuildBanner
@@ -1341,7 +1352,7 @@ function App() {
           }}
         />
       )}
-      {/* cld-gui (T-0022): device approval and the passkey prompt; also in a plain office (no claude
+      {/* agty (T-0022): device approval and the passkey prompt; also in a plain office (no claude
           yet), whose terminal installs it and needs this device's key (CLI-TERMINAL). */}
       {(cldMode || agentCli !== null) && !isCldMock && <AuthLayer />}
       {cldMode && <RepoActionLayer />}
@@ -1413,6 +1424,7 @@ function App() {
         currentVersion={extensionVersion}
       />
 
+      <RegionBoundary region="settings" className="fixed inset-0 m-auto h-fit w-fit z-60">
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -1462,6 +1474,7 @@ function App() {
         onExportLayout={handleExportLayout}
         onImportLayout={handleImportLayout}
       />
+      </RegionBoundary>
 
       {showMigrationNotice && (
         <MigrationNotice onDismiss={() => setMigrationNoticeDismissed(true)} />

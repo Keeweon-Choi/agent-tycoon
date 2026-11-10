@@ -79,7 +79,7 @@ All magic numbers and strings are centralized — never inline:
 - **Try-catch with graceful degradation** — errors logged but never crash the daemon.
 - **Malformed JSONL lines** silently ignored (catch block in `processTranscriptLine`).
 - **Missing assets** logged with warning, operation continues with null/fallback.
-- No centralized error reporting or telemetry.
+- **Webview crashes (T-74)**: every region (the root, each HUD window and phone page, the office HUD, the party, settings) has an error boundary (`webview-ui/src/cld/RegionBoundary.tsx`): a render error shows a small card in that region only (다시 열기 remounts it, 새로 고침 reloads). Boundary catches, `window` `error` and `unhandledrejection` go to the daemon as `webviewError` (`cld/errorReport.ts`, capped and at most 10 a minute per page), which logs them as `[Webview] ...` after checking, capping, masking (`maskText`) and a per-socket rate limit (`server/src/cld/webviewErrors.ts`). Nothing leaves the machine: no telemetry.
 
 ## Logging
 

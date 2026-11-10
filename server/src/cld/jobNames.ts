@@ -57,7 +57,7 @@ export function jobDescription(value: unknown): string | null {
   return value.trim();
 }
 
-/** The rules block every orchestrator puts at the top of a `cld-gui codex` spec: it says how to
+/** The rules block every orchestrator puts at the top of an `agty codex` spec: it says how to
  *  work, not what, so it is never a run's title (10-24 12:09: every card read "Rules for this task"). */
 const RULES_HEADING = /^Rules for this task\b/i;
 

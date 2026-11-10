@@ -134,7 +134,7 @@ async function main() {
       !received.some((m) => m.type === 'engineState'),
       'a plain office: the daemon sent no engine state',
     );
-    check(daemon.log.join('').includes('[cld] claude not found'), 'the daemon log says plain office');
+    check(daemon.log.join('').includes('[agty] claude not found'), 'the daemon log says plain office');
     await page.screenshot({ path: path.join(OUT, '01-notice-missing.png') });
 
     // The first open's 접속 방식 question waits for the full office (it grew over the notice and took its clicks).
@@ -319,7 +319,7 @@ async function main() {
     }
     check(true, 'the restarted office sent its engine state (full office)');
     const log2 = daemon.log.join('');
-    check(log2.includes(`[cld] claude: ${wrapperFile}`) && /\[cld\] engine on/.test(log2), 'its log: claude found, engine on');
+    check(log2.includes(`[agty] claude: ${wrapperFile}`) && /\[agty\] engine on/.test(log2), 'its log: claude found, engine on');
     // The full office's first open asks for the 접속 방식 (it names this PC's networks): 나중에, as a user may.
     // (answered already when the plain office asked it first)
     const later = page.getByRole('button', { name: '나중에' });

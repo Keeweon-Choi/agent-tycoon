@@ -224,7 +224,7 @@ export const SERVER_TEXT = {
     en: '/{name} needs {arg} after it.',
   },
   job_not_ours: {
-    ko: 'pid {pid} 은 cld-gui 작업이 아닙니다',
+    ko: 'pid {pid} 은 agty 작업이 아닙니다',
     en: 'pid {pid} is not a job started from this office.',
   },
   job_gone: {
@@ -840,8 +840,8 @@ export const SERVER_TEXT = {
   },
   stop_failed: { ko: '멈추지 못했어요', en: 'It could not be stopped.' },
   swap_unfinished: {
-    ko: 'Lead 교체가 끝나지 않았어요(lead-swap.json); cld-gui 를 다시 시작하면 이어서 끝내요',
-    en: 'The Lead swap is not finished (lead-swap.json). Restart cld-gui and it will finish.',
+    ko: 'Lead 교체가 끝나지 않았어요(lead-swap.json); agty 를 다시 시작하면 이어서 끝내요',
+    en: 'The Lead swap is not finished (lead-swap.json). Restart agty and it will finish.',
   },
   worker_room: {
     ko: 'Worker 는 프로젝트의 방에 있어요(방은 프로젝트에서 바꿔 주세요)',
@@ -852,16 +852,16 @@ export const SERVER_TEXT = {
     en: "A Worker's folder must be inside the project folder or inside the repository's .worktrees/ (a worktree).",
   },
   agent_unknown_start: {
-    ko: 'cld-gui가 모르는 에이전트({id})라 켤 수 없어요',
-    en: 'cld-gui does not know the agent ({id}), so it cannot be started.',
+    ko: 'agty가 모르는 에이전트({id})라 켤 수 없어요',
+    en: 'agty does not know the agent ({id}), so it cannot be started.',
   },
   no_direct_chat: {
     ko: '이 에이전트와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
     en: 'You do not talk to this agent directly. Ask its Lead, or call it in a group room.',
   },
   agent_unknown_send: {
-    ko: 'cld-gui가 모르는 에이전트({id})라 받을 수 없어요',
-    en: 'cld-gui does not know the agent ({id}), so it cannot receive messages.',
+    ko: 'agty가 모르는 에이전트({id})라 받을 수 없어요',
+    en: 'agty does not know the agent ({id}), so it cannot receive messages.',
   },
   project_unknown: {
     ko: "'{name}' 프로젝트가 없습니다",
@@ -956,8 +956,8 @@ export const SERVER_TEXT = {
     en: 'Choose a role for the Worker (worker or reviewer).',
   },
   agent_unknown: {
-    ko: '이 cld-gui 가 모르는 에이전트예요: {provider}',
-    en: 'This cld-gui does not know that agent: {provider}',
+    ko: '이 agty 가 모르는 에이전트예요: {provider}',
+    en: 'This agty does not know that agent: {provider}',
   },
   codex_no_setting: {
     ko: 'Codex Worker 는 이 설정을 받지 않아요: {names}',
@@ -1025,7 +1025,7 @@ export const SERVER_TEXT = {
   },
   pty_host_missing: {
     ko: '터미널 호스트(dist/cld-ptyhost.js)가 없어요: 다시 빌드해 주세요',
-    en: 'The terminal host (dist/cld-ptyhost.js) is missing: rebuild cld-gui.',
+    en: 'The terminal host (dist/cld-ptyhost.js) is missing: rebuild agty.',
   },
   role_project_fixed: {
     ko: '역할과 프로젝트는 바꿀 수 없어요',
@@ -1121,8 +1121,8 @@ export const SERVER_TEXT = {
     en: 'Could not write the swap record ({why}) — nothing was changed.',
   },
   swap_not_finished: {
-    ko: '교체를 끝내지 못했어요. cld-gui 를 다시 시작하면 이어서 끝내요',
-    en: 'The swap could not be finished. Restart cld-gui and it will finish.',
+    ko: '교체를 끝내지 못했어요. agty 를 다시 시작하면 이어서 끝내요',
+    en: 'The swap could not be finished. Restart agty and it will finish.',
   },
   swap_lead_start_failed: {
     ko: '새 Lead 를 켜지 못했어요({why}) — 첫 메시지는 inbox 에서 기다려요',

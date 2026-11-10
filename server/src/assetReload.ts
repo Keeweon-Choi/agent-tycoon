@@ -28,7 +28,7 @@ import { setPaletteCount } from './paletteAssigner.js';
 export async function loadAllFurniture(
   assetsRoot: string,
   externalDirs: string[],
-  /** cld-gui CH-6b: the user's redrawn items (`<dir>/<id>/manifest.json`), merged last. */
+  /** agty CH-6b: the user's redrawn items (`<dir>/<id>/manifest.json`), merged last. */
   customDir?: string,
 ): Promise<LoadedAssets | null> {
   let assets = await loadFurnitureAssets(assetsRoot);

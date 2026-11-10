@@ -6,6 +6,7 @@ import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
 import { cldHooks, type SocketStepUp } from './cld/hooks.js';
+import { webviewErrors } from './cld/webviewErrors.js';
 import {
   getHooksConsent,
   getHooksEnabled,
@@ -70,14 +71,14 @@ export interface ClientMessageContext {
    * it gets the safe answer.
    */
   privileged?: boolean;
-  /** The /ws upgrade request's User-Agent (cld-gui names the device from it). */
+  /** The /ws upgrade request's User-Agent (agty names the device from it). */
   userAgent?: string;
-  /** cld-gui S1: whether this socket is remote and its session's step-up is fresh. */
+  /** agty S1: whether this socket is remote and its session's step-up is fresh. */
   stepUp?: SocketStepUp;
   /** PTY terminals for standalone-launched agents. Absent in VS Code embedded
    *  mode, where the editor owns terminal lifecycle. */
   ptyManager?: PtySessionManager;
-  /** Standalone cld-gui is deliberately view-only for shell, hooks, and host mutations. */
+  /** Standalone agty is deliberately view-only for shell, hooks, and host mutations. */
   standalone?: boolean;
   allowTerminal?: boolean;
   /** Standalone SPA entry module, read once by the HTTP server at startup. */
@@ -134,7 +135,7 @@ export function handleClientMessage(
   const adapter = store.getAdapter();
 
   if (ctx.standalone && disabledInStandalone(msg.type)) {
-    console.warn(`[Agent Tycoon] ${String(msg.type)} disabled in cld-gui`);
+    console.warn(`[Agent Tycoon] ${String(msg.type)} disabled in agty`);
     return;
   }
 
@@ -149,6 +150,11 @@ export function handleClientMessage(
   switch (msg.type) {
     case 'webviewReady':
       handleWebviewReady(send, ctx);
+      break;
+
+    case 'webviewError':
+      // T-74: what broke in the page, for the daemon log (checked, capped, masked, rate-limited there).
+      webviewErrors.report(send, msg);
       break;
 
     case 'closeAgent': {
@@ -176,7 +182,7 @@ export function handleClientMessage(
       break;
 
     case 'saveLayout':
-      // cld-gui (T-0053): the cld office keeps edits as decor instead of layout.json.
+      // agty (T-0053): the agty office keeps edits as decor instead of layout.json.
       if (msg.layout && !cldHooks.saveLayout?.(msg.layout as Record<string, unknown>, send)) {
         writeLayoutToFile(msg.layout as Record<string, unknown>);
       }
@@ -358,7 +364,7 @@ export function handleClientMessage(
       // focusAgent is handled entirely client-side in standalone (it focuses the
       // drawer tab, which the server has no say in). exportLayout / importLayout
       // still require IDE-specific handling.
-      // cld-gui: messages upstream does not know (statusView, chatSend, ...).
+      // agty: messages upstream does not know (statusView, chatSend, ...).
       cldHooks.onClientMessage?.(msg, send, ctx.privileged === true, ctx.userAgent, ctx.stepUp);
       break;
   }
@@ -449,7 +455,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 0. Access, first: a read-only office hides every control that would send
   // a change (all refused by refuseReadOnly), so it must know before it draws
   // them.
-  // cld-gui (T-0052): `terminal` only when the host allows shells (upstream shape otherwise).
+  // agty (T-0052): `terminal` only when the host allows shells (upstream shape otherwise).
   send({
     type: 'officeAccess',
     readOnly: ctx.privileged !== true,
@@ -562,7 +568,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // webview seat-preference logic has the dict when characters are created).
   send({
     type: 'areaMappingsLoaded',
-    // cld-gui: provider room mappings under the user's own.
+    // agty: provider room mappings under the user's own.
     mappings: { ...cldHooks.areaMappings?.(), ...(cfg.standalone.areaMappings ?? {}) },
   });
 
@@ -607,7 +613,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     agentMeta[id] = {
       palette: agent.palette,
       hueShift: agent.hueShift,
-      // cld-gui: the seat for the character's name wins over the persisted one.
+      // agty: the seat for the character's name wins over the persisted one.
       seatId: cldHooks.seatFor?.(id) ?? persisted?.seatId,
     };
   }
@@ -624,7 +630,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const savedLayout = readLayoutFromFile();
   send({
     type: 'layoutLoaded',
-    // cld-gui: a generated office replaces a missing or bundled-default layout.
+    // agty: a generated office replaces a missing or bundled-default layout.
     layout: cldHooks.layoutFor?.(savedLayout) ?? savedLayout ?? cache?.defaultLayout ?? null,
   });
 
@@ -646,7 +652,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     }
   }
 
-  // 10. cld-gui: snapshots of the provider messages (officeState, hwSample, ...).
+  // 10. agty: snapshots of the provider messages (officeState, hwSample, ...).
   cldHooks.onClientReady?.(send);
 }
 

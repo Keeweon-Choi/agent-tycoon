@@ -1,5 +1,5 @@
 /**
- * RENEW-STUCK: cld-gui renew, from the request to the new conversation, resumed after a daemon
+ * RENEW-STUCK: agty renew, from the request to the new conversation, resumed after a daemon
  * restart (renewals/<name>.json). Extracted from engine.ts (E6).
  */
 import * as fs from 'fs';

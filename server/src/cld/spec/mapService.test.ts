@@ -321,7 +321,7 @@ describe.skipIf(!GIT_AVAILABLE)('[제안 모두 승인] through the arch read', 
     expect(all.statusCode).toBe(200);
     expect((await post('approve-all/undo', { batch: all.json().batch })).statusCode).toBe(200);
     expect((await post('parent', { uid: 'c_aaaaaaaaaa', parent: null })).statusCode).toBe(404);
-    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec]'));
+    const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec]'));
     expect(lines.map((l) => l.split(' ')[2])).toEqual(['arch-approve-all', 'arch-undo-all']);
     expect(lines[0]).toMatch(/arch-approve-all device="Test phone" project="alpha" b_[a-z2-7]{10} d:1 f:8$/);
   });

@@ -88,7 +88,7 @@ export interface HttpServerOptions {
   auth?: StandaloneAuth;
   /** MHO 3.6: this host's display name, for the login page title. */
   hostName?: () => string;
-  /** cld-gui chat (T-0014, --allow-chat). Absent: /cld/attach/* answers 404. */
+  /** agty chat (T-0014, --allow-chat). Absent: /cld/attach/* answers 404. */
   chat?: ChatManager;
   /** Host opt-in for trusted-device shells. */
   allowTerminal?: boolean;
@@ -121,7 +121,7 @@ export function entryModuleSrc(indexHtml: string): string | undefined {
 }
 
 /**
- * The `agentCreated` message. cld-gui: `seatId` is the chair the office plans for the character
+ * The `agentCreated` message. agty: `seatId` is the chair the office plans for the character
  * (as in `existingAgents`), so one that arrives before its room's chairs exist (the roster
  * returning after a daemon restart) takes its own chair the moment the office has it.
  */
@@ -187,7 +187,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   await app.register(fastifyWebsocket);
 
   const host = options.host ?? '127.0.0.1';
-  // cld-gui: a Set cld remote adds its public names to (cldHooks.onListening).
+  // agty: a Set agty remote adds its public names to (cldHooks.onListening).
   const allowedHostnames = new Set(privilegedHostnames(host, options.allowedHosts ?? []));
   const runtimeHosts = [...(options.allowedHosts ?? [])];
   const configuredHosts = new Set(allowedHostnames);
@@ -247,7 +247,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   // ── Routes ──────────────────────────────────────────────────
 
   registerHealthRoute(app, options.token, !options.embedded && !!options.street);
-  // cld-gui: the session gate and the login routes (cld/authRoutes.ts).
+  // agty: the session gate and the login routes (cld/authRoutes.ts).
   if (!options.embedded && auth)
     registerStandaloneAuth(app, {
       token: options.token,
@@ -272,7 +272,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
       (request, socket) => bindSessionSocket(auth, request, socket),
     );
   }
-  // cld-gui: our routes (character presets), behind the login session.
+  // agty: our routes (character presets), behind the login session.
   if (!options.embedded && auth) {
     cldHooks.registerRoutes?.(
       app,
@@ -435,11 +435,11 @@ function registerWebSocketRoute(
         : undefined;
 
     const { store } = options;
-    // One send per socket, so cld hooks can tell this client apart on close. Everything this
+    // One send per socket, so agty hooks can tell this client apart on close. Everything this
     // socket is sent (broadcasts and the snapshot replay) goes through it: an unprivileged one
     // gets the read-only view.
     const send = (m: Record<string, unknown>) => safeSend(socket, privileged ? m : readOnlyView(m));
-    // cld-gui (T-0022): signing this session out closes its socket.
+    // agty (T-0022): signing this session out closes its socket.
     const unbind = bindSessionSocket(auth, request, socket);
 
     // Pipe store events to WebSocket client
@@ -464,8 +464,9 @@ function registerWebSocketRoute(
     socket.on('message', (data: Buffer | string) => {
       try {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-        // The page's 10 s looking beat (U-49) is not worth a log line each.
-        if (!options.embedded && msg.type && msg.type !== 'viewerVisibility') {
+        // The page's 10 s looking beat (U-49) is not worth a log line each; a webviewError report is logged
+        // (rate-limited) by webviewErrors, one line, not twice.
+        if (!options.embedded && msg.type && msg.type !== 'viewerVisibility' && msg.type !== 'webviewError') {
           console.log('[Agent Tycoon] WS client message:', msg.type);
         }
         handleClientMessage(msg, send, {
@@ -499,7 +500,7 @@ function registerWebSocketRoute(
 
 // ── Auth Helper ────────────────────────────────────────────────
 
-/** cld-gui (T-0022): close a socket when its login session is signed out. */
+/** agty (T-0022): close a socket when its login session is signed out. */
 function bindSessionSocket(
   auth: StandaloneAuth | undefined,
   request: FastifyRequest,
@@ -512,7 +513,7 @@ function bindSessionSocket(
   );
 }
 
-/** The standalone /ws gate, also cld chat's: a same-origin handshake from a
+/** The standalone /ws gate, also agty chat's: a same-origin handshake from a
  *  logged-in browser (session cookie or Bearer). A close code and reason, or null. */
 function standaloneWsRejection(
   request: FastifyRequest,

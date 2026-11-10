@@ -3,6 +3,7 @@ import './touchTargets.css';
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
+import { RegionBoundary } from '../cld/RegionBoundary.js';
 import type { CardInfo } from '../components/cardBar.js';
 import { MobileAgentBar } from '../components/MobileAgentBar.js';
 import { MobileKeyBar } from '../components/MobileKeyBar.js';
@@ -39,9 +40,9 @@ interface MobileShellProps {
   /** The card bar belongs only to the office home screen. */
   showAgentCards: boolean;
   hideActions?: boolean;
-  /** cld-gui (T-0036): card groups and names (MobileAgentBar). */
+  /** agty (T-0036): card groups and names (MobileAgentBar). */
   describeCard?: (agentId: number) => CardInfo | undefined;
-  /** cld-gui (owner 10-24): what sits under the cards (the Dock, the usage line). It is the
+  /** agty (owner 10-24): what sits under the cards (the Dock, the usage line). It is the
    *  bottom-most band, so it, not the card bar, clears the home indicator. */
   bottom?: ReactNode;
 }
@@ -159,26 +160,28 @@ export function MobileShell({
 
       {/* Hidden while typing: with the keyboard up the cards took the terminal's last rows (10-22 20:23). */}
       {showAgentCards && !keyboardOpen && (
-        <MobileAgentBar
-          agentIds={agentIds}
-          focusedAgentId={focusedAgentId}
-          // The accent border marks the showing pane, so it only exists on the
-          // terminal page; the focused character keeps its tint on both.
-          activeAgentId={shell.view === 'terminal' ? drawer.activeAgentId : null}
-          onSelectAgent={shell.selectCard}
-          onCloseAgent={onCloseAgent}
-          onLaunchDirectory={shell.launch}
-          directories={directories}
-          onAddDirectory={onAddDirectory}
-          onEditDirectory={onEditDirectory}
-          canLaunch={terminalAvailable}
-          launchUnavailableReason={terminalUnavailableReason}
-          getAppearance={drawer.getAppearance}
-          statusFor={drawer.statusFor}
-          hideActions={hideActions}
-          describeCard={describeCard}
-          safeBottom={!bottom}
-        />
+        <RegionBoundary region="party" className="m-8">
+          <MobileAgentBar
+            agentIds={agentIds}
+            focusedAgentId={focusedAgentId}
+            // The accent border marks the showing pane, so it only exists on the
+            // terminal page; the focused character keeps its tint on both.
+            activeAgentId={shell.view === 'terminal' ? drawer.activeAgentId : null}
+            onSelectAgent={shell.selectCard}
+            onCloseAgent={onCloseAgent}
+            onLaunchDirectory={shell.launch}
+            directories={directories}
+            onAddDirectory={onAddDirectory}
+            onEditDirectory={onEditDirectory}
+            canLaunch={terminalAvailable}
+            launchUnavailableReason={terminalUnavailableReason}
+            getAppearance={drawer.getAppearance}
+            statusFor={drawer.statusFor}
+            hideActions={hideActions}
+            describeCard={describeCard}
+            safeBottom={!bottom}
+          />
+        </RegionBoundary>
       )}
 
       {/* The inset is padded once, here: the last row (the Dock's buttons, the usage line) ends

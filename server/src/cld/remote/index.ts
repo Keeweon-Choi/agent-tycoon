@@ -1,5 +1,5 @@
 /**
- * cld remote (T-0024): how devices outside this PC reach the office.
+ * agty remote (T-0024): how devices outside this PC reach the office.
  *
  * Connectors (`--connector`, else `connector` in ~/.config/agent-tycoon/config.json):
  * - local: loopback only (the host's own browser, SSH tunnels);
@@ -392,14 +392,14 @@ export function testRemoteDeps(file: string | undefined): RemoteOptions['deps'] 
   };
 }
 
-/** Wires cld remote into the server through cldHooks; call before server.start(). */
+/** Wires agty remote into the server through cldHooks; call before server.start(). */
 export function startRemote(opts: RemoteOptions): {
   readonly direct: DirectConnector | null;
   dispose(): Promise<void>;
 } {
   const config = readJson(path.join(opts.configDir, 'config.json'));
   if (opts.legacyTailscaleTrust || hasLegacyTailscaleTrust(config))
-    console.warn(`[cld auth] ${TAILSCALE_AUTOLOGIN_RETIRED}`);
+    console.warn(`[agty auth] ${TAILSCALE_AUTOLOGIN_RETIRED}`);
   let connector: Connector =
     opts.connector ?? (isConnector(config.connector) ? config.connector : 'local');
   const lanIp =
@@ -454,7 +454,7 @@ export function startRemote(opts: RemoteOptions): {
   let actorOf: ((request: FastifyRequest) => string | undefined) | undefined;
   const exposure = (what: string, on: boolean, reason: string) => {
     audit.write({ kind: 'exposure', detail: `${what} ${on ? 'on' : 'off'}` });
-    console.log(`[cld remote] ${what} ${on ? 'on' : 'off'} (${reason})`);
+    console.log(`[agty remote] ${what} ${on ? 'on' : 'off'} (${reason})`);
   };
 
   /** Close a quick tunnel and take its name off the Host allowlist. */
@@ -525,9 +525,9 @@ export function startRemote(opts: RemoteOptions): {
       fastify.server.emit('upgrade', req, socket, head);
     });
     server.on('error', (error) =>
-      console.warn(`[cld remote] LAN ${lanIp}:${port}: ${error.message}`),
+      console.warn(`[agty remote] LAN ${lanIp}:${port}: ${error.message}`),
     );
-    server.listen(port, lanIp, () => console.log(`[cld remote] LAN: http://${lanIp}:${port}/`));
+    server.listen(port, lanIp, () => console.log(`[agty remote] LAN: http://${lanIp}:${port}/`));
     listeners.push(server);
   };
   /** `now`: drop open connections too; else in-flight requests (this switch's own) finish. */
@@ -583,11 +583,11 @@ export function startRemote(opts: RemoteOptions): {
     else if (direct.enabled) void closeDirect(`startup, connector ${connector}`);
     // What an earlier run opened that this connector does not want (S6, T10).
     void revertLedger(null, 'startup').catch((error: Error) =>
-      console.warn(`[cld remote] exposure ledger at startup: ${error.message}`),
+      console.warn(`[agty remote] exposure ledger at startup: ${error.message}`),
     );
     // The secret path never goes to the journal; the installer and the app show it.
     const shown = canonicalUrl(facts()).replaceAll(direct.secret, '<비밀 경로>');
-    console.log(`[cld remote] connector ${connector}: ${shown}`);
+    console.log(`[agty remote] connector ${connector}: ${shown}`);
   };
 
   const isHost = (request: FastifyRequest) =>
@@ -624,7 +624,7 @@ export function startRemote(opts: RemoteOptions): {
     try { text = fs.readFileSync(ledgerFile, 'utf8'); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        console.warn(`[cld remote] exposure ledger: cannot read ${ledgerFile}: ${(error as Error).message}; left as is`);
+        console.warn(`[agty remote] exposure ledger: cannot read ${ledgerFile}: ${(error as Error).message}; left as is`);
         return { lib, current: null };
       }
     }
@@ -634,23 +634,23 @@ export function startRemote(opts: RemoteOptions): {
     const aside = lib.badLedgerPath(ledgerFile);
     try { fs.renameSync(ledgerFile, aside); }
     catch (error) {
-      console.warn(`[cld remote] exposure ledger: ${ledgerFile} is not one this version reads and could not be moved aside (${(error as Error).message}); left as is, nothing recorded`);
+      console.warn(`[agty remote] exposure ledger: ${ledgerFile} is not one this version reads and could not be moved aside (${(error as Error).message}); left as is, nothing recorded`);
       return { lib, current: null };
     }
-    console.warn(`[cld remote] exposure ledger: ${ledgerFile} is not one this version reads; moved to ${aside}. Check what it records (tailscale serve status, cloudflared, Windows portproxy) and undo it by hand`);
+    console.warn(`[agty remote] exposure ledger: ${ledgerFile} is not one this version reads; moved to ${aside}. Check what it records (tailscale serve status, cloudflared, Windows portproxy) and undo it by hand`);
     return { lib, current: lib.emptyLedger() };
   };
   const record = async (entry: ExposureEntry) => {
     const { lib, current } = await ledger();
     if (!current) return;
     try { writeLedger(opts.configDir, lib.addEntry(current, entry)); }
-    catch (error) { console.warn(`[cld remote] exposure ledger: ${(error as Error).message}`); }
+    catch (error) { console.warn(`[agty remote] exposure ledger: ${(error as Error).message}`); }
   };
   const forget = async (entry: ExposureEntry) => {
     const { lib, current } = await ledger();
     if (!current) return;
     try { writeLedger(opts.configDir, lib.removeEntry(current, entry)); }
-    catch (error) { console.warn(`[cld remote] exposure ledger: ${(error as Error).message}`); }
+    catch (error) { console.warn(`[agty remote] exposure ledger: ${(error as Error).message}`); }
   };
   /** Our https:443 handler now: null (none), 'foreign' (it proxies elsewhere), 'unknown' (status unreadable), or ours. */
   const handler443 = async (forPort = port): Promise<null | 'foreign' | 'unknown' | { host: string; funnel: boolean }> => {
@@ -781,16 +781,16 @@ export function startRemote(opts: RemoteOptions): {
         if (skip === 'tailscale' || skip === 'funnel') continue;
         const live = await handler443(entry.port);
         if (live === 'unknown') {
-          console.warn(`[cld remote] tailscale: serve status unreadable (${reason}); kept in the ledger`);
+          console.warn(`[agty remote] tailscale: serve status unreadable (${reason}); kept in the ledger`);
           continue;
         }
         if (!live || live === 'foreign') {
-          console.log(`[cld remote] tailscale: https 443 no longer points at port ${entry.port}; left as is (${reason})`);
+          console.log(`[agty remote] tailscale: https 443 no longer points at port ${entry.port}; left as is (${reason})`);
         } else if (connector === 'tailscale' && entry.port === port) {
           // The same handler with the other Funnel flag: reconfigure in place, never off.
           const done = await convergeTailscale(funnel, entry.host);
           if ('step' in done) {
-            console.warn(`[cld remote] tailscale: ${done.step.text} (${reason}); kept in the ledger`);
+            console.warn(`[agty remote] tailscale: ${done.step.text} (${reason}); kept in the ledger`);
             continue;
           }
           await record({ ...entry, funnel, at: Date.now() });
@@ -803,7 +803,7 @@ export function startRemote(opts: RemoteOptions): {
           const off = await runCommand(await tsCommand(), lib.tailscaleOffArgs({ ...entry, funnel: live.funnel }));
           const left = await handler443(entry.port);
           if (off === null || left === 'unknown' || (left && left !== 'foreign')) {
-            console.warn(`[cld remote] ${what}: could not turn it off (${reason}); kept in the ledger`);
+            console.warn(`[agty remote] ${what}: could not turn it off (${reason}); kept in the ledger`);
             continue;
           }
           exposure(what, false, reason);
@@ -817,7 +817,7 @@ export function startRemote(opts: RemoteOptions): {
           killTunnel(entry.pid);
         } else {
           // Most likely a reused pid (our child dies with the daemon): never kill it.
-          console.log(`[cld remote] tunnel: pid ${entry.pid ?? '?'} is not our cloudflared any more; entry dropped, nothing killed (${reason})`);
+          console.log(`[agty remote] tunnel: pid ${entry.pid ?? '?'} is not our cloudflared any more; entry dropped, nothing killed (${reason})`);
           await forget(entry);
           continue;
         }
@@ -864,7 +864,7 @@ export function startRemote(opts: RemoteOptions): {
       const timer = setTimeout(() => {
         cutTimers.delete(timer);
         void reconcile(null, `${reason}, after the grace`).catch((error: Error) =>
-          console.warn(`[cld remote] closing ${via}: ${error.message}`),
+          console.warn(`[agty remote] closing ${via}: ${error.message}`),
         );
       }, CUT_GRACE_MS);
       cutTimers.add(timer);
@@ -976,7 +976,7 @@ export function startRemote(opts: RemoteOptions): {
     writeConfigKey(opts.configDir, 'accessChosen', true);
     const to = funnel ? 'tailscale funnel' : wanted;
     audit.write({ kind: 'connector', detail: `${from}>${to}`, ...actorContext(why.request) });
-    console.log(`[cld remote] connector ${from} → ${to} (${why.route}; via ${why.via}${isHost(why.request) ? '; host token' : ''})`);
+    console.log(`[agty remote] connector ${from} → ${to} (${why.route}; via ${why.via}${isHost(why.request) ? '; host token' : ''})`);
   };
 
   /** O3: who asked and how the request came in, for the record. */

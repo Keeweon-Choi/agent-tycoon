@@ -256,7 +256,7 @@ describe.skipIf(!GIT_AVAILABLE)('the routes', () => {
     const same = { origin: 'http://localhost:80', host: 'localhost:80', 'x-session': 'ok' };
     const call = (method: 'GET' | 'POST', url: string, headers: Record<string, string> = same, payload?: object) =>
       server.inject({ method, url, headers, ...(payload && { payload }) });
-    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec]'));
+    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec]'));
     return { call, same, audits, home };
   }
 
@@ -286,9 +286,9 @@ describe.skipIf(!GIT_AVAILABLE)('the routes', () => {
     expect((await call('POST', `/api/cld/spec/alpha/docs/${docs[0].uid}`, same, { kind: 'poem' })).statusCode).toBe(400);
     expect((await call('POST', '/api/cld/spec/alpha/disable')).statusCode).toBe(200);
     expect(audits()).toEqual([
-      '[cld spec] enable device="Test phone" project="alpha" docs=1',
-      `[cld spec] doc device="Test phone" project="alpha" uid=${docs[0].uid} {"kind":"design"}`,
-      '[cld spec] disable device="Test phone" project="alpha" ',
+      '[agty spec] enable device="Test phone" project="alpha" docs=1',
+      `[agty spec] doc device="Test phone" project="alpha" uid=${docs[0].uid} {"kind":"design"}`,
+      '[agty spec] disable device="Test phone" project="alpha" ',
     ]);
     // SPT-P1D: the same writes in audit.jsonl, by the device, with the projectId, and no document text or path.
     const jsonl = fs.readFileSync(path.join(home, '.config/agent-tycoon/audit.jsonl'), 'utf-8');

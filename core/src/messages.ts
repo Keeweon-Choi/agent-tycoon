@@ -219,6 +219,7 @@ export type ClientMessage =
   | SetConversationPin
   | SetParties
   | GoneConversationDelete
+  | WebviewError
   | SetOfficeBackground
   | TaskEdit
   | CodexUsageCheck
@@ -3172,6 +3173,17 @@ export interface GoneConversationDelete {
   name: string;
 }
 
+export interface WebviewError {
+  type: 'webviewError';
+  source: WebviewErrorSource;
+  region?: string;
+  message: string;
+  stack?: string;
+  componentStack?: string;
+}
+
+export type WebviewErrorSource = 'boundary' | 'error' | 'rejection';
+
 export interface SetOfficeBackground {
   type: 'setOfficeBackground';
   time: BackgroundTime;
@@ -3204,19 +3216,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1674;
+  language: AnonymousSchema_1679;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1674 = 'ko' | 'en';
+export type AnonymousSchema_1679 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1678;
+  mode: AnonymousSchema_1683;
 }
 
-export type AnonymousSchema_1678 = 'ask' | 'bypass';
+export type AnonymousSchema_1683 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

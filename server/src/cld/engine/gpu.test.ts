@@ -721,6 +721,7 @@ describe.runIf(FLOCK && process.platform === 'linux')(
       const holderId = board(h).holders[0].id;
       const refused = cli(h, ['cancel', holderId]);
       expect([refused.status, JSON.parse(refused.stdout).code]).toEqual([1, 'leased']);
+      expect(JSON.parse(refused.stdout).error).toContain('"$CLD_BIN" stop <pid>');
       expect(JSON.parse(cli(h, ['cancel', 'g-nope']).stdout).code).toBe('no_ticket');
       // wait: 6 s, then exit 3. Started only now, behind the steps above: its 6 s window (the shortest
       // `--wait`) runs from its own start, so on a slow machine those steps would have outlasted it.

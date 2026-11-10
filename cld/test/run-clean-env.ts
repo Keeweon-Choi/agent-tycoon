@@ -19,7 +19,7 @@
  *   3. a new page: usage shows the numbers from those two sources (the status
  *      line the engine injected kept Claude's; Codex's own log gave Codex's).
  * Then: the injected status line ran cleanly (exit 0, no user line to chain),
- * no page error, no "[cld usage]" warning, and every path of the real HOME the
+ * no page error, no "[agty usage]" warning, and every path of the real HOME the
  * daemon log names is this checkout or this Node (nothing else of the real HOME).
  *
  *   npx tsx cld/test/run-clean-env.ts <port 18256-18259>
@@ -320,7 +320,7 @@ async function main() {
     // ── Verdicts ──
     check(pageErrors.length === 0, `no page errors${pageErrors.map((e) => `\n  ${e}`).join('')}`);
     const log = serverLog.join('');
-    check(!log.includes('[cld usage]'), 'the daemon logged no usage warning');
+    check(!log.includes('[agty usage]'), 'the daemon logged no usage warning');
     const outside = realHomePaths(
       [log, fs.readFileSync(path.join(home, 'fake-claude.log'), 'utf-8')].join('\n'),
     );

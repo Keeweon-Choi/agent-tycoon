@@ -114,7 +114,7 @@ function d2Home(): { home: string; files: () => Record<string, string> } {
     reply('테스트 돌리는 중', 5, 'aa3', true), // its turn still runs: the queued message waits
   ]);
   transcript('beta', [
-    user('[cld-gui · alpha에게서 · 10-23 10:00]\n리뷰 부탁해', 0, 'ub1'),
+    user('[agty · alpha에게서 · 10-23 10:00]\n리뷰 부탁해', 0, 'ub1'),
     reply('리뷰 남겼어요', 1, 'ab1'),
     user("[사장 · 단톡방 'dev' · 10-23 10:02]\n@alpha @beta 배포 확인", 2, 'ub2'),
     reply('beta 도 확인', 3, 'ab2'),
@@ -447,7 +447,7 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
       walk(cfg);
       return out;
     };
-    // D5: a `cld-gui codex` record from before D5 (no Worker in it): read, never rewritten or told.
+    // D5: a `agty codex` record from before D5 (no Worker in it): read, never rewritten or told.
     const codexState = codexDir(home);
     fs.mkdirSync(codexState, { recursive: true });
     const oldRun = {

@@ -1,6 +1,6 @@
 /**
  * The local control channel (T-0019, cld/docs/design/cld-cli.md §7): how the
- * `cld-gui` CLI reaches the daemon. ~/.config/agent-tycoon/engine.sock (a Unix
+ * `agty` CLI reaches the daemon. ~/.config/agent-tycoon/engine.sock (a Unix
  * socket, 0600, made under another name and renamed into place) on Linux and
  * macOS, \\.\pipe\cld-gui-engine-<user> on Windows. Only the same OS user
  * reaches it; the web UI never does. One JSON line per connection each way:
@@ -120,7 +120,7 @@ export interface ControlDeps {
   /** D3: the project an agent works for (a Lead's is its own name): jobs, Codex tasks and
    *  작업 현황 stay attributed to the project. */
   projectOf?(name: string): string | null;
-  /** D3: `cld-gui worker …`, the office's engine action (the owner's CLI only). */
+  /** D3: `agty worker …`, the office's engine action (the owner's CLI only). */
   engineAction?(req: EngineAction): Promise<EngineActionResult>;
   workers?(): EngineProject[];
   /** The engine project whose folder holds `cwd` (longest wins), or null. */
@@ -149,7 +149,7 @@ export interface ControlDeps {
     task?: string | null;
   }): Reply | Promise<Reply>;
   jobs(all: boolean): Reply;
-  /** `cld-gui codex …` (T-0021): start a task, or (no spec) list them. */
+  /** `agty codex …` (T-0021): start a task, or (no spec) list them. */
   codex(req: {
     spec: string;
     model: string | null;
@@ -167,9 +167,9 @@ export interface ControlDeps {
     task?: string | null;
   }): Promise<Reply>;
   codexList(all: boolean): Reply;
-  /** `cld-gui hw`: the daemon's latest HW sample (`{ok, hw}`), or a `no_sample` refusal. */
+  /** `agty hw`: the daemon's latest HW sample (`{ok, hw}`), or a `no_sample` refusal. */
   hw(): Promise<Reply>;
-  /** Read-only one-screen snapshot for `cld-gui status`. */
+  /** Read-only one-screen snapshot for `agty status`. */
   status?(): Promise<Reply> | Reply;
   /** Owner-only bulk stop used immediately before a manager uninstall. */
   stopAgents?(): Promise<Reply> | Reply;
@@ -179,7 +179,7 @@ export interface ControlDeps {
   rename?(name: string, to: string, source: string): Reply;
   /** C5a: one MCP tool call by `agent` (always the token's agent: mcpTools.ts). */
   mcp?(agent: string, tool: string, input: unknown): Promise<Record<string, unknown>>;
-  /** W2: `cld-gui worktree new|list` (taskWorktree.ts); an agent's token keeps it to its project. */
+  /** W2: `agty worktree new|list` (taskWorktree.ts); an agent's token keeps it to its project. */
   worktree?(
     args: Record<string, unknown>,
     who: { by: string; project: string | null; agent: string | null },
@@ -189,13 +189,13 @@ export interface ControlDeps {
   trust?(target: { name?: string; folder?: string }, start: boolean): Promise<Reply>;
   /** TERM-P3: `agty move-pty --all` starts the queue that moves every agent into the PTY host; `--stop` ends it. */
   moveAll?(stop: boolean): { ok: true; total?: number } | { ok: false; error?: string };
-  /** TERM-P3: a PTY agent's PermissionRequest hook (`cld-gui permission-hook`): the owner's
+  /** TERM-P3: a PTY agent's PermissionRequest hook (`agty permission-hook`): the owner's
    *  answer, or null (no answer in time, or no card for it: Claude shows its own dialog). */
   permission?(
     agent: string,
     ask: { tool: string; input: Record<string, unknown>; waitMs?: number },
   ): Promise<'allow' | 'deny' | null>;
-  /** `cld-gui task …` (DEV-BOARD): `by` is the caller (its token's project, else its source). */
+  /** `agty task …` (DEV-BOARD): `by` is the caller (its token's project, else its source). */
   task?(
     args: Record<string, unknown>,
     who: { by: string; project: string | null; agent: string | null },
@@ -514,7 +514,7 @@ export async function listenControl(
   file: string,
   /** `gone`: aborted when the caller hangs up before its answer (a hook Claude ended). */
   handle: (req: ControlRequest, gone: AbortSignal) => Promise<Reply>,
-  log: (line: string) => void = (l) => console.log(`[cld engine] ${l}`),
+  log: (line: string) => void = (l) => console.log(`[agty engine] ${l}`),
   platform: NodeJS.Platform = process.platform,
 ): Promise<net.Server | null> {
   const server = net.createServer((socket) => {
@@ -544,7 +544,7 @@ export async function listenControl(
           ? Promise.resolve(req)
           : handle(req, hungUp.signal).catch((err: unknown) => {
               log(`control: ${err instanceof Error ? err.message : String(err)}`);
-              return refuse('daemon_error', 'cld-gui 데몬에서 오류가 났습니다');
+              return refuse('daemon_error', 'agty 데몬에서 오류가 났습니다');
             });
       void answer.then((r) => {
         if (!socket.destroyed) socket.end(`${JSON.stringify({ v: 1, ...r })}\n`);
@@ -554,7 +554,7 @@ export async function listenControl(
   if (platform === 'win32') {
     // libuv makes the first pipe instance only: a name someone else holds fails here.
     if (!(await listen(server, file))) {
-      log(`${file} is taken; cld-gui commands will not reach this daemon`);
+      log(`${file} is taken; agty commands will not reach this daemon`);
       return null;
     }
     return server;
@@ -563,7 +563,7 @@ export async function listenControl(
   // An existing folder keeps its mode (often 0775): only the owner may reach or replace the socket.
   fs.chmodSync(path.dirname(file), 0o700);
   if (await answers(file)) {
-    log(`${file} already answers (another cld-gui daemon); not taking it over`);
+    log(`${file} already answers (another agty daemon); not taking it over`);
     return null;
   }
   // Made under a private name, 0600, then renamed over a stale socket.

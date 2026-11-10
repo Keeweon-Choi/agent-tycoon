@@ -153,11 +153,11 @@ async function main() {
       record('user', T - 60 * MIN, '이전 대화 시작') +
         record('user', OLD.at + 1000, header(OLD)) +
         record('assistant', OLD.at + 2000, 'renew 전 답: 로그는 logs/deploy.log 에 있어요') +
-        record('user', OLD.at + 3000, '[cld-gui renew] 인수인계'),
+        record('user', OLD.at + 3000, '[agty renew] 인수인계'),
     );
     fs.appendFileSync(
       current,
-      record('user', RECENT.at - 60_000, '[cld-gui renew] 새 대화로 이어 간다') +
+      record('user', RECENT.at - 60_000, '[agty renew] 새 대화로 이어 간다') +
         record('user', RECENT.at + 1000, header(RECENT)) +
         record('assistant', RECENT.at + 2000, '네, 배포 끝났어요'),
     );

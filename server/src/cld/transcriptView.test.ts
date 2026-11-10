@@ -296,13 +296,30 @@ describe('transcript to messages', () => {
       ],
       ['[cld-gui codex] 작업 a1 끝: done · 폴더 /x', '[cld-gui codex] 작업 a1 끝: done · 폴더 /x'],
       [
-        '[cld-gui 자동 복구 · 10-22 14:15] cld-gui가 다시 뜰 때 하던 일을 확인해 달라.',
-        '[cld-gui 자동 복구 · 10-22 14:15] cld-gui가 다시 뜰 때 하던 일을 확인해 달라.',
+        '[cld-gui 자동 복구 · 10-22 14:15] agty가 다시 뜰 때 하던 일을 확인해 달라.',
+        '[cld-gui 자동 복구 · 10-22 14:15] agty가 다시 뜰 때 하던 일을 확인해 달라.',
       ],
     ])('a system notice: %j', (content, text) => {
       const item = one(content);
       expect(item).toMatchObject({ kind: 'user', from: 'system', text });
       expect('fromName' in item).toBe(false);
+    });
+
+    // T-80: the labels read [agty ...] now; the it.each cases above keep the pre-rename [cld-gui ...] ones (old transcripts).
+    it.each([
+      ['[agty · ops에게서 · 10-22 14:15]\n규칙 추가했다', 'ops', '규칙 추가했다'],
+      ['[agty · 두 단어 팀에게서 · 10-22 14:15]\n본문', '두 단어 팀', '본문'],
+    ])('a peer, new label: %j', (content, name, text) => {
+      expect(one(content)).toMatchObject({ kind: 'user', from: 'peer', fromName: name, text });
+    });
+
+    it.each([
+      ['[agty · 보냄 · 10-22 14:15]\n[agty codex] 작업 a1 끝: done', '[agty codex] 작업 a1 끝: done'],
+      ['[agty codex] 작업 a1 끝: done · 폴더 /x', '[agty codex] 작업 a1 끝: done · 폴더 /x'],
+      ['[agty 자동 복구 · 10-22 14:15] 다시 띄웠다.', '[agty 자동 복구 · 10-22 14:15] 다시 띄웠다.'],
+      ['[agty renew · 11-06 10:00] 새 대화로 이어 간다.', '[agty renew · 11-06 10:00] 새 대화로 이어 간다.'],
+    ])('a system notice, new label: %j', (content, text) => {
+      expect(one(content)).toMatchObject({ kind: 'user', from: 'system', text });
     });
 
     it('leaves old-tool headers as plain text', () => {

@@ -8,7 +8,7 @@ import type { ChatItem, ChatReply } from '../../../../core/src/messages.js';
 import { splitAttachmentText } from './attachments.js';
 
 /** Who a system notice is from, in a reply's quote line (the daemon's own name). */
-export const SYSTEM_SENDER = 'cld-gui';
+export const SYSTEM_SENDER = 'agty';
 
 type Copyable = Pick<ChatItem, 'kind' | 'text' | 'attachments'>;
 
@@ -29,7 +29,7 @@ export function copyText(item: Copyable): string {
 export const replyIdOf = (item: Pick<ChatItem, 'kind' | 'id' | 'messageId'>): string =>
   item.kind === 'user' && item.messageId ? item.messageId : item.id;
 
-/** The sender a reply quotes: absent for the boss, the peer's name, cld-gui for a notice, else `lead`. */
+/** The sender a reply quotes: absent for the boss, the peer's name, agty for a notice, else `lead`. */
 export function replySenderOf(
   item: Pick<ChatItem, 'kind' | 'from' | 'fromName'>,
   lead: string,

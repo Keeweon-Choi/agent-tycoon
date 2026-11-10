@@ -262,7 +262,7 @@ export function useExtensionMessages(
         const turn = engineTurn(o);
         return atWork(turn) || turn === 'off' ? [{ id: o.agentId, busy: atWork(turn) }] : [];
       });
-    // cld-gui (T-0025): until when a resync's replayed states make no sound.
+    // agty (T-0025): until when a resync's replayed states make no sound.
     let quietUntil = 0;
 
     // Accumulate distinct directoryNames seen across agents (never removed during the
@@ -285,7 +285,7 @@ export function useExtensionMessages(
             wanted.set(orch.agentId ?? virtualAgentId(`orch:${orch.name}`), orch.name);
           for (const task of codexTasks?.tasks ?? []) {
             const id = task.agentId ?? virtualAgentId(`codex:${task.id}`);
-            // cld-gui (T-0041): a finished Codex worker that went home stays home.
+            // agty (T-0041): a finished Codex worker that went home stays home.
             if (codexWanted(task, id)) wanted.set(id, `codex·${task.project}`);
           }
           for (const oldId of officeCharacterIds) {
@@ -447,7 +447,7 @@ export function useExtensionMessages(
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
-        // cld-gui (T-0041): a teammate lingers, then walks out and comes back here.
+        // agty (T-0041): a teammate lingers, then walks out and comes back here.
         if (!msg.cldFinal && deferRemoval(id, () => handler({ ...msg, cldFinal: true }))) return;
         setAgents((prev) => prev.filter((a) => a !== id));
         setSelectedAgent((prev) => (prev === id ? null : prev));
@@ -467,8 +467,8 @@ export function useExtensionMessages(
         os.removeAgent(id);
       } else if (msg.type === 'existingAgents') {
         const incoming = msg.agents as number[];
-        staffLoading(); // cld-gui (T-0041): the steady state at once, no walks
-        // cld-gui (T-0025): with the layout already up this is a resync after a
+        staffLoading(); // agty (T-0041): the steady state at once, no walks
+        // agty (T-0025): with the layout already up this is a resync after a
         // reconnect. Agents that ended meanwhile leave; the others drop their
         // tool rows, which the activity resend right after restores, quietly.
         if (layoutReadyRef.current) {
@@ -567,7 +567,7 @@ export function useExtensionMessages(
           (!runInBackground || !parentHasTeam)
         ) {
           const label = status.startsWith('Subtask:') ? status.slice('Subtask:'.length).trim() : '';
-          // cld-gui (T-0041): a lingering sub-agent with this task comes back as itself.
+          // agty (T-0041): a lingering sub-agent with this task comes back as itself.
           const model = msg.model as string | undefined;
           const oldToolId = reviveSubagent(os, id, toolId, label, model);
           const subId = os.addSubagent(id, toolId);
@@ -627,7 +627,7 @@ export function useExtensionMessages(
               doomed.push(meta.parentToolId);
             }
           }
-          // cld-gui (T-0041): held ones linger and are cleared once they walked out.
+          // agty (T-0041): held ones linger and are cleared once they walked out.
           const held = new Set<string>();
           for (const parentToolId of doomed) {
             const final = () =>
@@ -667,7 +667,7 @@ export function useExtensionMessages(
         );
         if (status === 'waiting') {
           os.showWaitingBubble(id, msg.awaitingInput === true);
-          // cld-gui (T-0039): the cld office says who and why (toast, pulse, bell).
+          // agty (T-0039): the agty office says who and why (toast, pulse, bell).
           const cause = msg.awaitingInput === true || msg.question === true ? 'question' : 'turnEnd';
           // WAITING-PERSIST: a question given back after a restart is shown, not announced.
           if (msg.restored !== true && Date.now() >= quietUntil && !cldNotice(id, cause)) playDoneSound();
@@ -774,7 +774,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'subagentClear') {
         const id = msg.id as number;
         const parentToolId = msg.parentToolId as string;
-        // cld-gui (T-0041): its rows go now, the character lingers and comes back here.
+        // agty (T-0041): its rows go now, the character lingers and comes back here.
         const final = () => handler({ ...msg, cldFinal: true });
         const held = !msg.cldFinal && deferRemoval(os.getSubagentId(id, parentToolId), final);
         backgroundParentToolIdsRef.current[id]?.delete(parentToolId);
@@ -917,7 +917,7 @@ export function useExtensionMessages(
           // Build dynamic catalog immediately so getCatalogEntry() works when layoutLoaded arrives next
           buildDynamicCatalog({ catalog, sprites });
           setLoadedAssets({ catalog, sprites });
-          // cld-gui CH-6b: a catalog that changes later (an item redrawn or removed) redraws
+          // agty CH-6b: a catalog that changes later (an item redrawn or removed) redraws
           // the office; a removed item's placed copies go like any missing asset.
           if (layoutReadyRef.current) os.rebuildFromLayout(os.getLayout());
         } catch (err) {

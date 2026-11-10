@@ -139,7 +139,7 @@ export class OfficePermissions {
         });
         this.readScreen(id);
         if (!again) {
-          console.log(`[cld engine] "${e?.name ?? id}" waits on a permission dialog`);
+          console.log(`[agty engine] "${e?.name ?? id}" waits on a permission dialog`);
           this.deps.store.broadcast({ type: 'agentToolPermission', id, ...(asker && { asker }) });
           if (subject?.parentToolId)
             this.deps.store.broadcast({
@@ -270,7 +270,7 @@ export class OfficePermissions {
         hook: done,
         ...(ask.options && { options: ask.options.map((o) => ({ optionId: o.optionId, name: maskText(o.name), kind: o.kind })) }),
       });
-      console.log(`[cld engine] "${name}" asks a permission (${call.tool}) through ${via === 'acp' ? 'ACP' : 'its hook'}`);
+      console.log(`[agty engine] "${name}" asks a permission (${call.tool}) through ${via === 'acp' ? 'ACP' : 'its hook'}`);
       if (!shown) this.deps.store.broadcast({ type: 'agentToolPermission', id });
       this.deps.conversations.republish();
     });
@@ -296,7 +296,7 @@ export class OfficePermissions {
       const want = asks && !this.decided.has(id);
       if (want && !p) {
         this.permissions.set(id, { wait: ++this.serial, transcript: { toolId: '', match: [] }, screen: 'done', terminal: true });
-        console.log(`[cld engine] "${a.name}" waits on a permission dialog in its terminal`);
+        console.log(`[agty engine] "${a.name}" waits on a permission dialog in its terminal`);
         this.deps.store.broadcast({ type: 'agentToolPermission', id });
         changed = true;
       } else if (!want && p) {
@@ -378,7 +378,7 @@ export class OfficePermissions {
           : null;
     const what = `permission ${req.allow ? 'allow' : 'deny'} ${JSON.stringify(e?.name ?? req.agentId).slice(0, 66)} gui:${device}`;
     if (refusal || !e?.bg?.id) {
-      console.log(`[cld engine] ${what}: refused (${refusal?.error})`);
+      console.log(`[agty engine] ${what}: refused (${refusal?.error})`);
       return reply({ ok: false, ...refusal });
     }
     const p = this.permissions.get(req.agentId);
@@ -388,7 +388,7 @@ export class OfficePermissions {
     const option = p?.options?.find((o) => o.optionId === req.optionId);
     const optionOk = !p?.options || (!!option && option.kind.startsWith('allow') === req.allow);
     if (optionOk && option?.kind === 'allow_always' && card?.toolId === req.toolId && stepUp?.remote && !stepUp.fresh()) {
-      console.log(`[cld engine] ${what}: refused (${STEPUP_REQUIRED})`);
+      console.log(`[agty engine] ${what}: refused (${STEPUP_REQUIRED})`);
       return reply({ ok: false, error: STEPUP_REQUIRED });
     }
     const result =
@@ -397,7 +397,7 @@ export class OfficePermissions {
         : p?.hook
           ? (p.hook({ allow: req.allow, ...(option && { optionId: option.optionId }) }), 'answered' as const) // the hook's or the ACP request's decision
           : ((await this.deps.typist?.answerPermission?.(e.bg.id, match, req.allow)) ?? 'failed');
-    console.log(`[cld engine] ${what}: ${result}`);
+    console.log(`[agty engine] ${what}: ${result}`);
     if (result === 'answered') this.waits?.answered(req.agentId);
     // Another dialog is up than the card says: read the screen again (the owner asked, once).
     if (result === 'otherDialog' && this.permissions.get(req.agentId) === p && p?.screen === 'done') {

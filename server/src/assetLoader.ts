@@ -57,7 +57,7 @@ export async function loadFurnitureAssets(workspaceRoot: string): Promise<Loaded
   return loadFurnitureFolder(path.join(workspaceRoot, 'assets', 'furniture'));
 }
 
-/** Every `<furnitureDir>/<item>/manifest.json` (cld-gui CH-6b: the user's redrawn items too). */
+/** Every `<furnitureDir>/<item>/manifest.json` (agty CH-6b: the user's redrawn items too). */
 export async function loadFurnitureFolder(furnitureDir: string): Promise<LoadedAssets | null> {
   try {
     console.log(`[AssetLoader] Scanning furniture directory: ${furnitureDir}`);

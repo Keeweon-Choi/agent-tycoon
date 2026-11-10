@@ -58,27 +58,27 @@ export class OfficeChat {
     const { send, privileged, userAgent } = ctx;
     if (msg.type === 'chatSend' || msg.type === 'chatSendNow') {
       const req = msg.type === 'chatSend' ? parseChatSend(msg) : parseChatSendNow(msg);
-      if (!req) console.warn(`[cld] malformed ${msg.type} dropped`);
+      if (!req) console.warn(`[agty] malformed ${msg.type} dropped`);
       else
         void this.chatSend(req, privileged, deviceLabel(userAgent)).then(
           (result) => send({ ...result }),
-          (err: unknown) => console.warn(`[cld] send: ${String(err)}`),
+          (err: unknown) => console.warn(`[agty] send: ${String(err)}`),
         );
       return true;
     }
     if (msg.type === 'chatCancel' || msg.type === 'chatEdit') {
       const req = msg.type === 'chatCancel' ? parseChatCancel(msg) : parseChatEdit(msg);
-      if (!req) console.warn(`[cld] malformed ${msg.type} dropped`);
+      if (!req) console.warn(`[agty] malformed ${msg.type} dropped`);
       else
         void this.chatPending(req, privileged, deviceLabel(userAgent)).then(
           (result) => send({ ...result }),
-          (err: unknown) => console.warn(`[cld] pending message: ${String(err)}`),
+          (err: unknown) => console.warn(`[agty] pending message: ${String(err)}`),
         );
       return true;
     }
     if (msg.type === 'chatHold') {
       const req = parseChatHold(msg);
-      if (!req) console.warn('[cld] malformed chatHold dropped');
+      if (!req) console.warn('[agty] malformed chatHold dropped');
       else this.chatHold(req, privileged);
       return true;
     }
@@ -274,7 +274,7 @@ export class OfficeChat {
             : null;
     const what = `${req.type === 'chatSend' ? 'send' : 'send now'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}`;
     if (refusal || !this.deps.messenger) {
-      console.log(`[cld engine] ${what}: refused (${refusal?.error})`);
+      console.log(`[agty engine] ${what}: refused (${refusal?.error})`);
       return reply({ ok: false, ...(refusal ?? { error: '' }) });
     }
     // The boss's words wait for the session as long as it lives: never into the
@@ -292,7 +292,7 @@ export class OfficeChat {
             ...(req.replyTo && { replyTo: req.replyTo }),
             ...(req.text.startsWith('/') ? { raw: true } : {}),
           });
-    console.log(`[cld engine] ${what}: ${r.ok ? r.delivered : `failed (${r.code})`}`);
+    console.log(`[agty engine] ${what}: ${r.ok ? r.delivered : `failed (${r.code})`}`);
     return r.ok
       ? reply({
           ok: true,
@@ -332,7 +332,7 @@ export class OfficeChat {
         ? this.deps.messenger.cancel(req.name, req.id)
         : this.deps.messenger.edit(req.name, req.id, req.text, req.replyTo);
     console.log(
-      `[cld engine] ${req.type === 'chatCancel' ? 'cancel' : 'edit'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}: ${r.ok ? 'ok' : `failed (${r.code})`}`,
+      `[agty engine] ${req.type === 'chatCancel' ? 'cancel' : 'edit'} ${JSON.stringify(req.name).slice(0, 66)} gui:${device}: ${r.ok ? 'ok' : `failed (${r.code})`}`,
     );
     // The queue is part of every open conversation's snapshot. Poll now so
     // another screen sees the edited/cancelled bubble without waiting 1.5 s.

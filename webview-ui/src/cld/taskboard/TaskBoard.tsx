@@ -43,6 +43,7 @@ import { worktreeOfTask } from '../repo/repoText.js';
 import { serverLine } from '../serverText.js';
 import { TaskWorktreeChip, TaskWorktreeDetail } from '../workbench/TaskWorktree.js';
 import { TaskWorktreeScope } from '../workbench/taskWorktreeScope.js';
+import { issueFocus, useWorkbench } from '../workbench/workbenchStore.js';
 import {
   assigneeOf,
   type BoardFilter,
@@ -1007,6 +1008,15 @@ export function TaskBoardView({ now }: { now: number }) {
   const { taskBoard, codexTasks, officeJobs, officeReadOnly, tracked, officeSnapshot } = useCldStore();
   const [filter, setFilter] = useState<BoardFilter>(NO_FILTER);
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // T-73: a notice (검토 대기) asked for this Task's card; useWorkbench re-renders on the ask.
+  useWorkbench();
+  const asked = issueFocus();
+  useEffect(() => {
+    if (!asked) return;
+    setOpenKey(asked.id);
+    const frame = requestAnimationFrame(() => document.querySelector(`[data-testid="task-card"][data-task-id="${CSS.escape(asked.id)}"]`)?.scrollIntoView({ block: 'center' }));
+    return () => cancelAnimationFrame(frame);
+  }, [asked?.ask]); // eslint-disable-line react-hooks/exhaustive-deps
   // null: the layout decides (folded in a list, open as a column), a press on the header decides after that.
   const [doneChoice, setDoneChoice] = useState<boolean | null>(null);
   const [adding, setAdding] = useState<BoardTaskStatus | null>(null);

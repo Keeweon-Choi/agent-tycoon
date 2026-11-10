@@ -154,8 +154,8 @@ const UAC_ONCE = '  곧 Windows 관리자 확인 창(UAC)이 한 번 뜹니다. 
 export function hwSensorsPlan({ platform, enabled = true, uninstall = false, detection = null, linux = null, port = LHM.port, nvidiaSmi = false }) {
   if (platform === 'win32' || platform === 'wsl') {
     if (uninstall) {
-      if (!detection?.ours) return { lines: ['✔ cld-gui가 설치한 센서 도구 없음(다른 LibreHardwareMonitor는 건드리지 않음)'] };
-      return { lines: [`… cld-gui가 설치한 센서 도구를 지웁니다: 예약 작업 ${LHM.task}과 ${ROOT}`, '  곧 Windows 관리자 확인 창(UAC)이 한 번 뜹니다. PawnIO 드라이버는 다른 프로그램도 쓸 수 있어 남겨 둡니다.'], script: renderLhmUninstallScript() };
+      if (!detection?.ours) return { lines: ['✔ agty가 설치한 센서 도구 없음(다른 LibreHardwareMonitor는 건드리지 않음)'] };
+      return { lines: [`… agty가 설치한 센서 도구를 지웁니다: 예약 작업 ${LHM.task}과 ${ROOT}`, '  곧 Windows 관리자 확인 창(UAC)이 한 번 뜹니다. PawnIO 드라이버는 다른 프로그램도 쓸 수 있어 남겨 둡니다.'], script: renderLhmUninstallScript() };
     }
     if (!enabled) return { lines: ['… H/W 센서 도구 건너뜀(--no-hw-sensors). 켜려면 --hw-sensors'] };
     if (detection?.state === 'running') return { lines: [`✔ LibreHardwareMonitor 이미 실행 중(:${detection.port}) → 설치 건너뜀, 그 값을 읽습니다`], lhmPort: detection.port };

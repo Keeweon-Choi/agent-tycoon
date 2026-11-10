@@ -1,4 +1,4 @@
-/** cld-gui (T-0025): the office draws at most this often. A 120/144 Hz screen
+/** agty (T-0025): the office draws at most this often. A 120/144 Hz screen
  *  would otherwise draw it, and re-render the DOM overlays above it, 2-2.4x as
  *  often for nothing a pixel-art office can show. */
 export const FRAME_RATE = 60;

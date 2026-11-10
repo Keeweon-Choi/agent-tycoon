@@ -1,5 +1,5 @@
 /**
- * The one seam between upstream pixel-agents and cld-gui code. Upstream calls
+ * The one seam between upstream pixel-agents and agty code. Upstream calls
  * these (when set) from the WebSocket handshake and message dispatch; with
  * nothing set, upstream behaves exactly as before.
  */
@@ -27,9 +27,9 @@ export interface ClientMessageContext {
 export interface CldHooks {
   /** Current registered engine project folders for the file browser. */
   projectFolders?(): ProjectFolder[];
-  /** The cld office always answers with its generated layout plus decor. */
+  /** The agty office always answers with its generated layout plus decor. */
   layoutFor?(saved: Record<string, unknown> | null): Record<string, unknown> | undefined;
-  /** The cld office keeps an editor save as decor; true: handled (layout.json is not written). */
+  /** The agty office keeps an editor save as decor; true: handled (layout.json is not written). */
   saveLayout?(layout: Record<string, unknown>, send: WsSend): boolean;
   /** Seat (chair uid) for an agent; wins over the persisted seat. */
   seatFor?(agentId: number): string | undefined;
@@ -71,7 +71,7 @@ export interface CldHooks {
     /** P3a: the host's Bearer token, or a remote device (not this PC, not the host). */
     kindOf?: (request: FastifyRequest) => { host: boolean; remote: boolean },
   ): void;
-  /** Standalone only, after listen: cld remote (T-0024) adds its LAN and public
+  /** Standalone only, after listen: agty remote (T-0024) adds its LAN and public
    *  listeners, which hand requests to `app.server`, and the names they answer
    *  to join the /ws Host allowlist. */
   onListening?(server: { app: FastifyInstance; allowedHostnames: Set<string> }): void;

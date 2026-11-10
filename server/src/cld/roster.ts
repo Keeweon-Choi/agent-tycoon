@@ -129,7 +129,7 @@ export class RosterStore {
       } catch {
         /* file disappeared */
       }
-      console.warn(`[cld] roster: invalid JSON moved to ${aside}`);
+      console.warn(`[agty] roster: invalid JSON moved to ${aside}`);
     }
     const projects = (raw as { v?: number; projects?: unknown } | null)?.projects;
     // A record of the wrong shape (a hand edit, another version) is left out, never a crash;
@@ -161,7 +161,7 @@ export class RosterStore {
       } catch {
         /* kept in memory as read */
       }
-      console.warn(`[cld] roster: records of the wrong shape left out, the file kept as ${aside}`);
+      console.warn(`[agty] roster: records of the wrong shape left out, the file kept as ${aside}`);
       this.dirty = true;
     }
   }
@@ -293,7 +293,7 @@ export class RosterStore {
     try {
       writeJsonAtomic(this.file, { v: 1, projects: this.projects });
     } catch (err) {
-      console.warn(`[cld] roster: ${String(err)}`);
+      console.warn(`[agty] roster: ${String(err)}`);
     }
   }
 

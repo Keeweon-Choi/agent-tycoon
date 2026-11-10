@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cld-gui-mcp: the MCP adapter of the cld-gui engine (C5a, onboarding-security
+// cld-gui-mcp: the MCP adapter of the agty engine (C5a, onboarding-security
 // B §9). The engine attaches it to each Claude session it starts with
 // `--mcp-config ~/.config/agent-tycoon/mcp-config.json`; Claude Code runs it with the
 // daemon's Node and the session's own environment, so CLD_AGENT_TOKEN is the
@@ -198,11 +198,11 @@ const content = (result) => ({
 async function call(name, input) {
   if (!NAMES.has(name)) return error('unknown_tool', `no tool '${name}'`);
   if (!process.env.CLD_AGENT_TOKEN)
-    return error('no_identity', 'this session has no CLD_AGENT_TOKEN: only sessions the cld-gui engine starts have the agent tools');
+    return error('no_identity', 'this session has no CLD_AGENT_TOKEN: only sessions the agty engine starts have the agent tools');
   const r = await request('mcp', { tool: name, input: input ?? {} });
-  if (r === null) return error('daemon_off', 'the cld-gui daemon is not running');
+  if (r === null) return error('daemon_off', 'the agty daemon is not running');
   if (r.result && typeof r.result === 'object') return r.result;
-  return error(r.code || 'daemon_error', r.error || 'the cld-gui daemon refused the call');
+  return error(r.code || 'daemon_error', r.error || 'the agty daemon refused the call');
 }
 
 async function answer(m) {
@@ -212,7 +212,7 @@ async function answer(m) {
       return {
         protocolVersion: VERSIONS.includes(asked) ? asked : VERSIONS[0],
         capabilities: { tools: {} },
-        serverInfo: { name: 'cld-gui', version: '1' },
+        serverInfo: { name: 'agty', version: '1' },
       };
     }
     case 'ping':

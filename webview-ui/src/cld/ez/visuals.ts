@@ -133,7 +133,7 @@ export function characterVisual(activity: ActivityDescription, off = false): Cha
 
 // ToolOverlay works out each character's visual every frame (it has the tool
 // rows); the canvas renderer reads it here. Nothing published: the office
-// looks as upstream draws it (자세히 mode, or no cld office).
+// looks as upstream draws it (자세히 mode, or no agty office).
 const published = new Map<number, CharacterVisual>();
 
 /** Character id -> the words of its newest working activity: what its turn end names when no Task does. */

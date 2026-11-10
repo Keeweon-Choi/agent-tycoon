@@ -98,7 +98,7 @@ export class Passkeys {
       // Unreadable, unknown, or a v1 that could not be backed up and rewritten:
       // the file stays exactly as it is, and passkeys stay off.
       broken = true;
-      console.warn(`[cld auth] ${file} is unreadable; passkeys stay off until it is fixed`);
+      console.warn(`[agty auth] ${file} is unreadable; passkeys stay off until it is fixed`);
     }
     this.broken = broken;
     this.data = data ?? {
@@ -192,9 +192,9 @@ export class Passkeys {
     sessionId: string,
     device: { id: string; label: string; nickname?: string } | null,
   ) {
-    const name = device ? `cld-gui · ${device.nickname ?? device.label}` : 'cld-gui';
+    const name = device ? `agty · ${device.nickname ?? device.label}` : 'agty';
     const options = await generateRegistrationOptions({
-      rpName: 'cld-gui',
+      rpName: 'agty',
       rpID: rp.rpID,
       userName: name,
       userDisplayName: name,
@@ -336,7 +336,7 @@ export class Passkeys {
     try {
       this.save();
     } catch (err) {
-      console.warn(`[cld auth] could not write ${this.file}: ${String(err)}`);
+      console.warn(`[agty auth] could not write ${this.file}: ${String(err)}`);
     }
   }
 
@@ -440,6 +440,6 @@ function migrateV1(file: string, old: PasskeyFileV1): PasskeyFile {
     ),
   };
   writeJsonAtomic(file, migrated);
-  console.log(`[cld auth] ${file} migrated to v2; the v1 file is kept beside it as ${file}.v1*.bak`);
+  console.log(`[agty auth] ${file} migrated to v2; the v1 file is kept beside it as ${file}.v1*.bak`);
   return migrated;
 }

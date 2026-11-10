@@ -184,7 +184,7 @@ describe.skipIf(!GIT_AVAILABLE)('repoAction gates refuse in Korean and never run
     r.write('secret.txt', 's\n');
     await act('commit', { message: 'top secret plans', paths: ['secret.txt'] });
     expect(logs).toEqual([
-      '[cld repo] action commit "alpha": refused (읽기 전용 모드라 조작할 수 없어요)',
+      '[agty repo] action commit "alpha": refused (읽기 전용 모드라 조작할 수 없어요)',
     ]);
   });
 
@@ -268,7 +268,7 @@ describe.skipIf(!GIT_AVAILABLE)('stage, commit, push over the client message pat
       'commit',
       'push',
     ]);
-    expect(logs[0]).toMatch(/^\[cld repo\] action /);
+    expect(logs[0]).toMatch(/^\[agty repo\] action /);
     const all = logs.join('\n');
     for (const secret of ['secret details', 'Add things', 'a.txt', 'new.txt']) {
       expect(all).not.toContain(secret);
@@ -577,7 +577,7 @@ describe.skipIf(!GIT_AVAILABLE)('through the office and the real client message 
     );
     expect(r.git(['status', '--porcelain'])).toBe('M  a.txt\n');
     expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
-      expect.stringMatching(/^\[cld repo\] action stage "alpha": ok \d+\.\ds gui:android$/),
+      expect.stringMatching(/^\[agty repo\] action stage "alpha": ok \d+\.\ds gui:android$/),
     );
   });
 

@@ -85,13 +85,13 @@ export class AgentTycoonServer {
     ptyManager?: PtySessionManager;
     /** Extra privileged Host names (standalone; see wsAuth.privilegedHostnames). */
     allowedHosts?: readonly string[];
-    /** cld-gui chat (--allow-chat): `claude attach` PTYs for logged-in browsers. */
+    /** agty chat (--allow-chat): `claude attach` PTYs for logged-in browsers. */
     chat?: ChatManager;
     /** Host opt-in for trusted-device shells. */
     allowTerminal?: boolean;
     /** Our PTY host, where those shells run (ADR-0018); none: they end with the daemon. */
     shellHost?: PtyHostClient | null;
-    /** cld-gui (T-0022): new devices may ask a logged-in one for approval. */
+    /** agty (T-0022): new devices may ask a logged-in one for approval. */
     allowApprovalRequests?: boolean;
     /** MHO v1b: the street (pairing with other PCs, the summary route). */
     street?: Street;
@@ -106,7 +106,7 @@ export class AgentTycoonServer {
     const standalone: StandaloneAccess | undefined = embedded
       ? undefined
       : {
-          // cld-gui chat is a browser PTY too: never reuse across it either way.
+          // agty chat is a browser PTY too: never reuse across it either way.
           terminal: (options?.ptyManager?.enabled ?? false) || options?.chat !== undefined || options?.allowTerminal === true,
           host,
           allowedHosts: normalizedAllowedHosts(options?.allowedHosts ?? []),

@@ -126,7 +126,7 @@ const ALLOWED: Allowed[] = [
   {
     path: /^server\/src\/cld\/engine\/gpu\.ts$/,
     markers: ['gpu-threshold'],
-    why: "`cld-gui gpu --json` keeps HIF §9's field names for the limits, filled from the user's gpu.json, else from shares of the GPU's size (null when neither exists)",
+    why: "`agty gpu --json` keeps HIF §9's field names for the limits, filled from the user's gpu.json, else from shares of the GPU's size (null when neither exists)",
   },
   {
     path: /^cld\/scripts\/check\.sh$/,

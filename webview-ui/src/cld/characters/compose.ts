@@ -531,7 +531,7 @@ export function composeMascot(look: MascotLook, data: MascotData): ComposedLook 
       [sheet.downRight, sheet.upRight] = [walk('downRight', 'down'), walk('upRight', 'up')];
       out.clipped = clipped;
     } catch (err) {
-      console.warn(`[cld] ${err instanceof Error ? err.message : String(err)}: no diagonal walk`);
+      console.warn(`[agty] ${err instanceof Error ? err.message : String(err)}: no diagonal walk`);
     }
   return out;
 }

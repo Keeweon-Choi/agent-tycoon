@@ -150,7 +150,7 @@ test('restore refuses a running daemon and previews without --yes', async () => 
     put(home, 'projects.json', 'changed');
     const before = treeHash(path.join(home, '.config', 'agent-tycoon'));
     const running = await backup.restore(deps(home, { daemonRunning: async () => true }), { file: made.file, yes: true });
-    assert.deepEqual(running, { ok: false, error: 'cld-gui 를 멈춘 뒤 다시 하세요' });
+    assert.deepEqual(running, { ok: false, error: 'agty 를 멈춘 뒤 다시 하세요' });
     const preview = await backup.restore(deps(home), { file: made.file, yes: false });
     assert.equal(preview.preview, true);
     assert.ok(preview.lines.includes('바꿀 파일: projects.json'));

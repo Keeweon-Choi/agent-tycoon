@@ -115,7 +115,7 @@ interface OfficeCanvasProps {
    *  character fires onClick (opens its terminal). Desktop keeps single-click
    *  focus with tap-again-to-deselect. */
   tapSelectsFirst?: boolean;
-  /** GFX: the cld office may show the night skyline in the void (its own setting decides). */
+  /** GFX: the agty office may show the night skyline in the void (its own setting decides). */
   backdrop?: boolean;
 }
 
@@ -165,7 +165,7 @@ export function OfficeCanvas({
   const rotateButtonBoundsRef = useRef<RotateButtonBounds | null>(null);
   // Right-click erase dragging
   const isEraseDraggingRef = useRef(false);
-  // cld-gui (T-0027): a movable character pressed with the left button and
+  // agty (T-0027): a movable character pressed with the left button and
   // dragged past the tap slop; the floor buttons can take it. A plain click
   // on it is still a click.
   const characterDragRef = useRef<{ id: number; x: number; y: number; moving: boolean } | null>(
@@ -173,7 +173,7 @@ export function OfficeCanvas({
   );
   const suppressClickRef = useRef(false);
   // Clamp pan so the map edge can't go past a margin inside the viewport
-  // (cld-gui T-0025: the maths moved to cld/camera.ts, shared and tested).
+  // (agty T-0025: the maths moved to cld/camera.ts, shared and tested).
   const clampPan = useCallback(
     (px: number, py: number): { x: number; y: number } => {
       const canvas = canvasRef.current;
@@ -198,7 +198,7 @@ export function OfficeCanvas({
     const dpr = window.devicePixelRatio || 1;
     return isoPick((clientX - rect.left) * dpr, (clientY - rect.top) * dpr);
   }, []);
-  // cld-gui (T-0025): left-drag pan, wheel zoom about the cursor, the camera
+  // agty (T-0025): left-drag pan, wheel zoom about the cursor, the camera
   // keys and edge-scroll; stepCamera runs in the game loop's update. A press
   // on a character is not a pan: dragging one moves it (T-0015).
   const stepCamera = useGameControls({
@@ -246,7 +246,7 @@ export function OfficeCanvas({
       observer.observe(containerRef.current);
     }
 
-    // cld-gui (T-0075): a camera that moved since the last frame, or an effect on the office,
+    // agty (T-0075): a camera that moved since the last frame, or an effect on the office,
     // keeps the loop at the full rate; PAGE-MEM: characters moving on their own, with no input,
     // at the ambient rate.
     let lastPan = { ...panRef.current };
@@ -592,7 +592,7 @@ export function OfficeCanvas({
           e.clientY - characterDrag.y,
         );
         if (characterDrag.moving) {
-          startFloorDrag(characterDrag.id); // cld-gui (T-0027): a floor button may take it
+          startFloorDrag(characterDrag.id); // agty (T-0027): a floor button may take it
           if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
           return;
         }
@@ -870,7 +870,7 @@ export function OfficeCanvas({
       }
       const characterDrag = characterDragRef.current;
       characterDragRef.current = null;
-      // cld-gui (ELEVATOR): let go over another floor (all floors shown), it rides there. The
+      // agty (ELEVATOR): let go over another floor (all floors shown), it rides there. The
       // floors' store holds what is carried: the canvas's own drag ends when the pointer
       // crosses a label or a bubble on the way.
       const carried = floorsSnapshot().dragging;
@@ -879,7 +879,7 @@ export function OfficeCanvas({
         const id = carried?.id ?? characterDrag?.id;
         const resting = id !== undefined ? officeState.characters.get(id) : undefined;
         if (resting?.cldRest) {
-          // cld-gui (LOUNGE): a resting one goes where it is dropped (a seat, a tile, any floor).
+          // agty (LOUNGE): a resting one goes where it is dropped (a seat, a tile, any floor).
           const hit = iso ? isoAt(e.clientX, e.clientY) : null;
           const pos = iso ? null : pointToWorld(e.clientX, e.clientY);
           if (hit?.kind === 'floor') visitFloor(officeState, resting.id, hit.id);
@@ -951,7 +951,7 @@ export function OfficeCanvas({
 
   // Shared by mouse click and touch tap — both resolve a viewport point to a
   // character / pet / seat interaction. `double`: the second click of a
-  // double-click (cld-gui T-0025), which focuses and follows, never toggles off.
+  // double-click (agty T-0025), which focuses and follows, never toggles off.
   const performTap = useCallback(
     (clientX: number, clientY: number, double = false) => {
       if (offFloor(clientX, clientY) && plateUnder(clientX, clientY) === null) {
@@ -963,7 +963,7 @@ export function OfficeCanvas({
 
       const hitId = characterAt(clientX, clientY);
       if (hitId !== null) {
-        // cld-gui (OWNER-AVATAR): a tap on the owner's own character ends the free camera.
+        // agty (OWNER-AVATAR): a tap on the owner's own character ends the free camera.
         if (officeState.characters.get(hitId)?.cldOwner && cameraMode() === 'free')
           setCameraMode('auto');
         // Dismiss any active bubble on click
@@ -993,7 +993,7 @@ export function OfficeCanvas({
         return;
       }
 
-      // cld-gui (FX-ALL): a tap on the coffee or vending machine the owner's character stands by: it drinks.
+      // agty (FX-ALL): a tap on the coffee or vending machine the owner's character stands by: it drinks.
       const tapped = screenToTile(clientX, clientY);
       if (tapped && ownerDrink(officeState, tapped)) return;
 
@@ -1073,7 +1073,7 @@ export function OfficeCanvas({
 
   const handleMouseLeave = useCallback((e: React.MouseEvent) => {
     isPanningRef.current = false;
-    // cld-gui (LOUNGE): a character carried across its own nameplate (a DOM box over the canvas)
+    // agty (LOUNGE): a character carried across its own nameplate (a DOM box over the canvas)
     // is still carried when the pointer comes back; only a released button ends it.
     if (!(e.buttons & 1)) characterDragRef.current = null;
     isEraseDraggingRef.current = false;
@@ -1173,7 +1173,7 @@ export function OfficeCanvas({
   }, []);
 
   return (
-    // select-none (cld-gui T-0025): a drag on the office never selects text.
+    // select-none (agty T-0025): a drag on the office never selects text.
     <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-bg select-none">
       <canvas
         ref={canvasRef}

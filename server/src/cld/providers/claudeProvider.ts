@@ -307,7 +307,7 @@ export class ClaudeSessions {
     }
     if (unknown && !this.warnedUnknown) {
       console.warn(
-        `[cld] ${this.dir}: a live session file in a format this build does not read; using claude agents --json (at most every 30 s while viewing)`,
+        `[agty] ${this.dir}: a live session file in a format this build does not read; using claude agents --json (at most every 30 s while viewing)`,
       );
       this.warnedUnknown = true;
     }
@@ -324,7 +324,7 @@ export class ClaudeSessions {
         this.lastError = '';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg !== this.lastError) console.warn(`[cld] ${msg}`);
+        if (msg !== this.lastError) console.warn(`[agty] ${msg}`);
         this.lastError = msg;
       }
     }

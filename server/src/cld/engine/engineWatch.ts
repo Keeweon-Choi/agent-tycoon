@@ -60,7 +60,7 @@ export class EngineWatch {
   private readonly idleResumedAt = new Map<string, number>();
   /** T-0126: a vanished worker may be Claude's own daemon takeover, not a dead conversation. */
   private readonly pendingAdoptions = new Map<string, Adoption>();
-  /** Why revive finds sessions off: the machine booted again, or only cld-gui did. */
+  /** Why revive finds sessions off: the machine booted again, or only agty did. */
   reviveCause: 'reboot' | 'restart' = 'reboot';
   /** revive() or a watch pass is running: the watch does not start another. */
   private watching = false;

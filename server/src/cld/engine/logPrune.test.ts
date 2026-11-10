@@ -299,7 +299,7 @@ describe('log pruning (U-42)', () => {
     expect(r.has(r.jobs, '1001-000001-bad.log')).toBe(true);
   });
 
-  it('the policy numbers are the decided ones, and cld-gui doctor prints the same', () => {
+  it('the policy numbers are the decided ones, and agty doctor prints the same', () => {
     expect([LOG_KEEP_DAYS, LOG_DIR_CAP_BYTES, EVENTS_ROTATE_BYTES, LOG_PRUNE_INTERVAL_MS]).toEqual([
       30,
       1024 ** 3,

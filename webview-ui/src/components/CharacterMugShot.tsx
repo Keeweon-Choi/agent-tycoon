@@ -80,7 +80,7 @@ export function CharacterMugShot({
     canvas.height = side;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, side, side);
-    // cld-gui (T-0017): a photo character shows its own portrait, centred.
+    // agty (T-0017): a photo character shows its own portrait, centred.
     const portrait = getCustomMugshot(palette);
     if (portrait) {
       // an HD portrait (CHAR-FACTORY: twice the pixels) fills the same square at a smaller zoom

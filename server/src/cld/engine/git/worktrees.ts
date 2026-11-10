@@ -105,7 +105,7 @@ export function readRecords(file: string): WorktreeRecord[] {
     if (!Array.isArray(data)) throw new Error('not an array');
     return data.filter(isRecord);
   } catch {
-    console.warn(`[cld repo] ${path.basename(file)} is not valid; moved aside, starting empty`);
+    console.warn(`[agty repo] ${path.basename(file)} is not valid; moved aside, starting empty`);
     try {
       fs.renameSync(file, `${file}.corrupt-${Date.now()}`);
     } catch {
@@ -275,7 +275,7 @@ export class Worktrees {
   }
 
   private log(line: string): void {
-    (this.o.log ?? console.log)(`[cld repo] worktree ${line}`);
+    (this.o.log ?? console.log)(`[agty repo] worktree ${line}`);
   }
 
   /**

@@ -313,7 +313,7 @@ export function findClaude(deps: FindClaudeDeps = {}): string | null {
   for (const candidate of candidates) {
     if (platform === 'win32' && isWindowsAppsAlias(candidate)) {
       log(
-        `[cld] agent CLI: ${candidate} is not a working Claude Code (WindowsApps store alias), skipped`,
+        `[agty] agent CLI: ${candidate} is not a working Claude Code (WindowsApps store alias), skipped`,
       );
       continue;
     }
@@ -324,7 +324,7 @@ export function findClaude(deps: FindClaudeDeps = {}): string | null {
     )
       return candidate;
     log(
-      `[cld] agent CLI: ${candidate} is not a working Claude Code (${rejectionReason(result)}), skipped`,
+      `[agty] agent CLI: ${candidate} is not a working Claude Code (${rejectionReason(result)}), skipped`,
     );
   }
   return null;

@@ -2,13 +2,13 @@
 # Login codes from the host (T-0002, T-0022). Talks to the daemon over loopback
 # with the host token; the long-lived token never goes into a URL.
 #
-#   cld-gui-login            in a terminal: an 8-digit code (as --short);
+#   agty login               in a terminal: an 8-digit code (as --short);
 #                            piped or over ssh: the 60 s link code, bare (the
 #                            desktop app and connect scripts read this)
-#   cld-gui-login --short    8-digit code to type on the login page, 5 minutes
-#   cld-gui-login --link     a 60 s /login?code=… link
-#   cld-gui-login --qr       a QR code and its link, 10 minutes (first device)
-#   cld-gui-login --approve <123456>
+#   agty login --short       8-digit code to type on the login page, 5 minutes
+#   agty login --link        a 60 s /login?code=… link
+#   agty login --qr          a QR code and its link, 10 minutes (first device)
+#   agty login --approve <123456>
 #                            approve another device's login request (only when
 #                            the daemon runs with --allow-approval-requests)
 set -euo pipefail
@@ -37,7 +37,7 @@ case "$mode" in
   --approve)
     approve=${2:-}
     if [[ ! "$approve" =~ ^[0-9]{6}$ ]]; then
-      printf '%s\n' '승인할 6자리 코드를 주세요: cld-gui-login --approve 123456' >&2
+      printf '%s\n' '승인할 6자리 코드를 주세요: agty login --approve 123456' >&2
       exit 2
     fi
     ;;

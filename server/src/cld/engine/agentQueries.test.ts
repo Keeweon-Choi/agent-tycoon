@@ -387,6 +387,18 @@ describe('BRN K5: resumeHandoff (the 개요\'s five lines)', () => {
     '- 결정은 다섯 줄에 안 나온다',
   ].join('\n');
 
+  it('T-80: a handoff headed [agty renew ·] and one headed with the old [cld-gui renew ·] are both found', () => {
+    const h = tmp();
+    const d = inbox(h, 'alpha');
+    const ONLY = '## 목표\n- [사실] 라벨 시험';
+    fs.writeFileSync(path.join(d, 'old.md'), renewText(ONLY));
+    fs.utimesSync(path.join(d, 'old.md'), new Date(T0), new Date(T0));
+    expect(resumeHandoff(h, 'alpha')!.goal.items).toEqual([{ text: '라벨 시험', tag: 'fact' }]);
+    fs.writeFileSync(path.join(d, 'new.md'), renewText(ONLY.replace('라벨 시험', '새 라벨')).replace('[cld-gui renew', '[agty renew'));
+    fs.utimesSync(path.join(d, 'new.md'), new Date(T0 + 60_000), new Date(T0 + 60_000));
+    expect(resumeHandoff(h, 'alpha')!.goal.items).toEqual([{ text: '새 라벨', tag: 'fact' }]);
+  });
+
   it('no handoff on record: null, never a made-up one', () => {
     const h = tmp();
     expect(resumeHandoff(h, 'alpha')).toBeNull();

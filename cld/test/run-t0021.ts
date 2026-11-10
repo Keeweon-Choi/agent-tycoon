@@ -25,6 +25,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -37,7 +38,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort(2);
 const lhmPort = sparePort(3);
@@ -282,7 +282,7 @@ async function main() {
       board.dir === path.join(home, '.local/share/cld-gui/gpu') &&
         board.holders[0]?.label === '학습' &&
         board.queue[0]?.label === '추론',
-      `cld-gui gpu: our own queue folder, 학습 holds, 추론 waits (${board.dir})`,
+      `agty gpu: our own queue folder, 학습 holds, 추론 waits (${board.dir})`,
     );
     const jobs = JSON.parse(cli(['jobs']).out) as { jobs: Array<{ gpu: string | null }> };
     check(
@@ -290,7 +290,7 @@ async function main() {
         .map((j) => j.gpu)
         .sort()
         .join(',') === 'leased,queued',
-      'cld-gui jobs: gpu leased and queued',
+      'agty jobs: gpu leased and queued',
     );
 
     fs.writeFileSync(
@@ -324,14 +324,14 @@ async function main() {
       tasks.tasks.find((t) => t.id === limitedId)?.state === 'limit' &&
         !!tasks.tasks.find((t) => t.id === limitedId)?.limit?.reset_at &&
         tasks.tasks.find((t) => t.id === doneId)?.state === 'done',
-      'cld-gui codex: one waits (limit, reset_at), one done',
+      'agty codex: one waits (limit, reset_at), one done',
     );
     await until(
       'the one-line notices reach alpha (typed in by the messenger)',
-      () => typed().filter((t) => t.text.includes('[cld-gui codex]')).length >= 2,
+      () => typed().filter((t) => t.text.includes('[agty codex]')).length >= 2,
       40_000,
     );
-    const notices = typed().filter((t) => t.text.includes('[cld-gui codex]'));
+    const notices = typed().filter((t) => t.text.includes('[agty codex]'));
     check(
       notices.some((t) => t.text.includes(`작업 ${limitedId} 이 Codex 사용량 한도에 걸렸다`)) &&
         notices.some((t) => t.text.includes(`작업 ${doneId} 끝: done`)),

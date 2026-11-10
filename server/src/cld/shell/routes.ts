@@ -140,7 +140,7 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
       return reply.code(201).send(shell);
     } catch (error) {
       console.warn(
-        `[cld shell] spawn failed: ${error instanceof Error ? error.message : String(error)}`,
+        `[agty shell] spawn failed: ${error instanceof Error ? error.message : String(error)}`,
       );
       return reply.code(503).send({ ...refused('terminal_start_failed') });
     }
@@ -242,7 +242,7 @@ export function registerShellRoutes(app: FastifyInstance, opts: ShellRouteOption
 
   // Shells that outlived the last daemon (in the PTY host) are ours again.
   const restored = registry.restore();
-  if (restored) console.log(`[cld shell] ${restored} shell(s) restored after the restart`);
+  if (restored) console.log(`[agty shell] ${restored} shell(s) restored after the restart`);
   // Compose with push subscription cleanup and other auth lifecycle observers.
   const previous = auth.onRowGone;
   auth.onRowGone = (id) => {

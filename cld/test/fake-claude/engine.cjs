@@ -18,7 +18,7 @@
  *                   and of live interactive session files
  *   stop|kill <id>  stops a running job (the job stays)
  *   attach <id>     resumes a stopped job, like Claude; then ./session-tui.cjs (T-0019:
- *                   the input line cld-gui send types into)
+ *                   the input line agty send types into)
  *   rm <id>         removes a job
  *   -p /usage ...   the daemon's usage probe: stream-json with $HOME/fake-usage-report.json as usage_report
  *   (no arguments, or the trust run's --settings … --strict-mcp-config)

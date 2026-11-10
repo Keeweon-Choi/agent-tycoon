@@ -866,7 +866,7 @@ export class StandaloneAuth {
       if (data !== null && !isSessionFile(data)) throw new Error('unknown shape');
     } catch {
       console.warn(
-        `[cld auth] ${file} is unreadable; it is kept as it is, and logins last only until the daemon restarts`,
+        `[agty auth] ${file} is unreadable; it is kept as it is, and logins last only until the daemon restarts`,
       );
       return false;
     }
@@ -903,7 +903,7 @@ export class StandaloneAuth {
     try {
       writeJsonAtomic(this.sessionFile, { v: 1, sessions } satisfies SessionFile);
     } catch (err) {
-      console.warn(`[cld auth] could not write ${this.sessionFile}: ${String(err)}`);
+      console.warn(`[agty auth] could not write ${this.sessionFile}: ${String(err)}`);
     }
   }
 

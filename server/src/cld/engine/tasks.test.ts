@@ -201,7 +201,7 @@ function cli(
   });
 }
 
-describe.runIf(process.platform !== 'win32')('cld-gui task (CLI over the control socket)', () => {
+describe.runIf(process.platform !== 'win32')('agty task (CLI over the control socket)', () => {
   it('add, update with --codex, done, list --json, import the seed', async () => {
     const h = home();
     const store = new TaskStore(tasksPath(h));
@@ -544,7 +544,7 @@ describe('D6 tasks: parent, assignee, provenance, Executions', () => {
     expect(w.summary).toMatchObject({ source: 'reported', at: expect.any(String) });
     expect(w.summary!.value.startsWith('고쳤어요. token=***')).toBe(true);
     expect(w.summary!.value.length).toBeLessThanOrEqual(2000);
-    expect(plain.summary).toBeUndefined(); // a `cld-gui codex` run has none
+    expect(plain.summary).toBeUndefined(); // a `agty codex` run has none
   });
 
   it('parent: must exist, never itself or a child of its own', () => {

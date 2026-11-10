@@ -148,7 +148,7 @@ export class ApprovalStore {
       };
     } catch (err) {
       this.problem = fixJosa(`${file}을(를) 읽지 못했습니다(${err instanceof Error ? err.message : String(err)}). 파일은 그대로 두었고 승인 요청을 저장하지 않습니다`);
-      console.warn(`[cld] ${this.problem}`);
+      console.warn(`[agty] ${this.problem}`);
     }
   }
 
@@ -194,7 +194,7 @@ export class ApprovalStore {
     try {
       writeJsonAtomic(this.file, next);
     } catch (err) {
-      console.warn(`[cld] approvals: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty] approvals: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
     this.doc = next;
@@ -210,7 +210,7 @@ export interface DelegationDeps {
   approvals: ApprovalStore;
   /** This build can start a session of `provider` here (installed and known). */
   providerReady(provider: string): boolean;
-  /** A new managed Worker, made the way `cld-gui worker add` makes one (stopped). */
+  /** A new managed Worker, made the way `agty worker add` makes one (stopped). */
   addWorker(req: {
     name: string;
     project: string;
@@ -221,7 +221,7 @@ export interface DelegationDeps {
     /** D5: 'codex' for a Codex Worker; absent = Claude. */
     provider?: string;
   }): Promise<{ ok: boolean; error?: string }>;
-  /** Start an agent the way `cld-gui worker start` does. */
+  /** Start an agent the way `agty worker start` does. */
   startAgent(name: string): Promise<{ ok: boolean; error?: string }>;
   /** A line for events.jsonl (the feed; `delegation_approval` is also a notice). */
   event(type: string, fields: Record<string, unknown>): void;
@@ -552,7 +552,7 @@ export class Delegator {
 
   /**
    * How deep `t` is: it and its parents held by a Worker or Reviewer (not the Lead, not
-   * unassigned), whoever gave them (the board, `cld-gui task`, create_task, delegate_task).
+   * unassigned), whoever gave them (the board, `agty task`, create_task, delegate_task).
    */
   private depthOf(t: BoardTask | undefined, roster: RosterAgent[]): number {
     const leads = new Set(roster.filter((a) => a.role === 'lead').map((a) => a.assignmentId));
@@ -1141,7 +1141,7 @@ export class Delegator {
 }
 
 /**
- * `cld-gui task mode [auto|reuse|off] [--project P]` over the control socket: show or set a
+ * `agty task mode [auto|reuse|off] [--project P]` over the control socket: show or set a
  * project's delegation mode. Setting it is the owner's (no agent token); reading is anyone's.
  */
 export function answerMode(

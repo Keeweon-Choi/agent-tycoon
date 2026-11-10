@@ -1,5 +1,5 @@
 // Fake `claude attach <id>` for the engine (T-0019), run by ./engine.cjs in a
-// PTY: the parts of Claude Code 2.1.306's screen cld-gui send reads. The input
+// PTY: the parts of Claude Code 2.1.306's screen agty send reads. The input
 // line is a `❯` row under a `─` rule, with a dim suggestion while empty; a
 // bracketed paste or typing fills it; Enter submits it: one JSON line
 // {id, text} to $HOME/fake-claude-typed.log, the session file's status

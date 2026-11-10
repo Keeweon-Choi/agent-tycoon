@@ -74,7 +74,7 @@ interface EditorActions extends Omit<FurnitureColorActions, 'pickColorAt'> {
   handleDeleteSelected: () => void;
   handleRotateSelected: () => void;
   handleToggleState: () => void;
-  /** cld-gui CH-6b: a placed item takes another type in place (one undo step). */
+  /** agty CH-6b: a placed item takes another type in place (one undo step). */
   handleFurnitureTypeSwitch: (uid: string, type: string) => void;
   handleUndo: () => void;
   handleRedo: () => void;
@@ -109,7 +109,7 @@ interface EditorActions extends Omit<FurnitureColorActions, 'pickColorAt'> {
  *  Lives here, with the zoom state it seeds, rather than in the office modules:
  *  it reads `devicePixelRatio`, and a viewport concern in a state module drags
  *  the DOM into every graph that imports it (OfficeState's included).
- *  Exported for cld-gui's 0 key (camera reset, T-0025). */
+ *  Exported for agty's 0 key (camera reset, T-0025). */
 export function defaultZoom(): number {
   const dpr = window.devicePixelRatio || 1;
   return Math.max(ZOOM_MIN, Math.round(ZOOM_DEFAULT_DPR_FACTOR * dpr));

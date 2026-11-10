@@ -581,7 +581,7 @@ async function main() {
     );
     check(
       cli.status === 0 && cli.stdout.includes('"ok":true'),
-      'cld-gui send --group 전체 posts through the daemon',
+      'agty send --group 전체 posts through the daemon',
     );
     await rooms.getByRole('button', { name: /^전체/ }).click();
     const allRoom = messenger.getByTestId('group-room-screen-all');
@@ -616,7 +616,7 @@ async function main() {
     const read = cliOut('groups', 'read', '출시팀');
     check(
       read.status === 0 && read.stdout.includes('공지: 점검은 내일입니다'),
-      'cld-gui groups read prints the room posts',
+      'agty groups read prints the room posts',
     );
     // A second device the office shows read-only (the daemon marks no real client so; the socket
     // is rewritten the way run-whiteboard does). The server-side refusal is office.test.ts.

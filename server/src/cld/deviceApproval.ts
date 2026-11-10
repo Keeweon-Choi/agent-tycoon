@@ -91,7 +91,7 @@ export class DeviceApprovals {
     this.requests.set(approval.id, approval);
     this.broadcast({ type: 'deviceApprovalRequest', ...view(approval) });
     console.log(
-      `[cld auth] device approval requested: "${approval.label}" (${approval.agent}, ${approval.network} ${approval.ip})`,
+      `[agty auth] device approval requested: "${approval.label}" (${approval.agent}, ${approval.network} ${approval.ip})`,
     );
     return { secret: approval.secret, code: approval.code, expiresIn: APPROVAL_TTL_MS / 1000 };
   }
@@ -135,7 +135,7 @@ export class DeviceApprovals {
     return this.close(approval, 'approved', by);
   }
 
-  /** The host CLI types the code itself: `cld-gui-login --approve <code>`. */
+  /** The host CLI types the code itself: `agty login --approve <code>`. */
   approveByCode(code: string, by: string): boolean {
     this.sweep();
     const approval = [...this.requests.values()].find(
@@ -150,7 +150,7 @@ export class DeviceApprovals {
     approval.state = outcome;
     this.broadcast({ type: 'deviceApprovalClosed', id: approval.id, outcome });
     console.log(
-      `[cld auth] device ${outcome === 'approved' ? 'approved' : 'refused'}: "${approval.label}" (${approval.agent}, ${approval.network} ${approval.ip}) by ${by}`,
+      `[agty auth] device ${outcome === 'approved' ? 'approved' : 'refused'}: "${approval.label}" (${approval.agent}, ${approval.network} ${approval.ip}) by ${by}`,
     );
     return outcome;
   }

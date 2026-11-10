@@ -770,7 +770,7 @@ describe('office with the built-in engine', () => {
     // The tokens a start hands each session (engine.ts startProject: tokens.issue(name)).
     const lead = engine.tokens.issue('alpha');
     const worker = engine.tokens.issue('alpha-a');
-    // `cld-gui send` from the shared folder, where cwd alone says the project (= its Lead).
+    // `agty send` from the shared folder, where cwd alone says the project (= its Lead).
     const send = (to: string, token?: string) =>
       new Promise<number | null>((resolve) => {
         const child = spawn(
@@ -874,7 +874,7 @@ describe('office with the built-in engine', () => {
     );
   }, 30_000); // its own waits run up to 10 s: under the deploy check's load the 10 s default cut it (11-04, twice)
 
-  it('T-0019: cld-gui job through the socket shows in the job panel; log and stop with the gates', async () => {
+  it('T-0019: agty job through the socket shows in the job panel; log and stop with the gates', async () => {
     const { home, office, messages } = await engineOffice();
     const last = (type: string) => [...messages].reverse().find((m) => m.type === type);
     expect(last('officeJobs')).toEqual({ type: 'officeJobs', jobs: [] }); // the panel exists with the engine
@@ -953,7 +953,7 @@ describe('office with the built-in engine', () => {
     expect(
       fs.readFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), 'utf-8'),
     ).toContain('"source":"gui:ios"');
-    // `cld-gui jobs` sees it ended; a send to an engine project that is off goes to its inbox.
+    // `agty jobs` sees it ended; a send to an engine project that is off goes to its inbox.
     const jobs = await run(['jobs']);
     expect((jobs.out.jobs as Array<Record<string, unknown>>)[0]).toMatchObject({ id, exit: null });
     const sent = await run(['send', 'alpha', 'hello']);
@@ -1006,7 +1006,7 @@ async function startCounted(opts: { attaching?: () => boolean; pushFile?: string
     ramTotalGib: 2,
     disks: [],
     warnings: [],
-    // The boards' per-core and memory detail: `cld-gui hw` must not print it.
+    // The boards' per-core and memory detail: `agty hw` must not print it.
     cpuCores: [{ name: 'x' }],
     ramDetail: { usedGib: 1, availableGib: 1 },
     sources: { ramUsedGib: 'os', cpuCores: 'os', ramDetail: 'os' },
@@ -1042,7 +1042,7 @@ describe('TOKEN-GUARD (S-01): one engine per HOME', () => {
     const first = await startEngineOffice({ projects: ROSTER, readOnly: false });
     // Two engines would type every queued message twice and run two revive loops.
     await expect(startEngineOffice({ home: first.home, readOnly: false })).rejects.toThrow(
-      /another cld-gui daemon/,
+      /another agty daemon/,
     );
     first.stop();
     const again = await startEngineOffice({ home: first.home, readOnly: false });
@@ -1051,11 +1051,11 @@ describe('TOKEN-GUARD (S-01): one engine per HOME', () => {
 
   it('read-only (the CLI and installer default) runs the engine too, so it is refused the same way', async () => {
     const first = await startEngineOffice({ projects: ROSTER });
-    await expect(startEngineOffice({ home: first.home })).rejects.toThrow(/another cld-gui daemon/);
+    await expect(startEngineOffice({ home: first.home })).rejects.toThrow(/another agty daemon/);
   });
 });
 
-describe('cld-gui hw (T-0062)', () => {
+describe('agty hw (T-0062)', () => {
   it('nobody viewing: one sample on demand, no timer of its own; a fresh viewer sample is reused', async () => {
     const { office, count } = await startCounted();
     const hw = () =>

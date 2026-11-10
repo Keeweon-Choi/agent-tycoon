@@ -214,7 +214,7 @@ export class WorkViews {
 
   constructor(
     private readonly resolve: WorkResolver,
-    private readonly log: (line: string) => void = (l) => console.log(`[cld] work view: ${l}`),
+    private readonly log: (line: string) => void = (l) => console.log(`[agty] work view: ${l}`),
   ) {}
 
   /** workView: open, or close. A refusal is answered with `error` and no items. */

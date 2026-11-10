@@ -269,19 +269,19 @@ export interface Character {
   /** OWNER-AVATAR: the owner's own character (OWNER_CHARACTER_ID): walked by the keys and the
    *  joystick, followed by default; no seat, no wander, no status, no staff rules. */
   cldOwner?: boolean;
-  /** cld-gui (T-0041): gone home after hours. Kept (its card, its desk) but
+  /** agty (T-0041): gone home after hours. Kept (its card, its desk) but
    *  not drawn, hit-tested or moved until it comes back in. */
   cldAway?: boolean;
-  /** cld-gui (T-0066): the seat the server gave it (its own chair's uid), looked up in `cldSeats`. */
+  /** agty (T-0066): the seat the server gave it (its own chair's uid), looked up in `cldSeats`. */
   cldSeatId?: string;
-  /** cld-gui (ELEVATOR): the server's seat was not in the office yet when it came, so it sits
+  /** agty (ELEVATOR): the server's seat was not in the office yet when it came, so it sits
    *  at another; it takes its own the moment an office has it. */
   cldSeatMissing?: boolean;
-  /** cld-gui (ELEVATOR): riding between floors (cld/elevator.ts drives it; hidden in the car). */
+  /** agty (ELEVATOR): riding between floors (cld/elevator.ts drives it; hidden in the car). */
   cldRide?: Ride;
-  /** cld-gui (ELEVATOR): dropped on another floor and visiting it; its own seat is kept. */
+  /** agty (ELEVATOR): dropped on another floor and visiting it; its own seat is kept. */
   cldVisit?: Visit;
-  /** cld-gui (LOUNGE): off duty and resting in the building (cld/lounge.ts drives it); its desk seat is kept. */
+  /** agty (LOUNGE): off duty and resting in the building (cld/lounge.ts drives it); its desk seat is kept. */
   cldRest?: Rest;
 
   // -- Agent Teams --

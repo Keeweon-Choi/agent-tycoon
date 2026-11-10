@@ -43,12 +43,12 @@ interface AgentCardBarProps {
   onSelect: (agentId: number) => void;
   onClose: (agentId: number) => void;
   showClose?: boolean;
-  /** cld-gui (T-0036): each card's group and name. Given, the cards are
+  /** agty (T-0036): each card's group and name. Given, the cards are
    *  grouped (with a small header per group) and named. */
   describeCard?: (agentId: number) => CardInfo | undefined;
-  /** cld-gui (CH-4): a card's right-click opens 꾸미기 for its character. */
+  /** agty (CH-4): a card's right-click opens 꾸미기 for its character. */
   onCustomize?: (agentId: number) => void;
-  /** cld-gui (owner 10-24): the + at the container's bottom opens the add-orchestrator flow.
+  /** agty (owner 10-24): the + at the container's bottom opens the add-orchestrator flow.
    *  Left out (read-only client), there is no +. */
   onAdd?: () => void;
 }
@@ -87,7 +87,7 @@ export function AgentCardBar({
 }: AgentCardBarProps) {
   const [savedOrder, setSavedOrder] = useState<number[]>(loadSavedOrder);
   const [draggingId, setDraggingId] = useState<number | null>(null);
-  // PARTY-FRAME (owner 11-04 (나)): the cld bar is a column of portraits (FEAT-PARTY-V2, owner 11-06 17:49:
+  // PARTY-FRAME (owner 11-04 (나)): the agty bar is a column of portraits (FEAT-PARTY-V2, owner 11-06 17:49:
   // no unfolding into the old orchestrator cards); upstream's stays as it was.
   const folded = !!describeCard;
   const width = folded ? PARTY_FRAME_BAR_PX : TERMINAL_SIDEBAR_WIDTH_PX;
@@ -98,7 +98,7 @@ export function AgentCardBar({
   const inHud = usePanelSlot() !== null;
   const groupOf = describeCard ? (id: number) => describeCard(id)?.group ?? 0 : undefined;
   const merged = useMemo(() => mergeOrder(savedOrder, agentIds), [savedOrder, agentIds]);
-  // FEAT-PARTY-V2: the cld column shows the chosen party (everyone by default); its head picks and composes.
+  // FEAT-PARTY-V2: the agty column shows the chosen party (everyone by default); its head picks and composes.
   const ordered = groupOf ? groupOrder(merged, groupOf) : merged;
   const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name));
   const ids = party.shown;
@@ -211,7 +211,7 @@ export function AgentCardBar({
 
   return (
     <HudPanel>
-    {/* In the HUD layer (cld desktop) the bar sits centred on the right edge (hud-v3 P0, FEAT-PARTY-V2), as tall as
+    {/* In the HUD layer (agty desktop) the bar sits centred on the right edge (hud-v3 P0, FEAT-PARTY-V2), as tall as
         its cards (PARTY-FRAME), in the HUD's one stack (last pressed in front); elsewhere it stays the flex sibling that overlays the office's
         right edge. */}
     <div

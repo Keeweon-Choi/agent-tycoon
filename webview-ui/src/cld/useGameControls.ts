@@ -194,7 +194,7 @@ function coveredInsets(canvas: HTMLCanvasElement): Insets {
   };
 }
 
-/** GFX: the mode the office is framed in now (the upstream surfaces have no cld office). */
+/** GFX: the mode the office is framed in now (the upstream surfaces have no agty office). */
 /** UI-PHONE: a character at work, as its plate shows it (the phone's first view goes to these). */
 const working = (c: { id: number; cldAway?: unknown }) =>
   !c.cldAway && characterRingOf(c.id) === 'working';
@@ -521,7 +521,7 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
     });
   }).current;
 
-  /** OWNER-AVATAR, each frame (the cld office only): the owner's character is there, and the
+  /** OWNER-AVATAR, each frame (the agty office only): the owner's character is there, and the
    *  camera goes back to it when asked (it came, a selection was cleared, Esc, a camera mode was
    *  picked, '내 캐릭터') unless the free camera is on or a character is selected. On another floor
    *  than the one shown it takes the elevator here first, and the follow waits for it. */

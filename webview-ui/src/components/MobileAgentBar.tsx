@@ -56,7 +56,7 @@ interface MobileAgentBarProps {
   getAppearance: (agentId: number) => AgentAppearance;
   statusFor: (agentId: number) => TabStatus | null;
   hideActions?: boolean;
-  /** cld-gui (T-0036): each card's group and name. Given, the strip is the party (FEAT-PARTY-V2):
+  /** agty (T-0036): each card's group and name. Given, the strip is the party (FEAT-PARTY-V2):
    *  the chosen party's portraits, its head (pick and compose, as on the desktop), and a reorder
    *  stays inside its group. */
   describeCard?: (agentId: number) => CardInfo | undefined;
@@ -126,7 +126,7 @@ export function MobileAgentBar({
   const groupOf = describeCard ? (id: number) => describeCard(id)?.group ?? 0 : undefined;
   const merged = useMemo(() => mergeOrder(savedOrder, agentIds), [savedOrder, agentIds]);
   const ordered = groupOf ? groupOrder(merged, groupOf) : merged;
-  // FEAT-PARTY-V2 (owner 11-06 18:54): the cld strip is the chosen party, the desktop's parties and choice.
+  // FEAT-PARTY-V2 (owner 11-06 18:54): the agty strip is the chosen party, the desktop's parties and choice.
   const party = usePartyColumn(ordered, describeCard && ((id) => describeCard(id)?.name), true);
   const displayIds = party.shown;
   const rows = party.rows;

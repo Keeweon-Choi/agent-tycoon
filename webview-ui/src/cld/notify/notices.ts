@@ -1,5 +1,5 @@
 /**
- * T-0039: where a sound came from. Every sound the cld office makes comes
+ * T-0039: where a sound came from. Every sound the agty office makes comes
  * with a toast naming the character and what happened, a ~3 s pulse on that
  * character and a line under the HUD's bell. The rules (FR-NTF-003/005):
  * each kind can be turned off; the same kind for the same character at most
@@ -431,7 +431,7 @@ function roomDeliver(
 
 /**
  * A turn end, question or permission ask of office agent `id`. False when this
- * is no cld office (upstream then plays its own chime); true when the rules
+ * is no agty office (upstream then plays its own chime); true when the rules
  * here took it (sound, toast and all, or deliberately nothing).
  */
 export function cldNotice(

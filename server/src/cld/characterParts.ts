@@ -256,7 +256,7 @@ export class CharacterPartStore {
         this.parts.set(id, p);
       } catch (err) {
         console.warn(
-          `[cld] parts: ${id} skipped (${err instanceof Error ? err.message : String(err)})`,
+          `[agty] parts: ${id} skipped (${err instanceof Error ? err.message : String(err)})`,
         );
       }
     }
@@ -273,7 +273,7 @@ export class CharacterPartStore {
       }
     } catch (err) {
       console.warn(
-        `[cld] parts: ${PRESETS_FILE} skipped (${err instanceof Error ? err.message : String(err)})`,
+        `[agty] parts: ${PRESETS_FILE} skipped (${err instanceof Error ? err.message : String(err)})`,
       );
     }
     this.publish(this.message());
@@ -408,10 +408,10 @@ export function registerPartRoutes(
       if (no) return no;
       const result = store.import(request.body, save);
       if ('error' in result) {
-        console.warn(`[cld] parts: import refused: ${result.error}`);
+        console.warn(`[agty] parts: import refused: ${result.error}`);
         return reply.code(400).send(result);
       }
-      if (save) console.log(`[cld] parts: saved ${result.part.id}`);
+      if (save) console.log(`[agty] parts: saved ${result.part.id}`);
       return result;
     });
   app.post('/cld/parts/presets', { preHandler: auth }, async (request, reply) => {
@@ -429,7 +429,7 @@ export function registerPartRoutes(
       if (no) return no;
       const result = store.remove(request.params.id);
       if ('error' in result) return reply.code(400).send(result);
-      console.log(`[cld] parts: removed ${request.params.id}`);
+      console.log(`[agty] parts: removed ${request.params.id}`);
       return result;
     },
   );

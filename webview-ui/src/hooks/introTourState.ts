@@ -36,7 +36,7 @@ export function introSteps(hasConsent: boolean, onboarding: boolean): IntroStep[
 }
 
 /**
- * Is the skip-permissions question open for this viewer? Only on the cld office (the remote step needs its login
+ * Is the skip-permissions question open for this viewer? Only on the agty office (the remote step needs its login
  * layer), only once the server has said it is unanswered (`null`: not heard yet, so never ask), and never to a
  * read-only viewer: it has nothing to choose, and the daemon would refuse the answer.
  */

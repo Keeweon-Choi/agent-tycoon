@@ -202,7 +202,7 @@ describe('describeActivity', () => {
     ['git push https://user:ghp_s3cr3t@github.com/o/r.git', 'ghp_s3cr3t'],
     ["python3 - <<'EOF'\npassword = 'hunter2'\nEOF", 'hunter2'],
     ['mysql -u root -pS3cretPw -e "select 1"', 'S3cretPw'],
-    ['cld-gui send lead --token abc123 "deploy now"', 'abc123'],
+    ['agty send lead --token abc123 "deploy now"', 'abc123'],
   ];
   const withUserRule: EzContext = {
     user: { tools: [], commands: [{ program: ['mysql'], emoji: '🗄️', text: '\ub370\uc774\ud130\ubca0\uc774\uc2a4 \uc791\uc5c5' }] },

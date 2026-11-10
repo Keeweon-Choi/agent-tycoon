@@ -32,7 +32,7 @@ export class MemoStore {
       } catch {
         /* file disappeared */
       }
-      console.warn(`[cld] memos: invalid JSON moved to ${aside}`);
+      console.warn(`[agty] memos: invalid JSON moved to ${aside}`);
       return;
     }
     const entries = (raw as Partial<MemosFile> | null)?.memos;

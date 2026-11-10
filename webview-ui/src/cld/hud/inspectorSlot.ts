@@ -1,4 +1,4 @@
-/** hud-v3 P0: where the inspector draws (hud/Inspector.tsx): the cld desktop party bar's slot, or null. */
+/** hud-v3 P0: where the inspector draws (hud/Inspector.tsx): the agty desktop party bar's slot, or null. */
 import { useSyncExternalStore } from 'react';
 
 let slot: HTMLElement | null = null;

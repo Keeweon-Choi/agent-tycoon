@@ -721,7 +721,7 @@ export function unleasedFromProcesses<T extends { pid: number }>(
 const refuseLeased = (id: string) => ({
   ok: false as const,
   code: 'leased',
-  error: `${id} 은 이미 예약을 잡고 돈다. 멈추려면 ${CLI_NAME} stop <pid>`,
+  error: `${id} 은 이미 예약을 잡고 돈다. 멈추려면 "$CLD_BIN" stop <pid>`,
 });
 const noTicket = (id: string) => ({
   ok: false as const,
@@ -734,7 +734,7 @@ const busy = () => ({
   error: 'GPU 대기 폴더의 입장 잠금을 잡지 못했다(10초)',
 });
 
-/** The board as `cld-gui gpu --json` prints it (HIF §9's shape; the numbers are the user's). */
+/** The board as `agty gpu --json` prints it (HIF §9's shape; the numbers are the user's). */
 export function boardJson(
   dir: string,
   policy: GpuPolicy,
@@ -796,7 +796,7 @@ export interface GpuRunOptions {
   /** Minutes; null waits for ever (`job --gpu`). */
   waitMin: number | null;
   jobLog: string | null;
-  /** The job's `<id>.gpu` file: the lease id once held (cld-gui jobs' gpu_id). */
+  /** The job's `<id>.gpu` file: the lease id once held (agty jobs' gpu_id). */
   gpuFile: string | null;
   event: GpuEvent;
   print?: (line: string) => void;
@@ -845,7 +845,7 @@ export async function gpuRun(o: GpuRunOptions): Promise<number> {
     }),
   );
   if (!t) {
-    print('[cld-gui gpu] GPU 대기 폴더의 입장 잠금을 잡지 못했다');
+    print(`[${CLI_NAME} gpu] GPU 대기 폴더의 입장 잠금을 잡지 못했다`);
     return 1;
   }
   const { id } = t;
@@ -898,18 +898,18 @@ export async function gpuRun(o: GpuRunOptions): Promise<number> {
       fs.closeSync(ticketFd!);
       ticketFd = null;
       o.event('gpu_cancel', { id, project: o.project, reason: 'cancel' });
-      print(`[cld-gui gpu] ${id} 대기가 취소됐다`);
+      print(`[${CLI_NAME} gpu] ${id} 대기가 취소됐다`);
       return 4;
     }
     const pos = r && !r.ok ? r.position : null;
     if (pos !== null && pos !== last) {
-      print(`[cld-gui gpu] GPU 차례 기다리는 중(${pos}번째) · 예약판: ${CLI_NAME} gpu`);
+      print(`[${CLI_NAME} gpu] GPU 차례 기다리는 중(${pos}번째) · 예약판: ${CLI_NAME} gpu`);
       last = pos;
     }
     if (o.waitMin !== null && now() - t0 > o.waitMin * 60_000) {
       dropTicket();
       o.event('gpu_cancel', { id, project: o.project, reason: 'wait' });
-      print(`[cld-gui gpu] ${o.waitMin}분 안에 차례가 오지 않았다`);
+      print(`[${CLI_NAME} gpu] ${o.waitMin}분 안에 차례가 오지 않았다`);
       return 3;
     }
     await sleep(GPU_POLL_MS);
@@ -923,7 +923,7 @@ export async function gpuRun(o: GpuRunOptions): Promise<number> {
       /* the jobs list shows queued; the lease still holds */
     }
   }
-  print(`[cld-gui gpu] 예약 ${id} (${exclusive ? '혼자' : `함께 ${o.vramGib}GiB`}) · 시작`);
+  print(`[${CLI_NAME} gpu] 예약 ${id} (${exclusive ? '혼자' : `함께 ${o.vramGib}GiB`}) · 시작`);
   let rc: number;
   try {
     child = (o.spawnCmd ?? shellSpawn)(o.cmd);

@@ -507,7 +507,7 @@ describe('chat manager', () => {
   });
 });
 
-/** Claude Code's screen as cld-gui send reads it (fake-claude/session-tui.cjs, 2.1.306). */
+/** Claude Code's screen as agty send reads it (fake-claude/session-tui.cjs, 2.1.306). */
 const RULE = '─'.repeat(60);
 const SUGGESTION = '❯ \x1b[7mT\x1b[27m\x1b[2mry "fix lint errors"\x1b[22m';
 const screenOf = (input: string[], above = '') =>
@@ -612,7 +612,7 @@ describe('chat: Claude Code compacting its conversation, from its screen (COMPAC
   });
 });
 
-describe('chat: the input line cld-gui send types into', () => {
+describe('chat: the input line agty send types into', () => {
   const empty = async (data: string, whileWorking = false) => {
     const term = new HeadlessTerminal({ cols: 80, rows: 24, allowProposedApi: true });
     await new Promise<void>((r) => term.write(data, r));
@@ -667,7 +667,7 @@ const draftScreen = (paste: string) =>
   screenOf(paste.split('\r').map((l, i) => `${i ? '  ' : '❯ '}${l}`));
 
 it('foldsWhenPasted: short one-liners never become a placeholder, long or tall texts may (U-37)', () => {
-  const header = '[cld-gui · ops에게서 · 10-22 11:57]\n배포해 줘';
+  const header = '[agty · ops에게서 · 10-22 11:57]\n배포해 줘';
   expect(foldsWhenPasted('배포해 줘', 24)).toBe(false);
   expect(foldsWhenPasted(header, 24)).toBe(false);
   expect(foldsWhenPasted('a\nb\nc', 24)).toBe(true);
@@ -678,7 +678,7 @@ it('foldsWhenPasted: short one-liners never become a placeholder, long or tall t
   expect(foldsWhenPasted('배포해 줘', 8)).toBe(false);
 });
 
-describe('chat: typing a cld-gui send', () => {
+describe('chat: typing an agty send', () => {
   /**
    * `shows`: the screen after a paste (default: the draft, all its lines, in the input box).
    * `patient`: for a send that is meant to go through. Its readyMs/showMs only bound how long the
@@ -824,7 +824,7 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it('a 20,000-character message: pasted whole, its placeholder is our paste, one Enter (U-37)', async () => {
-    const big = `[cld-gui · ops에게서 · 10-22 11:57]\n${'배포 상태를 알려줘 '.repeat(2_000)}`.slice(
+    const big = `[agty · ops에게서 · 10-22 11:57]\n${'배포 상태를 알려줘 '.repeat(2_000)}`.slice(
       0,
       20_000,
     );
@@ -849,7 +849,7 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it("a placeholder-only draft: our earlier long message's, Enter; a stranger's paste, untouched (U-37)", async () => {
-    const earlier = `[cld-gui · ops에게서 · 10-22 11:57]\n${'긴 글 '.repeat(400)}`;
+    const earlier = `[agty · ops에게서 · 10-22 11:57]\n${'긴 글 '.repeat(400)}`;
     const placeholder = screenOf(['❯ [Pasted text #1]\x1b[7m \x1b[27m']);
     const mine = make();
     const first = mine.chat.type('a0000016', '다음 글', { earlier: [earlier] });
@@ -869,7 +869,7 @@ describe('chat: typing a cld-gui send', () => {
 
   it('a paste that takes 1 s to show: waited for, then Enter', async () => {
     const { chat, ptys } = make(draftScreen, true);
-    const typed = chat.type('a0000016', '[cld-gui · ops에게서 · 10-22 11:57]\n첫 줄\n둘째 줄');
+    const typed = chat.type('a0000016', '[agty · ops에게서 · 10-22 11:57]\n첫 줄\n둘째 줄');
     const pty = ptys[0];
     pty.echo = (data) => {
       if (data.startsWith('\x1b[200~'))
@@ -883,8 +883,8 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it.each([
-    ['[cld-gui · ops에게서 · 10-22 11:57]'],
-    ['[cld-gui · ops에게서 · 10-22 11:57] ⟨m:ab2cd3ef⟩'], // C2: the mark is part of the header line
+    ['[agty · ops에게서 · 10-22 11:57]'],
+    ['[agty · ops에게서 · 10-22 11:57] ⟨m:ab2cd3ef⟩'], // C2: the mark is part of the header line
   ])('a long draft scrolled in its box (the ❯ row shows a later line): ours, Enter (%s)', async (head) => {
     const body = Array.from({ length: 6 }, (_, i) => `${i + 1}번째 줄은 배포 상태를 정리한 내용`);
     const text = [head, ...body].join('\n');
@@ -897,7 +897,7 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it('our own draft left in the box by an earlier try: Enter only (no second paste), delivered', async () => {
-    const text = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const text = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
     const { chat, ptys } = make(draftScreen, true);
     const typed = chat.type('a0000016', text);
     const pty = ptys[0];
@@ -913,8 +913,8 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it("an earlier message's exact draft: Enter it, then leave this message for the next try", async () => {
-    const earlier = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
-    const current = '[cld-gui · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
+    const earlier = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const current = '[agty · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
     const { chat, ptys } = make(draftScreen, true);
     const first = chat.type('a0000016', current, { earlier: [earlier] });
     const pty = ptys[0];
@@ -941,11 +941,11 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it("without an earlier-draft history, another message's draft stays stuck", async () => {
-    const earlier = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const earlier = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
     const { chat, ptys } = make();
     const typed = chat.type(
       'a0000016',
-      '[cld-gui · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘',
+      '[agty · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘',
     );
     await new Promise((r) => setTimeout(r, 20));
     ptys[0].emit(draftScreen(earlier.replaceAll('\n', '\r')));
@@ -954,8 +954,8 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it("an earlier draft with added words, or a stranger's draft: untouched", async () => {
-    const earlier = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
-    const current = '[cld-gui · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
+    const earlier = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const current = '[agty · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
     for (const box of [
       draftScreen(`${earlier.replaceAll('\n', '\r')} 그리고 하나 더`),
       draftScreen('지금 쓰고 있는 다른 글이에요'),
@@ -970,13 +970,13 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it('a draft someone is typing that is only part of our message (earlier or this one): untouched', async () => {
-    const earlier = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
-    const current = '[cld-gui · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
+    const earlier = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const current = '[agty · beta에게서 · 10-22 14:56]\n다음 배포도 확인해 줘';
     for (const box of [
       draftScreen('배포 상태를'), // the start of its body, typed by hand
       draftScreen('배'), // one letter
-      draftScreen('[cld-gui · ops에게서 · 10-22 11:57]'), // its header line alone
-      draftScreen('[cld-gui · ops에게서 · 10-22 11:57]\r배포'), // cut short
+      draftScreen('[agty · ops에게서 · 10-22 11:57]'), // its header line alone
+      draftScreen('[agty · ops에게서 · 10-22 11:57]\r배포'), // cut short
       draftScreen('다음 배포도'), // the start of THIS message's body, typed by hand
     ]) {
       const { chat, ptys } = make();
@@ -989,7 +989,7 @@ describe('chat: typing a cld-gui send', () => {
   });
 
   it("our draft with someone's words added, or a stranger's draft: untouched", async () => {
-    const text = '[cld-gui · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
+    const text = '[agty · ops에게서 · 10-22 11:57]\n배포 상태를 정리해 줘';
     for (const box of [
       draftScreen(`${text.replaceAll('\n', '\r')} 그리고 하나 더`),
       draftScreen('지금 쓰고 있는 다른 글이에요'),

@@ -87,7 +87,7 @@ function setup(o: { clis?: string[]; uvx?: boolean; mode?: string; readOnly?: bo
     server.inject({ method: 'POST', url: `/api/cld/spec/alpha/${route}`, headers: { origin: 'http://localhost:80', host: 'localhost:80', cookie }, payload: body });
   const calls = () =>
     fs.existsSync(log) ? fs.readFileSync(log, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { argv: string[]; cwd: string }) : [];
-  const audits = () => out.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec] workflow'));
+  const audits = () => out.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec] workflow'));
   return { home, folder, log, state, sets, post, calls, audits, who, server, later: (ms: number) => (at += ms) };
 }
 
@@ -104,7 +104,7 @@ describe.skipIf(process.platform === 'win32')('the engine path (RQ4)', () => {
     expect(r.json()).toMatchObject({ engine: true, on: true });
     expect(t.sets).toEqual([true]);
     expect((await t.post('workflow', { on: 'yes' })).statusCode).toBe(400);
-    expect(t.audits()).toEqual([expect.stringContaining('[cld spec] workflow device="Test phone" project="alpha" on=true')]);
+    expect(t.audits()).toEqual([expect.stringContaining('[agty spec] workflow device="Test phone" project="alpha" on=true')]);
   });
 
   it('plan → consent → install runs exactly the pinned argv in the project folder, reports what it made, leaves the three files alone', async () => {

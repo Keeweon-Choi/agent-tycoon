@@ -885,7 +885,7 @@ async function main() {
     );
     await setPage(true);
     await until('the daemon hears the page went away', async () =>
-      newLog().includes('[cld] viewer hidden (0 watching)'),
+      newLog().includes('[agty] viewer hidden (0 watching)'),
     );
     check(true, 'foreground: hidden → the daemon counts 0 watching and sleeps');
     for (const r of routes) dead.add(r); // the network goes, the socket stays "open"
@@ -895,7 +895,7 @@ async function main() {
     await until('a new socket after the silent one', async () => routes.length === 2, 10_000);
     const replaced = Date.now() - t0;
     await until('the new socket re-requests the state', async () =>
-      newLog().includes('[cld] viewer connected (1 watching)'),
+      newLog().includes('[agty] viewer connected (1 watching)'),
     );
     await fpg.waitForTimeout(1500); // the resync settles
     const after = { characters: await characters(), feed: await feedItems() };
@@ -926,7 +926,7 @@ async function main() {
     await until(
       'the daemon counts it',
       async () =>
-        (newLog().match(/\[cld\] viewer (connected|back) \(1 watching\)/g) ?? []).length >= 2,
+        (newLog().match(/\[agty\] viewer (connected|back) \(1 watching\)/g) ?? []).length >= 2,
     );
     check(
       (await fpg.evaluate(

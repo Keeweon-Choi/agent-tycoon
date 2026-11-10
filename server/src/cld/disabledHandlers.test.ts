@@ -24,6 +24,6 @@ describe('cld-gui disabled standalone handlers', () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledTimes(1);
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('disabled in cld-gui'));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('disabled in agty'));
   });
 });

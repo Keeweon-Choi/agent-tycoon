@@ -67,7 +67,7 @@ describe('human work names', () => {
 
 describe("a Codex run's title says what it does", () => {
   const RULES =
-    '# Rules for this task (from the orchestrator, via `cld-gui codex`)\n\n- Work only here.\n\n';
+    '# Rules for this task (from the orchestrator, via `agty codex`)\n\n- Work only here.\n\n';
   it('skips the orchestrator rules block at the top of a spec', () => {
     expect(codexTitle('/tmp/spec-u50.md', `${RULES}# Task U-50: room posts\n## Change`)).toBe(
       'Task U-50: room posts',
@@ -79,7 +79,7 @@ describe("a Codex run's title says what it does", () => {
     const spec = path.join(dir, 'spec-y.md');
     fs.writeFileSync(spec, `${RULES}# Task Y: the real work\n`);
     expect(
-      codexShownTitle('Rules for this task (from the orchestrator, via `cld-gui codex`)', spec),
+      codexShownTitle('Rules for this task (from the orchestrator, via `agty codex`)', spec),
     ).toBe('Task Y: the real work');
     expect(codexShownTitle('Task Z', spec)).toBe('Task Z');
     expect(codexShownTitle(undefined, path.join(dir, 'gone.md'))).toBe('gone.md');

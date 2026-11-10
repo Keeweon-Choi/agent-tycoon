@@ -123,7 +123,7 @@ export function activityElapsed(id: number, key: string, now = Date.now()): numb
   return 0;
 }
 
-/** A card bar card in cld mode: its group (KIND_ORDER rank), header and name. */
+/** A card bar card in agty mode: its group (KIND_ORDER rank), header and name. */
 export function cardInfo(
   ch: KindFacts,
   office: OfficeSnapshot | null,

@@ -12,7 +12,7 @@ import controlIdentity from '../../core/src/cld/controlIdentity.cjs';
 import { PUB, SIG, SUMS, writeSumsAndSign } from '../release/bundle/sign.mjs';
 import { currentOs, sha256File } from '../release/bundle/verify.mjs';
 import { configPath as configPathOf } from './install.mjs';
-import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, main, newRecord, parseArgs, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, servicePlan, switchCurrent, uninstall, update, userNodeDir, versionDir, writeRecord } from './manager.mjs';
+import { acquireLock, desktopApp, endDaemonCommand, inside, install, launchers, main, newRecord, parseArgs, readCurrent, readRecord, realDeps, renderService, repairCliLinks, revertAdoption, serviceNodeDirs, serviceOp, servicePlan, switchCurrent, uninstall, update, userNodeDir, versionDir, writeOwned, writeRecord } from './manager.mjs';
 
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `manager-${name}-`));
 const key = crypto.generateKeyPairSync('ed25519').privateKey;
@@ -136,7 +136,9 @@ test('service and launchers run the private Node of current; PATH carries the us
   assert.throws(() => renderService({ platform: 'win32', home: 'C:\\Users\\100%', root: 'C:\\AT', version: '1.0.0', manifest: { node: { path: 'node/node.exe' } }, config: { port: 1, readOnly: true, engine: 'off', allowedHosts: [] } }), /cannot go in the Windows service/);
   const sh = launchers('/Users/u/Library/Application Support/AgentTycoon', 'darwin', manifest);
   assert.match(sh['agty'], /root='\/Users\/u\/Library\/Application Support\/AgentTycoon'\nexec "\$root\/current\/node\/bin\/node" "\$root\/current\/cld\/bin\/cld-gui" "\$@"/);
-  assert.match(launchers('C:\\AT', 'win32', { node: { path: 'node/node.exe' } })['cld-gui.cmd'], /versions\\%AT_VERSION%\\node\\node\.exe/);
+  const winL = launchers('C:\\AT', 'win32', { node: { path: 'node/node.exe' } });
+  assert.match(winL['agty.cmd'], /versions\\%AT_VERSION%\\node\\node\.exe/);
+  assert.deepEqual([Object.keys(sh), Object.keys(winL)], [['agty'], ['agty.cmd']]); // T-80: no cld-gui launcher any more
   // the user's node is found on PATH, our own install root is skipped
   const bin = tmp('bin'); fs.writeFileSync(path.join(bin, 'node'), '', { mode: 0o755 });
   const ours = path.join(bin, 'root', 'current', 'node', 'bin'); fs.mkdirSync(ours, { recursive: true }); fs.writeFileSync(path.join(ours, 'node'), '', { mode: 0o755 });
@@ -153,11 +155,10 @@ test('install -> update -> failed health switches back -> failed self-test never
   const unit = path.join(home, '.config/systemd/user/agent-tycoon.service');
   assert.equal(record.service.file, unit);
   assert.equal(record.files[unit], crypto.createHash('sha256').update(fs.readFileSync(unit)).digest('hex'));
-  for (const name of ['agty', 'cld-gui']) {
-    const file = path.join(root, 'bin', name);
-    assert.equal(fs.statSync(file).mode & 0o777, 0o755);
-    assert.ok(record.files[file]);
-  }
+  const launcher = path.join(root, 'bin', 'agty');
+  assert.equal(fs.statSync(launcher).mode & 0o777, 0o755);
+  assert.ok(record.files[launcher]);
+  assert.equal(fs.existsSync(path.join(root, 'bin', 'cld-gui')), false); // T-80: not created any more
   assert.ok(calls.includes('systemctl --user enable agent-tycoon') && calls.includes('systemctl --user restart agent-tycoon'));
   assert.equal(JSON.parse(fs.readFileSync(path.join(home, '.config/agent-tycoon/config.json'), 'utf8')).port, 18257);
   assert.equal(fs.existsSync(path.join(root, 'manager.lock')), false);
@@ -195,6 +196,7 @@ test('adopting the source install: service switched, links retargeted, data unto
   fs.mkdirSync(path.dirname(oldUnit), { recursive: true }); fs.writeFileSync(oldUnit, oldText);
   fs.mkdirSync(path.join(home, '.local/bin'), { recursive: true });
   fs.symlinkSync(path.join(repo, 'cld/bin/cld-gui'), path.join(home, '.local/bin/cld-gui'));
+  fs.symlinkSync(path.join(repo, 'cld/bin/cld-gui'), path.join(home, '.local/bin/agty')); // the source installer's own agty link
   fs.symlinkSync('/usr/bin/true', path.join(home, '.local/bin/cld')); // someone else's: left alone
   fs.mkdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true });
   fs.writeFileSync(path.join(home, '.config/agent-tycoon/projects.json'), '{"keep":true}');
@@ -205,7 +207,8 @@ test('adopting the source install: service switched, links retargeted, data unto
   assert.equal(fs.existsSync(oldUnit), false);
   assert.equal(fs.readFileSync(record.adopted.service.backup, 'utf8'), oldText);
   assert.ok(calls.indexOf('systemctl --user disable --now cld-gui') < calls.indexOf('systemctl --user enable agent-tycoon'));
-  assert.equal(fs.readlinkSync(path.join(home, '.local/bin/cld-gui')), path.join(root, 'bin', 'cld-gui'));
+  assert.equal(fs.readlinkSync(path.join(home, '.local/bin/cld-gui')), path.join(root, 'bin', 'agty')); // retargeted at the agty launcher
+  assert.equal(fs.readlinkSync(path.join(home, '.local/bin/agty')), path.join(root, 'bin', 'agty')); // agty too, not left on the old checkout
   assert.equal(fs.readlinkSync(path.join(home, '.local/bin/cld')), '/usr/bin/true');
   assert.equal(record.adopted.from, 'source');
   assert.equal(record.port, 18240); // the old config's port (default), data dir untouched
@@ -219,6 +222,7 @@ test('adopting the source install: service switched, links retargeted, data unto
   assert.equal(fs.readFileSync(oldUnit, 'utf8'), oldText);
   assert.equal(fs.existsSync(path.join(home, '.config/systemd/user/agent-tycoon.service')), false);
   assert.equal(fs.readlinkSync(path.join(home, '.local/bin/cld-gui')), path.join(repo, 'cld/bin/cld-gui'));
+  assert.equal(fs.readlinkSync(path.join(home, '.local/bin/agty')), path.join(repo, 'cld/bin/cld-gui')); // revert puts agty back too
   assert.ok(calls.at(-1) === 'systemctl --user restart cld-gui' && calls.includes('systemctl --user disable --now agent-tycoon'));
   assert.equal(again.adopted, null);
 });
@@ -473,6 +477,28 @@ test('uninstall --program removes a complete, unchanged version folder, the poin
   assert.equal(fs.existsSync(path.join(root, 'install.json')), false);
   assert.equal(fs.existsSync(root), false); // the lock is released first, so the empty root goes too
   assert.ok(fake.calls.includes('✔ 프로그램 제거 완료'));
+});
+
+test('T-80: an install made before keeps its cld-gui launcher and link through an update, and uninstall removes them with agty', async () => {
+  const home = tmp('legacy-aliases'); const root = path.join(home, 'install');
+  const { deps } = fakeDeps({ home, root });
+  await install({ ...makeBundle('1.0.0'), root, service: 'systemd', port: 18257 }, deps);
+  // What an earlier build also wrote: bin/cld-gui and the ~/.local/bin/cld-gui link, both recorded.
+  const old = path.join(root, 'bin', 'cld-gui'); const link = path.join(home, '.local/bin/cld-gui');
+  let record = await readRecord(root);
+  await writeOwned(record, old, fs.readFileSync(path.join(root, 'bin', 'agty'), 'utf8'), 0o755);
+  fs.mkdirSync(path.dirname(link), { recursive: true }); fs.symlinkSync(old, link);
+  record.files[link] = `symlink:${old}`; record.cli.links.push(link);
+  await writeRecord(root, record);
+  await update(makeBundle('1.1.0'), { ...deps, env: { ...deps.env, AGENT_TYCOON_ROOT: root } });
+  record = await readRecord(root);
+  assert.equal(record.current, '1.1.0');
+  assert.equal(fs.readlinkSync(link), old); // neither deleted nor rewritten
+  assert.ok(fs.existsSync(old) && record.files[old]);
+  assert.equal(fs.existsSync(path.join(home, '.local/bin/cld')), false);
+  const fakeU = uninstallDeps(home, { ok: true, projects: [], jobs: [], tasks: [], daemon: { pid: 1234, port: 18257, entry: path.join(root, 'versions', '1.1.0', 'dist', 'cli.js') } });
+  assert.equal((await uninstall({ program: true, yes: true }, fakeU)).code, 0, fakeU.calls.join('\n'));
+  for (const gone of [old, link, path.join(root, 'bin', 'agty'), path.join(home, '.local/bin/agty')]) assert.equal(fs.lstatSync(gone, { throwIfNoEntry: false }), undefined, gone);
 });
 
 test('uninstall keeps a changed file in a version folder with its manifest, deletes the rest, and a second run reports it again', async () => {

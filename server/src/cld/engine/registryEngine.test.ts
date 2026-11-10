@@ -132,7 +132,7 @@ describe('registry v2 in the engine (D2)', () => {
     const e = boot();
 
     expect(logs.some((l) => l.includes('could not migrate projects.json to v2'))).toBe(true);
-    expect(e.state().warnings?.[0]).toMatch(/권한을 확인한 뒤 cld-gui 를 다시 시작하세요/);
+    expect(e.state().warnings?.[0]).toMatch(/권한을 확인한 뒤 agty 를 다시 시작하세요/);
     expect(fs.readFileSync(file, 'utf8')).toBe(bytes);
     expect(fs.existsSync(assignmentsPath(file))).toBe(false);
     expect((await act(e, 'add', 'beta', { folder: folder('beta') })).error).toBe(

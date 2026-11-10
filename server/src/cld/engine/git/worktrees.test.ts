@@ -88,7 +88,7 @@ describe.skipIf(!GIT_AVAILABLE)('new worktree (temp repos)', () => {
     expect(r.git(['rev-parse', 'HEAD'], dir('login'))).toBe(r.git(['rev-parse', 'HEAD']));
     expect(fs.readdirSync(path.dirname(file))).toEqual(['worktrees.json']); // no temp file left
     if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    expect(logs).toEqual(['[cld repo] worktree new "p" login: ok']);
+    expect(logs).toEqual(['[agty repo] worktree new "p" login: ok']);
     // git's own config is not touched (no tracking is set up for the new branch).
     expect(fs.readFileSync(path.join(r.folder, '.git/config'), 'utf-8')).toBe(before);
   });

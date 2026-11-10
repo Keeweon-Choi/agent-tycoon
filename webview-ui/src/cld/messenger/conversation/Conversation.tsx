@@ -2,7 +2,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { isGoneName } from '../../../../../core/src/cld/goneAgent.js';
-import type { SlashCommand } from '../../../../../core/src/messages.js';
+import type { ChatItem, SlashCommand } from '../../../../../core/src/messages.js';
 import { Button } from '../../../components/ui/Button.js';
 import { Modal } from '../../../components/ui/Modal.js';
 import { ATTACH_ACCEPT, QUOTE_PEEK_MAX_PX } from '../../../constants.js';
@@ -18,7 +18,7 @@ import { basisHint } from '../../ez/fatigueState.js';
 import { kTokens } from '../../ez/statCardRows.js';
 import { TerminalGlyph } from '../../hud/glyphs.js';
 import { Icon } from '../../icons/Icon.js';
-import { fatigueFor, useCldStore } from '../../officeStore.js';
+import { ezContext, fatigueFor, useCldStore } from '../../officeStore.js';
 import { serverLine, serverText } from '../../serverText.js';
 import { requestStaleRecheck } from '../../staleBuild.js';
 import { useWaitReasons } from '../../waiting.js';
@@ -77,6 +77,8 @@ import { senderKey, startsRun } from '../senderFace.js';
 import { chordStep, enterSends, enterSendsNow, isTouchDevice } from '../sendKey.js';
 import { filterSlashCommands, slashComplete, slashMenuKey } from '../slashMenu.js';
 import { Thinking } from '../Thinking.js';
+import { toolRuns } from '../toolFold.js';
+import { ToolRun } from '../ToolRun.js';
 import { useChatSearch } from './useChatSearch.js';
 import { useDraft } from './useDraft.js';
 import { useHistoryJump } from './useHistoryJump.js';
@@ -452,6 +454,43 @@ export function Conversation({
     }
   };
 
+  // Consecutive rows of one tool fold into one; a divider or a quest record between two ends the run.
+  const runs = useMemo(
+    () =>
+      toolRuns(
+        items ?? [],
+        (i) =>
+          newDay(items!, i) ||
+          startsEarlierSession(items!, i, historyDone) ||
+          dividerAfter(items!, i - 1) !== undefined ||
+          !!placed?.has(i - 1),
+        ezContext(),
+      ),
+    [items, placed, historyDone],
+  );
+  const lineOf = (item: ChatItem, index: number) => (
+    <Line
+      item={item}
+      fresh={item.id === freshId}
+      received={received.includes(item.id)}
+      project={name}
+      projectRoot={projectRoot}
+      highlightQuery={searched}
+      currentMatch={hits[activeResult]?.id === item.id}
+      replyAs={name}
+      onReply={
+        canSend && !store.officeReadOnly && !noDirectChat ? setReply : undefined
+      }
+      onQuote={openQuote}
+      onQuestionTag={openTag}
+      face={
+        senderKey(item) === null
+          ? undefined
+          : { show: startsRun(items, index), name: item.fromName ? serverLine(item.fromName) : shown }
+      }
+    />
+  );
+
   return (
     <AttachmentGallery files={viewerFiles} ticketFor={viewerTicketFor}>
       <section
@@ -706,7 +745,8 @@ export function Conversation({
             ) : items.length === 0 && pending.length === 0 ? (
               <p className="text-text-muted text-sm">{t('messenger.emptyConversation')}</p>
             ) : (
-              items.map((item, index) => (
+              items.map((item, index) =>
+                runs.hidden.has(index) ? null : (
                 <div
                   key={item.id}
                   data-chat-id={item.id}
@@ -728,26 +768,15 @@ export function Conversation({
                     </p>
                   )}
                   {index === 0 && placed?.get(-1)?.map((r) => <QuestRecordLine key={r.toolId} record={r} />)}
-                  <Line
-                    item={item}
-                    fresh={item.id === freshId}
-                    received={received.includes(item.id)}
-                    project={name}
-                    projectRoot={projectRoot}
-                    highlightQuery={searched}
-                    currentMatch={hits[activeResult]?.id === item.id}
-                    replyAs={name}
-                    onReply={
-                      canSend && !store.officeReadOnly && !noDirectChat ? setReply : undefined
-                    }
-                    onQuote={openQuote}
-                    onQuestionTag={openTag}
-                    face={
-                      senderKey(item) === null
-                        ? undefined
-                        : { show: startsRun(items, index), name: item.fromName ? serverLine(item.fromName) : shown }
-                    }
-                  />
+                  {runs.heads.has(index) ? (
+                    <ToolRun
+                      items={runs.heads.get(index)!}
+                      show={(it, offset) => lineOf(it, index + offset)}
+                      focusId={hits[activeResult]?.id}
+                    />
+                  ) : (
+                    lineOf(item, index)
+                  )}
                   {placed?.get(index)?.map((r) => (
                     <div key={r.toolId} className="mt-8">
                       <QuestRecordLine record={r} />

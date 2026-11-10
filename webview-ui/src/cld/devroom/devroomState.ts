@@ -136,6 +136,8 @@ export function columnOf(
  * one). Its title is the spawning tool's own description; the selected one's transcript comes
  * through the work view (AgentColumns.tsx).
  */
+const NO_LINES: readonly ToolActivity[] = Object.freeze([]);
+
 export function subColumns(
   cols: readonly AgentColumn[],
   subs: Readonly<Record<number, Record<string, ToolActivity[]>>>,
@@ -149,7 +151,9 @@ export function subColumns(
     // DEVROOM-SIDEBAR: a running spawn with no tool rows yet (just spawned, between its calls after a
     // reload: the daemon replays only running calls) is a sub-agent too.
     // ponytail: a named spawn (a Teammate-to-be) is listed here too until its teammate takes over.
-    const quiet = (tools[id] ?? []).filter((x) => !x.done && !(x.toolId in rows) && isSubagentToolName(x.toolName)).map((x) => [x.toolId, []] as const);
+    // T-74: one shared empty list, not a new [] per call: useSubs compares rows by their lines (sameSubs), and a
+    // fresh array every render made it store, render and store again (React #185, the blank screen of 11-06).
+    const quiet = (tools[id] ?? []).filter((x) => !x.done && !(x.toolId in rows) && isSubagentToolName(x.toolName)).map((x) => [x.toolId, NO_LINES] as const);
     return [...Object.entries(rows), ...quiet].map(([parent, lines]) => {
       const spawn = tools[id]?.find((x) => x.toolId === parent);
       return { key: `${id}:${parent}`, n: ++n, desc: spawn?.desc ?? spawn?.status ?? '', lines, agentId: id, parent, done: spawn?.done === true };

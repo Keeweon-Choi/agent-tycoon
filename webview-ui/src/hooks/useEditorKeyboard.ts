@@ -18,7 +18,7 @@ export function useEditorKeyboard(
   useEffect(() => {
     if (!isEditMode) return;
     const handler = (e: KeyboardEvent) => {
-      // cld-gui CH-6b: keys typed in an open dialog (the furniture art editor's Ctrl+Z, a
+      // agty CH-6b: keys typed in an open dialog (the furniture art editor's Ctrl+Z, a
       // Delete) are not layout edits.
       if (document.querySelector('[aria-modal="true"]')) return;
       if (e.key === 'Escape') {

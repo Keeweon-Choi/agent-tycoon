@@ -116,7 +116,7 @@ function seedJobs(home: string, alive: number[]): void {
       exit: null,
       desc: null,
       ...o,
-      // The engine stores the command line masked, as `cld-gui job` does.
+      // The engine stores the command line masked, as `agty job` does.
       cmd: maskSecrets(String(o.cmd)),
     };
   };

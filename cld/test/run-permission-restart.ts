@@ -1,7 +1,7 @@
 /**
  * FIX-PERM-RESTART (owner 11-06 20:07: "이전에 왔던 '허락을 기다려요'는 열었을 때 메신저에는 안 남아있고
  * 터미널을 직접 켜서 승인해야함"), end to end: dist/cli.js with --engine on --allow-chat in a temp HOME,
- * the engine's fake claude as PTY agent alpha (its PermissionRequest hook is `cld-gui permission-hook`;
+ * the engine's fake claude as PTY agent alpha (its PermissionRequest hook is `agty permission-hook`;
  * a dialog the hook does not decide stays up in its terminal, as Claude's own does), headless
  * Chromium without GPU.
  *

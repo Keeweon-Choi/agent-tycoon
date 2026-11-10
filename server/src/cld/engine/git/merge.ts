@@ -60,13 +60,13 @@ export async function protectedFor(
     data = JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return out;
-    console.warn(`[cld repo] ${path.basename(file)}: not read, every branch protected (${String(err)})`);
+    console.warn(`[agty repo] ${path.basename(file)}: not read, every branch protected (${String(err)})`);
     return null;
   }
   const list = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>)[project] : 0;
   if (list === undefined) return out;
   if (!Array.isArray(list) || !list.every((b) => typeof b === 'string')) {
-    console.warn(`[cld repo] ${path.basename(file)}: not a list of names, every branch protected`);
+    console.warn(`[agty repo] ${path.basename(file)}: not a list of names, every branch protected`);
     return null;
   }
   for (const b of list) if (b) out.add(b);
@@ -176,7 +176,7 @@ export async function mergeBranches(
     const ff = await run(checkout, ['merge', '--ff-only', '--no-stat', next], { timeoutMs: MERGE_TIMEOUT_MS });
     if (ff.code !== 0) return fail('git_failed', koText('merge_move_failed', { target, why: gitMessage(ff.stderr) }));
   } else {
-    const r = await run(top, ['update-ref', '-m', `cld-gui: merge ${source}`, `refs/heads/${target}`, next, old]);
+    const r = await run(top, ['update-ref', '-m', `agty: merge ${source}`, `refs/heads/${target}`, next, old]);
     if (r.code !== 0) return fail('moved', koText('merge_moved', { target }));
   }
   return { ok: true, kind, sha: next };
@@ -271,7 +271,7 @@ async function mergeCommit(
   } finally {
     const rm = await run(top, ['worktree', 'remove', '--force', tmp], { timeoutMs: MERGE_TIMEOUT_MS });
     if (rm.code !== 0) {
-      console.warn(`[cld repo] merge: temporary worktree not removed (${gitMessage(rm.stderr)})`);
+      console.warn(`[agty repo] merge: temporary worktree not removed (${gitMessage(rm.stderr)})`);
       fs.rmSync(tmp, { recursive: true, force: true });
     }
     if (made)

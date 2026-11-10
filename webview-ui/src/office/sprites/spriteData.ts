@@ -120,7 +120,7 @@ export function diagSheetOf(c: LoadedCharacterData): LoadedCharacterData | null 
   };
 }
 
-// cld-gui (T-0017): preset sheets, drawn through the same cache as char_N under
+// agty (T-0017): preset sheets, drawn through the same cache as char_N under
 // palette numbers above the built-ins, with an optional card portrait.
 const customCharacters = new Map<
   number,
@@ -137,7 +137,7 @@ export function setCustomCharacter(
     if (key.startsWith(`${palette}:`)) spriteCache.delete(key);
 }
 
-/** cld-gui (LOOKS-MEM): a preset sheet let go (nobody wears it): its sprites, cached sets and
+/** agty (LOOKS-MEM): a preset sheet let go (nobody wears it): its sprites, cached sets and
  *  isometric link go (palettes are never reused). */
 export function deleteCustomCharacter(palette: number): void {
   customCharacters.delete(palette);
@@ -146,7 +146,7 @@ export function deleteCustomCharacter(palette: number): void {
     if (key.startsWith(`${palette}:`)) spriteCache.delete(key);
 }
 
-/** cld-gui (CH-4): a preset sheet as loaded, for the 꾸미기 preview. */
+/** agty (CH-4): a preset sheet as loaded, for the 꾸미기 preview. */
 export const getCustomCharacter = (palette: number) => customCharacters.get(palette) ?? null;
 
 export function getCustomMugshot(palette: number): SpriteData | null {
@@ -170,7 +170,7 @@ export function setCharacterTemplates(data: LoadedCharacterData[]): void {
   });
 }
 
-/** cld-gui (CH-2): the built-in sheets char_N as loaded (empty before they arrive). */
+/** agty (CH-2): the built-in sheets char_N as loaded (empty before they arrive). */
 export function getCharacterTemplates(): readonly LoadedCharacterData[] {
   return loadedCharacters ?? [];
 }

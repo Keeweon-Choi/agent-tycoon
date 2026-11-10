@@ -692,7 +692,7 @@ async function main() {
     const lines = serverLog
       .join('')
       .split('\n')
-      .filter((l) => l.startsWith('[cld repo] action'))
+      .filter((l) => l.startsWith('[agty repo] action'))
       .map((l) => l.replaceAll(repo.folder, '<repo>'));
     check(
       lines.length === 9 &&

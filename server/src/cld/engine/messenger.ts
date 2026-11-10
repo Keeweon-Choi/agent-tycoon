@@ -1,5 +1,5 @@
 /**
- * cld-gui send (T-0019, cld/docs/design/cld-cli.md §5): a message for an
+ * agty send (T-0019, cld/docs/design/cld-cli.md §5): a message for an
  * engine project's orchestrator, typed into its background session the way a
  * user types it, through `claude attach` (the Typist: T-0014's shared PTY).
  * Not Claude Code's cross-session socket: there a message from anything that
@@ -32,7 +32,7 @@
  * after the engine next starts that session (the start hook calls
  * deliverInbox), then moved to delivered/.
  *
- * Queue files are written by `cld-gui send` too while the daemon is off (same
+ * Queue files are written by `agty send` too while the daemon is off (same
  * format: QueuedSend), and picked up at start and when they appear.
  */
 import { randomBytes } from 'crypto';
@@ -50,6 +50,7 @@ import {
 import { type Coded, refused, ROOM_NOTICE_END, ROOM_NOTICE_LINE } from '../../../../core/src/cld/serverText.js';
 import { slashTextProblem } from '../../../../core/src/cld/slashText.js';
 import type { ChatReply } from '../../../../core/src/messages.js';
+import { LABEL } from '../labels.js';
 import { maskText } from '../mask.js';
 import { turnEnded } from '../providers/claudeProvider.js';
 import type { DeliverResult } from './agents/types.js';
@@ -83,7 +84,7 @@ const TAIL_BYTES = 256 * 1024;
 /** Bytes: SEND_TEXT_MAX (20,000) Hangul characters are 60 KB, plus the header. */
 export const TEXT_MAX = 64 * 1024;
 
-/** One message on its way (a queue file; `cld-gui send` writes the same shape). */
+/** One message on its way (a queue file; `agty send` writes the same shape). */
 export interface QueuedSend {
   v: 1;
   to: string;
@@ -287,15 +288,15 @@ function headerText(
 ): string {
   const when = shortStamp(m.created);
   if ('group' in m && m.group) {
-    const sender = m.from ?? (m.source.startsWith('messenger:') ? '사장' : 'cld-gui');
+    const sender = m.from ?? (m.source.startsWith('messenger:') ? '사장' : LABEL);
     return `[${sender} · 단톡방 '${m.group.roomName}' · ${when}]`;
   }
-  if (m.from && m.task) return `[cld-gui · ${m.from}에게서 · Task ${m.task} · ${when}]`;
-  if (m.from) return `[cld-gui · ${m.from}에게서 · ${when}]`;
+  if (m.from && m.task) return `[${LABEL} · ${m.from}에게서 · Task ${m.task} · ${when}]`;
+  if (m.from) return `[${LABEL} · ${m.from}에게서 · ${when}]`;
   // The office messenger (T-0043): the boss, through the app.
   if (m.source.startsWith('messenger:')) return `[사장 · 메신저 · ${when}]`;
   if (m.source.startsWith('gui:')) return `[사용자 · 앱(${m.source}) · ${when}]`;
-  return `[cld-gui · 보냄 · ${when}]`;
+  return `[${LABEL} · 보냄 · ${when}]`;
 }
 
 /** The boss's words from the app (the office messenger). */
@@ -726,7 +727,7 @@ export class Messenger {
     this.now = opts.now ?? Date.now;
   }
 
-  /** Pick up queue files (also those `cld-gui send` wrote while the daemon was off). */
+  /** Pick up queue files (also those `agty send` wrote while the daemon was off). */
   start(): void {
     this.loadQueue();
     try {
@@ -746,7 +747,7 @@ export class Messenger {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  /** A `cld-gui send`. Never rejects. */
+  /** A `agty send`. Never rejects. */
   async send(req: {
     to: string;
     text: string;
@@ -1115,7 +1116,7 @@ export class Messenger {
   /** A message straight to the inbox (renew's handoff, revive's notice). TYPIST-STALE: `replaces`, a
    *  notice's first words: such notices still waiting there go, so only the newest one is delivered
    *  (11-04: every reboot's 자동 복구 piled up before one start delivered them all). */
-  writeInbox(name: string, text: string, replaces?: string): boolean {
+  writeInbox(name: string, text: string, replaces?: string | readonly string[]): boolean {
     try {
       if (replaces) {
         const dir = path.join(this.inboxDir, name);
@@ -1126,8 +1127,9 @@ export class Messenger {
           /* no inbox yet */
         }
         const gone = new Set<string>();
+        const heads = typeof replaces === 'string' ? [replaces] : replaces;
         for (const f of files)
-          if (fs.readFileSync(path.join(dir, f), 'utf-8').startsWith(replaces)) {
+          if (heads.some((h) => fs.readFileSync(path.join(dir, f), 'utf-8').startsWith(h))) {
             fs.rmSync(path.join(dir, f), { force: true });
             gone.add(f);
             this.log(`inbox ${name}/${f}: an older notice, replaced by a new one`);
@@ -1803,6 +1805,6 @@ export class Messenger {
   }
 
   private log(line: string): void {
-    (this.opts.log ?? ((l: string) => console.log(`[cld engine] ${l}`)))(line);
+    (this.opts.log ?? ((l: string) => console.log(`[agty engine] ${l}`)))(line);
   }
 }

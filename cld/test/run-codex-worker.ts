@@ -237,7 +237,7 @@ async function main() {
     await card.waitFor({ timeout: 20_000 });
     const listed = (json(cli('worker', 'list')).workers as Array<Record<string, unknown>>).find((w) => w.name === 'alpha-w1');
     check(listed?.provider === 'codex' && listed.model === 'model-a' && listed.effort === 'high', `alpha-w1 added as a Codex Worker (${JSON.stringify(listed)})`);
-    check(json(cli('worker', 'start', 'alpha-w1')).ok === true, 'cld-gui worker start alpha-w1');
+    check(json(cli('worker', 'start', 'alpha-w1')).ok === true, 'agty worker start alpha-w1');
     await card.getByText('쉬는 중').waitFor({ timeout: 20_000 });
     check(
       (await card.getByTestId('codex-badge').innerText()) === 'Codex' &&
@@ -324,7 +324,7 @@ async function main() {
     const hang = await lead.call('send_message', { to: 'alpha-w1', text: '오래 걸리는 일', idempotencyKey: 'd5-h' });
     check(hang.status === 'sent', 'a fourth message');
     await eventually('the long run', () => codex().length === 4 && codex()[3].state === 'running' && codex()[3].pid !== null);
-    check(json(cli('worker', 'stop', 'alpha-w1')).ok === true, 'cld-gui worker stop alpha-w1');
+    check(json(cli('worker', 'stop', 'alpha-w1')).ok === true, 'agty worker stop alpha-w1');
     await eventually('stopped', () => codex()[3].state === 'stopped', 30_000);
     await eventually('the Lead told of the stop', () => toLead('alpha-w1').some((x) => x.includes('사용자가 멈췄어요')), 60_000);
     check(true, 'the run ended stopped and the Lead heard 사용자가 멈췄어요');

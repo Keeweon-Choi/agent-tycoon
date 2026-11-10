@@ -73,7 +73,7 @@ test('INSTALL-2: a running source install (cld-gui service) is adopted, not doub
   assert.ok(s.calls().some((c) => c.join(' ') === 'systemctl --user disable --now cld-gui'));
   assert.equal(fs.existsSync(oldUnit), false);
   assert.ok(fs.existsSync(path.join(s.root, 'adopted', 'cld-gui.service')));
-  assert.equal(fs.readlinkSync(path.join(s.home, '.local/bin/cld-gui')), path.join(s.root, 'bin', 'cld-gui'));
+  assert.equal(fs.readlinkSync(path.join(s.home, '.local/bin/cld-gui')), path.join(s.root, 'bin', 'agty'));
   assert.equal((await s.health()).version, '1.0.0');
   assert.equal(s.daemons().length, 1, 'the old daemon stopped, one daemon on the port');
   assert.equal(s.record().adopted.repo, repo);

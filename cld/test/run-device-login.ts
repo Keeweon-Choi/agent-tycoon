@@ -265,7 +265,7 @@ async function main() {
   const configDir = configDirectory(fake.home);
   const token = () =>
     fs.readFileSync(path.join(fake.home, '.pixel-agents/standalone-token'), 'utf-8').trim();
-  /** A host code (cld-gui-login): a 60 s link code. */
+  /** A host code (agty login): a 60 s link code. */
   const hostLink = async () => {
     const res = await fetch(`http://127.0.0.1:${port}/api/login-code`, {
       method: 'POST',

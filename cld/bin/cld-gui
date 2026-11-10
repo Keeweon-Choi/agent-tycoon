@@ -1,22 +1,22 @@
 #!/usr/bin/env node
-// cld-gui: the agent CLI of the cld-gui engine (T-0019). The contract, with
+// cld-gui: the agent CLI of the agty engine (T-0019). The contract, with
 // exit codes and JSON shapes, is cld/docs/design/cld-cli.md.
 //
-//   cld-gui send [--if-idle] [--from <name>] <project> <message…> | send --group <room> [--from <name>] <message…>
-//   cld-gui groups | groups read <room> [-n N]
-//   cld-gui job [-t] [-d <description>] [--project <name>] [--gpu [--vram GiB] [--exclusive] [--label …]] <command…>
-//   cld-gui jobs [--all]
-//   cld-gui stop <job id|pid>
-//   cld-gui renew [--project <name>] [<handoff file> | -]
-//   cld-gui rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
-//   cld-gui project remove <name> [--purge]
-//   cld-gui codex [-m <model>] [-e <effort>] [-d <description>] [--worktree [--name <type/scope-what>]] [--project <name>] <spec file> | codex [--all]
-//   cld-gui gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
-//   cld-gui hw [--json]
-//   cld-gui task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
-//   cld-gui trust [--start] <project or folder>  (AUTO-TRUST: Claude's folder trust question)
-//   cld-gui worktree new --task <id> [--assign <name>] [--base <branch>] | worktree list [--task <id>]  (W2)
-//   cld-gui version | login […] | help
+//   agty send [--if-idle] [--from <name>] <project> <message…> | send --group <room> [--from <name>] <message…>
+//   agty groups | groups read <room> [-n N]
+//   agty job [-t] [-d <description>] [--project <name>] [--gpu [--vram GiB] [--exclusive] [--label …]] <command…>
+//   agty jobs [--all]
+//   agty stop <job id|pid>
+//   agty renew [--project <name>] [<handoff file> | -]
+//   agty rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
+//   agty project remove <name> [--purge]
+//   agty codex [-m <model>] [-e <effort>] [-d <description>] [--worktree [--name <type/scope-what>]] [--project <name>] <spec file> | codex [--all]
+//   agty gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
+//   agty hw [--json]
+//   agty task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
+//   agty trust [--start] <project or folder>  (AUTO-TRUST: Claude's folder trust question)
+//   agty worktree new --task <id> [--assign <name>] [--base <branch>] | worktree list [--task <id>]  (W2)
+//   agty version | login […] | help
 //
 // It talks to the daemon over ~/.config/agent-tycoon/engine.sock (Windows:
 // \\.\pipe\cld-gui-engine-<user>). When the daemon is off, `send` leaves the
@@ -191,7 +191,7 @@ function request(cmd, args, timeoutMs = 90_000) {
     const broken = {
       ok: false,
       code: 'daemon_error',
-      error: 'cld-gui 데몬의 답을 읽지 못했습니다',
+      error: 'agty 데몬의 답을 읽지 못했습니다',
       lost: true,
     };
     s.setEncoding('utf8');
@@ -216,7 +216,7 @@ function request(cmd, args, timeoutMs = 90_000) {
     s.on('error', () => end(connected ? broken : null));
     s.on('close', () => end(connected ? broken : null));
     s.setTimeout(timeoutMs, () =>
-      end({ ok: false, code: 'daemon_error', error: 'cld-gui 데몬이 답하지 않습니다', lost: true }),
+      end({ ok: false, code: 'daemon_error', error: 'agty 데몬이 답하지 않습니다', lost: true }),
     );
   });
 }
@@ -280,7 +280,7 @@ function hwLines(hw) {
 const off = () =>
   failWith(
     'daemon_off',
-    'cld-gui 데몬에 닿지 못했습니다(서비스가 꺼져 있을 수 있습니다). 아무것도 하지 않았습니다',
+    'agty 데몬에 닿지 못했습니다(서비스가 꺼져 있을 수 있습니다). 아무것도 하지 않았습니다',
   );
 
 // ── send while the daemon is off: the queue file it resumes (messenger.ts QueuedSend) ──
@@ -299,7 +299,7 @@ const cleanText = (raw) =>
   raw.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 function header(m) {
   const when = shortStamp(m.created);
-  const line = m.from ? `[cld-gui · ${m.from} 오케스트레이터가 보냄 · ${when}]` : `[cld-gui · 보냄 · ${when}]`;
+  const line = m.from ? `[${CLI} · ${m.from} 오케스트레이터가 보냄 · ${when}]` : `[${CLI} · 보냄 · ${when}]`;
   return `${line} ⟨m:${m.messageId}⟩`;
 }
 /** C2 (messenger.ts newMessageId): 8 random lowercase base32 characters. */
@@ -372,7 +372,7 @@ function queueOffline(to, raw, ifIdle, from) {
   } catch {
     return failWith(
       'daemon_off',
-      'cld-gui 데몬에 닿지 못했고 대기 파일도 쓰지 못했습니다. 아무것도 하지 않았습니다',
+      'agty 데몬에 닿지 못했고 대기 파일도 쓰지 못했습니다. 아무것도 하지 않았습니다',
     );
   }
   const event = {
@@ -396,7 +396,7 @@ function queueOffline(to, raw, ifIdle, from) {
   }
   finish(
     { ok: true, delivered: 'queued', reason: 'daemon_off', messageId: item.messageId },
-    `cld-gui 데몬이 꺼져 있어 '${to}' 에게 보낼 메시지를 대기열에 남겼습니다(데몬이 뜨면 보냅니다)`,
+    `agty 데몬이 꺼져 있어 '${to}' 에게 보낼 메시지를 대기열에 남겼습니다(데몬이 뜨면 보냅니다)`,
   );
 }
 

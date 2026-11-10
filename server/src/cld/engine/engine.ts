@@ -39,6 +39,7 @@ import {
 } from '../../constants.js';
 import { detectHostInfo } from '../folders.js';
 import type { SocketStepUp, WsSend } from '../hooks.js';
+import { LABEL, LABEL_OLD } from '../labels.js';
 import { seededPermission } from '../newAgentPermission.js';
 import {
   clearRenameJournal,
@@ -193,21 +194,23 @@ export const SWAP_UNFINISHED =
 const RENEW_WORKTREES_MAX = 10;
 
 /** How every revive notice starts: a waiting one is replaced by the next (writeInbox `replaces`). */
-export const REVIVE_TAG = '[cld-gui 자동 복구 · ';
+export const REVIVE_TAG = `[${LABEL} 자동 복구 · `;
+/** T-80: the tag before the rename; revive notices still waiting in an inbox carry it (drop a release later). */
+export const REVIVE_TAG_OLD = `[${LABEL_OLD} 자동 복구 · `;
 /** First message after revive (the 자동 복구 line): why the session was started again. */
 export function reviveText(cause: 'reboot' | 'restart' | 'died', when: string): string {
   const why =
     cause === 'reboot'
-      ? '컴퓨터가 다시 켜져서 엔진이 이 대화를 다시 띄웠다. 돌던 cld-gui job 작업과 서브에이전트는 꺼졌다.'
+      ? '컴퓨터가 다시 켜져서 엔진이 이 대화를 다시 띄웠다. 돌던 job 작업과 서브에이전트는 꺼졌다.'
       : cause === 'died'
-        ? '같은 부팅에서 세션이 꺼져 다시 띄웠다. cld-gui job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).'
-        : 'cld-gui가 다시 뜰 때 이 세션이 꺼져 있어서 엔진이 다시 띄웠다. cld-gui job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).';
+        ? '같은 부팅에서 세션이 꺼져 다시 띄웠다. job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).'
+        : 'agty가 다시 뜰 때 이 세션이 꺼져 있어서 엔진이 다시 띄웠다. job 작업은 살아 있을 수 있다("$CLD_BIN" jobs 로 확인).';
   return `${REVIVE_TAG}${when}] ${why} 꺼지기 전에 하던 일을 확인하고 이어서 해 달라. 하던 일이 없었으면 그대로 기다린다.`;
 }
 
 /** The compaction nudge (an opt-in per project). */
 export const nudgeText = (n: number, fillPct: number): string =>
-  `[cld-gui] 이 대화는 컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다. 하던 일을 안전한 지점까지 마치고, 인수인계 파일을 제목 '## 목표' '## 완료' '## 미해결' '## 다음 행동'(있으면 '## 결정' '## 시도했다 버린 것')으로 쓰고 줄마다 [사실]·[판단]·[미확인] 을 단 뒤(돌고 있는 작업은 pid·로그까지), 백그라운드 서브에이전트가 끝나면 마지막으로 "$CLD_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
+  `[${LABEL}] 이 대화는 컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다. 하던 일을 안전한 지점까지 마치고, 인수인계 파일을 제목 '## 목표' '## 완료' '## 미해결' '## 다음 행동'(있으면 '## 결정' '## 시도했다 버린 것')으로 쓰고 줄마다 [사실]·[판단]·[미확인] 을 단 뒤(돌고 있는 작업은 pid·로그까지), 백그라운드 서브에이전트가 끝나면 마지막으로 "$CLD_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
 
 export interface EngineOptions {
   claudePath: string;
@@ -230,7 +233,7 @@ export interface EngineOptions {
   /** systemd-run path, or null for setsid; detected when undefined. */
   systemdRun?: string | null;
   timing?: Partial<typeof ENGINE_TIMING>;
-  /** cld/bin with the cld-gui CLI (T-0019): CLD_BIN for sessions; null leaves it out. */
+  /** cld/bin with the agty CLI (T-0019): CLD_BIN for sessions; null leaves it out. */
   binDir?: string | null;
   /** The PATH sessions and jobs should get (sessionPath.ts), built once by the caller; null = the service's own. */
   sessionPath?: string | null;
@@ -242,7 +245,7 @@ export interface EngineOptions {
   assignedFolder?: (p: ProjectRecord) => string | null;
   /** T-0019: a message into a project's inbox (revive's notice, renew's handoff); `replaces`: the
    *  first words of an older notice of the same kind still waiting there, which this one replaces. */
-  writeInbox?: (name: string, text: string, replaces?: string) => boolean;
+  writeInbox?: (name: string, text: string, replaces?: string | readonly string[]) => boolean;
   /** T-0019: a project's conversation refilled after its compaction nudge count. */
   nudge?: (name: string, count: number, fillPct: number) => void;
   /** The clock of the revive window (T-0091); tests move it. */
@@ -312,7 +315,7 @@ export class Engine {
   private readonly file: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly t: typeof ENGINE_TIMING;
-  /** T-0019: cld-gui's CLI for sessions (CLD_BIN), or null. */
+  /** T-0019: agty's CLI for sessions (CLD_BIN), or null. */
   readonly cldBin: string | null;
   /** S7: each started session's CLD_AGENT_TOKEN, mapped back to its project. */
   readonly tokens: AgentTokens;
@@ -567,7 +570,7 @@ export class Engine {
     return this.scope;
   }
 
-  /** The durable identity of this cld-gui installation, or null when its file is unsafe. */
+  /** The durable identity of this agty installation, or null when its file is unsafe. */
   get hostId(): string | null {
     return this.hostIdentity;
   }
@@ -764,7 +767,7 @@ export class Engine {
     return !!p && samePath(p.folder, folder, this.host);
   }
 
-  // ── T-0019: what cld-gui send, job and renew ask ─────────────
+  // ── T-0019: what agty send, job and renew ask ─────────────
 
   /** D3: every agent's name, the Leads' (= their projects' names) first, then the Workers'.
    *  A name is an address: a DM, a room member, a queue, an inbox, a token. */
@@ -1083,7 +1086,7 @@ export class Engine {
   }
 
   /**
-   * cld-gui renew, called by the orchestrator as its turn's last
+   * agty renew, called by the orchestrator as its turn's last
    * step. Answers at once; then, once that turn is over: the handoff into the
    * inbox, the old session stopped and gone, a new conversation under the same
    * name (stopping first: two live sessions of one name make Claude call the
@@ -2578,7 +2581,7 @@ export class Engine {
     let out: Outcome;
     try {
       // The first message tells the session why it is back (the 자동 복구 line).
-      if (firstPrompt) this.opts.writeInbox?.(name, reviveText(cause, shortStamp()), REVIVE_TAG);
+      if (firstPrompt) this.opts.writeInbox?.(name, reviveText(cause, shortStamp()), [REVIVE_TAG, REVIVE_TAG_OLD]);
       out = await this.enqueue(() => this.startProject(this.find(name) ?? p, 'revive'));
     } catch (err) {
       out = fail(err instanceof Error ? err.message : String(err));
@@ -2615,6 +2618,6 @@ export class Engine {
   }
 
   private log(line: string): void {
-    (this.opts.log ?? console.log)(`[cld engine] ${line}`);
+    (this.opts.log ?? console.log)(`[agty engine] ${line}`);
   }
 }

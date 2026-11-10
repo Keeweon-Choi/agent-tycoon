@@ -86,7 +86,7 @@ describe('findClaude (linux/macOS, real fake dirs)', () => {
     const env = { PATH: path.join(h, 'bin') };
     expect(findClaude({ platform: 'linux', home: h, env, log: (l) => logs.push(l) })).toBe(good);
     expect(logs).toEqual([
-      `[cld] agent CLI: ${path.join(h, 'bin', 'claude')} is not a working Claude Code (version output did not identify Claude Code), skipped`,
+      `[agty] agent CLI: ${path.join(h, 'bin', 'claude')} is not a working Claude Code (version output did not identify Claude Code), skipped`,
     ]);
   });
 
@@ -143,8 +143,8 @@ describe('findClaude (version probe through an injected runner)', () => {
     });
     expect(out).toBe('/c/claude');
     expect(logs).toEqual([
-      '[cld] agent CLI: /a/claude is not a working Claude Code (exited 1), skipped',
-      '[cld] agent CLI: /b/claude is not a working Claude Code (timed out after 10000 ms), skipped',
+      '[agty] agent CLI: /a/claude is not a working Claude Code (exited 1), skipped',
+      '[agty] agent CLI: /b/claude is not a working Claude Code (timed out after 10000 ms), skipped',
     ]);
   });
 
@@ -227,7 +227,7 @@ describe('findClaude (Windows, search order with fakes)', () => {
       { command: exe, args: ['--version'] },
     ]);
     expect(logs).toEqual([
-      `[cld] agent CLI: ${cmd} is not a working Claude Code (exited 1), skipped`,
+      `[agty] agent CLI: ${cmd} is not a working Claude Code (exited 1), skipped`,
     ]);
   });
 

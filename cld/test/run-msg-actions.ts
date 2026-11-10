@@ -28,6 +28,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/cld/configPath.js';
 import { transcriptPath } from '../../server/src/cld/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -38,7 +39,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/cld/testHome.js';
-import { configDirectory } from '../../server/src/cld/configPath.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'cld/artifacts/msg-actions');
@@ -475,7 +475,7 @@ async function main() {
         conv.getByTestId('chat-scroll').evaluate((el) => (el.scrollTop = el.scrollHeight));
 
       // — Faces in the DM: the Lead (once per run), another agent, a sub-agent's work notice.
-      const peerId = say('user', '[cld-gui · beta에게서 · 10-24 12:05] ⟨m:eeee6666⟩\n배포 전에 로그를 먼저 확인해 줘');
+      const peerId = say('user', '[agty · beta에게서 · 10-24 12:05] ⟨m:eeee6666⟩\n배포 전에 로그를 먼저 확인해 줘');
       const noticeId = say(
         'user',
         '<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>toolu_missing</tool-use-id>\n<status>completed</status>\n<summary>로그 정리 끝</summary>\n<result>오류 0건</result>\n</task-notification>',

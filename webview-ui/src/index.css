@@ -640,7 +640,7 @@
     /* Whatever peeks out during keyboard show/hide or overscroll must be
        office-dark, never browser-white. */
     background: var(--color-bg-dark);
-    /* cld-gui (T-0025): no double-tap zoom on iOS (it ignores user-scalable=no)
+    /* agty (T-0025): no double-tap zoom on iOS (it ignores user-scalable=no)
        and no grey tap flash — the app, not a page. Pinch zoom stays (small pixel text must stay
        readable on a phone); the canvas is `none` and pinches itself, the terminal handles its own touches. */
     touch-action: manipulation;
@@ -665,7 +665,7 @@
     font-synthesis: none;
   }
 
-  /* cld-gui (T-0025): no browser scrollbar anywhere. Every scroll area gets
+  /* agty (T-0025): no browser scrollbar anywhere. Every scroll area gets
      the thin square pixel bar; Chrome (and WebView2) and Safari draw it from
      these pseudo-elements. */
   ::-webkit-scrollbar {

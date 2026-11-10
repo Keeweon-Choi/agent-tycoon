@@ -217,7 +217,7 @@ export class WorkerRuns {
     for (const t of this.deps.tasks().list({ project: lead, status: 'proposed' }))
       if (t.assignee?.assignmentId === oldLead) {
         const r = this.deps.tasks().update(t.id, { assignee: { assignmentId: newLead, name: lead } }, 'engine');
-        if (!r.ok) console.warn(`[cld] lead swap: proposal ${t.id} not moved to the new Lead (${String(r.error)})`);
+        if (!r.ok) console.warn(`[agty] lead swap: proposal ${t.id} not moved to the new Lead (${String(r.error)})`);
       }
   }
 
@@ -261,7 +261,7 @@ export class WorkerRuns {
       if (told === mark || told === 'end') continue;
       this.telling.add(r.id);
       void this.tellWorkerRun(r, mark, file)
-        .catch((err) => console.warn(`[cld] codex ${r.id}: ${String(err)}`))
+        .catch((err) => console.warn(`[agty] codex ${r.id}: ${String(err)}`))
         .finally(() => this.telling.delete(r.id));
     }
   }
@@ -299,7 +299,7 @@ export class WorkerRuns {
         notice: mark === 'end' ? 'action' : 'fyi',
       });
       if (!sent.ok) {
-        console.warn(`[cld] codex ${r.id}: ${lead} not told (${sent.error}); tried again on the next change`);
+        console.warn(`[agty] codex ${r.id}: ${lead} not told (${sent.error}); tried again on the next change`);
         return;
       }
     }
@@ -316,13 +316,13 @@ export class WorkerRuns {
         source: 'codex',
         quiet: true, // TOKEN-GUARD (TG-02b): the Lead is told above; the room copy wakes nobody
       });
-      if (!post.ok) console.warn(`[cld] codex ${r.id}: room ${r.room.id} not posted (${post.error})`);
+      if (!post.ok) console.warn(`[agty] codex ${r.id}: room ${r.room.id} not posted (${post.error})`);
     }
     try {
       writeAtomic(file, `${mark}\n`);
       if (mark === 'end') this.toldEnd.add(r.id);
     } catch (err) {
-      console.warn(`[cld] codex ${r.id}: ${String(err)}`);
+      console.warn(`[agty] codex ${r.id}: ${String(err)}`);
     }
   }
 }

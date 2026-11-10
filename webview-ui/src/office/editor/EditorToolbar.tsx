@@ -85,7 +85,7 @@ interface EditorToolbarProps {
   onRenameArea: (oldLabel: string, newLabel: string) => void;
   onAreaColorChange: (label: string, color: string) => void;
   onAreaMappingChange: (directoryName: string, areaLabel: string, action: 'add' | 'remove') => void;
-  /** cld-gui CH-6b: shown under a selected placed item's colour sliders (edit its art). */
+  /** agty CH-6b: shown under a selected placed item's colour sliders (edit its art). */
   selectedFurnitureExtra?: ReactNode;
 }
 

@@ -45,7 +45,7 @@
  *   spec/<projectId>/match-cache.json.gz   the match cache: goes with any remove (and tracking off)
  *   The remove passes names: the office resolves them to the projectIds they had while live.
  * Reserved, never a new agent's name (registry checkName): "owner" (the owner's look key), "사장"
- * (the boss's sender name), "cld-gui"/"agty" (system senders); `emp:`, `room:`, `engine:`, `$meta`
+ * (the boss's sender name), "agty"/"agty" (system senders); `emp:`, `room:`, `engine:`, `$meta`
  * and `~` keys cannot be names (NAME_RE).
  * The engine itself keeps, and changes in the same step: projects.json + assignments.json (the
  * registry), agent-tokens.json (dropped; the restart issues a new token), the compaction counts

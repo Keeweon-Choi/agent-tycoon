@@ -436,7 +436,7 @@ export class TaskStore {
   constructor(
     readonly file: string,
     private readonly changed: () => void = () => undefined,
-    private readonly log: (line: string) => void = (l) => console.warn(`[cld] ${l}`),
+    private readonly log: (line: string) => void = (l) => console.warn(`[agty] ${l}`),
     private readonly opts: TaskStoreOptions = {},
   ) {
     this.read();
@@ -792,7 +792,7 @@ export interface TaskAgents {
 }
 
 /**
- * `cld-gui task …` over the control socket. `who.by` is the caller (its token's
+ * `agty task …` over the control socket. `who.by` is the caller (its token's
  * agent, else `cli`), `who.project` the project it stands for (token, then cwd),
  * `who.agent` the agent its token names (D6: createdBy, delegatedBy).
  */
@@ -895,7 +895,7 @@ export function answerTask(
 }
 
 /**
- * D6: `cld-gui codex|job … --task <id>`: refused before anything starts when the
+ * D6: `agty codex|job … --task <id>`: refused before anything starts when the
  * task is unknown or the store cannot be written; once started, the run is the
  * task's new Execution (an attach that then fails is said, the run goes on).
  */

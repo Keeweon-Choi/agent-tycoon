@@ -644,7 +644,7 @@ async function main() {
     const audit = serverLog
       .join('')
       .split('\n')
-      .filter((l) => l.includes('[cld files]'));
+      .filter((l) => l.includes('[agty files]'));
     check(
       audit.some(
         (l) => l.includes(`project=${JSON.stringify(misc)}`) && l.includes('path="todo.txt"'),

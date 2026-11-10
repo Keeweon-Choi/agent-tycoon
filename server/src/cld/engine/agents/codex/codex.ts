@@ -1,7 +1,7 @@
 /**
  * The Codex provider (D5, design-d5 §3.2): a Codex Worker is an assignment with
  * `provider: 'codex'` and no session that stays up. One message is one
- * `codex exec` run (the cld-gui codex records and worker, engine/codex.ts):
+ * `codex exec` run (the agty codex records and worker, engine/codex.ts):
  * a new Task starts a new thread, anything else continues the Worker's last
  * thread (`exec resume`). Between runs the engine shows a resting session
  * (holder()); the runs are found by assignment id, never by name. The run's

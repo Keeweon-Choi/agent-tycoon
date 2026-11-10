@@ -179,7 +179,7 @@ export class Conversations {
   constructor(
     private readonly leads: () => Lead[],
     private readonly publish: (contacts: MessengerContact[]) => void,
-    private readonly log: (line: string) => void = (l) => console.log(`[cld] messenger: ${l}`),
+    private readonly log: (line: string) => void = (l) => console.log(`[agty] messenger: ${l}`),
     /** C3: what the messenger typed, which turn belongs to which room. */
     private readonly ledger?: TurnLedger,
     /** MSG-ALIGN: a run's employee, for the task notices' names. */

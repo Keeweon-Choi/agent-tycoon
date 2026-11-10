@@ -5,6 +5,7 @@ import * as path from 'path';
 
 import { koText, pickRefusal, refused, type WithError } from '../../../../core/src/cld/serverText.js';
 import type { ChatItem, ChatReply } from '../../../../core/src/messages.js';
+import { LABEL } from '../labels.js';
 import {
   CHAT_TAIL_BYTES,
   lineItems,
@@ -737,7 +738,7 @@ export class GroupMessages {
       at,
       // The app's posts are the boss's own (no sender line); anything else is named.
       roomName: room.name,
-      sender: req.from ?? (req.source.startsWith('messenger:') ? null : 'cld-gui'),
+      sender: req.from ?? (req.source.startsWith('messenger:') ? null : LABEL),
       text,
       targets,
       delivery: Object.fromEntries(targets.map((member) => [member, 'pending' as const])),
@@ -791,7 +792,7 @@ export class GroupMessages {
         id: this.ids(),
         at: this.now(),
         roomName: room.name,
-        sender: 'cld-gui',
+        sender: LABEL,
         text: systemLine(e),
         targets: [],
         delivery: {},
@@ -831,7 +832,7 @@ export class GroupMessages {
 
   /** Daily (office prune): earlier-version logs split by month, old months gzipped; nothing deleted. */
   maintain(): void {
-    maintainGroupLogs(groupTimelineDir(this.opts.home), this.now(), (line) => console.log(`[cld engine] ${line}`));
+    maintainGroupLogs(groupTimelineDir(this.opts.home), this.now(), (line) => console.log(`[agty engine] ${line}`));
   }
 
   /**

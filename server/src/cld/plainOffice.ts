@@ -57,7 +57,7 @@ export class PlainOffice {
       onClientClosed: (send) => void this.viewers.delete(send),
       onClientMessage: (msg, _send, privileged) => {
         if (msg.type !== 'agentCliRecheck') return;
-        if (!privileged) return void this.log('[cld] agent CLI: 다시 찾기 refused (not privileged)');
+        if (!privileged) return void this.log('[agty] agent CLI: 다시 찾기 refused (not privileged)');
         void this.check('button');
       },
     };
@@ -78,17 +78,17 @@ export class PlainOffice {
       /* treated as not found */
     }
     if (!claude) return this.set('missing', by === 'button');
-    this.log(`[cld] agent CLI found at ${claude}: restarting to bring the full office up`);
+    this.log(`[agty] agent CLI found at ${claude}: restarting to bring the full office up`);
     this.set('restarting');
     let ordered = false;
     try {
       ordered = await this.d.restart();
     } catch (err) {
-      this.log(`[cld] agent CLI restart error: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`[agty] agent CLI restart error: ${err instanceof Error ? err.message : String(err)}`);
     }
     // When the restart works this process ends while it waits.
     if (ordered) await (this.d.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))))(AGENT_CLI_RESTART_WAIT_MS);
-    this.log('[cld] agent CLI restart did not take effect: plain office keeps running');
+    this.log('[agty] agent CLI restart did not take effect: plain office keeps running');
     this.set('failed');
   }
 
@@ -151,7 +151,7 @@ const runCommand = (command: string[]): Promise<boolean> =>
 export async function restartDaemon(d: RestartDeps): Promise<boolean> {
   const log = d.log ?? console.log;
   if (!d.binDir) {
-    log('[cld] agent CLI: cld/bin not found, cannot restart');
+    log('[agty] agent CLI: cld/bin not found, cannot restart');
     return false;
   }
   const platform = d.platform ?? process.platform;
@@ -167,7 +167,7 @@ export async function restartDaemon(d: RestartDeps): Promise<boolean> {
     restart: string[];
   };
   if (!(await run(plan.installed ?? plan.active))) {
-    log(`[cld] agent CLI: service ${service} is not registered, cannot restart`);
+    log(`[agty] agent CLI: service ${service} is not registered, cannot restart`);
     return false;
   }
   if (platform === 'win32') {
@@ -194,7 +194,7 @@ export async function restartDaemon(d: RestartDeps): Promise<boolean> {
         windowsHide: true,
       }).unref();
     } catch (err) {
-      log(`[cld] agent CLI: restart helper failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      log(`[agty] agent CLI: restart helper failed to start: ${err instanceof Error ? err.message : String(err)}`);
       return false; // the daemon keeps running: no helper, no exit
     }
     d.exitForSupervisor();

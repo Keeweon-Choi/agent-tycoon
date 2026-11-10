@@ -23,7 +23,7 @@ export interface GameLoopCallbacks {
   ambient?: () => boolean;
 }
 
-// cld-gui (T-0075): one source of truth for "should the office draw now".
+// agty (T-0075): one source of truth for "should the office draw now".
 let onScreen = true; // the canvas intersects the viewport
 let covered = false; // a page of the phone shell is in front of it (WINMODEL: the canvas stays in place)
 let busy = true; // something on the office needs smooth motion

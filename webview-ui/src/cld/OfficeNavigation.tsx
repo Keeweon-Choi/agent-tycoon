@@ -17,6 +17,7 @@ import type { WindowId } from './hud/layout.js';
 import { Messenger } from './messenger/Messenger.js';
 import { closeMessenger } from './messenger/messengerStore.js';
 import { OfficePanelContent } from './panels/OfficePanels.js';
+import { RegionBoundary } from './RegionBoundary.js';
 import { TerminalWorkspace } from './terminal/TerminalWorkspace.js';
 import { Workbench } from './workbench/Workbench.js';
 import { useReviewTitle } from './workbench/workbenchStore.js';
@@ -225,7 +226,9 @@ export function MobilePage({
           </Button>
         </div>
       )}
-      {children}
+      <RegionBoundary region={id} className="m-auto">
+        {children}
+      </RegionBoundary>
     </div>
   );
 }

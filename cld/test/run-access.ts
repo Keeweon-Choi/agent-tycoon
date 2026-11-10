@@ -302,7 +302,7 @@ async function main() {
     check((await health('localhost')) === 200, 'localhost still answers');
     check((await api()).connector === 'local', 'the connector is local now');
     check(
-      daemon.log.join('').includes('[cld remote] connector lan → local (setup local; via lan)'),
+      daemon.log.join('').includes('[agty remote] connector lan → local (setup local; via lan)'),
       'the switch is one log line naming the way in',
     );
 

@@ -44,7 +44,7 @@ interface AgentCardProps {
   onSelect: (agentId: number) => void;
   onClose: (agentId: number) => void;
   /** The phone's default (owner 10-24): one row, the mug shot beside the name and the status dot.
-   *  (cld-gui draws its party as portraits instead, game/Party.tsx.) */
+   *  (agty draws its party as portraits instead, game/Party.tsx.) */
   compact?: boolean;
   /** The phone's full roster card: a centered, more prominent face. */
   mobileExpanded?: boolean;

@@ -1,4 +1,4 @@
-/* cld-gui (T-0039): Web Push. Shows the daemon's notice (title, body, the
+/* agty (T-0039): Web Push. Shows the daemon's notice (title, body, the
  * character's id, the url of what it opens: never transcript text); a click
  * focuses an open office and opens that place (T-0043: a conversation, a job,
  * a Codex task, or the character), or opens the office at it. Nothing is cached. */
@@ -24,7 +24,7 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    // Not a cld-gui payload: a plain notice.
+    // Not a agty payload: a plain notice.
   }
   const agentId = typeof data.agentId === 'number' ? data.agentId : null;
   // Same-origin paths only: a url is never followed off this office.

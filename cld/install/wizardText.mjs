@@ -20,7 +20,7 @@ const en = {
   yesNo: (def) => (def ? '[Y/n]' : '[y/N]'),
   remote: [
     'Nothing was installed on this computer (no daemon, no runtime).',
-    'Open the office of the host your agents run on: on a device that is already signed in, use "Add device" (or run cld-gui-login --qr on the host) and open the link or QR it gives you here.',
+    'Open the office of the host your agents run on: on a device that is already signed in, use "Add device" (or run agty login --qr on the host) and open the link or QR it gives you here.',
   ],
   wslRun: (distro) => `→ installing the daemon inside ${distro} (WSL2) with the same release`,
   wslFailed: (distro, code) => `WSL install in ${distro} failed (exit ${code})`,
@@ -54,7 +54,7 @@ const ko = {
   choose: (n) => `1-${n} 중 고르세요 [1]:`,
   remote: [
     '이 컴퓨터에는 아무것도 설치하지 않았습니다 (데몬·런타임 없음).',
-    '에이전트가 도는 호스트의 사무실을 여세요: 이미 로그인한 기기의 "기기 추가"(또는 호스트에서 cld-gui-login --qr)가 주는 링크나 QR 을 이 기기에서 여세요.',
+    '에이전트가 도는 호스트의 사무실을 여세요: 이미 로그인한 기기의 "기기 추가"(또는 호스트에서 agty login --qr)가 주는 링크나 QR 을 이 기기에서 여세요.',
   ],
   wslRun: (distro) => `→ ${distro} (WSL2) 안에 같은 릴리스로 데몬을 설치합니다`,
   wslFailed: (distro, code) => `${distro} 안의 설치가 실패했습니다 (종료 코드 ${code})`,

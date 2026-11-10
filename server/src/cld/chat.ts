@@ -62,7 +62,7 @@ import type { PtyHostClient } from './ptyhost/client.js';
 import { spawnJson } from './spawnJson.js';
 
 export const CHAT_IDLE_MS = 2 * 60_000;
-/** cld-gui send's typing (T-0019): the attach's first screen takes ~2 s; Enter
+/** agty send's typing (T-0019): the attach's first screen takes ~2 s; Enter
  *  waits for the paste to land; the input line clears when it is submitted. */
 export const TYPE_TIMING = {
   readyMs: 12_000,
@@ -410,7 +410,7 @@ export function foldsWhenPasted(text: string, rows: number): boolean {
 }
 /** Non-space characters of our text that mark a draft as ours. */
 const DRAFT_KEY = 24;
-/** A message's header line (`[cld-gui · beta에게서 · 10-22 11:57]`, messenger.ts header()),
+/** A message's header line (`[agty · beta에게서 · 10-22 11:57]`, messenger.ts header()),
  *  with or without its C2 mark (` ⟨m:<id>⟩`). */
 const HEADER = /^\[[^\n]*\](?: ⟨m:[a-z2-7]{8}⟩)?$/;
 
@@ -557,7 +557,7 @@ class ChatPty {
   private readonly screen: HeadlessTerminal;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private ended = false;
-  /** cld-gui sends typing through this attach right now (it outlives its viewers until done). */
+  /** agty sends typing through this attach right now (it outlives its viewers until done). */
   private sending = 0;
   /** PERM-PROMPT: an answer to a permission dialog is in flight. */
   private answering = false;
@@ -625,7 +625,7 @@ class ChatPty {
   }
 
   /**
-   * cld-gui send (T-0019): when the input line is empty, `text` as a
+   * agty send (T-0019): when the input line is empty, `text` as a
    * bracketed paste (newlines as Enter keys inside it, as tmux pastes), then
    * Enter. An attach no viewer holds ends after. `whileWorking`: a running
    * turn's screen counts too (everything else is checked the same).
@@ -883,7 +883,7 @@ export interface ChatOptions {
   /** Extra environment for the attach (tests: the fake claude's log). */
   env?: Record<string, string>;
   log?: (line: string) => void;
-  /** cld-gui send's waits (tests shorten them). */
+  /** agty send's waits (tests shorten them). */
   typeTiming?: Partial<typeof TYPE_TIMING>;
 }
 
@@ -910,7 +910,7 @@ export class ChatManager implements Typist {
   }
 
   private log(line: string): void {
-    (this.opts.log ?? ((l: string) => console.log(`[cld] chat: ${l}`)))(line);
+    (this.opts.log ?? ((l: string) => console.log(`[agty] chat: ${l}`)))(line);
   }
 
   private list(): Promise<ClaudeSession[]> {
@@ -923,7 +923,7 @@ export class ChatManager implements Typist {
   }
 
   /**
-   * cld-gui send (T-0019): type into background session `id`, which the
+   * agty send (T-0019): type into background session `id`, which the
    * engine just found live in ~/.claude/sessions (a stopped session is never
    * attached: `claude attach` would resume it). Through its open chat, else
    * an attach of its own that ends after; sends are one at a time.
@@ -1075,7 +1075,7 @@ export class ChatManager implements Typist {
         env: { ...env, ...this.opts.env },
       });
     } catch (err) {
-      console.warn(`[cld] chat: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(`[agty] chat: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
     const session = new PtySession(++this.serial, pty, size.cols, size.rows);
@@ -1137,7 +1137,7 @@ export function registerChatRoute(
       chat
         .join(request.params.id, socket, deviceLabel(request.headers['user-agent']))
         .catch((err: unknown) => {
-          console.warn(`[cld] chat: ${err instanceof Error ? err.message : String(err)}`);
+          console.warn(`[agty] chat: ${err instanceof Error ? err.message : String(err)}`);
           socket.close(WS_CLOSE_NO_SESSION, 'error');
         });
     },

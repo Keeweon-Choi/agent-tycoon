@@ -19,7 +19,7 @@ import {
 import { isE2E } from './runtime.js';
 
 let soundEnabled = true;
-/** cld-gui (T-0039): the user's volume, 0..1, scales every note. */
+/** agty (T-0039): the user's volume, 0..1, scales every note. */
 let volumeScale = 1;
 let audioCtx: AudioContext | null = null;
 
@@ -45,7 +45,7 @@ export function isSoundEnabled(): boolean {
   return soundEnabled;
 }
 
-/** cld-gui (T-0039): 0 (silent) .. 1 (the default loudness). */
+/** agty (T-0039): 0 (silent) .. 1 (the default loudness). */
 export function setSoundVolume(scale: number): void {
   volumeScale = Math.min(1, Math.max(0, scale));
 }
@@ -125,7 +125,7 @@ export async function playPermissionSound(): Promise<void> {
   }
 }
 
-/** cld-gui (T-0039): a job or Codex task finished, a quick rising C-E-G. */
+/** agty (T-0039): a job or Codex task finished, a quick rising C-E-G. */
 export async function playJobSound(): Promise<void> {
   recordSoundForTests('job');
   if (!soundEnabled) return;
@@ -141,7 +141,7 @@ export async function playJobSound(): Promise<void> {
   }
 }
 
-/** cld-gui (C1): run a synth graph (cld/director/sounds.ts) on the shared context, only while the
+/** agty (C1): run a synth graph (cld/director/sounds.ts) on the shared context, only while the
  *  sound setting is on; `level` is the user's volume. */
 export async function playSynth(build: (ctx: AudioContext, level: number) => void): Promise<void> {
   if (!soundEnabled || volumeScale <= 0) return;

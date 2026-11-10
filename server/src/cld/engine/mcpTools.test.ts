@@ -192,7 +192,7 @@ describe('C5a: the MCP adapter (stdio JSON-RPC)', () => {
       result: {
         protocolVersion: '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'cld-gui', version: '1' },
+        serverInfo: { name: 'agty', version: '1' },
       },
     });
     // A version it does not know: it answers with its own newest.

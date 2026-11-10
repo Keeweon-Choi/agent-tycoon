@@ -229,6 +229,6 @@ export class DevroomRuns {
   }
 
   private log(line: string): void {
-    (this.o.log ?? ((l: string) => console.log(`[cld devroom] ${l}`)))(line);
+    (this.o.log ?? ((l: string) => console.log(`[agty devroom] ${l}`)))(line);
   }
 }

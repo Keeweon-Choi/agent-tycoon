@@ -1153,7 +1153,7 @@ describe('U-49: a message from an agent is a push with its text', () => {
     turnEnd(t, 11); // no text, looking: nothing goes out
     const lines = log.mock.calls.map((c) => String(c[0]));
     log.mockRestore();
-    expect(lines).toContain('[cld push] sent reply to 1 device(s)');
+    expect(lines).toContain('[agty push] sent reply to 1 device(s)');
     expect(lines.join('\n')).not.toContain('내용은');
     t.service.dispose(); // the counters are saved
     const saved = JSON.parse(fs.readFileSync(path.join(t.dir, 'push.json'), 'utf-8'));

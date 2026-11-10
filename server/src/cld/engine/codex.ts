@@ -1,15 +1,15 @@
 /**
- * cld-gui codex (T-0021, cld/docs/design/cld-cli.md §12): a task for the
+ * agty codex (T-0021, cld/docs/design/cld-cli.md §12): a task for the
  * Codex CLI, run by the engine itself. The daemon makes the record
  * (and, with --worktree, an E3 task worktree) and starts the worker as an
  * engine job, so it outlives sessions and daemon restarts; the worker
  * (`cld-worker.js codex <id>`, runCodex below) runs `codex exec`, waits out a
  * usage limit and resumes the same session, then tells the project's
- * orchestrator in one line through `cld-gui send` and records codex_* events.
+ * orchestrator in one line through `agty send` and records codex_* events.
  *
  * Records: ~/.local/state/cld-gui/codex/<id>.json (the worker updates its
  * state), <id>.jsonl (Codex's JSON output). The engine adds no rules to a
- * `cld-gui codex` spec and keeps no table of model names (ADR-0014); only a
+ * `agty codex` spec and keeps no table of model names (ADR-0014); only a
  * Codex Worker's run (below) begins with the shipped rules.
  *
  * D5: the same records and worker also run a Codex Worker's messages (one run
@@ -19,7 +19,7 @@
  * `summary`), and the daemon, not the worker, tells the Lead. C7b: a Worker's
  * <id>.prompt.md of a NEW thread begins with the composition a Claude Worker gets (agentRules.ts), then
  * `---`; it only ever lives in the engine's own folder, never in the repository.
- * `cld-gui codex` runs (no `agent`) are exactly as before.
+ * `agty codex` runs (no `agent`) are exactly as before.
  */
 import type { ChildProcess } from 'child_process';
 import { spawn, spawnSync } from 'child_process';
@@ -28,8 +28,8 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { ChatEmployee, CodexTask } from '../../../../core/src/messages.js';
-import { CLI_NAME } from '../cliName.js';
 import { codexShownTitle, codexTitle } from '../jobNames.js';
+import { LABEL } from '../labels.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { commandArgv } from '../spawnJson.js';
 import { composeWithPlaybook } from './agentRules.js';
@@ -84,7 +84,7 @@ export const CODEX_TIMING = {
   sidMs: 1_000,
 };
 
-/** D5: a Codex Worker's runs, `cld-gui codex`'s sandbox (open question 2), also on a resume. */
+/** D5: a Codex Worker's runs, `agty codex`'s sandbox (open question 2), also on a resume. */
 export const WORKER_SANDBOX = 'workspace-write';
 /** D5: how much of a Worker run's last message the record keeps as its summary. */
 export const SUMMARY_MAX = 2_000;
@@ -104,7 +104,7 @@ export interface CodexRecord {
   /** `-c model_reasoning_effort=…`; null or absent (older records) = Codex's own config. */
   effort?: CodexEffort | null;
   state: CodexState;
-  /** Where Codex works: the worktree, or the folder `cld-gui codex` was called in. */
+  /** Where Codex works: the worktree, or the folder `agty codex` was called in. */
   dir: string;
   worktree: string | null;
   branch: string | null;
@@ -163,7 +163,7 @@ export function readCodex(dir: string, id: string): CodexRecord | null {
 export const saveCodex = (dir: string, r: CodexRecord) =>
   writeAtomic(path.join(dir, `${r.id}.json`), `${JSON.stringify(r)}\n`);
 
-/** `cld-gui codex` (HIF §2's shape). */
+/** `agty codex` (HIF §2's shape). */
 export const codexJson = (r: CodexRecord) => ({
   id: r.id,
   project: r.project,
@@ -204,7 +204,7 @@ export interface CodexTasksOptions {
   log?: (line: string) => void;
 }
 
-/** D5: what a Codex Worker's run carries beyond a `cld-gui codex` task. */
+/** D5: what a Codex Worker's run carries beyond a `agty codex` task. */
 export interface WorkerRun {
   name: string;
   assignmentId: string;
@@ -269,7 +269,7 @@ export class CodexTasks {
     if (this.soon) clearTimeout(this.soon);
   }
 
-  /** `cld-gui codex …`: refused, or the task started. */
+  /** `agty codex …`: refused, or the task started. */
   async run(req: {
     spec: string;
     model: string | null;
@@ -539,7 +539,7 @@ export class CodexTasks {
   }
 
   private log(line: string): void {
-    (this.o.log ?? ((l: string) => console.log(`[cld engine] ${l}`)))(line);
+    (this.o.log ?? ((l: string) => console.log(`[agty engine] ${l}`)))(line);
   }
 }
 
@@ -662,7 +662,7 @@ export interface WorkerDeps {
   home: string;
   /** codex's absolute path. */
   codex: string;
-  /** CLD_BIN (the cld-gui CLI), for the one-line notices; null = none. */
+  /** CLD_BIN (the agty CLI), for the one-line notices; null = none. */
   cldBin: string | null;
   timing?: Partial<typeof CODEX_TIMING>;
   now?: () => number;
@@ -865,9 +865,9 @@ export async function runCodex(id: string, d: WorkerDeps): Promise<number> {
     });
     if (r.told === mark) continue;
     notify(
-      `[cld-gui codex] 작업 ${id} 이 Codex 사용량 한도에 걸렸다. ${
+      `[${LABEL} codex] 작업 ${id} 이 Codex 사용량 한도에 걸렸다. ${
         reset === null ? '간격을 늘려 가며(최대 1시간) 다시 해 보고' : `${shortStamp(reset)} 에`
-      } 같은 세션을 이어 간다(멈추기: ${CLI_NAME} stop ${id})`,
+      } 같은 세션을 이어 간다(멈추기: "$CLD_BIN" stop ${id})`,
     );
     save({ told: mark });
   }
@@ -895,7 +895,7 @@ export async function runCodex(id: string, d: WorkerDeps): Promise<number> {
   event('codex_end', { id, project: r.project, state, exit: rc, title: r.title, ...workerOf(r) });
   print(`끝: ${state} (exit ${rc})`);
   notify(
-    `[cld-gui codex] 작업 ${id} 끝: ${state} · 폴더 ${r.dir} · 커밋 ${r.commits ?? '?'}개 · 로그 ${r.log}`,
+    `[${LABEL} codex] 작업 ${id} 끝: ${state} · 폴더 ${r.dir} · 커밋 ${r.commits ?? '?'}개 · 로그 ${r.log}`,
   );
   return rc;
 }

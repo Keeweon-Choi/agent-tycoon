@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cld-gui-statusline: the status line of the sessions the cld-gui engine starts
+// cld-gui-statusline: the status line of the sessions the agty engine starts
 // (ENV-2; the engine sets it through `--settings`, never in a settings file).
 //
 // Claude Code hands every status-line command the session's JSON on stdin, and

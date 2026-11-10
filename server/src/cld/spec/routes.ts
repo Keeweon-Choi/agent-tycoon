@@ -2,7 +2,7 @@
  * SPT-P1A: /api/cld/spec/:project/... with the file routes' guards: a logged-in browser session
  * only (the host's Bearer token, which agent sessions can read, is refused: no agent reads or
  * changes this), same-origin for every write, a read-only daemon refuses writes, an unknown
- * project is 404, and every write leaves one `[cld spec]` line naming the device.
+ * project is 404, and every write leaves one `[agty spec]` line naming the device.
  */
 import { createHash } from 'crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -75,13 +75,13 @@ export function registerSpecRoutes(app: FastifyInstance, service: SpecService, d
   };
   const record = auditLog(configDirectory(service.home));
   /**
-   * One `[cld spec]` log line and (SPT §12.3, SPT-P1D) one audit.jsonl entry per write: the device,
+   * One `[agty spec]` log line and (SPT §12.3, SPT-P1D) one audit.jsonl entry per write: the device,
    * how it came in, the project's id and what changed, as UIDs and fixed words (`what`, never a
    * document's text: every value in it was checked as an id, an enum, a number or a flag).
    */
   const audit = (request: FastifyRequest, action: string, p: SpecProject, detail: string, what: string[] = []) => {
     const device = deps.actorOf?.(request) ?? 'device';
-    console.log(`[cld spec] ${action} device=${JSON.stringify(device)} project=${JSON.stringify(p.name)} ${detail}`);
+    console.log(`[agty spec] ${action} device=${JSON.stringify(device)} project=${JSON.stringify(p.name)} ${detail}`);
     record.write({ kind: 'spec', by: device, ...contextOf(request), detail: [action, p.projectId, ...what].join(' ') });
   };
   // audit.jsonl keeps 60 characters: values only where their place says what they are.

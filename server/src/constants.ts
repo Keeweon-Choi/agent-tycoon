@@ -4,7 +4,7 @@ import { CHAR_COUNT } from '../../core/src/assets/constants.js';
 export const FILE_WATCHER_POLL_INTERVAL_MS = 500;
 export const PROJECT_SCAN_INTERVAL_MS = 1000;
 
-// ── cld-gui sources ─────────────────────────────────────────
+// ── agty sources ─────────────────────────────────────────
 /** Usage refresh cadence while an office viewer is present. */
 export const USAGE_REFRESH_MS = 120_000;
 /** `agty status` uses the status line's saved report (no viewer, so no reading in memory) while it is younger than this. */
@@ -265,9 +265,9 @@ export const ALL_SEARCH_ROOM_SEGMENTS = 3;
 /** Files one library page returns (ends on a message boundary, so a message with several may pass it). */
 export const CHAT_LIBRARY_PAGE = 30;
 
-/** cld-gui (S6): a confirmed connector change closes the connection it came through this long after answering, so the page gets the result and can move. */
+/** agty (S6): a confirmed connector change closes the connection it came through this long after answering, so the page gets the result and can move. */
 export const CUT_GRACE_MS = 5000;
-/** cld-gui: the daemon's shutdown gives up and exits after this long (a hung step held deploys until systemd's SIGKILL). */
+/** agty: the daemon's shutdown gives up and exits after this long (a hung step held deploys until systemd's SIGKILL). */
 export const SHUTDOWN_DEADLINE_MS = 10_000;
 
 /** Tool descriptions remembered per agent for re-sends; a running tool is always among the newest. */
@@ -301,7 +301,7 @@ export const AGENT_CLI_RESTART_COMMAND_TIMEOUT_MS = 30_000;
 /** AGENT-CLI: exit code of a daemon that ends itself for a restart (EX_TEMPFAIL); the exit code itself restarts nothing, a helper or a test runner does. */
 export const AGENT_CLI_RESTART_EXIT_CODE = 75;
 
-// ── cld-gui TERM-P1 (ADR-0018): our own PTY host for agent sessions ──
+// ── agty TERM-P1 (ADR-0018): our own PTY host for agent sessions ──
 /** Scrollback of each agent terminal's mirror in the host (~3 MB at 200 columns). */
 export const PTYHOST_SCROLLBACK_LINES = 1_000;
 /** The host ends itself after this long with no terminal and no request. */
@@ -738,3 +738,8 @@ export const ACP_TRANSCRIPT_MAX_BYTES = 128 * 1024 * 1024;
 export const ACP_PLAN_MAX = 50;
 /** The end of an agent's stderr kept for the log when it fails to start (bytes). */
 export const ACP_STDERR_KEEP = 2_048;
+
+// ── Webview error reports (T-74) ──
+/** Reports one socket may log per window; the rest are counted and summed up once the window ends. */
+export const WEBVIEW_ERROR_BURST = 10;
+export const WEBVIEW_ERROR_WINDOW_MS = 60_000;

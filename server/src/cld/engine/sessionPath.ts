@@ -15,7 +15,7 @@ export type Run = (
 ) => string | null;
 
 export interface SessionPathOptions {
-  /** cld-gui's bin dir; goes first. */
+  /** agty's bin dir; goes first. */
   binDir: string | null;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;

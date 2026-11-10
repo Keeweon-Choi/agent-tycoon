@@ -51,6 +51,7 @@ import {
   RESUME_ITEM_CHARS,
   RESUME_SECTION_ITEMS,
 } from '../../constants.js';
+import { labelPrefixes } from '../labels.js';
 import { MASK_LINE_MAX, maskText } from '../mask.js';
 import { messageAround } from '../transcriptHistory.js';
 import { configDir } from './events.js';
@@ -155,7 +156,9 @@ const MISS = {
 const UID = /^r_[a-z2-7]{10}$/;
 /** A message id as a reply names it (core/src/cld/reply.ts REPLY_ID), with or without its `⟨m:`/`⟨re:` mark. */
 const MESSAGE_ID = /^(?:⟨(?:m|re):)?([A-Za-z0-9._:-]{1,64})⟩?$/;
-const RENEW_HEAD = '[cld-gui renew · ';
+// T-80: the handoff's first line reads `[agty renew · ` now and `[cld-gui renew · ` in conversations from before (drop the old one a release later).
+const RENEW_HEADS = labelPrefixes(' renew · ');
+const RENEW_HEAD_MAX = Math.max(...RENEW_HEADS.map((h) => h.length));
 const str = (x: unknown): string | null => (typeof x === 'string' && x.trim() ? x.trim() : null);
 /** At most n UTF-16 units, never splitting a surrogate pair (an emoji at the mark). */
 const cut = (t: string, n = AGENT_QUERY_LINE_MAX) => {
@@ -838,10 +841,10 @@ export function lastHandoff(
         if (best && st.mtimeMs <= best.at) continue;
         if (!inside(p)) continue;
         const fd = fs.openSync(p, 'r');
-        const head = Buffer.alloc(RENEW_HEAD.length * 3);
+        const head = Buffer.alloc(RENEW_HEAD_MAX * 3);
         const n = fs.readSync(fd, head, 0, head.length, 0);
         fs.closeSync(fd);
-        if (head.toString('utf-8', 0, n).startsWith(RENEW_HEAD)) best = { path: p, at: st.mtimeMs };
+        if (RENEW_HEADS.some((h) => head.toString('utf-8', 0, n).startsWith(h))) best = { path: p, at: st.mtimeMs };
       } catch {
         /* gone meanwhile */
       }

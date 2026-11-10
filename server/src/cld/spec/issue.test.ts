@@ -65,7 +65,7 @@ async function setup() {
     host = asHost;
     return server.inject({ method: 'POST', url: `/api/cld/spec/alpha/item/${uid}/issue`, headers: { origin: 'http://localhost:80', host: 'localhost:80' }, payload: body });
   };
-  const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec] issue'));
+  const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec] issue'));
   return { home, project, s, tasks, added, uid, items: items.value.items, post, audits };
 }
 

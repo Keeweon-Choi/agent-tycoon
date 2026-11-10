@@ -71,7 +71,7 @@ export function reorderByPointer(
   x: number,
   groupOf?: (id: number) => number,
 ): number[] {
-  // cld-gui (T-0036): with groups, the card only moves among its own group's
+  // agty (T-0036): with groups, the card only moves among its own group's
   // slots, so a drag never crosses into another group.
   const group = groupOf?.(dragId);
   const inGroup = (id: number) => !groupOf || groupOf(id) === group;
@@ -89,7 +89,7 @@ export function reorderByPointer(
   return ids.map((id) => (inGroup(id) ? moved[next++] : id));
 }
 
-/** cld-gui (T-0036): a card in cld mode — its group, its name and its temps (the portrait's +N). */
+/** agty (T-0036): a card in agty mode — its group, its name and its temps (the portrait's +N). */
 export interface CardInfo {
   /** Group rank: lower groups come first. */
   group: number;
@@ -97,7 +97,7 @@ export interface CardInfo {
   temps?: number;
 }
 
-/** cld-gui (T-0036): stable sort by group rank, keeping the order inside each group. */
+/** agty (T-0036): stable sort by group rank, keeping the order inside each group. */
 export function groupOrder(ids: readonly number[], groupOf: (id: number) => number): number[] {
   return ids
     .map((id, i) => ({ id, i, g: groupOf(id) }))

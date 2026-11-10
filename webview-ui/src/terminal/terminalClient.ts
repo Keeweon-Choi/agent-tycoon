@@ -21,13 +21,13 @@ export interface TerminalConnectionHandlers {
   onReplay(data: string, cols: number, rows: number): void;
   onExit(exitCode: number): void;
   onStatusChange(status: TerminalConnectionStatus): void;
-  /** cld-gui (T-0078): the server closed the socket for good (a 4xxx close), with its reason
+  /** agty (T-0078): the server closed the socket for good (a 4xxx close), with its reason
    *  ('no shell', 'shell closed', 'exited', 'proof', ...). */
   onRefused?(reason: string): void;
 }
 
 export interface TerminalConnectionOptions {
-  /** cld-gui (T-0078): runs before every (re)connect. True: go ahead. False: the user has to
+  /** agty (T-0078): runs before every (re)connect. True: go ahead. False: the user has to
    *  act first (the connection stops, refused as 'proof'). A throw (offline, the daemon
    *  restarting) is retried on the usual ladder. `force`: the server just refused the last proof. */
   prepare?: (force: boolean) => Promise<boolean>;
@@ -35,7 +35,7 @@ export interface TerminalConnectionOptions {
 
 export type TerminalConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'closed';
 
-/** Where an agent's terminal socket connects; cld-gui points its chats at
+/** Where an agent's terminal socket connects; agty points its chats at
  *  `/cld/attach/<background id>` (cld/chat.ts). */
 export const terminalSocket = {
   path: (agentId: number): string => `${TERMINAL_WS_PREFIX}/${String(agentId)}`,
@@ -55,7 +55,7 @@ export class TerminalConnection {
   private exited = false;
   /** Last known geometry, re-sent on reconnect so a resize during a drop isn't lost. */
   private pending: { cols: number; rows: number } | null = null;
-  /** cld-gui (T-0025): refused by the server (a 4xxx close), never reopened. */
+  /** agty (T-0025): refused by the server (a 4xxx close), never reopened. */
   private refused = false;
   /** When the last frame arrived and when the page was last hidden (ms). */
   private lastFrameAt = 0;
@@ -86,7 +86,7 @@ export class TerminalConnection {
     window.addEventListener('pageshow', this.onPageShow);
   }
 
-  // ── cld-gui (T-0025): back in the foreground ─────────────────
+  // ── agty (T-0025): back in the foreground ─────────────────
 
   private readonly onVisibility = (): void => {
     if (document.hidden) this.hiddenAt = Date.now();

@@ -81,7 +81,7 @@ export class DeviceKeys {
       data = parsed as DeviceFile | null;
     } catch {
       broken = true;
-      console.warn(`[cld auth] ${file} is unreadable; device keys stay off until it is fixed`);
+      console.warn(`[agty auth] ${file} is unreadable; device keys stay off until it is fixed`);
     }
     this.broken = broken;
     this.data = data ?? { v: 1, passkeyRequired: false, devices: [] };
@@ -217,7 +217,7 @@ export class DeviceKeys {
     try {
       writeJsonAtomic(this.file, this.data);
     } catch (err) {
-      console.error(`[cld auth] could not write ${this.file}: ${String(err)}`);
+      console.error(`[agty auth] could not write ${this.file}: ${String(err)}`);
     }
   }
 }

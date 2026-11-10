@@ -425,7 +425,7 @@ export function toggleFurnitureState(layout: OfficeLayout, uid: string): OfficeL
   return newType ? setFurnitureType(layout, uid, newType) : layout;
 }
 
-/** One placed item becomes `type` where it stands (cld-gui CH-6b: its redrawn copy). Returns
+/** One placed item becomes `type` where it stands (agty CH-6b: its redrawn copy). Returns
  *  the same layout when nothing changes. */
 export function setFurnitureType(layout: OfficeLayout, uid: string, type: string): OfficeLayout {
   if (!layout.furniture.some((f) => f.uid === uid && f.type !== type)) return layout;

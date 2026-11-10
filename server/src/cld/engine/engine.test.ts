@@ -818,8 +818,8 @@ describe('engine with the fake claude', () => {
     expect(project(e2, 'beta')!.live).toBe(false);
     expect(project(e2, 'alpha')!.sessionId).toBe(sids.alpha);
     expect(logs.filter((l) => l.includes('revive'))).toEqual([
-      `[cld engine] revive "alpha": ok bg=${sids.alpha.slice(0, 8)}`,
-      `[cld engine] revive "gamma": ok bg=${sids.gamma.slice(0, 8)}`,
+      `[agty engine] revive "alpha": ok bg=${sids.alpha.slice(0, 8)}`,
+      `[agty engine] revive "gamma": ok bg=${sids.gamma.slice(0, 8)}`,
     ]);
   });
 
@@ -844,12 +844,12 @@ describe('engine with the fake claude', () => {
     expect(bgCalls()).toHaveLength(1);
     // One line per action, with the device.
     expect(logs.filter((l) => l.includes(' action '))).toEqual([
-      '[cld engine] action add "alpha" gui:linux: refused (이 접속에는 조작 권한이 없어요)',
-      '[cld engine] action start "nope" gui:linux: refused (모르는 프로젝트예요)',
-      expect.stringMatching(/^\[cld engine\] action add "alpha" gui:linux: ok \d+\.\ds$/),
-      '[cld engine] action start "alpha" gui:linux: refused (alpha: 이미 다른 조작이 진행 중이에요)',
+      '[agty engine] action add "alpha" gui:linux: refused (이 접속에는 조작 권한이 없어요)',
+      '[agty engine] action start "nope" gui:linux: refused (모르는 프로젝트예요)',
+      expect.stringMatching(/^\[agty engine\] action add "alpha" gui:linux: ok \d+\.\ds$/),
+      '[agty engine] action start "alpha" gui:linux: refused (alpha: 이미 다른 조작이 진행 중이에요)',
       expect.stringMatching(
-        /^\[cld engine\] action start "alpha" gui:linux: ok bg=[0-9a-f]{8} \d+\.\ds$/,
+        /^\[agty engine\] action start "alpha" gui:linux: ok bg=[0-9a-f]{8} \d+\.\ds$/,
       ),
     ]);
   });
@@ -1084,6 +1084,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
   function rig(projects?: ProjectRecord[], timing: Partial<EngineOptions['timing']> = {}, more: Partial<EngineOptions> = {}) {
     const events: Array<{ type: string; source: string } & Record<string, unknown>> = [];
     const inbox: Array<{ name: string; text: string }> = [];
+    const replaces: unknown[] = []; // writeInbox's third argument, per call
     const started: string[] = [];
     const nudges: Array<[string, number, number]> = [];
     const s = setup({
@@ -1092,12 +1093,12 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
         timing: { ...FAST, renewPollMs: 20, ...timing },
         event: (type, source, fields) => events.push({ type, source, ...fields }),
         started: (name) => started.push(name),
-        writeInbox: (name, text) => (inbox.push({ name, text }), true),
+        writeInbox: (name, text, replace) => (inbox.push({ name, text }), replaces.push(replace), true),
         nudge: (name, n, fillPct) => nudges.push([name, n, fillPct]),
         ...more,
       },
     });
-    return { ...s, events, inbox, started, nudges };
+    return { ...s, events, inbox, replaces, started, nudges };
   }
   /** The fake's session file for a live job: status set by hand (a turn running). */
   function setStatus(home: string, id: string, status: string) {
@@ -1152,11 +1153,13 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       {
         name: 'alpha',
         text: expect.stringMatching(
-          /^\[cld-gui 자동 복구 · \d\d-\d\d \d\d:\d\d\] cld-gui가 다시 뜰 때/,
+          /^\[agty 자동 복구 · \d\d-\d\d \d\d:\d\d\] agty가 다시 뜰 때/,
         ),
       },
     ]);
     expect(r.inbox[0].text).toContain('하던 일을 확인하고 이어서 해 달라');
+    // T-80: a notice still waiting under the old tag is replaced too (both tags go to writeInbox).
+    expect(r.replaces[0]).toEqual(['[agty 자동 복구 · ', '[cld-gui 자동 복구 · ']);
     expect(r.started).toEqual(['alpha', 'alpha']);
     expect(r.events.filter((x) => x.type === 'orch_start').map((x) => x.source)).toEqual([
       'gui:linux',
@@ -1432,7 +1435,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     await new Promise((res) => setTimeout(res, 300));
     expect(e.renewing('alpha')).toBe(true);
     expect(r.inbox).toEqual([]);
-    expect(r.logs).toContain('[cld engine] renew "alpha": waits for 1 background sub-agent(s)');
+    expect(r.logs).toContain('[agty engine] renew "alpha": waits for 1 background sub-agent(s)');
     subs = 0;
     await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
@@ -1448,7 +1451,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     await new Promise((res) => setTimeout(res, 300));
     expect(e.renewing('alpha')).toBe(true);
     expect(r.inbox).toEqual([]);
-    expect(r.logs).toContain('[cld engine] renew "alpha": waits until its background sub-agents are known');
+    expect(r.logs).toContain('[agty engine] renew "alpha": waits until its background sub-agents are known');
     subs = 0;
     await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
@@ -1492,7 +1495,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true, format: 'ok' });
     const text = r.inbox[0].text;
     const order = [
-      '[cld-gui renew · ',
+      '[agty renew · ',
       '이전 대화와 아래 인수인계는 읽기 전용 참고다',
       '워크트리(`git status`)가 아래 기록과 다르면 워크트리가 정본이다',
       '먼저 어디서 멈췄는지',
@@ -1545,7 +1548,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     expect(e.renew('alpha', 'HANDOFF', 'cli')).toEqual({ ok: true });
     await waitFor(() => expect(r.events.some((x) => x.type === 'orch_renew')).toBe(true));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: true });
-    expect(r.logs).toContain('[cld engine] renew "alpha": turn over (status shell)');
+    expect(r.logs).toContain('[agty engine] renew "alpha": turn over (status shell)');
     expect(r.inbox).toEqual([{ name: 'alpha', text: expect.stringContaining('HANDOFF') }]);
   });
 
@@ -1869,13 +1872,13 @@ describe('engine watch (T-0091): a wantRunning session that dies while the daemo
       {
         name: 'alpha',
         text: expect.stringMatching(
-          /^\[cld-gui 자동 복구 · [\d: -]+\] 같은 부팅에서 세션이 꺼져 다시 띄웠다/,
+          /^\[agty 자동 복구 · [\d: -]+\] 같은 부팅에서 세션이 꺼져 다시 띄웠다/,
         ),
       },
     ]);
     await pause(400); // more checks, all alive
     expect(r.logs.filter((l) => l.includes('revive'))).toEqual([
-      `[cld engine] revive "alpha": ok bg=${sid.slice(0, 8)}`,
+      `[agty engine] revive "alpha": ok bg=${sid.slice(0, 8)}`,
     ]);
   });
 

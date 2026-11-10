@@ -35,7 +35,7 @@ export function getWalkableTiles(
 }
 
 /** BFS pathfinding on 4-connected grid (no diagonals). Returns path excluding start, including end.
- *  cld-gui (ELEVATOR): `links` are extra one-step edges ("col,row" -> tiles), the elevator
+ *  agty (ELEVATOR): `links` are extra one-step edges ("col,row" -> tiles), the elevator
  *  between stacked floors; a path that rides has one step that is not to a neighbour. */
 export function findPath(
   startCol: number,

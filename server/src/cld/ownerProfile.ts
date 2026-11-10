@@ -78,7 +78,7 @@ export function registerOwnerProfileRoutes(
       // The header first (size, format, interlace), then a full decode.
       const problem = pngProblem(png, OWNER_PICTURE_SIDE, OWNER_PICTURE_SIDE, true);
       if (problem) {
-        console.warn(`[cld] profile: upload refused: ${problem}`);
+        console.warn(`[agty] profile: upload refused: ${problem}`);
         return reply.code(400).send({ error: problem });
       }
       try {

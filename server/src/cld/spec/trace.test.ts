@@ -374,7 +374,7 @@ describe.skipIf(!GIT_AVAILABLE)('the trace routes', () => {
     const same = { origin: 'http://localhost:80', host: 'localhost:80', 'x-session': 'ok' };
     const call = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: object, headers: Record<string, string> = same) =>
       server.inject({ method, url: `/api/cld/spec/alpha/${url}`, headers, ...(payload && { payload }) });
-    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[cld spec]'));
+    const audits = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[agty spec]'));
     return { ...t, call, same, audits };
   }
 
@@ -409,7 +409,7 @@ describe.skipIf(!GIT_AVAILABLE)('the trace routes', () => {
     expect((await t.call('DELETE', `links/${added.id}`)).statusCode).toBe(200);
     const a = t.audits();
     expect(a).toHaveLength(5);
-    expect(a[0]).toBe(`[cld spec] link device="Test phone" project="alpha" ${added.id} ${u} implements T-2`);
+    expect(a[0]).toBe(`[agty spec] link device="Test phone" project="alpha" ${added.id} ${u} implements T-2`);
     expect(a.join('\n')).not.toMatch(/secret-ish|SRS|요구/);
     const jsonl = fs.readFileSync(path.join(t.home, '.config/agent-tycoon/audit.jsonl'), 'utf-8');
     expect(jsonl.trim().split('\n').map((l) => (JSON.parse(l) as { detail: string }).detail.split(' ')[0]).slice(-5)).toEqual(['link', 'confirm', 'reject', 'link-edit', 'unlink']);
