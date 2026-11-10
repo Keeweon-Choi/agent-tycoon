@@ -352,10 +352,10 @@ export async function launchStandalone(
     await page.context().addInitScript(() => {
       try {
         // The specs read the terminal from xterm's DOM rows; a pane otherwise draws with WebGL.
-        localStorage.setItem('cld.terminal-renderer', 'dom');
+        localStorage.setItem('agty.terminal-renderer', 'dom');
         // The specs click where the upstream camera puts things (no auto framing).
-        localStorage.setItem('cld.camera-mode', 'off');
-        localStorage.setItem('cld.title-scene', 'off'); // no title scene over the office
+        localStorage.setItem('agty.camera-mode', 'off');
+        localStorage.setItem('agty.title-scene', 'off'); // no title scene over the office
       } catch {
         // No storage (about:blank): nothing to pin there.
       }

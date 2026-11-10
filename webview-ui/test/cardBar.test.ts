@@ -49,7 +49,7 @@ describe('reorderByPointer', () => {
   });
 });
 
-// cld-gui (T-0036): cards grouped by kind, manual order kept inside groups.
+// agty (T-0036): cards grouped by kind, manual order kept inside groups.
 describe('groups', () => {
   // 1, 2 and 5 are group 0; 3 and 4 group 1.
   const groupOf = (id: number) => (id === 3 || id === 4 ? 1 : 0);

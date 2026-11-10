@@ -3,9 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { agtyHooks } from '../src/agent-tycoon/hooks.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
-import { cldHooks } from '../src/cld/hooks.js';
 import {
   type AssetCache,
   type ClientMessageContext,
@@ -700,12 +700,13 @@ describe('clientMessageHandler: standalone terminal control plane', () => {
   });
 
   afterEach(() => {
+    // Dispose while HOME is still the temp home: dispose persists the store through the adapter.
+    runtime.dispose();
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
     }
-    runtime.dispose();
     store.dispose();
     fs.rmSync(tempHome, { recursive: true, force: true });
   });
@@ -1171,8 +1172,8 @@ describe('clientMessageHandler: read-only (untokened) clients', () => {
 
   it('CH-4: a read-only client cannot save a look (setCharacter never reaches the office)', () => {
     const seen: string[] = [];
-    const before = cldHooks.onClientMessage;
-    cldHooks.onClientMessage = (msg) => void seen.push(String(msg.type));
+    const before = agtyHooks.onClientMessage;
+    agtyHooks.onClientMessage = (msg) => void seen.push(String(msg.type));
     try {
       const look = { type: 'setCharacter', key: 'alpha', character: { palette: 1, hueShift: 0 } };
       handleClientMessage(look, (m) => sent.push(m), { store, cache: null, privileged: false });
@@ -1185,7 +1186,7 @@ describe('clientMessageHandler: read-only (untokened) clients', () => {
       handleClientMessage(look, (m) => sent.push(m), { store, cache: null, privileged: true });
       expect(seen).toEqual(['setCharacter']);
     } finally {
-      cldHooks.onClientMessage = before;
+      agtyHooks.onClientMessage = before;
     }
   });
 

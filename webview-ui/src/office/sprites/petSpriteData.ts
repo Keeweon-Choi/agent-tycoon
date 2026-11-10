@@ -1,6 +1,6 @@
-import { MASCOT_SPECIES } from '../../../../core/src/cld/looks.js';
+import { MASCOT_SPECIES } from '../../../../core/src/agent-tycoon/looks.js';
 import type { MascotSpecies } from '../../../../core/src/messages.js';
-import { composeMascot, MASCOTS } from '../../cld/characters/compose.js';
+import { composeMascot, MASCOTS } from '../../agent-tycoon/characters/compose.js';
 import { t } from '../../i18n/index.js';
 import type { SpriteData } from '../types.js';
 

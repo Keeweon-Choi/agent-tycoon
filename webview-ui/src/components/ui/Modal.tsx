@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-import { requestStaleRecheck } from '../../cld/staleBuild.js';
+import { requestStaleRecheck } from '../../agent-tycoon/staleBuild.js';
 import { Button } from './Button.js';
 import { TITLE_BAR } from './windowChrome.js';
 
@@ -44,7 +44,7 @@ export function Modal({
           overflow scrolls. Clicks on the margin fall through to the
           backdrop. */}
       <div
-        className="fixed inset-0 flex items-center justify-center pt-[calc(var(--cld-safe-top)+8px)] pr-[calc(var(--cld-safe-right)+8px)] pb-[calc(var(--cld-safe-bottom)+8px)] pl-[calc(var(--cld-safe-left)+8px)] pointer-events-none"
+        className="fixed inset-0 flex items-center justify-center pt-[calc(var(--agty-safe-top)+8px)] pr-[calc(var(--agty-safe-right)+8px)] pb-[calc(var(--agty-safe-bottom)+8px)] pl-[calc(var(--agty-safe-left)+8px)] pointer-events-none"
         style={{ zIndex: zIndex + 1 }}
       >
         <div

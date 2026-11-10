@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { koText, matchKorean, refused, SERVER_TEXT } from '../../core/src/cld/serverText.js';
-import { serverLine, serverText } from '../src/cld/serverText.js';
+import { koText, matchKorean, refused, SERVER_TEXT } from '../../core/src/agent-tycoon/serverText.js';
+import { serverLine, serverText } from '../src/agent-tycoon/serverText.js';
 import { en } from '../src/i18n/en.js';
 import { setLanguage, translate } from '../src/i18n/index.js';
 import { ko } from '../src/i18n/ko.js';

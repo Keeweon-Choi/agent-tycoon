@@ -1,5 +1,5 @@
 /**
- * The drawn floor and wall tiles (cld/scripts/gen-floors-walls.ts) keep the format the
+ * The drawn floor and wall tiles (agent-tycoon/scripts/gen-floors-walls.ts) keep the format the
  * engine reads: nine distinct opaque 16x16 grayscale floors with a wide luminance range
  * (Colorize squashes contrast, so a flat pattern vanishes), and a 64x128 wall sheet of
  * 16 pieces (16x32) whose outline sits only where no wall continues (N=1 E=2 S=4 W=8).

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { Movable } from '../cld/hud/Movable.js';
+import { Movable } from '../agent-tycoon/hud/Movable.js';
 import {
   ZOOM_LEVEL_FADE_DELAY_MS,
   ZOOM_LEVEL_FADE_DURATION_SEC,

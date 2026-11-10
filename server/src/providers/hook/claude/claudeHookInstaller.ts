@@ -7,8 +7,8 @@ import {
   LEGACY_OFFICE_FOLDER,
   OFFICE_FOLDER,
   officeDirectory,
-  SETTINGS_FOLDERS,
-} from '../../../cld/configPath.js';
+  SETTINGS_FOLDER,
+} from '../../../agent-tycoon/configPath.js';
 import { HOOK_SCRIPTS_SUBDIR } from '../../../constants.js';
 import {
   CLAUDE_HOOK_EVENTS,
@@ -297,13 +297,12 @@ function removeIfPresent(filePath: string): void {
   }
 }
 
-/** The path suffixes we own: `/.config/<settings folder>/office/hooks/claude-hook.js`, for both
- *  names the settings folder has (configPath.cjs). The leading separator is load-bearing —
- *  without it `/opt/evil.config/...` and `my-claude-hook.js` match by substring. */
-const HOOK_PATH_SUFFIXES = SETTINGS_FOLDERS.map(
-  (folder) =>
-    `/.config/${folder}/${OFFICE_FOLDER}/${HOOK_SCRIPTS_SUBDIR}/${CLAUDE_HOOK_SCRIPT_NAME}`,
-);
+/** The path suffix we own: `/.config/agent-tycoon/office/hooks/claude-hook.js` (configPath.cjs). The
+ *  leading separator is load-bearing — without it `/opt/evil.config/...` and `my-claude-hook.js`
+ *  match by substring. */
+const HOOK_PATH_SUFFIXES = [
+  `/.config/${SETTINGS_FOLDER}/${OFFICE_FOLDER}/${HOOK_SCRIPTS_SUBDIR}/${CLAUDE_HOOK_SCRIPT_NAME}`,
+];
 
 /** Where the script lived until 2026-11 (`/.pixel-agents/hooks/claude-hook.js`), and its name
  *  before the rename to claude-hook.js. The upstream Pixel Agents extension writes exactly the same

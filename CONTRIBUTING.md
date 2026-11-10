@@ -22,7 +22,7 @@ node dist/cli.js       # the daemon; open the URL it prints
 
 ### Maintainer release checklist
 
-This fork publishes no VS Code extension and no npm package. Releases are daemon bundles built by [`.github/workflows/release-bundles.yml`](.github/workflows/release-bundles.yml) on a `v*` tag (or a manual run), signed behind the `release` environment. Before tagging: set the version in `cld/release/version.json` to match the tag, run `npm ci`, `npm test`, and wait for the CI gate and a manual full CI run (3-OS e2e) to pass on `main`.
+This fork publishes no VS Code extension and no npm package. Releases are daemon bundles built by [`.github/workflows/release-bundles.yml`](.github/workflows/release-bundles.yml) on a `v*` tag (or a manual run), signed behind the `release` environment. Before tagging: set the version in `agent-tycoon/release/version.json` to match the tag, run `npm ci`, `npm test`, and wait for the CI gate and a manual full CI run (3-OS e2e) to pass on `main`.
 
 ## Development Workflow
 

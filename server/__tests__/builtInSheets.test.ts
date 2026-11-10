@@ -8,16 +8,16 @@ import * as path from 'path';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 
+import { checkSheetPng, SHEET_W } from '../../core/src/agent-tycoon/sheetCheck.js';
 import {
   CHAR_COUNT,
   CHAR_FRAME_H,
   CHAR_FRAME_W,
   PNG_ALPHA_THRESHOLD,
 } from '../../core/src/assets/constants.js';
-import { checkSheetPng, SHEET_W } from '../../core/src/cld/sheetCheck.js';
+import { CharacterPresets } from '../src/agent-tycoon/characterPresets.js';
+import { builtInSheetDirs } from '../src/agent-tycoon/packs.js';
 import { loadCharacterSprites } from '../src/assetLoader.js';
-import { CharacterPresets } from '../src/cld/characterPresets.js';
-import { builtInSheetDirs } from '../src/cld/packs.js';
 
 const PUBLIC = path.join(__dirname, '..', '..', 'webview-ui', 'public');
 const sheet = (i: number) => path.join(PUBLIC, 'assets', 'characters', `char_${i}.png`);
@@ -89,7 +89,7 @@ describe('DIAG-1104: the built-in three-quarter walks (char_N_diag.png)', () => 
   });
 });
 
-describe('BUNNY-SHEET: the built-in bunny (cld/packs/hd-bunny/sheets/builtin-bunny.png)', () => {
+describe('BUNNY-SHEET: the built-in bunny (agent-tycoon/packs/hd-bunny/sheets/builtin-bunny.png)', () => {
   /** 9 columns × 5 rows of 288×528 cells; a standing frame's feet end on row 511. */
   const [CELL_W, CELL_H, COLS, ROWS, FEET] = [288, 528, 9, 5, 511];
 

@@ -1,8 +1,8 @@
 import * as path from 'path';
 
 import type { AgentEvent, HookProvider } from '../../core/src/provider.js';
+import { toolDescription } from './agent-tycoon/transcriptView.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { toolDescription } from './cld/transcriptView.js';
 import { SESSION_END_GRACE_MS } from './constants.js';
 import { readEnv } from './env.js';
 import { readNewLines } from './fileWatcher.js';

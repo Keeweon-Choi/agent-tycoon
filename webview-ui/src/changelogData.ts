@@ -19,7 +19,7 @@ export function toMajorMinor(version: string): string {
 export const CHANGELOG_REPO_URL = 'https://github.com/Keeweon-Choi/agent-tycoon';
 
 /** Newest first. A release's words live in i18n under `changelog.<version>.*`; only the text of
- *  the version the app reports (cld/release/version.json, major.minor) is shown, else the newest. */
+ *  the version the app reports (agent-tycoon/release/version.json, major.minor) is shown, else the newest. */
 export const changelogEntries: ChangelogEntry[] = [
   {
     version: '0.1',

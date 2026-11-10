@@ -31,7 +31,7 @@ describe('pixel font stacks (T-0054)', () => {
     expect(stacks.length).toBeGreaterThanOrEqual(2);
     expect(PIXEL_FONT_FAMILY).toMatch(/^'FS Pixel Sans', 'Galmuri11'$/);
     expect(read('src/index.css')).toContain("--pixel-font-stack: 'FS Pixel Sans', 'Galmuri11'");
-    expect(read('src/cld/login/login.css')).toContain("'FS Pixel Sans', 'Galmuri11'");
+    expect(read('src/agent-tycoon/login/login.css')).toContain("'FS Pixel Sans', 'Galmuri11'");
   });
 
   it('serves every Galmuri face from public/fonts/galmuri, Hangul only', () => {
@@ -51,6 +51,6 @@ describe('pixel font stacks (T-0054)', () => {
   it('the login page carries the same @font-face rules (it cannot @import)', () => {
     const faces = (css: string) =>
       [...css.matchAll(/@font-face\s*\{[^}]*Galmuri[^}]*\}/g)].map((m) => m[0]);
-    expect(faces(read('src/cld/login/login.css'))).toEqual(faces(read('src/fonts.css')));
+    expect(faces(read('src/agent-tycoon/login/login.css'))).toEqual(faces(read('src/fonts.css')));
   });
 });

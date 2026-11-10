@@ -10,4 +10,4 @@
 *.vsix binary
 
 # git clone --progress stderr as git wrote it (lone \r updates): byte for byte
-server/src/cld/fixtures/git-clone-progress.txt -text
+server/src/agent-tycoon/fixtures/git-clone-progress.txt -text

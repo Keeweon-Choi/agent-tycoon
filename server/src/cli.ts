@@ -11,23 +11,23 @@
 import * as os from 'os';
 import * as path from 'path';
 
+import { findClaude } from './agent-tycoon/agentCli.js';
+import { ChatManager } from './agent-tycoon/chat.js';
+import { configDirectory } from './agent-tycoon/configPath.js';
+import { customFurnitureDir, registerFurnitureRoutes } from './agent-tycoon/customFurniture.js';
+import type { EngineMode } from './agent-tycoon/engine/engine.js';
+import { readGpuConfig } from './agent-tycoon/engine/gpu.js';
+import { AGTY_BIN_DIR, cleanEnv, findSystemdRun } from './agent-tycoon/engine/sessionEnv.js';
+import { agtyHooks } from './agent-tycoon/hooks.js';
+import { findNvidiaSmi } from './agent-tycoon/hw/nvidiaSmi.js';
+import { AGTY_PTYHOST, startOffice } from './agent-tycoon/office.js';
+import { PlainOffice, restartDaemon } from './agent-tycoon/plainOffice.js';
+import { hostLauncher, PtyHostClient } from './agent-tycoon/ptyhost/client.js';
+import { type Connector, isConnector, startRemote, testRemoteDeps } from './agent-tycoon/remote/index.js';
+import { runSelfTest } from './agent-tycoon/selfTest.js';
 import { AgentRuntime } from './agentRuntime.js';
 import { AgentStateStore } from './agentStateStore.js';
 import { buildAssetCache, loadAllCharacters, loadAllFurniture } from './assetReload.js';
-import { findClaude } from './cld/agentCli.js';
-import { ChatManager } from './cld/chat.js';
-import { configDirectory } from './cld/configPath.js';
-import { customFurnitureDir, registerFurnitureRoutes } from './cld/customFurniture.js';
-import type { EngineMode } from './cld/engine/engine.js';
-import { readGpuConfig } from './cld/engine/gpu.js';
-import { CLD_BIN_DIR, cleanEnv, findSystemdRun } from './cld/engine/sessionEnv.js';
-import { cldHooks } from './cld/hooks.js';
-import { findNvidiaSmi } from './cld/hw/nvidiaSmi.js';
-import { CLD_PTYHOST, startOffice } from './cld/office.js';
-import { PlainOffice, restartDaemon } from './cld/plainOffice.js';
-import { hostLauncher, PtyHostClient } from './cld/ptyhost/client.js';
-import { type Connector, isConnector, startRemote, testRemoteDeps } from './cld/remote/index.js';
-import { runSelfTest } from './cld/selfTest.js';
 import type { AssetCache, ReloadAssetsSideEffect } from './clientMessageHandler.js';
 import { readConfig } from './configPersistence.js';
 import {
@@ -399,13 +399,13 @@ async function main(): Promise<void> {
       const exitForSupervisor = () => void shutdown(AGENT_CLI_RESTART_EXIT_CODE);
       const plain = new PlainOffice({
         find: () => findClaude(),
-        // Browser runners play the supervisor (cld/test/run-agent-cli.ts); unset in every install.
+        // Browser runners play the supervisor (agent-tycoon/test/run-agent-cli.ts); unset in every install.
         restart: async () =>
-          process.env.CLD_GUI_TEST_RESTART === 'exit'
+          process.env.AGTY_TEST_RESTART === 'exit'
             ? (exitForSupervisor(), true)
-            : restartDaemon({ binDir: CLD_BIN_DIR, exitForSupervisor }),
+            : restartDaemon({ binDir: AGTY_BIN_DIR, exitForSupervisor }),
       });
-      Object.assign(cldHooks, plain.hooks());
+      Object.assign(agtyHooks, plain.hooks());
     }
 
     // Wire hook events: HTTP POST -> runtime -> hookEventHandler -> agents
@@ -452,13 +452,13 @@ async function main(): Promise<void> {
       configDir: configDirectory(os.homedir()),
       token: hostToken,
       legacyTailscaleTrust: args.legacyTailscaleTrust,
-      // Browser runners' fake network (cld/test/run-access.ts); unset in every install.
-      deps: testRemoteDeps(process.env.CLD_GUI_TEST_REMOTE),
+      // Browser runners' fake network (agent-tycoon/test/run-access.ts); unset in every install.
+      deps: testRemoteDeps(process.env.AGTY_TEST_REMOTE),
     });
 
     // CH-6b: save/remove a redrawn furniture item, then every client gets the new catalog.
-    const previousRoutes = cldHooks.registerRoutes;
-    cldHooks.registerRoutes = (app, auth, ...rest) => {
+    const previousRoutes = agtyHooks.registerRoutes;
+    agtyHooks.registerRoutes = (app, auth, ...rest) => {
       previousRoutes?.(app, auth, ...rest);
       registerFurnitureRoutes(app, auth, {
         dir: customFurniture,
@@ -496,13 +496,13 @@ async function main(): Promise<void> {
       allowTerminal: args.allowTerminal,
       // ADR-0018: shells in the PTY host, through the engine's client (one of their own with the engine off).
       shellHost:
-        args.allowTerminal && CLD_PTYHOST
+        args.allowTerminal && AGTY_PTYHOST
           ? (office?.engine?.pty.host ??
             new PtyHostClient({
               home: os.homedir(),
               launch: hostLauncher({
                 home: os.homedir(),
-                hostScript: CLD_PTYHOST,
+                hostScript: AGTY_PTYHOST,
                 env: cleanEnv(process.env, os.homedir()),
                 systemdRun: findSystemdRun(),
                 log: (line) => console.log(`[agty shell] ${line}`),
@@ -549,7 +549,7 @@ async function main(): Promise<void> {
     // The login link is short-lived and keeps the long-lived server token out
     // of browser URLs and history. Only on a terminal: under systemd or nohup
     // stdout is a log, and a code never goes into a log (the installer and
-    // cld-gui-login mint their own over /api/login-code).
+    // agty-login mint their own over /api/login-code).
     if (process.stdout.isTTY) {
       const displayHost =
         args.host === '0.0.0.0' || args.host === '::' || args.host === '' ? '127.0.0.1' : args.host;

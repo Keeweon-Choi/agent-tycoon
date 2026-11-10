@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import type { HooksConsentRequest } from '../../../core/src/messages.js';
-import { chooseBypass, useBypass } from '../cld/bypass.js';
+import { chooseBypass, useBypass } from '../agent-tycoon/bypass.js';
 import { BYPASS_ANSWER_TIMEOUT_MS } from '../constants.js';
 import { transport } from '../transport/index.js';
 import type { BypassStatus, ConsentChoice } from './introTourState.js';

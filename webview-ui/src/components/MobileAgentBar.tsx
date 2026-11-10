@@ -1,13 +1,13 @@
 import type { TouchEvent as ReactTouchEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { PartyPortrait, PartyWaiting } from '../cld/game/Party.js';
+import { PartyPortrait, PartyWaiting } from '../agent-tycoon/game/Party.js';
 import {
   mobileRosterState,
   nextMobileRosterState,
   savedMobileRosterState,
-} from '../cld/mobileRoster.js';
-import { usePartyColumn } from '../cld/party/partyColumn.js';
+} from '../agent-tycoon/mobileRoster.js';
+import { usePartyColumn } from '../agent-tycoon/party/partyColumn.js';
 import {
   CARD_REORDER_LONG_PRESS_MS,
   CARD_SCROLL_INTO_VIEW_MARGIN_PX,
@@ -132,7 +132,7 @@ export function MobileAgentBar({
   const rows = party.rows;
   const [draggingId, setDraggingId] = useState<number | null>(null);
   // Compact is the default; one control opens the full cards, folds the strip away,
-  // then restores its compact form. This stays a viewer-only preference. The party (cld) has
+  // then restores its compact form. This stays a viewer-only preference. The party (agty) has
   // no full cards: the control folds it away and back.
   const [rosterState, setRosterState] = useState(loadRosterState);
   const hidden = rosterState === MOBILE_ROSTER_STATES.HIDDEN;
@@ -334,15 +334,15 @@ export function MobileAgentBar({
     // in the strip too (owner 11-01 03:13), under the joystick (which rests above it) and clear of
     // 자동/로비 (bottom-right).
     <div
-      className={`shrink-0 bg-bg touch-pan-x ${hidden ? 'relative h-0 z-30' : `border-t-2 border-border ${safeBottom ? 'pb-(--cld-safe-bottom)' : ''}`}`}
+      className={`shrink-0 bg-bg touch-pan-x ${hidden ? 'relative h-0 z-30' : `border-t-2 border-border ${safeBottom ? 'pb-(--agty-safe-bottom)' : ''}`}`}
       data-testid="mobile-agent-bar"
       data-roster-state={rosterState}
     >
       <div
         className={
           hidden
-            ? `absolute left-[calc(var(--cld-safe-left)+8px)] flex ${safeBottom ? 'bottom-(--cld-safe-bottom)' : 'bottom-0'}`
-            : 'flex items-stretch gap-6 py-6 pl-[calc(var(--cld-safe-left)+8px)] pr-[calc(var(--cld-safe-right)+8px)]'
+            ? `absolute left-[calc(var(--agty-safe-left)+8px)] flex ${safeBottom ? 'bottom-(--agty-safe-bottom)' : 'bottom-0'}`
+            : 'flex items-stretch gap-6 py-6 pl-[calc(var(--agty-safe-left)+8px)] pr-[calc(var(--agty-safe-right)+8px)]'
         }
       >
         <button

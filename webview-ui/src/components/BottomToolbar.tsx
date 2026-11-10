@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { interiorOn } from '../cld/features.js';
+import { interiorOn } from '../agent-tycoon/features.js';
 import type { Directory } from '../hooks/useExtensionMessages.js';
 import { transport } from '../transport/index.js';
 import { LaunchDrawer } from './LaunchDrawer.js';

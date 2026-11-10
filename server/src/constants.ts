@@ -356,7 +356,7 @@ export const PTY_CLOSE_WAIT_MS = 10_000;
 /** A control-socket request that may wait this long (that hook, a move): longer than both. */
 export const CONTROL_LONG_MS = 5 * 60_000;
 
-// ── P4 dev room (cld/devroom.ts) ──
+// ── P4 dev room (agent-tycoon/devroom.ts) ──
 /** The dev room footer's stats (daemon and PTY host memory, terminals) while anyone has it open. */
 export const DEVROOM_STATS_MS = 10_000;
 /** A review's changed-file list is reused this long by its per-file diffs (RepoManager.changesOf). */
@@ -377,7 +377,7 @@ export const QUESTIONS_MAX = 100;
  *  however often a PDF or video viewer reads it: enough to read or watch, never a lasting link. */
 export const EXTERNAL_TICKET_MAX_MS = 30 * 60_000;
 
-// ── SPT-P1A spec tracking (server/src/cld/spec/) ──
+// ── SPT-P1A spec tracking (server/src/agent-tycoon/spec/) ──
 /** Finding documents walks the project folder's working tree this far, then stops (what it found stands). */
 export const SPEC_WALK_DIRS_MAX = 2_000;
 export const SPEC_WALK_FILES_MAX = 5_000;
@@ -415,7 +415,7 @@ export const SPEC_ITEM_TITLE_MAX = 200;
 export const SPEC_ITEMS_PAGE = 200;
 export const SPEC_ITEMS_PAGE_MAX = 500;
 
-// RQ4: the optional official Spec Kit install (server/src/cld/spec/workflow.ts).
+// RQ4: the optional official Spec Kit install (server/src/agent-tycoon/spec/workflow.ts).
 /** The Spec Kit release `uvx --from` runs, as shown (a new one is read, files and options, before it goes here). */
 export const SPEC_KIT_VERSION = 'v1.3.1';
 /** …pinned by its commit (v1.3.1's annotated tag points here; a tag can move, the release is not immutable).
@@ -439,7 +439,7 @@ export const SPEC_KIT_WALK_MAX = 5_000;
 export const SPEC_QUERY_MAX = 100;
 // ── SPT-P1C identity ladder, match cache, questions ──
 /**
- * R2's ladder (cld/docs/research/spec-tracking-identity-2026-11-03.md §3), every number by name.
+ * R2's ladder (agent-tycoon/docs/research/spec-tracking-identity-2026-11-03.md §3), every number by name.
  * accept/low/margin: T3 takes a pair at `accept` with `margin` over the next one, asks from `low`;
  * crossDocBody: a pair across documents needs this much body overlap (else capped under accept);
  * retiredPenalty: coming back from retirement needs a bit more.
@@ -538,7 +538,7 @@ export const SPEC_RECENT_MERGES = 10;
 /** A commit's or a job's requirement chips in 최근 근거, at most. */
 export const SPEC_RECENT_REQS = 10;
 /** MEM-IDLE: the glibc malloc settings the installer starts the daemon with (DAEMON_ENV in
- *  cld/install/install.mjs). glibc reads them at exec; the daemon then drops them so claude
+ *  agent-tycoon/install/install.mjs). glibc reads them at exec; the daemon then drops them so claude
  *  sessions, terminals, jobs and codex it starts keep glibc's defaults. */
 export const DAEMON_ONLY_ENV = ['MALLOC_MMAP_THRESHOLD_', 'MALLOC_TRIM_THRESHOLD_'] as const;
 /** SPT-P4A architecture graph (§8): a Mermaid line longer than this refuses its block (the readers stay linear). */
@@ -635,7 +635,7 @@ export const SPEC_MAP_LOG_MAX_BYTES = 8 * 1024 * 1024;
 /**
  * The link paths counted by default (the bar, the chain's 파일, the cells' 요구 N); the others show in
  * [펼치기] only. A path is on when its sample, judged by an independent agent (not the owner), is right
- * at least SPEC_MAP_PATH_ON_RATE of the time (cld/docs/research/spec-map-links-2026-11-04.md;
+ * at least SPEC_MAP_PATH_ON_RATE of the time (agent-tycoon/docs/research/spec-map-links-2026-11-04.md;
  * chain.test.ts holds it to the sample).
  */
 export const SPEC_MAP_PATH_ON_RATE = 0.7;

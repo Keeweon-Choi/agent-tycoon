@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 
-import { interiorOn } from '../cld/features.js';
-import { setPerfOn, usePerfOn } from '../cld/perf.js';
+import { interiorOn } from '../agent-tycoon/features.js';
+import { setPerfOn, usePerfOn } from '../agent-tycoon/perf.js';
 import { t } from '../i18n/index.js';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { transport } from '../transport/index.js';

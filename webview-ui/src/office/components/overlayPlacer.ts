@@ -9,8 +9,8 @@
  *
  * Deliberately free of React and of DOM reads (the elements are only written): unit-testable.
  */
-import { drawnShift } from '../../cld/floors.js';
-import { isoFrame, isoOverlayFor } from '../../cld/iso/render.js';
+import { drawnShift } from '../../agent-tycoon/floors.js';
+import { isoFrame, isoOverlayFor } from '../../agent-tycoon/iso/render.js';
 import { characterDrawn } from '../engine/officeState.js';
 import type { OverlayProjection } from '../projection.js';
 import type { Character } from '../types.js';

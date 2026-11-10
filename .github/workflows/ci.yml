@@ -95,15 +95,15 @@ jobs:
 
       - name: Installer Tests
         if: ${{ !cancelled() }}
-        run: node --test cld/install/*.test.mjs
+        run: node --test agent-tycoon/install/*.test.mjs
 
       - name: Docs Check
         if: ${{ !cancelled() }}
-        run: node cld/scripts/docs-check.mjs --root cld
+        run: node agent-tycoon/scripts/docs-check.mjs --root agent-tycoon
 
       - name: Traceability Drift
         if: ${{ !cancelled() }}
-        run: node cld/scripts/docs-check.mjs --root cld --write-trace && git diff --exit-code cld/docs/requirements/traceability.md
+        run: node agent-tycoon/scripts/docs-check.mjs --root agent-tycoon --write-trace && git diff --exit-code agent-tycoon/docs/requirements/traceability.md
 
   # Manual runs and version tags only.
   # R4: the server suite on macOS and Windows (Linux runs it in the gate). Same policy as the e2e matrix.
@@ -146,7 +146,7 @@ jobs:
           TMP: ${{ runner.temp }}
         # ptyhost (TERM-P2): only our PTY host's tests (named pipe + token on Windows, conpty.dll, the
         # fake claude in a real ConPTY / macOS PTY). Its own esbuild build; no dist needed.
-        run: npx vitest run ${{ inputs.only == 'ptyhost' && 'src/cld/ptyhost' || '' }} --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
+        run: npx vitest run ${{ inputs.only == 'ptyhost' && 'src/agent-tycoon/ptyhost' || '' }} --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
 
       - name: Upload Results
         if: always()

@@ -11,7 +11,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { legacyOfficeDirectory, officeDirectory } from './cld/configPath.js';
+import { legacyOfficeDirectory, officeDirectory } from './agent-tycoon/configPath.js';
 import {
   CONFIG_FILE_NAME,
   LAYOUT_FILE_NAME,

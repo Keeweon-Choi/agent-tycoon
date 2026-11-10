@@ -1,33 +1,31 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
-import { toMajorMinor } from './changelogData.js';
-import { setChangelogOpener } from './changelogOpen.js';
-import { ActionLayer } from './cld/ActionLayer.js';
-import { AgentCliNotice } from './cld/AgentCliNotice.js';
-import { AuthLayer } from './cld/auth/AuthLayer.js';
-import { LobbyBoard } from './cld/board/LobbyBoard.js';
-import { WhiteboardMemos } from './cld/board/WhiteboardMemos.js';
-import { bypassReadOnly, useBypass } from './cld/bypass.js';
-import { lastFraming } from './cld/cameraMode.js';
-import { CameraModeControl } from './cld/CameraModeControl.js';
-import { useCldCards } from './cld/cards.js';
-import { CharacterMenu } from './cld/characters/CharacterMenu.js';
-import { lookNameOf, openLooks, useCharacterLooks } from './cld/characters/looks.js';
-import { DevroomTools } from './cld/devroom/devroomData.js';
-import { DevroomPalette } from './cld/devroom/DevroomPalette.js';
-import { DevFxBar } from './cld/director/DevFxBar.js';
-import { engineOpenForm } from './cld/engineStore.js';
-import { StatDetailSheet } from './cld/ez/StatCard.js';
-import { FloorLayer } from './cld/FloorControls.js';
-import { FurnitureArt } from './cld/furniture/FurnitureArt.js';
-import { publishGameLooks } from './cld/game/gameLooks.js';
-import { BootScreen } from './cld/gfx/BootScreen.js';
-import { TitleScene } from './cld/gfx/TitleScene.js';
-import { closeTitleScene } from './cld/gfx/titleSceneState.js';
-import { useOfficeWarmUp } from './cld/gfx/warmUp.js';
-import { ControlCenter, MobileUsage } from './cld/hud/ControlCenter.js';
-import { Dock, HudLayer } from './cld/hud/HudIcons.js';
+import { ActionLayer } from './agent-tycoon/ActionLayer.js';
+import { AgentCliNotice } from './agent-tycoon/AgentCliNotice.js';
+import { AuthLayer } from './agent-tycoon/auth/AuthLayer.js';
+import { LobbyBoard } from './agent-tycoon/board/LobbyBoard.js';
+import { WhiteboardMemos } from './agent-tycoon/board/WhiteboardMemos.js';
+import { bypassReadOnly, useBypass } from './agent-tycoon/bypass.js';
+import { lastFraming } from './agent-tycoon/cameraMode.js';
+import { CameraModeControl } from './agent-tycoon/CameraModeControl.js';
+import { useAgtyCards } from './agent-tycoon/cards.js';
+import { CharacterMenu } from './agent-tycoon/characters/CharacterMenu.js';
+import { lookNameOf, openLooks, useCharacterLooks } from './agent-tycoon/characters/looks.js';
+import { DevroomTools } from './agent-tycoon/devroom/devroomData.js';
+import { DevroomPalette } from './agent-tycoon/devroom/DevroomPalette.js';
+import { DevFxBar } from './agent-tycoon/director/DevFxBar.js';
+import { engineOpenForm } from './agent-tycoon/engineStore.js';
+import { StatDetailSheet } from './agent-tycoon/ez/StatCard.js';
+import { FloorLayer } from './agent-tycoon/FloorControls.js';
+import { FurnitureArt } from './agent-tycoon/furniture/FurnitureArt.js';
+import { publishGameLooks } from './agent-tycoon/game/gameLooks.js';
+import { BootScreen } from './agent-tycoon/gfx/BootScreen.js';
+import { TitleScene } from './agent-tycoon/gfx/TitleScene.js';
+import { closeTitleScene } from './agent-tycoon/gfx/titleSceneState.js';
+import { useOfficeWarmUp } from './agent-tycoon/gfx/warmUp.js';
+import { ControlCenter, MobileUsage } from './agent-tycoon/hud/ControlCenter.js';
+import { Dock, HudLayer } from './agent-tycoon/hud/HudIcons.js';
 import {
   closePages,
   closeWindow,
@@ -37,27 +35,27 @@ import {
   setPhone,
   showOffice,
   useHud,
-} from './cld/hud/hudStore.js';
-import { MobileDock } from './cld/hud/MobileDock.js';
-import { showsAgentCards } from './cld/hud/windowModel.js';
-import { useIsoView } from './cld/iso/isoView.js';
-import { Joystick } from './cld/Joystick.js';
-import { uploadsInFlight } from './cld/messenger/attachments.js';
-import { Messenger } from './cld/messenger/Messenger.js';
-import { messengerGetSnapshot } from './cld/messenger/messengerStore.js';
-import { installCldMock, isCldMock } from './cld/mock.js';
-import { NoticePanel, NoticeToast } from './cld/notify/NoticeLayer.js';
-import { NoticePhonePage } from './cld/notify/NoticePhonePage.js';
-import type { NoticeTarget } from './cld/notify/notices.js';
-import { openTarget } from './cld/notify/openTarget.js';
-import { PushBanner } from './cld/notify/PushBanner.js';
-import { selectOrOpenInfo } from './cld/offDuty.js';
-import { DesktopWindows, MobileOfficePanel } from './cld/OfficeNavigation.js';
-import { useCldStore } from './cld/officeStore.js';
-import { MobileTopBar, type OfficePanel } from './cld/panels/OfficePanels.js';
-import { PerfReadout } from './cld/PerfReadout.js';
-import { RegionBoundary } from './cld/RegionBoundary.js';
-import { RepoActionLayer } from './cld/repo/RepoActionLayer.js';
+} from './agent-tycoon/hud/hudStore.js';
+import { MobileDock } from './agent-tycoon/hud/MobileDock.js';
+import { showsAgentCards } from './agent-tycoon/hud/windowModel.js';
+import { useIsoView } from './agent-tycoon/iso/isoView.js';
+import { Joystick } from './agent-tycoon/Joystick.js';
+import { uploadsInFlight } from './agent-tycoon/messenger/attachments.js';
+import { Messenger } from './agent-tycoon/messenger/Messenger.js';
+import { messengerGetSnapshot } from './agent-tycoon/messenger/messengerStore.js';
+import { installAgtyMock, isAgtyMock } from './agent-tycoon/mock.js';
+import { NoticePanel, NoticeToast } from './agent-tycoon/notify/NoticeLayer.js';
+import { NoticePhonePage } from './agent-tycoon/notify/NoticePhonePage.js';
+import type { NoticeTarget } from './agent-tycoon/notify/notices.js';
+import { openTarget } from './agent-tycoon/notify/openTarget.js';
+import { PushBanner } from './agent-tycoon/notify/PushBanner.js';
+import { selectOrOpenInfo } from './agent-tycoon/offDuty.js';
+import { DesktopWindows, MobileOfficePanel } from './agent-tycoon/OfficeNavigation.js';
+import { useAgtyStore } from './agent-tycoon/officeStore.js';
+import { MobileTopBar, type OfficePanel } from './agent-tycoon/panels/OfficePanels.js';
+import { PerfReadout } from './agent-tycoon/PerfReadout.js';
+import { RegionBoundary } from './agent-tycoon/RegionBoundary.js';
+import { RepoActionLayer } from './agent-tycoon/repo/RepoActionLayer.js';
 import {
   busyForStaleBuild,
   isStale,
@@ -67,13 +65,15 @@ import {
   shouldRecheckStaleBuild,
   subscribeStaleRecheck,
   typingForStaleBuild,
-} from './cld/staleBuild.js';
-import { StaleBuildBanner } from './cld/StaleBuildBanner.js';
-import { TerminalWorkspace } from './cld/terminal/TerminalWorkspace.js';
-import { OPEN_TERMINAL_EVENT } from './cld/terminal/workspaceStore.js';
-import { waitingIds } from './cld/waiting.js';
-import { WorkSheet } from './cld/work/WorkSheet.js';
-import { OPEN_WORKBENCH_EVENT } from './cld/workbench/workbenchStore.js';
+} from './agent-tycoon/staleBuild.js';
+import { StaleBuildBanner } from './agent-tycoon/StaleBuildBanner.js';
+import { TerminalWorkspace } from './agent-tycoon/terminal/TerminalWorkspace.js';
+import { OPEN_TERMINAL_EVENT } from './agent-tycoon/terminal/workspaceStore.js';
+import { waitingIds } from './agent-tycoon/waiting.js';
+import { WorkSheet } from './agent-tycoon/work/WorkSheet.js';
+import { OPEN_WORKBENCH_EVENT } from './agent-tycoon/workbench/workbenchStore.js';
+import { toMajorMinor } from './changelogData.js';
+import { setChangelogOpener } from './changelogOpen.js';
 import { AgentCardBar } from './components/AgentCardBar.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
@@ -131,7 +131,7 @@ import { transport } from './transport/index.js';
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null };
 const editorState = new EditorState();
-const STALE_BUILD_RELOADED_FOR_KEY = 'cld.stale-build.reloaded-for';
+const STALE_BUILD_RELOADED_FOR_KEY = 'agty.stale-build.reloaded-for';
 const STALE_BUILD_RECHECK_MS = 15_000;
 
 function reloadedForBuild(): string | undefined {
@@ -270,10 +270,10 @@ function App() {
   useEffect(() => {
     // browserMock is for Vite dev mode only (UI prototyping without a server).
     // In standalone server mode, the server sends all state over WebSocket.
-    if (import.meta.env.DEV || isCldMock) {
+    if (import.meta.env.DEV || isAgtyMock) {
       void import('./browserMock.js').then(({ dispatchMockMessages }) => {
         dispatchMockMessages();
-        if (isCldMock) installCldMock();
+        if (isAgtyMock) installAgtyMock();
       });
     }
   }, []);
@@ -320,8 +320,8 @@ function App() {
     terminalUnavailableReason,
     terminalAgentIds,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty, reviewStaleBuild);
-  const { officeSnapshot, officeReadOnly: storeReadOnly, agentCli } = useCldStore();
-  const cldMode = officeSnapshot !== null;
+  const { officeSnapshot, officeReadOnly: storeReadOnly, agentCli } = useAgtyStore();
+  const agtyMode = officeSnapshot !== null;
   const [plainTerminalOpen, setPlainTerminalOpen] = useState(false);
   // The card container's + (owner 10-24): the same 오케스트레이터 추가 as the settings, for a client that may act.
   const addOrchestrator =
@@ -332,7 +332,7 @@ function App() {
   const panesAvailable = terminalAvailable && !officeSnapshot?.readOnly;
   // agty: the office's own controls stay view-only; --allow-actions
   // (officeState.readOnly false) enables only the office action buttons (T-0010).
-  const effectiveReadOnly = officeReadOnly || cldMode;
+  const effectiveReadOnly = officeReadOnly || agtyMode;
   const hud = useHud(); // agty (T-0077, WINMODEL): the windows, the phone's tabs
 
   // Show migration notice once layout reset is detected
@@ -380,7 +380,7 @@ function App() {
   // SHEET-IMPORT: the office's pictures built while the lobby shows (or in idle time)
   useOfficeWarmUp(getOfficeState, editor.zoom, layoutReady, isoView, isMobile);
   // agty (T-0036): cards grouped by kind and named, sub-agents included.
-  const cldCards = useCldCards(getOfficeState, agents, subagentCharacters);
+  const agtyCards = useAgtyCards(getOfficeState, agents, subagentCharacters);
 
   // Standalone only: every input here stays false/empty under VS Code. Owns the
   // active tab on both shells; the desktop-only bits (isOpen, width, resize)
@@ -444,12 +444,12 @@ function App() {
   // (on a phone the messenger is minimized under it, its conversation kept).
   useEffect(() => {
     const openTerminal = () => {
-      if (cldMode) handleOfficePanel('terminal');
+      if (agtyMode) handleOfficePanel('terminal');
       else setPlainTerminalOpen(true);
     };
     window.addEventListener(OPEN_TERMINAL_EVENT, openTerminal);
     return () => window.removeEventListener(OPEN_TERMINAL_EVENT, openTerminal);
-  }, [cldMode, handleOfficePanel]);
+  }, [agtyMode, handleOfficePanel]);
   // UI-DASH: a link that opened the 작업실 opens the 현황판 on its 개발 tab (window or Dock page).
   useEffect(() => {
     const openWorkbench = () => showOffice('dev');
@@ -459,8 +459,8 @@ function App() {
   // The messenger it came from stays open behind it (switching windows keeps the others).
   useEffect(() => {
     const openFiles = () => handleOfficePanel('files');
-    window.addEventListener('cld-open-files-tab', openFiles);
-    return () => window.removeEventListener('cld-open-files-tab', openFiles);
+    window.addEventListener('agty-open-files-tab', openFiles);
+    return () => window.removeEventListener('agty-open-files-tab', openFiles);
   }, [handleOfficePanel]);
   // T-0043: a notice opens where it came from (a conversation, a job card, the character).
   const openNotice = useCallback(
@@ -539,7 +539,7 @@ function App() {
     dismissConsentRequest,
     // O4: asked once, of an owner who can answer (a read-only viewer has nothing to choose).
     bypassUnanswered: onboardingAsked({
-      cldMode,
+      agtyMode,
       answered: bypassState.mode === null ? null : bypassState.mode !== '',
       readOnly: bypassReadOnly({ officeReadOnly, officeSnapshot }),
     }),
@@ -702,7 +702,7 @@ function App() {
   const handleClick = useCallback(
     (agentId: number) => {
       const os = getOfficeState();
-      if (os.characters.get(agentId)?.cldOwner) return; // OWNER-AVATAR: no terminal of its own
+      if (os.characters.get(agentId)?.agtyOwner) return; // OWNER-AVATAR: no terminal of its own
       // If clicked agent is a sub-agent, focus the parent's terminal instead
       const focusId = os.terminalOwnerOf(agentId);
       transport.send({ type: 'focusAgent', id: focusId });
@@ -866,14 +866,14 @@ function App() {
         showAreas={effectiveShowAreas}
         activeAreaLabel={activeAreaLabel}
         tapSelectsFirst={isMobile}
-        backdrop={cldMode}
+        backdrop={agtyMode}
       />
 
       {!isDebugMode ? (
         <>
           {/* Mobile: pinch replaces the zoom buttons, and the toolbar's
                 jobs move to the card bar (+) and the floating Settings button. */}
-          {!isMobile && !cldMode && (
+          {!isMobile && !agtyMode && (
             <ZoomControls zoom={editor.zoom} onZoomChange={editor.handleZoomChange} />
           )}
 
@@ -948,7 +948,7 @@ function App() {
                   onAreaColorChange={editor.handleAreaColorChange}
                   onAreaMappingChange={handleAreaMappingChange}
                   selectedFurnitureExtra={
-                    cldMode &&
+                    agtyMode &&
                     selItem && (
                       <FurnitureArt
                         key={selItem.uid}
@@ -978,17 +978,17 @@ function App() {
           />
           </RegionBoundary>
           {/* HUD-1B: the desktop's camera strip is the elevator's (FloorControls). */}
-          {cldMode && isMobile && <CameraModeControl phone />}
+          {agtyMode && isMobile && <CameraModeControl phone />}
           {/* JOYSTICK: the direction keys (walk the selected or the owner's character, or pan the
               free camera); the phone's office page only. */}
-          {cldMode && isMobile && (
+          {agtyMode && isMobile && (
             <Joystick
               enabled={
                 !editor.isEditMode && phoneTabs.tab === 'office' && mobileShell.view === 'office'
               }
             />
           )}
-          {cldMode && <TitleScene phone={isMobile} />}
+          {agtyMode && <TitleScene phone={isMobile} />}
         </>
       ) : (
         <DebugView
@@ -1006,7 +1006,7 @@ function App() {
           message), NOT the hooksEnabled preference: hooksEnabled defaults true
           while first-run consent is still pending, and announcing "Instant
           Detection Active" before anything is installed would be a lie. */}
-      {!cldMode &&
+      {!agtyMode &&
         hooksEnabled &&
         claudeHooksInstalled &&
         !hooksInfoShown &&
@@ -1035,7 +1035,7 @@ function App() {
           </Tooltip>
         )}
 
-      {effectiveReadOnly && !cldMode && (
+      {effectiveReadOnly && !agtyMode && (
         <div className="absolute mobile-safe-top left-1/2 -translate-x-1/2 z-10 text-sm text-text-muted pointer-events-none select-none whitespace-nowrap">
           View only
         </div>
@@ -1073,22 +1073,22 @@ function App() {
       )}
 
       <VersionIndicator
-        floating={cldMode}
+        floating={agtyMode}
         currentVersion={extensionVersion}
         lastSeenVersion={lastSeenVersion}
-        hideUpdateNotice={officeReadOnly && !cldMode}
+        hideUpdateNotice={officeReadOnly && !agtyMode}
         onDismiss={handleWhatsNewDismiss}
         onOpenChangelog={handleOpenChangelog}
       />
 
       {/* The hooks ask is the original (upstream) tour; the agty office has none, so there only O4's steps show
           (and the upstream surfaces get none of them: the remote step needs the agty login layer). */}
-      {((!cldMode && intro) || onboarding) && (
+      {((!agtyMode && intro) || onboarding) && (
         <IntroBubble
           officeState={officeState}
           headline={intro?.headline ?? ''}
           disclosure={intro?.disclosure ?? ''}
-          hasConsent={!cldMode && intro !== null}
+          hasConsent={!agtyMode && intro !== null}
           onboarding={onboarding}
           bypass={bypass}
           onBypass={onBypass}
@@ -1110,7 +1110,7 @@ function App() {
       )}
 
       {/* agty (T-0046): the lobby's 전광판 on its board, and its full view. */}
-      {cldMode && !isDebugMode && !editor.isEditMode && (
+      {agtyMode && !isDebugMode && !editor.isEditMode && (
         <LobbyBoard
           officeState={officeState}
           iso={isoView}
@@ -1123,7 +1123,7 @@ function App() {
         />
       )}
       {/* agty (T-0065): the memos on the whiteboards; a tap opens one (not while decorating). */}
-      {cldMode && !isDebugMode && (!isoView || editor.isEditMode) && (
+      {agtyMode && !isDebugMode && (!isoView || editor.isEditMode) && (
         <WhiteboardMemos
           officeState={officeState}
           containerRef={containerRef}
@@ -1134,7 +1134,7 @@ function App() {
         />
       )}
       {/* agty (T-0027): the elevator: floor panel (desktop) and doors. */}
-      {cldMode && !isDebugMode && (
+      {agtyMode && !isDebugMode && (
         <FloorLayer
           officeState={officeState}
           decorate={{ on: editor.isEditMode, toggle: editor.handleToggleEditMode }}
@@ -1142,7 +1142,7 @@ function App() {
       )}
 
       {/* agty (T-0017): the owner's character's menu (an agent's is in its card or inspector). */}
-      {cldMode && !officeReadOnly && !editor.isEditMode && !isDebugMode && (
+      {agtyMode && !officeReadOnly && !editor.isEditMode && !isDebugMode && (
         <CharacterMenu
           officeState={officeState}
           agentId={focusedAgentId}
@@ -1153,7 +1153,7 @@ function App() {
       )}
 
       {/* agty (T-0077, hud-v3 P0): the dock, the corner, the control center and the windows (a phone has its Dock and pages). */}
-      {cldMode && !isMobile && (
+      {agtyMode && !isMobile && (
         <RegionBoundary region="hud" className="absolute left-8 bottom-8 z-30">
         <HudLayer dock={<Dock terminalWaiting={terminalWaiting} />}>
           <DesktopWindows
@@ -1165,7 +1165,7 @@ function App() {
           {/* FEAT-HUD-CONTROL-CENTER (owner 11-06 17:12): notifications, usage, what runs, the clock, the menu. */}
           <RegionBoundary region="hud" className="absolute left-8 bottom-8 z-30">
             <ControlCenter
-              ids={cldCards.cardIds}
+              ids={agtyCards.cardIds}
               onOpenNotice={openNotice}
               notices={<NoticePanel getOfficeState={getOfficeState} onOpen={openNotice} onClose={closeNotices} inWindow />}
             />
@@ -1174,7 +1174,7 @@ function App() {
         </RegionBoundary>
       )}
 
-      {!isCldMock && <ConnectionIndicator />}
+      {!isAgtyMock && <ConnectionIndicator />}
     </div>
   );
 
@@ -1193,19 +1193,19 @@ function App() {
           ? {
               ...(keyboard.clampHeight !== null && { height: keyboard.clampHeight }),
               // The software keyboard hides the top bar that clears the notch: the page clears it itself.
-              ...(cldMode && keyboard.keyboardOpen && { paddingTop: 'var(--cld-safe-top)' }),
+              ...(agtyMode && keyboard.keyboardOpen && { paddingTop: 'var(--agty-safe-top)' }),
             }
           : undefined
       }
     >
       {/* Typing on the phone: the keyboard leaves little height, the terminal or composer gets it (10-22 20:23).
           The PC has no top bar (hud-v3 P0): the office runs to the top, its HUD floats over it. */}
-      {cldMode && isMobile && !keyboard.keyboardOpen && <MobileTopBar />}
+      {agtyMode && isMobile && !keyboard.keyboardOpen && <MobileTopBar />}
       {/* The phone's top bar already clears the top safe-area inset: below it,
           the phone's toggle and terminal pane must not add it again. */}
       <div
         className={`flex flex-1 min-h-0 overflow-clip ${isMobile ? 'flex-col' : ''}`}
-        style={cldMode ? ({ '--cld-safe-top': '0px' } as CSSProperties) : undefined}
+        style={agtyMode ? ({ '--agty-safe-top': '0px' } as CSSProperties) : undefined}
       >
         {isMobile ? (
           <>
@@ -1213,7 +1213,7 @@ function App() {
               office={
                 <div className="relative h-full">
                   {officeRegion}
-                  {cldMode && (
+                  {agtyMode && (
                     <MobileOfficePanel
                       agentTools={agentTools}
                       subagentTools={subagentTools}
@@ -1222,7 +1222,7 @@ function App() {
                       getAppearance={terminalDrawer.getAppearance}
                     />
                   )}
-                  {cldMode && hud.open.messenger && (
+                  {agtyMode && hud.open.messenger && (
                     <RegionBoundary region="messenger" className="absolute inset-x-8 top-8 z-50">
                       <Messenger
                         mobile
@@ -1232,20 +1232,20 @@ function App() {
                       />
                     </RegionBoundary>
                   )}
-                  {cldMode && hud.open.notices && (
+                  {agtyMode && hud.open.notices && (
                     <NoticePhonePage
                       getOfficeState={getOfficeState}
                       onOpen={openNotice}
                       onClose={closeNotices}
                     />
                   )}
-                  {cldMode && <WorkSheet mobile />}
+                  {agtyMode && <WorkSheet mobile />}
                 </div>
               }
               shell={mobileShell}
               drawer={terminalDrawer}
-              agentIds={cldCards.cardIds}
-              describeCard={cldCards.describeCard}
+              agentIds={agtyCards.cardIds}
+              describeCard={agtyCards.describeCard}
               terminalAgentIds={paneAgentIds}
               focusedAgentId={focusedAgentId}
               terminalAvailable={panesAvailable}
@@ -1258,7 +1258,7 @@ function App() {
               showAgentCards={mobileShowsAgentCards}
               hideActions={effectiveReadOnly}
               bottom={
-                cldMode ? (
+                agtyMode ? (
                   <>
                     {/* The usage, folded to one line (owner 10-24; as the desktop control center's, 11-06), is the
                         last row of the page, above the tab bar: nothing sits under a phone's tab bar. */}
@@ -1299,15 +1299,15 @@ function App() {
                 getAppearance={terminalDrawer.getAppearance}
                 statusFor={terminalDrawer.statusFor}
                 onStatusChange={terminalDrawer.onStatusChange}
-                describeCard={cldCards.describeCard}
+                describeCard={agtyCards.describeCard}
                 onAddCard={addOrchestrator}
               />
             ) : (
               !isDebugMode && (
                 <RegionBoundary region="party" className="absolute right-8 top-1/2 -translate-y-1/2 z-30">
                   <AgentCardBar
-                    agentIds={cldCards.cardIds}
-                    describeCard={cldCards.describeCard}
+                    agentIds={agtyCards.cardIds}
+                    describeCard={agtyCards.describeCard}
                     onAdd={addOrchestrator}
                     focusedAgentId={focusedAgentId}
                     getAppearance={terminalDrawer.getAppearance}
@@ -1316,7 +1316,7 @@ function App() {
                     onClose={handleCloseAgent}
                     showClose={!effectiveReadOnly}
                     onCustomize={
-                      cldMode && !officeReadOnly
+                      agtyMode && !officeReadOnly
                         ? (id) => {
                             const name = officeSnapshot && lookNameOf(id, officeSnapshot);
                             if (name) openLooks(name);
@@ -1327,17 +1327,17 @@ function App() {
                 </RegionBoundary>
               )
             )}
-            {cldMode && <WorkSheet mobile={false} />}
+            {agtyMode && <WorkSheet mobile={false} />}
           </>
         )}
       </div>
 
-      {cldMode && <ActionLayer />}
+      {agtyMode && <ActionLayer />}
       <PerfReadout />
       <DevFxBar getOfficeState={getOfficeState} />
-      {cldMode && <StatDetailSheet officeState={officeState} />}
-      {cldMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
-      {cldMode && <PushBanner />}
+      {agtyMode && <StatDetailSheet officeState={officeState} />}
+      {agtyMode && <NoticeToast getOfficeState={getOfficeState} onOpen={openNotice} />}
+      {agtyMode && <PushBanner />}
       {/* A plain office (no Claude Code) is not in agty mode: the notice is for exactly that one. */}
       <AgentCliNotice />
       {showStaleBuildBanner && (
@@ -1354,12 +1354,12 @@ function App() {
       )}
       {/* agty (T-0022): device approval and the passkey prompt; also in a plain office (no claude
           yet), whose terminal installs it and needs this device's key (CLI-TERMINAL). */}
-      {(cldMode || agentCli !== null) && !isCldMock && <AuthLayer />}
-      {cldMode && <RepoActionLayer />}
+      {(agtyMode || agentCli !== null) && !isAgtyMock && <AuthLayer />}
+      {agtyMode && <RepoActionLayer />}
       {/* DV3: Ctrl+K from anywhere; top level, as the modals (a phone's track is a transformed ancestor). */}
-      {cldMode && <DevroomPalette phone={isMobile} />}
+      {agtyMode && <DevroomPalette phone={isMobile} />}
 
-      {!cldMode && (
+      {!agtyMode && (
         <Modal
           isOpen={plainTerminalOpen}
           onClose={() => setPlainTerminalOpen(false)}

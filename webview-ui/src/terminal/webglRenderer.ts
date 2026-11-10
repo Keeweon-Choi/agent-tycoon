@@ -8,10 +8,10 @@ import type { Terminal } from '@xterm/xterm';
  * comes back when the GPU context is lost. The pane's host says which one
  * draws (`data-renderer`).
  *
- * `localStorage['cld.terminal-renderer'] = 'dom'` keeps the DOM renderer (a
+ * `localStorage['agty.terminal-renderer'] = 'dom'` keeps the DOM renderer (a
  * device whose WebGL misdraws; the test runners, which read `.xterm-rows`).
  */
-export const TERMINAL_RENDERER_KEY = 'cld.terminal-renderer';
+export const TERMINAL_RENDERER_KEY = 'agty.terminal-renderer';
 
 function domForced(): boolean {
   try {

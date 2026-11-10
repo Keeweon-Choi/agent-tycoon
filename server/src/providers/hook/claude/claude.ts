@@ -5,7 +5,7 @@ import * as path from 'path';
 import type { ContextLimitBasis } from '../../../../../core/src/messages.js';
 import { normalizeProjectPath } from '../../../../../core/src/normalizeProjectPath.js';
 import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.js';
-import { maskText } from '../../../cld/mask.js';
+import { maskText } from '../../../agent-tycoon/mask.js';
 import {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,

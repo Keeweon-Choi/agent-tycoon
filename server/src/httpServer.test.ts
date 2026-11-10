@@ -17,7 +17,7 @@ import {
 describe('agentCreated', () => {
   const agent = createAgentState({
     id: 4,
-    sessionId: 'cld:engine:eta',
+    sessionId: 'agty:engine:eta',
     isExternal: false,
     projectDir: '',
     jsonlFile: '',
@@ -55,7 +55,7 @@ describe('standalone web build marker', () => {
   });
 
   it('returns undefined when index.html is missing', () => {
-    const staticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-web-build-'));
+    const staticDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-web-build-'));
     try {
       expect(webBuildFromStaticDir(staticDir)).toBeUndefined();
     } finally {
@@ -84,8 +84,8 @@ describe('/api/health', () => {
 
   const publicHealth = {
     status: 'ok',
-    service: 'cld-gui',
-    version: process.env.CLD_GUI_VERSION ?? '',
+    service: 'agent-tycoon',
+    version: process.env.AGTY_VERSION ?? '',
     protocol: SERVER_HEALTH_PROTOCOL_VERSION,
     os: expect.stringMatching(/^(win32|wsl|linux|darwin)$/), // P7
   };

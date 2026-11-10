@@ -15,8 +15,8 @@ import {
   meteredTag,
   noLimitsText,
   takesDirectChat,
-} from '../src/cld/engine.js';
-import { agentLogo, INITIAL_ONLY, KNOWN_AGENTS, markHue } from '../src/cld/icons/agentLogos.js';
+} from '../src/agent-tycoon/engine.js';
+import { agentLogo, INITIAL_ONLY, KNOWN_AGENTS, markHue } from '../src/agent-tycoon/icons/agentLogos.js';
 import { setLanguage } from '../src/i18n/index.js';
 
 const session: EngineAgentCaps = {
@@ -82,7 +82,7 @@ describe("an agent's mark", () => {
   });
 
   it('every known agent id has a logo or deliberately keeps its initial, so a new agent is a choice', () => {
-    const agentsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../server/src/cld/engine');
+    const agentsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../server/src/agent-tycoon/engine');
     const shipped = [
       ...readdirSync(path.join(agentsDir, 'agents'), { recursive: true, encoding: 'utf8' })
         .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f))
@@ -103,14 +103,14 @@ const LEFT: Record<string, string> = {
   'App.tsx': 'the hooks consent step is the Claude hook provider (data adapter, G17)',
   'components/IntroBubble.tsx':
     'the onboarding step that installs Claude hooks (data adapter, G17)',
-  'cld/modelBadges.ts': 'parses a Claude model id (data adapter)',
-  'cld/characters/compose.ts': "an office orchestrator's hook provider (data adapter)",
-  'cld/notify/newsList.ts': "the notice target open: 'codex' (G8, the run shape step)",
-  'cld/staff.ts': "the temporary character kind 'codex' (G1, the run shape step)",
-  'cld/taskboard/taskBoardState.ts': 'the task board (another task; G9)',
-  'cld/taskboard/TaskBoard.tsx': 'the task board (another task; G9)',
-  'cld/panels/OfficePanels.tsx': 'the dashboard (another task; G6)',
-  'cld/game/PartyWindow.tsx': 'the member card (another task rebuilds it; G7, G10)',
+  'agent-tycoon/modelBadges.ts': 'parses a Claude model id (data adapter)',
+  'agent-tycoon/characters/compose.ts': "an office orchestrator's hook provider (data adapter)",
+  'agent-tycoon/notify/newsList.ts': "the notice target open: 'codex' (G8, the run shape step)",
+  'agent-tycoon/staff.ts': "the temporary character kind 'codex' (G1, the run shape step)",
+  'agent-tycoon/taskboard/taskBoardState.ts': 'the task board (another task; G9)',
+  'agent-tycoon/taskboard/TaskBoard.tsx': 'the task board (another task; G9)',
+  'agent-tycoon/panels/OfficePanels.tsx': 'the dashboard (another task; G6)',
+  'agent-tycoon/game/PartyWindow.tsx': 'the member card (another task rebuilds it; G7, G10)',
 };
 const NAME_CHECK =
   /[!=]==?\s*'(codex|claude|gemini|antigravity|copilot|cursor)'|'(codex|claude|gemini|antigravity|copilot|cursor)'\s*[!=]==?/;

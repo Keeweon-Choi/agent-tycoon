@@ -1,10 +1,10 @@
 import * as path from 'path';
 
 import type { HookProvider } from '../../core/src/provider.js';
+import { toolPath } from './agent-tycoon/toolPath.js';
+import { toolDescription } from './agent-tycoon/transcriptView.js';
 import { rememberToolDesc } from './agentState.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { toolPath } from './cld/toolPath.js';
-import { toolDescription } from './cld/transcriptView.js';
 import { TEXT_IDLE_DELAY_MS, TOOL_DONE_DELAY_MS } from './constants.js';
 import { updateContextUsage } from './contextUsage.js';
 import { readEnv } from './env.js';

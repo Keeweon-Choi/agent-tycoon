@@ -4,20 +4,20 @@ Agent Tycoon shows the work and conversations of your Claude Code agents in a pi
 
 ## Quick install
 
-**Desktop app (Windows, macOS, Linux):** download it by following the [install guide](cld/INSTALL.md#데스크톱-앱). The installers are not code-signed, so you get a warning the first time you run one. The guide explains how to get past it.
+**Desktop app (Windows, macOS, Linux):** download it by following the [install guide](agent-tycoon/INSTALL.md#데스크톱-앱). The installers are not code-signed, so you get a warning the first time you run one. The guide explains how to get past it.
 
-**Requirements for the terminal install:** git, npm and Node.js 22 or later. The Claude Code CLI is only needed once you run agents, not to install. The [install guide](cld/INSTALL.md) has the details, including remote access.
+**Requirements for the terminal install:** git, npm and Node.js 22 or later. The Claude Code CLI is only needed once you run agents, not to install. The [install guide](agent-tycoon/INSTALL.md) has the details, including remote access.
 
 **One line in a terminal** (macOS, Linux, WSL)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Keeweon-Choi/agent-tycoon/main/cld/install/get.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Keeweon-Choi/agent-tycoon/main/agent-tycoon/install/get.sh | sh
 ```
 
 **Or paste this into Claude Code**
 
 ```text
-Install Agent Tycoon. Repository: https://github.com/Keeweon-Choi/agent-tycoon . After cloning, follow .claude/skills/cld-install/SKILL.md inside it.
+Install Agent Tycoon. Repository: https://github.com/Keeweon-Choi/agent-tycoon . After cloning, follow .claude/skills/agty-install/SKILL.md inside it.
 ```
 
 When the install finishes it prints a login URL and a code. Open the URL in a browser and enter the code. Running the installer again updates the same folder (`~/agent-tycoon`). Set `AGENT_TYCOON_REPO` and `AGENT_TYCOON_DIR` to change the repository URL and the install folder.

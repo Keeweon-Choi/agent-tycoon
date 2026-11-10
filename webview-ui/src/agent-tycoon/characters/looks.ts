@@ -1,0 +1,512 @@
+/**
+ * Character looks in the office (T-0017). The server's `characterPresets`
+ * (in the agty store) names a look per character; preset sheets are fetched
+ * and decoded once per version, like char_N, into the same sprite cache; the
+ * office characters' palettes follow. A preset that is missing or fails to
+ * load leaves the character's default look.
+ */
+import { useEffect, useSyncExternalStore } from 'react';
+
+import { OWNER_LOOK_KEY, paletteOfLook } from '../../../../core/src/agent-tycoon/looks.js';
+import { rgbaToHex } from '../../../../core/src/assets/colorUtils.js';
+import type {
+  CharacterChoice,
+  CharacterPreset,
+  CharacterPresets,
+  OfficeSnapshot,
+} from '../../../../core/src/messages.js';
+import {
+  IMPORT_DENSITY,
+  IMPORT_MASTER_DENSITY,
+  IMPORT_WORLD_W,
+  OWNER_CHARACTER_ID,
+} from '../../constants.js';
+import { t, type TranslationKey } from '../../i18n/index.js';
+import type { OfficeState } from '../../office/engine/officeState.js';
+import { markRedecode, releaseMaster } from '../../office/sprites/smoothSprite.js';
+import {
+  deleteCustomCharacter,
+  diagSheetOf,
+  getCharacterTemplates,
+  getCustomCharacter,
+  isoPaletteOf,
+  setCustomCharacter,
+  setIsoPalette,
+} from '../../office/sprites/spriteData.js';
+import type { Character, SpriteData } from '../../office/types.js';
+import { employeeName, employeeOf } from '../employees.js';
+import { closeWindow, openWindow } from '../hud/hudStore.js';
+import { agtyGetSnapshot, useAgtyStore, virtualAgentId } from '../officeStore.js';
+import { forgetDrinkCells, setDrinkCells, setSipAnchor } from '../rest.js';
+import { serverLine } from '../serverText.js';
+import {
+  compose,
+  type DenseSheet,
+  IMPORTED_COLUMNS,
+  lookKey,
+  portraitOf,
+  providerOf,
+  subagentProvider,
+} from './compose.js';
+import { importedEight, importedSheet, mastersAt } from './importedSheet.js';
+import type { PartData } from './parts.js';
+
+/** Preset sheets take palette numbers from here up (the built-ins are 0..PALETTE_COUNT-1). */
+const PRESET_PALETTE_BASE = 1000;
+const FRAME_W = 16;
+const FRAME_H = 32;
+const FRAMES = 7;
+const SHEET_W = FRAME_W * FRAMES;
+const SHEET_H = FRAME_H * 3;
+const MUGSHOT_SIDE = 16;
+
+interface LooksUi {
+  /** Bumped when a sheet finished loading or a look was applied. */
+  version: number;
+  /** The character the 꾸미기 window is for (its look key). */
+  picker: string | null;
+}
+let ui: LooksUi = { version: 0, picker: null };
+const listeners = new Set<() => void>();
+function update(next: Partial<LooksUi>): void {
+  ui = { ...ui, ...next };
+  listeners.forEach((listener) => listener());
+}
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+export const useLooksUi = () => useSyncExternalStore(subscribe, () => ui);
+/** A character the looks were not applied to joined the office (OWNER-AVATAR: the owner's). */
+export const refreshLooks = () => update({ version: ui.version + 1 });
+/** CH-4: the 꾸미기 window for `name` (a window on the desktop, a page on a phone). */
+export function openLooks(name: string): void {
+  update({ picker: name });
+  openWindow('looks');
+}
+export function closeLooks(): void {
+  closeWindow('looks');
+  update({ picker: null });
+}
+
+export { OWNER_LOOK_KEY };
+const OWNER_FALLBACK_PRESET = 'bunny-hd-sample';
+
+/** The owner's look: the one they picked (assignments.owner), else the HD sample preset. */
+export function ownerChoice(presets: CharacterPresets | null): CharacterChoice | null {
+  if (!presets) return null;
+  return (
+    presets.assignments[OWNER_LOOK_KEY] ??
+    (presets.presets.some((p) => p.id === OWNER_FALLBACK_PRESET)
+      ? { preset: OWNER_FALLBACK_PRESET }
+      : null)
+  );
+}
+
+/** The palette the owner's look draws under (null: the default, or still loading). */
+export function ownerLook(presets: CharacterPresets | null) {
+  const choice = ownerChoice(presets);
+  return presets && choice ? lookOf(OWNER_LOOK_KEY, choice, presets, null) : null;
+}
+
+/** Character name per office character id: engine projects, Claude sessions, the owner. */
+export function characterNames(office: OfficeSnapshot): Map<number, string> {
+  const names = new Map<number, string>([[OWNER_CHARACTER_ID, OWNER_LOOK_KEY]]);
+  for (const o of office.orchestrators)
+    names.set(o.agentId ?? virtualAgentId(`orch:${o.name}`), o.name);
+  return names;
+}
+
+/** The look key of an office character: its name, or `emp:<id>` for a temp employee. */
+export function lookNameOf(id: number, office: OfficeSnapshot): string | undefined {
+  const name = characterNames(office).get(id);
+  if (name !== undefined) return name;
+  const employee = employeeOf(id);
+  return employee && `emp:${employee.employeeId}`;
+}
+
+/** The provider a look key's character runs on, when the screen knows it (its default mascot). */
+export function lookProvider(name: string, snap = agtyGetSnapshot()): string | null {
+  if (name.startsWith('emp:'))
+    return (
+      snap.tempStaff.find((e) => `emp:${e.employeeId}` === name)?.execution.split(':')[0] ?? null
+    );
+  return snap.officeSnapshot ? providerOf(snap.officeSnapshot, name) : null;
+}
+
+/** The 꾸미기 window's title: the character's name (a temp employee by its staff name). */
+export function looksTitle(name: string): string {
+  if (name === OWNER_LOOK_KEY) return t('looks.title', { name: t('owner.me') });
+  const id = name.startsWith('emp:') ? name.slice(4) : null;
+  const employee = id && agtyGetSnapshot().tempStaff.find((e) => e.employeeId === id);
+  return t('looks.title', { name: employee ? employeeName(employee) : name });
+}
+
+/** A preset's sheet once decoded (it starts loading), else null. */
+export function presetSheet(id: string, presets: CharacterPresets) {
+  const preset = presets.presets.find((p) => p.id === id);
+  if (!preset) return null;
+  load(preset);
+  const palette = sheets.get(preset.url);
+  return typeof palette === 'number' ? getCustomCharacter(palette) : null;
+}
+
+/** BUNNY-BUILTIN: the built-in preset sheets' names (a preset's own label is one language); a Map,
+ *  so a user's preset id like `constructor` is no key. */
+const BUILT_IN_PRESET_NAMES = new Map<string, TranslationKey>([
+  ['builtin-bunny', 'looks.builtinBunny'],
+]);
+
+/** A preset's name in the looks window: a built-in one's in the UI language, else its label. */
+export function presetLabel(preset: Pick<CharacterPreset, 'id' | 'label'>): string {
+  const key = BUILT_IN_PRESET_NAMES.get(preset.id);
+  return key ? t(key) : serverLine(preset.label);
+}
+
+/** SHEET-IMPORT: the palette a preset draws under once loaded (it starts loading), else null. */
+export function presetPalette(preset: CharacterPreset): number | null {
+  load(preset);
+  const palette = sheets.get(preset.url);
+  return typeof palette === 'number' ? palette : null;
+}
+
+/** A sheet's pixels and the canvas they were read from (LOOKS-MEM: an imported sheet keeps that
+ *  canvas as its masters, its one decoded copy; the bitmap is closed at once). */
+async function pixelsOf(url: string): Promise<{ img: ImageData; canvas: HTMLCanvasElement }> {
+  const canvas = await decodedSheet(url);
+  const ctx = canvas.getContext('2d')!;
+  return { img: ctx.getImageData(0, 0, canvas.width, canvas.height), canvas };
+}
+
+async function decodedSheet(url: string): Promise<HTMLCanvasElement> {
+  const res = await fetch(url, { credentials: 'same-origin' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const bitmap = await createImageBitmap(await res.blob(), {
+    premultiplyAlpha: 'none',
+    colorSpaceConversion: 'none',
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('no 2d canvas');
+  ctx.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return canvas;
+}
+
+/** PERF-WEBVIEW-MEMORY: the sheet at `url` decoded again as its masters (smoothSprite.ts keeps
+ *  them halved while the office draws them small, and asks for this when it zooms past that). */
+const redecodeOf = (url: string) => async () =>
+  mastersAt(await decodedSheet(url), IMPORT_MASTER_DENSITY).src;
+
+function spriteOf(img: ImageData, x0: number, y0: number, w: number, h: number): SpriteData {
+  const d = img.data;
+  return Array.from({ length: h }, (_, y) =>
+    Array.from({ length: w }, (_, x) => {
+      const i = ((y0 + y) * img.width + x0 + x) * 4;
+      return rgbaToHex(d[i], d[i + 1], d[i + 2], d[i + 3]);
+    }),
+  );
+}
+
+/** The char_N.png layout: rows down, up, right; 7 frames each (CHAR-FACTORY: frames 32×64 in an
+ *  HD sheet, density 2). */
+function sheetOf(img: ImageData, density: 1 | 2): DenseSheet {
+  const [w, h] = [FRAME_W * density, FRAME_H * density];
+  const row = (r: number) =>
+    Array.from({ length: FRAMES }, (_, f) => spriteOf(img, f * w, r * h, w, h));
+  return { down: row(0), up: row(1), right: row(2), ...(density === 2 && { density }) };
+}
+
+/** Preset url (versioned) -> palette number once drawn, or its loading state. */
+const sheets = new Map<string, number | 'loading' | 'failed'>();
+let nextPalette = PRESET_PALETTE_BASE;
+
+/** LOOKS-MEM: the preset the 꾸미기 preview shows (decoded while it does). */
+let previewing: string | undefined;
+export function previewPreset(id: string | undefined): void {
+  previewing = id;
+  const presets = agtyGetSnapshot().characterPresets;
+  if (presets) releaseUnworn(presets);
+}
+
+/** LOOKS-MEM: let go of every decoded preset sheet no character wears (characters.json, the
+ *  owner's) and the 꾸미기 preview does not show: a phone keeps the few the office draws, never
+ *  each sheet picked once (an imported one is ~29 MB decoded). One worn again loads again. */
+function releaseUnworn(presets: CharacterPresets): void {
+  const worn = new Set(
+    [...Object.values(presets.assignments), ownerChoice(presets), { preset: previewing }].map(
+      (c) => c?.preset,
+    ),
+  );
+  const kept = new Set(
+    presets.presets.filter((p) => worn.has(p.id)).flatMap((p) => [p.url, p.isoUrl]),
+  );
+  let dropped = false;
+  for (const [url, palette] of sheets) {
+    if (kept.has(url) || typeof palette !== 'number') continue;
+    sheets.delete(url);
+    // CHAR-8DIR: an iso8 sheet's isometric palette shares its canvas
+    for (const p of new Set([palette, isoPaletteOf(palette)])) {
+      const sheet = getCustomCharacter(p)?.sheet;
+      if (sheet?.down[0]) releaseMaster(sheet.down[0]);
+      deleteCustomCharacter(p);
+      forgetDrinkCells(p);
+    }
+    dropped = true;
+  }
+  if (dropped) update({ version: ui.version + 1 });
+}
+
+/** LOOKS-MEM (runner): the preset sheet urls decoded now. */
+export const loadedPresetSheets = (): string[] =>
+  [...sheets].filter(([, s]) => typeof s === 'number').map(([url]) => url);
+
+/** BOOT-LOAD: the worn sheets asked for so far and how many of them are decoded (or failed). */
+export function sheetLoads(): [number, number] {
+  let waiting = 0;
+  for (const s of sheets.values()) if (s === 'loading') waiting++;
+  return [sheets.size - waiting, sheets.size];
+}
+
+/** Top-view sheet url -> the isometric sheet's url beside it. */
+const isoUrls = new Map<string, string>();
+
+function load(preset: CharacterPreset): void {
+  if (preset.isoUrl) isoUrls.set(preset.url, preset.isoUrl);
+  loadSheet(preset.url, preset.mugshotUrl, preset);
+  // SHEET-IMPORT: an isometric sheet beside the top view, for the isometric view
+  if (preset.isoUrl) loadSheet(preset.isoUrl, null, { ...preset, format: 'iso' }, preset.url);
+}
+
+function loadSheet(
+  url: string,
+  mugshotUrl: string | null,
+  preset: Pick<CharacterPreset, 'format' | 'columns' | 'walk' | 'drinkSteam'>,
+  /** This is the isometric sheet beside the top view at this url. */
+  isoOf?: string,
+): void {
+  if (!url || sheets.has(url)) return;
+  sheets.set(url, 'loading');
+  const palette = nextPalette++;
+  void (async () => {
+    try {
+      const { img, canvas } = await pixelsOf(url);
+      // an imported sheet: 7 columns, 8 with the walking neutral (CHAR-ISO-1), 9 with the other
+      // foot's passing pose (BUNNY-9COL)
+      if (IMPORTED_COLUMNS.includes(img.width / (IMPORT_WORLD_W * IMPORT_DENSITY))) {
+        const opts = {
+          standFirst: preset.columns === 'standFirst',
+          twoStep: preset.walk === 'two',
+          // PAGE-MEM: kept as large as the office's closest zoom draws it, no larger
+          masterDensity: IMPORT_MASTER_DENSITY,
+        };
+        if (preset.format === 'iso8') {
+          // CHAR-8DIR: both views in one sheet: the top view on this palette, the isometric beside it
+          const both = importedEight(img, opts, canvas);
+          markRedecode(both.iso.down[0], redecodeOf(url));
+          const isoPalette = nextPalette++;
+          setCustomCharacter(isoPalette, both.iso, null);
+          setCustomCharacter(palette, both.top, null);
+          setIsoPalette(palette, isoPalette);
+          // C1: its drinking poses (a 6th row), shown in the three-quarter view while it drinks
+          if (both.drink) {
+            const steam = both.drink.map(() => null as readonly [number, number] | null);
+            for (const s of preset.drinkSteam ?? []) steam[s.col - 1] = [s.x, s.y];
+            setDrinkCells(isoPalette, { cells: both.drink, steam });
+          }
+          sheets.set(url, palette);
+        } else {
+          const sheet = importedSheet(img, { ...opts, iso: preset.format === 'iso' }, canvas);
+          markRedecode(sheet.down[0], redecodeOf(url));
+          setCustomCharacter(palette, sheet, null);
+          sheets.set(url, palette);
+          const top = isoOf ? sheets.get(isoOf) : undefined;
+          if (typeof top === 'number') setIsoPalette(top, palette);
+          const iso = !isoOf && isoUrls.get(url);
+          const isoPalette = iso ? sheets.get(iso) : undefined;
+          if (typeof isoPalette === 'number') setIsoPalette(palette, isoPalette);
+        }
+        update({ version: ui.version + 1 });
+        return;
+      }
+      const density = img.width === SHEET_W * 2 ? 2 : 1;
+      if (img.width !== SHEET_W * density || img.height !== SHEET_H * density)
+        throw new Error(`${img.width}×${img.height}, not ${SHEET_W}×${SHEET_H} (or twice that)`);
+      const sheet = sheetOf(img, density);
+      let mugshot: SpriteData | null = density === 2 ? portraitOf(sheet) : null;
+      if (mugshotUrl) {
+        try {
+          const { img: m } = await pixelsOf(mugshotUrl);
+          const side = MUGSHOT_SIDE * density;
+          if (m.width === side && m.height === side) mugshot = spriteOf(m, 0, 0, side, side);
+        } catch {
+          // The card shows the sheet's head instead.
+        }
+      }
+      setCustomCharacter(palette, sheet, mugshot);
+      sheets.set(url, palette);
+    } catch (err) {
+      console.warn(
+        `[agty] character sheet ${url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      sheets.set(url, 'failed');
+    }
+    update({ version: ui.version + 1 });
+  })();
+}
+
+/** CHAR-HUMAN: the owner's parts the daemon sent (built-ins are in the bundle). */
+let customParts: readonly PartData[] = [];
+export const getCustomParts = (): readonly PartData[] => customParts;
+export function setCustomParts(parts: readonly PartData[]): void {
+  customParts = parts;
+  // a person composed before its parts arrived drew built-ins: compose those again
+  for (const key of [...composed.keys()]) if (key.startsWith('P:')) composed.delete(key);
+  update({ version: ui.version + 1 });
+}
+
+/** CH-2: composed looks (mascots, and the fallback for a preset that failed) by lookKey. */
+const composed = new Map<string, number>();
+
+/** The palette a look composed into (made once per distinct look, then shared). */
+function composedPalette(name: string, look: CharacterChoice, provider: string | null): number {
+  const key = lookKey(look, provider) ?? '';
+  let palette = composed.get(key);
+  if (palette === undefined) {
+    const c = compose(look, { templates: getCharacterTemplates(), provider, parts: customParts });
+    if (c.fellBack) console.warn(`[agty] look ${name}: ${c.fellBack}`);
+    palette = nextPalette++;
+    setCustomCharacter(palette, c.sheet, c.mugshot);
+    setSipAnchor(palette, c.sip);
+    // DIAG-1104: a mascot's three-quarter walk, on its diagonals
+    const diag = diagSheetOf(c.sheet);
+    if (diag) {
+      const iso = nextPalette++;
+      setCustomCharacter(iso, diag, null);
+      setIsoPalette(palette, iso, true);
+    }
+    composed.set(key, palette);
+  }
+  return palette;
+}
+
+/** Palette and hue for a chosen look; null = the default (also while a preset loads). */
+function lookOf(
+  name: string,
+  choice: CharacterChoice | undefined,
+  presets: CharacterPresets,
+  provider: string | null,
+): { palette: number; hueShift: number } | null {
+  if (!choice) return null;
+  // A mascot and a person of parts (CHAR-HUMAN) are composed sheets.
+  if (choice.kind === 'mascot' || choice.kind === 'person')
+    return { palette: composedPalette(name, choice, provider), hueShift: 0 };
+  // v1 palettes (and v2 humanoids, CHARS-1104: on their base, colours and accessories dropped) are
+  // the built-in sheets, drawn as before.
+  if (choice.preset === undefined) return paletteOfLook(choice);
+  const preset = presets.presets.find((p) => p.id === choice.preset);
+  if (preset) load(preset);
+  const palette = preset ? sheets.get(preset.url) : 'failed';
+  if (typeof palette === 'number') return { palette, hueShift: 0 };
+  if (palette === 'loading') return null;
+  // §3.5: a sheet that is gone or does not draw shows the provider's mascot, never nothing.
+  return { palette: composedPalette(name, { v: 2, kind: 'mascot' }, provider), hueShift: 0 };
+}
+
+/** MSG-UI2: the look pinned to a character name (`emp:<id>` for a temp employee), or null.
+ *  CHARS-1104: an employee with none is its provider's mascot, as the office draws it. */
+export function lookByName(name: string, presets: CharacterPresets | null) {
+  if (!presets) return null;
+  const employee = name.startsWith('emp:');
+  const choice = presets.assignments[name] ?? (employee ? { v: 2, kind: 'mascot' } : undefined);
+  return lookOf(name, choice, presets, employee ? lookProvider(name) : null);
+}
+
+/** The look each character had before any choice (the server's pick). */
+const defaults = new WeakMap<Character, { palette: number; hueShift: number }>();
+
+/** Set every named character's palette from its chosen look. True when one changed. */
+function applyLooks(os: OfficeState, office: OfficeSnapshot, presets: CharacterPresets): boolean {
+  let changed = false;
+  const names = characterNames(office);
+  // TEMP-PLATES: a sub-agent's or Codex temporary's look is its roster employee's (`emp:<id>`).
+  const providers = new Map<string, string | null>();
+  for (const id of os.characters.keys()) {
+    const employee = names.has(id) ? undefined : employeeOf(id);
+    if (!employee) continue;
+    names.set(id, `emp:${employee.employeeId}`);
+    providers.set(`emp:${employee.employeeId}`, employee.execution.split(':')[0]);
+  }
+  // CHARS-1104: a sub-agent with no employee (yet) is a mascot of its lead's provider, never a copy
+  // of its lead (addSubagent starts it on the lead's palette)
+  for (const [id, ch] of os.characters) {
+    if (!ch.isSubagent || names.has(id)) continue;
+    const lead = ch.parentAgentId === null ? undefined : names.get(ch.parentAgentId);
+    const palette = composedPalette(
+      'sub-agent',
+      { v: 2, kind: 'mascot' },
+      subagentProvider(office, lead),
+    );
+    if (ch.palette === palette && ch.hueShift === 0) continue;
+    ch.palette = palette;
+    ch.hueShift = 0;
+    changed = true;
+  }
+  for (const [id, name] of names) {
+    const ch = os.characters.get(id);
+    if (!ch) continue;
+    const base = defaults.get(ch) ?? { palette: ch.palette, hueShift: ch.hueShift };
+    defaults.set(ch, base);
+    // ponytail: an engine Lead's provider is not on the screen, so its fallback mascot is Tori
+    const provider = providers.get(name) ?? providerOf(office, name);
+    const choice = name === OWNER_LOOK_KEY ? ownerChoice(presets) : presets.assignments[name];
+    const want = lookOf(name, choice ?? undefined, presets, provider) ?? base;
+    if (ch.palette === want.palette && ch.hueShift === want.hueShift) continue;
+    ch.palette = want.palette;
+    ch.hueShift = want.hueShift;
+    changed = true;
+  }
+  return changed;
+}
+
+/** Keep the office's characters in their chosen looks (characters come and go). */
+export function useCharacterLooks(
+  getOfficeState: () => OfficeState,
+  agents: readonly number[],
+  layoutReady: boolean,
+  subagents: readonly unknown[],
+): void {
+  const {
+    officeSnapshot: officeState,
+    characterPresets,
+    characterParts,
+    tempStaff,
+  } = useAgtyStore();
+  const { version } = useLooksUi();
+  useEffect(() => {
+    if (characterParts !== customParts) setCustomParts(characterParts);
+  }, [characterParts]);
+  // LOOKS-MEM: a look changed (here or on another screen): the sheet nobody wears any more goes
+  useEffect(() => {
+    if (characterPresets) releaseUnworn(characterPresets);
+  }, [characterPresets]);
+  useEffect(() => {
+    if (!officeState || !characterPresets || !layoutReady) return;
+    // Re-render once more so the card bars redraw their mug shots.
+    if (applyLooks(getOfficeState(), officeState, characterPresets))
+      update({ version: ui.version + 1 });
+  }, [
+    getOfficeState,
+    officeState,
+    characterPresets,
+    tempStaff,
+    agents,
+    subagents,
+    layoutReady,
+    version,
+  ]);
+}

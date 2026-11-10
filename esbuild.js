@@ -9,21 +9,21 @@ const watch = process.argv.includes('--watch');
 const pkgVersion = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'),
 ).version;
-/** agty product version (P1): one source, cld/release/version.json. */
+/** agty product version (P1): one source, agent-tycoon/release/version.json. */
 const productVersion = JSON.parse(
-  fs.readFileSync(path.join(__dirname, 'cld', 'release', 'version.json'), 'utf-8'),
+  fs.readFileSync(path.join(__dirname, 'agent-tycoon', 'release', 'version.json'), 'utf-8'),
 ).version;
 const versionDefine = {
   'process.env.AGENT_TYCOON_VERSION': JSON.stringify(pkgVersion),
-  'process.env.CLD_GUI_VERSION': JSON.stringify(productVersion),
+  'process.env.AGTY_VERSION': JSON.stringify(productVersion),
 };
 
 /**
- * CHAR-FACTORY: copy the built-in content packs (cld/packs/<id>/) to dist/packs/. Expansion packs
- * never live in the repo (packs-private/, the user's ~/.config/cld-gui/packs/).
+ * CHAR-FACTORY: copy the built-in content packs (agent-tycoon/packs/<id>/) to dist/packs/. Expansion packs
+ * never live in the repo (packs-private/, the user's ~/.config/agent-tycoon/packs/).
  */
 function copyPacks() {
-  const srcDir = path.join(__dirname, 'cld', 'packs');
+  const srcDir = path.join(__dirname, 'agent-tycoon', 'packs');
   const dstDir = path.join(__dirname, 'dist', 'packs');
   if (fs.existsSync(dstDir)) fs.rmSync(dstDir, { recursive: true });
   if (!fs.existsSync(srcDir)) return;
@@ -126,7 +126,7 @@ async function main() {
 /** agty (T-0022): the login page's script and style, served at /login/*
  *  without a session, so they stay out of the session-gated app bundle. */
 async function buildLoginPage() {
-  const src = path.join(__dirname, 'webview-ui', 'src', 'cld', 'login');
+  const src = path.join(__dirname, 'webview-ui', 'src', 'agent-tycoon', 'login');
   const out = path.join(__dirname, 'dist', 'login');
   await esbuild.build({
     entryPoints: [path.join(src, 'login.ts')],
@@ -146,12 +146,12 @@ async function buildLoginPage() {
 /** agty (T-0021): the GPU wrapper and the Codex worker, run outside the daemon. */
 async function buildWorker() {
   await esbuild.build({
-    entryPoints: ['server/src/cld/engine/workerMain.ts'],
+    entryPoints: ['server/src/agent-tycoon/engine/workerMain.ts'],
     bundle: true,
     format: 'cjs',
     platform: 'node',
     target: 'node18',
-    outfile: 'dist/cld-worker.js',
+    outfile: 'dist/agty-worker.js',
     define: versionDefine,
     logLevel: 'silent',
   });
@@ -160,13 +160,13 @@ async function buildWorker() {
 /** agty TERM-P1 (ADR-0018): our PTY host, its own small process (no Fastify, no engine). */
 async function buildPtyHost() {
   await esbuild.build({
-    entryPoints: ['server/src/cld/ptyhost/hostMain.ts'],
+    entryPoints: ['server/src/agent-tycoon/ptyhost/hostMain.ts'],
     bundle: true,
     format: 'cjs',
     minify: production,
     platform: 'node',
     target: 'node18',
-    outfile: 'dist/cld-ptyhost.js',
+    outfile: 'dist/agty-ptyhost.js',
     external: ['@lydell/node-pty', 'node-pty'],
     define: versionDefine,
     logLevel: 'silent',

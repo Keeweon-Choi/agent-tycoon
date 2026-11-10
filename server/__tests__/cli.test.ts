@@ -315,7 +315,7 @@ describe('dist/cli.js entry-point guard', () => {
         expect(url.port).toBe(port.toString());
         const response = await fetch(url, { redirect: 'manual' });
         expect(response.status).toBe(303);
-        expect(response.headers.get('set-cookie')).toMatch(/^cld_session_[0-9a-f]{8}=/); // MHO 3.6: per host
+        expect(response.headers.get('set-cookie')).toMatch(/^agty_session_[0-9a-f]{8}=/); // MHO 3.6: per host
       },
       '127.0.0.1',
       true,
@@ -378,7 +378,7 @@ describe('dist/cli.js entry-point guard', () => {
   // this user nothing they do not already have. What it must NOT do is take the
   // opportunity to touch anything else: unrelated settings keys and a
   // third-party hook sharing one of our entries both survive intact.
-  // CON-011: standalone cld-gui never installs hooks.
+  // CON-011: standalone agent-tycoon never installs hooks.
   it.skip('migrates a pre-consent install to 12 events with no prompt', async () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-legacy-'));
     const settingsPath = path.join(tmpHome, '.claude', 'settings.json');
@@ -445,7 +445,7 @@ describe('dist/cli.js entry-point guard', () => {
   // makes Claude Code spawn a dead `node` for every event — worse than nothing.
   // A regular file where the hooks DIRECTORY belongs makes the copy fail
   // (ENOTDIR) without touching the repo's real dist/.
-  // CON-011: standalone cld-gui never installs hooks.
+  // CON-011: standalone agent-tycoon never installs hooks.
   it.skip('writes no hook entries when the hook script cannot be copied', async () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-nocopy-'));
     fs.mkdirSync(path.join(tmpHome, '.pixel-agents'), { recursive: true });
@@ -464,7 +464,7 @@ describe('dist/cli.js entry-point guard', () => {
     });
   });
 
-  // CON-011: standalone cld-gui never installs hooks.
+  // CON-011: standalone agent-tycoon never installs hooks.
   it.skip('installs the bundled hook script from the package root on startup', async () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-home-'));
     const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cli-workspace-'));

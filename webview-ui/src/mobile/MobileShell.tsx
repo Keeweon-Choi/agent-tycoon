@@ -3,7 +3,7 @@ import './touchTargets.css';
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
-import { RegionBoundary } from '../cld/RegionBoundary.js';
+import { RegionBoundary } from '../agent-tycoon/RegionBoundary.js';
 import type { CardInfo } from '../components/cardBar.js';
 import { MobileAgentBar } from '../components/MobileAgentBar.js';
 import { MobileKeyBar } from '../components/MobileKeyBar.js';
@@ -77,14 +77,14 @@ export function MobileShell({
   const shellRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // The shell ends where the card bar starts: the toasts (ActionLayer,
-  // EngineControls, AuthLayer) sit above it through --cld-toast-bottom.
+  // EngineControls, AuthLayer) sit above it through --agty-toast-bottom.
   useLayoutEffect(() => {
     const shellElement = shellRef.current;
     if (!shellElement) return;
     const root = document.documentElement;
     const updateToastBottom = () => {
       const rect = shellElement.getBoundingClientRect();
-      root.style.setProperty('--cld-toast-bottom', `${window.innerHeight - rect.bottom}px`);
+      root.style.setProperty('--agty-toast-bottom', `${window.innerHeight - rect.bottom}px`);
     };
     updateToastBottom();
     const observer = new ResizeObserver(updateToastBottom);
@@ -93,7 +93,7 @@ export function MobileShell({
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', updateToastBottom);
-      root.style.removeProperty('--cld-toast-bottom');
+      root.style.removeProperty('--agty-toast-bottom');
     };
   }, []);
   useEdgeSwipe(
@@ -189,7 +189,7 @@ export function MobileShell({
           screen edge. */}
       {!keyboardOpen && bottom && (
         <div
-          className="shrink-0 bg-bg touch-pan-x pb-[max(4px,var(--cld-safe-bottom))]"
+          className="shrink-0 bg-bg touch-pan-x pb-[max(4px,var(--agty-safe-bottom))]"
           data-testid="mobile-bottom"
         >
           {bottom}

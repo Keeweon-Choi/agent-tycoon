@@ -240,13 +240,13 @@ test('O4: an owner who finished the original tour sees only the new steps; a fre
   assert.deepEqual(introSteps(true, false), ['welcome', 'claude', 'consent', 'closing']);
 });
 
-test('O4: only a cld owner who can answer is asked, and never before the server has said', () => {
-  const ok = { cldMode: true, answered: false, readOnly: false };
+test('O4: only a agty owner who can answer is asked, and never before the server has said', () => {
+  const ok = { agtyMode: true, answered: false, readOnly: false };
   assert.equal(onboardingAsked(ok), true);
   assert.equal(onboardingAsked({ ...ok, readOnly: true }), false); // a read-only viewer has nothing to choose
   assert.equal(onboardingAsked({ ...ok, answered: true }), false); // asked once
   assert.equal(onboardingAsked({ ...ok, answered: null }), false); // settings not loaded yet
-  assert.equal(onboardingAsked({ ...ok, cldMode: false }), false);
+  assert.equal(onboardingAsked({ ...ok, agtyMode: false }), false);
 });
 
 test('O4: an open question starts the steps, with no hooks ask needed', () => {

@@ -69,7 +69,7 @@ const banned = [
 // error and Claude's /add-dir. (ponytail: matched by their text; a new exception is one more entry.)
 const allowed = ['git 작업 폴더가 아니에요', "ko: '작업 폴더를 더 추가해요'"];
 
-it.each(['i18n/ko.ts', 'i18n/spec.ko.ts', '../../core/src/cld/serverText.ts'])(
+it.each(['i18n/ko.ts', 'i18n/spec.ko.ts', '../../core/src/agent-tycoon/serverText.ts'])(
   'keeps the owner-banned words out of %s',
   (file) => {
     const lines = readFileSync(path.join(srcDir, file), 'utf8').split('\n');

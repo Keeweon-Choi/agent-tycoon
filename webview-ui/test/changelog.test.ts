@@ -17,7 +17,7 @@ it('has an English and a Korean text for every key the update log uses', () => {
   }
 });
 
-it('lists the version the product reports (cld/release/version.json) as the newest entry', () => {
+it('lists the version the product reports (agent-tycoon/release/version.json) as the newest entry', () => {
   expect(changelogEntries[0]?.version).toBe(toMajorMinor('0.1.0-rc.1'));
 });
 

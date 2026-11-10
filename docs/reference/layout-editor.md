@@ -4,7 +4,7 @@
 
 ## Layout Editor
 
-> **11-04: the ways in are hidden** (the elevator's 인테리어, the toolbar's Layout, 설정's layout export/import, the 꾸미기 window's 사람 꾸미기 and 커스텀 tabs) behind `FEATURE_INTERIOR` and `FEATURE_LOOKS_CUSTOM` in `webview-ui/src/constants.ts` (read through `cld/features.ts`); the code stays; the elevator's 편집 (floor editor) is not part of it and stays. The e2e harness turns both on, `window.__AGENT_TYCOON_LATER_FEATURES = 'off'` turns them off again (`cld/test/run-hide-interior-1104.ts`).
+> **11-04: the ways in are hidden** (the elevator's 인테리어, the toolbar's Layout, 설정's layout export/import, the 꾸미기 window's 사람 꾸미기 and 커스텀 tabs) behind `FEATURE_INTERIOR` and `FEATURE_LOOKS_CUSTOM` in `webview-ui/src/constants.ts` (read through `agent-tycoon/features.ts`); the code stays; the elevator's 편집 (floor editor) is not part of it and stays. The e2e harness turns both on, `window.__AGENT_TYCOON_LATER_FEATURES = 'off'` turns them off again (`agent-tycoon/test/run-hide-interior-1104.ts`).
 
 Toggle via "Layout" button. Tools: SELECT (default), Floor paint, Wall paint, Erase (set tiles to VOID), Furniture place, Furniture Copy (`FURNITURE_PICK`: type + colour off a placed item), colour Copy (`COLOR_PICK`: colour only), Eyedropper (floor/wall). `handleEditorTileAction` is a per-tool switch; the layout maths lives in pure `editorActions.ts` functions. Clicks on placed items (select, drag) never reach it — the canvas resolves them.
 

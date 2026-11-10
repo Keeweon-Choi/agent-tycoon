@@ -1,4 +1,4 @@
-import { serverTextKeys } from '../../../core/src/cld/serverText.js';
+import { serverTextKeys } from '../../../core/src/agent-tycoon/serverText.js';
 import type { BaseKey } from './en.js';
 
 export const ko = {
@@ -505,7 +505,7 @@ export const ko = {
   'hwFix.error.stepup': '다른 기기에서는 본인 확인이 한 번 더 필요합니다.',
   'hwFix.error.busy': '이미 설치 중입니다.',
   'hwFix.error.unsupported': '이 OS에는 설치할 센서 도구가 없습니다.',
-  'hwFix.error.unavailable': '이 설치본에는 센서 도구 설치 단계가 없습니다. 터미널에서: node cld/install/install.mjs --hw-sensors',
+  'hwFix.error.unavailable': '이 설치본에는 센서 도구 설치 단계가 없습니다. 터미널에서: node agent-tycoon/install/install.mjs --hw-sensors',
   'hwFix.error.not_found': 'nvidia-smi를 찾지 못했습니다.',
   'hwFix.error.write_failed': 'gpu.json에 저장하지 못했습니다(파일이 깨졌으면 고쳐 주세요).',
   'format.temp': '온도',
@@ -3031,7 +3031,7 @@ export const ko = {
   'hudpc.inspector.label': '{name} 상세',
   'hudpc.inspector.close': '상세 닫기',
   'hudpc.inspector.now': '지금 하는 일',
-  // BRN K5: the overview's five lines (cld/spec/ResumeLines.tsx)
+  // BRN K5: the overview's five lines (agent-tycoon/spec/ResumeLines.tsx)
   'brainResume.title': '지금 상황',
   'brainResume.subtitle': '하는 일 · 한 일 · 막힌 것 · 다음 할 일',
   'tasks.openDevroomTitle': '{name} 의 터미널과 워크트리를 개발실에서 열어요',

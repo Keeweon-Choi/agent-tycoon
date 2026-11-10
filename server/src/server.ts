@@ -4,16 +4,16 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { StandaloneAuth } from './agent-tycoon/auth.js';
+import type { ChatManager } from './agent-tycoon/chat.js';
+import { configDirectory, legacyOfficeDirectory, officeDirectory } from './agent-tycoon/configPath.js';
+import { loadOrCreateHost } from './agent-tycoon/engine/host.js';
+import { hostLabel } from './agent-tycoon/hostName.js';
+import type { PtyHostClient } from './agent-tycoon/ptyhost/client.js';
+import { hostShellRegistry } from './agent-tycoon/shell/registry.js';
+import type { Street } from './agent-tycoon/street.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { StandaloneAuth } from './cld/auth.js';
-import type { ChatManager } from './cld/chat.js';
-import { configDirectory, legacyOfficeDirectory, officeDirectory } from './cld/configPath.js';
-import { loadOrCreateHost } from './cld/engine/host.js';
-import { hostLabel } from './cld/hostName.js';
-import type { PtyHostClient } from './cld/ptyhost/client.js';
-import { hostShellRegistry } from './cld/shell/registry.js';
-import type { Street } from './cld/street.js';
 import type {
   AssetCache,
   ReloadAssetsSideEffect,

@@ -76,11 +76,11 @@ export function tailscaleOffArgs(entry) {
 export function portproxyRemoveCommands(externalPort = 443) {
   return [
     `netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=${externalPort} | Out-Null`,
-    `Remove-NetFirewallRule -Name cld-gui-${externalPort} -ErrorAction SilentlyContinue`,
+    `Remove-NetFirewallRule -Name agent-tycoon-${externalPort} -ErrorAction SilentlyContinue`,
   ];
 }
 
-/** The argv our quick tunnel starts cloudflared with (server/src/cld/remote/tunnel.ts cloudflaredArgs). */
+/** The argv our quick tunnel starts cloudflared with (server/src/agent-tycoon/remote/tunnel.ts cloudflaredArgs). */
 export function tunnelArgv(localPort) {
   return ['cloudflared', 'tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${localPort}`];
 }

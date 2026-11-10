@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import { fixJosa } from '../../../core/src/cld/josa.js';
+import { fixJosa } from '../../../core/src/agent-tycoon/josa.js';
 import { en, type TranslationKey } from './en.js';
 import { ko } from './ko.js';
 import { extraEn, extraKo } from './lazy.js';
@@ -8,7 +8,7 @@ import { extraEn, extraKo } from './lazy.js';
 export type { TranslationKey } from './en.js';
 
 export type Language = 'en' | 'ko';
-const STORAGE_KEY = 'cld.lang';
+const STORAGE_KEY = 'agty.lang';
 const listeners = new Set<() => void>();
 
 function preferredLanguage(): Language {

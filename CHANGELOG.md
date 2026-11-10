@@ -1,6 +1,6 @@
 # 변경 내역
 
-에이전트 타이쿤의 눈에 띄는 변경을 적습니다. 앱 안의 업데이트 소식과 같은 내용입니다. 제품 버전은 [`cld/release/version.json`](cld/release/version.json)에 있습니다.
+에이전트 타이쿤의 눈에 띄는 변경을 적습니다. 앱 안의 업데이트 소식과 같은 내용입니다. 제품 버전은 [`agent-tycoon/release/version.json`](agent-tycoon/release/version.json)에 있습니다.
 
 ## v0.1
 
@@ -18,6 +18,7 @@
 
 ### 설치
 
+- 이름을 에이전트 타이쿤(`agent-tycoon`)과 `agty`로 모두 통일했습니다. 설정·상태 폴더와 서비스는 `agent-tycoon`, 환경 변수는 `AGTY_*`, 브라우저에 저장한 보기 설정은 `agty.*`입니다. 옛 이름은 더 이상 알아보지 않으니 새로 설치하세요.
 - Windows 앱을 다시 설치하거나 지워도 찌꺼기가 남지 않고, 설치 진행률이 보입니다.
 - Windows에서 사무실로 설치한 Claude Code가 바로 PATH에 잡힙니다.
 - Intel Mac용 설치 파일이 생겼고, Claude Code 설치 버튼이 로그인까지 이어 줍니다.

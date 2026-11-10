@@ -14,8 +14,8 @@ export interface HookEventPayload {
   [key: string]: unknown;
 }
 
-/** A file in the daemon's office folder (configPath.cjs officeDirectory; a test HOME never has the
- *  pre-rename ~/.config/cld-gui). Specs seed config and layout in ~/.pixel-agents, where a daemon
+/** A file in the daemon's office folder (configPath.cjs officeDirectory; a test HOME is
+ *  always a fresh one). Specs seed config and layout in ~/.pixel-agents, where a daemon
  *  before 2026-11 kept them, so every run also exercises the move into this folder. */
 export function officeFile(tmpHome: string, ...parts: string[]): string {
   return path.join(tmpHome, '.config', 'agent-tycoon', 'office', ...parts);

@@ -1,13 +1,13 @@
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { PartyPortrait, PartyWaiting } from '../cld/game/Party.js';
-import { HudPanel, usePanelSlot } from '../cld/hud/fixedPanels.js';
-import { panelToFront, useHud } from '../cld/hud/hudStore.js';
-import { setInspectorSlot } from '../cld/hud/inspectorSlot.js';
-import { layerZ } from '../cld/hud/windowModel.js';
-import { usePartyColumn } from '../cld/party/partyColumn.js';
-import { staffSnapshot } from '../cld/staff.js';
+import { PartyPortrait, PartyWaiting } from '../agent-tycoon/game/Party.js';
+import { HudPanel, usePanelSlot } from '../agent-tycoon/hud/fixedPanels.js';
+import { panelToFront, useHud } from '../agent-tycoon/hud/hudStore.js';
+import { setInspectorSlot } from '../agent-tycoon/hud/inspectorSlot.js';
+import { layerZ } from '../agent-tycoon/hud/windowModel.js';
+import { usePartyColumn } from '../agent-tycoon/party/partyColumn.js';
+import { staffSnapshot } from '../agent-tycoon/staff.js';
 import {
   CARD_BAR_MAX_VISIBLE,
   HUD_BOTTOM_RESERVE_PX,
@@ -137,7 +137,7 @@ export function AgentCardBar({
       // The card is never taller than the room between the party's top inset and the bottom HUD.
       const fit = room - HUD_BOTTOM_RESERVE_PX - wrap.offsetTop;
       slot.style.setProperty('--mc-room', `${Math.max(0, Math.floor(fit))}px`);
-      // A card the owner dragged stays where it was dropped (cld/hud/Inspector.tsx keeps it on screen).
+      // A card the owner dragged stays where it was dropped (agent-tycoon/hud/Inspector.tsx keeps it on screen).
       const el = slot.firstElementChild as HTMLElement | null;
       if (el?.dataset.dragged !== undefined) return;
       const want = card ? card.getBoundingClientRect().top - wrap.getBoundingClientRect().top : 0;

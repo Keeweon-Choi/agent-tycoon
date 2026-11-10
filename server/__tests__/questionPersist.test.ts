@@ -4,11 +4,11 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CharacterBinder } from '../src/agent-tycoon/characters.js';
 import { resendAgentActivity } from '../src/agentActivityResend.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { createAgentState } from '../src/agentState.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
-import { CharacterBinder } from '../src/cld/characters.js';
 import { HookEventHandler } from '../src/hookEventHandler.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import { answeredSince, endsWithQuestion, useQuestionStore } from '../src/question.js';
@@ -47,7 +47,7 @@ describe('WAITING-PERSIST: the question state, its store and a restart', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-question-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-question-'));
     jsonl = path.join(dir, 'sess-q.jsonl');
     fs.writeFileSync(jsonl, '');
     useQuestionStore(path.join(dir, 'questions.json'));
@@ -181,7 +181,7 @@ describe('WAITING-PERSIST: the question state, its store and a restart', () => {
 describe('answeredSince', () => {
   let dir: string;
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cld-answered-'));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-answered-'));
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 

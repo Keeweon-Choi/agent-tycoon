@@ -1,6 +1,6 @@
 import type { ContextLimitBasis } from '../../../../core/src/messages.js';
 import { pickDiversePalette } from '../../../../core/src/paletteUtils.js';
-import type { CameraKey } from '../../cld/camera.js';
+import type { CameraKey } from '../../agent-tycoon/camera.js';
 import {
   carryAcrossFloors,
   doorsStep,
@@ -13,11 +13,11 @@ import {
   rideStep,
   seatOffFloor,
   visitStep,
-} from '../../cld/elevator.js';
-import { cldWalkPace } from '../../cld/ez/visuals.js';
-import { restStep } from '../../cld/lounge.js';
-import type { HeldWalkKeys } from '../../cld/walk.js';
-import { floorRects } from '../../cld/walk.js';
+} from '../../agent-tycoon/elevator.js';
+import { agtyWalkPace } from '../../agent-tycoon/ez/visuals.js';
+import { restStep } from '../../agent-tycoon/lounge.js';
+import type { HeldWalkKeys } from '../../agent-tycoon/walk.js';
+import { floorRects } from '../../agent-tycoon/walk.js';
 import {
   canQueueWalkStep,
   heldKeyboardWalkTarget,
@@ -25,7 +25,7 @@ import {
   walkDecision,
   walkStepOf,
   walkStepTarget,
-} from '../../cld/walk.js';
+} from '../../agent-tycoon/walk.js';
 import {
   AUTO_ON_FACING_DEPTH,
   AUTO_ON_SIDE_DEPTH,
@@ -87,7 +87,7 @@ function seatFacingOffset(direction: Direction): { dCol: number; dRow: number } 
  *  badges, bubbles: overlayPlacer.ts) share. agty (T-0041): one who went home is not drawn (its
  *  despawn still is); ELEVATOR: one inside the car is not drawn either. */
 export const characterDrawn = (ch: Character): boolean =>
-  (!ch.cldAway || !!ch.matrixEffect) && !ch.cldRide?.hidden;
+  (!ch.agtyAway || !!ch.matrixEffect) && !ch.agtyRide?.hidden;
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -101,13 +101,13 @@ export class OfficeState {
   wanderTiles: ((ch: Character) => Array<{ col: number; row: number }>) | null = null;
   /** agty (ELEVATOR): each floor's elevator (null: one floor) and the links they give
    *  the pathfinder between floors. */
-  cldElevators: Elevator[] | null = null;
-  cldLinks: FloorLinks | null = null;
-  private cldDoorsMoving = false;
+  agtyElevators: Elevator[] | null = null;
+  agtyLinks: FloorLinks | null = null;
+  private agtyDoorsMoving = false;
   /** agty (LOUNGE): a pantry machine's picture while somebody uses it (furniture uid -> the
    *  catalog type of its current state); absent: the idle picture the layout names. Read by the
    *  isometric view (C1: its machines play the same states). */
-  readonly cldPantry = new Map<string, string>();
+  readonly agtyPantry = new Map<string, string>();
   characters: Map<number, Character> = new Map();
   pets: Pet[] = [];
   /** Accumulated time for furniture animation frame cycling */
@@ -195,12 +195,12 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = getBlockedTiles(layout.furniture);
-    const elevators = this.cldElevators;
-    this.cldElevators = findElevators(layout, this.tileMap, this.blockedTiles);
-    this.cldLinks = elevatorLinks(this.cldElevators);
+    const elevators = this.agtyElevators;
+    this.agtyElevators = findElevators(layout, this.tileMap, this.blockedTiles);
+    this.agtyLinks = elevatorLinks(this.agtyElevators);
     // agty (ELEVATOR): floors whose rows moved carry their characters along.
     if (!shift)
-      carryAcrossFloors(before, layout, this.characters.values(), elevators, this.cldElevators);
+      carryAcrossFloors(before, layout, this.characters.values(), elevators, this.agtyElevators);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -242,14 +242,14 @@ export class OfficeState {
     const moved = !!floorRects(before) && !!floorRects(layout);
     const ownAtLast = new Set<Character>();
     for (const ch of this.characters.values()) {
-      if (ch.cldSeatMissing && ch.cldSeatId && this.seats.has(ch.cldSeatId)) {
+      if (ch.agtySeatMissing && ch.agtySeatId && this.seats.has(ch.agtySeatId)) {
         // Its own seat arrived (the office drawn once the roster was back): there, at once.
-        ch.cldSeatMissing = undefined;
-        ch.seatId = ch.cldSeatId;
+        ch.agtySeatMissing = undefined;
+        ch.seatId = ch.agtySeatId;
         ownAtLast.add(ch);
       }
       if (!ch.seatId || !this.seats.has(ch.seatId)) {
-        const hinted = this.cldSeat(ch.cldSeatId);
+        const hinted = this.agtySeat(ch.agtySeatId);
         if (hinted === null) seatless.add(ch);
         else if (hinted) ch.seatId = hinted;
       }
@@ -259,15 +259,15 @@ export class OfficeState {
           seat.assigned = true;
           // (One riding already goes on as it was.)
           if (
-            !ch.cldAway &&
+            !ch.agtyAway &&
             !ch.matrixEffect &&
-            (ch.cldRide || (moved && !ownAtLast.has(ch) && seatOffFloor(layout, ch, seat.seatRow)))
+            (ch.agtyRide || (moved && !ownAtLast.has(ch) && seatOffFloor(layout, ch, seat.seatRow)))
           ) {
             riders.push(ch);
             continue;
           }
           // agty (LOUNGE): one resting off duty keeps its desk but stays where it rests.
-          if (ch.cldRest) continue;
+          if (ch.agtyRest) continue;
           // Snap character to seat position
           ch.tileCol = seat.seatCol;
           ch.tileRow = seat.seatRow;
@@ -284,7 +284,7 @@ export class OfficeState {
 
     // Second pass: assign remaining characters to free seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId || seatless.has(ch) || ch.cldOwner) continue;
+      if (ch.seatId || seatless.has(ch) || ch.agtyOwner) continue;
       const seatId = this.findFreeSeat(ch.directoryName);
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
@@ -299,7 +299,7 @@ export class OfficeState {
     }
 
     for (const ch of riders) {
-      if (ch.cldRide) continue;
+      if (ch.agtyRide) continue;
       if (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles)) {
         const near = nearestOnFloor(layout, this.walkableTiles, ch);
         if (near) Object.assign(ch, { tileCol: near.col, tileRow: near.row });
@@ -308,7 +308,7 @@ export class OfficeState {
       ch.y = ch.tileRow * TILE_SIZE + TILE_SIZE / 2;
       // A visitor stays where it visits; anyone else goes to its seat (by elevator), or is
       // put there when no elevator leads to it.
-      if (ch.cldVisit) continue;
+      if (ch.agtyVisit) continue;
       this.sendToSeat(ch.id);
       const seat = this.seats.get(ch.seatId!)!;
       if (ch.path.length === 0)
@@ -500,11 +500,11 @@ export class OfficeState {
    * unzoned seats from a layout without `areaTiles`, which is every seat).
    */
   /** agty (T-0066): for a seat whose chair the user removed, the chair the server
-   *  names (`cldSeats`; null: none, the character works in place); a seat that is there is
+   *  names (`agtySeats`; null: none, the character works in place); a seat that is there is
    *  itself; undefined: no word. */
-  private cldSeat(seatId: string | null | undefined): string | null | undefined {
+  private agtySeat(seatId: string | null | undefined): string | null | undefined {
     if (!seatId || this.seats.has(seatId)) return seatId ?? undefined;
-    const hints = (this.layout as { cldSeats?: Record<string, string | null> }).cldSeats;
+    const hints = (this.layout as { agtySeats?: Record<string, string | null> }).agtySeats;
     return hints && Object.hasOwn(hints, seatId) ? hints[seatId] : undefined;
   }
 
@@ -603,7 +603,7 @@ export class OfficeState {
     const anchorAt = anchorTile(anchor, this.seats);
     let seatId: string | null = null;
     const serverSeat = preferredSeatId;
-    const hinted = this.cldSeat(preferredSeatId);
+    const hinted = this.agtySeat(preferredSeatId);
     if (hinted !== undefined) preferredSeatId = hinted ?? undefined;
     if (preferredSeatId && this.seats.has(preferredSeatId)) {
       const seat = this.seats.get(preferredSeatId)!;
@@ -642,8 +642,8 @@ export class OfficeState {
     if (directoryName) {
       ch.directoryName = directoryName;
     }
-    if (serverSeat) ch.cldSeatId = serverSeat;
-    if (serverSeat && hinted === undefined && !this.seats.has(serverSeat)) ch.cldSeatMissing = true;
+    if (serverSeat) ch.agtySeatId = serverSeat;
+    if (serverSeat && hinted === undefined && !this.seats.has(serverSeat)) ch.agtySeatMissing = true;
     if (!skipSpawnEffect) {
       startMatrixEffect(ch, 'spawn');
     }
@@ -698,13 +698,13 @@ export class OfficeState {
   /** OWNER-AVATAR: the owner's own character, in front of a lobby board a layout still has, else
    *  just inside the office door (the middle of floor 1's last rows: the lobby board stands
    *  outside since building-a-1104). It is in `characters` so it walks, rides and draws as
-   *  everyone does; the agent-only loops skip it by `cldOwner`. Idempotent; null when no tile
+   *  everyone does; the agent-only loops skip it by `agtyOwner`. Idempotent; null when no tile
    *  is free. */
   spawnOwner(palette = 0, hueShift = 0): Character | null {
     const had = this.characters.get(OWNER_CHARACTER_ID);
     if (had) return had;
     const board = this.layout.furniture.find((f) => f.type === BOARD_TYPE);
-    const floors = (this.layout as { cldFloors?: Array<{ row: number; rows: number }> }).cldFloors;
+    const floors = (this.layout as { agtyFloors?: Array<{ row: number; rows: number }> }).agtyFloors;
     const first = floors?.[0] ?? { row: 0, rows: this.layout.rows };
     const spawn = board
       ? this.closestFreeWalkableTile(
@@ -718,7 +718,7 @@ export class OfficeState {
     if (!spawn) return null;
     const ch = createCharacter(OWNER_CHARACTER_ID, palette, null, null, hueShift);
     Object.assign(ch, {
-      cldOwner: true,
+      agtyOwner: true,
       isActive: false,
       state: CharacterState.IDLE,
       dir: Direction.DOWN,
@@ -755,7 +755,7 @@ export class OfficeState {
   /** False when nothing happened: no such character, or it is out of sight (held while the page settles, or home). */
   selectAndFollow(id: number): boolean {
     const ch = this.characters.get(id);
-    if (!ch || ch.cldAway) return false;
+    if (!ch || ch.agtyAway) return false;
     this.selectedAgentId = id;
     this.cameraFollowId = id;
     return true;
@@ -770,7 +770,7 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch) return;
     if (ch.matrixEffect === 'despawn') return; // already despawning
-    ch.cldAway = false; // agty (T-0041): removed means gone, home or not
+    ch.agtyAway = false; // agty (T-0041): removed means gone, home or not
     // Free seat and clear selection immediately
     if (ch.seatId) {
       const seat = this.seats.get(ch.seatId);
@@ -794,7 +794,7 @@ export class OfficeState {
   /** Reassign an agent from their current seat to a new seat */
   reassignSeat(agentId: number, seatId: string): void {
     const ch = this.characters.get(agentId);
-    if (!ch || ch.cldOwner) return; // OWNER-AVATAR: the owner's character takes no desk
+    if (!ch || ch.agtyOwner) return; // OWNER-AVATAR: the owner's character takes no desk
     // Unassign old seat
     if (ch.seatId) {
       const old = this.seats.get(ch.seatId);
@@ -814,7 +814,7 @@ export class OfficeState {
         seat.seatRow,
         this.tileMap,
         this.blockedTiles,
-        this.cldLinks,
+        this.agtyLinks,
       ),
     );
     if (path.length > 0) {
@@ -877,7 +877,7 @@ export class OfficeState {
         seat.seatRow,
         this.tileMap,
         this.blockedTiles,
-        this.cldLinks,
+        this.agtyLinks,
       ),
     );
     if (path.length > 0) {
@@ -908,7 +908,7 @@ export class OfficeState {
       if (!key || key !== `${col},${row}`) return false;
     }
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, this.cldLinks),
+      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, this.agtyLinks),
     );
     if (path.length === 0) return false;
     ch.path = path;
@@ -1114,7 +1114,7 @@ export class OfficeState {
       const wasActive = ch.isActive;
       ch.isActive = active;
       // agty (C1): on a coffee break the character finishes it; the director brings it back.
-      if (ch.cldRest?.brk) return this.rebuildFurnitureInstances();
+      if (ch.agtyRest?.brk) return this.rebuildFurnitureInstances();
       if (shouldReturnToSeat(wasActive, active)) {
         ch.keyboardWalk = undefined;
         ch.heldWalkQueued = undefined;
@@ -1166,12 +1166,12 @@ export class OfficeState {
     }
 
     // agty (ELEVATOR): the elevators are drawn with the furniture.
-    const elevators = this.cldElevators?.map((e) => e.instance) ?? [];
+    const elevators = this.agtyElevators?.map((e) => e.instance) ?? [];
     // agty (LOUNGE): a machine in use shows its state.
     const pantry = (items: PlacedFurniture[]) =>
-      this.cldPantry.size
+      this.agtyPantry.size
         ? items.map((i) =>
-            this.cldPantry.has(i.uid) ? { ...i, type: this.cldPantry.get(i.uid)! } : i,
+            this.agtyPantry.has(i.uid) ? { ...i, type: this.agtyPantry.get(i.uid)! } : i,
           )
         : items;
     if (autoOnTiles.size === 0) {
@@ -1210,9 +1210,9 @@ export class OfficeState {
 
   /** agty (LOUNGE): show a machine in one of its states (a catalog type), or idle again (null). */
   setPantryType(uid: string, type: string | null): void {
-    if (this.cldPantry.get(uid) === (type ?? undefined)) return;
-    if (type === null) this.cldPantry.delete(uid);
-    else this.cldPantry.set(uid, type);
+    if (this.agtyPantry.get(uid) === (type ?? undefined)) return;
+    if (type === null) this.agtyPantry.delete(uid);
+    else this.agtyPantry.set(uid, type);
     this.rebuildFurnitureInstances();
   }
 
@@ -1461,39 +1461,39 @@ export class OfficeState {
       const effect = advanceMatrixEffect(ch, dt);
       if (effect !== 'none') {
         // agty (T-0041): one who went home is kept, out of sight.
-        if (effect === 'despawned' && ch.cldAway) ch.matrixEffect = null;
+        if (effect === 'despawned' && ch.agtyAway) ch.matrixEffect = null;
         else if (effect === 'despawned') toDelete.push(ch.id);
         continue; // skip normal FSM while the effect is (or just was) active
       }
-      if (ch.cldAway) {
-        ch.cldRide = undefined;
+      if (ch.agtyAway) {
+        ch.agtyRide = undefined;
         continue;
       }
       // agty (ELEVATOR): a visit ends with the next work; a ride holds the character.
-      if (ch.cldVisit) visitStep(this, ch);
+      if (ch.agtyVisit) visitStep(this, ch);
       if (
-        (ch.cldRide || (ch.state === CharacterState.WALK && ch.path.length > 0)) &&
-        rideStep(ch, dt, this.cldElevators)
+        (ch.agtyRide || (ch.state === CharacterState.WALK && ch.path.length > 0)) &&
+        rideStep(ch, dt, this.agtyElevators)
       )
         continue;
       // agty (LOUNGE): one resting off duty is its own: still, or at a machine (a walk is the FSM's).
-      if (ch.cldRest && restStep(this, ch, dt)) continue;
+      if (ch.agtyRest && restStep(this, ch, dt)) continue;
 
-      // Temporarily unblock own seat so character can pathfind to it. cld
+      // Temporarily unblock own seat so character can pathfind to it. agty
       // T-0026: a tired character walks slower; T-0027: it wanders on its floor
       // (an idle visitor never rides home for a rest: no links).
       // OWNER-AVATAR: the owner's character goes only where it is walked.
-      const wander = ch.cldOwner ? [] : (this.wanderTiles?.(ch) ?? this.walkableTiles);
+      const wander = ch.agtyOwner ? [] : (this.wanderTiles?.(ch) ?? this.walkableTiles);
       this.withOwnSeatUnblocked(ch, () => {
         this.prepareHeldWalk(ch);
         updateCharacter(
           ch,
-          dt * cldWalkPace(ch),
+          dt * agtyWalkPace(ch),
           wander,
           this.seats,
           this.tileMap,
           this.blockedTiles,
-          ch.cldVisit && !ch.isActive ? null : this.cldLinks,
+          ch.agtyVisit && !ch.isActive ? null : this.agtyLinks,
         );
       });
 
@@ -1512,12 +1512,12 @@ export class OfficeState {
     }
     // With no rider and every door already shut, elevators add no idle-frame work.
     if (
-      this.cldDoorsMoving ||
-      [...this.characters.values()].some((ch) => ch.cldRide) ||
-      this.cldElevators?.some((e) => e.open > 0)
+      this.agtyDoorsMoving ||
+      [...this.characters.values()].some((ch) => ch.agtyRide) ||
+      this.agtyElevators?.some((e) => e.open > 0)
     ) {
-      this.cldDoorsMoving = doorsStep(this.cldElevators, this.characters.values(), dt);
-      drawElevators(this.cldElevators);
+      this.agtyDoorsMoving = doorsStep(this.agtyElevators, this.characters.values(), dt);
+      drawElevators(this.agtyElevators);
     }
 
     // ── Pet FSM ────────────────────────────────────────────────
@@ -1541,7 +1541,7 @@ export class OfficeState {
   isAnimating(): boolean {
     if (this.hasEffects()) return true;
     const moving = (ch: Character) =>
-      !ch.cldAway && (ch.state === CharacterState.WALK || ch.bubbleType === 'waiting');
+      !ch.agtyAway && (ch.state === CharacterState.WALK || ch.bubbleType === 'waiting');
     for (const ch of this.characters.values()) if (moving(ch)) return true;
     return this.pets.some((p) => p.state !== PetState.IDLE || p.bubbleType !== null);
   }
@@ -1550,7 +1550,7 @@ export class OfficeState {
    *  effect, the greeter's, elevator doors on the move. */
   hasEffects(): boolean {
     if (this.greeter && this.greeter.matrixEffect !== null) return true;
-    if (this.cldDoorsMoving) return true;
+    if (this.agtyDoorsMoving) return true;
     for (const ch of this.characters.values()) if (ch.matrixEffect !== null) return true;
     return false;
   }
@@ -1565,9 +1565,9 @@ export class OfficeState {
   > {
     const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
     for (const ch of this.characters.values()) {
-      if (ch.isSubagent || ch.cldOwner) continue;
+      if (ch.isSubagent || ch.agtyOwner) continue;
       // agty (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
-      const seatId = ch.cldVisit ? ch.cldVisit.homeSeat : ch.seatId;
+      const seatId = ch.agtyVisit ? ch.agtyVisit.homeSeat : ch.seatId;
       seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId };
     }
     return seats;
@@ -1589,7 +1589,7 @@ export class OfficeState {
     const chars = Array.from(this.characters.values()).sort((a, b) => b.y - a.y);
     for (const ch of chars) {
       // Skip characters that are despawning
-      if (ch.matrixEffect === 'despawn' || ch.cldAway || ch.cldRide?.hidden) continue;
+      if (ch.matrixEffect === 'despawn' || ch.agtyAway || ch.agtyRide?.hidden) continue;
       // Character sprite is 16x24, anchored bottom-center
       // Apply sitting offset to match visual position
       const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;

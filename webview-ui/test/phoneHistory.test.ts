@@ -6,16 +6,16 @@ import { blocksEdgeSwipe, GUARD, landing } from '../src/mobile/phoneHistory.js';
 describe('landing', () => {
   it('tells our guard, a closed overlay entry and the page entry apart', () => {
     expect(landing({ [GUARD]: true })).toBe('guard');
-    expect(landing({ cldAttach: true })).toBe('overlay');
-    expect(landing({ cldBoard: true })).toBe('overlay');
+    expect(landing({ agtyAttach: true })).toBe('overlay');
+    expect(landing({ agtyBoard: true })).toBe('overlay');
     expect(landing(null)).toBe('page');
     expect(landing(undefined)).toBe('page');
   });
   it('negative control: a foreign or switched-off state is the page entry', () => {
     expect(landing({ [GUARD]: false })).toBe('page');
-    expect(landing({ cldAttach: 1 })).toBe('page');
+    expect(landing({ agtyAttach: 1 })).toBe('page');
     expect(landing({ other: true })).toBe('page');
-    expect(landing('cldTab')).toBe('page');
+    expect(landing('agtyTab')).toBe('page');
   });
 });
 

@@ -1,19 +1,19 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { lookNameOf } from '../../cld/characters/looks.js';
-import { employeeFatigue, employeeOf } from '../../cld/employees.js';
-import { describeActivity } from '../../cld/ez/activity.js';
-import { CharacterLabel } from '../../cld/ez/CharacterLabel.js';
-import { FatigueBar, RestBubble } from '../../cld/ez/Fatigue.js';
-import { contextGaugeTitle, fatigueRules } from '../../cld/ez/fatigueState.js';
-import { offAlpha } from '../../cld/ez/nameplate.js';
-import { OwnerPlate } from '../../cld/ez/OwnerPlate.js';
-import { nameplatesOn, useNameplatePass } from '../../cld/ez/useNameplates.js';
-import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../cld/ez/visuals.js';
-import { characterKind, characterName, showsNameLabel } from '../../cld/kinds.js';
-import { OfficeBadges } from '../../cld/OfficeBadges.js';
-import { cldGetSnapshot, ezContext, fatigueFor, identityForAgent, rowOf } from '../../cld/officeStore.js';
-import { engineTurn, turnInputs } from '../../cld/turnState.js';
+import { lookNameOf } from '../../agent-tycoon/characters/looks.js';
+import { employeeFatigue, employeeOf } from '../../agent-tycoon/employees.js';
+import { describeActivity } from '../../agent-tycoon/ez/activity.js';
+import { CharacterLabel } from '../../agent-tycoon/ez/CharacterLabel.js';
+import { FatigueBar, RestBubble } from '../../agent-tycoon/ez/Fatigue.js';
+import { contextGaugeTitle, fatigueRules } from '../../agent-tycoon/ez/fatigueState.js';
+import { offAlpha } from '../../agent-tycoon/ez/nameplate.js';
+import { OwnerPlate } from '../../agent-tycoon/ez/OwnerPlate.js';
+import { nameplatesOn, useNameplatePass } from '../../agent-tycoon/ez/useNameplates.js';
+import { characterVisual, publishCharacterRing, publishCharacterVisual, RING_WORDS } from '../../agent-tycoon/ez/visuals.js';
+import { characterKind, characterName, showsNameLabel } from '../../agent-tycoon/kinds.js';
+import { OfficeBadges } from '../../agent-tycoon/OfficeBadges.js';
+import { agtyGetSnapshot, ezContext, fatigueFor, identityForAgent, rowOf } from '../../agent-tycoon/officeStore.js';
+import { engineTurn, turnInputs } from '../../agent-tycoon/turnState.js';
 import { Button } from '../../components/ui/Button.js';
 import {
   BUBBLE_FADE_DURATION_SEC,
@@ -193,7 +193,7 @@ export function ToolOverlay({
       const layout = p.officeState.getLayout();
       placer.frame(overlayProjection(layout, bounds, p.zoom, p.panRef.current, dpr), layout, dpr);
       // The signature of what the plates say (not where they are).
-      const snap = cldGetSnapshot();
+      const snap = agtyGetSnapshot();
       if (snap !== lastSnap) {
         lastSnap = snap;
         snapVersion++;
@@ -234,7 +234,7 @@ export function ToolOverlay({
 
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
-  const officeSnapshot = cldGetSnapshot();
+  const officeSnapshot = agtyGetSnapshot();
   const cardOpen = phone && selectedId !== null && selectedId !== OWNER_CHARACTER_ID;
 
   const bubbleFor = (ch: Character, id: number, bind: Bind, other: boolean) => {
@@ -306,7 +306,7 @@ export function ToolOverlay({
         const isHovered = hoveredId === id;
         const isSub = ch.isSubagent;
         const officeIdentity = identityForAgent(id, officeSnapshot.officeSnapshot, officeSnapshot.codexTasks);
-        // cld: one friendly description per character, from the tool row
+        // agty: one friendly description per character, from the tool row
         // upstream's label shows (getActivityText; a sub-agent's own rows).
         // No row reads as idle, like upstream's "Idle": characters start
         // active and the office's synthetic ones never hear otherwise. The raw
@@ -315,7 +315,7 @@ export function ToolOverlay({
         const ezRows = subChar
           ? subagentTools[subChar.parentAgentId]?.[subChar.parentToolId]
           : agentTools[id];
-        // STATE-SYNC: an engine session's turn is the engine's word (cld/turnState.ts), as on every list.
+        // STATE-SYNC: an engine session's turn is the engine's word (agent-tycoon/turnState.ts), as on every list.
         const turn = isSub ? null : engineTurn(rowOf(id, officeSnapshot.officeSnapshot));
         const ezTool = ezRows
           ? ([...ezRows].reverse().find((t) => !t.done) ??
@@ -329,7 +329,7 @@ export function ToolOverlay({
             permission:
               ch.bubbleType === 'permission' || (!!ezTool?.permissionWait && !ezTool.done),
             waitingInput: ch.bubbleType === 'waiting' && !!ch.waitingAwaitingInput,
-            idle: !ezTool && (!isSub || !ch.isActive), // cld T-0041: a lingering sub rests
+            idle: !ezTool && (!isSub || !ch.isActive), // agty T-0041: a lingering sub rests
             // A finished turn's checkmark beats a stale busy flag (not the engine's own word).
             ...turnInputs(turn, !!officeIdentity?.busy && ch.bubbleType !== 'waiting'),
           },
@@ -365,7 +365,7 @@ export function ToolOverlay({
           );
         }
 
-        // cld T-0026: the ring, prop and head badge for this activity; the
+        // agty T-0026: the ring, prop and head badge for this activity; the
         // canvas renderer draws the first two (agty office only).
         const visual = characterVisual(activity, !!officeIdentity?.off);
         // Every character's ring, on this floor or not: the staff rules (야근, 퇴근) read it.
@@ -380,11 +380,11 @@ export function ToolOverlay({
         const fatigue =
           fatigueFor(id, officeSnapshot) ??
           (employee ? employeeFatigue(employee, fatigueRules(officeSnapshot.ezRules?.fatigue)) : null);
-        // cld T-0036 + charpack v3 §6A: a nameplate on every named character
-        // (kinds.ts showsNameLabel), details on hover or tap (cld/ez/CharacterLabel.tsx).
+        // agty T-0036 + charpack v3 §6A: a nameplate on every named character
+        // (kinds.ts showsNameLabel), details on hover or tap (agent-tycoon/ez/CharacterLabel.tsx).
         if (officeSnapshot.officeSnapshot) {
-          const { officeSnapshot: cldOffice, codexTasks } = officeSnapshot;
-          const kind = characterKind(ch, cldOffice, codexTasks);
+          const { officeSnapshot: agtyOffice, codexTasks } = officeSnapshot;
+          const kind = characterKind(ch, agtyOffice, codexTasks);
           const named = showsNameLabel(kind, alwaysShowOverlay, nameplatesOn(), !!employee);
           publishCharacterVisual(id, { ...visual, fatigue, headIcon: !named });
           return (
@@ -392,7 +392,7 @@ export function ToolOverlay({
               key={id}
               ch={ch}
               kind={kind}
-              name={characterName(ch, cldOffice, codexTasks, subChar?.label)}
+              name={characterName(ch, agtyOffice, codexTasks, subChar?.label)}
               named={named}
               visual={visual}
               rawActivity={rawActivity(activityText, activity.detail)}
@@ -409,7 +409,7 @@ export function ToolOverlay({
               lift={characterLift(ch.palette, ch.hueShift)}
               bounds={bounds}
               dim={cardOpen && !isSelected}
-              lookName={isSelected ? lookNameOf(id, cldOffice) : undefined}
+              lookName={isSelected ? lookNameOf(id, agtyOffice) : undefined}
               characters={officeState.characters}
             />
           );

@@ -1,5 +1,5 @@
 import type { ServerMessage } from '../../../core/src/messages.js';
-import { isCldMock } from '../cld/mock.js';
+import { isAgtyMock } from '../agent-tycoon/mock.js';
 import type { MessageTransport } from './types.js';
 import { WebSocketTransport } from './webSocketTransport.js';
 
@@ -9,14 +9,14 @@ function createTransport(): MessageTransport {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/ws`;
   const ws = new WebSocketTransport(wsUrl);
-  // Vite dev and ?cldMock=1: there is no server to connect to, so `browserMock` injects
+  // Vite dev and ?agtyMock=1: there is no server to connect to, so `browserMock` injects
   // ServerMessages as `window` 'message' events. Bridge them into the transport
   // and DON'T open a real socket — there is no /ws on the Vite dev server, so
   // the transport would loop on reconnect. Guarded by DEV so it's tree-shaken
   // out of the production standalone build. Exactly ONE connect() call must
   // remain: WebSocketTransport has no guard, and a second call orphans a live
   // socket whose handlers keep delivering every broadcast a second time.
-  if (import.meta.env.DEV || isCldMock) {
+  if (import.meta.env.DEV || isAgtyMock) {
     window.addEventListener('message', (e: MessageEvent) => {
       const data = e.data as unknown;
       if (

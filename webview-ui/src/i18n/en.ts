@@ -1,4 +1,4 @@
-import { serverTextKeys } from '../../../core/src/cld/serverText.js';
+import { serverTextKeys } from '../../../core/src/agent-tycoon/serverText.js';
 import type { specEn } from './spec.en.js';
 
 /** English is the complete base dictionary. Missing keys are compile errors. */
@@ -519,7 +519,7 @@ export const en = {
   'hwFix.error.stepup': 'Another device needs one more identity check.',
   'hwFix.error.busy': 'Already installing.',
   'hwFix.error.unsupported': 'There is no sensor tool to install on this OS.',
-  'hwFix.error.unavailable': 'This install has no sensor tool step. In a terminal: node cld/install/install.mjs --hw-sensors',
+  'hwFix.error.unavailable': 'This install has no sensor tool step. In a terminal: node agent-tycoon/install/install.mjs --hw-sensors',
   'hwFix.error.not_found': 'nvidia-smi was not found.',
   'hwFix.error.write_failed': 'Could not save gpu.json (fix it if it is broken).',
   'format.temp': 'Temperature',
@@ -3065,7 +3065,7 @@ export const en = {
   'hudpc.inspector.label': '{name} details',
   'hudpc.inspector.close': 'Close details',
   'hudpc.inspector.now': 'Doing now',
-  // BRN K5: the overview's five lines (cld/spec/ResumeLines.tsx)
+  // BRN K5: the overview's five lines (agent-tycoon/spec/ResumeLines.tsx)
   'brainResume.title': 'Status now',
   'brainResume.subtitle': 'doing · done · blocked · next',
   'tasks.openDevroomTitle': "Opens {name}'s terminal and worktree in the workbench",

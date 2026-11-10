@@ -1,4 +1,4 @@
-import { walkFrameAt } from '../../cld/walk.js';
+import { walkFrameAt } from '../../agent-tycoon/walk.js';
 import {
   DEFAULT_MAX_CONTEXT_TOKENS,
   KEY_WALK_SPEED_PX_PER_SEC,
@@ -278,10 +278,10 @@ export function updateCharacter(
       const walkSpeed = ch.keyboardWalk ? KEY_WALK_SPEED_PX_PER_SEC : WALK_SPEED_PX_PER_SEC;
       // agty (OWNER-AVATAR): a diagonal step is a longer way, walked at the same pace.
       const diagonal = nextTile.col !== ch.tileCol && nextTile.row !== ch.tileRow;
-      ch.cldDiagRow = diagonal ? (nextTile.row > ch.tileRow ? 1 : -1) : undefined;
+      ch.agtyDiagRow = diagonal ? (nextTile.row > ch.tileRow ? 1 : -1) : undefined;
       ch.moveProgress += (walkSpeed / TILE_SIZE / (diagonal ? Math.SQRT2 : 1)) * dt;
       // WALK-FIX: the frame for the distance walked so far, then this tick's way is added
-      ch.frame = walkFrameAt(ch.cldWalkPx ?? 0);
+      ch.frame = walkFrameAt(ch.agtyWalkPx ?? 0);
 
       const fromCenter = tileCenter(ch.tileCol, ch.tileRow);
       const toCenter = tileCenter(nextTile.col, nextTile.row);
@@ -289,7 +289,7 @@ export function updateCharacter(
       const [x0, y0] = [ch.x, ch.y];
       ch.x = fromCenter.x + (toCenter.x - fromCenter.x) * t;
       ch.y = fromCenter.y + (toCenter.y - fromCenter.y) * t;
-      ch.cldWalkPx = (ch.cldWalkPx ?? 0) + Math.hypot(ch.x - x0, ch.y - y0);
+      ch.agtyWalkPx = (ch.agtyWalkPx ?? 0) + Math.hypot(ch.x - x0, ch.y - y0);
 
       if (ch.moveProgress >= 1) {
         // Arrived at next tile
@@ -303,7 +303,7 @@ export function updateCharacter(
       }
 
       // If became active while wandering, repath to seat (agty C1: not on a coffee break)
-      if (ch.isActive && ch.seatId && !ch.cldRest?.brk) {
+      if (ch.isActive && ch.seatId && !ch.agtyRest?.brk) {
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];

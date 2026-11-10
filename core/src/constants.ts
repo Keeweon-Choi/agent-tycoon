@@ -26,9 +26,9 @@ export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
  *  handshake carries the server token as `?token=`, exactly like `/ws` (see
  *  server/src/wsAuth.ts); the frame shapes are in terminalFrames.ts. */
 export const TERMINAL_WS_PREFIX = '/terminal';
-/** agty chat (T-0014): `/cld/attach/:id` streams `claude attach <id>` of a
+/** agty chat (T-0014): `/agty/attach/:id` streams `claude attach <id>` of a
  *  Claude background session in the terminal frames above. */
-export const CHAT_WS_PREFIX = '/cld/attach';
+export const CHAT_WS_PREFIX = '/agty/attach';
 
 // ── Transport ────────────────────────────────────────────────
 // Connection-state names for the MessageTransport state machine.
@@ -58,7 +58,7 @@ export const RENEW_FILL_PCT = 85;
 
 // ── Parties (FEAT-PARTY-V2) ──────────────────────────────────
 
-/** The parties the owner composes (server/src/cld/parties.ts keeps them, the webview edits them):
+/** The parties the owner composes (server/src/agent-tycoon/parties.ts keeps them, the webview edits them):
  *  at most this many, an id and a name this long, this many members of look keys this long. */
 export const PARTY_MAX = 20;
 export const PARTY_ID_MAX = 40;

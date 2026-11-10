@@ -248,7 +248,7 @@ export async function initBrowserMock(): Promise<void> {
  * Call inside a useEffect in App.tsx -- after the window message listener
  * in useExtensionMessages has been registered.
  *
- * Used in Vite dev mode and the explicit ?cldMock=1 demo. In ordinary
+ * Used in Vite dev mode and the explicit ?agtyMock=1 demo. In ordinary
  * standalone server mode and VS Code mode, the host sends all state.
  */
 export function dispatchMockMessages(): void {

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const stylesheets = ['src/index.css', 'src/cld/login/login.css'] as const;
+const stylesheets = ['src/index.css', 'src/agent-tycoon/login/login.css'] as const;
 const white: Rgb = [255, 255, 255];
 
 type Rgb = [number, number, number];

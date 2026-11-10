@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { interiorOn } from '../cld/features.js';
-import { loadSavedCamera } from '../cld/savedCamera.js';
-import { requestStaleRecheck } from '../cld/staleBuild.js';
+import { interiorOn } from '../agent-tycoon/features.js';
+import { loadSavedCamera } from '../agent-tycoon/savedCamera.js';
+import { requestStaleRecheck } from '../agent-tycoon/staleBuild.js';
 import type { ColorValue } from '../components/ui/types.js';
 import {
   CARPET_DEFAULT_ACCENT_COLOR,
@@ -207,7 +207,7 @@ export function useEditorActions(
 
   const handleToggleEditMode = useCallback(() => {
     setIsEditMode((prev) => {
-      if (!interiorOn && !prev) return prev; // postponed (cld/features.ts): no way in, a way out stays
+      if (!interiorOn && !prev) return prev; // postponed (agent-tycoon/features.ts): no way in, a way out stays
       const next = !prev;
       editorState.isEditMode = next;
       if (next) {

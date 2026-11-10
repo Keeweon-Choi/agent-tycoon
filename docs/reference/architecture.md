@@ -51,7 +51,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     teamUtils.ts                     isInlineTeammateOf, getInlineTeammates, hasInlineTeammates
     types.ts                         ServerAgentState
     constants.ts                     All timing/scanning constants
-    cld/                             Agent Tycoon daemon: auth, office, chat, files, hw, ...
+    agent-tycoon/                             Agent Tycoon daemon: auth, office, chat, files, hw, ...
       engine/                        Claude background-session engine (sessions, renew handoffs, agent query tools)
       spec/                          Project Brain: project map, requirement tracing, Spec Kit and design readers
   __tests__/                         28 Vitest files
@@ -112,9 +112,9 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       useTerminalDrawer.ts           Terminal-pane model for both shells: active/shown pane, socket status, card lookups
       useIsMobile.ts                 Mobile breakpoint
       useKeyboardViewport.ts         Samples the viewport: keyboard open (key bar) + iOS shell clamp height
-    cld/                             Agent Tycoon UI: hud (dock, inspector, event log), board, notify, ...
+    agent-tycoon/                             Agent Tycoon UI: hud (dock, inspector, event log), board, notify, ...
       messenger/                     Messenger window (conversations, library, attachments)
-      devroom/                       Devroom window (agents, changes, merge, preview); its map lives in cld/spec/
+      devroom/                       Devroom window (agents, changes, merge, preview); its map lives in agent-tycoon/spec/
     office/
       types.ts                       OfficeLayout, Character, etc. + re-exports constants
       toolUtils.ts                   STATUS_TO_TOOL mapping, extractToolName (DOM-free; defaultZoom lives in useEditorActions)
@@ -184,7 +184,7 @@ webview-ui/                          npm workspace
 
 One artifact:
 
-- **Daemon bundle** — `node dist/cli.js [--port 3100]` runs the Fastify server and serves the SPA on the same port. It ships through our own installers (`agty`, built by `.github/workflows/release-bundles.yml`) and the desktop app (`cld/desktop`), never as an npm package (the root `package.json` is `private`, kept only for the npm workspace build).
+- **Daemon bundle** — `node dist/cli.js [--port 3100]` runs the Fastify server and serves the SPA on the same port. It ships through our own installers (`agty`, built by `.github/workflows/release-bundles.yml`) and the desktop app (`agent-tycoon/desktop`), never as an npm package (the root `package.json` is `private`, kept only for the npm workspace build).
 
 ## Communication Flow
 

@@ -9,4 +9,4 @@ webview-ui/dist/
 webview-ui/public/
 scripts/*.html
 
-core/src/cld/parts.generated.ts
+core/src/agent-tycoon/parts.generated.ts

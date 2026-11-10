@@ -1,6 +1,6 @@
-# Desktop installers (T1): the Agent Tycoon app (cld/desktop, Tauri v2) built natively on each OS
+# Desktop installers (T1): the Agent Tycoon app (agent-tycoon/desktop, Tauri v2) built natively on each OS
 # and uploaded as artifacts: Linux AppImage + deb, macOS dmg (arm64 and Intel), Windows NSIS setup.exe.
-# Manual dispatch only, with the tag of a PUBLISHED release (cld/release/publish.mjs publishes it first): the
+# Manual dispatch only, with the tag of a PUBLISHED release (agent-tycoon/release/publish.mjs publishes it first): the
 # installers carry that release's signed daemon files (downloaded with gh, never built here), and a last job
 # uploads the installers to that release. No secret and no signing key is used anywhere in this workflow.
 # The version comes from one place, src-tauri/Cargo.toml (tauri.conf.json has no version field).
@@ -66,7 +66,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: cld/desktop
+        working-directory: agent-tycoon/desktop
 
     steps:
       - name: Checkout
@@ -79,7 +79,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-          cache-dependency-path: cld/desktop/package-lock.json
+          cache-dependency-path: agent-tycoon/desktop/package-lock.json
 
       - name: Linux build libraries
         if: matrix.os == 'linux'
@@ -108,8 +108,8 @@ jobs:
           for t in $targets; do
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "out/bundles/$t" \
               --pattern "agent-tycoon-daemon-*-$t.tar.gz" --pattern SHA256SUMS --pattern SHA256SUMS.sig --pattern agent-tycoon-release.pub
-            cmp "out/bundles/$t/agent-tycoon-release.pub" cld/release/agent-tycoon-release.pub
-            node cld/release/bundle/verify.mjs out/bundles/$t/agent-tycoon-daemon-*-$t.tar.gz "out/bundles/$t/SHA256SUMS" "out/bundles/$t/SHA256SUMS.sig" cld/release/agent-tycoon-release.pub --os "${t%-*}" --arch "${t#*-}"
+            cmp "out/bundles/$t/agent-tycoon-release.pub" agent-tycoon/release/agent-tycoon-release.pub
+            node agent-tycoon/release/bundle/verify.mjs out/bundles/$t/agent-tycoon-daemon-*-$t.tar.gz "out/bundles/$t/SHA256SUMS" "out/bundles/$t/SHA256SUMS.sig" agent-tycoon/release/agent-tycoon-release.pub --os "${t%-*}" --arch "${t#*-}"
           done
 
       - name: Install the Tauri CLI
@@ -131,10 +131,10 @@ jobs:
         with:
           name: agent-tycoon-${{ matrix.os }}
           path: |
-            cld/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-            cld/desktop/src-tauri/target/release/bundle/deb/*.deb
-            cld/desktop/src-tauri/target/release/bundle/dmg/*.dmg
-            cld/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            agent-tycoon/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            agent-tycoon/desktop/src-tauri/target/release/bundle/deb/*.deb
+            agent-tycoon/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            agent-tycoon/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           # The download people get (owner 10-27: Actions zips, no Releases); 90 days is the maximum, and storage is free on the public repo.
           retention-days: 90

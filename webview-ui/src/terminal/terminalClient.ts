@@ -36,7 +36,7 @@ export interface TerminalConnectionOptions {
 export type TerminalConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'closed';
 
 /** Where an agent's terminal socket connects; agty points its chats at
- *  `/cld/attach/<background id>` (cld/chat.ts). */
+ *  `/agty/attach/<background id>` (agent-tycoon/chat.ts). */
 export const terminalSocket = {
   path: (agentId: number): string => `${TERMINAL_WS_PREFIX}/${String(agentId)}`,
 };

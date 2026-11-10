@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
 
-import { clampPan as clampCameraPan } from '../../cld/camera.js';
+import { clampPan as clampCameraPan } from '../../agent-tycoon/camera.js';
 import {
   cameraMode,
   isCameraManual,
   noteManualCamera,
   setCameraMode,
-} from '../../cld/cameraMode.js';
-import { director, ownerDrink } from '../../cld/director/actions.js';
-import { visitFloor } from '../../cld/elevator.js';
-import { plateUnder } from '../../cld/ez/useNameplates.js';
+} from '../../agent-tycoon/cameraMode.js';
+import { director, ownerDrink } from '../../agent-tycoon/director/actions.js';
+import { visitFloor } from '../../agent-tycoon/elevator.js';
+import { plateUnder } from '../../agent-tycoon/ez/useNameplates.js';
 import {
   cameraRect,
   currentRect,
@@ -24,23 +24,23 @@ import {
   reducedMotion,
   stackedFloorAt,
   startFloorDrag,
-} from '../../cld/floors.js';
+} from '../../agent-tycoon/floors.js';
 import {
   backdropPlacement,
   backdropState,
   backdropStyle,
   useBackdrop,
-} from '../../cld/gfx/backdrop.js';
-import { isoBackground } from '../../cld/gfx/bg/current.js';
-import { isContextHandled, openContextMenu, registerContextTarget } from '../../cld/inputPolicy.js';
+} from '../../agent-tycoon/gfx/backdrop.js';
+import { isoBackground } from '../../agent-tycoon/gfx/bg/current.js';
+import { isContextHandled, openContextMenu, registerContextTarget } from '../../agent-tycoon/inputPolicy.js';
 import {
   clampIsoPan,
   isoCameraStep,
   newIsoCam,
   occupiedRoomsBox,
   stackCentre,
-} from '../../cld/iso/camera.js';
-import { useIsoView } from '../../cld/iso/isoView.js';
+} from '../../agent-tycoon/iso/camera.js';
+import { useIsoView } from '../../agent-tycoon/iso/isoView.js';
 import {
   isoFeet,
   isoFrameReset,
@@ -49,11 +49,11 @@ import {
   isoScene,
   renderIso,
   setSeatPoint,
-} from '../../cld/iso/render.js';
-import { isoSeatPoint } from '../../cld/iso/seatPoint.js';
-import { restDropAt } from '../../cld/lounge.js';
-import { drawOtherFloors } from '../../cld/otherFloors.js';
-import { useGameControls } from '../../cld/useGameControls.js';
+} from '../../agent-tycoon/iso/render.js';
+import { isoSeatPoint } from '../../agent-tycoon/iso/seatPoint.js';
+import { restDropAt } from '../../agent-tycoon/lounge.js';
+import { drawOtherFloors } from '../../agent-tycoon/otherFloors.js';
+import { useGameControls } from '../../agent-tycoon/useGameControls.js';
 import {
   CAMERA_FOLLOW_LERP,
   CAMERA_FOLLOW_SNAP_THRESHOLD,
@@ -143,7 +143,7 @@ export function OfficeCanvas({
   useEffect(() => {
     setSeatPoint((ch) => {
       // LOUNGE: resting, it sits on its rest seat (a sofa, a bench), not its desk (seatId).
-      const id = ch.cldRest ? ch.cldRest.spot.seat : ch.seatId;
+      const id = ch.agtyRest ? ch.agtyRest.spot.seat : ch.seatId;
       const seat = id ? officeState.seats.get(id) : undefined;
       return isoSeatPoint(ch, seat, officeState.getLayout().furniture, getCatalogEntry);
     });
@@ -173,7 +173,7 @@ export function OfficeCanvas({
   );
   const suppressClickRef = useRef(false);
   // Clamp pan so the map edge can't go past a margin inside the viewport
-  // (agty T-0025: the maths moved to cld/camera.ts, shared and tested).
+  // (agty T-0025: the maths moved to agent-tycoon/camera.ts, shared and tested).
   const clampPan = useCallback(
     (px: number, py: number): { x: number; y: number } => {
       const canvas = canvasRef.current;
@@ -291,7 +291,7 @@ export function OfficeCanvas({
                 stack,
                 focus.level,
                 officeState.getLayout(),
-                [...officeState.characters.values()].filter((ch) => !ch.cldAway),
+                [...officeState.characters.values()].filter((ch) => !ch.agtyAway),
               ),
             manual: isCameraManual(),
           });
@@ -508,7 +508,7 @@ export function OfficeCanvas({
     [pointToWorld, officeState, iso, isoAt],
   );
   /** The character under a viewport point (the isometric view: what it drew there), or whose
-   *  nameplate is there (cld T-67: the plates take no pointer events, so a hover over one shows its
+   *  nameplate is there (agty T-67: the plates take no pointer events, so a hover over one shows its
    *  whole name and a click selects its character, with the wheel and drags still the canvas's). */
   const characterAt = useCallback(
     (clientX: number, clientY: number): number | null => {
@@ -790,7 +790,7 @@ export function OfficeCanvas({
         if (e.button === 0) {
           const hitId = characterAt(e.clientX, e.clientY);
           characterDragRef.current =
-            hitId !== null && (floorMovable(hitId) || officeState.characters.get(hitId)?.cldRest)
+            hitId !== null && (floorMovable(hitId) || officeState.characters.get(hitId)?.agtyRest)
               ? { id: hitId, x: e.clientX, y: e.clientY, moving: false }
               : null;
         }
@@ -878,7 +878,7 @@ export function OfficeCanvas({
         const floorId = otherFloorAt(e.clientX, e.clientY);
         const id = carried?.id ?? characterDrag?.id;
         const resting = id !== undefined ? officeState.characters.get(id) : undefined;
-        if (resting?.cldRest) {
+        if (resting?.agtyRest) {
           // agty (LOUNGE): a resting one goes where it is dropped (a seat, a tile, any floor).
           const hit = iso ? isoAt(e.clientX, e.clientY) : null;
           const pos = iso ? null : pointToWorld(e.clientX, e.clientY);
@@ -964,7 +964,7 @@ export function OfficeCanvas({
       const hitId = characterAt(clientX, clientY);
       if (hitId !== null) {
         // agty (OWNER-AVATAR): a tap on the owner's own character ends the free camera.
-        if (officeState.characters.get(hitId)?.cldOwner && cameraMode() === 'free')
+        if (officeState.characters.get(hitId)?.agtyOwner && cameraMode() === 'free')
           setCameraMode('auto');
         // Dismiss any active bubble on click
         officeState.dismissBubble(hitId);
@@ -1013,7 +1013,7 @@ export function OfficeCanvas({
       if (officeState.selectedAgentId !== null) {
         const selectedCh = officeState.characters.get(officeState.selectedAgentId);
         // Skip seat reassignment for sub-agents (and the owner's character, OWNER-AVATAR)
-        if (selectedCh && !selectedCh.isSubagent && !selectedCh.cldOwner) {
+        if (selectedCh && !selectedCh.isSubagent && !selectedCh.agtyOwner) {
           const tile = screenToTile(clientX, clientY);
           if (tile) {
             const seatId = officeState.getSeatAtTile(tile.col, tile.row);

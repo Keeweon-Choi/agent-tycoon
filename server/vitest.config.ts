@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     testTimeout: 10_000,
     include: ['__tests__/**/*.test.ts', 'src/**/*.test.ts'],
+    // T-87: the run's HOME is a fresh temp dir, never the real one.
+    globalSetup: ['../scripts/vitest-temp-home.mjs'],
     setupFiles: ['allure-vitest/setup'],
     reporters: [
       'default',

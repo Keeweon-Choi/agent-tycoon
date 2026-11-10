@@ -1,6 +1,6 @@
 import type { CharacterChoice } from '../../core/src/messages.js';
-import type { Framing } from './cld/cameraMode.js';
-import { compose } from './cld/characters/compose.js';
+import type { Framing } from './agent-tycoon/cameraMode.js';
+import { compose } from './agent-tycoon/characters/compose.js';
 import {
   closeLooks,
   getCustomParts,
@@ -8,13 +8,13 @@ import {
   openLooks,
   presetPalette,
   sheetLoads,
-} from './cld/characters/looks.js';
-import { chatOpenFor } from './cld/chat.js';
-import { drinkingNow } from './cld/ez/drawVisuals.js';
-import { nameplateStats } from './cld/ez/useNameplates.js';
-import { characterRingOf, characterVisualOf } from './cld/ez/visuals.js';
-import { floorsSnapshot } from './cld/floors.js';
-import { bgStats } from './cld/gfx/bg/draw.js';
+} from './agent-tycoon/characters/looks.js';
+import { chatOpenFor } from './agent-tycoon/chat.js';
+import { drinkingNow } from './agent-tycoon/ez/drawVisuals.js';
+import { nameplateStats } from './agent-tycoon/ez/useNameplates.js';
+import { characterRingOf, characterVisualOf } from './agent-tycoon/ez/visuals.js';
+import { floorsSnapshot } from './agent-tycoon/floors.js';
+import { bgStats } from './agent-tycoon/gfx/bg/draw.js';
 import {
   isoCharacterBox,
   isoFloors,
@@ -22,11 +22,11 @@ import {
   isoScene,
   isoScreenAt,
   isoStats,
-} from './cld/iso/render.js';
-import { drawnView } from './cld/iso/sprites.js';
-import { cldGetSnapshot } from './cld/officeStore.js';
-import { otherFloorStats } from './cld/otherFloors.js';
-import { perfSnapshot, setPerfOn } from './cld/perf.js';
+} from './agent-tycoon/iso/render.js';
+import { drawnView } from './agent-tycoon/iso/sprites.js';
+import { agtyGetSnapshot } from './agent-tycoon/officeStore.js';
+import { otherFloorStats } from './agent-tycoon/otherFloors.js';
+import { perfSnapshot, setPerfOn } from './agent-tycoon/perf.js';
 import type { ColorValue } from './components/ui/types.js';
 import { PALETTE_COUNT } from './constants.js';
 import { OfficeState } from './office/engine/officeState.js';
@@ -181,7 +181,7 @@ declare global {
         frame: number;
         diagRow: number | null;
         /** DIAG-1104: what each view draws now: its own sheet or the three-quarter one beside it
-         *  ('diag'), the row's direction and whether mirrored (cld/iso/sprites.ts drawnView). */
+         *  ('diag'), the row's direction and whether mirrored (agent-tycoon/iso/sprites.ts drawnView). */
         views: Record<'top' | 'iso', { sheet: 'own' | 'diag'; dir: number; mirror: boolean }>;
         /** LOUNGE: its rest phase (go, rest, fetch, use, drink), the seat and the drink. */
         rest: string | null;
@@ -366,7 +366,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     return palettes;
   };
   hooks.spawnPreset = (id, n, firstId) => {
-    const preset = cldGetSnapshot().characterPresets?.presets.find((p) => p.id === id);
+    const preset = agtyGetSnapshot().characterPresets?.presets.find((p) => p.id === id);
     const palette = preset ? presetPalette(preset) : null;
     if (palette === null) return -1;
     for (let i = 0; i < n; i++) {
@@ -474,21 +474,21 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
           state: ch.state,
           queued: ch.path.length,
           active: ch.isActive,
-          away: !!ch.cldAway,
-          ride: ch.cldRide?.phase ?? null,
-          rideT: ch.cldRide?.t ?? null,
-          hidden: !!ch.cldRide?.hidden,
-          visit: ch.cldVisit?.floor ?? null,
+          away: !!ch.agtyAway,
+          ride: ch.agtyRide?.phase ?? null,
+          rideT: ch.agtyRide?.t ?? null,
+          hidden: !!ch.agtyRide?.hidden,
+          visit: ch.agtyVisit?.floor ?? null,
           dir: ch.dir,
           frame: ch.frame,
-          diagRow: ch.cldDiagRow ?? null,
+          diagRow: ch.agtyDiagRow ?? null,
           views: {
             top: viewOf(ch, false),
             iso: viewOf(ch, true),
           },
-          rest: ch.cldRest?.phase ?? null,
-          restSeat: ch.cldRest?.spot.seat ?? null,
-          restKind: ch.cldRest?.kind ?? null,
+          rest: ch.agtyRest?.phase ?? null,
+          restSeat: ch.agtyRest?.spot.seat ?? null,
+          restKind: ch.agtyRest?.kind ?? null,
         }
       : null;
   };
@@ -499,14 +499,14 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
   });
 
   hooks.restDrinkNow = (id) => {
-    const rest = officeStateRef.current?.characters.get(id)?.cldRest;
+    const rest = officeStateRef.current?.characters.get(id)?.agtyRest;
     if (!rest) return false;
     rest.next = 0;
     return true;
   };
 
   hooks.getElevators = () =>
-    (officeStateRef.current?.cldElevators ?? []).map(({ floor, col, row, open }) => ({
+    (officeStateRef.current?.agtyElevators ?? []).map(({ floor, col, row, open }) => ({
       floor,
       col,
       row,
@@ -659,7 +659,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     const os = officeStateRef.current;
     if (!os) return [];
     return Array.from(os.characters.values())
-      .filter((ch) => !ch.isSubagent && !ch.cldOwner)
+      .filter((ch) => !ch.isSubagent && !ch.agtyOwner)
       .map((ch) => ({
         id: ch.id,
         seatId: ch.seatId,

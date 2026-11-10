@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { RegionBoundary } from '../cld/RegionBoundary.js';
+import { RegionBoundary } from '../agent-tycoon/RegionBoundary.js';
 import { TERMINAL_DRAWER_RESIZE_HANDLE_PX } from '../constants.js';
 import type { TerminalConnectionStatus } from '../terminal/terminalClient.js';
 import type { AgentAppearance, TabStatus } from './AgentCard.js';

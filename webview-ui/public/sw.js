@@ -44,7 +44,7 @@ self.addEventListener('push', (event) => {
       ...(image && { image }),
       // The daemon's tag: the same event again replaces the one shown instead of stacking.
       // renotify: the replacement still alerts (a new ask must not arrive silently).
-      tag: typeof data.tag === 'string' && data.tag ? data.tag : agentId === null ? 'cld' : `agent-${agentId}`,
+      tag: typeof data.tag === 'string' && data.tag ? data.tag : agentId === null ? 'agty' : `agent-${agentId}`,
       renotify: true,
       icon: '/icons/icon-256.png?v=3',
       data: { agentId, url },
@@ -64,7 +64,7 @@ self.addEventListener('notificationclick', (event) => {
       if (open) {
         // focus() may be refused (no user activation): the message goes anyway.
         await open.focus().catch(() => undefined);
-        open.postMessage({ type: 'cld-open', url });
+        open.postMessage({ type: 'agty-open', url });
         return;
       }
       await self.clients.openWindow(url);

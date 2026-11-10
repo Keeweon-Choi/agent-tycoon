@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 
-import { officeDirectory } from '../../../../cld/configPath.js';
+import { officeDirectory } from '../../../../agent-tycoon/configPath.js';
 import { HOOK_API_PREFIX, SERVER_JSON_NAME, SERVERS_DIR } from '../../../../constants.js';
 import { readEnv } from '../../../../env.js';
 import type { ServerConfig, ServerTarget } from '../../../../serverConfig.js';

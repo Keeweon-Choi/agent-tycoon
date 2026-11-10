@@ -6,25 +6,25 @@ import Fastify from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { FRAME_SRC_LOOPBACK } from '../../core/src/cld/devUrl.js';
+import { FRAME_SRC_LOOPBACK } from '../../core/src/agent-tycoon/devUrl.js';
 import { STREET_SUMMARY_VERSION } from '../../core/src/constants.js';
-import type { AgentRuntime } from './agentRuntime.js';
-import type { AgentStateStore } from './agentStateStore.js';
-import { isLocalRequest, redactLoginCode, StandaloneAuth } from './cld/auth.js';
+import { isLocalRequest, redactLoginCode, StandaloneAuth } from './agent-tycoon/auth.js';
 import {
   hostBearerValid,
   registerStandaloneAuth,
   standaloneRequestAuthorized,
-} from './cld/authRoutes.js';
-import type { ChatManager } from './cld/chat.js';
-import { registerChatRoute } from './cld/chat.js';
-import { registerProjectFileRoutes } from './cld/files/routes.js';
-import { cldHooks, type SocketStepUp } from './cld/hooks.js';
-import { answerFor } from './cld/remote/healthChallenge.js';
-import { ShellRegistry } from './cld/shell/registry.js';
-import { registerShellRoutes } from './cld/shell/routes.js';
-import type { Street } from './cld/street.js';
-import { registerStreetRoutes } from './cld/streetRoutes.js';
+} from './agent-tycoon/authRoutes.js';
+import type { ChatManager } from './agent-tycoon/chat.js';
+import { registerChatRoute } from './agent-tycoon/chat.js';
+import { registerProjectFileRoutes } from './agent-tycoon/files/routes.js';
+import { agtyHooks, type SocketStepUp } from './agent-tycoon/hooks.js';
+import { answerFor } from './agent-tycoon/remote/healthChallenge.js';
+import { ShellRegistry } from './agent-tycoon/shell/registry.js';
+import { registerShellRoutes } from './agent-tycoon/shell/routes.js';
+import type { Street } from './agent-tycoon/street.js';
+import { registerStreetRoutes } from './agent-tycoon/streetRoutes.js';
+import type { AgentRuntime } from './agentRuntime.js';
+import type { AgentStateStore } from './agentStateStore.js';
 import type {
   AssetCache,
   ReloadAssetsSideEffect,
@@ -88,7 +88,7 @@ export interface HttpServerOptions {
   auth?: StandaloneAuth;
   /** MHO 3.6: this host's display name, for the login page title. */
   hostName?: () => string;
-  /** agty chat (T-0014, --allow-chat). Absent: /cld/attach/* answers 404. */
+  /** agty chat (T-0014, --allow-chat). Absent: /agty/attach/* answers 404. */
   chat?: ChatManager;
   /** Host opt-in for trusted-device shells. */
   allowTerminal?: boolean;
@@ -178,7 +178,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     // and any log file (see wsAuth.redactTokenQuery).
     logger: options.embedded
       ? false
-      : { level: cldHooks.logLevel ?? 'info', serializers: { req: serializeRequestForLog } },
+      : { level: agtyHooks.logLevel ?? 'info', serializers: { req: serializeRequestForLog } },
     bodyLimit: MAX_HOOK_BODY_SIZE,
   });
 
@@ -187,12 +187,12 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   await app.register(fastifyWebsocket);
 
   const host = options.host ?? '127.0.0.1';
-  // agty: a Set agty remote adds its public names to (cldHooks.onListening).
+  // agty: a Set agty remote adds its public names to (agtyHooks.onListening).
   const allowedHostnames = new Set(privilegedHostnames(host, options.allowedHosts ?? []));
   const runtimeHosts = [...(options.allowedHosts ?? [])];
   const configuredHosts = new Set(allowedHostnames);
   if (!options.embedded)
-    cldHooks.dropRemoteHost = (name) => {
+    agtyHooks.dropRemoteHost = (name) => {
       // S-22: a name a closed tunnel left behind must not stay a privileged Host. Configured names stay.
       if (configuredHosts.has(name)) return;
       allowedHostnames.delete(name);
@@ -200,7 +200,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
       if (at >= 0) runtimeHosts.splice(at, 1);
     };
   if (!options.embedded)
-    cldHooks.allowRemoteHost = (name) => {
+    agtyHooks.allowRemoteHost = (name) => {
       const known = allowedHostnames.has(name);
       allowedHostnames.add(name);
       if (!runtimeHosts.includes(name)) runtimeHosts.push(name);
@@ -247,7 +247,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   // ── Routes ──────────────────────────────────────────────────
 
   registerHealthRoute(app, options.token, !options.embedded && !!options.street);
-  // agty: the session gate and the login routes (cld/authRoutes.ts).
+  // agty: the session gate and the login routes (agent-tycoon/authRoutes.ts).
   if (!options.embedded && auth)
     registerStandaloneAuth(app, {
       token: options.token,
@@ -274,7 +274,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   }
   // agty: our routes (character presets), behind the login session.
   if (!options.embedded && auth) {
-    cldHooks.registerRoutes?.(
+    agtyHooks.registerRoutes?.(
       app,
       sessionOrBearerAuth(options.token, auth),
       (request) => auth.stepUpFresh(auth.session(auth.sessionIdOf(request.headers.cookie))),
@@ -287,15 +287,15 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
         return { host, remote: !host && !isLocalRequest(request) };
       },
     );
-    registerProjectFileRoutes(app, auth, () => cldHooks.projectFolders?.() ?? []);
-    cldHooks.useAuth?.(auth);
+    registerProjectFileRoutes(app, auth, () => agtyHooks.projectFolders?.() ?? []);
+    agtyHooks.useAuth?.(auth);
   }
   if (!options.embedded && auth && options.allowTerminal)
     registerShellRoutes(app, {
       auth,
       allowedHostnames,
       registry:
-        // The host's tmux + shells.json registry comes only from the daemon
+        // The host's shells.json registry comes only from the daemon
         // (server.ts): a server built here, by a test, never touches them.
         options.shellRegistry ??
         new ShellRegistry(undefined, (notice) => options.store.broadcast({ ...notice })),
@@ -311,7 +311,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   await app.listen({ host, port: options.port ?? 0 });
   const address = app.server.address();
   const port = typeof address === 'object' ? (address?.port ?? 0) : 0;
-  if (!options.embedded) cldHooks.onListening?.({ app, allowedHostnames });
+  if (!options.embedded) agtyHooks.onListening?.({ app, allowedHostnames });
 
   return { app, port };
 }
@@ -334,8 +334,8 @@ function registerHealthRoute(app: FastifyInstance, token: string, street: boolea
   app.get('/api/health', async (request) => {
     const health = {
       status: 'ok',
-      service: 'cld-gui',
-      version: process.env.CLD_GUI_VERSION ?? '',
+      service: 'agent-tycoon',
+      version: process.env.AGTY_VERSION ?? '',
       protocol: SERVER_HEALTH_PROTOCOL_VERSION,
       os: HOST_OS,
       // MHO v1b: this daemon has the street (a neighbour that refuses a token is unpaired, not old).
@@ -343,8 +343,8 @@ function registerHealthRoute(app: FastifyInstance, token: string, street: boolea
     };
     // O6: a nonce this daemon itself just issued (its custom-address self-test) is answered with the
     // reply it made up for it; any other nonce gets the plain body, so nothing here can be asked.
-    const reply = answerFor((request.query as { cldNonce?: unknown } | undefined)?.cldNonce);
-    if (reply !== undefined) Object.assign(health, { cldReply: reply });
+    const reply = answerFor((request.query as { agtyNonce?: unknown } | undefined)?.agtyNonce);
+    if (reply !== undefined) Object.assign(health, { agtyReply: reply });
     if (!hostBearerValid(request, token)) return health;
     return {
       ...health,
@@ -444,7 +444,7 @@ function registerWebSocketRoute(
 
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
-      safeSend(socket, agentCreatedMessage(id, agent, cldHooks.seatFor?.(id)));
+      safeSend(socket, agentCreatedMessage(id, agent, agtyHooks.seatFor?.(id)));
     };
 
     const onAgentRemoved = (id: number) => {
@@ -458,7 +458,7 @@ function registerWebSocketRoute(
     store.on('agentAdded', onAgentAdded);
     store.on('agentRemoved', onAgentRemoved);
     store.on('broadcast', onBroadcast);
-    cldHooks.onClientOpened?.(send, auth?.rowIdOf(auth.sessionIdOf(request.headers.cookie)));
+    agtyHooks.onClientOpened?.(send, auth?.rowIdOf(auth.sessionIdOf(request.headers.cookie)));
 
     // Handle incoming client messages
     socket.on('message', (data: Buffer | string) => {
@@ -493,7 +493,7 @@ function registerWebSocketRoute(
       store.off('agentAdded', onAgentAdded);
       store.off('agentRemoved', onAgentRemoved);
       store.off('broadcast', onBroadcast);
-      cldHooks.onClientClosed?.(send);
+      agtyHooks.onClientClosed?.(send);
     });
   });
 }

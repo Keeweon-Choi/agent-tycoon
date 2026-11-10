@@ -2,9 +2,9 @@
 
 ## Orca (https://github.com/stablyai/orca)
 
-Used in `server/src/cld/ptyhost/programStatus.ts`: the OSC 7501 probe reply
+Used in `server/src/agent-tycoon/ptyhost/programStatus.ts`: the OSC 7501 probe reply
 (`src/shared/program-status/protocol.ts`, PROGRAM_STATUS_QUERY_REPLY).
-Used in `server/src/cld/ptyhost/conpty.ts`: the Windows ConPTY startup input check (the DA1/CPR and
+Used in `server/src/agent-tycoon/ptyhost/conpty.ts`: the Windows ConPTY startup input check (the DA1/CPR and
 visibility sequences, the classifier, one respawn, the check turned off when no terminal ever asked),
 adapted from `src/main/daemon/pty-subprocess/conpty-startup-input-reader.ts`.
 Paste timing (a 500 ms settle + 64 B/ms on Windows, 4 KB/ms elsewhere) is measured numbers from Orca, re-implemented.
@@ -35,7 +35,7 @@ SOFTWARE.
 
 ## React Flow (https://github.com/xyflow/xyflow)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `@xyflow/react` 12.12.1, `@xyflow/system` 0.0.84 (MIT). The "React Flow" attribution stays on the graph, restyled.
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `@xyflow/react` 12.12.1, `@xyflow/system` 0.0.84 (MIT). The "React Flow" attribution stays on the graph, restyled.
 
 ```
 MIT License
@@ -63,7 +63,7 @@ SOFTWARE.
 
 ## dagre (https://github.com/dagrejs/dagre)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `@dagrejs/dagre` 3.1.3, `@dagrejs/graphlib` 4.0.6 (MIT).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `@dagrejs/dagre` 3.1.3, `@dagrejs/graphlib` 4.0.6 (MIT).
 
 ```
 Copyright (c) 2012-2014 Chris Pettitt
@@ -89,7 +89,7 @@ THE SOFTWARE.
 
 ## zustand (https://github.com/pmndrs/zustand)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `zustand` 4.5.7 (MIT).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `zustand` 4.5.7 (MIT).
 
 ```
 MIT License
@@ -117,7 +117,7 @@ SOFTWARE.
 
 ## use-sync-external-store (https://github.com/facebook/react)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `use-sync-external-store` 1.7.0 (MIT).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `use-sync-external-store` 1.7.0 (MIT).
 
 ```
 MIT License
@@ -145,7 +145,7 @@ SOFTWARE.
 
 ## classcat (https://github.com/jorgebucaran/classcat)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `classcat` 5.0.5 (MIT).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `classcat` 5.0.5 (MIT).
 
 ```
 Copyright © Jorge Bucaran <<https://jorgebucaran.com>>
@@ -159,7 +159,7 @@ THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## d3 modules (https://github.com/d3)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `d3-color` 3.1.1, `d3-dispatch` 3.0.2, `d3-drag` 3.0.1, `d3-interpolate` 3.0.2, `d3-selection` 3.0.1, `d3-timer` 3.0.2, `d3-transition` 3.0.2, `d3-zoom` 3.0.1 (ISC).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `d3-color` 3.1.1, `d3-dispatch` 3.0.2, `d3-drag` 3.0.1, `d3-interpolate` 3.0.2, `d3-selection` 3.0.1, `d3-timer` 3.0.2, `d3-transition` 3.0.2, `d3-zoom` 3.0.1 (ISC).
 
 ```
 Copyright 2010-2026 Mike Bostock
@@ -179,7 +179,7 @@ THIS SOFTWARE.
 
 ## d3-ease (https://github.com/d3/d3-ease)
 
-Bundled only in the requirements graph lazy chunk (`webview-ui/src/cld/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `d3-ease` 3.0.2 (BSD-3-Clause).
+Bundled only in the requirements graph lazy chunk (`webview-ui/src/agent-tycoon/spec/TraceGraph.tsx`), SPT-P3-GRAPH: `d3-ease` 3.0.2 (BSD-3-Clause).
 
 ```
 Copyright 2010-2026 Mike Bostock
@@ -215,7 +215,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ## Agent Client Protocol TypeScript SDK (https://github.com/agentclientprotocol/typescript-sdk)
 
 `@agentclientprotocol/sdk` 2.4.0, bundled into the daemon (`dist/cli.js`) unmodified: the ACP client the
-ACP agent provider speaks through (`server/src/cld/engine/agents/acp/acp.ts`). The full Apache License 2.0
+ACP agent provider speaks through (`server/src/agent-tycoon/engine/agents/acp/acp.ts`). The full Apache License 2.0
 text follows the notice.
 
 ```

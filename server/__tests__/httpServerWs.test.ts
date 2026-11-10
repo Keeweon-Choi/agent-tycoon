@@ -285,7 +285,7 @@ describe('/ws connection gate', () => {
  * in someone's home directory.
  */
 // T-0002 / ADR-0009: standalone has no ?token= privilege tier and hooks are
-// disabled there; src/cld/standaloneSecurity.test.ts covers the replacement.
+// disabled there; src/agent-tycoon/standaloneSecurity.test.ts covers the replacement.
 describe.skip('/ws privileged-message gate', () => {
   let server: InstanceType<typeof AgentTycoonServer>;
   const sockets: WebSocket[] = [];

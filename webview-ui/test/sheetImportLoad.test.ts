@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { importedSheet } from '../src/cld/characters/importedSheet.js';
+import { importedSheet } from '../src/agent-tycoon/characters/importedSheet.js';
 import { getCachedSprite } from '../src/office/sprites/spriteCache.js';
 
 const originalDocument = globalThis.document;

@@ -1,4 +1,4 @@
-import { perfCache } from '../../cld/perf.js';
+import { perfCache } from '../../agent-tycoon/perf.js';
 import type { SpriteData } from '../types.js';
 import {
   bakePicture,

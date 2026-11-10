@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { FloatingToast } from '../agent-tycoon/FloatingToast.js';
 import { toMajorMinor } from '../changelogData.ts';
-import { FloatingToast } from '../cld/FloatingToast.js';
 import {
   CHANGELOG_SEEN_STORAGE_KEY,
   WHATS_NEW_AUTO_CLOSE_MS,

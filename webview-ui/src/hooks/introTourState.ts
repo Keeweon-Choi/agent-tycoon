@@ -41,11 +41,11 @@ export function introSteps(hasConsent: boolean, onboarding: boolean): IntroStep[
  * read-only viewer: it has nothing to choose, and the daemon would refuse the answer.
  */
 export function onboardingAsked(p: {
-  cldMode: boolean;
+  agtyMode: boolean;
   answered: boolean | null;
   readOnly: boolean;
 }): boolean {
-  return p.cldMode && p.answered === false && !p.readOnly;
+  return p.agtyMode && p.answered === false && !p.readOnly;
 }
 
 export interface IntroTourState {

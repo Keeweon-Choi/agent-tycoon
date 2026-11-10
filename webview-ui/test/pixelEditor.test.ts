@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 
+import { MASCOT_GEARS, MASCOT_SPECIES } from '../../core/src/agent-tycoon/looks.js';
+import { artIssue, MIN_ART_PIXELS, sheetFrameIssues } from '../../core/src/agent-tycoon/sheetCheck.js';
 import { rgbaToHex } from '../../core/src/assets/colorUtils.js';
-import { MASCOT_GEARS, MASCOT_SPECIES } from '../../core/src/cld/looks.js';
-import { artIssue, MIN_ART_PIXELS, sheetFrameIssues } from '../../core/src/cld/sheetCheck.js';
-import { composeMascot, FRAME_H, FRAME_W, FRAMES, MASCOTS } from '../src/cld/characters/compose.js';
-import { History } from '../src/cld/characters/history.js';
-import { sheetRgba, spriteRgba } from '../src/cld/characters/sheetPixels.js';
+import { composeMascot, FRAME_H, FRAME_W, FRAMES, MASCOTS } from '../src/agent-tycoon/characters/compose.js';
+import { History } from '../src/agent-tycoon/characters/history.js';
+import { sheetRgba, spriteRgba } from '../src/agent-tycoon/characters/sheetPixels.js';
 import { setFurnitureType } from '../src/office/editor/editorActions.js';
 import type { LoadedCharacterData } from '../src/office/sprites/spriteData.js';
 import type { OfficeLayout } from '../src/office/types.js';

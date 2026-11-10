@@ -327,9 +327,9 @@ export const NOTICE_DEFAULT_VOLUME = 0.8;
 export const NOTICE_FACE_PX = 32;
 
 // ── The lobby board (agty T-0046) ─────────────────────────
-/** The board's furniture type (server/src/cld/layout.ts BOARD_TYPE). */
+/** The board's furniture type (server/src/agent-tycoon/layout.ts BOARD_TYPE). */
 export const BOARD_TYPE = 'LED_BOARD';
-/** The LED screen inside the board sprite, sprite px (cld/scripts/gen-lobby-assets.ts). */
+/** The LED screen inside the board sprite, sprite px (agent-tycoon/scripts/gen-lobby-assets.ts). */
 export const BOARD_SCREEN = { x: 5, y: 5, w: 438, h: 146 } as const;
 /** The default view keeps the board's left end this many CSS px in: clear of the elevator panel (right edge 76 px) with a gap. */
 export const BOARD_CLEAR_LEFT_PX = 84;
@@ -405,7 +405,7 @@ export const BOARD_HW_CORE_COLS = 3;
 export const BOARD_AREA_ALPHA = 0.22;
 
 // ── Whiteboard memos (agty T-0065) ─────────────────────────
-/** The whiteboard's furniture type (server/src/cld/layout.ts WHITEBOARD_TYPE). */
+/** The whiteboard's furniture type (server/src/agent-tycoon/layout.ts WHITEBOARD_TYPE). */
 export const WHITEBOARD_TYPE = 'WHITEBOARD';
 /** The writable face inside the 32x32 whiteboard sprite, in sprite px (its white inside the frame). */
 export const WHITEBOARD_FACE = { x: 5, y: 12, w: 22, h: 9 } as const;
@@ -428,7 +428,7 @@ export const FURNITURE_ANIM_INTERVAL_SEC = 0.2;
 export const WHATS_NEW_AUTO_CLOSE_MS = 20000;
 export const WHATS_NEW_FADE_MS = 1000;
 /** The tycoon office keeps "seen the update log of this version" per browser (a read-only viewer cannot save it on the host). */
-export const CHANGELOG_SEEN_STORAGE_KEY = 'cld.changelogSeen';
+export const CHANGELOG_SEEN_STORAGE_KEY = 'agty.changelogSeen';
 
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
@@ -511,11 +511,11 @@ export const OVERLAY_CONTENT_MS = 100;
 export const OVERLAY_LABEL_Z_INDEX = 41;
 export const OVERLAY_LABEL_SELECTED_Z_INDEX = 42;
 export const OVERLAY_BUBBLE_Z_INDEX = 43;
-// cld EZ mode head badge: world px from the character anchor (bottom centre)
+// agty EZ mode head badge: world px from the character anchor (bottom centre)
 // to the badge's bottom-right corner, left of the head (the prop is on the right).
 export const EZ_MOOD_ICON_OFFSET_X = -7;
 export const EZ_MOOD_ICON_OFFSET_Y = 18;
-// cld T-0026 activity visuals (webview-ui/src/cld/ez/): the status ring under
+// agty T-0026 activity visuals (webview-ui/src/agent-tycoon/ez/): the status ring under
 // each character, by state. Rims are opaque, fills translucent (#RRGGBBAA); the
 // dark edge keeps a ring readable on any floor or cushion ('' = none).
 const RING_EDGE = '#14141cb3';
@@ -542,11 +542,11 @@ export const ACTIVITY_LINK_SHADOW_COLOR = '#2a2131';
 export const ACTIVITY_LINK_DOT_SPACING = 3;
 /** Seconds per step of the link's marching dots. */
 export const ACTIVITY_LINK_MARCH_SEC = 0.2;
-// cld T-0026 피로도 (fatigue): the bar by tone, how a tired character moves,
-// and the rest bubble. The thresholds are EZ rules data (cld/ez/rules.ts).
+// agty T-0026 피로도 (fatigue): the bar by tone, how a tired character moves,
+// and the rest bubble. The thresholds are EZ rules data (agent-tycoon/ez/rules.ts).
 /** U-15 XP bar fill (Lv / 환생 beside the 피로도 bar). */
 export const LEVEL_BAR_COLOR = '#6aa7ff';
-// charpack v3 §6A nameplate (cld/ez/nameplate.ts): [rank] [name] [Lv in an XP ring] + 피로도.
+// charpack v3 §6A nameplate (agent-tycoon/ez/nameplate.ts): [rank] [name] [Lv in an XP ring] + 피로도.
 /** The XP ring's empty arc (the filled one is LEVEL_BAR_COLOR). */
 export const LEVEL_RING_EMPTY_COLOR = '#3a3a52';
 /**
@@ -575,7 +575,7 @@ export const OFF_OVERLAY_ALPHA = 0.55;
 /** The XP ring's stroke, CSS px (every size step). */
 export const NAMEPLATE_RING_STROKE_PX = 3;
 /**
- * UI-SCALE: the plate's sizes per 화면 크기 step (cld/uiScale.ts), CSS px. Plain
+ * UI-SCALE: the plate's sizes per 화면 크기 step (agent-tycoon/uiScale.ts), CSS px. Plain
  * px, not times --ui-scale: the owner's numbers per step (10-24 16:07) --
  * 작게 the first plates, 보통 the phone's of 8144de68, 크게 the desktop's of f08882ee.
  * name/level: fonts; ring: the XP ring's outer size; fatigue: the 피로도 row's font
@@ -584,7 +584,7 @@ export const NAMEPLATE_RING_STROKE_PX = 3;
  * rank icon and of the status icon (zzz, !, lock); card: every plate's one width per screen style
  * (T-67, owner 11-06 22:34: what the owner's sample name, Samwise Gamgee in Hangul, needs in that style's
  * name font beside the rank icon and the XP ring, the larger of Chromium and WebKit rounded up, plus 1 px;
- * measured by cld/test/run-office-nameplate-fixed.ts MEASURE=1); a longer name ends in an ellipsis. The bar
+ * measured by agent-tycoon/test/run-office-nameplate-fixed.ts MEASURE=1); a longer name ends in an ellipsis. The bar
  * is as long as lets "피로도 [bar] 휴식 1/2" fit that width in both styles. Owner 11-06 23:11: the bar read too
  * small, so each card is ~20% wider (+20/+22/+28 px) and all of it went to the bar.
  */
@@ -651,7 +651,7 @@ export const REST_LIFT_SEC = 0.4;
 /** Counts that arrive this soon after a (re)connect are replay, never a rest moment. */
 export const REST_SETTLE_MS = 5000;
 export const FATIGUE_YAWN_EVERY_SEC = 7;
-// cld T-0036 status icon above the head (cld/ez/drawVisuals.ts): world px from
+// agty T-0036 status icon above the head (agent-tycoon/ez/drawVisuals.ts): world px from
 // the feet anchor to the icon's bottom centre, a little left so it clears the
 // hand and lock props on the right.
 export const STATUS_ICON_RISE_PX = 28;
@@ -666,7 +666,7 @@ export const STATUS_ICON_FRAME_SEC = 0.5;
 export const STATUS_ICON_BLINK_DIM_ALPHA = 0.2;
 /** A name-less character's details float this far (world px) above its feet, over the icon. */
 export const STATUS_DETAILS_RISE_PX = 41;
-// cld T-0041 staff (cld/staff.ts): temps come and go, office hours.
+// agty T-0041 staff (agent-tycoon/staff.ts): temps come and go, office hours.
 /** How often the staff director looks (game s). */
 export const STAFF_STEP_SEC = 0.25;
 /** Loading (page open, resync): the steady state is put down this long (game s)
@@ -681,7 +681,7 @@ export const STAFF_HOLD_MAX_SEC = 5;
 export const HOME_GRACE_MS = 30 * 60_000;
 /** A walk to the door that took longer than this (game s) ends where it is. */
 export const LEAVE_TIMEOUT_SEC = 60;
-// cld ELEVATOR (cld/elevator.ts): characters ride between floors.
+// agty ELEVATOR (agent-tycoon/elevator.ts): characters ride between floors.
 /** The doors open (or shut) in this long (game s). */
 export const ELEVATOR_DOOR_SEC = 0.45;
 /** A missing or interrupted door animation gives up after this long, never trapping a rider. */
@@ -692,7 +692,7 @@ export const ELEVATOR_STEP_SEC = 0.35;
 export const ELEVATOR_RIDE_SEC = 0.8;
 export const ELEVATOR_RIDE_PER_FLOOR_SEC = 0.35;
 /** PARTY-FRAME: '1' when this device keeps the elevator's floor list open beside its ▲ 1F ▼ strip. */
-export const ELEVATOR_LIST_OPEN_STORAGE_KEY = 'cld.elevator-list-open';
+export const ELEVATOR_LIST_OPEN_STORAGE_KEY = 'agty.elevator-list-open';
 /** A character dropped on another floor stands this far (tiles) at most from its elevator there. */
 export const ELEVATOR_VISIT_NEAR_TILES = 4;
 /** The elevator's pixels (a steel frame, the car's dark inside, two sliding doors, the call lamp). */
@@ -707,7 +707,7 @@ export const ELEVATOR_COLORS = {
 } as const;
 /** A lingering temp with no lounge on its floor stays this close (tiles) to its desk. */
 export const NEAR_SEAT_TILES = 3;
-// cld LOUNGE (cld/lounge.ts): off duty, orchestrators rest in the lounge instead of leaving.
+// agty LOUNGE (agent-tycoon/lounge.ts): off duty, orchestrators rest in the lounge instead of leaving.
 /** A resting character walks to a machine for a drink once in this many seconds, at random (game s). */
 export const LOUNGE_DRINK_MIN_SEC = 150;
 export const LOUNGE_DRINK_MAX_SEC = 330;
@@ -726,9 +726,9 @@ export const LOUNGE_DROP_NEAR_TILES = 3;
 /** Seconds per zzz frame while dozing (slower than the status icon's). */
 export const LOUNGE_ZZZ_FRAME_SEC = 1.4;
 /** A classic 16x32 figure is this tall (px, feet to the top of its head): the unit the drink's
- *  positions are written in (cld/lounge.ts drinkPose), scaled to a taller figure's drawn height. */
+ *  positions are written in (agent-tycoon/lounge.ts drinkPose), scaled to a taller figure's drawn height. */
 export const LOUNGE_FIGURE_PX = 26;
-/** C1 (owner 11-01 "김 모락모락"): hot coffee's steam, drawn in code (cld/steam.ts): `STEAM_WISPS`
+/** C1 (owner 11-01 "김 모락모락"): hot coffee's steam, drawn in code (agent-tycoon/steam.ts): `STEAM_WISPS`
  *  wisps side by side (`STEAM_SPREAD_PX` apart), each a stream of `STEAM_PUFFS` soft puffs that
  *  rise `STEAM_RISE_PX` in `STEAM_PERIOD_SEC`, sway up to `STEAM_SWAY_PX` (`STEAM_SWAY_WAVES` half
  *  waves on the way up), grow `STEAM_GROW` times their `STEAM_RADIUS_PX` and fade in and out
@@ -929,7 +929,7 @@ export const CARD_BAR_CARD_WIDTH_PX = 96;
  *  4px padding and 2px border each side and 2px of air. */
 export const PARTY_FRAME_BAR_PX = 72;
 /** FEAT-PARTY-V2: the party this device shows (the parties themselves are the daemon's, parties.json). */
-export const PARTY_SELECTED_STORAGE_KEY = 'cld.party-selected';
+export const PARTY_SELECTED_STORAGE_KEY = 'agty.party-selected';
 /** T-71: sub-agent icons under a Lead's portrait; past this many the last one reads +N. */
 export const PARTY_SUB_ICONS_MAX = 3;
 /** The member card's 기록 tab: the latest notices about the agent. */
@@ -1192,7 +1192,7 @@ export const MESSENGER_SPLIT_MIN_PX = 960;
 /** ROOM-THREADS: a tagged room post still unanswered shows its thread's waiting rail this long. */
 export const ROOM_WAITING_MS = 24 * 60 * 60 * 1000;
 /** ROOM-FOLD: the browser setting that remembers which threads are folded, and how many of them it keeps. */
-export const ROOM_FOLD_KEY = 'cld.room-thread-fold';
+export const ROOM_FOLD_KEY = 'agty.room-thread-fold';
 export const ROOM_FOLD_MAX = 300;
 // GAME-UI-1 G1 (ideas/messenger 01, 02, 04): the messenger's game motion.
 /** 01: every sentence of a new reply takes this long to type (an English line has more characters than a
@@ -1227,9 +1227,9 @@ export const MOBILE_CARD_ORDER_STORAGE_KEY = 'agent-tycoon.mobileCardOrder';
 /** The same key before the 2026-11 rename, still read when the new one is unset. */
 export const LEGACY_MOBILE_CARD_ORDER_STORAGE_KEY = 'pixel-agents.mobileCardOrder';
 /** localStorage key: this device opened the mobile bar's full cards (compact otherwise). */
-export const MOBILE_CARDS_EXPANDED_STORAGE_KEY = 'cld.mobile-cards-expanded';
+export const MOBILE_CARDS_EXPANDED_STORAGE_KEY = 'agty.mobile-cards-expanded';
 /** localStorage key: this viewer's three-state mobile roster presentation. */
-export const MOBILE_ROSTER_STATE_STORAGE_KEY = 'cld.mobile-roster-state';
+export const MOBILE_ROSTER_STATE_STORAGE_KEY = 'agty.mobile-roster-state';
 /** The phone roster can show compact cards, full cards, or only its restore handle. */
 export const MOBILE_ROSTER_STATES = {
   HIDDEN: 'hidden',
@@ -1241,7 +1241,7 @@ export const MOBILE_ROSTER_CARD_WIDTH_PX = 96;
 /** Full phone roster cards make the orchestrator's face more prominent than the compact strip. */
 export const MOBILE_ROSTER_FACE_PX = 48;
 /** localStorage key: this viewer opened the character detail's full list (the big tiles otherwise). */
-export const STAT_DETAIL_FULL_STORAGE_KEY = 'cld.stat-detail-full';
+export const STAT_DETAIL_FULL_STORAGE_KEY = 'agty.stat-detail-full';
 /** The summary popover's face, and the detail view's (CSS px). */
 export const STAT_SUMMARY_FACE_PX = 48;
 /** The summary popover never grows wider than this, however long the activity line (it wraps, 2 lines). */
@@ -1327,7 +1327,7 @@ export const STANDALONE_VIEWPORT_TOLERANCE_PX = 3;
 /** A messenger history/search request the daemon never answers is given up after this. */
 export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
 
-// ── ISO-PILOT: the isometric building (cld/iso) ─────────────────
+// ── ISO-PILOT: the isometric building (agent-tycoon/iso) ─────────────────
 /** Half a floor diamond (iso px at zoom 1): a 16 px world tile is a 16×8 diamond, so a 16×32
  *  character stands about four tiles tall, the proportions the top-down office has. */
 export const ISO_HALF_W = 8;
@@ -1501,7 +1501,7 @@ export const ISO_SIT_FORWARD_PX = 3;
 /** World px a picture hung on a wall drops when that wall is cut away (it rests on its top). */
 export const ISO_LOW_WALL_ITEM_DROP = 5;
 
-// ── BACKGROUND: the isometric office's surroundings (cld/gfx/bg) ─────
+// ── BACKGROUND: the isometric office's surroundings (agent-tycoon/gfx/bg) ─────
 /** The sky is day from this hour to this one by the host's clock (hours, 0-24). */
 export const BG_DAY_START_HOUR = 6;
 export const BG_DAY_END_HOUR = 18;
@@ -1560,7 +1560,7 @@ export const BG_SPRITE_CACHE_MAX = 32;
 /** A canvas colour from an "r,g,b" triplet and an alpha (the background's glows and haze). */
 export const rgbaOf = (triplet: string, alpha: number): string => `rgba(${triplet},${alpha})`;
 
-// ── C1 (cld/director): character moments, a coffee break, a level-up and a rebirth ─────
+// ── C1 (agent-tycoon/director): character moments, a coffee break, a level-up and a rebirth ─────
 /** Moments that may wait behind the one playing, per character. */
 export const FX_QUEUE_MAX = 3;
 /** Each level-up variant's length (s): A light pillar, B star orbit and nova, C fireworks. */
@@ -1749,16 +1749,16 @@ export const TEXT_ZOOM_DEFAULT = 1;
 /** One mouse-wheel notch (100) moves a step; a trackpad pinch's fine deltas are summed to this much first. */
 export const TEXT_ZOOM_WHEEL_NOTCH = 100;
 /** Key in the browser's localStorage per surface: `${prefix}${surface}`. */
-export const TEXT_ZOOM_STORAGE_PREFIX = 'cld.textzoom.';
+export const TEXT_ZOOM_STORAGE_PREFIX = 'agty.textzoom.';
 /** An image preview fits the pane's width and this much of the screen's height (vh) at 100%. */
 export const IMAGE_FIT_MAX_VH = 70;
 
 // ── Explorer 최근 산출물 ─────────────────────────────────────
 /** A long list shows this many of the newest first, 더 보기 adds as many again. */
 export const RECENT_OUTPUTS_SHOWN = 8;
-export const RECENT_FOLD_STORAGE_KEY = 'cld.recentFolded';
+export const RECENT_FOLD_STORAGE_KEY = 'agty.recentFolded';
 
-// ── SPT-P1A 개요 / 문서 tabs (cld/spec/) ─────────────────────
+// ── SPT-P1A 개요 / 문서 tabs (agent-tycoon/spec/) ─────────────────────
 /** The 개요's lists (진행·검토·막힘, recent jobs, recent commits) show this many each. */
 export const SPEC_LIST_SHOWN = 5;
 /** RQ2: the 요구사항 tree reads this many requirements at most (the daemon's SPEC_ITEMS_PAGE_MAX); more says so and asks for a search. */
@@ -1787,7 +1787,7 @@ export const SPEC_OVERVIEW_REFETCH_MS = 500;
 /** BRN K5: the 개요's five lines show this many board Tasks for 어디까지 (latest done) and 다음 (top of 할 일). */
 export const RESUME_BOARD_SHOWN = 3;
 
-// ── SPT-P3-GRAPH 그래프 tab and requirement detail (cld/spec/TraceGraph.tsx, ReqDetail.tsx) ──
+// ── SPT-P3-GRAPH 그래프 tab and requirement detail (agent-tycoon/spec/TraceGraph.tsx, ReqDetail.tsx) ──
 /** Node boxes the dagre layout reserves (px, the pixel node components draw inside them). */
 export const SPEC_GRAPH_NODE = {
   req: { w: 184, h: 56 },
@@ -1810,7 +1810,7 @@ export const SPEC_GRAPH_MINIMAP = { width: 120, height: 80 } as const;
 export const SPEC_GRAPH_ZOOM = { min: 0.2, max: 2.5 } as const;
 /** SPT-P4A 아키텍처 view: a group's parent chain is walked at most this deep (a cycle or a runaway chain ends there). */
 export const SPEC_ARCH_DEPTH_MAX = 32;
-// ── SPT C1 지도 tab (cld/spec/CockpitMap.tsx; SPT §8.3) ──
+// ── SPT C1 지도 tab (agent-tycoon/spec/CockpitMap.tsx; SPT §8.3) ──
 /** Imports between two cells drawn as an arrow (the server's SPEC_MAP_ARROW_MIN, R4's value). */
 export const SPEC_MAP_ARROW_MIN = 50;
 /** A band with this many cells or more says its pairs inside the cells (⇄ text) instead of lines. */
@@ -1821,7 +1821,7 @@ export const SPEC_MAP_ARROW_HEAD = 6;
 export const SPEC_MAP_BAR_SEGMENTS = 10;
 export const SPEC_MAP_CHIPS = 2;
 export const SPEC_MAP_LIST_SHOW = 7;
-/** 아키텍처 그래프 (cld/spec/ArchCards.tsx): a card's size and the grid's gaps in flow px, desktop and phone. */
+/** 아키텍처 그래프 (agent-tycoon/spec/ArchCards.tsx): a card's size and the grid's gaps in flow px, desktop and phone. */
 export const SPEC_CARD = { w: 264, h: 156, gapX: 64, gapY: 56, cols: 3 } as const;
 export const SPEC_CARD_PHONE = { w: 120, h: 92, gapX: 20, gapY: 28, cols: 3 } as const;
 /** A card's inside parts and requirement areas named on it; recent changes in the detail (phone: fewer). */
@@ -1839,7 +1839,7 @@ export const SPEC_CARD_DOTS = { gap: 16, size: 2 } as const;
 /** BRN K8: design modules listed in a picked card's note (the rest is a count). */
 export const SPEC_DESIGN_NOTE_MODULES = 5;
 
-// ── GAME-UI-0 game parts (cld/game/parts.tsx; specs/ui-mock-1103 cockpit D2) ──
+// ── GAME-UI-0 game parts (agent-tycoon/game/parts.tsx; specs/ui-mock-1103 cockpit D2) ──
 /** An 8x8 pixel icon drawn at 2x. */
 export const GAME_ICON_PX = 16;
 /** SegBar's segments (the mock's 작업 연결 bar). */
@@ -1851,7 +1851,7 @@ export const GAME_WEEK_BAR_PX = 36;
 export const QUEST_COLS_MIN_PX = 860;
 export const QUEST_SIDE_MIN_PX = 1180;
 
-// ── GAME-UI-1 G3: party roster, job run, game HUD (cld/game; specs/ui-mock-1103/ideas/agents 05-07) ──
+// ── GAME-UI-1 G3: party roster, job run, game HUD (agent-tycoon/game; specs/ui-mock-1103/ideas/agents 05-07) ──
 /** 컨텍스트 남음 at or under this is amber (05). */
 export const GAME_CONTEXT_WARN_PCT = 20;
 /** The card bar's small context bar. */
@@ -1877,7 +1877,7 @@ export const AGENT_UPDATE_RESULT_MS = 60_000;
 export const AGENT_LATEST_ASK_GAP_MS = 30_000;
 /** The open control center's latest news rows (모두 보기 opens the notification panel). */
 export const CC_NEWS_ROWS = 3;
-/** An agent logo's brand colour (Simple Icons 16.36.0's hex, cld/icons/agentLogos.ts); black or white marks have none. */
+/** An agent logo's brand colour (Simple Icons 16.36.0's hex, agent-tycoon/icons/agentLogos.ts); black or white marks have none. */
 export const AGENT_LOGO_COLOR = { claude: '#D97757', gemini: '#8E75B2' } as const;
 /** An agent without a logo: its initial on a hue made from its id (0..359, controlCenter.css --mark-hue). */
 export const AGENT_MARK_HUES = 360;
@@ -1892,7 +1892,7 @@ export const GAME_NIGHT_FROM_H = 18;
 /**
  * 11-04: the interior (layout editor, the elevator's 편집 and 인테리어) and the looks window's 사람 꾸미기
  * and 커스텀 tabs are postponed: their ways in are hidden while these are false, the code stays.
- * The looks window itself (마스코트, 사람) is open. See cld/features.ts.
+ * The looks window itself (마스코트, 사람) is open. See agent-tycoon/features.ts.
  */
 export const FEATURE_INTERIOR = false;
 export const FEATURE_LOOKS_CUSTOM = false;
@@ -1920,7 +1920,7 @@ export const TOOL_ROW_INPUT_MAX = 40;
 /** Consecutive rows of one tool fold into one row from this many on. */
 export const TOOL_RUN_MIN = 2;
 
-// ── T-74: error reports to the daemon (cld/errorReport.ts) ──
+// ── T-74: error reports to the daemon (agent-tycoon/errorReport.ts) ──
 /** Reports one page sends per window at most (a render loop would otherwise flood the socket). */
 export const ERROR_REPORT_BURST = 10;
 export const ERROR_REPORT_WINDOW_MS = 60_000;

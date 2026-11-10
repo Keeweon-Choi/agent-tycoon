@@ -1,0 +1,133 @@
+/* GFX2 lobby life: the owner's lobby picture's lamps glow and flicker, the neon sign blinks,
+   fairy lights twinkle and a few city windows go off and on. Opacity animations only (the
+   compositor's work: nothing is laid out or painted again per frame), only while the title
+   scene is on screen (it is unmounted otherwise), none under reduced motion. Positions are %
+   of the picture, so they follow its cover scaling. */
+:root {
+  --agty-lobby-warm: rgba(255, 200, 120, 0.85);
+  --agty-lobby-neon: rgba(178, 102, 255, 0.7);
+  --agty-lobby-dark: rgba(10, 8, 26, 0.62);
+  --agty-lobby-fairy: #fff4c2;
+  --agty-lobby-window-off: #1c2148;
+}
+
+.agty-lobby-fx > * {
+  position: absolute;
+  pointer-events: none;
+  will-change: opacity;
+}
+.agty-lobby-glow {
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--agty-lobby-warm) 0%, transparent 68%);
+  mix-blend-mode: screen;
+  opacity: 0.6;
+  animation: agty-lobby-flicker var(--d, 5s) steps(1, end) var(--t, 0s) infinite;
+}
+.agty-lobby-neon {
+  border-radius: 50%;
+  background: radial-gradient(ellipse, var(--agty-lobby-neon) 0%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: agty-lobby-neon 7s steps(1, end) infinite;
+}
+.agty-lobby-neon-off {
+  background: var(--agty-lobby-dark);
+  opacity: 0;
+  animation: agty-lobby-neon-off 7s steps(1, end) infinite;
+}
+.agty-lobby-twinkle {
+  background: var(--agty-lobby-fairy);
+  opacity: 0.2;
+  animation: agty-lobby-twinkle var(--d, 2.4s) ease-in-out var(--t, 0s) infinite alternate;
+}
+.agty-lobby-window {
+  background: var(--agty-lobby-window-off);
+  opacity: 0;
+  animation: agty-lobby-window var(--d, 17s) steps(1, end) var(--t, 0s) infinite;
+}
+.agty-lobby-cast {
+  position: absolute;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+@keyframes agty-lobby-flicker {
+  0% { opacity: 0.6; }
+  6% { opacity: 0.8; }
+  8% { opacity: 0.35; }
+  10% { opacity: 0.75; }
+  45% { opacity: 0.62; }
+  70% { opacity: 0.5; }
+  72% { opacity: 0.8; }
+  100% { opacity: 0.6; }
+}
+@keyframes agty-lobby-neon {
+  0% {
+    opacity: 0.85;
+  }
+  60% {
+    opacity: 1;
+  }
+  84% {
+    opacity: 0;
+  }
+  86% {
+    opacity: 0.9;
+  }
+  88% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.85;
+  }
+}
+@keyframes agty-lobby-neon-off {
+  0% {
+    opacity: 0;
+  }
+  84% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 0;
+  }
+  88% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes agty-lobby-twinkle {
+  from {
+    opacity: 0.15;
+  }
+  to {
+    opacity: 0.95;
+  }
+}
+@keyframes agty-lobby-window {
+  0% {
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agty-lobby-fx > * {
+    animation: none !important;
+  }
+}

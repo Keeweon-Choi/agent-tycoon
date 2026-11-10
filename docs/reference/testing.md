@@ -66,6 +66,6 @@ npm run test:report:open                       # serve Allure locally (file:// c
 
 ## Manual Hook Testing
 
-`server/manual-hook-events.http` (REST-Client format) drives the local hook server while the daemon is running. Copy `port` and `token` from `<office folder>/server.json` (`~/.config/agent-tycoon/office/`, or `~/.config/cld-gui/office/` on a pre-rename install), set `cwd` to the folder the daemon was started from. Covers `SessionStart` → `PreToolUse` → `PermissionRequest`/`Notification`/`Stop` → `SessionEnd`.
+`server/manual-hook-events.http` (REST-Client format) drives the local hook server while the daemon is running. Copy `port` and `token` from `<office folder>/server.json` (`~/.config/agent-tycoon/office/`), set `cwd` to the folder the daemon was started from. Covers `SessionStart` → `PreToolUse` → `PermissionRequest`/`Notification`/`Stop` → `SessionEnd`.
 
 If `cwd` is outside the current workspace, enable **Watch All Sessions** first.

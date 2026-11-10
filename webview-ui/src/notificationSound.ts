@@ -141,7 +141,7 @@ export async function playJobSound(): Promise<void> {
   }
 }
 
-/** agty (C1): run a synth graph (cld/director/sounds.ts) on the shared context, only while the
+/** agty (C1): run a synth graph (agent-tycoon/director/sounds.ts) on the shared context, only while the
  *  sound setting is on; `level` is the user's volume. */
 export async function playSynth(build: (ctx: AudioContext, level: number) => void): Promise<void> {
   if (!soundEnabled || volumeScale <= 0) return;

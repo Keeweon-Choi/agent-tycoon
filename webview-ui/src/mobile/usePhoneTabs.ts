@@ -1,13 +1,13 @@
 /**
- * WINMODEL: the phone's Dock is a tab bar (rules: cld/hud/windowModel.ts). This wires it to the
+ * WINMODEL: the phone's Dock is a tab bar (rules: agent-tycoon/hud/windowModel.ts). This wires it to the
  * tabs' own stores (where each tab's sub-route lives) and to the browser's Back and Forward.
  */
 import { useCallback, useEffect } from 'react';
 
-import { closeDevroomPage, devroomGetSnapshot } from '../cld/devroom/devroomStore.js';
-import { hudGetSnapshot, pressBack, pressTab, showOffice, useHud } from '../cld/hud/hudStore.js';
-import { activeTab, type Tab } from '../cld/hud/windowModel.js';
-import { messengerGetSnapshot, showMessengerList } from '../cld/messenger/messengerStore.js';
+import { closeDevroomPage, devroomGetSnapshot } from '../agent-tycoon/devroom/devroomStore.js';
+import { hudGetSnapshot, pressBack, pressTab, showOffice, useHud } from '../agent-tycoon/hud/hudStore.js';
+import { activeTab, type Tab } from '../agent-tycoon/hud/windowModel.js';
+import { messengerGetSnapshot, showMessengerList } from '../agent-tycoon/messenger/messengerStore.js';
 import { blocksEdgeSwipe, EDGE_TAP_TARGETS, GUARD, landing } from './phoneHistory.js';
 
 /** The tab is on its root: the messenger's list, the 현황판's own tab (오케스트레이터). */

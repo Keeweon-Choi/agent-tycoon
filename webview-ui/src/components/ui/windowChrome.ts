@@ -1,5 +1,5 @@
 /**
- * UI-AUDIT-DESKTOP: the one chrome of every window (cld/hud/HudWindow.tsx) and dialog
+ * UI-AUDIT-DESKTOP: the one chrome of every window (agent-tycoon/hud/HudWindow.tsx) and dialog
  * (ui/Modal.tsx): the title bar, and the room under it and at its sides. Buttons in the bar are
  * `Button size="icon_md"` (28 square, a 16 px glyph).
  */

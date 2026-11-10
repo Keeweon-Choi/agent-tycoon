@@ -10,12 +10,14 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['test/*.test.ts', 'src/cld/**/*.test.ts'],
+    include: ['test/*.test.ts', 'src/agent-tycoon/**/*.test.ts'],
     testTimeout: 30_000,
     // Tests bind fixed ports (Vite dev server, vite preview) and share the
     // global `window.postMessage` listener in browser-transport. Serial run
     // avoids port collisions and listener crosstalk.
     fileParallelism: false,
+    // T-87: the run's HOME is a fresh temp dir, never the real one.
+    globalSetup: ['../scripts/vitest-temp-home.mjs'],
     setupFiles: ['allure-vitest/setup'],
     reporters: [
       'default',

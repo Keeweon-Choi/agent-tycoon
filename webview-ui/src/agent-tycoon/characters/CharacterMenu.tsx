@@ -1,0 +1,123 @@
+import { useEffect, useState } from 'react';
+
+import { CHARACTER_SITTING_OFFSET_PX } from '../../constants.js';
+import { t } from '../../i18n/index.js';
+import { frameDue } from '../../office/engine/gameLoop.js';
+import type { OfficeState } from '../../office/engine/officeState.js';
+import { overlayProjection } from '../../office/projection.js';
+import { CharacterState } from '../../office/types.js';
+import { ChatAction } from '../ChatAction.js';
+import { openStatDetail } from '../ez/statDetail.js';
+import { isoOverlayFor } from '../iso/render.js';
+import { useAgtyStore } from '../officeStore.js';
+import { lookNameOf, openLooks } from './looks.js';
+
+/** Above the overlay labels and bubbles (41-43), below modals. */
+const MENU_Z_INDEX = 44;
+/** CSS px between the character's feet and the menu. */
+const MENU_GAP_PX = 4;
+
+interface CharacterMenuProps {
+  officeState: OfficeState;
+  /** The selected character, or null. */
+  agentId: number | null;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  zoom: number;
+  panRef: React.RefObject<{ x: number; y: number }>;
+}
+
+/** The owner's character's menu, under its feet (OWNER-STATS). An agent's actions are its member card's
+ *  (party/MemberCard.tsx, FEAT-PARTY-V2). */
+export function CharacterMenu({
+  officeState,
+  agentId,
+  containerRef,
+  zoom,
+  panRef,
+}: CharacterMenuProps) {
+  const { officeSnapshot } = useAgtyStore();
+  const name = agentId !== null && officeSnapshot ? lookNameOf(agentId, officeSnapshot) : undefined;
+  const ch = agentId !== null ? officeState.characters.get(agentId) : undefined;
+  const owner = ch?.agtyOwner === true; // OWNER-AVATAR: no chat; its 스탯 is the owner's own (OWNER-STATS)
+  // Follow the character while it walks and the camera pans.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (name === undefined || !owner) return;
+    let raf = 0;
+    const tick = (ts: number) => {
+      if (frameDue(ts)) setTick((n) => n + 1); // the canvas's frames only
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [name, owner]);
+
+  const el = containerRef.current;
+  if (name === undefined || !ch || !owner || !el) return null;
+  const base = overlayProjection(
+    officeState.getLayout(),
+    el.getBoundingClientRect(),
+    zoom,
+    panRef.current,
+    window.devicePixelRatio || 1,
+  );
+  // ISO-PILOT: beside the character where the isometric building drew it.
+  const project = isoOverlayFor(ch, window.devicePixelRatio || 1, base)?.project ?? base;
+  const sitting = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+  return (
+    <div
+      className="absolute -translate-x-1/2 pixel-panel p-2"
+      style={{
+        left: project.toScreenX(ch.x),
+        top: project.toScreenY(ch.y + sitting) + MENU_GAP_PX,
+        zIndex: MENU_Z_INDEX,
+      }}
+      role="menu"
+      aria-label={t('character.menu', { name: owner ? t('owner.me') : name })}
+      data-testid={owner ? 'owner-menu' : undefined}
+    >
+      <CharacterMenuItems agentId={agentId!} name={name} owner={owner} />
+    </div>
+  );
+}
+
+/** The menu's buttons (대화 when chat is on, 꾸미기, 스탯), stacked under the feet. */
+export function CharacterMenuItems({
+  agentId,
+  name,
+  owner,
+}: {
+  agentId: number;
+  name: string;
+  owner: boolean;
+}) {
+  const item = 'block w-full text-left text-sm whitespace-nowrap px-8 py-2 hover:bg-btn-hover';
+  return (
+    <>
+      {!owner && <ChatAction agentId={agentId} variant="menu" className={item} />}
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        onClick={(e) => {
+          e.stopPropagation();
+          openLooks(name);
+        }}
+      >
+        {t('looks.open')}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={item}
+        data-testid={owner ? 'owner-stats-open' : 'stat-open'}
+        onClick={(e) => {
+          e.stopPropagation();
+          openStatDetail(agentId);
+        }}
+      >
+        {t('stat.open')}
+      </button>
+    </>
+  );
+}

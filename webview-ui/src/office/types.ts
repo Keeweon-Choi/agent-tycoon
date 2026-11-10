@@ -26,8 +26,8 @@ export type TileType = (typeof TileType)[keyof typeof TileType];
 export type { ColorValue } from '../components/ui/types.js';
 import type { FurnitureVisual } from '../../../core/src/assets/manifestUtils.js';
 import type { ContextLimitBasis } from '../../../core/src/messages.js';
-import type { Ride, Visit } from '../cld/elevator.js';
-import type { Rest } from '../cld/lounge.js';
+import type { Ride, Visit } from '../agent-tycoon/elevator.js';
+import type { Rest } from '../agent-tycoon/lounge.js';
 import type { ColorValue } from '../components/ui/types.js';
 
 export const CharacterState = {
@@ -89,7 +89,7 @@ export interface ToolActivity {
   status: string;
   /** Supplied by agentToolStart when available; status parsing is the fallback. */
   toolName?: string;
-  /** The tool call's own one-line description, when it gave one (cld EZ words use it). */
+  /** The tool call's own one-line description, when it gave one (agty EZ words use it). */
   desc?: string;
   done: boolean;
   permissionWait?: boolean;
@@ -263,26 +263,26 @@ export interface Character {
   isGreeter?: boolean;
   /** CHAR-8DIR: the row step (-1 or 1) of its last step when that was diagonal (`dir`, RIGHT or
    *  LEFT, holds its column step), else undefined: an 8-direction sheet draws it from that. */
-  cldDiagRow?: -1 | 1;
+  agtyDiagRow?: -1 | 1;
   /** WALK-FIX: world px walked in its life; the walk frame is read off it (walkFrameAt). */
-  cldWalkPx?: number;
+  agtyWalkPx?: number;
   /** OWNER-AVATAR: the owner's own character (OWNER_CHARACTER_ID): walked by the keys and the
    *  joystick, followed by default; no seat, no wander, no status, no staff rules. */
-  cldOwner?: boolean;
+  agtyOwner?: boolean;
   /** agty (T-0041): gone home after hours. Kept (its card, its desk) but
    *  not drawn, hit-tested or moved until it comes back in. */
-  cldAway?: boolean;
-  /** agty (T-0066): the seat the server gave it (its own chair's uid), looked up in `cldSeats`. */
-  cldSeatId?: string;
+  agtyAway?: boolean;
+  /** agty (T-0066): the seat the server gave it (its own chair's uid), looked up in `agtySeats`. */
+  agtySeatId?: string;
   /** agty (ELEVATOR): the server's seat was not in the office yet when it came, so it sits
    *  at another; it takes its own the moment an office has it. */
-  cldSeatMissing?: boolean;
-  /** agty (ELEVATOR): riding between floors (cld/elevator.ts drives it; hidden in the car). */
-  cldRide?: Ride;
+  agtySeatMissing?: boolean;
+  /** agty (ELEVATOR): riding between floors (agent-tycoon/elevator.ts drives it; hidden in the car). */
+  agtyRide?: Ride;
   /** agty (ELEVATOR): dropped on another floor and visiting it; its own seat is kept. */
-  cldVisit?: Visit;
-  /** agty (LOUNGE): off duty and resting in the building (cld/lounge.ts drives it); its desk seat is kept. */
-  cldRest?: Rest;
+  agtyVisit?: Visit;
+  /** agty (LOUNGE): off duty and resting in the building (agent-tycoon/lounge.ts drives it); its desk seat is kept. */
+  agtyRest?: Rest;
 
   // -- Agent Teams --
   /** Team name this agent belongs to */

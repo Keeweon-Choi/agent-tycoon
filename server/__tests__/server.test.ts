@@ -26,7 +26,7 @@ vi.mock('os', async () => {
 // Must import AFTER mock setup
 const { AgentTycoonServer } = await import('../src/server.js');
 const { PtySessionManager } = await import('../src/terminal/ptySessionManager.js');
-const { configDirectory } = await import('../src/cld/configPath.js');
+const { configDirectory } = await import('../src/agent-tycoon/configPath.js');
 
 async function postHook(
   port: number,
@@ -107,7 +107,7 @@ describe('AgentTycoonServer', () => {
   // 2. Health endpoint returns 200 + uptime
   it('health endpoint returns 200 with uptime', async () => {
     const config = await server.start();
-    // cld-gui S9: pid and uptime only for the host token; the public answer has neither.
+    // agent-tycoon S9: pid and uptime only for the host token; the public answer has neither.
     const open = (await (
       await fetch(`http://127.0.0.1:${config.port}/api/health`)
     ).json()) as Record<string, unknown>;

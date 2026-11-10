@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { AccessButton } from '../cld/auth/Access.js';
-import { AddDeviceButton } from '../cld/auth/AddDevice.js';
-import { preferredBypassMode, useBypass } from '../cld/bypass.js';
+import { AccessButton } from '../agent-tycoon/auth/Access.js';
+import { AddDeviceButton } from '../agent-tycoon/auth/AddDevice.js';
+import { preferredBypassMode, useBypass } from '../agent-tycoon/bypass.js';
 import {
   CLAUDE_CODE_INSTALL_COMMAND,
   CLAUDE_CODE_URL,

@@ -37,10 +37,10 @@ export default [
       'agent-tycoon/no-inline-colors': 'error',
     },
   },
-  // Project Brain K0 (cld/docs/design/project-brain.md §5): the spec module does not lean on the
-  // engine and the engine does not reach into spec/. Shared shapes live in core/src/cld/spec.
+  // Project Brain K0 (agent-tycoon/docs/design/project-brain.md §5): the spec module does not lean on the
+  // engine and the engine does not reach into spec/. Shared shapes live in core/src/agent-tycoon/spec.
   {
-    files: ['server/src/cld/spec/**/*.ts'],
+    files: ['server/src/agent-tycoon/spec/**/*.ts'],
     ignores: ['**/*.test.ts', '**/__fixtures__/**'],
     rules: {
       'no-restricted-imports': [
@@ -54,7 +54,7 @@ export default [
               regex:
                 '^(?!\\./)(?!(?:\\.\\./){4}core/)(?!\\.\\./\\.\\./constants\\.js$)(?!\\.\\./(?:mask|jsonFile|audit|authRoutes|configPath|files/roots|files/security|tracking/docs|tracking/settings|engine/git/gitRun|engine/git/repoRead|engine/registry|shell/gate)\\.js$)\\.',
               message:
-                'spec/ may import only itself, core/ and the daemon tools listed in eslint.config.mjs (BRN K0). Move the shape to core/src/cld/spec or inject it.',
+                'spec/ may import only itself, core/ and the daemon tools listed in eslint.config.mjs (BRN K0). Move the shape to core/src/agent-tycoon/spec or inject it.',
             },
           ],
         },
@@ -62,7 +62,7 @@ export default [
     },
   },
   {
-    files: ['server/src/cld/engine/**/*.ts'],
+    files: ['server/src/agent-tycoon/engine/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -70,7 +70,7 @@ export default [
           patterns: [
             {
               regex: '^(?:\\.\\./)+spec/',
-              message: 'The engine does not import spec/ (BRN K0). Use the shared shapes in core/src/cld/spec/trace.ts.',
+              message: 'The engine does not import spec/ (BRN K0). Use the shared shapes in core/src/agent-tycoon/spec/trace.ts.',
             },
           ],
         },

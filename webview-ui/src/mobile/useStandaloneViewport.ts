@@ -9,7 +9,7 @@ const isStandalone = () =>
 /** An inset in px, read through the page's own variable (so a test can set it). */
 function insetPx(side: 'top' | 'bottom'): number {
   const probe = document.createElement('div');
-  probe.style.cssText = `position:fixed;visibility:hidden;padding-top:var(--cld-safe-${side})`;
+  probe.style.cssText = `position:fixed;visibility:hidden;padding-top:var(--agty-safe-${side})`;
   document.body.appendChild(probe);
   const px = parseFloat(getComputedStyle(probe).paddingTop) || 0;
   probe.remove();
@@ -25,7 +25,7 @@ export function useStandaloneViewport(): void {
   useEffect(() => {
     const html = document.documentElement;
     const reset = () => {
-      html.style.removeProperty('--cld-safe-bottom');
+      html.style.removeProperty('--agty-safe-bottom');
       html.style.removeProperty('background');
     };
     const apply = () => {
@@ -35,7 +35,7 @@ export function useStandaloneViewport(): void {
         : 0;
       if (!shortfall) return;
       html.style.setProperty(
-        '--cld-safe-bottom',
+        '--agty-safe-bottom',
         `${Math.max(0, insetPx('bottom') - shortfall)}px`,
       );
       html.style.background = 'var(--color-bg)';

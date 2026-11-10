@@ -118,7 +118,7 @@ function attach(
   });
 }
 
-// ADR-0009: standalone /terminal/* is removed (404); see src/cld/standaloneSecurity.test.ts.
+// ADR-0009: standalone /terminal/* is removed (404); see src/agent-tycoon/standaloneSecurity.test.ts.
 describe.skip('terminal WebSocket auth', () => {
   let server: InstanceType<typeof AgentTycoonServer>;
   let ptyManager: PtySessionManager;

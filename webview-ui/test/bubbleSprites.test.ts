@@ -8,7 +8,7 @@ import {
   BUBBLE_WAITING_SPRITE,
 } from '../src/office/sprites/spriteData.js';
 
-// Pins our own bubble pictures (cld/scripts/gen-bubbles.cjs): a changed pixel must be a deliberate edit of both.
+// Pins our own bubble pictures (agent-tycoon/scripts/gen-bubbles.cjs): a changed pixel must be a deliberate edit of both.
 const sig = (s: string[][]) =>
   createHash('sha1').update(JSON.stringify(s)).digest('hex').slice(0, 12);
 

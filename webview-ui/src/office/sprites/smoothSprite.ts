@@ -13,7 +13,7 @@
  * imported sheet it is a 64×128 proxy whose master is the sheet's 192×384 rect. A mirrored or
  * dimmed copy of a frame (`deriveSmooth`) keeps its master, mirrored or adjusted.
  */
-import { perfCache } from '../../cld/perf.js';
+import { perfCache } from '../../agent-tycoon/perf.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
   SHEET_MASTER_MIN_SCALE,

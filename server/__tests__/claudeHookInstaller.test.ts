@@ -48,7 +48,6 @@ vi.mock('fs', async () => {
 
 const { areHooksInstalled, installHooks, uninstallHooks, copyHookScript } =
   await import('../src/providers/hook/claude/claudeHookInstaller.js');
-const { legacyConfigDirectory } = await import('../src/cld/configPath.js');
 const { CLAUDE_HOOK_EVENTS, SETTINGS_BACKUP_SUFFIX, SETTINGS_TMP_SUFFIX } =
   await import('../src/providers/hook/claude/constants.js');
 
@@ -767,9 +766,9 @@ describe('claudeHookInstaller', () => {
     it.each([
       ['office folder', 'node "/home/me/.config/agent-tycoon/office/hooks/claude-hook.js"', true],
       [
-        'pre-rename office folder',
-        `node ${path.posix.join(legacyConfigDirectory('/home/me'), 'office/hooks/claude-hook.js')}`,
-        true,
+        'pre-rename office folder (not recognised since T-83)',
+        'node /home/me/.config/cld-gui/office/hooks/claude-hook.js',
+        false,
       ],
       [
         'windows office folder',

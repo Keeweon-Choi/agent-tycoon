@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ContextLimitBasis, HooksConsentRequest, ServerMessage } from '../../../core/src/messages.js';
-import { cldNotice } from '../cld/notify/notices.js';
-import { cldGetSnapshot, cldHandleMessage, rowOf, virtualAgentId } from '../cld/officeStore.js';
-import { syncUnattachedActive } from '../cld/restSync.js';
+import { agtyNotice } from '../agent-tycoon/notify/notices.js';
+import { agtyGetSnapshot, agtyHandleMessage, rowOf, virtualAgentId } from '../agent-tycoon/officeStore.js';
+import { syncUnattachedActive } from '../agent-tycoon/restSync.js';
 import {
   codexLook,
   codexWanted,
@@ -11,8 +11,8 @@ import {
   noteSubagent,
   reviveSubagent,
   staffLoading,
-} from '../cld/staff.js';
-import { atWork, engineTurn } from '../cld/turnState.js';
+} from '../agent-tycoon/staff.js';
+import { atWork, engineTurn } from '../agent-tycoon/turnState.js';
 import { RESYNC_QUIET_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
@@ -257,7 +257,7 @@ export function useExtensionMessages(
     // STATE-SYNC: an engine session the engine has at work sits at its desk (a job wait or a
     // turn the transcript is quiet in sends no agentStatus), and one that is off does not.
     const unattachedRows = () =>
-      (cldGetSnapshot().officeSnapshot?.orchestrators ?? []).flatMap((o) => {
+      (agtyGetSnapshot().officeSnapshot?.orchestrators ?? []).flatMap((o) => {
         if (o.agentId == null) return [{ id: virtualAgentId(`orch:${o.name}`), busy: o.busy }];
         const turn = engineTurn(o);
         return atWork(turn) || turn === 'off' ? [{ id: o.agentId, busy: atWork(turn) }] : [];
@@ -275,10 +275,10 @@ export function useExtensionMessages(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
-      cldHandleMessage(msg as ServerMessage);
+      agtyHandleMessage(msg as ServerMessage);
       const os = getOfficeState();
       if (msg.type === 'officeSnapshot' || msg.type === 'codexTasks') {
-        const { officeSnapshot: officeState, codexTasks } = cldGetSnapshot();
+        const { officeSnapshot: officeState, codexTasks } = agtyGetSnapshot();
         if (officeState) {
           const wanted = new Map<number, string>();
           for (const orch of officeState.orchestrators)
@@ -448,7 +448,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
         // agty (T-0041): a teammate lingers, then walks out and comes back here.
-        if (!msg.cldFinal && deferRemoval(id, () => handler({ ...msg, cldFinal: true }))) return;
+        if (!msg.agtyFinal && deferRemoval(id, () => handler({ ...msg, agtyFinal: true }))) return;
         setAgents((prev) => prev.filter((a) => a !== id));
         setSelectedAgent((prev) => (prev === id ? null : prev));
         // Drop the drawer tab too. terminalSessionClosed normally does this, but
@@ -526,7 +526,7 @@ export function useExtensionMessages(
               {
                 toolId,
                 status,
-                // cld EZ mode classifies by the provider's tool name; the
+                // agty EZ mode classifies by the provider's tool name; the
                 // status text is its fallback (sub-agent rows carry none).
                 toolName: msg.toolName as string | undefined,
                 desc: msg.desc as string | undefined,
@@ -631,7 +631,7 @@ export function useExtensionMessages(
           const held = new Set<string>();
           for (const parentToolId of doomed) {
             const final = () =>
-              handler({ type: 'subagentClear', id, parentToolId, cldFinal: true });
+              handler({ type: 'subagentClear', id, parentToolId, agtyFinal: true });
             if (deferRemoval(os.getSubagentId(id, parentToolId), final)) held.add(parentToolId);
             else os.removeSubagent(id, parentToolId);
           }
@@ -663,14 +663,14 @@ export function useExtensionMessages(
         // STATE-SYNC: a turn end while its job still runs keeps it at its desk.
         os.setAgentActive(
           id,
-          status === 'active' || engineTurn(rowOf(id, cldGetSnapshot().officeSnapshot)) === 'job',
+          status === 'active' || engineTurn(rowOf(id, agtyGetSnapshot().officeSnapshot)) === 'job',
         );
         if (status === 'waiting') {
           os.showWaitingBubble(id, msg.awaitingInput === true);
           // agty (T-0039): the agty office says who and why (toast, pulse, bell).
           const cause = msg.awaitingInput === true || msg.question === true ? 'question' : 'turnEnd';
           // WAITING-PERSIST: a question given back after a restart is shown, not announced.
-          if (msg.restored !== true && Date.now() >= quietUntil && !cldNotice(id, cause)) playDoneSound();
+          if (msg.restored !== true && Date.now() >= quietUntil && !agtyNotice(id, cause)) playDoneSound();
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
@@ -684,7 +684,7 @@ export function useExtensionMessages(
         });
         os.showPermissionBubble(id);
         const asker = typeof msg.asker === 'string' ? msg.asker : undefined;
-        if (Date.now() >= quietUntil && !cldNotice(id, 'permission', Date.now(), asker))
+        if (Date.now() >= quietUntil && !agtyNotice(id, 'permission', Date.now(), asker))
           playPermissionSound();
       } else if (msg.type === 'subagentToolPermission') {
         const id = msg.id as number;
@@ -775,8 +775,8 @@ export function useExtensionMessages(
         const id = msg.id as number;
         const parentToolId = msg.parentToolId as string;
         // agty (T-0041): its rows go now, the character lingers and comes back here.
-        const final = () => handler({ ...msg, cldFinal: true });
-        const held = !msg.cldFinal && deferRemoval(os.getSubagentId(id, parentToolId), final);
+        const final = () => handler({ ...msg, agtyFinal: true });
+        const held = !msg.agtyFinal && deferRemoval(os.getSubagentId(id, parentToolId), final);
         backgroundParentToolIdsRef.current[id]?.delete(parentToolId);
         setSubagentTools((prev) => {
           const agentSubs = prev[id];

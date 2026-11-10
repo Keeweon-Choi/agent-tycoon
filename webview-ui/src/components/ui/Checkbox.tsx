@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
-import { Icon } from '../../cld/icons/Icon.js';
-import { useUiTheme } from '../../cld/uiTheme.js';
+import { Icon } from '../../agent-tycoon/icons/Icon.js';
+import { useUiTheme } from '../../agent-tycoon/uiTheme.js';
 
 interface CheckboxProps {
   checked: boolean;

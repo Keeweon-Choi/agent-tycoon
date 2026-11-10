@@ -75,7 +75,7 @@
   --ui-para-gap: 0.75em;
   /* Core palette */
   --color-bg: #1e1e2e;
-  /* An agent without a logo: its own hue (from its id) at this saturation and lightness (cld/icons/agentLogos.ts). */
+  /* An agent without a logo: its own hue (from its id) at this saturation and lightness (agent-tycoon/icons/agentLogos.ts). */
   --agent-mark-s: 55%;
   --agent-mark-l: 42%;
   --color-bg-dark: #181828;
@@ -121,7 +121,7 @@
   --color-status-success: #89d185;
   --color-status-error: var(--color-danger);
 
-  /* P4 개발실 (cld/artifacts/mockups-1101/devroom-W1b): the worktree rail, its cards and chips. */
+  /* P4 개발실 (agent-tycoon/artifacts/mockups-1101/devroom-W1b): the worktree rail, its cards and chips. */
   --color-devroom-rail: #1b1b2b;
   --color-devroom-card: #242437;
   --color-devroom-card-line: #41415c;
@@ -270,28 +270,28 @@
      under the iOS status bar / Dynamic Island and beside the notch in
      landscape). Defined once so a test can override them; env() is 0 in
      browser tabs and on desktop. */
-  --cld-safe-top: env(safe-area-inset-top, 0px);
-  --cld-safe-right: env(safe-area-inset-right, 0px);
-  --cld-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --agty-safe-top: env(safe-area-inset-top, 0px);
+  --agty-safe-right: env(safe-area-inset-right, 0px);
+  --agty-safe-bottom: env(safe-area-inset-bottom, 0px);
   /* UI-FIX 2: the one place for pop-up notices, under the clock bar (the bar's measured bottom replaces this). */
-  --cld-toast-top: calc(var(--cld-safe-top) + 56px * var(--ui-scale));
-  --cld-toast-bottom: calc(var(--cld-safe-bottom) + 112px * var(--ui-scale));
-  /* UI-SCALE 화면 크기 (cld/uiScale.ts sets it on <html>): spacing and text sizes follow it. */
+  --agty-toast-top: calc(var(--agty-safe-top) + 56px * var(--ui-scale));
+  --agty-toast-bottom: calc(var(--agty-safe-bottom) + 112px * var(--ui-scale));
+  /* UI-SCALE 화면 크기 (agent-tycoon/uiScale.ts sets it on <html>): spacing and text sizes follow it. */
   --ui-scale: 1;
   /* T-71: a Lead's Worker in the party, one indent step in (a smaller portrait on a branch line). */
   --party-worker-zoom: 0.8;
   /* NOTICE-B: the least a finger target measures, whatever the button draws (WCAG 2.5.5, Apple HIG). */
-  --cld-touch-min: 44px;
-  --cld-safe-left: env(safe-area-inset-left, 0px);
+  --agty-touch-min: 44px;
+  --agty-safe-left: env(safe-area-inset-left, 0px);
 
-  /* The pixel face (cld/uiTheme.ts sets data-ui-theme on <html>): 픽셀 감성 is FS Pixel Sans for Latin,
+  /* The pixel face (agent-tycoon/uiTheme.ts sets data-ui-theme on <html>): 픽셀 감성 is FS Pixel Sans for Latin,
      모던 puts Galmuri11 first for printable ASCII (fonts.css), the face that draws the Hangul, as the
      canvas does (constants.ts PIXEL_FONT_FAMILY_READABLE): the office world's DOM parts (.ui-world, the billboard). */
   --pixel-font-stack: 'FS Pixel Sans', 'Galmuri11', sans-serif;
 }
 :root,
 .ui-world {
-  /* FEAT-UI-MODERN-THEME 화면 스타일 (cld/uiTheme.ts): every shape, shadow and font of the DOM UI reads
+  /* FEAT-UI-MODERN-THEME 화면 스타일 (agent-tycoon/uiTheme.ts): every shape, shadow and font of the DOM UI reads
      these. The values here are 픽셀 감성, today's look exactly; :root[data-ui-theme='modern'] below
      swaps them for the GPT mockups' (rounded, 1 px lines, soft drops, Pretendard). The office world's
      DOM parts (the lobby billboard) carry .ui-world: this rule puts the pixel values back there. The
@@ -595,7 +595,7 @@
 }
 
 @layer base {
-  /* G1 input policy (cld/inputPolicy.ts keeps the same list for the browser menu): the page is a
+  /* G1 input policy (agent-tycoon/inputPolicy.ts keeps the same list for the browser menu): the page is a
      game, so nothing selects and iOS shows no callout; text areas opt back in. data-selectable
      only on a mouse: a long press there would select the page on a phone. */
   body {
@@ -1147,9 +1147,9 @@
      in a Home-Screen PWA with viewport-fit=cover the page starts under the
      iOS status bar, so the usual 8px top offset lands beneath the clock.
      env() is 0 in browser tabs and on desktop, where this equals top-8. */
-  .cld-toast-slot {
+  .agty-toast-slot {
     position: fixed;
-    top: calc(var(--cld-toast-top) + 8px);
+    top: calc(var(--agty-toast-top) + 8px);
     left: 50%;
     transform: translateX(-50%);
     z-index: 47; /* over the office labels (41-43) and doors (46), under the HUD windows (48) and dialogs (50+) */
@@ -1162,17 +1162,17 @@
   }
 
   /* The answer to the user's own action: over the attachment viewer (80) and the full-screen file explorer (100). */
-  .cld-toast-slot-over {
+  .agty-toast-slot-over {
     z-index: 110;
   }
 
   .mobile-safe-top {
-    top: calc(var(--cld-safe-top) + 8px);
+    top: calc(var(--agty-safe-top) + 8px);
   }
 
   /* Same, for the mobile terminal pane wrappers (4px base, matches inset-4). */
   .mobile-safe-pane-top {
-    top: calc(var(--cld-safe-top) + 4px);
+    top: calc(var(--agty-safe-top) + 4px);
   }
 
   /* Scroll containers whose overflow is obvious from clipped content (the

@@ -1,0 +1,1221 @@
+#!/usr/bin/env node
+// agty: the agent CLI of the Agent Tycoon engine (T-0019). The contract, with
+// exit codes and JSON shapes, is agent-tycoon/docs/design/agty-cli.md.
+//
+//   agty send [--if-idle] [--from <name>] <project> <message…> | send --group <room> [--from <name>] <message…>
+//   agty groups | groups read <room> [-n N]
+//   agty job [-t] [-d <description>] [--project <name>] [--gpu [--vram GiB] [--exclusive] [--label …]] <command…>
+//   agty jobs [--all]
+//   agty stop <job id|pid>
+//   agty renew [--project <name>] [<handoff file> | -]
+//   agty rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
+//   agty project remove <name> [--purge]
+//   agty codex [-m <model>] [-e <effort>] [-d <description>] [--worktree [--name <type/scope-what>]] [--project <name>] <spec file> | codex [--all]
+//   agty gpu [--json] | gpu run [opts] -- <command…> | gpu cancel <id> | gpu move <id> <n>
+//   agty hw [--json]
+//   agty task add|update|done|show|list|import …  (작업 현황, DEV-BOARD; D6 Task store)
+//   agty trust [--start] <project or folder>  (AUTO-TRUST: Claude's folder trust question)
+//   agty worktree new --task <id> [--assign <name>] [--base <branch>] | worktree list [--task <id>]  (W2)
+//   agty version | login […] | help
+//
+// It talks to the daemon over its control endpoint (configPath.cjs controlEndpoint: a
+// socket in the settings folder, a per-user pipe on Windows). When the daemon is off, `send` leaves the
+// message in ~/.config/agent-tycoon/queue/ for it (the daemon resumes that queue).
+'use strict';
+const crypto = require('crypto');
+const fs = require('fs');
+const net = require('net');
+const os = require('os');
+const path = require('path');
+const { spawn, spawnSync } = require('child_process');
+const backupCli = require('./agty-backup');
+const { CLI_NAME: CLI } = require('./brand');
+const { configDirectory, controlEndpoint } = require('../../core/src/agent-tycoon/configPath.cjs');
+const controlIdentity = require('../../core/src/agent-tycoon/controlIdentity.cjs');
+const maintenance = require('./agty-maintenance');
+
+const HOME = os.homedir();
+const CONFIG = configDirectory(HOME);
+const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'rename', 'project', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'start', 'start-policy'];
+/** The manager (agent-tycoon/install/manager.mjs, H §2): install, update, open, and the install part of status. */
+const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
+/** The GPU wrapper and Codex worker of this checkout (built with the daemon). */
+const WORKER = path.join(__dirname, '..', '..', 'dist', 'agty-worker.js');
+const TEXT_MAX = 32 * 1024;
+/** Our product version (agent-tycoon/release/version.json, the one source; not the root package.json). */
+function productVersion() {
+  try {
+    return require(path.join(__dirname, '..', 'release', 'version.json')).version;
+  } catch {
+    return null;
+  }
+}
+const NAME_RE = /^[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,40}$/;
+/** Exit codes besides 0 (ok) and 1 (refused or failed). */
+const EXIT = { usage: 2, unknown_command: 2, not_yet: 2, daemon_off: 3 };
+const USAGE = `사용법:
+  ${CLI} send [--if-idle] [--from <이름>] <프로젝트> <메시지>
+  ${CLI} send --group <방> [--from <이름>] <메시지>   @이름: 바로 깨워 전달 · 태그 없음: 공지(아무도 안 깨우고 각자 다음 메시지와 함께 전달)
+  ${CLI} groups | groups read <방> [-n N]
+  ${CLI} job [-t] [-d|--desc <작업 설명>] [--project <이름>] [--task <작업 id>] [--gpu [--vram GiB] [--exclusive] [--label 설명]] <명령>
+  ${CLI} jobs [--all]
+  ${CLI} stop <작업 id 또는 pid>
+  ${CLI} renew [--project <이름>] [<인수인계 파일> | -]
+  ${CLI} rename [--project <지금 이름>] <새 이름>   턴이 끝나면 이름을 바꿔 같은 대화로 다시 켬(기록·모습·레벨이 따라감)
+  ${CLI} project remove <프로젝트> [--purge]   프로젝트(와 Worker)를 목록에서 뺌, --purge: 관련 데이터(환생 이력 등)도 지움
+  ${CLI} codex [-m <모델>] [-e <강도>] [-d|--desc <작업 설명>] [--worktree [--name <type/scope-무엇>]] [--project <이름>] [--task <작업 id>] <명세 파일> | codex [--all]
+  ${CLI} gpu [--json] | gpu run [--vram GiB] [--exclusive] [--wait 분] [--label 설명] -- <명령>
+  ${CLI} gpu cancel <id> | gpu move <id> <순서>
+  ${CLI} hw [--json]
+  ${CLI} task add <제목> [--id X] [--project P] [--status S] [--priority P] [--goal G] [--owner 종류:이름] [--branch B] [--note T] [--codex <id>] [--job <id>]
+  ${CLI} task update <id> [같은 옵션, --title T] | task done <id> [--note T] | task show <id> [--json]
+  ${CLI} task … [--parent <id>] [--assignee <에이전트>] [--commits N] [--files-changed N] [--tests-ran yes|no] [--tests-passed yes|no]
+  ${CLI} task list [--project P] [--status S] [--json] | task import <파일.json>
+  ${CLI} task mode [auto|reuse|off] [--project P]
+  ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E]
+  ${CLI} worker edit <이름> [--folder F] [--model M] [--permission-mode P] [--effort E] | worker remove <이름> [--purge] | worker start|stop|restart <이름>
+  ${CLI} worker promote <이름> [--old stop]   그 Worker 를 프로젝트의 Lead 로(이름을 맞바꿈, 이전 Lead 는 그 Worker 이름으로)
+  ${CLI} trust [--start] <프로젝트 이름 또는 폴더>   그 프로젝트 폴더에서 claude 를 켜 폴더 신뢰 질문에 대신 답함(--start: 답한 뒤 켜기)
+  ${CLI} move-pty --all     모든 에이전트를 하나씩 새 터미널로(일하는 중이면 턴이 끝나길 기다림, 최대 30분); --stop 으로 멈춤
+  ${CLI} move-pty <이름>   그 에이전트를 새 터미널(우리 PTY 호스트)로 옮김: 턴이 끝난 뒤 옛 세션을 멈추고 같은 대화를 이어 켬
+  ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>]   그 작업의 worktree(브랜치 기본 feat/t<id>-…)
+  ${CLI} worktree list [--task <작업 id>] [--json]
+  ${CLI} status [--json]
+  ${CLI} doctor [--fix] [--json]
+  ${CLI} logs [-n <줄 수>] [-f] [--json]
+  ${CLI} restart [--json]
+  ${CLI} backup [--out <파일>]
+  ${CLI} restore <파일> [--yes]
+  ${CLI} version | login [옵션] | help
+설치·업데이트(관리자):
+  ${CLI} install --from <묶음> [--sums … --sig … --pub …] [--port N] [--add-path] [--service …]
+  ${CLI} update --from <묶음|릴리스 폴더|URL> [--check] [--force] | rollback [--yes] | uninstall --program|--reset [--dry-run] [--yes] [--stop-agents] [--ignore-exposure] | open
+  ${CLI} start | stop --daemon [--yes] | start-policy [on-demand|always|manual] [--linger|--no-linger]
+결과를 JSON 한 줄로: AGTY_OUTPUT=json. 계약: agent-tycoon/docs/design/agty-cli.md`;
+
+const json = process.env.AGTY_OUTPUT === 'json';
+// The app's own sources (messenger:, gui:) are the owner's: never claimable from here (S7).
+const source =
+  /^[A-Za-z0-9._:-]{1,64}$/.test(process.env.AGTY_SOURCE || '') &&
+  !/^(messenger|gui):/.test(process.env.AGTY_SOURCE)
+    ? process.env.AGTY_SOURCE
+    : 'cli';
+// S7: this session's identity, issued by the engine (agentTokens.ts); SEC-CONTROL: the owner
+// token too, only when no agent or job of this daemon is in our line (controlIdentity.cjs).
+// The daemon checks both. Worked out once, on the first request.
+let identity;
+const callerIdentity = () => (identity ??= controlIdentity.callerIdentity(HOME));
+
+/** Exit only after terminal and pipe writes already queued by this process have settled. */
+function flushStream(stream) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let writeFence;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      stream.removeListener('error', onError);
+      if (writeFence) stream.removeListener('drain', writeFence);
+      resolve();
+    };
+    // A downstream reader such as `head` may close a pipe before our final
+    // empty write. Consume that EPIPE instead of producing an uncaught stack
+    // trace, then still honour the requested exit code.
+    const onError = () => done();
+    stream.once('error', onError);
+    writeFence = () => {
+      try {
+        stream.write('', done);
+      } catch {
+        done();
+      }
+    };
+    try {
+      // An empty write must be placed after existing backpressure; otherwise
+      // its callback may run before a large preceding stdout write drains.
+      if (stream.writableNeedDrain) stream.once('drain', writeFence);
+      else writeFence();
+    } catch {
+      done();
+    }
+  });
+}
+
+async function exitAfterFlush(code) {
+  await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+  process.exit(code);
+}
+
+function serverToken() {
+  try {
+    const config = JSON.parse(fs.readFileSync(path.join(HOME, '.pixel-agents', 'server.json'), 'utf8'));
+    return typeof config.token === 'string' && config.token ? config.token : null;
+  } catch {
+    return null;
+  }
+}
+
+function finish(r, sentence) {
+  if (json) process.stdout.write(`${JSON.stringify({ v: 1, ...r })}\n`);
+  else if (r.ok) {
+    if (sentence) console.log(sentence);
+  } else console.error(r.error);
+  return exitAfterFlush(r.ok ? 0 : (EXIT[r.code] ?? 1));
+}
+const failWith = (code, error) => finish({ ok: false, code, error });
+
+function socketPath() {
+  return controlEndpoint(HOME);
+}
+
+/** One request; null when the daemon could not be reached at all. */
+function request(cmd, args, timeoutMs = 90_000) {
+  return new Promise((resolve) => {
+    const s = net.connect(socketPath());
+    let buf = '';
+    let connected = false;
+    let done = false;
+    const end = (v) => {
+      if (done) return;
+      done = true;
+      s.destroy();
+      resolve(v);
+    };
+    // `lost`: the connection broke or went quiet (not the daemon's own answer).
+    const broken = {
+      ok: false,
+      code: 'daemon_error',
+      error: 'agty 데몬의 답을 읽지 못했습니다',
+      lost: true,
+    };
+    s.setEncoding('utf8');
+    s.on('connect', () => {
+      connected = true;
+      s.write(
+        `${JSON.stringify({ v: 1, cmd, cwd: process.cwd(), source, ...callerIdentity(), args })}\n`,
+      );
+    });
+    s.on('data', (d) => {
+      buf += d;
+      const nl = buf.indexOf('\n');
+      if (nl === -1) return;
+      try {
+        const r = JSON.parse(buf.slice(0, nl));
+        delete r.v;
+        end(r);
+      } catch {
+        end(broken);
+      }
+    });
+    s.on('error', () => end(connected ? broken : null));
+    s.on('close', () => end(connected ? broken : null));
+    s.setTimeout(timeoutMs, () =>
+      end({ ok: false, code: 'daemon_error', error: 'agty 데몬이 답하지 않습니다', lost: true }),
+    );
+  });
+}
+
+/** The lines of the board's H/W screen (webview-ui format.ts hwSections), one reading each. */
+function hwLines(hw) {
+  const src = (k) => (hw.sources?.[k] ? ` (${hw.sources[k]})` : '');
+  const num = (x) => typeof x === 'number';
+  const lines = [];
+  const add = (k, label, text) => text !== null && lines.push(`${label}: ${text}${src(k)}`);
+  const temp = (k, label) => add(k, label, num(hw[k]) ? `${hw[k].toFixed(0)} °C` : null);
+  const watts = (k, label) => add(k, label, num(hw[k]) ? `${Math.round(hw[k])} W` : null);
+  const pct = (k, label) => add(k, label, num(hw[k]) ? `${Math.round(hw[k] * 100)}%` : null);
+  const pair = (k, a, b, label, unit) =>
+    add(k, label, num(hw[a]) && num(hw[b]) ? `${hw[a]} / ${hw[b]} ${unit}` : null);
+  temp('cpuTempC', 'CPU 온도');
+  watts('cpuPowerW', 'CPU 전력');
+  pct('cpuUtil', 'CPU 사용률');
+  temp('gpuTempC', 'GPU 온도');
+  temp('gpuHotspotC', 'GPU 핫스팟');
+  watts('gpuPowerW', 'GPU 전력');
+  pct('gpuUtil', 'GPU 사용률');
+  pair('vramUsedMib', 'vramUsedMib', 'vramTotalMib', 'GPU VRAM', 'MiB');
+  pair('ramUsedGib', 'ramUsedGib', 'ramTotalGib', 'RAM', 'GiB');
+  pair('hostRamUsedGib', 'hostRamUsedGib', 'hostRamTotalGib', 'Windows RAM', 'GiB');
+  add('swapUsedGib', '스왑', num(hw.swapUsedGib) ? `${hw.swapUsedGib} GiB` : null);
+  for (const d of hw.disks ?? []) {
+    const used = num(d.totalGib) && num(d.freeGib) ? d.totalGib - d.freeGib : null;
+    const diskText =
+      used !== null
+        ? `${used} / ${d.totalGib} GiB (${Math.round((used / d.totalGib) * 100)}%)`
+        : num(d.freeGib)
+          ? `${d.freeGib} GiB 남음`
+          : null;
+    if (diskText !== null)
+      lines.push(`디스크 ${d.name}${d.name.endsWith(':') ? '' : ':'} ${diskText}${src('disks')}`);
+    if (d.warning || (num(d.warnGib) && num(d.freeGib) && d.freeGib < d.warnGib))
+      lines.push(`⚠ 디스크 ${d.name} ${d.freeGib} GiB 남음`);
+  }
+  for (const p of hw.topProcesses ?? [])
+    lines.push(`상위 CPU  pid ${p.pid}  ${p.cpuPct}%  RSS ${p.rssMib} MiB  ${p.command}`);
+  if (Array.isArray(hw.gpuProcesses)) {
+    for (const p of hw.gpuProcesses)
+      lines.push(
+        `GPU 사용  pid ${p.pid}${p.cmd ? `  ${p.cmd}` : ''}${num(p.usedMib) ? `  ${p.usedMib} MiB` : ''}`,
+      );
+  } else lines.push('GPU 사용 프로세스: 알 수 없음 (LHM만 사용 중)');
+  if (hw.stale) lines.push('HW 수집 멈춤');
+  for (const w of hw.warnings ?? [])
+    if (!w.startsWith('디스크 '))
+      lines.push(w.includes('nvidia-smi 응답 없음') ? 'nvidia-smi 응답 없음' : `경고: ${w}`);
+  const notes = hw.sensorNotes ?? [];
+  if (notes.includes('lhm'))
+    lines.push('온도와 GPU를 보려면 LibreHardwareMonitor를 설치하세요 (사무실 H/W 화면의 센서 도구 설치, 또는 node agent-tycoon/install/install.mjs --hw-sensors)');
+  if (notes.includes('nvidiaOff')) lines.push('GPU 정보를 보려면 사무실 H/W 화면에서 GPU 정보 켜기 (nvidia-smi)');
+  if (notes.includes('linuxTemps')) lines.push('CPU 온도 센서 없음 (가상 머신이면 정상, 실제 PC면 lm-sensors)');
+  if (notes.includes('macTemps')) lines.push('macOS는 관리자 권한 없이 온도·전력을 주지 않습니다');
+  return lines;
+}
+
+const off = () =>
+  failWith(
+    'daemon_off',
+    'agty 데몬에 닿지 못했습니다(서비스가 꺼져 있을 수 있습니다). 아무것도 하지 않았습니다',
+  );
+
+// ── send while the daemon is off: the queue file it resumes (messenger.ts QueuedSend) ──
+
+const pad = (n) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
+function isoLocal(t = Date.now()) {
+  const off = -new Date(t).getTimezoneOffset();
+  const local = new Date(t + off * 60_000).toISOString().slice(0, 19);
+  return `${local}${off < 0 ? '-' : '+'}${pad(off / 60)}:${pad(off % 60)}`;
+}
+function shortStamp(t) {
+  const d = new Date(t);
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+const cleanText = (raw) =>
+  raw.replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+function header(m) {
+  const when = shortStamp(m.created);
+  const line = m.from ? `[${CLI} · ${m.from} 오케스트레이터가 보냄 · ${when}]` : `[${CLI} · 보냄 · ${when}]`;
+  return `${line} ⟨m:${m.messageId}⟩`;
+}
+/** C2 (messenger.ts newMessageId): 8 random lowercase base32 characters. */
+const newMessageId = () =>
+  [...crypto.randomBytes(8)].map((b) => 'abcdefghijklmnopqrstuvwxyz234567'[b & 31]).join('');
+function writeAtomic(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`;
+  fs.writeFileSync(tmp, data, { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+/** name + folder of each project: a legacy array, v1 or v2 (D2 keeps both in projects.json). */
+function readProjects() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(CONFIG, 'projects.json'), 'utf8'));
+    const all = Array.isArray(raw) ? raw : raw && Array.isArray(raw.projects) ? raw.projects : [];
+    return all.filter((p) => p && typeof p.name === 'string' && typeof p.folder === 'string');
+  } catch {
+    return [];
+  }
+}
+/** D3: the Workers' names (assignments.json beside projects.json). */
+function readWorkerNames() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(CONFIG, 'assignments.json'), 'utf8'));
+    return (Array.isArray(raw && raw.assignments) ? raw.assignments : [])
+      .filter((a) => a && a.role !== 'lead' && typeof a.name === 'string' && NAME_RE.test(a.name))
+      .map((a) => a.name);
+  } catch {
+    return [];
+  }
+}
+function real(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+/** The project whose folder holds `cwd` (the longest wins). */
+function projectAt(cwd, projects) {
+  const here = real(cwd);
+  let best = null;
+  for (const p of projects) {
+    const f = real(p.folder);
+    const inside = here === f || here.startsWith(f.endsWith(path.sep) ? f : f + path.sep);
+    if (inside && (!best || f.length > best.f.length)) best = { name: p.name, f };
+  }
+  return best ? best.name : null;
+}
+
+function queueOffline(to, raw, ifIdle, from) {
+  const text = cleanText(raw);
+  if (!text.trim()) return failWith('empty_message', '메시지가 없습니다');
+  if (Buffer.byteLength(text) > TEXT_MAX)
+    return failWith('too_large', `메시지가 너무 깁니다(${TEXT_MAX / 1024}KB까지)`);
+  const projects = readProjects();
+  // D3: a Worker is addressed by its own name too (assignments.json).
+  const names = [...projects.map((p) => p.name), ...readWorkerNames()];
+  if (!names.includes(to))
+    return failWith('unknown_project', `'${to}' 프로젝트가 없습니다: ${names.join(' ')}`);
+  const sender = projectAt(process.cwd(), projects) ?? (from && NAME_RE.test(from) ? from : null);
+  const created = Date.now();
+  const item = { v: 1, to, text, from: sender, source, ifIdle, created, messageId: newMessageId() };
+  try {
+    writeAtomic(
+      path.join(CONFIG, 'queue', `${created}-${crypto.randomBytes(3).toString('hex')}.json`),
+      JSON.stringify(item),
+    );
+  } catch {
+    return failWith(
+      'daemon_off',
+      'agty 데몬에 닿지 못했고 대기 파일도 쓰지 못했습니다. 아무것도 하지 않았습니다',
+    );
+  }
+  const event = {
+    v: 1,
+    ts: isoLocal(created),
+    type: 'send',
+    source,
+    ...(sender && { from: sender }),
+    to,
+    delivered: 'queued',
+    reason: 'daemon_off',
+    bytes: Buffer.byteLength(`${header(item)}\n${text}`),
+    preview: text.split('\n', 1)[0].slice(0, 80),
+  };
+  try {
+    fs.appendFileSync(path.join(CONFIG, 'events.jsonl'), `${JSON.stringify(event)}\n`, {
+      mode: 0o600,
+    });
+  } catch {
+    /* the message is queued; only its event is missing */
+  }
+  finish(
+    { ok: true, delivered: 'queued', reason: 'daemon_off', messageId: item.messageId },
+    `agty 데몬이 꺼져 있어 '${to}' 에게 보낼 메시지를 대기열에 남겼습니다(데몬이 뜨면 보냅니다)`,
+  );
+}
+
+function sendSentence(to, r, ifIdle) {
+  if (r.delivered === 'pane') return `'${to}' 오케스트레이터에 보냈습니다`;
+  if (r.delivered === 'inbox')
+    return r.reason === 'terminal'
+      ? `'${to}' 대화가 터미널에서 열려 있어 inbox 에 남겼습니다(엔진으로 켤 때 전달)`
+      : `'${to}' 오케스트레이터가 꺼져 있어 inbox 에 남겼습니다`;
+  return `'${to}' 이 일하는 중이거나 입력칸에 쓰던 글이 있어, 쉬면 보냅니다${ifIdle ? '(최대 10분, 넘으면 inbox)' : ''}`;
+}
+function groupSentence(room, r) {
+  const n = Array.isArray(r.post?.targets) ? r.post.targets.length : 0;
+  return n ? `'${room}' 단톡방의 ${n}명에게 보냈습니다` : `'${room}' 단톡방에 기록을 남겼습니다`;
+}
+
+// ── Commands ─────────────────────────────────────────────────
+
+/** Leading options: `flags` take no value, `values` take one. */
+function options(args, flags, values) {
+  const got = {};
+  while (args.length) {
+    const a = args[0];
+    if (a === '--') {
+      args.shift();
+      break;
+    }
+    if (flags.includes(a)) got[a] = true;
+    else if (values.includes(a)) {
+      if (args.length < 2) return { error: `${a} 에 값이 없습니다` };
+      got[a] = args[1];
+      args.shift();
+    } else break;
+    args.shift();
+  }
+  return got;
+}
+
+async function main(argv) {
+  const [cmd, ...rest] = argv;
+  switch (cmd) {
+    case 'version': {
+      const version = productVersion();
+      process.stdout.write(`${JSON.stringify({ v: 1, agty: version, commands: COMMANDS })}\n`);
+      return exitAfterFlush(0);
+    }
+    case 'status': {
+      if (rest.some((arg) => arg !== '--json')) return failWith('usage', `사용법: ${CLI} status [--json]`);
+      const version = productVersion();
+      const result = await maintenance.status({
+        request,
+        version,
+        hwLine: (hw) => hwLines(hw)[0] ?? 'HW: 아직 표시할 측정값이 없습니다',
+        healthInfo: async (port) => {
+          const token = serverToken();
+          const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
+            signal: AbortSignal.timeout(2_000),
+            ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        },
+      });
+      const m = await manager();
+      const install = await m.installStatus();
+      if (json || rest.includes('--json')) process.stdout.write(`${JSON.stringify({ v: 1, ...result, install })}\n`);
+      else console.log([...maintenance.statusLines(result), ...m.installStatusLines(install)].join('\n'));
+      return exitAfterFlush(result.ok ? 0 : EXIT.daemon_off);
+    }
+    case 'install':
+    case 'update':
+    case 'rollback':
+    case 'uninstall':
+    case 'open':
+    case 'start':
+    case 'start-policy': {
+      const m = await manager();
+      return exitAfterFlush(await m.main([cmd, ...rest]));
+    }
+    case 'doctor': {
+      if (rest.some((arg) => arg !== '--json' && arg !== '--fix')) return failWith('usage', `사용법: ${CLI} doctor [--fix] [--json]`);
+      const result = await maintenance.doctor({}, { fix: rest.includes('--fix') });
+      if (json || rest.includes('--json')) process.stdout.write(`${JSON.stringify({ v: 1, ...result })}\n`);
+      else console.log(maintenance.doctorLines(result).join('\n'));
+      return exitAfterFlush(maintenance.doctorExitCode(result));
+    }
+    case 'logs': {
+      const options = maintenance.parseMaintenanceArgs(rest);
+      if (options.error) return failWith('usage', `사용법: ${CLI} logs [-n <줄 수>] [-f] [--json]\n${options.error}`);
+      if (options.follow && (json || options.json))
+        return failWith('usage', '--json 과 -f는 같이 쓸 수 없습니다');
+      const plan = maintenance.logs({}, options);
+      if (options.follow) {
+        const child = maintenance.followLogs(plan.command);
+        return new Promise(() => child.on('exit', (code) => exitAfterFlush(code ?? 1)));
+      }
+      const output = spawnSync(plan.command[0], plan.command.slice(1), { encoding: 'utf8' });
+      const ok = !output.error && output.status === 0;
+      if (json || options.json)
+        process.stdout.write(`${JSON.stringify({ v: 1, ok, command: plan.command, logs: output.stdout ?? '', error: ok ? null : String(output.stderr ?? output.error ?? '') })}\n`);
+      else {
+        if (output.stdout) process.stdout.write(output.stdout);
+        if (!ok) process.stderr.write(output.stderr || `로그를 읽지 못했습니다: ${plan.command.join(' ')}\n`);
+      }
+      return exitAfterFlush(ok ? 0 : 1);
+    }
+    case 'restart': {
+      if (rest.some((arg) => arg !== '--json')) return failWith('usage', `사용법: ${CLI} restart [--json]`);
+      const result = await maintenance.restart({
+        health: async (port) => {
+          try {
+            const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2_000) });
+            return response.ok;
+          } catch { return false; }
+        },
+      });
+      if (json || rest.includes('--json')) process.stdout.write(`${JSON.stringify({ v: 1, ...result })}\n`);
+      else if (result.ok) console.log(`✔ 서비스를 다시 시작했고 ${result.port} 포트의 /api/health가 응답했습니다`);
+      else console.error(`✖ 서비스를 다시 시작했지만 ${result.port} 포트의 /api/health가 20초 안에 응답하지 않았습니다`);
+      return exitAfterFlush(result.ok ? 0 : 1);
+    }
+    case 'backup': {
+      const options = backupCli.parseBackupArgs(rest);
+      if (options.error) return failWith('usage', options.error);
+      try {
+        const result = backupCli.backup({}, options);
+        if (json) process.stdout.write(`${JSON.stringify({ v: 1, ...result })}\n`);
+        else console.log(result.lines.join('\n'));
+        return exitAfterFlush(0);
+      } catch (error) {
+        return failWith('backup_failed', `백업하지 못했습니다: ${error.message}`);
+      }
+    }
+    case 'restore': {
+      const options = backupCli.parseRestoreArgs(rest);
+      if (options.error) return failWith('usage', options.error);
+      const result = await backupCli.restore({}, options);
+      if (!result.ok) return failWith('restore_failed', result.error);
+      if (json) process.stdout.write(`${JSON.stringify({ v: 1, ...result })}\n`);
+      else console.log(result.lines.join('\n'));
+      return exitAfterFlush(0);
+    }
+    case 'send': {
+      const o = options(rest, ['--if-idle'], ['--from', '--group']);
+      if (o.error) return failWith('usage', o.error);
+      const room = o['--group'] ?? null;
+      const [to, ...words] = rest;
+      if (!room && !to)
+        return failWith(
+          'usage',
+          `사용법: ${CLI} send [--if-idle] [--from <이름>] <프로젝트> <메시지> | send --group <방> <메시지>`,
+        );
+      const text = (room ? [to, ...words] : words).join(' ');
+      if (!text.trim()) return failWith('empty_message', '메시지가 없습니다');
+      const ifIdle = o['--if-idle'] === true;
+      const from = o['--from'] ?? null;
+      const r = await request('send', room ? { group: room, text, ifIdle, from } : { to, text, ifIdle, from });
+      if (room) {
+        if (r === null) return off();
+        return finish(r, r.ok && groupSentence(room, r));
+      }
+      if (r === null) return queueOffline(to, text, ifIdle, from);
+      return finish(r, r.ok && sendSentence(to, r, ifIdle));
+    }
+    case 'groups': {
+      const [sub, room, ...tail] = rest;
+      if (sub === undefined) {
+        const r = await request('groups', {});
+        if (r === null) return off();
+        if (json || !r.ok) return finish(r);
+        for (const group of r.groups ?? []) console.log(`${group.name}\t${(group.members ?? []).join(', ')}`);
+        return finish(r);
+      }
+      if (sub !== 'read' || !room) return failWith('usage', `사용법: ${CLI} groups | groups read <방> [-n N]`);
+      let n = 50;
+      if (tail.length) {
+        if (tail.length !== 2 || tail[0] !== '-n' || !/^\d+$/.test(tail[1]))
+          return failWith('usage', `사용법: ${CLI} groups read <방> [-n N]`);
+        n = Number(tail[1]);
+      }
+      const r = await request('groups', { read: room, n });
+      if (r === null) return off();
+      if (json || !r.ok) return finish(r);
+      for (const post of r.posts ?? []) {
+        const who = post.sender ?? '사장';
+        console.log(`[${who}] ${post.text}`);
+      }
+      return finish(r);
+    }
+    case 'job': {
+      const o = options(rest, ['-t', '--gpu', '--exclusive'], ['--project', '--vram', '--label', '-d', '--desc', '--task']);
+      if (o.error) return failWith('usage', o.error);
+      const desc = o['--desc'] ?? o['-d'] ?? null;
+      if (desc !== null && (!desc.trim() || desc.length > 80 || /[\r\n\x00-\x1f\x7f]/.test(desc)))
+        return failWith('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
+      const gpu = o['--gpu'] === true;
+      if (!gpu && (o['--exclusive'] || o['--vram'] !== undefined || o['--label'] !== undefined))
+        return failWith('usage', '--vram·--exclusive·--label 은 --gpu 와 같이 씁니다');
+      const vram = o['--vram'] === undefined ? null : Number(o['--vram']);
+      if (vram !== null && !(Number.isFinite(vram) && vram >= 0))
+        return failWith('usage', '--vram 은 GiB 숫자입니다');
+      const command = rest.join(' ');
+      if (!command.trim())
+        return failWith('usage', `사용법: ${CLI} job [-t] [--project <이름>] [--gpu …] <명령>`);
+      const r = await request('job', {
+        cmd: command,
+        desc,
+        tty: o['-t'] === true,
+        project: o['--project'] ?? null,
+        path: process.env.PATH ?? null,
+        ...(o['--task'] && { task: o['--task'] }),
+        ...(gpu && {
+          gpu: { vramGib: vram, exclusive: o['--exclusive'] === true, label: o['--label'] ?? null },
+        }),
+      });
+      if (r === null) return off();
+      if (r.ok && gpu) r.gpu = true;
+      return finish(
+        r,
+        r.ok &&
+          `백그라운드로 실행 · pid ${r.pid} (멈추기: ${CLI} stop ${r.pid}) · 로그 ${r.log}${gpu ? ` · GPU 차례를 기다렸다가 돈다(${CLI} gpu)` : ''}${taskNote(r)}`,
+      );
+    }
+    case 'jobs': {
+      const r = await request('jobs', { all: rest.includes('--all') });
+      if (r === null) return off();
+      if (!r.ok) return finish(r);
+      process.stdout.write(`${JSON.stringify({ v: 1, jobs: r.jobs })}\n`);
+      return exitAfterFlush(0);
+    }
+    case 'stop': {
+      if (rest[0] === '--daemon') return exitAfterFlush(await (await manager()).main(['stop-daemon', ...rest.slice(1)]));
+      if (rest.length !== 1) return failWith('usage', `사용법: ${CLI} stop <작업 id 또는 pid>`);
+      const r = await request('stop', { target: rest[0] });
+      if (r === null) return off();
+      return finish(r, r.ok && `pid ${r.pid} 작업을 멈췄습니다`);
+    }
+    case 'renew': {
+      const o = options(rest, [], ['--project']);
+      if (o.error) return failWith('usage', o.error);
+      if (rest.length > 1)
+        return failWith('usage', `사용법: ${CLI} renew [--project <이름>] [<인수인계 파일> | -]`);
+      let text = '';
+      let file = null;
+      if (rest[0] === '-') text = fs.readFileSync(0, 'utf8');
+      else if (rest[0]) {
+        file = path.resolve(rest[0]);
+        try {
+          text = fs.readFileSync(file, 'utf8');
+        } catch {
+          return failWith('bad_file', `인수인계 파일을 읽지 못했습니다: ${file}`);
+        }
+      }
+      if (Buffer.byteLength(text) > TEXT_MAX)
+        return failWith('too_large', `인수인계가 너무 깁니다(${TEXT_MAX / 1024}KB까지)`);
+      const r = await request('renew', { project: o['--project'] ?? null, text, file });
+      if (r === null) return off();
+      return finish(
+        r,
+        r.ok &&
+          `턴이 끝나면 '${r.name}' 을 같은 이름의 새 대화로 이어 갑니다(인수인계는 새 대화의 첫 메시지로 갑니다)`,
+      );
+    }
+    case 'rename': {
+      const o = options(rest, [], ['--project']);
+      if (o.error) return failWith('usage', o.error);
+      const usage = `사용법: ${CLI} rename [--project <지금 이름>] <새 이름>`;
+      if (rest.length !== 1 || rest[0].startsWith('-')) return failWith('usage', usage);
+      const r = await request('rename', { project: o['--project'] ?? null, to: rest[0] });
+      if (r === null) return off();
+      return finish(
+        r,
+        r.ok && `턴이 끝나면 '${r.name}' 을 '${r.to}' 로 바꿔 같은 대화로 다시 켭니다(결과는 알림 목록에 떠요)`,
+      );
+    }
+    case 'project': {
+      const usage = `사용법: ${CLI} project remove <프로젝트> [--purge]`;
+      const [op, ...args] = rest;
+      const purge = args.includes('--purge');
+      const words = args.filter((a) => a !== '--purge');
+      if (op !== 'remove' || words.length !== 1 || words[0].startsWith('-')) return failWith('usage', usage);
+      const r = await request('project', { op, name: words[0], ...(purge && { purge: true }) });
+      if (r === null) return off();
+      return finish(r, r.ok && `'${r.name}' 프로젝트를 지웠습니다${r.note ? ` (${r.note})` : ''}`);
+    }
+    case 'login': {
+      if (process.platform === 'win32') return failWith('not_yet', 'Windows 에서는 아직 없습니다');
+      const r = spawnSync(path.join(__dirname, 'agty-login'), rest, { stdio: 'inherit' });
+      return exitAfterFlush(r.status ?? 1);
+    }
+    case 'codex': {
+      const o = options(
+        rest,
+        ['--worktree', '--all'],
+        ['-m', '--model', '-e', '--effort', '-d', '--desc', '--project', '--task', '--name'],
+      );
+      if (o.error) return failWith('usage', o.error);
+      const desc = o['--desc'] ?? o['-d'] ?? null;
+      if (desc !== null && (!desc.trim() || desc.length > 80 || /[\r\n\x00-\x1f\x7f]/.test(desc)))
+        return failWith('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
+      if (rest.length > 1)
+        return failWith(
+          'usage',
+          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>`,
+        );
+      if (!rest.length) {
+        const r = await request('codex', { list: true, all: o['--all'] === true });
+        if (r === null) return off();
+        if (!r.ok) return finish(r);
+        process.stdout.write(`${JSON.stringify({ v: 1, tasks: r.tasks })}\n`);
+        return exitAfterFlush(0);
+      }
+      const spec = path.resolve(rest[0]);
+      try {
+        fs.accessSync(spec, fs.constants.R_OK);
+      } catch {
+        return failWith('bad_file', `명세 파일을 읽지 못했습니다: ${spec}`);
+      }
+      if (!fs.existsSync(WORKER))
+        return failWith('no_build', `${WORKER} 가 없습니다(npm run build)`);
+      const r = await request('codex', {
+        spec,
+        model: o['-m'] ?? o['--model'] ?? null,
+        effort: o['-e'] ?? o['--effort'] ?? null,
+        desc,
+        worktree: o['--worktree'] === true,
+        ...(o['--name'] && { name: o['--name'] }),
+        project: o['--project'] ?? null,
+        path: process.env.PATH ?? null,
+        ...(o['--task'] && { task: o['--task'] }),
+      });
+      if (r === null) return off();
+      return finish(
+        r,
+        r.ok &&
+          `Codex 에 맡김 · 작업 ${r.id} · 폴더 ${r.dir}${r.branch ? ` (브랜치 ${r.branch})` : ''} · 로그 ${r.log} · 멈추기: ${CLI} stop ${r.id}${taskNote(r)}\n끝나거나 한도에 걸리면 ${CLI} send 로 알려 줍니다`,
+      );
+    }
+    case 'hw': {
+      if (rest.some((a) => a !== '--json')) return failWith('usage', `사용법: ${CLI} hw [--json]`);
+      const r = await request('hw', {});
+      if (r === null) return off();
+      if (!r.ok) return finish(r);
+      if (json || rest.length) process.stdout.write(`${JSON.stringify({ v: 1, hw: r.hw })}\n`);
+      else console.log(hwLines(r.hw).join('\n'));
+      return exitAfterFlush(0);
+    }
+    case 'gpu': {
+      // The queue lives on disk (agty-cli.md §13): no daemon needed.
+      if (!fs.existsSync(WORKER))
+        return failWith('no_build', `${WORKER} 가 없습니다(npm run build)`);
+      // Our own child: a stop or Ctrl+C reaches the wrapper, which records gpu_cancel{stop}.
+      const c = spawn(process.execPath, [WORKER, 'gpu', ...rest], { stdio: 'inherit' });
+      for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => c.kill(sig));
+      return new Promise(() =>
+        c.on('exit', (code, sig) => exitAfterFlush(code ?? (sig === 'SIGINT' ? 130 : 143))),
+      );
+    }
+    case 'task':
+      return task(rest);
+    case 'worker':
+      return worker(rest);
+    case 'trust':
+      return trust(rest);
+    case 'move-pty': {
+      if (rest.length === 1 && (rest[0] === '--all' || rest[0] === '--stop')) {
+        const stop = rest[0] === '--stop';
+        const r = await request('move-pty', stop ? { stop: true } : { all: true });
+        if (r === null) return off();
+        return finish(
+          r,
+          r.ok &&
+            (stop
+              ? '멈추기를 요청했어요: 지금 옮기는 에이전트까지만 끝내요'
+              : `${r.total}개 에이전트를 하나씩 새 터미널로 옮겨요: 결과는 알림 목록에 한 줄씩 떠요(멈추려면 ${CLI} move-pty --stop)`),
+        );
+      }
+      if (rest.length !== 1 || rest[0].startsWith('-'))
+        return failWith('usage', `사용법: ${CLI} move-pty <이름> | move-pty --all | move-pty --stop`);
+      if (!json) console.log(`'${rest[0]}': 새 터미널로 옮기는 중이에요(옛 세션 멈춤 → 같은 대화로 다시 켬)…`);
+      const r = await request('move-pty', { name: rest[0] }, 290_000);
+      if (r === null) return off();
+      return finish(r, r.ok && `'${r.name}': ${r.note ?? '옮겼어요'}`);
+    }
+    case 'permission-hook':
+      return permissionHook();
+    case 'worktree':
+      return worktree(rest);
+    case 'help':
+    case '-h':
+    case '--help':
+      console.log(USAGE);
+      return exitAfterFlush(0);
+    case undefined:
+      return failWith('usage', USAGE);
+    default:
+      return failWith('unknown_command', `모르는 명령입니다: ${cmd} (지원 명령: ${CLI} version)`);
+  }
+}
+
+// ── 작업 현황 (DEV-BOARD): the daemon's task store, over the control socket ──
+
+const TASK_FLAGS = {
+  '--id': 'id',
+  '--project': 'project',
+  '--title': 'title',
+  '--status': 'status',
+  '--priority': 'priority',
+  '--goal': 'goal',
+  '--owner': 'owner',
+  '--branch': 'branch',
+  '--worktree': 'worktree',
+  '--note': 'note',
+  '--detail': 'detail',
+  '--codex': 'codex',
+  '--job': 'job',
+  '--parent': 'parentId',
+  '--assignee': 'assignee',
+  '--commits': 'commits',
+  '--files-changed': 'filesChanged',
+  '--tests-ran': 'testsRan',
+  '--tests-passed': 'testsPassed',
+};
+const TASK_USAGE =
+  `사용법: ${CLI} task add <제목> [옵션] | update <id> [옵션] | done <id> [--note T] | show <id> [--json] | list [--project P] [--status S] [--json] | import <파일.json> | mode [auto|reuse|off] [--project P]`;
+
+/** `--task T` on codex/job: where the run went (or why the task did not get it). */
+const taskNote = (r) =>
+  r.task ? ` · 작업 ${r.task} 의 실행으로 붙임` : r.taskError ? ` · 작업에 붙이지 못함: ${r.taskError}` : '';
+
+const SOURCE_LABEL = { observed: '관측', reported: '보고', inferred: '추정', unknown: '모름' };
+/** A fact as `값 (출처, 시각)`. */
+const factText = (f, show = (v) => String(v)) =>
+  `${show(f.value)} (${SOURCE_LABEL[f.source] ?? f.source}, ${f.at})`;
+const yesNo = (v) => (v ? '예' : '아니오');
+
+/** `task show`: the task, its facts with their sources, its Executions. */
+function taskShowLines(t, assigneeRemoved) {
+  const lines = [`${t.id} [${t.status}] ${t.title}`];
+  const row = (label, value) => value !== undefined && value !== null && value !== '' && lines.push(`  ${label}: ${value}`);
+  row('프로젝트', t.project);
+  row('상태', `${t.status} (${SOURCE_LABEL[t.statusSource ?? 'unknown']})`);
+  row('우선순위', t.priority);
+  row('목표', t.goal);
+  row('담당', t.owner && ownerLabel(t.owner));
+  row('배정', t.assignee && `${assigneeRemoved ? '(삭제됨) ' : ''}${t.assignee.name} (${t.assignee.assignmentId})`);
+  row('상위 작업', t.parentId);
+  row('만든 이', t.createdBy);
+  row('맡긴 이', t.delegatedBy);
+  row('브랜치', t.branch);
+  row('worktree', t.worktree);
+  row('메모', t.note);
+  const facts = [
+    ['완료 보고', t.reportedDone, yesNo],
+    ['커밋', t.commits],
+    ['바뀐 파일', t.filesChanged],
+    ['시험 돌았음', t.testsRan, yesNo],
+    ['시험 통과', t.testsPassed, yesNo],
+  ].filter(([, f]) => f);
+  if (facts.length) {
+    lines.push('  사실:');
+    for (const [label, f, show] of facts) lines.push(`    ${label}: ${factText(f, show)}`);
+  }
+  if ((t.executions ?? []).length) {
+    lines.push('  실행:');
+    for (const e of t.executions) {
+      const parts = [`${e.kind} ${e.ref}`];
+      if (e.startedAt) parts.push(`시작 ${e.startedAt}`);
+      if (e.endedAt) parts.push(`끝 ${factText(e.endedAt)}`);
+      else parts.push('끝나지 않음(또는 아직 못 봄)');
+      if (e.exit) parts.push(`exit ${factText(e.exit)}`);
+      if (e.commits) parts.push(`커밋 ${factText(e.commits)}`);
+      if (e.limit) parts.push(`사용량 한도 ${factText(e.limit, (v) => (v.resetAt ? `리셋 ${v.resetAt}` : '리셋 모름'))}`);
+      if (e.log) parts.push(`로그 ${e.log}`);
+      lines.push(`    ${parts.join(' · ')}`);
+    }
+  }
+  return lines;
+}
+
+/** Flags anywhere (`--x value`), the rest are words. */
+function taskArgs(args) {
+  const fields = {};
+  const words = [];
+  let asJson = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--json') asJson = true;
+    else if (TASK_FLAGS[a]) {
+      if (i + 1 >= args.length) return { error: `${a} 에 값이 없습니다` };
+      fields[TASK_FLAGS[a]] = args[++i];
+    } else if (a.startsWith('--')) return { error: `모르는 옵션입니다: ${a}` };
+    else words.push(a);
+  }
+  if (typeof fields.owner === 'string') {
+    const at = fields.owner.indexOf(':');
+    fields.owner = at < 0 ? { kind: fields.owner, name: '' } : { kind: fields.owner.slice(0, at), name: fields.owner.slice(at + 1) };
+  }
+  return { fields, words, asJson };
+}
+
+const ownerLabel = (o) => (o ? `${o.kind}${o.name ? `:${o.name}` : ''}` : '-');
+
+async function task(rest) {
+  const [op, ...args] = rest;
+  const p = taskArgs(args);
+  if (p.error) return failWith('usage', p.error);
+  const { fields, words } = p;
+  let req;
+  switch (op) {
+    case 'add': {
+      const title = words.join(' ');
+      if (!title.trim()) return failWith('usage', TASK_USAGE);
+      const { id, ...rest } = fields;
+      req = { op, id, fields: { ...rest, title } };
+      break;
+    }
+    case 'update':
+    case 'done': {
+      if (words.length !== 1) return failWith('usage', TASK_USAGE);
+      const { id: _id, ...rest } = fields;
+      req = { op, id: words[0], fields: rest };
+      break;
+    }
+    case 'show':
+      if (words.length !== 1 || Object.keys(fields).length) return failWith('usage', TASK_USAGE);
+      req = { op, id: words[0] };
+      break;
+    case 'list':
+      if (words.length) return failWith('usage', TASK_USAGE);
+      req = { op, project: fields.project ?? null, status: fields.status ?? null };
+      break;
+    case 'mode':
+      // C6: the project's delegation mode (auto, reuse, off); no word shows it.
+      if (words.length > 1 || Object.keys(fields).some((k) => k !== 'project')) return failWith('usage', TASK_USAGE);
+      req = { op, mode: words[0] ?? '', project: fields.project ?? null };
+      break;
+    case 'import': {
+      if (words.length !== 1) return failWith('usage', TASK_USAGE);
+      let doc;
+      try {
+        doc = JSON.parse(fs.readFileSync(path.resolve(words[0]), 'utf8'));
+      } catch (err) {
+        return failWith('bad_file', `작업 목록 파일을 읽지 못했습니다: ${err.message}`);
+      }
+      const tasks = Array.isArray(doc) ? doc : doc && doc.tasks;
+      if (!Array.isArray(tasks)) return failWith('bad_file', '파일은 {"v":1,"tasks":[…]} 또는 목록이어야 합니다');
+      req = { op, tasks };
+      break;
+    }
+    default:
+      return failWith('usage', TASK_USAGE);
+  }
+  const r = await request('task', req);
+  if (r === null) return off();
+  if (op === 'list' && r.ok) {
+    if (json || p.asJson) {
+      process.stdout.write(`${JSON.stringify({ v: 1, tasks: r.tasks })}\n`);
+      return exitAfterFlush(0);
+    }
+    for (const t of r.tasks)
+      console.log([t.id, t.status, t.priority ?? '-', ownerLabel(t.owner), t.project, t.title].join('\t'));
+    return exitAfterFlush(0);
+  }
+  if (op === 'show' && r.ok && !json && !p.asJson) {
+    console.log(taskShowLines(r.task, r.assigneeRemoved).join('\n'));
+    return exitAfterFlush(0);
+  }
+  if (p.asJson && !json) {
+    process.stdout.write(`${JSON.stringify({ v: 1, ...r })}\n`);
+    return exitAfterFlush(r.ok ? 0 : (EXIT[r.code] ?? 1));
+  }
+  return finish(
+    r,
+    r.ok &&
+      (op === 'import'
+        ? `작업 ${r.added}개 추가, ${r.updated}개 바꿈, ${r.unchanged}개 그대로`
+        : op === 'mode'
+          ? `${r.project}: 위임 모드 ${r.mode}`
+          : r.unchanged
+          ? `${r.task.id} 바뀐 것이 없습니다`
+          : `${r.task.id} [${r.task.status}] ${r.task.title}`),
+  );
+}
+
+// ── Workers of a project (D3): the office's engine actions, over the control socket ──
+
+const WORKER_FLAGS = {
+  '--role': 'role',
+  '--folder': 'folder',
+  '--model': 'model',
+  '--permission-mode': 'permissionMode',
+  '--effort': 'effort',
+  '--title': 'title',
+  '--provider': 'provider',
+};
+const WORKER_USAGE =
+  `사용법: ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E] [--inherit ~<지운 에이전트>] | worker edit <이름> [옵션] | worker remove <이름> [--purge] | worker start|stop|restart <이름> | worker promote <이름> [--old stop]`;
+
+async function worker(rest) {
+  const [op, ...args] = rest;
+  const fields = {};
+  const words = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (op === 'promote' && a === '--old') {
+      if (args[i + 1] !== 'stop' && args[i + 1] !== 'worker') return failWith('usage', '--old 는 stop 이나 worker 예요');
+      fields.oldLead = args[++i];
+    } else if (op === 'remove' && a === '--purge') {
+      fields.purge = true;
+    } else if (op === 'add' && a === '--inherit') {
+      // INHERIT: a removed agent of the same folder (its ~<id> gone name) whose records it takes over.
+      if (i + 1 >= args.length) return failWith('usage', `${a} 에 값이 없습니다`);
+      fields.inheritFrom = args[++i];
+    } else if (WORKER_FLAGS[a]) {
+      if (i + 1 >= args.length) return failWith('usage', `${a} 에 값이 없습니다`);
+      fields[WORKER_FLAGS[a]] = args[++i];
+    } else if (a.startsWith('--')) return failWith('usage', `모르는 옵션입니다: ${a}`);
+    else words.push(a);
+  }
+  // A folder is the caller's: relative to where it was typed.
+  if (fields.folder) fields.folder = path.resolve(fields.folder);
+  let req;
+  if (op === 'list' && !words.length) req = { op };
+  else if (op === 'add' && words.length === 2) req = { op, project: words[0], name: words[1], ...fields };
+  else if (['edit', 'remove', 'start', 'stop', 'restart', 'promote'].includes(op) && words.length === 1)
+    req = { op, name: words[0], ...fields };
+  else return failWith('usage', WORKER_USAGE);
+  const r = await request('worker', req);
+  if (r === null) return off();
+  if (op === 'list' && r.ok && !json) {
+    for (const w of r.workers ?? [])
+      console.log([w.name, w.project, w.role, w.live ? 'on' : w.wantRunning ? 'rest' : 'off', w.folder, w.provider ?? 'claude'].join('\t'));
+    return exitAfterFlush(0);
+  }
+  const said = op === 'promote' ? `'${r.name}' Worker 가 이제 프로젝트의 Lead 입니다(이름을 맞바꿈)` : `'${r.name}' Worker: ${op} 했습니다`;
+  return finish(r, r.ok && `${said}${r.note ? ` (${r.note})` : ''}`);
+}
+
+// ── TERM-P3: a PTY agent's PermissionRequest hook (claudePty.ts permissionHooks) ──
+
+/** Our whole wait: under the hook's own limit (PTY_PERMISSION_HOOK_S, 270 s), so our "no decision"
+ *  comes before Claude ends the hook. */
+const PERMISSION_HOOK_BUDGET_MS = 265_000;
+/** FIX-PERM-RESTART: how long a daemon that went (a deploy restarts it) may stay away while we wait,
+ *  and how often we look for the next one. */
+// ponytail: AGTY_PERMISSION_GONE_MS is the tests' (control.test.ts), never set by us; the budget caps it.
+const PERMISSION_DAEMON_GONE_MS = Number(process.env.AGTY_PERMISSION_GONE_MS) || 60_000;
+const PERMISSION_RETRY_MS = 1_000;
+
+/**
+ * Claude Code runs this with the hook's JSON on stdin and the session's AGTY_AGENT_TOKEN in its
+ * environment. The daemon shows the owner its card and answers 허용/거부; that answer is printed as
+ * the hook's decision. Anything else (no daemon, no answer in time, a refusal) prints nothing and
+ * exits 0: Claude then shows its own dialog in the agent's terminal. Never exit 2 (that denies).
+ * FIX-PERM-RESTART (owner 11-06 20:07): a daemon that goes while we wait (a restart) is asked again,
+ * the same call, once it is back (up to PERMISSION_DAEMON_GONE_MS away), with what is left of our
+ * time; with no daemon at the first ask Claude shows its dialog at once, as before. Never on
+ * Windows: the pipe name is machine-wide and we do not know the server, so while ours is away
+ * another user's process could take the name, hear the agent's token and answer allow.
+ */
+async function permissionHook() {
+  let raw = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) raw += chunk;
+  let ask;
+  try {
+    ask = JSON.parse(raw);
+  } catch {
+    return exitAfterFlush(0);
+  }
+  if (!ask || typeof ask.tool_name !== 'string') return exitAfterFlush(0);
+  const input = ask.tool_input && typeof ask.tool_input === 'object' ? ask.tool_input : {};
+  const end = Date.now() + PERMISSION_HOOK_BUDGET_MS;
+  let behavior = null;
+  let reached = false;
+  let goneSince = 0;
+  for (;;) {
+    const left = end - Date.now();
+    if (left <= PERMISSION_RETRY_MS) break;
+    const r = await request('permission-hook', { tool: ask.tool_name, input, waitMs: left - PERMISSION_RETRY_MS }, left);
+    if (r && r.ok) {
+      behavior = r.decision;
+      break;
+    }
+    // A refusal or an error is the daemon's answer; only a daemon that went (nobody listens, or the
+    // connection broke off) is asked again.
+    if (r && !r.lost) break;
+    if (process.platform === 'win32') break; // see above: no knocking on a pipe someone else may hold
+    if (r) {
+      reached = true;
+      goneSince = 0;
+    } else if (!reached) break;
+    else if (Date.now() - (goneSince ||= Date.now()) > PERMISSION_DAEMON_GONE_MS) break;
+    await new Promise((res) => setTimeout(res, PERMISSION_RETRY_MS));
+  }
+  if (behavior === 'allow' || behavior === 'deny')
+    process.stdout.write(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PermissionRequest',
+          decision: { behavior, ...(behavior === 'deny' && { message: '사용자가 메신저에서 거부했어요' }) },
+        },
+      })}\n`,
+    );
+  return exitAfterFlush(0);
+}
+
+// ── AUTO-TRUST: Claude's folder trust question, answered by the daemon (Engine.trustProject) ──
+
+const TRUST_USAGE = `사용법: ${CLI} trust [--start] <프로젝트 이름 또는 폴더>`;
+const TRUST_STEPS = {
+  started: '그 폴더에서 claude 를 켰어요',
+  dialog: '폴더 신뢰 질문이 떴어요',
+  chose: '"Yes, I trust this folder" 를 골랐어요',
+  past: 'Claude 가 질문을 넘어갔어요',
+  closed: 'claude 를 닫았어요',
+  killed: '대답 없는 claude 를 끝냈어요',
+};
+const TRUST_OUTCOMES = {
+  trusted: '폴더 신뢰에 답했어요',
+  alreadyTrusted: '이미 신뢰한 폴더예요',
+  warnings: '이 폴더 설정이 미리 허락하는 것(도구 규칙·폴더·헤더 도우미)이 있어 직접 읽고 답해야 해요',
+  unknownScreen: '신뢰 질문이 아닌 화면이라 아무것도 누르지 않았어요',
+  notMoved: '답했지만 질문이 그대로여서 멈췄어요',
+  exited: 'claude 가 질문을 넘기기 전에 끝났어요',
+  timeout: '정해진 시간 안에 알아볼 화면이 나오지 않았어요',
+  noPty: '데몬에서 터미널(PTY)을 열 수 없어요',
+  homeDir: '홈 폴더는 Claude 가 신뢰를 저장하지 않아요: 프로젝트 폴더를 쓰세요',
+};
+/** The way a person does it by hand (today's message). */
+const manualTrust = (folder) =>
+  `직접 하려면: cd ${JSON.stringify(folder)} && claude 를 실행해 "Yes, I trust this folder" 를 고른 뒤 다시 켜세요`;
+
+/** A word is a folder when it looks like a path (or is no project name); else a project name. */
+function trustTarget(word) {
+  const isPath = /[\\/~]/.test(word) || word === '.' || word === '..' || !NAME_RE.test(word);
+  if (!isPath) return { name: word };
+  return { folder: path.resolve(word === '~' || word.startsWith('~/') ? path.join(HOME, word.slice(1)) : word) };
+}
+
+async function trust(rest) {
+  let start = false;
+  const words = [];
+  for (const a of rest) {
+    if (a === '--start') start = true;
+    else if (a.startsWith('-')) return failWith('usage', TRUST_USAGE);
+    else words.push(a);
+  }
+  if (words.length !== 1) return failWith('usage', TRUST_USAGE);
+  const target = trustTarget(words[0]);
+  if (!json) console.log(`${target.folder ?? `'${target.name}'`}: claude 를 켜 폴더 신뢰 질문에 대신 답해 볼게요…`);
+  // The trust step and a start take up to about a minute and a half (TRUST_TIMING + the start).
+  const r = await request('trust', { ...target, start }, 115_000);
+  if (r === null) {
+    if (!json && target.folder) console.error(manualTrust(target.folder));
+    return off();
+  }
+  if (!r.ok) return finish(r);
+  const fine = r.outcome === 'trusted' || r.outcome === 'alreadyTrusted';
+  const ok = fine && (!start || r.started === true);
+  if (json) {
+    process.stdout.write(`${JSON.stringify({ v: 1, ...r, ok })}\n`);
+    return exitAfterFlush(ok ? 0 : 1);
+  }
+  for (const step of r.steps ?? []) console.log(`· ${TRUST_STEPS[step] ?? step}`);
+  (fine ? console.log : console.error)(TRUST_OUTCOMES[r.outcome] ?? r.outcome);
+  if (!fine) {
+    console.error(manualTrust(r.folder));
+    return exitAfterFlush(1);
+  }
+  if (start && r.started) console.log(`'${r.name}' Worker 를 켰어요${r.note ? ` (${r.note})` : ''}`);
+  else if (start) {
+    console.error(`켜지 못했어요: ${r.startError ?? ''}`);
+    return exitAfterFlush(1);
+  } else
+    console.log(
+      `이제 켤 수 있어요: 현황판의 켜기${r.worker ? ` 또는 ${CLI} worker start ${r.name}` : ''} (답하고 바로 켜기: ${CLI} trust --start ${r.name})`,
+    );
+  return exitAfterFlush(0);
+}
+
+// ── W2: a Task's worktree, over the control socket (taskWorktree.ts) ──
+
+const WORKTREE_FLAGS = { '--task': 'task', '--assign': 'assign', '--base': 'base', '--branch': 'branch' };
+const WORKTREE_USAGE =
+  `사용법: ${CLI} worktree new --task <작업 id> [--assign <에이전트>] [--base <브랜치>] [--branch <종류/영역-하는일>] | worktree list [--task <작업 id>] [--json]`;
+
+async function worktree(rest) {
+  const [op, ...args] = rest;
+  const fields = {};
+  let asJson = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--json') asJson = true;
+    else if (WORKTREE_FLAGS[a]) {
+      if (i + 1 >= args.length) return failWith('usage', `${a} 에 값이 없습니다`);
+      fields[WORKTREE_FLAGS[a]] = args[++i];
+    } else return failWith('usage', WORKTREE_USAGE);
+  }
+  if (op === 'new' ? !fields.task : op !== 'list' || fields.assign || fields.base || fields.branch) return failWith('usage', WORKTREE_USAGE);
+  const r = await request('worktree', { op, ...fields });
+  if (r === null) return off();
+  if (op === 'list' && r.ok && !json) {
+    if (asJson) {
+      process.stdout.write(`${JSON.stringify({ v: 1, worktrees: r.worktrees })}\n`);
+      return exitAfterFlush(0);
+    }
+    for (const w of r.worktrees ?? []) {
+      const state = !w.exists ? '폴더 없음' : `↑${w.ahead} ↓${w.behind}${w.dirty ? ` 미커밋 ${w.dirty}` : ''}${w.merged ? ' 머지됨' : ''}`;
+      console.log([w.project, w.taskId ?? '-', w.assignee ?? '-', w.branch, w.path, state].join('\t'));
+    }
+    return exitAfterFlush(0);
+  }
+  return finish(
+    r,
+    r.ok && `worktree 를 만들었어요: ${r.path} (브랜치 ${r.branch}, 기준 ${r.base})${r.note ? `\n${r.note}` : ''}`,
+  );
+}
+
+if (require.main === module) {
+  main(process.argv.slice(2)).catch((err) =>
+    failWith('daemon_error', String(err && err.message ? err.message : err)),
+  );
+}
+
+// request: the MCP adapter (agty-mcp.js, C5a) speaks to the daemon through this same client.
+module.exports = { exitAfterFlush, request };

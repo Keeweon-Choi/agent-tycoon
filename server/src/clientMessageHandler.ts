@@ -1,12 +1,12 @@
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { agtyHooks, type SocketStepUp } from './agent-tycoon/hooks.js';
+import { webviewErrors } from './agent-tycoon/webviewErrors.js';
 import { resendAgentActivity } from './agentActivityResend.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
-import { cldHooks, type SocketStepUp } from './cld/hooks.js';
-import { webviewErrors } from './cld/webviewErrors.js';
 import {
   getHooksConsent,
   getHooksEnabled,
@@ -183,7 +183,7 @@ export function handleClientMessage(
 
     case 'saveLayout':
       // agty (T-0053): the agty office keeps edits as decor instead of layout.json.
-      if (msg.layout && !cldHooks.saveLayout?.(msg.layout as Record<string, unknown>, send)) {
+      if (msg.layout && !agtyHooks.saveLayout?.(msg.layout as Record<string, unknown>, send)) {
         writeLayoutToFile(msg.layout as Record<string, unknown>);
       }
       break;
@@ -365,7 +365,7 @@ export function handleClientMessage(
       // drawer tab, which the server has no say in). exportLayout / importLayout
       // still require IDE-specific handling.
       // agty: messages upstream does not know (statusView, chatSend, ...).
-      cldHooks.onClientMessage?.(msg, send, ctx.privileged === true, ctx.userAgent, ctx.stepUp);
+      agtyHooks.onClientMessage?.(msg, send, ctx.privileged === true, ctx.userAgent, ctx.stepUp);
       break;
   }
 }
@@ -569,7 +569,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   send({
     type: 'areaMappingsLoaded',
     // agty: provider room mappings under the user's own.
-    mappings: { ...cldHooks.areaMappings?.(), ...(cfg.standalone.areaMappings ?? {}) },
+    mappings: { ...agtyHooks.areaMappings?.(), ...(cfg.standalone.areaMappings ?? {}) },
   });
 
   // 4c. Directories: the user-defined ones from the shared config merged with
@@ -614,7 +614,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
       palette: agent.palette,
       hueShift: agent.hueShift,
       // agty: the seat for the character's name wins over the persisted one.
-      seatId: cldHooks.seatFor?.(id) ?? persisted?.seatId,
+      seatId: agtyHooks.seatFor?.(id) ?? persisted?.seatId,
     };
   }
   send({
@@ -631,7 +631,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   send({
     type: 'layoutLoaded',
     // agty: a generated office replaces a missing or bundled-default layout.
-    layout: cldHooks.layoutFor?.(savedLayout) ?? savedLayout ?? cache?.defaultLayout ?? null,
+    layout: agtyHooks.layoutFor?.(savedLayout) ?? savedLayout ?? cache?.defaultLayout ?? null,
   });
 
   // 8. Agent state, AFTER layoutLoaded -- the characters they target only
@@ -653,7 +653,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   }
 
   // 10. agty: snapshots of the provider messages (officeState, hwSample, ...).
-  cldHooks.onClientReady?.(send);
+  agtyHooks.onClientReady?.(send);
 }
 
 function disabledInStandalone(type: unknown): boolean {
@@ -679,8 +679,8 @@ function settingsSnapshot(adapter: StateAdapter | undefined) {
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
     lastSeenVersion: adapter?.getSetting(KEY_LAST_SEEN_VERSION, '') ?? '',
-    // The product's own version (cld/release/version.json); the upstream package version only as a fallback.
-    extensionVersion: process.env.CLD_GUI_VERSION || (process.env.AGENT_TYCOON_VERSION ?? ''),
+    // The product's own version (agent-tycoon/release/version.json); the upstream package version only as a fallback.
+    extensionVersion: process.env.AGTY_VERSION || (process.env.AGENT_TYCOON_VERSION ?? ''),
     watchAllSessions: adapter?.getSetting(KEY_WATCH_ALL_SESSIONS, false) ?? false,
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
     ghostHeadlessAgents: adapter?.getSetting(KEY_GHOST_HEADLESS_AGENTS, false) ?? false,

@@ -138,18 +138,18 @@ components:
         - $ref: '#/components/schemas/TerminalSessionClosed'
         # Diagnostics
         - $ref: '#/components/schemas/AgentDiagnostics'
-        # cld-gui: character presets (T-0017)
+        # agty: character presets (T-0017)
         - $ref: '#/components/schemas/CharacterPresets'
         - $ref: '#/components/schemas/CharacterRefused'
         - $ref: '#/components/schemas/CharacterParts'
-        # cld-gui: new-device approval (T-0022)
+        # agty: new-device approval (T-0022)
         - $ref: '#/components/schemas/DeviceApprovalRequest'
         - $ref: '#/components/schemas/DeviceApprovalClosed'
-        # cld-gui: persistent device login (T-0034)
+        # agty: persistent device login (T-0034)
         - $ref: '#/components/schemas/NewDeviceLogin'
-        # cld-gui: trusted-device terminal (T-0052)
+        # agty: trusted-device terminal (T-0052)
         - $ref: '#/components/schemas/ShellNotice'
-        # cld-gui: repositories and worktrees (T-0020)
+        # agty: repositories and worktrees (T-0020)
         - $ref: '#/components/schemas/RepoState'
         - $ref: '#/components/schemas/RepoDiff'
         - $ref: '#/components/schemas/RepoWorktreeDetail'
@@ -157,14 +157,14 @@ components:
         - $ref: '#/components/schemas/ReviewNotes'
         - $ref: '#/components/schemas/ReviewNoteResult'
         - $ref: '#/components/schemas/ReviewSendResult'
-        # cld-gui: the dev room (P4 S1)
+        # agty: the dev room (P4 S1)
         - $ref: '#/components/schemas/RepoMergeCheckResult'
         - $ref: '#/components/schemas/RepoConflictsResult'
         - $ref: '#/components/schemas/RepoCleanupListResult'
         - $ref: '#/components/schemas/DevroomStats'
         - $ref: '#/components/schemas/DevroomSettings'
         - $ref: '#/components/schemas/PreviewOpen'
-        # cld-gui: the office's data (cld/docs/design/protocol.md)
+        # agty: the office's data (agent-tycoon/docs/design/protocol.md)
         - $ref: '#/components/schemas/OfficeSnapshot'
         - $ref: '#/components/schemas/CodexTasks'
         - $ref: '#/components/schemas/TempStaff'
@@ -175,9 +175,9 @@ components:
         - $ref: '#/components/schemas/AgentCliUpdateState'
         - $ref: '#/components/schemas/UsageState'
         - $ref: '#/components/schemas/CodexUsageCheckResult'
-        # cld-gui: the agent CLI notice (AGENT-CLI)
+        # agty: the agent CLI notice (AGENT-CLI)
         - $ref: '#/components/schemas/AgentCliState'
-        # cld-gui: default agent rules + the user's global rules (RULES-DEFAULT)
+        # agty: default agent rules + the user's global rules (RULES-DEFAULT)
         - $ref: '#/components/schemas/AgentRules'
         - $ref: '#/components/schemas/NewAgentPermission'
         - $ref: '#/components/schemas/GpuBoard'
@@ -198,7 +198,7 @@ components:
         - $ref: '#/components/schemas/GroupTimeline'
         - $ref: '#/components/schemas/GroupActionResult'
         - $ref: '#/components/schemas/EzRules'
-        # cld-gui: built-in engine (T-0018)
+        # agty: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineState'
         - $ref: '#/components/schemas/EngineActionResult'
         - $ref: '#/components/schemas/EngineMoveAllResult'
@@ -208,41 +208,41 @@ components:
         - $ref: '#/components/schemas/ProjectImportSuggestion'
         - $ref: '#/components/schemas/ProjectRepoResult'
         - $ref: '#/components/schemas/ProjectRepoProgress'
-        # cld-gui: engine jobs (T-0019)
+        # agty: engine jobs (T-0019)
         - $ref: '#/components/schemas/JobActionResult'
-        # cld-gui: the dev room's 실행 row (DV2)
+        # agty: the dev room's 실행 row (DV2)
         - $ref: '#/components/schemas/RunScriptsResult'
         - $ref: '#/components/schemas/JobStartResult'
-        # cld-gui: who is watching (T-0025)
+        # agty: who is watching (T-0025)
         - $ref: '#/components/schemas/ViewerVisibilityAck'
-        # cld-gui: floors (T-0027)
+        # agty: floors (T-0027)
         - $ref: '#/components/schemas/BuildingState'
-        # cld-gui: project folders (T-0032)
+        # agty: project folders (T-0032)
         - $ref: '#/components/schemas/HostInfo'
         - $ref: '#/components/schemas/FolderList'
-        # cld-gui: Web Push (T-0039)
+        # agty: Web Push (T-0039)
         - $ref: '#/components/schemas/PushState'
-        # cld-gui: whiteboard memos (T-0065)
+        # agty: whiteboard memos (T-0065)
         - $ref: '#/components/schemas/WhiteboardMemos'
-        # cld-gui: pinned conversations (U-30)
+        # agty: pinned conversations (U-30)
         - $ref: '#/components/schemas/PinnedConversations'
-        # cld-gui: the parties the owner composes (FEAT-PARTY-V2)
+        # agty: the parties the owner composes (FEAT-PARTY-V2)
         - $ref: '#/components/schemas/Parties'
-        # cld-gui: a removed agent's conversation deleted (PROJECT-DATA)
+        # agty: a removed agent's conversation deleted (PROJECT-DATA)
         - $ref: '#/components/schemas/GoneConversationDeleteResult'
-        # cld-gui: the isometric office's background (BACKGROUND)
+        # agty: the isometric office's background (BACKGROUND)
         - $ref: '#/components/schemas/OfficeBackground'
-        # cld-gui: 작업 현황 (DEV-BOARD)
+        # agty: 작업 현황 (DEV-BOARD)
         - $ref: '#/components/schemas/TaskBoard'
-        # cld-gui: delegation approvals (C6)
+        # agty: delegation approvals (C6)
         - $ref: '#/components/schemas/DelegationApprovals'
-        # cld-gui: what the agents' own work lists say (U-48 phase 1)
+        # agty: what the agents' own work lists say (U-48 phase 1)
         - $ref: '#/components/schemas/TrackedItems'
-        # cld-gui: a project's planning documents as tracked items (U-48 phase 2a)
+        # agty: a project's planning documents as tracked items (U-48 phase 2a)
         - $ref: '#/components/schemas/TrackingSources'
-        # cld-gui: a project's spec Registry changed (SPT-P1A)
+        # agty: a project's spec Registry changed (SPT-P1A)
         - $ref: '#/components/schemas/SpecChanged'
-        # cld-gui: the street, neighbours on other PCs (MHO v1b, ADR-0020)
+        # agty: the street, neighbours on other PCs (MHO v1b, ADR-0020)
         - $ref: '#/components/schemas/StreetState'
         - $ref: '#/components/schemas/StreetEnterResult'
       discriminator: type
@@ -276,9 +276,9 @@ components:
         - $ref: '#/components/schemas/RemoveDirectory'
         - $ref: '#/components/schemas/RequestDirectorySuggestions'
         - $ref: '#/components/schemas/RequestDiagnostics'
-        # cld-gui: character presets (T-0017)
+        # agty: character presets (T-0017)
         - $ref: '#/components/schemas/SetCharacter'
-        # cld-gui: repositories and worktrees (T-0020)
+        # agty: repositories and worktrees (T-0020)
         - $ref: '#/components/schemas/RepoView'
         - $ref: '#/components/schemas/RepoDiffRequest'
         - $ref: '#/components/schemas/RepoWorktreeRequest'
@@ -286,14 +286,14 @@ components:
         - $ref: '#/components/schemas/ReviewNotesRequest'
         - $ref: '#/components/schemas/ReviewNoteWrite'
         - $ref: '#/components/schemas/ReviewSend'
-        # cld-gui: the dev room (P4 S1)
+        # agty: the dev room (P4 S1)
         - $ref: '#/components/schemas/DevroomView'
         - $ref: '#/components/schemas/DevroomSettingsSet'
         - $ref: '#/components/schemas/RepoMergeCheck'
         - $ref: '#/components/schemas/RepoConflicts'
         - $ref: '#/components/schemas/RepoCleanupList'
         - $ref: '#/components/schemas/PreviewAsk'
-        # cld-gui: the office's data
+        # agty: the office's data
         - $ref: '#/components/schemas/StatusView'
         - $ref: '#/components/schemas/ChatView'
         - $ref: '#/components/schemas/ChatHistory'
@@ -311,7 +311,7 @@ components:
         - $ref: '#/components/schemas/GroupPost'
         - $ref: '#/components/schemas/GroupAction'
         - $ref: '#/components/schemas/SlashCommands'
-        # cld-gui: built-in engine (T-0018)
+        # agty: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineAction'
         - $ref: '#/components/schemas/EngineChoicesRefresh'
         - $ref: '#/components/schemas/EngineMoveAll'
@@ -322,56 +322,56 @@ components:
         - $ref: '#/components/schemas/ProjectImportDismiss'
         - $ref: '#/components/schemas/ProjectRepo'
         - $ref: '#/components/schemas/ProjectRepoCancel'
-        # cld-gui: engine jobs (T-0019)
+        # agty: engine jobs (T-0019)
         - $ref: '#/components/schemas/JobAction'
-        # cld-gui: the dev room's 실행 row (DV2)
+        # agty: the dev room's 실행 row (DV2)
         - $ref: '#/components/schemas/RunScripts'
         - $ref: '#/components/schemas/JobStart'
-        # cld-gui: who is watching (T-0025)
+        # agty: who is watching (T-0025)
         - $ref: '#/components/schemas/ViewerVisibility'
         - $ref: '#/components/schemas/HwView'
         - $ref: '#/components/schemas/HwSensorTool'
         - $ref: '#/components/schemas/AgentCliUpdate'
         - $ref: '#/components/schemas/AgentCliLatest'
-        # cld-gui: the owner's own stats (OWNER-STATS)
+        # agty: the owner's own stats (OWNER-STATS)
         - $ref: '#/components/schemas/OwnerActivity'
-        # cld-gui: floors (T-0027)
+        # agty: floors (T-0027)
         - $ref: '#/components/schemas/AddFloor'
         - $ref: '#/components/schemas/RenameFloor'
         - $ref: '#/components/schemas/RemoveFloor'
         - $ref: '#/components/schemas/MoveToFloor'
         - $ref: '#/components/schemas/SetFloorRule'
-        # cld-gui: decor (T-0053)
+        # agty: decor (T-0053)
         - $ref: '#/components/schemas/ResetRoomDecor'
-        # cld-gui: project folders (T-0032)
+        # agty: project folders (T-0032)
         - $ref: '#/components/schemas/ListFolders'
-        # cld-gui: Web Push (T-0039)
+        # agty: Web Push (T-0039)
         - $ref: '#/components/schemas/PushSubscribe'
         - $ref: '#/components/schemas/PushUnsubscribe'
-        # cld-gui: whiteboard memos (T-0065)
+        # agty: whiteboard memos (T-0065)
         - $ref: '#/components/schemas/SetWhiteboardMemo'
-        # cld-gui: pinned conversations (U-30)
+        # agty: pinned conversations (U-30)
         - $ref: '#/components/schemas/SetConversationPin'
-        # cld-gui: the parties the owner composes (FEAT-PARTY-V2)
+        # agty: the parties the owner composes (FEAT-PARTY-V2)
         - $ref: '#/components/schemas/SetParties'
         - $ref: '#/components/schemas/GoneConversationDelete'
-        # cld-gui: a render error or an uncaught one in the page, for the daemon log (T-74)
+        # agty: a render error or an uncaught one in the page, for the daemon log (T-74)
         - $ref: '#/components/schemas/WebviewError'
-        # cld-gui: the isometric office's background (BACKGROUND)
+        # agty: the isometric office's background (BACKGROUND)
         - $ref: '#/components/schemas/SetOfficeBackground'
-        # cld-gui: 작업 현황 (DEV-BOARD)
+        # agty: 작업 현황 (DEV-BOARD)
         - $ref: '#/components/schemas/TaskEdit'
         - $ref: '#/components/schemas/CodexUsageCheck'
-        # cld-gui: the agent CLI notice (AGENT-CLI)
+        # agty: the agent CLI notice (AGENT-CLI)
         - $ref: '#/components/schemas/AgentCliRecheck'
         - $ref: '#/components/schemas/AgentRulesRequest'
-        # cld-gui: the permission mode new agents start with (O4)
+        # agty: the permission mode new agents start with (O4)
         - $ref: '#/components/schemas/NewAgentPermissionRequest'
-        # cld-gui: delegation approvals (C6)
+        # agty: delegation approvals (C6)
         - $ref: '#/components/schemas/DelegationDecision'
-        # cld-gui: a project's planning documents as tracked items (U-48 phase 2a)
+        # agty: a project's planning documents as tracked items (U-48 phase 2a)
         - $ref: '#/components/schemas/TrackingSettings'
-        # cld-gui: the street, neighbours on other PCs (MHO v1b, ADR-0020)
+        # agty: the street, neighbours on other PCs (MHO v1b, ADR-0020)
         - $ref: '#/components/schemas/StreetWatch'
         - $ref: '#/components/schemas/StreetEnter'
       discriminator: type
@@ -422,7 +422,7 @@ components:
           description: Server-assigned hue shift in degrees (0-360).
         seatId:
           type: string
-          description: cld-gui. The chair the office plans for this character, when it has one.
+          description: agent-tycoon. The chair the office plans for this character, when it has one.
 
     AgentClosed:
       description: An agent has been removed from the office.
@@ -803,10 +803,10 @@ components:
               description: |
                 Opaque layout object (cols, rows, tiles, furniture, tileColors).
                 Format defined by the OfficeLayout schema in webview-ui; not
-                modeled here because it's owned by the rendering layer. `cldBase`
+                modeled here because it's owned by the rendering layer. `agtyBase`
                 names the generated office; send it unchanged in saveLayout.
-                cld-gui (T-0027): an office of several floors stacks them top
-                to bottom and adds `cldFloors`, one `{id, row, rows, cols}`
+                agty (T-0027): an office of several floors stacks them top
+                to bottom and adds `agtyFloors`, one `{id, row, rows, cols}`
                 per floor (`buildingState`'s ids): rows `row` to
                 `row + rows - 1` and columns 0 to `cols - 1` are that floor.
             - type: 'null'
@@ -1177,7 +1177,7 @@ components:
         valid server token, or a Host outside the allowlist) can load and watch
         the office but every change it sends is refused, so the client hides
         the controls that would send one. Sent first on webviewReady; a client
-        that never receives it is not read-only. cld-gui (T-0052): `terminal`
+        that never receives it is not read-only. agty (T-0052): `terminal`
         is the host's --allow-terminal; false or absent hides the 터미널 tab.
       type: object
       additionalProperties: false
@@ -1298,7 +1298,7 @@ components:
 
     SaveLayout:
       description: |
-        Save the office layout. With the cld office on, the daemon keeps the
+        Save the office layout. With the agty office on, the daemon keeps the
         differences from the generated office as decor in
         ~/.config/agent-tycoon/decor.json and answers the sender with layoutLoaded.
         Otherwise, save to ~/.pixel-agents/layout.json.
@@ -1803,7 +1803,7 @@ components:
         - default
         - foreground
 
-    # ── cld-gui: character presets (T-0017, FR-OFC-015/016) ──────
+    # ── agty: character presets (T-0017, FR-OFC-015/016) ──────
     # Sheets in ~/.config/agent-tycoon/characters/ (the char_N.png format, 112×96)
     # and the look chosen per character name (~/.config/agent-tycoon/characters.json).
 
@@ -2142,7 +2142,7 @@ components:
 
     CharacterPack:
       description: |
-        CHAR-FACTORY: a content pack (cld/packs/<id>/ built in,
+        CHAR-FACTORY: a content pack (agent-tycoon/packs/<id>/ built in,
         ~/.config/agent-tycoon/packs/<id>/ the user's), always on.
       type: object
       additionalProperties: false
@@ -2333,7 +2333,7 @@ components:
             - $ref: '#/components/schemas/CharacterChoice'
             - type: 'null'
 
-    # ── cld-gui: new-device approval (T-0022) ────────────────────
+    # ── agty: new-device approval (T-0022) ────────────────────
     # Only when the daemon runs with --allow-approval-requests (off by
     # default). The answer is an HTTP call (POST /api/auth/approvals/:id with
     # the code the approver typed), so there is no client message.
@@ -2389,7 +2389,7 @@ components:
       type: string
       enum: [approved, refused, expired]
 
-    # ── cld-gui: persistent device login (T-0034) ────────────────
+    # ── agty: persistent device login (T-0034) ────────────────
 
     NewDeviceLogin:
       description: |
@@ -2412,7 +2412,7 @@ components:
         at:
           type: number
 
-    # ── cld-gui: trusted-device terminal (T-0052) ────────────────
+    # ── agty: trusted-device terminal (T-0052) ────────────────
 
     ShellNotice:
       description: |
@@ -2441,7 +2441,7 @@ components:
     ShellAction:
       type: string
       enum: [open, close]
-    # ── cld-gui: repositories and worktrees (T-0020, FR-ENG-003/005) ──
+    # ── agty: repositories and worktrees (T-0020, FR-ENG-003/005) ──
     # One project's git repository, addressed by the project's NAME (an
     # engine project), never by a path. Reading
     # (`repoView`, `repoDiffRequest`) is for logged-in clients; the writes
@@ -2832,7 +2832,7 @@ components:
         stamp:
           type: string
 
-    # ── cld-gui: task-worktree review notes (REVIEW-1) ──────────
+    # ── agty: task-worktree review notes (REVIEW-1) ──────────
     # Notes are a small, separately persisted review layer. Every request is
     # privileged: unprivileged sockets receive neither a reply nor broadcasts.
     ReviewNote:
@@ -3191,7 +3191,7 @@ components:
           description: P4 merge - the worktree was removed after the merge (auto-cleanup).
           type: boolean
 
-    # ── cld-gui: the dev room (P4 S1, 개발실) ───────────────────
+    # ── agty: the dev room (P4 S1, 개발실) ───────────────────
     # Every client message here is privileged (refused for a read-only
     # client like every message but webviewReady).
     DevroomView:
@@ -3534,8 +3534,8 @@ components:
         url:
           type: string
 
-    # ── cld-gui: the office's data ───────────────────────────────
-    # Contract for the cld-gui fork (cld/docs/design/protocol.md, IR-UI-001).
+    # ── agty: the office's data ───────────────────────────────
+    # Contract for the agent-tycoon fork (agent-tycoon/docs/design/protocol.md, IR-UI-001).
     OfficeSnapshot:
       description: |
         Whole office snapshot, re-sent in full on every change.
@@ -3543,7 +3543,7 @@ components:
         (NFR-SEC-012); with it false, the engine's project, job and
         repository actions are enabled.
         `chat` is true when it runs with --allow-chat: a background session's
-        character offers its terminal (`claude attach`, `/cld/attach/:id`).
+        character offers its terminal (`claude attach`, `/agty/attach/:id`).
         Every row of `orchestrators` is bound to exactly one character:
         `agentId` is that office agent id.
       type: object
@@ -3896,7 +3896,7 @@ components:
           type: string
         nameId:
           type: string
-          description: The roster name's id (core/src/cld/staffNames.ts); the UI language picks its form.
+          description: The roster name's id (core/src/agent-tycoon/staffNames.ts); the UI language picks its form.
         project:
           type: string
         working:
@@ -4932,7 +4932,7 @@ components:
     ChatAttachment:
       description: |
         A file a lead sent (T-0105). `path` is the server's copy under the
-        project's `.cld-outbox/` (absolute, as the project folder is known to
+        project's `.agty-outbox/` (absolute, as the project folder is known to
         clients), served through the usual file tickets; the sent file's own
         path never reaches a client. `unavailable` (no `path`): it could not be
         copied (missing, over 20 MB, not a regular file, a symlink, protected).
@@ -5874,12 +5874,12 @@ components:
           type: boolean
 
     ErrorParams:
-      description: Values for the {holes} of an `errorCode` text (core/src/cld/serverText.ts).
+      description: Values for the {holes} of an `errorCode` text (core/src/agent-tycoon/serverText.ts).
       type: object
       additionalProperties:
         type: [string, number]
 
-    # ── cld-gui: who is watching (T-0025, T-0013) ────────────────
+    # ── agty: who is watching (T-0025, T-0013) ────────────────
 
     ViewerVisibility:
       description: |
@@ -6083,7 +6083,7 @@ components:
         visible:
           type: boolean
 
-    # ── cld-gui: EZ phrase rules (FR-OFC-018, ADR-0014) ──────────
+    # ── agty: EZ phrase rules (FR-OFC-018, ADR-0014) ──────────
 
     EzRules:
       description: |
@@ -6183,7 +6183,7 @@ components:
         text:
           type: string
 
-    # ── cld-gui: built-in engine (T-0018) ────────────────────────
+    # ── agty: built-in engine (T-0018) ────────────────────────
     # Projects whose orchestrator runs as a Claude Code background session
     # (`claude --bg`), without tmux (ADR-0013). Sent only while the
     # daemon runs the engine (--engine on or auto).
@@ -6337,7 +6337,7 @@ components:
         `remoteControl`, `title` = the conversation's name) are only set when
         the user chose them; unset means Claude Code's own default (ADR-0014).
         A new Lead whose add names no `model`/`effort` gets the Leads' common
-        pair, else the installed CLI's top ones (core/src/cld/leadDefaults.ts).
+        pair, else the installed CLI's top ones (core/src/agent-tycoon/leadDefaults.ts).
         `wantRunning` is set by start and cleared by stop; the engine revives
         such projects when the daemon starts. `needsTrust`: the session waits
         on Claude's folder trust question, which only a person answers.
@@ -7024,7 +7024,7 @@ components:
         errorParams:
           $ref: '#/components/schemas/ErrorParams'
 
-    # ── cld-gui: floors (T-0027) ─────────────────────────────────
+    # ── agty: floors (T-0027) ─────────────────────────────────
     # The office as a building of floors, kept in
     # ~/.config/agent-tycoon/building.json. Floor 1 is the generated office plus decor. Floor
     # changes are cosmetic: any logged-in client may make them, also on a
@@ -7447,7 +7447,7 @@ components:
         scan found a change, a document's setting changed), or (SPT-P2) its links were (a link
         confirmed, rejected, edited or removed, a review, a deploy confirmation). Only the
         project's name and its revision (the Registry's plus the links', so it only grows)
-        travel; a page showing that project's spec tabs fetches /api/cld/spec/:project/...
+        travel; a page showing that project's spec tabs fetches /api/agty/spec/:project/...
         again. No path, title or text.
       type: object
       additionalProperties: false
@@ -7936,10 +7936,10 @@ components:
         perProject:
           type: boolean
 
-    # ── cld-gui: project folders (T-0032) ────────────────────────
+    # ── agty: project folders (T-0032) ────────────────────────
     # Folders are written the host's way (Windows, WSL, macOS, Linux). The
     # webview and the daemon read a typed folder with the same pure rules
-    # (core/src/cld/projectPath.ts); the daemon checks again before use.
+    # (core/src/agent-tycoon/projectPath.ts); the daemon checks again before use.
 
     HostInfo:
       description: |
@@ -7981,7 +7981,7 @@ components:
         hostName:
           type: string
 
-    # ── cld-gui: the street (MHO v1b, ADR-0020) ──────────────────
+    # ── agty: the street (MHO v1b, ADR-0020) ──────────────────
 
     StreetState:
       description: |
@@ -8204,9 +8204,9 @@ components:
         path:
           type: string
 
-    # T-0044: HTTP /api/cld/files contract. These shapes are shared with the
+    # T-0044: HTTP /api/agty/files contract. These shapes are shared with the
     # webview; routes, authentication and limits are documented in
-    # cld/docs/design/project-files.md.
+    # agent-tycoon/docs/design/project-files.md.
     ProjectFileEntry:
       type: object
       additionalProperties: false
@@ -8253,7 +8253,7 @@ components:
         ignored:
           type: array
           items: { type: string }
-    # ── cld-gui: Web Push (T-0039, FR-NTF-001/002/004/006, IR-PUSH-001) ──
+    # ── agty: Web Push (T-0039, FR-NTF-001/002/004/006, IR-PUSH-001) ──
     # One subscription per device (its device-key id, else its session
     # handle), kept 0600 in ~/.config/agent-tycoon/push.json with the daemon's
     # VAPID keys. The daemon pushes the enabled kinds only while that device

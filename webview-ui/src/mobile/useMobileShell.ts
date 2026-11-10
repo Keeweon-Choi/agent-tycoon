@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { selectOrOpenInfo } from '../cld/offDuty.js';
+import { selectOrOpenInfo } from '../agent-tycoon/offDuty.js';
 import type { Directory } from '../hooks/useExtensionMessages.js';
 import type { TerminalDrawerController } from '../hooks/useTerminalDrawer.js';
 import type { OfficeState } from '../office/engine/officeState.js';

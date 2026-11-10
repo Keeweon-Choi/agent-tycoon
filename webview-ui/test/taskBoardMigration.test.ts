@@ -9,13 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import type { BoardTask, CodexTask, OfficeJob } from '../../core/src/messages.js';
-import { boardItems, groupItems } from '../src/cld/taskboard/taskBoardState.js';
+import { boardItems, groupItems } from '../src/agent-tycoon/taskboard/taskBoardState.js';
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 23, 14, min)).toISOString();
 const fixture = (name: string): BoardTask[] =>
   JSON.parse(
     readFileSync(
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../server/src/cld/fixtures', name),
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../server/src/agent-tycoon/fixtures', name),
       'utf-8',
     ),
   ).tasks;

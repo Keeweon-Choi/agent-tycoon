@@ -14,9 +14,9 @@ import {
   decodeAllFurniture,
   decodeAllWalls,
 } from '../core/src/assets/loader.ts';
-import type { IsoManifest } from './src/cld/iso/art.ts';
-import owner from './src/cld/iso/art/owner-manifest.json';
-import { shipScales } from './src/cld/iso/ship.ts';
+import type { IsoManifest } from './src/agent-tycoon/iso/art.ts';
+import owner from './src/agent-tycoon/iso/art/owner-manifest.json';
+import { shipScales } from './src/agent-tycoon/iso/ship.ts';
 
 // ── Decoded asset cache (invalidated on file change) ─────────────────────────
 
@@ -148,10 +148,10 @@ function shrinkPng(png: Buffer, k: number): Buffer {
   return PNG.sync.write(out);
 }
 
-/** The owner's isometric masters (src/cld/iso/art) that are finer than ever drawn ship as the
+/** The owner's isometric masters (src/agent-tycoon/iso/art) that are finer than ever drawn ship as the
  *  shrunk copy only (ship.ts says by how much; art.ts reads their coordinates divided by it). */
 function isoShipPlugin(): Plugin {
-  const dir = path.resolve(__dirname, 'src/cld/iso/art');
+  const dir = path.resolve(__dirname, 'src/agent-tycoon/iso/art');
   const scales = shipScales(owner as unknown as IsoManifest);
   let build = false;
   return {

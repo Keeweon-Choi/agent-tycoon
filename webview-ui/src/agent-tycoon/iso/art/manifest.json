@@ -1,0 +1,118 @@
+{
+  "note": "ISO-PILOT pilot assets (agent-tycoon/scripts/gen-iso-art.ts), cut from the owner starter pack: not finished art. density: source px per world px (a 16 px tile is a 64x32 diamond at 4). anchor: the pixel at the footprint front corner on the floor, at that density. faces: +row lower left, +col lower right, -row upper right, -col upper left. name@2.png and name@1.png: the same piece at densities 2 and 1.",
+  "pieces": {
+    "counter": {
+      "file": "counter.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        74,
+        94
+      ],
+      "faces": "+row",
+      "from": "starter counter"
+    },
+    "coffee-machine": {
+      "file": "coffee-machine.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        23,
+        83
+      ],
+      "faces": "+row",
+      "from": "starter coffeeMachine"
+    },
+    "plate": {
+      "file": "plate.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "slab-row": {
+      "file": "slab-row.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "slab-col": {
+      "file": "slab-col.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "pavement": {
+      "file": "pavement.png",
+      "density": 4,
+      "footprint": [
+        1,
+        1
+      ],
+      "anchor": [
+        32,
+        32
+      ],
+      "faces": "none",
+      "from": "drawn"
+    },
+    "bench": {
+      "file": "bench.png",
+      "density": 4,
+      "footprint": [
+        2,
+        1
+      ],
+      "anchor": [
+        64,
+        96
+      ],
+      "faces": "-row",
+      "from": "drawn"
+    }
+  },
+  "types": {
+    "SMALL_TABLE_FRONT": {
+      "piece": "counter"
+    },
+    "SMALL_TABLE_SIDE": {
+      "piece": "counter",
+      "mirror": true
+    },
+    "COFFEE": {
+      "piece": "coffee-machine"
+    },
+    "LOBBY_BENCH": {
+      "piece": "bench"
+    }
+  }
+}

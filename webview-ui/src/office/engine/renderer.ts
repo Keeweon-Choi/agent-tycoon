@@ -1,16 +1,16 @@
 import {
-  cldCharacterDrawables,
-  cldCharacterSprite,
-  cldDrawSpeechLinks,
+  agtyCharacterDrawables,
+  agtyCharacterSprite,
+  agtyDrawSpeechLinks,
   dimmedSprite,
   drinkingNow,
-} from '../../cld/ez/drawVisuals.js';
-import { offAlpha } from '../../cld/ez/nameplate.js';
-import { drawnView, mirrorSprite } from '../../cld/iso/sprites.js';
-import { cldGetSnapshot, virtualAgentId } from '../../cld/officeStore.js';
-import { perfFrame, perfOn } from '../../cld/perf.js';
-import { serverLine } from '../../cld/serverText.js';
-import { pixelFontFamily } from '../../cld/uiTheme.js';
+} from '../../agent-tycoon/ez/drawVisuals.js';
+import { offAlpha } from '../../agent-tycoon/ez/nameplate.js';
+import { drawnView, mirrorSprite } from '../../agent-tycoon/iso/sprites.js';
+import { agtyGetSnapshot, virtualAgentId } from '../../agent-tycoon/officeStore.js';
+import { perfFrame, perfOn } from '../../agent-tycoon/perf.js';
+import { serverLine } from '../../agent-tycoon/serverText.js';
+import { pixelFontFamily } from '../../agent-tycoon/uiTheme.js';
 import type { ColorValue } from '../../components/ui/types.js';
 import {
   AREA_ACTIVE_ALPHA_MULTIPLIER,
@@ -425,7 +425,7 @@ export function renderScene(
   for (const ch of characters) {
     // HD: the character's density that divides this zoom; a detailed one (64×128 and up) draws
     // its one master at every zoom (smoothSprite.ts)
-    // cld CHAR-8DIR: a character with both kinds of sheet steps diagonally in three-quarter view
+    // agty CHAR-8DIR: a character with both kinds of sheet steps diagonally in three-quarter view
     const view = drawnView(ch, false, !!drinkingNow(ch));
     const all = getCharacterSprites(view.palette, ch.hueShift);
     // a 64×128 person draws at density 3, an import above
@@ -433,9 +433,9 @@ export function renderScene(
     const sprites = spritesAtZoom(all, zoom);
     // its frames at this zoom are built between frames, before a stride needs them
     warmCharacter(sprites, zoom / sprites.density, (f) => [f, dimmedSprite(f)], ch.id);
-    // cld T-0026: an idle character dims slightly.
+    // agty T-0026: an idle character dims slightly.
     const frame = getCharacterSprite({ ...ch, dir: view.dir }, sprites);
-    const spriteData = cldCharacterSprite(ch.id, view.mirror ? mirrorSprite(frame) : frame);
+    const spriteData = agtyCharacterSprite(ch.id, view.mirror ? mirrorSprite(frame) : frame);
     // HD: a density-2 sheet has twice the sprite px in the same world rect.
     const scale = zoom / sprites.density;
     // SHEET-IMPORT: a detailed frame not built for this zoom yet draws from its master (drawSmooth),
@@ -455,22 +455,22 @@ export function renderScene(
 
     // Headless agents (adopted, no terminal to focus) render translucent while
     // the "Display headless as ghosts" setting is on.
-    const office = cldGetSnapshot().officeSnapshot;
+    const office = agtyGetSnapshot().officeSnapshot;
     const officeOrchestrator = office?.orchestrators.find(
       (item) => (item.agentId ?? virtualAgentId(`orch:${item.name}`)) === ch.id,
     );
     const officeOff = officeOrchestrator?.state === 'off';
-    // An off one is drawn in full while selected or hovered (cld/ez/nameplate.ts offAlpha).
+    // An off one is drawn in full while selected or hovered (agent-tycoon/ez/nameplate.ts offAlpha).
     const focused = ch.id === selectedAgentId || ch.id === hoveredAgentId;
     const alpha =
       ch.isHeadless && ghostHeadlessAgents
         ? HEADLESS_CHARACTER_ALPHA
         : offAlpha(officeOff, focused, HEADLESS_CHARACTER_ALPHA);
-    // cld T-0026: status ring under the character, activity prop beside it.
+    // agty T-0026: status ring under the character, activity prop beside it.
     // INHERIT: the 계승's ghost is this frame again, shifted
     const figure = (c: CanvasRenderingContext2D, ox: number, oy: number) =>
       cached ? c.drawImage(cached, drawX + ox, drawY + oy) : drawSmooth(c, spriteData, scale, drawX + ox, drawY + oy);
-    drawables.push(...cldCharacterDrawables(ch, drawX + cw / 2, drawY + chh, zoom, charZY, alpha, false, figure));
+    drawables.push(...agtyCharacterDrawables(ch, drawX + cw / 2, drawY + chh, zoom, charZY, alpha, false, figure));
 
     // Matrix spawn/despawn effect — skip outline, use per-pixel rendering
     if (ch.matrixEffect) {
@@ -1015,8 +1015,8 @@ export function renderFrame(
     measurePerf,
   );
 
-  // cld T-0026: 🤝 speech links from a delegating character to its sub-agents.
-  cldDrawSpeechLinks(ctx, characters, offsetX, offsetY, zoom);
+  // agty T-0026: 🤝 speech links from a delegating character to its sub-agents.
+  agtyDrawSpeechLinks(ctx, characters, offsetX, offsetY, zoom);
 
   // Character speech bubbles render in ToolOverlay (DOM, above the labels).
   // Pet heart bubbles (canvas overlay pass)

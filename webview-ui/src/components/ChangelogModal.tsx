@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
+import { FloatingToast } from '../agent-tycoon/FloatingToast.js';
+import { actionToastDuration } from '../agent-tycoon/officeStore.js';
 import { CHANGELOG_REPO_URL, changelogEntries, toMajorMinor } from '../changelogData.ts';
-import { FloatingToast } from '../cld/FloatingToast.js';
-import { actionToastDuration } from '../cld/officeStore.js';
 import { t, useLanguage } from '../i18n/index.js';
 import { Modal } from './ui/Modal.js';
 

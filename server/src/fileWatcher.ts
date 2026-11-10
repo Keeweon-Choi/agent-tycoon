@@ -28,9 +28,9 @@ const debug = readEnv('DEBUG') !== '0';
 
 import type { HookProvider } from '../../core/src/provider.js';
 import type { TeamProvider } from '../../core/src/teamProvider.js';
+import { isUsageProbeFolder } from './agent-tycoon/usageProbeFolder.js';
 import { createAgentState } from './agentState.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { isUsageProbeFolder } from './cld/usageProbeFolder.js';
 import {
   BACKGROUND_RECOVERY_FRESH_MS,
   BACKGROUND_RECOVERY_OPEN_TOOL_MAX_MS,
