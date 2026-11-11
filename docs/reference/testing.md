@@ -37,7 +37,7 @@ Run: `npm run test:webview`.
 
 ## End-to-end (Playwright)
 
-`e2e/` contains Playwright tests against the standalone daemon in a headless browser (`e2e/tests/standalone/**`). CI runs the suite on Linux, macOS, and Windows in three shards at `--workers=1` (manual runs and tags only). The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs, scenarios, and `@area:` coverage.
+`e2e/` contains Playwright tests against the standalone daemon in a headless browser (`e2e/tests/standalone/**`). CI runs the suite on Linux, macOS, and Windows in three shards at `--workers=1` (manual runs only: the specs still drive the screens from before the office was rebuilt, so a version tag no longer runs them). The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs, scenarios, and `@area:` coverage.
 
 **Mock claude**: Tests never invoke real `claude`. A bash script (`e2e/fixtures/mock-claude`) is copied into an isolated `mock-bin/` and prepended to the daemon's `PATH`. The scenario runner (`mock-claude-runner.cjs`) honors `claudeScenario(...).at(ms).appendJsonl(record).emitHook(event).holdOpenFor(ms).build()` to drive timed JSONL writes and hook events.
 

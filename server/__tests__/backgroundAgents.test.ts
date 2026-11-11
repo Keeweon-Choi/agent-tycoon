@@ -795,6 +795,110 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     ).toBe(true);
   });
 
+  describe('the notice rule (waiting, no tool use id, stopped, killed)', () => {
+    const TASK = 'a4cb86c99458dbe55';
+    /** A notice in the harness's real shape; the summaries are its English text. */
+    function notice(status: string, toolId?: string, summary = 'Agent "Say hello" finished', taskId = TASK): string {
+      const id = toolId ? `<tool-use-id>${toolId}</tool-use-id>\n` : '';
+      return JSON.stringify({
+        type: 'queue-operation',
+        operation: 'enqueue',
+        content: `<task-notification>\n<task-id>${taskId}</task-id>\n${id}<output-file>/tmp/x/${taskId}.output</output-file>\n<status>${status}</status>\n<summary>${summary}</summary>\n<note>x</note>\n<result>x</result>\n</task-notification>`,
+      });
+    }
+    const waiting = (toolId?: string) =>
+      notice('completed', toolId, 'Agent "Say hello" is waiting on its own background work');
+    const feed = (...lines: string[]) => {
+      for (const l of lines) processTranscriptLine(1, l, agents, waitingTimers, permissionTimers);
+    };
+    const cleared = () =>
+      messages.some((m) => m.type === 'subagentClear' && m.parentToolId === SPAWN_TOOL_ID);
+
+    it('waiting under its own id: still running, its watch kept', () => {
+      const jsonlPath = seedSidecar({ transcriptLines: [subToolUseLine(), subToolResultLine()] });
+      spawnAndLaunch();
+      feed(waiting(SPAWN_TOOL_ID), waiting());
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      expect(watch.isWatching(jsonlPath)).toBe(true);
+      expect(cleared()).toBe(false);
+      expect(completed).toEqual([]);
+    });
+
+    it('waiting, then finished with no tool use id: ended by its task id', () => {
+      const jsonlPath = seedSidecar({ transcriptLines: [subToolUseLine(), subToolResultLine()] });
+      spawnAndLaunch();
+      feed(waiting(SPAWN_TOOL_ID));
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      feed(notice('completed'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+      expect(watch.isWatching(jsonlPath)).toBe(false);
+      expect(cleared()).toBe(true);
+      expect(completed).toEqual([{ leadId: 1, toolUseId: SPAWN_TOOL_ID }]);
+    });
+
+    it('stopped with no tool use id (the session restarted under it): ended', () => {
+      spawnAndLaunch(); // no sidecar: the launch's agentId line alone pairs it
+      feed(notice('stopped', undefined, 'Background agent "Say hello" didn\'t finish before the previous session ended'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+      expect(cleared()).toBe(true);
+    });
+
+    it('killed: ended', () => {
+      spawnAndLaunch();
+      feed(notice('killed', SPAWN_TOOL_ID, 'Agent "Say hello" was stopped'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+    });
+
+    it("a shell task's notice changes nothing", () => {
+      seedSidecar();
+      spawnAndLaunch();
+      feed(notice('completed', 'toolu_bash', 'Background command "npm test" completed (exit code 0)', 'b9yjffopj'));
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      expect(cleared()).toBe(false);
+    });
+
+    it('resumed, waiting under the SendMessage id, then finished with no id: running until the finish', () => {
+      const jsonlPath = seedSidecar({ transcriptLines: [subToolUseLine(), subToolResultLine()] });
+      spawnAndLaunch();
+      feed(notice('completed', SPAWN_TOOL_ID));
+      seedSidecar({ transcriptLines: [subToolUseLine(), subToolResultLine(), subToolUseLine()] });
+      resumeViaSendMessage('toolu_send_01');
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      feed(waiting('toolu_send_01'), waiting());
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      expect(watch.isWatching(jsonlPath)).toBe(true);
+      feed(notice('completed'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+      expect(watch.isWatching(jsonlPath)).toBe(false);
+    });
+
+    it('a spawn only the re-read re-armed is ended by a notice with no id, through its sidecar', () => {
+      seedSidecar();
+      lead.backgroundAgentToolIds.add(SPAWN_TOOL_ID); // as office.ts merges liveBackgroundAgents()
+      feed(waiting('toolu_send_01'));
+      expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+      feed(notice('stopped'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+    });
+
+    it("a resume the re-read counted under the SendMessage id is ended by the task id it paired", () => {
+      lead.backgroundAgentToolIds.add('toolu_send_01');
+      lead.backgroundTaskIds = new Map([[TASK, 'toolu_send_01']]); // filled by liveBackgroundAgents()
+      feed(waiting('toolu_send_01'), waiting());
+      expect([...lead.backgroundAgentToolIds]).toEqual(['toolu_send_01']);
+      feed(notice('completed'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+    });
+
+    it('one task held under two ids (sidecar recovery and the re-read): its end ends both', () => {
+      seedSidecar();
+      lead.backgroundAgentToolIds.add(SPAWN_TOOL_ID).add('toolu_send_01');
+      lead.backgroundTaskIds = new Map([[TASK, 'toolu_send_01']]);
+      feed(notice('completed', 'toolu_send_01'));
+      expect(lead.backgroundAgentToolIds.size).toBe(0);
+    });
+  });
+
   it("carries a sub-agent tool call's own description to its subagentToolStart", () => {
     const line = JSON.stringify({
       type: 'assistant',

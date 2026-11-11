@@ -7,6 +7,8 @@ import * as path from 'path';
 
 import { koText } from '../../../../core/src/agent-tycoon/serverText.js';
 import type { BrainRef } from '../../../../core/src/agent-tycoon/spec/trace.js';
+import { BACKGROUND_WAITING_MAX_MS } from '../../constants.js';
+import { LABEL } from '../labels.js';
 import { turnEnded } from '../providers/claudeProvider.js';
 import { fail, type Outcome } from './engineAction.js';
 import { configDir, shortStamp } from './events.js';
@@ -118,6 +120,43 @@ export function historyHop(
   return t ? { file: t.transcript, end: t.bytes } : null;
 }
 
+/** Failures after which the old conversation is still running and can be told. Not `cancelled` (a
+ *  person stopped it), not `start_failed` (no session is left to hear it), not `terminal` (the
+ *  messenger cannot type into a terminal's conversation: the notice would wait in the queue and
+ *  reach a later background session as stale advice). */
+const TELL_LEAD = new Set(['not_idle', 'queue_failed', 'stop_failed']);
+
+/** T-95: what the Lead is told when its renew failed: why, that this conversation goes on, where the
+ *  handoff is (`kept`: the `.failed` copy; else the file the Lead itself wrote, which the engine
+ *  never touches), and the next step. Exported for the tests. */
+export function renewFailedText(code: string, error: string, kept: string | null, file: string | null): string {
+  const where = kept
+    ? `인수인계는 ${kept} 에 보관했다.`
+    : file
+      ? `인수인계 파일 ${file} 은 그대로 있다.`
+      : '';
+  // Only when sub-agents were still counted (subagentsLeft's text).
+  const subs =
+    code === 'not_idle' && SUBAGENTS_LEFT.test(error)
+      ? `끝난 것처럼 보이는 서브에이전트는 SendMessage 로 메시지를 보내면 그다음 알림에 끝난 것으로 잡히고, ${BACKGROUND_WAITING_MAX_MS / 60_000}분 동안 조용히 멈춰 있는 서브에이전트는 더 세지 않는다.`
+      : '';
+  const next = '돌고 있는 것(백그라운드 서브에이전트·job)을 확인해 끝낸 뒤 "$AGTY_BIN" renew <파일> 을 다시 실행하고 턴을 끝내라.';
+  return `[${LABEL}] 새 대화로 넘기지 못했다(${code}): ${error}. 새 대화는 만들어지지 않았고 이 대화가 그대로 이어진다. ${where} ${subs} ${next}`.replace(/ {2,}/g, ' ');
+}
+
+const SUBAGENTS_LEFT = /^서브에이전트 \d+개/;
+/** Names shown in a not_idle reason, and the characters kept of each. */
+const SUBAGENT_NAMES_MAX = 3;
+const SUBAGENT_NAME_CHARS = 40;
+
+/** The not_idle reason while `n` sub-agents are counted, naming the first ones (`names`). */
+export function subagentsLeft(n: number, names: string[]): string {
+  const shown = names.slice(0, SUBAGENT_NAMES_MAX).map((s) => Array.from(s).slice(0, SUBAGENT_NAME_CHARS).join(''));
+  const rest = Math.max(0, n - shown.length);
+  const list = shown.length ? `(${shown.join(', ')}${rest ? ` 외 ${rest}개` : ''})` : '';
+  return `서브에이전트 ${n}개${list}가 끝나지 않아 새 대화로 넘기지 않았어요`;
+}
+
 export interface RenewalsDeps {
   home: string;
   /** The engine's timing object (read at each call, so a test's override is seen). */
@@ -151,6 +190,10 @@ export interface RenewalsDeps {
   /** K1 (G6): the background sub-agents `name`'s session still runs; null: not known yet (the
    *  renew waits). Unset: none. */
   subagents?: (name: string) => number | null;
+  /** The counted sub-agents' names (their sidecar descriptions), for the not_idle reason. */
+  subagentNames?: (name: string) => string[];
+  /** T-95: tell `name`'s still-running conversation that its renew failed (once, `text` whole). */
+  failed?: (name: string, text: string) => void;
 }
 
 export class Renewals {
@@ -370,6 +413,7 @@ export class Renewals {
    *  (`.failed`), a failed start keeps it (B4: the next start is a new conversation). */
   private end(p: ProjectRecord, r: RenewRecord, ok: boolean, sessionId: string | null, code?: string, error?: string): void {
     const file = renewFile(this.deps.home, p.name);
+    let kept: string | null = null;
     try {
       if (ok) {
         this.addTerm(r, sessionId, p.role ? undefined : p.projectId);
@@ -380,6 +424,7 @@ export class Renewals {
       } else if (phaseOf(r) !== 'waiting') fs.rmSync(file, { force: true });
       else {
         fs.renameSync(file, `${file}.failed`);
+        kept = `${file}.failed`;
         this.deps.log(`renew "${p.name}": its handoff is kept in ${file}.failed`);
       }
     } catch (err) {
@@ -396,6 +441,9 @@ export class Renewals {
       ...(code && { code, error }),
       ...(r.format && { format: r.format }),
     });
+    // After the pending mark is gone: the messenger drops a `nudge` while a renewal is pending, and
+    // this notice has no `kind`, so that rule never touches it.
+    if (!ok && code && TELL_LEAD.has(code)) this.deps.failed?.(p.name, renewFailedText(code, error ?? '', kept, r.file ?? null));
     this.deps.refresh();
   }
 
@@ -439,7 +487,11 @@ export class Renewals {
           false,
           null,
           'not_idle',
-          subs !== 0 ? '서브에이전트가 끝나지 않아 새 대화로 넘기지 않았어요' : '턴이 끝나지 않아 새 대화로 넘기지 않았어요',
+          subs === null
+            ? '서브에이전트가 몇 개 도는지 아직 몰라 새 대화로 넘기지 않았어요'
+            : subs !== 0
+              ? subagentsLeft(subs, this.deps.subagentNames?.(p.name) ?? [])
+              : '턴이 끝나지 않아 새 대화로 넘기지 않았어요',
         );
       await this.deps.sleep(this.deps.timing.renewPollMs);
     }

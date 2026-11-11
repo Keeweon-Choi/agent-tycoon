@@ -108,6 +108,8 @@ function rig(
     env: () => ({
       HOME: home,
       PATH,
+      // The fake commits only under its own os.tmpdir(): without this it sees /tmp where ours is elsewhere (macOS, CI).
+      TMPDIR: os.tmpdir(),
       AGTY_BIN,
       FAKE_CODEX: scenario,
       // A 3 s limit window: at 1 s a loaded machine missed the 'limit' state (10-22 19:52 gate).

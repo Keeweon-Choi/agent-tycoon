@@ -16,7 +16,7 @@ describe('CompactionWatch', () => {
   let sessionId: string;
   let fill: number | undefined;
   let events: Array<Record<string, unknown>>;
-  let nudges: Array<[string, number, number]>;
+  let nudges: Array<[string, number, number | null]>;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'compactions-'));
     file = path.join(dir, 't.jsonl');
@@ -62,6 +62,20 @@ describe('CompactionWatch', () => {
     fs.appendFileSync(file, '{"x":2}\n');
     check();
     expect(nudges).toEqual([['alpha', 2, RENEW_FILL_PCT + 1]]);
+  });
+
+  it('T-96: a later boundary before any refill nudges once with no fill (null), not a made-up one', () => {
+    fs.writeFileSync(file, `{"t":${MARK}}\n`);
+    check(); // first look
+    fs.appendFileSync(file, `{"t":${MARK}}\n`);
+    check(); // the 2nd boundary: the count is reached, the context is empty
+    expect(nudges).toEqual([]);
+    fs.appendFileSync(file, `{"t":${MARK}}\n`);
+    check(); // the 3rd, no refill seen between
+    expect(nudges).toEqual([['alpha', 3, null]]);
+    fs.appendFileSync(file, `{"t":${MARK}}\n`);
+    check();
+    expect(nudges).toEqual([['alpha', 3, null]]); // once
   });
 
   it('counts a project without compactionNudge too, and never nudges it', () => {

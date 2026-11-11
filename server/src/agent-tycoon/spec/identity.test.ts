@@ -286,7 +286,8 @@ describe('R2 fixtures and the SPT 0.3 traps', () => {
     expect(w.reg.items[srsRow(b).uid].decisions.at(-1)!.how).toMatch(/^T2/);
   });
 
-  it('F17: this repository\'s agent-tycoon/docs moved to specs/ without git keeps every document and item', () => {
+  // The public export drops agent-tycoon/docs (release/exclude.txt): this reads the private tree's own documents.
+  it.skipIf(!fs.existsSync(path.resolve(__dirname, '../../../../agent-tycoon/docs')))('F17: this repository\'s agent-tycoon/docs moved to specs/ without git keeps every document and item', () => {
     const root = path.resolve(__dirname, '../../../../agent-tycoon/docs');
     const files: Files = {};
     for (const rel of fs.readdirSync(root, { recursive: true }).map(String))

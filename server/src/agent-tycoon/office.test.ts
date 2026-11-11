@@ -1218,8 +1218,11 @@ describe('the ~/.claude/sessions/ watcher', () => {
     const changed = vi.spyOn(office, 'sessionsChanged');
     const viewer = vi.fn();
     office.onClientOpened(viewer);
-    fs.writeFileSync(path.join(dir, '1101.json'), '{"status":"busy"}');
-    await vi.waitFor(() => expect(changed).toHaveBeenCalled());
+    // macOS's fs.watch (FSEvents) can miss a write made right after the watch starts: write again until it hears one.
+    await vi.waitFor(() => {
+      fs.writeFileSync(path.join(dir, '1101.json'), `{"status":"busy","at":${Date.now()}}`);
+      expect(changed).toHaveBeenCalled();
+    });
 
     office.onClientClosed(viewer);
     changed.mockClear();

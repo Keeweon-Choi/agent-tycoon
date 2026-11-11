@@ -670,6 +670,12 @@ export const THUMB_CACHE_VERSION = 1;
 /** K1 (G6): how much of a transcript's end the one-time background sub-agent scan reads (a spawn
  *  older than that is not seen: ponytail, the whole file if renews ever miss one). */
 export const BACKGROUND_SCAN_BYTES = 8 * 1024 * 1024;
+/** K1 (G6): a renew stops counting a background sub-agent whose sidecar says it stopped
+ *  (`finished`) and whose own transcript has not been written for this long: one that waits on its
+ *  own background work and is never woken again would block every renew of its Lead. The longest
+ *  real wait seen was 34 minutes; work that runs longer belongs in `agty job`, which outlives the
+ *  session. */
+export const BACKGROUND_WAITING_MAX_MS = 60 * 60 * 1000;
 
 // ── BRN K3: the agent query tools (read only; BRN Appendix A.4, v0.1 Q12) ──
 /** Query calls an agent may make a minute (every query tool together), and the window. */

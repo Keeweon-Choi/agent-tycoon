@@ -247,40 +247,33 @@ async function drainRecordedMessages(page: Page): Promise<RecordedServerMessage[
   });
 }
 
-/** The trailing `\s` is load-bearing: stdout arrives in chunks, and without a
- *  terminator a half-delivered line would match and yield a truncated URL that
- *  still parses (`http://127.0.0.1:501`). */
-const PRINTED_URL_PATTERN = /Agent Tycoon server running at (\S+)\s/;
-
 /**
- * Wait for the URL line the CLI prints on its own stdout, and hand back exactly
- * that string.
+ * The URL an operator opens: the daemon's login link.
  *
- * That printed line is the ONLY channel by which a real operator's browser
- * obtains the server token — the token is what makes the session privileged
- * enough to approve a hook install (the SPA forwards it on the /ws handshake,
- * server/src/httpServer.ts standaloneTokenValid). Reading the token out of
- * `~/.pixel-agents/server.json` and synthesizing an equivalent URL, which this
- * fixture used to do, is the fixture handing ITSELF a capability no browser can
- * reach: the whole standalone suite then stays green over a CLI that prints a
- * bare, wrong-tokened, or unbrowsable URL, and every real user lands in a
- * read-only session whose hooks toggle is silently refused.
+ * The daemon no longer prints a URL (since 2026-10-21 it prints a login link only on a terminal,
+ * and a code never goes into a log). The channels a real operator has are the installer's and
+ * `agty-login`'s: POST /api/login-code with the host token, then follow `/login?code=` in the
+ * browser, which trades the one-time code for a session cookie. This does exactly that.
+ *
+ * The host token is read from server.json (where the real hook script reads it too); the BROWSER
+ * only ever gets what the code buys, never the host token itself, so the suite still fails over a
+ * login that does not log a browser in.
  */
-async function waitForPrintedUrl(readOutput: () => string): Promise<string> {
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const printed = PRINTED_URL_PATTERN.exec(readOutput())?.[1];
-    if (printed) {
-      return printed;
-    }
-    await delay(100);
+async function mintLoginUrl(hostUrl: string, token: string): Promise<string> {
+  const response = await fetch(`${hostUrl}/api/login-code`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
+  if (!response.ok || typeof body?.code !== 'string') {
+    throw new Error(`POST ${hostUrl}/api/login-code returned ${response.status.toString()}`);
   }
-  throw new Error(`The CLI never printed its server URL:\n${readOutput()}`);
+  return `${hostUrl}/login?code=${encodeURIComponent(body.code)}`;
 }
 
-/** Open the SPA the way the operator does: by pasting in the URL the CLI printed. */
-async function openStandalonePage(page: Page, printedUrl: string): Promise<void> {
-  await page.goto(printedUrl);
+/** Open the SPA the way the operator does: by following the login link. */
+async function openStandalonePage(page: Page, loginUrl: string): Promise<void> {
+  await page.goto(loginUrl);
   await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible({ timeout: 30_000 });
 }
 
@@ -313,6 +306,14 @@ export async function launchStandalone(
     };
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(seeded, null, 2));
+  }
+  // The first-run "Choose how to connect" screen covers the office on a host's first open on localhost;
+  // an operator who picked a way (or "later") is not asked again. The access settings live in the
+  // settings directory, next to the office folder (remote/index.ts accessChosen).
+  const accessConfigPath = path.join(tmpHome, '.config', 'agent-tycoon', 'config.json');
+  if (!fs.existsSync(accessConfigPath)) {
+    fs.mkdirSync(path.dirname(accessConfigPath), { recursive: true });
+    fs.writeFileSync(accessConfigPath, JSON.stringify({ accessChosen: true }, null, 2));
   }
   if (options.seedLayout !== undefined) {
     const layoutPath = path.join(tmpHome, '.pixel-agents', 'layout.json');
@@ -364,9 +365,9 @@ export async function launchStandalone(
     await waitForHttpOk(`${hostUrl}/api/health`);
     // The hook-endpoint Bearer token is a different channel and legitimately
     // read from the registry — that is where the real hook script reads it too.
-    // The BROWSER's capability may only come from the printed URL below.
+    // The BROWSER's capability may only come from the login link below.
     const hookServerConfig = await waitForHookServer(tmpHome);
-    await openStandalonePage(page, await waitForPrintedUrl(() => hostStdout));
+    await openStandalonePage(page, await mintLoginUrl(hostUrl, hookServerConfig.token));
     await drainRecordedMessages(page);
 
     return {

@@ -10,7 +10,8 @@ const REPO = path.resolve(__dirname, '../../../..');
 const DOCS_CHECK = /\b(?:(?:FR|NFR|IR)-[A-Z]{2,5}-\d{3}|CON-\d{3})\b/g;
 
 describe('the display-ID grammar', () => {
-  it('reads every SRS id docs-check accepts, whole', () => {
+  // The public export drops agent-tycoon/docs (release/exclude.txt): this reads the private tree's SRS.
+  it.skipIf(!fs.existsSync(path.join(REPO, 'agent-tycoon/docs/requirements/SRS.md')))('reads every SRS id docs-check accepts, whole', () => {
     const srs = fs.readFileSync(path.join(REPO, 'agent-tycoon/docs/requirements/SRS.md'), 'utf-8');
     const ids = [...new Set(srs.match(DOCS_CHECK) ?? [])];
     expect(ids.length).toBeGreaterThan(100);

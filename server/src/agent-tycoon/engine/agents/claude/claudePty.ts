@@ -66,7 +66,7 @@ import type { TerminalInfo } from '../../../ptyhost/protocol.js';
 import { isShellTerminal, ptyhostPaths } from '../../../ptyhost/protocol.js';
 import { rulesDirFor, writeCombinedRules } from '../../agentRules.js';
 import { AGENT_TOKEN_ENV } from '../../agentTokens.js';
-import { alreadyTyped, cleanText, lastPrompt, tail } from '../../messenger.js';
+import { cleanText, lastPrompt, tail, typedSince } from '../../messenger.js';
 import type { ProjectRecord } from '../../registry.js';
 import { CLAUDE_PTY_PROVIDER } from '../../registry.js';
 import type { AgentProvider, DeliverResult, LiveSession, StartResult, StopResult } from '../types.js';
@@ -491,6 +491,8 @@ export class ClaudePtyAgent implements AgentProvider {
     const clean = cleanText(text);
     const file = this.transcript(s);
     const before = lastPrompt(tail(file));
+    // T-88: the mark is looked for in everything written since now, not only the tail (typedSince).
+    let from = fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0;
     const key = `${id}\n${clean}`;
     const look = () =>
       this.onScreen(id, (term) => boxOf(term, clean, this.unsent.get(key)), 'free' as const);
@@ -537,9 +539,14 @@ export class ClaudePtyAgent implements AgentProvider {
       const got = tail(file);
       // MSG-RECALL: only the prompt with this message's own mark is ours; another one that went in
       // meanwhile (a recalled history item) is a lost delivery, never a typed one.
-      if (o.messageId && alreadyTyped(got, o.messageId)) return settled('typed');
+      if (o.messageId) {
+        const seen = typedSince(file, from, o.messageId);
+        if (seen.typed) return settled('typed');
+        from = seen.next;
+      }
+      // A tail with no prompt at all (one api-request-blob of 256 KB or more over it) changed nothing.
       const last = lastPrompt(got);
-      if (o.messageId && last?.key !== before?.key) {
+      if (o.messageId && last && last.key !== before?.key) {
         // Another prompt a working session took from its queue (the owner typed one into the terminal
         // just before our Enter): ours may sit behind it in that queue, so wait for our mark.
         if (last?.queued && working()) return settled('unconfirmed');

@@ -38,6 +38,8 @@ export default defineConfig({
   // uses Playwright's standard browser `page` fixture.
   use: {
     video: 'on',
+    // Headless chromium without a GPU: CI runners have none, and the dev PC's GPU path skews timings.
+    launchOptions: { args: ['--disable-gpu'] },
   },
   // Default to one worker locally; CI can override this with --workers.
   workers: 1,

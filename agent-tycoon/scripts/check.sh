@@ -250,8 +250,14 @@ run_integration() {
   else
     skip test-release "release tooling is not in this tree"
   fi
-  run docs-check node agent-tycoon/scripts/docs-check.mjs --root agent-tycoon
-  trace_drift
+  # The public export drops agent-tycoon/docs (release/exclude.txt): nothing to check there.
+  if [[ -d agent-tycoon/docs ]]; then
+    run docs-check node agent-tycoon/scripts/docs-check.mjs --root agent-tycoon
+    trace_drift
+  else
+    skip docs-check "agent-tycoon/docs is not in this tree"
+    skip trace-drift "agent-tycoon/docs is not in this tree"
+  fi
   run no-trace node agent-tycoon/scripts/no-trace.mjs
 }
 

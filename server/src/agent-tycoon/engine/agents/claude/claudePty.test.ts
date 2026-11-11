@@ -61,8 +61,9 @@ function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: P
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-claudepty-'));
   homes.push(home);
   const pid = process.pid;
-  const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
-  const procStart = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  // /proc start time; none off Linux, where liveness is the pid alone (claudeProvider.processAlive).
+  const stat = process.platform === 'linux' ? fs.readFileSync(`/proc/${pid}/stat`, 'utf-8') : null;
+  const procStart = stat?.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
   const sessions = path.join(home, '.claude/sessions');
   fs.mkdirSync(sessions, { recursive: true });
   const writeSession = (status: string) =>
@@ -375,6 +376,36 @@ describe('MSG-RECALL: a delivery never submits a prompt that is not its own (11-
           ),
         50,
       );
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+  });
+
+  it('T-88: our prompt (in its <pasted_content> wrapper) with a big api-request-blob right after it: typed, not judged by the tail', async () => {
+    const { agent, host, home } = rig('idle');
+    const file = transcriptPath('/work/alpha', 's-1', home);
+    host.react((d) => {
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' });
+      const prompt = { isSidechain: false, type: 'user', uuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: `\n\n<pasted_content id="f978">\n${NEW}\n</pasted_content id="f978">` } };
+      const blob = { type: 'api-request-blob', message: { content: [{ type: 'text', text: 'x'.repeat(300 * 1024) }] } };
+      fs.appendFileSync(file, `${JSON.stringify(prompt)}\n${JSON.stringify(blob)}\n`);
+    });
+    expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
+  });
+
+  it('T-88 M1: a big api-request-blob over the whole tail before our prompt is written: no lost verdict, typed', async () => {
+    const { agent, host, home } = rig('idle');
+    const file = transcriptPath('/work/alpha', 's-1', home);
+    fs.appendFileSync(file, `${JSON.stringify({ type: 'user', uuid: 'u0', message: { role: 'user', content: 'earlier prompt' } })}\n`);
+    host.react((d) => {
+      if (d !== '\r') return;
+      host.status.set('abcd1234', { state: 'working' });
+      const blob = { type: 'api-request-blob', message: { content: [{ type: 'text', text: 'x'.repeat(300 * 1024) }] } };
+      fs.appendFileSync(file, `${JSON.stringify(blob)}\n`);
+      const prompt = { isSidechain: false, type: 'user', uuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: NEW } };
+      // Well inside the rig's 300 ms submit window (at 300 it sat on the edge and failed once under load),
+      // and still several 10 ms polls after the blob, which is what used to read as lost.
+      setTimeout(() => fs.appendFileSync(file, `${JSON.stringify(prompt)}\n`), 60);
     });
     expect(await agent.deliver(lead, NEW, { messageId: 'xpjaixhk' })).toBe('typed');
   });

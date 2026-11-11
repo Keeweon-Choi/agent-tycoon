@@ -23,7 +23,7 @@ import {
 import { readLiveSessions } from './agents/claude/sessions.js';
 import type { AgentProvider } from './agents/types.js';
 import type { EngineOptions } from './engine.js';
-import { Engine, engineOn } from './engine.js';
+import { Engine, engineOn, nudgeText } from './engine.js';
 import { parseEngineAction } from './engineAction.js';
 import { EngineEvents, eventsPath } from './events.js';
 import { Messenger } from './messenger.js';
@@ -767,7 +767,8 @@ describe('engine with the fake claude', () => {
     const rows = JSON.parse(fake(['agents', '--json']).stdout) as Array<Record<string, unknown>>;
     expect(rows).toEqual([expect.objectContaining({ id: bgId, kind: 'background' })]);
     expect(rows[0].pid).toBeUndefined();
-    // A pid that is alive but started at another time is not the session either.
+    // A pid that is alive but started at another time is not the session either (Linux only: elsewhere liveness is the pid alone).
+    if (process.platform !== 'linux') return;
     const pid = liveProcess();
     fs.writeFileSync(
       path.join(home, `.claude/sessions/${pid}.json`),
@@ -1086,7 +1087,8 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     const inbox: Array<{ name: string; text: string }> = [];
     const replaces: unknown[] = []; // writeInbox's third argument, per call
     const started: string[] = [];
-    const nudges: Array<[string, number, number]> = [];
+    const nudges: Array<[string, number, number | null]> = [];
+    const failures: Array<[string, string]> = []; // T-95: renewFailed's calls
     const s = setup({
       projects,
       extra: {
@@ -1095,10 +1097,11 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
         started: (name) => started.push(name),
         writeInbox: (name, text, replace) => (inbox.push({ name, text }), replaces.push(replace), true),
         nudge: (name, n, fillPct) => nudges.push([name, n, fillPct]),
+        renewFailed: (name, text) => failures.push([name, text]),
         ...more,
       },
     });
-    return { ...s, events, inbox, replaces, started, nudges };
+    return { ...s, events, inbox, replaces, started, nudges, failures };
   }
   /** The fake's session file for a live job: status set by hand (a turn running). */
   function setStatus(home: string, id: string, status: string) {
@@ -1245,6 +1248,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       oldSessionId: old.sessionId,
       failed: { code: 'start_failed' },
     });
+    expect(r.failures).toEqual([]); // the old session is gone: nobody to tell
     expect(e1.renewFailed('alpha')).toBe(true);
     expect(e1.renewing('alpha')).toBe(false); // messages go to the inbox as usual
     // No retry, not even by a restart's revive.
@@ -1457,7 +1461,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
   });
 
   it('K1 (G6): sub-agents past the wait: not_idle, said so, no new conversation', async () => {
-    const r = rig(undefined, { renewWaitMs: 300 }, { subagents: () => 2 });
+    const r = rig(undefined, { renewWaitMs: 300 }, { subagents: () => 2, subagentNames: () => ['fix: the error boundary'] });
     const e = r.boot();
     await r.act(e, 'add', 'alpha', { folder: r.folder('alpha') });
     await r.act(e, 'start', 'alpha');
@@ -1467,9 +1471,16 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({
       ok: false,
       code: 'not_idle',
-      error: expect.stringContaining('서브에이전트'),
+      error: expect.stringContaining('서브에이전트 2개'),
     });
     expect(r.project(e, 'alpha')!.sessionId).toBe(old.sessionId);
+    // T-95: the Lead that is still there hears it, once, with what it waited for.
+    await new Promise((res) => setTimeout(res, 100));
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0][0]).toBe('alpha');
+    expect(r.failures[0][1]).toContain('서브에이전트 2개(fix: the error boundary 외 1개)가 끝나지 않아');
+    expect(r.failures[0][1]).toContain('SendMessage 로 메시지를 보내면');
+    expect(r.failures[0][1]).toContain('alpha.json.failed 에 보관했다');
   });
 
   it('K1 (B1, B2): a handoff in the form: safety lines, the six sections, then the work basis, in order', async () => {
@@ -1527,6 +1538,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     expect(out.ok).toBe(true);
     await waitFor(() => expect(e1.renewing('alpha')).toBe(false));
     expect(r.events.find((x) => x.type === 'orch_renew')).toMatchObject({ ok: false, code: 'cancelled' });
+    expect(r.failures).toEqual([]); // a person stopped it: nobody is told
     expect(r.project(e1, 'alpha')).toMatchObject({ live: false, wantRunning: false });
     expect(fs.readdirSync(renewals(r.home)).filter((f) => f.endsWith('.json'))).toEqual([]);
     e1.dispose();
@@ -1568,6 +1580,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
       code: 'not_idle',
     });
     expect(r.inbox).toEqual([]);
+    expect(r.failures).toEqual([['alpha', expect.stringContaining('턴이 끝나지 않아')]]);
     expect(r.project(e, 'alpha')!.sessionId).toBe(old.sessionId); // untouched
     expect(fs.readdirSync(renewals(r.home))).toEqual(['alpha.json.failed']);
     expect(
@@ -1756,8 +1769,19 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     e2.refresh();
     expect(r.nudges).toEqual([
       ['alpha', 2, 90],
-      ['alpha', 3, 85],
+      ['alpha', 3, null], // no refill measured: the text must not claim one
     ]);
+  });
+
+  it('T-96: nudgeText claims a refill only when one was measured', () => {
+    const measured = nudgeText(2, 87);
+    expect(measured).toContain('컴팩션을 2번 거친 뒤 컨텍스트가 다시 87% 찼다');
+    const passed = nudgeText(3, null);
+    expect(passed).toContain('컴팩션을 3번 거쳐 정해 둔 횟수를 넘었다');
+    expect(passed).not.toMatch(/\d+% 찼다|다시 .*찼다/);
+    // The instruction after the claim is the same.
+    const rest = (t: string) => t.slice(t.indexOf('. 하던') + 2);
+    expect(rest(passed)).toBe(rest(measured));
   });
 
   it('compaction nudge falls back at the next boundary when the refill was missed', async () => {
@@ -1777,7 +1801,7 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     // must replace a fourth compaction with the renew reminder.
     fs.appendFileSync(transcript, mark);
     e.refresh();
-    expect(r.nudges).toEqual([['alpha', 3, 85]]);
+    expect(r.nudges).toEqual([['alpha', 3, null]]);
     // 0 turns it off.
     expect(await r.act(e, 'edit', 'alpha', { compactionNudge: 0 } as never)).toMatchObject({
       ok: true,

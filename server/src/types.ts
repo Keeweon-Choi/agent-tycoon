@@ -23,6 +23,9 @@ export interface AgentState {
   activeSubagentToolIds: Map<string, Set<string>>; // parentToolId → active sub-tool IDs
   activeSubagentToolNames: Map<string, Map<string, string>>; // parentToolId → (subToolId → toolName)
   backgroundAgentToolIds: Set<string>; // tool IDs for run_in_background Agent calls (stay alive until queue-operation)
+  /** Task id (a notice's `<task-id>`) -> the background spawn tool id it pairs with, so a notice
+   *  without `<tool-use-id>` still ends its spawn (endedSpawns). Transient, lazily created. */
+  backgroundTaskIds?: Map<string, string>;
   isWaiting: boolean;
   permissionSent: boolean;
   /** WAITING-PERSIST: the main turn ended on a question to the person (its last assistant text

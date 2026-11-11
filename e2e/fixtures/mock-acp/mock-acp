@@ -76,7 +76,6 @@ async function turn(id, sessionId, steps) {
     else if (s.ask) {
       const r = await request('session/request_permission', { sessionId, ...s.ask });
       const outcome = r.result?.outcome;
-      log({ answer: r });
       update(sessionId, {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: `outcome:${outcome?.outcome === 'selected' ? outcome.optionId : (outcome?.outcome ?? 'error')}` },
@@ -94,6 +93,9 @@ function handle(m) {
   if (m.id !== undefined && !m.method) {
     const resolve = waiting.get(m.id);
     waiting.delete(m.id);
+    // On the line itself, not after the turn's next microtask: the client may close and kill us
+    // right behind this answer, and a line not yet on disk then never exists.
+    if (resolve) log({ answer: m });
     resolve?.(m);
     return;
   }

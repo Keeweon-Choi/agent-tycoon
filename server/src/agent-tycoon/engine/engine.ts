@@ -207,8 +207,9 @@ export function reviveText(cause: 'reboot' | 'restart' | 'died', when: string): 
 }
 
 /** The compaction nudge (an opt-in per project). */
-export const nudgeText = (n: number, fillPct: number): string =>
-  `[${LABEL}] 이 대화는 컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다. 하던 일을 안전한 지점까지 마치고, 인수인계 파일을 제목 '## 목표' '## 완료' '## 미해결' '## 다음 행동'(있으면 '## 결정' '## 시도했다 버린 것')으로 쓰고 줄마다 [사실]·[판단]·[미확인] 을 단 뒤(돌고 있는 작업은 pid·로그까지), 백그라운드 서브에이전트가 끝나면 마지막으로 "$AGTY_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
+export const nudgeText = (n: number, fillPct: number | null): string =>
+  // null: the count was passed again before a refill was measured (CompactionWatch's fallback).
+  `[${LABEL}] 이 대화는 ${fillPct === null ? `컴팩션을 ${n}번 거쳐 정해 둔 횟수를 넘었다` : `컴팩션을 ${n}번 거친 뒤 컨텍스트가 다시 ${fillPct}% 찼다`}. 하던 일을 안전한 지점까지 마치고, 인수인계 파일을 제목 '## 목표' '## 완료' '## 미해결' '## 다음 행동'(있으면 '## 결정' '## 시도했다 버린 것')으로 쓰고 줄마다 [사실]·[판단]·[미확인] 을 단 뒤(돌고 있는 작업은 pid·로그까지), 백그라운드 서브에이전트가 끝나면 마지막으로 "$AGTY_BIN" renew <그 파일> 을 실행하고 턴을 끝내라. 엔진이 같은 이름의 새 대화를 띄우고 인수인계를 첫 메시지로 넘긴다.`;
 
 export interface EngineOptions {
   claudePath: string;
@@ -245,7 +246,9 @@ export interface EngineOptions {
    *  first words of an older notice of the same kind still waiting there, which this one replaces. */
   writeInbox?: (name: string, text: string, replaces?: string | readonly string[]) => boolean;
   /** T-0019: a project's conversation refilled after its compaction nudge count. */
-  nudge?: (name: string, count: number, fillPct: number) => void;
+  nudge?: (name: string, count: number, fillPct: number | null) => void;
+  /** T-95: a failed renew's notice for the agent whose conversation is still running. */
+  renewFailed?: (name: string, text: string) => void;
   /** The clock of the revive window (T-0091); tests move it. */
   now?: () => number;
   /** D4: agent providers beside Claude's (agents/types.ts), by their id (tests; D5 adds Codex). */
@@ -255,6 +258,8 @@ export interface EngineOptions {
   /** K1 (G6): the background sub-agents agent `name`'s live session still runs (the office's
    *  AgentStateStore); a renew waits until there are none, and while it is not known (null). */
   subagents?: (name: string) => number | null;
+  /** The counted sub-agents' names (sidecar descriptions), for a renew's not_idle reason. */
+  subagentNames?: (name: string) => string[];
   briefing?: (project: string) => {
     tasks: BoardTask[];
     running: string[];
@@ -393,6 +398,8 @@ export class Engine {
       writeInbox: (...a) => this.opts.writeInbox?.(...a),
       compose: (p, r, h) => this.renewCompose(p, r, h),
       ...(this.opts.subagents && { subagents: this.opts.subagents }),
+      ...(this.opts.subagentNames && { subagentNames: this.opts.subagentNames }),
+      failed: (...a) => this.opts.renewFailed?.(...a),
     });
     this.watcher = new EngineWatch({
       timing: this.t,

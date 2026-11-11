@@ -46,6 +46,7 @@ import {
   CODEX_USAGE_PROBE_TIMEOUT_MS,
 } from '../constants.js';
 import { PALETTE_COUNT } from '../constants.js';
+import { getHookProvider } from '../transcriptParser.js';
 import { findClaude, findUvx } from './agentCli.js';
 import { AgentLatest } from './agentLatest.js';
 import { specReads } from './agentSpecReads.js';
@@ -132,7 +133,7 @@ import { codexLabel, WHITEBOARD_TYPE } from './layout.js';
 import { LevelStore, OWNER_COUNTED, ownerActionOf } from './levels.js';
 import { MemoStore } from './memos.js';
 import { handleNewAgentPermission, newAgentPermissionMessage } from './newAgentPermission.js';
-import { liveBackgroundAgents } from './office/backgroundAgents.js';
+import { liveBackgroundAgents, renewSubagents } from './office/backgroundAgents.js';
 import { OfficeChat } from './office/chat.js';
 import { engineRoutes } from './office/engineRoutes.js';
 import { type FloorPlan, OfficeFloors } from './office/floors.js';
@@ -822,19 +823,21 @@ export class Office {
               source: 'engine',
               kind: 'nudge', // S-05: dropped if a renewal comes first
             }),
-          // K1 (G6): a renew waits while the agent's background sub-agents still run.
-          // Unknown (null) until its character follows the transcript; a binding's spawns from
-          // before it (a daemon restart) are read from the transcript once.
-          subagents: (name) => {
-            const id = this.binder.idOf(`engine:${name}`);
-            const a = id === null ? undefined : this.opts.store.get(id);
-            if (!a?.jsonlFile) return null;
-            if (this.spawnsRead.get(a.id) !== a.jsonlFile) {
-              for (const t of liveBackgroundAgents(a.jsonlFile)) a.backgroundAgentToolIds.add(t);
-              this.spawnsRead.set(a.id, a.jsonlFile);
-            }
-            return a.backgroundAgentToolIds.size;
-          },
+          // T-95: a failed renew tells the Lead that still runs. No `kind` (a 'nudge' is dropped
+          // while a renewal is pending); 'action' wakes a resting session.
+          renewFailed: (name, text) =>
+            void this.messenger?.send({
+              to: name,
+              text,
+              ifIdle: false,
+              from: null,
+              source: 'engine',
+              notice: 'action',
+            }),
+          // K1 (G6): a renew waits while the agent's background sub-agents still run, and its
+          // not_idle names them.
+          subagents: (name) => this.renewSubagents(name)?.length ?? null,
+          subagentNames: (name) => (this.renewSubagents(name) ?? []).flatMap((s) => (s.description ? [s.description] : [])),
           // D3b: the new Lead's first prompt (Tasks, running work, recent events).
           briefing: (project) => ({
             tasks: this.tasks.list({ project }),
@@ -1073,6 +1076,22 @@ export class Office {
       codexTasks: () => this.codexTasks(),
       codexRoom: (project) => this.codexRoom(project),
     });
+  }
+
+  /** K1 (G6): the background sub-agents a renew of engine agent `name` waits for (renewSubagents).
+   *  Unknown (null) until its character follows the transcript; a binding's spawns from before it
+   *  (a daemon restart) are read from the transcript once. */
+  private renewSubagents(name: string): Array<{ id: string; description?: string }> | null {
+    const id = this.binder.idOf(`engine:${name}`);
+    const a = id === null ? undefined : this.opts.store.get(id);
+    if (!a?.jsonlFile) return null;
+    if (this.spawnsRead.get(a.id) !== a.jsonlFile) {
+      const tasks = (a.backgroundTaskIds ??= new Map());
+      for (const t of liveBackgroundAgents(a.jsonlFile, undefined, tasks)) a.backgroundAgentToolIds.add(t);
+      this.spawnsRead.set(a.id, a.jsonlFile);
+    }
+    if (a.backgroundAgentToolIds.size === 0) return [];
+    return renewSubagents(a, getHookProvider()?.team?.discoverTeammates(a.projectDir, a.sessionId) ?? []);
   }
 
   /** The character of a project or session name, or null. */

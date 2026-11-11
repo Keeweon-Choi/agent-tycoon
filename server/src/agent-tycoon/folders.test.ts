@@ -139,7 +139,9 @@ describe('listFolders: what it shows', () => {
   it('a folder whose name on disk is NFD is found from NFC, and listed as NFC', () => {
     const { home, host, list } = tree();
     const nfc = path.join(home, '한글폴더');
-    expect(findFolder(nfc, host)).toBe(path.join(home, NFD_NAME));
+    // macOS's APFS finds an NFC name as is (normalization-insensitive), so the path comes back as typed there.
+    const found = findFolder(nfc, host);
+    expect(process.platform === 'darwin' ? found?.normalize('NFD') : found).toBe(path.join(home, NFD_NAME));
     expect(list(nfc)).toMatchObject({ ok: true, path: nfc, entries: [{ name: 'inner' }] });
   });
 });
@@ -189,7 +191,8 @@ describe('the message, the host and the gates', () => {
   it('host detection: case folding by the flipped home, the test override', () => {
     const t = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-host-'));
     cleanup.push(() => fs.rmSync(t, { recursive: true, force: true }));
-    expect(foldsCase(t)).toBe(false); // ext4 here: /TMP/... is no folder
+    // ext4 here: /TMP/... is no folder; macOS's and Windows's default volumes fold case.
+    expect(foldsCase(t)).toBe(process.platform === 'darwin' || process.platform === 'win32');
     expect(foldsCase('/')).toBe(false); // no letter to flip
     const env = { AGTY_TEST_HOST: '{"os":"wsl","distro":"Fake","mnt":"/x/mnt"}' };
     expect(detectHostInfo('/home/u', env, 'linux')).toEqual({

@@ -61,6 +61,10 @@ export function makeTempRepo(opts: { commit?: boolean; push?: boolean } = {}): T
   const folder = path.join(root, 'clone');
   git(['init', '-q', '--bare', '-b', 'main', remote], root);
   git(['clone', '-q', remote, folder], root);
+  // No background maintenance: a detached `git maintenance run --auto` (macOS's git) holds
+  // .git/objects/maintenance.lock after a commit and races a test that hashes or removes the tree.
+  git(['config', 'maintenance.auto', 'false']);
+  git(['config', 'gc.auto', '0']);
   const write = (rel: string, content: string): string => {
     const file = path.join(folder, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });

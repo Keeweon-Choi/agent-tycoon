@@ -253,7 +253,8 @@ describe('other diagram types', () => {
 describe("this repository's agent-tycoon/docs", () => {
   const root = path.resolve(__dirname, '../../../../agent-tycoon/docs');
   const md = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? md(path.join(dir, e.name)) : e.name.endsWith('.md') ? [path.join(dir, e.name)] : []));
-  it('every Mermaid block is read, none refused, every edge between read nodes; the parse time of all documents', () => {
+  // The public export drops agent-tycoon/docs (release/exclude.txt): this reads the private tree's own documents.
+  it.skipIf(!fs.existsSync(root))('every Mermaid block is read, none refused, every edge between read nodes; the parse time of all documents', () => {
     const files = md(root);
     const texts = files.map((f) => fs.readFileSync(f, 'utf-8'));
     const t0 = performance.now();

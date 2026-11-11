@@ -81,6 +81,9 @@ const RETRY_MAX_FACTOR = 4;
 const STUCK_MISSES = 5;
 /** turnOver reads this much of the transcript's end. */
 const TAIL_BYTES = 256 * 1024;
+/** T-88 typedSince: read in chunks this big, and at most this much in one look (the next tick goes on). */
+const SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
+const SCAN_LOOK_BYTES = 32 * 1024 * 1024;
 /** Bytes: SEND_TEXT_MAX (20,000) Hangul characters are 60 KB, plus the header. */
 export const TEXT_MAX = 64 * 1024;
 
@@ -138,6 +141,9 @@ export interface QueuedSend {
   /** MSG-RECALL: the boss's message lost to another prompt twice (its mark never in the
    *  transcript): it waits for 다시 보내기 (promote), never typed by itself again. */
   failed?: true;
+  /** T-88: its last paste: the transcript and that file's size just before it, so a daemon that
+   *  starts meanwhile still looks for its mark in everything written since (Messenger.seen). */
+  pasted?: { file: string; at: number };
 }
 
 export type SendCode =
@@ -331,8 +337,10 @@ export function alreadyTyped(text: string, messageId: string): boolean {
     if (!line.includes(mark)) continue;
     try {
       const r = JSON.parse(line) as TranscriptRecord;
-      // A typed paste is the user's own words, never a tool result (a log or transcript the agent read).
-      if (r && r.type === 'user' && !r.isSidechain && !blocks(r).some((b) => b.type === 'tool_result'))
+      // A typed paste is the user's own words, never a tool result (a log or transcript the agent read),
+      // never Claude's own meta text or compaction summary (as lastPrompt): those may quote a header,
+      // while the prompt itself stays an ordinary user record in the file (a compaction appends).
+      if (r && r.type === 'user' && !r.isSidechain && !r.isMeta && !r.isCompactSummary && !blocks(r).some((b) => b.type === 'tool_result'))
         return true;
       // MSG-RECALL: or the prompt a busy session took mid-turn (queuedPrompt).
       if (r && !r.isSidechain && queuedPrompt(r)?.includes(mark)) return true;
@@ -341,6 +349,51 @@ export function alreadyTyped(text: string, messageId: string): boolean {
     }
   }
   return false;
+}
+
+/** T-88: alreadyTyped over every line written to `file` since byte `from`, never only its last
+ *  TAIL_BYTES: Claude Code (2.1.322) writes `api-request-blob` records of hundreds of KB next to
+ *  the prompt, so a tail read just after can already miss it (11-10 20:58: a bundle judged lost and
+ *  typed twice). Read in SCAN_CHUNK_BYTES chunks, at most SCAN_LOOK_BYTES a look (ending at a line's
+ *  end; a longer line is read whole); only lines holding the mark are parsed. `next`: where the
+ *  next look starts (past the last complete line read); `done`: it read to the file's end. */
+export function typedSince(
+  file: string,
+  from: number,
+  messageId: string,
+  budget = SCAN_LOOK_BYTES,
+): { typed: boolean; next: number; done: boolean } {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    if (size <= from) return { typed: false, next: size, done: true };
+    const mark = Buffer.from(` ⟨m:${messageId}⟩`);
+    let carry = Buffer.alloc(0); // the line the last chunk cut, from its start (at `next`)
+    let next = from;
+    let read = from;
+    while (read < size) {
+      const chunk = Buffer.alloc(Math.min(SCAN_CHUNK_BYTES, size - read));
+      fs.readSync(fd, chunk, 0, chunk.length, read);
+      read += chunk.length;
+      const buf = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const last = buf.lastIndexOf(0x0a);
+      for (let i = buf.indexOf(mark); i >= 0 && i < last; i = buf.indexOf(mark, i + 1)) {
+        const end = buf.indexOf(0x0a, i);
+        if (alreadyTyped(buf.subarray(buf.lastIndexOf(0x0a, i) + 1, end).toString('utf-8'), messageId))
+          return { typed: true, next: size, done: true };
+        i = end;
+      }
+      next += last + 1;
+      carry = buf.subarray(last + 1);
+      if (read - from >= budget && next > from) break;
+    }
+    return { typed: false, next, done: read >= size };
+  } catch {
+    return { typed: false, next: from, done: true };
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
 }
 
 /** A prompt Claude Code (2.1.316) took mid-turn: no `user` record, but (after a `queue-operation`
@@ -540,6 +593,10 @@ export function parseQueued(raw: string): QueuedSend | null {
   if (ok && j.failed !== undefined && j.failed !== true) return null;
   if (ok && j.kind !== undefined && j.kind !== 'nudge') return null;
   if (ok && j.notice !== undefined && j.notice !== 'action' && j.notice !== 'fyi') return null;
+  // A bad `pasted` only loses the hint (the tail is still read), never the message.
+  const pasted = j.pasted as { file?: unknown; at?: unknown } | undefined;
+  if (ok && pasted !== undefined && !(typeof pasted?.file === 'string' && Number.isSafeInteger(pasted.at) && (pasted.at as number) >= 0))
+    delete j.pasted;
   return ok ? (j as QueuedSend) : null;
 }
 
@@ -708,8 +765,11 @@ export class Messenger {
   /** MSG-RECALL: per project, a paste whose Enter went in while the session worked: its mark is
    *  looked for until the turn is over (overAt: when it was first seen over). Nothing else goes
    *  in meanwhile, and its messages stay listed but cannot be held or cancelled (being typed).
-   *  ponytail: in memory; a daemon restart meanwhile re-types it unless its mark is in by then. */
+   *  ponytail: in memory; after a daemon restart the retry guard reads from its paste (pasted). */
   private readonly awaiting = new Map<string, Awaiting>();
+  /** T-88: per message id typed in by this daemon, the transcript and the offset its mark is looked
+   *  for from (typedSince): its size before the paste, moved on past every complete line looked at. */
+  private readonly pastedAt = new Map<string, { file: string; at: number }>();
   private readonly whyWaiting = new Map<string, string>();
   private readonly typed = new Map<string, TypedMessage[]>();
   /** Kept for this daemon lifetime so every open messenger sees a cancellation. */
@@ -869,6 +929,7 @@ export class Messenger {
     if (!item.notice && typeof s === 'object' && s && this.next(req.to, s, line)?.item === item) {
       tried = await this.attempt(s, [item]);
       if (tried === 'typed') {
+        if (item.messageId) this.pastedAt.delete(item.messageId);
         this.record(item, 'pane');
         return { ok: true, delivered: 'pane', ...this.idOf(item) };
       }
@@ -1310,6 +1371,26 @@ export class Messenger {
     this.heldNow.delete(to);
     // TYPIST-STALE: the prompt the transcript ends with before this try (boxPrompt).
     const before = s.transcript ? (lastPrompt(tail(s.transcript))?.key ?? '') : undefined;
+    // T-88: where this paste's marks are looked for from (seen), whatever the turn writes after it.
+    if (s.transcript) {
+      const size = fs.statSync(s.transcript, { throwIfNoEntry: false })?.size ?? 0;
+      const pasted = { file: s.transcript, at: size };
+      for (const i of items) {
+        if (!i.messageId) continue;
+        this.pastedAt.set(i.messageId, pasted);
+        // Into the item (a send typed at once is queued with it) and its queue file: a restart
+        // before the mark is seen still reads from here. The file as it is, plus this only.
+        i.pasted = pasted;
+        const p = this.pending.find((x) => x.item === i);
+        if (!p) continue;
+        try {
+          const onDisk = parseQueued(fs.readFileSync(p.file, 'utf-8'));
+          if (onDisk && onDisk.text === i.text) writeAtomic(p.file, JSON.stringify({ ...onDisk, pasted }));
+        } catch {
+          /* gone meanwhile: heldOnDisk says so next */
+        }
+      }
+    }
     const r = await this.typeIn(id, items);
     if (r === 'inputBusy' && before !== undefined) this.boxPrompt.set(to, before);
     return r;
@@ -1484,6 +1565,9 @@ export class Messenger {
         this.log(`${file}: not a queued message; left alone`);
         continue;
       }
+      // T-88: a paste an earlier daemon made: its mark is looked for from where it was typed.
+      if (item.pasted && item.messageId && !this.pastedAt.has(item.messageId))
+        this.pastedAt.set(item.messageId, item.pasted);
       this.add({ file, item });
     }
   }
@@ -1565,9 +1649,12 @@ export class Messenger {
           continue;
         // TOKEN-GUARD: what the transcript already shows was typed (an unsure submit, a restart
         // between typing and removing the file) leaves the queue without a second paste.
-        const tailText = s.transcript && first.item.messageId && !first.item.inbox ? tail(s.transcript) : '';
+        const guard = !!s.transcript && !!first.item.messageId && !first.item.inbox;
+        let tailText: string | undefined;
         const typedBefore = (p: Pending): boolean => {
-          if (!tailText || !alreadyTyped(tailText, p.item.messageId!)) return false;
+          const seen = guard && !!p.item.messageId && this.seen(s.transcript!, p.item.messageId, () => (tailText ??= tail(s.transcript!)));
+          if (seen === null) return true; // not looked through yet: not in this tick's paste
+          if (!seen) return false;
           this.guard({ trigger: 'tick', to, messageId: p.item.messageId, allowed: false, reason: 'already_typed' });
           this.done(p);
           this.record(p.item, 'pane', 'already_typed', true);
@@ -1690,7 +1777,8 @@ export class Messenger {
    */
   private confirm(to: string, s: { status?: string; transcript?: string }, w: Awaiting): boolean {
     const text = s.transcript ? tail(s.transcript) : '';
-    const batch = this.pending.filter((p) => w.items.includes(p.item));
+    // In the paste's order (its riding FYIs last): lost() names and counts it by its first message.
+    const batch = w.items.flatMap((i) => this.pending.filter((p) => p.item === i));
     const settled = () => {
       this.awaiting.delete(to);
       for (const i of w.items) this.typingItems.delete(i);
@@ -1703,7 +1791,9 @@ export class Messenger {
     // paste and its Enter went in, so it is delivered, never typed again.
     const capped = this.now() - w.since >= this.t.awaitMaxMs;
     if (capped) this.log(`"${to}": ⟨m:${w.id}⟩ not seen in ${this.t.awaitMaxMs / 60_000} min; taken as delivered`);
-    if (capped || (text && alreadyTyped(text, w.id))) {
+    const seen = s.transcript ? this.seen(s.transcript, w.id, () => text) : false;
+    if (seen === null && !capped) return false; // not looked through yet: no verdict this tick
+    if (capped || seen) {
       settled();
       for (const p of batch) {
         this.done(p);
@@ -1725,7 +1815,26 @@ export class Messenger {
     return true;
   }
 
+  /** TOKEN-GUARD: `id`'s mark in `file`: always in the tail (never a worse look than the tail
+   *  alone), and in everything since its paste (typedSince, each look going on from the last).
+   *  A session that moved to another transcript meanwhile (/clear, the session id catching up):
+   *  that one is read from its start, as an offset into another file means nothing there (the ids
+   *  are random, so a whole file is no wrong match; the look stays bounded).
+   *  null: not seen yet, and not everything since the paste looked through (a long gap: the next
+   *  tick goes on), so nothing may be judged from it yet. No paste offset at all (a queue file
+   *  from before T-88): the tail only. After a restart the offset comes from QueuedSend.pasted. */
+  private seen(file: string, id: string, tailText: () => string): boolean | null {
+    if (alreadyTyped(tailText(), id)) return true;
+    let from = this.pastedAt.get(id);
+    if (from && from.file !== file) this.pastedAt.set(id, (from = { file, at: 0 }));
+    if (!from) return false;
+    const r = typedSince(file, from.at, id);
+    this.pastedAt.set(id, { file, at: r.next });
+    return r.typed || (r.done ? false : null);
+  }
+
   private done(p: Pending): void {
+    if (p.item.messageId) this.pastedAt.delete(p.item.messageId);
     this.pending = this.pending.filter((x) => x !== p);
     try {
       fs.rmSync(p.file, { force: true });
@@ -1748,7 +1857,7 @@ export class Messenger {
       writeAtomic(file, messageOf({ ...item, raw: undefined }));
       // The `.md` remains the inbox's real payload. Its sidecar gives the
       // office a stable id and text to edit without changing delivery format.
-      if (fromApp(item)) writeAtomic(`${file}.meta.json`, JSON.stringify(item));
+      if (fromApp(item)) writeAtomic(`${file}.meta.json`, JSON.stringify({ ...item, pasted: undefined }));
     } catch (err) {
       this.log(`inbox ${item.to}: ${err instanceof Error ? err.message : String(err)}`);
       return null;

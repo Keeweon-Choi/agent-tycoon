@@ -30,6 +30,7 @@ import {
   replyRef,
   TEXT_MAX,
   turnOver,
+  typedSince,
 } from './messenger.js';
 import { registryPath, saveRegistry } from './registry.js';
 import { TurnLedger } from './turnLedger.js';
@@ -2462,6 +2463,276 @@ describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () 
     r.advance(FAST.retryMs * 2);
     await r.m.tick();
     expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  /** T-88 (11-10 20:58): Claude Code 2.1.322 writes an `api-request-blob` record per request (often
+   *  hundreds of KB) around the user record, which wraps the paste in `<pasted_content>`. A blob
+   *  bigger than the transcript tail right after it hides the record from a look at the tail. */
+  const BLOB = (text: string) =>
+    JSON.stringify({ type: 'api-request-blob', sessionId: 's', hash: 'h', message: { role: 'user', content: [{ type: 'text', text: 'x'.repeat(300 * 1024) }, { type: 'text', text }] } });
+  const wrapped = (text: string) =>
+    JSON.stringify({ parentUuid: 'p', isSidechain: false, type: 'user', message: { role: 'user', content: `\n\n<pasted_content id="f978">\n${text}\n</pasted_content id="f978">` }, uuid: 'u1', origin: { kind: 'human' } });
+  const lastPromptRec = (text: string) =>
+    JSON.stringify({ type: 'last-prompt', lastPrompt: text.replace(/\n/g, ' ').slice(0, 201), leafUuid: 'l', sessionId: 's' });
+
+  it('T-88: a bundle that went in (its record far behind a big api-request-blob) is confirmed, never typed twice', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        // It went in: the request, the wrapped prompt, then the next request's big blob.
+        fs.appendFileSync(transcript(r), `${BLOB(text)}\n${wrapped(text)}\n${TOOL_CALL}\n${BLOB('tool output')}\n`);
+        return Promise.resolve('unconfirmed');
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`); // a turn running: they queue
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    for (const t of ['이사 끝', '공지 하나', '공지 둘']) await r.m.send(send('alpha', t));
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    expect(r.typed[0].text).toMatch(/이사 끝\n\n.*\n공지 하나\n\n.*\n공지 둘$/); // one paste of three
+    // It works for a while (more big blobs), then its turn ends.
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${BLOB('more')}\n`);
+    await r.m.tick();
+    fs.appendFileSync(transcript(r), `${TURN_END}\n${lastPromptRec(r.typed[0].text)}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    for (let i = 0; i < 4; i++) {
+      r.advance(FAST.quietMs + FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('T-88: judged lost at once, but it did arrive (behind a big blob): the retry finds its mark, nothing typed twice', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        fs.appendFileSync(transcript(r), `${wrapped(text)}\n${BLOB('tool output')}\n${TURN_END}\n`);
+        return Promise.resolve('lost');
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '한 번만'))).toMatchObject({ delivered: 'queued' });
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('T-88: a bundle that truly did not arrive (only big blobs after it) is still told and typed once more', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    let result: TypeResult = 'unconfirmed';
+    const r: ReturnType<typeof rig> = rig({
+      type: () => {
+        // Another prompt's request; ours is nowhere (a blob holding only other text).
+        fs.appendFileSync(transcript(r), `${BLOB('someone else')}\n${TURN_END}\n`);
+        return Promise.resolve(result);
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    for (const t of ['하나', '둘']) await r.m.send(send('alpha', t));
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    await r.m.tick(); // typed, unconfirmed
+    await r.m.tick(); // the turn is over: seen once
+    r.advance(FAST.quietMs);
+    await r.m.tick();
+    expect(r.events().filter((e) => e.type === 'send_lost').map((e) => e.again)).toEqual([true]);
+    result = 'typed';
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(2);
+    expect(r.typed[1].text).toBe(r.typed[0].text); // the same bundle, once more
+    expect(r.typed[0].text).toMatch(/하나\n\n.*\n둘$/);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('T-88: a lost bundle with an FYI riding along is named and counted by its first message: tried once more, not twice', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    let result: TypeResult = 'unconfirmed';
+    const r: ReturnType<typeof rig> = rig({ type: () => Promise.resolve(result) });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    await r.m.send({ ...send('alpha', '참고만'), notice: 'fyi' }); // queued first, rides last
+    const first = await r.m.send(send('alpha', '할 일'));
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    await r.m.tick();
+    expect(r.typed[0].text).toMatch(/할 일\n\n.*\n참고만$/);
+    await r.m.tick();
+    r.advance(FAST.quietMs);
+    await r.m.tick(); // lost to nothing: told, once more
+    result = 'lost';
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick(); // lost again: the last try of this round
+    const lost = r.events().filter((e) => e.type === 'send_lost');
+    expect(lost.map((e) => [e.messageId, e.again])).toEqual([[first.ok && first.messageId, true], [first.ok && first.messageId, false]]);
+    expect(r.typed).toHaveLength(2);
+  });
+
+  it('T-88 H1: the session moved to another, smaller transcript after the paste (/clear): its mark there still settles it', async () => {
+    const a = (r: ReturnType<typeof rig>) => path.join(r.home, 'a.jsonl');
+    const b = (r: ReturnType<typeof rig>) => path.join(r.home, 'b.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        // The prompt lands in the new conversation's file, which is far smaller than the old one.
+        fs.writeFileSync(b(r), `${wrapped(text)}\n${TOOL_CALL}\n`);
+        return Promise.resolve('unconfirmed');
+      },
+    });
+    fs.writeFileSync(a(r), `${PROMPT}\n${JSON.stringify({ type: 'system', text: 'y'.repeat(20_000) })}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: a(r) });
+    expect(await r.m.send(boss('alpha', '옮겨 간 대화'))).toMatchObject({ delivered: 'queued' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: b(r) });
+    await r.m.tick();
+    fs.appendFileSync(b(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: b(r) });
+    for (let i = 0; i < 4; i++) {
+      r.advance(FAST.quietMs + FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('T-88 L1: typedSince reads in bounded looks: a line longer than a chunk is read whole, a look stops at its budget and the next goes on', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-scan-'));
+    cleanup.push(() => removeTestHome(home));
+    const file = path.join(home, 't.jsonl');
+    const ours = wrapped('[agty · beta에게서 · 11-10 20:58] ⟨m:abcdefgh⟩\n본문');
+    // One 5 MB line (past a 4 MB chunk), then our record: found in one look, even with a 1 MB budget.
+    fs.writeFileSync(file, `${JSON.stringify({ type: 'system', text: 'z'.repeat(5 * 1024 * 1024) })}\n${ours}\n`);
+    expect(typedSince(file, 0, 'abcdefgh', 1024 * 1024)).toMatchObject({ typed: true, done: true });
+    // Many lines over the budget before it: the first look stops unfinished, the next finds it.
+    const filler = `${JSON.stringify({ type: 'system', text: 'z'.repeat(1024) })}\n`.repeat(5120); // 5 MB: more than one chunk
+    fs.writeFileSync(file, `${filler}${ours}\n`);
+    const one = typedSince(file, 0, 'abcdefgh', 1024 * 1024);
+    expect(one).toMatchObject({ typed: false, done: false });
+    expect(one.next).toBeGreaterThan(0);
+    expect(typedSince(file, one.next, 'abcdefgh', 1024 * 1024)).toMatchObject({ typed: true, done: true });
+    // A truly absent mark: done, not typed; a line still being written is read again later.
+    fs.writeFileSync(file, `${filler}${ours.slice(0, 40)}`);
+    const absent = typedSince(file, 0, 'abcdefgh');
+    expect(absent).toMatchObject({ typed: false, done: true, next: Buffer.byteLength(filler) });
+  });
+
+  it('T-88 M2: the daemon restarts between the paste and the check: the next one reads on from where it was typed', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        fs.appendFileSync(transcript(r), `${BLOB(text)}\n${wrapped(text)}\n${TOOL_CALL}\n${BLOB('tool output')}\n`);
+        return Promise.resolve('unconfirmed');
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TOOL_CALL}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: transcript(r) });
+    for (const t of ['이사 끝', '공지 하나']) await r.m.send(send('alpha', t));
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    // The daemon dies while the turn runs; the next one starts over the same queue.
+    r.m.dispose();
+    const again: string[] = [];
+    const m2 = new Messenger({ home: r.home, engine: r.engine, typist: { type: (_id, text) => (again.push(text), Promise.resolve('typed' as const)) }, events: new EngineEvents(eventsPath(r.home)), timing: FAST, log: () => undefined });
+    cleanup.push(() => m2.dispose());
+    m2.start();
+    fs.appendFileSync(transcript(r), `${TOOL_RESULT}\n${BLOB('more')}\n${TURN_END}\n`);
+    await m2.tick();
+    await m2.tick(); // one already-typed message leaves per tick
+    expect(again).toEqual([]);
+    expect(r.queueFiles()).toEqual([]);
+  });
+
+  it('T-88 L2: a meta record or a compaction summary quoting the header is no delivery; the plain prompt is', () => {
+    const text = '[agty · beta에게서 · 11-10 20:58] ⟨m:abcdefgh⟩\n본문';
+    const rec = (extra: object) => JSON.stringify({ type: 'user', isSidechain: false, message: { role: 'user', content: text }, ...extra });
+    expect(alreadyTyped(rec({ isMeta: true }), 'abcdefgh')).toBe(false);
+    expect(alreadyTyped(rec({ isCompactSummary: true }), 'abcdefgh')).toBe(false);
+    expect(alreadyTyped(rec({}), 'abcdefgh')).toBe(true);
+  });
+
+  it('T-88 R1: the new transcript after /clear opens with a big request blob: the mark there, past its tail and before the old offset, still settles it', async () => {
+    const a = (r: ReturnType<typeof rig>) => path.join(r.home, 'a.jsonl');
+    const b = (r: ReturnType<typeof rig>) => path.join(r.home, 'b.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        // The new conversation: our prompt first, then its first request's blob (system prompt, tools).
+        fs.writeFileSync(b(r), `${wrapped(text)}\n${BLOB('system prompt and tools')}\n${TOOL_CALL}\n`);
+        return Promise.resolve('unconfirmed');
+      },
+    });
+    fs.writeFileSync(a(r), `${PROMPT}\n${JSON.stringify({ type: 'system', text: 'y'.repeat(20_000) })}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: a(r) });
+    expect(await r.m.send(boss('alpha', '새 대화로 간 메시지'))).toMatchObject({ delivered: 'queued' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy', transcript: b(r) });
+    await r.m.tick();
+    fs.appendFileSync(b(r), `${TOOL_RESULT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: b(r) });
+    for (let i = 0; i < 4; i++) {
+      r.advance(FAST.quietMs + FAST.retryMs * 4);
+      await r.m.tick();
+    }
+    expect(r.typed).toHaveLength(1);
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  /** T-88 L1: more since the paste than one look reads (32 MB): 40 lines of 1 MB, made once. */
+  let forty: string | undefined;
+  const FORTY_MB = () => (forty ??= `${JSON.stringify({ type: 'system', text: 'z'.repeat(1024 * 1024) })}\n`.repeat(40));
+
+  it('T-88 L1: 40 MB written before the prompt record: the first look gives no verdict (not lost), the next confirms it', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    const r: ReturnType<typeof rig> = rig({
+      type: (_id, text) => {
+        fs.appendFileSync(transcript(r), `${FORTY_MB()}${wrapped(text)}\n${BLOB('tool output')}\n${TURN_END}\n`);
+        return Promise.resolve('unconfirmed');
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '긴 기록 뒤의 메시지'))).toMatchObject({ delivered: 'queued' });
+    r.advance(FAST.quietMs * 2); // the turn long over: only the look's budget keeps the verdict back
+    await r.m.tick();
+    expect(r.queueFiles()).toHaveLength(1); // not settled yet, either way
+    await r.m.tick();
+    expect(r.queueFiles()).toEqual([]);
+    expect(r.typed).toHaveLength(1);
+    expect(r.events().filter((e) => e.type === 'send_lost')).toEqual([]);
+  });
+
+  it('T-88 L1: 40 MB and no prompt record at all: no verdict first, then lost and typed once more', async () => {
+    const transcript = (r: ReturnType<typeof rig>) => path.join(r.home, 't.jsonl');
+    let result: TypeResult = 'unconfirmed';
+    const r: ReturnType<typeof rig> = rig({
+      type: () => {
+        if (result === 'unconfirmed') fs.appendFileSync(transcript(r), `${FORTY_MB()}${TURN_END}\n`);
+        return Promise.resolve(result);
+      },
+    });
+    fs.writeFileSync(transcript(r), `${PROMPT}\n${TURN_END}\n`);
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle', transcript: transcript(r) });
+    expect(await r.m.send(boss('alpha', '사라진 긴 메시지'))).toMatchObject({ delivered: 'queued' });
+    r.advance(FAST.quietMs * 2);
+    await r.m.tick(); // no verdict: the look stopped at its budget
+    expect(r.queueFiles()).toHaveLength(1);
+    await r.m.tick(); // looked through, not there: the turn is over, seen once
+    r.advance(FAST.quietMs);
+    await r.m.tick();
+    expect(r.events().filter((e) => e.type === 'send_lost').map((e) => e.again)).toEqual([true]);
+    result = 'typed';
+    r.advance(FAST.retryMs * 2);
+    await r.m.tick();
+    expect(r.typed).toHaveLength(2);
     expect(r.queueFiles()).toEqual([]);
   });
 

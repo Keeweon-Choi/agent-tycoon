@@ -119,11 +119,17 @@ function finish() {
   // Only into a throwaway repository: run from a folder inside a real checkout, git would
   // climb to it and commit there (10-23 an empty 'fake' commit landed on a trial branch).
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd(), encoding: 'utf-8' });
-  if (top.status === 0 && top.stdout.trim().startsWith(os.tmpdir()))
-    spawnSync('git', ['-c', 'user.name=fake', '-c', 'user.email=fake@x', 'commit', '-q', '--allow-empty', '-m', 'codex: step'], {
+  // os.tmpdir() is this process's TMPDIR: a rig whose temp folder is not /tmp (macOS, a CI runner) has to hand
+  // TMPDIR on, as the engine does there (sessionEnv ENV_KEEP_OS). Real paths: git answers /private/var for /var.
+  const real = (d) => { try { return fs.realpathSync(d); } catch { return d; } };
+  if (top.status === 0 && real(top.stdout.trim()).startsWith(real(os.tmpdir()))) {
+    const c = spawnSync('git', ['-c', 'user.name=fake', '-c', 'user.email=fake@x', 'commit', '-q', '--allow-empty', '-m', 'codex: step'], {
       cwd: process.cwd(),
-      stdio: 'ignore',
+      encoding: 'utf-8',
     });
+    // Said, not swallowed: a CI run on another OS then shows why a test saw no commit.
+    if (c.status !== 0) process.stderr.write(`fake codex: git commit failed (${c.status}${c.error ? ` ${c.error.message}` : ''}): ${c.stderr}\n`);
+  } else process.stderr.write(`fake codex: no commit (toplevel ${top.status === 0 ? top.stdout.trim() : `git rev-parse ${top.status}`}, tmpdir ${os.tmpdir()})\n`);
   say({ type: 'item.completed', item: { type: 'agent_message', text: message } });
   lastMessage(message);
   say({ type: 'turn.completed' });

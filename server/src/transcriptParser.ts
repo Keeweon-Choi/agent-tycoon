@@ -125,12 +125,11 @@ export function formatToolStatus(toolName: string, input: Record<string, unknown
   return hookProvider?.formatToolStatus(toolName, input) ?? `Using ${toolName}`;
 }
 
-/** A resumed spawn (SendMessage) notifies its completion under the SendMessage call's
- *  id; its `<task-id>` is the agent id its sidecar transcript is named after. Map it back
- *  to the live spawn tool id the resume re-armed (recoverBackgroundAgents). */
-function resumedSpawnToolId(agent: AgentState, content: string): string | undefined {
-  const taskId = content.match(/<task-id>(.*?)<\/task-id>/)?.[1];
-  if (!taskId || agent.backgroundAgentToolIds.size === 0) return undefined;
+/** A notice's `<task-id>` is the agent id its sidecar transcript is named after: map it to
+ *  the live spawn tool id the sidecar records, for a spawn this process did not see launch
+ *  (re-armed by recoverBackgroundAgents, the re-read or a restore). */
+function sidecarSpawnToolId(agent: AgentState, taskId: string): string | undefined {
+  if (agent.backgroundAgentToolIds.size === 0) return undefined;
   return hookProvider?.team
     ?.discoverTeammates(agent.projectDir, agent.sessionId)
     .find(
@@ -402,6 +401,8 @@ export function processTranscriptLine(
                   `[Agent Tycoon] Agent ${agentId} background agent launched: ${completedToolId}`,
                 );
                 agent.backgroundAgentToolIds.add(completedToolId);
+                const taskId = launchTaskId(block);
+                if (taskId) (agent.backgroundTaskIds ??= new Map()).set(taskId, completedToolId);
                 // Current harnesses OMIT run_in_background from the tool_use
                 // input, so the spawn's original agentToolStart went out
                 // unflagged. Re-broadcast it flagged now that the result
@@ -483,41 +484,41 @@ export function processTranscriptLine(
         agent.hadToolsInTurn = false;
       }
     } else if (record.type === 'queue-operation' && record.operation === 'enqueue') {
-      // Background agent completed — parse tool-use-id from XML content
-      const content = record.content as string | undefined;
-      if (content) {
-        const toolIdMatch = content.match(/<tool-use-id>(.*?)<\/tool-use-id>/);
-        if (toolIdMatch) {
-          const completedToolId = agent.backgroundAgentToolIds.has(toolIdMatch[1])
-            ? toolIdMatch[1]
-            : (resumedSpawnToolId(agent, content) ?? toolIdMatch[1]);
-          if (agent.backgroundAgentToolIds.has(completedToolId)) {
-            console.log(
-              `[Agent Tycoon] Agent ${agentId} background agent done: ${completedToolId}`,
-            );
-            agent.backgroundAgentToolIds.delete(completedToolId);
-            agent.activeSubagentToolIds.delete(completedToolId);
-            agent.activeSubagentToolNames.delete(completedToolId);
-            agents.broadcast({
-              type: 'subagentClear',
-              id: agentId,
-              parentToolId: completedToolId,
-            });
-            agent.activeToolIds.delete(completedToolId);
-            agent.activeToolStatuses.delete(completedToolId);
-            agent.activeToolNames.delete(completedToolId);
-            // Remove the spawn's teammate character or stop its shadow watch.
-            backgroundAgentCompletedCallback?.(agentId, completedToolId);
-            if (!agent.hookDelivered) {
-              const toolId = completedToolId;
-              setTimeout(() => {
-                agents.broadcast({
-                  type: 'agentToolDone',
-                  id: agentId,
-                  toolId,
-                });
-              }, TOOL_DONE_DELAY_MS);
-            }
+      // A background agent's notice: endedSpawns says which live spawns it ends (none while it waits).
+      const content = record.content as unknown;
+      if (typeof content === 'string') {
+        const ended = endedSpawns(
+          content,
+          agent.backgroundAgentToolIds,
+          (agent.backgroundTaskIds ??= new Map()),
+          (taskId) => sidecarSpawnToolId(agent, taskId),
+        );
+        for (const completedToolId of ended) {
+          console.log(
+            `[Agent Tycoon] Agent ${agentId} background agent done: ${completedToolId}`,
+          );
+          agent.backgroundAgentToolIds.delete(completedToolId);
+          agent.activeSubagentToolIds.delete(completedToolId);
+          agent.activeSubagentToolNames.delete(completedToolId);
+          agents.broadcast({
+            type: 'subagentClear',
+            id: agentId,
+            parentToolId: completedToolId,
+          });
+          agent.activeToolIds.delete(completedToolId);
+          agent.activeToolStatuses.delete(completedToolId);
+          agent.activeToolNames.delete(completedToolId);
+          // Remove the spawn's teammate character or stop its shadow watch.
+          backgroundAgentCompletedCallback?.(agentId, completedToolId);
+          if (!agent.hookDelivered) {
+            const toolId = completedToolId;
+            setTimeout(() => {
+              agents.broadcast({
+                type: 'agentToolDone',
+                id: agentId,
+                toolId,
+              });
+            }, TOOL_DONE_DELAY_MS);
           }
         }
       }
@@ -798,6 +799,50 @@ function linkTeammates(_agentId: number, agent: AgentState, agents: AgentStateSt
   }
 }
 
+const NOTICE_TOOL = /<tool-use-id>(.*?)<\/tool-use-id>/;
+const NOTICE_TASK = /<task-id>(.*?)<\/task-id>/;
+const NOTICE_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
+/** The harness's own English summary (Claude Code) for a sub-agent that stopped while background
+ *  work of its own still runs: it goes on when that work ends and its task id notifies again. */
+const WAITING_SUMMARY = ' is waiting on its own background work';
+
+/**
+ * K1 (G6): the background spawns among `live` that a `queue-operation` enqueue ends, the one rule
+ * the live parser and the re-read (liveBackgroundAgents) share. A notice ends every live spawn its
+ * `<tool-use-id>` names or its `<task-id>` pairs with (`spawnOf`, `byTask`): a stopped or finished
+ * notice often has no tool use id, and a resumed run's names the SendMessage call. A waiting notice
+ * ends none. A notice naming a live spawn pairs its task with it.
+ */
+export function endedSpawns(
+  content: string,
+  live: ReadonlySet<string>,
+  spawnOf: Map<string, string>,
+  byTask?: (taskId: string) => string | undefined,
+): string[] {
+  // The notice's own fields come before `<result>`: the sub-agent's result may quote anything.
+  const head = content.split('<result>', 1)[0];
+  const toolId = NOTICE_TOOL.exec(head)?.[1];
+  const notice = head.includes('<task-notification>');
+  const taskId = notice ? NOTICE_TASK.exec(head)?.[1] : undefined;
+  if (taskId && toolId && live.has(toolId)) spawnOf.set(taskId, toolId);
+  if (NOTICE_SUMMARY.exec(head)?.[1].endsWith(WAITING_SUMMARY)) return [];
+  const ids = [toolId, taskId && spawnOf.get(taskId), taskId && byTask?.(taskId)];
+  return [...new Set(ids.filter((id): id is string => !!id && live.has(id)))];
+}
+
+const ASYNC_LAUNCH_TEXT = 'Async agent launched successfully.';
+
+/** The task id (`agentId:` line) of an async launch result, the name all its notices carry. */
+export function launchTaskId(block: Record<string, unknown>): string | undefined {
+  const items = Array.isArray(block.content) ? block.content : [{ text: block.content }];
+  for (const { text } of items as Array<{ text?: unknown }>) {
+    if (typeof text === 'string' && text.startsWith(ASYNC_LAUNCH_TEXT)) {
+      return /^agentId: (\S+)/m.exec(text)?.[1];
+    }
+  }
+  return undefined;
+}
+
 /** Check if a tool_result block indicates an async/background agent launch */
 export function isAsyncAgentResult(block: Record<string, unknown>): boolean {
   const content = block.content;
@@ -807,15 +852,13 @@ export function isAsyncAgentResult(block: Record<string, unknown>): boolean {
         typeof item === 'object' &&
         item !== null &&
         typeof (item as Record<string, unknown>).text === 'string' &&
-        ((item as Record<string, unknown>).text as string).startsWith(
-          'Async agent launched successfully.',
-        )
+        ((item as Record<string, unknown>).text as string).startsWith(ASYNC_LAUNCH_TEXT)
       ) {
         return true;
       }
     }
   } else if (typeof content === 'string') {
-    return content.startsWith('Async agent launched successfully.');
+    return content.startsWith(ASYNC_LAUNCH_TEXT);
   }
   return false;
 }

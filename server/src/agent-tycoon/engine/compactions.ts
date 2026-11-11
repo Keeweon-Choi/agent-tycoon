@@ -10,8 +10,9 @@ import type { Live } from './sessionMatch.js';
 
 export interface CompactionWatchDeps {
   event?: (type: string, source: string, fields: Record<string, unknown>) => void;
-  /** The conversation passed its compaction count and refilled: ask for the renew. */
-  nudge?: (name: string, count: number, fillPct: number) => void;
+  /** The conversation passed its compaction count and refilled: ask for the renew. `fillPct`
+   *  null: the count was passed again before a refill was measured (the fallback). */
+  nudge?: (name: string, count: number, fillPct: number | null) => void;
 }
 
 export class CompactionWatch {
@@ -122,7 +123,7 @@ export class CompactionWatch {
         this.deps.nudge?.(p.name, c.count, fillPct);
       } else if (fallback) {
         c.nudged = true;
-        this.deps.nudge?.(p.name, c.count, RENEW_FILL_PCT);
+        this.deps.nudge?.(p.name, c.count, null);
       }
     }
   }
