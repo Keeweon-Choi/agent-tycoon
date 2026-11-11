@@ -6402,10 +6402,49 @@ components:
         provider:
           description: D5 — the agent's provider when it is not Claude (`codex`, or an id this build lacks).
           type: string
+        cliUpdate:
+          $ref: '#/components/schemas/EngineCliUpdate'
+        restartWhenIdle:
+          $ref: '#/components/schemas/EngineRestartWait'
+
+    EngineRestartWait:
+      description: |
+        STALE-CLI: an `engineAction` restart with `whenIdle: wait` is pending for it:
+        `waiting` until its turn and its background sub-agents are over (at most 30
+        minutes), `timedOut` when that limit passed and it did not restart by itself.
+      type: string
+      enum: [waiting, timedOut]
+
+    EngineCliUpdate:
+      description: |
+        STALE-CLI: its live session runs an older CLI than the one installed now (`cli`: the
+        key of `agentChoices`, e.g. `claude`). `running` is what the session's process wrote
+        for itself (Claude Code: `version` in ~/.claude/sessions/<pid>.json), `installed` the
+        installed CLI's `--version`. Absent when either is unknown or the session is not older.
+        A restart in the same conversation brings the new version. Only for a background
+        session the engine can restart (not one open in a person's terminal). `waitMin`: the
+        longest a restart with `whenIdle: wait` waits for the turn to end, in minutes.
+      type: object
+      additionalProperties: false
+      required: [cli, running, installed, waitMin]
+      properties:
+        cli: { type: string }
+        running: { type: string }
+        installed: { type: string }
+        waitMin: { type: integer }
 
     EngineActionKind:
       type: string
       enum: [add, edit, remove, start, stop, restart, promote]
+
+    EngineWhenIdle:
+      description: |
+        STALE-CLI, restart only: `wait` restarts it in the same conversation once its turn
+        and its background sub-agents are over (now, when they already are), waiting at
+        most 30 minutes (then `restartWhenIdle: timedOut`, nothing restarted); `cancel`
+        ends that wait. Never cuts a turn or a sub-agent.
+      type: string
+      enum: [wait, cancel]
 
     EngineOldLead:
       description: promote (D3b) only, what the old Lead becomes; worker when unset.
@@ -6504,6 +6543,8 @@ components:
             its conversation; its 계승 count is the old one's plus 1. Refused when that agent's
             folder is not the new agent's, or its data was purged or its chat deleted.
           type: string
+        whenIdle:
+          $ref: '#/components/schemas/EngineWhenIdle'
         cloned:
           description: |
             DEVROOM-PROJECT, add of a Lead only: its folder is a repository the dev room just

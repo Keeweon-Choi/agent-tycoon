@@ -4,7 +4,6 @@
  * Real git in temp repositories; nothing outside the temp dir.
  */
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,7 +15,7 @@ import { RepoManager } from './repoManager.js';
 import type { ReviewSendDeps } from './reviewNotes.js';
 import { deliverToWorker, sendReview } from './reviewNotes.js';
 import type { TempRepo } from './testRepo.js';
-import { GIT_AVAILABLE, makeTempRepo } from './testRepo.js';
+import { EMPTY_GITCONFIG, GIT_AVAILABLE, makeTempRepo } from './testRepo.js';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -285,7 +284,7 @@ describe.skipIf(!GIT_AVAILABLE)('the /ws gate', () => {
   it('a read-only client gets nothing from the dev room messages; a privileged one does', async () => {
     const r = makeTempRepo();
     repos.push(r);
-    Object.assign(process.env, { GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' });
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' });
     const { store } = await startEngineOffice({ readOnly: false, projects: [{ name: 'alpha', folder: r.folder }] });
     const sent: Msg[] = [];
     const send = (m: Msg) => void sent.push(m);

@@ -1704,7 +1704,9 @@ export class Office {
               return { ok: false, code: 'unknown_group', error: `'${room}' 단톡방이 없습니다` };
             return { ok: true, room: found, posts: this.groupMessages.timeline(found, n) };
           },
-          job: (r) => startForTask(this.tasks, r.task, 'job', r.source, () => jobs.run(r)),
+          job: (r) => startForTask(this.tasks, r.task, 'job', r.source, () => jobs.run(r), () =>
+              this.workerRuns.observeExecutions(),
+            ),
           jobs: (all) => ({ ok: true, jobs: jobs.json(all) }),
           hw: () => this.hwForCli(),
           status: async () => {
@@ -1766,7 +1768,9 @@ export class Office {
           stop: (target, source) => jobs.stop(this.codex?.jobOf(target) ?? target, source),
           codex: (r) =>
             this.codex
-              ? startForTask(this.tasks, r.task, 'codex', r.source, () => this.codex!.run(r))
+              ? startForTask(this.tasks, r.task, 'codex', r.source, () => this.codex!.run(r), () =>
+                  this.workerRuns.observeExecutions(),
+                )
               : Promise.resolve({ ok: false, code: 'daemon_error', error: '엔진이 꺼져 있습니다' }),
           codexList: (all) => ({ ok: true, tasks: (this.codex?.list(all) ?? []).map(codexJson) }),
           worktree: (args, who) =>

@@ -20,7 +20,7 @@ import { writeClipboardText } from '../../terminal/clipboard.js';
 import { AddDeviceButton } from '../auth/AddDevice.js';
 import { ago } from '../auth/authApi.js';
 import { SecurityButton } from '../auth/SecurityPanel.js';
-import { capsOf, cliLatestOf, cliVersionOf, meteredTag, noLimitsText } from '../engine.js';
+import { capsOf, cliLatestOf, cliVersionOf, meteredTag, noLimitsText, staleSessions } from '../engine.js';
 import { useEngineStore } from '../engineStore.js';
 import { ActivityLegend } from '../ez/ActivityLegend.js';
 import { resetClock } from '../format.js';
@@ -191,6 +191,8 @@ function AgentRows({ agent }: { agent: AgentUsage }) {
   const latest = cliLatestOf(engine, agent.id);
   const newer = !!version && !!latest && compareVersions(latest, version) > 0;
   const newest = !!version && !!latest && !newer;
+  // STALE-CLI: "newest" is about the installed CLI; sessions started before its update still run the old one.
+  const stale = staleSessions(engine, agent.id);
   const metered = meteredTag(caps);
   const asOf = usageAsOf(agent.reportedAt, useNow());
   const running = update?.phase === 'running';
@@ -240,6 +242,11 @@ function AgentRows({ agent }: { agent: AgentUsage }) {
           </button>
         )}
       </div>
+      {stale && (
+        <div className="cc-win cc-strong" data-testid="cc-stale">
+          {t('staleCli.usage', { count: stale.count, version: stale.version })}
+        </div>
+      )}
       {agent.windows.length ? (
         agent.windows.map((w) => <WindowRow key={w.id} w={w} />)
       ) : (

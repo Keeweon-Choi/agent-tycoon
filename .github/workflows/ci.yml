@@ -164,9 +164,8 @@ jobs:
           TMP: ${{ runner.temp }}
         # ptyhost (TERM-P2): only our PTY host's tests (named pipe + token on Windows, conpty.dll, the
         # fake claude in a real ConPTY / macOS PTY). Its own esbuild build; no dist needed.
-        # ponytail: --retry on macOS absorbs the hosted runner's timing (a 5 s wait missed under load, FSEvents
-        # hearing a write late); drop it once those waits are made deterministic there.
-        run: npx vitest run ${{ inputs.only == 'ptyhost' && 'src/agent-tycoon/ptyhost' || '' }} ${{ runner.os == 'macOS' && '--retry=2' || '' }} --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
+        # A failed test gets two more tries on CI (server/vitest.config.ts `retry`, CI=true): hosted runners' timing.
+        run: npx vitest run ${{ inputs.only == 'ptyhost' && 'src/agent-tycoon/ptyhost' || '' }} --reporter=default --reporter=json --outputFile.json=../server-tests-${{ matrix.label }}.json
 
       - name: Upload Results
         if: always()

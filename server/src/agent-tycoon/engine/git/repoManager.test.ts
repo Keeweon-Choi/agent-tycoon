@@ -9,7 +9,7 @@ import { startEngineOffice } from '../../officeTestKit.js';
 import { waitFor } from '../../waitKit.js';
 import { parseRepoAction, parseRepoDiff, parseRepoView, RepoManager } from './repoManager.js';
 import type { TempRepo } from './testRepo.js';
-import { GIT_AVAILABLE, makeTempRepo, recording } from './testRepo.js';
+import { EMPTY_GITCONFIG, GIT_AVAILABLE, makeTempRepo, recording } from './testRepo.js';
 
 // Every test here runs real git processes (a handful to dozens each); on a starved CPU that
 // outlasts the 10 s default while nothing is wrong.
@@ -522,7 +522,7 @@ describe.skipIf(!GIT_AVAILABLE)('through the office and the real client message 
     const r = makeTempRepo();
     repos.push(r);
     // The engine's alpha works in the temp clone; beta's folder does not exist.
-    Object.assign(process.env, { GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' });
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' });
     const { office: off, store } = await startEngineOffice({
       readOnly,
       projects: [

@@ -72,10 +72,12 @@ import {
   MOVE_ROLLED_BACK,
   type Outcome,
   parseEngineAction,
+  RESTART_MOOT,
+  WAIT_TIMEOUT,
   warned,
 } from './engineAction.js';
 import type { StateCtx } from './engineView.js';
-import { applyEngine, engineState, TurnCache } from './engineView.js';
+import { applyEngine, cliUpdateOf, engineState, TurnCache } from './engineView.js';
 import { EngineWatch } from './engineWatch.js';
 import { configDir, shortStamp } from './events.js';
 import { createGitRunner, type GitRunner } from './git/gitRun.js';
@@ -192,6 +194,8 @@ export const SWAP_UNFINISHED =
 
 /** K1 (B2): the task worktrees a renew's work basis lists. */
 const RENEW_WORKTREES_MAX = 10;
+/** STALE-CLI: a pending restart-when-idle, for the session (pid, conversation) it was armed on. */
+type RestartWait = { stop: boolean; timedOut?: true; pid: number; sessionId: string };
 
 /** How every revive notice starts: a waiting one is replaced by the next (writeInbox `replaces`). */
 export const REVIVE_TAG = `[${LABEL} 자동 복구 · `;
@@ -1105,7 +1109,10 @@ export class Engine {
     source: string,
     file: string | null = null,
   ): { ok: true } | { ok: false; code: string; error: string } {
-    return this.renewals.request(name, handoff, source, file);
+    const r = this.renewals.request(name, handoff, source, file);
+    // STALE-CLI: the renew's new conversation runs the installed CLI; a pending restart-when-idle is moot.
+    if (r.ok) this.dropRestartWait(name);
+    return r;
   }
 
   /** RENAME: the pending renames by assignment id (a rename is for that agent, whatever answers
@@ -1399,6 +1406,11 @@ export class Engine {
       untrusted: this.untrusted,
       trusting: this.trusting,
       moveAllRun: this.moveAllRun,
+      restartWaitMin: Math.round(this.t.moveAllWaitMs / 60_000),
+      restartWait: (name) => {
+        const w = this.restartWaits.get(name);
+        return w && (w.timedOut ? 'timedOut' : 'waiting');
+      },
     };
   }
 
@@ -1650,6 +1662,8 @@ export class Engine {
     const lead = action === 'promote' ? this.leadOf(this.find(name)) : undefined;
     const held = [name, ...(lead ? [lead.name] : [])];
     if (action === 'stop' && this.renewals.has(name)) this.renewals.cancel(name);
+    // STALE-CLI: a person's own start, stop, restart, removal or promotion ends a restart-when-idle wait.
+    if (action !== 'add' && action !== 'edit' && !req.whenIdle) this.dropRestartWait(name);
     for (const n of held) this.running.add(n);
     if (action === 'promote') held.forEach((n) => this.swapping.add(n));
     if (action === 'start' || action === 'restart' || action === 'stop' || action === 'promote')
@@ -1755,6 +1769,7 @@ export class Engine {
     if (req.action === 'remove') return this.remove(p, req.purge === true);
     if (req.action === 'promote') return this.promote(p, req.oldLead ?? 'worker', source);
     if (req.action === 'stop') return this.stopProject(p);
+    if (req.action === 'restart' && req.whenIdle) return this.restartWhenIdle(p, source, req.whenIdle);
     if (req.action === 'restart') return this.restartProject(p, source);
     return this.startProject(p, source, false, false, person);
   }
@@ -2522,30 +2537,134 @@ export class Engine {
     name: string,
     run: { stop: boolean },
   ): Promise<{ result: 'moved' | 'skipped' | 'rolled_back'; why?: string } | null> {
+    const out = await this.whenFree(name, run, (p) =>
+      (p.provider ?? DEFAULT_PROVIDER) !== DEFAULT_PROVIDER
+        ? fail(koText('pty_move_all_already'))
+        : this.moveToPty(p, 'move-all'),
+    );
+    if (!out) return null;
+    if (out.ok) return { result: 'moved' };
+    if (out.code === WAIT_TIMEOUT)
+      return { result: 'skipped', why: koText('pty_move_all_timeout', { min: Math.round(this.t.moveAllWaitMs / 60_000) }) };
+    return { result: out.code === MOVE_ROLLED_BACK ? 'rolled_back' : 'skipped', why: out.error };
+  }
+
+  /**
+   * The wait for a busy agent (move-all, STALE-CLI's restart-when-idle): `act` runs in the action
+   * queue whenever nothing else holds the agent, again every moveAllPollMs while it answers
+   * MOVE_BUSY, for at most moveAllWaitMs (then WAIT_TIMEOUT). Null: `run` was stopped (or the
+   * engine disposed) while it waited.
+   */
+  private async whenFree(
+    name: string,
+    run: { stop: boolean },
+    act: (p: ProjectRecord) => Promise<Outcome> | Outcome,
+  ): Promise<Outcome | null> {
     const end = Date.now() + this.t.moveAllWaitMs;
     for (;;) {
       if (run.stop || this.disposed) return null;
       const p = this.find(name);
-      if (!p) return { result: 'skipped', why: koText('project_unknown_short') };
-      if ((p.provider ?? DEFAULT_PROVIDER) !== DEFAULT_PROVIDER)
-        return { result: 'skipped', why: koText('pty_move_all_already') };
+      if (!p) return fail(koText('project_unknown_short'));
       if (!(this.running.has(name) || this.renewals.has(name) || this.watcher.adopting(name))) {
         this.running.add(name);
         let out: Outcome;
         try {
-          out = await this.enqueue(() => this.moveToPty(this.find(name) ?? p, 'move-all'));
+          out = await this.enqueue(() => act(this.find(name) ?? p));
         } catch (err) {
           out = fail(err instanceof Error ? err.message : String(err));
         } finally {
           this.running.delete(name);
         }
-        if (out.ok) return { result: 'moved' };
-        if (out.code !== MOVE_BUSY)
-          return { result: out.code === MOVE_ROLLED_BACK ? 'rolled_back' : 'skipped', why: out.error };
+        if (out.code !== MOVE_BUSY) return out;
       }
-      if (Date.now() >= end)
-        return { result: 'skipped', why: koText('pty_move_all_timeout', { min: Math.round(this.t.moveAllWaitMs / 60_000) }) };
+      if (Date.now() >= end) return { ...fail(koText('restart_idle_busy')), code: WAIT_TIMEOUT };
       await this.sleep(this.t.moveAllPollMs);
+    }
+  }
+
+  // ── STALE-CLI: restart in the same conversation once it is idle ──
+
+  /** Pending restart-when-idle waits by agent name (`timedOut`: the limit passed, nothing restarted).
+   *  ponytail: in memory, so a daemon restart forgets one; the band offers 재시작 again. */
+  private readonly restartWaits = new Map<string, RestartWait>();
+
+  /**
+   * `whenIdle: wait`: restart now when its turn and its background sub-agents are over, else wait
+   * for that (whenFree, the move-all wait) and restart then; `cancel` ends the wait. Runs inside
+   * the action queue (exec), so the first look is immediate and the wait goes on outside it.
+   */
+  private async restartWhenIdle(p: ProjectRecord, source: string, how: 'wait' | 'cancel'): Promise<Outcome> {
+    const pending = this.restartWaits.get(p.name);
+    if (how === 'cancel') {
+      this.dropRestartWait(p.name);
+      return { ok: true, note: koText('restart_idle_cancelled') };
+    }
+    const waiting = { ok: true, note: koText('restart_idle_waiting', { min: Math.round(this.t.moveAllWaitMs / 60_000) }) };
+    if (pending && !pending.timedOut) return waiting;
+    this.restartWaits.delete(p.name);
+    const now = await this.restartIfIdle(p, source);
+    const h = this.holder(p);
+    if (now.code !== MOVE_BUSY || !h) return now;
+    // The wait is for this session: it gives up once that one is gone, replaced or current.
+    const run: RestartWait = { stop: false, pid: h.pid, sessionId: h.sessionId };
+    this.restartWaits.set(p.name, run);
+    this.log(`restart "${p.name}": waits for its turn and background sub-agents to be over`);
+    void this.whenFree(p.name, run, (q) => this.restartIfIdle(q, source, run)).then((out) => {
+      if (!out || this.restartWaits.get(p.name) !== run) return; // cancelled, or pressed again
+      if (out.code === WAIT_TIMEOUT) run.timedOut = true;
+      else this.restartWaits.delete(p.name);
+      this.log(
+        `restart "${p.name}" when idle: ${
+          out.code === RESTART_MOOT
+            ? 'its session is gone, replaced or current; nothing to do'
+            : out.ok
+              ? 'ok'
+              : out.code === WAIT_TIMEOUT
+                ? 'still busy at the limit; not restarted'
+                : `failed (${out.error})`
+        }`,
+      );
+      this.refresh();
+    });
+    return waiting;
+  }
+
+  private dropRestartWait(name: string): void {
+    const w = this.restartWaits.get(name);
+    if (w) w.stop = true;
+    this.restartWaits.delete(name);
+  }
+
+  /**
+   * A restart (the same conversation) unless its turn, a background shell or sub-agent, or a dialog is
+   * not over (MOVE_BUSY); a sub-agent count not known yet waits too, as a renew does. `pin`: the
+   * session a wait was armed for; gone, replaced (pid or conversation) or no longer older than the
+   * installed CLI makes it RESTART_MOOT, nothing done. The messenger holds this agent's messages for
+   * the look and the restart (renewing(), as moveToPty does): a message that comes as the turn ends
+   * must reach the new session, not start a turn the stop would cut.
+   */
+  private async restartIfIdle(p: ProjectRecord, source: string, pin?: { pid: number; sessionId: string }): Promise<Outcome> {
+    this.swapping.add(p.name);
+    try {
+      this.refresh();
+      const h = this.holder(p);
+      if (pin && (!h || h.pid !== pin.pid || h.sessionId !== pin.sessionId || !cliUpdateOf(h, h.agent, this.agentChoices.discover())))
+        return { ok: true, code: RESTART_MOOT };
+      // Off (a person stopped it, or it died): nothing to restart; never a start of our own.
+      if (!h) return fail(koText('already_off'));
+      // `shell` (a run_in_background shell after the turn) is work here, unlike for a renew; the
+      // sub-agent count before held(), which spawns `claude agents --json`.
+      if (
+        h.kind === 'background' &&
+        (!turnEnded(h.status) ||
+          h.status === 'shell' ||
+          (this.opts.subagents ? this.opts.subagents(p.name) : 0) !== 0 ||
+          (await h.agent.held(h)))
+      )
+        return { ...fail(koText('restart_idle_busy')), code: MOVE_BUSY };
+      return await this.restartProject(p, source);
+    } finally {
+      this.swapping.delete(p.name);
     }
   }
 

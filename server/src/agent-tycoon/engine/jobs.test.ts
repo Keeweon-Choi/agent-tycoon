@@ -95,7 +95,9 @@ function rig() {
           /* gone */
         }
       }
-    fs.rmSync(home, { recursive: true, force: true });
+    // A job started a moment ago may still be writing its exit file: a removal that finds the
+    // folder refilled (ENOTEMPTY, a public CI run on 11-11) tries again.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   const evts = () =>
     fs
@@ -374,6 +376,33 @@ describe.runIf(linux)('jobs on Linux', () => {
       }),
     ]);
     expect(store.get('T-1')).toMatchObject({ status: 'doing', statusSource: 'reported' });
+  });
+
+  it('D6: a run that ended (and was observed) before its attach still gets its exit, with no further job event', async () => {
+    const r = rig();
+    const store = new TaskStore(tasksPath(r.home), undefined, () => undefined);
+    store.add({ id: 'T-1', project: 'alpha', title: '학습', status: 'doing' }, 'cli');
+    const src = {
+      codex: () => null,
+      job: (ref: string) => r.jobs.list(true, true).find((j) => j.id === ref) ?? null,
+    };
+    const observe = () => store.observe(src);
+    // `start` resolves late: the job has ended, and the observation that the
+    // end triggers has run, before the Execution exists to write to.
+    const late = async () => {
+      const started = r.jobs.run({ cmd: 'exit 4', cwd: r.work, project: 'alpha', tty: false, source: 'cli' });
+      await vi.waitFor(() => expect(r.jobs.list(true)[0]?.ended).toBeTruthy(), 10_000);
+      expect(observe()).toBe(false); // nothing attached yet: nothing to write
+      return started;
+    };
+    expect(await startForTask(store, 'T-1', 'job', 'cli', late, observe)).toMatchObject({
+      ok: true,
+      task: 'T-1',
+    });
+    expect(store.get('T-1')!.executions![0]).toMatchObject({
+      kind: 'job',
+      exit: { value: 4, source: 'observed' },
+    });
   });
 
   it('stop: the job and its children (their groups), stop event, ended with exit null', async () => {

@@ -76,6 +76,7 @@ import { jumpLabel } from '../scrollJump.js';
 import { senderKey, startsRun } from '../senderFace.js';
 import { chordStep, enterSends, enterSendsNow, isTouchDevice } from '../sendKey.js';
 import { filterSlashCommands, slashComplete, slashMenuKey } from '../slashMenu.js';
+import { StaleCliBand } from '../StaleCliBand.js';
 import { Thinking } from '../Thinking.js';
 import { toolRuns } from '../toolFold.js';
 import { ToolRun } from '../ToolRun.js';
@@ -699,6 +700,7 @@ export function Conversation({
             )}
           </section>
         )}
+        {!gone && <StaleCliBand name={name} />}
         <div className="relative flex-1 min-h-0 flex flex-col">
           <div
             ref={list}

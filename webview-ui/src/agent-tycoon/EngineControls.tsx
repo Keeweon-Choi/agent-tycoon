@@ -50,7 +50,7 @@ export function EngineNotes({ project: p }: { project: EngineProject }) {
   const { busy } = useEngineStore();
   const canAct = useCanAct();
   const running = busy[p.name] !== undefined;
-  if (!p.needsTrust && !p.downNote && !(p.live && !p.bgId) && !running && !p.trusting) return null;
+  if (!p.needsTrust && !p.downNote && !(p.live && !p.bgId) && !running && !p.trusting && !p.cliUpdate) return null;
   return (
     <div className="flex flex-col gap-4 text-xs break-words" data-testid="engine-notes">
       {p.needsTrust && (
@@ -66,6 +66,14 @@ export function EngineNotes({ project: p }: { project: EngineProject }) {
         </p>
       )}
       {p.live && !p.bgId && <p className="text-text-muted">{t('engine.terminalOpen')}</p>}
+      {/* STALE-CLI: the running session is older than the installed CLI (its Restart is the messenger band's). */}
+      {p.cliUpdate && (
+        <p className="text-accent-text" data-testid="stale-cli-mark" data-wait={p.restartWhenIdle}>
+          {p.restartWhenIdle === 'waiting'
+            ? t('staleCli.waiting')
+            : t('staleCli.band', { from: p.cliUpdate.running, to: p.cliUpdate.installed })}
+        </p>
+      )}
       {(running || p.trusting) && (
         <p className="text-accent-text pixel-pulse">{p.trusting ? t('autoTrust.running') : t('engine.working')}</p>
       )}

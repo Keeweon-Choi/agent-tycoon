@@ -4,7 +4,8 @@
  * on-disk shape under $HOME (the engine runs claude with a clean env; HOME
  * and PATH survive):
  *   .claude/jobs/<id>/state.json  a background job {sessionId, name, cwd, respawnFlags, state, pid}
- *   .claude/sessions/<pid>.json   a running job's session file; pid = a detached `sleep`
+ *   .claude/sessions/<pid>.json   a running job's session file; pid = a detached `sleep`; its
+ *                                 `version` is $HOME/fake-claude-version when that file exists
  *   fake-claude.log               one JSON line per call: {argv, cwd, env names, t}
  * Commands, the way 2.1.306 does them (agent-tycoon/tasks/progress/T-0018.md):
  *   --bg [-n NAME] [--resume SID] [flags]  "backgrounded · <id> · <name>". --resume
@@ -215,6 +216,10 @@ function run(id, job) {
       name: job.name,
       jobId: id,
       status: 'idle',
+      // STALE-CLI: the version this process "runs", from $HOME/fake-claude-version (none without it).
+      ...(fs.existsSync(path.join(HOME, 'fake-claude-version')) && {
+        version: fs.readFileSync(path.join(HOME, 'fake-claude-version'), 'utf8').trim(),
+      }),
     }),
   );
   writeJob(id, { ...job, state: 'working', pid, startedAt });

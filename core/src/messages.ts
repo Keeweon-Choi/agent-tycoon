@@ -1930,9 +1930,20 @@ export interface EngineProject {
   trusting?: boolean;
   downNote?: string;
   provider?: string;
+  cliUpdate?: EngineCliUpdate;
+  restartWhenIdle?: EngineRestartWait;
 }
 
 export type WorkerRole = 'worker' | 'reviewer';
+
+export interface EngineCliUpdate {
+  cli: string;
+  running: string;
+  installed: string;
+  waitMin: number;
+}
+
+export type EngineRestartWait = 'waiting' | 'timedOut';
 
 export interface InstalledAgentChoices {
   claude?: AgentChoices;
@@ -2042,13 +2053,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1091;
+  status: AnonymousSchema_1095;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1091 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1095 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -2107,10 +2118,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1119;
+  state: AnonymousSchema_1123;
 }
 
-export type AnonymousSchema_1119 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1123 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2763,7 +2774,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1447;
+  op: AnonymousSchema_1451;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2772,7 +2783,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1447 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1451 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2931,14 +2942,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1540;
+  action: AnonymousSchema_1544;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1540 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1544 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -2968,10 +2979,13 @@ export interface EngineAction {
   oldLead?: EngineOldLead;
   provider?: string;
   inheritFrom?: string;
+  whenIdle?: EngineWhenIdle;
   cloned?: boolean;
 }
 
 export type EngineOldLead = 'worker' | 'stop';
+
+export type EngineWhenIdle = 'wait' | 'cancel';
 
 export interface EngineChoicesRefresh {
   type: 'engineChoicesRefresh';
@@ -3139,12 +3153,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1650;
+  lang?: AnonymousSchema_1654;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1650 = 'en' | 'ko';
+export type AnonymousSchema_1654 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -3216,19 +3230,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1679;
+  language: AnonymousSchema_1683;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1679 = 'ko' | 'en';
+export type AnonymousSchema_1683 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1683;
+  mode: AnonymousSchema_1687;
 }
 
-export type AnonymousSchema_1683 = 'ask' | 'bypass';
+export type AnonymousSchema_1687 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

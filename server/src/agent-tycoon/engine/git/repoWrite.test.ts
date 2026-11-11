@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,7 +7,7 @@ import { createGitRunner, RepoError } from './gitRun.js';
 import { readStatus } from './repoRead.js';
 import { commit, MAX_PATHS, push, stagePaths } from './repoWrite.js';
 import type { TempRepo } from './testRepo.js';
-import { GIT_AVAILABLE, makeTempRepo, recording } from './testRepo.js';
+import { EMPTY_GITCONFIG, GIT_AVAILABLE, makeTempRepo, recording } from './testRepo.js';
 
 // Every test here runs real git processes (a dozen or more each, the diff test a 2.5 MB diff); on a
 // starved CPU (the deploy gate: two nice'd cores) that outlasts the 10 s default while nothing is wrong.
@@ -236,7 +235,7 @@ describe.skipIf(!GIT_AVAILABLE)('commit (temp repos)', () => {
       env: {
         PATH: process.env.PATH,
         HOME: path.join(r.root, 'home'),
-        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG,
         GIT_CONFIG_NOSYSTEM: '1',
       },
     });

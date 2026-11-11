@@ -329,6 +329,7 @@ export class ClaudePtyAgent implements AgentProvider {
         sessionId: row.sessionId,
         startedAt: row.startedAt ?? t.startedAt,
         ...(row.name && { name: row.name }),
+        ...(row.version && { version: row.version }),
         // The session file first; OSC says blocked when the file does not (yet).
         status:
           osc?.state === 'blocked'

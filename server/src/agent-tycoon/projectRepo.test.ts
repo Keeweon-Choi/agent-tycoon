@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectRepo, ProjectRepoProgress } from '../../../core/src/messages.js';
 import type { GitRunner } from './engine/git/gitRun.js';
 import { createGitRunner, findGit, gitEnv } from './engine/git/gitRun.js';
-import { GIT_AVAILABLE, makeTempRepo, type TempRepo } from './engine/git/testRepo.js';
+import { EMPTY_GITCONFIG, GIT_AVAILABLE, makeTempRepo, type TempRepo } from './engine/git/testRepo.js';
 import { detectHostInfo } from './folders.js';
 import { parseProjectRepo, ProjectRepos } from './projectRepo.js';
 
@@ -28,7 +28,7 @@ function setup(opts: { readOnly?: boolean; template?: string; host?: Record<stri
   const env = gitEnv({
     ...process.env,
     HOME: path.join(r.root, 'home'),
-    GIT_CONFIG_GLOBAL: os.devNull,
+    GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG,
     GIT_CONFIG_NOSYSTEM: '1',
     ...(opts.template && { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'init.templateDir', GIT_CONFIG_VALUE_0: opts.template }),
   });

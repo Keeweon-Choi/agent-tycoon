@@ -44,6 +44,8 @@ export interface ClaudeSession {
   /** What a `blocked` background session waits for (`permission prompt` while a permission
    *  dialog is up, seen with Claude Code 2.1.31x; PERM-PROMPT). */
   waitingFor?: string;
+  /** STALE-CLI: the Claude Code version this process runs (its sessions file's `version`). */
+  version?: string;
 }
 
 /** PERM-PROMPT: the row says a permission dialog holds the session. */
@@ -258,6 +260,7 @@ export function sessionFromFile(
     // A conversation parked in a background job leaves this file frozen (HIF §1).
     status: typeof f.status === 'string' && !f.parkedJobId ? f.status : undefined,
     id: typeof f.jobId === 'string' ? f.jobId : undefined,
+    ...(typeof f.version === 'string' && f.version && { version: f.version }),
   };
 }
 

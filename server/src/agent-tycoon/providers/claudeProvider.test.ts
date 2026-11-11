@@ -155,6 +155,8 @@ describe('~/.claude/sessions files (contract: Claude Code 2.1.273 to 2.1.306)', 
         name: f.name,
         status: f.parkedJobId ? undefined : f.status,
         id: f.jobId,
+        // STALE-CLI: the version that process runs (every recorded file has one).
+        ...(f.version !== undefined && { version: f.version }),
       });
     }
   });

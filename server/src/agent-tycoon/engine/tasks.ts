@@ -898,6 +898,8 @@ export function answerTask(
  * D6: `agty codex|job … --task <id>`: refused before anything starts when the
  * task is unknown or the store cannot be written; once started, the run is the
  * task's new Execution (an attach that then fails is said, the run goes on).
+ * `attached` runs after a successful attach: a short run can have ended (and
+ * been observed, with no Execution to write to yet) while `start` was awaited.
  */
 export async function startForTask(
   store: TaskStore,
@@ -905,6 +907,7 @@ export async function startForTask(
   kind: 'codex' | 'job',
   by: string,
   start: () => Reply | Promise<Reply>,
+  attached?: () => void,
 ): Promise<Reply> {
   if (!task) return start();
   const blocked = store.corrupt ?? store.unwritable;
@@ -914,5 +917,6 @@ export async function startForTask(
   if (!r.ok || typeof r.id !== 'string') return r;
   const log = typeof r.log === 'string' ? r.log : undefined;
   const att = store.attach(task, { kind, ref: r.id, ...(log && { log }) }, by);
+  if (att.ok) attached?.();
   return att.ok ? { ...r, task } : { ...r, taskError: att.error };
 }

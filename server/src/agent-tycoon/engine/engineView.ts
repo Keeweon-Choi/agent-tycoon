@@ -5,16 +5,20 @@
 import * as fs from 'fs';
 
 import { koText } from '../../../../core/src/agent-tycoon/serverText.js';
+import { compareVersions } from '../../../../core/src/agent-tycoon/versionCompare.js';
 import type {
   EngineAgentCaps,
+  EngineCliUpdate,
   EngineProject,
+  EngineRestartWait,
   EngineState,
   OfficeRoom,
 } from '../../../../core/src/messages.js';
 import { turnEnded } from '../providers/claudeProvider.js';
 import type { AgentEntry, World } from '../providers/types.js';
 import { ENTRY_DEFAULTS } from '../providers/types.js';
-import type { AgentChoicesReader } from './agentCapabilities.js';
+import type { AgentChoicesReader, InstalledAgentChoices } from './agentCapabilities.js';
+import { versionOf } from './agentCapabilities.js';
 import type { AgentCapabilities, AgentProvider } from './agents/types.js';
 import { MESSENGER_TIMING, tail, turnOver } from './messenger.js';
 import type { ProjectRecord } from './registry.js';
@@ -41,6 +45,30 @@ export interface StateCtx {
   untrusted: Set<string>;
   trusting: Set<string>;
   moveAllRun: { total: number; done: number } | null;
+  /** STALE-CLI: its pending restart-when-idle, if any. */
+  restartWait: (name: string) => EngineRestartWait | undefined;
+  /** STALE-CLI: the longest a restart-when-idle waits, in minutes (the UI's words name it). */
+  restartWaitMin: number;
+}
+
+/**
+ * STALE-CLI: the live session runs an older CLI than the one installed now, and the engine can
+ * restart it (a background session: a conversation open in a person's terminal is not ours to
+ * restart, so it gets no mark). Only Claude's providers know a session's version (its sessions
+ * file); Codex runs one process per message (always the installed one) and ACP agents write none.
+ */
+export function cliUpdateOf(
+  h: Pick<Live, 'version' | 'kind'> | null,
+  agent: Pick<AgentProvider, 'protocol'> | undefined,
+  choices: InstalledAgentChoices,
+): Omit<EngineCliUpdate, 'waitMin'> | undefined {
+  if (!h?.version || h.kind !== 'background' || (agent?.protocol !== 'claude' && agent?.protocol !== 'pty'))
+    return undefined;
+  const running = versionOf(h.version);
+  const installed = choices.claude?.version;
+  return running && installed && compareVersions(installed, running) > 0
+    ? { cli: 'claude', running, installed }
+    : undefined;
 }
 
 /** What applyEngine() reads: the same, fresh at each call. */
@@ -92,6 +120,8 @@ export function engineState(ctx: StateCtx): EngineState {
       const sessionId = h?.sessionId || p.sessionId;
       const gave = !h && wantRunning ? ctx.gaveUp(name) : undefined;
       const agent = ctx.agentOf(p);
+      const cliUpdate = cliUpdateOf(h, agent, choices);
+      const restartWait = ctx.restartWait(name);
       const cannot = !agent
         ? ctx.unknownProvider(provider ?? DEFAULT_PROVIDER)
         : !h
@@ -111,6 +141,8 @@ export function engineState(ctx: StateCtx): EngineState {
         ...(sessionId && { sessionId }),
         ...(!h && ctx.untrusted.has(name) && { needsTrust: true }),
         ...(ctx.trusting.has(name) && { trusting: true }),
+        ...(cliUpdate && { cliUpdate: { ...cliUpdate, waitMin: ctx.restartWaitMin } }),
+        ...(restartWait && { restartWhenIdle: restartWait }),
         ...(cannot
           ? { downNote: cannot }
           : !h && wantRunning && idleRetired

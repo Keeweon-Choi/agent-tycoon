@@ -59,7 +59,7 @@ export const engineSubscribe = (listener: () => void) => {
   };
 };
 export const engineGetSnapshot = () => snapshot;
-export const useEngineStore = () => useSyncExternalStore(engineSubscribe, engineGetSnapshot);
+export const useEngineStore = () => useSyncExternalStore(engineSubscribe, engineGetSnapshot, engineGetSnapshot);
 export const useEngineProject = (name: string): EngineProject | undefined =>
   useEngineStore().state?.projects.find((p) => p.name === name);
 
@@ -188,6 +188,18 @@ export function engineSubmit(
     return;
   }
   send(out, connected, action, name, fields);
+}
+
+/** STALE-CLI: restart once its turn and sub-agents are over (`wait`), or end that wait (`cancel`).
+ *  A click is the confirmation; a remote device's step-up retries it like any other action. */
+export function engineRestartWhenIdle(
+  out: (msg: EngineAction) => void,
+  connected: boolean,
+  name: string,
+  whenIdle: 'wait' | 'cancel',
+): void {
+  if (snapshot.busy[name]) return;
+  send(out, connected, 'restart', name, { whenIdle });
 }
 
 /** The socket dropped: results of running actions can no longer arrive. */

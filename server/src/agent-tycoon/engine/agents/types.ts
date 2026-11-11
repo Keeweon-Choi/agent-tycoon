@@ -81,6 +81,8 @@ export interface LiveSession {
   assignmentId?: string;
   /** The engine's resting session: an on assignment of a 'run' provider with no run now. */
   resting?: true;
+  /** STALE-CLI: the CLI version its process runs, as the process wrote it (Claude's session file). */
+  version?: string;
 }
 
 export type StartResult =

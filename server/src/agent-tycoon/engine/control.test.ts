@@ -742,9 +742,7 @@ describe('agty CLI', () => {
     expect(seen[2].args).toEqual({ list: true, all: true });
 
     fs.writeFileSync(path.join(h, 'spec.md'), 'do it\n');
-    const built = fs.existsSync(path.join(REPO_ROOT, 'dist/agty-worker.js'));
     const start = await cli(h, ['codex', '-m', 'm1', '-e', 'high', '-d', '앱 알림 UI 개선', '--worktree', 'spec.md']);
-    if (!built) return expect(start.code).toBe(1); // no_build before npm run build
     expect(start.code).toBe(0);
     expect(start.out).toContain('Codex 에 맡김 · 작업 1022-041502-alpha');
     expect(seen[3].args).toMatchObject({

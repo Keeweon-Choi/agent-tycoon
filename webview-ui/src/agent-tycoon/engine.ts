@@ -5,6 +5,7 @@
  */
 import type { PathHost } from '../../../core/src/agent-tycoon/projectPath.js';
 import { normalizeProjectPath } from '../../../core/src/agent-tycoon/projectPath.js';
+import { compareVersions } from '../../../core/src/agent-tycoon/versionCompare.js';
 import type {
   EngineAction,
   EngineActionKind,
@@ -37,6 +38,13 @@ export const cliVersionOf = (state: Pick<EngineState, 'agentChoices'> | null | u
 /** AGENT-LATEST: the newest published version the daemon found for provider `id` (display only). */
 export const cliLatestOf = (state: Pick<EngineState, 'agentChoices'> | null | undefined, id: string): string | undefined =>
   (state?.agentChoices as Record<string, { latest?: string } | undefined> | undefined)?.[id]?.latest;
+
+/** STALE-CLI: how many live sessions of CLI `cli` (an agentChoices key) run an older version than the
+ *  installed one (the daemon decides: `cliUpdate`), and those versions, oldest first; null: none. */
+export function staleSessions(state: Pick<EngineState, 'projects'> | null | undefined, cli: string): { count: number; version: string } | null {
+  const old = (state?.projects ?? []).flatMap((p) => (p.cliUpdate?.cli === cli ? [p.cliUpdate.running] : []));
+  return old.length ? { count: old.length, version: [...new Set(old)].sort(compareVersions).join(', ') } : null;
+}
 
 export const takesDirectChat = (caps: EngineAgentCaps | undefined): boolean => caps?.lifetime !== 'run';
 

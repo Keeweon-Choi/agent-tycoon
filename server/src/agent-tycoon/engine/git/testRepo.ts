@@ -12,6 +12,19 @@ import * as path from 'path';
 import type { GitRunner } from './gitRun.js';
 import { createGitRunner, findGit, gitEnv } from './gitRun.js';
 
+/** What a test hands git as its global config: an empty file, not `os.devNull`. On Windows that
+ *  is `\\.\nul`, which Git for Windows refuses ("unable to access '\\.\nul': Invalid argument"), so
+ *  every temp-repo test died in its first `git init` there (T-98: 320 tests). */
+export const EMPTY_GITCONFIG = ((): string => {
+  // In the run's temp home, which scripts/vitest-temp-home.mjs removes at the end (a worker's own
+  // exit hook does not run); a run without that home gets a temp dir of its own.
+  const home = os.homedir();
+  const dir = path.basename(home).startsWith('agty-vitest-home-') ? home : fs.mkdtempSync(path.join(os.tmpdir(), 'agty-gitcfg-'));
+  const file = path.join(dir, 'empty.gitconfig');
+  fs.writeFileSync(file, '');
+  return file;
+})();
+
 export interface TempRepo {
   /** The temp dir holding everything below. */
   root: string;
@@ -40,7 +53,7 @@ export function makeTempRepo(opts: { commit?: boolean; push?: boolean } = {}): T
     {
       ...process.env,
       HOME: home,
-      GIT_CONFIG_GLOBAL: os.devNull,
+      GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'Test',
       GIT_AUTHOR_EMAIL: 'test@localhost',

@@ -60,6 +60,10 @@ test('get.sh clones, uses the requested build steps, and updates an existing che
     makeTools(bin);
     // The fresh-machine source is exactly the worktree HEAD, not a copy of its uncommitted files.
     run('git', ['clone', '--bare', '--no-local', root, bare]);
+    // A CI checkout of a tag has no branch at all (a detached HEAD), and then neither has this copy:
+    // give it one at that commit, so it can be cloned onto a branch and pushed to like a real remote.
+    run('git', ['-C', bare, 'update-ref', 'refs/heads/main', 'HEAD']);
+    run('git', ['-C', bare, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
     const env = {
       ...process.env,
       HOME: home,

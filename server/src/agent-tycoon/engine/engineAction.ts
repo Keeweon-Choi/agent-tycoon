@@ -71,6 +71,12 @@ export function parseEngineAction(msg: Record<string, unknown>): EngineAction | 
     if (msg.cloned !== true || action !== 'add') return null;
     out.cloned = true;
   }
+  // STALE-CLI: a restart that waits for the turn and the sub-agents to be over (or ends that wait).
+  const { whenIdle } = msg;
+  if (whenIdle !== undefined) {
+    if ((whenIdle !== 'wait' && whenIdle !== 'cancel') || action !== 'restart') return null;
+    out.whenIdle = whenIdle;
+  }
   // D3b: what the old Lead becomes on promote.
   const { oldLead } = msg;
   if (oldLead !== undefined) {
@@ -102,6 +108,10 @@ export const fail = (error: string, detail?: string): Outcome => ({ ok: false, e
 /** TERM-P3: moveToPty's refusals the move-all queue reacts to (wait, or report as rolled back). */
 export const MOVE_BUSY = 'move_busy';
 export const MOVE_ROLLED_BACK = 'move_rolled_back';
+/** The wait for a busy agent (move-all, a restart-when-idle) ran out. */
+export const WAIT_TIMEOUT = 'wait_timeout';
+/** STALE-CLI: the session a restart-when-idle waited for is gone, replaced or current: nothing to do. */
+export const RESTART_MOOT = 'restart_moot';
 /** What the user should know although it worked (a slow folder, T-0032). */
 export const warned = (notes: string[]): Pick<Outcome, 'note'> =>
   notes.length ? { note: notes.join(' · ') } : {};

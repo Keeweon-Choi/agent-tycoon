@@ -709,8 +709,7 @@ async function main(argv) {
       } catch {
         return failWith('bad_file', `명세 파일을 읽지 못했습니다: ${spec}`);
       }
-      if (!fs.existsSync(WORKER))
-        return failWith('no_build', `${WORKER} 가 없습니다(npm run build)`);
+      // No look for dist/agty-worker.js here: the daemon runs the worker and answers no_build itself.
       const r = await request('codex', {
         spec,
         model: o['-m'] ?? o['--model'] ?? null,

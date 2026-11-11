@@ -1023,6 +1023,18 @@ export const SERVER_TEXT = {
     ko: '{min}분 넘게 일하는 중이라 건너뛰었어요(나중에 다시 눌러 주세요)',
     en: 'Still working after {min} minutes, so it was skipped (press the button again later).',
   },
+  restart_idle_busy: {
+    ko: '턴이나 백그라운드 서브에이전트가 아직 끝나지 않았어요',
+    en: 'Its turn or a background sub-agent is not over yet.',
+  },
+  restart_idle_waiting: {
+    ko: '턴과 서브에이전트가 끝나면 같은 대화로 재시작해요(최대 {min}분)',
+    en: 'It restarts in the same conversation once its turn and sub-agents are over (at most {min} minutes).',
+  },
+  restart_idle_cancelled: {
+    ko: '재시작 대기를 취소했어요',
+    en: 'The restart wait was cancelled.',
+  },
   pty_host_missing: {
     ko: '터미널 호스트(dist/agty-ptyhost.js)가 없어요: 다시 빌드해 주세요',
     en: 'The terminal host (dist/agty-ptyhost.js) is missing: rebuild agty.',
