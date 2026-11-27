@@ -99,5 +99,5 @@ describe('formatters', () => {
 });
 
 it("UI-DASH: the dashboard's tab strip is the summary, projects and runs (HW is the lobby board's H/W screen); files is the folder icon's mode", () => {
-  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'dev', 'runs']);
+  expect(desktopTabs.map((tab) => tab.id)).toEqual(['status', 'dev', 'runs', 'timeline']);
 });

@@ -226,7 +226,7 @@ export function usePageStyle(id: WindowId): CSSProperties {
 
 /** UI-C1: the tabs the window still has; a name from an older state (jobs, codex, and hw since
  *  building-a-1104: the board's full H/W screen replaced it) is 현황판. */
-export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'runs', 'files'];
+export const OFFICE_TABS: readonly OfficeTab[] = ['status', 'dev', 'runs', 'timeline', 'files'];
 export const normalizeOfficeTab = (tab: unknown): OfficeTab =>
   OFFICE_TABS.find((id) => id === tab) ?? 'status';
 

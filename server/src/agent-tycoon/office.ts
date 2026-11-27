@@ -114,7 +114,7 @@ import { pruneLogs } from './engine/logPrune.js';
 import { McpTools } from './engine/mcpTools.js';
 import type { MESSENGER_TIMING, Typist } from './engine/messenger.js';
 import { Messenger } from './engine/messenger.js';
-import { CLAUDE_PTY_PROVIDER, DEFAULT_PROVIDER, loadRegistry, registryPath } from './engine/registry.js';
+import { CLAUDE_PTY_PROVIDER, DEFAULT_PROVIDER, loadRegistry, registryPath, SESSION_ID_RE } from './engine/registry.js';
 import { historyHop, readRenewHistory } from './engine/renewals.js';
 import { AGTY_BIN_DIR, cleanEnv } from './engine/sessionEnv.js';
 import { buildSessionPath } from './engine/sessionPath.js';
@@ -399,6 +399,8 @@ export class Office {
   private readonly worktreeWho: WorktreeWho;
   /** TEMP-PLATES: looks picked for employees hired this run, until characters.json has them. */
   private readonly hireLooks = new Map<string, { palette: number; hueShift: number }>();
+  /** T-186: the transcript of each resting or stopped engine agent's last session, by folder and session id. */
+  private readonly restingFiles = new Map<string, string>();
   /** U-30: the pinned conversations. */
   readonly pins: PinStore;
   /** FEAT-PARTY-V2: the parties the owner composed. */
@@ -670,12 +672,20 @@ export class Office {
       roster: this.roster,
       levels: this.levels,
       projectOf: (leadId) => this.rosterProjectOf(leadId),
+      nameOf: (id) => {
+        const key = this.binder.keyOf(id);
+        return (key && this.world.agents.find((a) => a.key === key)?.name) || null;
+      },
       live: () => this.levelsLive,
       changed: () => {
         this.pinLooks();
         this.publish(this.temps.message());
       },
+      // T-185: only a bind, release or re-bind: a context update does not carry the runs again.
+      runsChanged: () => this.publish(this.temps.runsMessage()),
     });
+    // T-185: what the roster holds from before this start, for a page that opens now.
+    this.publish(this.temps.runsMessage());
     opts.store.on('broadcast', (m) => this.temps.observe(m));
     opts.store.on('agentRemoved', (id) => this.temps.leadGone(id));
     opts.runtime.subagentWatch.onContext = (leadId, toolId, tokens, max, basis) =>
@@ -2665,7 +2675,7 @@ export class Office {
         key: a.key,
         name: a.name,
         ...(project && project !== a.name && { project }),
-        transcript: a.transcript,
+        transcript: a.transcript ?? this.restingTranscript(a),
         dir: a.dir,
         canSend: this.chat.canSend(a.key, a.name),
         ...(this.messenger &&
@@ -2678,6 +2688,19 @@ export class Office {
       });
     }
     return [...out, ...gone];
+  }
+
+  /** T-186: an engine agent with no session up (resting, stopped) has no transcript in the office (its
+   *  character follows no file), but its conversation is still the messenger's: its last session's. */
+  // ponytail: a Claude transcript path only (an ACP agent at rest still lists none: that needs the
+  // engine's own agentOf(p).transcript); kept per folder and session id, one directory scan at most.
+  private restingTranscript(a: AgentEntry): string | null {
+    // Only a Claude session id (a UUID) names a file: another provider's may hold `../`.
+    if (!a.key.startsWith('engine:') || !a.sessionId || !SESSION_ID_RE.test(a.sessionId)) return null;
+    const key = `${a.dir}\n${a.sessionId}`;
+    let file = this.restingFiles.get(key);
+    if (file === undefined) this.restingFiles.set(key, (file = transcriptPath(a.dir, a.sessionId, this.opts.home)));
+    return file;
   }
 
   /** Everyone on this view has their page hidden: it is not polled meanwhile. */

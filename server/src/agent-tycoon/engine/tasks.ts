@@ -75,7 +75,12 @@ const MAX = {
   branch: 200,
   worktree: 500,
   ref: 500,
+  checkStep: 200,
+  checkSteps: 6,
+  checkMinutes: 600,
 };
+export const CHECK_DEVICES = ['phone', 'pc', 'both'] as const;
+const CHECK_KEYS = ['device', 'steps', 'expect', 'minutes', 'problem', 'change', 'before', 'after'];
 
 export type Task = BoardTask;
 export type Execution = BoardExecution;
@@ -148,6 +153,7 @@ type Fields = Partial<
     | 'note'
     | 'externalRef'
     | 'budget'
+    | 'check'
   >
 >;
 /** A field set to `null` is removed from the task (the CLI's `--branch ''`). */
@@ -300,6 +306,52 @@ export function parseFields(raw: Record<string, unknown>, prev?: Task, at = ''):
       p.budget = out;
     }
   }
+  if (raw.check !== undefined) {
+    // T-182: 확인 방법, content a person or an agent wrote. Only the parts given change (the CLI
+    // sets one flag at a time); an empty part clears it, an empty result clears the field.
+    const c = raw.check as Record<string, unknown> | null;
+    if (clear(c)) p.check = null;
+    else if (!c || typeof c !== 'object' || Array.isArray(c))
+      return 'check: {device?, steps?, expect?, minutes?, problem?, change?, before?, after?} 이어야 합니다';
+    else if (Object.keys(c).some((k) => !CHECK_KEYS.includes(k)))
+      return `check: 모르는 항목이 있습니다(${Object.keys(c).filter((k) => !CHECK_KEYS.includes(k)).join(', ')})`;
+    else {
+      const next: Record<string, unknown> = { ...prev?.check };
+      if (c.device !== undefined) {
+        if (clear(c.device)) delete next.device;
+        else if (!oneOf(CHECK_DEVICES, c.device))
+          return `check.device: ${CHECK_DEVICES.join('|')} 중 하나여야 합니다`;
+        else next.device = c.device;
+      }
+      if (c.steps !== undefined) {
+        const steps = Array.isArray(c.steps) ? c.steps.map((x) => text(x, MAX.checkStep)?.trim()) : null;
+        if (!steps || steps.length > MAX.checkSteps || steps.some((x) => x === undefined || x === null))
+          return `check.steps: ${MAX.checkStep}자 이하 글 ${MAX.checkSteps}개까지여야 합니다`;
+        const kept = steps.filter((x): x is string => !!x);
+        if (kept.length) next.steps = kept;
+        else delete next.steps;
+      }
+      for (const key of ['expect', 'problem', 'change', 'before', 'after'] as const) {
+        if (c[key] === undefined) continue;
+        const v = clear(c[key]) ? '' : text(c[key], MAX.checkStep)?.trim();
+        if (v === null || v === undefined) return `check.${key}: ${MAX.checkStep}자 이하 글이어야 합니다`;
+        // A picture is a file of the project, by its relative path (the files route serves it, or refuses).
+        if (v && (key === 'before' || key === 'after') && (path.isAbsolute(v) || v.split(/[\\/]/).includes('..')))
+          return `check.${key}: 프로젝트 폴더 안의 상대 경로여야 합니다`;
+        if (v) next[key] = v;
+        else delete next[key];
+      }
+      if (c.minutes !== undefined) {
+        // As the schema says: an integer from 1; only an empty value clears it.
+        const n = c.minutes;
+        if (clear(n)) delete next.minutes;
+        else if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > MAX.checkMinutes)
+          return `check.minutes: 1~${MAX.checkMinutes} 정수여야 합니다`;
+        else next.minutes = n;
+      }
+      p.check = Object.keys(next).length ? (next as NonNullable<Task['check']>) : null;
+    }
+  }
   if (raw.externalRef !== undefined) {
     const e = raw.externalRef as Record<string, unknown> | null;
     const system = e && text(e.system, 40);
@@ -341,6 +393,7 @@ function describe(prev: Task, next: Task): string[] {
     'executions',
     'externalRef',
     'budget',
+    'check',
   ] as const)
     if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) out.push(key);
   return out;

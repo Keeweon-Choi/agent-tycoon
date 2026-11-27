@@ -38,6 +38,7 @@ import { timeAgo } from '../format.js';
 import { DataText, type IconName, PixelIcon, Stamp } from '../game/parts.js';
 import { hudGetSnapshot, minimizeWindow } from '../hud/hudStore.js';
 import { useAgtyStore } from '../officeStore.js';
+import { openConfirm } from '../panels/confirmStore.js';
 import { codexStatus, jobStatus } from '../panels/jobs.js';
 import { worktreeOfTask } from '../repo/repoText.js';
 import { serverLine } from '../serverText.js';
@@ -367,7 +368,7 @@ function FactSource({ source }: { source: BoardFactSource }) {
 const yesNo = (v: boolean) => t(v ? 'tasks.yes' : 'tasks.no');
 
 /** D6: the task's facts, each with its source; only the ones someone recorded. */
-function TaskFacts({ task, now }: { task: BoardTask; now: number }) {
+export function TaskFacts({ task, now }: { task: BoardTask; now: number }) {
   type FactKey = 'status' | 'reportedDone' | 'commits' | 'filesChanged' | 'testsRan' | 'testsPassed';
   const rows: Array<[FactKey, string, BoardFactSource, string | null]> = [
     ['status', t(`tasks.status.${task.status}`), task.statusSource ?? 'unknown', null],
@@ -1247,6 +1248,11 @@ export function TaskBoardView({ now }: { now: number }) {
                           <span>{t(`tasks.status.${g.status}`)}</span>
                           <span className="quest-colv">{g.total}</span>
                         </h3>
+                        {g.status === 'review' && g.total > 0 && !officeReadOnly && (
+                          <Button size="sm" variant="accent" data-testid="confirm-start-board" onClick={() => openConfirm(specProject)}>
+                            {t('confirm.start')}
+                          </Button>
+                        )}
                         {!officeReadOnly && (
                           <Button size="icon_md" aria-label={t('questsLook.addIn', { status: t(`tasks.status.${g.status}`) })} onClick={() => setAdding(g.status)}>
                             +

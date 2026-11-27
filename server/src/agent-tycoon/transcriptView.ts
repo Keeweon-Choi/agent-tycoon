@@ -823,6 +823,8 @@ export class TranscriptTail {
       l,
       n,
     ) => lineItems(l, n),
+    /** How far back a (re)load reads (T-186: a contact's one-off look reads less). */
+    private readonly scanBytes = CHAT_SCAN_MAX_BYTES,
   ) {}
 
   /**
@@ -884,12 +886,12 @@ export class TranscriptTail {
   }
 
   /**
-   * The last `max` items ending at `size`: the last CHAT_SCAN_MAX_BYTES read
+   * The last `max` items ending at `size`: the last `scanBytes` read
    * at once and parsed oldest first (room-turn filtering is stateful). Sets
    * `offset` and `partial` as a forward read would have.
    */
   private loadBack(file: string, size: number): ChatItem[] {
-    const start = Math.max(0, size - CHAT_SCAN_MAX_BYTES);
+    const start = Math.max(0, size - this.scanBytes);
     let buf = this.read(file, start, size);
     const last = buf.lastIndexOf(NL);
     this.partial = Buffer.from(buf.subarray(last + 1)); // a line still being written

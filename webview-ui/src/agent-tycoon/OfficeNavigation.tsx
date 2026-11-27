@@ -10,6 +10,7 @@ import { DevRoom } from './devroom/DevRoom.js';
 import { DevroomLooks, useDevroomTitle } from './devroom/devroomData.js';
 import { PalettePill } from './devroom/DevroomPalette.js';
 import { DevRoomPhone } from './devroom/DevRoomPhone.js';
+import { ViewSwitch } from './devroom/IssueView.js';
 import { desktopTabs, officeTabLabel, panelTitle } from './format.js';
 import { closeWindow, showOffice, useHud, usePageStyle } from './hud/hudStore.js';
 import { HudWindow } from './hud/HudWindow.js';
@@ -147,7 +148,12 @@ export function DesktopWindows({
         <HudWindow
           id="devroom"
           title={devroomTitle}
-          bar={<PalettePill />}
+          bar={
+            <>
+              <ViewSwitch className="mr-4" />
+              <PalettePill />
+            </>
+          }
           closeLabel={t('devroom.close')}
           onClose={() => closeWindow('devroom')}
         >

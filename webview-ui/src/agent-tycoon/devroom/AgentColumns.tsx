@@ -40,6 +40,7 @@ import { ensureAgentTerminalProof } from '../shell/shellApi.js';
 import { terminalMessages } from '../terminal/workspace.js';
 import { WaitMark } from '../WaitMark.js';
 import { type Bucket, bucketOf, BUCKETS, inStateSince, waitsOnPerson } from './agentBoard.js';
+import { takeBoardLayout } from './boardLayout.js';
 import { BODY, DevroomLooks, DevroomTools, SMALL, useSubs, useTerminalColumns } from './devroomData.js';
 import type { AgentColumn, SubColumn } from './devroomState.js';
 import { type AgentPick, useDevroom } from './devroomStore.js';
@@ -746,9 +747,20 @@ function Board({
     last.current = stamp;
     const kind = agents.find((a) => a.col.name === focus)?.col.kind;
     if (seated) showView(focus, kind === 'none' || kind === 'old' ? 'chat' : 'terminal');
+    else if (want?.view) showView(focus, want.view);
     else show(focus);
     if (want) openSub(focus, want.sub);
   });
+  const quick = (n: 1 | 2 | 4) => {
+    const first = focused.name;
+    const fresh = preset(n, [first, ...order.filter((x) => x !== first)]);
+    // Each agent keeps the view it had (a 터미널 stays a 터미널).
+    const views = new Map(panes.map((l) => [l.name, l.view]));
+    setStored(leaves(fresh).reduce((t, l) => setView(t, l.path, views.get(l.name) ?? 'chat'), fresh));
+    setFocusKey('root');
+  };
+  // T-184: the branch view's 나눠 보기 asks for a layout (taken once a board with agents is on screen).
+  useEffect(() => takeBoardLayout(cols.length > 0, quick));
   if (!cols.length) return <p className={`m-auto text-text-muted ${BODY}`}>{t('devroom.term.nobody')}</p>;
   const byName = (name: string | null) => agents.find((a) => a.col.name === name) ?? null;
   const render = (node: PaneNode, path: Path): React.ReactNode => {
@@ -791,14 +803,6 @@ function Board({
         }}
       />
     );
-  };
-  const quick = (n: 1 | 2 | 4) => {
-    const first = focused.name;
-    const fresh = preset(n, [first, ...order.filter((x) => x !== first)]);
-    // Each agent keeps the view it had (a 터미널 stays a 터미널).
-    const views = new Map(panes.map((l) => [l.name, l.view]));
-    setStored(leaves(fresh).reduce((t, l) => setView(t, l.path, views.get(l.name) ?? 'chat'), fresh));
-    setFocusKey('root');
   };
   return (
     <div
@@ -883,7 +887,7 @@ export function PhoneTerminal({
   const [subsOpen, setSubsOpen] = useState(false);
   const [sub, setSub] = useState<string | null>(want?.sub ?? null);
   // P1: an agent opens in 대화 (its terminal one tap away).
-  const [view, setView] = useState<PaneView>('chat');
+  const [view, setView] = useState<PaneView>(want?.view ?? 'chat');
   const input = useRef<TerminalInputHandle | null>(null);
   const agent = agents.find((a) => a.col.name === chosen);
   const pick = (name: string | null, list = false) => {

@@ -95,6 +95,26 @@ describe('task store (DEV-BOARD)', () => {
     expect(store.get('S4')!.history.at(-1)!.change).toBe('note');
   });
 
+  it('T-182: 확인 방법 changes part by part, clears with empty parts, and refuses a bad shape', () => {
+    const store = new TaskStore(tasksPath(home()));
+    store.add({ project: 'p', title: 'x' }, 'cli', NOW);
+    expect(store.update('T-1', { check: { device: 'phone', steps: ['열어요', ' 눌러요 '] } }, 'alpha', NOW).ok).toBe(true);
+    expect(store.get('T-1')!.check).toEqual({ device: 'phone', steps: ['열어요', '눌러요'] });
+    expect(store.get('T-1')!.history.at(-1)).toMatchObject({ by: 'alpha', change: 'check' });
+    store.update('T-1', { check: { expect: '창이 떠요' } }, 'alpha', NOW);
+    expect(store.get('T-1')!.check).toEqual({ device: 'phone', steps: ['열어요', '눌러요'], expect: '창이 떠요' });
+    store.update('T-1', { check: { steps: [] } }, 'alpha', NOW);
+    expect(store.get('T-1')!.check).toEqual({ device: 'phone', expect: '창이 떠요' });
+    for (const bad of [{ device: 'tablet' }, { steps: Array(7).fill('a') }, { steps: [3] }, 'phone'])
+      expect(store.update('T-1', { check: bad }, 'alpha')).toMatchObject({ ok: false, code: 'usage' });
+    store.update('T-1', { check: { minutes: 2, problem: '창이 안 떴어요', change: '바로 열어요', after: 'shots/after.png' } }, 'alpha', NOW);
+    expect(store.get('T-1')!.check).toMatchObject({ minutes: 2, problem: '창이 안 떴어요', change: '바로 열어요', after: 'shots/after.png' });
+    for (const bad of [{ minutes: 0.5 }, { minutes: 0 }, { minutes: '2' }, { minutes: 601 }, { before: '../x.png' }, { after: '/etc/x.png' }, { device: 'pc', colour: 'red' }])
+      expect(store.update('T-1', { check: bad }, 'alpha')).toMatchObject({ ok: false, code: 'usage' });
+    store.update('T-1', { check: { device: '', expect: '', minutes: '', problem: '', change: '', after: '' } }, 'alpha', NOW);
+    expect(store.get('T-1')!.check).toBeUndefined();
+  });
+
   it('P3.3: done tasks do not count toward the 2000 cap (it never frees up otherwise)', () => {
     const store = new TaskStore(tasksPath(home()));
     const list = Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, project: 'p', title: `t${i}` }));
@@ -418,6 +438,12 @@ describe.runIf(process.platform !== 'win32')('agty task (CLI over the control so
     });
     expect(store.get('S4')).toMatchObject({ status: 'done', note: '합침' });
     expect(store.get('S4')!.history.at(-1)!.by).toBe('cli');
+    // T-182: 확인 방법 from flags, `--check-step` in order.
+    const check = ['task', 'update', 'T-1', '--check-device', 'pc', '--check-step', '설정을 열어요', '--check-step', '모델을 골라요', '--check-expect', '목록이 보여요'];
+    expect((await cli(h, check)).code).toBe(0);
+    expect(store.get('T-1')!.check).toEqual({ device: 'pc', steps: ['설정을 열어요', '모델을 골라요'], expect: '목록이 보여요' });
+    expect((await cli(h, ['task', 'show', 'T-1'])).out).toContain('확인 2: 모델을 골라요');
+    expect((await cli(h, ['task', 'update', 'T-1', '--check-device', 'tv'])).code).toBe(2);
   });
 });
 

@@ -551,6 +551,9 @@ export class RepoManager {
   private async worktreeRows(proj: ProjectFolder, top: string, precheck: boolean): Promise<RepoWorktree[]> {
     const list = await this.worktrees.list(proj).catch(() => [] as RepoWorktree[]);
     const tips = list.length ? await branchTips(this.run, top) : new Map<string, { sha: string; at: string }>();
+    // T-182: what the automatic merge would do when a Task's worktree is not merged yet (the 확인 card says it).
+    const open = list.some((w) => w.taskId && !w.merged);
+    const prot = open ? await this.protectedOf(proj, top) : null;
     return list.map((w) => {
       const who = w.assignmentId ? undefined : this.o.whoDid?.(proj.name, w.path);
       const assignee = (w.assignmentId && this.o.nameOf?.(w.assignmentId)) || who?.agent;
@@ -570,6 +573,7 @@ export class RepoManager {
         ...(merge && { merge }),
         ...(tip && { lastChange: tip.at }),
         ...(conflicts && { conflicts }),
+        ...(w.taskId && !w.merged && { autoMerges: !this.autoRefusal(proj.name, w.task, w.base, prot) }),
       };
     });
   }
@@ -1211,6 +1215,19 @@ export class RepoManager {
 
   /** Owner decision 11-01 02:17: a Task with review notes (sent or not) merges only on the owner's
    *  click. Notes that cannot be read count as notes: never merged by mistake. */
+  private protectedOf(proj: ProjectFolder, top: string): Promise<Set<string> | null> {
+    return protectedFor(this.run, top, path.join(this.o.configDir, 'protected-branches.json'), proj.name);
+  }
+
+  /** Why the automatic merge refuses worktree `task` into `base` (`prot`: the protected branches, null:
+   *  all of them), or null when it goes ahead. The one rule mergeNow and the worktree rows share. */
+  private autoRefusal(project: string, task: string, base: string, prot: Set<string> | null): 'no_base' | 'review_notes' | 'protected' | null {
+    if (FULL_SHA.test(base)) return 'no_base';
+    if (this.hasReviewNotes(project, task)) return 'review_notes';
+    if (!prot || prot.has(base)) return 'protected';
+    return null;
+  }
+
   private hasReviewNotes(project: string, task: string): boolean {
     try {
       return this.reviewNotes.list(project, task).length > 0;
@@ -1229,13 +1246,12 @@ export class RepoManager {
     let out: MergeOutcome;
     try {
       const top = await repoRoot(this.run, proj.folder);
-      const list = await protectedFor(this.run, top, path.join(this.o.configDir, 'protected-branches.json'), proj.name);
+      const list = await this.protectedOf(proj, top);
       const prot = !list || list.has(target);
-      if (FULL_SHA.test(target)) out = { ok: false, code: 'no_base', ...refused('merge_no_base') };
-      else if (o.auto && this.hasReviewNotes(proj.name, rec.task))
-        out = { ok: false, code: 'review_notes', ...refused('merge_review_notes') };
-      else if (prot && o.auto)
-        out = { ok: false, code: 'protected', ...refused('merge_protected', { target }) };
+      const why = o.auto ? this.autoRefusal(proj.name, rec.task, target, list) : FULL_SHA.test(target) ? 'no_base' : null;
+      if (why === 'no_base') out = { ok: false, code: 'no_base', ...refused('merge_no_base') };
+      else if (why === 'review_notes') out = { ok: false, code: 'review_notes', ...refused('merge_review_notes') };
+      else if (why === 'protected') out = { ok: false, code: 'protected', ...refused('merge_protected', { target }) };
       else if (prot && o.stepUp?.remote && !o.stepUp.fresh()) {
         this.log(`merge ${JSON.stringify(proj.name).slice(0, 66)} ${rec.task}: step-up needed ${o.source}`);
         return { ok: false, code: STEPUP_REQUIRED, error: STEPUP_REQUIRED };

@@ -42,12 +42,22 @@ const TOOLS = [
   {
     name: 'update_task',
     description:
-      "Report a task's status or add a note. Only the task's assignee and the project's Lead may; it is stored as reported, not observed.",
+      "Report a task's status or add a note. Only the task's assignee and the project's Lead may; it is stored as reported, not observed. `check` is how the owner can try the finished work (shown to him as you write it): the device, up to six short steps, one expected result, the minutes it takes, one line each on what was wrong and what changed, and before/after pictures; the parts given replace those parts.",
     inputSchema: object(
       {
         taskId: { type: 'string' },
         status: { type: 'string', enum: ['proposed', 'todo', 'doing', 'review', 'blocked', 'done'] },
         note: { type: 'string' },
+        check: object({
+          device: { type: 'string', enum: ['phone', 'pc', 'both'] },
+          steps: { type: 'array', maxItems: 6, items: { type: 'string' } },
+          expect: { type: 'string' },
+          minutes: { type: 'integer', minimum: 1 },
+          problem: { type: 'string', description: 'What was wrong, one line.' },
+          change: { type: 'string', description: 'What was changed, one line.' },
+          before: { type: 'string', description: 'A picture before the fix: a path relative to the project folder.' },
+          after: { type: 'string', description: 'A picture after the fix: a path relative to the project folder.' },
+        }),
         ...key,
       },
       ['taskId'],

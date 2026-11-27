@@ -1,7 +1,8 @@
 /**
  * The office messenger's server side (T-0043): one TranscriptTail per lead,
  * at most MAX_TAILS per daemon (leads with an open conversation first), and
- * the conversations each client has open, at most MAX_OPEN_PER_CLIENT.
+ * the conversations each client has open, at most MAX_OPEN_PER_CLIENT. A lead past
+ * the tails is listed from a look at its transcript's end, again when it changes (T-186).
  *
  * poll() runs only while someone watches (the office's wake/sleep): each tail
  * stats its file and reads what was appended. A changed tail goes to the
@@ -25,6 +26,7 @@ import type { WsSend } from './hooks.js';
 import { replyPreview } from './push.js';
 import { chatFiles, chatHistory, chatSearch, type HistoryCursor } from './transcriptHistory.js';
 import {
+  CHAT_TAIL_BYTES,
   type LineOptions,
   type RoomRef,
   type RoomReply,
@@ -36,6 +38,10 @@ export const MAX_OPEN_PER_CLIENT = 4;
 export const MAX_TAILS = 12;
 const PREVIEW_MAX = 80;
 const REPLIES_MAX = 50;
+/** T-185: the boss's message times a contact carries (the 타임라인's 사장님 row). */
+const OWNER_AT_MAX = 50;
+/** Claude Code's own user line when a turn is interrupted (Esc): not a message the boss wrote. */
+const INTERRUPTED = /^\[Request interrupted by user/;
 /** Room replies waiting for the office (a tail loading a big history can read many). */
 const ROOM_REPLIES_MAX = 5_000;
 
@@ -113,6 +119,12 @@ export function contactOf(
     .filter((i) => i.kind === 'assistant')
     .slice(-REPLIES_MAX)
     .map((i) => i.id);
+  // T-185: when the boss wrote (a user line with no other sender), times only.
+  const ownerAt = items
+    .filter((i) => i.kind === 'user' && !i.from && !INTERRUPTED.test(i.text))
+    .slice(-OWNER_AT_MAX)
+    .map((i) => i.at);
+  if (ownerAt.length) c.ownerAt = ownerAt;
   return c;
 }
 
@@ -157,6 +169,11 @@ export interface RoomReplyRead {
 
 export class Conversations {
   private readonly tails = new Map<string, TranscriptTail>();
+  /** T-186: each lead past the tails: what its transcript was (file and stat) and the items at its end. */
+  private readonly glances = new Map<
+    string,
+    { sig: string; file: string | null; ino: number; size: number; items: ChatItem[] }
+  >();
   /** Open conversations per client (agentIds). */
   private readonly open = new Map<WsSend, Set<number>>();
   /** What each client was last told canSend and queued are, per agentId. */
@@ -212,7 +229,8 @@ export class Conversations {
         const last = this.lastRoomReply.get(l.key);
         // Only a reply of the turn the contact is in (a newer post must not show the older one's text).
         const mine = room && last && (last.room.post ?? last.room.name) === (room.post ?? room.name);
-        return contactOf(l, this.tails.get(l.key)?.items ?? null, room, mine ? { id: last.id, text: last.text } : undefined);
+        const items = this.tails.get(l.key)?.items ?? this.glances.get(l.key)?.items ?? null;
+        return contactOf(l, items, room, mine ? { id: last.id, text: last.text } : undefined);
       }),
     );
   }
@@ -384,6 +402,9 @@ export class Conversations {
         this.lastRoomReply.delete(key);
       }
     let changed = false;
+    const past = new Set(leads.filter((l) => !keep.has(l.key)).map((l) => l.key));
+    for (const key of this.glances.keys()) if (!past.has(key)) this.glances.delete(key);
+    for (const lead of leads) if (past.has(lead.key) && this.glance(lead)) changed = true;
     for (const lead of tailed) {
       let tail = this.tails.get(lead.key);
       if (!tail) {
@@ -444,6 +465,39 @@ export class Conversations {
       this.roomReplyFresh = false;
       this.republish();
     }
+  }
+
+  /** T-186: a lead past MAX_TAILS still lists its last message and its time (the list sorts by it):
+   *  the end of its transcript, read again only when the file changed. True when it did. The same
+   *  file grown with no message in that end (a long tool run) keeps the message it had. */
+  // ponytail: CHAT_TAIL_BYTES per change of an untailed lead; a last message already further back
+  // than that at its first look is not seen, and the room-turn filter starts mid-file.
+  private glance(lead: Lead): boolean {
+    let st: fs.Stats | null = null;
+    try {
+      st = lead.transcript ? fs.statSync(lead.transcript) : null;
+    } catch {
+      /* not written yet */
+    }
+    const sig = st ? `${lead.transcript}|${st.ino}|${st.size}|${st.mtimeMs}` : '';
+    const seen = this.glances.get(lead.key);
+    if (seen?.sig === sig) return false;
+    let items: ChatItem[] = [];
+    if (st) {
+      const opts = readOptions(lead, this.employeeOf);
+      const roomTurns = new RoomTurnFilter({ classify: (id) => this.ledger?.classify(id) });
+      const tail = new TranscriptTail(undefined, (line, n) => roomTurns.items(line, n, opts), CHAT_TAIL_BYTES);
+      try {
+        tail.poll(lead.transcript);
+        items = tail.items;
+      } catch {
+        /* gone since the stat: none */
+      }
+      const grown = seen?.file === lead.transcript && seen.ino === st.ino && st.size >= seen.size;
+      if (grown && !items.some((i) => i.kind !== 'tool')) items = seen.items;
+    }
+    this.glances.set(lead.key, { sig, file: lead.transcript, ino: st?.ino ?? -1, size: st?.size ?? 0, items });
+    return true;
   }
 
   /** The lead list itself changed (names, ids, canSend). */

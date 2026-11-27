@@ -18,6 +18,7 @@ import { useAgtyStore } from '../officeStore.js';
 import { projectOfAgent } from '../workbench/workbenchState.js';
 import { openWorkbench, setWorkbenchTab } from '../workbench/workbenchStore.js';
 import { TerminalColumns } from './AgentColumns.js';
+import { BranchView } from './BranchMap.js';
 import { ChangesTab } from './ChangesTab.js';
 import {
   BODY,
@@ -38,6 +39,7 @@ import {
   toggleMenu,
   useDevroom,
 } from './devroomStore.js';
+import { IssueView } from './IssueView.js';
 import { MergeTab } from './MergeTab.js';
 import { PreviewTab } from './PreviewTab.js';
 import { RunArea, RunRow } from './RunRow.js';
@@ -89,7 +91,7 @@ export function DevRoom({
 function DevRoomBody({ onScreen }: { onScreen: boolean }) {
   useDevroomView(onScreen);
   const { projects, groups } = useDevroomGroups();
-  const { tab, menu, stats, agent } = useDevroom();
+  const { tab, menu, stats, agent, view } = useDevroom();
   const [spot, setSpot] = useState<MenuSpot | null>(null);
   const pick = useCurrentPick(groups);
   const group = pick ? groups.find((g) => g.project === pick.project) : undefined;
@@ -101,10 +103,33 @@ function DevRoomBody({ onScreen }: { onScreen: boolean }) {
   const term = useTerminalColumns(pick && (trunk || row) ? pick.project : null, row?.wt ?? null);
   // DEVROOM-SIDEBAR: an agent row of the rail decides who the pane shows.
   const want = agent && pick && agent.project === pick.project && term.cols.some((c) => c.name === agent.name) ? agent : null;
+  // T-183: the 이슈 view in place of the tree (the title bar's switch); the repositories are watched the same.
+  if (view === 'issue')
+    return (
+      <div data-devroom-root data-testid="devroom" data-view={view} className="relative flex flex-1 min-h-0 -m-10">
+        {groups.map((g) => (
+          <RepoWatch key={g.project} project={g.project} />
+        ))}
+        <DevroomLoading groups={groups} />
+        <IssueView groups={groups} pick={pick} />
+      </div>
+    );
+  // T-184: the 브랜치 view in its place too; its lower panel shows the panes.
+  if (view === 'branch')
+    return (
+      <div data-devroom-root data-testid="devroom" data-view={view} className="relative flex flex-1 min-h-0 -m-10">
+        {groups.map((g) => (
+          <RepoWatch key={g.project} project={g.project} />
+        ))}
+        <DevroomLoading groups={groups} />
+        {pick ? <BranchView project={pick.project} /> : <p className={`m-auto text-text-muted ${BODY}`}>{t('devroom.pickHint')}</p>}
+      </div>
+    );
   return (
     <div
       data-devroom-root
       data-testid="devroom"
+      data-view={view}
       className="relative flex flex-1 min-h-0 -m-10"
       onKeyDown={(e) => {
         if (e.key === 'Escape' && menu) toggleMenu(null);

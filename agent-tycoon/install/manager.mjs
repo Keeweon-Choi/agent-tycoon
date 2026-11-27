@@ -211,6 +211,9 @@ export function launchers(root, platform, manifest) {
 
 export const defaultServiceKind = (platform) => (platform === 'darwin' ? 'launchd' : platform === 'win32' ? 'schtasks' : 'systemd');
 export const SERVICE_KINDS = ['systemd', 'launchd', 'schtasks', 'detached', 'dry-run', 'none'];
+/** Why `kind` cannot serve on `platform`, or null. detachedPid reads /proc: elsewhere stop would end nothing and still remove daemon.pid. */
+export const serviceRefusal = (kind, platform) => (kind === 'detached' && !['linux', 'wsl'].includes(platform)
+  ? `--service detached: Linux and WSL only (use --service ${platform === 'darwin' ? 'launchd' : 'schtasks'})` : null);
 
 /** The first `node` on PATH outside our install root: the user's, for the service PATH (or null). */
 export function userNodeDir(envPath = '', root = '', platform = process.platform) {
@@ -912,8 +915,8 @@ export async function install(o, deps = realDeps()) {
     if (other) throw new Error(`${other}: not installing beside it (two daemons would share config.json, the engine socket and the data). Stop it first (a source install: node agent-tycoon/install/install.mjs --uninstall)`);
     const kind = o.service ?? record.service?.kind ?? defaultServiceKind(deps.platform);
     if (!SERVICE_KINDS.includes(kind)) throw new Error(`--service must be one of ${SERVICE_KINDS.join(', ')}`);
-    // detachedPid reads /proc: elsewhere stop would end nothing and still remove daemon.pid.
-    if (kind === 'detached' && !['linux', 'wsl'].includes(deps.platform)) throw new Error(`--service detached: Linux and WSL only (use --service ${deps.platform === 'darwin' ? 'launchd' : 'schtasks'})`);
+    const refused = serviceRefusal(kind, deps.platform);
+    if (refused) throw new Error(refused);
     const b = bundleArgs(o, root);
     if (b.keyBeside) deps.print(`! public key taken from beside the bundle (${b.pubkey}): proves integrity, not origin; pass --pub with the release key`);
     const verified = verifyBundle(b);

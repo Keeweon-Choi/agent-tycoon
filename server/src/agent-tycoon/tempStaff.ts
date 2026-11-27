@@ -21,6 +21,8 @@
 import type {
   CodexTask,
   ContextLimitBasis,
+  SubagentRun,
+  SubagentRuns,
   TempEmployee,
   TempStaff as TempStaffMsg,
 } from '../../../core/src/messages.js';
@@ -30,6 +32,10 @@ import type { RosterStore } from './roster.js';
 
 /** A released employee keeps its last execution on the wire this long (lingering characters). */
 export const TEMP_STAFF_RECENT_MS = 60 * 60 * 1000;
+/** T-185: the sub-agent runs on the wire: open, or ended within this long (the 타임라인's 오늘). */
+export const TEMP_STAFF_RUNS_MS = 24 * 60 * 60 * 1000;
+/** T-185: at most this many of them, the newest (a busy day must not make a large message). */
+export const TEMP_STAFF_RUNS_MAX = 300;
 
 const isSubagentTool = (name: unknown): boolean =>
   typeof name === 'string' && hookProviders.some((p) => p.subagentToolNames.has(name));
@@ -41,8 +47,12 @@ export interface TempStaffDeps {
   projectOf(leadId: number): string | null;
   /** XP counts (the office's start-up history read is over). */
   live(): boolean;
+  /** The name of a character (a sub-agent's spawner), or null. */
+  nameOf(id: number): string | null;
   /** Something changed: publish the message (and pin new looks). */
   changed(): void;
+  /** T-185: a sub-agent binding was made, released or re-bound: publish runsMessage(). */
+  runsChanged(): void;
   now?: () => number;
 }
 
@@ -59,12 +69,12 @@ export class TempStaff {
     switch (m.type) {
       case 'agentToolStart':
         if (isSubagentTool(m.toolName) && !m.isTeammateSpawn && typeof m.toolId === 'string')
-          this.spawn(id, m.toolId, m.runInBackground === true, m.model);
+          this.spawn(id, m.toolId, m.runInBackground === true, 'spawn', m.model, m.desc);
         return;
       case 'subagentToolStart':
         if (typeof m.parentToolId !== 'string' || typeof m.toolId !== 'string') return;
         // Missed start (a restart, a watched background spawn): bind on its first sub-tool.
-        if (!this.spawns.has(`claude:${m.parentToolId}`)) this.spawn(id, m.parentToolId, true);
+        if (!this.spawns.has(`claude:${m.parentToolId}`)) this.spawn(id, m.parentToolId, true, 'tool');
         this.pay(`claude:${m.parentToolId}`, `tool:${m.toolId}`, XP_TOOL);
         return;
       case 'subagentClear': {
@@ -126,7 +136,8 @@ export class TempStaff {
   }
 
   message(): TempStaffMsg {
-    const cutoff = (this.d.now ?? Date.now)() - TEMP_STAFF_RECENT_MS;
+    const now = (this.d.now ?? Date.now)();
+    const cutoff = now - TEMP_STAFF_RECENT_MS;
     const staff: TempEmployee[] = this.d.roster
       .latest()
       .filter(({ binding: b }) => b.ended === null || b.ended >= cutoff)
@@ -150,22 +161,62 @@ export class TempStaff {
     return { type: 'tempStaff', staff };
   }
 
-  private spawn(leadId: number, toolId: string, background: boolean, model?: unknown): void {
+  /** T-185: the sub-agent runs for the 현황판's 타임라인: open or ended within TEMP_STAFF_RUNS_MS, the newest
+   *  TEMP_STAFF_RUNS_MAX, and from when the record is whole when it is not. Its own message: a context
+   *  update (staff) does not carry it again. */
+  runsMessage(): SubagentRuns {
+    const now = (this.d.now ?? Date.now)();
+    const all = this.d.roster
+      .runs('claude:', now - TEMP_STAFF_RUNS_MS)
+      .map((r) => ({ ...r, from: r.binding.rebound ? (r.binding.first ?? r.binding.started) : r.binding.started }))
+      .sort((a, b) => b.from - a.from);
+    const kept = all.slice(0, TEMP_STAFF_RUNS_MAX);
+    const cut = all.length > kept.length ? kept[kept.length - 1].from : null;
+    const pruned = Math.max(cut ?? 0, this.d.roster.prunedBefore() ?? 0);
+    const runs: SubagentRun[] = kept.map(({ project, execution, binding: b, from }) => ({
+      execution,
+      project,
+      started: new Date(from).toISOString(),
+      ...(b.ended !== null && { ended: new Date(b.ended).toISOString() }),
+      ...(b.endedBy && { endedBy: b.endedBy }),
+      ...(b.desc && { desc: b.desc }),
+      employeeId: b.employee,
+      ...(b.spawner && { spawner: b.spawner }),
+      ...(b.seen && { seen: b.seen }),
+      ...(b.rebound && { rebound: true }),
+    }));
+    return { type: 'subagentRuns', runs, ...(pruned > 0 && { prunedBefore: new Date(pruned).toISOString() }) };
+  }
+
+  private spawn(leadId: number, toolId: string, background: boolean, seen: 'spawn' | 'tool', model?: unknown, desc?: unknown): void {
     const exec = `claude:${toolId}`;
     const known = this.spawns.get(exec);
     this.spawns.set(exec, { leadId, background: background || !!known?.background });
     if (known) return;
     const project = this.d.projectOf(leadId);
     if (!project) return;
-    const work = { provider: 'claude' as const, model: typeof model === 'string' ? model : null };
+    const work = {
+      provider: 'claude' as const,
+      model: typeof model === 'string' ? model : null,
+      desc: typeof desc === 'string' ? desc : null,
+      // First seen in the start-up history read: that read's time, not the run's.
+      seen: this.d.live() ? seen : ('replay' as const),
+      spawner: this.d.nameOf(leadId),
+    };
     // Started again after its own end once the history read is over: a resumed spawn
     // (SendMessage), the same execution on the same employee. Before that, a replay.
-    if (this.d.roster.bind(project, exec, work, this.d.live())) this.d.changed();
+    if (this.d.roster.bind(project, exec, work, this.d.live())) {
+      this.d.changed();
+      this.d.runsChanged();
+    }
   }
 
   private end(exec: string): void {
     this.spawns.delete(exec);
-    if (this.d.roster.release(exec)) this.d.changed();
+    if (this.d.roster.release(exec)) {
+      this.d.changed();
+      this.d.runsChanged();
+    }
   }
 
   private pay(exec: string, event: string, xp: number): void {

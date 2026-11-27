@@ -549,7 +549,7 @@ describe('collector additions', () => {
 });
 
 /** A /proc with one process of the given name, started `age` seconds ago. */
-function procTree(comm: string, age: number, state = 'R'): string {
+function procTree(comm: string, age: number, state = 'R', argv?: string[]): string {
   const proc = tmp('agty-proc-');
   const uptime = 1000;
   fs.writeFileSync(path.join(proc, 'uptime'), `${uptime.toFixed(2)} 0.00\n`);
@@ -559,6 +559,7 @@ function procTree(comm: string, age: number, state = 'R'): string {
     path.join(proc, '4242/stat'),
     `4242 (${comm}) ${state} 1 1 1 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 ${start} 0 0\n`,
   );
+  if (argv) fs.writeFileSync(path.join(proc, '4242/cmdline'), `${argv.join('\0')}\0`);
   fs.mkdirSync(path.join(proc, 'self'));
   return proc;
 }
@@ -591,12 +592,55 @@ describe('nvidia-smi: gate and stall rules (fake binary)', () => {
     expect(nvidiaSmiStuck(2, path.join(tmp('agty-noproc-'), 'none'))).toBe(false);
   });
 
+  it('does not mistake healthy deliberate nvidia-smi runners for a stuck query', () => {
+    const loop = ['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv', '-l', '1'];
+    expect(nvidiaSmiStuck(2, procTree('nvidia-smi', 60, 'S', loop))).toBe(false);
+    expect(nvidiaSmiStuck(2, procTree('nvidia-smi', 60, 'D', loop))).toBe(true);
+    for (const argv of [
+      ['nvidia-smi', '--loop'],
+      ['nvidia-smi', '--loop=1'],
+      ['nvidia-smi', '--loop-ms=500'],
+      ['nvidia-smi', '-lms', '500'],
+      ['nvidia-smi', 'dmon'],
+      ['nvidia-smi', 'pmon'],
+      ['nvidia-smi', 'daemon'],
+    ]) {
+      expect(nvidiaSmiStuck(2, procTree('nvidia-smi', 60, 'S', argv))).toBe(false);
+    }
+    expect(
+      nvidiaSmiStuck(2, procTree('nvidia-smi', 3.5, 'S', [
+        'nvidia-smi',
+        '--query-gpu=utilization.gpu',
+        '--format=csv',
+      ])),
+    ).toBe(true);
+    expect(
+      nvidiaSmiStuck(2, procTree('nvidia-smi', 3.5, 'S', ['nvidia-smi', '--list-gpus'])),
+    ).toBe(true);
+    expect(nvidiaSmiStuck(2, procTree('nvidia-smi', 3.5, 'S', ['nvidia-smi', '-L']))).toBe(true);
+  });
+
   it('a stuck one elsewhere: no new run', async () => {
     const log = path.join(tmp('agty-nv-'), 'calls');
     process.env.FAKE_NVIDIA_LOG = log;
     const nv = new NvidiaSmi(FAKE_NVIDIA, { proc: procTree('nvidia-smi', 5) });
     expect(await nv.read()).toBe('stale');
     expect(calls(log)).toBe(0);
+  });
+
+  it('a healthy looping one elsewhere permits a new run', async () => {
+    const log = path.join(tmp('agty-nv-'), 'calls');
+    process.env.FAKE_NVIDIA_LOG = log;
+    const proc = procTree('nvidia-smi', 60, 'S', [
+      'nvidia-smi',
+      '--query-gpu=utilization.gpu',
+      '--format=csv',
+      '-l',
+      '1',
+    ]);
+    const nv = new NvidiaSmi(FAKE_NVIDIA, { proc });
+    expect(await nv.read()).not.toBe('stale');
+    expect(calls(log)).toBe(1);
   });
 
   it('ours past its timeout is left running and never doubled; once it exits, the next run answers', async () => {

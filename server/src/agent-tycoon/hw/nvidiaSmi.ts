@@ -3,8 +3,9 @@
  * the installer's `nvidiaSmi` config). During a big training run a GPU query
  * can hang in uninterruptible sleep (D state, security T9/T16), so these rules
  * hold here (office-interface §7):
- * - an nvidia-smi of anyone's that has run for 2 s or more means the driver is
- *   stuck: no new one is started;
+ * - an old one-shot nvidia-smi of anyone's means the driver is stuck; an old
+ *   deliberate loop only does when it is in uninterruptible sleep (D state):
+ *   no new one is started;
  * - ours gets 1.5 s; after that the sample goes on without the GPU, and the
  *   process is left alone (a D-state process cannot be killed, and kill-and-retry
  *   piles them up);
@@ -26,6 +27,10 @@ export const NVIDIA_QUERY =
 export const NVIDIA_PROCESS_QUERY = '--query-compute-apps=pid,used_gpu_memory';
 export const NVIDIA_TIMEOUT_MS = 1_500;
 export const NVIDIA_STUCK_S = 2;
+/** nvidia-smi's own loop options and monitoring sub-commands. */
+const NVIDIA_LOOP_OPTIONS = new Set(['-l', '--loop', '-lms', '--loop-ms']);
+const NVIDIA_LOOP_OPTION_PREFIXES = ['--loop=', '--loop-ms='];
+const NVIDIA_MONITORING_SUBCOMMANDS = new Set(['dmon', 'pmon', 'daemon']);
 /** USER_HZ: the unit of /proc/<pid>/stat start times, 100 on every Linux ABI we run on. */
 const CLK_TCK = 100;
 
@@ -67,8 +72,9 @@ export function parseNvidiaProcesses(out: string): Array<{ pid: number; usedMib:
     .map((f) => ({ pid: Number(f[0]), usedMib: Number(f[1]) }));
 }
 
-/** True when a process named nvidia-smi (anyone's) has run for `seconds` or more. By
- *  name, never by command line: a shell that merely mentions it is not a stuck query. */
+/** True when an old process named nvidia-smi (anyone's) is a one-shot query or a D-state
+ *  deliberate long runner. By name, never by command line: a shell that merely mentions it
+ *  is not a stuck query. */
 export function nvidiaSmiStuck(seconds = NVIDIA_STUCK_S, proc = '/proc'): boolean {
   let uptime: number;
   let pids: string[];
@@ -82,8 +88,22 @@ export function nvidiaSmiStuck(seconds = NVIDIA_STUCK_S, proc = '/proc'): boolea
     try {
       const stat = fs.readFileSync(path.join(proc, pid, 'stat'), 'utf-8');
       if (stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')) !== 'nvidia-smi') continue;
-      const start = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]) / CLK_TCK;
-      if (uptime - start >= seconds) return true;
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const start = Number(fields[19]) / CLK_TCK;
+      if (uptime - start < seconds) continue;
+      let argv: string[] = [];
+      try {
+        argv = fs.readFileSync(path.join(proc, pid, 'cmdline'), 'utf-8').split('\0');
+      } catch {
+        /* unreadable cmdline: cautiously treat it as a one-shot query */
+      }
+      const longRunner = argv.slice(1).some(
+        (arg) =>
+          NVIDIA_LOOP_OPTIONS.has(arg) ||
+          NVIDIA_LOOP_OPTION_PREFIXES.some((prefix) => arg.startsWith(prefix)) ||
+          NVIDIA_MONITORING_SUBCOMMANDS.has(arg),
+      );
+      if (!longRunner || fields[0] === 'D') return true;
     } catch {
       /* exited meanwhile */
     }

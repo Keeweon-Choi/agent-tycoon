@@ -33,6 +33,8 @@ export const ROSTER_ENDED_KEPT = 200;
 export const ROSTER_PAID_KEPT = 1000;
 /** A project's employees stop at this many (more is no employee: the plate falls back). */
 export const ROSTER_MAX_EMPLOYEES = 500;
+/** A spawn's description is kept up to this many characters (the 현황판's 타임라인 label). */
+export const ROSTER_DESC_MAX = 200;
 
 export interface Employee {
   id: string;
@@ -50,6 +52,17 @@ export interface Binding {
   /** 'end': its own end signal; 'restart': released by a daemon start (may come back). */
   endedBy?: 'end' | 'restart';
   paid: string[];
+  /** T-185: the spawn's own description, as the lead wrote it (the 타임라인's label). */
+  desc?: string;
+  /** T-185: when the binding was made; never moves (a restart's re-bind moves `started`). Absent on older records. */
+  first?: number;
+  /** T-185: what the daemon first saw of the run: its spawn, one of its tools (spawn missed), or a
+   *  line of the start-up history read (`replay`: its time is the read's, not the run's). */
+  seen?: 'spawn' | 'tool' | 'replay';
+  /** T-185: the agent whose spawn it is, by name. */
+  spawner?: string;
+  /** T-185: bound again after a restart released it: an end seen since may be the replay's, not a live one. */
+  rebound?: true;
   /** The run's last known context (its 피로도): kept past its end and across a restart. */
   context?: { tokens: number; max: number; basis?: ContextLimitBasis; compactions?: number };
 }
@@ -63,6 +76,11 @@ interface ProjectRoster {
 export interface Work {
   provider: 'claude' | 'codex';
   model?: string | null;
+  /** The spawn's description (kept with a new binding). */
+  desc?: string | null;
+  /** How the run was first seen, and who spawned it (kept with a new binding). */
+  seen?: 'spawn' | 'tool' | 'replay';
+  spawner?: string | null;
 }
 
 /** Whether `employee` fits `work`. Every employee fits every work for now. */
@@ -184,14 +202,30 @@ export class RosterStore {
       const back = e && e.execution === null ? e : this.pick(p, work, at);
       if (!back) return null;
       back.execution = execution;
-      Object.assign(b, { employee: back.id, started: at, ended: null, endedBy: undefined });
+      Object.assign(b, {
+        employee: back.id,
+        first: b.first ?? b.started,
+        started: at,
+        ended: null,
+        endedBy: undefined,
+        ...((b.endedBy === 'restart' || b.rebound) && { rebound: true as const }),
+      });
       this.flush();
       return back;
     }
     const e = this.pick(p, work, at);
     if (!e) return null;
     e.execution = execution;
-    p.executions[execution] = { employee: e.id, started: at, ended: null, paid: [] };
+    p.executions[execution] = {
+      employee: e.id,
+      started: at,
+      first: at,
+      ended: null,
+      paid: [],
+      ...(work.desc && { desc: work.desc.slice(0, ROSTER_DESC_MAX) }),
+      ...(work.seen && { seen: work.seen }),
+      ...(work.spawner && { spawner: work.spawner }),
+    };
     this.prune(p);
     this.flush();
     return e;
@@ -277,6 +311,25 @@ export class RosterStore {
       }
     }
     return out;
+  }
+
+  /** T-185: the executions whose id starts with `prefix` that are open or ended at or after `since` (ms). */
+  runs(prefix: string, since: number): Array<{ project: string; execution: string; binding: Binding }> {
+    return Object.entries(this.projects).flatMap(([project, p]) =>
+      Object.entries(p.executions)
+        .filter(([exec, b]) => exec.startsWith(prefix) && (b.ended === null || b.ended >= since))
+        .map(([execution, binding]) => ({ project, execution, binding })),
+    );
+  }
+
+  /** T-185: before this time (ms) the record may miss ended runs: a project at ROSTER_ENDED_KEPT drops its oldest ends. */
+  prunedBefore(): number | null {
+    let at: number | null = null;
+    for (const p of Object.values(this.projects)) {
+      const ends = Object.values(p.executions).flatMap((b) => (b.ended === null ? [] : [b.ended]));
+      if (ends.length >= ROSTER_ENDED_KEPT) at = Math.max(at ?? 0, Math.min(...ends));
+    }
+    return at;
   }
 
   /** Open executions whose id starts with `prefix` (codex:, claude:). */

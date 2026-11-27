@@ -32,13 +32,15 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # service: what the one-line install check below passes to --service (see the comment there);
+      # agent-tycoon/install/release-workflow.test.mjs checks it against the manager's serviceRefusal.
       matrix:
         include:
-          - { target: linux-x64, runner: ubuntu-24.04 }
-          - { target: linux-arm64, runner: ubuntu-24.04-arm }
-          - { target: darwin-arm64, runner: macos-15 }
-          - { target: darwin-x64, runner: macos-15-intel }
-          - { target: win-x64, runner: windows-2025 }
+          - { target: linux-x64, runner: ubuntu-24.04, service: detached }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, service: detached }
+          - { target: darwin-arm64, runner: macos-15, service: none }
+          - { target: darwin-x64, runner: macos-15-intel, service: none }
+          - { target: win-x64, runner: windows-2025, service: none }
 
     steps:
       - name: Checkout
@@ -123,6 +125,11 @@ jobs:
 
       # P4: the one-line installers, stamped for this bundle only, install it with the bundle's own
       # Node (no system Node on PATH) and the daemon answers with the release version.
+      # Linux: --service detached, the manager starts the daemon itself. macOS and Windows refuse detached (it
+      # finds its daemon through /proc), and their own services (a launchd agent in the GUI domain, a logon
+      # task) depend on the hosted runner's session: there --service none installs everything but the service,
+      # and the step runs the service command the install recorded (install.json service.argv, the installed
+      # Node) the way detached would, with no system Node on PATH, then stops it.
       - name: One-line install from the stamped install.sh
         if: runner.os != 'Windows'
         shell: bash
@@ -130,10 +137,28 @@ jobs:
           node agent-tycoon/release/stamp-installers.mjs --release out --out "$RUNNER_TEMP/stamped" --pub out/agent-tycoon-release.pub --targets ${{ matrix.target }}
           version=$(node -p "require('./agent-tycoon/release/version.json').version")
           h=$(mktemp -d)
-          env -i HOME="$h" PATH=/usr/bin:/bin sh "$RUNNER_TEMP/stamped/install.sh" --from out --yes --gui no --launch no --service detached --port 18258
-          body=$(curl -fsS http://127.0.0.1:18258/api/health)
+          env -i HOME="$h" PATH=/usr/bin:/bin sh "$RUNNER_TEMP/stamped/install.sh" --from out --yes --gui no --launch no --service ${{ matrix.service }} --port 18258
+          if [ '${{ matrix.service }}' = none ]; then
+            case $RUNNER_OS in macOS) root="$h/Library/Application Support/AgentTycoon" ;; *) root="$h/.local/share/agent-tycoon" ;; esac
+            cwd=$(node -p 'require(process.argv[1]).service.cwd' "$root/install.json")
+            argv=(); while IFS= read -r a; do argv+=("$a"); done < <(node -e 'for (const a of require(process.argv[1]).service.argv) console.log(a)' "$root/install.json")
+            case ${argv[0]} in "$root"/*) ;; *) echo "the service command does not run the installed Node: ${argv[0]}"; exit 1 ;; esac
+            (cd "$cwd" && exec env -i HOME="$h" PATH=/usr/bin:/bin "${argv[@]}") > "$RUNNER_TEMP/installed.log" 2>&1 &
+            pid=$!
+            body=
+            for _ in $(seq 1 60); do
+              body=$(curl -fsS http://127.0.0.1:18258/api/health) && break
+              sleep 0.5
+            done
+            kill "$pid" || true
+          else
+            body=$(curl -fsS http://127.0.0.1:18258/api/health)
+          fi
           echo "health: $body"
-          echo "$body" | grep -q "\"service\":\"agent-tycoon\",\"version\":\"$version\""
+          if ! echo "$body" | grep -q "\"service\":\"agent-tycoon\",\"version\":\"$version\""; then
+            cat "$RUNNER_TEMP/installed.log" 2>/dev/null || true
+            exit 1
+          fi
 
       - name: One-line install from the stamped install.ps1 (Windows)
         if: runner.os == 'Windows'
@@ -141,10 +166,27 @@ jobs:
         run: |
           node agent-tycoon/release/stamp-installers.mjs --release out --out "$env:RUNNER_TEMP\stamped" --pub out/agent-tycoon-release.pub --targets win-x64
           $version = (Get-Content agent-tycoon/release/version.json | ConvertFrom-Json).version
-          & "$env:RUNNER_TEMP\stamped\install.ps1" --from out --yes --gui no --launch no --service detached --port 18259
-          $health = Invoke-RestMethod http://127.0.0.1:18259/api/health
+          & "$env:RUNNER_TEMP\stamped\install.ps1" --from out --yes --gui no --launch no --service ${{ matrix.service }} --port 18259
+          if ('${{ matrix.service }}' -eq 'none') {
+            $root = "$env:LOCALAPPDATA\AgentTycoon"
+            $rec = Get-Content -Raw "$root\install.json" | ConvertFrom-Json
+            $argv = @($rec.service.argv)
+            if (-not $argv[0].StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)) { "the service command does not run the installed Node: $($argv[0])"; exit 1 }
+            $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+            $p = Start-Process -FilePath $argv[0] -ArgumentList (($argv | Select-Object -Skip 1 | ForEach-Object { "`"$_`"" }) -join ' ') -WorkingDirectory $rec.service.cwd -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\installed.log" -RedirectStandardError "$env:RUNNER_TEMP\installed.err"
+            $health = $null
+            foreach ($i in 1..60) {
+              try { $health = Invoke-RestMethod http://127.0.0.1:18259/api/health; break } catch { Start-Sleep -Milliseconds 500 }
+            }
+            Stop-Process -Id $p.Id -Force
+          } else {
+            $health = Invoke-RestMethod http://127.0.0.1:18259/api/health
+          }
           "health: $($health | ConvertTo-Json -Compress)"
-          if ($health.service -ne 'agent-tycoon' -or $health.version -ne $version) { exit 1 }
+          if ($health.service -ne 'agent-tycoon' -or $health.version -ne $version) {
+            Get-Content "$env:RUNNER_TEMP\installed.log", "$env:RUNNER_TEMP\installed.err" -ErrorAction SilentlyContinue
+            exit 1
+          }
 
       - name: Upload bundle
         uses: actions/upload-artifact@v7

@@ -287,6 +287,7 @@ describe('office with the Claude provider only (no engine)', () => {
       'newAgentPermission', // O4: the starting permission default for new agents (unanswered here)
       'officeSnapshot',
       'parties', // FEAT-PARTY-V2: always, empty too
+      'subagentRuns', // T-185: the roster's sub-agent runs for the 타임라인: always, empty too (the roster needs no engine)
       'taskBoard', // 작업 현황 (DEV-BOARD) needs no engine: the office edits it too
       'usageState',
     ]);

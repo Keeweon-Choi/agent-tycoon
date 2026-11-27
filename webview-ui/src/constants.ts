@@ -1678,6 +1678,10 @@ export const FX_WAV_SEC = 7;
 /** A worktree card's mug shot in the rail, and on the phone's list. */
 export const DEVROOM_FACE_PX = 22;
 export const DEVROOM_PHONE_FACE_PX = 24;
+/** T-183 개발실 › 이슈: the list's faces, and the changed files whose diffs are read for their +/- counts. */
+export const DEVISSUE_FACE_PX = 44;
+export const DEVISSUE_PHONE_FACE_PX = 40;
+export const DEVISSUE_FILES_MAX = 8;
 /** DEVROOM-NAMES: a phone file tab shows this many characters of its file name before the ellipsis. */
 export const FILE_TAB_CH = 16;
 /** Phone: a worktree with no Task and nobody on it folds into `쉬는 작업 N개` after this many quiet days. */
@@ -1751,6 +1755,37 @@ export const MERGE_SIZE_DECIMALS = 1;
 export const DEVROOM_CHANGES_POLL_MS = 1_000;
 /** T-73: how long the 검토 대기 notice waits for the daemon's repository answer before it opens the issue board. */
 export const REVIEW_TOAST_WAIT_MS = 3_000;
+
+// ── T-184 개발실 브랜치 보기 (devroom/branchMapLayout.ts, BranchMap.tsx) ─────────
+/** Tips drawn in full and loops drawn before the rest fold into `+N`. */
+export const DEVBRANCH_TIPS_MAX = 6;
+export const DEVBRANCH_LOOPS_MAX = 6;
+/** The picture's sizes (px): a tip card, the gaps, a lane's step in a column's gutter (also a corner's radius). */
+export const DEVBRANCH_PAD_PX = 24;
+export const DEVBRANCH_CARD_W_PX = 300;
+export const DEVBRANCH_CARD_MIN_W_PX = 200;
+export const DEVBRANCH_CARD_H_PX = 122;
+export const DEVBRANCH_ROW_GAP_PX = 16;
+export const DEVBRANCH_COL_GAP_PX = 24;
+export const DEVBRANCH_LANE_PX = 16;
+export const DEVBRANCH_TRUNK_GAP_PX = 56;
+/** Below the trunk: its label at the left, then the loops, each in its own column. */
+export const DEVBRANCH_TRUNK_LABEL_W_PX = 330;
+export const DEVBRANCH_TRUNK_LABEL_H_PX = 64;
+export const DEVBRANCH_LOOP_W_PX = 180;
+export const DEVBRANCH_LOOP_DEPTH_PX = 52;
+export const DEVBRANCH_LOOP_LABEL_H_PX = 74;
+export const DEVBRANCH_LOOP_MORE_W_PX = 100;
+/** The box at the trunk's right end: a job running on the base branch. */
+export const DEVBRANCH_BOX_W_PX = 300;
+export const DEVBRANCH_BOX_H_PX = 96;
+/** A tip's face tile, the picked branch's face, a loop's tick. */
+export const DEVBRANCH_TIP_FACE_PX = 48;
+export const DEVBRANCH_PANEL_FACE_PX = 56;
+export const DEVBRANCH_TICK_PX = 22;
+/** The 바뀐 것 list's rows before `바뀐 내용 보기` takes over; the lower panel's least height. */
+export const DEVBRANCH_FILES_MAX = 8;
+export const DEVBRANCH_LOWER_MIN_PX = 300;
 
 // ── Explorer editor (P4 S5) ──────────────────────────────────
 /** While a file is open for editing, its disk hash is read this often (only while the page is visible). */
@@ -1914,6 +1949,16 @@ export const FEATURE_INTERIOR = false;
 export const FEATURE_LOOKS_CUSTOM = false;
 
 // ── A5 현황판 (GPT mockup look, panels/Dashboard.tsx) ──
+/** T-182: the owner's one line for 아직 이상해요 (the Task's note holds 2,000). */
+export const CONFIRM_LINE_MAX = 500;
+/** The Task store's note limit (server/src/agent-tycoon/engine/tasks.ts MAX.note): 아직 이상해요 cuts the note to it. */
+export const TASK_NOTE_MAX = 2000;
+/** T-182: a press on a card shown for less than this is ignored (a double click lands on the next card otherwise). */
+export const CONFIRM_PRESS_GUARD_MS = 600;
+/** T-182: rows a 확인할 것 group shows before "+N 더 보기" (the group holding the card shows all). */
+export const CONFIRM_GROUP_ROWS = 4;
+/** T-182: the icon size of the card's tags, buttons and queue (the mock-up's 15 px glyphs). */
+export const CONFIRM_ICON_PX = 16;
 /** Tasks in progress shown before 더 보기. */
 export const BOARD_LOOK_TASK_ROWS = 6;
 /** Feed events in 최근 활동. */
@@ -1925,6 +1970,40 @@ export const BOARD_LOOK_METER_SEGMENTS = 10;
 /** A load from this share reads warn, then bad. */
 export const BOARD_LOOK_WARN_FRAC = 0.7;
 export const BOARD_LOOK_BAD_FRAC = 0.9;
+
+// ── T-185 현황판 타임라인 (board/timeline.ts) ──
+/** 1시간: the window's past. */
+export const TIMELINE_HOUR_MS = 60 * 60_000;
+/** 1시간: the future shown right of the now line. */
+export const TIMELINE_FUTURE_MS = 10 * 60_000;
+/** The axis' ticks on 1시간 and on 오늘. */
+export const TIMELINE_HOUR_TICK_MS = 10 * 60_000;
+export const TIMELINE_DAY_TICK_MS = 2 * 60 * 60_000;
+/** The share of the chart a run holds on its lane at least (room for its label). */
+export const TIMELINE_MIN_SPAN = 0.2;
+/** A run shorter than this share of the chart carries no label at that zoom (and reserves no room for one). */
+export const TIMELINE_LABEL_MIN_SPAN = 0.01;
+/** At most this many lanes a row; the runs past it fold into one "+N" that opens the 실행 tab. */
+export const TIMELINE_MAX_LANES = 6;
+/** A chart wider than its panel opens with the now line this far across the view. */
+export const TIMELINE_NOW_VIEW_AT = 0.7;
+/** How often the chart's now line moves. */
+export const TIMELINE_TICK_MS = 15_000;
+/** The boss's messages this close to the first of a group are one mark. */
+export const TIMELINE_OWNER_GROUP_MS = 5 * 60_000;
+/** A Lead's sub-agents started this close to the first of a group are one mark. */
+export const TIMELINE_SPAWN_GROUP_MS = 60_000;
+/** A job's times are whole seconds (floored): a status change this soon after a run's recorded start is still before it. */
+export const TIMELINE_TIME_SLACK_MS = 1_000;
+/** The chart's pixel layout (rows, lanes, the label over each bar), shared by the rows and the connectors. */
+export const TIMELINE_AXIS_PX = 44;
+export const TIMELINE_LANE_PX = 52;
+export const TIMELINE_LABEL_PX = 26;
+export const TIMELINE_BAR_PX = 12;
+export const TIMELINE_ROW_PAD_PX = 12;
+export const TIMELINE_ROW_MIN_PX = 84;
+/** Room kept under the rows for the picked run's card. */
+export const TIMELINE_CARD_ROOM_PX = 190;
 
 // ── Messenger overall search (ChatSearchAll) ───────────────
 /** The list's find field searches the conversations' text from this many characters on, */

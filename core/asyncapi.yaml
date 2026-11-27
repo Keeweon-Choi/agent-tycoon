@@ -168,6 +168,7 @@ components:
         - $ref: '#/components/schemas/OfficeSnapshot'
         - $ref: '#/components/schemas/CodexTasks'
         - $ref: '#/components/schemas/TempStaff'
+        - $ref: '#/components/schemas/SubagentRuns'
         - $ref: '#/components/schemas/OfficeJobs'
         - $ref: '#/components/schemas/HwSample'
         - $ref: '#/components/schemas/DiskUsage'
@@ -2628,6 +2629,13 @@ components:
             for an ended run without one (older than the roster) one of the
             project's employees, kept in the run's record. Absent: not known.
           $ref: '#/components/schemas/ChatEmployee'
+        autoMerges:
+          description: |
+            T-182: on a Task's worktree whose branch is not merged, whether the
+            daemon's automatic merge (the Task turning done) would go ahead: the
+            same checks it makes then (no protected base, no review notes, a
+            branch base). Absent on other worktrees.
+          type: boolean
 
     RepoMerge:
       description: |
@@ -3892,6 +3900,75 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TempEmployee'
+
+    SubagentRuns:
+      description: >-
+        T-185 — the sub-agent executions (`claude:` only) still open or ended within the last
+        24 hours, the newest 300, for the 현황판's 타임라인. Sent when a binding is made, released or
+        re-bound (not on a context update). Read-only facts the staff roster keeps.
+      type: object
+      additionalProperties: false
+      required: [type, runs]
+      properties:
+        type:
+          const: subagentRuns
+        runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubagentRun'
+        prunedBefore:
+          type: string
+          format: date-time
+          description: Runs before this time may be missing (the count cap, or the roster's kept ends).
+
+    SubagentRun:
+      type: object
+      additionalProperties: false
+      required: [execution, project, started]
+      properties:
+        execution:
+          type: string
+        project:
+          type: string
+        started:
+          type: string
+          format: date-time
+          description: When the daemon saw the spawn start (or bound it again after a restart).
+        ended:
+          type: string
+          format: date-time
+          description: When the daemon saw it end; absent while it runs.
+        endedBy:
+          $ref: '#/components/schemas/SubagentRunEnd'
+        desc:
+          type: string
+          description: The spawn's own description, as its lead wrote it (masked).
+        employeeId:
+          type: string
+          description: The roster employee the run is bound to (its look is `emp:<id>`).
+        spawner:
+          type: string
+          description: The agent whose spawn it is (a Lead, a Worker, an outside session), by name.
+        seen:
+          $ref: '#/components/schemas/SubagentRunSeen'
+        rebound:
+          type: boolean
+          description: >-
+            Bound again after a daemon restart released it: `started` is its first start, and an
+            end seen since may be the start-up replay's, not an observed one.
+
+    SubagentRunSeen:
+      description: >-
+        What the daemon first saw of the run: `spawn` (its start is the spawn's), `tool` (the spawn
+        was missed: `started` is when a tool of it was first seen), `replay` (first met in the
+        start-up history read: `started` is that read's time).
+      type: string
+      enum: [spawn, tool, replay]
+
+    SubagentRunEnd:
+      description: "`end`: its own end signal; `restart`: released by a daemon start (its real end is unknown)."
+      type: string
+      enum: [end, restart]
 
     TempEmployee:
       type: object
@@ -5496,8 +5573,9 @@ components:
         One lead in the messenger's contact list: its last message (first
         line, at most 80 characters) and when, and the ids of its latest
         replies (assistant text, at most 50, oldest first) for the client's
-        unread count. A lead whose transcript is not tailed (more than 12
-        leads) has none of them.
+        unread count. T-186: every lead with a transcript has them, a lead
+        past the 12 tailed transcripts from a look at its transcript's end,
+        a resting or stopped engine agent from its last session's.
       type: object
       additionalProperties: false
       required: [agentId, name, replies]
@@ -5560,6 +5638,17 @@ components:
           type: array
           items:
             type: string
+        ownerAt:
+          description: |
+            T-185: when the boss's own messages in this conversation were sent (ms, the
+            transcript's times; at most 50, oldest first), for the 현황판's 타임라인.
+            Times only, never the words. Absent when there are none. Read from the same
+            items as `preview`: a tailed transcript, a resting or stopped agent's last
+            session, or (past the 12 tails) the glance at its transcript's last 256 KB,
+            so there only the messages inside that window.
+          type: array
+          items:
+            type: number
 
     MessengerRoomReply:
       description: |
@@ -7787,6 +7876,36 @@ components:
             $ref: '#/components/schemas/BoardExecution'
         budget:
           $ref: '#/components/schemas/BoardTaskBudget'
+        check:
+          $ref: '#/components/schemas/BoardTaskCheck'
+
+    BoardTaskCheck:
+      type: object
+      additionalProperties: false
+      description: |
+        T-182: how the owner tries a finished issue (확인 방법), written by a person or an
+        agent as content and shown as it is, never generated: the device to try it on,
+        at most six short steps, the one result to expect, about how many minutes it
+        takes, one line on what was wrong and one on what was changed, and two pictures
+        (before, after: paths relative to the project folder, served like its other
+        files). Any part may be missing.
+      properties:
+        device:
+          $ref: '#/components/schemas/BoardTaskCheckDevice'
+        steps:
+          type: array
+          maxItems: 6
+          items: { type: string }
+        expect: { type: string }
+        minutes: { type: integer, minimum: 1 }
+        problem: { type: string }
+        change: { type: string }
+        before: { type: string }
+        after: { type: string }
+
+    BoardTaskCheckDevice:
+      type: string
+      enum: [phone, pc, both]
 
     BoardTaskBudget:
       type: object

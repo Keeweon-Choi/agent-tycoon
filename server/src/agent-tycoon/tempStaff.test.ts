@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CodexTask } from '../../../core/src/messages.js';
 import { LevelStore, XP_JOB, XP_TOOL, XP_TURN } from './levels.js';
 import { RosterStore } from './roster.js';
-import { TempStaff } from './tempStaff.js';
+import { TEMP_STAFF_RUNS_MAX, TEMP_STAFF_RUNS_MS, TempStaff } from './tempStaff.js';
 
 let dir: string;
 let n = 0;
@@ -22,8 +22,10 @@ function office(projects: Record<number, string> = { [LEAD]: 'alpha' }) {
     roster,
     levels,
     projectOf: (id) => projects[id] ?? null,
+    nameOf: () => null,
     live: () => true,
     changed: () => changes++,
+    runsChanged: () => undefined,
   });
   const restart = () => {
     levels.flush();
@@ -137,8 +139,10 @@ describe('Claude sub-agents', () => {
       roster: o.roster,
       levels: o.levels,
       projectOf: () => 'alpha',
+      nameOf: () => null,
       live: () => false,
       changed: () => undefined,
+      runsChanged: () => undefined,
     });
     replay.observe(spawn('a'));
     expect(o.roster.open('claude:')).toEqual([]);
@@ -187,6 +191,107 @@ describe('Claude sub-agents', () => {
     const ctx = { contextTokens: 50_000, maxContextTokens: 200_000 };
     expect(o.temps.message().staff[0]).toMatchObject({ working: false, ...ctx });
     expect(o.restart().temps.message().staff[0]).toMatchObject({ working: false, ...ctx });
+  });
+});
+
+describe('T-185: sub-agent runs for the 타임라인', () => {
+  let clock = 0;
+  let runsSent = 0;
+  const names: Record<number, string> = { [LEAD]: 'alpha', 9: 'alpha-w1' };
+  function timed(start = Date.parse('2026-11-27T10:00:00Z')) {
+    clock = start;
+    runsSent = 0;
+    const levels = new LevelStore(path.join(dir, 'levels.json'), () => undefined, 60_000);
+    const roster = new RosterStore(path.join(dir, 'roster.json'), { newId: () => `e${++n}`, now: () => clock });
+    let live = true;
+    const temps = new TempStaff({
+      roster,
+      levels,
+      projectOf: () => 'alpha',
+      nameOf: (id) => names[id] ?? null,
+      live: () => live,
+      changed: () => undefined,
+      runsChanged: () => runsSent++,
+      now: () => clock,
+    });
+    return { roster, temps, setLive: (v: boolean) => (live = v) };
+  }
+
+  it('sends each spawn with its start, its end, how it ended, its description and who started it; a day-old end drops out', () => {
+    const { roster, temps } = timed();
+    temps.observe(spawn('old', { desc: '어제 검사' }));
+    temps.observe(clear('old'));
+    clock += TEMP_STAFF_RUNS_MS + 1;
+    temps.observe(spawn('a', { desc: '단위 테스트' }));
+    clock += 60_000;
+    temps.observe(clear('a'));
+    temps.observe(spawn('b'));
+    const { runs } = temps.runsMessage();
+    expect(runs.map((r) => r.execution).sort()).toEqual(['claude:a', 'claude:b']);
+    expect(runs.find((r) => r.execution === 'claude:a')).toEqual({
+      execution: 'claude:a',
+      project: 'alpha',
+      started: new Date(clock - 60_000).toISOString(),
+      ended: new Date(clock).toISOString(),
+      endedBy: 'end',
+      desc: '단위 테스트',
+      employeeId: roster.employeeOf('claude:a')!.id,
+      spawner: 'alpha',
+      seen: 'spawn',
+    });
+    // Still running: no end; no description given: none made up.
+    expect(runs.find((r) => r.execution === 'claude:b')).toEqual({
+      execution: 'claude:b',
+      project: 'alpha',
+      started: new Date(clock).toISOString(),
+      employeeId: roster.employeeOf('claude:b')!.id,
+      spawner: 'alpha',
+      seen: 'spawn',
+    });
+  });
+
+  it('a spawn that outlives a restart keeps its first start and is marked re-bound (its end is not an observed one)', () => {
+    const before = timed();
+    before.temps.observe(spawn('a', { desc: 'long one' }));
+    // 14:00: the daemon starts again; the start-up replay sees the spawn, then its end.
+    clock += 4 * 60 * 60_000;
+    const after = timed(clock);
+    after.setLive(false);
+    after.temps.observe(spawn('a', { desc: 'long one' }));
+    clock += 60_000;
+    after.temps.observe(clear('a'));
+    const run = after.temps.runsMessage().runs[0];
+    expect(run).toMatchObject({ started: '2026-11-27T10:00:00.000Z', rebound: true, seen: 'spawn' });
+  });
+
+  it("a sub-agent first seen by one of its tools says so; a Worker's spawn names the Worker", () => {
+    const { temps } = timed();
+    temps.observe(subTool('t9', 's1')); // its spawn was missed
+    temps.observe({ ...spawn('w1'), id: 9 });
+    const runs = temps.runsMessage().runs;
+    expect(runs.find((r) => r.execution === 'claude:t9')).toMatchObject({ seen: 'tool', spawner: 'alpha' });
+    expect(runs.find((r) => r.execution === 'claude:w1')).toMatchObject({ seen: 'spawn', spawner: 'alpha-w1' });
+  });
+
+  it('the runs go out only when a binding is made, released or re-bound, never on a context update; at most TEMP_STAFF_RUNS_MAX, the newest', () => {
+    const { temps } = timed();
+    temps.observe(spawn('a'));
+    expect(runsSent).toBe(1);
+    temps.context(LEAD, 'a', 1_000, 200_000);
+    temps.compactions(LEAD, 'a', 1);
+    expect(runsSent).toBe(1);
+    temps.observe(clear('a'));
+    expect(runsSent).toBe(2);
+    for (let i = 0; i < TEMP_STAFF_RUNS_MAX + 5; i++) {
+      clock += 1_000;
+      temps.observe(spawn(`x${i}`)); // open: the roster keeps every open one (it prunes ended ones)
+    }
+    const msg = temps.runsMessage();
+    expect(msg.runs).toHaveLength(TEMP_STAFF_RUNS_MAX);
+    expect(msg.runs.some((r) => r.execution === `claude:x${TEMP_STAFF_RUNS_MAX + 4}`)).toBe(true);
+    expect(msg.runs.some((r) => r.execution === 'claude:a')).toBe(false);
+    // The record no longer reaches back to the day's first runs: it says from when it is whole.
+    expect(msg.prunedBefore).toBeDefined();
   });
 });
 

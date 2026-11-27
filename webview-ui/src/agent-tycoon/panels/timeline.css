@@ -1,0 +1,710 @@
+/* T-185 현황판 타임라인 (TimelinePanel.tsx, mock-up board4-gantt-desktop): the chart panel and the boss's
+   to-dos beside it; one time axis, rows by kind of worker. Shapes, lines and fonts through the UI tokens,
+   colours from the app's variables only. The chart's vertical metrics are px from constants.ts
+   (TIMELINE_*), shared with the connectors drawn over it. */
+.tl-root {
+  --tl-head-w: calc(190px * var(--ui-scale));
+  --tl-chart-min: calc(640px * var(--ui-scale));
+  --tl-owner: var(--color-status-permission);
+  --tl-lead: var(--color-accent-text);
+  --tl-run: var(--color-status-active);
+  --tl-ok: var(--color-status-success);
+  --tl-bad: var(--color-status-error);
+  --tl-back: var(--color-devroom-bad);
+  --tl-done: var(--color-btn-hover);
+  --tl-line: var(--color-devroom-card-line);
+}
+.tl-cols {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(14px * var(--ui-scale));
+  min-width: 0;
+}
+.tl-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+@container (max-width: 1000px) {
+  .tl-cols {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ── Head: icon, title, caption; the project pick and the 1시간 / 오늘 switch ── */
+.tl-head-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(10px * var(--ui-scale));
+  padding: calc(14px * var(--ui-scale)) calc(16px * var(--ui-scale)) calc(4px * var(--ui-scale));
+}
+.tl-title {
+  font-size: calc(var(--text-base) * var(--ui-title-scale));
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+}
+.tl-caption {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.tl-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(10px * var(--ui-scale));
+}
+.tl-switch {
+  display: inline-flex;
+  padding: calc(3px * var(--ui-scale));
+  gap: calc(2px * var(--ui-scale));
+  border-radius: var(--ui-r-card);
+  border: var(--ui-bw) solid var(--tl-line);
+  background: var(--color-devroom-menu);
+}
+.tl-seg {
+  padding: calc(3px * var(--ui-scale)) calc(14px * var(--ui-scale));
+  border-radius: var(--ui-r-chip);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.tl-seg[aria-pressed='true'] {
+  background: var(--color-active-bg);
+  color: var(--color-devroom-tab-on);
+  box-shadow: inset 0 0 0 var(--ui-bw) var(--color-devroom-tab-line);
+}
+
+/* The sentence: a template filled with counts; its second half (what runs now) in the accent. */
+.tl-say {
+  padding: calc(8px * var(--ui-scale)) calc(16px * var(--ui-scale)) calc(6px * var(--ui-scale));
+  font-size: calc(var(--text-base) * 1.15);
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+}
+.tl-say-now {
+  color: var(--color-devroom-blue);
+}
+
+/* ── The chart: scrolls inside the panel both ways; the axis stays on top, the row heads on the left ── */
+.tl-scroll {
+  max-height: min(72vh, calc(760px * var(--ui-scale)));
+  overflow: auto;
+  margin: 0 calc(4px * var(--ui-scale));
+}
+.tl-canvas {
+  min-width: calc(var(--tl-head-w) + var(--tl-chart-min));
+  position: relative;
+}
+.tl-axisrow {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  background: var(--color-devroom-rail);
+}
+.tl-corner {
+  flex: 0 0 var(--tl-head-w);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-devroom-rail);
+}
+.tl-axis {
+  position: relative;
+  flex: 1 1 auto;
+  margin-right: calc(24px * var(--ui-scale));
+}
+.tl-tick,
+.tl-now-tag {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tl-now-tag {
+  z-index: 1;
+  padding: calc(2px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  border: var(--ui-bw) solid var(--tl-run);
+  color: var(--color-devroom-blue);
+  background: var(--color-devroom-pick);
+  font-weight: var(--ui-weight-strong);
+}
+
+.tl-body {
+  display: flex;
+  position: relative;
+}
+.tl-heads {
+  flex: 0 0 var(--tl-head-w);
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--color-devroom-rail);
+  align-self: flex-start;
+}
+.tl-rowhead {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  padding: 0 calc(14px * var(--ui-scale));
+  border-top: 1px solid var(--tl-line);
+}
+.tl-rowhead-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: calc(2px * var(--ui-scale));
+}
+.tl-rowhead-text b {
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+  font-size: var(--text-base);
+}
+.tl-rowhead-text small {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(36px * var(--ui-scale));
+  height: calc(36px * var(--ui-scale));
+  border-radius: var(--ui-r-card);
+  border: var(--ui-bw) solid var(--tl-line);
+  background: var(--color-devroom-box);
+  color: var(--color-text-muted);
+}
+.tl-tile[data-tone='warn'] {
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+  color: var(--color-devroom-conf);
+}
+.tl-faces {
+  display: flex;
+}
+.tl-faces .sb-face + .sb-face {
+  margin-left: calc(-10px * var(--ui-scale));
+}
+.tl-rowhead .sb-face {
+  width: calc(36px * var(--ui-scale));
+  height: calc(36px * var(--ui-scale));
+}
+
+.tl-chart {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* A label running past the right edge is cut there, not a wider scroll. */
+  overflow-x: clip;
+  margin-right: calc(24px * var(--ui-scale));
+}
+.tl-under {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+.tl-gridline,
+.tl-now,
+.tl-future {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.tl-gridline {
+  border-left: 1px dashed var(--tl-line);
+  opacity: 0.45;
+}
+.tl-rowline {
+  position: absolute;
+  left: calc(-1 * var(--tl-head-w));
+  right: calc(-24px * var(--ui-scale));
+  border-top: 1px solid var(--tl-line);
+}
+.tl-rowline:last-child {
+  display: none;
+}
+.tl-now {
+  border-left: calc(2px * var(--ui-scale)) solid var(--tl-run);
+  z-index: 2;
+}
+.tl-future {
+  right: calc(-24px * var(--ui-scale));
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-devroom-done-bg) 0 calc(5px * var(--ui-scale)),
+    transparent calc(5px * var(--ui-scale)) calc(11px * var(--ui-scale))
+  );
+}
+.tl-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.tl-row > * {
+  pointer-events: auto;
+}
+.tl-empty {
+  position: relative;
+  z-index: 3;
+  padding: calc(28px * var(--ui-scale)) calc(12px * var(--ui-scale));
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ── Connectors: thin, few; a return from 검토 dashed red ── */
+.tl-links {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.tl-link {
+  stroke: var(--tl-lead);
+  stroke-width: 1.5;
+  fill: none;
+}
+.tl-link-next {
+  stroke: var(--tl-ok);
+}
+.tl-link-back {
+  stroke: var(--tl-back);
+  stroke-dasharray: 4 3;
+}
+.tl-arrowhead {
+  fill: var(--tl-lead);
+}
+.tl-arrowhead-back {
+  fill: var(--tl-back);
+}
+.tl-link-text {
+  fill: var(--tl-back);
+  font-size: var(--text-xs);
+}
+
+/* ── A run: its label over its bar; it holds at least TIMELINE_MIN_SPAN of the chart, the bar fills its share ── */
+.tl-run {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(6px * var(--ui-scale));
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.tl-label {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  min-width: 0;
+  height: calc(20px * var(--ui-scale));
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+.tl-label .sb-face {
+  width: calc(20px * var(--ui-scale));
+  height: calc(20px * var(--ui-scale));
+}
+.tl-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tl-chip {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+}
+.tl-elapsed {
+  flex: 0 0 auto;
+  color: var(--color-devroom-blue);
+  font-weight: var(--ui-weight-strong);
+}
+.tl-track {
+  padding-left: calc(100% * var(--tl-off));
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--ui-scale));
+  height: calc(12px * var(--ui-scale));
+}
+.tl-bar {
+  display: block;
+  flex: none;
+  height: 100%;
+  /* Its share of the run's room (the track's padding is not part of the percentage base). */
+  width: calc(100% * var(--tl-fill) / (1 - var(--tl-off)));
+  min-width: calc(6px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  background: var(--tl-done);
+  box-shadow: inset 0 0 0 1px var(--tl-line);
+}
+.tl-run[data-state='running'] .tl-bar {
+  /* Still going: blue, its end soft (open), a dot on the now line. */
+  background: linear-gradient(90deg, var(--tl-run) 70%, transparent);
+  box-shadow: none;
+  border-radius: var(--ui-r-pill) 0 0 var(--ui-r-pill);
+}
+.tl-run-dot {
+  width: calc(10px * var(--ui-scale));
+  height: calc(10px * var(--ui-scale));
+  margin-left: calc(-9px * var(--ui-scale));
+  border-radius: 50%;
+  background: var(--tl-run);
+  box-shadow: 0 0 0 calc(3px * var(--ui-scale)) var(--color-devroom-work-bg);
+}
+.tl-run[data-state='failed'] .tl-bar {
+  box-shadow: inset 0 0 0 1px var(--tl-bad);
+}
+.tl-cap {
+  flex: none;
+  width: calc(18px * var(--ui-scale));
+  height: calc(18px * var(--ui-scale));
+  margin-left: calc(-12px * var(--ui-scale));
+  fill: var(--color-devroom-rail);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tl-cap[data-cap='ok'] {
+  stroke: var(--tl-ok);
+}
+.tl-cap[data-cap='bad'] {
+  stroke: var(--tl-bad);
+}
+.tl-cap[data-cap='back'] {
+  stroke: var(--tl-back);
+}
+.tl-failed {
+  flex: 0 0 auto;
+  color: var(--tl-bad);
+  font-size: var(--text-sm);
+}
+.tl-run[aria-pressed='true'] .tl-bar,
+.tl-pin[aria-pressed='true'],
+.tl-wait[aria-pressed='true'] .tl-wait-line {
+  outline: var(--ui-bw) solid var(--color-accent-bright);
+  outline-offset: calc(2px * var(--ui-scale));
+}
+.tl-run:focus-visible,
+.tl-pin:focus-visible,
+.tl-wait:focus-visible {
+  outline: var(--ui-bw) solid var(--color-accent);
+}
+
+/* Its start was not seen: the bar fades in from where it was first seen. */
+.tl-run[data-start-unseen] .tl-bar {
+  -webkit-mask: linear-gradient(90deg, transparent, var(--color-bg) calc(12px * var(--ui-scale)));
+  mask: linear-gradient(90deg, transparent, var(--color-bg) calc(12px * var(--ui-scale)));
+}
+/* The runs past a row's lane cap, folded: one "+N" at the end of its last lane (opens 실행). */
+.tl-more {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  padding: calc(1px * var(--ui-scale)) calc(10px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  border: var(--ui-bw) solid var(--tl-line);
+  background: var(--color-devroom-box);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* A mark (the boss's messages, a Lead's spawns or hand-outs): a pill whose dot sits on its time. */
+.tl-pin {
+  position: absolute;
+  transform: translate(calc(-14px * var(--ui-scale)), -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+  padding: calc(3px * var(--ui-scale)) calc(12px * var(--ui-scale)) calc(3px * var(--ui-scale)) calc(8px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  border: var(--ui-bw) solid var(--tl-lead);
+  background: var(--color-devroom-main);
+  color: var(--color-devroom-title);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  min-width: 0;
+  cursor: pointer;
+}
+.tl-pin[data-tone='owner'] {
+  border-color: var(--color-devroom-conf-line);
+  background: var(--color-devroom-conf-bg);
+}
+.tl-pin[data-leftward] {
+  flex-direction: row-reverse;
+  transform: translate(calc(14px * var(--ui-scale)), -50%);
+  padding: calc(3px * var(--ui-scale)) calc(8px * var(--ui-scale)) calc(3px * var(--ui-scale)) calc(12px * var(--ui-scale));
+}
+.tl-run[data-leftward] .tl-label {
+  justify-content: flex-end;
+}
+.tl-pin-dot {
+  flex: none;
+  width: calc(12px * var(--ui-scale));
+  height: calc(12px * var(--ui-scale));
+  border-radius: 50%;
+  background: var(--tl-lead);
+}
+.tl-pin[data-tone='owner'] .tl-pin-dot {
+  background: var(--tl-owner);
+}
+
+/* The boss's wait: a dashed stretch to the now line, its words over its end. */
+.tl-wait {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(6px * var(--ui-scale));
+  cursor: pointer;
+}
+.tl-wait-label {
+  color: var(--color-devroom-conf);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  height: calc(20px * var(--ui-scale));
+}
+.tl-wait-line {
+  position: relative;
+  align-self: stretch;
+  height: calc(12px * var(--ui-scale));
+  background: linear-gradient(var(--tl-owner), var(--tl-owner)) center / 100% calc(2px * var(--ui-scale)) no-repeat;
+  -webkit-mask: repeating-linear-gradient(90deg, var(--color-bg) 0 calc(7px * var(--ui-scale)), transparent calc(7px * var(--ui-scale)) calc(12px * var(--ui-scale)));
+  mask: repeating-linear-gradient(90deg, var(--color-bg) 0 calc(7px * var(--ui-scale)), transparent calc(7px * var(--ui-scale)) calc(12px * var(--ui-scale)));
+}
+
+/* ── The picked run's card, under its bar, its pointer at the bar ── */
+.tl-card {
+  position: absolute;
+  z-index: 6;
+  width: 55%;
+  min-width: calc(340px * var(--ui-scale));
+  padding: calc(12px * var(--ui-scale)) calc(16px * var(--ui-scale));
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--ui-scale));
+  border-radius: var(--ui-r-card);
+  border: var(--ui-bw) solid var(--color-devroom-accent-line);
+  background: var(--color-devroom-block);
+  box-shadow: var(--ui-drop) var(--color-devroom-menu);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+.tl-card::before {
+  content: '';
+  position: absolute;
+  top: calc(-7px * var(--ui-scale));
+  left: var(--tl-point);
+  width: calc(12px * var(--ui-scale));
+  height: calc(12px * var(--ui-scale));
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--color-devroom-block);
+  border-left: var(--ui-bw) solid var(--color-devroom-accent-line);
+  border-top: var(--ui-bw) solid var(--color-devroom-accent-line);
+}
+.tl-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(10px * var(--ui-scale));
+}
+.tl-card-title {
+  font-size: var(--text-base);
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+  overflow-wrap: anywhere;
+}
+.tl-card-when {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tl-card-x {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.tl-card-bad {
+  color: var(--tl-bad);
+}
+.tl-card-foot {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  margin-top: calc(4px * var(--ui-scale));
+  color: var(--color-text-muted);
+}
+.tl-card-issue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-door {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--ui-scale));
+  color: var(--color-accent-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* ── The legend row ── */
+.tl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(18px * var(--ui-scale));
+  margin-top: calc(8px * var(--ui-scale));
+  padding: calc(12px * var(--ui-scale)) calc(16px * var(--ui-scale));
+  border-top: 1px solid var(--tl-line);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.tl-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6px * var(--ui-scale));
+}
+.tl-legend .tl-cap {
+  margin-left: 0;
+}
+.tl-hint {
+  margin-left: auto;
+}
+.tl-swatch {
+  display: inline-block;
+  width: calc(26px * var(--ui-scale));
+  height: calc(10px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  background: var(--tl-done);
+}
+.tl-swatch[data-state='running'] {
+  background: var(--tl-run);
+}
+.tl-swatch[data-state='link'] {
+  height: calc(2px * var(--ui-scale));
+  background: var(--tl-lead);
+}
+.tl-swatch[data-state='wait'] {
+  height: calc(2px * var(--ui-scale));
+  background: repeating-linear-gradient(90deg, var(--tl-owner) 0 calc(5px * var(--ui-scale)), transparent calc(5px * var(--ui-scale)) calc(8px * var(--ui-scale)));
+}
+
+/* ── 사장님이 할 일 ── */
+.tl-todo {
+  flex: 0 0 calc(380px * var(--ui-scale));
+  min-width: 0;
+  padding: calc(14px * var(--ui-scale));
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--ui-scale));
+  border-color: var(--color-devroom-conf-line);
+}
+.tl-todo-head {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+}
+.tl-todo-head h3 {
+  flex: 1 1 auto;
+  font-size: calc(var(--text-base) * var(--ui-title-scale));
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+}
+.tl-count {
+  min-width: calc(26px * var(--ui-scale));
+  padding: 0 calc(8px * var(--ui-scale));
+  border-radius: var(--ui-r-pill);
+  background: var(--color-devroom-conf-bg);
+  color: var(--color-devroom-conf);
+  text-align: center;
+  font-weight: var(--ui-weight-strong);
+}
+.tl-todo-sub {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.tl-ask {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(6px * var(--ui-scale));
+  padding: calc(12px * var(--ui-scale));
+  border-radius: var(--ui-r-card);
+  border: var(--ui-bw) solid var(--tl-line);
+  background: var(--color-devroom-card);
+}
+.tl-ask-who {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--ui-scale));
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.tl-ask-text {
+  font-size: var(--text-base);
+  font-weight: var(--ui-weight-strong);
+  color: var(--color-devroom-title);
+  overflow-wrap: anywhere;
+}
+.tl-ask-where {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.tl-review {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--ui-scale));
+  padding: calc(10px * var(--ui-scale)) calc(4px * var(--ui-scale));
+  border-top: 1px solid var(--tl-line);
+  text-align: left;
+  cursor: pointer;
+}
+.tl-review .tl-rowhead-text {
+  flex: 1 1 auto;
+}
+
+/* A phone or a narrow window: narrower heads; the chart scrolls sideways under them. */
+@container (max-width: 640px) {
+  .tl-root {
+    --tl-head-w: calc(112px * var(--ui-scale));
+    --tl-chart-min: calc(520px * var(--ui-scale));
+  }
+  .tl-rowhead {
+    padding: 0 calc(8px * var(--ui-scale));
+    gap: calc(6px * var(--ui-scale));
+  }
+  .tl-rowhead .tl-tile,
+  .tl-rowhead .sb-face {
+    width: calc(28px * var(--ui-scale));
+    height: calc(28px * var(--ui-scale));
+  }
+  .tl-say {
+    font-size: var(--text-base);
+  }
+  .tl-hint {
+    margin-left: 0;
+  }
+  /* The wait's words start at its line and run right, over the future: its left is under the row heads. */
+  .tl-wait {
+    align-items: flex-start;
+  }
+}

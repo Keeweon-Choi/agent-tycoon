@@ -18,6 +18,7 @@ import { closeWindow } from '../hud/hudStore.js';
 import { useCanAct } from '../workbench/workbenchStore.js';
 import { AddProjectDialog } from './AddProject.js';
 import { PhoneTerminal } from './AgentColumns.js';
+import { BranchView } from './BranchMap.js';
 import { ChangesTab } from './ChangesTab.js';
 import {
   BIG,
@@ -46,6 +47,7 @@ import {
   useDevroom,
 } from './devroomStore.js';
 import { GRAPH_NODE, useFoldedGraph } from './graphFold.js';
+import { PhoneIssueList, PhoneStory, ViewSwitch } from './IssueView.js';
 import { sizeText, totalBytes } from './mergeState.js';
 import { requestCleanup, useMergeStore } from './mergeStore.js';
 import { MergeTab } from './MergeTab.js';
@@ -388,7 +390,7 @@ function PhoneBody({ onScreen, keyboardOpen }: { onScreen: boolean; keyboardOpen
   const [asking, setAsking] = useState(false);
   const [adding, setAdding] = useState(false);
   const { projects, groups } = useDevroomGroups();
-  const { filter, page } = useDevroom();
+  const { filter, page, view } = useDevroom();
   const name = shownProject(projects, filter) ?? t('devroom.allProjects');
   const pick = useCurrentPick(groups);
   const row = pick?.task ? groups.find((g) => g.project === pick.project)?.rows.find((r) => r.wt.task === pick.task) : undefined;
@@ -402,7 +404,9 @@ function PhoneBody({ onScreen, keyboardOpen }: { onScreen: boolean; keyboardOpen
       {groups.map((g) => (
         <RepoWatch key={g.project} project={g.project} />
       ))}
-      {page !== null && pick ? (
+      {page === 'story' && pick ? (
+        <PhoneStory groups={groups} pick={pick} />
+      ) : page !== null && page !== 'story' && pick ? (
         <>
           <Header title={`${row ? phoneTitle(row) : (pick.task ?? pick.project)} · ${page === 'runs' ? t('devroom.run.label') : t(`devroom.tab.${page}`)}`} onBack={closeDevroomPage} />
           <div className="flex-1 min-h-0 flex flex-col" data-testid="devroom-page" data-page={page}>
@@ -432,13 +436,22 @@ function PhoneBody({ onScreen, keyboardOpen }: { onScreen: boolean; keyboardOpen
             )}
           </Header>
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-12">
+            <ViewSwitch className="px-12 pt-8" />
             {(projects.length > 1 || canAct) && <ProjectChips projects={projects} onAdd={canAct ? () => setAdding(true) : undefined} />}
-            <FirstVisitHint />
-            {groups.length === 0 && <p className={`p-16 text-text-muted ${BODY}`}>{t('devroom.noProjects')}</p>}
-            {groups.map((g) => (
-              <PhoneGroup key={g.project} group={g} all={groups.length > 1} />
-            ))}
-            {canAct && one?.repo?.ok && (
+            {view === 'issue' ? (
+              <PhoneIssueList groups={groups} />
+            ) : view === 'branch' ? (
+              pick && <BranchView project={pick.project} phone />
+            ) : (
+              <>
+                <FirstVisitHint />
+                {groups.length === 0 && <p className={`p-16 text-text-muted ${BODY}`}>{t('devroom.noProjects')}</p>}
+                {groups.map((g) => (
+                  <PhoneGroup key={g.project} group={g} all={groups.length > 1} />
+                ))}
+              </>
+            )}
+            {view === 'tree' && canAct && one?.repo?.ok && (
               <div className="px-12">
                 <AgentTray group={one} />
               </div>

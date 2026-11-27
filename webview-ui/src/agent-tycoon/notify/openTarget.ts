@@ -28,7 +28,7 @@ function leadId(name: string): number | null {
 }
 
 /** Scroll card `id` of the 작업실's job list or Codex runs into view and mark it for a moment (once it is drawn). */
-function reveal(panel: 'job' | 'codex', id: string, tries = FIND_TRIES): void {
+export function reveal(panel: 'job' | 'codex', id: string, tries = FIND_TRIES): void {
   if (typeof document === 'undefined') return;
   const el = document.querySelector<HTMLElement>(`[data-${panel}-ref="${CSS.escape(id)}"]`);
   if (!el) {

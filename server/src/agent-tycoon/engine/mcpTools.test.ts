@@ -468,6 +468,15 @@ describe('C5a: the agent tools', () => {
     expect(
       (await tools.call('alpha', 'update_task', { taskId: 'T-1', status: 'finished' })).error,
     ).toMatchObject({ code: 'bad_input' });
+    // T-182: 확인 방법 from the assignee is stored as written; a stranger's is refused, nothing stored.
+    const check = { device: 'phone', steps: ['열어요', '눌러요'], expect: '창이 떠요', minutes: 2 };
+    expect(await tools.call('alpha-a', 'update_task', { taskId: 'T-1', check })).toMatchObject({ status: 'updated' });
+    expect(tasks.get('T-1')!.check).toEqual(check);
+    expect((await tools.call('alpha-b', 'update_task', { taskId: 'T-1', check: { device: 'pc' } })).error).toMatchObject({
+      code: 'forbidden',
+    });
+    expect(tasks.get('T-1')!.check).toEqual(check);
+    expect((await tools.call('alpha-a', 'update_task', { taskId: 'T-1', check: { device: 'tv' } })).error).toBeTruthy();
   });
 
   it('C4: lookups never post to a room; the assignee handing back (review, done) is one report event', async () => {

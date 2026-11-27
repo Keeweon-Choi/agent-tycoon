@@ -70,6 +70,7 @@ export type ServerMessage =
   | OfficeSnapshot
   | CodexTasks
   | TempStaff
+  | SubagentRuns
   | OfficeJobs
   | HwSample
   | DiskUsage
@@ -869,6 +870,7 @@ export interface RepoWorktree {
   conflicts?: string[];
   lastChange?: string;
   employee?: ChatEmployee;
+  autoMerges?: boolean;
 }
 
 export interface RepoMerge {
@@ -1002,7 +1004,7 @@ export interface ReviewNoteResult {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_454;
+  op: AnonymousSchema_455;
   id?: string;
   ok: boolean;
   error?: string;
@@ -1010,7 +1012,7 @@ export interface ReviewNoteResult {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_454 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_455 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSendResult {
   type: 'reviewSendResult';
@@ -1250,6 +1252,29 @@ export interface TempEmployee {
   compactions?: number;
 }
 
+export interface SubagentRuns {
+  type: 'subagentRuns';
+  runs: SubagentRun[];
+  prunedBefore?: string;
+}
+
+export interface SubagentRun {
+  execution: string;
+  project: string;
+  started: string;
+  ended?: string;
+  endedBy?: SubagentRunEnd;
+  desc?: string;
+  employeeId?: string;
+  spawner?: string;
+  seen?: SubagentRunSeen;
+  rebound?: boolean;
+}
+
+export type SubagentRunEnd = 'end' | 'restart';
+
+export type SubagentRunSeen = 'spawn' | 'tool' | 'replay';
+
 export interface OfficeJobs {
   type: 'officeJobs';
   jobs: OfficeJob[];
@@ -1400,12 +1425,12 @@ export interface DiskUsage {
 }
 
 export interface DiskUsageRow {
-  kind: AnonymousSchema_699;
+  kind: AnonymousSchema_711;
   bytes: number;
   partial: boolean;
 }
 
-export type AnonymousSchema_699 =
+export type AnonymousSchema_711 =
   'claude' | 'worktrees' | 'logs' | 'hostLog' | 'delivered' | 'roomLogs' | 'office';
 
 export interface HwSensorToolState {
@@ -1471,16 +1496,16 @@ export interface CodexUsageCheckResult {
 
 export interface AgentCliState {
   type: 'agentCliState';
-  state: AnonymousSchema_739;
+  state: AnonymousSchema_751;
   command: string;
   again?: boolean;
 }
 
-export type AnonymousSchema_739 = 'missing' | 'restarting' | 'failed';
+export type AnonymousSchema_751 = 'missing' | 'restarting' | 'failed';
 
 export interface AgentRules {
   type: 'agentRules';
-  language: AnonymousSchema_743;
+  language: AnonymousSchema_755;
   defaults: string;
   useBuiltInRules: boolean;
   text: string;
@@ -1489,15 +1514,15 @@ export interface AgentRules {
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_743 = 'ko' | 'en';
+export type AnonymousSchema_755 = 'ko' | 'en';
 
 export interface NewAgentPermission {
   type: 'newAgentPermission';
-  mode: AnonymousSchema_750;
+  mode: AnonymousSchema_762;
   error?: string;
 }
 
-export type AnonymousSchema_750 = '' | 'ask' | 'bypass';
+export type AnonymousSchema_762 = '' | 'ask' | 'bypass';
 
 export interface GpuBoard {
   type: 'gpuBoard';
@@ -1822,6 +1847,7 @@ export interface MessengerContact {
   roomPost?: string;
   roomReply?: MessengerRoomReply;
   replies: string[];
+  ownerAt?: number[];
 }
 
 export interface PermissionWait {
@@ -2092,13 +2118,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1118;
+  status: AnonymousSchema_1132;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1118 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1132 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -2157,10 +2183,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1146;
+  state: AnonymousSchema_1160;
 }
 
-export type AnonymousSchema_1146 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1160 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2373,6 +2399,7 @@ export interface BoardTask {
   testsPassed?: BoardFactBool;
   executions?: BoardExecution[];
   budget?: BoardTaskBudget;
+  check?: BoardTaskCheck;
 }
 
 export type BoardTaskStatus = 'proposed' | 'todo' | 'doing' | 'review' | 'blocked' | 'done';
@@ -2467,6 +2494,19 @@ export interface BoardTaskBudget {
   maxTurns?: number;
   maxMinutes?: number;
 }
+
+export interface BoardTaskCheck {
+  device?: BoardTaskCheckDevice;
+  steps?: string[];
+  expect?: string;
+  minutes?: number;
+  problem?: string;
+  change?: string;
+  before?: string;
+  after?: string;
+}
+
+export type BoardTaskCheckDevice = 'phone' | 'pc' | 'both';
 
 export interface DelegationApprovals {
   type: 'delegationApprovals';
@@ -2813,7 +2853,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1474;
+  op: AnonymousSchema_1496;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2822,7 +2862,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1474 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1496 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2975,10 +3015,10 @@ export interface GroupThread {
   requestId: string;
   room: string;
   posts: string[];
-  mode?: AnonymousSchema_1566;
+  mode?: AnonymousSchema_1588;
 }
 
-export type AnonymousSchema_1566 = 'probe' | 'fold';
+export type AnonymousSchema_1588 = 'probe' | 'fold';
 
 export interface GroupPost {
   type: 'groupPost';
@@ -2991,14 +3031,14 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1573;
+  action: AnonymousSchema_1595;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1573 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1595 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
@@ -3225,12 +3265,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1694;
+  lang?: AnonymousSchema_1716;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1694 = 'en' | 'ko';
+export type AnonymousSchema_1716 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -3302,19 +3342,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1723;
+  language: AnonymousSchema_1745;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1723 = 'ko' | 'en';
+export type AnonymousSchema_1745 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1727;
+  mode: AnonymousSchema_1749;
 }
 
-export type AnonymousSchema_1727 = 'ask' | 'bypass';
+export type AnonymousSchema_1749 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

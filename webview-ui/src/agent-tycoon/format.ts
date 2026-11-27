@@ -135,7 +135,7 @@ export function isOff(orchestrator: OfficeOrchestrator): boolean {
   return orchestrator.state === 'off';
 }
 
-export type OfficePanel = 'status' | 'dev' | 'runs' | 'files' | 'terminal';
+export type OfficePanel = 'status' | 'dev' | 'runs' | 'timeline' | 'files' | 'terminal';
 /** The 현황판 window's tab strip (UI-DASH, owner 11-01 14:54: the orchestrators' and the development
  *  status in one dashboard, the old 작업실 being its 개발 tab; 파일 is the window's own mode, opened by
  *  the folder icon). The 터미널 has its own window and icon (T-0077). The HW tab is gone
@@ -145,15 +145,19 @@ export const desktopTabs: { id: Exclude<OfficePanel, 'terminal' | 'files'> }[] =
   { id: 'dev' },
   // Owner 11-06 18:24: the jobs and agent runs, one press from 요약 (no 개발 › 이슈 › 실행).
   { id: 'runs' },
+  // T-185: the runs on one time axis, beside 실행.
+  { id: 'timeline' },
 ];
 
 /** A tab's name in the strip. */
 export const officeTabLabel = (tab: Exclude<OfficePanel, 'terminal'>): string =>
-  tab === 'status' || tab === 'dev' || tab === 'runs' ? t(`dash.tab.${tab}`) : t(`nav.tab.${tab}`);
+  tab === 'timeline'
+    ? t('timeline.tab')
+    : tab === 'status' || tab === 'dev' || tab === 'runs' ? t(`dash.tab.${tab}`) : t(`nav.tab.${tab}`);
 
 /** A page's title: the dashboard is 현황판 on both its sections. */
 export const panelTitle = (panel: OfficePanel): string =>
-  panel === 'terminal' ? t('nav.terminal') : t(`nav.tab.${panel === 'dev' || panel === 'runs' ? 'status' : panel}`);
+  panel === 'terminal' ? t('nav.terminal') : t(`nav.tab.${panel === 'dev' || panel === 'runs' || panel === 'timeline' ? 'status' : panel}`);
 
 /** A temperature's tone: the display default (ADR-0014, T-0030), 85 °C warn, 95 °C critical. */
 export const tempTone = (c: number): 'warn' | 'critical' | null =>

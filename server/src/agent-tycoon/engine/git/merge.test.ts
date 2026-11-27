@@ -199,6 +199,25 @@ describe.skipIf(!GIT_AVAILABLE)('W3 RepoManager merge: policy and queue', () => 
     expect(r.git(['log', '-1', '--format=%s', 'dev']).trim()).toBe(`Merge branch '${made.t2.replace('fix-', 'fix/')}' into dev`);
   });
 
+  it('T-182: each unmerged Task worktree says whether the automatic merge would go ahead (as merge() decides)', async () => {
+    const { r, mgr, made } = await setupManager();
+    const rows = async () => {
+      const state = (await mgr['state']('alpha')) as { worktrees?: Array<{ task: string; autoMerges?: boolean }> };
+      return Object.fromEntries((state.worktrees ?? []).map((w) => [w.task, w.autoMerges]));
+    };
+    expect(await rows()).toEqual({ [made.t1]: true, [made.t2]: true, [made.m1]: false });
+    expect(await mgr.merge('alpha', made.m1, { privileged: true, source: 'auto', auto: true })).toMatchObject({ code: 'protected' });
+    // The owner's list protects dev too: no automatic merge there either, as merge() refuses it.
+    fs.writeFileSync(path.join(r.root, 'config', 'protected-branches.json'), JSON.stringify({ alpha: ['dev'] }));
+    expect(await rows()).toEqual({ [made.t1]: false, [made.t2]: false, [made.m1]: false });
+    expect(await mgr.merge('alpha', made.t1, { privileged: true, source: 'auto', auto: true })).toMatchObject({ code: 'protected' });
+    // Merged: nothing left to merge, so the row says nothing.
+    fs.rmSync(path.join(r.root, 'config', 'protected-branches.json'));
+    expect(await mgr.merge('alpha', made.t1, { privileged: true, source: 'auto', auto: true })).toMatchObject({ ok: true });
+    expect((await rows())[made.t1]).toBeUndefined();
+    mgr.dispose();
+  });
+
   it('a protected base: the automatic request is refused; a click needs step-up from a remote device', async () => {
     const { r, mgr, made } = await setupManager();
     const main = r.git(['rev-parse', 'main']).trim();

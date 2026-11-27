@@ -110,6 +110,7 @@ const LEFT: Record<string, string> = {
   'agent-tycoon/taskboard/taskBoardState.ts': 'the task board (another task; G9)',
   'agent-tycoon/taskboard/TaskBoard.tsx': 'the task board (another task; G9)',
   'agent-tycoon/panels/OfficePanels.tsx': 'the dashboard (another task; G6)',
+  'agent-tycoon/panels/TimelinePanel.tsx': "the run kind 'codex' of a timeline row (T-185; G1, the run shape step)",
   'agent-tycoon/game/PartyWindow.tsx': 'the member card (another task rebuilds it; G7, G10)',
 };
 const NAME_CHECK =

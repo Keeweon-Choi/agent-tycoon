@@ -11,6 +11,7 @@ import { t } from '../../i18n/index.js';
 import { openWindow } from '../hud/hudStore.js';
 import { resultToast } from '../repo/repoText.js';
 import { parseFilter } from './devroomState.js';
+import type { PaneView } from './paneTree.js';
 import { canPreviewHere } from './previewHost.js';
 
 export const DEVROOM_KEY = 'agty.devroom.v1';
@@ -20,6 +21,17 @@ export const PREVIEW_KEY = 'agty.devroom.preview.v1';
 /** DEVROOM-SIDEBAR: the external worktrees hidden on this device (their paths). */
 export const HIDDEN_KEY = 'agty.devroom.hidden.v1';
 
+/** T-183: the view last shown, kept per device. */
+export const VIEW_KEY = 'agty.devroom.view.v1';
+
+/** The 개발실's views, in the switch's order: one line each (its id and the label's i18n key). */
+export const DEVROOM_VIEWS = [
+  { id: 'issue', label: 'devIssue.view' },
+  { id: 'branch', label: 'devBranch.view' },
+  { id: 'tree', label: 'devroom.graph' },
+] as const;
+export type DevroomView = (typeof DEVROOM_VIEWS)[number]['id'];
+
 /** The rail's agent row clicked: the agent whose pane shows (a sub-agent's lead), the sub-agent's
  *  key (SubRow.key) or null, and a stamp so a second click on the same row shows it again. */
 export interface AgentPick {
@@ -27,6 +39,8 @@ export interface AgentPick {
   name: string;
   sub: string | null;
   at: number;
+  /** T-183: open its pane on this view (the story's 대화 보기 / 터미널 보기); unset = the pane's own. */
+  view?: PaneView;
 }
 
 /** The right area: S2's terminal, S3's 변경, S4's 머지, S6's 미리보기 and S4's 워크트리 정리 view;
@@ -50,7 +64,11 @@ export interface DevroomSnapshot {
   folded: Readonly<Record<string, true>>;
   /** Phone: the card showing its three buttons, and the full-screen sub-page open over the list. */
   expanded: string | null;
-  page: DevroomTab | null;
+  /** `story`: the phone's 이슈 story over the list (T-183). */
+  page: DevroomTab | 'story' | null;
+  /** T-183: the sub-page was opened from the story, so 뒤로 goes back to it. */
+  storyBack: boolean;
+  view: DevroomView;
   /** 미리보기: the dev server address of each worktree (pickKey -> a loopback URL), kept per device. */
   previews: Readonly<Record<string, string>>;
   /** The footer's `터미널 N개 · 데몬 메모리 약 X MB` (the daemon sends it while the dev room is viewed). */
@@ -67,6 +85,15 @@ function readFilter(): string | null {
     return parseFilter(localStorage.getItem(DEVROOM_KEY));
   } catch {
     return null; // storage blocked: every project for this visit
+  }
+}
+
+function readView(): DevroomView {
+  try {
+    const raw = localStorage.getItem(VIEW_KEY);
+    return DEVROOM_VIEWS.find((v) => v.id === raw)?.id ?? 'tree';
+  } catch {
+    return 'tree'; // storage blocked: the tree for this visit
   }
 }
 
@@ -100,6 +127,8 @@ let snapshot: DevroomSnapshot = {
   folded: {},
   expanded: null,
   page: null,
+  storyBack: false,
+  view: readView(),
   previews: readPreviews(),
   stats: null,
   agent: null,
@@ -128,6 +157,19 @@ export function setDevroomFilter(project: string | null): void {
   set({ filter: project, menu: null });
 }
 
+/** A button that opens a worktree's tab elsewhere in the app shows the tree for this visit (only the switch is remembered). */
+const TREE = { view: 'tree' } as const;
+
+/** The view switch: shown and remembered on this device. */
+export function setDevroomView(view: DevroomView): void {
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Private mode: this visit still keeps it.
+  }
+  set({ view, menu: null });
+}
+
 /** A card or the trunk. The trunk has no 변경 or 머지: its tab falls back to the terminal. */
 export function pickWorktree(project: string, task: string | null): void {
   const tab = task === null && snapshot.tab !== 'terminal' ? 'terminal' : snapshot.tab;
@@ -139,6 +181,22 @@ let agentClicks = 0;
 export function pickAgent(project: string, task: string | null, name: string, sub: string | null): void {
   set({ picked: { project, task }, tab: 'terminal', menu: null, agent: { project, name, sub, at: ++agentClicks } });
 }
+
+/**
+ * T-183: a story button opens the existing view on the issue's worktree (`task` null: the project, for 정리):
+ * on the PC the tree view's `tab` (with `agent`, its pane on `view`), on the phone that sub-page, whose 뒤로
+ * comes back to the story it was opened from.
+ */
+export function openFromStory(project: string, task: string | null, tab: DevroomTab, phone: boolean, agent?: { name: string; view: PaneView }): void {
+  const pick = agent ? { project, name: agent.name, sub: null, at: ++agentClicks, view: agent.view } : null;
+  // The list's 정리하기 (no task) comes back to the list, a story button to its story.
+  const page = { page: tab, storyBack: task !== null && snapshot.page === 'story' };
+  set({ picked: { project, task }, tab, menu: null, agent: pick, ...(phone ? page : { page: null, view: 'tree' as const }) });
+}
+
+/** T-183 phone: the picked issue's story over the list. */
+export const openStory = (project: string, task: string) =>
+  set({ picked: { project, task }, page: 'story', storyBack: false, menu: null, agent: null });
 
 /**
  * T-71: the party opens the dev room on one agent: a Worker's terminal, or (with `sub`) a sub-agent's read-only
@@ -191,11 +249,11 @@ export const devroomSetStats = (stats: DevroomStats) => set({ stats });
 export const expandCard = (key: string) =>
   set({ expanded: snapshot.expanded === key ? null : key });
 export const openDevroomPage = (project: string, task: string | null, page: DevroomTab) =>
-  set({ picked: { project, task }, page, tab: page, menu: null, agent: null });
+  set({ picked: { project, task }, page, tab: page, menu: null, agent: null, storyBack: false, ...TREE });
 /** Back on the phone: the sub-page closes first (true when there was one). */
 export function closeDevroomPage(): boolean {
   if (snapshot.page === null) return false;
-  set({ page: null });
+  set(snapshot.storyBack && snapshot.page !== 'story' ? { page: 'story', storyBack: false } : { page: null, storyBack: false });
   return true;
 }
 
@@ -206,7 +264,7 @@ export function closeDevroomPage(): boolean {
 export function openDevRoom(project: string, task: string | null = null): void {
   if (snapshot.filter !== null && snapshot.filter !== project) setDevroomFilter(project);
   const key = pickKey(project, task);
-  set({ picked: { project, task }, tab: 'terminal', menu: null, expanded: key, page: null, agent: null });
+  set({ picked: { project, task }, tab: 'terminal', menu: null, expanded: key, page: null, agent: null, ...TREE });
   openWindow('devroom');
 }
 
@@ -220,6 +278,7 @@ export function openPreview(project: string, task: string, url?: string): void {
     menu: null,
     expanded: pickKey(project, task),
     page: canPreviewHere() ? null : 'preview',
+    ...TREE,
   });
   openWindow('devroom');
 }

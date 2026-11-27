@@ -208,6 +208,32 @@ describe('messenger conversations', () => {
     expect(c1.replies[1].startsWith(`${c1.lastAt}-`)).toBe(true);
   });
 
+  it("T-185: contacts carry when the boss wrote (times only), not a peer's or the system's lines", () => {
+    const t = setup(1);
+    fs.appendFileSync(t.leads[0].transcript!, line('user', '[agty · ops에게서 · 10-22 14:15]\n규칙', 3));
+    fs.appendFileSync(t.leads[0].transcript!, line('user', '두 번째 부탁', 4));
+    // Claude Code's own line when the boss presses Esc is not a message of his.
+    fs.appendFileSync(t.leads[0].transcript!, line('user', '[Request interrupted by user for tool use]', 5));
+    t.conv.poll();
+    expect(t.contacts()[0].ownerAt).toEqual([Date.UTC(2026, 9, 22, 1, 0, 1), Date.UTC(2026, 9, 22, 1, 0, 4)]);
+  });
+
+  it('T-185 × T-186: a lead past the tails has ownerAt from its glance, kept through a long tool run', () => {
+    const t = setup(MAX_TAILS + 1);
+    const past = t.leads[MAX_TAILS];
+    const row = () => t.contacts().find((c) => c.name === past.name);
+    fs.appendFileSync(past.transcript!, line('user', 'one more', 3));
+    t.conv.poll();
+    const want = [Date.UTC(2026, 9, 22, 1, 0, 1), Date.UTC(2026, 9, 22, 1, 0, 3)];
+    expect(row()?.ownerAt).toEqual(want);
+    fs.appendFileSync(
+      past.transcript!,
+      `${JSON.stringify({ type: 'user', uuid: 'u-tool', timestamp: new Date(Date.UTC(2026, 9, 22, 1, 0, 4)).toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(300 * 1024) }] } })}\n`,
+    );
+    t.conv.poll();
+    expect(row()?.ownerAt).toEqual(want);
+  });
+
   it(`at most ${MAX_OPEN_PER_CLIENT} open per client; another client has its own`, () => {
     const t = setup(6);
     for (let i = 0; i < 5; i++) t.conv.view(t.client, 100 + i, true);
@@ -222,14 +248,46 @@ describe('messenger conversations', () => {
     expect(t.got.at(-1)).toMatchObject({ agentId: 105 });
   });
 
-  it(`at most ${MAX_TAILS} tails per daemon, open conversations first`, () => {
+  it(`at most ${MAX_TAILS} tails per daemon, open conversations first; every contact has its last message (T-186)`, () => {
     const t = setup(MAX_TAILS + 3);
     t.conv.view(t.client, 100 + MAX_TAILS + 2, true); // the last lead, open
     expect(t.conv.size).toBe(MAX_TAILS);
-    const withPreview = t.contacts().filter((c) => c.preview);
-    expect(withPreview).toHaveLength(MAX_TAILS);
-    expect(withPreview.map((c) => c.name)).toContain(`lead${MAX_TAILS + 2}`);
+    // A lead past the tails still shows its last message and its time: the list sorts by it.
+    expect(t.contacts().map((c) => [c.preview, c.lastAt])).toEqual(
+      t.leads.map((_, i) => [`hi ${i}`, Date.UTC(2026, 9, 22, 1, 0, 2)]),
+    );
     expect(t.got).toHaveLength(1);
+    const past = t.leads[MAX_TAILS + 1];
+    fs.appendFileSync(past.transcript!, line('user', `later ${MAX_TAILS + 1}`, 7));
+    t.conv.poll();
+    expect(t.contacts().find((c) => c.name === past.name)).toMatchObject({
+      preview: `later ${MAX_TAILS + 1}`,
+      lastAt: Date.UTC(2026, 9, 22, 1, 0, 7),
+    });
+  });
+
+  it('T-186: a lead past the tails keeps its last message through a long tool run, until its file starts over', () => {
+    const t = setup(MAX_TAILS + 1);
+    const past = t.leads[MAX_TAILS];
+    const file = past.transcript!;
+    const row = () => t.contacts().find((c) => c.name === past.name);
+    t.conv.poll();
+    const kept = { preview: `hi ${MAX_TAILS}`, lastAt: Date.UTC(2026, 9, 22, 1, 0, 2) };
+    expect(row()).toMatchObject(kept);
+    // A tool call and 300 KB of its output: no message in the end the list looks at.
+    fs.appendFileSync(
+      file,
+      `${JSON.stringify({ type: 'assistant', uuid: 'a-tool', timestamp: new Date(Date.UTC(2026, 9, 22, 1, 0, 3)).toISOString(), message: { content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'make' } }] } })}\n` +
+        `${JSON.stringify({ type: 'user', uuid: 'u-tool', timestamp: new Date(Date.UTC(2026, 9, 22, 1, 0, 4)).toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'x'.repeat(300 * 1024) }] } })}\n`,
+    );
+    t.conv.poll();
+    expect(row()).toMatchObject(kept);
+    // A new file (a renew, a new session) starts fresh: none of the old one's message.
+    fs.rmSync(file);
+    fs.writeFileSync(file, `${JSON.stringify({ type: 'user', uuid: 'u-new', timestamp: new Date(Date.UTC(2026, 9, 22, 1, 0, 5)).toISOString(), message: { content: [{ type: 'tool_result', tool_use_id: 'tu2', content: 'y' }] } })}\n`);
+    t.conv.poll();
+    expect(row()?.preview).toBeUndefined();
+    expect(row()?.lastAt).toBeUndefined();
   });
 
   it('a lead without a transcript yet: an empty conversation, then its first lines', () => {

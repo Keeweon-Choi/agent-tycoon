@@ -74,6 +74,9 @@ const USAGE = `사용법:
   ${CLI} task add <제목> [--id X] [--project P] [--status S] [--priority P] [--goal G] [--owner 종류:이름] [--branch B] [--note T] [--codex <id>] [--job <id>]
   ${CLI} task update <id> [같은 옵션, --title T] | task done <id> [--note T] | task show <id> [--json]
   ${CLI} task … [--parent <id>] [--assignee <에이전트>] [--commits N] [--files-changed N] [--tests-ran yes|no] [--tests-passed yes|no]
+  ${CLI} task update <id> [--check-device phone|pc|both] [--check-step T]… [--check-expect T] [--check-minutes N]
+                 [--check-problem T] [--check-change T] [--check-before <그림 경로>] [--check-after <그림 경로>]   (확인 방법: 단계 6개까지, '' 는 지움;
+                 그림 경로는 프로젝트의 본 체크아웃(워크트리가 아닌 프로젝트 폴더) 기준 상대 경로)
   ${CLI} task list [--project P] [--status S] [--json] | task import <파일.json>
   ${CLI} task mode [auto|reuse|off] [--project P]
   ${CLI} worker list | worker add <프로젝트> <이름> [--role worker|reviewer] [--provider claude|codex] [--folder F] [--model M] [--permission-mode P] [--effort E]
@@ -1001,6 +1004,17 @@ const TASK_FLAGS = {
   '--tests-ran': 'testsRan',
   '--tests-passed': 'testsPassed',
 };
+/** T-182: 확인 방법's parts (`--check-step` repeats, in order; '' clears that part). */
+const CHECK_FLAGS = {
+  '--check-device': 'device',
+  '--check-step': 'steps',
+  '--check-expect': 'expect',
+  '--check-minutes': 'minutes',
+  '--check-problem': 'problem',
+  '--check-change': 'change',
+  '--check-before': 'before',
+  '--check-after': 'after',
+};
 const TASK_USAGE =
   `사용법: ${CLI} task add <제목> [옵션] | update <id> [옵션] | done <id> [--note T] | show <id> [--json] | list [--project P] [--status S] [--json] | import <파일.json> | mode [auto|reuse|off] [--project P]`;
 
@@ -1030,6 +1044,16 @@ function taskShowLines(t, assigneeRemoved) {
   row('브랜치', t.branch);
   row('worktree', t.worktree);
   row('메모', t.note);
+  if (t.check) {
+    row('확인 기기', t.check.device);
+    (t.check.steps ?? []).forEach((step, i) => row(`확인 ${i + 1}`, step));
+    row('확인 결과', t.check.expect);
+    row('확인 시간(분)', t.check.minutes);
+    row('문제', t.check.problem);
+    row('바꾼 것', t.check.change);
+    row('고치기 전 그림', t.check.before);
+    row('고친 뒤 그림', t.check.after);
+  }
   const facts = [
     ['완료 보고', t.reportedDone, yesNo],
     ['커밋', t.commits],
@@ -1069,6 +1093,14 @@ function taskArgs(args) {
     else if (TASK_FLAGS[a]) {
       if (i + 1 >= args.length) return { error: `${a} 에 값이 없습니다` };
       fields[TASK_FLAGS[a]] = args[++i];
+    } else if (CHECK_FLAGS[a]) {
+      if (i + 1 >= args.length) return { error: `${a} 에 값이 없습니다` };
+      const check = (fields.check ??= {});
+      const v = args[++i];
+      if (a === '--check-step') check.steps = v === '' ? [] : [...(check.steps ?? []), v];
+      // The schema's integer; anything else goes as written and the daemon refuses it ('' clears).
+      else if (a === '--check-minutes') check.minutes = /^\d{1,9}$/.test(v) ? Number(v) : v;
+      else check[CHECK_FLAGS[a]] = v;
     } else if (a.startsWith('--')) return { error: `모르는 옵션입니다: ${a}` };
     else words.push(a);
   }

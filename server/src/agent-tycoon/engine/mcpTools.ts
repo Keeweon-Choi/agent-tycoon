@@ -392,7 +392,9 @@ export class McpTools {
       if (typeof input.note !== 'string') return fail('bad_input', 'note must be a string');
       fields.note = input.note;
     }
-    if (!Object.keys(fields).length) return fail('bad_input', 'give status or note');
+    // T-182: 확인 방법; the store checks its shape (a bad one comes back as a refusal).
+    if (input.check !== undefined) fields.check = input.check;
+    if (!Object.keys(fields).length) return fail('bad_input', 'give status, note or check');
     const r = this.d.tasks.update(t.id, fields, me.name, this.now());
     if (!r.ok) return fail(String(r.code ?? 'refused'), String(r.error ?? ''));
     // C4: the assignee handing its work back (review, done) is a report, a room's one line.

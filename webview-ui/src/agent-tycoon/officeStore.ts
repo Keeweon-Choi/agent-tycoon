@@ -18,6 +18,7 @@ import type {
   OfficeSnapshot,
   PersonPreset,
   ServerMessage,
+  SubagentRun,
   TaskBoard,
   TempEmployee,
   TrackedItems,
@@ -121,6 +122,9 @@ export interface AgtySnapshot {
   compactions: Record<number, CompactionLog>;
   /** TEMP-PLATES: roster employees with the execution each was last bound to. */
   tempStaff: TempEmployee[];
+  /** T-185: when the daemon saw each sub-agent start and end (the 타임라인), and from when that record is whole. */
+  subagentRuns: SubagentRun[];
+  subagentRunsPrunedBefore: string | null;
 }
 
 const empty: AgtySnapshot = {
@@ -149,6 +153,8 @@ const empty: AgtySnapshot = {
   contexts: {},
   compactions: {},
   tempStaff: [],
+  subagentRuns: [],
+  subagentRunsPrunedBefore: null,
 };
 let snapshot = empty;
 const listeners = new Set<() => void>();
@@ -300,6 +306,9 @@ export function agtyHandleMessage(msg: ServerMessage): void {
       snapshot = { ...snapshot, codexUsageChecking: false };
       if (!msg.ok)
         agtyToast(t('usage.checkCodex'), serverText(msg, t('usage.checkFailed')), 'error');
+      break;
+    case 'subagentRuns':
+      snapshot = { ...snapshot, subagentRuns: msg.runs, subagentRunsPrunedBefore: msg.prunedBefore ?? null };
       break;
     case 'tempStaff':
       snapshot = { ...snapshot, tempStaff: msg.staff };

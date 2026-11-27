@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import type { BoardTask } from '../../../../core/src/messages.js';
 import { t } from '../../i18n/index.js';
 import type { ToolActivity } from '../../office/types.js';
 import { AddDeviceButton } from '../auth/AddDevice.js';
@@ -16,10 +17,14 @@ import { useAgtyStore } from '../officeStore.js';
 import { TerminalWorkspace } from '../terminal/TerminalWorkspace.js';
 import { useToastTop } from '../toastSlot.js';
 import { useWaitReasons } from '../waiting.js';
+import { ConfirmEntry, ConfirmFlow } from './ConfirmFlow.js';
+import { confirmQueue } from './confirmModel.js';
+import { closeConfirm, openConfirm, useConfirmOpen } from './confirmStore.js';
 import { ActivityList, ApprovalList, KpiRow, RoomColumn, SystemSummary, TaskTable } from './Dashboard.js';
 import { approvals, taskRows } from './dashboardModel.js';
 import { RunsPanel } from './RunsPanel.js';
 import { groupRooms, leadRings, useBoardFilter } from './statusTree.js';
+import { TimelinePanel } from './TimelinePanel.js';
 
 export type { OfficePanel } from '../format.js';
 
@@ -48,6 +53,7 @@ function StatusPanel({
   const store = useAgtyStore();
   const { officeSnapshot: officeState, taskBoard } = store;
   const filter = useBoardFilter();
+  const confirm = useConfirmOpen();
   const reasons = useWaitReasons();
   const engineProjects = useEngineStore().state?.projects;
   const workers = useMemo(
@@ -68,6 +74,10 @@ function StatusPanel({
   // Every issue in progress with its pill; the left column counts them per project.
   const open = taskRows(taskBoard?.tasks ?? [], waitOf, () => true);
   const inRoom = (name: string) => room === null || roomOf.get(name) === room;
+  // T-182: the issues waiting in 검토 for the owner to try, in the project in view (or the one the issue board opened it on).
+  const toConfirm = confirm.project === null ? (task: BoardTask) => inRoom(task.project) : (task: BoardTask) => task.project === confirm.project;
+  if (confirm.open) return <ConfirmFlow shown={toConfirm} onBack={closeConfirm} now={now} />;
+  const confirmCount = confirmQueue(taskBoard?.tasks ?? [], toConfirm, {}).length;
   return (
     <div className="sb leading-tight" data-board-look>
       <KpiRow rings={leadRings(store, agentTools, reasons, workers)} waiting={waiting} now={now} />
@@ -80,6 +90,7 @@ function StatusPanel({
             rows={open.filter((r) => inRoom(r.task.project))}
             now={now}
           />
+          <ConfirmEntry count={confirmCount} onStart={() => openConfirm()} />
           <ApprovalList rows={waiting.filter((a) => inRoom(a.name))} />
         </div>
         <div className="sb-right">
@@ -112,6 +123,7 @@ export function OfficePanelContent({
     return <TerminalWorkspace mobile={mobile} keyboardOpen={keyboardOpen} />;
   if (panel === 'status') return <StatusPanel agentTools={agentTools} now={now} />;
   if (panel === 'runs') return <RunsPanel />;
+  if (panel === 'timeline') return <TimelinePanel agentTools={agentTools} />;
   return <FileExplorer />;
 }
 
