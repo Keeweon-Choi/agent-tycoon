@@ -18,6 +18,7 @@ import {
   setJumpLoading,
 } from '../messengerStore.js';
 import { nextRequestId } from '../parts.js';
+import { pagingUnpins } from '../scrollJump.js';
 import { holdTop, isHidden, mayFetchOlder, prependedTop } from '../scrollRestore.js';
 
 /** Outline a message row for a moment (a jump landed on it, or a tag chip points at its own line). */
@@ -72,7 +73,9 @@ export function useHistoryJump({
       if (!items || historyBusy || historyDone || (full && !jumpLoading)) return;
       const el = list.current;
       if (el) prepend.current = { height: el.scrollHeight, top: el.scrollTop };
-      stuck.current = false;
+      // Paging is not the reader's scroll: a list short enough to show its top while pinned to its
+      // bottom (an empty one, a conversation that was off) stays pinned, so what arrives next follows.
+      if (!el || pagingUnpins(el)) stuck.current = false;
       const requestId = nextRequestId();
       requestHistory(agentId, requestId);
       transport.send({
@@ -201,6 +204,19 @@ export function useHistoryJump({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Conversation's stable refs/setter, see above
     [agentId],
   );
+  /**
+   * The reader sent a message: they are at the bottom, on it. A jump still waiting for rows (a
+   * notification's link opened on a conversation that was off, a quote, a search) is dropped, or it
+   * would land when the session's lines arrive, take the reader away and leave a way back they
+   * never asked for.
+   */
+  const dropJump = useCallback(() => {
+    if (!jumpLoading) return; // every ask sets it, landing clears it
+    setTargetItem(null);
+    setWaitedOut(null);
+    setReplySeek(null);
+    setJumpLoading(agentId, false);
+  }, [jumpLoading, agentId]);
   const jumpToHit = useCallback(
     (hit: Pick<ChatSearchHit, 'id' | 'at'>) => {
       setJumpLoading(agentId, true);
@@ -210,5 +226,5 @@ export function useHistoryJump({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Conversation's stable refs/setter, see above
     [agentId],
   );
-  return { sentinel, historyBusy, historyDone, full, fetchOlder, openQuote, jumpToHit };
+  return { sentinel, historyBusy, historyDone, full, fetchOlder, openQuote, jumpToHit, dropJump };
 }

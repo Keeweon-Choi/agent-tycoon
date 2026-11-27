@@ -153,6 +153,51 @@ export const SERVER_TEXT = {
   // -- offices, floors, boards --
   whiteboard_missing: { ko: '이 화이트보드를 찾지 못했어요', en: 'That whiteboard was not found.' },
   not_engine_project: { ko: '엔진 프로젝트가 아니에요', en: 'This is not an engine project.' },
+  // -- T-115 side question --
+  side_busy: {
+    ko: '다른 사이드 질문의 답을 기다리는 중이에요. 한 번에 하나만 물어볼 수 있어요. 잠시 뒤 다시 시도해 주세요',
+    en: 'Another side question is still waiting for its answer; only one runs at a time. Try again shortly.',
+  },
+  side_timeout: {
+    ko: '{seconds}초 안에 모델이 답하지 않았어요',
+    en: 'The model did not answer within {seconds} seconds.',
+  },
+  side_failed: {
+    ko: 'Claude Code 가 답 없이 끝났어요',
+    en: 'Claude Code ended without an answer.',
+  },
+  side_failed_reason: {
+    ko: 'Claude Code 가 답 없이 끝났어요: {reason}',
+    en: 'Claude Code ended without an answer: {reason}',
+  },
+  side_login: {
+    ko: 'Claude Code 로그인이 필요해요. 터미널에서 claude 를 열어 /login 해 주세요',
+    en: 'Claude Code needs you to log in. Open claude in a terminal and run /login.',
+  },
+  side_limit: {
+    ko: '사용량 한도에 걸렸어요',
+    en: 'You hit your usage limit.',
+  },
+  side_limit_reset: {
+    ko: '사용량 한도에 걸렸어요. {reset} 에 풀려요',
+    en: 'You hit your usage limit. It resets {reset}.',
+  },
+  side_bad_request: {
+    ko: '사이드 질문을 보내지 못했어요. 질문은 4000자, 앞 답은 20000자까지예요',
+    en: 'The side question could not be sent: up to 4000 characters, and 20000 for each earlier answer.',
+  },
+  side_no_session: {
+    ko: '리드의 대화가 아직 없어요',
+    en: 'The Lead has no conversation yet.',
+  },
+  side_not_claude: {
+    ko: 'Claude Code 리드에게만 사이드 질문을 할 수 있어요',
+    en: 'Side questions work only for Claude Code Leads.',
+  },
+  side_bad_model: {
+    ko: 'Claude Code 가 알려 준 모델이 아니에요',
+    en: 'That is not a model Claude Code lists.',
+  },
   work_record_missing: {
     ko: '이 일의 기록을 찾지 못했어요',
     en: 'The record of this work was not found.',
@@ -258,6 +303,7 @@ export const SERVER_TEXT = {
   },
   room_all_rename: { ko: '전체 방은 이름을 바꿀 수 없어요', en: 'The All room cannot be renamed.' },
   room_missing: { ko: '방을 찾지 못했어요', en: 'That room was not found.' },
+  room_thread_failed: { ko: '답글을 불러오지 못했어요', en: 'Could not load the replies.' },
   room_all_members: {
     ko: '전체 방의 구성원은 프로젝트 목록을 따라요',
     en: "The All room's members follow the project list.",
@@ -282,6 +328,10 @@ export const SERVER_TEXT = {
   room_name_reserved: {
     ko: "'{name}' 이름으로는 보낼 수 없어요",
     en: "Messages cannot be sent under the name '{name}'.",
+  },
+  room_notice_rate: {
+    ko: '공지(태그 없는 글)는 1분에 {n}번까지예요. 잠시 뒤 다시 보내 주세요',
+    en: 'At most {n} announcements (untagged posts) a minute. Try again shortly.',
   },
   room_no_member: {
     ko: "방에 '{name}' 구성원이 없어요",
@@ -515,6 +565,14 @@ export const SERVER_TEXT = {
   conflict_none: { ko: '{base} 와 겹치는 곳이 없어요', en: 'Nothing conflicts with {base}.' },
   handoff_done: { ko: '{to} 에게 충돌을 풀어 달라고 맡겼어요', en: 'Asked {to} to resolve the conflicts.' },
   handoff_no_target: { ko: '이 작업을 맡은 에이전트가 없어요', en: 'No agent is working on this task.' },
+  stage_filters: {
+    ko: '이 저장소는 자체 필터(git-crypt, LFS 등)를 써서 여기서 스테이지하지 않아요. 터미널에서 git add 해 주세요',
+    en: 'This repository uses its own filters (git-crypt, LFS, ...), so it is not staged here. Run git add in a terminal.',
+  },
+  wip_filters: {
+    ko: '이 저장소는 자체 필터(git-crypt, LFS 등)를 써서 커밋하지 않은 작업을 여기서 커밋하지 않았고, 지우지도 않았어요. 그 폴더에서 직접 커밋하거나 정리해 주세요',
+    en: 'This repository uses its own filters (git-crypt, LFS, ...), so the uncommitted work was not committed here and nothing was removed. Commit or clean it up in that folder yourself.',
+  },
   wip_commit_failed: {
     ko: '커밋하지 않은 작업을 브랜치에 남기지 못해서 지우지 않았어요: {why}',
     en: 'The uncommitted work could not be kept on the branch, so nothing was removed: {why}',
@@ -765,6 +823,26 @@ export const SERVER_TEXT = {
   loss_dirty: {
     ko: '커밋하지 않은 변경 {count}건',
     en: '{count} uncommitted changes',
+  },
+  worktree_held: {
+    ko: '{name} 가 이 워크트리에서 일하고 있거나 곧 일할 수 있어서 지우지 않았어요. {name} 를 멈춘 뒤에 지워 주세요',
+    en: '{name} is or may soon be working in this worktree, so it is not removed. Stop {name} first.',
+  },
+  worktree_has_nested: {
+    ko: '이 폴더 안에 다른 워크트리({inner})가 있어서 지우지 않았어요. 안쪽 것부터 정리해 주세요',
+    en: 'Another worktree ({inner}) lies inside this folder, so it is not removed. Clean up the inner one first.',
+  },
+  worktree_has_submodule: {
+    ko: '이 폴더에 서브모듈({inner})이 들어 있어서 지우지 않았어요. 지우면 서브모듈의 커밋과 변경이 사라져요. 서브모듈 작업을 옮긴 뒤 직접 정리해 주세요',
+    en: 'This folder holds a submodule ({inner}), so it is not removed: removing it would lose the submodule’s commits and changes. Save that work, then clean it up yourself.',
+  },
+  worktree_has_embedded_repo: {
+    ko: '이 폴더에 별도 git 저장소({inner})가 들어 있어서 지우지 않았어요. 지우면 그 저장소의 커밋과 변경이 사라져요. 그 작업을 옮긴 뒤 직접 정리해 주세요',
+    en: 'This folder holds another git repository ({inner}), so it is not removed: removing it would lose that repository’s commits and changes. Save that work, then clean it up yourself.',
+  },
+  worktree_off_branch: {
+    ko: '이 폴더가 기록된 브랜치 {branch} 가 아니라 {where} 에 있어서 지우지 않았어요. 그 폴더에서 {branch} 로 돌아가거나 직접 정리해 주세요',
+    en: 'This folder is on {where}, not on its recorded branch {branch}, so it is not removed. Go back to {branch} in that folder, or clean it up yourself.',
   },
   remove_may_lose: {
     ko: '지우면 사라질 수 있어요: {losses}',
@@ -1404,6 +1482,10 @@ export const SERVER_TEXT = {
     ko: '{to}에게 입력이 안 들어가서 천천히 다시 시도해요',
     en: 'Typing into {to} keeps failing; retrying less often',
   },
+  ev_send_input_wait: {
+    ko: '{to} 입력칸에 글이 남아 있어 메시지 {n}개가 기다려요 · 터미널에서 Enter 를 누르거나 글을 지워 주세요',
+    en: '{n} message(s) to {to} wait: its input box still holds text · press Enter in its terminal or clear it',
+  },
   ev_send_lost: {
     ko: '{to}에게 보낸 메시지 대신 다른 입력이 들어가서 한 번 더 보내요',
     en: 'Another prompt went into {to} instead of the message; sending it once more',
@@ -1786,6 +1868,10 @@ export const SERVER_TEXT = {
   passkey_already_bound: {
     ko: '이미 기기에 묶인 패스키예요',
     en: 'That passkey is already tied to a device.',
+  },
+  passkey_bind_from_copy: {
+    ko: '동기화된 패스키로 들어온 기기에서는 패스키를 다른 기기에 묶을 수 없어요. 그 기기에서 해 주세요',
+    en: 'A device signed in with a synced passkey cannot tie a passkey to another device. Do it on that device.',
   },
   passkeys_unreadable: {
     ko: 'passkeys.json을 읽을 수 없어 저장하지 않았어요',

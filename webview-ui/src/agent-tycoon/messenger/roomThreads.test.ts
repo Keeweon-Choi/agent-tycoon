@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChatItem, GroupPostItem } from '../../../../core/src/messages.js';
 import { ROOM_WAITING_MS } from '../../constants.js';
-import { roomThreads, threadReplies, threadTone } from './roomThreads.js';
+import { deliveredFirst, roomThreads, threadAsks, threadReplies, threadTone } from './roomThreads.js';
 
 const NOW = 1_800_000_000_000;
 const said = (id: string, kind: ChatItem['kind'] = 'assistant'): ChatItem => ({ id, at: NOW - 1000, kind, text: id });
@@ -87,5 +87,59 @@ describe('ROOM-FOLD: what a folded thread says', () => {
 
   it('a thread nobody answered has no replies and no last speaker', () => {
     expect(threadReplies({ posts: [post('p')] })).toEqual({ count: 0, last: null });
+  });
+});
+
+describe('T-110: who got a notice', () => {
+  it('lists the delivered members first and keeps the room order inside each group', () => {
+    const delivery = { a: 'waiting', b: 'delivered', c: 'held', d: 'delivered', e: 'off' };
+    expect(deliveredFirst(['a', 'b', 'c', 'd', 'e'], delivery)).toEqual(['b', 'd', 'a', 'c', 'e']);
+    expect(deliveredFirst(['x', 'y'], {})).toEqual(['x', 'y']); // no state yet: nothing delivered
+    expect(deliveredFirst([], delivery)).toEqual([]);
+  });
+});
+
+describe('T-113: a folded thread counts what the room recorded (its replies are not loaded yet)', () => {
+  const unloaded = (id: string, seen: string[], lastAt = NOW - 500) =>
+    post(id, { targets: ['alpha'], replies: [{ member: 'alpha', items: [], seen, lastAt }] });
+
+  it('counts the recorded ids, names the last speaker from their time, and is no longer waiting', () => {
+    const root = unloaded('p', ['a1', 'a2']);
+    expect(threadReplies({ posts: [root] })).toEqual({ count: 2, last: { name: 'alpha', at: NOW - 500 } });
+    expect(tone(root)).toBe('plain');
+    expect(tone(unloaded('q', []))).toBe('waiting');
+  });
+
+  it('loaded, the same lines count once (the recorded ids are the items\' ids), and a line read but not yet recorded counts', () => {
+    const loaded = post('p', { targets: ['alpha'], loaded: true, replies: [{ member: 'alpha', items: [said('a1'), said('a3')], seen: ['a1', 'a2'] }] });
+    expect(threadReplies({ posts: [loaded] }).count).toBe(3);
+  });
+
+  it('a reply post to a member line of an unloaded post joins its thread (by the recorded id)', () => {
+    const answer = post('r', { at: NOW, replyTo: { id: 'a2', sender: 'alpha', text: 'a2' } });
+    expect(roomThreads([unloaded('p', ['a1', 'a2']), answer]).map((t) => t.posts.map((p) => p.id))).toEqual([['p', 'r']]);
+  });
+});
+
+describe('T-113 (H2): what a thread on screen asks the daemon for', () => {
+  const delivered = { alpha: 'delivered' } as const;
+  it('an open thread with replies asks for its posts not loaded; a folded one asks nothing', () => {
+    const root = post('p', { targets: ['alpha'], delivery: delivered, replies: [{ member: 'alpha', items: [], seen: ['a1'] }] });
+    const answer = post('r', { at: NOW, replyTo: { id: 'p', sender: 'alpha', text: 'p' }, targets: ['alpha'], delivery: delivered, loaded: true });
+    expect(threadAsks({ posts: [root, answer] }, true)).toEqual({ open: ['p'], probe: [] });
+    expect(threadAsks({ posts: [root, answer] }, false)).toEqual({ open: [], probe: [] });
+  });
+
+  it('a tagged post with no count that reached its member is read once (probe): its reply may never have been recorded', () => {
+    expect(threadAsks({ posts: [post('p', { targets: ['alpha'], delivery: delivered, replies: [{ member: 'alpha', items: [] }] })] }, false)).toEqual({ open: [], probe: ['p'] });
+    // still queued, a notice, a system line, an untagged post, or already read: nothing to ask
+    for (const p of [
+      post('q', { targets: ['alpha'], delivery: { alpha: 'pending' } }),
+      post('n', { targets: ['alpha'], delivery: delivered, notice: true }),
+      post('s', { system: true }),
+      post('u'),
+      post('l', { targets: ['alpha'], delivery: delivered, loaded: true }),
+    ])
+      expect(threadAsks({ posts: [p] }, false)).toEqual({ open: [], probe: [] });
   });
 });

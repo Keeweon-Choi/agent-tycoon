@@ -24,7 +24,7 @@ import { BUNDLE_RE, verifyBundle, verifySums } from '../release/bundle/verify.mj
 import { configPath, mergeConfig } from './install.mjs';
 import {
   acquireLock, daemonIdentity, inside, installRoot, ownedCopy, pinnedKey, pruneEmptyDirs, readConfig, readCurrent, readRecord, realDeps, releaseKey,
-  renderService, rootPlatform, selfTest, serviceNodeDirs, serviceOp, switchCurrent, unpack, versionDir, versionFiles, waitHealthy, writeOwned, writeRecord,
+  renderService, rootPlatform, selfTest, serviceNodeDirs, serviceOp, startPolicyOf, switchCurrent, unpack, versionDir, versionFiles, waitHealthy, writeOwned, writeRecord,
 } from './manager.mjs';
 
 /** Old versions kept after a successful update (H §6.1 step 10). */
@@ -209,16 +209,17 @@ async function pointTo(root, record, deps, version) {
   const manifest = await readManifest(root, version);
   const config = mergeConfig(await readConfig(deps.home));
   const pathNodeDirs = serviceNodeDirs(record, deps, root); // merged into the record, never rebuilt from this shell's PATH
-  const s = renderService({ platform: rootPlatform(deps.platform), home: deps.home, root, version, manifest, config, pathNodeDir: pathNodeDirs });
+  const s = renderService({ platform: rootPlatform(deps.platform), home: deps.home, root, version, manifest, config, pathNodeDir: pathNodeDirs, startPolicy: startPolicyOf(record) });
   if (s.file && record.service.kind !== 'none' && sha256(s.content) !== record.service.sha256) await writeOwned(record, s.file, s.content);
   record.service = { ...record.service, sha256: sha256(s.content), argv: s.argv, cwd: s.cwd, create: s.create ?? null, pathNodeDirs };
   return { ...s, autostart: record.startPolicy !== 'manual' }; // an update never re-enables a manual install
 }
 
 /** Another daemon on our port or engine socket (a source install, another user's): H §6.4 "do not switch". */
-async function otherDaemon(record, root, deps) {
+export async function otherDaemon(record, root, deps, { foreignPortOk = false } = {}) {
   const h = Number.isInteger(record.port) ? await deps.health(record.port) : null;
-  if (h && (h.service !== 'agent-tycoon' || h.version !== record.current)) return `port ${record.port} answers as ${h.service ?? '?'} ${h.version ?? '?'}, not the installed ${record.current}`;
+  // foreignPortOk (install): a program that is not ours on the port is the port fallback's business, not a daemon to refuse beside.
+  if (h && (h.service === 'agent-tycoon' ? h.version !== record.current : !foreignPortOk)) return `port ${record.port} answers as ${h.service ?? '?'} ${h.version ?? '?'}, not the installed ${record.current}`;
   const status = await deps.control?.('status').catch(() => null);
   if (status?.ok && !(await daemonIdentity(record, root, status)).matches) return `the engine socket is held by another daemon (port ${status.daemon?.port ?? '?'}, ${status.daemon?.entry ?? '?'})`;
   return null;

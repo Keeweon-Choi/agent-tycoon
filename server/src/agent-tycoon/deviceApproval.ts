@@ -35,6 +35,8 @@ interface Approval {
   expiresAt: number;
   state: 'pending' | 'approved' | 'refused';
   wrongCodes: number;
+  /** S1.1: the approver's synced-copy passkey, handed to the session the approval makes. */
+  viaPasskey?: string;
 }
 
 /** What logged-in devices see (protocol `deviceApprovalRequest`): no code. */
@@ -50,7 +52,7 @@ export interface ApprovalView {
 
 export type PollResult =
   | { state: 'pending'; expiresIn: number }
-  | { state: 'approved'; label: string }
+  | { state: 'approved'; label: string; viaPasskey?: string }
   | { state: 'refused' }
   | { state: 'gone' };
 
@@ -113,7 +115,7 @@ export class DeviceApprovals {
       return { state: 'pending', expiresIn: Math.ceil((approval.expiresAt - Date.now()) / 1000) };
     this.requests.delete(approval.id);
     return approval.state === 'approved'
-      ? { state: 'approved', label: approval.label }
+      ? { state: 'approved', label: approval.label, viaPasskey: approval.viaPasskey }
       : { state: 'refused' };
   }
 
@@ -121,7 +123,13 @@ export class DeviceApprovals {
    * A logged-in device answers. Approving needs the code typed from the new
    * device's screen; three wrong codes refuse the request.
    */
-  answer(id: unknown, approve: boolean, code: unknown, by: string): AnswerResult {
+  answer(
+    id: unknown,
+    approve: boolean,
+    code: unknown,
+    by: string,
+    viaPasskey?: string,
+  ): AnswerResult {
     this.sweep();
     const approval = typeof id === 'string' ? this.requests.get(id) : undefined;
     if (!approval || approval.state !== 'pending') return 'gone';
@@ -132,6 +140,7 @@ export class DeviceApprovals {
         this.close(approval, 'refused', koText('audit_wrong_codes', { by }));
       return 'wrong-code';
     }
+    approval.viaPasskey = viaPasskey;
     return this.close(approval, 'approved', by);
   }
 

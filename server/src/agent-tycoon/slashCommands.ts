@@ -9,14 +9,22 @@ import * as path from 'path';
 import { koText, type Refused, refused } from '../../../core/src/agent-tycoon/serverText.js';
 import { slashTextProblem } from '../../../core/src/agent-tycoon/slashText.js';
 import type { SlashCommand } from '../../../core/src/messages.js';
+import type {
+  ClaudeCliCommand,
+  ClaudeCliInitialize,
+  ClaudeCliModel,
+  ClaudeCommandsRunner,
+} from './cliCommands.js';
 
 export const SLASH_FILE_BYTES = 64 * 1024;
 export const SLASH_MAX_COMMANDS = 300;
 export const SLASH_RESCAN_MS = 30_000;
 const WATCH_MS = 1_000;
-const NAME = /^[A-Za-z][A-Za-z0-9:_-]*$/; // what slashTextProblem accepts to send
+export const NAME = /^[A-Za-z][A-Za-z0-9:_-]*$/; // what slashTextProblem accepts to send
+// Claude Code exposes these internal commands, but they are not safe messenger commands.
+const CLI_DENY = new Set(['heapdump', 'workflow-launch-exec']);
 
-const BUILTINS: ReadonlyArray<Omit<SlashCommand, 'source'>> = [
+export const BUILTINS: ReadonlyArray<Omit<SlashCommand, 'source'>> = [
   { name: 'compact', args: koText('slash_arg_instruction'), description: koText('slash_desc_compact') },
   { name: 'clear', description: koText('slash_desc_clear'), confirm: true },
   { name: 'context', description: koText('slash_desc_context') },
@@ -25,10 +33,45 @@ const BUILTINS: ReadonlyArray<Omit<SlashCommand, 'source'>> = [
   { name: 'review', description: koText('slash_desc_review') },
   { name: 'security-review', description: koText('slash_desc_security') },
   { name: 'pr-comments', description: koText('slash_desc_pr') },
+  // T-81 C: bare, it opens the CLI's picker: allowed only for a Lead in our PTY (pickerCommands).
   { name: 'model', args: koText('slash_arg_model'), description: koText('slash_desc_model'), argsRequired: true },
   { name: 'add-dir', args: koText('slash_arg_path'), description: koText('slash_desc_add_dir'), argsRequired: true },
   { name: 'export', args: koText('slash_arg_file'), description: koText('slash_desc_export'), argsRequired: true },
 ];
+
+const ESTABLISHED = new Set(BUILTINS.map((command) => command.name));
+
+/** CLI commands preserve the Korean metadata for our established commands; aliases are only CLI input shortcuts. Established commands the CLI omits are appended. */
+export function mergeCliBuiltins(cli: readonly ClaudeCliCommand[]): SlashCommand[] {
+  const known = new Map(BUILTINS.map((command) => [command.name, command]));
+  const seen = new Set<string>();
+  const out: SlashCommand[] = [];
+  for (const command of cli) {
+    if (
+      seen.has(command.name) ||
+      command.name.startsWith('_') ||
+      !NAME.test(command.name) ||
+      CLI_DENY.has(command.name)
+    )
+      continue;
+    seen.add(command.name);
+    const established = known.get(command.name);
+    out.push(
+      established
+        ? { ...established, source: 'builtin' }
+        : {
+            name: command.name,
+            ...(command.argumentHint.trim() && { args: command.argumentHint }),
+            description: command.description,
+            source: 'builtin',
+          },
+    );
+  }
+  // Print mode does not list every command we can type (cost, review, export, ...): keep ours.
+  for (const command of BUILTINS)
+    if (!seen.has(command.name)) out.push({ ...command, source: 'builtin' });
+  return out;
+}
 
 type Meta = {
   name?: string;
@@ -79,13 +122,34 @@ export class SlashCatalogue {
   private readonly now: () => number;
   private readonly cached = new Map<string, Cached>();
   private readonly watchers = new Map<string, Watch>();
+  private cli: ClaudeCliInitialize | null = null;
+  private cliRunning = false;
 
-  constructor(opts: { home?: string; now?: () => number } = {}) {
+  constructor(
+    private readonly opts: {
+      home?: string;
+      now?: () => number;
+      cliCommands?: ClaudeCommandsRunner;
+      /** A new initialize answer came (its models changed). */
+      cliChanged?: () => void;
+    } = {},
+  ) {
     this.home = opts.home ?? os.homedir();
     this.now = opts.now ?? Date.now;
   }
 
+  /** The models the CLI's initialize answer listed (T-115's picker); empty until it came. */
+  models(): ClaudeCliModel[] {
+    return this.cli?.models ?? [];
+  }
+
+  /** Start the initialize probe when no answer came yet (the settings forms need the names without a "/" typed). */
+  warm(): void {
+    if (!this.cli) this.startCli();
+  }
+
   list(projectDir: string): SlashCommand[] {
+    this.startCli();
     const project = path.resolve(projectDir);
     const signature = this.signature(project);
     const hit = this.cached.get(project);
@@ -98,6 +162,7 @@ export class SlashCatalogue {
 
   /** Refresh only while somebody keeps this conversation open. */
   watch(projectDir: string, callback: (commands: SlashCommand[]) => void): () => void {
+    this.startCli();
     const project = path.resolve(projectDir);
     let watch = this.watchers.get(project);
     if (!watch) {
@@ -131,7 +196,12 @@ export class SlashCatalogue {
   }
 
   private scan(project: string): SlashCommand[] {
-    const out: SlashCommand[] = BUILTINS.map((command) => ({ ...command, source: 'builtin' }));
+    // Established rows first, then the user's and the project's own, then the CLI-only rows through the same add():
+    // a user or project row beats a bundled one of the same name (Claude runs the user's), and the cap cuts CLI-only rows first.
+    const rows = this.cli
+      ? mergeCliBuiltins(this.cli.commands)
+      : BUILTINS.map((command): SlashCommand => ({ ...command, source: 'builtin' }));
+    const out = rows.filter((command) => ESTABLISHED.has(command.name));
     const seen = new Set(out.map((command) => command.name));
     const add = (command: SlashCommand | null) => {
       if (!command || seen.has(command.name) || out.length >= SLASH_MAX_COMMANDS) return;
@@ -145,6 +215,7 @@ export class SlashCatalogue {
     for (const command of this.skills(path.join(claude, 'skills'), 'user')) add(command);
     for (const command of this.skills(path.join(project, '.claude', 'skills'), 'project'))
       add(command);
+    for (const command of rows) if (!ESTABLISHED.has(command.name)) add(command);
     return out;
   }
 
@@ -217,27 +288,32 @@ export class SlashCatalogue {
     }
   }
 
+  /** The files scan() reads, nothing else: a skill folder's references and scripts are never walked (P1.1). */
   private signature(project: string): string {
-    const roots = [
-      path.join(this.home, '.claude', 'commands'),
-      path.join(this.home, '.claude', 'skills'),
-      path.join(project, '.claude', 'commands'),
-      path.join(project, '.claude', 'skills'),
-    ];
     const rows: string[] = [];
-    const visit = (root: string, dir: string) => {
-      for (const entry of this.entries(root, dir)) {
-        const full = path.join(dir, entry.name);
-        try {
-          const stat = fs.statSync(full);
-          rows.push(`${full}:${stat.size}:${stat.mtimeMs}`);
-          if (entry.isDirectory()) visit(root, full);
-        } catch {
-          /* changed during scan */
-        }
+    const stat = (file: string) => {
+      try {
+        const info = fs.statSync(file);
+        rows.push(`${file}:${info.size}:${info.mtimeMs}`);
+      } catch {
+        rows.push(`${file}:-`);
       }
     };
-    for (const root of roots) visit(root, root);
+    const commands = (root: string, dir: string) => {
+      for (const entry of this.entries(root, dir)) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) commands(root, full);
+        else if (entry.isFile() && entry.name.endsWith('.md')) stat(full);
+      }
+    };
+    const skills = (root: string) => {
+      for (const entry of this.entries(root, root))
+        if (entry.isDirectory()) stat(path.join(root, entry.name, 'SKILL.md'));
+    };
+    for (const base of [path.join(this.home, '.claude'), path.join(project, '.claude')]) {
+      commands(path.join(base, 'commands'), path.join(base, 'commands'));
+      skills(path.join(base, 'skills'));
+    }
     return rows.join('|');
   }
 
@@ -250,6 +326,51 @@ export class SlashCatalogue {
       return false;
     }
   }
+
+  /** One run at a time: the runner (a cache) owns the back-off and the per-build memory, so every list may ask again. */
+  private startCli(): void {
+    const runner = this.opts.cliCommands;
+    if (!runner || this.cliRunning) return;
+    this.cliRunning = true;
+    let running: Promise<ClaudeCliInitialize | null>;
+    try {
+      running = runner();
+    } catch {
+      this.cliRunning = false;
+      return;
+    }
+    void running
+      .then((result) => {
+        // The cache returns the same object for the same build: only a changed answer refreshes the lists.
+        if (!result || result === this.cli) return;
+        this.cli = result;
+        this.cached.clear();
+        this.opts.cliChanged?.();
+        for (const [project, watch] of this.watchers) {
+          const commands = this.list(project);
+          for (const listener of watch.callbacks) listener(commands);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.cliRunning = false;
+      });
+  }
+}
+
+/** T-81 C: built-in commands whose bare form opens a CLI picker. Only our PTY provider sees the
+ *  picker (claudePty's pickerOnScreen) and the messenger shows it in its sheet; elsewhere (claude
+ *  --bg) the picker would hold every later message unseen, so the argument stays required there.
+ *  ponytail: CLI-listed pickers (/config, ...) were never argsRequired and stay as they were. */
+const PICKERS = new Set(['model']);
+
+/** The catalogue for a Lead whose session runs in our PTY: its pickers may go bare. */
+export function pickerCommands(commands: readonly SlashCommand[]): SlashCommand[] {
+  return commands.map(({ argsRequired, ...command }) =>
+    argsRequired && !(command.source === 'builtin' && PICKERS.has(command.name))
+      ? { ...command, argsRequired }
+      : command,
+  );
 }
 
 /** Refusal for a typed command. The catalogue is the allow-list. */

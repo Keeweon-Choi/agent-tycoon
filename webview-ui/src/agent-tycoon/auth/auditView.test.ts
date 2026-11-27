@@ -28,6 +28,7 @@ describe('O3 security record view', () => {
       { at: 1, kind: 'approvalAnswered', detail: 'approved' },
       { at: 1, kind: 'approvalAnswered', detail: 'refused' },
       { at: 1, kind: 'deviceRevoked' },
+      { at: 1, kind: 'deviceRevoked', detail: 'chain' },
       { at: 1, kind: 'revokeOthers', detail: 3 },
       { at: 1, kind: 'passkeyRemoved' },
       { at: 1, kind: 'passkeyRequired', detail: 'on' },
@@ -42,6 +43,7 @@ describe('O3 security record view', () => {
       { at: 1, kind: 'tokenRotated', detail: 'path' },
       { at: 1, kind: 'lockout', detail: 'short' },
       { at: 1, kind: 'lockout', detail: 'direct' },
+      { at: 1, kind: 'lockout', detail: 'tunnel' },
     ];
     const seen = new Set<string>();
     for (const row of rows) {

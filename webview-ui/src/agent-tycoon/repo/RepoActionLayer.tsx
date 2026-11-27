@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
+import { runConnected, runConnectionLost } from '../devroom/runStore.js';
 import { agtyToast } from '../officeStore.js';
 import { repoCancel, repoConfirmNow, repoConnectionLost, useRepoStore } from './repoStore.js';
 import { confirmText } from './repoText.js';
@@ -23,7 +24,8 @@ export function RepoActionLayer() {
         if (state !== 'connected') {
           repoConnectionLost(agtyToast);
           reviewConnectionLost();
-        }
+          runConnectionLost();
+        } else runConnected();
       }),
     [],
   );

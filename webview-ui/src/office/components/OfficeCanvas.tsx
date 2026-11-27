@@ -53,6 +53,7 @@ import {
 import { isoSeatPoint } from '../../agent-tycoon/iso/seatPoint.js';
 import { restDropAt } from '../../agent-tycoon/lounge.js';
 import { drawOtherFloors } from '../../agent-tycoon/otherFloors.js';
+import { phoneTapCharacter } from '../../agent-tycoon/phoneTap.js';
 import { useGameControls } from '../../agent-tycoon/useGameControls.js';
 import {
   CAMERA_FOLLOW_LERP,
@@ -62,7 +63,7 @@ import {
 import { unlockAudio } from '../../notificationSound.js';
 import { withinTapSlop } from '../../touch/touchPrimitives.js';
 import { transport } from '../../transport/index.js';
-import { furnitureAt } from '../editor/editorActions.js';
+import { canExpand, furnitureAt } from '../editor/editorActions.js';
 import { buildEditorRenderState } from '../editor/editorRenderState.js';
 import type { EditorState } from '../editor/editorState.js';
 import { startGameLoop } from '../engine/gameLoop.js';
@@ -112,7 +113,7 @@ interface OfficeCanvasProps {
   activeAreaLabel: string | null;
   /** Mobile two-step tap: the first tap on a character selects it (camera
    *  follow + status label), and only a second tap on the already-selected
-   *  character fires onClick (opens its terminal). Desktop keeps single-click
+   *  character opens its information sheet (phoneTap.ts). Desktop keeps single-click
    *  focus with tap-again-to-deselect. */
   tapSelectsFirst?: boolean;
   /** GFX: the agty office may show the night skyline in the void (its own setting decides). */
@@ -542,6 +543,7 @@ export function OfficeCanvas({
       // In edit mode with floor/wall/erase tool, extend valid range by 1 for ghost border
       if (
         isEditMode &&
+        canExpand(layout) &&
         (editorState.activeTool === EditTool.TILE_PAINT ||
           editorState.activeTool === EditTool.WALL_PAINT ||
           editorState.activeTool === EditTool.ERASE)
@@ -969,16 +971,12 @@ export function OfficeCanvas({
         // Dismiss any active bubble on click
         officeState.dismissBubble(hitId);
         director.skip(officeState, hitId); // C1: a tap skips its coffee break or rebirth
-        // Two-step (mobile): first tap selects + follows so the status label
-        // shows; only a repeat tap on the same character opens its terminal.
-        // Deselection is tapping empty floor, as ever.
+        // Two-step (mobile): first tap selects + follows so the status label shows and the
+        // walking pad walks it; only a repeat tap on the same character opens its information
+        // sheet (T-106; the terminal is the card's second tap). Deselection is tapping empty
+        // floor, as ever.
         if (tapSelectsFirst) {
-          if (officeState.selectedAgentId === hitId) {
-            onClick(hitId);
-          } else {
-            officeState.selectedAgentId = hitId;
-            officeState.cameraFollowId = hitId;
-          }
+          phoneTapCharacter(officeState, hitId);
           return;
         }
         // Toggle selection: click same agent deselects, different agent selects
@@ -1143,9 +1141,11 @@ export function OfficeCanvas({
       officeState.dismissBubble(hitId);
       officeState.selectedAgentId = hitId;
       officeState.cameraFollowId = hitId;
+      // T-106: on the phone a long press is the explicit ask for the sheet (an agent's actions are in it).
+      if (tapSelectsFirst) phoneTapCharacter(officeState, hitId);
       return true;
     });
-  }, [officeState, isEditMode, characterAt]);
+  }, [officeState, isEditMode, characterAt, tapSelectsFirst]);
 
   // Touch: one-finger pan, two-finger pinch zoom, short tap = click, hold = menu.
   useCanvasTouchGestures({

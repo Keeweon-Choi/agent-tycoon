@@ -7,6 +7,7 @@ import {
   boardItems,
   confirmedTasks,
   DONE_SHOWN,
+  draftOf,
   dropEdit,
   filterChoices,
   filterItems,
@@ -17,6 +18,7 @@ import {
   NO_FILTER,
   nowStrip,
   observedRuns,
+  rebaseDraft,
   stampDate,
   statusesOf,
   toggleGoalFilter,
@@ -466,5 +468,16 @@ describe('FEAT-BOARD-LESS: moving a card like Jira', () => {
     const items = [card('todo')];
     expect(withMoves(items, { [items[0].key]: 'doing' })[0].status).toBe('doing');
     expect(withMoves(items, {})[0]).toBe(items[0]);
+  });
+});
+
+describe('U2.5: a Task changed on the server while its editor is open', () => {
+  it('keeps what is typed and takes the server\'s value for the fields not touched', () => {
+    const before = draftOf(task({ id: 'T-1', status: 'todo', note: 'a' }));
+    const typed = { ...before, note: 'my draft' };
+    const after = draftOf(task({ id: 'T-1', status: 'doing', note: 'agent wrote this', priority: 'P1' }));
+    expect(rebaseDraft(typed, before, after)).toEqual({ ...after, note: 'my draft' });
+    // Nothing typed: the whole editor follows the server.
+    expect(rebaseDraft(before, before, after)).toEqual(after);
   });
 });

@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvents, rotateEvents } from './events.js';
+import { appendEvent, EngineEvents, rotateEvents } from './events.js';
 import { EventsTail } from './eventsTail.js';
 
 const line = (n: number) =>
@@ -55,6 +55,22 @@ describe('events.jsonl tail', () => {
     fs.writeFileSync(file, line(1) + '{broken\n' + line(2));
     expect(tail.readNew().map((e) => e.ts)).toEqual(['t1', 't2']);
     expect(warnings).toEqual(['events.jsonl: skipped a broken line']);
+  });
+
+  it('D2.5: an event after a torn last line (a short write) still reads', () => {
+    const { file, tail } = setup();
+    tail.primeLast(10);
+    fs.writeFileSync(file, line(1) + '{"v":1,"type":"orch_ren');
+    appendEvent(file, 'orch_renew', 'engine', { name: 'alpha' });
+    expect(tail.readNew().map((e) => e.type)).toEqual(['turn_end', 'orch_renew']);
+    const parsed = fs.readFileSync(file, 'utf-8').split('\n').flatMap((l) => {
+      try {
+        return [JSON.parse(l) as { type: string }];
+      } catch {
+        return [];
+      }
+    });
+    expect(parsed.map((e) => e.type)).toEqual(['turn_end', 'orch_renew']);
   });
 
   it('rotates at the threshold, keeping one previous file', () => {

@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { beforeAll, describe, test } from 'vitest';
 
-import { rotateFurniture } from '../src/office/editor/editorActions.js';
+import { expandForTile, rotateFurniture } from '../src/office/editor/editorActions.js';
 import type { LoadedAssetData } from '../src/office/layout/furnitureCatalog.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout, PlacedFurniture } from '../src/office/types.js';
@@ -126,5 +126,26 @@ describe('rotateFurniture validates the whole desk group', () => {
       { uid: 'pc', type: 'PC_FRONT_OFF', col: 4, row: 10 },
     ]);
     assert.equal(rotateFurniture(layout, 'desk', 'cw'), layout);
+  });
+});
+
+describe('expandForTile grows the grid from a ghost-border click', () => {
+  test('a click left of and above the grid grows it and shifts what was there', () => {
+    const layout = floorLayout(4, 3, []);
+    const grown = expandForTile(layout, -1, -1);
+    assert.ok(grown);
+    assert.deepEqual([grown.layout.cols, grown.layout.rows], [5, 4]);
+    assert.deepEqual([grown.col, grown.row, grown.shift.col, grown.shift.row], [0, 0, 1, 1]);
+  });
+
+  test('a click inside the grid needs no growth', () => {
+    assert.equal(expandForTile(floorLayout(4, 3, []), 2, 1), null);
+  });
+
+  test('a generated agty office never grows: its decor has no place for tiles outside the rooms', () => {
+    const layout: OfficeLayout = { ...floorLayout(4, 3, []), agtyBase: 'stamp-1' };
+    assert.equal(expandForTile(layout, -1, 0), null);
+    assert.equal(expandForTile(layout, 4, 0), null);
+    assert.equal(expandForTile(layout, 0, 3), null);
   });
 });

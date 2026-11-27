@@ -60,6 +60,7 @@ function full(overrides: Partial<ProjectRecord> = {}): ProjectRecord {
     backgroundId: 'bg-1',
     idleRetired: true,
     compactionNudge: 3,
+    modelSwitchAt: 1_794_549_216_301, // T-144
     ...overrides,
   });
 }
@@ -141,6 +142,7 @@ describe('project registry versions', () => {
           backgroundId: 'bg-1',
           idleRetired: true,
           compactionNudge: 3,
+          modelSwitchAt: 1_794_549_216_301,
         },
         {
           assignmentId: 'a_bbbbbbbbbb',
@@ -286,6 +288,12 @@ describe('broken v2 registries are refused and never written', () => {
     );
     const { leadAssignmentId: _, ...noId } = a.projects[0];
     expect(refused([noId], asFile(a.assignments))).toBe('an invalid entry');
+  });
+
+  it('T-144: a modelSwitchAt that is no time (negative, a fraction, a string) makes an invalid entry', () => {
+    const a = pair([lead(project(), 'a_aaaaaaaaaa')]);
+    for (const bad of [-1, 1.5, '1794549216301'])
+      expect(refused(a.projects, asFile([{ ...a.assignments[0], modelSwitchAt: bad }]))).toMatch(/invalid/);
   });
 
   it('duplicate assignment ids', () => {

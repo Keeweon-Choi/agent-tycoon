@@ -4,7 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 
-import { WS_CLOSE_FORBIDDEN_ORIGIN, WS_CLOSE_UNAUTHORIZED } from '../src/constants.js';
+import { WS_CLOSE_FORBIDDEN_ORIGIN, WS_CLOSE_UNAUTHORIZED, WS_PING_MS } from '../src/constants.js';
 
 // Isolated temp HOME: the server writes ~/.pixel-agents/{server.json,servers/}
 // and the consent assertions below read ~/.pixel-agents/config.json.
@@ -208,6 +208,65 @@ describe('/ws connection gate', () => {
     const got = waitForMessage(result.socket, 'officeJobs');
     store.broadcast({ type: 'officeJobs', jobs: [{ pid: 1, project: null, cmd: 'x', exit: 1, stopPct: 40, stopLine: 'FAIL x' }] });
     expect(await got).toMatchObject({ jobs: [{ stopPct: 40, stopLine: 'FAIL x' }] });
+  });
+
+  // P1.3 (audit 11-13): a peer gone without a FIN (Wi-Fi lost, a lid shut) kept its viewer, and the
+  // office awake, until the kernel gave up on the writes (~15 min). One unanswered ping closes it.
+  it('closes a socket that answers no ping; one that answers stays', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const config = await server.start({ embedded: false, store: new AgentStateStore() });
+      const url = `ws://127.0.0.1:${config.port.toString()}/ws`;
+      const headers = { Authorization: `Bearer ${config.token}` };
+      const open = (autoPong: boolean) =>
+        new Promise<WebSocket>((resolve) => {
+          const socket = new WebSocket(url, { headers, autoPong });
+          sockets.push(socket);
+          socket.on('open', () => resolve(socket));
+        });
+      const gone = await open(false);
+      const alive = await open(true);
+      const closed = new Promise<boolean>((resolve) => {
+        gone.on('close', () => resolve(true));
+        setTimeout(() => resolve(false), 2_000);
+      });
+      const pinged = new Promise<void>((resolve) => alive.once('ping', () => resolve()));
+      vi.advanceTimersByTime(WS_PING_MS); // the first ping
+      await pinged;
+      await new Promise((r) => setTimeout(r, 100)); // its pong comes back
+      vi.advanceTimersByTime(WS_PING_MS); // unanswered: closed; answered: pinged again
+      expect(await closed).toBe(true);
+      expect(alive.readyState).toBe(WebSocket.OPEN);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // P1.3 review: a loop stalled across a ping (the pong unread when the next tick runs late) is no
+  // dead peer: that tick pings again instead of closing every socket at once.
+  it('a ping tick that runs late (a stalled loop) pings again instead of closing', async () => {
+    const config = await server.start({ embedded: false, store: new AgentStateStore() });
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    try {
+      const url = `ws://127.0.0.1:${config.port.toString()}/ws`;
+      const socket = new WebSocket(url, { headers: { Authorization: `Bearer ${config.token}` }, autoPong: false });
+      sockets.push(socket);
+      await new Promise((resolve) => socket.on('open', resolve));
+      let pings = 0;
+      socket.on('ping', () => pings++);
+      let closed = false;
+      socket.on('close', () => (closed = true));
+      vi.advanceTimersByTime(WS_PING_MS); // the first ping, never answered
+      await vi.waitFor(() => expect(pings).toBe(1));
+      vi.setSystemTime(Date.now() + 2 * WS_PING_MS); // the loop is held up past the next tick
+      vi.advanceTimersByTime(WS_PING_MS); // that tick runs late: pinged again, kept
+      await vi.waitFor(() => expect(pings).toBe(2));
+      expect(closed).toBe(false);
+      vi.advanceTimersByTime(WS_PING_MS); // on time and unanswered: closed
+      await vi.waitFor(() => expect(closed).toBe(true));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // 3. A non-browser client (no Origin header) still CONNECTS — watching the

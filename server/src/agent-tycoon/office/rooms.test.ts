@@ -4,11 +4,12 @@ import * as fs from 'fs';
 import { createRequire, syncBuiltinESMExports } from 'module';
 import * as os from 'os';
 import * as path from 'path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
-import type { Conversations, Lead } from '../conversations.js';
+import type { Conversations, Lead, RoomReplyRead } from '../conversations.js';
 import {
   EARLIER_ENTRY_MAX_BYTES,
+  EARLIER_RETRY_MAX_MS,
   EARLIER_RETRY_MS,
   GroupMessages,
   ROOM_EARLIER_FILES,
@@ -57,15 +58,18 @@ function office(
   name: string,
   files: Record<string, string>,
   current: Record<string, string>,
-  posts: object[],
+  posts: object[] | null,
   now?: () => number,
+  /** T-113: what the tails read (takeRoomReplies), handed out on the next poll. */
+  tailed: RoomReplyRead[] = [],
 ) {
   const home = path.join(dir, name);
   const folder = path.join(home, 'transcripts');
   fs.mkdirSync(folder, { recursive: true });
   for (const [file, text] of Object.entries(files)) fs.writeFileSync(path.join(folder, file), text);
   fs.mkdirSync(groupTimelineDir(home), { recursive: true });
-  fs.writeFileSync(path.join(groupTimelineDir(home), 'room0001.jsonl'), `${posts.map((p) => JSON.stringify({ v: 1, kind: 'post', post: p })).join('\n')}\n`);
+  // posts null: the office again on the same files (a restart)
+  if (posts) fs.writeFileSync(path.join(groupTimelineDir(home), 'room0001.jsonl'), `${posts.map((p) => JSON.stringify({ v: 1, kind: 'post', post: p })).join('\n')}\n`);
   const members = Object.keys(current);
   const store = new GroupStore(home, () => members, () => 'room0001');
   store.create('출시팀', members);
@@ -75,25 +79,64 @@ function office(
     opts: { chat: true },
     groupStore: store,
     groupMessages,
-    conversations: { takeRoomReplies: () => [] } as unknown as Conversations,
+    conversations: { takeRoomReplies: () => tailed.splice(0) } as unknown as Conversations,
     turnLedger: {} as TurnLedger,
     entryOf: () => null,
     leads: () => leads,
     noticeEmployee: () => undefined,
     publish: () => undefined,
   });
-  type Sent = { posts: Array<{ id: string; replies: Array<{ member: string; items: Array<{ text: string }> }> }> };
+  type Sent = {
+    type: string;
+    ok?: boolean;
+    posts: Array<{ id: string; loaded?: true; replies: Array<{ member: string; items: Array<{ text: string }>; seen?: string[]; lastAt?: number }> }>;
+  };
   const sent: Sent[] = [];
   const send = (msg: unknown) => void sent.push(msg as Sent);
-  /** The room opened (groupView), then `polls` more 1.5 s view polls: what the last one shows. */
+  const timelines = () => sent.filter((m) => m.type === 'groupTimeline');
+  const open = () => rooms.onClientMessage({ type: 'groupView', room: 'room0001', on: true }, { send, privileged: true });
+  /** T-113: the reader opens these posts' threads (groupThread). */
+  const load = (ids: string[], room = 'room0001', mode?: 'probe' | 'fold') =>
+    rooms.onClientMessage({ type: 'groupThread', requestId: `t${sent.length}`, room, posts: ids, ...(mode && { mode }) }, { send, privileged: true });
+  /** The room opened (groupView) and every thread in it opened, then `polls` more 1.5 s view polls: what the last one shows. */
   const view = (polls = 0) => {
-    rooms.onClientMessage({ type: 'groupView', room: 'room0001', on: true }, { send, privileged: true });
+    open();
+    const unread = timelines().at(-1)!.posts.filter((p) => !p.loaded).map((p) => p.id);
+    if (unread.length) load(unread); // the threads already open stay loaded: nothing to ask
     for (let k = 0; k < polls; k++) rooms.poll();
-    return sent.at(-1)!.posts.map((p) => [p.id, p.replies.map((r) => `${r.member}: ${r.items.map((i) => i.text).join(' | ')}`)]);
+    return timelines().at(-1)!.posts.map((p) => [p.id, p.replies.map((r) => `${r.member}: ${r.items.map((i) => i.text).join(' | ')}`)]);
   };
   const close = () => rooms.onClientMessage({ type: 'groupView', room: 'room0001', on: false }, { send, privileged: true });
-  return { folder, view, close, rooms };
+  /** Each post's recorded reply count per member, as the last timeline carries it. */
+  const counts = () => timelines().at(-1)!.posts.map((p) => [p.id, p.replies.map((r) => `${r.member}: ${r.seen?.length ?? 0}`)]);
+  /** The background count of earlier posts is done (or never started). */
+  const counted = () => vi.waitFor(() => expect((rooms as unknown as { backfilling: Set<string> }).backfilling.size).toBe(0), { timeout: 10_000, interval: 10 });
+  return { home, folder, view, close, rooms, open, load, sent, timelines, counts, store, counted, leads };
 }
+
+/** The transcripts opened or listed while `fn` runs (the room's own log is not a transcript). */
+function transcriptReads<T>(folder: string, fn: () => T): { value: T; reads: number } {
+  const { openSync, readdirSync } = cjsFs;
+  let reads = 0;
+  const mine = (p: unknown) => String(p).startsWith(folder) && reads++;
+  cjsFs.openSync = ((...a: Parameters<typeof openSync>) => (mine(a[0]), openSync(...a))) as typeof openSync;
+  cjsFs.readdirSync = ((...a: Parameters<typeof readdirSync>) => (mine(a[0]), readdirSync(...a))) as typeof readdirSync;
+  syncBuiltinESMExports();
+  try {
+    return { value: fn(), reads };
+  } finally {
+    Object.assign(cjsFs, { openSync, readdirSync });
+    syncBuiltinESMExports();
+  }
+}
+/** The room's log lines, every segment, as written. */
+const logLines = (home: string) =>
+  fs.existsSync(groupTimelineDir(home))
+    ? fs
+        .readdirSync(groupTimelineDir(home))
+        .sort()
+        .flatMap((f) => fs.readFileSync(path.join(groupTimelineDir(home), f), 'utf8').split('\n').filter(Boolean))
+    : [];
 
 /** Bytes read (readSync / readFileSync) while `fn` runs. */
 function counted<T>(fn: () => T): { value: T; bytes: number } {
@@ -307,6 +350,57 @@ describe('ROOM-THREADS: an open room shows its old threads\' replies', () => {
   });
 });
 
+describe('P3.1: an open room with an opened old thread', () => {
+  it('a poll with nothing changed reads no transcript and sends nothing; a change is read and sent once', () => {
+    const o = office(
+      'unchanged',
+      { 's.jsonl': start(T0 - 60_000) + turn(0, '답 0') + filler(T0 + 3000, 5) },
+      { alpha: 's.jsonl' },
+      [post(0, { alpha: mid(0) })],
+    );
+    expect(o.view(1)).toEqual([['post0', ['alpha: 답 0']]]);
+    const frames = o.timelines().length;
+    for (let k = 0; k < 3; k++) expect(counted(() => o.rooms.poll()).bytes).toBe(0);
+    expect(o.timelines()).toHaveLength(frames);
+    fs.appendFileSync(path.join(o.folder, 's.jsonl'), line('user', T0 + 5 * H, '다른 일'));
+    expect(counted(() => o.rooms.poll()).bytes).toBeGreaterThan(MB); // the thread's member read again
+    expect(o.timelines()).toHaveLength(frames); // the same timeline: not sent again
+    expect(counted(() => o.rooms.poll()).bytes).toBe(0);
+    // A second client: its own first frame, then quiet too.
+    const sent: unknown[] = [];
+    o.rooms.onClientMessage({ type: 'groupView', room: 'room0001', on: true }, { send: (m) => void sent.push(m), privileged: true });
+    o.rooms.poll();
+    o.rooms.poll();
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe('P3.1: a post never found whose member no build reads any more', () => {
+  it('does not make every poll build again once its wait is over', () => {
+    let clock = T0 + 30 * 24 * H;
+    const { view, rooms, leads } = office(
+      'stale-miss',
+      {
+        'old.jsonl': start(T0 - 60_000) + filler(T0, 1),
+        'current.jsonl': start(T0 + 24 * H),
+        'beta.jsonl': start(T0 + 24 * H),
+      },
+      { alpha: 'current.jsonl', beta: 'beta.jsonl' },
+      [{ ...post(0, { alpha: mid(0), beta: mid(0, 1) }), delivery: { alpha: 'delivered', beta: 'pending' } }],
+      () => clock,
+    );
+    view();
+    for (let k = 0; k < 400; k++) (clock += 1500), rooms.poll();
+    // alpha leaves the office: no build asks for its post again, its old mark stays.
+    leads.splice(0, 1);
+    rooms.poll();
+    clock += EARLIER_RETRY_MAX_MS + 1;
+    const build = vi.spyOn(GroupMessages.prototype, 'timelineWithReplies');
+    for (let k = 0; k < 100; k++) (clock += 1500), rooms.poll();
+    expect(build.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});
+
 describe('chatSearchAll: the messenger-wide search route', () => {
   const reply = (sent: unknown[], requestId: string) =>
     new Promise<{ groups: Array<{ agentId?: number; roomId?: string; hits: Array<{ snippet: string }> }>; error?: string }>((resolve) => {
@@ -338,5 +432,256 @@ describe('chatSearchAll: the messenger-wide search route', () => {
     ask('c', false);
     expect((await reply(sent, 'c')).error).toBeTruthy();
     expect(sent.filter((m) => (m as { requestId?: string }).requestId === 'c')).toHaveLength(1);
+  });
+});
+
+// post1's answer is two lines (the second at T0 + H + 2200), then the member's next turn.
+const two = () => ({
+    's.jsonl':
+      start(T0 - 60_000) +
+      turn(0, '답 0') +
+      turn(1, '답 1').replace(/(\n)(?=[^\n]*다른 일 1)/, `$1${line('assistant', T0 + H + 2200, [{ type: 'text', text: '답 1 더' }]).trimEnd()}\n`),
+  });
+const posts = () => [0, 1].map((i) => post(i, { alpha: mid(i) }));
+
+describe('T-113: a room\'s reply counts come with its posts; a thread\'s replies are read when it is opened', () => {
+
+  it('opening a room reads no transcript; the first frame has the counts recorded, also after a restart', async () => {
+    const first = office('count-first', two(), { alpha: 's.jsonl' }, posts());
+    first.view(); // a reader opened both threads: what was read is recorded
+    expect(first.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 2']]]);
+    await first.counted();
+    // The daemon starts again on the same files.
+    const again = office('count-first', two(), { alpha: 's.jsonl' }, null);
+    const { reads } = transcriptReads(again.folder, () => again.open());
+    expect(reads).toBe(0);
+    const [frame] = again.timelines();
+    expect(again.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 2']]]);
+    expect(frame.posts.every((p) => !p.loaded && p.replies.every((r) => r.items.length === 0))).toBe(true);
+    expect(frame.posts[1].replies[0].lastAt).toBe(T0 + H + 2200);
+    // The 1.5 s polls of a room with no thread opened: the first looks at each member's transcript end once
+    // (M2: new reply lines stay live), the others read nothing while the transcripts do not grow.
+    expect(transcriptReads(again.folder, () => again.rooms.poll()).reads).toBe(1);
+    expect(transcriptReads(again.folder, () => [0, 1, 2].forEach(() => again.rooms.poll())).reads).toBe(0);
+    await again.counted();
+    expect(transcriptReads(again.folder, () => again.rooms.poll()).reads).toBe(0); // and no backfill: it was counted
+  });
+
+  it('opening a thread reads its replies (loaded) and keeps them while the room is open; a failed ask is refused', () => {
+    const o = office('count-load', two(), { alpha: 's.jsonl' }, posts());
+    o.open();
+    o.load(['post1']);
+    const frame = o.timelines().at(-1)!;
+    expect(frame.posts.map((p) => [p.id, !!p.loaded, p.replies[0].items.map((i) => i.text)])).toEqual([
+      ['post0', false, []],
+      ['post1', true, ['답 1', '답 1 더']],
+    ]);
+    expect(o.sent.at(-1)).toMatchObject({ type: 'groupThreadResult', ok: true });
+    o.rooms.poll();
+    expect(o.timelines().at(-1)!.posts[1]).toMatchObject({ loaded: true });
+    // A room not open, or one that is not there: refused (the client shows its retry line).
+    o.load(['post0'], 'nope');
+    expect(o.sent.at(-1)).toMatchObject({ type: 'groupThreadResult', ok: false });
+    o.close();
+    o.load(['post0']);
+    expect(o.sent.at(-1)).toMatchObject({ type: 'groupThreadResult', ok: false });
+    // Opened again: nothing is loaded until asked.
+    o.open();
+    expect(o.timelines().at(-1)!.posts.some((p) => p.loaded)).toBe(false);
+  });
+
+  it('a reply a tail reads grows the open room\'s count live, without reading a transcript; each line once', async () => {
+    const tailed: RoomReplyRead[] = [];
+    const o = office('count-live', two(), { alpha: 's.jsonl' }, posts(), undefined, tailed);
+    o.view();
+    await o.counted();
+    o.close();
+    o.open();
+    const item = (k: number) => ({ id: `${T0 + 2 * H + k}-0000000${k}-0`, at: T0 + 2 * H + k, kind: 'assistant' as const, text: `늦은 답 ${k}` });
+    const read = (k: number, replayed = false): RoomReplyRead => ({
+      member: 'alpha',
+      reply: { room: { name: '출시팀', id: 'room0001' }, deliveryId: mid(1), item: item(k) },
+      replayed,
+    });
+    o.rooms.poll(); // the open room's first look at its member's transcript end
+    tailed.push(read(1), read(2), read(1, true));
+    expect(transcriptReads(o.folder, () => o.rooms.poll()).reads).toBe(0);
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 4']]]);
+    expect(o.timelines().at(-1)!.posts[1].replies[0].lastAt).toBe(T0 + 2 * H + 2);
+  });
+
+  it('posts from before T-113 (nothing recorded) are counted once in the background, then never read for it again', async () => {
+    const o = office('count-old', two(), { alpha: 's.jsonl' }, posts());
+    o.open();
+    expect(o.counts()).toEqual([['post0', ['alpha: 0']], ['post1', ['alpha: 0']]]); // the first frame: nothing known yet
+    await o.counted();
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 2']]]); // sent as they were found
+    const log = fs.readdirSync(groupTimelineDir(o.home)).flatMap((f) => fs.readFileSync(path.join(groupTimelineDir(o.home), f), 'utf8').split('\n').filter(Boolean)).map((l) => JSON.parse(l) as { v: number; kind: string });
+    expect(log.filter((r) => r.kind === 'counted')).toHaveLength(1);
+    // An older build reads v 1 only: what T-113 writes is v 2, and the posts' own lines are as they were.
+    expect(log.filter((r) => r.v !== 1).every((r) => r.v === 2 && ['reply', 'counted'].includes(r.kind))).toBe(true);
+    expect(log.filter((r) => r.v === 1)).toHaveLength(2);
+    o.close();
+    const again = office('count-old', two(), { alpha: 's.jsonl' }, null);
+    again.open();
+    await again.counted();
+    expect(again.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 2']]]);
+    expect(transcriptReads(again.folder, () => again.open()).reads).toBe(0);
+  });
+});
+
+describe('T-113 review fixes', () => {
+  it('H1: a room with nothing to count is never written: viewing it creates no log file', async () => {
+    const empty = office('count-empty', { 's.jsonl': start(T0) }, { alpha: 's.jsonl' }, null);
+    empty.open();
+    await empty.counted();
+    expect(fs.readdirSync(groupTimelineDir(empty.home))).toEqual([]);
+    // An untagged post only (a 공지 of nobody, a record): nothing to count, the file stays as it was.
+    const plain = office('count-plain', { 's.jsonl': start(T0) }, { alpha: 's.jsonl' }, [{ ...post(0, null), targets: [], delivery: {} }]);
+    const before = logLines(plain.home);
+    plain.open();
+    await plain.counted();
+    plain.rooms.groupRooms();
+    expect(logLines(plain.home)).toEqual(before);
+  });
+
+  it('H2: the earlier posts are counted until each is found or has nothing left to try, then the room is marked', async () => {
+    // Seven delivered posts no transcript answers, while four conversations ran; the eighth's answer is in a
+    // conversation begun after the seventh (so nothing opened for the others reaches it).
+    const files: Record<string, string> = {};
+    for (let k = 1; k <= 4; k++) files[`f${k}.jsonl`] = start(T0 - k * 60_000) + line('user', T0 + 7 * H + k, '다른 일');
+    files['late.jsonl'] = start(T0 + 6 * H + H / 2) + turn(7, '답 7') + line('user', T0 + 7 * H + 9000, '끝');
+    files['current.jsonl'] = start(T0 + 8 * H);
+    const o = office('count-early-stop', files, { alpha: 'current.jsonl' }, Array.from({ length: 8 }, (_, i) => post(i, { alpha: mid(i) })));
+    o.open();
+    await o.counted();
+    expect(o.counts().at(-1)).toEqual(['post7', ['alpha: 1']]);
+    expect(logLines(o.home).filter((l) => l.includes('"counted"'))).toHaveLength(1);
+  });
+
+  it('H2 (the client end): a probe reads posts that show no count until each is found or has nothing left, and keeps none loaded', async () => {
+    const files: Record<string, string> = {};
+    for (let k = 1; k <= 4; k++) files[`f${k}.jsonl`] = start(T0 - k * 60_000) + line('user', T0 + 7 * H + k, '다른 일');
+    files['late.jsonl'] = start(T0 + 6 * H + H / 2) + turn(7, '답 7') + line('user', T0 + 7 * H + 9000, '끝');
+    files['current.jsonl'] = start(T0 + 8 * H);
+    const o = office('count-probe', files, { alpha: 'current.jsonl' }, Array.from({ length: 8 }, (_, i) => post(i, { alpha: mid(i) })));
+    // counted already (an earlier build's mark): only the probe can find post7's reply
+    fs.appendFileSync(path.join(groupTimelineDir(o.home), 'room0001.jsonl'), `${JSON.stringify({ v: 2, kind: 'counted', at: T0 + 100 * H })}\n`);
+    o.open();
+    await o.counted();
+    expect(o.counts().at(-1)).toEqual(['post7', ['alpha: 0']]);
+    o.load(Array.from({ length: 8 }, (_, i) => `post${i}`), 'room0001', 'probe');
+    expect(o.sent.at(-1)).toMatchObject({ type: 'groupThreadResult', ok: true });
+    await o.counted();
+    expect(o.counts().at(-1)).toEqual(['post7', ['alpha: 1']]);
+    const views = (o.rooms as unknown as { groupViews: Map<unknown, Map<string, Set<string>>> }).groupViews;
+    expect([...views.values()].every((v) => v.get('room0001')!.size === 0)).toBe(true);
+  });
+
+  it('M2: an open room counts a new reply of a member no tail reads, within a poll, after a room rename too, without re-reading the transcript', async () => {
+    const o = office('count-untailed', { 's.jsonl': start(T0 - 60_000) + turn(0, '답 0').replace(/[^\n]*다른 일 0[^\n]*\n$/, '') }, { alpha: 's.jsonl' }, [post(0, { alpha: mid(0) })]);
+    o.open();
+    await o.counted();
+    o.rooms.poll(); // the open room's first look at its members' transcripts
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']]]);
+    o.store.rename('room0001', '새이름');
+    fs.appendFileSync(path.join(o.folder, 's.jsonl'), line('assistant', T0 + 3000, [{ type: 'text', text: '답 0 더' }]));
+    const { bytes } = counted(() => o.rooms.poll());
+    expect(o.counts()).toEqual([['post0', ['alpha: 2']]]);
+    expect(bytes).toBeLessThan(64 * 1024); // what was added, and the room's log
+  });
+
+  it('L6: one turn that answers two posts counts for both, live', async () => {
+    const at0 = T0;
+    const at1 = T0 + 60_000;
+    const head = (i: number, at: number) => `[사장 · 단톡방 '출시팀' · ${stamp(at)}] ⟨m:${mid(i)}⟩\n@alpha 일 ${i}`;
+    const o = office('count-joined', { 's.jsonl': start(T0 - 60_000) }, { alpha: 's.jsonl' }, [post(0, { alpha: mid(0) }), { ...post(1, { alpha: mid(1) }), at: at1 }]);
+    o.open();
+    await o.counted();
+    o.rooms.poll();
+    fs.appendFileSync(path.join(o.folder, 's.jsonl'), line('user', at1 + 1000, `${head(0, at0)}\n\n${head(1, at1)}`) + line('assistant', at1 + 2000, [{ type: 'text', text: '둘 다 했어요' }]));
+    o.rooms.poll();
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']], ['post1', ['alpha: 1']]]);
+  });
+
+  it('L3: groupThread keeps only the room\'s own post ids, and at most the posts it shows', () => {
+    const o = office('count-ids', two(), { alpha: 's.jsonl' }, posts());
+    o.open();
+    o.load(['post1', 'nope', ...Array.from({ length: 500 }, (_, k) => `junk${k}`)]);
+    const views = (o.rooms as unknown as { groupViews: Map<unknown, Map<string, Set<string>>> }).groupViews;
+    expect([...[...views.values()][0].get('room0001')!]).toEqual(['post1']);
+  });
+});
+
+describe('T-113 review round 2', () => {
+  const KB = 1024;
+  const FOLLOW = 256 * KB; // what an open room reads of a member's transcript at most (CHAT_TAIL_BYTES)
+  const korean = (at: number, n: number) => line('assistant', at, [{ type: 'text', text: '한글로 쓴 긴 작업 기록입니다 '.repeat(n) }]);
+  /** `text` ended with a short ASCII line padded so the byte `back` bytes before the end continues a Korean character. */
+  const cutInKorean = (text: string, back: number, after = '') => {
+    for (let pad = 0; pad < 3; pad++) {
+      const t = `${text}${JSON.stringify({ pad: 'x'.repeat(pad) })}\n${after}`;
+      const b = Buffer.from(t);
+      if (b.length > back && (b[b.length - back] & 0xc0) === 0x80) return t;
+    }
+    throw new Error('no cut inside a character');
+  };
+  const header = (i: number) => line('user', T0 + i * H + 1000, `[사장 · 단톡방 '출시팀' · ${stamp(T0 + i * H)}] ⟨m:${mid(i)}⟩\n@alpha 일 ${i}`);
+  const answer = (i: number) => line('assistant', T0 + i * H + 2000, [{ type: 'text', text: `답 ${i}` }]);
+
+  it('N2: an open room\'s first look that starts inside a Korean character still binds the next reply', async () => {
+    let body = start(T0 - 60_000);
+    while (Buffer.byteLength(body) < FOLLOW + 64 * KB) body += korean(T0 - 30_000, 40);
+    const o = office('follow-cut-first', { 's.jsonl': cutInKorean(body, FOLLOW) }, { alpha: 's.jsonl' }, [post(0, { alpha: mid(0) })]);
+    o.open();
+    await o.counted();
+    o.rooms.poll(); // the first look: from 256 KB before the end, inside a character
+    fs.appendFileSync(path.join(o.folder, 's.jsonl'), header(0) + answer(0));
+    o.rooms.poll();
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']]]);
+  });
+
+  it('N2: a look that skips a burst and lands inside a Korean character keeps its place on the bytes', async () => {
+    const o = office('follow-cut-skip', { 's.jsonl': start(T0 - 60_000) }, { alpha: 's.jsonl' }, [post(0, { alpha: mid(0) })]);
+    o.open();
+    await o.counted();
+    o.rooms.poll();
+    const file = path.join(o.folder, 's.jsonl');
+    let burst = '';
+    while (Buffer.byteLength(burst) < FOLLOW + 64 * KB) burst += korean(T0 - 30_000, 40);
+    const tail = header(0) + answer(0);
+    // padded until the look's cut (256 KB before the new end) falls inside a character of the burst
+    fs.appendFileSync(file, cutInKorean(burst, FOLLOW, tail));
+    o.rooms.poll(); // skips the burst's head: the reply after it is bound
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']]]);
+    fs.appendFileSync(file, line('assistant', T0 + 3000, [{ type: 'text', text: '답 0 더' }]));
+    o.rooms.poll(); // the next read starts where the last one ended, on a line
+    expect(o.counts()).toEqual([['post0', ['alpha: 2']]]);
+  });
+
+  it('N2: a line written in two parts (cut inside a character) counts once it is whole', async () => {
+    const o = office('follow-split', { 's.jsonl': start(T0 - 60_000) }, { alpha: 's.jsonl' }, [post(0, { alpha: mid(0) })]);
+    o.open();
+    await o.counted();
+    o.rooms.poll();
+    const file = path.join(o.folder, 's.jsonl');
+    const reply = Buffer.from(line('assistant', T0 + 2000, [{ type: 'text', text: '한글 답이에요' }]));
+    const cut = reply.indexOf(Buffer.from('글')) + 1; // inside 글
+    fs.appendFileSync(file, Buffer.concat([Buffer.from(header(0)), reply.subarray(0, cut)]));
+    o.rooms.poll();
+    expect(o.counts()).toEqual([['post0', ['alpha: 0']]]);
+    fs.appendFileSync(file, reply.subarray(cut));
+    o.rooms.poll();
+    expect(o.counts()).toEqual([['post0', ['alpha: 1']]]);
+    fs.appendFileSync(file, answer(0));
+    o.rooms.poll();
+    expect(o.counts()).toEqual([['post0', ['alpha: 2']]]); // and the position stayed on the bytes
+  });
+
+  it('N4: a groupThread with a mode the protocol does not list is refused, and loads nothing', () => {
+    const o = office('mode-unknown', two(), { alpha: 's.jsonl' }, posts());
+    o.open();
+    o.load(['post1'], 'room0001', 'peek' as never);
+    expect(o.sent.at(-1)).toMatchObject({ type: 'groupThreadResult', ok: false, errorCode: 'bad_request' });
   });
 });

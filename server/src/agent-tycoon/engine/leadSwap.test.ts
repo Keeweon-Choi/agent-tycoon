@@ -68,6 +68,7 @@ function home() {
       effort: 'high',
       permissionMode: 'plan',
       compactionNudge: 2,
+      modelSwitchAt: 111, // T-144: goes with its conversation
       wantRunning: true,
       sessionId: S1,
       backgroundId: 'bglead',
@@ -83,6 +84,7 @@ function home() {
       model: 'worker-model',
       wantRunning: true,
       sessionId: S2,
+      modelSwitchAt: 222,
       backgroundId: 'bgworker',
       idleRetired: true,
     },
@@ -116,7 +118,7 @@ describe('D3b promotePair (§3.1)', () => {
     });
     expect(lead.rulesFile).toBe(byName(records, 'alpha').rulesFile);
     expect(lead.role).toBeUndefined();
-    for (const k of ['sessionId', 'backgroundId', 'idleRetired', 'effort', 'permissionMode', 'compactionNudge'] as const)
+    for (const k of ['sessionId', 'backgroundId', 'idleRetired', 'effort', 'permissionMode', 'compactionNudge', 'modelSwitchAt'] as const)
       expect(lead[k]).toBeUndefined();
     // The old Lead: a worker (even though W was a reviewer) named alpha-a, its own agent fields
     // and conversation, W's former seat values, no folder of its own.
@@ -128,6 +130,7 @@ describe('D3b promotePair (§3.1)', () => {
       effort: 'high',
       permissionMode: 'plan',
       compactionNudge: 2,
+      modelSwitchAt: 111,
       sessionId: S1,
       backgroundId: 'bglead',
       wantRunning: true,

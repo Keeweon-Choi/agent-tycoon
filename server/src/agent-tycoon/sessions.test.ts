@@ -285,6 +285,37 @@ describe('persisted sessions (T-0034)', () => {
   });
 });
 
+describe('revoke() records itself (every caller, keyless rows too)', () => {
+  let configDir: string;
+  beforeEach(() => {
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-config-'));
+  });
+  afterEach(() => fs.rmSync(configDir, { recursive: true, force: true }));
+  const revoked = (auth: StandaloneAuth) =>
+    auth.audit.read(0, 50).lines.filter((l) => l.kind === 'deviceRevoked');
+
+  it('a keyless row signed out by a direct call leaves a line naming it and who did it', () => {
+    const auth = new StandaloneAuth({ configDir });
+    const s = auth.createSession('short', 'Tablet');
+    expect(auth.revoke(s.handle, { by: 'Laptop' })).toBe(true);
+    expect(revoked(auth)).toMatchObject([{ device: { id: s.handle, label: 'Tablet' }, by: 'Laptop' }]);
+    // Nothing went, nothing to record.
+    expect(auth.revoke(s.handle)).toBe(false);
+    expect(revoked(auth)).toHaveLength(1);
+  });
+
+  it('revokeOthers leaves a line for each row it signs out', () => {
+    const auth = new StandaloneAuth({ configDir });
+    const a = auth.createSession('short', 'a');
+    const b = auth.createSession('qr', 'b');
+    const c = auth.createSession('qr', 'c');
+    expect(auth.revokeOthers(a.id, { by: 'a' })).toBe(2);
+    expect(revoked(auth).map((l) => [l.device?.id, l.by]).sort()).toEqual(
+      [[b.handle, 'a'], [c.handle, 'a']].sort(),
+    );
+  });
+});
+
 describe('persisted session routes (T-0034)', () => {
   let configDir: string;
   let server: AuthServer | undefined;

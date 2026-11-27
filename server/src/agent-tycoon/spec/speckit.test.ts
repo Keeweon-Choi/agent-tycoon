@@ -7,7 +7,7 @@ import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { TraceMap } from '../../../../core/src/agent-tycoon/spec/trace.js';
-import { SPEC_SETTLE_MS } from '../../constants.js';
+import { SPEC_KIT_TEXT_MAX, SPEC_SETTLE_MS } from '../../constants.js';
 import { GIT_AVAILABLE, makeTempRepo, recording, type TempRepo } from '../engine/git/testRepo.js';
 import { reqLinks } from './chain.js';
 import { classify } from './discover.js';
@@ -241,6 +241,12 @@ describe('the block for ?feature=', () => {
   it('masks a secret a line writes', () => {
     const k = kitBlock('001-x', { spec: readSpec('# Feature Specification: X\n- **FR-001**: System MUST use password=hunter2 here\n') }, null, false);
     expect(JSON.stringify(k)).not.toContain('hunter2');
+  });
+
+  it('masks a token before it is cut, so a token the cut runs through leaves no first characters (S8.7)', () => {
+    const text = `${'x'.repeat(SPEC_KIT_TEXT_MAX - 15)} ghp_${'B'.repeat(36)}`;
+    const k = kitBlock('001-x', { spec: readSpec(`# Feature Specification: X\n- **FR-001**: ${text}\n`) }, null, false);
+    expect(JSON.stringify(k)).not.toContain('ghp_');
   });
 });
 

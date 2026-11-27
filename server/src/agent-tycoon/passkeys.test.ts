@@ -347,12 +347,20 @@ describe('passkeys', () => {
       expect(
         (await login(authenticator, funnel('203.0.113.9'), 'https://evil.example')).statusCode,
       ).toBe(401);
-    const blocked = await login(authenticator, funnel('203.0.113.9'), PUBLIC_ORIGIN);
+    // S1.3: its next ceremony is refused too (anonymous ones count per client)...
+    expect((await app.inject({ method: 'POST', url: '/login/passkey/options', headers: funnel('203.0.113.9') })).statusCode).toBe(429);
+    // ...and so is an answer to a ceremony it got elsewhere.
+    const begin = (await app.inject({ method: 'POST', url: '/login/passkey/options', headers: funnel('203.0.113.11') })).json();
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/login/passkey',
+      headers: funnel('203.0.113.9'),
+      payload: { ceremony: begin.ceremony, response: authenticator.login(begin.options, PUBLIC_ORIGIN) },
+    });
     expect(blocked.statusCode).toBe(429);
     expect((await login(authenticator, funnel('203.0.113.10'), PUBLIC_ORIGIN)).statusCode).toBe(
       200,
     );
-    void app;
   });
 
   it('keeps working while short codes are locked', async () => {

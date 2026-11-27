@@ -28,12 +28,14 @@ const debug = readEnv('DEBUG') !== '0';
 
 import type { HookProvider } from '../../core/src/provider.js';
 import type { TeamProvider } from '../../core/src/teamProvider.js';
+import { liveBackgroundAgents } from './agent-tycoon/office/backgroundAgents.js';
 import { isUsageProbeFolder } from './agent-tycoon/usageProbeFolder.js';
 import { createAgentState } from './agentState.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import {
   BACKGROUND_RECOVERY_FRESH_MS,
   BACKGROUND_RECOVERY_OPEN_TOOL_MAX_MS,
+  BACKGROUND_WAITING_MAX_MS,
   EXTERNAL_ACTIVE_THRESHOLD_MS,
   EXTERNAL_SCAN_INTERVAL_MS,
   EXTERNAL_STALE_CHECK_INTERVAL_MS,
@@ -54,8 +56,14 @@ import { readEnv } from './env.js';
 import { assignPaletteIfNeeded } from './paletteAssigner.js';
 import { pathsMatch } from './pathKey.js';
 import { seedPermissionMode } from './permissionMode.js';
+import { restoreQuestion } from './question.js';
 import type { SubagentWatch } from './subagentWatch.js';
-import { cancelPermissionTimer, cancelWaitingTimer, clearAgentActivity } from './timerManager.js';
+import {
+  cancelPermissionTimer,
+  cancelWaitingTimer,
+  clearAgentActivity,
+  clearPermission,
+} from './timerManager.js';
 import { getHookProvider, processTranscriptLine } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
@@ -131,6 +139,17 @@ export function startFileWatching(
   pollingTimers.set(agentId, interval);
 }
 
+/** Bytes at the end of `buf` that begin a UTF-8 character it does not finish (0-3). */
+function partialUtf8Tail(buf: Buffer): number {
+  for (let i = 1; i <= Math.min(3, buf.length); i++) {
+    const b = buf[buf.length - i];
+    if ((b & 0xc0) === 0x80) continue; // continuation byte: keep looking for the lead
+    const size = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 1;
+    return size > i ? i : 0;
+  }
+  return 0;
+}
+
 export function readNewLines(
   agentId: number,
   agents: AgentStateStore,
@@ -151,9 +170,11 @@ export function readNewLines(
     const fd = fs.openSync(agent.jsonlFile, 'r');
     fs.readSync(fd, buf, 0, buf.length, agent.fileOffset);
     fs.closeSync(fd);
-    agent.fileOffset += bytesToRead;
+    // A character cut by the read cap (or a writer's flush) is read whole next time.
+    const whole = bytesToRead - partialUtf8Tail(buf);
+    agent.fileOffset += whole;
 
-    const text = agent.lineBuffer + buf.toString('utf-8');
+    const text = agent.lineBuffer + buf.toString('utf-8', 0, whole);
     const lines = text.split('\n');
     agent.lineBuffer = lines.pop() || '';
 
@@ -161,14 +182,11 @@ export function readNewLines(
     if (hasLines) {
       // New data arriving — cancel timers (data flowing means agent is still active).
       // When hooks are active, don't clear permission state here — the hook gave us a
-      // definitive signal that permission is needed. Only a new user prompt or tool_result
-      // (processed in transcriptParser) should clear it.
+      // definitive signal that permission is needed. The call's end clears it (PostToolUse,
+      // or its tool_result in transcriptParser), as do a new prompt and the turn end.
       cancelWaitingTimer(agentId, waitingTimers);
       cancelPermissionTimer(agentId, permissionTimers);
-      if (agent.permissionSent && !agent.hookDelivered && !agent.leadAgentId) {
-        agent.permissionSent = false;
-        agents.broadcast({ type: 'agentToolPermissionClear', id: agentId });
-      }
+      if (!agent.hookDelivered && !agent.leadAgentId) clearPermission(agent, agentId, agents);
     }
 
     for (const line of lines) {
@@ -497,11 +515,21 @@ function liveSpawnToolIds(lead: AgentState): Set<string> {
   return ids;
 }
 
-/** Whether a sidecar-backed spawn is running now, by its own data: not marked
- *  finished, and its transcript written within the last few minutes or holding
- *  a tool call with no result yet (a long quiet command). */
+/** Whether a sidecar-backed spawn is running now, by its own data: a finished
+ *  parent still runs while its own recently written background child does,
+ *  otherwise it is not marked finished and was written within the last few
+ *  minutes or holds a tool call with no result yet (a long quiet command).
+ *  A sub-agent waiting on a background shell command or a Monitor is recovered
+ *  after a restart only when its launch is in the Lead transcript's last 8 MB. */
 function isRunningSpawn(jsonlPath: string, finished: boolean | undefined, now: number): boolean {
-  if (finished) return false;
+  if (finished) {
+    try {
+      if (now - fs.statSync(jsonlPath).mtimeMs >= BACKGROUND_WAITING_MAX_MS) return false;
+    } catch {
+      return false;
+    }
+    return liveBackgroundAgents(jsonlPath).length > 0;
+  }
   let age: number;
   try {
     age = now - fs.statSync(jsonlPath).mtimeMs;
@@ -1345,6 +1373,8 @@ export function reassignAgentToFile(
   permissionTimers: Map<number, ReturnType<typeof setTimeout>>,
 
   persistAgents: () => void,
+  /** /resume: the new transcript already holds the whole conversation. */
+  resumed = false,
 ): void {
   const agent = agents.get(agentId);
   if (!agent) return;
@@ -1372,6 +1402,17 @@ export function reassignAgentToFile(
   agent.jsonlFile = newFilePath;
   agent.fileOffset = 0;
   agent.lineBuffer = '';
+  if (resumed) {
+    // Follow a resumed transcript from its end (as CharacterBinder.bind does): replaying it
+    // re-sent every old turn live, old questions included. startFileWatching seeds the gauge
+    // and the compactions from its tail. A file not written yet is read from the start.
+    try {
+      agent.fileOffset = fs.statSync(newFilePath).size;
+    } catch {
+      /* not written yet */
+    }
+    agent.contextTokens = 0;
+  }
   resetCompactions(agentId, agent, agents);
   persistAgents();
 
@@ -1385,5 +1426,20 @@ export function reassignAgentToFile(
     waitingTimers,
     permissionTimers,
   );
+  // The resumed history (which ended its turn) is skipped, and clearAgentActivity above said
+  // 'active': Claude sits at the prompt, so the character waits, for a browser connecting later too,
+  // with the session's open question back as CharacterBinder.bind does. No turn ran: restored, so
+  // no notice, sound or push.
+  if (resumed && agent.fileOffset > 0) {
+    agent.isWaiting = true;
+    restoreQuestion(agent);
+    agents.broadcast({
+      type: 'agentStatus',
+      id: agentId,
+      status: 'waiting',
+      ...(agent.questionOffset !== undefined && { question: true }),
+      restored: true,
+    });
+  }
   readNewLines(agentId, agents, waitingTimers, permissionTimers);
 }

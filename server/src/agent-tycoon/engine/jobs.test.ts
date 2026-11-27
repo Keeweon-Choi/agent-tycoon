@@ -66,6 +66,7 @@ function rig() {
   fs.mkdirSync(work);
   const events = new EngineEvents(eventsPath(home));
   const logs: string[] = [];
+  const notices: Array<{ to: string; text: string }> = [];
   let changes = 0;
   const fake = fakeKill();
   const jobs = new Jobs({
@@ -76,6 +77,7 @@ function rig() {
     changed: () => changes++,
     log: (l) => logs.push(l),
     kill: fake.kill,
+    notice: (to, text) => (notices.push({ to, text }), Promise.resolve(null)),
   });
   const run = jobs.run.bind(jobs);
   jobs.run = (req) => {
@@ -105,7 +107,7 @@ function rig() {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-  return { home, work, jobs, evts, logs, changes: () => changes, fake };
+  return { home, work, jobs, evts, logs, notices, changes: () => changes, fake };
 }
 
 describe('job pieces', () => {
@@ -242,6 +244,332 @@ describe.runIf(linux)('a GPU job waiting for its reservation (U-03)', () => {
     const [job] = r.jobs.officeJobs();
     expect(job.started).toBe(job.created);
     r.jobs.stop(started.id, 'cli');
+  });
+});
+
+describe.runIf(linux)('job --notify (T-109): the agent that started it is told once when it ends', () => {
+  const start = (r: ReturnType<typeof rig>, cmd: string, o: { notify?: string } = {}) => {
+    const out = r.jobs.run({ cmd, desc: '시험 돌리기', cwd: r.work, project: 'alpha', tty: false, source: 'cli', ...o });
+    if (!out.ok) throw new Error(out.error);
+    return out;
+  };
+  /** A daemon that restarted: another Jobs over the same files, reading them from scratch. */
+  const restarted = (r: ReturnType<typeof rig>) => {
+    const notices: Array<{ to: string; text: string }> = [];
+    const again = new Jobs({
+      home: r.home,
+      events: new EngineEvents(eventsPath(r.home)),
+      env: () => cleanEnv(process.env, r.home, process.platform, '/opt/agent-tycoon/bin'),
+      systemdRun: null,
+      kill: r.fake.kill,
+      log: () => undefined,
+      notice: (to, text) => (notices.push({ to, text }), Promise.resolve(null)),
+    });
+    again.start();
+    cleanup.push(() => again.dispose());
+    return { again, notices };
+  };
+
+  it('exit 0: one line with the description, exit, time and log; never again after a re-read or a restart', async () => {
+    const r = rig();
+    const j = start(r, 'true', { notify: 'alpha' });
+    await vi.waitFor(() => expect(r.notices).toHaveLength(1), 10_000);
+    expect(r.notices[0].to).toBe('alpha');
+    expect(r.notices[0].text).toMatch(
+      new RegExp(`^\\[agty job\\] 작업 ${j.id} 끝났다\\(성공\\) · exit 0: 시험 돌리기 · 걸린 시간 \\d+초 · 로그 ${j.log}$`),
+    );
+    expect(r.notices[0].text).not.toContain('\n');
+    // A second reconcile, the listing, the 30 s poll's check and a restarted daemon: still one.
+    r.jobs.reconcile();
+    r.jobs.list(true);
+    r.jobs.reconcile();
+    const { notices } = restarted(r);
+    restarted(r).again.reconcile();
+    await new Promise((ok) => setTimeout(ok, 400));
+    expect(r.notices).toHaveLength(1);
+    expect(notices).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(r.jobs.dir, `${j.id}.json`), 'utf-8')).notify).toEqual({ to: 'alpha', sent: true });
+  });
+
+  it('a non-zero exit is told as a failure with its code', async () => {
+    const r = rig();
+    start(r, 'echo oops; exit 3', { notify: 'alpha' });
+    await vi.waitFor(() => expect(r.notices).toHaveLength(1), 10_000);
+    expect(r.notices[0].text).toContain('실패했다 · exit 3: 시험 돌리기');
+  });
+
+  it('a stopped job is told as stopped, once', async () => {
+    const r = rig();
+    const j = start(r, 'sleep 300', { notify: 'alpha' });
+    expect(r.jobs.stop(j.id, 'cli')).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect(r.notices).toHaveLength(1), 10_000);
+    expect(r.notices[0].text).toContain(`작업 ${j.id} 멈췄다(stop): 시험 돌리기`);
+    await new Promise((ok) => setTimeout(ok, 400));
+    expect(r.notices).toHaveLength(1);
+  });
+
+  it('a job that vanished (no exit file) is told with its code unknown', async () => {
+    const r = rig();
+    const j = start(r, 'sleep 300', { notify: 'alpha' });
+    process.kill(-j.pid, 'SIGKILL');
+    await vi.waitFor(() => expect(r.notices).toHaveLength(1), 10_000);
+    expect(r.notices[0].text).toContain('사라졌다(종료 코드를 모른다)');
+  });
+
+  it('without --notify nothing is told and nothing extra is recorded', async () => {
+    const r = rig();
+    const j = start(r, 'exit 2');
+    await vi.waitFor(() => expect(r.jobs.list()[0]?.ended).toBeTruthy(), 10_000);
+    r.jobs.reconcile();
+    expect(r.notices).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(r.jobs.dir, `${j.id}.json`), 'utf-8'))).not.toHaveProperty('notify');
+  });
+
+  it('a job that ended while the daemon was away is told once when it comes back', async () => {
+    const r = rig();
+    // This daemon is "down": it settles nothing, while the job's own shell still writes its exit file.
+    r.jobs.reconcile = () => undefined;
+    const j = start(r, 'exit 5', { notify: 'alpha' });
+    await vi.waitFor(() => expect(fs.readFileSync(path.join(r.jobs.dir, `${j.id}.exit`), 'utf-8').trim()).toBe('5'), 10_000);
+    expect(r.notices).toEqual([]);
+    const back = restarted(r);
+    expect(back.notices).toHaveLength(1);
+    expect(back.notices[0].text).toContain('실패했다 · exit 5: 시험 돌리기');
+    back.again.reconcile();
+    restarted(r);
+    expect(back.notices).toHaveLength(1);
+  });
+
+  it('-t: told like any other', async () => {
+    if (!HAS_SCRIPT) return;
+    const r = rig();
+    const t = r.jobs.run({ cmd: 'exit 4', cwd: r.work, project: 'alpha', tty: true, source: 'cli', notify: 'alpha' });
+    expect(t.ok).toBe(true);
+    await vi.waitFor(() => expect(r.notices).toHaveLength(1), 10_000);
+    expect(r.notices[0].text).toContain('exit 4');
+  });
+
+  it('--gpu: the time is the run after the lease, not the wait for it; no worker, no job and no notice', () => {
+    const r = rig();
+    expect(r.jobs.run({ cmd: 'true', cwd: r.work, project: 'alpha', tty: false, source: 'cli', notify: 'alpha', gpu: { vramGib: 1, exclusive: false, label: null } })).toMatchObject({ ok: false, code: 'no_build' });
+    // A GPU job asked 30 minutes ago, leased 2 minutes ago, whose command just wrote its exit file.
+    const id = '1023-100000-alpha';
+    const log = path.join(r.jobs.dir, `${id}.log`);
+    const lease = path.join(r.jobs.dir, `${id}.gpu`);
+    fs.writeFileSync(
+      path.join(r.jobs.dir, `${id}.json`),
+      JSON.stringify({ id, pid: process.pid, pstart: procStart(process.pid), boot: fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf-8').trim(), project: 'alpha', cmd: 'python train.py', desc: '학습', dir: r.work, tab: null, tty: false, log, started: isoLocal(Date.now() - 30 * 60_000), ended: null, exit: null, source: 'cli', gpu: true, notify: { to: 'alpha' } }),
+    );
+    fs.writeFileSync(lease, 'gpu0\n');
+    const at = new Date(Date.now() - 120_000);
+    fs.utimesSync(lease, at, at);
+    fs.writeFileSync(path.join(r.jobs.dir, `${id}.exit`), '0\n');
+    r.jobs.reconcile();
+    expect(r.notices).toHaveLength(1);
+    expect(r.notices[0].text).toMatch(/끝났다\(성공\) · exit 0: 학습 · 걸린 시간 [12]분 \d+초/);
+  });
+});
+
+/** A finished job as the daemon would find it: its record unsettled, its exit file written. */
+function ended(dir: string, work: string, id: string, over: Record<string, unknown> = {}, exit: string | null = '0') {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, `${id}.json`),
+    JSON.stringify({ id, pid: null, pstart: null, boot: 'b', project: 'alpha', cmd: 'make', desc: '시험', dir: work, tab: null, tty: false, log: path.join(dir, `${id}.log`), started: isoLocal(Date.now() - 60_000), ended: null, exit: null, source: 'cli', notify: { to: 'alpha' }, ...over }),
+  );
+  if (exit !== null) fs.writeFileSync(path.join(dir, `${id}.exit`), `${exit}\n`);
+}
+const bare = (home: string, o: Partial<ConstructorParameters<typeof Jobs>[0]> = {}) => {
+  const logs: string[] = [];
+  const events = new EngineEvents(eventsPath(home));
+  const jobs = new Jobs({ home, events, env: () => cleanEnv(process.env, home, process.platform, '/opt/agent-tycoon/bin'), systemdRun: null, log: (l) => logs.push(l), ...o });
+  cleanup.push(() => jobs.dispose());
+  return { jobs, events, logs };
+};
+const jobEnds = (home: string) =>
+  fs.readFileSync(eventsPath(home), 'utf-8').split('\n').filter((l) => l.includes('"job_end"')).map((l) => JSON.parse(l) as { id: string; exit: number | null });
+
+describe.runIf(linux)('T-109 review: notices that must not be lost, doubled or misaddressed', () => {
+  const tmp = () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-jobs-'));
+    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+    const work = path.join(home, 'work');
+    fs.mkdirSync(work);
+    return { home, work, dir: jobsDir(home) };
+  };
+
+  it('finding 1: a settle before start() (the events load runs one) tells nothing; start() tells the job once', async () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha');
+    const told: string[] = [];
+    const { jobs } = bare(home, { notice: (to, text) => (told.push(`${to}: ${text}`), Promise.resolve(null)) });
+    jobs.reconcile(); // publishJobs() from the events load, before the engine knows its projects
+    expect(told).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8')).notify.sent).toBeUndefined();
+    jobs.start();
+    await vi.waitFor(() => expect(told).toHaveLength(1));
+    jobs.reconcile();
+    await new Promise((ok) => setTimeout(ok, 100));
+    expect(told).toHaveLength(1);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8')).notify.sent).toBe(true);
+  });
+
+  it('finding 2: reconcile re-entered through an events read settles each job once: one exit, one job_end, one notice', async () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha');
+    ended(dir, work, '1111-100001-alpha');
+    const told: string[] = [];
+    const { jobs, events } = bare(home, { notice: (_to, text) => (told.push(text), Promise.resolve(null)) });
+    // The office's wiring: a gpu_lease read from the file refreshes the job list, which reconciles.
+    events.onRecord = (e) => {
+      if (e.type === 'gpu_lease') jobs.officeJobs();
+    };
+    fs.mkdirSync(path.dirname(eventsPath(home)), { recursive: true });
+    fs.appendFileSync(eventsPath(home), `${JSON.stringify({ ts: isoLocal(Date.now()), type: 'gpu_lease', source: 'gpu', id: 'g1' })}\n`);
+    jobs.start();
+    await vi.waitFor(() => expect(told).toHaveLength(2));
+    await new Promise((ok) => setTimeout(ok, 300));
+    expect(jobEnds(home).map((e) => [e.id, e.exit]).sort()).toEqual([['1111-100000-alpha', 0], ['1111-100001-alpha', 0]]);
+    expect(told).toHaveLength(2);
+    expect(told.every((t) => t.includes('끝났다(성공)'))).toBe(true);
+    for (const id of ['1111-100000-alpha', '1111-100001-alpha'])
+      expect(JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf-8')).exit).toBe(0);
+  });
+
+  it('finding 2 without --notify: the real exit code is never overwritten by a stale copy', async () => {
+    const { home, work, dir } = tmp();
+    for (const id of ['1111-100000-alpha', '1111-100001-alpha']) ended(dir, work, id, { notify: undefined }, '7');
+    const { jobs, events } = bare(home);
+    events.onRecord = (e) => {
+      if (e.type === 'gpu_lease') jobs.officeJobs();
+    };
+    fs.mkdirSync(path.dirname(eventsPath(home)), { recursive: true });
+    fs.appendFileSync(eventsPath(home), `${JSON.stringify({ ts: isoLocal(Date.now()), type: 'gpu_lease', source: 'gpu', id: 'g1' })}\n`);
+    jobs.start();
+    await new Promise((ok) => setTimeout(ok, 300));
+    for (const id of ['1111-100000-alpha', '1111-100001-alpha'])
+      expect(JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf-8')).exit).toBe(7);
+    expect(jobEnds(home)).toHaveLength(2);
+  });
+
+  it('finding 4: a refused delivery is logged with the job id and retried (not at once), bounded, then given up with a log line', async () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha');
+    let clock = Date.now();
+    const calls: number[] = [];
+    const { jobs, logs } = bare(home, {
+      now: () => clock,
+      notice: () => (calls.push(clock), Promise.resolve('unknown_project')),
+    });
+    jobs.start();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const rec = () => JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8'));
+    await vi.waitFor(() => expect(rec().notify).toMatchObject({ to: 'alpha', tries: 1 }));
+    expect(rec().notify.sent).toBeUndefined();
+    expect(logs.some((l) => l.includes('1111-100000-alpha') && l.includes('unknown_project'))).toBe(true);
+    jobs.reconcile(); // the same moment: no hot loop
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(calls).toHaveLength(1);
+    for (let n = 2; n <= 8; n++) {
+      clock += 31_000;
+      jobs.reconcile();
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    expect(calls).toHaveLength(5); // the maximum, then nothing more
+    expect(logs.some((l) => l.includes('1111-100000-alpha') && l.includes('giving up'))).toBe(true);
+    // A daemon restart does not start the tries again.
+    const again = bare(home, { notice: () => (calls.push(0), Promise.resolve('unknown_project')) });
+    again.jobs.start();
+    await new Promise((ok) => setTimeout(ok, 100));
+    expect(calls).toHaveLength(5);
+  });
+
+  it('finding 4: a failure that clears is told once, and marked sent only after it was accepted', async () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha');
+    let clock = Date.now();
+    let answer: string | null = 'queue_failed';
+    const told: string[] = [];
+    const { jobs } = bare(home, { now: () => clock, notice: (_t, text) => (told.push(text), Promise.resolve(answer)) });
+    jobs.start();
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8')).notify.tries).toBe(1));
+    answer = null;
+    clock += 31_000;
+    jobs.reconcile();
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8')).notify.sent).toBe(true));
+    clock += 31_000;
+    jobs.reconcile();
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(told).toHaveLength(2);
+  });
+
+  it('R2-1: a record that cannot be rewritten to mark `sent` is told once, not at every listing, and raises nothing', async () => {
+    const { home, work, dir } = tmp();
+    const id = '1111-100000-alpha';
+    ended(dir, work, id, { ended: isoLocal(Date.now() - 1000), exit: 0 }, null);
+    const told: string[] = [];
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => rejections.push(e);
+    process.on('unhandledRejection', onRejection);
+    cleanup.push(() => process.off('unhandledRejection', onRejection));
+    fs.chmodSync(dir, 0o500); // the folder takes no new file: the save fails
+    cleanup.push(() => fs.chmodSync(dir, 0o700));
+    const { jobs, logs } = bare(home, { notice: (_t, text) => (told.push(text), Promise.resolve(null)) });
+    jobs.start();
+    await vi.waitFor(() => expect(told).toHaveLength(1));
+    for (let n = 0; n < 5; n++) {
+      jobs.list(true);
+      await new Promise((ok) => setTimeout(ok, 20));
+    }
+    expect(told).toHaveLength(1);
+    expect(rejections).toEqual([]);
+    expect(logs.some((l) => l.includes(id) && l.includes('could not be recorded'))).toBe(true);
+    // The record still says nothing: a restarted daemon tells it once more (the one duplicate left), then marks it.
+    fs.chmodSync(dir, 0o700);
+    const again = bare(home, { notice: (_t, text) => (told.push(text), Promise.resolve(null)) });
+    again.jobs.start();
+    await vi.waitFor(() => expect(told).toHaveLength(2));
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf-8')).notify.sent).toBe(true));
+    again.jobs.list(true);
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(told).toHaveLength(2);
+  });
+
+  it('R2-2: the 30 s between tries holds across a restart (the time of the last try is in the record)', async () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha');
+    const clock = Date.now();
+    const calls: number[] = [];
+    const make = (at: number) => bare(home, { now: () => at, notice: () => (calls.push(at), Promise.resolve('queue_failed')) }).jobs;
+    make(clock).start();
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(path.join(dir, '1111-100000-alpha.json'), 'utf-8')).notify.tries).toBe(1));
+    make(clock + 5_000).start(); // restarted 5 s later
+    await new Promise((ok) => setTimeout(ok, 100));
+    expect(calls).toHaveLength(1);
+    make(clock + 31_000).start();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+  });
+
+  it('R2-4: a pass with no notice owed reads the job records once', () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha', { notify: undefined, ended: isoLocal(Date.now()), exit: 0 }, null);
+    const { jobs } = bare(home, { notice: () => Promise.resolve(null) });
+    jobs.start();
+    const records = vi.spyOn(jobs as unknown as { records(): unknown }, 'records');
+    jobs.reconcile();
+    expect(records).toHaveBeenCalledTimes(1);
+  });
+
+  it('finding 7: a GPU job that ended before it got its turn says so and reports no run time', () => {
+    const { home, work, dir } = tmp();
+    ended(dir, work, '1111-100000-alpha', { gpu: true, started: isoLocal(Date.now() - 30 * 60_000) }, '4');
+    const told: string[] = [];
+    const { jobs } = bare(home, { notice: (_t, text) => (told.push(text), Promise.resolve(null)) });
+    jobs.start();
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('GPU 차례를 받기 전에 끝났다');
+    expect(told[0]).not.toContain('걸린 시간');
+    expect(told[0]).toContain('로그 ');
   });
 });
 
@@ -525,6 +853,27 @@ describe.runIf(linux)('jobs on Linux', () => {
     });
     expect(jobs.stop(started.id, 'cli')).toMatchObject({ ok: true, pid });
     expect(sent).toEqual([[pid, 'SIGTERM']]); // defaultKill on win32: taskkill /pid <pid> /T /F
+  });
+
+  it('B3.3: stop <pid> picks the running job over an older ended record of the same reused pid', () => {
+    const pid = 4_246;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-windows-jobs-'));
+    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
+    const spawned = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(spawned, { pid, unref: () => spawned });
+    const sent: Array<[number, string]> = [];
+    const jobs = new Jobs({
+      home, events: new EngineEvents(eventsPath(home)), env: () => ({}), systemdRun: null,
+      platform: 'win32', spawnFn: () => spawned, startTime: () => '133000000000000001',
+      kill: (target, signal) => sent.push([target, signal]),
+    });
+    cleanup.push(() => jobs.dispose());
+    const started = jobs.run({ cmd: 'x', cwd: home, project: null, tty: false, source: 'cli' });
+    if (!started.ok) throw new Error(started.error);
+    // Days ago a job had the same pid; its record stays until the log prune and sorts first.
+    ended(jobs.dir, home, '0101-000000-old', { pid, pstart: '133000000000000000', ended: isoLocal(Date.now() - 86_400_000), exit: 0 });
+    expect(jobs.stop(String(pid), 'cli')).toMatchObject({ ok: true, pid, id: started.id });
+    expect(sent).toEqual([[pid, 'SIGTERM']]);
   });
 
   it('Windows (R5): a GPU job runs the worker as node itself, never through cmd.exe', () => {

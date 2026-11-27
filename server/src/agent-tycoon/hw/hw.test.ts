@@ -826,18 +826,35 @@ describe('HwSource: one sensor source per OS', () => {
     expect(off.gpuTempC).toBeUndefined();
     expect(calls(log)).toBe(0);
 
-    // With the flag it runs (on a loaded machine the fake may answer after the 1.5 s production
-    // timeout, so its readings are checked below with a reader that waits longer).
-    await linux('intel-nvidia-proprietary', { nvidiaSmi: findNvidiaSmi() }).sample();
-    // the fake is a process: under load it starts after vi.waitFor's default 1 s (public CI 10-26)
-    await vi.waitFor(() => expect(calls(log)).toBeGreaterThan(0), { timeout: 15_000 });
-    const flagged = calls(log);
-    const patient = new NvidiaSmi(findNvidiaSmi()!, { timeoutMs: 15_000 });
-    const on = await linux('intel-nvidia-proprietary', { nvidia: patient }).sample();
-    expect(on).toMatchObject({ cpuTempC: 47, gpuTempC: 48, gpuUtil: 0.37, vramUsedMib: 1596 });
-    expect(on.sources).toMatchObject({ cpuTempC: 'sysfs', gpuTempC: 'nvidia-smi' });
-    expect(on.gpuProcesses).toEqual([{ pid: 4242, usedMib: 1536 }]);
-    expect(calls(log) - flagged).toBe(2);
+    // With the flag it runs. The sampler refuses to start one while ANY nvidia-smi on the machine
+    // has run 2 s or more (the stuck rule), and another test file's hung stub (gpu.test.ts leaves one
+    // for 8 s, in a parallel worker) is such a one: the sample then answers 'stale' without a spawn,
+    // nothing starts the fake later, and no wait on the log can help. So sample again until a run
+    // is recorded. The fake logs as its first act, so a started run shows up even if it is slow.
+    await vi.waitFor(
+      async () => {
+        await linux('intel-nvidia-proprietary', { nvidiaSmi: findNvidiaSmi() }).sample();
+        expect(calls(log)).toBeGreaterThan(0);
+      },
+      { timeout: 15_000, interval: 200 },
+    );
+    // The readings are checked with a reader that waits longer than the 1.5 s production timeout
+    // (a loaded machine answers late), on a log of its own: the fake's log path is fixed when it
+    // starts, so a straggler from above can never add a line here, and an attempt the stuck rule
+    // refused (or cut short) is simply repeated on a fresh log, so the count stays exact.
+    await vi.waitFor(
+      async () => {
+        const counted = path.join(tmp('agty-nv-'), 'calls');
+        process.env.FAKE_NVIDIA_LOG = counted;
+        const patient = new NvidiaSmi(findNvidiaSmi()!, { timeoutMs: 15_000 });
+        const on = await linux('intel-nvidia-proprietary', { nvidia: patient }).sample();
+        expect(on).toMatchObject({ cpuTempC: 47, gpuTempC: 48, gpuUtil: 0.37, vramUsedMib: 1596 });
+        expect(on.sources).toMatchObject({ cpuTempC: 'sysfs', gpuTempC: 'nvidia-smi' });
+        expect(on.gpuProcesses).toEqual([{ pid: 4242, usedMib: 1536 }]);
+        expect(calls(counted)).toBe(2); // one --query-gpu, one --query-compute-apps
+      },
+      { timeout: 15_000, interval: 200 },
+    );
 
     // The OS source already has the GPU (a Radeon): nvidia-smi is not asked.
     const nvidia = { read: vi.fn(async () => null) };
@@ -848,7 +865,7 @@ describe('HwSource: one sensor source per OS', () => {
       nvidia: { read: async () => 'stale' as const },
     }).sample();
     expect(stuck.warnings).toEqual([expect.stringMatching(/nvidia-smi/)]);
-    // the fake's first call may take up to 15 s under load, the patient reader up to 15 s more
+    // the flagged call may wait out another file's 8 s hung stub, and so may the counted one
   }, 40_000);
 });
 

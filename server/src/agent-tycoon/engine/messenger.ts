@@ -72,6 +72,8 @@ export const MESSENGER_TIMING = {
   noticeBatchMs: 30_000,
   /** MSG-RECALL: a message waiting this long for the input box says why and that 지금 보내기 goes. */
   inputWaitNoteMs: 2 * 60_000,
+  /** T-165: messages waiting this long for the input box are reported once (event send_input_wait). */
+  inputWaitAlertMs: 10 * 60_000,
   /** MSG-RECALL: an unconfirmed paste looked for this long at most, then taken as delivered. */
   awaitMaxMs: 10 * 60_000,
 };
@@ -165,6 +167,8 @@ export type SendResult =
       id?: string;
       /** C2: the message's id (its header's mark). */
       messageId?: string;
+      /** T-81: the command went in and opened a picker; the session's messages wait until it closes. */
+      screen?: 'picker';
     }
   | ({ ok: false; code: SendCode; error: string } & Coded);
 
@@ -753,8 +757,13 @@ export class Messenger {
   /** TOKEN-GUARD: attaches in a row that did not type, per target (the retry backoff). */
   private readonly misses = new Map<string, number>();
   private readonly heldNow = new Set<string>();
+  /** T-81: projects where a command of ours opened a picker (chatSendResult screen: 'picker'): held
+   *  until a look finds the session no longer waiting on its terminal, messages queued or not. */
+  private readonly pickerOpen = new Set<string>();
   /** MSG-RECALL: projects whose input box held a draft or a recalled prompt, since when (ms). */
   private readonly inputWait = new Map<string, number>();
+  /** T-165: targets whose current input wait was reported (send_input_wait). */
+  private readonly inputWaitAlerted = new Set<string>();
   /** TYPIST-STALE: per project held by its input box, the transcript's last prompt at that try
    *  (lastPrompt's key, '' for none): once another one is there, the box went in. */
   private readonly boxPrompt = new Map<string, string>();
@@ -928,10 +937,14 @@ export class Messenger {
     let tried: TypeResult | undefined;
     if (!item.notice && typeof s === 'object' && s && this.next(req.to, s, line)?.item === item) {
       tried = await this.attempt(s, [item]);
-      if (tried === 'typed') {
+      if (tried === 'typed' || tried === 'pickerOpen') {
+        if (tried === 'pickerOpen') {
+          this.pickerOpen.add(req.to);
+          this.schedule(this.t.tickMs);
+        }
         if (item.messageId) this.pastedAt.delete(item.messageId);
         this.record(item, 'pane');
-        return { ok: true, delivered: 'pane', ...this.idOf(item) };
+        return { ok: true, delivered: 'pane', ...this.idOf(item), ...(tried === 'pickerOpen' && { screen: 'picker' as const }) };
       }
     }
     const name = stampName(item.created, '.json');
@@ -1209,6 +1222,29 @@ export class Messenger {
     }
   }
 
+  /** Take back one exact inbox entry when its sender's action could not continue. */
+  takeInbox(name: string, text: string): boolean {
+    const dir = path.join(this.inboxDir, name);
+    let files: string[];
+    try {
+      files = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
+    } catch {
+      return false;
+    }
+    for (const f of files) {
+      const file = path.join(dir, f);
+      try {
+        if (fs.readFileSync(file, 'utf-8') !== text) continue;
+        fs.rmSync(file, { force: true });
+        this.log(`inbox ${name}/${f}: taken back`);
+        return true;
+      } catch {
+        /* a concurrent delivery may have removed it */
+      }
+    }
+    return false;
+  }
+
   /** D3b: after a Lead swap (readdressFiles ran): forget what this daemon held in memory for
    *  `names` (pending items, typed hints, retry pauses) and read their queue files again. */
   resync(names: string[]): void {
@@ -1219,6 +1255,7 @@ export class Messenger {
       this.retryAt.delete(name);
       this.misses.delete(name);
       this.heldNow.delete(name);
+      this.pickerOpen.delete(name);
       this.whyWaiting.delete(name);
     }
     this.loadQueue();
@@ -1351,7 +1388,12 @@ export class Messenger {
   /** Projects whose messages are held: their session needs an answer at its terminal. */
   held(to: string): boolean {
     // A waiting FYI is no held message: it waits for a paste, not for the terminal.
-    return this.heldNow.has(to) && this.pending.some((p) => p.item.to === to && !fyi(p.item));
+    return this.pickerOpen.has(to) || (this.heldNow.has(to) && this.pending.some((p) => p.item.to === to && !fyi(p.item)));
+  }
+
+  /** T-141: the picker a command of ours opened is up (held, and the app shows its notice). */
+  pickerUp(to: string): boolean {
+    return this.pickerOpen.has(to);
   }
 
   /** typeIn, unless the session waits on its terminal (held): then no attach, and the
@@ -1405,13 +1447,23 @@ export class Messenger {
       if (!this.inputWait.has(to)) {
         this.log(`"${to}": its input box is not empty; messages wait until it is`);
         this.inputWait.set(to, this.now());
+      } else if (!this.inputWaitAlerted.has(to) && this.now() - this.inputWait.get(to)! >= this.t.inputWaitAlertMs) {
+        // T-165: whatever holds the box (a person's forgotten draft, a paste of ours no longer known
+        // as ours), only someone at that terminal can clear it: told once per wait.
+        const waiting = this.pending.filter((p) => p.item.to === to).length;
+        if (waiting) {
+          this.inputWaitAlerted.add(to);
+          this.log(`"${to}": ${waiting} message(s) waited ${this.t.inputWaitAlertMs} ms on its input box; reported`);
+          this.opts.events.append('send_input_wait', 'engine', { to, waiting });
+        }
       }
       this.retryAt.set(to, this.now() + this.t.retryMs);
       return;
     }
     this.inputWait.delete(to);
+    this.inputWaitAlerted.delete(to);
     this.boxPrompt.delete(to);
-    if (r === 'typed' || r === 'unconfirmed') {
+    if (r === 'typed' || r === 'unconfirmed' || r === 'pickerOpen') {
       this.retryAt.delete(to);
       this.misses.delete(to);
       return;
@@ -1457,7 +1509,7 @@ export class Messenger {
           for (const i of items) this.typingItems.delete(i);
           // A forced (지금 보내기) try that found the session not ready keeps its force for the next.
           if (item.messageId && r !== 'notReady') this.forced.delete(item.messageId);
-          if (r === 'typed' || r === 'unconfirmed') typedAll(); // the paste and its Enter went in
+          if (r === 'typed' || r === 'unconfirmed' || r === 'pickerOpen') typedAll(); // the paste and its Enter went in
           this.settle(item.to, r);
           return r;
         });
@@ -1573,7 +1625,7 @@ export class Messenger {
   }
 
   private schedule(ms: number): void {
-    if (this.disposed || this.timer || !this.pending.length) return;
+    if (this.disposed || this.timer || (!this.pending.length && !this.pickerOpen.size)) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.tick();
@@ -1592,6 +1644,14 @@ export class Messenger {
         if (problem) this.log(`messages wait: the project registry is unreadable (${problem})`);
       }
       if (problem) return;
+      // T-81: the picker our command opened is closed once its session no longer waits on its terminal.
+      // T-141: what waited behind it goes now, not after the held pause (retryMs).
+      for (const to of [...this.pickerOpen])
+        if (!(await (this.opts.engine.held?.(to) ?? Promise.resolve(false)).catch(() => false))) {
+          this.pickerOpen.delete(to);
+          // Only the held pause: the one after another miss (a box not empty, say) stays.
+          if (this.heldNow.has(to)) this.retryAt.delete(to);
+        }
       const names = this.opts.engine.names();
       for (const to of [...new Set(this.pending.map((p) => p.item.to))]) {
         const mine = () => this.pending.filter((p) => p.item.to === to);
@@ -1686,7 +1746,10 @@ export class Messenger {
         const r = await this.attempt(s, batch.map((p) => p.item));
         if (r === 'lost' || r === 'unsubmitted') this.lost(to, batch, r === 'unsubmitted');
         if (r === 'unconfirmed') this.await(to, batch.map((p) => p.item));
-        if (r !== 'typed') continue;
+        if (r !== 'typed' && r !== 'pickerOpen') continue;
+        // T-141: a command typed from the queue (its Lead was busy when sent) that opened a picker:
+        // the contact shows held until it closes, as when it went in at once (send).
+        if (r === 'pickerOpen') this.pickerOpen.add(to);
         for (const p of batch) {
           this.done(p);
           if (p.item.inbox) this.delivered(p.item);

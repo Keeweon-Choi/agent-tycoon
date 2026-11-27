@@ -13,6 +13,7 @@ import * as path from 'path';
 
 import type { OfficeRoom } from '../../../../core/src/messages.js';
 import { normalizeProjectPath } from '../../../../core/src/normalizeProjectPath.js';
+import { sideQuestionPid } from '../sideQuestion.js';
 import type { SpawnFn } from '../spawnJson.js';
 import { spawnJson } from '../spawnJson.js';
 import { isUsageProbeFolder } from '../usageProbeFolder.js';
@@ -35,6 +36,10 @@ export interface ClaudeSession {
   name?: string;
   /** interactive: busy | idle (files also: waiting | shell) */
   status?: string;
+  /** When Claude last wrote `status` (its session file's `statusUpdatedAt`, ms; `updatedAt` also
+   *  moves for other fields); for an idle session, the end of its turn. What Claude writes into the
+   *  transcript while it sits idle does not move it. */
+  statusAt?: number;
   /** background: working | blocked | done. `done` = turn finished, still alive
    *  (a stopped session is not listed at all; T-0014 spike). A background row
    *  without `pid` is a session killed by a reboot. */
@@ -259,6 +264,7 @@ export function sessionFromFile(
     name: typeof f.name === 'string' && f.name ? f.name : undefined,
     // A conversation parked in a background job leaves this file frozen (HIF §1).
     status: typeof f.status === 'string' && !f.parkedJobId ? f.status : undefined,
+    ...(typeof f.statusUpdatedAt === 'number' && !f.parkedJobId && { statusAt: f.statusUpdatedAt }),
     id: typeof f.jobId === 'string' ? f.jobId : undefined,
     ...(typeof f.version === 'string' && f.version && { version: f.version }),
   };
@@ -304,6 +310,8 @@ export class ClaudeSessions {
       // The daemon's own `/usage` probe, should the CLI write a session file for it.
       const cwd = (this.parsed.get(n) as { cwd?: unknown } | null)?.cwd;
       if (typeof cwd === 'string' && isUsageProbeFolder(cwd)) continue;
+      // A side question's read-only fork (T-115, sideQuestion.ts) is not an agent.
+      if (Number.parseInt(n, 10) === sideQuestionPid()) continue;
       const row = sessionFromFile(this.parsed.get(n), Number.parseInt(n, 10), this.alive);
       if (row === 'unknown') unknown = true;
       else if (row) rows.push(row);

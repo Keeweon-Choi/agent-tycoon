@@ -499,7 +499,7 @@ export function setSeatPoint(fn: SeatPoint | null): void {
   seatPointOf = fn;
 }
 
-function characterDrawns(
+export function characterDrawns(
   chars: Character[],
   stack: IsoStack,
   floor: IsoFloor,
@@ -612,16 +612,20 @@ function characterDrawns(
         }
         for (const e of extras) if (e.zY >= 0) e.draw(ctx);
       },
-      hit: {
-        kind: 'character',
-        id: ch.id,
-        x: feet.x - w / 2,
-        y: feet.y - h,
-        w,
-        h,
-        opaque: (px, py) =>
-          !!sprite[Math.floor(py * sprites.density)]?.[Math.floor(px * sprites.density)],
-      },
+      // B7.5: one on its way out is still drawn but cannot be picked (as in the top-down office).
+      hit:
+        ch.matrixEffect === 'despawn'
+          ? undefined
+          : {
+              kind: 'character',
+              id: ch.id,
+              x: feet.x - w / 2,
+              y: feet.y - h,
+              w,
+              h,
+              opaque: (px, py) =>
+                !!sprite[Math.floor(py * sprites.density)]?.[Math.floor(px * sprites.density)],
+            },
     });
   }
   return out;

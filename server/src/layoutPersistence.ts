@@ -7,7 +7,7 @@ import {
   LAYOUT_FILE_POLL_INTERVAL_MS,
   LAYOUT_REVISION_KEY,
 } from './constants.js';
-import { officeFile, officeFileToRead } from './officeFolder.js';
+import { keepCorruptOfficeFile, officeFile, officeFileToRead } from './officeFolder.js';
 
 export interface LayoutWatcher {
   markOwnWrite(): void;
@@ -26,6 +26,7 @@ export function readLayoutFromFile(home = os.homedir()): Record<string, unknown>
     return JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
     console.error('[Agent Tycoon] Failed to read layout file:', err);
+    keepCorruptOfficeFile(filePath, err, home);
     return null;
   }
 }

@@ -156,6 +156,7 @@ function callerIdentity(home, env = process.env, o = {}) {
 }
 
 module.exports = {
+  JOB_ID_RE,
   callerIdentity,
   ensureOwnerToken,
   jobsFolder,

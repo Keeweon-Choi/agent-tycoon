@@ -480,3 +480,30 @@ describe('transcriptParser: record types it does not read (MEM-IDLE)', () => {
     expect(agent.activeToolIds.has('toolu_y')).toBe(false);
   });
 });
+
+describe('transcriptParser: turn-end cleanup', () => {
+  it('cleans a foreground tool when a re-read-only background id has no active state', () => {
+    setHookProvider(claudeProvider);
+    const agents = new AgentStateStore();
+    const agent = createTestAgent();
+    const backgroundId = 'toolu_re_read';
+    const foregroundId = 'toolu_foreground';
+    agent.backgroundAgentToolIds.add(backgroundId);
+    agent.activeToolIds.add(foregroundId);
+    agent.activeToolStatuses.set(foregroundId, 'Running: ls');
+    agent.activeToolNames.set(foregroundId, 'Bash');
+    agents.set(1, agent);
+
+    processTranscriptLine(
+      1,
+      JSON.stringify({ type: 'system', subtype: 'turn_duration' }),
+      agents,
+      new Map(),
+      new Map(),
+    );
+
+    expect(agent.activeToolIds.has(foregroundId)).toBe(false);
+    expect(agent.activeToolStatuses.has(foregroundId)).toBe(false);
+    expect(agent.backgroundAgentToolIds.has(backgroundId)).toBe(true);
+  });
+});

@@ -10,7 +10,7 @@ import { ROSTER, startEngineOffice } from '../officeTestKit.js';
 import { makeEngineHome, removeTestHome, REPO_ROOT } from '../testHome.js';
 import type { ControlDeps } from './control.js';
 import { answerControl, controlPath, listenControl } from './control.js';
-import { answerTask, tasksPath, TaskStore } from './tasks.js';
+import { answerTask, DONE_KEPT, tasksArchivePath, tasksPath, TaskStore } from './tasks.js';
 
 const CLI = path.join(REPO_ROOT, 'agent-tycoon/bin/agty');
 const SEED = path.join(__dirname, '../fixtures/dev-board-seed.json');
@@ -93,6 +93,120 @@ describe('task store (DEV-BOARD)', () => {
     for (let i = 0; i < 60; i++) store.update('S4', { note: `n${i}` }, 'cli');
     expect(store.get('S4')!.history).toHaveLength(50);
     expect(store.get('S4')!.history.at(-1)!.change).toBe('note');
+  });
+
+  it('P3.3: done tasks do not count toward the 2000 cap (it never frees up otherwise)', () => {
+    const store = new TaskStore(tasksPath(home()));
+    const list = Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, project: 'p', title: `t${i}` }));
+    expect(store.import(list, 'cli', NOW)).toMatchObject({ ok: true, added: 2000 });
+    expect(store.add({ project: 'p', title: 'over' }, 'cli', NOW)).toMatchObject({ code: 'too_many' });
+    expect(store.update('T-7', { status: 'done' }, 'cli', NOW).ok).toBe(true);
+    expect(store.add({ project: 'p', title: 'after one is done' }, 'cli', NOW)).toMatchObject({ ok: true });
+    expect(store.add({ project: 'p', title: 'over again' }, 'cli', NOW)).toMatchObject({ code: 'too_many' });
+  });
+
+  it('E1.6 (audit 11-13): the 2000 open tasks are counted per project: one full project blocks no other', () => {
+    const store = new TaskStore(tasksPath(home()));
+    const list = Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, project: 'p', title: `t${i}` }));
+    expect(store.import(list, 'cli', NOW)).toMatchObject({ ok: true, added: 2000 });
+    expect(store.add({ project: 'p', title: 'over' }, 'cli', NOW)).toMatchObject({ code: 'too_many' });
+    expect(store.add({ project: 'q', title: 'another project' }, 'cli', NOW)).toMatchObject({ ok: true });
+  });
+
+  it('P3.3: past DONE_KEPT done tasks the oldest done move to an append-only archive, still found by id', () => {
+    const h = home();
+    const store = new TaskStore(tasksPath(h));
+    const archive = tasksArchivePath(h);
+    const at = (n: number) => new Date(NOW + n * 1000).toISOString();
+    const done = Array.from({ length: DONE_KEPT + 3 }, (_, i) => ({
+      id: `T-${i + 1}`,
+      project: 'p',
+      title: `d${i}`,
+      status: 'done',
+      updatedAt: at(i + 10),
+    }));
+    const open = { id: 'T-0', project: 'p', title: 'open', updatedAt: at(0) };
+    // The highest T-<n> is the oldest done: it stays, so nextId never gives an archived number again.
+    const top = { id: 'T-9999', project: 'p', title: 'top', status: 'done', updatedAt: at(1) };
+    expect(store.import([open, top, ...done], 'cli', NOW).ok).toBe(true);
+    const live = store.list();
+    expect(live.filter((t) => t.status === 'done')).toHaveLength(DONE_KEPT);
+    expect(live.map((t) => t.id)).toEqual(expect.arrayContaining(['T-0', 'T-9999']));
+    expect(store.get('T-1')).toBeUndefined();
+    expect(store.message().tasks.some((t) => t.id === 'T-1')).toBe(false);
+    const lines = fs.readFileSync(archive, 'utf-8').trim().split('\n');
+    expect(lines.map((l) => JSON.parse(l).id)).toEqual(['T-1', 'T-2', 'T-3', 'T-4']);
+    expect(fs.statSync(archive).mode & 0o777).toBe(0o600);
+    // Found by id from the CLI (show) and refused for a change; never rewritten by a later move.
+    expect(store.archived('T-2')).toMatchObject({ id: 'T-2', title: 'd1' });
+    expect(answerTask(store, { op: 'show', id: 'T-2' }, { by: 'cli', project: null })).toMatchObject({
+      ok: true,
+      archived: true,
+      task: { id: 'T-2' },
+    });
+    expect(store.update('T-2', { note: 'x' }, 'cli', NOW)).toMatchObject({ ok: false, code: 'archived' });
+    expect(store.add({ id: 'T-3', project: 'p', title: 'again' }, 'cli', NOW)).toMatchObject({ code: 'exists' });
+    // A re-import of the same list leaves the archived ones where they are.
+    expect(store.import([open, top, ...done], 'cli', NOW)).toMatchObject({ ok: true, added: 0 });
+    expect(store.add({ project: 'p', title: 'next' }, 'cli', NOW + 999_000)).toMatchObject({ task: { id: 'T-10000' } });
+    expect(store.add({ project: 'p', title: 'one more done', status: 'done' }, 'cli', NOW + 999_001).ok).toBe(true);
+    const after = fs.readFileSync(archive, 'utf-8').split('\n').filter(Boolean);
+    expect(after.slice(0, lines.length)).toEqual(lines);
+    // T-10000 holds the top number now, so T-9999 (the oldest done) is the one that moves.
+    expect(after.map((l) => JSON.parse(l).id)).toEqual(['T-1', 'T-2', 'T-3', 'T-4', 'T-9999']);
+    // Open tasks are never archived.
+    expect(store.get('T-0')).toBeDefined();
+  });
+
+  it('P3.3: a done parent a live task names stays live, so its child can still change', () => {
+    const h = home();
+    const store = new TaskStore(tasksPath(h));
+    const at = (n: number) => new Date(NOW + n * 1000).toISOString();
+    const parent = { id: 'T-1', project: 'p', title: 'parent', status: 'done', updatedAt: at(0) };
+    const child = { id: 'T-2', project: 'p', title: 'child', parentId: 'T-1', updatedAt: at(1) };
+    const done = Array.from({ length: DONE_KEPT + 1 }, (_, i) => ({
+      id: `T-${i + 3}`,
+      project: 'p',
+      title: `d${i}`,
+      status: 'done',
+      updatedAt: at(i + 10),
+    }));
+    expect(store.import([parent, child, ...done], 'cli', NOW).ok).toBe(true);
+    expect(store.get('T-1')).toBeDefined();
+    expect(store.archived('T-3')).toBeDefined();
+    expect(store.update('T-2', { note: 'n' }, 'cli', NOW + 1).ok).toBe(true);
+    expect(store.import([parent, child, ...done], 'cli', NOW + 2).ok).toBe(true);
+    expect(store.update('T-2', { status: 'done' }, 'cli', NOW + 3).ok).toBe(true);
+  });
+
+  it('a child whose parent is already gone (an older archive) still takes an update that keeps its parentId', () => {
+    const h = home();
+    const file = tasksPath(h);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const t = { id: 'T-2', project: 'p', title: 'child', parentId: 'T-1', status: 'todo', source: 'reported', createdAt: new Date(NOW).toISOString(), updatedAt: new Date(NOW).toISOString() };
+    fs.writeFileSync(file, JSON.stringify({ v: 2, tasks: [t] }));
+    const store = new TaskStore(file);
+    expect(store.update('T-2', { status: 'done' }, 'cli', NOW + 1).ok).toBe(true);
+    // Naming a missing parent anew is still refused.
+    expect(store.update('T-2', { parentId: 'T-404' }, 'cli', NOW + 2)).toMatchObject({ ok: false, code: 'usage' });
+  });
+
+  it('P3.3: a torn last archive line never swallows the next batch', () => {
+    const h = home();
+    const store = new TaskStore(tasksPath(h));
+    fs.mkdirSync(path.dirname(tasksArchivePath(h)), { recursive: true });
+    fs.writeFileSync(tasksArchivePath(h), '{"id":"T-torn","proj');
+    const at = (n: number) => new Date(NOW + n * 1000).toISOString();
+    const done = Array.from({ length: DONE_KEPT + 2 }, (_, i) => ({
+      id: `T-${i + 1}`,
+      project: 'p',
+      title: `d${i}`,
+      status: 'done',
+      updatedAt: at(i),
+    }));
+    expect(store.import(done, 'cli', NOW).ok).toBe(true);
+    expect(store.archived('T-1')).toMatchObject({ id: 'T-1' });
+    expect(store.archived('T-2')).toMatchObject({ id: 'T-2' });
   });
 
   it('a corrupt file is kept untouched, reported, and never written over', () => {
@@ -179,6 +293,44 @@ describe('task store (DEV-BOARD)', () => {
         { by: 'cli', project: null },
       ),
     ).toMatchObject({ task: { status: 'done', note: '끝' } });
+  });
+
+  it('B5.5: an agent changes only its own project’s Tasks; the owner any', () => {
+    const store = new TaskStore(tasksPath(home()));
+    const owner = { by: 'cli', project: null };
+    answerTask(store, { op: 'add', fields: { title: 'a', project: 'alpha' } }, owner); // T-1
+    const beta = { by: 'beta-w1', project: 'beta', agent: 'beta-w1' };
+    const before = store.get('T-1');
+    for (const a of [
+      { op: 'done', id: 'T-1' },
+      { op: 'update', id: 'T-1', fields: { note: 'x' } },
+      { op: 'add', fields: { title: 'b', project: 'alpha' } },
+      { op: 'import', tasks: [{ id: 'T-1', title: 'stolen' }] },
+      { op: 'import', tasks: [{ id: 'N1', title: 'n', project: 'alpha' }] },
+    ])
+      expect(answerTask(store, a, beta)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(store.get('T-1')).toEqual(before);
+    expect(store.get('N1')).toBeUndefined();
+    // Its own project's: still fine, and a Task of its own cannot be moved to another project.
+    expect(answerTask(store, { op: 'add', fields: { title: 'c' } }, beta)).toMatchObject({ ok: true, task: { id: 'T-2', project: 'beta' } });
+    expect(answerTask(store, { op: 'update', id: 'T-2', fields: { project: 'alpha' } }, beta)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(answerTask(store, { op: 'done', id: 'T-2' }, beta)).toMatchObject({ ok: true, task: { status: 'done' } });
+    expect(answerTask(store, { op: 'done', id: 'T-1' }, owner)).toMatchObject({ ok: true, task: { status: 'done' } });
+  });
+
+  it('S4.2: an agent assigns its Tasks only to its own project’s agents; the owner to anyone', () => {
+    const store = new TaskStore(tasksPath(home()));
+    const agents = {
+      assignmentOf: (n: string) => ({ alpha: 'a_aaaaaaaaaa', 'alpha-w1': 'a_bbbbbbbbbb', beta: 'a_cccccccccc' })[n] ?? null,
+      names: () => ['alpha', 'alpha-w1', 'beta'],
+      projectOf: (n: string) => (n === 'alpha-w1' ? 'alpha' : n),
+    };
+    const alpha = { by: 'alpha', project: 'alpha', agent: 'alpha' };
+    expect(answerTask(store, { op: 'add', fields: { title: 'a', assignee: 'beta' } }, alpha, agents)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(store.list({})).toHaveLength(0);
+    expect(answerTask(store, { op: 'add', fields: { title: 'a', assignee: 'alpha-w1' } }, alpha, agents)).toMatchObject({ ok: true, task: { assignee: { name: 'alpha-w1' } } });
+    expect(answerTask(store, { op: 'update', id: 'T-1', fields: { assignee: 'beta' } }, alpha, agents)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(answerTask(store, { op: 'update', id: 'T-1', fields: { assignee: 'beta' } }, { by: 'cli', project: null }, agents)).toMatchObject({ ok: true, task: { assignee: { name: 'beta' } } });
   });
 });
 
@@ -324,6 +476,7 @@ async function socket(h: string, store: TaskStore, agent: string | null = null) 
   const agents = {
     assignmentOf: (n: string) => ({ alpha: A_LEAD, 'alpha-w': A_WORKER })[n] ?? null,
     names: () => ['alpha', 'alpha-w'],
+    projectOf: (n: string) => (n === 'alpha' || n === 'alpha-w' ? 'alpha' : null),
   };
   ensureOwnerToken(h); // SEC-CONTROL: the CLI run with HOME = h is the owner
   const deps = {

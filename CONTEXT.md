@@ -96,7 +96,7 @@ _Avoid_: stale (implies inactivity or age, which never removes an agent), dead, 
 ## Interaction
 
 **Select**:
-Mark a character as the current subject in the office (the white outline). Selection is what seat reassignment operates on.
+Mark a character as the current subject in the office (the white outline). Selection is what seat reassignment operates on. On the phone a first tap only selects (so the walking pad can walk the character); the information sheet opens by a second action.
 _Avoid_: focus (reserved for terminals), highlight
 
 **Follow**:
@@ -105,6 +105,20 @@ _Avoid_: track
 
 **Focus**:
 Bring an agent's terminal to the front. Reserved exclusively for terminals — never the in-office highlight.
+
+## Messenger
+
+**Picker**:
+A screen Claude Code draws in place of its input row (a bare `/model` or `/config`, a settings or confirm dialog). While one is open the messenger types nothing into the session and holds its messages; the owner closes it in the terminal.
+_Avoid_: menu, modal
+
+**Notice**:
+An untagged post in a group room. It is delivered with each member's next message and wakes nobody; the room shows how many members have it and, on request, which.
+_Avoid_: broadcast, announcement
+
+**Thread**:
+A tagged room post with the members' replies to it. Folded by default: the post and one row with the reply count; the replies load when the reader opens it.
+_Avoid_: conversation (a conversation is one agent's chat)
 
 ## First Run
 

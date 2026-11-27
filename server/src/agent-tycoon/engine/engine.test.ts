@@ -1662,6 +1662,214 @@ describe('engine E2 (T-0019): events, start hook, revive notice, renew, compacti
     ]);
   });
 
+  /** T-144: the shapes Claude writes for `/model` (real transcript 11-13 14:53, bodies replaced). */
+  const tLine = (o: Record<string, unknown>) =>
+    `${JSON.stringify({ parentUuid: null, isSidechain: false, timestamp: new Date().toISOString(), ...o })}\n`;
+  const slashModel = (shown: string) =>
+    tLine({ type: 'user', isMeta: true, message: { role: 'user', content: '<local-command-caveat>Caveat.</local-command-caveat>' } }) +
+    tLine({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: '<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>',
+      },
+    }) +
+    tLine({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: `<local-command-stdout>Set model to \`${shown}\` and saved as your default for new sessions</local-command-stdout>`,
+      },
+    });
+  const reply = (model: string, o: Record<string, unknown> = {}) =>
+    tLine({ type: 'assistant', ...(model !== '<synthetic>' && { requestedModel: model }), message: { model, role: 'assistant', content: [{ type: 'text', text: 'x' }] }, ...o });
+
+  /** T-144: the CLI's own model list (the initialize answer on this PC, 11-13, trimmed). */
+  const MODEL_NAMES = [
+    { value: 'default', displayName: 'Default (recommended)' },
+    { value: 'opus', displayName: 'Opus 5.5' },
+    { value: 'fable', displayName: 'Fable 5.2' },
+    { value: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6' },
+  ];
+  /** A rig whose CLI model list can be not loaded yet (`list.names = undefined`); `warmed` counts asks. */
+  function t144(more: Partial<EngineOptions> = {}) {
+    const list: { names?: typeof MODEL_NAMES; warmed: number } = { names: MODEL_NAMES, warmed: 0 };
+    const r = rig(undefined, {}, {
+      agentChoices: {
+        discover: () => ({ claude: { models: [], efforts: [], ...(list.names && { modelNames: list.names }) } }),
+        warm: () => void list.warmed++,
+      },
+      ...more,
+    });
+    return { ...r, list };
+  }
+  async function startAlpha(r: ReturnType<typeof t144>, model: string) {
+    const e = r.boot();
+    const f = r.folder('alpha');
+    await r.act(e, 'add', 'alpha', { folder: f, model });
+    await r.act(e, 'start', 'alpha');
+    const t = () => transcriptPath(f, r.project(e, 'alpha')!.sessionId!, r.home);
+    fs.mkdirSync(path.dirname(t()), { recursive: true });
+    return { e, t };
+  }
+  const stored = (r: { home: string }) => loadRegistry(registryPath(r.home)).projects.find((p) => p.name === 'alpha')!;
+
+  it('T-144: an explicit /model becomes the stored model; renew and a flagged resume start with it', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    fs.writeFileSync(t(), `{}\n${reply('claude-fable-5-2')}${reply('<synthetic>')}${slashModel('Opus 5.5')}${reply('claude-opus-5-5')}`);
+    // restart's own look at the live conversation follows the switch (the job wakes as it is).
+    expect(await r.act(e, 'restart', 'alpha')).toMatchObject({ ok: true });
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'opus' });
+    expect(r.project(e, 'alpha')).not.toHaveProperty('modelSwitchAt'); // the office row never carries it
+    expect(stored(r).modelSwitchAt).toEqual(expect.any(Number));
+    // renew: a new conversation, started with the conversation's model.
+    const old = r.project(e, 'alpha')!.sessionId;
+    expect(e.renew('alpha', 'HANDOFF', 'test')).toEqual({ ok: true });
+    await waitFor(() => expect(r.project(e, 'alpha')!.sessionId).not.toBe(old));
+    expect(r.bgCalls().at(-1)!.argv).toEqual(['--bg', '-n', 'alpha', '--model', 'opus']);
+    // a resume that carries flags (its job is gone) too.
+    const sid = r.project(e, 'alpha')!.sessionId!;
+    fs.mkdirSync(path.dirname(t()), { recursive: true });
+    fs.writeFileSync(t(), '{}\n');
+    await r.act(e, 'stop', 'alpha');
+    r.fake(['rm', sid.slice(0, 8)]);
+    expect(await r.act(e, 'start', 'alpha')).toMatchObject({ ok: true });
+    expect(r.bgCalls().at(-1)!.argv).toEqual(['--bg', '-n', 'alpha', '--resume', sid, '--model', 'opus']);
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'opus' });
+  });
+
+  it.each([1, 2, 3, 4, 5])(
+    'T-144: /model to a busy lead (a reply in flight on the old model), read in two parts cut after line %i: the listed value',
+    async (k) => {
+      const r = t144();
+      const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+      const toolResult = tLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
+      const lines = [...slashModel('Opus 5.5').split(/(?<=\n)/).slice(1), reply('claude-fable-5-2'), toolResult, reply('claude-opus-5-5')];
+      fs.writeFileSync(t(), `{}\n${lines.slice(0, k).join('')}`);
+      e.refresh();
+      expect(r.project(e, 'alpha')!.model).not.toBe('claude-opus-5-5'); // never a reply's id
+      fs.appendFileSync(t(), lines.slice(k).join(''));
+      e.refresh();
+      expect(stored(r)).toMatchObject({ model: 'opus', modelSwitchAt: expect.any(Number) });
+    },
+  );
+
+  it('T-144 controls: no /model keeps the record; no list yet waits and asks for it; Default is not stored', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    fs.writeFileSync(t(), `{}\n${reply('claude-sonnet-4-6')}${reply('<synthetic>')}${reply('claude-opus-5-5', { isSidechain: true })}`);
+    expect(await r.act(e, 'restart', 'alpha')).toMatchObject({ ok: true });
+    const old = r.project(e, 'alpha')!.sessionId;
+    expect(e.renew('alpha', 'HANDOFF', 'test')).toEqual({ ok: true });
+    await waitFor(() => expect(r.project(e, 'alpha')!.sessionId).not.toBe(old));
+    expect(r.bgCalls().at(-1)!.argv).toEqual(['--bg', '-n', 'alpha', '--model', 'claude-fable-5-2']);
+    // The new conversation's /model before the CLI's list is loaded: nothing stored, the list asked for.
+    r.list.names = undefined;
+    fs.mkdirSync(path.dirname(t()), { recursive: true });
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 5.5')}`);
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'claude-fable-5-2' });
+    expect(r.list.warmed).toBeGreaterThan(0);
+    // The list arrives: the next look settles it, the file not grown.
+    r.list.names = MODEL_NAMES;
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'opus' });
+    // Default (recommended): `--model default` was never checked, so the record stays.
+    fs.appendFileSync(t(), slashModel('Default (recommended)'));
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'opus' });
+  });
+
+  it('T-144: a read-only daemon never writes a followed /model', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    (e as unknown as { opts: EngineOptions }).opts.readOnly = true;
+    r.list.names = undefined;
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 5.5')}`);
+    e.refresh();
+    expect(r.list.warmed).toBe(0); // no CLI probe either
+    r.list.names = MODEL_NAMES;
+    fs.appendFileSync(t(), reply('claude-opus-5-5'));
+    e.refresh();
+    expect(stored(r).model).toBe('claude-fable-5-2');
+  });
+
+  it('T-144: a /model waiting for the list, then a form edit, then the file grows and the list arrives: the form value stays', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    r.list.names = undefined;
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 5.5')}`);
+    e.refresh();
+    expect(await r.act(e, 'edit', 'alpha', { model: 'claude-sonnet-4-6' })).toMatchObject({ ok: true });
+    r.list.names = MODEL_NAMES;
+    fs.appendFileSync(t(), reply('claude-opus-5-5'));
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'claude-sonnet-4-6' });
+  });
+
+  it('T-144: a /model to a name the loaded list does not have keeps the record and says so', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 9')}`);
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'claude-fable-5-2' });
+    expect(r.logs.filter((l) => l.includes('/model to "Opus 9" is not in the CLI\'s list'))).toEqual([
+      '[agty engine] "alpha": /model to "Opus 9" is not in the CLI\'s list, the stored model stays claude-fable-5-2',
+    ]);
+  });
+
+  it('T-144: a form edit after a /model the engine had not looked at yet wins, also at a daemon restart', async () => {
+    const r = t144();
+    const { e, t } = await startAlpha(r, 'claude-fable-5-2');
+    r.list.names = undefined; // the /model is seen but cannot settle before the edit
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 5.5')}`);
+    e.refresh();
+    expect(await r.act(e, 'edit', 'alpha', { model: 'claude-sonnet-4-6' })).toMatchObject({ ok: true });
+    r.list.names = MODEL_NAMES;
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'claude-sonnet-4-6' });
+    e.dispose();
+    const e2 = r.boot(); // its first look reads the whole conversation
+    e2.refresh();
+    expect(r.project(e2, 'alpha')).toMatchObject({ live: true, model: 'claude-sonnet-4-6' });
+  });
+
+  /** T-144: `/model` to Opus is followed (record `first`), the form then sets Sonnet, and the daemon
+   *  restarts (a new Engine over the same HOME) while the session and its transcript stay. */
+  async function formEditThenRestart(first: string) {
+    const r = t144();
+    const { e, t } = await startAlpha(r, first);
+    fs.writeFileSync(t(), `{}\n${slashModel('Opus 5.5')}${reply('claude-opus-5-5')}`);
+    e.refresh();
+    expect(r.project(e, 'alpha')).toMatchObject({ model: 'opus' });
+    expect(await r.act(e, 'edit', 'alpha', { model: 'claude-sonnet-4-6' })).toMatchObject({ ok: true });
+    e.dispose();
+    const e2 = r.boot();
+    e2.refresh();
+    expect(r.project(e2, 'alpha')).toMatchObject({ live: true, model: 'claude-sonnet-4-6' });
+    return { r, e2, t: t() };
+  }
+
+  it('T-144: a followed /model is not followed again: the form edit after it survives a daemon restart and a renew', async () => {
+    const { r, e2 } = await formEditThenRestart('claude-fable-5-2');
+    const old = r.project(e2, 'alpha')!.sessionId;
+    expect(e2.renew('alpha', 'HANDOFF', 'test')).toEqual({ ok: true });
+    await waitFor(() => expect(r.project(e2, 'alpha')!.sessionId).not.toBe(old));
+    expect(r.bgCalls().at(-1)!.argv).toEqual(['--bg', '-n', 'alpha', '--model', 'claude-sonnet-4-6']);
+  });
+
+  it('T-144: after that, a newer /model in the same conversation is followed', async () => {
+    const { r, e2, t } = await formEditThenRestart('claude-fable-5-2');
+    fs.appendFileSync(t, `${slashModel('Fable 5.2')}${reply('claude-fable-5-2')}`);
+    e2.refresh();
+    expect(r.project(e2, 'alpha')).toMatchObject({ model: 'fable' });
+  });
+
+  it('T-144: a /model to the model already stored, then a form edit, survives a restart', async () => {
+    await formEditThenRestart('opus');
+  });
+
   it('COMPACT-COFFEE: a row is compacting from the spinner seen until it goes or the boundary is counted', async () => {
     const r = rig();
     const e = r.boot();

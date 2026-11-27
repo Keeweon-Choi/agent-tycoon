@@ -1014,6 +1014,24 @@ describe('messages', () => {
     expect(r.typed).toHaveLength(2);
   });
 
+  it("T-141: a picker closing lifts the held pause only: a pause after another miss stays", async () => {
+    const r = rig({ typed: 'inputBusy', timing: { tickMs: 60_000, retryMs: 60_000 } });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    r.engine.deliver = (_n, text) => (text === '/model' ? Promise.resolve('pickerOpen') : null);
+    const looks: boolean[] = []; // what held() says next; false when empty
+    r.engine.held = () => Promise.resolve(looks.shift() ?? false);
+    expect(await r.m.send({ ...boss('alpha', '/model'), raw: true })).toMatchObject({ screen: 'picker' });
+    looks.push(true); // the picker is up as the message arrives: held pause
+    expect(await r.m.send(boss('alpha', 'two'))).toMatchObject({ delivered: 'queued' });
+    r.advance(61_000); // the held pause is over
+    looks.push(true, false); // the tick sees the picker; the attempt finds it gone and the box not empty
+    await r.m.tick();
+    expect(r.typed).toHaveLength(1);
+    await r.m.tick(); // the picker is found closed; the box pause is no held pause
+    expect(r.typed).toHaveLength(1);
+    expect(r.m.held('alpha')).toBe(false);
+  });
+
   it('--if-idle gives up after 10 minutes: inbox (input_busy); plain send keeps waiting', async () => {
     const r = rig();
     r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'busy' });
@@ -2754,10 +2772,51 @@ describe('MSG-RECALL: a delivery whose prompt is not its own (11-01 14:51)', () 
     expect(r.queueFiles()).toEqual([]);
     expect(r.m.queuedFor('alpha')).toEqual([]);
   });
+
+  it('T-165: messages waiting 10 min on an input box are reported once per wait; a free box starts a new wait', async () => {
+    const r = rig({ typed: 'inputBusy' });
+    r.sessions.set('alpha', { id: 'a1b2c3d4', status: 'idle' });
+    const waits = () => r.events().filter((e) => e.type === 'send_input_wait');
+    await r.m.send(boss('alpha', '하나'));
+    await r.m.send(boss('alpha', '둘'));
+    const wait = async (ms: number) => {
+      for (let t = 0; t < ms; t += 60_000) {
+        r.advance(60_000);
+        await r.m.tick();
+      }
+    };
+    await wait(9 * 60_000);
+    expect(waits()).toEqual([]);
+    await wait(3 * 60_000);
+    expect(waits()).toEqual([expect.objectContaining({ to: 'alpha', waiting: 2 })]);
+    await wait(30 * 60_000);
+    expect(waits()).toHaveLength(1);
+    // The box was free once (both went in, then a draft again): a new wait, a new report.
+    r.setResult('typed');
+    await wait(2 * 60_000); // one per tick
+    expect(r.queueFiles()).toEqual([]);
+    r.setResult('inputBusy');
+    await r.m.send(boss('alpha', '셋'));
+    await wait(9 * 60_000);
+    expect(waits()).toHaveLength(1);
+    await wait(3 * 60_000);
+    expect(waits()).toEqual([expect.objectContaining({ waiting: 2 }), expect.objectContaining({ to: 'alpha', waiting: 1 })]);
+  });
 });
 
 describe('TYPIST-STALE: stale input, piled notices and a queue that waits past the turn (11-04 laptop)', () => {
   const REVIVE = '[agty 자동 복구 · ';
+
+  it('takes back only its exact inbox entry, keeping the other entries ordered', () => {
+    const r = rig();
+    expect(r.m.writeInbox('alpha', 'first')).toBe(true);
+    expect(r.m.writeInbox('alpha', 'handoff')).toBe(true);
+    expect(r.m.writeInbox('alpha', 'last')).toBe(true);
+    expect(r.m.takeInbox('alpha', 'handoff')).toBe(true);
+    expect(r.readInbox('alpha')).toEqual(['first', 'last']);
+    expect(r.m.takeInbox('alpha', 'missing')).toBe(false);
+    expect(r.readInbox('alpha')).toEqual(['first', 'last']);
+  });
 
   it('a new revive notice replaces one still waiting in the inbox; other inbox files stay (negative: without replaces both pile up)', () => {
     const r = rig();

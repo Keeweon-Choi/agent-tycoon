@@ -15,7 +15,7 @@ import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { openExternal } from '../externalLinks.js';
 import { Icon } from '../icons/Icon.js';
-import { jobRequest, useJobStore } from '../jobStore.js';
+import { jobPollLog, jobRequest, useJobStore } from '../jobStore.js';
 import { messengerSend } from '../messenger/messengerStore.js';
 import { agtyToast, useAgtyStore } from '../officeStore.js';
 import { useCanAct } from '../workbench/workbenchStore.js';
@@ -66,12 +66,7 @@ function useRunLog(job: OfficeJob | undefined): string | undefined {
   const id = job?.id ?? null;
   const running = !!job && !job.ended;
   useEffect(() => {
-    if (!id) return;
-    const read = () => jobRequest((m) => transport.send(m), 'log', id);
-    read();
-    if (!running) return;
-    const timer = window.setInterval(read, DEVROOM_RUN_LOG_MS);
-    return () => window.clearInterval(timer);
+    if (id) return jobPollLog(transport, id, running, DEVROOM_RUN_LOG_MS);
   }, [id, running]);
   return id ? logs[id]?.text : undefined;
 }

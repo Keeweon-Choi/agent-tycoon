@@ -42,6 +42,28 @@ const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const u32 = (b: Uint8Array, at: number) =>
   ((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]) >>> 0;
 
+/** S3.1: the chunk order the PNG spec fixes, walked over the whole buffer: one IHDR (the first
+ *  chunk), PLTE not after the image data, the IDAT chunks in one run. pngjs decodes with the LAST
+ *  IHDR it meets, while the size and interlace checks read the first, so a second one would carry a
+ *  bomb past them. Stops at IEND; a cut-off tail is the decoder's to report. */
+export function pngChunkIssue(bytes: Uint8Array): SheetIssue | null {
+  let at = SIGNATURE.length;
+  let data = 0; // 0 before the IDAT run, 1 inside it, 2 after it
+  let first = true;
+  while (at + 8 <= bytes.length) {
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    const idat = type === 'IDAT';
+    if ((type === 'IHDR') !== first || (idat && data === 2) || (type === 'PLTE' && data > 0))
+      return issue('notPng', 'PNG chunks out of order');
+    if (idat) data = 1;
+    else if (data === 1) data = 2;
+    if (type === 'IEND') break;
+    first = false;
+    at += 12 + u32(bytes, at);
+  }
+  return null;
+}
+
 /** What is wrong with the PNG's bytes before decoding (a `w`×`h` 8-bit RGBA, or RGB when
  *  `opaqueOk`, non-interlaced, at most 64 KB), or null. Interlaced files are refused because
  *  pngjs inflates those without a size cap. */
@@ -68,7 +90,7 @@ export function pngHeaderIssue(
   if (bytes[24] !== 8 || !(bytes[25] === 6 || (opaqueOk && bytes[25] === 2)))
     return issue('format', 'not an 8-bit RGBA PNG');
   if (bytes[28] !== 0) return issue('interlaced', 'interlaced PNG');
-  return null;
+  return pngChunkIssue(bytes);
 }
 
 /** The frame rules on a decoded 112×96 RGBA sheet: an empty cell is a problem (not saved),
@@ -181,5 +203,5 @@ export function importHeaderIssue(bytes: Uint8Array): SheetIssue | null {
       h: MAX_IMPORT_SIDE,
     });
   if (bytes[28] !== 0) return issue('interlaced', 'interlaced PNG');
-  return null;
+  return pngChunkIssue(bytes);
 }

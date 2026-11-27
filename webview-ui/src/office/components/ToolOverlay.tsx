@@ -14,6 +14,7 @@ import { characterKind, characterName, showsNameLabel } from '../../agent-tycoon
 import { OfficeBadges } from '../../agent-tycoon/OfficeBadges.js';
 import { agtyGetSnapshot, ezContext, fatigueFor, identityForAgent, rowOf } from '../../agent-tycoon/officeStore.js';
 import { engineTurn, turnInputs } from '../../agent-tycoon/turnState.js';
+import { useWaitReasons } from '../../agent-tycoon/waiting.js';
 import { Button } from '../../components/ui/Button.js';
 import {
   BUBBLE_FADE_DURATION_SEC,
@@ -157,6 +158,8 @@ export function ToolOverlay({
   alwaysShowOverlay,
   phone = false,
 }: ToolOverlayProps) {
+  // WAITING-PERSIST: the one waiting rule (waiting.ts); a change re-renders the plates.
+  const waitReasons = useWaitReasons();
   const [, setTick] = useState(0);
   // charpack v3 §6A: the nameplates' overlap pass (at once on a new focus or zoom).
   const plateSizes = useNameplatePass(
@@ -199,7 +202,7 @@ export function ToolOverlay({
         snapVersion++;
       }
       const os = p.officeState;
-      let sig = `${snapVersion}|${os.selectedAgentId}|${os.hoveredAgentId}`;
+      let sig = `${snapVersion}|${os.selectedAgentId}|${os.infoAgentId}|${os.hoveredAgentId}`;
       for (const id of [...p.agents, ...p.subagentCharacters.map((s) => s.id), OWNER_CHARACTER_ID]) {
         const ch = os.characters.get(id);
         if (!ch) continue;
@@ -235,7 +238,9 @@ export function ToolOverlay({
   const selectedId = officeState.selectedAgentId;
   const hoveredId = officeState.hoveredAgentId;
   const officeSnapshot = agtyGetSnapshot();
-  const cardOpen = phone && selectedId !== null && selectedId !== OWNER_CHARACTER_ID;
+  // T-106: on the phone a selection alone opens no sheet; the card (sheet) is open for infoAgentId.
+  const infoId = officeState.infoAgentId;
+  const cardOpen = phone && infoId !== null && infoId === selectedId && selectedId !== OWNER_CHARACTER_ID;
 
   const bubbleFor = (ch: Character, id: number, bind: Bind, other: boolean) => {
     if (!ch.bubbleType || (!other && ch.bubbleType === 'waiting' && ch.waitingAwaitingInput))
@@ -367,7 +372,7 @@ export function ToolOverlay({
 
         // agty T-0026: the ring, prop and head badge for this activity; the
         // canvas renderer draws the first two (agty office only).
-        const visual = characterVisual(activity, !!officeIdentity?.off);
+        const visual = characterVisual(activity, !!officeIdentity?.off, waitReasons[id]);
         // Every character's ring, on this floor or not: the staff rules (야근, 퇴근) read it.
         publishCharacterRing(id, visual.ring);
         if (shift === null) return null;
@@ -400,7 +405,10 @@ export function ToolOverlay({
               identity={officeIdentity}
               hovered={isHovered}
               selected={isSelected}
+              sheetOpen={!phone || infoId === id}
               onDeselect={() => {
+                // T-106: the phone's sheet closes back to the office, the character stays selected.
+                if (phone) return officeState.setInfoAgent(null);
                 officeState.selectedAgentId = null;
                 officeState.cameraFollowId = null;
               }}

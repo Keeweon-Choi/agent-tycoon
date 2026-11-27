@@ -15,6 +15,7 @@ import type { EngineAction, EngineActionKind } from '../../../../../core/src/mes
 import { ENTRY_DEFAULTS } from '../../providers/types.js';
 import type { SpawnFn } from '../../spawnJson.js';
 import { engineCalls, killFakeSessions, makeEngineHome, removeTestHome } from '../../testHome.js';
+import { UNIDENTIFIED_FROM } from '../control.js';
 import type { EngineOptions } from '../engine.js';
 import { Engine } from '../engine.js';
 import { EngineEvents, eventsPath } from '../events.js';
@@ -590,6 +591,8 @@ describe("D5 (step 2): a 'run' provider (one process per message) through the en
       code: 'no_direct_chat',
       error: '이 에이전트와는 직접 대화하지 않아요 · Lead 에게 맡기거나 단톡방에서 불러 주세요',
     });
+    // An unidentified control caller (every `agty job`) sends as (cli): no agent, so refused too.
+    expect(t.e.refuses('alpha-a', { from: UNIDENTIFIED_FROM, source: 'cli' })).toMatchObject({ code: 'no_direct_chat' });
     // The project (a Claude Lead) is not refused.
     expect(t.e.refuses('alpha', { from: null, source: 'messenger:mac' })).toBeNull();
   });
@@ -626,6 +629,9 @@ describe('TERM-P1: agents in our PTY host', () => {
   class IdleAgent extends FakeAgent {
     viewers = 0;
     viewed = () => this.viewers > 0;
+    setStatusAt(statusAt: number) {
+      this.sessions = this.sessions.map((s) => ({ ...s, statusAt }));
+    }
   }
 
   it('the engine stops an idle, unwatched session after idleStopMs and wakes it with a message', async () => {
@@ -652,6 +658,42 @@ describe('TERM-P1: agents in our PTY host', () => {
     expect(idle.calls.filter(([c]) => c === 'start')).toHaveLength(1);
     expect(await e.wake('alpha-a')).toBe(true);
     expect(idle.calls.filter(([c]) => c === 'start')).toHaveLength(2);
+  });
+
+  it('what the provider writes into the transcript of an idle session does not hold the idle stop back', async () => {
+    const idle = new IdleAgent();
+    let now = Date.now();
+    const r = home('fake', { agents: [idle], timing: { ...FAST, idleStopMs: 60_000 }, now: () => now });
+    const e = r.boot();
+    expect(await r.act(e, 'start', 'alpha-a')).toMatchObject({ ok: true });
+    const watch = () => (e as unknown as { watch(): Promise<void> }).watch();
+    await watch(); // first idle look
+    now += 59_000;
+    const file = idle.transcript(idle.live()[0]);
+    fs.writeFileSync(file, 'housekeeping\n');
+    fs.utimesSync(file, new Date(now), new Date(now));
+    await watch();
+    now += 2_000;
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'stop')).toHaveLength(1);
+  });
+
+  it('a turn that came and went between two looks starts the idle clock again', async () => {
+    const idle = new IdleAgent();
+    let now = Date.now();
+    const r = home('fake', { agents: [idle], timing: { ...FAST, idleStopMs: 60_000 }, now: () => now });
+    const e = r.boot();
+    expect(await r.act(e, 'start', 'alpha-a')).toMatchObject({ ok: true });
+    const watch = () => (e as unknown as { watch(): Promise<void> }).watch();
+    await watch();
+    now += 50_000;
+    idle.setStatusAt(now);
+    now += 20_000;
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'stop')).toEqual([]);
+    now += 41_000;
+    await watch();
+    expect(idle.calls.filter(([c]) => c === 'stop')).toHaveLength(1);
   });
 
   it('an always-on agent is never stopped for idleness', async () => {

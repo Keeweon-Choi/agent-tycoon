@@ -20,6 +20,7 @@
  */
 import { PERMISSION_WAIT_CHECK_MS, PERMISSION_WAIT_SUSPECT_MS } from '../constants.js';
 import { tail } from './engine/messenger.js';
+import { maskText } from './mask.js';
 import { SidecarFinder } from './workView.js';
 
 /** The open tool call a wait is about: the lead's own (no parentToolId) or a sub-agent's. */
@@ -238,6 +239,7 @@ export interface OpenToolCall {
   match: string[];
 }
 
+/** The card's detail is masked, then cut (S8.7): a token a cut runs through would show its first characters. */
 const DETAIL_MAX = 200;
 
 /** A `tool_use` block with this id anywhere in a record (a sub-agent's inline progress record too). */
@@ -286,7 +288,7 @@ export function toolCall(name: unknown, rawInput: unknown): OpenToolCall {
   const detail = description ?? command?.split('\n')[0].trim() ?? str('file_path') ?? str('url');
   return {
     tool: typeof name === 'string' ? name : '?',
-    ...(detail && { detail: detail.slice(0, DETAIL_MAX) }),
+    ...(detail && { detail: maskText(detail).slice(0, DETAIL_MAX) }),
     // ACP-1: an agent whose title is the command itself: the card says it once.
     match: [description, command !== description ? command : undefined].filter((x): x is string => !!x),
   };

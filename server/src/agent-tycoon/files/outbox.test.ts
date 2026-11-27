@@ -161,10 +161,26 @@ it('reads [첨부] lines, with or without the (type, size) tail', () => {
   ).toEqual({ text: '보냈어요\n[첨부] relative.png', paths: ['/a/b c.png', '/d/e.pdf'] });
 });
 
+it('S3.2: a very long line is parsed in linear time (no backtracking over whitespace)', () => {
+  const long = (tail: string) => `[첨부] /${' '.repeat(100_000)}${tail}`;
+  for (const line of [long('x'), long('(image/png, 3 KB) x'), '[첨부] /a' + ' (x'.repeat(40_000)]) {
+    const start = performance.now();
+    sentLines(line);
+    expect(performance.now() - start).toBeLessThan(500);
+  }
+  // trailing blanks after a path are still dropped
+  expect(sentLines('[첨부] /a/b.png (image/png, 3 KB)   \t').paths).toEqual(['/a/b.png']);
+});
+
 it('R5: [첨부] lines with a Windows path (drive or \\\\wsl.localhost UNC) are attachments too', () => {
   expect(
-    sentLines('[첨부] C:\\Users\\u\\a b.png (image/png, 3 KB)\n[첨부] \\\\wsl.localhost\\Ubuntu\\home\\u\\r.pdf\n[첨부] C:rel.txt'),
-  ).toEqual({ text: '[첨부] C:rel.txt', paths: ['C:\\Users\\u\\a b.png', '\\\\wsl.localhost\\Ubuntu\\home\\u\\r.pdf'] });
+    sentLines(
+      '[첨부] C:\\Users\\u\\a b.png (image/png, 3 KB)\n[첨부] \\\\wsl.localhost\\Ubuntu\\home\\u\\r.pdf\n[첨부] C:rel.txt',
+    ),
+  ).toEqual({
+    text: '[첨부] C:rel.txt',
+    paths: ['C:\\Users\\u\\a b.png', '\\\\wsl.localhost\\Ubuntu\\home\\u\\r.pdf'],
+  });
 });
 
 it('R5: a Windows UNC or device path outside the project is refused before it is opened (no SMB to another host)', () => {
@@ -267,10 +283,14 @@ it('the messenger tail and the history page carry the attachments, copying once'
   expect(quiet.mock.calls[0][0].items[0].kind).toBe('tool');
 });
 
-it('a room turn shows a SendUserFile mid-turn as an attachment, like the lead\'s DM', async () => {
+it("a room turn shows a SendUserFile mid-turn as an attachment, like the lead's DM", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'msf-h-'));
   try {
-    const store = new GroupStore(home, () => ['alpha'], () => 'room0001');
+    const store = new GroupStore(
+      home,
+      () => ['alpha'],
+      () => 'room0001',
+    );
     store.create('팀', ['alpha']);
     const at = new Date(2026, 9, 24, 13, 35).getTime();
     const calls: Parameters<GroupMessenger['send']>[0][] = [];
@@ -287,13 +307,30 @@ it('a room turn shows a SendUserFile mid-turn as an attachment, like the lead\'s
       rec('user', messageOf({ v: 1, ...calls[0] } as QueuedSend)),
       rec('assistant', [{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'ls' } }]),
       rec('user', [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }]),
-      rec('assistant', [{ type: 'tool_use', id: 'b', name: 'SendUserFile', input: { files: [png('d.png')], caption: '시안' } }]),
+      rec('assistant', [
+        {
+          type: 'tool_use',
+          id: 'b',
+          name: 'SendUserFile',
+          input: { files: [png('d.png')], caption: '시안' },
+        },
+      ]),
       rec('user', [{ type: 'tool_result', tool_use_id: 'b', content: 'sent' }]),
       rec('assistant', [{ type: 'tool_use', id: 'c', name: 'Bash', input: { command: 'ls' } }]),
     ].join('\n');
-    const lead = { agentId: 1, key: 'k', name: 'alpha', transcript: null, dir: project, canSend: false };
-    const [post] = groups.timelineWithReplies(store.find('팀')!, () => transcript, undefined, () =>
-      readOptions(lead),
+    const lead = {
+      agentId: 1,
+      key: 'k',
+      name: 'alpha',
+      transcript: null,
+      dir: project,
+      canSend: false,
+    };
+    const [post] = groups.timelineWithReplies(
+      store.find('팀')!,
+      () => transcript,
+      undefined,
+      () => readOptions(lead),
     );
     const sent = post.replies[0].items.filter((i) => i.attachments);
     expect(sent).toHaveLength(1);
@@ -314,7 +351,7 @@ const ticket = (relative: string, mode: 'preview' | 'download' = 'preview') =>
     url: '/api/agty/files/p/ticket',
     headers: headers(),
     payload: { path: relative, mode },
-});
+  });
 
 it('serves archive and office outbox copies as downloads', async () => {
   const auth = new StandaloneAuth();

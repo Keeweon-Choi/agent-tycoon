@@ -12,6 +12,8 @@ import type {
   ChatSendNow,
   ChatSendResult,
   OfficeSnapshot,
+  SideAnswer,
+  SideAsk,
   SlashCommand,
   SlashCommandsList,
 } from '../../../../core/src/messages.js';
@@ -28,14 +30,16 @@ import type { Conversations, Lead } from '../conversations.js';
 import { deviceLabel } from '../device.js';
 import type { Engine } from '../engine/engine.js';
 import type { Messenger } from '../engine/messenger.js';
+import { cliOf, DEFAULT_PROVIDER } from '../engine/registry.js';
 import type { ClientMessageContext, WsSend } from '../hooks.js';
 import type { AgentEntry } from '../providers/types.js';
-import { type SlashCatalogue, slashRefusal } from '../slashCommands.js';
+import { askSide, parseSideAsk, SIDE_MODEL_RE } from '../sideQuestion.js';
+import { pickerCommands, type SlashCatalogue, slashRefusal } from '../slashCommands.js';
 import type { WorkReader, WorkTarget, WorkViews } from '../workView.js';
 import { echo, fileReader, parseWorkView, subagentReader } from '../workView.js';
 
 interface ChatDeps {
-  opts: { chat?: boolean; store: AgentStateStore; home?: string };
+  opts: { chat?: boolean; store: AgentStateStore; home?: string; engineClaude?: string };
   engine: Engine | null;
   messenger: Messenger | null;
   slash: SlashCatalogue;
@@ -51,6 +55,9 @@ interface ChatDeps {
 export class OfficeChat {
   /** Catalogue refresh subscriptions, keyed by the client and its open lead. */
   private readonly slashViews = new Map<WsSend, Map<number, () => void>>();
+
+  /** T-115: the side question in flight (one per daemon) and who asked it, to stop it when its drawer or socket closes. */
+  private side: { send: WsSend; requestId: string; stop: AbortController } | null = null;
 
   constructor(private readonly deps: ChatDeps) {}
 
@@ -85,6 +92,30 @@ export class OfficeChat {
     if (msg.type === 'slashCommands') {
       if (!Number.isInteger(msg.agentId) || typeof msg.requestId !== 'string') return true;
       this.sendSlashCommands(msg.agentId as number, msg.requestId, send, privileged);
+      return true;
+    }
+    if (msg.type === 'sideAsk') {
+      const req = parseSideAsk(msg);
+      if (!req) {
+        console.warn('[agty] malformed sideAsk refused');
+        // An ask that cannot be read still gets its answer when it can be addressed: its card must not wait forever.
+        const { requestId, agentId } = msg;
+        if (typeof requestId === 'string' && requestId.length <= 100 && Number.isInteger(agentId))
+          send({
+            type: 'sideAnswer',
+            requestId,
+            agentId: agentId as number,
+            ok: false,
+            ...refused('side_bad_request'),
+          } satisfies SideAnswer);
+      } else
+        void this.sideAsk(req, send, privileged).catch((err: unknown) =>
+          console.warn(`[agty] side question: ${String(err)}`),
+        );
+      return true;
+    }
+    if (msg.type === 'sideCancel') {
+      if (this.side?.send === send && this.side.requestId === msg.requestId) this.side.stop.abort();
       return true;
     }
     if (msg.type === 'chatView') {
@@ -171,6 +202,7 @@ export class OfficeChat {
 
   onClientClosed(send: WsSend): void {
     this.unwatchSlash(send);
+    if (this.side?.send === send) this.side.stop.abort();
   }
 
   /** chatSend reaches an engine project (the engine messenger). */
@@ -191,6 +223,8 @@ export class OfficeChat {
       requestId,
       agentId,
       commands,
+      // T-115: the side question's picker offers what the CLI itself lists.
+      ...(this.deps.slash.models().length && { models: this.deps.slash.models() }),
       ...why,
     });
     const entry = this.deps.entryOf(agentId);
@@ -199,15 +233,62 @@ export class OfficeChat {
     if (!entry?.key.startsWith('engine:') || !this.deps.engine?.names().includes(entry.name)) {
       return void send({ ...reply([], refused('not_engine_project')) });
     }
-    send({ ...reply(this.deps.slash.list(entry.dir)) });
+    // T-81 C: a Lead in our PTY may send a bare picker command (its picker shows in the sheet).
+    const forLead = (commands: SlashCommand[]) =>
+      this.deps.engine?.inPty(entry.name) ? pickerCommands(commands) : commands;
+    send({ ...reply(forLead(this.deps.slash.list(entry.dir))) });
     this.unwatchSlash(send, agentId);
-    const stop = this.deps.slash.watch(entry.dir, (commands) => send({ ...reply(commands) }));
+    const stop = this.deps.slash.watch(entry.dir, (commands) => send({ ...reply(forLead(commands)) }));
     let views = this.slashViews.get(send);
     if (!views) {
       views = new Map();
       this.slashViews.set(send, views);
     }
     views.set(agentId, stop);
+  }
+
+  /**
+   * T-115 사이드 질문: answered by a read-only fork of the Lead's latest conversation that is
+   * never written (sideQuestion.ts); the Lead and its conversation are untouched. Only an
+   * accepted socket asks (fully trusted); reading needs no step-up. One at a time per daemon (askSide).
+   */
+  private async sideAsk(req: SideAsk, send: WsSend, privileged: boolean): Promise<void> {
+    const reply = (o: Omit<SideAnswer, 'type' | 'requestId' | 'agentId'>) =>
+      send({ type: 'sideAnswer', requestId: req.requestId, agentId: req.agentId, ...o } satisfies SideAnswer);
+    const entry = this.deps.entryOf(req.agentId);
+    const engine = this.deps.engine;
+    const claude = this.deps.opts.engineClaude;
+    const lead = entry && engine?.roster().find((a) => a.name === entry.name);
+    const known = this.deps.slash.models();
+    const why = !this.deps.opts.chat
+      ? refused('chat_off')
+      : !privileged
+        ? refused('no_permission')
+        : !entry?.key.startsWith('engine:') || !engine || !claude || !lead
+          ? refused('not_engine_project')
+          : cliOf(lead) !== DEFAULT_PROVIDER
+            ? refused('side_not_claude')
+            : !entry.sessionId
+              ? refused('side_no_session')
+              : !SIDE_MODEL_RE.test(req.model) || (known.length > 0 && !known.some((m) => m.value === req.model))
+                ? refused('side_bad_model')
+                : null;
+    if (why || !entry?.sessionId || !engine || !claude) return reply({ ok: false, ...(why ?? refused('side_failed')) });
+    if (this.side) return reply({ ok: false, ...refused('side_busy') });
+    const stop = new AbortController();
+    this.side = { send, requestId: req.requestId, stop };
+    const r = await askSide({
+      signal: stop.signal,
+      claude,
+      env: engine.jobEnv(),
+      cwd: engine.folderOf(entry.name) ?? entry.dir,
+      sessionId: entry.sessionId,
+      model: req.model,
+      question: req.question,
+      earlier: req.earlier,
+    }).finally(() => (this.side = null));
+    console.log(`[agty] side question to ${JSON.stringify(entry.name).slice(0, 66)}: ${r.ok ? 'answered' : stop.signal.aborted ? 'stopped' : r.why.errorCode}`);
+    reply(r.ok ? { ok: true, text: r.text, model: req.model } : { ok: false, model: req.model, ...r.why });
   }
 
   private unwatchSlash(send: WsSend, agentId?: number): void {
@@ -261,7 +342,10 @@ export class OfficeChat {
     const folder = this.deps.engine?.folderOf(req.name); // a Worker's own (its slash commands)
     const rawRefusal =
       req.type === 'chatSend' && req.text.startsWith('/') && folder
-        ? slashRefusal(this.deps.slash.list(folder), req.text)
+        ? slashRefusal(
+            this.deps.engine?.inPty(req.name) ? pickerCommands(this.deps.slash.list(folder)) : this.deps.slash.list(folder),
+            req.text,
+          )
         : null;
     const refusal = !this.deps.opts.chat
       ? refused('chat_off')
@@ -299,6 +383,7 @@ export class OfficeChat {
           delivered: r.delivered,
           ...(r.id && { queueId: r.id }),
           ...(r.messageId && { messageId: r.messageId }),
+          ...(r.screen && { screen: r.screen }),
         })
       : reply({ ok: false, ...pickRefusal(r) });
   }

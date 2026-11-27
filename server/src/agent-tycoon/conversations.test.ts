@@ -96,6 +96,16 @@ describe('messenger conversations', () => {
     expect(t.contacts()[0].held).toBe(true);
   });
 
+  it('T-141: a lead on a picker of ours says so in the contacts (held changes with it)', () => {
+    const t = setup(1);
+    t.conv.poll();
+    expect(t.contacts()[0].picker).toBeUndefined();
+    t.leads[0].held = true;
+    t.leads[0].picker = true;
+    t.conv.poll();
+    expect(t.contacts()[0].picker).toBe(true);
+  });
+
   it('contacts: a message that is only a video reads [동영상] in the list', () => {
     const t = setup(1);
     fs.appendFileSync(
@@ -318,7 +328,7 @@ describe('C3: a turn answering a room post counts for the room, never for the DM
     expect(t.conv.takeRoomReplies()).toEqual([]); // taken once
   });
 
-  it('a tail that starts over (new, or a jump past one read) replays old room replies: they are marked replayed, the live one is not', () => {
+  it('a tail that starts over (new) replays old room replies: they are marked replayed, the live one is not', () => {
     const t = setup(1);
     write(t, line('user', ROOM, 3), line('assistant', '옛 방 답', 4));
     t.conv.poll(); // the first poll reads the file from its end back: a replay
@@ -330,9 +340,10 @@ describe('C3: a turn answering a room post counts for the room, never for the DM
     expect(t.conv.takeRoomReplies().map((r) => [r.reply.item.text, r.replayed])).toEqual([
       ['새 방 답', false],
     ]);
-    write(t, line('assistant', 'x'.repeat(300 * 1024), 6)); // more than one read: the tail starts over
+    // P3.2: a jump past one chunk is read forward: its reply is live, the old ones are not told again.
+    write(t, line('assistant', 'x'.repeat(300 * 1024), 6));
     t.conv.poll();
-    expect(t.conv.takeRoomReplies().every((r) => r.replayed)).toBe(true);
+    expect(t.conv.takeRoomReplies().map((r) => [r.reply.item.text.slice(0, 3), r.replayed])).toEqual([['xxx', false]]);
   });
 
   it('a DM-bound reply after it: counted for the DM only, the room mark is gone', () => {

@@ -15,7 +15,7 @@
  * (else the account's default applies, P0).
  *
  * Messages (deliver): a bracketed paste, then Enter as its own write once the paste had time to
- * land, unless the session waits on a permission or question (held). The messenger hands over an
+ * land and shows in the input box (T-165), unless the session waits on a permission or question (held). The messenger hands over an
  * ordinary message only when the session is idle or busy with background work alone (its main
  * turn over), so a busy session file takes it too (Claude Code starts a new turn, or queues it);
  * a `now` message into a running turn goes with Claude's chat:sendNow chord instead of Enter.
@@ -52,12 +52,25 @@ import {
   PTY_PASTE_BYTES_PER_MS,
   PTY_PASTE_BYTES_PER_MS_WINDOWS,
   PTY_PASTE_ENTER_MS,
+  PTY_PASTE_ROWLESS_LOOKS,
+  PTY_PASTE_SHOWN_MS,
   PTY_PERMISSION_HOOK_S,
+  PTY_PICKER_CONFIRM_MS,
+  PTY_SLASH_PICKER_MS,
   PTY_SUBMIT_MS,
   PTY_SUBMIT_RETRIES,
   PTY_SUBMIT_RETRY_MS,
 } from '../../../../constants.js';
-import { compactingOnScreen, draftShown, inputBoxTaken, pastedAs } from '../../../chat.js';
+import {
+  boxShown,
+  compactingOnScreen,
+  draftShown,
+  inputBoxTaken,
+  onePastePlaceholder,
+  partOfText,
+  permissionDialog,
+  pickerOnScreen,
+} from '../../../chat.js';
 import { readJson, writeJsonAtomic } from '../../../jsonFile.js';
 import { processAlive, sessionFromFile, transcriptPath, turnEnded } from '../../../providers/claudeProvider.js';
 import { hostLauncher, listedTerminals, PtyHostClient } from '../../../ptyhost/client.js';
@@ -73,6 +86,7 @@ import type { AgentProvider, DeliverResult, LiveSession, StartResult, StopResult
 import {
   CLAUDE_CAPABILITIES,
   COMPACT_MARK,
+  modelSwitch,
   nameMatches,
   sessionFlags,
   transcriptFillPct,
@@ -89,10 +103,13 @@ const SEND_NOW_GAP_MS = 40;
 
 export const PTY_TIMING = {
   enterMs: PTY_PASTE_ENTER_MS,
+  shownMs: PTY_PASTE_SHOWN_MS,
   bytesPerMs: PTY_PASTE_BYTES_PER_MS,
   submitMs: PTY_SUBMIT_MS,
   retryMs: PTY_SUBMIT_RETRY_MS,
   retries: PTY_SUBMIT_RETRIES,
+  pickerMs: PTY_PICKER_CONFIRM_MS,
+  slashMs: PTY_SLASH_PICKER_MS,
   pollMs: 100,
   closeMs: PTY_CLOSE_WAIT_MS,
 };
@@ -162,6 +179,11 @@ export function folderTrusted(home: string, folder: string): boolean | null {
 
 const assignmentOf = (p: ProjectRecord): string | undefined => (p.role ? p.assignmentId : p.leadAssignmentId);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** T-165: the box after our paste: empty, a permission dialog in its place that our message does not
+ *  quote, any other drawn screen with no input row (`rowless`: a frame caught mid-redraw, or our own
+ *  long text whose `❯` row scrolled off the top, a quoted permission screen too), our whole text, one paste's placeholder only (`mine`, remembered), or
+ *  anything else. */
+type Shown = 'empty' | 'permission' | 'rowless' | 'whole' | 'other' | { mine: string };
 
 export interface ClaudePtyOptions {
   claudePath: string;
@@ -184,17 +206,21 @@ export class ClaudePtyAgent implements AgentProvider {
   readonly protocol = 'pty' as const;
   readonly capabilities = CLAUDE_CAPABILITIES;
   readonly compaction = { mark: COMPACT_MARK, fillPct: transcriptFillPct };
+  readonly modelSwitch = modelSwitch;
   readonly host: PtyHostClient;
   private readonly t: typeof PTY_TIMING;
   private readonly platform: NodeJS.Platform;
   /** The dead terminals last logged (a host that ended without writing their exit). */
   private loggedGone = '';
-  /** TYPIST-STALE: terminal id + text of a paste of ours no Enter has taken yet → the `#n` of the
-   *  placeholder Claude Code folded it into (pastedAs): that placeholder alone is ours in that box;
-   *  anyone's paste of the same length gets the next `#n`. Kept past `unsubmitted` so the next try
-   *  presses Enter on it instead of pasting a second copy. ponytail: in memory; after a daemon
-   *  restart such a folded draft waits as a person's. */
-  private readonly unsent = new Map<string, number>();
+  /** TYPIST-STALE: terminal id + text of a paste of ours no Enter has taken yet → what the box
+   *  showed once it held our paste (boxShown), only when that is one paste's placeholder and
+   *  nothing else (T-165: one placeholder, `[Image #1]` and a placeholder), which only our paste into the
+   *  box the lock kept free can have put there; our whole text shown as itself needs no memory
+   *  (boxOf knows it), and a draft with ours after it is never remembered. Exactly that reading is
+   *  ours in that box, and a placeholder's `#n` is in it, so anyone's later paste reads otherwise. Kept past `unsubmitted` so the next try presses
+   *  Enter on it instead of pasting a second copy. ponytail: in memory; after a daemon restart such
+   *  a folded draft waits as a person's (the messenger reports a long wait, send_input_wait). */
+  private readonly unsent = new Map<string, string>();
   /** Terminal id -> Claude's own pid, for a launcher that starts Claude as its child. */
   private found: Record<string, number> | null = null;
 
@@ -330,6 +356,7 @@ export class ClaudePtyAgent implements AgentProvider {
         startedAt: row.startedAt ?? t.startedAt,
         ...(row.name && { name: row.name }),
         ...(row.version && { version: row.version }),
+        ...(row.statusAt !== undefined && { statusAt: row.statusAt }),
         // The session file first; OSC says blocked when the file does not (yet).
         status:
           osc?.state === 'blocked'
@@ -435,9 +462,16 @@ export class ClaudePtyAgent implements AgentProvider {
     return true;
   }
 
-  /** A permission or question only its terminal can answer: the session file or OSC says so. */
+  /** A permission or question only its terminal can answer (the session file or OSC says so), or
+   *  T-81 a picker or dialog in the input box's place, whoever opened it (its screen says so). */
   held(s: LiveSession): Promise<boolean> {
-    return Promise.resolve(s.status === 'waiting' || this.host.status.get(s.id ?? '')?.state === 'blocked');
+    if (this.waiting(s)) return Promise.resolve(true);
+    return s.id ? this.steady(s.id, pickerOnScreen, false, (open) => open) : Promise.resolve(false);
+  }
+
+  /** A permission or question: the session file or OSC says so. */
+  private waiting(s: LiveSession): boolean {
+    return s.status === 'waiting' || this.host.status.get(s.id ?? '')?.state === 'blocked';
   }
 
   /** TERM-P1: someone watches this terminal (the engine's idle stop leaves it alone). */
@@ -465,6 +499,16 @@ export class ClaudePtyAgent implements AgentProvider {
     }
   }
 
+  /** T-81: onScreen, but a reading that says picker is looked at again pickerMs later and that
+   *  second reading is the answer: a frame caught mid-redraw (the input box erased, not drawn yet)
+   *  holds nothing back, a picker still drawn holds it back as before. */
+  private async steady<T>(id: string, look: (term: HeadlessTerminal) => T, none: T, picker: (r: T) => boolean): Promise<T> {
+    const first = await this.onScreen(id, look, none);
+    if (!picker(first)) return first;
+    await sleep(this.t.pickerMs);
+    return this.onScreen(id, look, none);
+  }
+
   /** COMPACT-COFFEE: Claude Code compacts the conversation now (its spinner line on the mirror).
    *  Only a working session is looked at: a compaction is always part of a turn. */
   compacting(s: LiveSession): Promise<boolean> {
@@ -488,19 +532,24 @@ export class ClaudePtyAgent implements AgentProvider {
     // busy: the messenger only hands over an ordinary message when the main turn is over (background work only).
     const ready = turnEnded(s.status) || s.status === 'busy' || (s.status === undefined && readyToType(osc()));
     const now = !!o.now && s.status === 'busy';
-    if (!ready || (await this.held(s))) return 'notReady';
+    // A picker (held) is read off the screen in the box check below, with the keys held back.
+    if (!ready || this.waiting(s)) return 'notReady';
     const clean = cleanText(text);
     const file = this.transcript(s);
     const before = lastPrompt(tail(file));
     // T-88: the mark is looked for in everything written since now, not only the tail (typedSince).
     let from = fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0;
     const key = `${id}\n${clean}`;
+    // T-81: a slash command may open a picker, which takes every key: Enter picks its pointed row.
+    const slash = clean.startsWith('/');
     const look = () =>
-      this.onScreen(id, (term) => boxOf(term, clean, this.unsent.get(key)), 'free' as const);
+      this.steady(id, (term) => boxOf(term, clean, this.unsent.get(key)), 'free' as const, (box) => box === 'picker');
     const settled = <R extends DeliverResult>(r: R): R => {
       this.unsent.delete(key);
       return r;
     };
+    // T-141: working before our Enter, a turn running is no sign the command went in without a picker.
+    const busy = working();
     // MSG-RECALL: from the box check to Enter, no viewer key goes in (they follow Enter).
     const typed = await this.host.typing(id, async () => {
       // Never onto a draft or a recalled prompt: Enter would submit it, and no key clears a box
@@ -509,6 +558,8 @@ export class ClaudePtyAgent implements AgentProvider {
       // TYPIST-STALE: an earlier message of ours in the box waits too: Up recalls exactly that text,
       // and Enter on it would submit it a second time (an older build's unsubmitted paste looks the same).
       const box = await look();
+      // T-81: not even 지금 보내기 types into a picker (opened since the held() look).
+      if (box === 'picker') return 'notReady' as const;
       if (!o.force && box === 'taken') return 'inputBusy' as const;
       // This very paste, left by a try whose Enter did not take: Enter only, never a second paste.
       if (box !== 'ours') {
@@ -520,10 +571,54 @@ export class ClaudePtyAgent implements AgentProvider {
         this.unsent.delete(key);
         // Enter on its own, once the paste had time to land (Orca: a 500 ms settle + ingest, 64 B/ms on Windows).
         await sleep(this.t.enterMs + Math.ceil(Buffer.byteLength(clean) / this.t.bytesPerMs));
-        // The `#n` our paste got; none read (the text shows whole, a screen we cannot read): a
-        // placeholder there is nobody's to submit, only our whole text is.
-        const n = await this.onScreen(id, (term) => pastedAs(term, clean, true), null);
-        if (n !== null) this.unsent.set(key, n);
+        // T-165: and once it shows: Claude Code drops an Enter while it checks a paste's image paths.
+        // An empty box, or a permission dialog in its place, is looked at again; a screen we cannot
+        // read is not waited on. Counted in looks, not by the wall clock (T-147). Only one paste's
+        // placeholder is remembered as ours (unsent); anything else but our whole text (a draft the
+        // box check could not see, with ours after it) gets one more look (a frame half drawn), then
+        // nothing is remembered and Enter goes as ever. So does a drawn screen with no input row that
+        // stays so PTY_PASTE_ROWLESS_LOOKS looks running: it cannot be told from our own long text
+        // whose `❯` row scrolled off the top (a paste Claude Code did not fold), and waiting on that
+        // held every such message back; one such frame alone was caught mid-redraw.
+        const after = (term: HeadlessTerminal): Shown => {
+          if (!inputBoxTaken(term)) {
+            // A permission dialog our own message quotes (its rows on the screen) is our text, not one.
+            const d = permissionDialog(term);
+            if (d !== null && !partOfText(d, clean)) return 'permission';
+            return d !== null || pickerOnScreen(term) ? 'rowless' : 'empty';
+          }
+          const box = boxShown(term, true);
+          return draftShown(term, clean, true, 'text') ? 'whole' : onePastePlaceholder(box) ? { mine: box } : 'other';
+        };
+        let seen: Shown | null = 'empty';
+        let others = 0;
+        let rowless = 0;
+        let dialog = false;
+        let asks = false;
+        for (let i = Math.ceil(this.t.shownMs / this.t.pollMs); i > 0; i--) {
+          seen = await this.onScreen(id, after, null);
+          // The session's own word, read live (as waiting()): also for a screen we cannot read, or a
+          // dialog a narrow viewer wraps past the screen test.
+          asks = fileStatus() === 'waiting' || osc()?.state === 'blocked';
+          if (asks) break;
+          if (seen === 'permission') dialog = true;
+          rowless = seen === 'rowless' ? rowless + 1 : 0;
+          if (seen === null || seen === 'whole' || typeof seen === 'object') break;
+          if ((seen === 'other' && ++others > 1) || rowless >= PTY_PASTE_ROWLESS_LOOKS) break;
+          await sleep(this.t.pollMs);
+        }
+        if (typeof seen === 'object' && seen) this.unsent.set(key, seen.mine);
+        // Enter would pick the dialog's pointed row (a permission's Yes): one on the screen that our
+        // message does not quote, the session waiting on a permission or question, or a screen gone
+        // unreadable after a dialog was seen. A dialog seen, then PTY_PASTE_ROWLESS_LOOKS rowless
+        // looks, is gone: Enter goes. inputBusy, not notReady: our paste may sit in the box behind
+        // the dialog, so the messenger drops a 지금 보내기 (a forced try would paste a second copy onto
+        // ours), counts no miss and lets the message wait for the box like any box not free.
+        if (asks || seen === 'permission' || (seen === null && dialog)) {
+          this.o.log(`"${p.name}": a permission dialog took its input box's place after our paste; no Enter`);
+          return 'inputBusy' as const;
+        }
+        if (seen === 'empty') this.o.log(`"${p.name}": our paste did not show in its input box in ${this.t.shownMs} ms; Enter anyway`);
       }
       if (now) {
         await this.host.write(id, SEND_NOW[0]);
@@ -534,6 +629,9 @@ export class ClaudePtyAgent implements AgentProvider {
     });
     if (typed) return typed;
     const end = Date.now() + this.t.submitMs;
+    // T-141: a slash command into a working session keeps looking for its picker this long (an idle
+    // one that turns working started a turn with it: typed at once, as ever).
+    const looked = Date.now() + this.t.slashMs;
     let enters = 1;
     let again = Date.now() + this.t.retryMs;
     for (;;) {
@@ -555,11 +653,13 @@ export class ClaudePtyAgent implements AgentProvider {
         this.o.log(`"${p.name}": a prompt without ⟨m:${o.messageId}⟩ went in instead of it`);
         return settled('lost');
       }
-      if (!o.messageId && !now && working()) return settled('typed');
+      if (!o.messageId && !now && working() && !(slash && busy && Date.now() < looked)) return settled('typed');
+      if (slash && (await look()) === 'picker') return settled('pickerOpen');
       if (Date.now() >= end) break;
       // TYPIST-STALE: no prompt, no turn, and our paste still whole in the box: Enter again (a
       // composer not ready yet, an Enter a slow paste swallowed), PTY_SUBMIT_RETRIES times at most.
-      if (!now && enters <= this.t.retries && Date.now() >= again && !working()) {
+      // T-81: never on a slash command: its picker may be drawn late, and this Enter would pick a row.
+      if (!slash && !now && enters <= this.t.retries && Date.now() >= again && !working()) {
         again = Date.now() + this.t.retryMs;
         await this.host.typing(id, async () => {
           if ((await look()) !== 'ours') return;
@@ -570,9 +670,11 @@ export class ClaudePtyAgent implements AgentProvider {
       }
       await sleep(this.t.pollMs);
     }
-    // Still in the box (whole, or as the placeholder with our `#n`): not delivered. The next try
-    // finds it there and presses Enter only; the `#n` stays remembered for that (never a second copy).
-    if (!now && !working() && (await look()) === 'ours') {
+    // Still in the box (whole, or as it showed after our paste): not delivered. The next try finds
+    // it there and presses Enter only; that reading stays remembered for that (never a second copy).
+    const last = !now && !working() ? await look() : null;
+    if (slash && last === 'picker') return settled('pickerOpen');
+    if (last === 'ours') {
       this.o.log(`"${p.name}": our paste stayed in its input box after ${enters} Enter(s)`);
       return 'unsubmitted';
     }
@@ -594,14 +696,15 @@ export class ClaudePtyAgent implements AgentProvider {
 
 /**
  * TYPIST-STALE: what the input box holds, telling ours from a person's: `free` (empty, or a screen
- * whose shape we cannot judge), `ours` (exactly this message's text; or the one paste placeholder
- * numbered `mine`, the `#n` our paste of it got), else `taken` (a draft, a recalled prompt, an
+ * whose shape we cannot judge), `ours` (exactly this message's text; or exactly `mine`, the
+ * one-paste placeholder reading the box showed once it held our paste, T-165), else `taken` (a draft, a recalled prompt, an
  * earlier message of ours, anyone's paste, anything more or less than our whole text: never ours
- * to submit). Exact means every character but whitespace, the header's ⟨m:…⟩ mark included,
- * which no one types (messenger.ts defang).
+ * to submit), or `picker` (T-81: a picker or dialog in the box's place, pickerOnScreen). Exact means
+ * every character but whitespace, the header's ⟨m:…⟩ mark included, which no one types (messenger.ts defang).
  */
-function boxOf(term: HeadlessTerminal, text: string, mine: number | undefined): 'free' | 'ours' | 'taken' {
+function boxOf(term: HeadlessTerminal, text: string, mine: string | undefined): 'free' | 'ours' | 'taken' | 'picker' {
+  if (pickerOnScreen(term)) return 'picker';
   if (!inputBoxTaken(term)) return 'free';
-  if (draftShown(term, text, true, 'text') || (mine !== undefined && pastedAs(term, text, true) === mine)) return 'ours';
+  if (draftShown(term, text, true, 'text') || (mine !== undefined && boxShown(term, true) === mine)) return 'ours';
   return 'taken';
 }

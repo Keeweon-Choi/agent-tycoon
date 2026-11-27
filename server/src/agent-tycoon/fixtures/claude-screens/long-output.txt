@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Fable 5.2 with xhigh effort · Claude Ultra
+ ▝▝   ▝▝   /tmp/picker-cwd
+
+❯ what does the model picker look like, and what else can I pick there?
+
+● The picker replaces the input box while it is open. It looks like this:
+
+     Select model
+
+       1.  Default (recommended)  Fable 5.2
+       2.  Opus 5.5               For complex work and everyday tasks
+     ❯ 3.  Fable 5.2 ✔            For your toughest challenges
+       4.  Sonnet 5.5             Most efficient for simpler tasks
+
+     Enter to set as default · s to use this session only · Esc to cancel
+
+  What each key does:
+
+  ┌───────┬──────────────────────────────────────────┐
+  │ Key   │ What it does                             │
+  ├───────┼──────────────────────────────────────────┤
+  │ Enter │ sets the pointed model as the default    │
+  │ s     │ uses it for this session only            │
+  │ Esc   │ closes the picker, nothing changes       │
+  └───────┴──────────────────────────────────────────┘
+
+  1. Open it with /model.
+  2. Move the pointer with the arrow keys.
+  3. Press Esc to close it.
+
+  > Nothing is changed until you press Enter or s.
+
+                                                                                                     ◉ xhigh · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ◆ Fable 5.2(X) │ ░░░░░░░░░░ │ 0% │ 0/1.0M │ $0.00 │ ⚠️  │ 7d: 0% (7d0h) │ 7d-F: 0% (7d0h)
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 3 agents

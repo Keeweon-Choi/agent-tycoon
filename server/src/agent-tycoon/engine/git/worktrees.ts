@@ -30,7 +30,7 @@ import { koText, refused } from '../../../../../core/src/agent-tycoon/serverText
 import type { RepoWorktree } from '../../../../../core/src/messages.js';
 import { checkBranchName, folderOfBranch, MAX_BRANCH_NAME, taskBranch, uniqueBranch } from './branchName.js';
 import type { GitRunner } from './gitRun.js';
-import { READ_ENV, RepoError } from './gitRun.js';
+import { READ_ENV, RepoError, usesRepoFilters } from './gitRun.js';
 import type { ProjectFolder } from './repoRead.js';
 import { gitMessage, readStatus, repoRoot } from './repoRead.js';
 import type { WorktreeSpec } from './worktreeRead.js';
@@ -78,6 +78,8 @@ interface Inspected extends RepoWorktree {
   registered: boolean;
   branchOk: boolean;
   baseOk: boolean;
+  /** B5.3: the branch the registered folder is on when that is not `branch` ('detached HEAD' when none). */
+  offBranch?: string;
 }
 
 const isRecord = (r: unknown): r is WorktreeRecord => {
@@ -145,6 +147,27 @@ const realOrSame = (p: string): string => {
     return p;
   }
 };
+
+/** Folders git treats atomically that contain their own repository metadata. */
+async function embeddedRepos(run: GitRunner, wt: string): Promise<string[]> {
+  const [untracked, ignored, staged] = await Promise.all([
+    run(wt, ['ls-files', '-z', '--others', '--exclude-standard'], { env: READ_ENV }),
+    run(wt, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { env: READ_ENV }),
+    run(wt, ['ls-files', '-z', '--stage'], { env: READ_ENV }),
+  ]);
+  if ([untracked, ignored, staged].some((listed) => listed.code !== 0)) return ['?'];
+  const folders = new Set<string>();
+  for (const listed of [untracked, ignored]) {
+    for (const entry of listed.stdout.toString('utf-8').split('\0')) {
+      if (entry.endsWith('/')) folders.add(entry.slice(0, -1));
+    }
+  }
+  for (const entry of staged.stdout.toString('utf-8').split('\0')) {
+    const tab = entry.indexOf('\t');
+    if (entry.startsWith('160000 ') && tab > 0) folders.add(entry.slice(tab + 1));
+  }
+  return [...folders].filter((folder) => lexists(path.join(wt, folder, '.git')));
+}
 
 /** `git worktree list --porcelain`'s entries: the folder, its branch (null: detached), bare, prunable. */
 export function parseWorktreeList(text: string): Array<{ path: string; branch: string | null; bare: boolean; prunable: boolean }> {
@@ -613,9 +636,16 @@ export class Worktrees {
       }
     }
     let dirty = 0;
+    let offBranch: string | undefined;
     if (isRegistered) {
       try {
-        dirty = (await readStatus(run, wt)).files.length;
+        const now = await readStatus(run, wt);
+        dirty = now.files.length;
+        // B5.3: commits made after leaving the recorded branch are not on it: never call it merged.
+        if (now.branch !== rec.branch) {
+          offBranch = now.branch ?? 'detached HEAD';
+          merged = false;
+        }
       } catch {
         dirty = 1; // unreadable: do not call it clean
       }
@@ -638,6 +668,7 @@ export class Worktrees {
       registered: isRegistered,
       branchOk,
       baseOk,
+      ...(offBranch && { offBranch }),
     };
   }
 
@@ -650,7 +681,7 @@ export class Worktrees {
     const top = await repoRoot(this.o.run, project.folder);
     const registered = await registeredWorktrees(this.o.run, top);
     const all = await Promise.all(active.map((rec) => this.inspect(top, rec, registered)));
-    return all.map(({ dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, ...wire }) => wire);
+    return all.map(({ dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, offBranch: _f, ...wire }) => wire);
   }
 
   /**
@@ -685,7 +716,7 @@ export class Worktrees {
           created = new Date(0).toISOString();
         }
         const rec: WorktreeRecord = { project: project.name, task: path.basename(e.path), path: e.path, branch, base: main ?? branch, created, status: 'active' };
-        const { dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, ...wire } = await this.inspect(top, rec, registered, e.path);
+        const { dirExists: _d, registered: _r, branchOk: _b, baseOk: _o, offBranch: _f, ...wire } = await this.inspect(top, rec, registered, e.path);
         return wire;
       }),
     );
@@ -728,10 +759,36 @@ export class Worktrees {
         (r) => r.project === project.name && r.task === task && r.status === 'active',
       );
       if (!rec) return { ok: false, error: koText('worktree_missing') };
-      const st = await this.inspect(top, rec, await registeredWorktrees(run, top));
+      const registered = await registeredWorktrees(run, top);
+      const st = await this.inspect(top, rec, registered);
       const wt = st.path;
       if (st.dirExists && !st.registered) {
         return { ok: false, ...refused('worktree_unregistered') };
+      }
+      // B5.1: a worktree made inside this one (`.worktrees/<x>/.worktrees/<y>`) is ignored by this
+      // folder's status, and `git worktree remove` (forced or not) would delete it with its work.
+      const inside = realOrSame(wt) + path.sep;
+      const inner = [...registered].filter((p) => p.startsWith(inside) && fs.existsSync(p));
+      if (inner.length) {
+        return { ok: false, ...refused('worktree_has_nested', { inner: inner.map((p) => path.relative(wt, p)).join(', ') }) };
+      }
+      if (st.offBranch) {
+        return { ok: false, ...refused('worktree_off_branch', { branch: rec.branch, where: st.offBranch }) };
+      }
+      // T-130: an initialised submodule keeps its repository (its commits) in this worktree's own
+      // git dir and its uncommitted work outside the WIP commit's reach; `--force` deletes both.
+      // git's own rule (validate_no_submodules) without force; checked for both so the message is ours.
+      // ponytail: a repository deeper inside an ignored folder is not seen, because git reports only
+      // that folder's top here.
+      if (st.registered) {
+        const mods = await run(wt, ['rev-parse', '--git-path', 'modules'], { env: READ_ENV });
+        const dir = mods.code === 0 ? path.resolve(wt, mods.stdout.toString('utf-8').trim()) : '';
+        const subs = dir && fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+        if (mods.code !== 0 || subs.length) {
+          return { ok: false, ...refused('worktree_has_submodule', { inner: subs.join(', ') || '?' }) };
+        }
+        const inner = await embeddedRepos(run, wt);
+        if (inner.length) return { ok: false, ...refused('worktree_has_embedded_repo', { inner: inner.join(', ') }) };
       }
       const losses: string[] = [];
       if (st.ahead > 0) losses.push(koText('loss_commits', { count: st.ahead }));
@@ -751,6 +808,8 @@ export class Worktrees {
       if (st.registered && opts.force && st.dirty > 0) {
         const op = await operationInProgress(run, wt);
         if (op) return { ok: false, ...refused('repo_busy', { operation: op }) };
+        // B5.2: `add -A` with the repository's own filters off would commit unfiltered content.
+        if (await usesRepoFilters(run, wt)) return { ok: false, ...refused('wip_filters') };
         const add = await run(wt, ['add', '-A']);
         const commit =
           add.code === 0 &&
@@ -772,7 +831,17 @@ export class Worktrees {
       let detail: string | undefined;
       if (st.branchOk) {
         if (merged) {
-          const del = await run(top, ['branch', '-d', rec.branch]);
+          let del = await run(top, ['branch', '-d', rec.branch]);
+          // B5.7: `branch -d` judges against the project folder's HEAD, not the record's base. Merged
+          // into the base: delete the ref, guarded by its old value (a branch that moved stays).
+          // ponytail: its branch.<name> config (an upstream) is left behind; git ignores a stale one.
+          if (del.code !== 0 && /not fully merged/.test(del.stderr)) {
+            const ref = `refs/heads/${rec.branch}`;
+            const baseRef = FULL_SHA.test(rec.base) ? rec.base : `refs/heads/${rec.base}`;
+            const tip = (await run(top, ['rev-parse', '--verify', '-q', ref], { env: READ_ENV })).stdout.toString('utf-8').trim();
+            const inBase = FULL_SHA.test(tip) && (await run(top, ['merge-base', '--is-ancestor', tip, baseRef], { env: READ_ENV })).code === 0;
+            if (inBase) del = await run(top, ['update-ref', '-d', ref, tip]);
+          }
           branchDeleted = del.code === 0;
           detail = branchDeleted
             ? koText('branch_deleted')

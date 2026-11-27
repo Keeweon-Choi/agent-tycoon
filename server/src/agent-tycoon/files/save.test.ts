@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -46,6 +47,68 @@ it('saves only while the file still has the hash it was opened with', () => {
   const stale = saveEdit(temp, 'a.ts', false, 'three\n', opened);
   expect(stale).toMatchObject({ ok: false, hash: bytesHash(Buffer.from('two\n')) });
   expect(fs.readFileSync(path.join(temp, 'a.ts'), 'utf8')).toBe('two\n');
+});
+
+/** The builtin's own object: a spy on it reaches save.ts's ESM bindings after syncBuiltinESMExports. */
+const fsObject = createRequire(__filename)('node:fs') as typeof fs;
+
+it('U1.4: a write that comes up short and then fails leaves the old file whole and no temp file', () => {
+  const file = path.join(temp, 'a.ts');
+  const real = fsObject.writeSync;
+  let calls = 0;
+  // One byte lands, then the disk is full: a short write followed by ENOSPC.
+  const spy = vi.spyOn(fsObject, 'writeSync').mockImplementation(((fd: number, buffer: Buffer, offset: number) => {
+    if (++calls > 1) throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' });
+    return real(fd, buffer, offset, 1);
+  }) as typeof fs.writeSync);
+  syncBuiltinESMExports();
+  try {
+    expect(() => saveEdit(temp, 'a.ts', false, 'two lines\n', bytesHash(Buffer.from('one\n')))).toThrow(/ENOSPC/);
+  } finally {
+    spy.mockRestore();
+    syncBuiltinESMExports();
+  }
+  expect(fs.readFileSync(file, 'utf8')).toBe('one\n');
+  expect(fs.readdirSync(temp).filter((name) => name.includes('.tmp'))).toEqual([]);
+});
+
+it('U1.4: a save keeps the file mode and writes through a symbolic link to its target', () => {
+  const file = path.join(temp, 'a.ts');
+  fs.chmodSync(file, 0o640);
+  fs.symlinkSync('a.ts', path.join(temp, 'link.ts'));
+  expect(saveEdit(temp, 'link.ts', false, 'two\n', bytesHash(Buffer.from('one\n')))).toMatchObject({ ok: true });
+  expect(fs.lstatSync(path.join(temp, 'link.ts')).isSymbolicLink()).toBe(true);
+  expect(fs.readFileSync(file, 'utf8')).toBe('two\n');
+  expect(fs.statSync(file).mode & 0o777).toBe(0o640);
+});
+
+it('U1.4 race: a folder swapped for a link after the check is refused, nothing is written outside', () => {
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'p4s5-out-')));
+  fs.mkdirSync(path.join(temp, 'sub'));
+  fs.writeFileSync(path.join(temp, 'sub', 'b.ts'), 'one\n');
+  const cryptoObject = createRequire(__filename)('node:crypto') as typeof import('node:crypto');
+  const real = cryptoObject.randomBytes;
+  let swapped = false;
+  // The swap lands between the checked open (closed again) and the temp file's open.
+  const spy = vi.spyOn(cryptoObject, 'randomBytes').mockImplementation(((size: number) => {
+    if (!swapped) {
+      swapped = true;
+      fs.renameSync(path.join(temp, 'sub'), path.join(temp, 'sub-moved'));
+      fs.symlinkSync(outside, path.join(temp, 'sub'));
+    }
+    return real(size);
+  }) as typeof real);
+  syncBuiltinESMExports();
+  try {
+    expect(() => saveEdit(temp, 'sub/b.ts', false, 'two\n', bytesHash(Buffer.from('one\n')))).toThrow();
+    expect(swapped).toBe(true);
+    expect(fs.readdirSync(outside)).toEqual([]);
+    expect(fs.readFileSync(path.join(temp, 'sub-moved', 'b.ts'), 'utf8')).toBe('one\n');
+  } finally {
+    spy.mockRestore();
+    syncBuiltinESMExports();
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 });
 
 it('keeps the existing path rules: sensitive, non-text and escaping paths are refused', () => {

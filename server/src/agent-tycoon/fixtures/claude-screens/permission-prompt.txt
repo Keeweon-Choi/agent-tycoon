@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Fable 5.2 with xhigh effort · Claude Ultra
+ ▝▝   ▝▝   /tmp/picker-cwd
+
+❯ clean the build folder
+
+● I will remove the old build output.
+
+● Bash(rm -rf build)
+  ⎿  Running…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   rm -rf build
+   Remove the old build output
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ChatItem } from '../../../../core/src/messages.js';
 import { setLanguage } from '../../i18n/index.js';
-import { atBottom, jumpLabel, newSince } from './scrollJump.js';
+import { atBottom, jumpLabel, newSince, pagingUnpins } from './scrollJump.js';
 
 const item = (id: string, kind: ChatItem['kind'] = 'assistant'): ChatItem => ({
   id,
@@ -21,6 +21,13 @@ describe('the jump button', () => {
     expect(atBottom(at(2452))).toBe(true);
     expect(atBottom(at(2451))).toBe(false);
     expect(atBottom(at(2400))).toBe(false); // not a screen away: still detached
+  });
+  it('lets paging unpin only a reader who is away from the bottom', () => {
+    // An empty or short list shows its top while it is at its bottom: asking for older rows is not a scroll.
+    expect(pagingUnpins({ scrollTop: 0, clientHeight: 500, scrollHeight: 383 })).toBe(false);
+    expect(pagingUnpins(at(2500))).toBe(false);
+    expect(pagingUnpins(at(0))).toBe(true);
+    expect(pagingUnpins(at(2400))).toBe(true);
   });
   it("counts the agent's replies after the one last seen: not tool lines, not the boss's own lines", () => {
     // 'c' is the boss's line (one that just turned from sending into sent): never a new message.

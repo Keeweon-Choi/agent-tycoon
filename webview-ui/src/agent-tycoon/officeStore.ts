@@ -50,8 +50,10 @@ import { isOff, type OfficePanel } from './format.js';
 import { backgroundHandleMessage } from './gfx/bg/settings.js';
 import { agentUpdateHandleMessage } from './hud/agentUpdate.js';
 import { sensorToolHandleMessage } from './hwSensorTool.js';
-import { jobHandleMessage } from './jobStore.js';
+import { jobHandleMessage, jobKeepOnly } from './jobStore.js';
 import { messengerConnectionLost, messengerHandleMessage } from './messenger/messengerStore.js';
+import { threadLoadResult } from './messenger/roomThreadLoad.js';
+import { sideConnectionLost, sideHandleMessage, sideModelsCame } from './messenger/sideQuestionStore.js';
 import { agtyNoticeEvent, agtyNoticeReplay, agtyPreviewOpen, agtyPushState } from './notify/notices.js';
 import { partiesHandleMessage } from './party/parties.js';
 import { repoHandleMessage } from './repo/repoStore.js';
@@ -242,6 +244,7 @@ export function agtyHandleMessage(msg: ServerMessage): void {
       break;
     case 'officeJobs':
       snapshot = { ...snapshot, officeJobs: msg };
+      jobKeepOnly(msg.jobs.map((job) => job.id ?? `pid:${job.pid}`)); // P1.4: the job tab's refs
       break;
     case 'taskBoard': {
       // `error` answers only this screen's refused edit: a toast, not part of the board.
@@ -367,7 +370,6 @@ export function agtyHandleMessage(msg: ServerMessage): void {
     case 'chatSendResult':
     case 'chatPendingResult':
     case 'permissionAnswerResult':
-    case 'slashCommandsList':
     case 'messengerContacts':
     case 'groupRooms':
     case 'groupTimeline':
@@ -375,6 +377,16 @@ export function agtyHandleMessage(msg: ServerMessage): void {
     case 'pinnedConversations':
     case 'goneConversationDeleteResult':
       messengerHandleMessage(msg); // the office messenger (T-0043) keeps its own store
+      return;
+    case 'slashCommandsList':
+      sideModelsCame(msg.models); // T-115: the side question's picker lists what the CLI lists
+      messengerHandleMessage(msg);
+      return;
+    case 'sideAnswer':
+      sideHandleMessage(msg); // T-115: the side question drawer keeps its own store
+      return;
+    case 'groupThreadResult':
+      threadLoadResult(msg); // T-113: an opened room thread's replies came (or did not)
       return;
     case 'officeBackground':
       backgroundHandleMessage(msg); // BACKGROUND: the isometric surroundings keep their own store
@@ -513,6 +525,7 @@ let toastSeq = 0;
 /** The socket dropped: the messenger's pending requests can no longer be answered here. */
 export function agtyConnectionLost(): void {
   messengerConnectionLost();
+  sideConnectionLost();
   // A project that emptied while the socket was down would stay: the daemon resends what exists.
   if (Object.keys(snapshot.tracked).length) {
     snapshot = { ...snapshot, tracked: {} };

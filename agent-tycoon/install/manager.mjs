@@ -296,11 +296,11 @@ export const endPrivateWindowsNodesCommand = (versionsDir, selfPid) => powershel
  * home's daemon), checked to run from <root>\versions (endDaemonCommand), then waited for until health is quiet.
  * Nothing to do when no daemon of ours answers. `s.cwd` is the version folder (renderService).
  */
-export async function endWindowsDaemon(s, deps) {
+export async function endWindowsDaemon(s, deps, { sweep = false } = {}) {
   if (!s?.cwd) return { ended: false };
   const port = mergeConfig(await readConfig(deps.home)).port;
   let pid = null;
-  try { pid = await deps.healthPid?.(port); } catch { /* no responsive health endpoint: use the private-node fallback */ }
+  try { pid = await deps.healthPid?.(port); } catch { /* no responsive health endpoint: no pid (uninstall sweeps below) */ }
   const versionsDir = path.win32.dirname(s.cwd);
   if (Number.isInteger(pid) && pid > 0) {
     const r = await deps.run(endDaemonCommand(pid, versionsDir), { optional: true, timeout: 30_000 });
@@ -308,6 +308,8 @@ export async function endWindowsDaemon(s, deps) {
     for (let i = 0; i < 20 && (await deps.health?.(port)); i += 1) await deps.sleep(500);
     return { ended: true, pid };
   }
+  // The PTY host and every agent's MCP server run the same private node.exe: only uninstall (agents stopped first) sweeps.
+  if (!sweep) return { ended: false };
   const r = await deps.run(endPrivateWindowsNodesCommand(versionsDir, deps.pid ?? process.pid), { optional: true, timeout: 30_000 });
   const pids = [...String(r?.stdout ?? '').matchAll(/^stopped\s+(\d+)\s*$/gmi)].map((match) => Number(match[1]));
   if (!pids.length) return { ended: false };
@@ -322,6 +324,8 @@ export async function endWindowsDaemon(s, deps) {
  * its output in the daemon's update.log. `update --background` registers and runs it, then returns.
  */
 export const UPDATE_VBS = 'agent-tycoon-update.vbs';
+/** The paths a Windows uninstall left to its helper (deferWindowsRemoval); the helper deletes it. */
+const WINDOWS_PENDING = 'uninstall-pending.json';
 export const updateTaskName = (service) => `${service}-update`;
 /** The updater waits this long (s) for the manager lock: the daemon's hourly `update --check` holds it up to 60 s. */
 export const UPDATE_LOCK_WAIT_S = 90;
@@ -381,12 +385,13 @@ export function servicePlan(kind, op, s, uid = 0) {
     stop: [req(['launchctl', 'bootout', `gui/${uid}`, s.file])],
   }[op];
   // endDaemon: endWindowsDaemon after /End (the task's end does not reliably reach the daemon under it).
-  const end = (optional) => ({ cmd: ['Stop-Process', '-Force', '-Id', '<daemon pid from /api/health, if it runs from versions\\>'], optional, endDaemon: true });
+  // sweep (deactivate = uninstall only): with no pid from health, every private node under versions\ is ended too.
+  const end = (optional, sweep = false) => ({ cmd: ['Stop-Process', '-Force', '-Id', '<daemon pid from /api/health, if it runs from versions\\>'], optional, endDaemon: true, sweep });
   if (kind === 'schtasks') return {
     activate: [req(s.xml ? ['schtasks', '/Create', '/F', '/TN', s.name, '/XML', s.xml] : s.create), opt(['schtasks', '/End', '/TN', s.name]), end(true), req(['schtasks', '/Run', '/TN', s.name])],
     start: [req(['schtasks', '/Run', '/TN', s.name])],
     restart: [opt(['schtasks', '/End', '/TN', s.name]), end(true), req(['schtasks', '/Run', '/TN', s.name])],
-    deactivate: [opt(['schtasks', '/End', '/TN', s.name]), end(true), opt(['schtasks', '/Delete', '/F', '/TN', s.name]), opt(['schtasks', '/Delete', '/F', '/TN', updateTaskName(s.name)])],
+    deactivate: [opt(['schtasks', '/End', '/TN', s.name]), end(true, true), opt(['schtasks', '/Delete', '/F', '/TN', s.name]), opt(['schtasks', '/Delete', '/F', '/TN', updateTaskName(s.name)])],
     stop: [req(['schtasks', '/End', '/TN', s.name]), end(false)],
   }[op];
   throw new Error(`no service plan for ${kind}`);
@@ -423,7 +428,7 @@ export async function serviceOp(kind, op, s, deps) {
   const real = kind === 'dry-run' ? defaultServiceKind(deps.platform === 'wsl' ? 'linux' : deps.platform) : kind;
   for (const step of servicePlan(real, op, s, deps.uid)) {
     if (kind === 'dry-run') deps.print(`DRY-RUN service${step.optional ? ' (errors ignored)' : ''}: ${step.cmd.join(' ')}`);
-    else if (step.endDaemon) await (deps.endDaemon ?? endWindowsDaemon)(s, deps);
+    else if (step.endDaemon) await (deps.endDaemon ?? endWindowsDaemon)(s, deps, { sweep: step.sweep });
     else await deps.run(step.cmd, { optional: step.optional });
   }
 }
@@ -443,8 +448,11 @@ export async function waitHealthy(port, version, { check = health, sleep = delay
   return null;
 }
 const tcpFree = (port) => new Promise((resolve) => { const server = net.createServer(); server.once('error', () => resolve(false)); server.listen(port, '127.0.0.1', () => server.close(() => resolve(true))); });
-async function runCommand(cmd, { optional = false, timeout = 60_000, env, cwd } = {}) {
-  try { const r = await execFile(cmd[0], cmd.slice(1), { encoding: 'utf8', timeout, env: env ?? process.env, cwd, maxBuffer: 16 << 20, windowsHide: true }); return { ok: true, stdout: r.stdout, stderr: r.stderr }; }
+async function runCommand(cmd, { optional = false, timeout = 60_000, env, cwd, input } = {}) {
+  try {
+    const pending = execFile(cmd[0], cmd.slice(1), { encoding: 'utf8', timeout, env: env ?? process.env, cwd, maxBuffer: 16 << 20, windowsHide: true });
+    if (input !== undefined) pending.child.stdin.end(input); // stdin, not argv: another account reads a process list (S8.1)
+    const r = await pending; return { ok: true, stdout: r.stdout, stderr: r.stderr }; }
   catch (error) { if (optional) return { ok: false, stdout: error.stdout ?? '', stderr: error.stderr ?? String(error.message) }; throw new Error(`${cmd.join(' ')}: ${String(error.stderr || error.message).trim()}`); }
 }
 const controlSocket = (home) => configPathModule.controlEndpoint(home);
@@ -689,11 +697,13 @@ async function runPolicySteps(steps, { root, record, dry, deps }) {
   }
 }
 
+/** macOS's LaunchAgent is RunAtLoad/KeepAlive whatever the policy: refused there, by install before anything changes. */
+const assertPolicyPlatform = (platform) => { if (!['linux', 'wsl', 'win32'].includes(platform)) throw new Error('start policy: Linux, WSL and native Windows only'); };
 const policyLabel = { 'on-demand': '필요할 때만', always: '항상 실행', manual: '수동' };
 /** Applies `policy` to the record under an already held lock. Asks for linger consent only when it is needed and not given. */
 async function applyStartPolicy(policy, { root, record, linger, deps }) {
   if (!START_POLICIES.includes(policy)) throw new Error(`start policy must be one of ${START_POLICIES.join(', ')}`);
-  if (!['linux', 'wsl', 'win32'].includes(deps.platform)) throw new Error('start policy: Linux, WSL and native Windows only');
+  assertPolicyPlatform(deps.platform);
   const dry = record.service?.kind === 'dry-run';
   const kind = dry ? 'systemd' : record.service?.kind;
   const user = deps.env.USER || os.userInfo().username;
@@ -889,12 +899,21 @@ async function secondHost({ platform, port, portGiven, record, deps }) {
 /** install --from <bundle>: verify -> unpack -> self-test -> current -> launchers -> service -> record -> health. */
 export async function install(o, deps = realDeps()) {
   if (o.startPolicy && deps.env.AGTY_AGENT_TOKEN) throw new Error('에이전트 세션 안에서는 시작 정책을 바꿀 수 없어요');
+  if (o.startPolicy) assertPolicyPlatform(deps.platform);
   const root = o.root ?? installRoot(rootPlatform(deps.platform), deps.home, deps.env);
   const release = await acquireLock(root, 'install', { wait: o.wait ?? 0 });
   try {
     const record = (await readRecord(root)) ?? newRecord({ root, installedBy: o.installedBy, platform: deps.platform, env: deps.env });
     // P7 first: nothing is unpacked or changed beside another local host (the intended port, before any fallback).
-    const besides = await assertOneHost({ platform: deps.platform, port: mergeConfig(await readConfig(deps.home), { port: o.port }).port, portGiven: o.port !== undefined, record, second: o.allowSecondHost === true || deps.env[SECOND_HOST_ENV] === '1', deps });
+    const port = mergeConfig(await readConfig(deps.home), { port: o.port }).port;
+    const besides = await assertOneHost({ platform: deps.platform, port, portGiven: o.port !== undefined, record, second: o.allowSecondHost === true || deps.env[SECOND_HOST_ENV] === '1', deps });
+    // A source install (no record here) shares config.json and the engine socket: never a second daemon beside it.
+    const other = await otherDaemon({ ...record, port: record.port ?? port }, root, deps, { foreignPortOk: true });
+    if (other) throw new Error(`${other}: not installing beside it (two daemons would share config.json, the engine socket and the data). Stop it first (a source install: node agent-tycoon/install/install.mjs --uninstall)`);
+    const kind = o.service ?? record.service?.kind ?? defaultServiceKind(deps.platform);
+    if (!SERVICE_KINDS.includes(kind)) throw new Error(`--service must be one of ${SERVICE_KINDS.join(', ')}`);
+    // detachedPid reads /proc: elsewhere stop would end nothing and still remove daemon.pid.
+    if (kind === 'detached' && !['linux', 'wsl'].includes(deps.platform)) throw new Error(`--service detached: Linux and WSL only (use --service ${deps.platform === 'darwin' ? 'launchd' : 'schtasks'})`);
     const b = bundleArgs(o, root);
     if (b.keyBeside) deps.print(`! public key taken from beside the bundle (${b.pubkey}): proves integrity, not origin; pass --pub with the release key`);
     const verified = verifyBundle(b);
@@ -905,9 +924,6 @@ export async function install(o, deps = realDeps()) {
     const test = await selfTest(versionDir(root, verified.version), manifest, deps);
     if (!test.ok) throw new Error(`self-test of ${verified.version} failed:\n${test.output}`);
     deps.print(`✔ self-test ${verified.version}`);
-
-    const kind = o.service ?? record.service?.kind ?? defaultServiceKind(deps.platform);
-    if (!SERVICE_KINDS.includes(kind)) throw new Error(`--service must be one of ${SERVICE_KINDS.join(', ')}`);
 
     {
       const existing = await readConfig(deps.home); // a config.json already there keeps its choices
@@ -946,6 +962,7 @@ export async function install(o, deps = realDeps()) {
 
 // update and rollback (H §6, P3) live in update.mjs; re-exported so callers keep one entry point.
 export { compatibility, recoverUpdate, rollback, update } from './update.mjs';
+import { otherDaemon } from './update.mjs';
 
 // ── Uninstall (H §7) ───────────────────────────────────────────────────────
 
@@ -1161,14 +1178,14 @@ export function resetPaths(home, port) {
 }
 
 async function removeEmpty(dir) { try { await fs.rmdir(dir); } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error; } }
-/** Files (not folders) still under `dir`, never following a symlink; at most 20 are named. */
-async function remainingFiles(dir, limit = 20) {
+/** Files (not folders) still under `dir` and not in `skip`, never following a symlink; at most 20 are named. */
+async function remainingFiles(dir, skip = new Set(), limit = 20) {
   const out = [];
   const walk = async (current) => {
     for (const entry of await fs.readdir(current, { withFileTypes: true }).catch(() => [])) {
       if (out.length >= limit) return;
       const full = path.join(current, entry.name);
-      if (entry.isDirectory()) await walk(full); else out.push(full);
+      if (entry.isDirectory()) await walk(full); else if (!skip.has(full)) out.push(full);
     }
   };
   await walk(dir);
@@ -1209,19 +1226,32 @@ function windowsHeldFile(file, root, record, versionState, deps) {
   return null;
 }
 
-function deferWindowsRootRemoval(root, deps) {
+/**
+ * After this process exits, a detached PowerShell removes exactly `files` (what this process or Windows still held), then
+ * their folders up to the root, each only when empty: never a recursive delete, so a kept install.json, a hand-edited or
+ * unlisted file stays. The list is a file in the root (a command line holds too few paths for a version folder).
+ */
+async function deferWindowsRemoval(root, files, deps) {
+  const dirs = new Set();
+  for (const file of files) for (let dir = path.dirname(file); inside(root, dir); dir = path.dirname(dir)) { dirs.add(dir); if (dir === root || dir === path.dirname(dir)) break; }
+  const list = path.join(root, WINDOWS_PENDING);
+  await fs.writeFile(list, JSON.stringify({ files, dirs: [...dirs].sort((a, b) => b.length - a.length) })); // a child before its parent
   const systemRoot = deps.systemRoot ?? deps.env.SystemRoot ?? process.env.SystemRoot ?? 'C:\\Windows';
   const powershell = path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const command = [
     `Wait-Process -Id ${deps.pid ?? process.pid} -Timeout 60 -ErrorAction SilentlyContinue`,
-    `$root = ${psQuote(root)}`,
-    'for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $root); $attempt++) {',
-    '  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue',
-    '  if (Test-Path -LiteralPath $root) { Start-Sleep -Milliseconds 500 }',
+    `$list = ${psQuote(list)}`,
+    '$p = Get-Content -LiteralPath $list -Raw -Encoding UTF8 | ConvertFrom-Json',
+    '$left = @($p.files)',
+    'for ($attempt = 0; $attempt -lt 20 -and $left.Count; $attempt++) {',
+    '  foreach ($f in $left) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }',
+    '  $left = @($left | Where-Object { Test-Path -LiteralPath $_ })',
+    '  if ($left.Count) { Start-Sleep -Milliseconds 500 }',
     '}',
-    'if (Test-Path -LiteralPath $root) {',
+    'Remove-Item -LiteralPath $list -Force -ErrorAction SilentlyContinue',
+    'foreach ($d in @($p.dirs)) { if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue } }',
+    'if ($left.Count) {',
     '  try {',
-    '    $left = @($root) + @(Get-ChildItem -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })',
     "    ('{0} {1}' -f (Get-Date -Format o), ($left -join '; ')) | Out-File -LiteralPath (Join-Path $env:TEMP 'agent-tycoon-uninstall.log') -Append -Encoding utf8 -ErrorAction SilentlyContinue",
     '  } catch {}',
     '}',
@@ -1231,6 +1261,12 @@ function deferWindowsRootRemoval(root, deps) {
     stdio: 'ignore',
     windowsHide: true,
   });
+  // A helper that could not start has no pid, and node emits its 'error' on the next tick: unheard, that crashes this process.
+  child.on('error', () => {});
+  if (child.pid === undefined) {
+    await fs.rm(list, { force: true });
+    throw new Error(`${powershell} did not start`);
+  }
   child.unref();
 }
 
@@ -1334,16 +1370,17 @@ export async function uninstall(o, deps = realDeps()) {
     const keptFiles = new Set(plan.kept.filter((file) => plan.record.files?.[file]));
     const failedFiles = new Map();
     const failedVersions = new Set();
-    const selfHeldFiles = new Map();
+    const selfHeldFiles = new Set();
+    const heldHashes = new Map(); // what the record said of a self-held file, put back if the helper cannot start
     // Version folders were verified completely by the plan (manifest.json is the last file of each): no re-hashing here.
     for (const file of plan.files) {
       const version = Object.entries(plan.versionState).find(([, state]) => state.files.includes(file))?.[0];
       if (version && failedVersions.has(version)) continue; // keep its manifest for a complete retry
-      const held = windowsHeldFile(file, root, plan.record, plan.versionState, deps);
-      if (held) {
-        selfHeldFiles.set(file, held);
-        if (held.version) failedVersions.add(held.version);
-        if (plan.record.files[file]) keptFiles.add(file);
+      // Held by this process: removed by the helper after it exits, so the record already leaves it out.
+      if (windowsHeldFile(file, root, plan.record, plan.versionState, deps)) {
+        selfHeldFiles.add(file);
+        if (plan.record.files[file]) heldHashes.set(file, plan.record.files[file]);
+        delete plan.record.files[file];
         continue;
       }
       const expected = plan.record.files[file];
@@ -1362,7 +1399,7 @@ export async function uninstall(o, deps = realDeps()) {
         if (version) failedVersions.add(version);
         // A process can still hold any file under our root (not only the manager's node.exe).
         // Let the detached helper retry after this process exits while the rest of removal completes.
-        if (deps.platform === 'win32') selfHeldFiles.set(file, { version });
+        if (deps.platform === 'win32') selfHeldFiles.add(file);
         deps.print(`⚠ 파일을 삭제하지 못했습니다 (${error.code}): ${file}`);
         continue;
       }
@@ -1376,11 +1413,33 @@ export async function uninstall(o, deps = realDeps()) {
     plan.record.snapshots = [];
     if (o.reset) {
       for (const file of plan.reset.remove) { await fs.rm(file, { force: true, recursive: true }); deps.print(`✔ 데이터 삭제 ${file}`); }
+      // D2.2: a kept ~/.pixel-agents config.json/layout.json would come back at the next start (copied, or read as a fallback).
+      if (plan.reset.keep.some((file) => /[\\/](config|layout)\.json$/.test(file) && fssync.existsSync(file))) {
+        const skip = configPathModule.legacyOfficeSkipFile(deps.home);
+        await fs.mkdir(path.dirname(skip), { recursive: true, mode: 0o700 }); await fs.writeFile(skip, '');
+        deps.print(`✔ 남긴 Pixel Agents 설정을 다시 읽지 않도록 표시 ${skip}`);
+      }
       for (const dir of plan.replaced) {
         if (!(await ownedCopy(path.dirname(path.dirname(configPath(deps.home))), dir))) continue;
         await fs.rm(dir, { recursive: true, force: true }); deps.print(`✔ 데이터 사본 삭제 ${dir}`);
       }
       plan.record.replaced = [];
+    }
+    // The helper starts before the record is written: one that cannot start leaves its files in the record, kept like a failed removal.
+    let deferredSelfHeld = false;
+    if (selfHeldFiles.size) {
+      try {
+        await deferWindowsRemoval(root, [...selfHeldFiles], deps);
+        deferredSelfHeld = true;
+      } catch (error) {
+        deps.print(`⚠ Windows 제거 도우미를 시작하지 못했습니다 (${error.message ?? error})`);
+        for (const file of selfHeldFiles) {
+          keptFiles.add(file);
+          if (heldHashes.has(file)) plan.record.files[file] = heldHashes.get(file);
+          const version = Object.entries(plan.versionState).find(([, state]) => state.files.includes(file))?.[0];
+          if (version) failedVersions.add(version);
+        }
+      }
     }
     const keptVersions = new Set();
     for (const [name, state] of Object.entries(plan.versionState)) {
@@ -1405,19 +1464,11 @@ export async function uninstall(o, deps = realDeps()) {
     try { for (const dir of ['versions', 'bin', 'snapshots', 'downloads']) await pruneEmptyDirs(path.join(root, dir)); } catch (error) { deps.print(`⚠ 빈 폴더를 정리하지 못했습니다 (${error.code ?? error.message})`); }
     await unlock(); // manager.lock lives in the root: release it first so an empty root can go
     if (!retained) {
-      const left = await remainingFiles(root);
+      const left = await remainingFiles(root, new Set([...selfHeldFiles, path.join(root, WINDOWS_PENDING)]));
       if (left.length) deps.print(`남은 파일(직접 만들어졌거나 목록에 없어서 지우지 않았어요): ${left.join(', ')}`);
     }
-    let deferredSelfHeld = false;
-    if (selfHeldFiles.size) {
-      try {
-        deferWindowsRootRemoval(root, deps);
-        deferredSelfHeld = true;
-        deps.print('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다');
-      } catch (error) {
-        deps.print(`⚠ Windows 제거 도우미를 시작하지 못했습니다 (${error.message ?? error})`);
-      }
-    } else await removeRoot(root, deps.print);
+    if (deferredSelfHeld) deps.print('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다');
+    else if (!selfHeldFiles.size) await removeRoot(root, deps.print);
     if (failedFiles.size) deps.print(`⚠ 삭제하지 못한 파일(${[...failedFiles].map(([file, code]) => `${file}: ${code}`).join(', ')})은 실행 중이거나 권한이 없어 남았습니다`);
     deps.print(retained ? '✔ 프로그램의 삭제 가능한 항목을 제거했습니다' : '✔ 프로그램 제거 완료');
     return { code: failedFiles.size || (selfHeldFiles.size && !deferredSelfHeld) ? 1 : 0, plan };
@@ -1499,6 +1550,8 @@ export async function open(o, deps = realDeps()) {
   const login = await r.json();
   if (!isHeadless) {
     const url = `http://localhost:${port}/login?code=${encodeURIComponent(login.code)}`;
+    // ponytail: the 60 s link is the opener's argv (a race with the browser that uses it at once; a loopback
+    // code); a 0600 redirect file would hide it from other accounts but breaks explorer.exe on WSL.
     if (await spawnDetached(browserCommand(deps.platform, url))) { deps.print('✔ 브라우저로 사무실을 열었어요 (한 번 쓰는 로그인 링크)'); return { ok: true, how: 'browser' }; }
     deps.print(`브라우저를 열지 못했어요. 이 주소를 여세요 (한 번만 쓰여요):\n${url}`); return { ok: true, how: 'printed' };
   }
@@ -1506,7 +1559,8 @@ export async function open(o, deps = realDeps()) {
   const url = `${base}/login?code=${encodeURIComponent(login.code)}`;
   // The installed version's QR script (its node_modules has uqr): the wizard runs this file from install.sh's temp unpack, which has none.
   const installedQr = path.join(installRoot(rootPlatform(deps.platform), deps.home, deps.env), 'current', 'agent-tycoon', 'bin', 'agty-qr.mjs');
-  const qr = await deps.run([process.execPath, fssync.existsSync(installedQr) ? installedQr : path.join(here, '..', 'bin', 'agty-qr.mjs'), url], { optional: true });
+  // The link goes in on stdin: a process list shows argv to every local account (S8.1).
+  const qr = await deps.run([process.execPath, fssync.existsSync(installedQr) ? installedQr : path.join(here, '..', 'bin', 'agty-qr.mjs')], { optional: true, input: url });
   deps.print(`이 컴퓨터에는 화면이 없어요. 다른 기기에서 들어오세요.\n${qr.ok ? qr.stdout : ''}주소: ${base}\n한 번 쓰는 로그인 링크 (10분): ${url}\n휴대폰: 카메라로 QR 을 찍고, 연 다음 공유 → "홈 화면에 추가".\n이미 로그인한 기기가 있으면 그 기기의 "기기 추가"로 등록할 수도 있어요.${base.startsWith('http://localhost') ? '\n바깥에서 들어오려면 먼저 연결 방식을 정하세요: node agent-tycoon/install/install.mjs --remote' : ''}`);
   return { ok: true, how: 'headless' };
 }

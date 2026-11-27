@@ -4,7 +4,7 @@ import * as http from 'http';
 import type { AddressInfo } from 'net';
 
 import { koText } from '../../../../core/src/agent-tycoon/serverText.js';
-import { publicSockets } from '../auth.js';
+import { publicSockets, tunnelSockets } from '../auth.js';
 import { type ForwardTarget,gate, gateSetCookie, prefixLocation, scrubHeaders } from './direct.js';
 
 export interface QuickTunnel {
@@ -20,12 +20,13 @@ export function cloudflaredArgs(localPort: number): string[] {
   return ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${localPort}`];
 }
 
-/** An HTTP listener for cloudflared with the same secret-path and public-login gates as direct. */
-export async function quickTunnel(target: ForwardTarget, secret: string): Promise<QuickTunnel> {
+/** The HTTP listener cloudflared forwards to, with the same secret-path and public-login gates as direct. */
+export async function tunnelListener(target: ForwardTarget, secret: string): Promise<{ port: number; close(): Promise<void> }> {
   const server = http.createServer();
   const sockets = new Set<import('net').Socket>();
   server.on('connection', (socket) => {
     publicSockets.add(socket);
+    tunnelSockets.add(socket);
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
   });
@@ -42,12 +43,21 @@ export async function quickTunnel(target: ForwardTarget, secret: string): Promis
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
   });
-  const port = (server.address() as AddressInfo).port;
+  const close = async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+  return { port: (server.address() as AddressInfo).port, close };
+}
+
+/** cloudflared in front of a tunnelListener: the temporary trycloudflare.com address. */
+export async function quickTunnel(target: ForwardTarget, secret: string): Promise<QuickTunnel> {
+  const listener = await tunnelListener(target, secret);
+  const port = listener.port;
   const child = spawn('cloudflared', cloudflaredArgs(port), { stdio: ['ignore', 'pipe', 'pipe'] });
   const close = async () => {
     child.kill();
-    for (const socket of sockets) socket.destroy();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await listener.close();
   };
   try {
     const host = await tunnelName(child);

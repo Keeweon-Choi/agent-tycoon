@@ -119,7 +119,8 @@ export function sendOutbox(dir: string, source: string): ChatAttachment {
   try {
     if (!path.isAbsolute(dir) || source.includes('\0')) return gone(source);
     const from = path.resolve(dir, source);
-    if (uncOutside(from, path.resolve(dir)) || forbiddenAbsolutePath(from) || sensitiveFile(from)) return gone(from);
+    if (uncOutside(from, path.resolve(dir)) || forbiddenAbsolutePath(from) || sensitiveFile(from))
+      return gone(from);
     const name = safeAttachmentName(path.basename(from));
     // O_NOFOLLOW: a symlink as the file itself is refused. O_NONBLOCK: a FIFO cannot hang the daemon.
     const fd = fs.openSync(
@@ -195,7 +196,7 @@ function write(dir: string, copy: string, source: number, max: number): number {
   let total = 0;
   try {
     const chunk = Buffer.allocUnsafe(COPY_CHUNK);
-    for (let n = fs.readSync(source, chunk, 0, chunk.length, null); n > 0; ) {
+    for (let n = fs.readSync(source, chunk, 0, chunk.length, null); n > 0;) {
       total += n;
       if (total > max) throw new Error('source grew past the limit');
       fs.writeSync(fd, chunk, 0, n);
@@ -217,7 +218,10 @@ export function sentLines(text: string): { text: string; paths: string[] } {
   const paths: string[] = [];
   const kept = text.split('\n').filter((line) => {
     // An absolute path: POSIX, a Windows drive (C:\...) or UNC (\\wsl.localhost\...).
-    const m = /^\[첨부\] ((?:\/|[A-Za-z]:[\\/]|\\\\)[^\n]*?)(?: \([^(),]+, \d+ KB\))?\s*$/.exec(line);
+    // The trim comes first: a `\s*$` after the lazy path backtracks quadratically over a long blank run.
+    const m = /^\[첨부\] ((?:\/|[A-Za-z]:[\\/]|\\\\)[^\n]*?)(?: \([^(),]+, \d+ KB\))?$/.exec(
+      line.trimEnd(),
+    );
     if (!m) return true;
     paths.push(m[1]);
     return false;

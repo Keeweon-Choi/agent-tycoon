@@ -19,6 +19,7 @@ import {
   cookieOf,
   deviceProof,
   deviceSession,
+  formLogin,
   funnel,
   HOST,
   makeFakeDist,
@@ -148,6 +149,192 @@ describe('passkeys and devices (S5)', () => {
     expect(auth.passkeys!.list()).toEqual([]);
     // A fresh credential on a registered device is fine (the invite + step-up path).
     expect((await register(laptop.cookie, new SoftAuthenticator())).statusCode).toBe(200);
+  });
+
+  it('S1.1: revoking a device also removes the key a synced copy of its passkey registered elsewhere', async () => {
+    await startFresh();
+    const { auth } = server!;
+    const phone = await deviceSession(auth, ORIGIN, 'iPhone');
+    const laptop = await deviceSession(auth, ORIGIN, 'Laptop');
+    const authenticator = new SoftAuthenticator();
+    expect((await register(phone.cookie, authenticator)).statusCode).toBe(200);
+    // A synced copy logs in alone on another browser, which then makes its own device key E.
+    const copy = cookieOf((await login(authenticator)).headers['set-cookie']);
+    const stranger = await SoftDevice.create();
+    const made = await call(copy, 'POST', '/api/auth/device', {
+      deviceId: stranger.id,
+      publicKey: await stranger.publicKey(),
+    });
+    expect(made.statusCode).toBe(200);
+    // E logs in again by itself once, so no session of the passkey is left to find it by.
+    const headers = { ...funnel(), origin: ORIGIN };
+    const relogin = { method: 'POST' as const, url: '/login/device', headers };
+    expect((await server!.app.inject({ ...relogin, payload: await deviceProof(server!, stranger, headers) })).statusCode).toBe(200);
+
+    proveSession(auth, laptop.cookie);
+    expect((await call(laptop.cookie, 'DELETE', `/api/auth/sessions/${phone.device.id}`)).statusCode).toBe(200);
+    // E is gone with the phone: it can't log back in, and its row left the list.
+    expect((await server!.app.inject({ ...relogin, payload: await deviceProof(server!, stranger, headers) })).statusCode).toBe(401);
+    const rows = (await call(laptop.cookie, 'GET', '/api/auth/sessions')).json().sessions as Array<{ id: string }>;
+    expect(rows.map((r) => r.id)).toEqual([laptop.device.id]);
+  });
+
+  it('S1.1: revoking a device follows the chain past one hop (key -> passkey -> key)', async () => {
+    await startFresh();
+    const { auth } = server!;
+    const phone = await deviceSession(auth, ORIGIN, 'iPhone');
+    const laptop = await deviceSession(auth, ORIGIN, 'Laptop');
+    const p = new SoftAuthenticator();
+    expect((await register(phone.cookie, p)).statusCode).toBe(200);
+    const headers = { ...funnel(), origin: ORIGIN };
+    /** A passkey-only session registers a device key, which then logs in by itself. */
+    async function keyFrom(authenticator: SoftAuthenticator): Promise<{ key: SoftDevice; cookie: string }> {
+      const copy = cookieOf((await login(authenticator)).headers['set-cookie']);
+      const key = await SoftDevice.create();
+      const made = await call(copy, 'POST', '/api/auth/device', { deviceId: key.id, publicKey: await key.publicKey() });
+      expect(made.statusCode).toBe(200);
+      const res = await server!.app.inject({ method: 'POST', url: '/login/device', headers, payload: await deviceProof(server!, key, headers) });
+      expect(res.statusCode).toBe(200);
+      return { key, cookie: cookieOf(res.headers['set-cookie']) };
+    }
+    const e = await keyFrom(p);
+    const q = new SoftAuthenticator();
+    expect((await register(e.cookie, q)).statusCode).toBe(200);
+    const f = await keyFrom(q);
+
+    proveSession(auth, laptop.cookie);
+    // A plain passkey login that never registered a key: a keyless row, still dead with the chain.
+    expect((await login(q)).statusCode).toBe(200);
+    const keyless = auth.listSessions(undefined).filter((r) => !r.deviceKey).map((r) => r.id);
+    expect((await call(laptop.cookie, 'DELETE', `/api/auth/sessions/${phone.device.id}`)).statusCode).toBe(200);
+    const relogin = await server!.app.inject({ method: 'POST', url: '/login/device', headers, payload: await deviceProof(server!, f.key, headers) });
+    expect(relogin.statusCode).toBe(401);
+    expect((await login(q)).statusCode).toBe(401);
+    expect(auth.passkeys!.list()).toEqual([]);
+    const rows = (await call(laptop.cookie, 'GET', '/api/auth/sessions')).json().sessions as Array<{ id: string }>;
+    expect(rows.map((r) => r.id)).toEqual([laptop.device.id]);
+    // The owner gets a record of each key that went down the chain, not only of the one they picked.
+    // The keyless rows the passkey logins made (no device key, so no `devices` entry) go down it too.
+    const revoked = auth.audit.read(0, 50).lines.filter((l) => l.kind === 'deviceRevoked');
+    expect(revoked.map((l) => [l.device?.id, l.detail]).sort()).toEqual(
+      [
+        [phone.device.id, undefined],
+        [e.key.id, 'chain'],
+        [f.key.id, 'chain'],
+        ...keyless.map((id) => [id, 'chain']),
+      ].sort(),
+    );
+    expect(keyless.length).toBeGreaterThan(0);
+  });
+
+  it('S1.1: what a synced copy let in (an invite, its handoff, an approval) goes with the device', async () => {
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-config-'));
+    server = await startAuthServer(dist.staticDir, { configDir, allowApprovalRequests: true });
+    const { auth, app } = server;
+    const phone = await deviceSession(auth, ORIGIN, 'iPhone');
+    const laptop = await deviceSession(auth, ORIGIN, 'Laptop');
+    const p = new SoftAuthenticator();
+    expect((await register(phone.cookie, p)).statusCode).toBe(200);
+    const copy = proveSession(auth, cookieOf((await login(p)).headers['set-cookie']));
+    const headers = { ...funnel(), origin: ORIGIN };
+    const keyFor = async (cookie: string) => {
+      const key = await SoftDevice.create();
+      const made = await call(cookie, 'POST', '/api/auth/device', { deviceId: key.id, publicKey: await key.publicKey() });
+      expect(made.statusCode).toBe(200);
+      return key;
+    };
+    const signIn = async (code: string) => cookieOf((await app.inject(formLogin(code))).headers['set-cookie']);
+
+    // The copy invites a phone by QR; that tab hands off to its Home-Screen app; both make keys.
+    const invite = (await call(copy, 'POST', '/api/auth/device-code')).json();
+    const qr = proveSession(auth, await signIn(new URL(invite.link).searchParams.get('code')!));
+    const handoff = (await call(qr, 'POST', '/api/auth/handoff-code')).json();
+    const home = await keyFor(await signIn(handoff.code));
+    const invited = await keyFor(qr);
+    // And it approves a new device's request.
+    const asked = (await app.inject({ method: 'POST', url: '/login/approval', headers: funnel('203.0.113.50'), payload: { label: 'x' } })).json();
+    const [{ id }] = (await call(copy, 'GET', '/api/auth/approvals')).json().approvals;
+    expect((await call(copy, 'POST', `/api/auth/approvals/${id}`, { approve: true, code: asked.code })).json().result).toBe('approved');
+    const polled = await app.inject({ method: 'POST', url: '/login/approval/poll', headers: funnel('203.0.113.50'), payload: { secret: asked.secret } });
+    const approved = await keyFor(cookieOf(polled.headers['set-cookie']));
+
+    proveSession(auth, laptop.cookie);
+    expect((await call(laptop.cookie, 'DELETE', `/api/auth/sessions/${phone.device.id}`)).statusCode).toBe(200);
+    for (const key of [home, invited, approved]) {
+      const relogin = await app.inject({ method: 'POST', url: '/login/device', headers, payload: await deviceProof(server, key, headers) });
+      expect(relogin.statusCode).toBe(401);
+    }
+    const rows = (await call(laptop.cookie, 'GET', '/api/auth/sessions')).json().sessions as Array<{ id: string }>;
+    expect(rows.map((r) => r.id)).toEqual([laptop.device.id]);
+  });
+
+  it('S1.1: a synced copy cannot tie a passkey it made to a device outside its chain', async () => {
+    await startFresh();
+    const { auth } = server!;
+    const phone = await deviceSession(auth, ORIGIN, 'iPhone');
+    const laptop = await deviceSession(auth, ORIGIN, 'Laptop');
+    const p = new SoftAuthenticator();
+    expect((await register(phone.cookie, p)).statusCode).toBe(200);
+    // The copy has no device key, so the passkey U it registers is unbound ...
+    const copy = cookieOf((await login(p)).headers['set-cookie']);
+    const u = new SoftAuthenticator();
+    const made = await register(copy, u);
+    expect(made.json().passkey.deviceId).toBeNull();
+    // ... and tying U to the laptop (whose id the list shows) would let it log in alone, past the revoke.
+    const bind = await call(copy, 'POST', `/api/auth/passkeys/${made.json().passkey.id}/device`, {
+      deviceId: laptop.device.id,
+    });
+    expect(bind.statusCode).toBe(403);
+    expect(auth.passkeys!.list().find((k) => k.id === made.json().passkey.id)?.deviceId).toBeNull();
+
+    proveSession(auth, laptop.cookie);
+    expect((await call(laptop.cookie, 'DELETE', `/api/auth/sessions/${phone.device.id}`)).statusCode).toBe(200);
+    expect((await login(p)).statusCode).toBe(401);
+    expect((await login(u)).statusCode).toBe(401);
+  });
+
+  it('S1.1: a session a passkey made ends with its device after a restart too', async () => {
+    await startFresh();
+    const phone = await deviceSession(server!.auth, ORIGIN, 'iPhone');
+    const authenticator = new SoftAuthenticator();
+    expect((await register(phone.cookie, authenticator)).statusCode).toBe(200);
+    const copy = cookieOf((await login(authenticator)).headers['set-cookie']);
+    await stopAuthServer(server);
+    await start();
+    expect((await call(copy, 'GET', '/api/auth/me')).statusCode).toBe(200);
+    server!.auth.revoke(phone.device.id);
+    expect((await call(copy, 'GET', '/api/auth/me')).statusCode).toBe(401);
+  });
+
+  it('S1.3: a flood of anonymous login ceremonies never pushes out a session step-up', async () => {
+    await startFresh();
+    const phone = await deviceSession(server!.auth, ORIGIN, 'iPhone');
+    const authenticator = new SoftAuthenticator();
+    expect((await register(phone.cookie, authenticator)).statusCode).toBe(200);
+    const begin = (await call(phone.cookie, 'POST', '/api/auth/passkeys/verify/options')).json();
+    for (let i = 0; i < 250; i++)
+      await server!.app.inject({ method: 'POST', url: '/login/passkey/options', headers: { ...funnel(`203.0.113.${i}`), origin: ORIGIN } });
+    const verified = await call(phone.cookie, 'POST', '/api/auth/passkeys/verify', {
+      ceremony: begin.ceremony,
+      response: authenticator.login(begin.options, ORIGIN),
+    });
+    expect(verified.statusCode).toBe(200);
+  });
+
+  it('S1.3: anonymous login ceremonies count per client', async () => {
+    await startFresh();
+    const ask = () =>
+      server!.app.inject({ method: 'POST', url: '/login/passkey/options', headers: { ...funnel(), origin: ORIGIN } });
+    for (let i = 0; i < 10; i++) expect((await ask()).statusCode).toBe(200);
+    const refused = await ask();
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json().error).toBe(LOGIN_ERRORS.tooMany);
+    // Another client is not held up.
+    const other = await server!.app.inject({ method: 'POST', url: '/login/passkey/options', headers: { ...funnel('198.51.100.4'), origin: ORIGIN } });
+    expect(other.statusCode).toBe(200);
+    // Nor is the same client's silent device-key re-login: its nonce has a bucket of its own.
+    const nonce = await server!.app.inject({ method: 'GET', url: '/login/device/challenge', headers: { ...funnel(), origin: ORIGIN } });
+    expect(nonce.statusCode).toBe(200);
   });
 
   it('revoke-others also revokes the passkeys of the devices it signs out', async () => {

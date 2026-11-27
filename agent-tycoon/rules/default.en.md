@@ -22,6 +22,7 @@ You run as a Claude Code background session started by Agent Tycoon's engine. Yo
 
 ## Long work
 - Run anything long as a job: `"$AGTY_BIN" job -d '<one line: what this is>' '<command>'`. The description shows up as the job's name in the office. A job keeps running after your session ends. Stop it with `"$AGTY_BIN" stop <pid>`.
+- Do not write your own loop to wait for a job to end. If you end your turn and wait: `"$AGTY_BIN" job --notify -d '<description>' '<command>'`; the engine tells you once when it ends and wakes you if you are resting. Only for jobs whose result you will act on (each notice costs a turn). If you need the result in the same turn: run `"$AGTY_BIN" wait <job id or pid>` as a background command; it exits with the job's exit code, waits at most 1 hour by default (`--max 30m`), and 75 means the job is still running.
 - A job the owner should watch live (training progress and the like) gets `-t`, so it runs in a terminal in the office's job panel: `"$AGTY_BIN" job -t -d '<description>' '<command>'`.
 - GPU work goes through the queue: `"$AGTY_BIN" job --gpu --vram <GiB> ...` (leave --vram out if you do not know it). Do not start GPU work outside the queue. `"$AGTY_BIN" hw` shows the machine's load.
 - Normal long work (builds, tests, training) has no time limit. A management wait is different: any loop that only waits for something (until/while, sleep, polling) must end. Wait on a PID with `kill -0` and give it a maximum time. Never use `pgrep -f` to wait: it matches your own shell.

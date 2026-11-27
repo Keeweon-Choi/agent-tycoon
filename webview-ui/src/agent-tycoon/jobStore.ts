@@ -5,6 +5,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import { TRANSPORT_STATE_CONNECTED } from '../../../core/src/constants.js';
 import type {
   ClientMessage,
   JobActionKind,
@@ -12,6 +13,7 @@ import type {
   JobDigest,
 } from '../../../core/src/messages.js';
 import { t } from '../i18n/index.js';
+import type { MessageTransport } from '../transport/index.js';
 import { serverText } from './serverText.js';
 
 export interface JobSnapshot {
@@ -53,6 +55,31 @@ export function jobRequest(
   send({ type: 'jobAction', requestId, action, id });
 }
 
+/**
+ * A job's log, read now and every `everyMs` while it `running`; returns the stop. P1.2: a hidden
+ * page and a socket that is down skip the ticks (the transport queues what it cannot send and
+ * replays all of it on reconnect, each a log read on the daemon); an ended job's one read is
+ * made hidden or not.
+ */
+export function jobPollLog(
+  link: Pick<MessageTransport, 'send' | 'state'>,
+  id: string,
+  running: boolean,
+  everyMs: number,
+): () => void {
+  const send = (m: ClientMessage) => link.send(m);
+  jobRequest(send, 'log', id);
+  if (!running) return () => undefined;
+  const timer = setInterval(
+    () =>
+      document.visibilityState === 'visible' &&
+      link.state === TRANSPORT_STATE_CONNECTED &&
+      jobRequest(send, 'log', id),
+    everyMs,
+  );
+  return () => clearInterval(timer);
+}
+
 /** A `jobActionResult`; `toast` reports a stop. */
 export function jobHandleMessage(
   msg: JobActionResult,
@@ -87,7 +114,25 @@ export function jobHandleMessage(
   emit();
 }
 
+/** P1.4: an `officeJobs` list came: the logs and errors of jobs it no longer names are dropped (a page left
+ *  open for days kept up to 64 KB for every job it ever showed). `ids`: each job's id, or `pid:<pid>`. */
+export function jobKeepOnly(ids: Iterable<string>): void {
+  const keep = new Set(ids);
+  const pick = <T>(all: Record<string, T>) =>
+    Object.fromEntries(Object.entries(all).filter(([id]) => keep.has(id)));
+  const logs = pick(snapshot.logs);
+  const errors = pick(snapshot.errors);
+  if (
+    Object.keys(logs).length === Object.keys(snapshot.logs).length &&
+    Object.keys(errors).length === Object.keys(snapshot.errors).length
+  )
+    return;
+  snapshot = { ...snapshot, logs, errors };
+  emit();
+}
+
 export function jobResetForTests(): void {
   snapshot = { logs: {}, stopping: {}, errors: {} };
   pending.clear();
+  seq = 0;
 }

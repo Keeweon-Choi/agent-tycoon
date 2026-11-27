@@ -10,12 +10,15 @@ export type FileRoot =
   | { kind: 'project'; project: string }
   | { kind: 'worktree'; project: string; task: string }
   | { kind: 'folder'; folder: string };
+/** JSON of the parts: a ':' inside a name cannot make two roots share a key. */
 export const fileRootKey = (root: FileRoot) =>
-  root.kind === 'project'
-    ? `project:${root.project}`
-    : root.kind === 'worktree'
-      ? `worktree:${root.project}:${root.task}`
-      : `folder:${root.folder}`;
+  JSON.stringify(
+    root.kind === 'project'
+      ? [root.kind, root.project]
+      : root.kind === 'worktree'
+        ? [root.kind, root.project, root.task]
+        : [root.kind, root.folder],
+  );
 export const rootProject = (root: FileRoot) => (root.kind === 'folder' ? '~folder' : root.project);
 const rootPath = (root: FileRoot) => (root.kind === 'folder' ? root.folder : undefined);
 const rootTask = (root: FileRoot) => (root.kind === 'worktree' ? root.task : undefined);

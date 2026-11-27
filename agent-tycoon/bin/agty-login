@@ -20,7 +20,14 @@ settings="$HOME/.config/agent-tycoon"
 config="$settings/config.json"
 # The host token in the office folder (configPath.cjs officeDirectory); AGTY_TOKEN_FILE overrides it.
 token_file=${AGTY_TOKEN_FILE:-"$settings/office/standalone-token"}
-port=${AGTY_PORT:-$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["port"]))' "$config" 2>/dev/null || echo 18240)}
+# 18240 only without a config.json: one we cannot read (no python3, bad JSON) names a port we do not know,
+# and the host token goes to whatever listens there.
+port=${AGTY_PORT:-}
+if [[ -z "$port" && -f "$config" ]] && ! port=$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("port", 18240)))' "$config" 2>/dev/null); then
+  printf '%s\n' "$config 에서 포트를 읽지 못했습니다 (python3 와 JSON 을 확인하세요)." >&2
+  exit 1
+fi
+port=${port:-18240}
 # Where a new device opens the link, for a daemon too old to say (T-0024: the
 # daemon answers with its canonical address, the secret path included).
 public_host=$(python3 -c 'import json,sys; h=json.load(open(sys.argv[1])).get("allowedHosts") or []; print(h[0] if h and isinstance(h[0], str) else "")' "$config" 2>/dev/null || true)
@@ -106,7 +113,7 @@ case "$mode" in
   --link) printf '%s\n' "$base/login?code=$code" ;;
   --qr)
     url="$base/login?code=$code"
-    node "$here/agty-qr.mjs" "$url" 2>/dev/null || printf '%s\n' '(QR을 그리지 못했습니다: node와 npm 설치를 확인하세요)'
+    printf '%s' "$url" | node "$here/agty-qr.mjs" 2>/dev/null || printf '%s\n' '(QR을 그리지 못했습니다: node와 npm 설치를 확인하세요)'
     printf '%s\n%s\n' "$url" '휴대폰 카메라로 찍거나 링크를 여세요. 10분 동안 한 번만 쓸 수 있어요.'
     ;;
 esac

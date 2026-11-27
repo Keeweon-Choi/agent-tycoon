@@ -33,7 +33,7 @@ afterEach(() => {
 function setup() {
   const r = makeTempRepo();
   repos.push(r);
-  const flags = { auto: true, busy: false };
+  const flags = { auto: true, busy: false, holder: undefined as string | undefined };
   const delivered: Array<{ to: string; text: string; from: string | null }> = [];
   const leadLines: string[] = [];
   const deps: ReviewSendDeps = {
@@ -57,6 +57,7 @@ function setup() {
     conflictHandoff: (input) => deliverToWorker(deps, input, `${input.path} ${input.files.join(',')}`, (to) => to, ['review', 'done']),
     agentBusy: () => flags.busy,
     autoCleanup: () => flags.auto,
+    holderOf: (id) => (id === 'as-w' ? flags.holder : undefined),
   });
   done.push(() => mgr.dispose());
   const project = mgr.project('alpha')!;
@@ -156,6 +157,44 @@ describe.skipIf(!GIT_AVAILABLE)('dev room git (P4 S1)', () => {
     expect(r.git(['show', 'main:a.txt'])).toBe('mine\n');
     expect(r.git(['branch', '--list', 'task/feat'])).toBe(''); // merged: the branch went too
     expect(sha('main')).toBeTruthy();
+  });
+
+  it('B5.6: a conflicted file that is not UTF-8 is refused, its bytes untouched (never rewritten through U+FFFD)', async () => {
+    const { mgr, project, act, wtDir, r } = setup();
+    const cp949 = (tail: string) => Buffer.concat([Buffer.from('head '), Buffer.from([0xc7, 0xd1]), Buffer.from(`\n${tail}\n`)]);
+    await mgr.worktrees.create(project, 'feat', { assignmentId: 'as-w' });
+    fs.writeFileSync(path.join(wtDir('feat'), 'a.txt'), cp949('mine'));
+    r.git(['commit', '-qam', 'task work'], wtDir('feat'));
+    fs.writeFileSync(path.join(r.folder, 'a.txt'), cp949('theirs'));
+    r.git(['commit', '-qam', 'main work']);
+    expect(await act('sync', { task: 'feat' })).toMatchObject({ ok: true, conflicts: ['a.txt'] });
+    const file = path.join(wtDir('feat'), 'a.txt');
+    const before = fs.readFileSync(file);
+    expect(await act('resolve', { task: 'feat', path: 'a.txt', choices: ['ours'] })).toMatchObject({ ok: false });
+    expect(fs.readFileSync(file).equals(before)).toBe(true);
+    expect(before.includes(Buffer.from([0xc7, 0xd1]))).toBe(true);
+  });
+
+  it('B5.4: a worktree its agent may be working in is not removed, by the merge’s cleanup or by hand', async () => {
+    const { mgr, project, flags, act, wtDir, r } = setup();
+    await mgr.worktrees.create(project, 'feat', { assignmentId: 'as-w' });
+    fs.writeFileSync(path.join(wtDir('feat'), 'w.txt'), 'w\n');
+    r.git(['add', 'w.txt'], wtDir('feat'));
+    r.git(['commit', '-qm', 'w'], wtDir('feat'));
+    flags.holder = 'web-worker';
+    const merged = await act('merge', { task: 'feat' });
+    expect(merged).toMatchObject({ ok: true });
+    expect(merged.cleaned).toBeUndefined();
+    expect(fs.existsSync(wtDir('feat'))).toBe(true);
+    for (const force of [false, true]) {
+      const out = await act('worktreeRemove', { task: 'feat', force });
+      expect(out).toMatchObject({ ok: false });
+      expect(String(out.error)).toContain('web-worker');
+    }
+    expect(fs.existsSync(wtDir('feat'))).toBe(true);
+    flags.holder = undefined; // stopped: it gives the folder up
+    expect(await act('worktreeRemove', { task: 'feat' })).toMatchObject({ ok: true });
+    expect(fs.existsSync(wtDir('feat'))).toBe(false);
   });
 
   it('mergeAbort leaves the worktree exactly as before the sync', async () => {

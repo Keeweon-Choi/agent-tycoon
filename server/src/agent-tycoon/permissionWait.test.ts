@@ -209,6 +209,11 @@ describe('toolCall', () => {
     expect(toolCall('Bash', { description: 'rm -rf build', command: 'rm -rf build' }).match).toEqual(['rm -rf build']);
     expect(toolCall('Bash', { description: 'Clean', command: 'rm -rf build' }).match).toEqual(['Clean', 'rm -rf build']);
   });
+  it('masks a token before the detail is cut, so a cut through it leaves no first characters (S8.7)', () => {
+    const detail = toolCall('Bash', { command: `${'x'.repeat(185)} ghp_${'B'.repeat(36)}` }).detail!;
+    expect(detail).not.toContain('ghp_');
+    expect(detail.length).toBeLessThanOrEqual(200);
+  });
 });
 
 describe('dialogCard', () => {

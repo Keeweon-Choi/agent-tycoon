@@ -15,6 +15,8 @@ interface EngineRoutesDeps {
   jobs: Jobs | null;
   readOnly: boolean;
   home: string;
+  /** Starts the Claude CLI model-name probe when none is cached. */
+  warmCliChoices?: () => void;
 }
 
 export function engineRoutes(
@@ -117,10 +119,14 @@ export function engineRoutes(
     }
     return true;
   }
-  if (msg.type === 'engineChoicesRefresh') {
-    // Runs the CLIs (synchronously): not for a read-only viewer.
-    if (deps.engine && privileged)
-      send(deps.engine.refreshAgentChoices() as unknown as Record<string, unknown>);
+  if (msg.type === 'engineChoicesRefresh' || msg.type === 'engineChoicesWarm') {
+    // T-143: a form opened or re-read; the CLI's model names come from one probe, started when none is cached.
+    if (deps.engine && privileged) {
+      deps.warmCliChoices?.();
+      // Runs the CLIs (synchronously): not for a read-only viewer.
+      if (msg.type === 'engineChoicesRefresh')
+        send(deps.engine.refreshAgentChoices() as unknown as Record<string, unknown>);
+    }
     return true;
   }
   if (msg.type === 'jobAction') {

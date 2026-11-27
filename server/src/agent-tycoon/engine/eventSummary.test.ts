@@ -39,6 +39,7 @@ describe('event summaries', () => {
       ['send_edit', {}],
       ['send_cancel', {}],
       ['send_stuck', {}],
+      ['send_input_wait', { waiting: 2 }],
       ['send_lost', { again: true }],
       ['send_lost', { again: false }],
       ['token_guard', {}],

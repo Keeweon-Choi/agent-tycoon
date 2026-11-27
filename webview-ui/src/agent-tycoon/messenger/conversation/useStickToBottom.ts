@@ -7,6 +7,17 @@ import type { MessengerSnapshot, PendingSend } from '../messengerStore.js';
 import { atBottom, newSince } from '../scrollJump.js';
 import { holdTop, isHidden, restoreTop } from '../scrollRestore.js';
 
+interface Place {
+  stuck: boolean;
+  anchor: { id: string; top: number } | null;
+  savedTop: number;
+  seen: string | undefined;
+}
+/** T-170: an open conversation's place while its view is away (another tab, another split layout:
+ *  each remounts it). Forgotten when its chatView is let go (closed), which opens at the newest again. */
+const places = new Map<number, Place>();
+export const forgetPlace = (agentId: number) => void places.delete(agentId);
+
 /**
  * Conversation's scroll pinning: follow the newest while at the bottom, keep the reader's
  * row fixed away from it, restore the position when a hidden list shows again, the
@@ -43,6 +54,38 @@ export function useStickToBottom({
   const jumping = useRef(false); // a smooth scroll to the bottom is under way
   const seen = useRef<string | undefined>(undefined); // newest message the reader had in view
   const [missed, setMissed] = useState(0);
+  // Before the pinning below: a view that comes back takes the place it left, as a shown-again list does.
+  useLayoutEffect(() => {
+    const was = places.get(agentId);
+    const el = list.current;
+    if (was) {
+      stuck.current = was.stuck;
+      readerAnchor.current = was.anchor;
+      savedTop.current = was.savedTop;
+      seen.current = was.seen;
+      setAway(!was.stuck);
+      if (el && !isHidden(el)) {
+        const row = was.anchor && el.querySelector<HTMLElement>(`[data-chat-id="${was.anchor.id}"]`);
+        el.scrollTop = restoreTop(
+          {
+            stuck: was.stuck,
+            anchorTop: was.anchor?.top ?? null,
+            rowOffsetTop: row?.offsetTop ?? null,
+            savedTop: was.savedTop,
+          },
+          el,
+        );
+      }
+    }
+    return () =>
+      void places.set(agentId, {
+        stuck: stuck.current,
+        anchor: readerAnchor.current,
+        savedTop: savedTop.current,
+        seen: seen.current,
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Conversation's stable refs/setter, see above
+  }, [agentId]);
   useLayoutEffect(() => {
     const el = list.current;
     if (!el || isHidden(el)) return;
@@ -143,5 +186,7 @@ export function useStickToBottom({
     }
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   };
-  return { jumping, missed, setMissed, onScroll, jump };
+  // Replies an older window did not take in are new too (the jump reloads the tail with them).
+  const windowedNew = m.windowedNew[agentId]?.length ?? 0;
+  return { jumping, missed: missed + windowedNew, setMissed, onScroll, jump };
 }

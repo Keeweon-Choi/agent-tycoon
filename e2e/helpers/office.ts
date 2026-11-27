@@ -1,8 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
-import { narrate } from './test-narration';
-
 /** Overlay helpers drive the standalone browser page. */
 type OverlaySurface = Page;
 
@@ -28,6 +26,22 @@ const OVERLAY_TIMEOUT_MS = 15_000;
  *    replace stability checks because `expect.poll` returns at the first
  *    match, not after the state holds for N seconds.
  */
+
+/** The nameplate of the agent named `name` (its `data-agent-id` is the character's id). */
+export function nameplateOf(frame: OverlaySurface, name: string): Locator {
+  return getAgentOverlays(frame)
+    .filter({ has: frame.getByTestId('agent-name').getByText(name, { exact: true }) })
+    .first();
+}
+
+/** `name`'s status at its head; `data-ring` is working | waiting | permission | idle | off:
+ *  `await expect(await ringOf(page, 'alpha')).toHaveAttribute('data-ring', 'working')`. */
+export async function ringOf(frame: OverlaySurface, name: string): Promise<Locator> {
+  const plate = nameplateOf(frame, name);
+  await plate.waitFor({ timeout: 30_000 });
+  const id = await plate.getAttribute('data-agent-id');
+  return frame.locator(`[data-testid="status-icon-anchor"][data-agent-id="${id}"]`);
+}
 
 export function getAgentOverlays(frame: OverlaySurface): Locator {
   return frame.locator('[data-testid="agent-overlay"]');
@@ -209,7 +223,6 @@ export async function expectCharacterGhosted(
       { timeout: OVERLAY_TIMEOUT_MS },
     )
     .toBe(ghosted);
-  narrate.check(`character is drawn ${ghosted ? 'as a ghost (translucent)' : 'fully opaque'}`);
 }
 
 /**
@@ -257,14 +270,20 @@ export async function expectTeammateSeatedNextToLead(
   });
 }
 
+async function selectViaTestHook(frame: OverlaySurface, agentId: number): Promise<void> {
+  await frame.evaluate((id) => {
+    const hooks = (window as { __agentTycoonTestHooks?: { selectAgent?: (id: number) => void } })
+      .__agentTycoonTestHooks;
+    hooks?.selectAgent?.(id);
+  }, agentId);
+}
+
 /** Select a character (agent or sub-agent) through the deterministic test hook
  *  — the same officeState.selectedAgentId a canvas click sets. Sub-agents use
  *  negative ids (first sub is -1). Selection is what reveals a sub-agent's
  *  live activity text in its overlay (hover shows only the subtask title). */
 export async function selectCharacter(frame: OverlaySurface, agentId: number): Promise<void> {
-  await frame.evaluate((id) => {
-    window.__agentTycoonTestHooks?.selectAgent?.(id);
-  }, agentId);
+  await selectViaTestHook(frame, agentId);
 }
 
 export async function closeAgentFromOverlay(
@@ -288,12 +307,9 @@ export async function closeAgentFromOverlay(
   // clickable on the next frame. The overlay carries its agent id as
   // data-agent-id, so the text-based lookup path resolves an id too.
   const agentId = options.agentId ?? Number(await overlay.getAttribute('data-agent-id'));
-  await frame.evaluate((id) => {
-    window.__agentTycoonTestHooks?.selectAgent?.(id);
-  }, agentId);
+  await selectViaTestHook(frame, agentId);
 
   const closeButton = overlay.locator('button[title="Close agent"]');
   await expect(closeButton).toBeVisible({ timeout });
-  narrate.step('closing the agent via its "×" overlay button');
   await closeButton.click();
 }

@@ -7,6 +7,7 @@ import type { PathHost } from '../../../core/src/agent-tycoon/projectPath.js';
 import { normalizeProjectPath } from '../../../core/src/agent-tycoon/projectPath.js';
 import { compareVersions } from '../../../core/src/agent-tycoon/versionCompare.js';
 import type {
+  AgentChoices,
   EngineAction,
   EngineActionKind,
   EngineActionResult,
@@ -14,6 +15,7 @@ import type {
   EngineProject,
   EngineState,
 } from '../../../core/src/messages.js';
+import { CLI_DEFAULT_MODEL } from '../constants.js';
 import { t } from '../i18n/index.js';
 import { confirmText, objectParticle } from './actionText.js';
 import { serverNote, serverText } from './serverText.js';
@@ -34,6 +36,17 @@ export const capsOf = (state: Pick<EngineState, 'agentCaps'> | null | undefined,
 /** AGENT-UPDATE: the installed CLI's version for provider `id`, as the engine read it (agentChoices). */
 export const cliVersionOf = (state: Pick<EngineState, 'agentChoices'> | null | undefined, id: string): string | undefined =>
   (state?.agentChoices as Record<string, { version?: string } | undefined> | undefined)?.[id]?.version;
+
+/** T-143: an agent's models as a form lists them: the CLI's own list (the value --model takes, the
+ *  name the CLI shows, "Opus 5.5") once its answer came, else the bare ids (--help aliases, Codex). */
+export const modelChoices = (c: AgentChoices | undefined): Array<{ id: string; label: string }> =>
+  c?.modelNames?.length
+    ? c.modelNames.filter((m) => m.value !== CLI_DEFAULT_MODEL).map((m) => ({ id: m.value, label: m.displayName }))
+    : (c?.models ?? []).map((id) => ({ id, label: id }));
+
+/** T-143: how a model value reads: the CLI's name for it when listed, else the value itself. */
+export const modelName = (c: AgentChoices | undefined, value: string): string =>
+  c?.modelNames?.find((m) => m.value === value)?.displayName ?? value;
 
 /** AGENT-LATEST: the newest published version the daemon found for provider `id` (display only). */
 export const cliLatestOf = (state: Pick<EngineState, 'agentChoices'> | null | undefined, id: string): string | undefined =>

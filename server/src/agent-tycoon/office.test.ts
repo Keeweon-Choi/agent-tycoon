@@ -17,7 +17,7 @@ import { ezRulesPath } from './ezRules.js';
 import { agtyHooks } from './hooks.js';
 import type { HwSource } from './hw/hwSource.js';
 import { contractorSeatUid } from './layout.js';
-import { Office } from './office.js';
+import { Office, type OfficeOptions } from './office.js';
 import { ROSTER, startEngineOffice } from './officeTestKit.js';
 import { ClaudeAgentsSource, parseAgents } from './providers/claudeProvider.js';
 import { FAKE_CLAUDE, makeFakeHome, REPO_ROOT } from './testHome.js';
@@ -334,6 +334,29 @@ describe('office with the Claude provider only (no engine)', () => {
       true,
     );
   });
+
+  it('A1.1: a name finds the engine agent before an outside Claude session of the same name', async () => {
+    const { office } = await startOffice({});
+    const inner = office as unknown as {
+      world: { agents: Array<{ key: string; name: string }> };
+      binder: { idOf(key: string): number | null };
+      agentIdOfName(name: string): number | null;
+    };
+    // An unnamed outside `claude` in the project folder is named after it and listed first.
+    inner.world = {
+      ...inner.world,
+      agents: [
+        { key: 'claude:s1', name: 'alpha' },
+        { key: 'engine:alpha', name: 'alpha' },
+      ],
+    };
+    const ids: Record<string, number> = { 'claude:s1': 7, 'engine:alpha': 9, 'claude:s2': 11 };
+    inner.binder.idOf = (key) => ids[key] ?? null;
+    expect(inner.agentIdOfName('alpha')).toBe(9);
+    // No engine agent of that name: the outside session, as before.
+    inner.world = { ...inner.world, agents: [{ key: 'claude:s2', name: 'beta' }] };
+    expect(inner.agentIdOfName('beta')).toBe(11);
+  });
 });
 
 describe('office chat flag (T-0014)', () => {
@@ -512,11 +535,11 @@ describe('office with the built-in engine', () => {
   });
 
   /** An office running the engine with its fake `claude` in a test HOME. */
-  async function engineOffice(agentChoices?: AgentChoicesReader, chat = false) {
+  async function engineOffice(agentChoices?: AgentChoicesReader, chat = false, more: Partial<OfficeOptions> = {}) {
     const { home, store, office, messages } = await startEngineOffice({
       readOnly: false,
       chat,
-      extra: { agentChoices },
+      extra: { agentChoices, ...more },
     });
     return { home, store, office, messages };
   }
@@ -534,6 +557,43 @@ describe('office with the built-in engine', () => {
     const answers: Array<Record<string, unknown>> = [];
     office.onClientMessage({ type: 'engineChoicesRefresh' }, (m) => answers.push(m), true);
     expect(answers[0]?.agentChoices).toEqual(found);
+  });
+
+  it("a settings form's open or re-read starts the CLI probe once, then the CLI's model names reach engineState (T-143)", async () => {
+    const names = [{ value: 'claude-opus-5-5', displayName: 'Opus 5.5' }];
+    const cliCommands = vi.fn(async () => ({ version: 'test', commands: [], models: names }));
+    const discover = () => ({ claude: { models: ['opus'], efforts: ['low'] } });
+    const { office, messages } = await engineOffice({ discover }, false, { cliCommands });
+    expect(cliCommands).not.toHaveBeenCalled();
+    const answers: Array<Record<string, unknown>> = [];
+    const refresh = () => office.onClientMessage({ type: 'engineChoicesRefresh' }, (m) => answers.push(m), true);
+    const open = () => office.onClientMessage({ type: 'engineChoicesWarm' }, (m) => answers.push(m), true);
+    open();
+    expect(cliCommands).toHaveBeenCalledTimes(1); // opening the form alone starts it
+    open();
+    refresh();
+    expect(cliCommands).toHaveBeenCalledTimes(1);
+    expect(answers).toHaveLength(1); // opening a form asks nothing back
+    expect((answers[0]?.agentChoices as { claude: { modelNames?: unknown } }).claude.modelNames).toBeUndefined();
+    await vi.waitFor(() => {
+      const state = [...messages].reverse().find((m) => m.type === 'engineState');
+      expect((state?.agentChoices as { claude: { modelNames?: unknown } }).claude.modelNames).toEqual(names);
+    });
+    refresh();
+    expect(cliCommands).toHaveBeenCalledTimes(1);
+  });
+
+  it("a settings form's re-read link alone starts the CLI probe and brings the names (T-143)", async () => {
+    const names = [{ value: 'claude-fable-5-2', displayName: 'Fable 5.2' }];
+    const cliCommands = vi.fn(async () => ({ version: 'test', commands: [], models: names }));
+    const discover = () => ({ claude: { models: ['fable'], efforts: ['low'] } });
+    const { office, messages } = await engineOffice({ discover }, false, { cliCommands });
+    office.onClientMessage({ type: 'engineChoicesRefresh' }, () => undefined, true);
+    expect(cliCommands).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      const state = [...messages].reverse().find((m) => m.type === 'engineState');
+      expect((state?.agentChoices as { claude: { modelNames?: unknown } }).claude.modelNames).toEqual(names);
+    });
   });
 
   it('engineChoicesRefresh re-reads the installed CLIs only for a privileged client', async () => {
@@ -971,6 +1031,148 @@ describe('office with the built-in engine', () => {
       new RegExp(` ⟨m:${String(sent.out.messageId)}⟩$`),
     );
   });
+
+  it('T-109: agty job --notify through the office socket tells the calling agent once, as a waking notice; the owner terminal is refused', async () => {
+    const { home, office } = await engineOffice();
+    const work = path.join(home, 'w', 'alpha');
+    fs.mkdirSync(work, { recursive: true });
+    const act = (fields: Record<string, unknown>) =>
+      office.engine!.run({ type: 'engineAction', requestId: 'a', ...fields } as never, true, 'test');
+    expect((await act({ action: 'add', name: 'alpha', folder: work })).ok).toBe(true);
+    const told: Array<Record<string, unknown>> = [];
+    const send = office.messenger!.send.bind(office.messenger);
+    vi.spyOn(office.messenger!, 'send').mockImplementation((req) => (told.push(req as never), send(req)));
+    const token = office.engine!.tokens.issue('alpha');
+    // A resting agent (wanted running, not live): the notice goes through the messenger and wakes it
+    // (an agent the owner switched off gets the inbox instead: see the review 3 tests).
+    const real = office.engine!.state.bind(office.engine!);
+    vi.spyOn(office.engine!, 'state').mockImplementation(() => {
+      const st = real();
+      return { ...st, projects: st.projects.map((p) => ({ ...p, live: false, wantRunning: true })) };
+    });
+    const run = (args: string[], env: Record<string, string> = {}) =>
+      new Promise<{ status: number | null; out: string; err: string }>((resolve) => {
+        const child = spawn(process.execPath, [path.join(REPO_ROOT, 'agent-tycoon/bin/agty'), ...args], {
+          cwd: work,
+          env: { PATH: process.env.PATH, HOME: home, ...env },
+        });
+        let out = '';
+        let err = '';
+        child.stdout.on('data', (b: Buffer) => (out += b.toString()));
+        child.stderr.on('data', (b: Buffer) => (err += b.toString()));
+        child.on('close', (status) => resolve({ status, out, err }));
+      });
+    const refused = await run(['job', '--notify', '-d', '시험', 'exit', '3']);
+    expect(refused.status).toBe(1);
+    expect(refused.err).toContain('--notify 는 에이전트 세션에서만');
+    expect(fs.readdirSync(office.jobs!.dir).filter((f) => f.endsWith('.json'))).toEqual([]);
+    const quiet = await run(['job', '-d', '조용한 시험', 'exit', '0'], { AGTY_AGENT_TOKEN: token });
+    expect(quiet.status).toBe(0);
+    expect(quiet.out).not.toContain('알려 줍니다');
+    const job = await run(['job', '--notify', '-d', '전체 시험', 'echo building; sleep 1; exit 3'], { AGTY_AGENT_TOKEN: token });
+    expect(job.status).toBe(0);
+    expect(job.out).toContain('끝나면 한 번 알려 줍니다(--notify)');
+    // agty wait, the other way: blocks on the files until it ends, then exits with the job's own code.
+    const id = office.jobs!.list().find((j) => j.desc === '전체 시험')!.id;
+    const waited = await run(['wait', id, '--max', '30s'], { AGTY_WAIT_POLL_MS: '200' });
+    expect(waited.status).toBe(3);
+    expect(waited.out).toMatch(new RegExp(`^작업 ${id} 실패 · 전체 시험 · exit 3 · \\d+초 · 로그 .*\\.log\\n--- 로그 끝 2줄 ---\\nbuilding\\n\\[작업 종료 · exit 3 · `));
+    await vi.waitFor(() => expect(told).toHaveLength(1), { timeout: 15_000 });
+    await new Promise((ok) => setTimeout(ok, 1_500)); // the 30 s poll is not waited for: a second reconcile stands in
+    office.jobs!.reconcile();
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ to: 'alpha', ifIdle: false, from: null, source: 'engine', notice: 'action' });
+    expect(told[0].text).toMatch(/^\[agty job\] 작업 \d{4}-\d{6}-alpha-?\d* 실패했다 · exit 3: 전체 시험 · 걸린 시간 \d+초 · 로그 .*\.log$/);
+  }, 30_000);
+
+  /** An engine office with project alpha, and `agty` as that agent (its token) in alpha's folder. */
+  async function alphaAgent() {
+    const { home, office } = await engineOffice();
+    const work = path.join(home, 'w', 'alpha');
+    fs.mkdirSync(work, { recursive: true });
+    expect((await office.engine!.run({ type: 'engineAction', requestId: 'a', action: 'add', name: 'alpha', folder: work } as never, true, 'test')).ok).toBe(true);
+    const token = office.engine!.tokens.issue('alpha');
+    const agty = (args: string[]) =>
+      new Promise<{ status: number | null; out: string }>((resolve) => {
+        const child = spawn(process.execPath, [path.join(REPO_ROOT, 'agent-tycoon/bin/agty'), ...args], {
+          cwd: work,
+          env: { PATH: process.env.PATH, HOME: home, AGTY_AGENT_TOKEN: token, AGTY_WAIT_POLL_MS: '100' },
+        });
+        let out = '';
+        child.stdout.on('data', (b: Buffer) => (out += b.toString()));
+        child.on('close', (status) => resolve({ status, out }));
+      });
+    const inbox = () => {
+      const dir = path.join(home, '.config/agent-tycoon/inbox/alpha');
+      return fs.existsSync(dir) ? fs.readdirSync(dir).map((f) => fs.readFileSync(path.join(dir, f), 'utf-8')) : [];
+    };
+    return { home, office, agty, inbox };
+  }
+
+  it('T-109 review 3: the notice does not start an agent the owner switched off; its line waits in the inbox', async () => {
+    const { office, agty, inbox } = await alphaAgent();
+    const start = vi.spyOn(office.engine!, 'startFromInbox');
+    expect(office.engine!.state().projects[0]).toMatchObject({ name: 'alpha', live: false, wantRunning: false });
+    expect((await agty(['job', '--notify', '-d', '꺼진 에이전트', 'exit 2'])).status).toBe(0);
+    await vi.waitFor(() => expect(inbox().filter((t) => t.includes('[agty job]'))).toHaveLength(1), { timeout: 15_000 });
+    expect(inbox()[0]).toContain('실패했다 · exit 2: 꺼진 에이전트');
+    expect(start).not.toHaveBeenCalled();
+    expect(office.engine!.state().projects[0].wantRunning).toBe(false);
+  }, 30_000);
+
+  it('T-109 R2-3: an agent being stopped (still live, not wanted running) gets the line in its inbox; nothing starts it', async () => {
+    const { office, agty, inbox } = await alphaAgent();
+    const real = office.engine!.state.bind(office.engine!);
+    vi.spyOn(office.engine!, 'state').mockImplementation(() => {
+      const st = real();
+      return { ...st, projects: st.projects.map((p) => ({ ...p, live: true, wantRunning: false })) };
+    });
+    const send = vi.spyOn(office.messenger!, 'send');
+    const start = vi.spyOn(office.engine!, 'startFromInbox');
+    expect((await agty(['job', '--notify', '-d', '멈추는 중', 'exit 0'])).status).toBe(0);
+    await vi.waitFor(() => expect(inbox().filter((t) => t.includes('멈추는 중'))).toHaveLength(1), { timeout: 15_000 });
+    expect(send).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  }, 30_000);
+
+  it('T-109 review 3: a resting or live agent gets the waking notice through the messenger (wake and queue are its own)', async () => {
+    const { office, agty } = await alphaAgent();
+    const real = office.engine!.state.bind(office.engine!);
+    const sent: Array<Record<string, unknown>> = [];
+    vi.spyOn(office.messenger!, 'send').mockImplementation((req) => (sent.push(req as never), Promise.resolve({ ok: true, delivered: 'queued' } as never)));
+    const writeInbox = vi.spyOn(office.messenger!, 'writeInbox');
+    for (const [live, wantRunning] of [[false, true], [true, true]] as const) {
+      sent.length = 0;
+      vi.spyOn(office.engine!, 'state').mockImplementation(() => {
+        const st = real();
+        return { ...st, projects: st.projects.map((p) => ({ ...p, live, wantRunning })) };
+      });
+      expect((await agty(['job', '--notify', '-d', '쉬는 에이전트', 'exit 0'])).status).toBe(0);
+      await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 15_000 });
+      expect(sent[0]).toMatchObject({ to: 'alpha', ifIdle: false, source: 'engine', notice: 'action' });
+    }
+    expect(writeInbox).not.toHaveBeenCalled();
+  }, 40_000);
+
+  it('T-109 review 1: a job that ended while the daemon was down is told once after the restart, even with a gpu_lease in the events', async () => {
+    const first = await startEngineOffice({ projects: ROSTER, readOnly: false });
+    const { home } = first;
+    const dir = path.join(home, '.local/state/agent-tycoon/jobs');
+    fs.mkdirSync(dir, { recursive: true });
+    const id = '1111-100000-alpha';
+    fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({ id, pid: null, pstart: null, boot: 'b', project: 'alpha', cmd: 'make', desc: '재시작 시험', dir: home, tab: null, tty: false, log: path.join(dir, `${id}.log`), started: new Date(Date.now() - 60_000).toISOString(), ended: null, exit: null, source: 'cli', notify: { to: 'alpha' } }));
+    fs.writeFileSync(path.join(dir, `${id}.exit`), '0\n');
+    fs.appendFileSync(path.join(home, '.config/agent-tycoon/events.jsonl'), `${JSON.stringify({ ts: new Date().toISOString(), type: 'gpu_lease', source: 'gpu', id: 'g1' })}\n`);
+    first.stop();
+    const again = await startEngineOffice({ home, readOnly: false });
+    const box = path.join(home, '.config/agent-tycoon/inbox/alpha');
+    await vi.waitFor(() => expect(fs.existsSync(box) ? fs.readdirSync(box).length : 0).toBeGreaterThan(0), { timeout: 15_000 });
+    const texts = fs.readdirSync(box).map((f) => fs.readFileSync(path.join(box, f), 'utf-8'));
+    expect(texts.filter((t) => t.includes('재시작 시험'))).toHaveLength(1);
+    again.office.jobs!.reconcile();
+    await new Promise((ok) => setTimeout(ok, 300));
+    expect(fs.readdirSync(box)).toHaveLength(texts.length);
+  }, 40_000);
 
   it('installs the upstream hooks and removes them on dispose', async () => {
     const { office } = await startOffice({ claude: 'C-4' });

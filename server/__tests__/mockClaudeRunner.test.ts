@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
+import { createRequire } from 'module';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -262,5 +263,106 @@ describe('mock-claude-runner hook execution', () => {
       'delete-session.jsonl',
     );
     expect(fs.existsSync(transcriptPath)).toBe(false);
+  });
+});
+
+/** T-99: the engine session's seam (agent-tycoon/test/fake-claude/pty-tui.cjs plays these). */
+describe('mock-claude-runner engine agent turns', () => {
+  interface Runner {
+    scenarioFor(home: string, name: string): { agent: string; prompts: unknown[] } | null;
+    turnFor(scenario: unknown, text: string): { match: string; actions: unknown[] } | null;
+    buildContext(
+      home: string,
+      scenario: unknown,
+      sessionId: string,
+      cwd: string,
+    ): { transcriptPath: string };
+    playTurn(
+      home: string,
+      ctx: unknown,
+      actions: unknown[],
+      ask: (p: unknown) => Promise<string>,
+    ): Promise<void>;
+    claimScenario(home: string): { name?: string } | null;
+  }
+  const runner = createRequire(__filename)(MOCK_CLAUDE_RUNNER) as Runner;
+  const turn = (match: string, ...texts: Array<[number, string]>) => ({
+    match,
+    actions: texts.map(([atMs, text]) => ({
+      kind: 'appendJsonl',
+      atMs,
+      session: 'self',
+      record: { type: 'assistant', message: { content: [{ type: 'text', text }] } },
+    })),
+  });
+  const lines = (file: string) =>
+    fs
+      .readFileSync(file, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map(
+        (l) =>
+          JSON.parse(l) as { message?: { content?: Array<{ text?: string }> }; sessionId?: string },
+      );
+
+  beforeEach(() => {
+    tmpHome = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-mock-turn-')));
+  });
+  afterEach(() => fs.rmSync(tmpHome, { recursive: true, force: true }));
+
+  it('an agent keeps its entry; the launched mock never claims it', () => {
+    writeScenarioQueue(tmpHome, [{ agent: 'alpha', prompts: [] }, { name: 'plain' }]);
+    expect(runner.scenarioFor(tmpHome, 'alpha')?.agent).toBe('alpha');
+    expect(runner.scenarioFor(tmpHome, 'beta')).toBeNull();
+    expect(runner.claimScenario(tmpHome)?.name).toBe('plain');
+    expect(runner.claimScenario(tmpHome)).toBeNull();
+    expect(runner.scenarioFor(tmpHome, 'alpha')?.agent).toBe('alpha'); // kept for a restart
+  });
+
+  it('a prompt plays the first group whose text it contains, nothing else', () => {
+    const scenario = { agent: 'alpha', prompts: [turn('빌드', [0, 'a']), turn('배포', [0, 'b'])] };
+    expect(runner.turnFor(scenario, '⟨m:abc⟩ 배포해 줘')?.match).toBe('배포');
+    expect(runner.turnFor(scenario, '안녕')).toBeNull();
+  });
+
+  it('a permission stops the clock and fills {{permission}}', async () => {
+    const scenario = { agent: 'alpha', prompts: [] };
+    const ctx = runner.buildContext(tmpHome, scenario, 'sid-1', tmpHome);
+    const asked: unknown[] = [];
+    const t0 = Date.now();
+    let answeredAt = 0;
+    await runner.playTurn(
+      tmpHome,
+      ctx,
+      [
+        {
+          kind: 'emitHook',
+          atMs: 0,
+          payload: {
+            session_id: '{{sessionId}}',
+            hook_event_name: 'PermissionRequest',
+            tool_name: 'Bash',
+          },
+        },
+        turn('', [100, 'result: {{permission}}']).actions[0],
+      ],
+      (p) => {
+        asked.push(p);
+        return new Promise((resolve) =>
+          setTimeout(() => {
+            answeredAt = Date.now();
+            resolve('deny');
+          }, 400),
+        );
+      },
+    );
+    expect(asked).toEqual([
+      { session_id: 'sid-1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' },
+    ]);
+    expect(Date.now() - answeredAt).toBeGreaterThanOrEqual(90); // 100 ms after the answer, not after the start
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(490);
+    const [line] = lines(ctx.transcriptPath);
+    expect(line.message?.content?.[0]?.text).toBe('result: deny');
+    expect(line.sessionId).toBe('sid-1');
   });
 });

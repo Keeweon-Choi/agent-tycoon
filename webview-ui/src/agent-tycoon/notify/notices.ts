@@ -32,6 +32,7 @@ import {
   NOTICE_LIST_MAX,
   NOTICE_PAIR_MS,
   NOTICE_PULSE_MS,
+  NOTICE_TWIN_MS,
 } from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
 import {
@@ -196,6 +197,28 @@ function set(next: Partial<NoticeSnapshot>): void {
   listeners.forEach((l) => l());
 }
 
+/**
+ * U2.7: another tab of this browser changed the settings, the list, its clear mark or the feed's
+ * high-water mark: read them back instead of writing our older copy over them at the next change.
+ * (Not through set(): those values are already stored.)
+ */
+export function syncNoticesFromStorage(): void {
+  const read = loadSettings();
+  // The same values keep the same object: a screen that re-sends on a new settings object (the
+  // push subscription, with a disk write behind it) must not fire for a list-only change.
+  const settings = JSON.stringify(read) === JSON.stringify(snapshot.settings) ? snapshot.settings : read;
+  setSoundVolume(settings.volume);
+  for (const [host, at] of Object.entries(load<Record<string, number>>(FEED_SEEN_KEY, {})))
+    if (Number.isFinite(at)) feedSeen.set(host, Math.max(at, feedSeen.get(host) ?? 0));
+  snapshot = { ...snapshot, settings, items: loadItems(), clearedAt: loadClearedAt() };
+  listeners.forEach((l) => l());
+}
+if (typeof window !== 'undefined')
+  window.addEventListener('storage', (e) => {
+    if (e.key === null || [SETTINGS_KEY, LIST_KEY, CLEARED_AT_KEY, FEED_SEEN_KEY].includes(e.key))
+      syncNoticesFromStorage();
+  });
+
 export const noticeSnapshot = () => snapshot;
 export const useNotices = () => useSyncExternalStore(subscribe, noticeSnapshot);
 export const unreadCount = (items: Notice[]) => items.filter((n) => !n.read).length;
@@ -215,6 +238,15 @@ export function setNoticeSettings(next: NoticeSettings): void {
 export function markRead(id: string): void {
   if (snapshot.items.some((n) => n.id === id && !n.read))
     set({ items: snapshot.items.map((n) => (n.id === id ? { ...n, read: true } : n)) });
+}
+
+/**
+ * A toast was tapped: that notice is read. Its id may be gone from the list (another tab's list
+ * replaced ours, each tab made its own notice), then the one that goes to the same place is read.
+ */
+export function markNoticeRead(n: Notice): void {
+  if (snapshot.items.some((i) => i.id === n.id)) markRead(n.id);
+  else markReadFor(noticeGoesTo(n));
 }
 
 /** A push's click opened `t` (T-0043): the same notice in this list is read too. */
@@ -370,6 +402,20 @@ function deliver(
     looking,
   );
   if (verdict === 'off' || verdict === 'cooldown') return;
+  // The other tab of this browser made this notice a moment ago (the lists are shared through
+  // storage, the cooldowns are not): one event, one line. ponytail: not for a room's, whose posts
+  // are told apart by a key the list does not keep (a twin there stays).
+  if (
+    !foldKey &&
+    snapshot.items.some(
+      (n) =>
+        n.cause === cause &&
+        n.agentId === agentId &&
+        n.name === name &&
+        Math.abs(now - n.at) < NOTICE_TWIN_MS,
+    )
+  )
+    return;
   const notice: Notice = {
     id: `${now.toString(36)}-${++seq}`,
     cause,

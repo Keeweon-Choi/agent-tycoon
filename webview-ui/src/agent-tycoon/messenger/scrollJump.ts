@@ -16,6 +16,9 @@ export function atBottom(m: Metrics): boolean {
   return m.scrollHeight - m.scrollTop - m.clientHeight <= BOTTOM_SLACK_PX;
 }
 
+/** Asking for older rows takes the pin off the bottom only for a reader who is away from it. */
+export const pagingUnpins = (m: Metrics): boolean => !atBottom(m);
+
 /** Messages that arrived after `seenId` (the newest the reader had in view): the agent's
  *  replies only, the unread count's rule (contact.replies). The boss's own lines (one turning
  *  from 보내는 중 into 보냄 included), notices and tool lines are not new messages.

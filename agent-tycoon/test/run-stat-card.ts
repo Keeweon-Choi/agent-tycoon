@@ -1,9 +1,9 @@
 /**
  * STAT-CARD check: dist/cli.js, isolated HOME, headless Chromium (--disable-gpu via launchBrowser).
  * One Claude session "lead" (Lv 21, 4 rebirths, 25% context) seated at an engine project that
- * names its model and effort. Phone 390x844: the summary popover with its 3-button menu, the
- * detail view (big tiles), the same with the full list open (the choice is remembered). Desktop
- * 1280x800: the orchestrator panel's card opens the same detail view.
+ * names its model and effort. Phone 390x844: the member sheet with its 능력치 tab, the detail view
+ * (big tiles) from its ⋯, the same with the full list open (the choice is remembered). Desktop
+ * 1280x800: the party portrait's member card opens the same detail view (its ⋯, 스탯 창).
  * Screenshots: agent-tycoon/artifacts/stat-card/.
  *
  *   npx tsx agent-tycoon/test/run-stat-card.ts <port 18256-18259>
@@ -21,11 +21,11 @@ import {
   killFakeSessions,
   launchBrowser,
   makeEngineHome,
-  openOfficeWindow,
   REPO_ROOT,
   sparePort,
   startDaemon,
 } from '../../server/src/agent-tycoon/testHome.js';
+import { engineButton, engineRow, openPhoneSheet } from './engineRow.js';
 
 const port = sparePort();
 const OUT = path.join(REPO_ROOT, 'agent-tycoon/artifacts/stat-card');
@@ -125,13 +125,12 @@ async function main() {
     await phone.addStyleTag({ content: FONT_CSS });
     const card = phone.locator('[data-testid="agent-card"]').first();
     await card.waitFor({ timeout: 30_000 });
-    // FEAT-PARTY-V2: a tap opens the member card as the bottom sheet (the old in-place summary and its menu row
+    // FEAT-PARTY-V2: the card opens as the bottom sheet (the old in-place summary and its menu row
     // are gone); 스탯 is its 능력치 tab, the 스탯 window is in its ⋯.
     const sheet = phone.locator('[data-testid="inspector"][data-sheet]');
-    await until('the member sheet shows after a card tap', async () => {
-      await card.tap();
-      return (await sheet.count()) > 0;
-    });
+    // T-106: a card tap only selects the character; its chip opens the sheet.
+    await openPhoneSheet(phone, card);
+    await until('the member sheet shows after the chip', async () => (await sheet.count()) > 0);
     await phone.waitForTimeout(800);
     const text = (await sheet.textContent()) ?? '';
     check(!/엔진이 관리|이어 붙일/.test(text), 'no internal wording in the card');
@@ -146,7 +145,8 @@ async function main() {
     await detail.waitFor({ timeout: 5_000 });
     check(await detail.locator('[data-testid="stat-tiles"]').isVisible(), 'the detail opens as big tiles');
     const dText = (await detail.textContent()) ?? '';
-    check(/피로도 25% \(50k \/ 200k\)/.test(dText), `fatigue and context are one line (${dText.slice(0, 200)})`);
+    // "≈": the 200k window is picked from the model's name (limitBasis estimated), not reported by the session.
+    check(/피로도 ≈25% \(50k \/ 200k\)/.test(dText), `fatigue and context are one line (${dText.slice(0, 200)})`);
     check(!/엔진이 관리|이어 붙일/.test(dText), 'no internal wording in the detail');
     await phone.waitForTimeout(500);
     await shot(phone, 'phone-detail-tiles');
@@ -166,18 +166,10 @@ async function main() {
     await desk.goto(await started.loginUrl());
     await desk.waitForURL(`http://127.0.0.1:${port}/`);
     await desk.addStyleTag({ content: FONT_CSS });
-    await openOfficeWindow(desk);
-    const win = desk.locator('[data-hud-window="office"]');
-    const open1 = win.locator('[data-testid="stat-open"]');
-    await until('the lead card opens', async () => {
-      if ((await open1.count()) === 0) {
-        const head = win.locator('article h3 button').first();
-        if (await head.count()) await head.click();
-      }
-      return (await open1.count()) > 0;
-    });
+    // The 현황판 lists no orchestrators any more (11-06): the party portrait opens the member card.
+    await engineRow(desk, 'lead');
     await shot(desk, 'desktop-panel-card');
-    await open1.first().click();
+    await (await engineButton(desk, 'lead', '스탯 창')).click();
     const dd = desk.locator('[data-testid="stat-detail"]');
     await dd.waitFor({ timeout: 5_000 });
     await desk.waitForTimeout(500);

@@ -66,3 +66,18 @@ test('agty-login gets a code without node on PATH, from the settings folder', { 
   }
   assert.deepEqual(asked, ['POST /api/login-code Bearer test-token', 'POST /api/login-code Bearer override-token']);
 });
+
+test('C1.2: without python3 to read config.json, agty-login stops instead of sending the token to 18240', { skip: process.platform === 'win32' }, async (t) => {
+  const h = home(configDirectory, 18301);
+  t.after(() => fs.rmSync(h, { recursive: true, force: true }));
+  // A PATH with what the script needs but python3, and a curl that only records where it was sent.
+  const bin = path.join(h, 'bin');
+  fs.mkdirSync(bin);
+  for (const tool of ['bash', 'dirname', 'readlink']) fs.symlinkSync(`/usr/bin/${tool}`, path.join(bin, tool));
+  const log = path.join(h, 'curl.log');
+  fs.writeFileSync(path.join(bin, 'curl'), `#!/bin/bash\nprintf '%s\\n' "$*" >> '${log}'\nexit 7\n`, { mode: 0o755 });
+  const r = await run(h, { PATH: bin });
+  assert.notEqual(r.code, 0);
+  assert.equal(fs.existsSync(log), false, 'nothing was sent');
+  assert.match(r.err, /config\.json/);
+});

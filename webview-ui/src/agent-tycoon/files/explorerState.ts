@@ -27,7 +27,17 @@ const subscribe = (listener: () => void) => {
   };
 };
 export const useFileRoot = () => useSyncExternalStore(subscribe, () => current);
-export function chooseFileRoot(root: FileRoot) {
+/** The shown explorer's unsaved-edit check (it asks first); false keeps the root. */
+let leaveGuard: ((next: FileRoot) => boolean) | null = null;
+export function guardFileRoot(guard: (next: FileRoot) => boolean) {
+  leaveGuard = guard;
+  return () => {
+    if (leaveGuard === guard) leaveGuard = null;
+  };
+}
+/** Every way to another root comes here: an edit with unsaved text is not dropped without the confirm. */
+export function chooseFileRoot(root: FileRoot): boolean {
+  if (leaveGuard && !leaveGuard(root)) return false;
   current = root;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(root));
@@ -35,12 +45,14 @@ export function chooseFileRoot(root: FileRoot) {
     /* this visit only */
   }
   listeners.forEach((listener) => listener());
+  return true;
 }
 
 /** Existing project buttons select a root and ask App to reveal the tab. */
-export function openProjectFiles(project: string) {
-  chooseFileRoot({ kind: 'project', project });
+export function openProjectFiles(project: string): boolean {
+  const moved = chooseFileRoot({ kind: 'project', project });
   window.dispatchEvent(new Event('agty-open-files-tab'));
+  return moved;
 }
 
 /** SPT-P1A: a file to show once the project's explorer is up (the 문서 tab's rows). */
@@ -62,7 +74,7 @@ export const clearPendingFile = () => {
 export function openProjectFile(project: string, entry: ProjectFileEntry, line?: number) {
   pendingFile = { project, entry, ...(line && { line }) };
   pendingListeners.forEach((l) => l());
-  openProjectFiles(project);
+  if (!openProjectFiles(project)) clearPendingFile(); // the owner kept the edit: no file opens later
 }
 
 /** The dev room's `… → 탐색기에서 열기`: the 파일 window, rooted at one task worktree. */

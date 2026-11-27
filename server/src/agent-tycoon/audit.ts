@@ -28,7 +28,7 @@ export type AuditKind =
   | 'inviteCreated'
   | 'inviteUsed' // detail: qr | short
   | 'inviteRefused' // detail: expired | cancelled
-  | 'deviceRevoked'
+  | 'deviceRevoked' // detail: chain (went with the device the owner picked, down its passkey chain)
   | 'revokeOthers' // detail: how many
   | 'passkeyRemoved'
   | 'passkeyRequired' // detail: on | off (by: host -- the host token's last-resort turn-off)
@@ -44,7 +44,7 @@ export type AuditKind =
   | 'connector' // detail: "<from>><to>"
   | 'allowedHosts' // detail: how many names are allowed now
   | 'tokenRotated' // detail: host | path
-  | 'lockout' // detail: short | direct | street
+  | 'lockout' // detail: short | direct | tunnel | street
   | 'street' // MHO v1b: detail pairCode | paired | unpaired | added | removed; device: the other host (id, name)
   | 'spec'; // SPT-P1D, a spec-tracking write: "<action> <projectId> <UIDs and fixed words>", never document text
 

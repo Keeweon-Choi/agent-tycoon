@@ -1,10 +1,15 @@
 import type { Terminal } from '@xterm/xterm';
 
 import { writeClipboardText } from './clipboard.js';
-import { clipboardKeyAction, decodeOsc52 } from './clipboardKeys.js';
+import { clipboardKeyAction, decodeOsc52, stripPasteMarkers } from './clipboardKeys.js';
 import { terminalCopyText } from './flowCopy.js';
 
 const OSC_CLIPBOARD = 52;
+
+/** Every paste into a pane goes through here (S5.2): xterm's bracketing, never a marker of its own. */
+export function pasteText(term: Terminal, text: string): void {
+  term.paste(stripPasteMarkers(text));
+}
 
 /**
  * Wire the clipboard on a terminal pane (the rules are the pure functions in
@@ -16,7 +21,8 @@ const OSC_CLIPBOARD = 52;
  * - Alt+C (Option+C on a Mac) with a selection is "Copy as text": the
  *   selection with Claude Code's soft wraps re-flowed (terminalCopyText);
  * - Ctrl+V / Ctrl+Shift+V paste on Windows and Linux;
- * - OSC 52 writes from the running program reach this browser's clipboard.
+ * - OSC 52 writes from the running program reach this browser's clipboard;
+ * - every paste loses the bracketed-paste markers it carries (pasteText, S5.2).
  *
  * Returns a dispose function that removes everything it added.
  */
@@ -25,6 +31,8 @@ export function attachClipboardInput(
   opts: {
     /** Only the pane on screen may write the clipboard from OSC 52. */
     isActive: () => boolean;
+    /** The element xterm opens in (it opens late): its pastes are taken before xterm's own. */
+    host: HTMLElement;
   },
 ): () => void {
   const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -60,8 +68,20 @@ export function attachClipboardInput(
     return true;
   });
 
+  // S5.2: the browser's paste (Ctrl+V, Cmd+V, the context menu) is xterm's own handler, which
+  // pastes the text as it is: taken here first (capture) and pasted through pasteText.
+  const onPaste = (ev: ClipboardEvent) => {
+    const text = ev.clipboardData?.getData('text/plain');
+    if (!text) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    pasteText(term, text);
+  };
+  opts.host.addEventListener('paste', onPaste, true);
+
   return () => {
     term.attachCustomKeyEventHandler(() => true);
     osc.dispose();
+    opts.host.removeEventListener('paste', onPaste, true);
   };
 }

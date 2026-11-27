@@ -1,0 +1,18 @@
+{
+  "wsl": null,
+  "observedIp": null,
+  "windows": null,
+  "relay": false,
+  "ssh": { "open": false, "banner": "" },
+  "tailscale": null,
+  "setup": {
+    "natKind": "cgnat",
+    "upnp": false,
+    "wslMode": null,
+    "relayReady": false,
+    "tailscaleInstalled": false,
+    "tailscaleLoggedIn": false,
+    "cloudflaredInstalled": false,
+    "platform": "linux"
+  }
+}

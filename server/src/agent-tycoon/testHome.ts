@@ -206,6 +206,31 @@ export async function openWorkbenchTab(
   await press(win.getByRole('button', { name: tab, exact: true }));
 }
 
+/** The localStorage pins every test page starts with (launchBrowser's contexts, the e2e fixture's page):
+ *  set only where the page has no value of its own. */
+export function pagePins(
+  opts: { officeHours?: boolean; pushBanner?: boolean; partyFrame?: boolean } = {},
+): Array<[string, string]> {
+  const { officeHours, pushBanner, partyFrame } = opts;
+  const defaults: Array<[string, string]> = [
+    // The runners read the screen from xterm's DOM rows (.xterm-rows); a pane
+    // otherwise draws with WebGL (webview-ui/src/terminal/webglRenderer.ts).
+    [TERMINAL_RENDERER_KEY, 'dom'],
+    // GFX: the runners written before the camera modes click where the upstream camera puts
+    // things ('off': no auto framing, a click follows); run-gfx.ts sets its own mode.
+    [CAMERA_MODE_KEY, 'off'],
+    // GFX: no title scene over the office the runners click on (run-gfx.ts opens it itself).
+    [TITLE_SCENE_KEY, 'off'],
+  ];
+  if (!officeHours) defaults.push([OFFICE_HOURS_KEY, '{"on":false}']);
+  // PARTY-FRAME: the runners written before it click the floor buttons, so their pages start with the
+  // floor list open; `partyFrame: true` keeps the page default (the ▲ 1F ▼ strip alone), for
+  // run-party-frame.ts. The party is portraits only since FEAT-PARTY-V2 (no unfolded cards).
+  if (!partyFrame) defaults.push([ELEVATOR_LIST_OPEN_KEY, '1']);
+  if (!pushBanner) defaults.push([PUSH_BANNER_DISMISSED_KEY, String(Date.now())]);
+  return defaults;
+}
+
 /** The one way tests start Chromium: always --disable-gpu (the GPU belongs to
  *  other workloads on this PC), merged with the runner's own args, and checked.
  *  Terminal panes draw with the DOM renderer (the runners read .xterm-rows).
@@ -230,22 +255,7 @@ export async function launchBrowser(
     await browser.close();
     throw err;
   }
-  const defaults: Array<[string, string]> = [
-    // The runners read the screen from xterm's DOM rows (.xterm-rows); a pane
-    // otherwise draws with WebGL (webview-ui/src/terminal/webglRenderer.ts).
-    [TERMINAL_RENDERER_KEY, 'dom'],
-    // GFX: the runners written before the camera modes click where the upstream camera puts
-    // things ('off': no auto framing, a click follows); run-gfx.ts sets its own mode.
-    [CAMERA_MODE_KEY, 'off'],
-    // GFX: no title scene over the office the runners click on (run-gfx.ts opens it itself).
-    [TITLE_SCENE_KEY, 'off'],
-  ];
-  if (!officeHours) defaults.push([OFFICE_HOURS_KEY, '{"on":false}']);
-  // PARTY-FRAME: the runners written before it click the floor buttons, so their pages start with the
-  // floor list open; `partyFrame: true` keeps the page default (the ▲ 1F ▼ strip alone), for
-  // run-party-frame.ts. The party is portraits only since FEAT-PARTY-V2 (no unfolded cards).
-  if (!partyFrame) defaults.push([ELEVATOR_LIST_OPEN_KEY, '1']);
-  if (!pushBanner) defaults.push([PUSH_BANNER_DISMISSED_KEY, String(Date.now())]);
+  const defaults = pagePins({ officeHours, pushBanner, partyFrame });
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (options) => {
     const ctx = await newContext({ locale: 'ko-KR', ...options });

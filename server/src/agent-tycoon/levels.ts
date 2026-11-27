@@ -236,7 +236,9 @@ export class LevelStore {
     if (msg.type === 'agentStatus' && typeof msg.status === 'string') {
       const before = this.lastStatus.get(id);
       this.lastStatus.set(id, msg.status);
-      if (before === 'active' && msg.status === 'waiting') this.addXp(key, XP_TURN);
+      // A restored waiting (a /resume, a state given back) is no turn that ran.
+      if (before === 'active' && msg.status === 'waiting' && msg.restored !== true)
+        this.addXp(key, XP_TURN);
     } else if (msg.type === 'agentToolStart' && typeof msg.toolId === 'string') {
       const seen = this.toolIds.get(id) ?? new Set<string>();
       this.toolIds.set(id, seen);

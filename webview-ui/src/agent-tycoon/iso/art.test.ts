@@ -175,15 +175,15 @@ describe("the owner's pieces (gen-iso-objects.ts)", () => {
     ]);
     const missing = ids.filter((id) => !ISO_MANIFEST.types[id] && !topDownOnly.has(id));
     expect(missing).toEqual([]);
+    // A turned desk is the same picture flipped (which of the two is flipped: the facing tests).
     for (const [side, front] of [
       ['DESK_SIDE', 'DESK_FRONT'],
       ['DESK_B_SIDE', 'DESK_B_FRONT'],
       ['SMALL_TABLE_SIDE', 'SMALL_TABLE_FRONT'],
-    ])
-      expect(ISO_MANIFEST.types[side], side).toEqual({
-        piece: ISO_MANIFEST.types[front].piece,
-        mirror: true,
-      });
+    ]) {
+      expect(ISO_MANIFEST.types[side].piece, side).toBe(ISO_MANIFEST.types[front].piece);
+      expect(!!ISO_MANIFEST.types[side].mirror, side).toBe(!ISO_MANIFEST.types[front].mirror);
+    }
     // Every picture the owner drew is worn by a type (a seat's other facing, or a wall, counts).
     const worn = new Set([
       ...Object.values(ISO_MANIFEST.types).map((t) => t.piece),
@@ -261,5 +261,127 @@ describe('pictures shipped at the size they are drawn', () => {
     expect(a).toMatchObject({ d: 4, k: 3, ax: p.anchor[0] / 3, ay: p.anchor[1] / 3 });
     const desk = ISO_MANIFEST.pieces['o-desk'];
     expect(isoArt(new Map([[desk.file, img]]), 'o-desk', 4)).toMatchObject({ d: 12, k: 1 });
+  });
+});
+
+// T-107 (owner 11-11: chairs, whiteboards and desks faced any which way): a picture labelled for
+// the other diagonal. +row is the screen's lower left, +col its lower right (projection.ts isoAt).
+describe('T-107: every piece faces the way the manifest says, as its picture shows', () => {
+  const MIRRORED = { '+row': '+col', '+col': '+row', '-row': '-col', '-col': '-row', none: 'none' };
+  const faced = Object.entries(ISO_MANIFEST.pieces).filter(
+    ([name, p]) => /^o-(?!wall|lift)/.test(name) && p.faces !== 'none',
+  );
+  const opaque = (png: PNG, x: number, y: number) => png.data[(y * png.width + x) * 4 + 3] > 128;
+  /** Each column's lowest and highest opaque row (-1: empty). */
+  const contour = (png: PNG) =>
+    Array.from({ length: png.width }, (_, x) => {
+      let [top, bottom] = [-1, -1];
+      for (let y = 0; y < png.height; y++)
+        if (opaque(png, x, y)) [top, bottom] = [top < 0 ? y : top, y];
+      return { top, bottom };
+    });
+
+  it('stands a piece of two or three tiles on its own footprint (a desk, a sofa, a whiteboard)', () => {
+    for (const [name, p] of faced) {
+      const [fw, fh] = p.footprint;
+      if (fw === fh) continue;
+      const cols = contour(read(p.file));
+      const [ax, ay] = p.anchor;
+      const xs = cols.flatMap((c, x) => (c.bottom < 0 ? [] : [x]));
+      // Centred on its diamond, whose middle is (fh - fw) / 2 tiles across from the front corner.
+      const mid = (xs[0] + xs.at(-1)! + 1) / 2;
+      expect(Math.abs(mid - (ax + ((fh - fw) / 2) * HW)), name).toBeLessThanOrEqual(HW / 8);
+      // Its lowest points rest on the diamond's front edges: none below them, some on them.
+      const below = Math.max(...xs.map((x) => cols[x].bottom + 1 - (ay - Math.abs(x - ax) / 2)));
+      expect(Math.abs(below), name).toBeLessThanOrEqual(ISO_MASTER_DENSITY);
+    }
+  });
+
+  it('turns a seat the way its backrest shows', () => {
+    // The backrest is the highest part: its top edge runs down to the right when the sitter looks
+    // along a row, up to the right along a column, and it stands on the side the sitter turns
+    // away from (the right for +row and -col, the left for +col and -row).
+    for (const [name, p] of faced) {
+      if (!p.seats || p.footprint[0] !== p.footprint[1]) continue;
+      const png = read(p.file);
+      const tops = contour(png).map((c) => c.top);
+      const peak = Math.min(...tops.filter((t) => t >= 0));
+      const xs = tops.flatMap((t, x) => (t >= 0 && t <= peak + 0.15 * png.height ? [x] : []));
+      const mx = xs.reduce((a, x) => a + x, 0) / xs.length;
+      const my = xs.reduce((a, x) => a + tops[x], 0) / xs.length;
+      const down = xs.reduce((a, x) => a + (x - mx) * (tops[x] - my), 0) > 0;
+      const right = mx > png.width / 2;
+      expect(down ? (right ? '+row' : '-row') : right ? '-col' : '+col', name).toBe(p.faces);
+    }
+  });
+
+  it('turns a cabinet, a shelf or a machine the way its busier face shows', () => {
+    // Drawers, shelves and a machine's controls hold more edges than a plain side; the face left
+    // of the front corner is the +row side, the one right of it the +col side.
+    for (const [name, p] of faced) {
+      if (p.seats || p.footprint[0] !== p.footprint[1]) continue;
+      const png = read(p.file);
+      const half = 8 * p.density;
+      const front = p.anchor[0] - ((p.slot ? p.slot[0] - p.slot[1] : 0) / 2) * half;
+      const lum = (x: number, y: number) => {
+        const i = (y * png.width + x) * 4;
+        return png.data[i] * 0.3 + png.data[i + 1] * 0.59 + png.data[i + 2] * 0.11;
+      };
+      const edges = [0, 0];
+      const area = [0, 0];
+      for (let y = Math.round(png.height / 4); y < png.height; y++)
+        for (let x = 0; x < png.width - 1; x++) {
+          if (!opaque(png, x, y) || !opaque(png, x + 1, y)) continue;
+          const side = x < front ? 0 : 1;
+          area[side]++;
+          if (Math.abs(lum(x, y) - lum(x + 1, y)) > 24) edges[side]++;
+        }
+      const shown = edges[0] / area[0] > edges[1] / area[1] ? '+row' : '+col';
+      expect(shown, name).toBe(p.faces);
+    }
+  });
+
+  it('draws every type the way the office uses it: a desk to its user, a sitter to its desk, a wall piece into the room', () => {
+    const drawn = (type: string) => {
+      const t = ISO_MANIFEST.types[type];
+      const f = ISO_MANIFEST.pieces[t.piece].faces;
+      return t.mirror ? MIRRORED[f] : f;
+    };
+    const want: Record<string, string> = {
+      // The side a desk's user sits on: below a front desk (layout.ts puts the chair there).
+      DESK_FRONT: '+row',
+      DESK_B_FRONT: '+row',
+      DESK_SIDE: '+col',
+      DESK_B_SIDE: '+col',
+      // Where a sitter looks (layoutSerializer orientationToFacing, seats.ts facingOf).
+      ARMCHAIR_FRONT: '+row',
+      ARMCHAIR_SIDE: '+col',
+      SOFA_FRONT: '+row',
+      SOFA_SIDE: '+col',
+      // Against a top wall (the generator's whiteboard and pantry), into the room.
+      WHITEBOARD: '+row',
+      BOOKSHELF: '+row',
+      DOUBLE_BOOKSHELF: '+row',
+      CABINET_FRONT: '+row',
+      VENDING_MACHINE: '+row',
+      COFFEE_MACHINE: '+row',
+      WATER_COOLER: '+row',
+      CABINET_SIDE: '+col',
+      WHITEBOARD_SIDE: '+col',
+    };
+    for (const kind of ['CUSHIONED_CHAIR', 'WOODEN_CHAIR'])
+      Object.assign(want, {
+        [`${kind}_FRONT`]: '+row',
+        [`${kind}_BACK`]: '-row',
+        [`${kind}_SIDE`]: '+col',
+        [`${kind}_SIDE:left`]: '-col',
+      });
+    for (const [type, f] of Object.entries(want)) expect(drawn(type), type).toBe(f);
+    // A chair turns with its sitter (render.ts): a picture for each of the four ways.
+    for (const f of ['+row', '+col', '-row', '-col'] as const) {
+      const e = ISO_MANIFEST.facings.chair[f]!;
+      const faces = ISO_MANIFEST.pieces[e.piece].faces;
+      expect(e.mirror ? MIRRORED[faces] : faces, f).toBe(f);
+    }
   });
 });

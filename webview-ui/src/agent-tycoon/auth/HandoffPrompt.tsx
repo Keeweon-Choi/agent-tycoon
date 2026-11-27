@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
-import { authFetch, countdown, formatShortCode } from './authApi.js';
+import { authFetch, countdown, formatShortCode, handoffFailedText } from './authApi.js';
 
 /**
  * S3: the page a QR logged in, in Safari, shows a fresh 2-minute single-use
@@ -21,7 +21,7 @@ export function HandoffPrompt({ onClose }: { onClose: () => void }) {
         setNow(Date.now());
         setCode({ code: fresh, expiresAt: Date.now() + expiresIn * 1000 });
       },
-      (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+      (err: unknown) => setError(handoffFailedText(err)),
     );
   }, []);
   useEffect(issue, [issue]);
@@ -47,7 +47,10 @@ export function HandoffPrompt({ onClose }: { onClose: () => void }) {
             <Button size="sm" variant="accent" onClick={issue}>{t('auth.newCode')}</Button>
           </>
         ) : error ? (
-          <p className="text-sm text-red-400 m-0">{t('auth.codeFailed', { error })}</p>
+          <>
+            <p className="text-sm text-red-400 m-0" data-testid="handoff-error">{error}</p>
+            <Button size="sm" variant="accent" onClick={issue}>{t('auth.handoff.retry')}</Button>
+          </>
         ) : (
           <p className="text-sm text-text-muted m-0">{t('auth.creatingCode')}</p>
         )}

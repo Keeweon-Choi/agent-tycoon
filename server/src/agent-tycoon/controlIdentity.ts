@@ -1,5 +1,6 @@
 // SEC-CONTROL: the owner token and the caller's identity, shared with the CLI and the manager.
 const shared = require('../../../core/src/agent-tycoon/controlIdentity.cjs') as {
+  JOB_ID_RE: RegExp;
   callerIdentity: (
     home: string,
     env?: NodeJS.ProcessEnv,
@@ -12,4 +13,4 @@ const shared = require('../../../core/src/agent-tycoon/controlIdentity.cjs') as 
   readOwnerToken: (home: string) => string | null;
 };
 
-export const { callerIdentity, ensureOwnerToken, jobsFolder, ownerTokenMatches, ownerTokenPath, readOwnerToken } = shared;
+export const { JOB_ID_RE, callerIdentity, ensureOwnerToken, jobsFolder, ownerTokenMatches, ownerTokenPath, readOwnerToken } = shared;

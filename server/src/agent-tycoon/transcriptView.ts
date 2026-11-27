@@ -16,11 +16,11 @@
  *
  * TranscriptTail reads incrementally: the end of the file once, then only
  * what was appended since (a torn last line waits for its newline). No PTY,
- * no re-parse of the whole tail on every change. The first read walks the
- * file backwards chunk by chunk until it has the last CHAT_MAX_ITEMS items:
- * a tail of huge tool results holds few messages (the agent-tycoon lead's 34 MB
- * transcript had 3 in its last 256 KB), so a fixed tail looked like a wiped
- * history after a restart.
+ * no re-parse of the whole tail on every change. The first read parses the
+ * last CHAT_SCAN_MAX_BYTES oldest first and keeps the last CHAT_MAX_ITEMS
+ * items: a tail of huge tool results holds few messages (the agent-tycoon
+ * lead's 34 MB transcript had 3 in its last 256 KB), so a fixed tail looked
+ * like a wiped history after a restart.
  */
 import * as fs from 'fs';
 
@@ -32,18 +32,19 @@ import { SENT_MAX, sentLines } from './files/outbox.js';
 import { LABEL } from './labels.js';
 import { maskText } from './mask.js';
 
-/** One backward read of a (re)load, and the largest jump an append is followed through. */
+/** One chunk of a backward read (history, rooms, the current turn). */
 export const CHAT_TAIL_BYTES = 256 * 1024;
-/** A (re)load gives up looking for older items after this many bytes. */
+/** A (re)load gives up looking for older items after this many bytes; an append up to this is read forward. */
 export const CHAT_SCAN_MAX_BYTES = 16 * 1024 * 1024;
 /** A tool_result line this long is no message: skipped unparsed unless results are wanted. */
 const BIG_RESULT_BYTES = 8 * 1024;
 /** A text block whose text starts with a header (`[peer · 단톡방 …]`, `[사장 · 메신저 …]`). */
 const HEADER_TEXT_BLOCK = '"type":"text","text":"[';
 export const CHAT_MAX_ITEMS = 80;
-const TEXT_MAX = 4000;
-/** The boss's own messages are shown whole up to the chat's send limit (U-37). */
-const USER_TEXT_MAX = 24_000;
+/** A message is shown whole up to this: the boss's own (the chat's send limit, U-37) and an agent's reply
+ *  alike. A reply cut at 4000 lost its end behind 더 보기 (T-146; the longest of 6,197 on record was 10,991).
+ *  ponytail: a longer text still ends in a bare "…"; a `cut` flag the bubble can name, if one ever gets there. */
+const TEXT_MAX = 24_000;
 const TOOL_DESC_MAX = 200;
 /** DEVROOM-SUBVIEW: a tool call's arguments in the work view (a long heredoc is cut). */
 export const ARGS_MAX = 600;
@@ -57,6 +58,21 @@ const MAIN_ARGS = ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'q
 const SKIP_ARGS = new Set(['description', 'prompt', 'content', 'old_string', 'new_string', 'new_source', 'edits', 'todos']);
 /** Prompt-side wrappers Claude Code writes as user text (slash commands, hooks). */
 const WRAPPER = /^<(command-|local-command|system-reminder|bash-|user-prompt-submit-hook)/;
+/** T-169: a slash command's own record (`<command-name>/model</command-name>`, its args beside it). */
+const COMMAND_NAME = /<command-name>\/?([^<\s]+)<\/command-name>/;
+const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
+/** The system record Claude Code logs a command in when its result is display-only (a picker closed with Esc). */
+const LOCAL_COMMAND = '"subtype":"local_command"';
+
+/** T-169: a command record as typed (`/model`, `/review 42`): the line a sent command settles by
+ *  (messengerStore settle). Null for every other wrapper (its output, a caveat, a hook). */
+function commandLine(text: string): string | null {
+  // Only a record that is the command (a reminder or hook output may quote one).
+  const name = text.startsWith('<command-') ? COMMAND_NAME.exec(text)?.[1] : undefined;
+  if (!name) return null;
+  const args = COMMAND_ARGS.exec(text)?.[1].trim();
+  return args ? `/${name} ${args}` : `/${name}`;
+}
 /** The header line of a message the boss sent through the app: the engine
  *  messenger's for a `gui:` source. */
 const BOSS_HEADER = /^\[(?:사장 · 메신저|사용자 · 앱\(gui:[A-Za-z0-9._:-]*\)) · [^\]\n]*\]\n/;
@@ -294,7 +310,16 @@ type Rec = {
   timestamp?: unknown;
   thinkingDisplay?: unknown;
   origin?: unknown;
+  /** A `system` record's kind and text (T-169: `local_command`). */
+  subtype?: unknown;
+  content?: unknown;
 };
+
+/** T-169: a `system` record of a command the boss typed: its command text, else null. */
+const systemCommand = (r: Rec): string | null =>
+  r.type === 'system' && r.subtype === 'local_command' && typeof r.content === 'string' && commandLine(r.content)
+    ? r.content
+    : null;
 
 const isTaskNotificationOrigin = (origin: unknown): boolean =>
   !!origin &&
@@ -310,7 +335,8 @@ export function userTurnText(line: string): string | null {
   // text block beside it carries a header (a room post or a DM steered in mid-tool).
   // ponytail: a headerless text block beside a big result is taken for none; parse those too
   // if a DM typed mid-tool ever goes missing from the messenger.
-  if (!line.includes('"type":"user"') && !line.includes('queued_command')) return null;
+  if (!line.includes('"type":"user"') && !line.includes('queued_command') && !line.includes(LOCAL_COMMAND))
+    return null;
   if (
     line.length > BIG_RESULT_BYTES &&
     line.includes('"type":"tool_result"') &&
@@ -340,6 +366,8 @@ export function userTurnText(line: string): string | null {
     );
     return text.length ? text.map((b) => b.text as string).join('\n') : null;
   }
+  // T-169: a command the CLI logged as `system` is the boss's input all the same (a new turn).
+  if (r.type === 'system') return systemCommand(r);
   if (r.type !== 'attachment') return null;
   const attachment = r.attachment as
     { type?: unknown; humanTurn?: unknown; prompt?: unknown } | undefined;
@@ -369,6 +397,8 @@ export interface RoomReply {
   room: RoomRef;
   /** The turn's delivery id (its header's mark), when it has one. */
   deliveryId?: string;
+  /** T-113 (L6): every part's delivery id when the turn joined several (MSG-SPLIT): it answers each. */
+  deliveryIds?: string[];
   item: ChatItem;
 }
 
@@ -389,6 +419,8 @@ export class RoomTurnFilter {
   /** C3: the room the newest user turn read belongs to (null: a DM turn, or none yet). */
   turn: RoomRef | null = null;
   private bound: string | undefined;
+  /** T-113 (L6): the delivery ids of every part of the newest user turn. */
+  private parts: string[] = [];
   /** TYPIST-STALE: the id of a one-to-one header-only turn just read (carriedId): the next turn's. */
   private carried: string | undefined;
 
@@ -402,6 +434,7 @@ export class RoomTurnFilter {
   reset(): void {
     this.turn = null;
     this.bound = undefined;
+    this.parts = [];
     this.carried = undefined;
   }
 
@@ -412,6 +445,7 @@ export class RoomTurnFilter {
       const own = turnMessageId(prompt);
       // TYPIST-STALE: an unmarked turn after a one-to-one header alone is its body: that header's id.
       this.bound = own ?? this.carried;
+      this.parts = turnParts(prompt).flatMap((part) => turnMessageId(part) ?? []);
       this.carried = carriedId(prompt);
       // What the messenger typed is the record; the header alone only for what it did not type.
       const typed = this.options.classify?.(this.bound);
@@ -425,6 +459,7 @@ export class RoomTurnFilter {
             this.options.onReply({
               room: this.turn,
               ...(this.bound && { deliveryId: this.bound }),
+              ...(this.parts.length > 1 && { deliveryIds: this.parts }),
               item,
             });
       // MSG-SPLIT: a joined turn holding a DM and a room post shows its DM part.
@@ -590,7 +625,8 @@ export function lineItems(line: string, n = 0, opts: LineOptions = {}): ChatItem
   if (
     !line.includes('"type":"user"') &&
     !line.includes('"type":"assistant"') &&
-    !line.includes('queued_command')
+    !line.includes('queued_command') &&
+    !line.includes(LOCAL_COMMAND)
   ) {
     return [];
   }
@@ -622,7 +658,9 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
     const joined = parts.length > 1;
     for (const part of parts) {
       let t = part.trim();
-      if (!t || WRAPPER.test(t)) continue;
+      // T-169: a slash command shows as typed, so the messenger's sent bubble settles in its place.
+      if (WRAPPER.test(t)) t = commandLine(t) ?? '';
+      if (!t) continue;
       if (kind === 'user' && !joined && headerOnly(t)) continue;
       let who: Pick<ChatItem, 'from' | 'fromName' | 'replyTo' | 'execution' | 'employee'> = {};
       let own: Pick<ChatItem, 'messageId'> & { at?: number } = {};
@@ -648,11 +686,10 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
         t = sent.text;
         files = sent.paths.slice(0, SENT_MAX).map(opts.outbox);
       }
-      const max = kind === 'user' ? USER_TEXT_MAX : TEXT_MAX;
       if (t || files.length)
         add({
           kind,
-          text: t.length > max ? `${t.slice(0, max)}…` : t,
+          text: t.length > TEXT_MAX ? `${t.slice(0, TEXT_MAX)}…` : t,
           ...who,
           ...own,
           ...(files.length && { attachments: files }),
@@ -677,6 +714,8 @@ function recordItems(r: Rec, n: number, opts: LineOptions): ChatItem[] {
           });
       }
     }
+  } else if (r.type === 'system') {
+    text('user', systemCommand(r));
   } else if (r.type === 'attachment') {
     const a = r.attachment as { type?: unknown; humanTurn?: unknown; prompt?: unknown } | undefined;
     if (a?.type === 'queued_command' && a.humanTurn === true) text('user', a.prompt);
@@ -806,7 +845,9 @@ export class TranscriptTail {
       return { reset: true, added: [] };
     }
     const size = st!.size;
-    if (!same || size < this.offset || size - this.offset > CHAT_TAIL_BYTES) {
+    // P3.2: a jump the (re)load would read anyway is read forward, only its bytes (the room-turn filter's
+    // state still holds); a 16 MB reload for every 256 KB burst blocked the loop for each lead at once.
+    if (!same || size < this.offset || size - this.offset > CHAT_SCAN_MAX_BYTES) {
       this.restart(file, st!.ino);
       this.items = this.loadBack(file!, size);
       return { reset: true, added: this.items };
@@ -815,6 +856,8 @@ export class TranscriptTail {
     this.offset += chunk.length;
     const added = this.take(Buffer.concat([this.partial, chunk]));
     if (added.length) this.items = [...this.items, ...added].slice(-this.max);
+    // More than the view holds: it is replaced, as a reload would (no gap behind an append).
+    if (added.length >= this.max) return { reset: true, added: this.items };
     return added.length ? { reset: false, added } : null;
   }
 
@@ -841,9 +884,8 @@ export class TranscriptTail {
   }
 
   /**
-   * The last `max` items ending at `size`, read backwards in CHAT_TAIL_BYTES
-   * chunks until there are enough or CHAT_SCAN_MAX_BYTES is spent. Holds one
-   * chunk plus the head fragment of the line that crosses into it. Sets
+   * The last `max` items ending at `size`: the last CHAT_SCAN_MAX_BYTES read
+   * at once and parsed oldest first (room-turn filtering is stateful). Sets
    * `offset` and `partial` as a forward read would have.
    */
   private loadBack(file: string, size: number): ChatItem[] {

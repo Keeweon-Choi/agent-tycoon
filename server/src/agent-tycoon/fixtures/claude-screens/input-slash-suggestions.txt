@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Fable 5.2 with xhigh effort · Claude Ultra
+ ▝▝   ▝▝   /tmp/picker-cwd
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ❯ /model                                          Set the AI model for Claude Code (currently Fable 5.2)
+    /auto-mode-setup                                Teach auto mode about your environment, plus optional rule tweaks
+    /code-review                                    3 free /ultrareview · Review the current diff or a PR for bugs and
+                                                    cleanups
+    /loop                                           Repeat a prompt or command on an interval (e.g. /loop 5m /foo)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /model
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ◆ Fable 5.2(X) │ ░░░░░░░░░░ │ 0% │ 0/1.0M │ $0.00 │ ⚠️  │ 7d: 0% (7d0h) │ 7d-F: 0% (7d0h)
+  ⏵⏵ auto mode on (shift+tab to cycle)

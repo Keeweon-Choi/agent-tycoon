@@ -54,6 +54,8 @@ export interface Lead {
   queued?: ChatQueued[];
   /** Its session waits on its terminal; messages are held (messenger.held). */
   held?: boolean;
+  /** T-141: the picker held on is one a command of ours opened (messenger.pickerUp). */
+  picker?: boolean;
   /** PERM-PROMPT: a permission dialog holds its session: the card. */
   permission?: MessengerContact['permission'];
 }
@@ -80,6 +82,7 @@ export function contactOf(
     ...(lead.project && { project: lead.project }),
     canSend: lead.canSend,
     ...(lead.held && { held: true }),
+    ...(lead.picker && { picker: true }),
     ...(lead.permission && { permission: lead.permission }),
     ...(room && {
       room: room.name,
@@ -446,7 +449,7 @@ export class Conversations {
   /** The lead list itself changed (names, ids, canSend). */
   private contactsStale(leads: Lead[]): boolean {
     const sig = JSON.stringify(
-      leads.map((l) => [l.agentId, l.name, l.canSend, !!l.held, l.project ?? null, l.permission ?? null]),
+      leads.map((l) => [l.agentId, l.name, l.canSend, !!l.held, !!l.picker, l.project ?? null, l.permission ?? null]),
     );
     if (sig === this.lastLeads) return false;
     this.lastLeads = sig;

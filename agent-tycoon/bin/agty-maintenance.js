@@ -100,6 +100,9 @@ function realCommand(command, options = {}) {
   return { ok: !r.error && r.status === 0, code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
+/** The manager (install/manager.mjs, ESM): its service plans and checks, the ones install and update use. */
+const managerModule = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
+
 function realDeps(overrides = {}) {
   const home = overrides.home ?? os.homedir();
   const platform = overrides.platform ?? (process.platform === 'linux' && /microsoft/i.test(os.release()) ? 'wsl' : process.platform);
@@ -121,12 +124,28 @@ function realDeps(overrides = {}) {
     health: async (port) => realCommand(['curl', '-fsS', '--max-time', '2', `http://127.0.0.1:${port}/api/health`]).ok,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: Date.now,
-    repairCli: async (record, root) => {
-      const manager = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
-      return manager.repairCliLinks(record, root, {});
+    repairCli: async (record, root) => (await managerModule()).repairCliLinks(record, root, {}),
+    // `managerDeps`: the manager's effects (tests); its lines go to stderr so `--json` stays one line.
+    restartService: async (service) => {
+      const m = await managerModule();
+      await m.serviceOp(service.kind, 'restart', service, m.realDeps({ home, platform, print: console.error, ...overrides.managerDeps }));
+    },
+    serviceActive: async (service) => {
+      const m = await managerModule();
+      return m.serviceRunning(service, overrides.managerDeps?.run ?? m.realDeps({ home }).run);
     },
     ...overrides,
   };
+}
+
+/** The manager's install record (install.json), or null for a source install. */
+function installRecord(deps) {
+  try { return JSON.parse(deps.readFile(path.join(installRoot(deps.platform === 'wsl' ? 'linux' : deps.platform, deps.home, deps.env), 'install.json'))); } catch { return null; }
+}
+/** A Windows manager install's logon task: `schtasks /Run` is ignored while it runs (IgnoreNew) and /Query only says it is registered. */
+function windowsTask(deps) {
+  const record = deps.platform === 'win32' ? installRecord(deps) : null;
+  return record?.service?.kind === 'schtasks' ? record.service : null;
 }
 
 function check(name, ok, detail, fix = null, level = 'check') { return { name, ok, detail, fix, level }; }
@@ -198,8 +217,7 @@ async function safeFix(deps, checks) {
     const r = await restart(deps);
     repairs.push({ name: '서비스 재시작', ok: r.ok, detail: r.ok ? '다시 시작했습니다' : '다시 시작하지 못했습니다' });
   }
-  let record;
-  try { record = JSON.parse(deps.readFile(path.join(installRoot(deps.platform === 'wsl' ? 'linux' : deps.platform, deps.home, deps.env), 'install.json'))); } catch { record = null; }
+  const record = installRecord(deps);
   if (record?.cli?.links?.length) {
     const result = await deps.repairCli(record, record.root || installRoot(deps.platform, deps.home, deps.env));
     const repaired = Array.isArray(result) ? result : result.repaired;
@@ -234,7 +252,8 @@ async function doctor(dependencies = {}, options = {}) {
   const unit = serviceFile(platform, home, deps.service);
   const installed = platform === 'darwin' ? deps.exists(unit) : commandOk(deps, services.installed);
   checks.push(check('서비스 설치', installed, installed ? '등록됨' : '등록되지 않았습니다', 'node agent-tycoon/install/install.mjs 를 실행하세요.'));
-  const active = installed && commandOk(deps, services.active);
+  const task = windowsTask(deps);
+  const active = installed && (task ? await deps.serviceActive(task) : commandOk(deps, services.active));
   checks.push(check('서비스 실행', active, active ? '실행 중' : '실행 중이 아닙니다', `${CLI_NAME} restart 를 실행하세요.`));
 
   checks.push(cliNameCheck(deps));
@@ -279,8 +298,7 @@ async function doctor(dependencies = {}, options = {}) {
   }
 
   // H §4.4: the WSL state apart from the daemon state (서비스 실행, HTTP 상태 above), and the start policy (R1/P6).
-  let record = null;
-  try { record = JSON.parse(deps.readFile(path.join(installRoot(platform === 'wsl' ? 'linux' : platform, home, deps.env), 'install.json'))); } catch { /* a source install has none */ }
+  const record = installRecord(deps);
   if (platform === 'wsl')
     checks.push(check('WSL', true, `배포판 ${(deps.env ?? process.env).WSL_DISTRO_NAME || '알 수 없음'} 실행 중 · systemd ${deps.exists('/run/systemd/system') ? '켜짐' : '꺼짐 (데몬은 감독 프로세스로)'}`, null, 'info'));
   if (record && ['linux', 'wsl'].includes(platform)) {
@@ -372,8 +390,9 @@ async function status(dependencies = {}) {
 async function restart(dependencies = {}) {
   const deps = realDeps(dependencies);
   const config = dependencies.config ?? (() => { try { return JSON.parse(deps.readFile(configFile(deps.home))); } catch { return {}; } })();
-  const command = serviceCommands(deps.platform, deps.uid, deps.service).restart;
-  const started = deps.command(command).ok;
+  const task = windowsTask(deps);
+  const command = task ? ['serviceOp', 'restart', task.name] : serviceCommands(deps.platform, deps.uid, deps.service).restart;
+  const started = task ? await deps.restartService(task).then(() => true, () => false) : deps.command(command).ok;
   const port = config.port ?? DEFAULT_PORT;
   if (!started) return { ok: false, command, port, waited: false };
   for (let waited = 0; waited < 20_000; waited += 500) {

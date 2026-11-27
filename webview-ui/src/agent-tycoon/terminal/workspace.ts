@@ -42,6 +42,7 @@ export const terminalMessages = () => ({
   reconnecting: t('terminal.reconnecting'),
   gone: t('terminal.gone'),
   ended: t('terminal.ended'),
+  verify: t('terminal.verifyReconnect'),
 });
 export const WORKSPACE_STORAGE_KEY = 'agty.terminal-workspace.v1';
 

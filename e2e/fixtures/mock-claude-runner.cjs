@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -52,14 +53,27 @@ function writeScenarioQueue(homeDir, queue) {
 }
 
 function claimScenario(homeDir) {
+  // An engine agent's entry (`agent`) is never claimed in turn: it stays for that agent (scenarioFor).
   const queue = readScenarioQueue(homeDir);
-  if (queue.length === 0) {
+  const at = queue.findIndex((entry) => !entry.agent);
+  if (at < 0) {
     return null;
   }
 
-  const [scenario, ...rest] = queue;
-  writeScenarioQueue(homeDir, rest);
+  const [scenario] = queue.splice(at, 1);
+  writeScenarioQueue(homeDir, queue);
   return scenario;
+}
+
+/** The engine agent `name`'s scenario (`claude -n <name>`), kept in the queue: a restart or a
+ *  `--resume` of that agent plays it again. */
+function scenarioFor(homeDir, name) {
+  return readScenarioQueue(homeDir).find((entry) => entry.agent === name) || null;
+}
+
+/** The first `onPrompt` group whose text the submitted prompt contains. */
+function turnFor(scenario, text) {
+  return (scenario.prompts || []).find((turn) => String(text).includes(turn.match)) || null;
 }
 
 function logLine(homeDir, fileName, line) {
@@ -393,6 +407,92 @@ async function emitHook(homeDir, context, payload) {
   }
 }
 
+/** One timed action. `say` narrates it (the old mock's stdout; an engine session's screen stays
+ *  Claude's, so it says nothing). */
+async function runAction(homeDir, context, action, say) {
+  const atMs = typeof action.atMs === 'number' ? action.atMs : 0;
+  if (action.kind === 'appendJsonl') {
+    const sessionAlias = action.session || 'self';
+    const target = context.sessions[sessionAlias];
+    if (!target) {
+      throw new Error(`Unknown mock session alias "${sessionAlias}"`);
+    }
+
+    const record = resolveValue(action.record, context);
+    appendJsonl(target.transcriptPath, record);
+    logAction(
+      homeDir,
+      `appendJsonl ${sessionAlias} ${path.basename(target.transcriptPath)} ${JSON.stringify(record)}`,
+    );
+    say(
+      atMs,
+      `${ANSI_CYAN}append${ANSI_RESET} ${describeJsonlRecord(record)} → ${path.basename(target.transcriptPath)}`,
+    );
+    return;
+  }
+
+  if (action.kind === 'emitHook') {
+    const payload = resolveValue(action.payload, context);
+    await emitHook(homeDir, context, payload);
+    logAction(homeDir, `emitHook ${payload.hook_event_name} ${JSON.stringify(payload)}`);
+    say(atMs, `${ANSI_YELLOW}hook${ANSI_RESET} ${describeHookPayload(payload)}`);
+    return;
+  }
+
+  if (action.kind === 'writeJson') {
+    const filePath = resolveTemplateString(action.filePath, context);
+    const value = resolveValue(action.value, context);
+    writeJsonFile(filePath, value);
+    logAction(
+      homeDir,
+      `writeJson ${path.basename(filePath)} ${JSON.stringify({ filePath, value })}`,
+    );
+    say(atMs, `${ANSI_CYAN}write${ANSI_RESET} ${path.basename(filePath)}`);
+    return;
+  }
+
+  if (action.kind === 'deletePath') {
+    const filePath = resolveTemplateString(action.filePath, context);
+    deletePathTarget(filePath);
+    logAction(homeDir, `deletePath ${JSON.stringify({ filePath })}`);
+    say(atMs, `${ANSI_CYAN}delete${ANSI_RESET} ${path.basename(filePath)}`);
+    return;
+  }
+
+  if (action.kind === 'exit') {
+    logAction(homeDir, `exit code=${action.code || 0}`);
+    say(atMs, `exit code=${action.code || 0}`);
+    process.exit(typeof action.code === 'number' ? action.code : 0);
+  }
+}
+
+/**
+ * An engine session's timeline (agent-tycoon/test/fake-claude/pty-tui.cjs): `actions` timed from now,
+ * quietly. A PermissionRequest hook goes to `askPermission(payload)` (the session runs its own hook
+ * from --settings); the clock stops until it answers, and `{{permission}}` is its answer after it.
+ */
+async function playTurn(homeDir, context, actions, askPermission) {
+  let startedAt = Date.now();
+  for (const action of [...actions].sort((a, b) => (a.atMs || 0) - (b.atMs || 0))) {
+    const delayMs = startedAt + (action.atMs || 0) - Date.now();
+    if (delayMs > 0) await sleep(delayMs);
+    if (action.kind === 'emitHook' && action.payload && action.payload.hook_event_name === 'PermissionRequest') {
+      const asked = Date.now();
+      const payload = resolveValue(action.payload, context);
+      context.permission = await askPermission(payload);
+      startedAt += Date.now() - asked;
+      logAction(homeDir, `permission ${context.permission} ${JSON.stringify(payload)}`);
+      continue;
+    }
+    // Claude's own record fields, as the session's own lines carry them (the builders leave them out).
+    const stamped =
+      action.kind === 'appendJsonl'
+        ? { ...action, record: { uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId: context.sessionId, ...action.record } }
+        : action;
+    await runAction(homeDir, context, stamped, () => undefined);
+  }
+}
+
 async function playScenario(homeDir, scenario, context) {
   for (const [alias, session] of Object.entries(context.sessions)) {
     if (!session.sidecarPath || session.sidecarJson === undefined) {
@@ -426,59 +526,7 @@ async function playScenario(homeDir, scenario, context) {
       await sleep(delayMs);
     }
 
-    if (action.kind === 'appendJsonl') {
-      const sessionAlias = action.session || 'self';
-      const target = context.sessions[sessionAlias];
-      if (!target) {
-        throw new Error(`Unknown mock session alias "${sessionAlias}"`);
-      }
-
-      const record = resolveValue(action.record, context);
-      appendJsonl(target.transcriptPath, record);
-      logAction(
-        homeDir,
-        `appendJsonl ${sessionAlias} ${path.basename(target.transcriptPath)} ${JSON.stringify(record)}`,
-      );
-      echo(
-        atMs,
-        `${ANSI_CYAN}append${ANSI_RESET} ${describeJsonlRecord(record)} → ${path.basename(target.transcriptPath)}`,
-      );
-      continue;
-    }
-
-    if (action.kind === 'emitHook') {
-      const payload = resolveValue(action.payload, context);
-      await emitHook(homeDir, context, payload);
-      logAction(homeDir, `emitHook ${payload.hook_event_name} ${JSON.stringify(payload)}`);
-      echo(atMs, `${ANSI_YELLOW}hook${ANSI_RESET} ${describeHookPayload(payload)}`);
-      continue;
-    }
-
-    if (action.kind === 'writeJson') {
-      const filePath = resolveTemplateString(action.filePath, context);
-      const value = resolveValue(action.value, context);
-      writeJsonFile(filePath, value);
-      logAction(
-        homeDir,
-        `writeJson ${path.basename(filePath)} ${JSON.stringify({ filePath, value })}`,
-      );
-      echo(atMs, `${ANSI_CYAN}write${ANSI_RESET} ${path.basename(filePath)}`);
-      continue;
-    }
-
-    if (action.kind === 'deletePath') {
-      const filePath = resolveTemplateString(action.filePath, context);
-      deletePathTarget(filePath);
-      logAction(homeDir, `deletePath ${JSON.stringify({ filePath })}`);
-      echo(atMs, `${ANSI_CYAN}delete${ANSI_RESET} ${path.basename(filePath)}`);
-      continue;
-    }
-
-    if (action.kind === 'exit') {
-      logAction(homeDir, `exit code=${action.code || 0}`);
-      echo(atMs, `exit code=${action.code || 0}`);
-      process.exit(typeof action.code === 'number' ? action.code : 0);
-    }
+    await runAction(homeDir, context, action, echo);
   }
 
   const holdOpenMs =
@@ -524,8 +572,10 @@ async function main() {
   await playScenario(homeDir, scenario, context);
 }
 
-main()
-  .catch((error) => {
+module.exports = { scenarioFor, turnFor, buildContext, playTurn, claimScenario };
+
+if (require.main === module) {
+  main().catch((error) => {
     const homeDir = os.homedir();
     logAction(
       homeDir,
@@ -533,3 +583,4 @@ main()
     );
     process.exitCode = 1;
   });
+}

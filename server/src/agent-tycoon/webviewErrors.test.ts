@@ -52,6 +52,22 @@ describe('webviewErrorLine', () => {
   });
 });
 
+describe('webviewErrorLine, the direct address (S8.2)', () => {
+  it('keeps the origin and the secret path segment out of every field', () => {
+    const secret = 'S'.repeat(22);
+    const url = `https://203.0.113.7/${secret}/assets/a.js`;
+    const line = webviewErrorLine({
+      source: 'error',
+      message: `Failed to fetch dynamically imported module: ${url}`,
+      stack: `at f (${url}:1:2)`,
+      componentStack: `at G (${url}:3:4)`,
+    })!;
+    expect(line).not.toContain('203.0.113.7');
+    expect(line).not.toContain(secret);
+    expect(line).toContain('/assets/a.js:1:2');
+  });
+});
+
 describe('webviewErrorLine, hostile text (T-74 review F1, F2)', () => {
   it('lets no control character through from any field', () => {
     const line = webviewErrorLine({

@@ -91,6 +91,9 @@ type Result = Record<string, unknown>;
 
 export { LIMITS, MCP_SOURCE };
 export const RATE = { perMinute: 6, windowMs: 60_000 };
+/** E1.6: a Lead's own create_task (one issue per user story, often 4 to 10 in a row) has no pair, so it
+ *  counts against itself at this generous rate; the per-project open-task cap is the real guard. */
+export const LEAD_TASK_RATE = { perMinute: 60, windowMs: RATE.windowMs };
 const DUPLICATE_MS = 24 * 60 * 60_000;
 const DUPLICATE_MAX = 10_000;
 const PAGE = { tasks: 20, posts: 20, postsMax: 100 };
@@ -326,10 +329,10 @@ export class McpTools {
     };
   }
 
-  /** The Task, when the caller may see it. */
-  private task(me: RosterAgent, id: unknown): BoardTask | Failure {
+  /** The Task, when the caller may see it; `archived` (a read) also looks in the archive (P3.3). */
+  private task(me: RosterAgent, id: unknown, archived = false): BoardTask | Failure {
     if (typeof id !== 'string' || !id) return fail('bad_input', 'taskId is required');
-    const t = this.d.tasks.get(id);
+    const t = this.d.tasks.get(id) ?? (archived ? this.d.tasks.archived(id) : undefined);
     if (!t) return fail('unknown_task', `no task '${id}'`);
     if (t.project !== me.project)
       return fail('out_of_scope', `task '${id}' belongs to another project`);
@@ -349,7 +352,8 @@ export class McpTools {
     const lead = me.role === 'lead' ? null : mine.find((a) => a.role === 'lead');
     if (me.role !== 'lead' && !lead?.assignmentId)
       return fail('no_lead', 'your project has no Lead to propose to');
-    const slot = lead ? this.reserve(me.name, [lead.name]) : () => undefined;
+    // E1.6: a Lead's own Task has no pair, so it counts against itself (LEAD_TASK_RATE, per caller).
+    const slot = this.reserve(me.name, [lead?.name ?? me.name], lead ? RATE : LEAD_TASK_RATE);
     if (typeof slot !== 'function') return slot;
     const r = this.d.tasks.add(
       {
@@ -402,7 +406,7 @@ export class McpTools {
 
   private taskStatus(me: RosterAgent, input: Record<string, unknown>): Result {
     if (input.taskId !== undefined) {
-      const t = this.task(me, input.taskId);
+      const t = this.task(me, input.taskId, true);
       return 'error' in t ? t : { tasks: [brief(t, this.d.roster())] };
     }
     const offset = offsetOf(input.cursor);
@@ -537,19 +541,21 @@ export class McpTools {
    * before the caller awaits anything; a refusal when a pair already has its limit this minute.
    * The returned function gives the slots back (the call then failed).
    */
-  private reserve(a: string, others: string[]): Failure | (() => void) {
+  private reserve(a: string, others: string[], rate = RATE): Failure | (() => void) {
     const now = this.now();
     const keys = others.map((b) => [a, b].sort().join('\0'));
     for (const [i, key] of keys.entries()) {
-      const times = (this.pairs.get(key) ?? []).filter((t) => now - t < RATE.windowMs);
+      const times = (this.pairs.get(key) ?? []).filter((t) => now - t < rate.windowMs);
       this.pairs.set(key, times);
-      if (times.length >= RATE.perMinute)
+      if (times.length >= rate.perMinute)
         return {
           ...fail(
             'rate_limited',
-            `more than ${RATE.perMinute} messages/tasks a minute between ${a} and ${others[i]}`,
+            others[i] === a
+              ? `more than ${rate.perMinute} tasks a minute from ${a}`
+              : `more than ${rate.perMinute} messages/tasks a minute between ${a} and ${others[i]}`,
           ),
-          retryAfterSec: Math.max(1, Math.ceil((times[0] + RATE.windowMs - now) / 1000)),
+          retryAfterSec: Math.max(1, Math.ceil((times[0] + rate.windowMs - now) / 1000)),
         };
     }
     for (const key of keys) this.pairs.get(key)!.push(now);

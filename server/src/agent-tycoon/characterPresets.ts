@@ -38,6 +38,7 @@ import {
   MAX_HD_SHEET_BYTES,
   MAX_IMPORT_BYTES,
   MAX_SHEET_BYTES,
+  pngChunkIssue,
   pngHeaderIssue,
 } from '../../../core/src/agent-tycoon/sheetCheck.js';
 import {
@@ -903,7 +904,11 @@ export class CharacterPresets {
     } catch {
       // not cached yet
     }
-    const t = thumbOf(PNG.sync.read(fs.readFileSync(file)), cellW, cellH);
+    // S3.1: the scan judged the first 33 bytes only; the whole chunk list is checked before inflating
+    const sheet = fs.readFileSync(file);
+    const order = pngChunkIssue(sheet);
+    if (order) throw new Error(order.text);
+    const t = thumbOf(PNG.sync.read(sheet), cellW, cellH);
     try {
       fs.mkdirSync(this.thumbDir, { recursive: true });
       const tmp = `${cached}.tmp`;

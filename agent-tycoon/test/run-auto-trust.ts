@@ -3,9 +3,9 @@
  * `claude`, whose interactive mode shows Claude Code 2.1.310's folder-trust dialog (trust-tui.cjs).
  *
  * Desktop 1280×800: 오케스트레이터 추가 says under the folder that it answers Claude's trust question;
- * the added project's 켜기 shows 폴더 신뢰 중… on its card, then it is on and the toast says the
- * question was answered (the folder's .fake-untrusted is gone: the fake's answer recorded).
- * Phone 393×852: a folder whose claude crashes at the question: 켜기 ends with today's manual
+ * the add is the first 켜기, so the added project's card shows 폴더 신뢰 중… , then it is on and the
+ * toast says the question was answered (the folder's .fake-untrusted is gone: the fake's answer recorded).
+ * Phone 393×852: a folder whose claude crashes at the question: the add ends with today's manual
  * message, the card keeps the manual way and says what 켜기 does.
  * Screenshots into agent-tycoon/artifacts/auto-trust/, Hangul from malgun.ttf (read only).
  *
@@ -15,6 +15,7 @@ import type { Browser, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/agent-tycoon/configPath.js';
 import { TRUST_ARGS } from '../../server/src/agent-tycoon/engine/trust.js';
 import {
   assertPortFree,
@@ -27,7 +28,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/agent-tycoon/testHome.js';
-import { configDirectory } from '../../server/src/agent-tycoon/configPath.js';
 import { engineButton, engineRow } from './engineRow.js';
 
 const port = sparePort();
@@ -51,6 +51,10 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   const { home, bin } = makeEngineHome();
   fs.writeFileSync(path.join(configDirectory(home), 'config.json'), JSON.stringify({ accessChosen: true, port }));
+  // New Claude agents run in the PTY host (TERM-P3), which asks ~/.claude.json whether the folder is trusted and
+  // takes an absent file for "unknown" (it starts, the question would sit in the terminal): an empty
+  // projects map makes both folders untrusted, as on a real machine.
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: {} }));
   const folder = (name: string, mode?: string) => {
     const d = path.join(home, 'projects', name);
     fs.mkdirSync(d, { recursive: true });
@@ -109,7 +113,7 @@ async function main() {
     await page.waitForURL(`http://127.0.0.1:${port}/`);
     await openOfficeWindow(page);
     await hangul(page);
-    const drawer = page.getByRole('complementary', { name: '사무실 정보' });
+    const drawer = page.getByRole('complementary', { name: '현황판', exact: true }); // the window's title since 11-06 (was 사무실 정보)
     await drawer.getByRole('button', { name: ADD, exact: true }).click();
     const form = page.getByRole('form', { name: ADD });
     await form.waitFor();
@@ -117,12 +121,8 @@ async function main() {
     check((await form.textContent())?.includes(ADD_HELP), 'the add form says it answers the trust question');
     await shot(page, 'desktop-add-form');
     await form.getByRole('button', { name: '추가', exact: true }).click();
-    await toast(page, '추가했어요');
+    // An office add is also the person's first 켜기 (engine.ts exec): the card shows RUNNING while it answers.
     const alpha = await engineRow(page, 'alpha-app'); // the engine buttons are in the inspector now
-    await (await engineButton(page, 'alpha-app', '켜기')).click();
-    const dialog = page.getByRole('alertdialog');
-    await dialog.waitFor();
-    await dialog.getByRole('button', { name: '켜기', exact: true }).click();
     await alpha.getByText(RUNNING, { exact: true }).waitFor({ timeout: 20_000 });
     await shot(page, 'desktop-trusting');
     check(true, `the card shows ${RUNNING} while it runs`);
@@ -151,20 +151,16 @@ async function main() {
     check((await pform.textContent())?.includes(ADD_HELP), 'the phone add form says it too');
     await shot(phone, 'phone-add-form');
     await pform.getByRole('button', { name: '추가', exact: true }).tap();
-    await toast(phone, '추가했어요');
-    const beta = await engineRow(phone, 'beta-app');
-    await (await engineButton(phone, 'beta-app', '켜기')).tap();
-    const pdialog = phone.getByRole('alertdialog');
-    await pdialog.waitFor();
-    await pdialog.getByRole('button', { name: '켜기', exact: true }).tap();
+    // Its add is the first 켜기 too: claude crashes at the question, the card keeps the manual way.
     await toast(phone, '폴더 신뢰 확인 필요');
+    const beta = await engineRow(phone, 'beta-app');
     await beta.getByText(CARD_HELP, { exact: false }).waitFor({ timeout: 20_000 });
     const text = (await beta.textContent()) ?? '';
     check(text.includes('Yes, I trust this folder') && text.includes(`cd ${betaDir}`), 'the manual way stays on the card');
     await beta.scrollIntoViewIfNeeded();
     await shot(phone, 'phone-needs-trust');
     const runs = engineCalls(home).filter((c) => c.argv.join(' ') === TRUST_ARGS.join(' '));
-    check(runs.length === 2, 'one trust step per 켜기 (alpha, beta), none anywhere else');
+    check(runs.length === 2, 'one trust step per add (alpha, beta), none anywhere else');
   } finally {
     await browser?.close();
     if (server.exitCode === null && server.signalCode === null) {

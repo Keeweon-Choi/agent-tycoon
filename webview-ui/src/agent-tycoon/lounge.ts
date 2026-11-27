@@ -163,7 +163,10 @@ function band(os: OfficeState, row: number): { top: number; bottom: number } {
     : { top: 0, bottom: os.tileMap.length };
 }
 /** What other characters hold: the seats and tiles they rest on, stand on or head for. */
-function claimedBy(os: OfficeState, self: number): { seats: Set<string>; tiles: Set<string> } {
+export function claimedBy(
+  os: OfficeState,
+  self: number,
+): { seats: Set<string>; tiles: Set<string> } {
   const seats = new Set<string>();
   const tiles = new Set<string>();
   for (const c of os.characters.values()) {

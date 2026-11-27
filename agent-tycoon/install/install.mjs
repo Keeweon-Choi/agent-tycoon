@@ -435,7 +435,15 @@ async function loginUrl(config, dryRun) {
   if (!result.code) throw new Error('로그인 코드를 받지 못했습니다'); return `${result.url ?? loginBase(config)}/login?code=${encodeURIComponent(result.code)}`;
 }
 /** Terminal QR (agent-tycoon/bin/agty-qr.mjs, uqr); nothing when it can't draw one. */
-async function printQr(url, dryRun) { if (dryRun) return; try { console.log((await execFile(process.execPath, [path.join(repoRoot, 'agent-tycoon/bin/agty-qr.mjs'), url])).stdout); } catch { /* the link below still works */ } }
+async function printQr(url, dryRun) {
+  if (dryRun) return;
+  try {
+    // The link goes in on stdin: a process list shows argv to every local account (S8.1).
+    const pending = execFile(process.execPath, [path.join(repoRoot, 'agent-tycoon/bin/agty-qr.mjs')]);
+    pending.child.stdin.end(url);
+    console.log((await pending).stdout);
+  } catch { /* the link below still works */ }
+}
 /**
  * --remote / --connector direct|tailscale (T-0024, agent-tycoon/install/remote.mjs): the outside path in the
  * user's order. The daemon runs the direct steps itself and writes `connector`; a Tailscale path that

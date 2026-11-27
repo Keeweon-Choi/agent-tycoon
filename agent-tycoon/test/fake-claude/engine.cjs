@@ -107,6 +107,65 @@ if (args[0] === '-p' && args[1] === '/usage') {
   } else answer();
   return; // the rest is not this command's (a CommonJS module may return)
 }
+// T-115, opt-in so every other test's call list stays as it was: the initialize probe (cliCommands.ts)
+// answers with $HOME/fake-initialize.json (its models fill the side question's picker), and a side
+// question (sideQuestion.ts: -p --resume SID --fork-session --no-session-persistence ...) is logged to
+// fake-claude-side.log and answered with $HOME/fake-side-answer.txt; a file fake-side-fail-next makes
+// the next one fail once (it is removed): empty, with a stderr line; `login`, as Claude Code 2.1.x
+// does with an expired login (T-140): an is_error result on stdout, nothing on stderr, exit 1.
+const initFile = path.join(HOME, 'fake-initialize.json');
+if (args[0] === '-p' && args.includes('--input-format') && fs.existsSync(initFile)) {
+  fs.readFileSync(0);
+  const response = JSON.parse(fs.readFileSync(initFile, 'utf8'));
+  process.stdout.write(
+    `${JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: 'agent-tycoon-initialize', response } })}\n`,
+  );
+  return;
+}
+const sideAnswer = path.join(HOME, 'fake-side-answer.txt');
+if (args[0] === '-p' && args.includes('--fork-session') && fs.existsSync(sideAnswer)) {
+  const prompt = fs.readFileSync(0, 'utf8');
+  fs.appendFileSync(
+    path.join(HOME, 'fake-claude-side.log'),
+    `${JSON.stringify({ argv: args, cwd: process.cwd(), stdin: prompt, t: Date.now() })}\n`,
+  );
+  // Claude Code 2.1.323 still writes its live-session file for this print-mode fork (an interactive,
+  // busy row in the Lead's folder): the daemon must not take it for an agent. Removed at exit, as the CLI does.
+  const own = path.join(sessDir, `${process.pid}.json`);
+  let start;
+  try {
+    const st = fs.readFileSync('/proc/self/stat', 'utf8');
+    start = st.slice(st.lastIndexOf(')') + 2).split(' ')[19];
+  } catch {
+    /* not Linux */
+  }
+  fs.mkdirSync(sessDir, { recursive: true });
+  fs.writeFileSync(
+    own,
+    JSON.stringify({ pid: process.pid, procStart: start, sessionId: `fork-${process.pid}`, cwd: process.cwd(), kind: 'interactive', entrypoint: 'sdk-cli', status: 'busy', startedAt: Date.now() }),
+  );
+  process.on('exit', () => fs.rmSync(own, { force: true }));
+  const failNext = path.join(HOME, 'fake-side-fail-next');
+  const fails = fs.existsSync(failNext);
+  const failMode = fails ? fs.readFileSync(failNext, 'utf8').trim() : '';
+  if (fails) fs.rmSync(failNext);
+  // Long enough for a runner to see the card that waits, and for the daemon to read the sessions folder.
+  setTimeout(() => {
+    if (fails && failMode === 'login') {
+      const result =
+        'Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}';
+      process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result, session_id: 'fake-fork' }));
+      process.exit(1);
+    }
+    if (fails) {
+      process.stderr.write('fake side question failed\n');
+      process.exit(1);
+    }
+    const result = fs.readFileSync(sideAnswer, 'utf8').trim();
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result, session_id: 'fake-fork' }));
+  }, 3000);
+  return;
+}
 let stdin = '';
 if (args[0] === '--bg') {
   try {

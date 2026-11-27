@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
-import { passkeyStepUp } from '../shell/shellApi.js';
+import { passkeyStepUp, primePasskeyStepUp } from '../shell/shellApi.js';
 import { passkeyError } from './authApi.js';
 import { setStepUpAsker } from './stepUp.js';
 
@@ -19,6 +19,9 @@ export function StepUpPrompt() {
     });
     return () => setStepUpAsker(null);
   }, []);
+  // Its options ready before the tap (T-142: iOS opens Face ID only from the tap itself).
+  const asking = !!done;
+  useEffect(() => (asking ? primePasskeyStepUp() : undefined), [asking]);
   if (!done) return null;
   const finish = (ok: boolean) => {
     done(ok);

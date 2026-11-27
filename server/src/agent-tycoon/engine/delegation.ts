@@ -408,6 +408,7 @@ export class Delegator {
   ): Promise<Result> {
     const c = parseCall(raw);
     if (isRejected(c)) return Promise.resolve(c);
+    this.dropClosedProposals();
     const s = this.checkScope(me, roster, c);
     if (isRejected(s)) return Promise.resolve(s);
     const k = `${me.name}\0${c.key}`;
@@ -426,6 +427,18 @@ export class Delegator {
       if (!isRejected(result) || result.code === 'denied') this.remember(k, result);
       return result;
     });
+  }
+
+  /** A proposal waits for the Lead while its Task can still be handed out (`proposed`, or `todo` if
+   *  the Lead or the owner moved it: checkScope takes both): one gone or closed (done, ...) without
+   *  being taken would otherwise make the same call a duplicate for good. Not while tasks.json
+   *  cannot be read (no Task is known then). */
+  private dropClosedProposals(): void {
+    if (this.d.tasks.corrupt) return;
+    for (const a of this.store.list()) {
+      const status = this.d.tasks.get(a.id)?.status;
+      if (a.approver === 'lead' && status !== 'proposed' && status !== 'todo') this.store.remove(a.id);
+    }
   }
 
   private remember(k: string, result: Result): void {
@@ -805,7 +818,9 @@ export class Delegator {
       ...(limit && { limit }),
       why,
       match: this.openKey(me, c, s),
-      input: raw,
+      // A taken proposal's target comes from the proposal: stored with the call, the card shows it
+      // and a remote approval that would start a new Worker wants its step-up (startsNewWorker).
+      input: c.target ? raw : { ...raw, target: s.target },
       createdAt: new Date(this.h.now()).toISOString(),
     });
     if (!ok) return rejected('store_unwritable', this.store.problem ?? 'approvals.json could not be written');
@@ -1038,7 +1053,17 @@ export class Delegator {
   startsNewWorker(id: string): boolean {
     const a = this.store.get(id);
     const c = a && parseCall(a.input);
-    return !!c && !isRejected(c) && !!c.target && 'newWorker' in c.target;
+    const target = c && !isRejected(c) ? this.targetOf(c) : undefined;
+    return !!target && 'newWorker' in target;
+  }
+
+  /** A stored call's target, else the target of the proposal it takes, as checkScope reruns it
+   *  (an approval stored before E1.1, rc.8 and earlier, has none of its own). */
+  private targetOf(c: Call): Target | undefined {
+    if (c.target || !c.task.id) return c.target;
+    const p = this.store.get(c.task.id);
+    const stored = p?.approver === 'lead' ? parseCall(p.input) : null;
+    return stored && !isRejected(stored) ? stored.target : undefined;
   }
 
   /** The user's 승인 / 거절 on a pending call; the caller gets a line either way. */
@@ -1117,6 +1142,7 @@ export class Delegator {
       .map((a) => {
         const c = parseCall(a.input);
         const call = isRejected(c) ? null : c;
+        const target = call ? this.targetOf(call) : undefined;
         const task = call?.task.id ? this.d.tasks.get(call.task.id) : undefined;
         return {
           id: a.id,
@@ -1125,8 +1151,8 @@ export class Delegator {
           check: a.check,
           why: a.why,
           title: call?.task.title ?? task?.title ?? '',
-          target: call?.target ? describeTarget(call.target, roster) : '',
-          newWorker: !!call?.target && 'newWorker' in call.target,
+          target: target ? describeTarget(target, roster) : '',
+          newWorker: !!target && 'newWorker' in target,
           createdAt: a.createdAt,
           // The counts now (not when it asked), so the owner sees what approving would add to.
           counts: {

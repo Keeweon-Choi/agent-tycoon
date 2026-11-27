@@ -24,9 +24,12 @@
  *   queue/*.json           { to, from }                                               (Messenger queue)
  *   typed/<name>.json      the messenger's typing hints                               (Messenger)
  *   renewals/<encodeURIComponent(name)>.json[.failed]  { name, ... }                  (Renewals)
+ *   renew-history.json     { terms: [{ name, sessionId, next, ... }] }               (Renewals: B3 terms)
  *   revive-guard.json      { <name>: { attempts, gaveUp } }                           (ReviveGuard)
  *   rules-combined/<name>-<sha1>.md  written again at every start                     (agentRules)
  *   tasks.json             tasks[].project, tasks[].assignee.name                     (TaskStore)
+ *   tasks.archive.jsonl    the same fields; append-only, so tasksMove appends each moved task's
+ *                          new form as its last line (a lookup reads an id's last line)
  *   approvals.json         modes{<project>}, approvals[].project/.caller, newWorkers[].project
  *                          (ApprovalStore: delegation). newWorkers[].name is the daily new-Worker
  *                          count, noted BEFORE the Worker is made: not data kept under that name
@@ -76,6 +79,8 @@ import { combinedRulesFile } from './engine/agentRules.js';
 import { eventsPath } from './engine/events.js';
 import { readLeadHistory } from './engine/leadSwap.js';
 import { PROJECT_ID_RE, SESSION_ID_RE } from './engine/registry.js';
+import { readRenewHistory } from './engine/renewals.js';
+import { appendTaskArchive, readTaskArchive } from './engine/tasks.js';
 import { readJson, writeJsonAtomic } from './jsonFile.js';
 import { levelOf } from './levels.js';
 import { transcriptPath } from './providers/claudeProvider.js';
@@ -171,7 +176,8 @@ const keyed = (file: string, pick: (j: Json) => unknown, key = (n: string) => n)
 /** A room-history record with every mention of `from` as `to`; null when it has none. */
 function readdressRecord(r: Json, from: string, to: string): Json | null {
   let changed = false;
-  if (r.kind === 'delivery' && r.member === from) {
+  // T-113: a member's reply line recorded under a post (v 2) follows it too, so its count survives.
+  if ((r.kind === 'delivery' || r.kind === 'reply') && r.member === from) {
     r.member = to;
     changed = true;
   }
@@ -373,6 +379,15 @@ export const PROJECT_STORES: readonly Store[] = [
       for (const failed of [false, true]) fs.rmSync(renewalFile(home, name, failed), { force: true });
     },
   },
+  {
+    // B3's renew terms: get_resume_context picks an agent's last one by name, so they follow a rename,
+    // and a remove (purge too) readdresses them to the gone name, never drops them (the chat's
+    // scroll-back finds them by session id). History, not a claim on the name: `has` is false.
+    id: 'renew-history.json',
+    has: () => false,
+    move: (home, from, to) => renewTermsMove(home, from, to),
+    purge: (home, name, gone) => renewTermsMove(home, name, gone),
+  },
   keyed('revive-guard.json', (j) => j),
   {
     // Named after the agent and written again at its next start: the old one only goes.
@@ -384,7 +399,8 @@ export const PROJECT_STORES: readonly Store[] = [
   {
     // A removed project's Tasks go under its gone name (a purge too): work records stay. An
     // assignee is bound by its assignment id: its name follows a rename; a removed one keeps the
-    // name it had (the board shows "(삭제됨) <name>"), which is no data of a new agent's.
+    // name it had (the board shows "(삭제됨) <name>"), which is no data of a new agent's. The done
+    // Tasks in tasks.archive.jsonl follow too: tasksMove appends their new form (old lines stay).
     id: 'tasks.json',
     has: (home, name) => holds(cfg(home, 'tasks.json'), (j) => arr(j.tasks).some((t) => isObj(t) && t.project === name)),
     move: (home, from, to) => tasksMove(home, from, to),
@@ -435,6 +451,8 @@ export const PROJECT_STORES: readonly Store[] = [
   // The owner's protected branches of a project: a rename must keep them (a merge or a guard
   // install of the new name would otherwise find none).
   keyed('protected-branches.json', (j) => j),
+  // B5.8: the dev room's run-button picks (devroomRuns.ts reads the file on every use).
+  keyed('run-scripts.json', (j) => j.projects),
 ];
 
 function reviewNotesMove(home: string, from: string, to: string | null): void {
@@ -446,7 +464,23 @@ function reviewNotesMove(home: string, from: string, to: string | null): void {
   });
 }
 
+function renewTermsMove(home: string, from: string, to: string): void {
+  editJson(cfg(home, 'renew-history.json'), (j) => renameFields(arr(j.terms), ['name'], from, to));
+}
+
 function tasksMove(home: string, from: string, to: string): void {
+  // P3.3: the append-only archive gets each moved task's new form as its last line (lookups read
+  // the last), so a new project that takes the old name reads none of the old one's done Tasks.
+  const archive = cfg(home, 'tasks.archive.jsonl');
+  const latest = new Map(readTaskArchive(archive).map((t) => [t.id, t]));
+  const moved = [...latest.values()]
+    .filter((t) => t.project === from || (!isGoneName(to) && t.assignee?.name === from))
+    .map((t) => ({
+      ...t,
+      project: t.project === from ? to : t.project,
+      ...(t.assignee && !isGoneName(to) && t.assignee.name === from ? { assignee: { ...t.assignee, name: to } } : {}),
+    }));
+  if (moved.length) appendTaskArchive(archive, moved);
   editJson(cfg(home, 'tasks.json'), (j) => {
     let changed = false;
     for (const t of arr(j.tasks)) {
@@ -729,20 +763,25 @@ export function inheritProjectData(
 // ── 대화방 지우기 ─────────────────────────────────────────────
 
 /** A removed agent's own conversations: the one it had when removed, the ones a renew, rename,
- *  /clear or resume copy left behind it (events.jsonl orch_renew / orch_rename / orch_follow link
- *  each to the one before; a link from before orch_follow existed is not known), and its
- *  terms as a Lead (lead-history.json, by its assignment id). Nothing else. */
+ *  /clear or resume copy left behind it (events.jsonl and the rotated events.jsonl.1:
+ *  orch_renew / orch_rename / orch_follow link each to the one before; renew-history.json keeps
+ *  the renew links for good. A rename or follow link older than both logs, or from before
+ *  orch_follow existed, is not known), and its terms as a Lead (lead-history.json, by its
+ *  assignment id). Nothing else. */
 export function goneSessionIds(home: string, gone: string, g: GoneAgent): string[] {
   const own = new Set<string>();
   const first = g.sessionId ?? (g.transcript ? path.basename(g.transcript, '.jsonl') : undefined);
   if (first && SESSION_ID_RE.test(first)) own.add(first);
   for (const t of readLeadHistory(home)) if (`~${t.assignmentId}` === gone && SESSION_ID_RE.test(t.sessionId)) own.add(t.sessionId);
   const before = new Map<string, string>();
+  for (const t of readRenewHistory(home)) before.set(t.next, t.sessionId);
   let text = '';
-  try {
-    text = fs.readFileSync(eventsPath(home), 'utf-8');
-  } catch {
-    /* no events: only the ids above */
+  for (const file of [`${eventsPath(home)}.1`, eventsPath(home)]) {
+    try {
+      text += `${fs.readFileSync(file, 'utf-8')}\n`;
+    } catch {
+      /* no such log: only the ids above */
+    }
   }
   for (const line of text.split('\n')) {
     if (!line.includes('old_session_id')) continue;

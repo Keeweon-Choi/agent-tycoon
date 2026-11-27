@@ -10,6 +10,7 @@ import type { TraceEdge } from '../../../../core/src/agent-tycoon/spec/trace.js'
 import type {
   BoardTask,
   BoardTaskOwner,
+  BoardTaskOwnerKind,
   BoardTaskStatus,
   CodexTask,
   OfficeJob,
@@ -568,3 +569,31 @@ export function dropEdit(
 /** The board with the moves this screen sent and the daemon has not answered yet: each such card in its new column. */
 export const withMoves = (items: BoardItem[], moves: Readonly<Record<string, BoardTaskStatus>>): BoardItem[] =>
   items.map((i) => (moves[i.key] && moves[i.key] !== i.status ? { ...i, status: moves[i.key] } : i));
+
+/** The Task editor's fields as the owner sees them. */
+export interface EditorDraft {
+  status: BoardTaskStatus;
+  priority: string;
+  kind: BoardTaskOwnerKind;
+  name: string;
+  note: string;
+}
+
+export const draftOf = (task: BoardTask): EditorDraft => ({
+  status: task.status,
+  priority: task.priority ?? '',
+  kind: task.owner?.kind ?? 'unassigned',
+  name: task.owner?.name ?? '',
+  note: task.note ?? '',
+});
+
+/**
+ * The Task changed on the server while its editor is open: a field the owner has not touched (still
+ * `base`, what the editor started from) takes the server's value, a field being edited keeps what is typed.
+ */
+export function rebaseDraft(draft: EditorDraft, base: EditorDraft, next: EditorDraft): EditorDraft {
+  const out = { ...draft };
+  for (const k of Object.keys(draft) as (keyof EditorDraft)[])
+    if (draft[k] === base[k]) (out[k] as string) = next[k];
+  return out;
+}

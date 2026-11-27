@@ -15,8 +15,18 @@ import type { ProjectRecord } from '../registry.js';
  *  something not ours: nothing written), `lost` (another prompt went in instead of ours) or
  *  `unconfirmed` (Enter went in while the session works: Claude writes the prompt when it takes it,
  *  so its mark is looked for at the turn's end) or `unsubmitted` (TYPIST-STALE: the paste is in the
- *  box but no Enter took it, retries included; the next try submits it if it shows whole). */
-export type DeliverResult = 'typed' | 'notReady' | 'failed' | 'inputBusy' | 'lost' | 'unconfirmed' | 'unsubmitted';
+ *  box but no Enter took it, retries included; the next try submits it if it shows whole) or
+ *  `pickerOpen` (T-81: a slash command went in and opened a picker in the input box's place; the
+ *  session is held until it is closed at its terminal). */
+export type DeliverResult =
+  | 'typed'
+  | 'notReady'
+  | 'failed'
+  | 'inputBusy'
+  | 'lost'
+  | 'unconfirmed'
+  | 'unsubmitted'
+  | 'pickerOpen';
 
 export type Protocol = 'claude' | 'codex' | 'acp' | 'pty';
 
@@ -62,6 +72,9 @@ export interface AgentCapabilities {
   update?: readonly string[];
 }
 
+/** T-144: a model the person chose in the conversation: its name as shown, its line's time (ms). */
+export type ModelSwitch = { shown: string; at: number };
+
 /** A live session as the engine sees it (Claude: ~/.claude/sessions/<pid>.json). */
 export interface LiveSession {
   /** The id stop and attach take (Claude's short background id). */
@@ -77,6 +90,9 @@ export interface LiveSession {
   name?: string;
   /** busy | idle | waiting (Claude's session file). */
   status?: string;
+  /** When the provider last wrote `status` (ms). The idle stop counts from it, so a turn that
+   *  came and went between two looks starts the clock again. */
+  statusAt?: number;
   /** The provider knows this session's assignment (found by it, not by name or folder). */
   assignmentId?: string;
   /** The engine's resting session: an on assignment of a 'run' provider with no run now. */
@@ -137,6 +153,12 @@ export interface AgentProvider {
   transcript(s: Pick<LiveSession, 'cwd' | 'sessionId'>): string;
   /** Compaction records in the transcript, and how full the context is (percent, null unknown). */
   compaction?: { mark: string; fillPct(transcript: string): number | null };
+  /** T-144: an explicit model switch among new transcript lines (CompactionWatch reads them). */
+  modelSwitch?(
+    lines: string[],
+    since: number,
+    command: boolean,
+  ): { pick: ModelSwitch | null; command: boolean };
   /** One look at what the agent's daemon retired for idleness: is one of these ids among them? */
   idleRetired?(): (ids: Array<string | undefined>) => boolean;
   /** The agent's own daemon runs (true), is gone (false), or there is none to tell (null). */

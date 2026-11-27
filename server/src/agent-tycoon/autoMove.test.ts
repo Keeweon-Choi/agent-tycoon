@@ -175,6 +175,10 @@ describe('O5 automatic move', () => {
     const key = await SoftDevice.create(phone.device.id);
     expect((await at('POST', '/api/auth/device', tab, { deviceId: key.id, publicKey: await key.publicKey() })).statusCode).toBe(200);
 
+    // S1.2: the code carries the device off, so the tab steps up first (its page does it with that key, silently).
+    expect((await at('POST', '/api/auth/handoff-code', tab)).json()).toEqual({ error: 'stepup' });
+    const { nonce } = (await at('GET', '/login/device/challenge', tab)).json<{ nonce: string }>();
+    expect((await at('POST', '/api/auth/stepup/device', tab, { deviceId: key.id, nonce, signature: await key.sign(nonce) })).statusCode).toBe(200);
     const handoff = await at('POST', '/api/auth/handoff-code', tab);
     expect(handoff.statusCode).toBe(200);
     expect(audit().at(-1)).toMatchObject({

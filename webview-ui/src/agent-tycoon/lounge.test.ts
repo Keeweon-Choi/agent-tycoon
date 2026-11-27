@@ -41,7 +41,7 @@ import {
 } from './lounge.js';
 import { setOfficeHours } from './officeHours.js';
 import { agtyHandleMessage, agtyResetForTests } from './officeStore.js';
-import { staffResetForTests, staffSnapshot, staffStep } from './staff.js';
+import { deferRemoval, staffResetForTests, staffSnapshot, staffStep } from './staff.js';
 import { floorIndexAt, floorRects } from './walk.js';
 
 const LOUNGE = `1${LOUNGE_SUFFIX}`;
@@ -189,7 +189,10 @@ describe('the rest spot (LOUNGE)', () => {
     // the sofa is full: the third dozes at its own desk, never standing round the sofa
     const ch3 = os.characters.get(3)!;
     const desk = os.seats.get(ch3.seatId!)!;
-    expect(restSpotFor(os, ch3)).toEqual({ tile: { col: desk.seatCol, row: desk.seatRow }, seat: ch3.seatId });
+    expect(restSpotFor(os, ch3)).toEqual({
+      tile: { col: desk.seatCol, row: desk.seatRow },
+      seat: ch3.seatId,
+    });
   });
 
   it('falls back to its own desk when the floor has no lounge, and counts the lobby benches', () => {
@@ -306,6 +309,29 @@ describe('resting in the lounge (LOUNGE)', () => {
       reached ||= ch.tileCol === deskSeat.seatCol && ch.tileRow === deskSeat.seatRow;
     });
     expect(reached).toBe(true);
+  });
+
+  it('B7.4: a character removed while it uses a machine leaves the machine idle', () => {
+    const base = oneFloor();
+    const layout = {
+      ...base,
+      furniture: base.furniture.filter(
+        (f) => f.type !== 'COFFEE_MACHINE' && f.type !== 'WATER_COOLER',
+      ),
+    };
+    const os = office(layout, [1]);
+    const ch = os.characters.get(1)!;
+    beginRest(os, ch, { instant: true });
+    ch.agtyRest!.next = 0.01;
+    let used = false;
+    run(os, 30, () => {
+      if (used || ch.agtyRest?.phase !== 'use' || !os.agtyPantry.size) return;
+      used = true; // the machine is showing its picture now
+      os.removeAgent(1);
+    });
+    expect(used).toBe(true);
+    expect(os.characters.has(1)).toBe(false);
+    expect(os.agtyPantry.size).toBe(0);
   });
 
   it('now and then walks to a machine, stands facing it while it plays, drinks, and goes back', () => {
@@ -507,6 +533,25 @@ describe('off duty, through the staff director (LOUNGE)', () => {
     go(os, Date.UTC(2026, 9, 22, 9, 0), 15);
     const seat = os.seats.get(desk!)!;
     expect(at(ch)).toEqual([seat.seatCol, seat.seatRow]);
+  });
+
+  it('B7.1: a lingering temp never takes the sofa seat somebody rests on', () => {
+    const os = staffOffice([
+      ['lead', 1],
+      ['rester', 2],
+    ]);
+    const t0 = Date.UTC(2026, 9, 21, 12, 0);
+    go(os, t0, 4);
+    const rester = os.characters.get(2)!;
+    beginRest(os, rester, { instant: true });
+    const sofa = rester.agtyRest!.spot.seat!;
+    expect(os.seats.get(sofa)!.assigned).toBe(false); // a rest seat is never `assigned`
+    const sub = os.addSubagent(1, 'tu-a');
+    go(os, t0, 2);
+    deferRemoval(sub, () => {});
+    go(os, t0, 3); // the lead is idle: the temp lingers
+    expect(staffSnapshot().temps[0]?.phase).toBe('lingering');
+    expect(os.characters.get(sub)!.seatId).not.toBe(sofa);
   });
 
   it('a temp still leaves through the door (only permanent staff rest)', () => {

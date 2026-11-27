@@ -36,6 +36,7 @@ import { DOT, Mug } from '../messenger/parts.js';
 import { fatigueFor, useAgtyStore } from '../officeStore.js';
 import { setRunsProject } from '../panels/runsFilter.js';
 import { useRepoStore } from '../repo/repoStore.js';
+import { ensureAgentTerminalProof } from '../shell/shellApi.js';
 import { terminalMessages } from '../terminal/workspace.js';
 import { WaitMark } from '../WaitMark.js';
 import { type Bucket, bucketOf, BUCKETS, inStateSince, waitsOnPerson } from './agentBoard.js';
@@ -424,6 +425,7 @@ function PaneBody({
       <TerminalPane
         agentId={col.agentId ?? -1}
         socketPath={socketOf(col.bgId)}
+        prepare={ensureAgentTerminalProof}
         isActive
         autoFocus={false}
         messages={terminalMessages()}

@@ -154,4 +154,31 @@ describe('FileStateAdapter', () => {
     expect(adapter.loadSeats()).toEqual({ '1': { palette: 3 } });
     expect(adapter.loadAgents()).toHaveLength(1);
   });
+
+  it('D2.4: an unparseable office file is kept aside, never saved over with defaults', () => {
+    const torn = { 'config.json': '{"directories":[{"path":"/w', 'standalone-state.json': '{"seats":{"1"' };
+    fs.mkdirSync(path.dirname(officeFile('config.json', tempHome)), { recursive: true });
+    for (const [name, text] of Object.entries(torn)) fs.writeFileSync(officeFile(name, tempHome), text);
+    const adapter = new FileStateAdapter({ namespace: 'standalone' });
+    adapter.setSetting('agent-tycoon.soundEnabled', false);
+    adapter.saveSeats({ '2': { palette: 1 } });
+    const dir = path.dirname(officeFile('config.json', tempHome));
+    for (const [name, text] of Object.entries(torn)) {
+      const aside = fs.readdirSync(dir).filter((f) => f.startsWith(`${name}.corrupt-`));
+      expect(aside).toHaveLength(1);
+      expect(fs.readFileSync(path.join(dir, aside[0]), 'utf-8')).toBe(text);
+    }
+    expect(adapter.getSetting('agent-tycoon.soundEnabled', true)).toBe(false);
+    expect(adapter.loadSeats()).toEqual({ '2': { palette: 1 } });
+  });
+
+  it('D2.4: an unparseable ~/.pixel-agents file is not ours to move; writes go to the office folder', () => {
+    const legacy = path.join(tempHome, '.pixel-agents', 'config.json');
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, '{"torn');
+    new FileStateAdapter({ namespace: 'standalone' }).setSetting('agent-tycoon.soundEnabled', false);
+    expect(fs.readdirSync(path.dirname(legacy))).toEqual(['config.json']);
+    expect(fs.readFileSync(legacy, 'utf-8')).toBe('{"torn');
+    expect(fs.existsSync(officeFile('config.json', tempHome))).toBe(true);
+  });
 });

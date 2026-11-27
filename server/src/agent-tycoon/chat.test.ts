@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 
 import { AgentStateStore } from '../agentStateStore.js';
-import { WS_CLOSE_FORBIDDEN_ORIGIN, WS_CLOSE_NO_SESSION } from '../constants.js';
+import { WS_CLOSE_FORBIDDEN_ORIGIN, WS_CLOSE_NO_SESSION, WS_CLOSE_UNAUTHORIZED } from '../constants.js';
 import { createHttpServer, type HttpServerHandle } from '../httpServer.js';
 import type { IPty, PtyModule, PtySpawnOptions } from '../terminal/ptyModule.js';
 import { StandaloneAuth } from './auth.js';
@@ -23,6 +23,7 @@ import {
   foldsWhenPasted,
   inputLineEmpty,
   loginEnvFrom,
+  onePastePlaceholder,
   permissionDialog,
   sessionProcessAlive,
 } from './chat.js';
@@ -678,6 +679,14 @@ it('foldsWhenPasted: short one-liners never become a placeholder, long or tall t
   expect(foldsWhenPasted('배포해 줘', 8)).toBe(false);
 });
 
+it('onePastePlaceholder (T-165): one paste placeholder, its images around it, and nothing else', () => {
+  expect(onePastePlaceholder('[Pastedtext#3+41lines]')).toBe(true);
+  expect(onePastePlaceholder('[Image#1][Pastedtext#3+40lines]')).toBe(true);
+  expect(onePastePlaceholder('[Pastedtext#2+7lines][Pastedtext#3+41lines]')).toBe(false); // a person's paste and ours
+  expect(onePastePlaceholder('[Pastedtext#3+41li')).toBe(false); // torn
+  expect(onePastePlaceholder('내글[Pastedtext#3+41lines]')).toBe(false);
+});
+
 describe('chat: typing an agty send', () => {
   /**
    * `shows`: the screen after a paste (default: the draft, all its lines, in the input box).
@@ -705,6 +714,26 @@ describe('chat: typing an agty send', () => {
     return { chat, ptys, timing };
   };
   const PATIENT = { readyMs: 30_000, showMs: 30_000 };
+
+  it('a message that cannot go in logs which check failed, never the screen rows (S8.6)', async () => {
+    const logs: string[] = [];
+    const pty = new FakePty();
+    const chat = new ChatManager({
+      claudePath: '/abs/bin/claude',
+      home: HOME,
+      list: async () => SESSIONS,
+      pty: { spawn: () => pty },
+      log: (l) => logs.push(l),
+      typeTiming: { readyMs: 100, enterMs: 10, submitMs: 10, pollMs: 10 },
+    });
+    const typed = chat.type('a0000016', 'message');
+    await new Promise((r) => setTimeout(r, 20));
+    pty.emit(screenOf(['❯ SECRET-1234 draft\x1b[7m \x1b[27m']));
+    expect(await typed).toBe('notReady');
+    const line = logs.find((l) => l.startsWith('not ready'));
+    expect(line).toMatch(/input box taken/);
+    expect(logs.join('\n')).not.toContain('SECRET-1234');
+  });
 
   it('one bracketed paste with no control characters in it, then one Enter', async () => {
     const { chat, ptys } = make(draftScreen, true);
@@ -1032,7 +1061,8 @@ describe('chat route', () => {
       auth,
       chat,
     });
-    return { port: server.port, cookie: `agty_session=${auth.createSession().id}` };
+    const session = auth.createSession();
+    return { port: server.port, cookie: `agty_session=${session.id}`, auth, session };
   }
 
   /** Upgrade status, or the close code once opened. */
@@ -1077,6 +1107,29 @@ describe('chat route', () => {
     });
     expect(t.spawns).toHaveLength(0);
     expect(t.listCalls()).toBe(0);
+  });
+
+  it('S5.1: a remote session attaches only with a fresh step-up, as a device shell; this PC needs none', async () => {
+    const t = setup();
+    const { port, cookie, auth, session } = await start(t.chat);
+    const remote = { cookie, 'x-forwarded-for': '203.0.113.9' };
+    const refused = new WebSocket(`ws://127.0.0.1:${String(port)}/agty/attach/a0000016`, { headers: remote });
+    const closed = new Promise<[number, string]>((resolve) => refused.once('close', (code, why) => resolve([code, String(why)])));
+    try {
+      await waitFor(() => expect(t.listCalls() > 0 || refused.readyState === WebSocket.CLOSED).toBe(true));
+      expect(t.listCalls()).toBe(0);
+      expect(await closed).toEqual([WS_CLOSE_UNAUTHORIZED, 'proof']);
+    } finally {
+      refused.terminate();
+    }
+    auth.provedStepUp(auth.session(session.id)!, 'key');
+    const opened = new WebSocket(`ws://127.0.0.1:${String(port)}/agty/attach/a0000016`, { headers: remote });
+    try {
+      await waitFor(() => expect(t.listCalls()).toBe(1));
+    } finally {
+      opened.terminate();
+    }
+    // This PC's own browser (no step-up) is the end-to-end test below.
   });
 
   it('streams the fake claude attach end to end (prompt, echo, resize, filters, exit on leave)', async () => {

@@ -59,6 +59,7 @@ import { CharacterPresets, registerCharacterRoutes } from './characterPresets.js
 import type { CharacterSpec } from './characters.js';
 import { CharacterBinder } from './characters.js';
 import { sendTextRefusal } from './chatSend.js';
+import { ClaudeCommandsCache, type ClaudeCommandsRunner } from './cliCommands.js';
 import { configDirectory } from './configPath.js';
 import { ensureOwnerToken, ownerTokenMatches } from './controlIdentity.js';
 import type { Lead } from './conversations.js';
@@ -69,14 +70,14 @@ import { deviceLabel, deviceSource } from './device.js';
 import { Devroom } from './devroom.js';
 import { DevroomRuns } from './devroomRuns.js';
 import type { AgentChoicesReader } from './engine/agentCapabilities.js';
-import { AgentChoicesCache } from './engine/agentCapabilities.js';
+import { AgentChoicesCache, withCliModels } from './engine/agentCapabilities.js';
 import { AgentQueries, resumeHandoff } from './engine/agentQueries.js';
 import { handleAgentRules, rulesDirFor } from './engine/agentRules.js';
 import { AcpAgent } from './engine/agents/acp/acp.js';
 import { installedPresets } from './engine/agents/acp/presets.js';
 import { CodexAgent } from './engine/agents/codex/codex.js';
 import type { CodexRecord } from './engine/codex.js';
-import { codexJson, CodexTasks, readCodex } from './engine/codex.js';
+import { codexJson, CodexTasks, findCodex, readCodex } from './engine/codex.js';
 import type { Reply } from './engine/control.js';
 import { answerControl, controlPath, listenControl, refuse } from './engine/control.js';
 import { answerDecision, answerMode, approvalsPath, ApprovalStore } from './engine/delegation.js';
@@ -97,7 +98,7 @@ import type { ProjectFolder } from './engine/git/repoRead.js';
 import type { ReviewSendDeps } from './engine/git/reviewNotes.js';
 import { deliverToWorker, sendReview } from './engine/git/reviewNotes.js';
 import {
-  defaultLocks,
+  daemonLocks,
   gpuDir,
   GpuQueue,
   unleasedFromProcesses,
@@ -252,6 +253,8 @@ export interface OfficeOptions {
   home?: string;
   /** The `claude` the built-in engine (T-0018) runs; no engine without it. */
   engineClaude?: string;
+  /** Tests: stands in for the Claude CLI initialize probe. */
+  cliCommands?: ClaudeCommandsRunner;
   /** T-0110: reads the installed CLIs' choices for the orchestrator form (startOffice gives the real one). */
   agentChoices?: AgentChoicesReader;
   /** The PATH engine sessions and jobs get (engine/sessionPath.ts), built once at start. */
@@ -442,7 +445,19 @@ export class Office {
       messenger: () => this.messenger,
       groupMessages: () => this.groupMessages,
     });
-    this.slash = new SlashCatalogue({ home });
+    const claudeCommands = opts.engineClaude
+      ? new ClaudeCommandsCache({
+          claude: opts.engineClaude,
+          env: () => this.engine?.jobEnv() ?? cleanEnv(process.env, home),
+          home,
+        })
+      : null;
+    this.slash = new SlashCatalogue({
+      home,
+      cliCommands: opts.cliCommands ?? (claudeCommands ? () => claudeCommands.get() : undefined),
+      // T-143: the engine form lists the same models, so its view follows a new answer.
+      cliChanged: () => this.recompute(),
+    });
     this.host = detectHostInfo(opts.home ?? os.homedir());
     this.binder = new CharacterBinder(opts.runtime, opts.store);
     this.codexBinder = new CharacterBinder(opts.runtime, opts.store, CODEX_GRACE_MS);
@@ -558,6 +573,11 @@ export class Office {
         ),
       agentBusy: (name) => this.engine?.roster().find((a) => a.name === name)?.busy === true,
       autoCleanup: () => this.devroom.autoCleanupAfterMerge,
+      // B5.4: the same test that keeps a worktree from being given away while its holder works in it.
+      holderOf: (id, taskId) => {
+        const a = this.engine?.roster().find((x) => x.assignmentId === id);
+        return a && this.workerRuns.holdsWorktree(a, taskId ?? '') ? a.name : undefined;
+      },
     });
     this.projectRepos = new ProjectRepos({
       host: this.host,
@@ -799,7 +819,9 @@ export class Office {
           claudePath: opts.engineClaude!,
           ptyHostScript: opts.ptyHostScript !== undefined ? opts.ptyHostScript : AGTY_PTYHOST,
           agentChoices: opts.agentChoices && {
-            discover: (refresh) => this.agentLatest.merge(opts.agentChoices!.discover(refresh)),
+            discover: (refresh) =>
+              withCliModels(this.agentLatest.merge(opts.agentChoices!.discover(refresh)), this.slash.models()),
+            warm: () => this.slash.warm(),
           },
           sessionPath: opts.sessionPath,
           readOnly: opts.readOnly,
@@ -814,6 +836,7 @@ export class Office {
           // W2: a Claude Worker given a Task's worktree starts there next time.
           assignedFolder: (p) => this.assignedFolder(p),
           writeInbox: (name, text, replaces) => this.messenger?.writeInbox(name, text, replaces) ?? false,
+          takeInbox: (name, text) => this.messenger?.takeInbox(name, text) ?? false,
           nudge: (name, count, fillPct) =>
             void this.messenger?.send({
               to: name,
@@ -925,6 +948,7 @@ export class Office {
               this.publishJobs();
             },
             worker: opts.worker === undefined ? AGTY_WORKER : opts.worker,
+            notice: (to, text) => this.tellAgent(to, text),
             ...(process.env.AGTY_TEST_FAKE_KILL && { kill: fakeKill(process.env.AGTY_TEST_FAKE_KILL) }),
           })
         : null;
@@ -955,7 +979,7 @@ export class Office {
     this.gpuQueue = this.engineEvents
       ? new GpuQueue({
           dir: gpuDir(home),
-          locks: defaultLocks(),
+          locks: daemonLocks(),
           event: (type, fields) => this.engineEvents?.append(type, 'engine', fields),
         })
       : null;
@@ -1094,8 +1118,13 @@ export class Office {
     return renewSubagents(a, getHookProvider()?.team?.discoverTeammates(a.projectDir, a.sessionId) ?? []);
   }
 
-  /** The character of a project or session name, or null. */
+  /**
+   * The character of a project or session name, or null. The engine agent's key first (A1.1): an
+   * unnamed outside `claude` in the project folder carries the same name and is listed before it.
+   */
   private agentIdOfName(name: string): number | null {
+    const engine = this.binder.idOf(`engine:${name}`);
+    if (engine !== null) return engine;
     const entry = this.world.agents.find((a) => a.name === name);
     return entry ? this.binder.idOf(entry.key) : null;
   }
@@ -1564,6 +1593,28 @@ export class Office {
     q?.withAdmit(() => q.sweep(), 0);
   }
 
+  /**
+   * T-109: the end of a `job --notify` job, told to the agent that started it. A live agent gets it
+   * queued, a resting one (idle-retired: the engine's wake()) is woken by it, like a failed renew's
+   * notice ('action'). An agent the owner switched off (not wanted running) is never started
+   * by it: the line waits in its inbox and is its first message at the next start. Resolves null once
+   * the line is accepted, else the reason (Jobs logs it and tries again, a few times).
+   */
+  private async tellAgent(to: string, text: string): Promise<string | null> {
+    const messenger = this.messenger;
+    if (!messenger) return 'no messenger';
+    try {
+      const p = this.engine?.state().projects.find((x) => x.name === to);
+      // wantRunning alone: false is an agent the owner switched off, also one still exiting (the live
+      // view lags, and a send would then start it again). A resting one keeps wantRunning true.
+      if (p && !p.wantRunning) return messenger.writeInbox(to, text) ? null : 'inbox_write_failed';
+      const r = await messenger.send({ to, text, ifIdle: false, from: null, source: 'engine', notice: 'action' });
+      return r.ok ? null : String(r.code ?? 'refused');
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  }
+
   /** The engine's jobs (T-0019), for the job panel. */
   private publishJobs(): void {
     if (!this.jobs) return;
@@ -1585,7 +1636,7 @@ export class Office {
     } catch (err) {
       console.warn(`[agty engine] owner token: ${err instanceof Error ? err.message : String(err)}; owner commands over ${file} are refused`);
     }
-    const groupPost = (r: { room: string; text: string; from: string | null; source: string }) =>
+    const groupPost = (r: { room: string; text: string; from: string | null; source: string; owner?: true }) =>
       this.groupMessages
         ? this.groupMessages
             .post(r)
@@ -1781,6 +1832,7 @@ export class Office {
               : answerTask(this.tasks, args, who, {
                   assignmentOf: (name) => this.workerRuns.assignments()?.get(name) ?? null,
                   names: () => engine.names(),
+                  projectOf: (name) => engine.projectOf(name),
                 }),
           rename: (name, to, source) => engine.rename(name, to, source),
           renew: (name, text, from, source) => {
@@ -1842,7 +1894,7 @@ export class Office {
       // The folder the usage line reads: codex must write its fresh limits there.
       CODEX_HOME: this.usage.opts.codexHome,
     };
-    const codex = findOnPath(process.platform === 'win32' ? 'codex.cmd' : 'codex', env.PATH);
+    const codex = findCodex(env.PATH);
     const finishError = (err: unknown): Error =>
       err instanceof CodedError ? err : new Error(oneLineError(err));
     return new Promise((resolve, reject) => {
@@ -2443,6 +2495,7 @@ export class Office {
           jobs: this.jobs,
           readOnly: this.opts.readOnly,
           home: this.host.home,
+          warmCliChoices: () => this.slash.warm(),
         },
       )
     )
@@ -2619,6 +2672,7 @@ export class Office {
           a.key.startsWith('engine:') && {
             queued: this.messenger.queuedFor(a.name),
             held: this.messenger.held(a.name),
+            ...(this.messenger.pickerUp(a.name) && { picker: true }),
           }),
         ...(permission && { permission }),
       });

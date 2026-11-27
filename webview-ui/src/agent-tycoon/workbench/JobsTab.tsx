@@ -12,7 +12,7 @@ import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
 import { Chevron } from '../Chevron.js';
 import { JobRun } from '../game/JobRun.js';
-import { jobRequest, useJobStore } from '../jobStore.js';
+import { jobPollLog, jobRequest, useJobStore } from '../jobStore.js';
 import { useAgtyStore } from '../officeStore.js';
 import {
   foldText,
@@ -59,12 +59,7 @@ function JobControls({ job, open, setOpen }: { job: OfficeJob; open: boolean; se
   const canStop = !!job.id && officeState?.readOnly === false && !officeReadOnly && !job.ended;
   const running = !job.ended;
   useEffect(() => {
-    if (!open) return;
-    const read = () => jobRequest((m) => transport.send(m), 'log', ref);
-    read();
-    if (!running) return;
-    const timer = window.setInterval(read, LOG_POLL_MS);
-    return () => window.clearInterval(timer);
+    if (open) return jobPollLog(transport, ref, running, LOG_POLL_MS);
   }, [open, running, ref]);
   if (officeReadOnly) return null;
   const log = logs[ref];

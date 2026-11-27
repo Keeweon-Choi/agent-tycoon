@@ -14,6 +14,7 @@
  */
 import { useSyncExternalStore } from 'react';
 
+import { slashTextProblem } from '../../../../core/src/agent-tycoon/slashText.js';
 import type {
   ChatCancel,
   ChatEdit,
@@ -29,6 +30,7 @@ import type {
   ChatSendNow,
   ChatSendResult,
   ChatTranscript,
+  ChatView,
   GoneConversationDelete,
   GoneConversationDeleteResult,
   GroupActionResult,
@@ -45,7 +47,7 @@ import type {
   SlashCommandsList,
 } from '../../../../core/src/messages.js';
 import type { TabStatus } from '../../components/AgentCard.js';
-import { CHAT_REQUEST_TIMEOUT_MS, MSG_QUEST_RECORDS_MAX } from '../../constants.js';
+import { CHAT_REQUEST_TIMEOUT_MS, MSG_COMMAND_SETTLE_MS, MSG_QUEST_RECORDS_MAX } from '../../constants.js';
 import { t } from '../../i18n/index.js';
 // Called only when a result arrives (officeStore imports this module too).
 import { STEPUP_REQUIRED, stepUpFailedText } from '../auth/authApi.js';
@@ -96,7 +98,7 @@ export interface PendingSend {
   promoting?: boolean;
   /** A replacement request is on its way. */
   editing?: boolean;
-  /** The replacement text, held until the server accepts it. */
+  /** The replacement text, held until the server accepts it (after a lost socket, for an edit entered again). */
   editText?: string;
   /** A cancellation request is on its way. */
   cancelling?: boolean;
@@ -117,6 +119,11 @@ export interface PendingSend {
   inputWaitLong?: boolean;
   /** MSG-RECALL: lost to another prompt twice: it waits for 다시 보내기 (the 지금 보내기 request). */
   lost?: boolean;
+  /** Failed only because the socket dropped before its result: it may have reached the daemon,
+   *  so the transcript or the queue list may still settle it. */
+  unknown?: boolean;
+  /** T-169: a `/` command the engine put in (its send went in, or the queue list let it go): when. */
+  inAt?: number;
 }
 /** MSG-HOLD2: an edit whose message went in first (the hold came too late, another device let it
  *  go): its text is kept here, to be sent as a follow-up correction or taken back to the composer. */
@@ -182,6 +189,9 @@ export interface MessengerSnapshot {
    *  notice is about. */
   tailLive: Record<number, boolean>;
   historyWindowed: Record<number, boolean>;
+  /** Replies (item ids) a live append brought while an older window was on screen: not shown
+   *  yet, counted on the jump button. */
+  windowedNew: Record<number, string[]>;
   /** Room roster/timelines are read-only state until a privileged post is made. */
   rooms: GroupRoom[];
   groupTimelines: Record<string, GroupTimeline>;
@@ -198,6 +208,11 @@ export interface MessengerSnapshot {
   questRecords: Record<number, QuestRecord[]>;
   /** GAME-UI-1 G1 (04): when a lead's last message was confirmed delivered (its row's ✓ 전달됨 badge). */
   delivered: Record<number, number>;
+  /** T-81: the lead's last send went in and opened a picker in its terminal (chatSendResult
+   *  screen: 'picker'): its messages wait until it is closed there, and the conversation shows its
+   *  terminal over it (T-81 C). Until the next send's answer, or the contact list no longer shows
+   *  the lead held. */
+  picker: Record<number, true>;
   /** MSG-SPLIT: the panes (per viewer); the focused one mirrors `active`/`activeRoom`. */
   split: PaneState;
   /** MSG-SPLIT: the desktop messenger is wide enough for its panes (the phone never is). */
@@ -264,6 +279,7 @@ const initial = (): MessengerSnapshot => ({
   jumpLoading: {},
   tailLive: {},
   historyWindowed: {},
+  windowedNew: {},
   rooms: [],
   groupTimelines: {},
   groupAttachments: {},
@@ -273,6 +289,7 @@ const initial = (): MessengerSnapshot => ({
   permissionAnswers: {},
   questRecords: {},
   delivered: {},
+  picker: {},
   split: loadPanes(),
   splitWide: false,
 });
@@ -283,14 +300,68 @@ let seq = 0;
 /** ACP-1: how the last card answer went out (a step-up's retry goes the same way). */
 let answerSend: ((m: PermissionAnswer) => void) | null = null;
 
+/** T-169: when each lead's picker was last seen closed. */
+const pickerOffAt = new Map<number, number>();
+let commandTimer: ReturnType<typeof setTimeout> | null = null;
 const emit = () => listeners.forEach((l) => l());
 const set = (next: Partial<MessengerSnapshot>) => {
   const prev = snapshot;
   snapshot = { ...snapshot, ...next };
   syncPanes(prev);
   syncRead();
+  if (snapshot.picker !== prev.picker)
+    for (const id of Object.keys(prev.picker)) if (!snapshot.picker[Number(id)]) pickerOffAt.set(Number(id), Date.now());
+  if (snapshot.pending !== prev.pending || snapshot.picker !== prev.picker) settleCommands();
   emit();
 };
+
+/** What the daemon types raw into the terminal (messenger.ts): a `/` command, never a message. */
+const isCommand = (text: string): boolean => slashTextProblem(text) === null;
+
+/**
+ * T-169: a `/` command the engine put in leaves its bubble MSG_COMMAND_SETTLE_MS after it went in,
+ * or after its lead's picker closed, whichever is later (never while the picker is up). Many of
+ * Claude Code's dialogs close writing nothing (display "skip", a dismissed panel), so the transcript
+ * cannot settle those; one it does log has settled by then (settle), or its line comes after the
+ * bubble left: it shows once either way. One still queued has no `inAt` and waits as ever.
+ */
+function settleCommands(): boolean {
+  const now = Date.now();
+  let next = Infinity;
+  let pending = snapshot.pending;
+  for (const [id, list] of Object.entries(pending)) {
+    const agentId = Number(id);
+    let changed = false;
+    const keep: PendingSend[] = [];
+    for (let p of list) {
+      if (p.state === 'sent' && p.inAt === undefined && isCommand(p.text)) {
+        p = { ...p, inAt: now };
+        changed = true;
+      }
+      if (p.inAt !== undefined && (p.state === 'sent' || p.state === 'queued') && !snapshot.picker[agentId]) {
+        const due = Math.max(p.inAt, pickerOffAt.get(agentId) ?? 0) + MSG_COMMAND_SETTLE_MS;
+        if (now >= due) {
+          changed = true;
+          continue;
+        }
+        next = Math.min(next, due);
+      }
+      keep.push(p);
+    }
+    if (changed) pending = { ...pending, [agentId]: keep };
+  }
+  if (commandTimer) clearTimeout(commandTimer);
+  commandTimer =
+    next < Infinity
+      ? setTimeout(() => {
+          commandTimer = null;
+          if (settleCommands()) emit();
+        }, next - now)
+      : null;
+  if (pending === snapshot.pending) return false;
+  snapshot = { ...snapshot, pending };
+  return true;
+}
 // Minimizing or restoring the window changes what counts as read.
 hudSubscribe(() => {
   const before = snapshot.read;
@@ -482,14 +553,35 @@ export function messengerPin(send: (m: SetConversationPin) => void, key: string,
  *  of this device claims (by queue id) gets one of its own. */
 export function mergeQueued(pending: PendingSend[], queued: ChatQueued[]): PendingSend[] {
   const ids = new Set(queued.map((q) => q.id));
-  const out = pending.filter(
-    (p) => !p.requestId.startsWith(QUEUED_PREFIX) || ids.has(p.queueId ?? ''),
-  );
+  // A send whose result the lost socket took gives way to the queue's bubble for the same words,
+  // one bubble per queue entry (a second lost send of those words may never have left).
+  const claimed = new Set(pending.map((p) => p.queueId));
+  const unclaimed = new Map<string, number>();
+  for (const q of queued)
+    if (!claimed.has(q.id)) unclaimed.set(q.text, (unclaimed.get(q.text) ?? 0) + 1);
+  const out = pending.filter((p) => {
+    if (p.requestId.startsWith(QUEUED_PREFIX) && !ids.has(p.queueId ?? '')) return false;
+    const left = unclaimed.get(p.text) ?? 0;
+    if (!p.unknown || p.state !== 'failed' || left === 0) return true;
+    unclaimed.set(p.text, left - 1);
+    return false;
+  });
+  const lostAnswer = t('messenger.error.disconnectedResult');
   for (const q of queued) {
     const i = out.findIndex((p) => p.queueId === q.id);
+    // B6.1: an edit or cancel whose answer a lost socket took and the queue now shows landed.
+    const lost = i >= 0 && out[i].refusal === lostAnswer;
+    const landed = lost && (q.cancelled || (q.edited && q.text === out[i].editText));
+    // The queue still holds exactly the words from before the edit: known not to have landed; its
+    // words stay for an edit entered again. Any other words (the daemon re-adds attachment lines
+    // and trims, another device may have edited) leave the result unknown.
+    const notSaved =
+      lost && !landed && !q.cancelled && out[i].editText !== undefined && q.text === out[i].text;
     if (i >= 0)
       out[i] = {
         ...out[i],
+        ...(landed && { refusal: undefined, editText: undefined }),
+        ...(notSaved && { refusal: t('messenger.error.editNotSaved') }),
         text: q.text,
         state: q.cancelled ? 'cancelled' : 'queued',
         now: out[i].now || q.now,
@@ -543,7 +635,7 @@ export function settle(
         ? byId
         : left.findIndex(
             (p) =>
-              p.state !== 'failed' &&
+              (p.state !== 'failed' || p.unknown) &&
               !(item.messageId && p.messageId) &&
               p.text.trim() === item.text &&
               (item.at === 0 || item.at >= p.sentAt - SKEW_MS),
@@ -835,8 +927,12 @@ export function messengerHandleMessage(
     for (const c of msg.contacts) {
       const prev = snapshot.contacts.find((p) => p.name === c.name);
       const last = c.replies.at(-1);
-      if (read[c.name] === undefined && last) {
-        read[c.name] = last; // first sight on this device: nothing unread yet
+      // First sight on this device: nothing unread yet. A lead whose transcript was read (lastAt)
+      // with no reply gets the start of time, so its first reply counts (as a room's does).
+      // ponytail: an empty transcript whose first line and first reply come in one list still
+      // takes that reply as the mark.
+      if (read[c.name] === undefined && (last || c.lastAt !== undefined)) {
+        read[c.name] = last ?? '0-';
         baseline = true;
       }
       if (prev && last && prev.replies.at(-1) !== last && !reading(c.agentId))
@@ -850,29 +946,51 @@ export function messengerHandleMessage(
           l({ agentId: c.agentId, name: c.name, preview: serverLine(c.roomReply.text), room });
     }
     if (baseline) saveRead(read);
-    set({ contacts: msg.contacts, read });
+    // T-81: the daemon holds a lead while the picker its command opened is up: no longer held, it was closed.
+    // T-141: a picker a command typed from the queue opened has no send result: the contact says so.
+    const picker = Object.fromEntries([
+      ...Object.entries(snapshot.picker).filter(([id]) => msg.contacts.some((c) => c.agentId === Number(id) && c.held)),
+      ...msg.contacts.filter((c) => c.picker).map((c) => [c.agentId, true]),
+    ]) as MessengerSnapshot['picker'];
+    set({ contacts: msg.contacts, read, picker });
     return;
   }
   if (msg.type === 'chatTranscript') {
     const prev = snapshot.items[msg.agentId] ?? [];
-    const items = msg.append ? mergeItems(prev, msg.items) : msg.items;
+    // A jump left an older window on screen: a live append would sit right after its last item
+    // and push its oldest out, so the window stays as it is (the jump to the bottom reloads the tail).
+    const windowed = msg.append && snapshot.historyWindowed[msg.agentId];
+    const items = !msg.append ? msg.items : windowed ? prev : mergeItems(prev, msg.items);
+    const unseen = windowed ? (snapshot.windowedNew[msg.agentId] ?? []) : [];
+    const replies = windowed
+      ? msg.items.filter((i) => i.kind === 'assistant' && !unseen.includes(i.id)).map((i) => i.id)
+      : [];
     const s = settle(
       snapshot.pending[msg.agentId] ?? [],
       msg.items,
       snapshot.received[msg.agentId] ?? [],
     );
+    // T-169: a command of this device's the queue list no longer holds was typed in by the tick.
+    const listed = new Set(msg.queued?.map((q) => q.id));
+    const merged = msg.queued
+      ? mergeQueued(s.pending, msg.queued).map((p) =>
+          p.state === 'queued' && p.queueId && !listed.has(p.queueId) && p.inAt === undefined && isCommand(p.text)
+            ? { ...p, inAt: Date.now() }
+            : p,
+        )
+      : s.pending;
     set({
       items: { ...snapshot.items, [msg.agentId]: items },
       tailLive: { ...snapshot.tailLive, [msg.agentId]: true },
       canSend: { ...snapshot.canSend, [msg.agentId]: msg.canSend },
-      pending: {
-        ...snapshot.pending,
-        [msg.agentId]: msg.queued ? mergeQueued(s.pending, msg.queued) : s.pending,
-      },
+      pending: { ...snapshot.pending, [msg.agentId]: merged },
       received: { ...snapshot.received, [msg.agentId]: s.received },
       ...(!msg.append && { historyDone: { ...snapshot.historyDone, [msg.agentId]: false } }),
       ...(!msg.append && {
         historyWindowed: { ...snapshot.historyWindowed, [msg.agentId]: false },
+      }),
+      ...((!msg.append || replies.length > 0) && {
+        windowedNew: { ...snapshot.windowedNew, [msg.agentId]: [...unseen, ...replies] },
       }),
     });
     return;
@@ -989,9 +1107,15 @@ export function messengerHandleMessage(
     const next = list.filter((p) => !queueId || p.requestId !== `${QUEUED_PREFIX}${queueId}`);
     const j = next.findIndex((p) => p.requestId === msg.requestId);
     if (state === 'sent') snapshot = { ...snapshot, delivered: { ...snapshot.delivered, [Number(id)]: Date.now() } };
+    const picker = { ...snapshot.picker };
+    if (msg.screen === 'picker') picker[Number(id)] = true;
+    // T-141: only a send that went in says the picker is gone; one queued (held behind it) or refused says nothing.
+    else if (state === 'sent') delete picker[Number(id)];
+    snapshot = { ...snapshot, picker };
     next[j] = {
       ...list[i],
       state,
+      unknown: undefined, // its result came after all
       ...(msg.error && { error: serverText(msg) }),
       ...(queueId && { queueId }),
       ...(msg.messageId && { messageId: msg.messageId }),
@@ -1226,9 +1350,27 @@ export function closeMessengerPane(index: number): void {
   });
 }
 
-/** The conversation's chatView went off: what is held is no longer kept current. */
+/** The conversation's chatView went off: what is held is no longer kept current. An older window
+ * goes with it (reopening answers with the full transcript), so a later send never asks for a
+ * tail no view holds. A page still on its way (the daemon answers after the view is off) is
+ * dropped too, or it would open a window again with no holder. */
 export function chatViewClosed(agentId: number): void {
-  if (snapshot.tailLive[agentId]) set({ tailLive: { ...snapshot.tailLive, [agentId]: false } });
+  if (
+    snapshot.tailLive[agentId] ||
+    snapshot.historyWindowed[agentId] ||
+    snapshot.historyBusy[agentId] ||
+    snapshot.jumpLoading[agentId]
+  ) {
+    const busy = { ...snapshot.historyBusy };
+    delete busy[agentId];
+    set({
+      tailLive: { ...snapshot.tailLive, [agentId]: false },
+      historyWindowed: { ...snapshot.historyWindowed, [agentId]: false },
+      windowedNew: { ...snapshot.windowedNew, [agentId]: [] },
+      historyBusy: busy,
+      jumpLoading: { ...snapshot.jumpLoading, [agentId]: false },
+    });
+  }
 }
 
 export function closeConversation(agentId: number): void {
@@ -1238,7 +1380,7 @@ export function closeConversation(agentId: number): void {
 
 /** 보내기 (`now`: 즉시 보내기): a bubble at once, then what the daemon made of it. */
 export function messengerSend(
-  send: (m: ChatSend) => void,
+  send: (m: ChatSend | ChatView) => void,
   connected: boolean,
   agentId: number,
   name: string,
@@ -1262,7 +1404,11 @@ export function messengerSend(
   set({
     pending: { ...snapshot.pending, [agentId]: [...(snapshot.pending[agentId] ?? []), bubble] },
   });
-  if (connected) send({ type: 'chatSend', requestId, name, text, ...(now && { now }), ...reply });
+  if (!connected) return;
+  send({ type: 'chatSend', requestId, name, text, ...(now && { now }), ...reply });
+  // An older window on screen takes no live appends: the tail comes back (chatView answers in
+  // full), so the boss's own message and the answer to it show.
+  if (snapshot.historyWindowed[agentId]) send({ type: 'chatView', agentId, on: true });
 }
 
 /** PERM-PROMPT: 허용 (`allow`) or 거부 on a lead's permission card about call `toolId`. */
@@ -1336,7 +1482,8 @@ export function messengerEditEnter(
   const p = (snapshot.pending[agentId] ?? []).find((item) => item.requestId === requestId);
   if (!p?.queueId || p.state !== 'queued' || p.editing || p.cancelling) return false;
   set({
-    editing: { agentId, name, requestId, queueId: p.queueId, text: p.text },
+    // B6.1: an edit whose answer a lost socket took starts again from its words.
+    editing: { agentId, name, requestId, queueId: p.queueId, text: p.editText ?? p.text },
     pending: patchPending(agentId, requestId, { held: true, holdNote: undefined }),
   });
   send({ type: 'chatHold', name, id: p.queueId, on: true });
@@ -1451,9 +1598,17 @@ export function messengerConnectionLost(): void {
         changed = true;
         return { ...p, promoting: false };
       }
+      // An edit or cancel whose answer is lost: its buttons come back (the next transcript says
+      // what the daemon holds); the edited words are not known to have landed, so say so, and
+      // keep them for an edit entered again.
+      if (p.editing || p.cancelling) {
+        changed = true;
+        const refusal = t('messenger.error.disconnectedResult');
+        return { ...p, editing: false, cancelling: false, refusal };
+      }
       if (p.state !== 'sending') return p;
       changed = true;
-      return { ...p, state: 'failed', error: t('messenger.error.disconnectedResult') };
+      return { ...p, state: 'failed', unknown: true, error: t('messenger.error.disconnectedResult') };
     });
   }
   // PERM-PROMPT: an answer on its way never hears back on this connection.
@@ -1470,6 +1625,9 @@ export function messengerConnectionLost(): void {
 /** Tests: a fresh store. */
 export function messengerResetForTests(): void {
   closeWindow('messenger');
+  pickerOffAt.clear();
+  if (commandTimer) clearTimeout(commandTimer);
+  commandTimer = null;
   snapshot = initial();
   emit();
 }

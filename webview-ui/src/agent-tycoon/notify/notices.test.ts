@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NOTICE_COOLDOWN_MS } from '../../../../core/src/constants.js';
 import type { OfficeEvent, OfficeSnapshot } from '../../../../core/src/messages.js';
@@ -27,6 +27,7 @@ import {
   clearAll,
   DEFAULT_SETTINGS,
   markAllRead,
+  markNoticeRead,
   markRead,
   type Notice,
   noticeGoesTo,
@@ -36,6 +37,7 @@ import {
   noticeVerdict,
   permissionOver,
   setNoticeSettings,
+  syncNoticesFromStorage,
   unreadCount,
 } from './notices.js';
 import { openTarget } from './openTarget.js';
@@ -770,5 +772,72 @@ describe('FIX-PERM-RESTART: a permission notice whose wait is over', () => {
     // A Claude session's permission is not on its contact: unknown.
     expect(permissionOver(notice('solo'), rows, [{ name: 'solo' }])).toBe(false);
     expect(permissionOver({ ...notice('alpha'), cause: 'question' }, rows, [{ name: 'alpha' }])).toBe(false);
+  });
+});
+
+describe('U2.7: two tabs of one browser share the notice settings and list', () => {
+  const store = new Map<string, string>();
+  const fake = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+  };
+  beforeEach(() => {
+    store.clear();
+    vi.stubGlobal('localStorage', fake);
+    noticesResetForTests();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a setting or a cleared list written by the other tab is read, not written over by the next change here', () => {
+    const mine = { ...DEFAULT_SETTINGS, sound: true };
+    setNoticeSettings(mine);
+    const n = (id: string): Notice => ({ id, cause: 'job', agentId: null, name: 'x', text: 't', at: T0, read: false });
+    noticesResetForTests();
+    store.set('agty.notice-settings', JSON.stringify({ ...mine, sound: false }));
+    store.set('agty.notices', JSON.stringify([]));
+    store.set('agty.notices-cleared-at', JSON.stringify(T0));
+    syncNoticesFromStorage();
+    expect(noticeSnapshot().settings.sound).toBe(false);
+    expect(noticeSnapshot().items).toEqual([]);
+    expect(noticeSnapshot().clearedAt).toBe(T0);
+    // The list the other tab saved is the one this tab now builds on.
+    store.set('agty.notices', JSON.stringify([n('a'), n('b')]));
+    syncNoticesFromStorage();
+    markRead('a');
+    expect(JSON.parse(store.get('agty.notices')!).map((i: Notice) => [i.id, i.read])).toEqual([['a', true], ['b', false]]);
+  });
+
+  it('a list-only change keeps the settings object, so an open settings screen is not re-sent', () => {
+    setNoticeSettings({ ...DEFAULT_SETTINGS, sound: true });
+    const before = noticeSnapshot().settings;
+    store.set('agty.notices', JSON.stringify([]));
+    syncNoticesFromStorage();
+    expect(noticeSnapshot().settings).toBe(before);
+    expect(noticeSnapshot().settings.kinds).toBe(before.kinds);
+  });
+
+  it('the other tab\'s notice for the same cause and character a moment ago is not made twice', () => {
+    setup();
+    messengerResetForTests(); // earlier suites left a room on the contacts
+    const theirs: Notice = { id: 'other-1', cause: 'turnEnd', agentId: 7, name: 'veteran', text: 'Finished its work', at: T0, read: false };
+    store.set('agty.notices', JSON.stringify([theirs]));
+    syncNoticesFromStorage();
+    agtyNotice(7, 'turnEnd', T0 + 2_000);
+    expect(noticeSnapshot().items).toEqual([theirs]);
+    expect(noticeSnapshot().toast).toBeNull();
+    // Minutes later it is a new turn end.
+    agtyNotice(7, 'turnEnd', T0 + 2 * NOTICE_COOLDOWN_MS);
+    expect(noticeSnapshot().items).toHaveLength(2);
+  });
+
+  it('a toast whose id the synced list lacks marks the notice read by where it goes', () => {
+    setup();
+    messengerResetForTests();
+    agtyNotice(7, 'turnEnd', T0);
+    const toast = noticeSnapshot().toast!;
+    store.set('agty.notices', JSON.stringify([{ ...toast, id: 'other-id' }])); // the other tab's twin
+    syncNoticesFromStorage();
+    markNoticeRead(toast);
+    expect(noticeSnapshot().items.map((i) => i.read)).toEqual([true]);
   });
 });

@@ -15,6 +15,7 @@ import {
   cancelPermissionTimer,
   cancelWaitingTimer,
   clearAgentActivity,
+  clearPermission,
   startPermissionTimer,
   startWaitingTimer,
 } from './timerManager.js';
@@ -466,6 +467,15 @@ export function processTranscriptLine(
               }
             }
           }
+          // Every foreground call ended: an approved one ran, so its bubble goes, for agents no
+          // hook ends (no hooks, or inline teammates). Hooked agents clear on PostToolUse: this
+          // poll can lag the hooks and would drop a bubble a later call is still asking with.
+          if (
+            (!agent.hookDelivered || agent.leadAgentId !== undefined) &&
+            [...agent.activeToolIds].every((id) => agent.backgroundAgentToolIds.has(id))
+          ) {
+            clearPermission(agent, agentId, agents);
+          }
           // All tools completed — allow text-idle timer as fallback
           // for turn-end detection when turn_duration is not emitted
           if (agent.activeToolIds.size === 0) {
@@ -529,7 +539,9 @@ export function processTranscriptLine(
       // Definitive turn-end: clean up any stale tool state, but preserve background agents.
       // When hooks are active, the Stop hook already handled the status change,
       // but we still perform state cleanup here as a safety net.
-      const hasForegroundTools = agent.activeToolIds.size > agent.backgroundAgentToolIds.size;
+      const hasForegroundTools = [...agent.activeToolIds].some(
+        (toolId) => !agent.backgroundAgentToolIds.has(toolId),
+      );
       if (hasForegroundTools) {
         // Remove only non-background tool state
         for (const toolId of agent.activeToolIds) {

@@ -42,6 +42,16 @@ export function stepUpText(why: StepUpOutcome): string {
 /** Why a dangerous action was not done, after a step-up that could not prove this device. */
 export const stepUpFailedText = () => stepUpText(lastFailure);
 
+/**
+ * S1.2: why the Home-Screen code was not made. A failed step-up (under 패스키 필수 a QR phone
+ * often has no passkey of its own) says what to do instead; anything else the server's sentence.
+ */
+export function handoffFailedText(err: unknown): string {
+  const why = (err as { stepUp?: StepUpOutcome } | null)?.stepUp;
+  if (why && why !== 'rate') return t('auth.handoff.stepUp');
+  return t('auth.codeFailed', { error: err instanceof Error ? err.message : String(err) });
+}
+
 /** The session-gated login API (/api/auth/*, T-0022). Same-origin fetches
  *  with the session cookie; an error carries the server's sentence when there is one.
  *  A 403 `stepup` runs the step-up prompt and retries once (S1), unless `noStepUp`. */
@@ -98,12 +108,22 @@ export async function registerPasskey(): Promise<void> {
   await authFetch('/api/auth/passkeys', { method: 'POST', body: { ceremony, response } });
 }
 
-/** A fresh assertion tied to this session, before weakening its login setting. */
-export async function verifyPasskey(): Promise<void> {
-  const { ceremony, options } = await authFetch<{ ceremony: string; options: never }>(
-    '/api/auth/passkeys/verify/options',
-    { method: 'POST' },
-  );
+/** A passkey ceremony the server opened for this session (single use, 2 minutes). */
+export interface PasskeyVerifyOptions {
+  ceremony: string;
+  options: never;
+}
+
+export const passkeyVerifyOptions = () =>
+  authFetch<PasskeyVerifyOptions>('/api/auth/passkeys/verify/options', { method: 'POST' });
+
+/**
+ * A fresh assertion tied to this session, before weakening its login setting. With `ready`
+ * (options fetched before the tap) nothing is awaited before Face ID: WebKit opens the sheet
+ * only from the tap itself.
+ */
+export async function verifyPasskey(ready?: PasskeyVerifyOptions): Promise<void> {
+  const { ceremony, options } = ready ?? (await passkeyVerifyOptions());
   const response = await startAuthentication({ optionsJSON: options });
   await authFetch('/api/auth/passkeys/verify', { method: 'POST', body: { ceremony, response } });
 }

@@ -11,7 +11,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { legacyOfficeDirectory, officeDirectory } from './agent-tycoon/configPath.js';
+import {
+  legacyOfficeDirectory,
+  legacyOfficeSkipFile,
+  officeDirectory,
+} from './agent-tycoon/configPath.js';
 import {
   CONFIG_FILE_NAME,
   LAYOUT_FILE_NAME,
@@ -33,12 +37,39 @@ export function officeFile(name: string, home = os.homedir()): string {
   return path.join(officeDirectory(home), name);
 }
 
-/** Where an office file is read: the new folder, else ~/.pixel-agents when only that has it. */
+/** A file keepCorruptOfficeFile moved aside: its old copy in ~/.pixel-agents must not take its place. */
+function keptCorrupt(name: string, home: string): boolean {
+  try {
+    return fs.readdirSync(officeDirectory(home)).some((f) => f.startsWith(`${name}.corrupt-`));
+  } catch {
+    return false;
+  }
+}
+
+/** Where an office file is read: the new folder, else ~/.pixel-agents when only that has it
+ *  (never after a full reset: legacyOfficeSkipFile, nor for a file kept aside as corrupt). */
 export function officeFileToRead(name: string, home = os.homedir()): string {
   const file = officeFile(name, home);
-  if (fs.existsSync(file)) return file;
+  if (fs.existsSync(file) || fs.existsSync(legacyOfficeSkipFile(home)) || keptCorrupt(name, home))
+    return file;
   const old = path.join(legacyOfficeDirectory(home), name);
   return fs.existsSync(old) ? old : file;
+}
+
+/**
+ * An office file that is not valid JSON (a hand edit, a disk fault) moves to `<name>.corrupt-<ts>`,
+ * so the caller's defaults are never saved over it. A file read from ~/.pixel-agents is not ours to
+ * move: it stays, and the next write goes to the office folder anyway.
+ */
+export function keepCorruptOfficeFile(file: string, err: unknown, home = os.homedir()): void {
+  if (!(err instanceof SyntaxError) || path.dirname(file) !== officeDirectory(home)) return;
+  const aside = `${file}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(file, aside);
+    console.error(`[Agent Tycoon] ${path.basename(file)} is not valid JSON: kept as ${aside}`);
+  } catch (moveErr) {
+    console.error(`[Agent Tycoon] ${file} is not valid JSON and could not be kept aside:`, moveErr);
+  }
 }
 
 const sha256 = (file: string) =>
@@ -54,12 +85,13 @@ const sha256 = (file: string) =>
  */
 export function migrateOfficeFolder(home = os.homedir()): { copied: string[]; failed: string[] } {
   const oldDir = legacyOfficeDirectory(home);
+  if (fs.existsSync(legacyOfficeSkipFile(home))) return { copied: [], failed: [] };
   const present = MIGRATED_FILES.filter((name) => fs.existsSync(path.join(oldDir, name)));
   const copied: string[] = [];
   const failed: string[] = [];
   for (const name of present) {
     const target = officeFile(name, home);
-    if (fs.existsSync(target)) continue;
+    if (fs.existsSync(target) || keptCorrupt(name, home)) continue;
     const source = path.join(oldDir, name);
     const tmp = `${target}.migrating`;
     try {

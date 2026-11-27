@@ -238,6 +238,9 @@ export function noticeUrl(t: NoticeTarget): string {
     q.set('room', t.room);
   } else if (t.open === 'security') {
     q.set('open', 'security');
+  } else if (t.open === 'workbench') {
+    q.set('open', 'workbench');
+    q.set('project', t.project);
   } else if (t.open === 'preview') {
     q.set('open', 'preview');
     q.set('project', t.project);
@@ -285,6 +288,10 @@ export function parseNoticeUrl(search: string): NoticeTarget | null {
         }
       : null;
   if (open === 'security') return { open: 'security' };
+  if (open === 'workbench') {
+    const project = q.get('project');
+    return project && SAFE_NAME.test(project) ? { open: 'workbench', project } : null;
+  }
   if (open === 'preview') {
     const project = q.get('project');
     const task = q.get('task');

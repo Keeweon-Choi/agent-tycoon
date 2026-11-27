@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AgentChoicesCache, parseClaudeHelp, parseCodexConfig } from './agentCapabilities.js';
+import { AgentChoicesCache, parseClaudeHelp, parseCodexConfig, withCliModels } from './agentCapabilities.js';
 
 describe('installed agent choices', () => {
   it('parses old and new Claude help choices', () => {
@@ -93,5 +93,19 @@ describe('installed agent choices', () => {
       defaultModel: 'gpt-5',
       defaultEffort: 'max',
     });
+  });
+
+  it('T-143: Claude carries the cached CLI model list, and keeps only the --help one without it', () => {
+    const choices = {
+      claude: { models: ['opus', 'sonnet'], efforts: ['max'] },
+      codex: { models: ['gpt-5'], efforts: [] },
+    };
+    const cli = [{ value: 'opus', displayName: 'Opus 5.5' }];
+    expect(withCliModels(choices, cli)).toEqual({
+      ...choices,
+      claude: { ...choices.claude, modelNames: cli },
+    });
+    expect(withCliModels(choices, [])).toBe(choices);
+    expect(withCliModels({ codex: choices.codex }, cli)).toEqual({ codex: choices.codex });
   });
 });

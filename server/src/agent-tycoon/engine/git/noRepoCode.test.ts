@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { koText } from '../../../../../core/src/agent-tycoon/serverText.js';
 import { mergeBranches } from './merge.js';
 import { RepoManager } from './repoManager.js';
 import { readStatus } from './repoRead.js';
@@ -116,11 +117,14 @@ describe.skipIf(!GIT_AVAILABLE)('W2 fix: no repository code runs in the daemon�
     const ok = (x: { ok: boolean; error?: string }) => [x.ok, x.error];
     r.write('a.txt', 'changed\n');
     r.write('docs.md', 'changed\n');
-    expect(ok(await act('stage'))).toEqual([true, undefined]);
-    expect(ran()).toEqual([]); // status and add: nothing of the repository's
+    // B5.2: a stage with the repository's filters off would index unfiltered content: refused.
+    expect(ok(await act('stage'))).toEqual([false, koText('stage_filters')]);
+    expect(ran()).toEqual([]); // status: nothing of the repository's
     // The process filter fails when it runs (it speaks no protocol): out of the way for the
-    // owner's commit, which runs git as the terminal would.
+    // owner's commit, which runs git as the terminal would. The owner stages in a terminal.
     r.git(['config', '--unset', 'filter.proc.process']);
+    r.git(['add', '-A']);
+    forget();
     expect(ok(await act('commit', { message: 'w2' }))).toEqual([true, undefined]);
     expect(ran()).toEqual(expect.arrayContaining(['pre-commit', 'post-commit']));
     forget();
@@ -158,6 +162,44 @@ function plain(attr: string) {
   };
   return { r, marks, cmd, ran, wt, project, exercise };
 }
+
+describe.skipIf(!GIT_AVAILABLE)('B5.2: no content is indexed with the repository’s own clean filter off', () => {
+  const crypt = () => {
+    const p = plain('crypt');
+    p.r.git(['config', 'filter.crypt.clean', 'tr a-z A-Z']);
+    p.r.git(['config', 'filter.crypt.smudge', 'cat']);
+    p.r.git(['config', 'filter.crypt.required', 'true']);
+    return p;
+  };
+
+  it('the panel’s stage is refused (the index keeps HEAD’s content); the owner stages in a terminal', async () => {
+    const { r } = crypt();
+    const mgr = new RepoManager({
+      projects: () => [{ name: 'alpha', folder: r.folder }],
+      readOnly: false,
+      configDir: path.join(r.root, 'config'),
+      run: r.run,
+      pollMs: 60_000,
+      log: () => undefined,
+    });
+    managers.push(mgr);
+    r.write('t.txt', 'secret\n');
+    for (const paths of [undefined, ['t.txt']]) {
+      const out = await mgr.runAction({ type: 'repoAction', requestId: 'q1', action: 'stage', project: 'alpha', ...(paths && { paths }) }, true);
+      expect([out.ok, out.error]).toEqual([false, koText('stage_filters')]);
+      expect(r.git(['diff', '--cached', '--name-only'])).toBe('');
+    }
+  });
+
+  it('a forced cleanup does not make its WIP commit with the filter off: refused, the work kept', async () => {
+    const p = crypt();
+    const rec = await p.wt.createForTask(p.project, { taskId: 'T-1', createdBy: 'cli' });
+    fs.writeFileSync(path.join(rec.path, 't.txt'), 'secret\n');
+    expect(await p.wt.cleanup(p.project, rec.task, { force: true })).toMatchObject({ ok: false, errorCode: 'wip_filters' });
+    expect(fs.readFileSync(path.join(rec.path, 't.txt'), 'utf-8')).toBe('secret\n');
+    expect(p.r.git(['log', '--format=%s', rec.branch])).not.toContain('WIP');
+  });
+});
 
 describe.skipIf(!GIT_AVAILABLE)('W2 re-verification: every repository-side filter, every scope', () => {
   it('N1: a driver whose name holds “=” (git splits -c at the first =): switched off all the same', async () => {

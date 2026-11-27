@@ -2,14 +2,15 @@
  * The git writes a project card may ask for (FR-ENG-005): stage, unstage,
  * commit and push. W2 (N7): the owner's confirmed commit and push run the
  * repository's hooks (and filters) as their own terminal would; everything else
- * the daemon runs has them off (gitRun.ts). Each takes the status read just before it, so a path is
+ * the daemon runs has them off (gitRun.ts), so a stage in a repository with its own filters is
+ * refused (B5.2: the owner stages there in a terminal). Each takes the status read just before it, so a path is
  * only ever one of that status's own entries. Never `--force`, never a `+`
  * refspec, never another remote than the branch's tracked one, never a write
  * to git's config. Failures are RepoErrors in Korean.
  */
 import { koText } from '../../../../../core/src/agent-tycoon/serverText.js';
 import type { GitResult, GitRunner } from './gitRun.js';
-import { LITERAL_ENV, READ_ENV, RepoError } from './gitRun.js';
+import { LITERAL_ENV, READ_ENV, RepoError, usesRepoFilters } from './gitRun.js';
 import type { ParsedStatus } from './repoRead.js';
 import { gitMessage, isStaged, isUnstaged } from './repoRead.js';
 
@@ -63,6 +64,9 @@ export async function stagePaths(
     args = unstage ? ['reset', '-q', '--', ...picked] : ['add', '--', ...picked];
     count = new Set(paths).size;
   }
+  // B5.2: `git add` runs clean filters, and the daemon's git has the repository's own off: the
+  // index would get unfiltered content (git-crypt's plaintext), which commit and push then carry.
+  if (!unstage && (await usesRepoFilters(run, top))) throw new RepoError(koText('stage_filters'));
   const r = await run(top, args, { env: LITERAL_ENV });
   if (r.code !== 0) {
     throw new RepoError(

@@ -356,6 +356,8 @@ export function SecurityModal({ onClose }: { onClose: () => void }) {
                 checked={me.passkeyRequired}
                 label={t('auth.passkeyRequired')}
                 // On takes this device's own passkey here, tapped now (the server checks it).
+                // ponytail: verifyPasskey() here (and in the button below) still fetches its options after the
+                // tap; the primed path (passkeyStepUp) is not used here, a follow-up if iOS needs it.
                 disabled={busy || (!me.passkeyRequired && (!me.ownPasskeyHere || !browserSupportsWebAuthn()))}
                 onChange={() =>
                   void run(

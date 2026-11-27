@@ -15,7 +15,7 @@ import {
   visitStep,
 } from '../../agent-tycoon/elevator.js';
 import { agtyWalkPace } from '../../agent-tycoon/ez/visuals.js';
-import { restStep } from '../../agent-tycoon/lounge.js';
+import { endRest, restStep } from '../../agent-tycoon/lounge.js';
 import type { HeldWalkKeys } from '../../agent-tycoon/walk.js';
 import { floorRects } from '../../agent-tycoon/walk.js';
 import {
@@ -125,7 +125,21 @@ export class OfficeState {
   set selectedAgentId(id: number | null) {
     if (this._selectedAgentId === id) return;
     this._selectedAgentId = id;
+    if (this._infoAgentId !== id) this._infoAgentId = null; // a sheet belongs to the selection it was opened for
     for (const listener of this.selectionListeners) listener(id);
+  }
+  private _infoAgentId: number | null = null;
+  /** The phone: the selected character whose information sheet is open. A selection alone opens
+   *  none (it would cover the walking pad); the desktop shows its inspector with the selection. */
+  get infoAgentId(): number | null {
+    return this._infoAgentId;
+  }
+  /** Open the selected character's sheet (`null` closes it, the selection stays). */
+  setInfoAgent(id: number | null): void {
+    const next = id !== null && id === this._selectedAgentId ? id : null;
+    if (this._infoAgentId === next) return;
+    this._infoAgentId = next;
+    for (const listener of this.selectionListeners) listener(this._selectedAgentId);
   }
   /** Observe selectedAgentId changes. React (the card bars) subscribes so
    *  imperative canvas selection can drive card highlights — everything else
@@ -242,6 +256,8 @@ export class OfficeState {
     const moved = !!floorRects(before) && !!floorRects(layout);
     const ownAtLast = new Set<Character>();
     for (const ch of this.characters.values()) {
+      // B7.3: one on its way out freed its seat already; it must not take it back.
+      if (ch.matrixEffect === 'despawn' && !ch.agtyAway) continue;
       if (ch.agtySeatMissing && ch.agtySeatId && this.seats.has(ch.agtySeatId)) {
         // Its own seat arrived (the office drawn once the roster was back): there, at once.
         ch.agtySeatMissing = undefined;
@@ -285,6 +301,7 @@ export class OfficeState {
     // Second pass: assign remaining characters to free seats
     for (const ch of this.characters.values()) {
       if (ch.seatId || seatless.has(ch) || ch.agtyOwner) continue;
+      if (ch.matrixEffect === 'despawn' && !ch.agtyAway) continue;
       const seatId = this.findFreeSeat(ch.directoryName);
       if (seatId) {
         this.seats.get(seatId)!.assigned = true;
@@ -643,7 +660,8 @@ export class OfficeState {
       ch.directoryName = directoryName;
     }
     if (serverSeat) ch.agtySeatId = serverSeat;
-    if (serverSeat && hinted === undefined && !this.seats.has(serverSeat)) ch.agtySeatMissing = true;
+    if (serverSeat && hinted === undefined && !this.seats.has(serverSeat))
+      ch.agtySeatMissing = true;
     if (!skipSpawnEffect) {
       startMatrixEffect(ch, 'spawn');
     }
@@ -704,7 +722,8 @@ export class OfficeState {
     const had = this.characters.get(OWNER_CHARACTER_ID);
     if (had) return had;
     const board = this.layout.furniture.find((f) => f.type === BOARD_TYPE);
-    const floors = (this.layout as { agtyFloors?: Array<{ row: number; rows: number }> }).agtyFloors;
+    const floors = (this.layout as { agtyFloors?: Array<{ row: number; rows: number }> })
+      .agtyFloors;
     const first = floors?.[0] ?? { row: 0, rows: this.layout.rows };
     const spawn = board
       ? this.closestFreeWalkableTile(
@@ -756,6 +775,10 @@ export class OfficeState {
   selectAndFollow(id: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || ch.agtyAway) return false;
+    // T-106: a row asked for inside an open phone sheet (the team list, the "+N" lists) keeps the sheet,
+    // for the new character, in the same notification; with no sheet open none opens. (A canvas tap
+    // assigns selectedAgentId directly: it selects only.)
+    if (this._infoAgentId !== null && !ch.agtyOwner) this._infoAgentId = id;
     this.selectedAgentId = id;
     this.cameraFollowId = id;
     return true;
@@ -1508,6 +1531,9 @@ export class OfficeState {
     }
     // Remove characters that finished despawn
     for (const id of toDelete) {
+      // B7.4: a machine it was using goes back to its idle picture.
+      const gone = this.characters.get(id);
+      if (gone?.agtyRest) endRest(this, gone);
       this.characters.delete(id);
     }
     // With no rider and every door already shut, elevators add no idle-frame work.
@@ -1567,7 +1593,12 @@ export class OfficeState {
     for (const ch of this.characters.values()) {
       if (ch.isSubagent || ch.agtyOwner) continue;
       // agty (ELEVATOR): a visitor's seat is its own one, not the one it borrowed upstairs.
-      const seatId = ch.agtyVisit ? ch.agtyVisit.homeSeat : ch.seatId;
+      // B7.2: unless somebody else holds it now (then the borrowed seat, so no seat is saved twice).
+      const v = ch.agtyVisit;
+      const homeTaken =
+        !!v?.homeSeat &&
+        [...this.characters.values()].some((c) => c !== ch && c.seatId === v.homeSeat);
+      const seatId = v && !homeTaken ? v.homeSeat : ch.seatId;
       seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId };
     }
     return seats;

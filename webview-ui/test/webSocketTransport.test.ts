@@ -74,3 +74,25 @@ describe('WebSocketTransport and permission answers', () => {
     t.dispose();
   });
 });
+
+describe('T-113 (H3): an open group room is asked for again on a new socket', () => {
+  it('re-sends the room view (before anything queued), and not one that was closed', () => {
+    const t = new WebSocketTransport('ws://x/ws');
+    t.connect();
+    FakeSocket.all[0].open();
+    t.send({ type: 'groupView', room: 'r1', on: true });
+    t.send({ type: 'groupView', room: 'r2', on: true });
+    t.send({ type: 'groupView', room: 'r2', on: false });
+    FakeSocket.all[0].drop();
+    t.send({ type: 'groupThread', requestId: 'q1', room: 'r1', posts: ['p1'] }); // asked while down
+    vi.runOnlyPendingTimers();
+    const next = FakeSocket.all.at(-1)!;
+    next.open();
+    const sent = next.sent.map((d) => JSON.parse(d) as { type: string; room?: string });
+    const view = sent.findIndex((m) => m.type === 'groupView' && m.room === 'r1');
+    expect(view).toBeGreaterThanOrEqual(0);
+    expect(sent.some((m) => m.type === 'groupView' && m.room === 'r2')).toBe(false);
+    expect(sent.findIndex((m) => m.type === 'groupThread')).toBeGreaterThan(view);
+    t.dispose();
+  });
+});

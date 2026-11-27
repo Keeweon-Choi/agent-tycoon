@@ -29,6 +29,7 @@ import { configDirectory, stateDirectory } from '../configPath.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { windowsCmd } from '../spawnJson.js';
 import { isoLocal } from './events.js';
+import { procStart } from './jobs.js';
 
 const C = fs.constants;
 /** The file is not there (any other failure to open it is no proof its owner died). */
@@ -36,6 +37,8 @@ const gone = (err: unknown) => (err as NodeJS.ErrnoException).code === 'ENOENT';
 const ADMIT_WAIT_S = 10;
 /** The pid-backend admission lock is taken from a holder older than this (it died mid-admission). */
 const STALE_ADMIT_MS = 60_000;
+/** B3.2: how long a pid backend trusts an owner's start time once read (PowerShell takes ~1 s on Windows). */
+const PSTART_RECHECK_MS = 30_000;
 export const GPU_POLL_MS = 2_000;
 /** hw.json readings older than this do not count for the live VRAM rule (HIF §9). */
 const HW_FRESH_MS = 5_000;
@@ -257,8 +260,21 @@ export function pidAlive(pid: number): boolean {
 
 const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+/** B3.2: a ticket owner's start time. None on macOS: `ps -o lstart=` prints it in the reader's
+ *  locale and time zone, so the daemon and a terminal's `agty gpu run` read two strings for one
+ *  live pid (and macOS hands pids out in order, so reuse is slow); its tickets keep the bare pid.
+ *  procStart itself stays as is: running jobs' stored start times must keep matching. */
+export const ownerStart = (pid: number, platform: NodeJS.Platform = process.platform) =>
+  platform === 'darwin' ? null : procStart(pid, platform);
+
 /** Without flock (macOS, Windows): exclusive create for admission, pid liveness for owners. */
-export function pidLocks(alive: (pid: number) => boolean = pidAlive, now = Date.now): Locks {
+export function pidLocks(
+  alive: (pid: number) => boolean = pidAlive,
+  now = Date.now,
+  startTime: (pid: number) => string | null = (pid) => ownerStart(pid),
+): Locks {
+  /** `<file>\n<pid>` -> when its start time last matched the ticket's. */
+  const checked = new Map<string, number>();
   return {
     kind: 'pid',
     admit(dir, waitS) {
@@ -287,14 +303,32 @@ export function pidLocks(alive: (pid: number) => boolean = pidAlive, now = Date.
       return fs.openSync(file, C.O_RDWR | C.O_CREAT, 0o644);
     },
     owned(file) {
-      let pid: number | null;
+      let t: Ticket;
       try {
-        pid = parseTicket(fs.readFileSync(file, 'utf-8'), file).pid;
+        t = parseTicket(fs.readFileSync(file, 'utf-8'), file);
       } catch (err) {
         return !gone(err);
       }
       // No pid yet (mid-write) or a live one: kept. `gpu cancel` removes a ticket stuck so.
-      return pid === null || alive(pid);
+      if (t.pid === null) return true;
+      if (!alive(t.pid)) return false;
+      // B3.2: Windows' taskkill /F skips the worker's own cleanup and reuses pids fast, so a
+      // live pid is the owner only if it started when the ticket says (a ticket without one:
+      // the bare pid). ponytail: read again at most every PSTART_RECHECK_MS, so a pid reused
+      // in between holds the queue up to that long; on Windows a waiter spawns one PowerShell per
+      // ticket each time (one CIM query for all pids per sweep if it is felt).
+      if (t.pstart === null) return true;
+      const key = `${file}\n${t.pid}`;
+      const at = checked.get(key);
+      if (at !== undefined && now() - at < PSTART_RECHECK_MS) return true;
+      const s = startTime(t.pid);
+      if (s !== null && s !== t.pstart) {
+        checked.delete(key);
+        return false;
+      }
+      if (checked.size > 1_000) checked.clear();
+      checked.set(key, now());
+      return true; // unreadable: unsure, so alive
     },
   };
 }
@@ -310,12 +344,21 @@ export function defaultLocks(envPath = process.env.PATH): Locks {
   return bin ? flockLocks(bin) : pidLocks();
 }
 
+/** The daemon's queue. On Windows it reads no start times: each is a PowerShell of about 1 s on
+ *  the daemon's event loop, for every ticket at each 30 s sweep, under the admission lock. A
+ *  reused pid's lease is still swept by the waiters it blocks: they sweep before each admission. */
+export function daemonLocks(platform: NodeJS.Platform = process.platform): Locks {
+  return platform === 'win32' ? pidLocks(pidAlive, Date.now, () => null) : defaultLocks();
+}
+
 // ── Tickets ────────────────────────────────────────────────────
 
 export interface Ticket {
   id: string;
   project: string | null;
   pid: number | null;
+  /** The owner's start time (procStart), so a reused pid is not the owner. */
+  pstart: string | null;
   label: string | null;
   vramGib: number | null;
   exclusive: boolean;
@@ -340,6 +383,7 @@ export function parseTicket(text: string, file: string): Ticket {
     id: kv.id ?? path.basename(file).replace(/^(q-\d+-|l-)/, ''),
     project: kv.project || null,
     pid: pid !== null && Number.isInteger(pid) ? pid : null,
+    pstart: kv.pstart || null,
     label: kv.label || null,
     vramGib: n(kv.vram),
     exclusive: kv.exclusive === '1',
@@ -358,6 +402,7 @@ export function ticketText(t: {
   id: string;
   project: string | null;
   pid: number;
+  pstart?: string | null;
   label: string | null;
   vramGib: number | null;
   exclusive: boolean;
@@ -368,6 +413,7 @@ export function ticketText(t: {
     ['id', t.id],
     ['project', oneLine(t.project)],
     ['pid', String(t.pid)],
+    ['pstart', oneLine(t.pstart)],
     ['label', oneLine(t.label)],
     ['vram', t.vramGib === null ? '' : String(t.vramGib)],
     ['exclusive', t.exclusive ? '1' : ''],
@@ -492,7 +538,16 @@ export class GpuQueue {
     for (let k = 2; names.some((f) => f.endsWith(`-${id}`)); k++) id = `${base}-${k}`;
     const file = path.join(this.dir, `q-${String(n).padStart(8, '0')}-${id}`);
     const fd = this.o.locks.hold(file);
-    fs.writeSync(fd, ticketText({ ...req, id, pid: process.pid, requested: isoLocal(this.now()) }));
+    fs.writeSync(
+      fd,
+      ticketText({
+        ...req,
+        id,
+        pid: process.pid,
+        pstart: ownerStart(process.pid),
+        requested: isoLocal(this.now()),
+      }),
+    );
     return { id, fd, file };
   }
 

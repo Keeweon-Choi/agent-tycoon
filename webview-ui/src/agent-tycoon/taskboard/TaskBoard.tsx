@@ -50,7 +50,9 @@ import {
   type BoardItem,
   boardItems,
   docDrift,
+  draftOf,
   dropEdit,
+  type EditorDraft,
   filterChoices,
   filterItems,
   type Goal,
@@ -63,6 +65,7 @@ import {
   nowStrip,
   type ObservedRun,
   OTHER_GOAL,
+  rebaseDraft,
   stampDate,
   STATUS_ORDER,
   statusesOf,
@@ -467,11 +470,16 @@ function send(id: string | undefined, fields: TaskEditFields) {
 
 function TaskEditor({ item }: { item: BoardItem }) {
   const task = item.task!;
-  const [status, setStatus] = useState<BoardTaskStatus>(task.status);
-  const [priority, setPriority] = useState(task.priority ?? '');
-  const [kind, setKind] = useState<BoardTaskOwnerKind>(task.owner?.kind ?? 'unassigned');
-  const [name, setName] = useState(task.owner?.name ?? '');
-  const [note, setNote] = useState(task.note ?? '');
+  const [draft, setDraft] = useState(() => draftOf(task));
+  const base = useRef(draft);
+  // The Task changed on the server (an agent's update, a drag, our own save): untouched fields follow it.
+  useEffect(() => {
+    const next = draftOf(task);
+    setDraft((cur) => rebaseDraft(cur, base.current, next));
+    base.current = next;
+  }, [task]);
+  const { status, priority, kind, name, note } = draft;
+  const edit = (over: Partial<EditorDraft>) => setDraft((cur) => ({ ...cur, ...over }));
   const save = () => {
     const fields: TaskEditFields = {};
     if (status !== task.status) fields.status = status;
@@ -489,7 +497,7 @@ function TaskEditor({ item }: { item: BoardItem }) {
           aria-label={t('tasks.statusLabel')}
           className={control}
           value={status}
-          onChange={(e) => setStatus(e.target.value as BoardTaskStatus)}
+          onChange={(e) => edit({ status: e.target.value as BoardTaskStatus })}
         >
           {STATUS_ORDER.map((s) => (
             <option key={s} value={s}>
@@ -500,7 +508,7 @@ function TaskEditor({ item }: { item: BoardItem }) {
       </label>
       <label className="flex flex-col gap-2 text-xs">
         {t('tasks.priority')}
-        <select aria-label={t('tasks.priority')} className={control} value={priority} onChange={(e) => setPriority(e.target.value)}>
+        <select aria-label={t('tasks.priority')} className={control} value={priority} onChange={(e) => edit({ priority: e.target.value })}>
           <option value="">{t('tasks.priorityNone')}</option>
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>
@@ -515,7 +523,7 @@ function TaskEditor({ item }: { item: BoardItem }) {
           aria-label={t('tasks.filter.owner')}
           className={control}
           value={kind}
-          onChange={(e) => setKind(e.target.value as BoardTaskOwnerKind)}
+          onChange={(e) => edit({ kind: e.target.value as BoardTaskOwnerKind })}
         >
           {OWNER_KINDS.map((k) => (
             <option key={k} value={k}>
@@ -526,11 +534,11 @@ function TaskEditor({ item }: { item: BoardItem }) {
       </label>
       <label className="flex flex-col gap-2 text-xs min-w-0 flex-1">
         {t('tasks.ownerName')}
-        <input aria-label={t('tasks.ownerName')} className={control} value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label={t('tasks.ownerName')} className={control} value={name} onChange={(e) => edit({ name: e.target.value })} />
       </label>
       <label className="flex flex-col gap-2 text-xs w-full">
         {t('tasks.note')}
-        <textarea aria-label={t('tasks.note')} className={`${control} w-full`} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea aria-label={t('tasks.note')} className={`${control} w-full`} rows={2} value={note} onChange={(e) => edit({ note: e.target.value })} />
       </label>
       <Button size="sm" variant="accent" onClick={save}>
         {t('tasks.save')}
@@ -626,7 +634,7 @@ function TaskDetail({ item, now, readOnly }: { item: BoardItem; now: number; rea
           </ul>
         </details>
       )}
-      {task && !readOnly && <TaskEditor key={task.updatedAt} item={item} />}
+      {task && !readOnly && <TaskEditor key={task.id} item={item} />}
     </div>
   );
 }

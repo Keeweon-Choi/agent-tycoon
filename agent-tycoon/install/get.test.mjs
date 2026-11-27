@@ -169,3 +169,46 @@ test('get.sh names the Node version it needs and stops before cloning when Node 
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
+
+/** get.sh over an existing checkout (a fake git pulls), with `node` and `npm` scripted by the test. */
+function runOverCheckout(name, { node, npm = 'exit 0' }) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), name));
+  const bin = path.join(temp, 'bin');
+  const dir = path.join(temp, 'agent-tycoon');
+  fs.mkdirSync(bin);
+  fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+  writeExecutable(path.join(bin, 'git'), '#!/bin/sh\nexit 0\n');
+  writeExecutable(path.join(bin, 'claude'), '#!/bin/sh\nexit 0\n');
+  writeExecutable(path.join(bin, 'npm'), `#!/bin/sh\n${npm}\n`);
+  writeExecutable(path.join(bin, 'node'), `#!/bin/sh\nif [ "$1" = '--version' ]; then echo v22.11.0; exit 0; fi\n${node}\n`);
+  const env = { HOME: temp, TMPDIR: temp, PATH: `${bin}:/usr/bin:/bin`, AGENT_TYCOON_DIR: dir };
+  // umask 022, as a login shell usually has: the log must not depend on it.
+  const result = spawnSync('sh', ['-c', 'umask 022; exec sh "$0"', get], { cwd: temp, env, encoding: 'utf8' });
+  return { temp, result };
+}
+
+test('C1.5: the installer\'s output (the one-time login link) goes to a private log with an unpredictable name', { skip: !fs.existsSync('/proc/self/fd/1') }, () => {
+  const { temp, result } = runOverCheckout('agent-tycoon-get-log-', { node: 'printf "MODE=%s NAME=%s\\n" "$(stat -L -c %a /proc/$$/fd/1)" "$(basename "$(readlink /proc/$$/fd/1)")"' });
+  try {
+    assert.equal(result.status, 0, result.stdout);
+    const [, mode, name] = /MODE=(\d+) NAME=(\S+)/.exec(result.stdout);
+    assert.equal(mode, '600');
+    assert.notEqual(name, `agent-tycoon-install.${result.pid}`, 'not named by the pid');
+    assert.deepEqual(fs.readdirSync(temp).filter((f) => f.startsWith('agent-tycoon-install.')), [], 'removed on exit');
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('C1.6: a failure is reported by its error line (the installer\'s last ✖ line, else a step\'s last line), not the first line', () => {
+  const installer = runOverCheckout('agent-tycoon-get-fail-', { node: 'echo "Node 22.11.0 ✔"; echo "✖ 실패: boom" >&2; exit 1' });
+  const step = runOverCheckout('agent-tycoon-get-npm-', { node: 'exit 0', npm: 'echo "npm WARN deprecated x"; echo "npm ERR! boom2" >&2; exit 1' });
+  try {
+    assert.equal(installer.result.status, 1);
+    assert.match(installer.result.stdout, /✖ 에이전트 타이쿤 설치 실패: 실패: boom\./);
+    assert.equal(step.result.status, 1);
+    assert.match(step.result.stdout, /✖ 의존성 설치 실패: npm ERR! boom2\./);
+  } finally {
+    for (const { temp } of [installer, step]) fs.rmSync(temp, { recursive: true, force: true });
+  }
+});

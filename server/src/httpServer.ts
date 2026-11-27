@@ -37,6 +37,8 @@ import {
   SERVER_HEALTH_PROTOCOL_VERSION,
   WS_CLOSE_FORBIDDEN_ORIGIN,
   WS_CLOSE_UNAUTHORIZED,
+  WS_PING_LATE_MS,
+  WS_PING_MS,
 } from './constants.js';
 import type { PtySessionManager } from './terminal/ptySessionManager.js';
 import type { AgentState } from './types.js';
@@ -268,7 +270,16 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
     registerChatRoute(
       app,
       options.chat,
-      (request) => standaloneWsRejection(request, options.token, auth, allowedHostnames),
+      // S5.1: an agent's terminal takes any key (Shift+Tab, /permissions), so a remote session
+      // needs a fresh step-up, as a device shell does and S1's dangerous actions; this PC's own
+      // browser and the host's Bearer token keep working as before.
+      (request) =>
+        standaloneWsRejection(request, options.token, auth, allowedHostnames) ??
+        (!isLocalRequest(request) &&
+        !hostBearerValid(request, options.token) &&
+        !auth.stepUpFresh(auth.session(auth.sessionIdOf(request.headers.cookie)))
+          ? [WS_CLOSE_UNAUTHORIZED, 'proof']
+          : null),
       (request, socket) => bindSessionSocket(auth, request, socket),
     );
   }
@@ -460,6 +471,20 @@ function registerWebSocketRoute(
     store.on('broadcast', onBroadcast);
     agtyHooks.onClientOpened?.(send, auth?.rowIdOf(auth.sessionIdOf(request.headers.cookie)));
 
+    // P1.3: a peer gone without a FIN (Wi-Fi lost, a lid shut) answers no ping: closed by the next one,
+    // not ~15 min later when the kernel gives up on our writes (it kept the office awake meanwhile).
+    // A tick that runs late (the loop held up past it, the pong still unread) pings again instead.
+    let answered = true;
+    let pingedAt = Date.now();
+    socket.on('pong', () => (answered = true));
+    const pinger = setInterval(() => {
+      const late = Date.now() - pingedAt > WS_PING_LATE_MS;
+      if (!answered && !late) return socket.terminate();
+      answered = false;
+      pingedAt = Date.now();
+      socket.ping();
+    }, WS_PING_MS);
+
     // Handle incoming client messages
     socket.on('message', (data: Buffer | string) => {
       try {
@@ -489,6 +514,7 @@ function registerWebSocketRoute(
     });
 
     socket.on('close', () => {
+      clearInterval(pinger);
       unbind();
       store.off('agentAdded', onAgentAdded);
       store.off('agentRemoved', onAgentRemoved);

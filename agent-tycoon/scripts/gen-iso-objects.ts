@@ -91,6 +91,10 @@ type Spec = { id: string; note: string } & (
       surface?: number;
       /** Stands on the floor even on a wall tile (not hung). */
       stands?: boolean;
+      /** T-107: the footprint's front corner (px of the cut picture) where the base band misses
+       *  it (a desk's lowest band is one leg, a whiteboard's its front wheels): fitted so the
+       *  picture spans the footprint's diamond and its lowest points rest on its front edges. */
+      anchor?: [number, number];
     }
   | {
       kind: 'wall';
@@ -128,22 +132,23 @@ const OBJECTS: Record<string, Spec> = {
     id: 'bookshelf-moss',
     kind: 'obj',
     fp: [1, 1],
-    slot: [2, 1],
+    slot: [1, 2],
     align: 'center',
     h: 38,
-    faces: '+row',
-    note: 'mossy bookshelf',
+    faces: '+col',
+    note: 'mossy bookshelf (shelves to the lower right)',
   },
   '1/마젠타 배경의 이동식 화이트보드': {
-    id: 'whiteboard-a',
+    id: 'whiteboard-b',
     stands: true,
     kind: 'obj',
-    fp: [2, 1],
+    fp: [1, 2],
     w: 1,
     slot: [2, 2],
     align: 'front',
-    faces: '+row',
-    note: 'mobile whiteboard',
+    faces: '+col',
+    anchor: [96, 307],
+    note: 'mobile whiteboard, other side (faces the lower right)',
   },
   '1/마젠타 배경의 픽셀 몬스테라 화분': {
     id: 'monstera',
@@ -154,21 +159,22 @@ const OBJECTS: Record<string, Spec> = {
     note: 'monstera pot',
   },
   '1/마젠타 배경의 픽셀 서류 캐비닛': {
-    id: 'cabinet-a',
+    id: 'cabinet-b',
     kind: 'obj',
     fp: [1, 1],
     h: 24,
-    faces: '+row',
-    note: 'filing cabinet',
+    faces: '+col',
+    note: 'filing cabinet, other side (drawers to the lower right)',
   },
   '1/마젠타 배경의 픽셀 소파': {
-    id: 'sofa-a',
+    id: 'sofa-b',
     kind: 'obj',
-    fp: [2, 1],
+    fp: [1, 2],
     w: 1,
-    faces: '+row',
+    faces: '+col',
     seat: { z: 3, count: 2 },
-    note: 'sofa',
+    anchor: [96, 243],
+    note: 'sofa, other side (faces the lower right)',
   },
   '1/마젠타 배경의 픽셀 쓰레기통': {
     id: 'bin',
@@ -179,15 +185,6 @@ const OBJECTS: Record<string, Spec> = {
     note: 'trash bin',
   },
   '1/마젠타 배경의 픽셀 아트 사무용 의자': {
-    id: 'chair-up',
-    kind: 'obj',
-    fp: [1, 1],
-    h: 24,
-    faces: '-row',
-    seat: { z: 6.5 },
-    note: 'office chair seen from behind (faces the upper right)',
-  },
-  '1/마젠타 배경의 픽셀 아트 의자': {
     id: 'chair-left',
     kind: 'obj',
     fp: [1, 1],
@@ -195,6 +192,15 @@ const OBJECTS: Record<string, Spec> = {
     faces: '-col',
     seat: { z: 6.5 },
     note: 'office chair seen from behind (faces the upper left)',
+  },
+  '1/마젠타 배경의 픽셀 아트 의자': {
+    id: 'chair-up',
+    kind: 'obj',
+    fp: [1, 1],
+    h: 24,
+    faces: '-row',
+    seat: { z: 6.5 },
+    note: 'office chair seen from behind (faces the upper right)',
   },
   '1/마젠타 배경의 픽셀 야자 화분': {
     id: 'palm',
@@ -207,13 +213,14 @@ const OBJECTS: Record<string, Spec> = {
   '2/마젠타 배경의 픽셀 오피스 데스크': {
     id: 'desk',
     kind: 'obj',
-    fp: [3, 1],
+    fp: [1, 3],
     w: 0.97,
-    slot: [3, 2],
+    slot: [2, 3],
     align: 'front',
-    faces: '+row',
+    faces: '+col',
     surface: 12,
-    note: 'office desk',
+    anchor: [91, 377],
+    note: 'office desk (its user on the lower right side)',
   },
   '2/마젠타 배경의 픽셀 카펫 타일': {
     id: 'floor-carpet-blue',
@@ -353,23 +360,24 @@ const OBJECTS: Record<string, Spec> = {
     note: 'water cooler (image model, 11-04)',
   },
   '3/이소메트릭 픽셀 파일 캐비닛': {
-    id: 'cabinet-b',
+    id: 'cabinet-a',
     kind: 'obj',
     fp: [1, 1],
     h: 24,
-    faces: '+col',
-    note: 'filing cabinet, other side',
+    faces: '+row',
+    note: 'filing cabinet (drawers to the lower left)',
   },
   '3/이소메트릭 픽셀 화이트보드 아이디어맵': {
-    id: 'whiteboard-b',
+    id: 'whiteboard-a',
     stands: true,
     kind: 'obj',
-    fp: [1, 2],
+    fp: [2, 1],
     w: 1,
     slot: [2, 2],
     align: 'front',
-    faces: '+col',
-    note: 'mobile whiteboard, other side',
+    faces: '+row',
+    anchor: [192, 297],
+    note: 'mobile whiteboard (faces the lower left)',
   },
   '3/이소메트릭 픽셀아트 유리 출입구': {
     id: 'wall-entrance-b',
@@ -395,7 +403,8 @@ const OBJECTS: Record<string, Spec> = {
     align: 'front',
     faces: '+row',
     surface: 12,
-    note: 'office desk, other make',
+    anchor: [283, 390],
+    note: 'office desk, other make (its user on the lower left side)',
   },
   '3/픽셀 아트 원목 커피 테이블': {
     id: 'coffee-table',
@@ -413,13 +422,14 @@ const OBJECTS: Record<string, Spec> = {
     note: 'grey stone tile platform',
   },
   '3/핑크 배경의 픽셀 아트 소파': {
-    id: 'sofa-b',
+    id: 'sofa-a',
     kind: 'obj',
-    fp: [1, 2],
+    fp: [2, 1],
     w: 1,
-    faces: '+col',
+    faces: '+row',
     seat: { z: 4, count: 2 },
-    note: 'sofa, other side',
+    anchor: [192, 236],
+    note: 'sofa (faces the lower left)',
   },
 };
 
@@ -553,6 +563,7 @@ function doObj(s: Spec & { kind: 'obj' }, cut: Cut): void {
     ax += ((slot[0] - slot[1] - (fw - fh)) / 2) * HW;
     ay += ((slot[0] + slot[1] - (fw + fh)) / 2) * HH;
   }
+  if (s.anchor) [ax, ay] = s.anchor;
   ax = Math.round(ax);
   ay = Math.round(ay);
   const seats = s.seat ? seatsFor(s.fp, s.seat, 'footprint') : undefined;
@@ -929,9 +940,10 @@ liftOpen();
 /** C1: the pantry machines, four frames each (idle, then the furniture's "on" states), copied in
  *  as `o-coffee-machine-{0..3}.png` (480×480, front corner 240,450) and `o-vending-{0..3}.png`
  *  (480×720, front corner 240,670); drawn to a 320×160 tile, so density 20. Not cut here. */
-for (const [id, anchor, steam] of [
-  ['coffee-machine', [240, 450], [325, 304]],
-  ['vending', [240, 670], undefined],
+// T-107: the coffee machine's spout and tray face the lower right (the pantry draws it flipped).
+for (const [id, anchor, steam, faces] of [
+  ['coffee-machine', [240, 450], [325, 304], '+col'],
+  ['vending', [240, 670], undefined, '+row'],
 ] as const) {
   const frames = [0, 1, 2, 3].map((k) => `o-${id}-${k}.png`);
   pieces[`o-${id}`] = {
@@ -939,7 +951,7 @@ for (const [id, anchor, steam] of [
     density: 20,
     footprint: [1, 1],
     anchor: [...anchor],
-    faces: '+row',
+    faces,
     frames,
     ...(steam && { steam: [...steam] }),
     from: `C1 ${id.replace('-', ' ')} (v2 art)`,
@@ -958,9 +970,10 @@ const MIRROR: Record<Facing, Facing> = {
 };
 
 const types: Record<string, { piece: string; mirror?: boolean }> = {
-  DESK_FRONT: { piece: 'o-desk' },
-  // iso-prep-1104: a desk turned is the desk flipped; the other make is its own type.
-  DESK_SIDE: { piece: 'o-desk', mirror: true },
+  // iso-prep-1104: a desk turned is the desk flipped; the other make is its own type. T-107: the
+  // owner's first desk is drawn with its user on the lower right, so the front desk is it flipped.
+  DESK_FRONT: { piece: 'o-desk', mirror: true },
+  DESK_SIDE: { piece: 'o-desk' },
   DESK_B_FRONT: { piece: 'o-desk-b' },
   DESK_B_SIDE: { piece: 'o-desk-b', mirror: true },
   // The monitor is part of the desk.
@@ -997,7 +1010,8 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   TALL_PLANT: { piece: 'o-palm' },
   LARGE_PLANT: { piece: 'o-palm' },
   BIN: { piece: 'o-bin' },
-  BOOKSHELF: { piece: 'o-bookshelf-moss' },
+  // T-107: drawn facing the lower right; flipped it faces the room from a top wall.
+  BOOKSHELF: { piece: 'o-bookshelf-moss', mirror: true },
   DOUBLE_BOOKSHELF: { piece: 'o-bookshelf-cozy' },
   SOFA_FRONT: { piece: 'o-sofa-a' },
   SOFA_BACK: { piece: 'o-sofa-a' },
@@ -1005,7 +1019,7 @@ const types: Record<string, { piece: string; mirror?: boolean }> = {
   'SOFA_SIDE:left': { piece: 'o-sofa-b' },
   COFFEE_TABLE: { piece: 'o-coffee-table' },
   WHITEBOARD: { piece: 'o-whiteboard-a' },
-  COFFEE_MACHINE: { piece: 'o-coffee-machine' },
+  COFFEE_MACHINE: { piece: 'o-coffee-machine', mirror: true },
   VENDING_MACHINE: { piece: 'o-vending' },
   WATER_COOLER: { piece: 'o-water-cooler', mirror: true },
 };

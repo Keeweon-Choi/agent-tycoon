@@ -888,3 +888,29 @@
   border-color: var(--glow-in);
   color: var(--color-text);
 }
+
+/* 모던, the phone's picker (T-111): a button like 설정 and the chips beside it, not the lamp box (the desktop
+   panel's display above is modernised the same way). The count in the UI font, the arrows Lucide chevrons. */
+:root[data-ui-theme='modern'] .agty-floor-picker-button {
+  gap: 4px;
+  padding: 0 6px;
+  background: var(--color-btn-bg);
+  border: var(--ui-bw) solid var(--color-border);
+  border-radius: var(--ui-r-card);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+  color: var(--color-text);
+  font-family: var(--ui-font);
+  font-size: var(--text-base);
+  font-weight: var(--ui-weight-strong);
+}
+:root[data-ui-theme='modern'] .agty-floor-picker-button .agty-updown {
+  gap: 0;
+  color: var(--color-text-muted);
+}
+:root[data-ui-theme='modern'] .agty-floor-picker-button .agty-updown svg {
+  width: 14px;
+  height: 14px;
+}
+:root[data-ui-theme='modern'] .agty-floor-picker-button .agty-dot {
+  border-radius: var(--ui-r-pill);
+}

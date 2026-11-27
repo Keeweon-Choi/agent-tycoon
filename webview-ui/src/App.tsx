@@ -56,6 +56,7 @@ import { MobileTopBar, type OfficePanel } from './agent-tycoon/panels/OfficePane
 import { PerfReadout } from './agent-tycoon/PerfReadout.js';
 import { RegionBoundary } from './agent-tycoon/RegionBoundary.js';
 import { RepoActionLayer } from './agent-tycoon/repo/RepoActionLayer.js';
+import { SelectionChip } from './agent-tycoon/SelectionChip.js';
 import {
   busyForStaleBuild,
   isStale,
@@ -983,6 +984,16 @@ function App() {
               free camera); the phone's office page only. */}
           {agtyMode && isMobile && (
             <Joystick
+              enabled={
+                !editor.isEditMode && phoneTabs.tab === 'office' && mobileShell.view === 'office'
+              }
+            />
+          )}
+          {/* T-106: a tap on a character only selects it; this chip opens its sheet (clear of the pad). */}
+          {agtyMode && isMobile && (
+            <SelectionChip
+              officeState={officeState}
+              subagentCharacters={subagentCharacters}
               enabled={
                 !editor.isEditMode && phoneTabs.tab === 'office' && mobileShell.view === 'office'
               }

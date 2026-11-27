@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChatItem, MessengerContact } from '../../../../core/src/messages.js';
-import { CHAT_REQUEST_TIMEOUT_MS } from '../../constants.js';
+import type { ChatItem, ChatSend, MessengerContact } from '../../../../core/src/messages.js';
+import { CHAT_REQUEST_TIMEOUT_MS, MSG_COMMAND_SETTLE_MS } from '../../constants.js';
 import { setLanguage, t } from '../../i18n/index.js';
 import { presenceOf, presenceWord } from '../officeHours.js';
 import { agtyConnectionLost, agtyHandleMessage } from '../officeStore.js';
@@ -21,6 +21,7 @@ import {
   closeRoomTab,
   contactKey,
   conversationSections,
+  dismissSend,
   dividerAfter,
   DRAFT_TTL_MS,
   draftKey,
@@ -32,6 +33,7 @@ import {
   leadState,
   loadDraft,
   loadDraftReply,
+  MAX_ITEMS,
   MAX_OPEN,
   mergeItems,
   messengerAnswerPermission,
@@ -56,6 +58,7 @@ import {
   requestSearchAll,
   saveDraft,
   saveDraftReply,
+  setJumpLoading,
   settle,
   showConversation,
   showMessengerList,
@@ -473,7 +476,7 @@ it('a send: its bubble, the daemon queues it, then the transcript has it (\ubc1b
     canSend: true,
   });
   const sent: Array<{ requestId: string }> = [];
-  messengerSend((m) => sent.push(m), true, 1, 'alpha', '\ubc30\ud3ec\ud574 \uc918');
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '\ubc30\ud3ec\ud574 \uc918');
   expect(sent).toEqual([
     {
       type: 'chatSend',
@@ -721,9 +724,135 @@ it('MSG-HOLD2: an edit that lost the race to delivery becomes a correction offer
   expect(snap().editLost).toEqual({ agentId: 1, name: 'alpha', text: 'too late' });
 });
 
+it("T-81: a send whose command opened a picker marks the conversation until the next send's answer", () => {
+  const sent: Array<{ requestId: string }> = [];
+  const answer = (i: number, extra: Record<string, unknown> = {}) =>
+    agtyHandleMessage({ type: 'chatSendResult', requestId: sent[i].requestId, name: 'alpha', ok: true, delivered: 'pane', ...extra });
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '/model');
+  answer(0, { screen: 'picker' });
+  expect(snap().picker[1]).toBe(true);
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '/compact');
+  answer(1);
+  expect(snap().picker[1]).toBeUndefined();
+});
+
+it('T-141: a message queued behind the open picker (held there) leaves the notice: only one that went in ends it', () => {
+  const sent: Array<{ requestId: string }> = [];
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '/model');
+  agtyHandleMessage({ type: 'chatSendResult', requestId: sent[0].requestId, name: 'alpha', ok: true, delivered: 'pane', screen: 'picker' });
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', 'hold on');
+  agtyHandleMessage({ type: 'chatSendResult', requestId: sent[1].requestId, name: 'alpha', ok: true, delivered: 'queued', queueId: '9-q.json' });
+  expect(snap().picker[1]).toBe(true);
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', 'again');
+  agtyHandleMessage({ type: 'chatSendResult', requestId: sent[2].requestId, name: 'alpha', ok: false, error: 'busy' });
+  expect(snap().picker[1]).toBe(true);
+});
+
+it('T-81: the picker notice goes once the daemon no longer holds the lead (the picker was closed at the terminal)', () => {
+  const sent: Array<{ requestId: string }> = [];
+  const contacts = (held: boolean) =>
+    agtyHandleMessage({ type: 'messengerContacts', contacts: [{ agentId: 1, name: 'alpha', replies: [], ...(held && { held }) }] });
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '/model');
+  agtyHandleMessage({ type: 'chatSendResult', requestId: sent[0].requestId, name: 'alpha', ok: true, delivered: 'pane', screen: 'picker' });
+  contacts(true);
+  expect(snap().picker[1]).toBe(true);
+  contacts(false);
+  expect(snap().picker[1]).toBeUndefined();
+});
+
+describe('T-169: a delivered / command never stays sent', () => {
+  const sendCmd = (text: string) => {
+    const sent: Array<{ requestId: string }> = [];
+    messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', text);
+    return sent[0].requestId;
+  };
+  const result = (requestId: string, extra: Record<string, unknown>) =>
+    agtyHandleMessage({ type: 'chatSendResult', requestId, name: 'alpha', ok: true, ...extra });
+  const held = (on: boolean, picker = false) =>
+    agtyHandleMessage({ type: 'messengerContacts', contacts: [{ agentId: 1, name: 'alpha', replies: [], ...(on && { held: true }), ...(picker && { picker }) }] });
+  const texts = () => (snap().pending[1] ?? []).map((p) => p.text);
+  const later = () => vi.advanceTimersByTime(MSG_COMMAND_SETTLE_MS + 1);
+
+  it('a dialog closed with nothing logged (display "skip"): the bubble goes once the picker is gone', () => {
+    vi.useFakeTimers();
+    try {
+      result(sendCmd('/tasks'), { delivered: 'pane', screen: 'picker' });
+      held(true);
+      later();
+      expect(texts()).toEqual(['/tasks']); // its picker is still up
+      held(false);
+      later();
+      expect(texts()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a command queued behind a busy turn waits while queued, then goes after the picker the tick opened closes', () => {
+    vi.useFakeTimers();
+    try {
+      result(sendCmd('/tasks'), { delivered: 'queued', queueId: '9-q.json' });
+      const transcript = (queued: Array<{ id: string; text: string; at: number }>) =>
+        agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, append: true, queued });
+      transcript([{ id: '9-q.json', text: '/tasks', at: T0 }]);
+      later();
+      expect(texts()).toEqual(['/tasks']); // not delivered yet: as today
+      transcript([]); // the tick typed it...
+      held(true, true); // ...and it opened a picker
+      later();
+      expect(texts()).toEqual(['/tasks']);
+      held(false);
+      later();
+      expect(texts()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a command with no picker goes after the grace; an ordinary message never does', () => {
+    vi.useFakeTimers();
+    try {
+      result(sendCmd('hello'), { delivered: 'pane' });
+      result(sendCmd('/compact'), { delivered: 'pane' });
+      later();
+      expect(texts()).toEqual(['hello']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a command the CLI logged shows once, whether its line comes before or after the grace', () => {
+    vi.useFakeTimers();
+    try {
+      const line = (id: string): ChatItem => ({ id, kind: 'user', text: '/model', at: Date.now() });
+      result(sendCmd('/model'), { delivered: 'pane', screen: 'picker' });
+      held(false);
+      agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [line('a')], canSend: true, append: true });
+      later();
+      result(sendCmd('/model'), { delivered: 'pane' });
+      later();
+      agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [line('b')], canSend: true, append: true });
+      expect(texts()).toEqual([]);
+      expect(snap().items[1].map((i) => i.text)).toEqual(['/model', '/model']);
+      expect(snap().received[1]).toEqual(['a']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+it('T-141: a contact the daemon says is on a picker (a command it typed from the queue) shows the picker notice without any send result', () => {
+  const contacts = (picker: boolean) =>
+    agtyHandleMessage({ type: 'messengerContacts', contacts: [{ agentId: 1, name: 'alpha', replies: [], held: true, ...(picker && { picker }) }] });
+  contacts(false);
+  expect(snap().picker[1]).toBeUndefined();
+  contacts(true);
+  expect(snap().picker[1]).toBe(true);
+});
+
 it("a list that names this device's own send before its result: one bubble, not two", () => {
   const sent: Array<{ requestId: string }> = [];
-  messengerSend((m) => sent.push(m), true, 1, 'alpha', '\ud558\ub098');
+  messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', '\ud558\ub098');
   agtyHandleMessage({
     type: 'chatTranscript',
     agentId: 1,
@@ -912,8 +1041,8 @@ describe('GAME-UI-1 G1: quest records and the delivered badge', () => {
   });
   it('notes when a send is delivered (sent), not when it is queued', () => {
     const sent: Array<{ requestId: string }> = [];
-    messengerSend((m) => sent.push(m), true, 1, 'alpha', 'a');
-    messengerSend((m) => sent.push(m), true, 2, 'beta', 'b');
+    messengerSend((m) => sent.push(m as ChatSend), true, 1, 'alpha', 'a');
+    messengerSend((m) => sent.push(m as ChatSend), true, 2, 'beta', 'b');
     const contacts = [
       { agentId: 1, name: 'alpha', replies: [] },
       { agentId: 2, name: 'beta', replies: [] },
@@ -949,5 +1078,233 @@ describe('the list\'s overall text search', () => {
     openRoomAt('r1', 'p1');
     expect(snap().activeRoom).toBe('r1');
     expect(snap().pendingRoomJump).toEqual({ roomId: 'r1', id: 'p1' });
+  });
+});
+
+describe('T-128: messenger state across a lost socket, a jump and a first reply', () => {
+  it('B6.1: an edit or cancel whose answer the lost socket took gets its buttons back', () => {
+    const queued = (held: boolean) => [
+      { id: '1-e.json', text: 'orig', at: T0, held },
+      { id: '1-c.json', text: 'drop me', at: T0 },
+    ];
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued: queued(false) });
+    const sent: unknown[] = [];
+    expect(messengerEditEnter((m) => sent.push(m), 1, 'alpha', 'q:1-e.json')).toBe(true);
+    expect(messengerEditSave((m) => sent.push(m), 'orig v2')).toBe(true);
+    messengerCancel((m) => sent.push(m), 1, 'alpha', 'q:1-c.json');
+    agtyConnectionLost();
+    // The new socket's full transcript still lists the edit's message as held.
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued: queued(true) });
+    const [edited, cancelled] = snap().pending[1];
+    expect(edited).toMatchObject({ held: true, state: 'queued', text: 'orig' });
+    expect(edited.editing).toBeFalsy();
+    // The queue still shows the old words: the edit is known not to have landed.
+    expect(edited.refusal).toBe(t('messenger.error.editNotSaved'));
+    expect(cancelled.cancelling).toBeFalsy();
+    expect(cancelled.refusal).toBe(t('messenger.error.disconnectedResult'));
+    expect(messengerEditEnter((m) => sent.push(m), 1, 'alpha', 'q:1-e.json')).toBe(true);
+  });
+
+  it('B6.1: an edit whose queue shows words that are neither the old nor the edited ones stays unknown', () => {
+    // The daemon keeps the original's attachment lines and trims the body, so the saved text can
+    // differ from what the boss typed: "not saved" would be wrong there.
+    const queued = [{ id: '1-e.json', text: 'orig\n[a] a.png', at: T0, held: true }];
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued });
+    expect(messengerEditEnter(() => undefined, 1, 'alpha', 'q:1-e.json')).toBe(true);
+    expect(messengerEditSave(() => undefined, 'orig v2')).toBe(true);
+    agtyConnectionLost();
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [],
+      canSend: true,
+      queued: [{ id: '1-e.json', text: 'orig v2\n[a] a.png', at: T0, held: true, edited: true }],
+    });
+    const [edited] = snap().pending[1];
+    expect(edited).toMatchObject({ text: 'orig v2\n[a] a.png', edited: true });
+    expect(edited.refusal).toBe(t('messenger.error.disconnectedResult'));
+  });
+
+  it('B6.1: an edit whose answer the lost socket took starts again from the edited words', () => {
+    const queued = [{ id: '1-e.json', text: 'orig', at: T0, held: true }];
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued });
+    expect(messengerEditEnter(() => undefined, 1, 'alpha', 'q:1-e.json')).toBe(true);
+    expect(messengerEditSave(() => undefined, 'orig v2')).toBe(true);
+    agtyConnectionLost();
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued });
+    expect(messengerEditEnter(() => undefined, 1, 'alpha', 'q:1-e.json')).toBe(true);
+    expect(snap().editing?.text).toBe('orig v2');
+  });
+
+  it('B6.1: the lost-answer note goes when the queue shows the edit or the cancel landed', () => {
+    const queued = [
+      { id: '1-e.json', text: 'orig', at: T0, held: true },
+      { id: '1-c.json', text: 'drop me', at: T0 },
+    ];
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [], canSend: true, queued });
+    expect(messengerEditEnter(() => undefined, 1, 'alpha', 'q:1-e.json')).toBe(true);
+    expect(messengerEditSave(() => undefined, 'orig v2')).toBe(true);
+    messengerCancel(() => undefined, 1, 'alpha', 'q:1-c.json');
+    agtyConnectionLost();
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [],
+      canSend: true,
+      queued: [
+        { id: '1-e.json', text: 'orig v2', at: T0, edited: true },
+        { id: '1-c.json', text: 'drop me', at: T0, cancelled: true },
+      ],
+    });
+    const [edited, cancelled] = snap().pending[1];
+    expect(edited).toMatchObject({ text: 'orig v2', edited: true });
+    expect(edited.refusal).toBeUndefined();
+    expect(edited.editText).toBeUndefined();
+    expect(cancelled).toMatchObject({ state: 'cancelled' });
+    expect(cancelled.refusal).toBeUndefined();
+  });
+
+  it('B6.2: a send whose result the lost socket took settles when the transcript or the queue shows it', () => {
+    messengerSend(() => undefined, true, 1, 'alpha', 'deploy now');
+    agtyConnectionLost();
+    expect(snap().pending[1]).toMatchObject([{ state: 'failed' }]);
+    // It went in: the prompt settles the bubble.
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [item('user', 'deploy now', 3700)], canSend: true });
+    expect(snap().pending[1]).toEqual([]);
+    // It was queued: the queue's own bubble takes its place, never a second one.
+    messengerSend(() => undefined, true, 1, 'alpha', 'later');
+    agtyConnectionLost();
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [],
+      canSend: true,
+      queued: [{ id: '9-q.json', text: 'later', at: T0 }],
+    });
+    expect(snap().pending[1]).toMatchObject([{ requestId: 'q:9-q.json', state: 'queued' }]);
+    // Two lost sends of the same words and one queue entry: one stays failed (it may never have left).
+    messengerSend(() => undefined, true, 1, 'alpha', 'same');
+    messengerSend(() => undefined, true, 1, 'alpha', 'same');
+    agtyConnectionLost();
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [],
+      canSend: true,
+      queued: [
+        { id: '9-q.json', text: 'later', at: T0 },
+        { id: '10-q.json', text: 'same', at: T0 },
+      ],
+    });
+    expect(snap().pending[1].map((p) => [p.text, p.state])).toEqual([
+      ['later', 'queued'],
+      ['same', 'failed'],
+      ['same', 'queued'],
+    ]);
+    dismissSend(1, snap().pending[1][1].requestId);
+    // A send refused before it left (offline) is a real failure and stays.
+    messengerSend(() => undefined, false, 1, 'alpha', 'offline');
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [item('user', 'offline', 3701)], canSend: true });
+    expect(snap().pending[1].map((p) => [p.text, p.state])).toEqual([
+      ['later', 'queued'],
+      ['same', 'queued'],
+      ['offline', 'failed'],
+    ]);
+  });
+
+  const tail = Array.from({ length: MAX_ITEMS }, (_, i) => item('assistant', `t${i}`, 100 + i));
+  /** A quote jump far back: the list holds an older window, not the tail. */
+  const jumpBack = () => {
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: tail, canSend: true });
+    setJumpLoading(1, true);
+    requestHistory(1, 'old');
+    const older = Array.from({ length: 50 }, (_, i) => item('user', `o${i}`, i));
+    agtyHandleMessage({ type: 'chatHistoryResult', agentId: 1, requestId: 'old', items: older, done: false });
+    expect(snap().historyWindowed[1]).toBe(true);
+  };
+
+  it('B6.4: a send from an older window asks for the tail, so its echo and the reply show', () => {
+    jumpBack();
+    const sent: unknown[] = [];
+    messengerSend((m) => sent.push(m), true, 1, 'alpha', 'about that quote');
+    expect(sent).toContainEqual({ type: 'chatView', agentId: 1, on: true });
+    const echo = [item('user', 'about that quote', 99_998), item('assistant', 'on it', 99_999)];
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: echo, canSend: true, append: true });
+    // The chatView answer: the full transcript, echo and reply included.
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [...tail, ...echo], canSend: true });
+    expect(snap().items[1].slice(-2).map((i) => i.text)).toEqual(['about that quote', 'on it']);
+    expect(snap().historyWindowed[1]).toBe(false);
+  });
+
+  it('B6.4: a send after the older window was closed asks for no tail nobody holds', () => {
+    jumpBack();
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [item('assistant', 'live', 99_999)],
+      canSend: true,
+      append: true,
+    });
+    chatViewClosed(1);
+    expect(snap().historyWindowed[1]).toBe(false);
+    expect(snap().windowedNew[1]).toEqual([]);
+    const sent: { type: string }[] = [];
+    messengerSend((m) => sent.push(m), true, 1, 'alpha', 'from the board');
+    expect(sent.map((m) => m.type)).toEqual(['chatSend']);
+  });
+
+  it('B6.4: a jump page still on its way when the conversation closes is ignored, so no window outlives the view', () => {
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: tail, canSend: true });
+    setJumpLoading(1, true);
+    requestHistory(1, 'old');
+    chatViewClosed(1);
+    const older = Array.from({ length: 50 }, (_, i) => item('user', `o${i}`, i));
+    agtyHandleMessage({ type: 'chatHistoryResult', agentId: 1, requestId: 'old', items: older, done: false });
+    expect(snap().historyWindowed[1]).toBeFalsy();
+    expect(snap().items[1]).toHaveLength(MAX_ITEMS);
+    const sent: { type: string }[] = [];
+    messengerSend((m) => sent.push(m), true, 1, 'alpha', 'from the board');
+    expect(sent.map((m) => m.type)).toEqual(['chatSend']);
+  });
+
+  it('B6.4: a live append leaves a jumped-to older window as it is', () => {
+    jumpBack();
+    const window = snap().items[1];
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [item('assistant', 'live', 99_999)],
+      canSend: true,
+      append: true,
+    });
+    expect(snap().items[1]).toBe(window);
+    expect(snap().historyWindowed[1]).toBe(true);
+    // Not shown, but counted for the jump button (the same reply appended twice counts once).
+    agtyHandleMessage({
+      type: 'chatTranscript',
+      agentId: 1,
+      items: [item('user', 'boss', 99_998), item('assistant', 'live', 99_999)],
+      canSend: true,
+      append: true,
+    });
+    expect(snap().windowedNew[1]).toEqual([item('assistant', 'live', 99_999).id]);
+    // The full transcript (the jump to the bottom) brings the tail back.
+    agtyHandleMessage({ type: 'chatTranscript', agentId: 1, items: [...tail, item('assistant', 'live', 99_999)], canSend: true });
+    expect(snap().items[1].at(-1)?.text).toBe('live');
+    expect(snap().historyWindowed[1]).toBe(false);
+    expect(snap().windowedNew[1]).toEqual([]);
+  });
+
+  it('B6.5: a lead first seen with a read transcript and no reply counts its first reply as unread', () => {
+    const heard: string[] = [];
+    const off = onLeadReply((r) => heard.push(r.name));
+    contacts([{ agentId: 1, name: 'alpha', replies: [], lastAt: T0 }]);
+    contacts([{ agentId: 1, name: 'alpha', replies: [rid(1)], lastAt: T0 + 1000 }]);
+    expect(unreadCount(snap().contacts[0].replies, snap().read.alpha)).toBe(1);
+    expect(heard).toEqual(['alpha']);
+    off();
+    // Its transcript not read yet (no lastAt): no mark, so a new device never counts old replies.
+    contacts([{ agentId: 2, name: 'beta', replies: [] }]);
+    expect(snap().read.beta).toBeUndefined();
   });
 });

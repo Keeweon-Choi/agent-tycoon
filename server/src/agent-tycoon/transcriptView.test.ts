@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { createRequire, syncBuiltinESMExports } from 'module';
 import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +26,7 @@ const LINES = [
     type: 'user',
     message: { content: [{ type: 'text', text: '<command-name>/clear</command-name>' }] },
   }),
+  rec({ type: 'user', message: { content: '<local-command-stdout></local-command-stdout>' } }),
   rec({
     type: 'assistant',
     message: {
@@ -62,9 +64,10 @@ const said = (role: 'user' | 'assistant', text: string, t: string, uuid: string)
   )}\n`;
 
 describe('transcript to messages', () => {
-  it('prompts and replies; one line per tool call; no results, thinking, sidechain, meta or wrappers', () => {
+  it('prompts and replies; one line per tool call; a command as typed (T-169); no results, thinking, sidechain, meta or other wrappers', () => {
     expect(plain(chatItems(LINES.join('\n')))).toEqual([
       { kind: 'user', text: '배포 상태 알려줘' },
+      { kind: 'user', text: '/clear' },
       { kind: 'assistant', text: '확인해 볼게요.' },
       { kind: 'tool', toolName: 'Read', text: 'Reading deploy.ts' },
       { kind: 'tool', toolName: 'Bash', text: 'Running: git status' },
@@ -88,6 +91,39 @@ describe('transcript to messages', () => {
     ];
     expect(plain(chatItems(lines.join('\n')))).toEqual([
       { kind: 'assistant', text: 'T-0077 명세를 완료했고, 배포 검사는 진행 중입니다.' },
+    ]);
+  });
+
+  it('T-169: a slash command shows as its `/` line where the CLI logged it, chosen or kept, so its sent bubble settles there', () => {
+    // As Claude Code 2.1.332 logs a local-jsx command: a result goes in as `user` records (a chosen
+    // model), a picker closed with Esc (display "system": "Kept model as …") as two `system`
+    // local_command records (seen 11-13 22:02 with 2.1.323). The stdout and caveat stay out.
+    const CMD =
+      '<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>';
+    const at = (s: number) => `2026-11-26T10:${String(s).padStart(2, '0')}:00.000Z`;
+    const sys = (content: string, s: number, extra: Record<string, unknown> = {}) =>
+      rec({ type: 'system', subtype: 'local_command', content, level: 'info', timestamp: at(s), uuid: `s${s}${content.length}`, isMeta: false, ...extra });
+    const usr = (content: string, s: number, extra: Record<string, unknown> = {}) =>
+      rec({ type: 'user', isSidechain: false, timestamp: at(s), uuid: `u${s}${content.length}`, message: { role: 'user', content }, ...extra });
+    const lines = [
+      usr('<local-command-caveat>Caveat.</local-command-caveat>', 19, { isMeta: true }),
+      usr(CMD, 19),
+      usr('<local-command-stdout>Set model to `Fable 5.2`</local-command-stdout>', 19),
+      // The owner's marked message before the kept one: its id must not ride on the command's line.
+      usr('[사장 · 메신저 · 11-26 19:20] ⟨m:abcdefgh⟩\n1. 내가 짜서', 20),
+      rec({ type: 'assistant', timestamp: at(20), message: { content: [{ type: 'text', text: '네.' }] } }),
+      sys(CMD, 21),
+      sys('<local-command-stdout>Kept model as `Fable 5.2`</local-command-stdout>', 21, { commandRun: { command: 'model', args: '' } }),
+      usr('<command-message>review is running…</command-message>\n<command-name>/review</command-name>\n<command-args>42</command-args>', 22),
+      // A reminder quoting a command is no command.
+      usr('<system-reminder>run <command-name>/clear</command-name> later</system-reminder>', 22),
+    ];
+    const items = chatItems(lines.join('\n')).filter((i) => i.kind === 'user');
+    expect(items.map(({ id: _i, ...rest }) => rest)).toEqual([
+      { kind: 'user', text: '/model', at: Date.parse(at(19)) },
+      { kind: 'user', text: '1. 내가 짜서', messageId: 'abcdefgh', at: Date.parse(at(20)) },
+      { kind: 'user', text: '/model', at: Date.parse(at(21)) },
+      { kind: 'user', text: '/review 42', at: Date.parse(at(22)) },
     ]);
   });
 
@@ -466,13 +502,14 @@ describe('transcript to messages', () => {
     const items = chatItems(many.join('\n'), 80);
     expect(items).toHaveLength(80);
     expect(items[0].text).toBe('m20');
-    // The boss's own message is shown whole up to the chat's send limit (U-37); a reply is cut at 4000.
+    // A message is shown whole up to 24,000 characters: the boss's own (the chat's send limit, U-37) and an
+    // agent's reply alike (T-146: a reply cut at 4000 ended mid-sentence behind 더 보기). A longer one is cut there.
     const long = chatItems(rec({ type: 'user', message: { content: 'x'.repeat(20_000) } }));
     expect(long[0].text).toHaveLength(20_000);
-    const reply = chatItems(
-      rec({ type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(5000) }] } }),
-    );
-    expect(reply[0].text).toHaveLength(4001);
+    const reply = (n: number) =>
+      chatItems(rec({ type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(n) }] } }))[0].text;
+    expect(reply(20_000)).toBe('x'.repeat(20_000));
+    expect(reply(30_000)).toBe(`${'x'.repeat(24_000)}…`);
   });
 });
 
@@ -511,9 +548,39 @@ describe('TranscriptTail: incremental', () => {
       other,
       said('assistant', 'y'.repeat(CHAT_TAIL_BYTES + 10), '2026-10-22T02:00:01Z', 'a5'),
     );
-    expect(tail.poll(other)?.reset).toBe(true);
+    expect(tail.poll(other)).toMatchObject({ reset: false, added: [{ kind: 'assistant' }] }); // P3.2: read forward
     expect(tail.poll(null)).toEqual({ reset: true, added: [] });
     expect(tail.poll(null)).toBeNull();
+  });
+
+  it('P3.2: a jump past one chunk is read forward, only its bytes, not the last 16 MB again', () => {
+    const file = tmpFile();
+    const big = (i: number) => said('assistant', `${i} ${'z'.repeat(64 * 1024)}`, '2026-10-22T02:00:00Z', `old${i}`);
+    fs.writeFileSync(file, Array.from({ length: 64 }, (_, i) => big(i)).join('')); // 4 MB
+    const tail = new TranscriptTail();
+    tail.poll(file);
+    const grown = said('user', 'next', '2026-10-22T03:00:00Z', 'n1') + big(99).repeat(5); // > CHAT_TAIL_BYTES
+    expect(Buffer.byteLength(grown)).toBeGreaterThan(CHAT_TAIL_BYTES);
+    fs.appendFileSync(file, grown);
+    const cjsFs = createRequire(__filename)('fs') as typeof fs;
+    const { readSync } = cjsFs;
+    let bytes = 0;
+    cjsFs.readSync = ((...a: Parameters<typeof readSync>) => {
+      const n = readSync(...a);
+      bytes += n;
+      return n;
+    }) as typeof readSync;
+    syncBuiltinESMExports();
+    try {
+      const delta = tail.poll(file);
+      expect(delta?.reset).toBe(false);
+      expect(delta?.added.map((i) => i.text.slice(0, 4))).toEqual(['next', '99 z', '99 z', '99 z', '99 z', '99 z']);
+    } finally {
+      cjsFs.readSync = readSync;
+      syncBuiltinESMExports();
+    }
+    expect(bytes).toBe(Buffer.byteLength(grown));
+    expect(tail.items.at(-7)?.text.slice(0, 4)).toBe('63 z');
   });
 
   it('reads only the end of a big transcript, from a whole line', () => {
@@ -584,7 +651,7 @@ describe('TranscriptTail: a fresh load of a transcript whose tail is tool output
     const lines = texts.map((t, i) =>
       said(i % 2 ? 'assistant' : 'user', t, '2026-10-22T01:00:00Z', `b${i}`),
     );
-    // A line longer than one chunk (its text is cut at 4000 chars, the line is not).
+    // A line longer than one chunk (what it shows is short, the line is not).
     const big = `${rec({
       type: 'assistant',
       uuid: 'big',

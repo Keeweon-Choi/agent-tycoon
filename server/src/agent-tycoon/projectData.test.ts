@@ -9,6 +9,8 @@ import { configDirectory } from './configPath.js';
 import { combinedRulesFile } from './engine/agentRules.js';
 import { approvalsPath,ApprovalStore } from './engine/delegation.js';
 import { checkName } from './engine/registry.js';
+import { readRenewHistory, RENEW_HISTORY_VERSION } from './engine/renewals.js';
+import { tasksPath, TaskStore } from './engine/tasks.js';
 import {
   aliasOf,
   deleteGoneConversation,
@@ -85,6 +87,7 @@ function populated() {
   put('merge-history.json', { alpha: [{ task: 'login' }] });
   put('review-notes.json', { v: 1, notes: { 'alpha\0login': [{ id: 'n1' }], 'beta\0x': [] } });
   put('protected-branches.json', { alpha: ['release'], beta: ['main'] });
+  put('run-scripts.json', { v: 1, projects: { alpha: [{ script: 'dev', role: 'dev', cmd: 'vite' }], beta: [] } });
   const read = (rel: string) => JSON.parse(fs.readFileSync(path.join(cfg, rel), 'utf-8')) as Record<string, any>;
   const exists = (rel: string) => fs.existsSync(path.join(cfg, rel));
   const lines = (rel: string) => {
@@ -95,6 +98,14 @@ function populated() {
 }
 
 describe('projectData', () => {
+  it('T-113 (M1): a member\'s reply lines recorded under room posts follow the new name, so their counts survive', () => {
+    const h = populated();
+    const reply = (member: string, item: string) => JSON.stringify({ v: 2, kind: 'reply', id: 'm1', member, item, at: 1 });
+    h.put('groups/r1.2026-12.jsonl', `${reply('alpha', '1-aaaaaaaa-0')}\n${reply('beta', '1-bbbbbbbb-0')}\n`);
+    expect(moveProjectData(h.home, 'alpha', 'gamma')).toEqual([]);
+    expect(h.lines('groups/r1.2026-12.jsonl').filter(Boolean).map((l) => JSON.parse(l).member)).toEqual(['gamma', 'beta']);
+  });
+
   it('move: every store follows the new name; beta is untouched', () => {
     const h = populated();
     expect(moveProjectData(h.home, 'alpha', 'gamma')).toEqual([]);
@@ -132,6 +143,8 @@ describe('projectData', () => {
     expect(Object.keys(h.read('review-notes.json').notes).sort()).toEqual(['beta\0x', 'gamma\0login']);
     // The owner's protected branches: a merge or guard install under the new name keeps them.
     expect(h.read('protected-branches.json')).toEqual({ gamma: ['release'], beta: ['main'] });
+    // B5.8: the dev room's run-button picks.
+    expect(h.read('run-scripts.json').projects).toEqual({ gamma: [{ script: 'dev', role: 'dev', cmd: 'vite' }], beta: [] });
   });
 
   it("a new Worker's daily-count entry is not data under its name (delegate_task notes it before addWorker)", () => {
@@ -201,7 +214,37 @@ describe('projectData', () => {
     expect(h.read('merge-history.json')).toEqual({});
     expect(Object.keys(h.read('review-notes.json').notes)).toEqual(['beta\0x']);
     expect(h.read('protected-branches.json')).toEqual({ beta: ['main'] });
+    expect(h.read('run-scripts.json').projects).toEqual({ beta: [] });
     expect(fs.existsSync(combinedRulesFile(h.home, 'alpha'))).toBe(false);
+  });
+
+  it("P3.3: archived Tasks follow a rename and a purge, so a new project of the old name reads none of them", () => {
+    const h = populated();
+    const line = (id: string, project: string) => JSON.stringify({ id, project, title: id, status: 'done', assignee: { assignmentId: 'a_1', name: project } });
+    h.put('tasks.archive.jsonl', `${line('t2', 'alpha')}\n${line('t3', 'beta')}\n`);
+    const store = new TaskStore(tasksPath(h.home));
+    expect(moveProjectData(h.home, 'alpha', 'gamma')).toEqual([]);
+    expect(store.archived('t2')).toMatchObject({ project: 'gamma', assignee: { name: 'gamma' } });
+    expect(store.archived('t3')).toMatchObject({ project: 'beta' });
+    expect(purgeProjectData(h.home, 'gamma', GONE)).toEqual([]);
+    expect(store.archived('t2')).toMatchObject({ project: GONE, assignee: { name: 'gamma' } });
+    // Appended, never rewritten: the first lines are as they were.
+    expect(h.lines('tasks.archive.jsonl').filter(Boolean).slice(0, 2)).toEqual([line('t2', 'alpha'), line('t3', 'beta')]);
+  });
+
+  it('D2.3: renew terms follow a rename and go to the gone name on a remove or purge (never dropped)', () => {
+    const h = populated();
+    const term = (name: string, sessionId: string) => ({ name, sessionId, next: `${sessionId}-n`, transcript: `/t/${sessionId}.jsonl`, bytes: 1, endedAt: 1 });
+    const write = () => h.put('renew-history.json', JSON.stringify({ v: RENEW_HISTORY_VERSION, terms: [term('alpha', 's1'), term('beta', 's2')] }));
+    const names = () => readRenewHistory(h.home).map((t) => [t.name, t.sessionId]);
+    write();
+    expect(moveProjectData(h.home, 'alpha', 'gamma')).toEqual([]);
+    expect(names()).toEqual([['gamma', 's1'], ['beta', 's2']]);
+    expect(moveProjectData(h.home, 'gamma', GONE, undefined, true)).toEqual([]);
+    expect(names()).toEqual([[GONE, 's1'], ['beta', 's2']]);
+    write();
+    expect(purgeProjectData(h.home, 'alpha', GONE)).toEqual([]);
+    expect(names()).toEqual([[GONE, 's1'], ['beta', 's2']]);
   });
 
   it('a store that fails is named and logged; the others still go', () => {
@@ -294,6 +337,29 @@ describe('대화방 지우기 (deleteGoneConversation)', () => {
     expect(goneAgents(readNameHistory(h.home))).toEqual([]); // off the contact list
     expect(aliasOf(readNameHistory(h.home), 'alpha', 100)).toBe(GONE); // its posts still "(알 수 없음)"
     expect(deleteGoneConversation(h.home, GONE)).toBeNull(); // once
+  });
+
+  it('D2.1: follows the links events.jsonl rotated away (events.jsonl.1, renew-history.json)', () => {
+    const h = populated();
+    const folder = path.join(h.home, 'work', 'alpha');
+    const id = (n: number) => `${String(n).repeat(8)}-1111-4111-8111-111111111111`;
+    const [now, renewed, cleared, older] = [id(1), id(2), id(4), id(5)];
+    const mine = [now, renewed, cleared, older].map((sid) => {
+      const f = transcriptPath(folder, sid, h.home);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, '{}\n');
+      return f;
+    });
+    // Rotated twice: the renew `renewed` -> `now` is only in renew-history.json; the /clear
+    // `cleared` -> `renewed` is in events.jsonl.1; the current log has none of alpha's.
+    h.put('renew-history.json', { v: RENEW_HISTORY_VERSION, terms: [{ name: GONE, sessionId: renewed, next: now, transcript: mine[1], bytes: 2, endedAt: 1 }] });
+    h.put('events.jsonl.1', JSON.stringify({ v: 1, type: 'orch_follow', name: 'alpha', old_session_id: cleared, session_id: renewed }) + '\n');
+    h.put('events.jsonl', JSON.stringify({ v: 1, type: 'orch_rename', name: 'alpha', old_session_id: older, session_id: cleared }) + '\n');
+    expect(moveProjectData(h.home, 'alpha', GONE, undefined, true)).toEqual([]);
+    recordFormerName(h.home, { name: 'alpha', until: 300, as: GONE, gone: { folder, transcript: mine[0], sessionId: now } });
+
+    expect(deleteGoneConversation(h.home, GONE)).toEqual({ deleted: 4, failed: [] });
+    for (const f of mine) expect(fs.existsSync(f)).toBe(false);
   });
 });
 

@@ -4,8 +4,9 @@
 //
 //   agty send [--if-idle] [--from <name>] <project> <message…> | send --group <room> [--from <name>] <message…>
 //   agty groups | groups read <room> [-n N]
-//   agty job [-t] [-d <description>] [--project <name>] [--gpu [--vram GiB] [--exclusive] [--label …]] <command…>
+//   agty job [-t] [--notify] [-d <description>] [--project <name>] [--gpu [--vram GiB] [--exclusive] [--label …]] <command…>
 //   agty jobs [--all]
+//   agty wait <job id> [--max <duration>]
 //   agty stop <job id|pid>
 //   agty renew [--project <name>] [<handoff file> | -]
 //   agty rename [--project <name>] <new name>  (RENAME: after the turn, every record follows)
@@ -30,13 +31,13 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const backupCli = require('./agty-backup');
 const { CLI_NAME: CLI } = require('./brand');
-const { configDirectory, controlEndpoint } = require('../../core/src/agent-tycoon/configPath.cjs');
+const { configDirectory, controlEndpoint, stateDirectory } = require('../../core/src/agent-tycoon/configPath.cjs');
 const controlIdentity = require('../../core/src/agent-tycoon/controlIdentity.cjs');
 const maintenance = require('./agty-maintenance');
 
 const HOME = os.homedir();
 const CONFIG = configDirectory(HOME);
-const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'stop', 'renew', 'rename', 'project', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'start', 'start-policy'];
+const COMMANDS = ['version', 'status', 'doctor', 'logs', 'restart', 'backup', 'restore', 'send', 'groups', 'job', 'jobs', 'wait', 'stop', 'renew', 'rename', 'project', 'login', 'codex', 'gpu', 'hw', 'task', 'worker', 'trust', 'move-pty', 'permission-hook', 'worktree', 'install', 'update', 'rollback', 'uninstall', 'open', 'start', 'start-policy'];
 /** The manager (agent-tycoon/install/manager.mjs, H §2): install, update, open, and the install part of status. */
 const manager = () => import(require('url').pathToFileURL(path.join(__dirname, '..', 'install', 'manager.mjs')).href);
 /** The GPU wrapper and Codex worker of this checkout (built with the daemon). */
@@ -51,14 +52,17 @@ function productVersion() {
   }
 }
 const NAME_RE = /^[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,40}$/;
+/** `wait` hit --max with the job still running (EX_TEMPFAIL: not 124, which `timeout` and so many jobs return). */
+const WAIT_STILL_RUNNING = 75;
 /** Exit codes besides 0 (ok) and 1 (refused or failed). */
-const EXIT = { usage: 2, unknown_command: 2, not_yet: 2, daemon_off: 3 };
+const EXIT = { usage: 2, unknown_command: 2, not_yet: 2, daemon_off: 3, still_running: WAIT_STILL_RUNNING };
 const USAGE = `사용법:
   ${CLI} send [--if-idle] [--from <이름>] <프로젝트> <메시지>
   ${CLI} send --group <방> [--from <이름>] <메시지>   @이름: 바로 깨워 전달 · 태그 없음: 공지(아무도 안 깨우고 각자 다음 메시지와 함께 전달)
   ${CLI} groups | groups read <방> [-n N]
-  ${CLI} job [-t] [-d|--desc <작업 설명>] [--project <이름>] [--task <작업 id>] [--gpu [--vram GiB] [--exclusive] [--label 설명]] <명령>
+  ${CLI} job [-t] [--notify] [-d|--desc <작업 설명>] [--project <이름>] [--task <작업 id>] [--gpu [--vram GiB] [--exclusive] [--label 설명]] <명령>
   ${CLI} jobs [--all]
+  ${CLI} wait <작업 id 또는 pid> [--max <시간: 90s·30m·2h>]   그 작업이 끝날 때까지 기다림(기본 1h, 끝나면 작업의 종료 코드로 나감, 아직 돌면 75)
   ${CLI} stop <작업 id 또는 pid>
   ${CLI} renew [--project <이름>] [<인수인계 파일> | -]
   ${CLI} rename [--project <지금 이름>] <새 이름>   턴이 끝나면 이름을 바꿔 같은 대화로 다시 켬(기록·모습·레벨이 따라감)
@@ -382,7 +386,7 @@ function queueOffline(to, raw, ifIdle, from) {
     preview: text.split('\n', 1)[0].slice(0, 80),
   };
   try {
-    fs.appendFileSync(path.join(CONFIG, 'events.jsonl'), `${JSON.stringify(event)}\n`, {
+    fs.appendFileSync(path.join(CONFIG, 'events.jsonl'), `\n${JSON.stringify(event)}\n`, {
       mode: 0o600,
     });
   } catch {
@@ -409,6 +413,13 @@ function groupSentence(room, r) {
 
 // ── Commands ─────────────────────────────────────────────────
 
+const JOB_USAGE = `사용법: ${CLI} job [-d <설명>] [-t] [--notify] [--gpu [--vram <GiB>]] [--task <id>] [--project <이름>] <명령>`;
+const JOBS_USAGE = `사용법: ${CLI} jobs [--all]`;
+const STOP_USAGE = `사용법: ${CLI} stop <작업 id 또는 pid>`;
+const CODEX_USAGE =
+  `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>`;
+const helpFlag = (arg) => arg === '--help' || arg === '-h';
+
 /** Leading options: `flags` take no value, `values` take one. */
 function options(args, flags, values) {
   const got = {};
@@ -427,6 +438,166 @@ function options(args, flags, values) {
     args.shift();
   }
   return got;
+}
+
+// ── wait: from the job's files on disk, no daemon needed (agty-cli.md §7) ──
+
+const { JOB_ID_RE } = controlIdentity;
+/** Default --max: an hour. Long enough for a gate or a build, short enough that a stuck job or a wrong id never leaves a waiter forever (the agent runs it again). */
+const WAIT_DEFAULT_MS = 3_600_000;
+const WAIT_CAP_MS = 86_400_000;
+const WAIT_POLL_MS = Number(process.env.AGTY_WAIT_POLL_MS) >= 50 ? Number(process.env.AGTY_WAIT_POLL_MS) : 2_000;
+const WAIT_TAIL_LINES = 15;
+const WAIT_LINE_MAX = 300;
+const WAIT_USAGE = `사용법: ${CLI} wait <작업 id 또는 pid> [--max <시간: 90s·30m·2h>]`;
+
+/** `90s`, `30m`, `2h` (a bare number is seconds), up to a day; null when it is none. */
+function waitDuration(text) {
+  const m = /^(\d+)([smh]?)$/.exec(text);
+  if (!m) return null;
+  const ms = Number(m[1]) * { '': 1_000, s: 1_000, m: 60_000, h: 3_600_000 }[m[2]];
+  return ms > 0 && ms <= WAIT_CAP_MS ? ms : null;
+}
+
+/** The same process that started the job (not a reused pid) is still there. */
+function jobAlive(r) {
+  if (!Number.isInteger(r.pid) || r.pid <= 1) return false;
+  if (process.platform === 'linux' && r.pstart) {
+    try {
+      const f = fs.readFileSync(`/proc/${r.pid}/stat`, 'utf8').split(') ').pop().split(' ');
+      return f[0] !== 'Z' && f[19] === r.pstart;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(r.pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+/** The last lines of a log as a terminal last showed them (the \r of a progress bar, no colours). */
+function logTail(file) {
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(size, 16 * 1024);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      return buf
+        .toString('utf8')
+        .split('\n')
+        .map((l) => l.slice(l.lastIndexOf('\r') + 1).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').trimEnd())
+        .filter(Boolean)
+        .slice(-WAIT_TAIL_LINES)
+        .map((l) => (l.length > WAIT_LINE_MAX ? `${l.slice(0, WAIT_LINE_MAX)}…` : l));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return [];
+  }
+}
+
+/** The job a pid belongs to: the one still running with it, else the latest record that had it; null if none. */
+function jobIdOfPid(dir, pid) {
+  let found = null;
+  try {
+    for (const name of fs.readdirSync(dir).filter((n) => n.endsWith('.json')).sort()) {
+      try {
+        const r = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+        if (r && r.pid === pid && JOB_ID_RE.test(String(r.id)) && (!found || !found.running || !r.ended)) found = { id: r.id, running: !r.ended };
+      } catch {
+        /* reserved, not written yet */
+      }
+    }
+  } catch {
+    /* no jobs folder */
+  }
+  return found && found.id;
+}
+
+async function waitJob(args) {
+  // `wait <id> --max 30m` or `wait --max 30m <id>`.
+  const at = args.indexOf('--max');
+  const given = at === -1 ? undefined : args[at + 1];
+  if (at !== -1) args.splice(at, 2);
+  const o = { '--max': given };
+  if (args.length === 1 && helpFlag(args[0])) {
+    console.log(WAIT_USAGE);
+    return exitAfterFlush(0);
+  }
+  const max = at === -1 ? WAIT_DEFAULT_MS : given === undefined ? null : waitDuration(given);
+  if (max === null || args.length !== 1) return failWith('usage', WAIT_USAGE);
+  const dir = path.join(stateDirectory(HOME), 'jobs');
+  let id = args[0];
+  if (/^\d+$/.test(id)) id = jobIdOfPid(dir, Number(id)) ?? id; // as `stop`: an id or a pid
+  if (!JOB_ID_RE.test(id)) return failWith('no_such_job', `그런 작업이 없습니다: ${id} (${CLI} jobs 로 id 를 확인하세요)`);
+  const read = () => {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8'));
+      return r && typeof r === 'object' ? r : null;
+    } catch {
+      return null;
+    }
+  };
+  // The job's shell writes this when its command ends; the daemon moves it into the record.
+  const readExit = () => {
+    try {
+      const raw = fs.readFileSync(path.join(dir, `${id}.exit`), 'utf8').trim();
+      return /^-?\d+$/.test(raw) ? Number(raw) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const t0 = Date.now();
+  for (;;) {
+    let r = read();
+    if (!r) return failWith('no_such_job', `그런 작업이 없습니다: ${id} (${CLI} jobs --all 로 확인하세요)`);
+    let done = r.ended ? { exit: r.exit ?? null } : null;
+    if (!done) {
+      const exit = readExit();
+      if (exit !== undefined) done = { exit };
+    }
+    if (!done && !jobAlive(r)) {
+      // Gone without a word. First look again: the daemon may have just moved the exit file into the record.
+      r = read() ?? r;
+      const exit = r.ended ? (r.exit ?? null) : readExit();
+      done = { exit: exit === undefined ? null : exit };
+    }
+    if (done) {
+      // The run, not a GPU wait before it (the lease file is written when the command starts); the end is the
+      // record's, else when the exit file or the log was last written (the daemon may not have settled it yet).
+      const mtime = (f) => {
+        try {
+          return fs.statSync(f).mtimeMs;
+        } catch {
+          return NaN;
+        }
+      };
+      const lease = r.gpu ? mtime(path.join(dir, `${id}.gpu`)) : NaN;
+      const began = lease || Date.parse(r.started);
+      // A GPU job that never got its turn did not run: no time.
+      const ranMs = r.gpu && !lease ? null : (Date.parse(r.ended || '') || mtime(path.join(dir, `${id}.exit`)) || mtime(r.log)) - began || null;
+      const label = r.desc || String(r.cmd || '').slice(0, 80);
+      const stopped = r.stopped === true;
+      const how = stopped ? '멈춤' : done.exit === null ? '사라짐(종료 코드 모름)' : done.exit === 0 ? '끝남' : '실패';
+      const tail = logTail(r.log);
+      if (json)
+        process.stdout.write(`${JSON.stringify({ v: 1, ok: true, ended: true, id, desc: r.desc ?? null, exit: done.exit, stopped, log: r.log, tail })}\n`);
+      else {
+        console.log(`작업 ${id} ${how}${label ? ` · ${label}` : ''}${done.exit === null ? '' : ` · exit ${done.exit}`}${ranMs ? ` · ${Math.round(ranMs / 1000)}초` : ''} · 로그 ${r.log}`);
+        if (tail.length) console.log(`--- 로그 끝 ${tail.length}줄 ---\n${tail.join('\n')}`);
+      }
+      return exitAfterFlush(done.exit ?? 1);
+    }
+    if (Date.now() - t0 >= max)
+      return finish({ ok: false, code: 'still_running', error: `작업 ${id} 은 ${o['--max'] === undefined ? '1h' : /^\d+$/.test(o['--max']) ? `${o['--max']}초` : o['--max']} 안에 끝나지 않았습니다(아직 돕니다). 다시 ${CLI} wait ${id} 로 기다리세요` });
+    await new Promise((resolve) => setTimeout(resolve, Math.min(WAIT_POLL_MS, Math.max(1, max - (Date.now() - t0)))));
+  }
 }
 
 async function main(argv) {
@@ -581,8 +752,12 @@ async function main(argv) {
       return finish(r);
     }
     case 'job': {
-      const o = options(rest, ['-t', '--gpu', '--exclusive'], ['--project', '--vram', '--label', '-d', '--desc', '--task']);
+      const o = options(rest, ['-t', '--notify', '--gpu', '--exclusive'], ['--project', '--vram', '--label', '-d', '--desc', '--task']);
       if (o.error) return failWith('usage', o.error);
+      if (helpFlag(rest[0])) {
+        console.log(JOB_USAGE);
+        return exitAfterFlush(0);
+      }
       const desc = o['--desc'] ?? o['-d'] ?? null;
       if (desc !== null && (!desc.trim() || desc.length > 80 || /[\r\n\x00-\x1f\x7f]/.test(desc)))
         return failWith('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
@@ -593,12 +768,12 @@ async function main(argv) {
       if (vram !== null && !(Number.isFinite(vram) && vram >= 0))
         return failWith('usage', '--vram 은 GiB 숫자입니다');
       const command = rest.join(' ');
-      if (!command.trim())
-        return failWith('usage', `사용법: ${CLI} job [-t] [--project <이름>] [--gpu …] <명령>`);
+      if (!command.trim() || rest[0].startsWith('-')) return failWith('usage', JOB_USAGE);
       const r = await request('job', {
         cmd: command,
         desc,
         tty: o['-t'] === true,
+        ...(o['--notify'] && { notify: true }),
         project: o['--project'] ?? null,
         path: process.env.PATH ?? null,
         ...(o['--task'] && { task: o['--task'] }),
@@ -608,13 +783,21 @@ async function main(argv) {
       });
       if (r === null) return off();
       if (r.ok && gpu) r.gpu = true;
+      // An older daemon starts the job and ignores --notify: say so rather than let the agent wait for nothing.
+      const notifyNote = !r.ok || !o['--notify'] ? '' : r.notify ? ' · 끝나면 한 번 알려 줍니다(--notify)' : ` · 주의: 이 데몬은 --notify 를 몰라 알림이 없습니다(${CLI} wait ${r.id} 로 기다리세요)`;
       return finish(
         r,
         r.ok &&
-          `백그라운드로 실행 · pid ${r.pid} (멈추기: ${CLI} stop ${r.pid}) · 로그 ${r.log}${gpu ? ` · GPU 차례를 기다렸다가 돈다(${CLI} gpu)` : ''}${taskNote(r)}`,
+          `백그라운드로 실행 · 작업 ${r.id} · pid ${r.pid} (멈추기: ${CLI} stop ${r.pid}) · 로그 ${r.log}${gpu ? ` · GPU 차례를 기다렸다가 돈다(${CLI} gpu)` : ''}${taskNote(r)}${notifyNote}`,
       );
     }
+    case 'wait':
+      return waitJob(rest);
     case 'jobs': {
+      if (rest.length === 1 && helpFlag(rest[0])) {
+        console.log(JOBS_USAGE);
+        return exitAfterFlush(0);
+      }
       const r = await request('jobs', { all: rest.includes('--all') });
       if (r === null) return off();
       if (!r.ok) return finish(r);
@@ -623,7 +806,11 @@ async function main(argv) {
     }
     case 'stop': {
       if (rest[0] === '--daemon') return exitAfterFlush(await (await manager()).main(['stop-daemon', ...rest.slice(1)]));
-      if (rest.length !== 1) return failWith('usage', `사용법: ${CLI} stop <작업 id 또는 pid>`);
+      if (rest.length === 1 && helpFlag(rest[0])) {
+        console.log(STOP_USAGE);
+        return exitAfterFlush(0);
+      }
+      if (rest.length !== 1) return failWith('usage', STOP_USAGE);
       const r = await request('stop', { target: rest[0] });
       if (r === null) return off();
       return finish(r, r.ok && `pid ${r.pid} 작업을 멈췄습니다`);
@@ -688,14 +875,15 @@ async function main(argv) {
         ['-m', '--model', '-e', '--effort', '-d', '--desc', '--project', '--task', '--name'],
       );
       if (o.error) return failWith('usage', o.error);
+      if (helpFlag(rest[0])) {
+        console.log(CODEX_USAGE);
+        return exitAfterFlush(0);
+      }
       const desc = o['--desc'] ?? o['-d'] ?? null;
       if (desc !== null && (!desc.trim() || desc.length > 80 || /[\r\n\x00-\x1f\x7f]/.test(desc)))
         return failWith('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
       if (rest.length > 1)
-        return failWith(
-          'usage',
-          `사용법: ${CLI} codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>`,
-        );
+        return failWith('usage', CODEX_USAGE);
       if (!rest.length) {
         const r = await request('codex', { list: true, all: o['--all'] === true });
         if (r === null) return off();

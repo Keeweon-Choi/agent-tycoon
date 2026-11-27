@@ -5,7 +5,12 @@ import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js';
 import { visualPlacement } from '../layout/layoutSerializer.js';
 import type { OfficeLayout, PlacedFurniture, SpriteData } from '../types.js';
 import { EditTool, TILE_SIZE } from '../types.js';
-import { canPlaceFurniture, getWallPlacementRow, planFurnitureMove } from './editorActions.js';
+import {
+  canExpand,
+  canPlaceFurniture,
+  getWallPlacementRow,
+  planFurnitureMove,
+} from './editorActions.js';
 import type { EditorState } from './editorState.js';
 
 /** One ghost sprite for an item at its (target) position; null for unknown types. */
@@ -42,7 +47,8 @@ export function buildEditorRenderState(
 ): EditorRenderState {
   const tool = editorState.activeTool;
   const showGhostBorder =
-    tool === EditTool.TILE_PAINT || tool === EditTool.WALL_PAINT || tool === EditTool.ERASE;
+    canExpand(layout) &&
+    (tool === EditTool.TILE_PAINT || tool === EditTool.WALL_PAINT || tool === EditTool.ERASE);
   const render: EditorRenderState = {
     showGrid: true,
     ghosts: [],

@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as util from 'util';
 import { describe, expect, it } from 'vitest';
 
 import { digestJobLog, maskJobLog } from './jobDigest.js';
@@ -47,5 +48,23 @@ describe('readable job logs', () => {
     expect(JSON.stringify(digest)).not.toMatch(/ABCDEFGH|12345678|token=secret|npm warn/);
     expect(maskJobLog(raw)).not.toMatch(/ABCDEFGH|12345678|token=secret/);
     expect(digest.lines.at(-1)?.error).toBe(true);
+  });
+  it('masks a secret that terminal colour codes sit around (S8.3)', () => {
+    const token = `ghp_${'B'.repeat(36)}`;
+    const coloured = util.inspect({ password: 'hunter2-not-real' }, { colors: true });
+    expect(digestJobLog('node x.js', coloured).lines[0].text).not.toContain('hunter2');
+    expect(maskJobLog(coloured)).not.toContain('hunter2');
+    expect(maskJobLog(`\x1b[32m${token}\x1b[0m`)).not.toContain('BBBB');
+    expect(JSON.stringify(digestJobLog('node x.js', `\x1b[32m${token}\x1b[0m`))).not.toContain(
+      'BBBB',
+    );
+  });
+  it('masks the spaced short code and drops a QR block (S8.4)', () => {
+    expect(maskJobLog('로그인 코드: 1234 5678')).not.toContain('5678');
+    expect(maskJobLog('1234 5678')).not.toContain('5678');
+    expect(maskJobLog('it ran 1234 times and 5678 more')).toContain('5678');
+    const qr = ['█▀▀▀▀▀█ ▀▄ ▄▀█ █▀▀▀▀▀█', '█ ███ █ ▀▀▄▄▀█ █ ███ █'];
+    const out = maskJobLog(`before\n${qr.join('\n')}\nhttps://h/login?code=ABCDEFGH\nafter`);
+    expect(out).toBe('before\nhttps://h/login?code=***\nafter');
   });
 });

@@ -22,7 +22,7 @@ import {
   bindNoticeOffice,
   dismissNoticeToast,
   KIND_LABEL,
-  markRead,
+  markNoticeRead,
   markReadFor,
   type Notice,
   NOTICE_ICON,
@@ -38,6 +38,7 @@ import {
   PUSH_HINT,
   pushSupport,
   resendPush,
+  resendPushOnLanguage,
   subscribePush,
   unsubscribePush,
 } from './push.js';
@@ -79,6 +80,7 @@ export function NoticeToast({
   useEffect(() => {
     openRef.current = onOpen;
   }, [onOpen]);
+  useEffect(() => resendPushOnLanguage(send), []);
   useEffect(
     () =>
       listenForPushClicks((t) => {
@@ -105,7 +107,7 @@ export function NoticeToast({
       onDismiss={() => dismissNoticeToast(toast.id)}
       onTap={() => {
         dismissNoticeToast(toast.id);
-        markRead(toast.id);
+        markNoticeRead(toast);
         onOpen(noticeGoesTo(toast));
       }}
     >
@@ -152,7 +154,7 @@ const send = (msg: Parameters<typeof transport.send>[0]) => transport.send(msg);
 /** 알림 받기 (Web Push): this device gets the notices while no page of it is showing. */
 function PushRow() {
   const { push, settings } = useNotices();
-  const language = useLanguage();
+  useLanguage(); // its words follow the language; the push itself is re-sent by resendPushOnLanguage
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const support = pushSupport();
@@ -165,7 +167,7 @@ function PushRow() {
       return;
     }
     if (subscribed && support === 'ok') void resendPush(settings, send);
-  }, [settings.kinds, settings.subagents, settings.remoteTurnEnds, language]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settings.kinds, settings.subagents, settings.remoteTurnEnds]); // eslint-disable-line react-hooks/exhaustive-deps
   const hint =
     support !== 'ok'
       ? t(PUSH_HINT[support])

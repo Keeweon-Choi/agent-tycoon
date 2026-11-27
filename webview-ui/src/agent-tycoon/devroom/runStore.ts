@@ -96,7 +96,8 @@ export function runHandleMessage(msg: RunScriptsResult | JobStartResult): void {
       const again = !req.retried;
       req.retried = true;
       void (again ? requestStepUp() : Promise.resolve(false)).then(
-        (ok) => (ok && wire?.connected() ? wire.send(req.msg) : (asked.delete(msg.requestId), wire?.toast(stepUpFailedText(), 'error'))),
+        // asked.set: a socket that dropped while the step-up was proven has cleared the ask.
+        (ok) => (ok && wire?.connected() ? (asked.set(msg.requestId, req), wire.send(req.msg)) : (asked.delete(msg.requestId), wire?.toast(stepUpFailedText(), 'error'))),
         () => (asked.delete(msg.requestId), wire?.toast(stepUpFailedText(), 'error')),
       );
       return;
@@ -113,6 +114,9 @@ export function runHandleMessage(msg: RunScriptsResult | JobStartResult): void {
       (ok) => {
         if (!ok || !wire?.connected()) return finish(msg, stepUpFailedText());
         req.retried = true;
+        // Put the start back: a socket that dropped while the step-up was proven has cleared it.
+        starts.set(msg.requestId, req);
+        set({ starting: { ...snapshot.starting, [startKey(msg.project, msg.task, msg.scriptId)]: true } });
         wire.send(req.msg);
       },
       () => finish(msg, stepUpFailedText()),
@@ -130,7 +134,27 @@ function finish(msg: JobStartResult, error: string | null): void {
   if (error) wire?.toast(error, 'error');
 }
 
+/** Script lists that were loading when the socket dropped: asked again on the next connected state. */
+const reask = new Map<string, { project: string; task: string }>();
+
+/** The socket dropped: answers to what was asked go to the old socket, so nothing waits for them (the
+ *  buttons work again, the loading script lists are asked again by runConnected); what is open stays. */
+export function runConnectionLost(): void {
+  for (const { key, msg } of asked.values()) if (snapshot.scripts[key] === 'loading') reask.set(key, msg);
+  asked.clear();
+  starts.clear();
+  const scripts = Object.fromEntries(Object.entries(snapshot.scripts).filter(([, v]) => v !== 'loading'));
+  set({ starting: {}, scripts });
+}
+
+export function runConnected(): void {
+  const again = [...reask.values()];
+  reask.clear();
+  for (const { project, task } of again) requestScripts(project, task);
+}
+
 export function runResetForTests(): void {
+  reask.clear();
   snapshot = { scripts: {}, starting: {}, open: {} };
   asked.clear();
   starts.clear();

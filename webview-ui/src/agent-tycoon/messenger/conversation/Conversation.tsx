@@ -71,11 +71,14 @@ import {
 } from '../parts.js';
 import { Pending } from '../Pending.js';
 import { PermissionCard, QuestionCard, QuestRecordLine } from '../PermissionCard.js';
+import { PickerSheet } from '../PickerSheet.js';
 import { peekView } from '../quotePeek.js';
 import { jumpLabel } from '../scrollJump.js';
 import { senderKey, startsRun } from '../senderFace.js';
 import { chordStep, enterSends, enterSendsNow, isTouchDevice } from '../sendKey.js';
-import { filterSlashCommands, slashComplete, slashMenuKey } from '../slashMenu.js';
+import { SideQuestion } from '../SideQuestion.js';
+import { sideForProvider, sideGetSnapshot, sideOpen, useSideQuestion } from '../sideQuestionStore.js';
+import { filterSlashCommands, slashHint, slashMenuKey } from '../slashMenu.js';
 import { StaleCliBand } from '../StaleCliBand.js';
 import { Thinking } from '../Thinking.js';
 import { toolRuns } from '../toolFold.js';
@@ -154,6 +157,12 @@ export function Conversation({
   // K1 (B4): its last renew could not start the new conversation; the next start does.
   const renewFailed = row?.renewFailed === true;
   const target = chatTarget(agentId, store.officeSnapshot);
+  // The permission card's and T-81's picker notice's 터미널: this pane's own, else the header's terminal view.
+  const openTerminal = pane
+    ? pane.onTerminal
+    : target?.kind === 'background'
+      ? () => requestChat(agentId, target.id)
+      : null;
   const fatigue = fatigueFor(agentId, store);
   const context = store.contexts[agentId];
   const orch = row && 'dir' in row ? row : undefined;
@@ -183,7 +192,7 @@ export function Conversation({
   const [away, setAway] = useState(false);
   const { mark, remember, moved, watch, goBack } = useReturnMark(list);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const { sentinel, historyBusy, historyDone, full, fetchOlder, openQuote, jumpToHit } =
+  const { sentinel, historyBusy, historyDone, full, fetchOlder, openQuote, jumpToHit, dropJump } =
     useHistoryJump({ agentId, m, items, list, restoring, stuck, setAway, remember });
   const {
     searchOpen,
@@ -216,6 +225,8 @@ export function Conversation({
     pendingReply,
     edit,
     leavePendingEdit,
+    restoreDraft,
+    takeBack,
   } = useDraft({ agentId, m, row, name, pending, openQuote, box });
   // T-0111: one line to start with, growing with the text up to 8 lines (a third of the
   // screen on a phone), then scrolling inside; empty after sending, it shrinks back.
@@ -250,25 +261,42 @@ export function Conversation({
   const [uploading, setUploading] = useState(false);
   const [attachmentError, setAttachmentError] = useState('');
   const picker = useRef<HTMLInputElement>(null);
-  const [slashOpen, setSlashOpen] = useState(false);
+  /** The text the list was closed at (Esc, a command sent): it opens again once the text changes. */
+  const [slashShut, setSlashShut] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashRequested = useRef(false);
   const commands = m.slashCommands[agentId];
+  // T-115: the side question drawer, for a Lead whose conversation the engine runs.
+  const sideShown = useSideQuestion().open === agentId;
+  const sideAvailable =
+    !gone &&
+    target?.kind === 'background' &&
+    sideForProvider(engine?.projects.find((project) => project.name === name)?.provider);
+  const openSide = () => {
+    sideOpen(agentId);
+    // Its model picker lists what the CLI lists, which comes with the slash list.
+    if (!sideGetSnapshot().models.length)
+      transport.send({ type: 'slashCommands', requestId: nextRequestId(), agentId });
+  };
   const slashText = target?.kind === 'background' && /^\/[^\s]*$/.test(text);
   const matches = useMemo(() => filterSlashCommands(commands ?? [], text), [commands, text]);
   const [clearPrompt, setClearPrompt] = useState(false);
+  // Read off the text, never a state set after it: a Tab right after typing finds the list open.
+  const slashOpen = slashText && slashShut !== text;
   useEffect(() => {
-    if (!slashText) {
-      setSlashOpen(false);
-      return;
-    }
-    setSlashOpen(true);
+    if (!slashText) return;
     if (!slashRequested.current) {
       slashRequested.current = true;
       transport.send({ type: 'slashCommands', requestId: nextRequestId(), agentId });
     }
   }, [agentId, slashText]);
-  useEffect(() => setSlashIndex(0), [text, matches.length]);
+  // Back to the first row in the same render as the text changes (an effect would lag a fast key).
+  const indexKey = `${matches.length}:${text}`;
+  const [indexFor, setIndexFor] = useState(indexKey);
+  if (indexFor !== indexKey) {
+    setIndexFor(indexKey);
+    setSlashIndex(0);
+  }
   const composerExpanded =
     composerFocused || slashOpen || choosingAttachments || pendingEdit !== null;
   useLayoutEffect(() => {
@@ -290,11 +318,26 @@ export function Conversation({
     el.style.overflowY = fit.scrolls ? 'auto' : 'hidden';
     if (!composerExpanded) el.scrollTop = 0;
   }, [text, phone, canSend, composerExpanded, visualViewportHeight]);
+  // T-81 C: as in the terminal, a chosen command fills the box (its hint greyed after it), or goes.
   const chooseSlash = (command: SlashCommand) => {
     edit(`/${command.name} `);
-    setSlashOpen(false);
     requestAnimationFrame(() => box.current?.focus());
   };
+  const hint = slashHint(text, commands);
+  // T-81 C: a picker our command opened shows as its live terminal over the conversation, until
+  // it is closed there (no longer held) or the owner closes the sheet (the notice reopens it).
+  const pickerUp = !!m.picker[agentId];
+  const [sheetShut, setSheetShut] = useState(false);
+  if (!pickerUp && sheetShut) setSheetShut(false);
+  const sheetFor = pickerUp && !sheetShut && target?.kind === 'background' ? target.id : null;
+  // The picker closed in the terminal: the keys go back to the composer, as to the CLI's prompt
+  // (not on a phone: focusing raises its keyboard; not after the owner closed the sheet by hand).
+  const sheetWas = useRef<string | null>(null);
+  useEffect(() => {
+    const closedByItself = sheetWas.current !== null && sheetFor === null && !pickerUp;
+    sheetWas.current = sheetFor;
+    if (closedByItself && !phone) box.current?.focus();
+  }, [sheetFor, pickerUp, phone]);
   const addFiles = (files: FileList | File[]) => {
     if (store.officeReadOnly || !canSend || uploading) return;
     setAttachmentError(
@@ -353,18 +396,20 @@ export function Conversation({
   });
 
   /** `now`: 즉시 보내기 (Ctrl+Enter, the 즉시 button): it may go in while the lead works. */
-  const submit = async (now = false, clearApproved = false) => {
+  const submit = async (now = false, clearApproved = false, typed = text) => {
+    // A command goes without the space its completion left after it (T-81 C).
+    const message = typed.startsWith('/') ? typed.trimEnd() : typed;
     // A held message's edit keeps its text (the box holds at most CHAT_SEND_MAX) and takes files like
     // a new message: they go up and their lines join the replacement text.
     if (pendingEdit) {
-      if (!text.trim() || uploading || store.officeReadOnly) return;
-    } else if ((!text.trim() && !chips.length) || sending || uploading || store.officeReadOnly)
+      if (!message.trim() || uploading || store.officeReadOnly) return;
+    } else if ((!message.trim() && !chips.length) || sending || uploading || store.officeReadOnly)
       return;
     const prepared = pendingEdit
-      ? { text, attachment: undefined }
-      : prepareMessage(text, CHAT_SEND_MAX);
+      ? { text: message, attachment: undefined }
+      : prepareMessage(message, CHAT_SEND_MAX);
     const hasGeneratedAttachment = prepared.attachment !== undefined;
-    if (!clearApproved && !chips.length && text.trim() === '/clear') {
+    if (!clearApproved && !chips.length && message.trim() === '/clear') {
       setClearPrompt(true);
       return;
     }
@@ -423,9 +468,7 @@ export function Conversation({
       if (pendingEdit) {
         // A reply picked while editing re-points the held message (its own chip, else the old quote stays).
         if (!messengerEditSave((msg) => transport.send(msg), outgoing, reply ?? undefined)) return;
-        editRestore.current = null;
-        setReply(null);
-        edit('');
+        restoreDraft();
         setAttachments(agentId, []);
         requestStaleRecheck();
         return;
@@ -446,6 +489,7 @@ export function Conversation({
       setAttachments(agentId, []);
       requestStaleRecheck();
       stuck.current = true; // your own message always scrolls into view
+      dropJump(); // and no jump still waiting for rows takes you from it later
       setAway(false);
       setMissed(0);
       readerAnchor.current = null;
@@ -496,7 +540,7 @@ export function Conversation({
     <AttachmentGallery files={viewerFiles} ticketFor={viewerTicketFor}>
       <section
         aria-label={t('messenger.conversation', { name: shown })}
-        className="flex-1 min-h-0 flex flex-col"
+        className="relative flex-1 min-h-0 flex flex-col"
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) event.preventDefault();
         }}
@@ -559,6 +603,22 @@ export function Conversation({
                 {t('game.msg.typing')}
                 <span className="dlg-switch-v">{typewriter ? t('game.msg.on') : t('game.msg.off')}</span>
               </button>
+            )}
+            {sideAvailable && (
+              <Button
+                size={phone ? 'icon_md' : 'sm'}
+                variant={sideShown ? 'active' : 'default'}
+                aria-label={t('sideq.open')}
+                aria-expanded={sideShown}
+                title={t('sideq.openHint', { name: shown })}
+                data-testid="side-open"
+                onClick={openSide}
+              >
+                <Icon name="git-branch" size={16} pixel={<span className="material-symbols-sharp text-[16px]" aria-hidden="true">
+                  call_split
+                </span>} />
+                {!phone && t('sideq.open')}
+              </Button>
             )}
             <Button
               size="icon_md"
@@ -701,6 +761,9 @@ export function Conversation({
           </section>
         )}
         {!gone && <StaleCliBand name={name} />}
+        {/* T-115: the side question drawer sits right of the conversation (a sheet over it on a phone). */}
+        <div className="sideq-wrap relative flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <div className="relative flex-1 min-h-0 flex flex-col">
           <div
             ref={list}
@@ -850,7 +913,7 @@ export function Conversation({
               {t('msglib.return')}
             </button>
           )}
-          {away && (
+          {(away || missed > 0) && (
             <Button
               key={missed}
               size={missed > 0 ? 'sm' : 'icon_md'}
@@ -994,7 +1057,7 @@ export function Conversation({
                 type="button"
                 className="underline pointer-coarse:min-h-44"
                 onClick={() => {
-                  edit(m.editLost!.text);
+                  takeBack(m.editLost!.text);
                   messengerEditLostClear();
                 }}
               >
@@ -1028,6 +1091,23 @@ export function Conversation({
               {t('brainK1.renewFailed')}
             </p>
           )}
+          {pickerUp && !sheetFor && (
+            // T-81: the command opened a picker and its sheet is closed (or cannot open here):
+            // every key now lands in it, so the notice offers it again.
+            <p className="text-xs text-accent-text pb-6 flex items-center gap-8" role="status" data-testid="picker-note">
+              <span className="flex-1 min-w-0">{t('messenger.picker.note')}</span>
+              {(sheetShut || openTerminal) && (
+                <Button
+                  size="sm"
+                  variant="accent"
+                  data-testid="picker-open-terminal"
+                  onClick={() => (sheetShut ? setSheetShut(false) : openTerminal?.())}
+                >
+                  {t('messenger.picker.openTerminal')}
+                </Button>
+              )}
+            </p>
+          )}
           {questCard ? (
             <PermissionCard
               key={questCard.toolId}
@@ -1036,13 +1116,7 @@ export function Conversation({
               card={questCard}
               canAnswer={canSend && !store.officeReadOnly}
               visualViewportHeight={visualViewportHeight}
-              openTerminal={
-                pane
-                  ? pane.onTerminal
-                  : target?.kind === 'background'
-                    ? () => requestChat(agentId, target.id)
-                    : null
-              }
+              openTerminal={openTerminal}
             />
           ) : waitWhy === 'question' && !contact?.held ? (
             <QuestionCard
@@ -1073,7 +1147,18 @@ export function Conversation({
               }}
             >
               <div className="flex">
-                <div className="flex-1 min-w-0">
+                <div className="relative flex-1 min-w-0">
+                  {hint && (
+                    // T-81 C: the argument hint, greyed after what is typed, as the terminal shows it.
+                    <div
+                      aria-hidden="true"
+                      data-testid="slash-hint"
+                      className="absolute inset-x-0 top-0 px-10 pt-8 text-sm whitespace-pre-wrap pointer-events-none"
+                    >
+                      <span className="invisible">{text}</span>
+                      <span className="text-text-muted">{serverLine(hint)}</span>
+                    </div>
+                  )}
                   <textarea
                     ref={box}
                     aria-label={t('messenger.messageInput')}
@@ -1108,12 +1193,12 @@ export function Conversation({
                         e.key,
                         slashOpen,
                         e.nativeEvent.isComposing || e.keyCode === 229,
-                        // Nothing to pick: Enter sends, and the daemon says why it is no command.
-                        !matches.length || slashComplete(text, matches[slashIndex]),
+                        text,
+                        matches[slashIndex],
                       );
                       if (menuKey) {
                         e.preventDefault();
-                        if (menuKey === 'close') setSlashOpen(false);
+                        if (menuKey === 'close') setSlashShut(text);
                         else if (menuKey === 'moveUp')
                           setSlashIndex((index) =>
                             matches.length ? (index - 1 + matches.length) % matches.length : 0,
@@ -1122,8 +1207,13 @@ export function Conversation({
                           setSlashIndex((index) =>
                             matches.length ? (index + 1) % matches.length : 0,
                           );
-                        else if (menuKey === 'choose' && matches[slashIndex])
-                          chooseSlash(matches[slashIndex]);
+                        else if (menuKey === 'fill') chooseSlash(matches[slashIndex]);
+                        else if (menuKey === 'send') {
+                          const whole = `/${matches[slashIndex].name}`;
+                          edit(whole);
+                          setSlashShut(whole);
+                          void submit(false, false, whole);
+                        }
                         return;
                       }
                       // Ctrl+X then Ctrl+S: 즉시 보내기 (Claude Code's chord); Ctrl+X still
@@ -1244,6 +1334,11 @@ export function Conversation({
             )
           )}
         </footer>
+        </div>
+        {sideShown && sideAvailable && (
+          <SideQuestion agentId={agentId} name={shown} phone={phone} working={typing} canForward={canSend && !store.officeReadOnly} />
+        )}
+        </div>
         <Modal isOpen={askDelete} onClose={() => setAskDelete(false)} title={shown} zIndex={62}>
           <div className="px-10 pb-8" role="alertdialog" aria-label={t('projectData.deleteConversationQuestion')}>
             <p className="text-base">{t('projectData.deleteConversationQuestion')}</p>
@@ -1269,6 +1364,14 @@ export function Conversation({
             </div>
           </div>
         </Modal>
+        {sheetFor && (
+          <PickerSheet
+            agentId={agentId}
+            backgroundId={sheetFor}
+            phone={phone}
+            onClose={() => setSheetShut(true)}
+          />
+        )}
       </section>
     </AttachmentGallery>
   );

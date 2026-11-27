@@ -1,11 +1,14 @@
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { AgentRuntime } from '../src/agentRuntime.js';
+import { createAgentState } from '../src/agentState.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
+import { useQuestionStore } from '../src/question.js';
 
 /**
  * D5 gate (tier-3 multi-server hook fan-out plan): the hook script now
@@ -74,5 +77,132 @@ describe('AgentRuntime -- D5 foreign-session gate', () => {
     runtime.startProjectScan(dir); // marks `dir` as owned/tracked
     fireSessionStartThenStop('d5-tracked-dir', dir);
     expect(store.size).toBe(1);
+  });
+});
+
+/**
+ * B4.1: /resume hands the agent a transcript that already holds the whole
+ * conversation. Replaying it from byte 0 re-sent every old turn live: old
+ * questions came back as `question: true` (bubble, sound, push).
+ */
+describe('AgentRuntime -- /resume follows the resumed transcript from its end', () => {
+  it('does not replay the resumed history as live turns', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-resume-'));
+    const line = (r: object) => JSON.stringify(r) + '\n';
+    const asked = (text: string) =>
+      line({ type: 'assistant', message: { content: [{ type: 'text', text }] } }) +
+      line({ type: 'system', subtype: 'turn_duration', durationMs: 900 });
+    const old = path.join(dir, 'sess-old.jsonl');
+    const resumed = path.join(dir, 'sess-new.jsonl');
+    fs.writeFileSync(old, '');
+    fs.writeFileSync(resumed, asked('Shall I run the tests?') + asked('Merge it now?'));
+    const store = new AgentStateStore();
+    const runtime = new AgentRuntime(store, claudeProvider);
+    const sent: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (m) => sent.push(m));
+    store.set(
+      1,
+      createAgentState({
+        id: 1,
+        sessionId: 'sess-old',
+        isExternal: false,
+        projectDir: dir,
+        jsonlFile: old,
+      }),
+    );
+    store.get(1)!.hookDelivered = true;
+    runtime.registerAgent('sess-old', 1);
+    try {
+      runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionEnd',
+        session_id: 'sess-old',
+        reason: 'resume',
+      });
+      runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-new',
+        source: 'resume',
+        transcript_path: resumed,
+      });
+      const agent = store.get(1)!;
+      expect(agent.jsonlFile).toBe(resumed);
+      expect(agent.fileOffset).toBe(fs.statSync(resumed).size);
+      expect(sent.filter((m) => m.type === 'agentStatus' && m.question === true)).toEqual([]);
+      // No waiting on /resume is a turn end: each carries restored (push.ts raises no notice).
+      const waits = sent.filter((m) => m.type === 'agentStatus' && m.status === 'waiting');
+      expect(waits.length).toBeGreaterThan(0);
+      expect(waits.filter((m) => m.restored !== true)).toEqual([]);
+      // Claude sits at the prompt after /resume: the character waits, for a later browser too.
+      // ...shown, but no turn ran: restored, so no notice, sound or push.
+      expect(sent.filter((m) => m.type === 'agentStatus').at(-1)).toEqual({
+        type: 'agentStatus',
+        id: 1,
+        status: 'waiting',
+        restored: true,
+      });
+      expect(agent.isWaiting).toBe(true);
+    } finally {
+      runtime.dispose();
+    }
+  });
+
+  it("brings back the resumed session's open question, as a fresh bind does", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-resume-q-'));
+    const line = (r: object) => JSON.stringify(r) + '\n';
+    const old = path.join(dir, 'sess-old.jsonl');
+    const resumed = path.join(dir, 'sess-q.jsonl');
+    fs.writeFileSync(old, '');
+    fs.writeFileSync(
+      resumed,
+      line({ type: 'assistant', message: { content: [{ type: 'text', text: 'Merge it now?' }] } }) +
+        line({ type: 'system', subtype: 'turn_duration', durationMs: 900 }),
+    );
+    // The question was saved when that session's turn ended (questions.json, WAITING-PERSIST).
+    const questions = path.join(dir, 'questions.json');
+    fs.writeFileSync(questions, JSON.stringify({ [resumed]: fs.statSync(resumed).size }));
+    useQuestionStore(questions);
+    const store = new AgentStateStore();
+    const runtime = new AgentRuntime(store, claudeProvider);
+    const sent: Array<Record<string, unknown>> = [];
+    store.on('broadcast', (m) => sent.push(m));
+    store.set(
+      1,
+      createAgentState({
+        id: 1,
+        sessionId: 'sess-old',
+        isExternal: false,
+        projectDir: dir,
+        jsonlFile: old,
+      }),
+    );
+    store.get(1)!.hookDelivered = true;
+    runtime.registerAgent('sess-old', 1);
+    try {
+      runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionEnd',
+        session_id: 'sess-old',
+        reason: 'resume',
+      });
+      runtime.handleHookEvent('claude', {
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-q',
+        source: 'resume',
+        transcript_path: resumed,
+      });
+      expect(store.get(1)!.questionOffset).toBe(fs.statSync(resumed).size);
+      expect(
+        sent.filter((m) => m.type === 'agentStatus' && m.status === 'waiting' && m.restored !== true),
+      ).toEqual([]);
+      expect(sent.filter((m) => m.type === 'agentStatus').at(-1)).toEqual({
+        type: 'agentStatus',
+        id: 1,
+        status: 'waiting',
+        question: true,
+        restored: true,
+      });
+    } finally {
+      runtime.dispose();
+      useQuestionStore(path.join(dir, 'unused.json'));
+    }
   });
 });

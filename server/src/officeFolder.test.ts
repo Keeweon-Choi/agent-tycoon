@@ -5,6 +5,8 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { legacyOfficeSkipFile } from './agent-tycoon/configPath.js';
+import { readLayoutFromFile } from './layoutPersistence.js';
 import {
   MIGRATED_FILES,
   migrateOfficeFolder,
@@ -97,6 +99,37 @@ describe('migrateOfficeFolder', () => {
     expect(officeFile('layout.json', home)).toBe(office('layout.json'));
     // Nothing anywhere: read and write the office folder.
     expect(officeFileToRead('absent.json', home)).toBe(office('absent.json'));
+  });
+
+  it('D2.4: an unparseable office layout.json is kept aside before anything can save over it', () => {
+    fs.mkdirSync(office(), { recursive: true });
+    fs.writeFileSync(office('layout.json'), '{"version":1,"cols":');
+    expect(readLayoutFromFile(home)).toBeNull();
+    const aside = fs.readdirSync(office()).filter((f) => f.startsWith('layout.json.corrupt-'));
+    expect(aside).toHaveLength(1);
+    expect(fs.readFileSync(office(aside[0]), 'utf-8')).toBe('{"version":1,"cols":');
+  });
+
+  it('D2.4: a config.json kept aside as corrupt is not revived from ~/.pixel-agents', () => {
+    seedOldHome();
+    fs.mkdirSync(office(), { recursive: true });
+    fs.writeFileSync(office('config.json.corrupt-1'), '{"broken');
+    expect(officeFileToRead('config.json', home)).toBe(office('config.json'));
+    expect(officeFileToRead('layout.json', home)).toBe(old('layout.json'));
+    expect(migrateOfficeFolder(home).copied).not.toContain('config.json');
+  });
+
+  it('D2.2: after a full reset (the skip marker) nothing is copied or read back from ~/.pixel-agents', () => {
+    seedOldHome();
+    const before = snapshot(old());
+    fs.mkdirSync(office(), { recursive: true });
+    fs.writeFileSync(legacyOfficeSkipFile(home), '');
+
+    expect(migrateOfficeFolder(home)).toEqual({ copied: [], failed: [] });
+    expect(fs.readdirSync(office())).toEqual([path.basename(legacyOfficeSkipFile(home))]);
+    expect(officeFileToRead('config.json', home)).toBe(office('config.json'));
+    expect(officeFileToRead('layout.json', home)).toBe(office('layout.json'));
+    expect(snapshot(old())).toEqual(before);
   });
 
   it('a fresh home has nothing to move', () => {

@@ -117,6 +117,23 @@ describe('activity visuals', () => {
     expect(columns).toEqual([3, 5, 7]);
   });
 
+  it('shows a question wait (the shared rule, waiting.ts) as waiting, whatever the activity says', () => {
+    const idle = describeActivity({ idle: true });
+    expect(characterVisual(idle).ring).toBe('idle');
+    const asking = characterVisual(idle, false, 'question');
+    expect(asking).toMatchObject({ icon: '\u270b', prop: 'hand', ring: 'waiting' });
+    expect(asking.text).toBe(describeActivity({ waitingInput: true }).text);
+    // The question tool's own activity and a permission are left as they are.
+    const ask = describeActivity({ waitingInput: true });
+    expect(characterVisual(ask, false, 'question')).toEqual(characterVisual(ask));
+    const perm = describeActivity({ permission: true });
+    expect(characterVisual(perm, false, 'permission').ring).toBe('permission');
+    expect(characterVisual(perm, false, 'question').ring).toBe('permission');
+    // Off wins; no wait changes nothing.
+    expect(characterVisual(idle, true, 'question').ring).toBe('off');
+    expect(characterVisual(idle, false, null)).toEqual(characterVisual(idle));
+  });
+
   it('shows an off character as off, whatever it last did', () => {
     expect(characterVisual(describeActivity({ toolName: 'Read' }), true)).toEqual({
       icon: '💤',

@@ -193,10 +193,12 @@ components:
         - $ref: '#/components/schemas/ChatPendingResult'
         - $ref: '#/components/schemas/PermissionAnswerResult'
         - $ref: '#/components/schemas/SlashCommandsList'
+        - $ref: '#/components/schemas/SideAnswer'
         - $ref: '#/components/schemas/MessengerContacts'
         - $ref: '#/components/schemas/GroupRooms'
         - $ref: '#/components/schemas/GroupTimeline'
         - $ref: '#/components/schemas/GroupActionResult'
+        - $ref: '#/components/schemas/GroupThreadResult'
         - $ref: '#/components/schemas/EzRules'
         # agty: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineState'
@@ -308,12 +310,16 @@ components:
         - $ref: '#/components/schemas/ChatHold'
         - $ref: '#/components/schemas/PermissionAnswer'
         - $ref: '#/components/schemas/GroupView'
+        - $ref: '#/components/schemas/GroupThread'
         - $ref: '#/components/schemas/GroupPost'
         - $ref: '#/components/schemas/GroupAction'
         - $ref: '#/components/schemas/SlashCommands'
+        - $ref: '#/components/schemas/SideAsk'
+        - $ref: '#/components/schemas/SideCancel'
         # agty: built-in engine (T-0018)
         - $ref: '#/components/schemas/EngineAction'
         - $ref: '#/components/schemas/EngineChoicesRefresh'
+        - $ref: '#/components/schemas/EngineChoicesWarm'
         - $ref: '#/components/schemas/EngineMoveAll'
         - $ref: '#/components/schemas/ProjectScan'
         - $ref: '#/components/schemas/EngineInheritable'
@@ -504,8 +510,10 @@ components:
         restored:
           type: boolean
           description: >-
-            A question given back after a daemon restart, sent to the browsers
-            already connected: show it, but no notice, sound or push.
+            A state given back, not a turn that ran (a question after a daemon
+            restart, the prompt and its open question after a /resume), sent
+            to the browsers already connected: show it, but no notice, sound
+            or push.
 
     AgentActivityStatus:
       description: Activity state of an agent.
@@ -4713,6 +4721,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GroupReply'
+        loaded:
+          description: T-113 - the members' reply lines were read for this post (`replies[].items`), because the client asked for its thread (groupThread). Absent - only `replies[].seen` (what the room has recorded) is sent, and `items` is empty.
+          type: boolean
 
     GroupReply:
       type: object
@@ -4728,6 +4739,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChatItem'
+        seen:
+          description: T-113 - the ids of this member's reply lines the room has recorded (a tail saw them, or a read), sent without reading a transcript. A folded thread counts these; the same ids as the `items` a loaded post carries.
+          type: array
+          items:
+            type: string
+        lastAt:
+          description: T-113 - when the newest of `seen` was written (epoch ms).
+          type: number
 
     GroupRooms:
       type: object
@@ -4762,6 +4781,45 @@ components:
       properties:
         type:
           const: groupActionResult
+        requestId:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    GroupThread:
+      description: T-113 - load the members' replies of these posts of an open room (a thread the reader opened); they stay loaded until the room is closed (groupView off). Answered by a groupTimeline with them, then groupThreadResult.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, room, posts]
+      properties:
+        type:
+          const: groupThread
+        requestId:
+          type: string
+        room:
+          type: string
+        posts:
+          type: array
+          items:
+            type: string
+        mode:
+          description: T-113 - `probe` - read these posts once (a thread that shows no reply; what is found is recorded) and do not keep them loaded; `fold` - the reader folded them again, stop reading them. Absent - load them and keep them loaded.
+          type: string
+          enum: [probe, fold]
+
+    GroupThreadResult:
+      type: object
+      additionalProperties: false
+      required: [type, requestId, ok]
+      properties:
+        type:
+          const: groupThreadResult
         requestId:
           type: string
         ok:
@@ -5471,6 +5529,15 @@ components:
             An engine project whose session waits on a question or permission
             only its terminal shows (`claude agents`: blocked): the boss's
             messages wait, untyped, until it is answered (터미널로 보기).
+            T-81: also while a picker a sent command opened is up (until a look
+            finds it closed), messages queued or not; the app's picker notice
+            goes when this does.
+          type: boolean
+        picker:
+          description: |
+            T-141: the picker is one a command of ours opened (a `/model` the
+            messenger typed from its queue, so the app has no send result that
+            says so): the app shows its picker notice. Absent otherwise.
           type: boolean
         permission:
           $ref: '#/components/schemas/PermissionWait'
@@ -5802,6 +5869,104 @@ components:
           maxItems: 300
           items:
             $ref: '#/components/schemas/SlashCommand'
+        models:
+          description: The models the user's Claude Code lists (its initialize answer), for the side question's picker (T-115); absent until that answer came.
+          type: array
+          maxItems: 60
+          items:
+            $ref: '#/components/schemas/CliModel'
+        error:
+          type: string
+        errorCode:
+          type: string
+        errorParams:
+          $ref: '#/components/schemas/ErrorParams'
+
+    CliModel:
+      type: object
+      additionalProperties: false
+      required: [value, displayName]
+      properties:
+        value:
+          type: string
+        displayName:
+          type: string
+
+    SideExchange:
+      type: object
+      additionalProperties: false
+      required: [question, answer]
+      properties:
+        question:
+          type: string
+          maxLength: 4000
+        answer:
+          type: string
+          maxLength: 20000
+
+    SideAsk:
+      description: |
+        T-115 사이드 질문: ask a question answered from a fork of this engine Lead's latest
+        conversation (read-only, never written; the Lead is not interrupted). `earlier`: this
+        drawer's earlier exchanges, given to the model in the prompt. One at a time per daemon:
+        a second ask while one runs, from any tab or for any Lead, is refused at once (`side_busy`).
+        Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, agentId, question, model, earlier]
+      properties:
+        type:
+          const: sideAsk
+        requestId:
+          type: string
+          maxLength: 100
+        agentId:
+          type: integer
+        question:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        model:
+          type: string
+          maxLength: 100
+        earlier:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/SideExchange'
+
+    SideCancel:
+      description: |
+        T-115: the drawer that sent `sideAsk` `requestId` was closed: the daemon stops that fork
+        (its own child) so it spends nothing on an answer nobody sees. Closing the socket does the same.
+      type: object
+      additionalProperties: false
+      required: [type, requestId]
+      properties:
+        type:
+          const: sideCancel
+        requestId:
+          type: string
+          maxLength: 100
+
+    SideAnswer:
+      description: The answer to one `sideAsk`, the text and the model that answered, or why there is none.
+      type: object
+      additionalProperties: false
+      required: [type, requestId, agentId, ok]
+      properties:
+        type:
+          const: sideAnswer
+        requestId:
+          type: string
+        agentId:
+          type: integer
+        ok:
+          type: boolean
+        text:
+          type: string
+        model:
+          type: string
         error:
           type: string
         errorCode:
@@ -5841,6 +6006,13 @@ components:
         messageId:
           description: C2 - the message's id; its transcript items carry the same `messageId`.
           type: string
+        screen:
+          description: |
+            T-81: the command it entered opened a picker or dialog in the place of the input box
+            (a bare `/model` or `/config`). The session's messages wait until it is closed at the
+            terminal; the app offers the terminal view.
+          type: string
+          const: picker
 
     ChatPendingResult:
       description: |
@@ -6306,6 +6478,12 @@ components:
           type: array
           items:
             type: string
+        modelNames:
+          description: T-143, the models the user's Claude Code lists in its initialize answer (value for --model, the CLI's displayName); absent until that answer came, then the form shows these instead of models.
+          type: array
+          maxItems: 60
+          items:
+            $ref: '#/components/schemas/CliModel'
         efforts:
           type: array
           items:
@@ -6602,6 +6780,17 @@ components:
       properties:
         type:
           const: engineChoicesRefresh
+
+    EngineChoicesWarm:
+      description: |
+        T-143: an engine settings form opened. Starts the Claude CLI's model-name probe once when
+        none is cached; the names then arrive with the next `engineState`. No answer.
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          const: engineChoicesWarm
 
     EngineMoveAll:
       description: |

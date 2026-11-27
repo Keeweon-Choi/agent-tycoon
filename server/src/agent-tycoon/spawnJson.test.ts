@@ -48,7 +48,8 @@ describe('spawnJson', () => {
 });
 
 describe('spawnJson stdin', () => {
-  const eofAt = `const t=Date.now();process.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({ms:Date.now()-t})))`;
+  // The monotonic clock, as the hold timer's: a wall clock set back meanwhile gave a negative time (T-147).
+  const eofAt = `const t=performance.now();process.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({ms:performance.now()-t})))`;
 
   it('gives the child an immediately closed stdin by default', async () => {
     const out = (await spawnJson(process.execPath, ['-e', eofAt], { timeoutMs: 10_000 })) as { ms: number };
@@ -82,6 +83,20 @@ describe('spawnJson cleanup', () => {
     await expect(first).rejects.toMatchObject({ timedOut: true });
     expect(Date.now() - t).toBeLessThan(8_000);
     await expect(second).resolves.toEqual({});
+  });
+
+  it('T-147: a timeout is a timeout when the wall clock is set back meanwhile', async () => {
+    // The timer that kills the child runs on the monotonic clock; a time sync sets the wall clock back (on a
+    // VM whose clock ran fast: 1.4 s every 32 s). Measuring the run with Date.now() called it a plain failure.
+    const real = Date.now.bind(Date);
+    const from = real();
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => (real() - from > 100 ? real() - 200 : real()));
+    try {
+      const run = spawnJson(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeoutMs: 400, unqueued: true });
+      await expect(run).rejects.toMatchObject({ timedOut: true });
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('the stdin hold timer is cleared when the child is gone (nothing ends a dead stdin later)', async () => {

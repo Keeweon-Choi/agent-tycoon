@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -13,8 +13,8 @@ import { controlEndpoint } from '../configPath.js';
 import { ensureOwnerToken, ownerTokenMatches } from '../controlIdentity.js';
 import { REPO_ROOT } from '../testHome.js';
 import type { ControlDeps, ControlRequest, Reply } from './control.js';
-import { answerControl, controlPath, listenControl, parseControl } from './control.js';
-import { jobsDir } from './jobs.js';
+import { answerControl, controlPath, listenControl, parseControl, UNIDENTIFIED_FROM } from './control.js';
+import { jobsDir, procStart } from './jobs.js';
 import { header, parseQueued } from './messenger.js';
 
 const CLI = path.join(REPO_ROOT, 'agent-tycoon/bin/agty');
@@ -278,11 +278,12 @@ describe('local control channel', () => {
     expect(got).toHaveLength(2);
   });
 
-  it('send: the project the caller stands in wins over --from; --from stands in for none', async () => {
+  it('send: the project the owner stands in wins over --from; --from stands in for none', async () => {
     const got: Array<string | null> = [];
     const deps = {
       names: () => ['alpha', 'beta'],
       projectAt: (cwd: string) => (cwd === '/w/alpha' ? 'alpha' : null),
+      isOwner,
       send: (r: { from: string | null }) => (
         got.push(r.from),
         Promise.resolve({ ok: true } as Reply)
@@ -290,7 +291,7 @@ describe('local control channel', () => {
     } as unknown as ControlDeps;
     const req = (cwd: string, from: string | null) =>
       answerControl(
-        { cmd: 'send', cwd, source: 'cli', args: { to: 'beta', text: 'x', from } },
+        { cmd: 'send', cwd, source: 'cli', owner: OWNER, args: { to: 'beta', text: 'x', from } },
         deps,
       );
     await req('/w/alpha', 'postbox');
@@ -300,16 +301,45 @@ describe('local control channel', () => {
     expect(await req('/tmp', 'bad name!')).toMatchObject({ ok: false, code: 'usage' });
   });
 
+  it('S4.1: an unidentified caller (an agty job) never sends unnamed, as --from or as its folder; it renews nothing', async () => {
+    const got: Array<string | null> = [];
+    const posts: Array<string | null> = [];
+    const renewed: string[] = [];
+    const deps = {
+      names: () => ['alpha', 'beta', 'gamma'],
+      projectAt: (cwd: string) => (cwd.startsWith('/w/') ? cwd.slice(3) : null),
+      isOwner,
+      send: (r: { from: string | null }) => (got.push(r.from), Promise.resolve({ ok: true } as Reply)),
+      groupPost: (r: { from: string | null }) => (posts.push(r.from), Promise.resolve({ ok: true } as Reply)),
+      renew: (name: string) => (renewed.push(name), { ok: true, name, renew: 'pending' }),
+    } as unknown as ControlDeps;
+    const ask = (cmd: string, cwd: string, args: Record<string, unknown>) =>
+      answerControl({ cmd, cwd, source: 'cli', args }, deps);
+    await ask('send', '/tmp', { to: 'beta', text: 'x' });
+    await ask('send', '/tmp', { to: 'beta', text: 'x', from: 'gamma' });
+    await ask('send', '/w/beta', { to: 'beta', text: 'x' });
+    await ask('send', '/w/gamma', { to: 'beta', text: 'x' });
+    await ask('send', '/tmp', { group: '전체', text: 'x', from: 'gamma' });
+    expect(got).toEqual([UNIDENTIFIED_FROM, UNIDENTIFIED_FROM, UNIDENTIFIED_FROM, UNIDENTIFIED_FROM]);
+    expect(posts).toEqual([UNIDENTIFIED_FROM]);
+    expect(await ask('renew', '/w/beta', { text: 'h' })).toMatchObject({ ok: false, code: 'forbidden' });
+    expect(renewed).toEqual([]);
+    // The owner keeps both.
+    expect(await answerControl({ cmd: 'renew', cwd: '/w/beta', source: 'cli', owner: OWNER, args: { text: 'h' } }, deps)).toMatchObject({ ok: true });
+    expect(renewed).toEqual(['beta']);
+  });
+
   it('TOKEN-GUARD (TG-09): an agent token naming the target sends as itself (the messenger refuses it); the owner\'s terminal in that folder sends unnamed', async () => {
     const got: Array<{ to: string; from: string | null }> = [];
     const deps = {
       names: () => ['alpha', 'beta'],
       projectAt: (cwd: string) => (cwd === '/w/alpha' ? 'alpha' : null),
       agentOf: (token: string) => (token === 'agent-token' ? 'alpha' : null),
+      isOwner,
       send: (r: { to: string; from: string | null }) => (got.push({ to: r.to, from: r.from }), Promise.resolve({ ok: true } as Reply)),
     } as unknown as ControlDeps;
     const req = (cwd: string, token?: string) =>
-      answerControl({ cmd: 'send', cwd, source: 'cli', ...(token && { token }), args: { to: 'alpha', text: 'x' } }, deps);
+      answerControl({ cmd: 'send', cwd, source: 'cli', owner: OWNER, ...(token && { token }), args: { to: 'alpha', text: 'x' } }, deps);
     await req('/tmp', 'agent-token'); // the agent itself, anywhere: a self-send
     await req('/w/alpha'); // no token, in alpha's folder: the owner's terminal
     await req('/w/alpha', 'agent-token');
@@ -344,17 +374,66 @@ describe('local control channel', () => {
   it('send --group and groups read use the daemon room contract', async () => {
     const sent: Array<Record<string, unknown>> = [];
     const deps = {
-      names: () => ['alpha'], projectAt: () => null,
+      names: () => ['alpha'], projectAt: () => null, isOwner,
       groupPost: (request: Record<string, unknown>) => (sent.push(request), Promise.resolve({ ok: true, post: { targets: ['alpha'] } })),
       groups: () => ({ ok: true, groups: [{ id: 'all', name: '전체', members: ['alpha'] }] }),
       groupRead: (room: string, n: number) => ({ ok: true, room, n, posts: [] }),
     } as unknown as ControlDeps;
-    expect(await answerControl({ cmd: 'send', cwd: '/tmp', source: 'cli', args: { group: '전체', text: '@전체 확인' } }, deps)).toMatchObject({ ok: true });
-    expect(sent).toEqual([{ room: '전체', text: '@전체 확인', from: null, source: 'cli' }]);
+    expect(await answerControl({ cmd: 'send', cwd: '/tmp', source: 'cli', owner: OWNER, args: { group: '전체', text: '@전체 확인' } }, deps)).toMatchObject({ ok: true });
+    expect(sent).toEqual([{ room: '전체', text: '@전체 확인', from: null, source: 'cli', owner: true }]);
     sent.length = 0;
-    await answerControl({ cmd: 'send', cwd: '/tmp', source: 'messenger:pc', args: { group: '전체', text: '@전체 x' } }, deps);
+    await answerControl({ cmd: 'send', cwd: '/tmp', source: 'messenger:pc', owner: OWNER, args: { group: '전체', text: '@전체 x' } }, deps);
     expect(sent[0].source).toBe('cli'); // the app's source is not claimable over the socket
     expect(await answerControl({ cmd: 'groups', cwd: '/tmp', source: 'cli', args: { read: '전체', n: 3 } }, deps)).toEqual({ ok: true, room: '전체', n: 3, posts: [] });
+  });
+
+  it("E1.5: the owner's send --group says so (the room's notice rate skips it), even from a project folder; an unidentified caller does not", async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const deps = {
+      names: () => ['alpha'], projectAt: () => 'alpha', isOwner, agentOf: () => null,
+      groupPost: (request: Record<string, unknown>) => (sent.push(request), Promise.resolve({ ok: true, post: { targets: [] } })),
+      groups: () => ({ ok: true, groups: [{ id: 'all', name: '전체', members: ['alpha'] }] }),
+    } as unknown as ControlDeps;
+    await answerControl({ cmd: 'send', cwd: '/w/alpha', source: 'cli', owner: OWNER, args: { group: '전체', text: '공지' } }, deps);
+    await answerControl({ cmd: 'send', cwd: '/w/alpha', source: 'cli', args: { group: '전체', text: '공지' } }, deps);
+    expect(sent[0]).toMatchObject({ from: 'alpha', owner: true });
+    expect(sent[1]).toMatchObject({ from: '(cli)' });
+    expect(sent[1]).not.toHaveProperty('owner');
+  });
+
+  it('S4.2: an agent token posts to and reads only the rooms it is a member of', async () => {
+    const posted: string[] = [];
+    const read: string[] = [];
+    const deps = {
+      names: () => ['alpha', 'beta'],
+      projectAt: () => null,
+      isOwner,
+      agentOf: (token: string) => (token === 'alpha-token' ? 'alpha' : null),
+      groups: () => ({ ok: true, groups: [{ id: 'all', name: '전체', members: ['alpha', 'beta'] }, { id: 'g1', name: 'beta-room', members: ['beta'] }] }),
+      groupPost: (r: { room: string }) => (posted.push(r.room), Promise.resolve({ ok: true })),
+      groupRead: (room: string) => (read.push(room), { ok: true, room, posts: [] }),
+    } as unknown as ControlDeps;
+    const ask = (args: Record<string, unknown>, who: { token?: string; owner?: string }) =>
+      answerControl({ cmd: args.read ? 'groups' : 'send', cwd: '/tmp', source: 'cli', ...who, args }, deps);
+    const alpha = { token: 'alpha-token' };
+    expect(await ask({ group: 'beta-room', text: '@beta x' }, alpha)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(await ask({ group: 'g1', text: '@beta x' }, alpha)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(await ask({ read: 'beta-room' }, alpha)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    expect(await ask({ group: '전체', text: 'x' }, alpha)).toMatchObject({ ok: true });
+    expect(await ask({ read: 'all' }, alpha)).toMatchObject({ ok: true });
+    // No token (every `agty job`, a Codex worker) or a forged one is a member of no room but the
+    // all-members one: it reaches nothing an agent cannot (security.md §8).
+    for (const nobody of [{}, { token: 'forged' }]) {
+      expect(await ask({ group: 'beta-room', text: '@beta x' }, nobody)).toMatchObject({ ok: false, code: 'out_of_scope' });
+      expect(await ask({ read: 'beta-room' }, nobody)).toMatchObject({ ok: false, code: 'out_of_scope' });
+    }
+    expect(await ask({ group: '전체', text: 'x' }, {})).toMatchObject({ ok: true });
+    expect(await ask({ read: 'all' }, {})).toMatchObject({ ok: true });
+    // The owner reaches every room; an unknown room is the room store's to refuse.
+    expect(await ask({ group: 'beta-room', text: 'x' }, { owner: OWNER })).toMatchObject({ ok: true });
+    expect(await ask({ read: 'beta-room' }, { owner: OWNER })).toMatchObject({ ok: true });
+    expect(posted).toEqual(['전체', '전체', 'beta-room']);
+    expect(read).toEqual(['all', 'all', 'beta-room']);
   });
 
   it('D3: a Worker’s token is the Worker; its jobs, Codex tasks and tasks belong to its project', async () => {
@@ -843,7 +922,7 @@ describe('agty CLI', () => {
     ]);
     expect(job).toEqual({
       code: 0,
-      out: '백그라운드로 실행 · pid 4242 (멈추기: agty stop 4242) · 로그 /l/1021-231502-alpha.log\n',
+      out: '백그라운드로 실행 · 작업 1021-231502-alpha · pid 4242 (멈추기: agty stop 4242) · 로그 /l/1021-231502-alpha.log\n',
       err: '',
     });
     expect(seen[0].args).toMatchObject({
@@ -883,6 +962,7 @@ describe('agty CLI', () => {
       'groups',
       'job',
       'jobs',
+      'wait', // T-109
       'stop',
       'renew',
       'rename',
@@ -905,6 +985,46 @@ describe('agty CLI', () => {
       'start', // R1/P6
       'start-policy',
     ]);
+  });
+
+  it('T-116: subcommand help prints usage without asking the daemon', async () => {
+    const h = home();
+    const { seen } = await daemon(h);
+    const jobUsage = '사용법: agty job [-d <설명>] [-t] [--notify] [--gpu [--vram <GiB>]] [--task <id>] [--project <이름>] <명령>';
+    for (const args of [
+      ['job', '--help'],
+      ['job', '-h'],
+      ['job', '--notify', '--help'],
+    ])
+      expect(await cli(h, args)).toEqual({ code: 0, out: `${jobUsage}\n`, err: '' });
+    expect(seen).toHaveLength(0);
+
+    expect(await cli(h, ['job', '--bogus', 'echo hi'])).toEqual({ code: 2, out: '', err: `${jobUsage}\n` });
+    expect(seen).toHaveLength(0);
+
+    expect((await cli(h, ['job', '-d', 'x', 'echo --help'])).code).toBe(0);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].args).toMatchObject({ cmd: 'echo --help', desc: 'x' });
+
+    const helpCases: Array<[string[], string]> = [
+      [['wait', '--help'], '사용법: agty wait <작업 id 또는 pid> [--max <시간: 90s·30m·2h>]'],
+      [['wait', '-h'], '사용법: agty wait <작업 id 또는 pid> [--max <시간: 90s·30m·2h>]'],
+      [['stop', '--help'], '사용법: agty stop <작업 id 또는 pid>'],
+      [['stop', '-h'], '사용법: agty stop <작업 id 또는 pid>'],
+      [['jobs', '--help'], '사용법: agty jobs [--all]'],
+      [['jobs', '-h'], '사용법: agty jobs [--all]'],
+      [
+        ['codex', '--help'],
+        '사용법: agty codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>',
+      ],
+      [
+        ['codex', '-h'],
+        '사용법: agty codex [-m <모델>] [-e <강도>] [-d <설명>] [--worktree [--name <브랜치>]] [--project <이름>] <명세 파일>',
+      ],
+    ];
+    for (const [args, usage] of helpCases)
+      expect(await cli(h, args)).toEqual({ code: 0, out: `${usage}\n`, err: '' });
+    expect(seen).toHaveLength(1);
   });
 
   it('send with the daemon off: a queue file the daemon resumes (0600), exit 0 queued/daemon_off', async () => {
@@ -945,7 +1065,7 @@ describe('agty CLI', () => {
       ifIdle: false,
       messageId: out.messageId,
     });
-    const [event] = fs.readFileSync(path.join(cfg, 'events.jsonl'), 'utf-8').split('\n');
+    const [event] = fs.readFileSync(path.join(cfg, 'events.jsonl'), 'utf-8').split('\n').filter(Boolean);
     expect(JSON.parse(event)).toMatchObject({
       v: 1,
       type: 'send',
@@ -977,6 +1097,7 @@ describe('S7: who is speaking over the socket', () => {
       agentOf: (t) => (t === TOKEN ? 'alpha' : null),
       send: (r) => (sent.push(r), Promise.resolve({ ok: true, delivered: 'pane' })),
       groupPost: (r) => (posts.push(r), Promise.resolve({ ok: true, post: { targets: [] } })),
+      groups: () => ({ ok: true, groups: [{ id: 'all', name: '전체', members: ['alpha', 'beta'] }] }),
     });
     return { sent, posts };
   }
@@ -1194,5 +1315,181 @@ describe('AUTO-TRUST: agty trust', () => {
     const r = await cli(h, ['trust', path.join(h, 'alpha')]);
     expect(r.code).toBe(3);
     expect(r.err).toContain('직접 하려면: cd');
+  });
+});
+
+describe('job --notify (T-109)', () => {
+  const agentDeps = (got: Array<Record<string, unknown>>) =>
+    ({
+      names: () => ['alpha', 'alpha-a'],
+      projectAt: () => 'alpha',
+      agentOf: (token: string) => (token === 'worker-token' ? 'alpha-a' : token === 'lead-token' ? 'alpha' : null),
+      isOwner,
+      projectOf: () => 'alpha',
+      job: (r: Record<string, unknown>) => (got.push(r), { ok: true, id: '1111-100000-alpha', pid: 4242, log: '/l' }),
+    }) as unknown as ControlDeps;
+  const ask = (deps: ControlDeps, args: Record<string, unknown>, who: { token?: string; owner?: string } = {}) =>
+    answerControl({ cmd: 'job', cwd: '/w/alpha', source: 'cli', ...who, args: { cmd: 'make', ...args } }, deps);
+
+  it('tells the caller itself: the agent its token names, a Worker its own name, never its Lead', async () => {
+    const got: Array<Record<string, unknown>> = [];
+    const deps = agentDeps(got);
+    expect(await ask(deps, { notify: true }, { token: 'worker-token' })).toMatchObject({ ok: true, notify: 'alpha-a' });
+    expect(await ask(deps, { notify: true }, { token: 'lead-token' })).toMatchObject({ ok: true, notify: 'alpha' });
+    expect(got.map((r) => r.notify)).toEqual(['alpha-a', 'alpha']);
+  });
+
+  it('without the flag nothing is asked for and nothing is echoed', async () => {
+    const got: Array<Record<string, unknown>> = [];
+    const r = await ask(agentDeps(got), {}, { token: 'worker-token' });
+    expect(r).not.toHaveProperty('notify');
+    expect(got[0]).not.toHaveProperty('notify');
+  });
+
+  it('no agent identity (the owner terminal, a job shell, a forged token): refused with no_agent, nothing starts', async () => {
+    const got: Array<Record<string, unknown>> = [];
+    const deps = agentDeps(got);
+    for (const who of [{}, { owner: OWNER }, { token: 'forged' }]) {
+      const r = await ask(deps, { notify: true }, who);
+      expect(r).toMatchObject({ ok: false, code: 'no_agent' });
+      expect(String(r.error)).toContain('--notify 는 에이전트 세션에서만');
+    }
+    expect(got).toEqual([]);
+  });
+});
+
+describe('agty job --notify and agty wait (T-109), the real CLI', () => {
+  it('job --notify: refused from the owner terminal (exit 1, no_agent); an agent hears who will tell it', async () => {
+    const h = home();
+    const { seen } = await daemon(h, {
+      agentOf: (t) => (t === 'agent-token' ? 'alpha' : null),
+      projectOf: (n) => n,
+    });
+    const refused = await cli(h, ['job', '--notify', 'echo', 'hi'], { env: { AGTY_OUTPUT: 'json' } });
+    expect(refused.code).toBe(1);
+    expect(JSON.parse(refused.out)).toMatchObject({ ok: false, code: 'no_agent' });
+    const human = await cli(h, ['job', '--notify', 'echo', 'hi']);
+    expect(human.err).toContain('--notify 는 에이전트 세션에서만');
+    const ok = await cli(h, ['job', '--notify', '-d', '빌드', 'make'], { env: { AGTY_AGENT_TOKEN: 'agent-token' } });
+    expect(ok.code).toBe(0);
+    expect(ok.out).toContain(' · 끝나면 한 번 알려 줍니다(--notify)');
+    expect(seen.at(-1)!.args).toMatchObject({ cmd: 'make', notify: true });
+    const plain = await cli(h, ['job', 'make'], { env: { AGTY_AGENT_TOKEN: 'agent-token' } });
+    expect(plain.out).not.toContain('알려 줍니다');
+    expect(seen.at(-1)!.args).not.toHaveProperty('notify');
+  });
+
+  it('job --notify against an older daemon that ignores the flag says so instead of staying silent', async () => {
+    const h = home();
+    // The control layer is the daemon's own; this stands for one that answers without `notify`.
+    await listenControl(
+      controlPath(h),
+      () => Promise.resolve({ ok: true, id: '1111-100000-alpha', pid: 4242, log: '/l' }),
+      () => undefined,
+    ).then((server) => cleanup.push(() => server!.close()));
+    const r = await cli(h, ['job', '--notify', 'make']);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('이 데몬은 --notify 를 몰라 알림이 없습니다(agty wait 1111-100000-alpha 로 기다리세요)');
+  });
+
+  describe.skipIf(process.platform !== 'linux')('wait, from the job files on disk (no daemon)', () => {
+    const ID = '1111-100000-alpha';
+    const waitEnv = { AGTY_WAIT_POLL_MS: '100' };
+    /** A job record in the temp HOME's jobs folder. */
+    function record(h: string, over: Record<string, unknown> = {}, id = ID) {
+      const dir = jobsDir(h, 'linux');
+      fs.mkdirSync(dir, { recursive: true });
+      const log = path.join(dir, `${id}.log`);
+      fs.writeFileSync(log, 'step 1\n\u001b[31mstep 2\u001b[0m\n[작업 종료 · exit 3 · 11-11 10:00]\n');
+      fs.writeFileSync(
+        path.join(dir, `${id}.json`),
+        JSON.stringify({ id, pid: null, pstart: null, boot: 'b', project: 'alpha', cmd: 'make all', desc: '전체 빌드', dir: h, tab: null, tty: false, log, started: '2026-11-11T10:00:00+09:00', ended: null, exit: null, source: 'cli', ...over }),
+      );
+      return { dir, log };
+    }
+    /** A process of ours standing in for the running job (killed when the test ends). */
+    function live(): { pid: number; pstart: string | null } {
+      const c = spawn('sleep', ['30'], { stdio: 'ignore' });
+      cleanup.push(() => c.kill('SIGKILL'));
+      return { pid: c.pid!, pstart: procStart(c.pid!) };
+    }
+    const json = { env: { ...waitEnv, AGTY_OUTPUT: 'json' } };
+
+    it('a job already ended: one line (id, description, exit) and the end of its log, the job exit code', async () => {
+      const h = home();
+      record(h, { ended: '2026-11-11T10:04:12+09:00', exit: 3 });
+      const r = await cli(h, ['wait', ID], { env: waitEnv });
+      expect(r.code).toBe(3);
+      const [first, ...rest] = r.out.trimEnd().split('\n');
+      expect(first).toMatch(new RegExp(`^작업 ${ID} 실패 · 전체 빌드 · exit 3 · 252초 · 로그 .*${ID}\\.log$`));
+      expect(rest).toEqual(['--- 로그 끝 3줄 ---', 'step 1', 'step 2', '[작업 종료 · exit 3 · 11-11 10:00]']);
+      const j = JSON.parse((await cli(h, ['wait', ID], json)).out);
+      expect(j).toMatchObject({ ok: true, ended: true, id: ID, exit: 3, stopped: false });
+    });
+
+    it('a job that ends while it waits: returns at its exit file with its code (the daemon may be down)', async () => {
+      const h = home();
+      const { dir } = record(h, live());
+      setTimeout(() => fs.writeFileSync(path.join(dir, `${ID}.exit`), '0\n'), 600);
+      const t0 = Date.now();
+      const r = await cli(h, ['wait', ID, '--max', '30s'], { env: waitEnv });
+      expect(r.code).toBe(0);
+      expect(r.out).toContain(`작업 ${ID} 끝남 · 전체 빌드 · exit 0`);
+      expect(Date.now() - t0).toBeLessThan(20_000);
+    });
+
+    it('a process that vanished with no exit file: exit 1, code unknown', async () => {
+      const h = home();
+      const gone = spawnSync('true');
+      expect(gone.status).toBe(0);
+      record(h, { pid: 999_999, pstart: '1' });
+      const r = await cli(h, ['wait', ID], { env: waitEnv });
+      expect(r.code).toBe(1);
+      expect(r.out.split('\n')[0]).toContain('사라짐(종료 코드 모름)');
+    });
+
+    it('--max reached with the job still running: exit 75, still_running', async () => {
+      const h = home();
+      record(h, live());
+      const t0 = Date.now();
+      const r = await cli(h, ['wait', ID, '--max', '1s'], json);
+      expect(r.code).toBe(75);
+      expect(JSON.parse(r.out)).toMatchObject({ ok: false, code: 'still_running' });
+      expect(Date.now() - t0).toBeLessThan(20_000);
+    });
+
+    it('review 5: wait takes the pid as stop does: the running job with that pid, else the latest record with it', async () => {
+      const h = home();
+      const mine = live();
+      record(h, { ...mine, project: 'beta' }, '1111-100001-beta');
+      record(h, { ended: '2026-11-11T10:04:12+09:00', exit: 3, pid: mine.pid, pstart: 'old' }, '1111-090000-alpha'); // an older job that had the pid
+      const r = await cli(h, ['wait', String(mine.pid), '--max', '1s'], json);
+      expect([r.code, JSON.parse(r.out).code]).toEqual([75, 'still_running']);
+      expect(JSON.parse(r.out).error).toContain('1111-100001-beta');
+      const done = await cli(h, ['wait', '4242'], json);
+      expect([done.code, JSON.parse(done.out).code]).toEqual([1, 'no_such_job']);
+      record(h, { ended: '2026-11-11T10:04:12+09:00', exit: 3, pid: 4242 }, '1111-100002-alpha');
+      const ended = await cli(h, ['wait', '4242'], json);
+      expect([ended.code, JSON.parse(ended.out).id]).toEqual([3, '1111-100002-alpha']);
+    });
+
+    it('nit: --max given as a bare number is told in seconds', async () => {
+      const h = home();
+      record(h, live());
+      const r = await cli(h, ['wait', ID, '--max', '1'], json);
+      expect(JSON.parse(r.out).error).toContain('1초 안에');
+    });
+
+    it('an unknown id (and one that cannot be an id) is no_such_job (1); bad usage is 2', async () => {
+      const h = home();
+      for (const id of ['1111-100000-nobody', '../../etc/passwd']) {
+        const r = await cli(h, ['wait', id], json);
+        expect([r.code, JSON.parse(r.out).code]).toEqual([1, 'no_such_job']);
+      }
+      for (const args of [['wait'], ['wait', ID, 'extra'], ['wait', ID, '--max', 'soon'], ['wait', ID, '--max', '0'], ['wait', ID, '--max', '99h']]) {
+        const r = await cli(h, args, json);
+        expect([args, r.code, JSON.parse(r.out).code]).toEqual([args, 2, 'usage']);
+      }
+    });
   });
 });

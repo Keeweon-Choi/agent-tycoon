@@ -728,9 +728,11 @@ export function useGameControls(options: GameControlsOptions): (dt: number) => v
       state.walkHeld = releaseWalkKey(state.walkHeld, action);
       latest.current.officeState.setHeldWalkKeys(state.walkHeld);
     };
-    /** A direction key or the joystick: it walks (walkRoute), else it pans. */
+    /** A direction key or the joystick: it walks (walkRoute), else it pans. An employee at work
+     *  stays at its desk (T-176): the keys look around instead of doing nothing. */
     const pressDirection = (action: CameraKey, repeat: boolean) => {
-      if (pressWalk(action, repeat) === 'unavailable') state.held.add(action);
+      const result = pressWalk(action, repeat);
+      if (result === 'unavailable' || result === 'active') state.held.add(action);
     };
     const releaseDirection = (action: CameraKey) => {
       state.held.delete(action);

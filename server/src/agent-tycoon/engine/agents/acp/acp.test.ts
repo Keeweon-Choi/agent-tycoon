@@ -18,7 +18,7 @@ import { chatItems } from '../../../transcriptView.js';
 import { alreadyTyped, turnOver } from '../../messenger.js';
 import type { ProjectRecord } from '../../registry.js';
 import type { LiveSession } from '../types.js';
-import type { AcpAsk } from './acp.js';
+import type { AcpAgentOptions, AcpAsk } from './acp.js';
 import { AcpAgent, permissionOptions } from './acp.js';
 import type { AcpPreset } from './presets.js';
 import { ACP_PRESETS, findPreset, installedPresets } from './presets.js';
@@ -71,6 +71,7 @@ function make(
   scenario: Record<string, unknown>,
   ask: (name: string, ask: AcpAsk, signal: AbortSignal) => Promise<string | false | null> = () => Promise.resolve(null),
   preset = PRESET,
+  extra: Partial<AcpAgentOptions> = {},
 ) {
   fs.writeFileSync(path.join(home, 'mock-acp.json'), JSON.stringify(scenario));
   const lines: string[] = [];
@@ -82,6 +83,7 @@ function make(
     ask,
     log: (l) => lines.push(l),
     timing: { startMs: 5_000, closeMs: 500, killMs: 500 },
+    ...extra,
   });
   agents.push(a);
   return { a, lines };
@@ -143,6 +145,20 @@ describe('presets', () => {
 });
 
 describe('a prompt', () => {
+  it('says when its status last changed: at the start, when a turn starts and when it ends', async () => {
+    // T-168: the engine's idle stop counts from this time, so a turn between two of its looks counts.
+    let now = 1_000;
+    const { a } = make({ turns: [[{ say: 'hi' }]] }, undefined, PRESET, { now: () => now });
+    expect((await a.start(project(), { token: () => null })).ok).toBe(true);
+    expect(live(a)).toMatchObject({ status: 'idle', statusAt: 1_000 });
+    now = 2_000;
+    expect(await a.deliver(project(), 'go')).toBe('typed');
+    expect(live(a)).toMatchObject({ status: 'busy', statusAt: 2_000 });
+    now = 3_000;
+    await until('the turn ends', () => live(a).status === 'idle');
+    expect(live(a).statusAt).toBe(3_000);
+  });
+
   it('reaches the transcript in the shape every reader knows, and the store', async () => {
     const { a } = make({
       turns: [
@@ -272,6 +288,22 @@ describe('a permission request', () => {
     expect(order.indexOf('answer')).toBeLessThan(order.indexOf('session/close'));
     await until('the child left', () => a.live().length === 0);
     expect(signal!.aborted).toBe(true);
+  });
+
+  it('A1.3: on Windows a stop ends the whole tree (an npm .cmd shim runs the agent under cmd.exe)', async () => {
+    const kills: Array<[number, NodeJS.Signals]> = [];
+    const { a } = make({ turns: [[{ say: 'hi' }]] }, undefined, PRESET, {
+      platform: 'win32', // MOCK has no .cmd: commandArgv still spawns it directly here
+      kill: (pid, signal) => {
+        kills.push([pid, signal]);
+        process.kill(pid, 'SIGKILL'); // the fake taskkill: our own mock child
+      },
+    });
+    await a.start(project(), { token: () => null });
+    const { pid } = live(a);
+    expect(await a.stop(live(a))).toEqual({ ok: true });
+    expect(kills).toEqual([[pid, 'SIGTERM']]);
+    await until('the child left', () => a.live().length === 0);
   });
 
   it('a dropped pipe ends the card with no decision', async () => {

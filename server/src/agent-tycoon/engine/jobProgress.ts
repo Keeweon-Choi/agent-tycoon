@@ -7,7 +7,11 @@ import type { JobProgress } from '../../../../core/src/messages.js';
 
 const LOG_TAIL_BYTES = 8 * 1024;
 
-/** Last 8 KB of a log file, or '' when unreadable. */
+/**
+ * Last 8 KB of a log file, or '' when unreadable. A read that did not begin at offset 0 starts inside a
+ * line, and masking cannot see the name a cut `NAME=value` lost, so its first partial line is dropped
+ * (S8.5).
+ */
 export function readLogTail(file: string, bytes = LOG_TAIL_BYTES): string {
   try {
     const fd = fs.openSync(file, 'r');
@@ -16,7 +20,8 @@ export function readLogTail(file: string, bytes = LOG_TAIL_BYTES): string {
       const len = Math.min(size, bytes);
       const buf = Buffer.alloc(len);
       fs.readSync(fd, buf, 0, len, size - len);
-      return buf.toString('utf-8');
+      const text = buf.toString('utf-8');
+      return len < size ? text.slice(text.search(/[\r\n]/) + 1 || text.length) : text;
     } finally {
       fs.closeSync(fd);
     }

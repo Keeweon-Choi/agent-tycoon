@@ -2,8 +2,8 @@
  * T-0018 visual check: dist/cli.js with --engine on --allow-actions
  * in an isolated HOME whose `claude` is the engine fake (agent-tycoon/test/fake-claude/
  * engine.cjs), on a spare port. Desktop: 오케스트레이터 추가 (T-0032; was 프로젝트 추가) with a folder that does
- * not exist (폴더가 없어요. 만들까요?), 켜기, 재시작 (a --resume wake), 끄기,
- * 삭제. Phone with iPhone Home-Screen insets through the --agty-safe-* vars:
+ * not exist (폴더가 없어요. 만들까요?; the add is the first 켜기), 재시작 (a --resume wake), 끄기,
+ * 켜기, 삭제. Phone with iPhone Home-Screen insets through the --agty-safe-* vars:
  * the form, a confirmation and a running project, with T-0008's strip rule.
  * Records the daemon's RSS without and with viewers. A hard deadline and
  * SIGINT/SIGTERM/SIGHUP kill the server and the fake's sessions.
@@ -14,6 +14,7 @@ import type { Browser, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { configDirectory } from '../../server/src/agent-tycoon/configPath.js';
 import { transcriptPath } from '../../server/src/agent-tycoon/providers/claudeProvider.js';
 import {
   assertPortFree,
@@ -26,7 +27,6 @@ import {
   sparePort,
   startDaemon,
 } from '../../server/src/agent-tycoon/testHome.js';
-import { configDirectory } from '../../server/src/agent-tycoon/configPath.js';
 import { engineButton, engineRow } from './engineRow.js';
 
 const port = sparePort();
@@ -194,8 +194,7 @@ async function main() {
   const lastState = () =>
     [...received].reverse().find((m) => m.type === 'engineState') as
       { projects: Array<{ name: string; sessionId?: string; bgId?: string }> } | undefined;
-  const sessionCalls = () =>
-    engineCalls(home).filter((c) => c.argv[0] === '--bg' || c.argv[0] === 'stop');
+  const sessionCalls = () => engineCalls(home).filter((c) => c.argv[0] === '-n');
   const toast = (page: Page, text: string) =>
     page.getByRole('status').filter({ hasText: text }).waitFor({ timeout: 15_000 });
 
@@ -215,8 +214,8 @@ async function main() {
     await page.waitForURL(`http://127.0.0.1:${port}/`);
     await openOfficeWindow(page); // T-0108: a desktop starts with icons only
     await hangul(page);
-    // Without office the drawer is the office's (T-0016).
-    const drawer = page.getByRole('complementary', { name: '사무실 정보' });
+    // The 현황판 window (its title since 11-06, was 사무실 정보); its 요약 tab keeps the engine's add buttons.
+    const drawer = page.getByRole('complementary', { name: '현황판', exact: true });
     const addButton = drawer.getByRole('button', { name: '오케스트레이터 추가', exact: true });
     await addButton.waitFor();
     await addButton.click();
@@ -273,28 +272,15 @@ async function main() {
     );
     check(fs.statSync(folder).isDirectory(), 'the folder exists after 만들기');
     // The 현황판 has no per-project cards any more: the buttons are in the inspector (engineRow selects the party card).
+    // An office add is also the person's first 켜기 (engine.ts exec), so the new project is running.
     const alpha = await engineRow(page, 'alpha-app');
-    await (await engineButton(page, 'alpha-app', '켜기')).waitFor();
-    check(
-      (await (await engineButton(page, 'alpha-app', '끄기')).count()) === 0,
-      'the new project: stopped (켜기, no 끄기)',
-    );
-    await shot(page, 'desktop-added');
-
-    await (await engineButton(page, 'alpha-app', '켜기')).click();
-    await dialog.waitFor();
-    check(
-      /alpha-app[을를] 켤까요\?/.test((await dialog.textContent()) ?? ''),
-      'start asks in Korean (T-0010’s text)',
-    );
-    await shot(page, 'desktop-start-confirm');
-    await dialog.getByRole('button', { name: '켜기', exact: true }).click();
-    await toast(page, '켰어요');
     await (await engineButton(page, 'alpha-app', '끄기')).waitFor({ timeout: 15_000 });
     check(
-      (await (await engineButton(page, 'alpha-app', '재시작')).count()) === 1,
-      'running: 끄기 and 재시작',
+      (await (await engineButton(page, 'alpha-app', '켜기')).count()) === 0 &&
+        (await (await engineButton(page, 'alpha-app', '재시작')).count()) === 1,
+      'the new project runs (끄기 and 재시작, no 켜기): the add was its first 켜기',
     );
+    await shot(page, 'desktop-added');
     const overlay = page.locator('[data-testid="agent-overlay"]').filter({ hasText: 'alpha-app' });
     await overlay.first().waitFor({ timeout: 15_000 });
     // The owner's call (10-24): 엔진 is a detail line now, not a badge over the plate.
@@ -326,7 +312,27 @@ async function main() {
     await dialog.getByRole('button', { name: '끄기', exact: true }).click();
     await toast(page, '껐어요');
     await (await engineButton(page, 'alpha-app', '켜기')).waitFor({ timeout: 15_000 });
+    check(
+      (await (await engineButton(page, 'alpha-app', '끄기')).count()) === 0,
+      'stopped: 켜기, no 끄기',
+    );
     await shot(page, 'desktop-stopped');
+
+    // 켜기 of a stopped project (the add above already was a start).
+    await (await engineButton(page, 'alpha-app', '켜기')).click();
+    await dialog.waitFor();
+    check(
+      /alpha-app[을를] 켤까요\?/.test((await dialog.textContent()) ?? ''),
+      'start asks in Korean (T-0010’s text)',
+    );
+    await shot(page, 'desktop-start-confirm');
+    await dialog.getByRole('button', { name: '켜기', exact: true }).click();
+    await toast(page, '켰어요');
+    await (await engineButton(page, 'alpha-app', '끄기')).waitFor({ timeout: 15_000 });
+    // Off again for the delete below, which asks about a stopped project.
+    await (await engineButton(page, 'alpha-app', '끄기')).click();
+    await dialog.getByRole('button', { name: '끄기', exact: true }).click();
+    await (await engineButton(page, 'alpha-app', '켜기')).waitFor({ timeout: 15_000 });
 
     await (await engineButton(page, 'alpha-app', '삭제')).click();
     await dialog.waitFor();
@@ -370,11 +376,16 @@ async function main() {
     await pform.getByRole('button', { name: '추가', exact: true }).tap();
     await toast(phone, '추가했어요');
     const betaCard = await engineRow(phone, 'beta-app');
-    await (await engineButton(phone, 'beta-app', '켜기')).tap();
+    await (await engineButton(phone, 'beta-app', '끄기')).waitFor({ timeout: 15_000 }); // the add was its first 켜기
     const pdialog = phone.getByRole('alertdialog');
+    await (await engineButton(phone, 'beta-app', '끄기')).tap();
     await pdialog.waitFor();
     await shot(phone, 'phone-confirm');
     await noStrips(phone, 'confirmation');
+    await pdialog.getByRole('button', { name: '끄기', exact: true }).tap();
+    await toast(phone, '껐어요');
+    await (await engineButton(phone, 'beta-app', '켜기')).tap();
+    await pdialog.waitFor();
     await pdialog.getByRole('button', { name: '켜기', exact: true }).tap();
     await toast(phone, '켰어요');
     await (await engineButton(phone, 'beta-app', '끄기')).waitFor({ timeout: 15_000 });
@@ -385,27 +396,29 @@ async function main() {
     rss.viewingTwo = rssMb(server.pid!);
 
     // ── What ran ──
+    // New Claude agents run in the PTY host (TERM-P3, ADR-0018): each start is one `claude -n <name> ...` with
+    // --session-id (new) or --resume <that conversation>; a stop kills the terminal, it is no claude call.
     const calls = sessionCalls();
-    const ids = calls.filter((c) => c.argv[0] === 'stop').map((c) => c.argv[1]);
+    const resumed = (c: (typeof calls)[number]) => c.argv[c.argv.indexOf('--resume') + 1];
     check(
-      JSON.stringify(calls.map((c) => c.argv.slice(0, 3))) ===
+      JSON.stringify(calls.map((c) => [c.argv[1], c.argv.includes('--resume') ? 'resume' : 'new'])) ===
         JSON.stringify([
-          ['--bg', '-n', 'alpha-app'],
-          ['stop', ids[0]],
-          ['--bg', '--resume', sid],
-          ['stop', ids[1]],
-          ['--bg', '-n', 'beta-app'],
-        ]),
-      `claude ran start, restart (stop + --resume alone), stop, then beta's start: ${calls.map((c) => c.argv.join(' ')).join(' | ')}`,
+          ['alpha-app', 'new'],
+          ['alpha-app', 'resume'],
+          ['alpha-app', 'resume'],
+          ['beta-app', 'new'],
+          ['beta-app', 'new'],
+        ]) &&
+        resumed(calls[1]) === sid &&
+        resumed(calls[2]) === sid,
+      `claude ran alpha's add (new), restart and start (--resume its conversation), then beta's add and start (nothing said yet: new): ${calls.map((c) => c.argv.slice(0, 4).join(' ')).join(' | ')}`,
     );
     check(
       calls.every((c) => c.env.every((k) => !SESSION_VAR.test(k))),
       'no CLAUDE*/OFFICE_*/TMUX variable reached claude (the daemon itself has them)',
     );
     check(
-      calls
-        .filter((c) => c.argv[0] === '--bg')
-        .every((c) => c.cwd.startsWith(path.join(home, 'projects'))),
+      calls.every((c) => c.cwd.startsWith(path.join(home, 'projects'))),
       'each start ran in its project folder',
     );
     check(
@@ -413,11 +426,13 @@ async function main() {
         JSON.stringify([
           ['add', 'alpha-app', null],
           ['add', 'alpha-app', true],
-          ['start', 'alpha-app', null],
           ['restart', 'alpha-app', null],
+          ['stop', 'alpha-app', null],
+          ['start', 'alpha-app', null],
           ['stop', 'alpha-app', null],
           ['remove', 'alpha-app', null],
           ['add', 'beta-app', null],
+          ['stop', 'beta-app', null],
           ['start', 'beta-app', null],
         ]),
       'one engineAction per confirmation (the mkdir one only after 만들기)',

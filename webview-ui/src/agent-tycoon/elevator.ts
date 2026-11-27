@@ -523,8 +523,9 @@ export function visitFloor(os: OfficeState, id: number, floorId: string): boolea
       os.reassignSeat(id, seat);
       return true;
     }
-  } else if (homeSeat && ch.seatId !== homeSeat) {
-    // An idle visitor keeps no desk on the floor it left: its own one is its seat again.
+  } else if (homeSeat && ch.seatId !== homeSeat && home && !home.assigned) {
+    // An idle visitor keeps no desk on the floor it left: its own one is its seat again (B7.2:
+    // unless somebody else took it meanwhile, then it keeps the one it borrowed).
     const visitSeat = ch.seatId ? os.seats.get(ch.seatId) : undefined;
     if (visitSeat) visitSeat.assigned = false;
     ch.seatId = homeSeat;

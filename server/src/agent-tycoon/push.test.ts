@@ -298,6 +298,52 @@ describe('PushService', () => {
     expect(payload.url).toBe('/?agent=7');
   });
 
+  it('T-165: messages waiting long on an input box are one ask push that opens the agent', async () => {
+    const t = setup();
+    const b = browser();
+    t.service.opened(t.send, 'dev-1');
+    t.service.onClientMessage(b.msg, t.send, true);
+    t.agents.broadcast({
+      type: 'officeEvent',
+      ts: new Date().toISOString(),
+      kind: 'send_input_wait',
+      name: 'lead',
+      summary: 'lead input box holds text',
+    });
+    await flush();
+    expect(t.posts).toHaveLength(1);
+    const payload = JSON.parse(decrypt(t.posts[0].body, b.ua, b.auth).toString()) as PushPayload;
+    expect(payload.body).toContain('lead input box holds text');
+    expect(payload.url).toBe('/?agent=7');
+  });
+
+  it('U2.1: a delegation waiting for approval, or a Worker that did not start, is an ask push that opens the project 작업실', async () => {
+    const t = setup();
+    const b = browser();
+    t.service.opened(t.send, 'dev-1');
+    t.service.onClientMessage(b.msg, t.send, true);
+    // Two projects: one ask per project inside the cooldown, as on the screen.
+    for (const [kind, name] of [['delegation_approval', 'lead'], ['delegation_start_failed', 'shop']]) {
+      t.agents.broadcast({
+        type: 'officeEvent',
+        ts: new Date().toISOString(),
+        kind,
+        name,
+        summary: `${kind}: ${name}`,
+      });
+    }
+    await flush();
+    const payloads = t.posts.map((p) => JSON.parse(decrypt(p.body, b.ua, b.auth).toString()) as PushPayload);
+    expect(payloads).toHaveLength(2);
+    expect(payloads.map((p) => p.url)).toEqual(['/?open=workbench&project=lead', '/?open=workbench&project=shop']);
+    expect(payloads[0].title).toContain('lead');
+    expect(payloads[0].body).toContain('delegation_approval');
+    const target = { open: 'workbench', project: 'lead' } as const;
+    expect(parseNoticeUrl(noticeUrl(target))).toEqual(target);
+    expect(parseNoticeUrl('/?open=workbench')).toBeNull();
+    expect(parseNoticeUrl('/?open=workbench&project=%3Cscript%3E')).toBeNull();
+  });
+
   it('per device: its kinds, orchestrator-only turn ends, the cooldown', async () => {
     const t = setup();
     const b = browser();
@@ -408,6 +454,32 @@ describe('PushService', () => {
     it('a turn end without a Task names its last described tool call', async () => {
       const { t, b } = subscribed();
       t.agents.broadcast({ type: 'agentToolStart', id: 7, toolId: 'a', status: 'Running', desc: '테스트 돌리는 중' });
+      t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
+      await flush();
+      expect(payloads(t, b)).toMatchObject([{ body: '일을 마쳤어요 · 테스트 돌리는 중' }]);
+    });
+
+    it('U2.4: a later turn that described no tool call does not name the previous turn\'s', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const { t, b } = subscribed();
+        t.agents.broadcast({ type: 'agentToolStart', id: 7, toolId: 'a', status: 'Running', desc: '테스트 돌리는 중' });
+        t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
+        await flush();
+        vi.setSystemTime(Date.now() + 10 * 60_000); // past the cooldown
+        t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'active' }); // the next turn begins
+        t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
+        await flush();
+        expect(payloads(t, b).map((p) => p.body)).toEqual(['일을 마쳤어요 · 테스트 돌리는 중', '일을 마쳤어요']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('U2.4: the hook order (tool start, then active, then the end) still names the described call', async () => {
+      const { t, b } = subscribed();
+      t.agents.broadcast({ type: 'agentToolStart', id: 7, toolId: 'a', status: 'Running', desc: '테스트 돌리는 중' });
+      t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'active' });
       t.agents.broadcast({ type: 'agentStatus', id: 7, status: 'waiting' });
       await flush();
       expect(payloads(t, b)).toMatchObject([{ body: '일을 마쳤어요 · 테스트 돌리는 중' }]);

@@ -41,7 +41,7 @@ import {
   type TestCa,
   testCa,
 } from './testKit.js';
-import { cloudflaredArgs } from './tunnel.js';
+import { cloudflaredArgs, tunnelListener } from './tunnel.js';
 
 const PUBLIC = '203.0.113.7';
 let ca: TestCa;
@@ -1498,6 +1498,84 @@ describe('S6: a change that would cut the connection it came through', () => {
     expect(await allowed()).toBe(true);
     expect((await setup('local')).json()).toMatchObject({ ok: true });
     expect(await allowed()).toBe(false);
+  });
+
+  it("S2.2: the quick tunnel's secret path is its own: a leaked tunnel link never opens the direct listener", async () => {
+    let tunnelSecret = '';
+    r = await run({
+      connector: 'direct',
+      deps: {
+        setupFacts: async () => ({
+          natKind: 'cgnat' as const, upnp: false, wslMode: null, relayReady: false,
+          tailscaleInstalled: false, tailscaleLoggedIn: false, cloudflaredInstalled: true,
+        }),
+        setupTunnel: async (_target, secret) => {
+          tunnelSecret = secret;
+          return { url: `https://new.trycloudflare.com/${secret}/`, close: async () => undefined };
+        },
+        setupSelfTest: async (url) => ({ ok: true, url, checkedAt: 1, steps: [{ ok: true, text: 'fake outside check' }] }),
+      },
+    });
+    const setup = (choice: string) => r!.server.app.inject({ method: 'POST', url: '/api/agty/connector/setup', headers: bearer, payload: { choice } });
+    expect((await setup('tunnel')).json()).toMatchObject({ ok: true, connector: 'tunnel' });
+    expect(tunnelSecret).toMatch(/^[A-Za-z0-9_-]{22}$/); // the gate's shape
+    expect(tunnelSecret).not.toBe(r.remote.direct?.secret);
+    expect((await setup('local')).json()).toMatchObject({ ok: true });
+    await enableDirect(r);
+    expect((await r.outside(`/${tunnelSecret}/login`)).status).toBe(404);
+    expect((await r.outside(`/${r.remote.direct?.secret}/login`)).status).not.toBe(404);
+  });
+
+  it('S2.1: the quick tunnel is the internet: no passkey or approval login, the direct code lock, no LAN session', async () => {
+    let port = 0;
+    r = await run({
+      connector: 'local',
+      approvals: true,
+      deps: {
+        setupFacts: async () => ({
+          natKind: 'cgnat' as const, upnp: false, wslMode: null, relayReady: false,
+          tailscaleInstalled: false, tailscaleLoggedIn: false, cloudflaredInstalled: true,
+        }),
+        // The real listener cloudflared would forward to, without cloudflared.
+        setupTunnel: async (target, secret) => {
+          const listener = await tunnelListener(target, secret);
+          port = listener.port;
+          return { url: `https://new.trycloudflare.com/${secret}/`, localPort: port, close: listener.close };
+        },
+        setupSelfTest: async (url) => ({ ok: true, url, checkedAt: 1, steps: [{ ok: true, text: 'fake outside check' }] }),
+      },
+    });
+    const opened = await r.server.app.inject({ method: 'POST', url: '/api/agty/connector/setup', headers: bearer, payload: { choice: 'tunnel' } });
+    const { url } = opened.json<{ url: string }>();
+    const prefix = new URL(url).pathname.replace(/\/$/, '');
+    const host = 'new.trycloudflare.com';
+    const viaTunnel = (path: string, method = 'GET', body?: string) =>
+      new Promise<{ status: number; body: string; cookie: string }>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1', port, path: prefix + path, method, agent: false,
+          headers: { host, ...(body ? { origin: `https://${host}`, 'content-type': 'application/json' } : {}) },
+        }, (res) => {
+          let text = '';
+          res.on('data', (c: Buffer) => (text += c.toString('utf8')));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text, cookie: String(res.headers['set-cookie'] ?? '') }));
+        });
+        req.on('error', reject);
+        req.end(body);
+      });
+    expect((await viaTunnel('/login/approval', 'POST', JSON.stringify({ label: 'stranger' }))).status).toBe(404);
+    const page = await viaTunnel('/login');
+    expect(page.body).toContain('<form');
+    expect(page.body).not.toContain('id="approval"');
+    const fail = vi.spyOn(r.auth.directCodeLock, 'fail');
+    expect((await viaTunnel('/login?code=wrong-code')).status).toBe(401);
+    expect(fail).toHaveBeenCalled();
+    const { code } = r.auth.createLoginCode('link');
+    const login = await viaTunnel(`/login?code=${code}`);
+    expect(login.cookie).toContain(`Max-Age=${SESSION_TTL_MS / 1000}`);
+    // T-130: guesses through a leaked tunnel link lock the tunnel, not the direct listener's code login.
+    for (let i = 0; i < 10; i++) await viaTunnel(`/login?code=wrong-code-${i}`);
+    expect(r.auth.directCodeLock.blocked(['tunnel'])).toBe(true);
+    expect(r.auth.directCodeLock.blocked(['direct'])).toBe(false);
   });
 
   for (const [name, old] of [

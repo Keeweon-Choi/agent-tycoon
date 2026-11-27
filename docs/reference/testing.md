@@ -37,13 +37,15 @@ Run: `npm run test:webview`.
 
 ## End-to-end (Playwright)
 
-`e2e/` contains Playwright tests against the standalone daemon in a headless browser (`e2e/tests/standalone/**`). CI runs the suite on Linux, macOS, and Windows in three shards at `--workers=1` (manual runs only: the specs still drive the screens from before the office was rebuilt, so a version tag no longer runs them). The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs, scenarios, and `@area:` coverage.
+`e2e/` contains Playwright tests against the standalone daemon in a headless browser (`e2e/tests/standalone/**`): 16 core flows (access, devroom, files, jobs, messenger, mobile, office, settings, terminal), rebuilt on 2026-11-13 (T-99) on today's screens. CI runs the suite only by hand for now (see the `e2e` job in `.github/workflows/ci.yml`). The generated [e2e inventory](../../e2e/README.md) is the source of truth for current specs and `@area:` coverage.
 
-**Mock claude**: Tests never invoke real `claude`. A bash script (`e2e/fixtures/mock-claude`) is copied into an isolated `mock-bin/` and prepended to the daemon's `PATH`. The scenario runner (`mock-claude-runner.cjs`) honors `claudeScenario(...).at(ms).appendJsonl(record).emitHook(event).holdOpenFor(ms).build()` to drive timed JSONL writes and hook events.
+**Fixture**: `launchStandalone` (`e2e/helpers/standalone.ts`, surfaced as the `standalone` fixture) stands on `server/src/agent-tycoon/testHome.ts`: a temp HOME with the engine fake as `<home>/bin/claude`, the daemon on its own port with `--engine on --allow-actions --allow-chat`, and the page logged in through the login link. `test.use({ standaloneOptions: { agents, scenarios, firstRun, noClaude, cliArgs, env } })` seeds a flow; the fixture offers `agty(...)`, `loginUrl()`, `stopHost()`/`startHost()` and `PHONE` for the phone shell. Teardown ends the daemon, then the PTY host and fake sessions of that HOME only.
 
-**Authoring rules (normative)**: before writing a new spec, read `e2e/README.md` → "Mocking model & rules". It is the single source of truth for the process-boundary principle, the append-only transcript rule, the assert-on-visible-outcomes discipline, and the one standalone-server exception. New tests must follow that model.
+**Mock claude**: Tests never invoke real `claude`. The engine fake (`agent-tycoon/test/fake-claude/engine.cjs` + `pty-tui.cjs`) is the `claude` the engine starts as `claude -n <agent>` in its PTY host. A scenario from `claudeScenario(...)` reaches it through `<home>/.claude-mock/scenario-queue.json` and `mock-claude-runner.cjs` plays it: `.forAgent(name).onPrompt(text).at(ms).appendJsonl(record)` for transcript records and `.emitHook(permissionRequest('{{sessionId}}', tool, input))` for a permission card (`{{permission}}` is the answer). The runner's logic is unit-tested in `server/__tests__/mockClaudeRunner.test.ts`.
 
-**Isolation**: each test gets its own `tmpHome`, workspace directory, server, and mock-log file. No state leaks between tests.
+**Authoring rules (normative)**: before writing a new spec, read `e2e/README.md` → "Mocking model & rules". It is the single source of truth for the process-boundary principle, the engine mock's verbs, the append-only transcript rule and the assert-on-visible-outcomes discipline. New tests must follow that model.
+
+**Isolation**: each test gets its own `tmpHome`, port, daemon, PTY host, and mock log. No state leaks between tests.
 
 **Auto-fixtures**: `_allureLabels` (auto: true) reads `@area:<tag>` from `testInfo.tags` and applies the corresponding Allure epic.
 
@@ -54,7 +56,7 @@ Run:
 ```bash
 npm run e2e                                    # all tests
 npm run e2e -- --workers=1                     # single worker (matches CI sharding)
-npm run e2e -- --grep "lifecycle"              # filter by name
+npm run e2e -- --grep "@area:messenger"        # filter by area
 npm run e2e:debug                              # step-through
 npm run e2e -- --attach-videos-on-success      # keep videos for passes too
 npm run e2e:inventory                          # regen e2e/README.md inventory

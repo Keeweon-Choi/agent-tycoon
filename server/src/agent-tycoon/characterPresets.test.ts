@@ -317,6 +317,20 @@ describe('presets folder', () => {
       expect(said).toMatch(/ignored broken\.png: broken PNG/);
       expect(fs.existsSync(cacheDir()) ? cached() : []).toEqual([]);
     });
+
+    it('S3.1: a second IHDR is refused before the sheet is inflated', () => {
+      const good = solid(10);
+      // the first 33 bytes are all the scan reads; a copy of the header behind them is what
+      // pngjs would decode with
+      put(
+        'twice.png',
+        Buffer.concat([good.subarray(0, 33), good.subarray(8, 33), good.subarray(33)]),
+      );
+      presets.scan();
+      expect(inflated).not.toHaveBeenCalled();
+      expect(last().presets).toEqual([]);
+      expect(warn.mock.calls.flat().join('\n')).toMatch(/ignored twice\.png: .*out of order/);
+    });
   });
 
   it('CHAR-FACTORY: an HD sheet (224×192, density 2) with its 32×32 portrait; a half-HD size is refused', () => {
@@ -875,7 +889,10 @@ describe("BUNNY-BUILTIN: built-in preset folders (a pack's sheets)", () => {
       expect(built.file(name)).toBeNull();
     const app = Fastify();
     registerCharacterRoutes(app, async () => undefined, built);
-    for (const url of ['/agty/characters/..%2Foutside.png', '/agty/characters/..%2F..%2Foutside.png'])
+    for (const url of [
+      '/agty/characters/..%2Foutside.png',
+      '/agty/characters/..%2F..%2Foutside.png',
+    ])
       expect((await app.inject({ method: 'GET', url })).statusCode).toBe(404);
     // swapped after the scan checked it: the symlink is not followed out of the folder
     fs.rmSync(path.join(sheets, 'builtin-bunny.png'));

@@ -47,11 +47,23 @@ export interface GroupReply {
   member: string;
   messageId?: string;
   items: ChatItem[];
+  /** T-113: the ids of the member's reply lines the room recorded (no transcript read), and the newest one's time. */
+  seen?: string[];
+  lastAt?: number;
 }
-export type GroupTimelinePost = GroupPost & { replies: GroupReply[] };
+export type GroupTimelinePost = GroupPost & { replies: GroupReply[]; loaded?: true };
+/** T-113: the records an older build skips (it reads v 1 only), so nothing it reads changes. */
+type CountRecord =
+  /** A member's reply line under a post (its ChatItem id), seen by a tail or a read: the folded row's count. */
+  | { v: 2; kind: 'reply'; id: string; member: string; item: string; at: number }
+  /** The room's posts made before `at` have been read once for their counts (GroupMessages.counted). */
+  | { v: 2; kind: 'counted'; at: number };
 type TimelineRecord =
   | { v: 1; kind: 'post'; post: GroupPost }
-  | { v: 1; kind: 'delivery'; id: string; member: string; state: GroupDelivery };
+  | { v: 1; kind: 'delivery'; id: string; member: string; state: GroupDelivery }
+  | CountRecord;
+/** T-113: per post, each member's recorded reply line ids and the newest one's time. */
+type Seen = Map<string, Map<string, { ids: Set<string>; lastAt: number }>>;
 
 export interface GroupMessenger {
   send(req: {
@@ -150,6 +162,17 @@ export const EARLIER_ENTRY_MAX_BYTES = 16 * 1024;
  *  twice as long each time, up to the larger; never while those transcripts stay as they were. */
 export const EARLIER_RETRY_MS = 60_000;
 export const EARLIER_RETRY_MAX_MS = 30 * 60_000;
+/** T-113: the one-time count of a room's earlier posts (OfficeRooms.backfill) builds until every one is found or
+ *  has nothing left to try (earlierPending), at most this many builds, this far apart (the daemon's loop stays free). */
+export const ROOM_BACKFILL_MAX_BUILDS = 200;
+export const ROOM_BACKFILL_STEP_MS = 20;
+/** T-113 (N3): the parsed log segments kept, the most recently read (an open room reads its newest one or two). */
+export const ROOM_PARSE_CACHE_MAX = 32;
+/** E1.5 (audit 11-13): an agent's 공지 (untagged post) goes to every other member with no pair to
+ *  count against the MCP pairwise rate, so each sender gets this many a minute (MCP's RATE), on
+ *  every path that posts (MCP post_to_group, `agty send --group`); the boss's own posts (the app, the
+ *  owner's token on the CLI) are not counted. */
+export const ROOM_NOTICE_RATE = { perMinute: 6, windowMs: 60_000 };
 /** Not-found marks kept while no one views a room (one per post and member). */
 const MISSED_MAX = 2000;
 /** ROOM-THREADS: the delivery states whose post can have a reply in a transcript. */
@@ -474,6 +497,16 @@ export class GroupMessages {
   //   `wait`: the last wait (doubled each time); `seen`: the transcripts (file, size, time) as they
   //   were when every one had been looked in.
   private readonly missed = new Map<string, { attempt: number; retryAt: number; wait: number; seen?: string }>();
+  /** T-113: the last build's earlier replies still to look for in a later build (a transcript left to try, or
+   *  waiting behind another post's window): 0 means each was found or has nothing left to try. */
+  earlierPending = 0;
+  /** P3.1: the soonest wait of the last build's unfound posts (Infinity: none waits): only these are worth a build. */
+  nextRetryAt = Infinity;
+  /** T-113 (M3): each log segment's records as last parsed, kept while the file keeps its size and time; at most
+   *  ROOM_PARSE_CACHE_MAX, the least recently read let go first (N3: old months, replaced and deleted files). */
+  private readonly parsed = new Map<string, { size: number; mtimeMs: number; records: TimelineRecord[] }>();
+  /** E1.5: each agent sender's 공지 times in the last ROOM_NOTICE_RATE window (in memory). */
+  private readonly notices = new Map<string, number[]>();
 
   constructor(private readonly opts: GroupMessagesOptions) {
     this.now = opts.now ?? Date.now;
@@ -481,8 +514,31 @@ export class GroupMessages {
   }
 
   timeline(room: GroupRoom, limit = 50): GroupPost[] {
+    return this.load(room, limit).posts;
+  }
+
+  /** The room's last `limit` posts, the reply lines recorded under them (T-113), and when it was last counted. */
+  private load(room: GroupRoom, limit = 50): { posts: GroupPost[]; seen: Seen; counted: number | null } {
     const posts = new Map<string, GroupPost>();
+    const seen: Seen = new Map();
+    let counted: number | null = null;
     for (const record of this.records(room.id, limit, room.systemLines === false)) {
+      if (record.v === 2) {
+        if (record.kind === 'counted' && typeof record.at === 'number') counted = Math.max(counted ?? 0, record.at);
+        else if (
+          record.kind === 'reply' &&
+          [record.id, record.member, record.item].every((x) => typeof x === 'string') &&
+          typeof record.at === 'number'
+        ) {
+          const byMember = seen.get(record.id) ?? new Map<string, { ids: Set<string>; lastAt: number }>();
+          seen.set(record.id, byMember);
+          const one = byMember.get(record.member) ?? { ids: new Set<string>(), lastAt: 0 };
+          byMember.set(record.member, one);
+          one.ids.add(record.item);
+          one.lastAt = Math.max(one.lastAt, record.at);
+        }
+        continue;
+      }
       if (record.kind === 'post') {
         // C4: a room with its system lines off shows none, also those written before.
         if (record.post.system && room.systemLines === false) continue;
@@ -501,7 +557,62 @@ export class GroupMessages {
           post.delivery[record.member] = record.state;
       }
     }
-    return [...posts.values()].slice(-Math.max(1, limit));
+    return { posts: [...posts.values()].slice(-Math.max(1, limit)), seen, counted };
+  }
+
+  /** T-113: a reply line recorded under its post once (`seen` is what the room holds, and gains it). */
+  private record(roomId: string, seen: Seen, post: string, member: string, item: ChatItem): void {
+    const byMember = seen.get(post) ?? new Map<string, { ids: Set<string>; lastAt: number }>();
+    const one = byMember.get(member) ?? { ids: new Set<string>(), lastAt: 0 };
+    if (one.ids.has(item.id)) return;
+    if (!this.append(roomId, { v: 2, kind: 'reply', id: post, member, item: item.id, at: item.at })) return;
+    one.ids.add(item.id);
+    one.lastAt = Math.max(one.lastAt, item.at);
+    byMember.set(member, one);
+    seen.set(post, byMember);
+  }
+
+  /** T-113: the reply lines the tails read (each by its delivery id, so exactly its post) recorded under their
+   *  posts: an open room's folded rows count them without reading a transcript. Not a change of the room
+   *  (`changed` is not called: the room list's summary has these already, roomUnread.ts). */
+  noteReplies(replies: Array<{ room: GroupRoom; member: string; deliveryIds: string[]; item: ChatItem }>): void {
+    const rooms = new Map<string, ReturnType<GroupMessages['load']>>();
+    for (const { room, member, deliveryIds, item } of replies) {
+      const held = rooms.get(room.id) ?? this.load(room);
+      rooms.set(room.id, held);
+      // L6: a turn that joined several posts answers each of them
+      for (const post of held.posts)
+        if (validIds(post.messageIds) && deliveryIds.includes(post.messageIds[member]))
+          this.record(room.id, held.seen, post.id, member, item);
+    }
+  }
+
+  /** P3.1: the room's log as it is now (its segments' sizes and times): the same, its posts and counts are too. */
+  stamp(roomId: string): string {
+    return roomSegments(groupTimelineDir(this.opts.home), roomId)
+      .map((file) => {
+        try {
+          const st = fs.statSync(file);
+          return `${file}\0${st.size}\0${st.mtimeMs}`;
+        } catch {
+          return file;
+        }
+      })
+      .join('\n');
+  }
+
+  /** P3.1: a build's `nextRetryAt` has come: one of the posts it looked for is due a look again. */
+  retryDue(at: number): boolean {
+    return at <= this.now();
+  }
+
+  /** T-113: when the room's posts were last read for their counts (null: never; posts from before T-113). */
+  counted(room: GroupRoom): number | null {
+    return this.load(room).counted;
+  }
+
+  markCounted(roomId: string, at: number): void {
+    this.append(roomId, { v: 2, kind: 'counted', at });
   }
 
   /**
@@ -564,10 +675,18 @@ export class GroupMessages {
       files: (at: number) => EarlierFile[];
       window: (file: string, at: number) => { text: string; end: boolean } | null;
     } | null,
+    /** T-113: the posts whose replies are read (a thread the reader opened); the rest carry only what the
+     *  room recorded (`seen`), and no transcript is read for them. Undefined: every post (the room list). */
+    only?: ReadonlySet<string>,
   ): GroupTimelinePost[] {
-    const posts = this.timeline(room, limit);
+    const { posts, seen } = this.load(room, limit);
+    this.earlierPending = 0;
+    this.nextRetryAt = Infinity;
+    const reads = (post: GroupPost) => !only || only.has(post.id);
     // A 공지 is never answered (no reply is bound to it): it reads no transcript.
-    const since = Math.min(...posts.filter((post) => post.targets.length && !post.notice).map((post) => post.at));
+    const since = Math.min(
+      ...posts.filter((post) => post.targets.length && !post.notice && reads(post)).map((post) => post.at),
+    );
     type Reader = ReturnType<typeof roomReplyReader>;
     const readers = new Map<string, { read: Reader; start: number } | null>();
     const readerFor = (member: string) => {
@@ -600,16 +719,26 @@ export class GroupMessages {
         // This build's window (opened for an older post of the member) may hold this one too, but
         // only a turn that ends in it: one cut at its end waits for its own window.
         const items = opened(named, post, messageId, true);
-        return items ? this.keepEarlier(key, items, touched) : [];
+        if (!items) {
+          this.earlierPending++; // its own window comes in a later build
+          return [];
+        }
+        this.missed.delete(key);
+        return this.keepEarlier(key, items, touched);
       }
       const now = this.now();
       const miss = this.missed.get(key);
-      if (miss && miss.retryAt > now) return [];
+      const wake = (at: number) => (this.nextRetryAt = Math.min(this.nextRetryAt, at));
+      if (miss && miss.retryAt > now) {
+        wake(miss.retryAt);
+        return [];
+      }
       const files = source.files(post.at);
       const seen = files.map((f) => `${f.file}\0${f.size}\0${f.mtimeMs}`).join('\n');
       const wait = miss?.wait ? Math.min(2 * miss.wait, EARLIER_RETRY_MAX_MS) : EARLIER_RETRY_MS;
       if (miss?.seen === seen) {
         this.missed.set(key, { ...miss, wait, retryAt: now + wait }); // nothing changed: nothing read
+        wake(now + wait);
         return [];
       }
       // ponytail: the order is read again each build, so a transcript added between two builds can
@@ -618,6 +747,7 @@ export class GroupMessages {
       const file = files[attempt];
       if (!file) {
         this.missed.set(key, { attempt: 0, wait, retryAt: now + wait, seen });
+        wake(now + wait);
         return [];
       }
       const text = source.window(file.file, post.at);
@@ -626,28 +756,47 @@ export class GroupMessages {
       const items = window(named, post, messageId);
       if (!items) {
         this.missed.set(key, { attempt: attempt + 1, retryAt: 0, wait: miss?.wait ?? 0 }); // the next build: the next one
+        this.earlierPending++;
         return [];
       }
       this.missed.delete(key);
       return this.keepEarlier(key, items, touched);
     };
-    return posts.map(({ roomName, messageIds, ...post }) => ({
-      ...post,
-      replies: (post.notice ? [] : post.targets).flatMap((member) => {
-        const reader = readerFor(member);
-        if (reader === null) return [];
-        const messageId = messageIds?.[member];
-        const named = { ...room, name: roomName ?? room.name };
-        const items =
-          reader.read(named, post, messageId) ??
-          // Typed into its session ('delivered'), or left in its inbox ('off': read at its next
-          // start, never marked so); one still 'pending' or 'held' reached no transcript.
-          (messageId && REACHED.has(post.delivery[member]) && post.at < reader.start
-            ? earlierItems(member, post, named, messageId)
-            : []);
-        return [{ member, ...(messageId && { messageId }), items }];
-      }),
-    }));
+    const recorded = (id: string, member: string) => {
+      const one = seen.get(id)?.get(member);
+      return one?.ids.size ? { seen: [...one.ids], lastAt: one.lastAt } : {};
+    };
+    return posts.map(({ roomName, messageIds, ...post }) => {
+      const members = post.notice ? [] : post.targets;
+      if (!reads(post))
+        return {
+          ...post,
+          replies: members.map((member) => {
+            const messageId = messageIds?.[member];
+            return { member, ...(messageId && { messageId }), items: [], ...recorded(post.id, member) };
+          }),
+        };
+      return {
+        ...post,
+        loaded: true as const,
+        replies: members.flatMap((member) => {
+          const reader = readerFor(member);
+          if (reader === null) return [];
+          const messageId = messageIds?.[member];
+          const named = { ...room, name: roomName ?? room.name };
+          const items =
+            reader.read(named, post, messageId) ??
+            // Typed into its session ('delivered'), or left in its inbox ('off': read at its next
+            // start, never marked so); one still 'pending' or 'held' reached no transcript.
+            (messageId && REACHED.has(post.delivery[member]) && post.at < reader.start
+              ? earlierItems(member, post, named, messageId)
+              : []);
+          // T-113: what a read found is recorded too (a post from before T-113, a line no tail saw).
+          for (const item of items) if (item.kind === 'assistant') this.record(room.id, seen, post.id, member, item);
+          return [{ member, ...(messageId && { messageId }), items, ...recorded(post.id, member) }];
+        }),
+      };
+    });
   }
 
   /**
@@ -681,9 +830,11 @@ export class GroupMessages {
     }
     // ponytail: past the cap the overflow blinks out and back each EARLIER_RETRY_MS, and two open
     // rooms push each other's replies out; a per-room share of the cap if that is ever seen.
-    if (this.earlierBytes + bytes > EARLIER_MAX_BYTES)
-      this.missed.set(key, { attempt: 0, wait: EARLIER_RETRY_MS, retryAt: this.now() + EARLIER_RETRY_MS });
-    else {
+    if (this.earlierBytes + bytes > EARLIER_MAX_BYTES) {
+      const retryAt = this.now() + EARLIER_RETRY_MS;
+      this.missed.set(key, { attempt: 0, wait: EARLIER_RETRY_MS, retryAt });
+      this.nextRetryAt = Math.min(this.nextRetryAt, retryAt);
+    } else {
       this.earlier.set(key, { items: kept, bytes });
       this.earlierBytes += bytes;
     }
@@ -704,6 +855,8 @@ export class GroupMessages {
     text: string;
     from: string | null;
     source: string;
+    /** E1.5: the owner's own CLI post (`from` may name the project folder it stands in): not counted. */
+    owner?: true;
     /** MSG-ACTIONS: the message this post answers (replyRef makes it safe). */
     replyTo?: unknown;
     /** TOKEN-GUARD (TG-02b): the daemon's copy of a Codex Worker's summary: shown in the room,
@@ -725,13 +878,23 @@ export class GroupMessages {
     const notice = !req.quiet && mentioned.targets.length === 0;
     // TOKEN-GUARD (TG-02a): a post never comes back to its own sender (@전체, a self-mention).
     let targets = (notice ? room.members : mentioned.targets).filter((member) => member !== req.from);
+    // Counted per `from` name: an agent's own posts on every path; the owner and the app never. An unidentified
+    // caller (every `agty job`, a forged token) all post as '(cli)' and share one bucket.
+    // ponytail: that shared '(cli)' bucket is 6 a minute for all such callers together; a per-process key if a job needs more.
+    const counted = notice && targets.length > 0 && req.from !== null && !req.owner && !req.source.startsWith('messenger:');
+    const at = this.now();
+    if (counted) {
+      const times = (this.notices.get(req.from!) ?? []).filter((t) => at - t < ROOM_NOTICE_RATE.windowMs);
+      this.notices.set(req.from!, times);
+      if (times.length >= ROOM_NOTICE_RATE.perMinute)
+        return { ok: false, ...refused('room_notice_rate', { n: ROOM_NOTICE_RATE.perMinute }) };
+    }
     if (req.from && !notice && targets.length < mentioned.targets.length && !req.quiet)
       this.opts.messenger.guard?.({ trigger: 'room', room: room.id, to: req.from, from: req.from, allowed: false, reason: 'room_echo' });
     if (req.quiet && mentioned.targets.length) {
       this.opts.messenger.guard?.({ trigger: 'room_summary', room: room.id, from: req.from, targets: mentioned.targets.length, allowed: false, reason: 'summary_post' });
       targets = [];
     }
-    const at = this.now();
     const replyTo = replyRef(req.replyTo);
     const post: GroupPost = {
       id: this.ids(),
@@ -750,6 +913,7 @@ export class GroupMessages {
     };
     if (!this.append(room.id, { v: 1, kind: 'post', post }))
       return { ok: false, ...refused('room_log_failed') };
+    if (counted) this.notices.get(req.from!)!.push(at);
     this.opts.changed?.(room.id);
     await Promise.all(
       post.targets.map(async (to) => {
@@ -845,20 +1009,44 @@ export class GroupMessages {
     let records: TimelineRecord[] = [];
     let posts = 0;
     for (let i = segments.length - 1; i >= 0 && posts < want; i--) {
-      const text = readSegment(segments[i]);
-      if (text === null) continue;
-      const found = text.split('\n').flatMap((line) => {
-        try {
-          const value: unknown = JSON.parse(line);
-          return value && typeof value === 'object' && (value as { v?: unknown }).v === 1
-            ? [value as TimelineRecord]
-            : [];
-        } catch {
-          return [];
-        }
-      });
+      const found = this.segmentRecords(segments[i]);
+      if (found === null) continue;
       posts += found.filter((r) => r.kind === 'post' && !(skipSystem && r.post.system)).length;
       records = [...found, ...records];
+    }
+    return records;
+  }
+
+  /** A segment's records, parsed again only when its size or time changed (the 1.5 s view poll reads the same month). */
+  private segmentRecords(file: string): TimelineRecord[] | null {
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(file);
+    } catch {
+      this.parsed.delete(file);
+      return null;
+    }
+    const held = this.parsed.get(file);
+    this.parsed.delete(file); // read now: the newest again, or parsed again below
+    if (held && held.size === stat.size && held.mtimeMs === stat.mtimeMs) {
+      this.parsed.set(file, held);
+      return held.records;
+    }
+    const text = readSegment(file);
+    if (text === null) return null;
+    const records = text.split('\n').flatMap((line) => {
+      try {
+        const value: unknown = JSON.parse(line);
+        const v = value && typeof value === 'object' ? (value as { v?: unknown }).v : null;
+        return v === 1 || v === 2 ? [value as TimelineRecord] : [];
+      } catch {
+        return [];
+      }
+    });
+    this.parsed.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, records });
+    for (const old of this.parsed.keys()) {
+      if (this.parsed.size <= ROOM_PARSE_CACHE_MAX) break;
+      this.parsed.delete(old);
     }
     return records;
   }
@@ -867,7 +1055,8 @@ export class GroupMessages {
     try {
       const dir = groupTimelineDir(this.opts.home);
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-      fs.appendFileSync(monthFile(dir, roomId, this.now()), `${JSON.stringify(record)}\n`, {
+      // Starts on a fresh line: a torn last line (a short write) swallows none of it.
+      fs.appendFileSync(monthFile(dir, roomId, this.now()), `\n${JSON.stringify(record)}\n`, {
         mode: 0o600,
       });
       return true;

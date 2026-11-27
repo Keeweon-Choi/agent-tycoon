@@ -2,7 +2,7 @@
 // folder with .fake-untrusted it shows Claude Code 2.1.310's trust dialog as recorded from its
 // TrustDialog ("Accessing workspace:", the options without numbers, "No, exit" first and focused).
 // ↓/↑ move the pointer; Enter on Yes removes .fake-untrusted (the answer recorded) and shows the
-// input line; Enter on No or Esc exits 1. Without .fake-untrusted the input line shows at once.
+// input line (and, when $HOME/.claude.json exists, marks the folder accepted there); Enter on No or Esc exits 1. Without .fake-untrusted the input line shows at once.
 // Ctrl+C twice exits 0. Every key is one JSON line {cwd, key} in $HOME/fake-claude-trust.log.
 // A file .fake-trust in the folder picks a variant:
 //   warn     the dialog also lists pre-approved tool rules ("These will apply without asking")
@@ -93,6 +93,15 @@ process.stdin.on('data', (buf) => {
     if (!onYes) process.exit(1);
     if (mode === 'stuck') return;
     fs.rmSync(untrusted, { force: true });
+    // Like Claude: the answer also lands in $HOME/.claude.json, which the PTY host reads (folderTrusted).
+    try {
+      const file = path.join(home, '.claude.json');
+      const conf = JSON.parse(fs.readFileSync(file, 'utf8'));
+      conf.projects = { ...conf.projects, [cwd]: { hasTrustDialogAccepted: true } };
+      fs.writeFileSync(file, JSON.stringify(conf));
+    } catch {
+      /* no .claude.json: nothing reads one */
+    }
     dialog = false;
   }
   draw();

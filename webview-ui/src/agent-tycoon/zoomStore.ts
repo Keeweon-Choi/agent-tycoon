@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { TEXT_ZOOM_DEFAULT, TEXT_ZOOM_WHEEL_NOTCH } from '../constants.js';
+import { touchesWithin } from '../touch/touchPrimitives.js';
 import {
   clampZoom,
   loadZoom,
@@ -76,16 +77,16 @@ export function useZoomHost(surface: ZoomSurface): (el: HTMLElement | null) => v
       e.preventDefault();
     };
     let pinch: { dist: number; zoom: number } | null = null;
+    // Only the fingers that began in the element: a thumb resting on a bar elsewhere is in `e.touches` too.
     const onTouchStart = (e: TouchEvent) => {
-      pinch =
-        e.touches.length === 2
-          ? { dist: distance(e.touches[0], e.touches[1]), zoom: read(surface) }
-          : null;
+      const own = touchesWithin<Touch>(e.touches, el);
+      pinch = own.length === 2 ? { dist: distance(own[0], own[1]), zoom: read(surface) } : null;
     };
     const onTouchMove = (e: TouchEvent) => {
-      if (!pinch || e.touches.length !== 2 || pinch.dist === 0) return;
+      const own = touchesWithin<Touch>(e.touches, el);
+      if (!pinch || own.length !== 2 || pinch.dist === 0) return;
       e.preventDefault();
-      write(surface, pinch.zoom * (distance(e.touches[0], e.touches[1]) / pinch.dist));
+      write(surface, pinch.zoom * (distance(own[0], own[1]) / pinch.dist));
     };
     const onTouchEnd = () => {
       pinch = null;

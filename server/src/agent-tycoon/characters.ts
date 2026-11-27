@@ -151,6 +151,8 @@ export class CharacterBinder {
     if (agent.jsonlFile) {
       r.unregisterAgent(agent.sessionId);
       clearAgentActivity(agent, id, this.store, r.permissionTimers);
+      // The old conversation's Teammates and Sub-agents end with it.
+      r.removeChildren(id);
     }
     // The next transcript is a new conversation: its compactions are counted afresh.
     resetCompactions(id, agent, this.store);
@@ -165,6 +167,8 @@ export class CharacterBinder {
     if (id === undefined) return;
     const agent = this.store.get(id);
     if (agent?.jsonlFile) this.runtime.unregisterAgent(agent.sessionId);
+    // Children first: once the Lead is gone nothing finds them (no SessionEnd without hooks).
+    this.runtime.removeChildren(id);
     this.runtime.removeAgent(id); // -> agentClosed
   }
 }

@@ -20,7 +20,7 @@ import type { StateAdapter } from '../../core/src/adapter.js';
 import type { PersistedAgent } from '../../core/src/schemas.js';
 import type { AdapterSettingKey, AdapterSettings, ConfigNamespace } from './configPersistence.js';
 import { ADAPTER_SETTING_KEYS, readConfig, writeConfig } from './configPersistence.js';
-import { officeFile, officeFileToRead } from './officeFolder.js';
+import { keepCorruptOfficeFile, officeFile, officeFileToRead } from './officeFolder.js';
 
 const ADAPTER_SETTING_KEY_SET: ReadonlySet<string> = new Set(ADAPTER_SETTING_KEYS);
 
@@ -109,6 +109,7 @@ export class FileStateAdapter implements StateAdapter {
       };
     } catch (err) {
       console.error('[Agent Tycoon] Failed to read adapter state:', err);
+      keepCorruptOfficeFile(file, err);
       return { ...EMPTY_STATE };
     }
   }

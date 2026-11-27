@@ -138,7 +138,27 @@ export class EditorState {
     this.wallDragAdding = null;
   }
 
-  pushUndo(layout: OfficeLayout): void {
+  /**
+   * How far the characters and pets move when a history snapshot is restored: growing the grid to
+   * the left / up shifts everything already in it, so restoring the smaller grid shifts it back.
+   * Keyed by the snapshot, set whenever one is pushed (the default is no shift).
+   */
+  private restoreShifts = new WeakMap<OfficeLayout, { col: number; row: number }>();
+
+  restoreShiftOf(layout: OfficeLayout): { col: number; row: number } {
+    return this.restoreShifts.get(layout) ?? { col: 0, row: 0 };
+  }
+
+  /** The edit in progress grew the grid by `shift`: undoing its entry moves everything back by it. */
+  noteGrowth(shift: { col: number; row: number }): void {
+    const entry = this.undoStack[this.undoStack.length - 1];
+    if (!entry) return;
+    const was = this.restoreShiftOf(entry);
+    this.restoreShifts.set(entry, { col: was.col - shift.col, row: was.row - shift.row });
+  }
+
+  pushUndo(layout: OfficeLayout, restoreShift = { col: 0, row: 0 }): void {
+    this.restoreShifts.set(layout, restoreShift);
     this.undoStack.push(layout);
     // Limit undo stack size
     if (this.undoStack.length > UNDO_STACK_MAX_SIZE) {
@@ -150,7 +170,8 @@ export class EditorState {
     return this.undoStack.pop() || null;
   }
 
-  pushRedo(layout: OfficeLayout): void {
+  pushRedo(layout: OfficeLayout, restoreShift = { col: 0, row: 0 }): void {
+    this.restoreShifts.set(layout, restoreShift);
     this.redoStack.push(layout);
     if (this.redoStack.length > UNDO_STACK_MAX_SIZE) {
       this.redoStack.shift();

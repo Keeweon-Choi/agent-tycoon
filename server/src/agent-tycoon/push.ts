@@ -649,7 +649,9 @@ export class PushService {
     if (m.type === 'agentToolStart' && typeof m.id === 'number' && typeof m.desc === 'string' && m.desc)
       this.lastDoing.set(m.id, m.desc);
     if (m.type === 'agentStatus' && typeof m.id === 'number' && m.status !== 'waiting') {
-      this.turnPushed.delete(m.id);
+      // a real turn boundary (the last turn buzzed): its end names its own call, never the last turn's.
+      // Not on every active: the hook path sends the tool start and then active within one turn.
+      if (this.turnPushed.delete(m.id)) this.lastDoing.delete(m.id);
     } else if (m.type === 'agentStatus' && m.status === 'waiting' && typeof m.id === 'number') {
       if (m.restored === true) return; // a question given back after a restart: shown, not pushed
       if (m.question === true) {
@@ -664,9 +666,27 @@ export class PushService {
       }
     } else if (m.type === 'agentClosed' && typeof m.id === 'number') {
       this.turnPushed.delete(m.id);
+      this.lastDoing.delete(m.id);
     } else if (m.type === 'agentToolPermission' && typeof m.id === 'number') {
       // PERM-PROMPT: a sub-agent's dialog names it (its staff name).
       this.notifyAgent(m.id, 'permission', typeof m.asker === 'string' ? m.asker : undefined);
+    } else if (
+      m.type === 'officeEvent' &&
+      (m.kind === 'delegation_approval' || m.kind === 'delegation_start_failed') &&
+      typeof m.name === 'string' &&
+      typeof m.summary === 'string'
+    ) {
+      // ponytail: both kinds share one rule (permission cause, same cooldown); split them if the owner wants one off alone.
+      // C6, as the screen's own ask (notices.ts): the owner has to act, in that project's 작업실.
+      this.notify('permission', this.opts.agentIdOf(m.name), m.name, m.summary, 'orchestrator', false, Date.now(), {
+        target: { open: 'workbench', project: m.name },
+      });
+    } else if (m.type === 'officeEvent' && m.kind === 'send_input_wait' && typeof m.name === 'string' && typeof m.summary === 'string') {
+      // T-165: messages wait on an input box only someone at that terminal can clear: an ask that opens the agent.
+      const agentId = this.opts.agentIdOf(m.name);
+      this.notify('permission', agentId, m.name, m.summary, 'orchestrator', false, Date.now(), {
+        target: agentId === null ? { open: 'office' } : { open: 'agent', agentId },
+      });
     } else if (
       m.type === 'officeEvent' &&
       (m.kind === 'job_end' || m.kind === 'codex_end' || m.kind === 'orch_giveup') &&

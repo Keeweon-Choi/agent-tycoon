@@ -1020,6 +1020,7 @@ describe('TOKEN-GUARD: a limit with an unknown reset', () => {
   function limitRig(
     script: (call: number, sid: string, codexHome: string) => 'limit' | 'ok',
     runMs = 0,
+    pad = '',
   ) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-tg-codex-'));
     cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -1085,6 +1086,7 @@ describe('TOKEN-GUARD: a limit with an unknown reset', () => {
           const outcome = script(runs.length, 's1', codexHome);
           const lines = [
             { type: 'thread.started', thread_id: 's1' },
+            ...(pad ? [{ type: 'item.completed', item: { aggregated_output: pad } }] : []),
             ...(outcome === 'limit' ? [{ type: 'error', message: 'usage_limit_exceeded' }] : []),
           ];
           fs.writeSync(o.stdio[1], lines.map((l) => JSON.stringify(l) + '\n').join(''));
@@ -1125,6 +1127,23 @@ describe('TOKEN-GUARD: a limit with an unknown reset', () => {
     expect(r.runs).toHaveLength(1);
     expect(r.sleeps).toEqual([]);
     expect(r.sends()).toEqual([expect.stringContaining('끝: done')]);
+  });
+
+  it('B3.1: a limit after more than 8 MiB of output in one run is still seen, and the same session resumes', async () => {
+    const r = limitRig((call) => (call === 1 ? 'limit' : 'ok'), 0, 'x'.repeat(9 * 1024 * 1024));
+    expect(await r.run()).toBe(0);
+    expect(r.runs).toHaveLength(2);
+    expect(r.runs[1].slice(0, 2)).toEqual(['exec', 'resume']);
+    expect(readCodex(r.dir, r.rec.id)!.state).toBe('done');
+  });
+
+  it('B3.1: a line the 8 MiB head read cuts is not a stderr limit, even when its text quotes one', async () => {
+    // A grep's output naming usage_limit_exceeded just before the cut: the finished run must end.
+    const mib = 1024 * 1024;
+    const r = limitRig(() => 'ok', 0, 'x'.repeat(8 * mib - 200) + 'usage_limit_exceeded' + 'x'.repeat(mib));
+    expect(await r.run()).toBe(0);
+    expect(r.runs).toHaveLength(1);
+    expect(readCodex(r.dir, r.rec.id)!.state).toBe('done');
   });
 
   it('negative control: a reset time that appears later is a new notice; a cleared limit resumes and ends', async () => {

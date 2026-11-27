@@ -722,6 +722,48 @@ export function updateAreaColor(layout: OfficeLayout, label: string, color: stri
 export type ExpandDirection = 'left' | 'right' | 'up' | 'down';
 
 /**
+ * Whether the grid may grow. A generated agty office (`agtyBase`) is saved as per-room decor, so a
+ * tile or item outside its rooms (the grown border, the gaps between rooms) is dropped by the daemon.
+ */
+export const canExpand = (layout: OfficeLayout): boolean => layout.agtyBase === undefined;
+
+/**
+ * Grow the grid until (col,row) lies inside it, one tile per direction step. Returns the grown layout,
+ * the tile's coordinates in it and the shift of what was already there (left/up growth), or null when
+ * (col,row) is inside already, the layout may not grow, or it would pass MAX_COLS/MAX_ROWS.
+ */
+export function expandForTile(
+  layout: OfficeLayout,
+  col: number,
+  row: number,
+): { layout: OfficeLayout; col: number; row: number; shift: { col: number; row: number } } | null {
+  if (col >= 0 && col < layout.cols && row >= 0 && row < layout.rows) return null;
+  if (!canExpand(layout)) return null;
+  const directions: ExpandDirection[] = [];
+  if (col < 0) directions.push('left');
+  if (col >= layout.cols) directions.push('right');
+  if (row < 0) directions.push('up');
+  if (row >= layout.rows) directions.push('down');
+
+  let current = layout;
+  let shiftCol = 0;
+  let shiftRow = 0;
+  for (const dir of directions) {
+    const result = expandLayout(current, dir);
+    if (!result) return null; // exceeded max
+    current = result.layout;
+    shiftCol += result.shift.col;
+    shiftRow += result.shift.row;
+  }
+  return {
+    layout: current,
+    col: col + shiftCol,
+    row: row + shiftRow,
+    shift: { col: shiftCol, row: shiftRow },
+  };
+}
+
+/**
  * Expand layout by 1 tile in the given direction. New tiles are VOID.
  * Furniture and tile indices are shifted when expanding left or up.
  * Returns { layout, shift } or null if exceeding MAX_COLS/MAX_ROWS.

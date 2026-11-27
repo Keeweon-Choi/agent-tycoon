@@ -20,11 +20,13 @@ import { EngineEvents, eventsPath } from './events.js';
 import type { GpuPolicy } from './gpu.js';
 import {
   boardJson,
+  daemonLocks,
   flockLocks,
   gpuDir,
   gpuProcessesFromFile,
   GpuQueue,
   noThresholdHolders,
+  ownerStart,
   ownGpuDir,
   parseTicket,
   pidLocks,
@@ -185,6 +187,7 @@ describe('queue folder and config', () => {
       id: 'g-1022-040000-alpha',
       project: 'alpha',
       pid: 4242,
+      pstart: '133000000000000001',
       label: 'two\nlines',
       vramGib: 2.5,
       exclusive: false,
@@ -192,11 +195,12 @@ describe('queue folder and config', () => {
       jobLog: null,
     });
     expect(text).toBe(
-      'id=g-1022-040000-alpha\nproject=alpha\npid=4242\nlabel=two lines\nvram=2.5\nexclusive=\nrequested=2026-10-22T04:00:00+09:00\nlog=\n',
+      'id=g-1022-040000-alpha\nproject=alpha\npid=4242\npstart=133000000000000001\nlabel=two lines\nvram=2.5\nexclusive=\nrequested=2026-10-22T04:00:00+09:00\nlog=\n',
     );
     expect(parseTicket(`${text}started=now\n`, '/q/l-g-1022-040000-alpha')).toMatchObject({
       id: 'g-1022-040000-alpha',
       pid: 4242,
+      pstart: '133000000000000001',
       vramGib: 2.5,
       exclusive: false,
       started: 'now',
@@ -970,6 +974,42 @@ describe('the sweep never removes a live owner’s file (negative controls, temp
           .sort(),
       ).toEqual(['l-g-live', 'q-00000001-g-midwrite', 'q-00000002-g-unreadable']);
       expect(seen).toEqual(['gpu_cancel:g-dead']);
+    },
+  );
+
+  it('B3.2 pid backend: a lease whose pid now names another process (start time differs) is swept', () => {
+    // Windows: taskkill /F left the lease; its pid is reused at once by a process that lives on.
+    const { dir, q, seen } = rig(pidLocks(() => true, Date.now, () => 'later'));
+    ticketFile(dir, 'l-g-reused', FAKE(6), 'pstart=first\n');
+    ticketFile(dir, 'l-g-same', FAKE(7), 'pstart=later\n');
+    ticketFile(dir, 'l-g-old', FAKE(8)); // written before pstart: the bare-pid rule
+    q.sweep();
+    expect(fs.readdirSync(dir).filter((f) => !f.startsWith('.')).sort()).toEqual(['l-g-old', 'l-g-same']);
+    expect(seen).toEqual(['gpu_release:g-reused']);
+  });
+
+  it('B3.2 macOS: tickets carry no start time (ps -o lstart= prints it in the reader’s locale and time zone)', () => {
+    // A Korean terminal's `agty gpu run` and the daemon (LANG=en_US) would read two strings for one live pid.
+    expect(ownerStart(process.pid, 'darwin')).toBeNull();
+  });
+
+  it('B3.2 Windows: the daemon’s sweep reads no start time (a PowerShell per ticket every 30 s)', () => {
+    // The waiter a reused pid blocks sweeps it before each admission; the daemon keeps it.
+    const { dir, q, seen } = rig(daemonLocks('win32'));
+    ticketFile(dir, 'l-g-other', process.pid, 'pstart=not-ours\n');
+    q.sweep();
+    expect(fs.readdirSync(dir).filter((f) => !f.startsWith('.'))).toEqual(['l-g-other']);
+    expect(seen).toEqual([]);
+  });
+
+  it.runIf(process.platform === 'linux')(
+    'negative control: a waiter’s pid backend (start times read) sweeps that same lease',
+    () => {
+      const { dir, q, seen } = rig(pidLocks());
+      ticketFile(dir, 'l-g-other', process.pid, 'pstart=not-ours\n');
+      q.sweep();
+      expect(fs.readdirSync(dir).filter((f) => !f.startsWith('.'))).toEqual([]);
+      expect(seen).toEqual(['gpu_release:g-other']);
     },
   );
 });

@@ -30,6 +30,8 @@ export interface RenewRecord {
   name: string;
   /** v1: the handoff as the agent wrote it; before: the whole first message. */
   message: string;
+  /** The exact first message, saved before it is put in the inbox (B1.1): a restart takes a copy back. */
+  queuedText?: string;
   source: string;
   requestedAt: number;
   queued?: boolean;
@@ -179,6 +181,10 @@ export interface RenewalsDeps {
   log: (line: string) => void;
   event?: (type: string, source: string, fields: Record<string, unknown>) => void;
   writeInbox?: (name: string, text: string) => boolean | undefined;
+  /** Remove the exact inbox entry a queued renew wrote; false when it was already delivered. */
+  takeInbox?: (name: string, text: string) => boolean | undefined;
+  /** Rename a renewal record; optional so filesystem failure paths can be exercised in isolation. */
+  rename?: (from: string, to: string) => void;
   /** K1 (B2): a v1 handoff's first message (safety lines, handoff, work basis), with what it was
    *  built on; `h`: the old session while it is still live. Never rejects. */
   compose: (p: ProjectRecord, r: RenewRecord, h: Live | null) => Promise<{
@@ -409,10 +415,11 @@ export class Renewals {
     }
   }
 
-  /** Over. The record goes, except: a handoff that never reached the inbox is kept beside it
-   *  (`.failed`), a failed start keeps it (B4: the next start is a new conversation). */
+  /** Over. The record goes, except: a handoff that never reached or was taken back from the inbox
+   *  is kept beside it (`.failed`), a failed start keeps it (B4: the next start is a new conversation). */
   private end(p: ProjectRecord, r: RenewRecord, ok: boolean, sessionId: string | null, code?: string, error?: string): void {
     const file = renewFile(this.deps.home, p.name);
+    const rename = this.deps.rename ?? fs.renameSync;
     let kept: string | null = null;
     try {
       if (ok) {
@@ -421,10 +428,32 @@ export class Renewals {
       } else if (code === 'start_failed') {
         writeAtomic(file, JSON.stringify({ ...r, phase: 'starting', failed: { code, error: error ?? '', at: Date.now() } }));
         this.deps.log(`renew "${p.name}": its next start is a new conversation with the handoff`);
+      } else if (phaseOf(r) === 'queued' && this.deps.takeInbox) {
+        // Before v1, `message` itself was the queued first message. A v1 record without
+        // `queuedText` predates take-back: its message is only the handoff, not the composed inbox text.
+        const text = r.queuedText ?? (r.v === undefined ? r.message : undefined);
+        if (text === undefined) {
+          fs.rmSync(file, { force: true });
+          this.deps.log(`renew "${p.name}": queued before inbox take-back existed; its handoff stays in the inbox`);
+        } else {
+          // Keep the exact text durably before changing the inbox. If this rename fails, the inbox
+          // remains untouched and the catch below records that one failure.
+          rename(file, `${file}.failed`);
+          kept = `${file}.failed`;
+          if (this.deps.takeInbox(p.name, text)) {
+            this.deps.log(`renew "${p.name}": its handoff is kept in ${file}.failed`);
+          } else {
+            fs.rmSync(`${file}.failed`, { force: true });
+            kept = null;
+            this.deps.log(`renew "${p.name}": its handoff was already gone from the inbox`);
+          }
+        }
       } else if (phaseOf(r) !== 'waiting') fs.rmSync(file, { force: true });
       else {
-        fs.renameSync(file, `${file}.failed`);
+        rename(file, `${file}.failed`);
         kept = `${file}.failed`;
+        // B1.1: a copy written before a restart may still wait in the inbox, ahead of a failure reported.
+        if (r.queuedText !== undefined) this.deps.takeInbox?.(p.name, r.queuedText);
         this.deps.log(`renew "${p.name}": its handoff is kept in ${file}.failed`);
       }
     } catch (err) {
@@ -498,16 +527,22 @@ export class Renewals {
     // 2. The handoff waits in the inbox for the new conversation (v1: under the safety lines,
     // above the work basis, built now that the turn is over).
     if (phaseOf(r) === 'waiting') {
-      let text = r.message;
-      let built: Partial<RenewRecord> = {};
-      if (r.v === 1) {
-        const c = await this.deps.compose(p, r, h);
-        text = c.text;
-        built = { base: c.base, refs: c.refs, transcript: c.transcript };
-      }
+      // B1.1: the text is saved before it is written. A restart between the write and the
+      // 'queued' save finds it here, takes that copy back and writes it again: one stays.
+      let text = r.queuedText;
+      if (text === undefined) {
+        text = r.message;
+        let built: Partial<RenewRecord> = {};
+        if (r.v === 1) {
+          const c = await this.deps.compose(p, r, h);
+          text = c.text;
+          built = { base: c.base, refs: c.refs, transcript: c.transcript };
+        }
+        save({ ...r, ...built, queuedText: text });
+      } else this.deps.takeInbox?.(p.name, text);
       if (!(this.deps.writeInbox?.(p.name, text) ?? false))
         return finish(false, null, 'queue_failed', '인수인계를 inbox에 쓰지 못했어요');
-      save({ ...r, ...built, queued: true, phase: 'queued' });
+      save({ ...r, queued: true, phase: 'queued' });
     }
     // 3, 4. Stop the old one until it is gone, then a new conversation (one action at a time).
     this.deps.running.add(p.name);

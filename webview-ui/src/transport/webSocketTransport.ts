@@ -27,6 +27,8 @@ export function sessionKey(msg: ClientMessage): string | null {
       return `workView:${msg.kind}:${msg.agentId ?? ''}:${msg.id ?? ''}`;
     case 'repoView':
       return `repoView:${msg.project}`;
+    case 'groupView': // T-113 (H3): an open room is asked for again, so its counts and threads come back
+      return `groupView:${msg.room}`;
     default:
       return null;
   }

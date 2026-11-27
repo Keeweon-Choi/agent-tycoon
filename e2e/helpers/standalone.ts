@@ -1,246 +1,148 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 
-import { expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
-import { type HookServerConfig, waitForHookServer } from './hooks';
-
-const REPO_ROOT = path.join(__dirname, '../..');
-const STANDALONE_CLI = path.resolve(REPO_ROOT, 'dist', 'cli.js');
-const MOCK_CLAUDE_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-claude');
-const MOCK_CLAUDE_CMD_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-claude.cmd');
-const MOCK_CLAUDE_RUNNER_PATH = path.join(REPO_ROOT, 'e2e/fixtures/mock-claude-runner.cjs');
-const TAIL_FOLLOW_PATH = path.join(REPO_ROOT, 'e2e/fixtures/tail-follow.cjs');
+import { configDirectory } from '../../server/src/agent-tycoon/configPath';
+import {
+  CLAUDE_PTY_PROVIDER,
+  registryPath,
+  saveRegistry,
+} from '../../server/src/agent-tycoon/engine/registry';
+import { ptyhostPaths } from '../../server/src/agent-tycoon/ptyhost/protocol';
+import {
+  assertPortFree,
+  type Daemon,
+  isFakeOf,
+  killFakeSessions,
+  makeEngineHome,
+  makeFakeHome,
+  pagePins,
+  removeTestHome,
+  REPO_ROOT,
+  SPARE_PORTS,
+  startDaemon,
+  testDaemonPath,
+  topBarReady,
+  waitForDaemon,
+} from '../../server/src/agent-tycoon/testHome';
+import { arrangeNextClaudeInvocation, type ClaudeMockScenario } from './mock-claude';
 
 export interface RecordedServerMessage {
   type: string;
   [key: string]: unknown;
 }
 
+export interface AgtyResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  /** stdout as JSON (`AGTY_OUTPUT=json`), or null when it is not. */
+  json: unknown;
+}
+
 export interface StandaloneSession {
   tmpHome: string;
-  workspaceDir: string;
+  port: number;
   hostUrl: string;
-  hookServerConfig: HookServerConfig;
-  /** Invocation log the mock claude appends to (under tmpHome/.claude-mock).
-   *  Only ever written when the session was launched with mockClaude: true. */
-  mockLogFile: string;
+  /** The folder of a seeded agent (`<tmpHome>/work/<name>`). */
+  agentFolder: (name: string) => string;
+  /** A fresh login link of the daemon running now. */
+  loginUrl: () => Promise<string>;
+  /** `agent-tycoon/bin/agty` as a user of this HOME runs it (`AGTY_OUTPUT=json`), in `cwd` (the HOME by default). */
+  agty: (args: string[], opts?: { cwd?: string }) => Promise<AgtyResult>;
   getHostLogs: () => string;
-  cleanup: () => Promise<void>;
   drainMessages: () => Promise<RecordedServerMessage[]>;
-  /** Stop the host process, breaking its WebSocket connections, without disposing
-   *  the browser page or its recorded message buffer. Fallback for tests that need
-   *  to observe a real connection drop when `context.setOffline` does not reliably
-   *  close an already-open WebSocket (Chromium-version dependent). */
+  /** Stop the daemon (the PTY host and its agents live on, as after a real restart). */
   stopHost: () => Promise<void>;
-  /** Restart the host on the SAME port after `stopHost`, so the already-connected
-   *  browser page's exponential-backoff retry succeeds again. */
+  /** Start the daemon again on the same HOME and port; resolves once it answers. */
   startHost: () => Promise<void>;
+  /** Resolves with the exit code once the daemon running now ends (by itself, e.g. AGTY_TEST_RESTART=exit). */
+  hostExit: () => Promise<number | null>;
+  cleanup: () => Promise<void>;
+}
+
+export interface SeededAgent {
+  name: string;
+  /** The room it sits in; 개발실 by default. */
+  room?: string;
+  /** Started with the daemon (default true); false is a stopped project. */
+  running?: boolean;
 }
 
 export interface LaunchStandaloneOptions {
-  /** Reuse an existing isolated HOME (for cross-surface multi-server tests).
-   *  A supplied directory is never removed by standalone cleanup. */
-  homeDir?: string;
-  /** Reuse an existing workspace. A supplied directory is never removed by
-   *  standalone cleanup. */
-  workspaceDir?: string;
-  /** Pre-seed a granted Claude hooksConsent entry so the first-run dialog never
-   *  covers the office (default). The consent specs opt out with `false` —
-   *  they are the only ones that want the dialog. Never overwrites a
-   *  config.json that already exists (a shared HOME was seeded by its owner). */
-  seedHooksConsent?: boolean;
-  /** Extra CLI flags appended to the host spawn (e.g. ['--no-terminal']). */
+  /** Engine agents (claude-pty) in the registry before the daemon starts. */
+  agents?: SeededAgent[];
+  /** Scenarios in the mock queue before the daemon starts (`claudeScenario().forAgent(name)...build()`). */
+  scenarios?: ClaudeMockScenario[];
+  /** A new PC: neither the 접속 방식 nor the new agents' permission mode is chosen yet. */
+  firstRun?: boolean;
+  /** No Claude Code on PATH (the plain office). */
+  noClaude?: boolean;
+  /** Extra daemon flags after `--engine on --allow-actions --allow-chat`. */
   cliArgs?: string[];
-  /** Install the mock `claude` into an isolated bin dir and prepend it to the
-   *  host's PATH, so agents launched from the browser spawn the scenario
-   *  runner in the host's PTY instead of a real Claude CLI. */
-  mockClaude?: boolean;
-  /** Browser viewport (default 1280×800, the desktop shell). A phone-sized
-   *  viewport renders the mobile shell instead. */
-  viewport?: { width: number; height: number };
-  /** Pre-seed `~/.pixel-agents/layout.json` before the host starts (see
-   *  helpers/layout-seed.ts — it must carry a high layoutRevision). */
-  seedLayout?: unknown;
-  /** Extra top-level fields for the seeded `~/.pixel-agents/config.json`
-   *  (e.g. `directories`), merged over the baseline (consent, and the start
-   *  directory shown in the drawer). Ignored when the file already exists (a
-   *  shared HOME was seeded by its owner). */
-  seedConfig?: Record<string, unknown>;
+  /** Extra daemon environment (AGTY_TEST_REMOTE, AGTY_TEST_RESTART, ...). */
+  env?: Record<string, string>;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+/** The phone shell: `test.use({ ...PHONE, standaloneOptions: { ... } })`. */
+export const PHONE = {
+  viewport: { width: 390, height: 844 },
+  hasTouch: true,
+  isMobile: true,
+} as const;
 
-async function getFreePort(): Promise<number> {
+/** One port per test: `AGTY_E2E_PORT` (a spare port, 18260 and up on this PC) when set, else one the OS
+ *  hands out (never 18240 or 18443). */
+async function testPort(): Promise<number> {
+  const fixed = Number(process.env['AGTY_E2E_PORT']);
+  if (fixed) {
+    if (!SPARE_PORTS.includes(fixed)) throw new Error('AGTY_E2E_PORT must be 18256-18599');
+    await assertPortFree(fixed);
+    return fixed;
+  }
   return await new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.on('error', reject);
+    const server = net.createServer().once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
-      if (!address || typeof address === 'string') {
-        reject(new Error('Failed to allocate a free port'));
-        return;
-      }
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(address.port);
-      });
+      server.close(() =>
+        address && typeof address !== 'string'
+          ? resolve(address.port)
+          : reject(new Error('no free port')),
+      );
     });
   });
 }
 
-async function waitForHttpOk(url: string): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  let lastError: unknown = null;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-      lastError = new Error(`GET ${url} returned ${response.status.toString()}`);
-    } catch (error) {
-      lastError = error;
-    }
-    await delay(100);
-  }
-  throw lastError instanceof Error ? lastError : new Error(`Timed out waiting for ${url}`);
-}
-
-/**
- * Copy the mock `claude` into a bin dir inside the isolated HOME. The wrapper
- * resolves its sibling scripts (mock-claude-runner.cjs, tail-follow.cjs)
- * relative to its own dir, so both must live alongside it. Returns the bin dir to
- * prepend to the host's PATH.
- */
-function installMockClaudeBin(homeDir: string): string {
-  const binDir = path.join(homeDir, 'mock-bin');
-  fs.mkdirSync(binDir, { recursive: true });
-  const binaryPath = path.join(binDir, process.platform === 'win32' ? 'claude.cmd' : 'claude');
-  if (process.platform === 'win32') {
-    fs.copyFileSync(MOCK_CLAUDE_CMD_PATH, binaryPath);
-  } else {
-    fs.copyFileSync(MOCK_CLAUDE_PATH, binaryPath);
-    fs.chmodSync(binaryPath, 0o755);
-  }
-  fs.copyFileSync(MOCK_CLAUDE_RUNNER_PATH, path.join(binDir, 'mock-claude-runner.cjs'));
-  fs.copyFileSync(TAIL_FOLLOW_PATH, path.join(binDir, 'tail-follow.cjs'));
-  return binDir;
-}
-
-/**
- * Spawn our standalone CLI (dist/cli.js). The CLI serves both the SPA and the
- * /ws WebSocket on the same port; tests connect Playwright's chromium to that
- * single origin. Workspace dir is communicated via process.cwd() since our CLI
- * doesn't take a --workspace-dir flag.
- */
-function spawnStandaloneHost(args: {
-  homeDir: string;
-  hostPort: number;
-  workspaceDir: string;
-  cliArgs?: string[];
-  mockClaude?: boolean;
-}): ChildProcessWithoutNullStreams {
-  if (!fs.existsSync(STANDALONE_CLI)) {
-    throw new Error(
-      `Standalone CLI not built at ${STANDALONE_CLI}. Run 'npm run compile' before standalone e2e tests.`,
-    );
-  }
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HOME: args.homeDir,
-    USERPROFILE: args.homeDir,
-    // Never the caller's Claude account: the usage reading takes the token from here.
-    CLAUDE_CONFIG_DIR: path.join(args.homeDir, '.claude'),
-  };
-  if (args.mockClaude) {
-    // The host's PTYs inherit its env, so a browser-launched `claude` resolves
-    // to the mock. AGENT_TYCOON_NODE_BIN keeps the wrapper on this exact node.
-    const binDir = installMockClaudeBin(args.homeDir);
-    env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ''}`;
-    env.AGENT_TYCOON_NODE_BIN = process.execPath;
-  }
-  return spawn(
-    process.execPath,
-    [
-      STANDALONE_CLI,
-      '--port',
-      args.hostPort.toString(),
-      '--host',
-      '127.0.0.1',
-      ...(args.cliArgs ?? []),
-    ],
-    {
-      cwd: args.workspaceDir,
-      env,
-      stdio: 'pipe',
-    },
-  );
-}
-
-async function stopProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode !== null || child.killed) {
-    return;
-  }
-  child.kill('SIGTERM');
-  await Promise.race([
-    new Promise<void>((resolve) => child.once('exit', () => resolve())),
-    delay(2_000),
-  ]);
-  if (child.exitCode === null && !child.killed) {
-    child.kill('SIGKILL');
-    await Promise.race([
-      new Promise<void>((resolve) => child.once('exit', () => resolve())),
-      delay(1_000),
-    ]);
-  }
-}
-
-/**
- * Install a WebSocket recorder BEFORE page navigation. Proxies window.WebSocket
- * so every incoming message frame is JSON-parsed and pushed to
- * window.__agentTycoonMessages, which drainMessages() reads from.
- */
+/** Every incoming /ws frame, JSON-parsed, into window.__agentTycoonMessages (drainMessages reads it). */
 async function installMessageRecorder(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const recordedMessages: unknown[] = [];
-    const OriginalWebSocket = window.WebSocket;
-    const RecordingWebSocket = new Proxy(OriginalWebSocket, {
+    const recorded: unknown[] = [];
+    const Original = window.WebSocket;
+    window.WebSocket = new Proxy(Original, {
       construct(target, args) {
         const socket = Reflect.construct(target, args) as WebSocket;
         socket.addEventListener('message', (event) => {
-          if (typeof event.data !== 'string') {
-            return;
-          }
+          if (typeof event.data !== 'string') return;
           try {
-            recordedMessages.push(JSON.parse(event.data));
+            recorded.push(JSON.parse(event.data));
           } catch {
-            // Ignore non-JSON frames.
+            // Not JSON.
           }
         });
         return socket;
       },
     });
-    window.WebSocket = RecordingWebSocket as typeof WebSocket;
-    (window as Window & { __agentTycoonMessages?: unknown[] }).__agentTycoonMessages =
-      recordedMessages;
+    (window as Window & { __agentTycoonMessages?: unknown[] }).__agentTycoonMessages = recorded;
   });
 }
 
 async function drainRecordedMessages(page: Page): Promise<RecordedServerMessage[]> {
   return await page.evaluate(() => {
     const store = (window as Window & { __agentTycoonMessages?: unknown[] }).__agentTycoonMessages;
-    if (!Array.isArray(store)) {
-      return [];
-    }
+    if (!Array.isArray(store)) return [];
     const drained = store.slice();
     store.length = 0;
     return drained as RecordedServerMessage[];
@@ -248,166 +150,153 @@ async function drainRecordedMessages(page: Page): Promise<RecordedServerMessage[
 }
 
 /**
- * The URL an operator opens: the daemon's login link.
- *
- * The daemon no longer prints a URL (since 2026-10-21 it prints a login link only on a terminal,
- * and a code never goes into a log). The channels a real operator has are the installer's and
- * `agty-login`'s: POST /api/login-code with the host token, then follow `/login?code=` in the
- * browser, which trades the one-time code for a session cookie. This does exactly that.
- *
- * The host token is read from server.json (where the real hook script reads it too); the BROWSER
- * only ever gets what the code buys, never the host token itself, so the suite still fails over a
- * login that does not log a browser in.
+ * A temp HOME (testHome.ts: the engine fake as `<home>/bin/claude`), the daemon on its own port with the
+ * engine on, and `page` logged in through the host's login link (what the installer does). The page is
+ * ready when the top bar is up (the plain office of `noClaude` and the first-run screens have none: there
+ * it is ready at `/`).
  */
-async function mintLoginUrl(hostUrl: string, token: string): Promise<string> {
-  const response = await fetch(`${hostUrl}/api/login-code`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
-  if (!response.ok || typeof body?.code !== 'string') {
-    throw new Error(`POST ${hostUrl}/api/login-code returned ${response.status.toString()}`);
-  }
-  return `${hostUrl}/login?code=${encodeURIComponent(body.code)}`;
-}
-
-/** Open the SPA the way the operator does: by following the login link. */
-async function openStandalonePage(page: Page, loginUrl: string): Promise<void> {
-  await page.goto(loginUrl);
-  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible({ timeout: 30_000 });
-}
-
 export async function launchStandalone(
   page: Page,
   options: LaunchStandaloneOptions = {},
 ): Promise<StandaloneSession> {
-  const ownsHome = options.homeDir === undefined;
-  const ownsWorkspace = options.workspaceDir === undefined;
-  const tmpHome =
-    options.homeDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-standalone-e2e-home-'));
-  const workspaceDir =
-    options.workspaceDir ??
-    fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-standalone-e2e-workspace-'));
-  fs.mkdirSync(tmpHome, { recursive: true });
-  fs.mkdirSync(workspaceDir, { recursive: true });
-  // Consent baseline: without it the CLI
-  // asks over the tokened /ws handshake and the in-app dialog covers the
-  // office in every spec. Only when the file does not exist yet — a shared
-  // HOME (multi-server) was already seeded by the surface that owns it.
-  const configPath = path.join(tmpHome, '.pixel-agents', 'config.json');
-  if (!fs.existsSync(configPath)) {
-    // The start directory is shown: the product hides host Directories by
-    // default, and the launch specs click its drawer row. A spec about the
-    // default overrides `standalone` through seedConfig.
-    const seeded = {
-      standalone: { showHostDirectories: true },
-      ...((options.seedHooksConsent ?? true) ? { hooksConsent: { claude: 'granted' } } : {}),
-      ...options.seedConfig,
-    };
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, JSON.stringify(seeded, null, 2));
+  const made = options.noClaude ? makeFakeHome({ claude: null }) : makeEngineHome();
+  const home = made.home;
+  const claudePath = options.noClaude ? undefined : made.claudePath;
+  const port = await testPort();
+  const hostUrl = `http://127.0.0.1:${port}`;
+  const config = configDirectory(home);
+  // The port, or agty-login, agty-backup and agty-maintenance fall back to 18240 (the real daemon).
+  fs.writeFileSync(
+    path.join(config, 'config.json'),
+    JSON.stringify(options.firstRun ? { port } : { accessChosen: true, port }),
+  );
+  if (options.firstRun) fs.rmSync(path.join(config, 'new-agent-permission.json'), { force: true });
+  fs.mkdirSync(path.join(home, '.claude', 'sessions'), { recursive: true });
+  const agentFolder = (name: string) => path.join(home, 'work', name);
+  if (options.agents?.length) {
+    saveRegistry(
+      registryPath(home),
+      options.agents.map((a) => {
+        fs.mkdirSync(agentFolder(a.name), { recursive: true });
+        return {
+          name: a.name,
+          folder: agentFolder(a.name),
+          room: a.room ?? '개발실',
+          wantRunning: a.running ?? true,
+          provider: CLAUDE_PTY_PROVIDER,
+        };
+      }),
+    );
   }
-  // The first-run "Choose how to connect" screen covers the office on a host's first open on localhost;
-  // an operator who picked a way (or "later") is not asked again. The access settings live in the
-  // settings directory, next to the office folder (remote/index.ts accessChosen).
-  const accessConfigPath = path.join(tmpHome, '.config', 'agent-tycoon', 'config.json');
-  if (!fs.existsSync(accessConfigPath)) {
-    fs.mkdirSync(path.dirname(accessConfigPath), { recursive: true });
-    fs.writeFileSync(accessConfigPath, JSON.stringify({ accessChosen: true }, null, 2));
-  }
-  if (options.seedLayout !== undefined) {
-    const layoutPath = path.join(tmpHome, '.pixel-agents', 'layout.json');
-    fs.mkdirSync(path.dirname(layoutPath), { recursive: true });
-    fs.writeFileSync(layoutPath, JSON.stringify(options.seedLayout, null, 2));
-  }
-  const hostPort = await getFreePort();
-  const hostUrl = `http://127.0.0.1:${hostPort}`;
+  for (const scenario of options.scenarios ?? []) await arrangeNextClaudeInvocation(home, scenario);
 
-  let hostStdout = '';
-  let hostStderr = '';
-  function spawnAndAttach(): ChildProcessWithoutNullStreams {
-    const proc = spawnStandaloneHost({
-      homeDir: tmpHome,
-      hostPort,
-      workspaceDir,
-      cliArgs: options.cliArgs,
-      mockClaude: options.mockClaude,
-    });
-    proc.stdout.on('data', (chunk) => {
-      hostStdout += chunk.toString();
-    });
-    proc.stderr.on('data', (chunk) => {
-      hostStderr += chunk.toString();
-    });
-    return proc;
-  }
-  let hostProcess = spawnAndAttach();
+  const args = ['--engine', 'on', '--allow-actions', '--allow-chat', ...(options.cliArgs ?? [])];
+  /** Every start of the daemon (a restart test reads both logs). */
+  const daemons: Daemon[] = [];
+  const boot = async () => {
+    const daemon = startDaemon({ home, claudePath }, port, args, options.env ?? {});
+    daemons.push(daemon);
+    await waitForDaemon(port, daemon.child.pid!, 30_000, home);
+  };
+  const daemon = () => daemons[daemons.length - 1];
+  const hostLogs = () => daemons.map((d) => d.log.join('')).join('\n--- daemon restarted ---\n');
+  const stopHost = async () => {
+    await daemon()?.stop();
+  };
+  const cleanup = async () => {
+    await stopHost().catch(() => undefined);
+    // The PTY host outlives the daemon on purpose: end it and the fake sessions, only those of this HOME.
+    const hostLog = (() => {
+      try {
+        return fs.readFileSync(ptyhostPaths(home).log, 'utf-8');
+      } catch {
+        return '';
+      }
+    })();
+    for (const m of hostLog.matchAll(/listening, pid (\d+)/g)) {
+      const pid = Number(m[1]);
+      if (isFakeOf(pid, home))
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Gone.
+        }
+    }
+    killFakeSessions(home);
+    removeTestHome(home);
+  };
 
   try {
-    await page.setViewportSize(options.viewport ?? { width: 1280, height: 800 });
-    // Mark this as the e2e harness before navigation so the standalone webview
-    // installs its test-only observability hooks (window.__agentTycoonTestHooks).
+    await boot();
     await page.addInitScript(() => {
+      // The page's test-only hooks (window.__agentTycoonTestHooks).
       (window as unknown as { __AGENT_TYCOON_E2E?: boolean }).__AGENT_TYCOON_E2E = true;
     });
-    await page.context().addInitScript(() => {
-      try {
-        // The specs read the terminal from xterm's DOM rows; a pane otherwise draws with WebGL.
-        localStorage.setItem('agty.terminal-renderer', 'dom');
-        // The specs click where the upstream camera puts things (no auto framing).
-        localStorage.setItem('agty.camera-mode', 'off');
-        localStorage.setItem('agty.title-scene', 'off'); // no title scene over the office
-      } catch {
-        // No storage (about:blank): nothing to pin there.
-      }
-    });
+    await page.context().addInitScript((pairs) => {
+      for (const [key, value] of pairs)
+        try {
+          if (!localStorage.getItem(key)) localStorage.setItem(key, value);
+        } catch {
+          // No storage in this page: its defaults stay.
+        }
+    }, pagePins());
     await installMessageRecorder(page);
-    await waitForHttpOk(`${hostUrl}/api/health`);
-    // The hook-endpoint Bearer token is a different channel and legitimately
-    // read from the registry — that is where the real hook script reads it too.
-    // The BROWSER's capability may only come from the login link below.
-    const hookServerConfig = await waitForHookServer(tmpHome);
-    await openStandalonePage(page, await mintLoginUrl(hostUrl, hookServerConfig.token));
+    await page.goto(await daemon().loginUrl());
+    await page.waitForURL(`${hostUrl}/`);
+    if (!options.noClaude && !options.firstRun) await topBarReady(page, 30_000);
     await drainRecordedMessages(page);
-
-    return {
-      tmpHome,
-      workspaceDir,
-      hostUrl,
-      hookServerConfig,
-      mockLogFile: path.join(tmpHome, '.claude-mock', 'invocations.log'),
-      getHostLogs: () =>
-        [hostStdout.trim(), hostStderr.trim()].filter((value) => value.length > 0).join('\n'),
-      drainMessages: () => drainRecordedMessages(page),
-      stopHost: async () => {
-        await stopProcess(hostProcess);
-      },
-      startHost: async () => {
-        hostProcess = spawnAndAttach();
-        await waitForHttpOk(`${hostUrl}/api/health`);
-      },
-      cleanup: async () => {
-        await stopProcess(hostProcess);
-        if (ownsHome) fs.rmSync(tmpHome, { recursive: true, force: true });
-        if (ownsWorkspace) fs.rmSync(workspaceDir, { recursive: true, force: true });
-      },
-    };
   } catch (error) {
-    await stopProcess(hostProcess);
-    if (ownsHome) fs.rmSync(tmpHome, { recursive: true, force: true });
-    if (ownsWorkspace) fs.rmSync(workspaceDir, { recursive: true, force: true });
-    // Setup failures never reach the fixture's log-attaching teardown, so fold
-    // the host's output into the error itself — otherwise a host that dies at
-    // boot on CI leaves nothing to diagnose but a connection-refused message.
-    const hostLogs = [hostStdout.trim(), hostStderr.trim()]
-      .filter((value) => value.length > 0)
-      .join('\n');
-    const message = error instanceof Error ? error.message : String(error);
+    const output = hostLogs();
+    await cleanup();
     throw new Error(
-      `launchStandalone failed: ${message}\n--- standalone host output ---\n${
-        hostLogs.length > 0 ? hostLogs : '(none)'
-      }`,
+      `launchStandalone failed: ${error instanceof Error ? error.message : String(error)}\n--- daemon output ---\n${output || '(none)'}`,
       { cause: error },
     );
   }
+
+  return {
+    tmpHome: home,
+    port,
+    hostUrl,
+    agentFolder,
+    loginUrl: () => daemon().loginUrl(),
+    agty: (cliArgs, opts = {}) =>
+      new Promise((resolve) => {
+        execFile(
+          process.execPath,
+          [path.join(REPO_ROOT, 'agent-tycoon/bin/agty'), ...cliArgs],
+          {
+            cwd: opts.cwd ?? home,
+            env: {
+              HOME: home,
+              PATH: testDaemonPath(claudePath ? [path.dirname(claudePath)] : []),
+              AGTY_OUTPUT: 'json',
+            },
+            encoding: 'utf-8',
+            timeout: 60_000,
+          },
+          (error, stdout, stderr) => {
+            let json: unknown = null;
+            try {
+              json = JSON.parse(stdout);
+            } catch {
+              // Not JSON.
+            }
+            const code = error ? (typeof error.code === 'number' ? error.code : null) : 0;
+            resolve({ code, stdout, stderr, json });
+          },
+        );
+      }),
+    getHostLogs: hostLogs,
+    drainMessages: () => drainRecordedMessages(page),
+    stopHost,
+    startHost: boot,
+    hostExit: () => {
+      const child = daemon().child;
+      if (child.exitCode !== null || child.signalCode !== null)
+        return Promise.resolve(child.exitCode);
+      return new Promise((resolve) => child.once('exit', (code) => resolve(code)));
+    },
+    cleanup,
+  };
 }

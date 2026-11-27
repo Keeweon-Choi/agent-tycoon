@@ -90,6 +90,11 @@ const ALLOWED: Allowed[] = [
     why: 'tests name what they forbid',
   },
   {
+    path: /^server\/src\/agent-tycoon\/fixtures\/(claude-screens\/|claude-initialize\.json$)/,
+    markers: ['model-name', 'rules-file'],
+    why: "T-81: screens of the CLI's own /model picker and its initialize answer (whose command texts name CLAUDE.md), captured as test input; the product reads them, never picks a model or names a rules file from them",
+  },
+  {
     path: /^server\/src\/agent-tycoon\/engine\/importProjects\.ts$/,
     markers: ['rules-file'],
     why: "T-0104 only checks whether a folder has a CLAUDE.md to tell a project apart; it never reads, writes or names the file's contents",

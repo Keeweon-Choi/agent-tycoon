@@ -247,6 +247,24 @@ describe('transcript history', () => {
     expect((await chatSearch(file, 'secret')).hits).toEqual([]);
   });
 
+  it('B2.1: the bounded search never hands a room reply to the one-to-one search, whose window starts after the room post', async () => {
+    const file = path.join(root(), 'bounded.jsonl');
+    const room = JSON.stringify({
+      type: 'user',
+      uuid: 'room-prompt',
+      timestamp: new Date(1_790_000_001_000).toISOString(),
+      message: { content: "[peer · 단톡방 '출시팀' · 10-22 10:05]\n@alpha room post" },
+    }) + '\n';
+    const gap = JSON.stringify({ type: 'api-request-blob', blob: 'Q'.repeat(700 * 1024) }) + '\n';
+    write(file, [room, gap, record(1, 'needle room answer')]);
+    const window = { bounded: true, byteBudget: 50 * 1024 };
+    expect((await chatSearch(file, 'needle', window)).hits).toEqual([]);
+    expect((await chatSearch(file, 'needle')).hits).toEqual([]);
+    // A one-to-one reply in the same window is still found.
+    write(file, [record(0, 'old question'), gap, record(2, 'plain question'), record(3, 'needle direct answer')]);
+    expect((await chatSearch(file, 'needle', window)).hits).toHaveLength(1);
+  });
+
   it('MEM-IDLE: reads a room turn across megabyte lines without parsing or holding them', async () => {
     const file = path.join(root(), 'big.jsonl');
     const MB = 1024 * 1024;

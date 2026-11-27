@@ -7,6 +7,7 @@ import { FATIGUE_WALK_PACE } from '../../constants.js';
 import { t, type TranslationKey } from '../../i18n/index.js';
 import type { Character } from '../../office/types.js';
 import { CharacterState } from '../../office/types.js';
+import type { WaitReason } from '../waiting.js';
 import type { ActivityDescription } from './activity.js';
 import type { FatigueLook } from './fatigueState.js';
 import { PHRASES } from './rules.js';
@@ -116,9 +117,24 @@ export const RING_WORDS: Readonly<Record<RingState, string>> = {
 
 export const ringWord = (ring: RingState): string => t(RING_WORDS[ring] as TranslationKey);
 
-/** A character's visual: off wins; an unknown class falls back to ⚙️ with a neutral ring. */
-export function characterVisual(activity: ActivityDescription, off = false): CharacterVisual {
+/** The question wait's look (the ✋ class); a permission keeps its own 🔐. */
+const ASKING = { emoji: '✋', text: 'activity.waitingForYou' } as const;
+
+/**
+ * A character's visual: off wins; an unknown class falls back to ⚙️ with a neutral ring. `wait` is
+ * the shared rule's word (waiting.ts): a turn that ended asking waits whatever its tool rows say.
+ */
+export function characterVisual(
+  activity: ActivityDescription,
+  off = false,
+  wait: WaitReason | null = null,
+): CharacterVisual {
   if (off) return { icon: '💤', text: t('activity.off'), prop: null, ring: 'off' };
+  const keeps = activity.emoji === ASKING.emoji || ACTIVITY_VISUALS[activity.emoji]?.ring === 'permission';
+  if (wait === 'question' && !keeps) {
+    // ponytail: the built-in words, not the owner's ez-rules for the question tool (the wait comes from the server, not that tool).
+    activity = { emoji: ASKING.emoji, text: t(ASKING.text) };
+  }
   const known = ACTIVITY_VISUALS[activity.emoji];
   return known
     ? {

@@ -182,6 +182,12 @@ export function useExtensionMessages(
 ): ExtensionMessageState {
   const onOfficeAccessRef = useRef(onOfficeAccess);
   onOfficeAccessRef.current = onOfficeAccess;
+  // The message effect subscribes once (getOfficeState never changes), so these two are read
+  // through refs: the closure of the first render would see an editor that is never dirty.
+  const onLayoutLoadedRef = useRef(onLayoutLoaded);
+  onLayoutLoadedRef.current = onLayoutLoaded;
+  const isEditDirtyRef = useRef(isEditDirty);
+  isEditDirtyRef.current = isEditDirty;
   const [agents, setAgents] = useState<number[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [agentTools, setAgentTools] = useState<Record<number, ToolActivity[]>>({});
@@ -367,7 +373,7 @@ export function useExtensionMessages(
 
       if (msg.type === 'layoutLoaded') {
         // Skip external layout updates while editor has unsaved changes
-        if (layoutReadyRef.current && isEditDirty?.()) {
+        if (layoutReadyRef.current && isEditDirtyRef.current?.()) {
           console.log('[Webview] Skipping external layout update — editor has unsaved changes');
           return;
         }
@@ -375,10 +381,10 @@ export function useExtensionMessages(
         const layout = rawLayout && rawLayout.version === 1 ? migrateLayoutColors(rawLayout) : null;
         if (layout) {
           os.rebuildFromLayout(layout);
-          onLayoutLoaded?.(layout);
+          onLayoutLoadedRef.current?.(layout);
         } else {
           // Default layout — snapshot whatever OfficeState built
-          onLayoutLoaded?.(os.getLayout());
+          onLayoutLoadedRef.current?.(os.getLayout());
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {

@@ -797,6 +797,20 @@
   border-color: var(--color-room-notice);
   color: var(--color-room-notice);
 }
+/* T-110: a notice's mode line is the button that opens who got it */
+.room-mode-toggle {
+  cursor: pointer;
+  font: inherit;
+}
+@media (hover: hover) {
+  .room-mode-toggle:hover {
+    border-color: var(--color-border-hi);
+  }
+}
+.room-mode-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 .room-tag[data-state='delivered'] {
   color: var(--color-devroom-mine-text);
 }
@@ -892,4 +906,90 @@
 }
 .room-mention {
   border-radius: var(--ui-r-chip);
+}
+/* T-113: an opened thread's replies on their way, or the line to ask again: the fold row's place, muted */
+.room-load {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 8px;
+  color: var(--color-text-muted);
+}
+
+/* ── T-115 사이드 질문: the drawer beside the Lead's conversation (a bottom sheet on a phone). The answer card is
+   dashed so it never reads as the Lead's own words; shapes, lines and shadows come from the tokens. ── */
+.sideq {
+  background: var(--surface-body);
+  border-left: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.sideq-wrap {
+  container-type: inline-size;
+}
+/* A conversation too narrow to share (the messenger as a window): the drawer lies over its right side instead. */
+@container (max-width: 720px) {
+  .sideq-side {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    max-width: 100%;
+    box-shadow: var(--shadow-pixel-3);
+  }
+}
+.sideq-sheet {
+  border-left: 0;
+  border-top: var(--ui-bw) solid var(--color-accent-bright);
+  border-radius: var(--ui-r-win) var(--ui-r-win) 0 0;
+  box-shadow: var(--shadow-pixel-3);
+}
+.sideq-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: var(--ui-r-chip);
+  background: var(--color-devroom-card-line);
+}
+.sideq-band {
+  color: var(--color-text-muted);
+  background: var(--surface-head);
+  border-bottom: var(--ui-bw) solid var(--color-devroom-card-line);
+}
+.sideq-band[data-working] {
+  color: var(--color-status-active);
+  background: color-mix(in srgb, var(--color-status-active) 12%, var(--surface-body));
+}
+.sideq-band-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.sideq-q {
+  border-radius: var(--ui-r-win);
+  background: var(--msg-mine);
+  border: var(--ui-bw) solid var(--msg-mine-line);
+  box-shadow: var(--bevel);
+}
+.sideq-card {
+  border-radius: var(--ui-r-win);
+  background: var(--msg-bubble);
+  border: var(--ui-bw) dashed var(--color-accent-bright);
+}
+.sideq-card[data-state='failed'] {
+  border-style: solid;
+  border-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--msg-bubble));
+}
+.sideq-chip {
+  border-radius: var(--ui-r-chip);
+  border: var(--ui-bw) solid var(--color-devroom-box-line);
+  background: var(--color-devroom-box);
+}
+.sideq-dots::before {
+  content: '•••';
+  letter-spacing: 2px;
+  color: var(--color-accent-text);
 }

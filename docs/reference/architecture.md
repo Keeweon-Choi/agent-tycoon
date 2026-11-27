@@ -100,7 +100,7 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
       clipboard.ts                   The one clipboard write/read: Clipboard API on secure origins; plain http falls back to a copy event (write) / a native prompt (paste)
       flowCopy.ts                    terminalCopyText: verbatim by default; opt-in re-flow of Claude Code's soft wraps (pure)
       imeGuard.ts, imeInput.ts       IME text: the xterm textarea is the one source of typed text, composed syllables go to the PTY once (pure rules + DOM adapter)
-      clipboardKeys.ts               Clipboard chords (Ctrl+C/Ctrl+Shift+C copy, Alt+C copy as text, Ctrl+V paste) + OSC 52 decode (pure)
+      clipboardKeys.ts               Clipboard chords (Ctrl+C/Ctrl+Shift+C copy, Alt+C copy as text, Ctrl+V paste) + OSC 52 decode + paste-marker strip (pure)
       terminalDom.ts                 xterm screen geometry + isTypingInTerminal
     hooks/
       useExtensionMessages.ts        Message handler — translates ServerMessage into OfficeState mutations
@@ -146,23 +146,24 @@ webview-ui/                          React 19 + Canvas UI (depends only on core/
         useCanvasTouchGestures.ts    Touch pan / pinch zoom / tap on the canvas
         ToolOverlay.tsx              Activity label + speech bubbles (DOM, above the labels) per character
 
-e2e/                                 Playwright suite (standalone daemon + mock-claude scenarios)
+e2e/                                 Playwright suite (standalone daemon + the engine fake, 16 core flows)
   playwright.config.ts
   global-setup.ts
   fixtures/
-    standalone.ts                    Standalone CLI fixture: spawn server + browser page
-    mock-claude, mock-claude.cmd     Bash + cmd wrapper invoked instead of real claude
-    mock-claude-runner.cjs           Scenario runner: appendJsonl, emitHook, holdOpen
+    standalone.ts                    `standalone` fixture: daemon + logged-in browser page (standaloneOptions)
+    mock-claude-runner.cjs           Scenario player the engine fake calls (also unit-tested in server/__tests__)
+    mock-acp/                        Mock ACP agent (server tests use it)
+    remote-facts.json                Fake remote facts for the first-run flow
   helpers/
-    mock-claude.ts                   claudeScenario() builder
+    standalone.ts                    launchStandalone() on server/src/agent-tycoon/testHome.ts
+    mock-claude.ts                   claudeScenario() builder (forAgent, onPrompt, at, appendJsonl, emitHook)
+    messenger.ts                     Open the messenger, a conversation or a room, send
     office.ts                        Overlay locators + assertions
-    webview.ts                       Settings/modal helpers
-    hooks.ts                         Hook server lifecycle helpers
-    standalone.ts                    Standalone server + WebSocket browser helpers
-    team.ts                          Team config seeding + teammate helpers
-    allure-labels.ts                 @area:<tag> → Allure epic
+    hooks.ts                         permissionRequest() payload, officeFile()
+    team.ts                          Transcript record builders
+    allure-labels.ts                 @area:<tag> -> Allure epic
   tests/
-    standalone/                      ui, hooks, mobile, terminal, launch-drawer, directory-modal (.spec.ts)
+    standalone/                      one spec per core flow (.spec.ts)
   README.md                          Auto-generated test inventory (regen via npm run e2e:inventory)
 
 scripts/

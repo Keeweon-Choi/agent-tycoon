@@ -15,6 +15,8 @@ import {
   formError,
   formFields,
   formFor,
+  modelChoices,
+  modelName,
   rulesFileLabel,
   sessionActions,
 } from './engine.js';
@@ -124,6 +126,36 @@ describe('engine card and texts', () => {
       remoteControl: false,
       alwaysOn: false,
       effort: 'low',
+    });
+  });
+
+  it('T-143: models read as the CLI names them and save the value --model takes', () => {
+    const helpOnly = { models: ['opus', 'sonnet'], efforts: [] };
+    const cli = {
+      ...helpOnly,
+      modelNames: [
+        { value: 'default', displayName: 'Default (recommended)' },
+        { value: 'opus', displayName: 'Opus 5.5' },
+        { value: 'fable', displayName: 'Fable 5.2' },
+      ],
+    };
+    // The form's own empty choice is the default, so the CLI's 'default' entry is not listed twice.
+    expect(modelChoices(cli)).toEqual([
+      { id: 'opus', label: 'Opus 5.5' },
+      { id: 'fable', label: 'Fable 5.2' },
+    ]);
+    // Without the CLI's answer the --help ids stay (and Codex, which has none, always lists these).
+    expect(modelChoices(helpOnly)).toEqual([
+      { id: 'opus', label: 'opus' },
+      { id: 'sonnet', label: 'sonnet' },
+    ]);
+    expect(modelChoices(undefined)).toEqual([]);
+    expect(modelName(cli, 'fable')).toBe('Fable 5.2');
+    expect(modelName(cli, 'claude-opus-4-7')).toBe('claude-opus-4-7');
+    // Picking "Fable 5.2" stores its option's id, and that is what the form sends.
+    const picked = modelChoices(cli).find((m) => m.label === 'Fable 5.2')!.id;
+    expect(formFields({ ...formFor(null), folder: '~/p/a', name: 'a', model: picked }, null)).toMatchObject({
+      model: 'fable',
     });
   });
 });

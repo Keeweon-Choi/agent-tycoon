@@ -17,6 +17,14 @@ export const USAGE_PROBE_MIN_GAP_MS = 5 * 60_000;
 export const USAGE_PROBE_TIMEOUT_MS = 15_000;
 /** The `/usage` child's stdin stays open this long: its background limits fetch needs a few seconds after start (the CLI's own stdin wait is 3 s). */
 export const USAGE_PROBE_STDIN_HOLD_MS = 4_000;
+/** Claude Code's initialize control request has no model turn, but a wedged CLI must not hold messenger updates. */
+export const CLAUDE_COMMANDS_PROBE_TIMEOUT_MS = 15_000;
+/** Retry a failed initialize probe only after this delay; opening a messenger must not repeatedly start the CLI. */
+export const CLAUDE_COMMANDS_PROBE_RETRY_MS = 5 * 60_000;
+/** T-115: a side question (a forked, read-only `claude -p` of a Lead's conversation) gives up after this: then the failure card. */
+export const SIDE_QUESTION_TIMEOUT_MS = 120_000;
+/** T-140: the CLI's reason a side question failed, as the card and the log show it, at most this many characters. */
+export const SIDE_QUESTION_REASON_MAX = 200;
 /** spawnJson: a child that ignored the timeout's SIGTERM is killed (SIGKILL) this long after it, so it cannot block the process-wide queue. */
 export const SPAWN_JSON_KILL_GRACE_MS = 3_000;
 /** An on-demand Codex turn only refreshes its locally-written rate-limit log. */
@@ -175,6 +183,11 @@ export const WS_CLOSE_FORBIDDEN_ORIGIN = 4003;
 export const WS_CLOSE_NO_SESSION = 4004;
 /** A terminal stream ended while its terminal lives (the PTY host connection went): not 4xxx, so the pane reconnects. */
 export const WS_CLOSE_STREAM_ENDED = 1011;
+/** P1.3: the office's /ws pings each socket this often; one ping unanswered by the next closes it
+ *  (a peer gone without a FIN would hold its viewer, and the office awake, ~15 min). */
+export const WS_PING_MS = 30_000;
+/** P1.3: a ping tick this long after the last ping ran late (a stalled loop, the pong unread): it pings again, closes nothing. */
+export const WS_PING_LATE_MS = WS_PING_MS * 1.5;
 
 export const HOOK_EVENT_BUFFER_MS = 5_000;
 /** Grace period after SessionEnd(reason=clear/resume) before triggering onSessionEnd.
@@ -318,6 +331,13 @@ export const PTYHOST_CLIENT_BACKLOG_BYTES = 16 * 1024 * 1024;
  * Claude attached the paste); its 50 ms is only for a freshly launched composer it then re-checks.
  */
 export const PTY_PASTE_ENTER_MS = 500;
+/** T-165: after that settle, the box is looked at until our paste shows in it, this long at most.
+ *  Claude Code 2.1.330 keeps a paste with a line ending in an image extension out of the box while
+ *  it reads the clipboard (gives up at 2 s) and drops an Enter pressed meanwhile. */
+export const PTY_PASTE_SHOWN_MS = 4_000;
+/** T-165: a drawn screen with no input row this many looks running after our paste is our own long
+ *  text (its `❯` row scrolled off the top), not a frame caught mid-redraw: Enter goes. */
+export const PTY_PASTE_ROWLESS_LOOKS = 3;
 /** Bytes per ms Windows ConPTY takes a paste in at (Orca, Win11 bundled ConPTY, 1.5x margin); a long paste waits longer before Enter. */
 export const PTY_PASTE_BYTES_PER_MS_WINDOWS = 64;
 /** The same on macOS and Linux (Orca measured macOS: 320 KB in ~26 ms; 3x margin). */
@@ -333,6 +353,12 @@ export const PTY_SUBMIT_MS = 5_000;
 export const PTY_SUBMIT_RETRY_MS = 1_500;
 /** ...at most this many times per delivery; after that the delivery is `unsubmitted`. */
 export const PTY_SUBMIT_RETRIES = 2;
+/** T-81: a screen read as a picker counts only if a second look this much later reads it too: a frame
+ *  caught mid-redraw (the input box erased, not drawn yet) is no picker; a real one is still there. */
+export const PTY_PICKER_CONFIRM_MS = 150;
+/** T-141: after its Enter, a slash command looks for the picker it may open this long, whether or not
+ *  the session works (a working CLI draws it late; a turn running is no sign that none came). */
+export const PTY_SLASH_PICKER_MS = 3_000;
 /** An idle agent terminal no one watches is closed after this long and resumed by its next message. */
 export const AGENT_IDLE_STOP_MS = 60 * 60_000;
 /** TERM-P3: a Claude agent moved into our PTY host must be found idle on its own conversation within this. */

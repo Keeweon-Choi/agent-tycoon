@@ -73,7 +73,8 @@ export function appendEvent(
   }
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(file, `${line}\n`, { mode: 0o600 });
+    // Starts on a fresh line: a torn last line (a short write) swallows none of it; readers skip blank lines.
+    fs.appendFileSync(file, `\n${line}\n`, { mode: 0o600 });
     return true;
   } catch (err) {
     console.warn(`[agty engine] ${file}: ${err instanceof Error ? err.message : String(err)}`);

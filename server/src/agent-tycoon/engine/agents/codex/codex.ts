@@ -12,8 +12,8 @@ import { spawnSync } from 'child_process';
 
 import { fixJosa } from '../../../../../../core/src/agent-tycoon/josa.js';
 import { koText } from '../../../../../../core/src/agent-tycoon/serverText.js';
-import { findOnPath } from '../../../providers/claudeProvider.js';
 import type { CodexRecord, CodexTasks } from '../../codex.js';
+import { findCodex } from '../../codex.js';
 import type { ProjectRecord } from '../../registry.js';
 import type {
   AgentCapabilities,
@@ -126,14 +126,13 @@ export class CodexAgent implements AgentProvider {
 
   /** The codex the runs use (found on the jobs' PATH, as engine/codex.ts does). */
   cliPath(): string | null {
-    return findOnPath(this.o.platform === 'win32' ? 'codex.cmd' : 'codex', this.o.path());
+    return findCodex(this.o.path(), this.o.platform);
   }
 
   ready(): string | null {
     const now = Date.now();
     if (now - this.readyAt > READY_MS) {
-      const bin = this.o.platform === 'win32' ? 'codex.cmd' : 'codex';
-      this.readyWhy = findOnPath(bin, this.o.path()) ? null : CODEX_MISSING;
+      this.readyWhy = findCodex(this.o.path(), this.o.platform) ? null : CODEX_MISSING;
       this.readyAt = now;
     }
     return this.readyWhy;

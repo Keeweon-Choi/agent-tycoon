@@ -24,6 +24,13 @@ describe('StandaloneAuth', () => {
     expect(auth.login(code)).toBeNull();
   });
 
+  it('revokes a session with passkeys off (the passkey chain walk ends)', () => {
+    const auth = new StandaloneAuth();
+    const session = auth.createSession('link', 'Laptop');
+    expect(auth.revoke(session.handle)).toBe(true);
+    expect(auth.session(session.id)).toBeUndefined();
+  });
+
   it('rejects an expired or incorrect code', () => {
     vi.useFakeTimers();
     const auth = new StandaloneAuth();

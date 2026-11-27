@@ -22,6 +22,8 @@ import { readJson, writeJsonAtomic } from './jsonFile.js';
 
 const CEREMONY_TTL_MS = 2 * 60_000;
 const MAX_CEREMONIES = 200;
+/** S1.3: a session's own open ceremonies (its step-up, its registration); the login page's never count against them. */
+const MAX_SESSION_CEREMONIES = 4;
 /** S5: a passkey tied to no device is deleted this long after it became so. */
 export const UNBOUND_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -76,7 +78,7 @@ export interface PasskeyView {
 interface Ceremony extends RelyingParty {
   kind: 'register' | 'login';
   challenge: string;
-  /** Registration only: the session that asked for it. */
+  /** The session that asked (a registration or a step-up); absent on the login page. */
   sessionId?: string;
   expiresAt: number;
 }
@@ -348,12 +350,14 @@ export class Passkeys {
 
   private begin(ceremony: Omit<Ceremony, 'expiresAt'>): string {
     const id = crypto.randomBytes(18).toString('base64url');
-    this.ceremonies.set(id, { ...ceremony, expiresAt: Date.now() + CEREMONY_TTL_MS });
-    // Public endpoint: never more than 200 open ceremonies, oldest dropped.
-    for (const key of this.ceremonies.keys()) {
-      if (this.ceremonies.size <= MAX_CEREMONIES) break;
-      this.ceremonies.delete(key);
-    }
+    const now = Date.now();
+    for (const [key, open] of this.ceremonies) if (open.expiresAt <= now) this.ceremonies.delete(key);
+    // Public endpoint: never more than 200 open anonymous ceremonies, oldest dropped. S1.3: those
+    // only push out each other, and a session's only its own, so a flood can't end the owner's step-up.
+    const same = [...this.ceremonies].filter(([, open]) => open.sessionId === ceremony.sessionId);
+    const cap = ceremony.sessionId ? MAX_SESSION_CEREMONIES : MAX_CEREMONIES;
+    for (const [key] of same.slice(0, Math.max(0, same.length + 1 - cap))) this.ceremonies.delete(key);
+    this.ceremonies.set(id, { ...ceremony, expiresAt: now + CEREMONY_TTL_MS });
     return id;
   }
 

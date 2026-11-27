@@ -2,9 +2,10 @@
  * FIX-MESSENGER-GROUP-ROOM-MODERN (T-65): the group room in 모던 and 픽셀 감성, with threads that fold.
  * dist/cli.js with --engine on --allow-chat in a temp HOME whose `claude` is the engine fake. The 전체 room
  * is seeded with an untagged post, a 공지, two answered threads (A: alpha answered, then a 답글 and its
- * answer, left open; B: alpha and beta answered, folded) and a tag beta never answered.
+ * answer, which opens it; B: alpha and beta answered) and a tag beta never answered. Threads start folded
+ * (T-105): B is opened, folded again by hand, and gets a new reply while folded.
  * Desktop Chromium 1600x1000 (--disable-gpu), then WebKit as an iPhone (390x844), each in both styles:
- * the list, the room, thread B folded, and a new reply landing on the folded thread B.
+ * the list, the room, thread B opened, folded, and a new reply landing on the folded thread B.
  * Pictures and <TAG>.log in agent-tycoon/artifacts/fix-messenger-group-room-modern/.
  *
  *   TAG=before npx tsx agent-tycoon/test/run-fix-messenger-group-room-modern.ts <port 19360-19369>
@@ -67,7 +68,7 @@ async function main() {
   const now = Date.now();
   const post = (id: string, at: number, text: string, over: Record<string, unknown> = {}) =>
     JSON.stringify({ v: 1, kind: 'post', post: { id, at, sender: null, roomName: '전체', text, targets: [], delivery: {}, ...over } });
-  const TA = { id: 'pAa', at: now - 50 * MIN, text: '@alpha 배포 끝났나요?', mark: 'aaaa1111' };
+  const TA = { id: 'pAa', at: now - 50 * MIN, text: '@alpha 배포 끝났나요?', mark: 'aaaa2222' /* a delivery id is a-z2-7 x8 */ };
   const TB = { id: 'pBb', at: now - 30 * MIN, text: '@alpha @beta 로그 확인해 주세요', markA: 'bbbb2222', markB: 'bbbb3333' };
   const records = [
     post('p0plain', now - 70 * MIN, '오늘 배포 일정을 공유드려요. 저녁 9시에 점검이 있습니다.'),
@@ -231,7 +232,7 @@ async function main() {
         else await messenger.getByTestId('group-room-row-all').click();
         const room = messenger.getByTestId('group-room-screen-all');
         await room.waitFor({ timeout: 15_000 });
-        await room.getByTestId('room-thread').filter({ hasText: TB.text }).getByText('경고가 두 건').waitFor({ timeout: 20_000 });
+        await room.getByTestId('room-thread').filter({ hasText: TB.text }).getByTestId('thread-fold').waitFor({ timeout: 20_000 });
         // thread A gets its 답글 once, from the desktop (a phone has only the hold sheet)
         if (!answered && !phone) {
           const a = room.getByTestId('room-thread').filter({ hasText: TA.text });
@@ -250,6 +251,12 @@ async function main() {
       });
       const room = messenger.getByTestId('group-room-screen-all');
       const b2 = room.getByTestId('room-thread').filter({ hasText: TB.text });
+      await step(`${name} open thread B (folded until tapped)`, async () => {
+        await b2.getByTestId('thread-fold').click();
+        await b2.getByText('경고가 두 건').waitFor({ timeout: 5_000 });
+        await b2.scrollIntoViewIfNeeded();
+        await shot('opened');
+      });
       await step(`${name} fold thread B`, async () => {
         await b2.getByTestId('thread-fold').click();
         await b2.scrollIntoViewIfNeeded();

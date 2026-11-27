@@ -240,6 +240,47 @@ describe('layout generator', () => {
     }
   });
 
+  it('T-107: the lounge sofas face its table, drawn that way in the isometric view', () => {
+    // The webview's art table (a file read, not an import: the server does not depend on it).
+    const art = JSON.parse(
+      fs.readFileSync(
+        path.join(REPO_ROOT, 'webview-ui/src/agent-tycoon/iso/art/owner-manifest.json'),
+        'utf-8',
+      ),
+    ) as {
+      pieces: Record<string, { faces: string }>;
+      types: Record<string, { piece: string; mirror?: boolean }>;
+    };
+    const mirrored: Record<string, string> = {
+      '+row': '+col',
+      '+col': '+row',
+      '-row': '-col',
+      '-col': '-row',
+    };
+    const drawn = (type: string) => {
+      const t = art.types[type];
+      return t.mirror ? mirrored[art.pieces[t.piece].faces] : art.pieces[t.piece].faces;
+    };
+    const upstairs = generateLayout(S8, `2층 ${LOUNGE_ROOM}`, false, `2층 ${PANTRY_ROOM}`).layout;
+    for (const g of [layout, upstairs]) {
+      const table = g.furniture.find((f) => f.uid === 'lounge:table')!;
+      const sofas = g.furniture.filter((f) => f.type.startsWith('SOFA'));
+      expect(sofas.length).toBeGreaterThan(0);
+      for (const s of sofas) {
+        // Which way its sitter looks at the table (2x2): +row from behind it, +col from its left.
+        const toward =
+          s.row + 1 === table.row
+            ? '+row'
+            : s.col + 1 === table.col
+              ? '+col'
+              : s.row === table.row + 2
+                ? '-row'
+                : '-col';
+        expect(drawn(s.type), s.uid).toBe(toward);
+      }
+    }
+  });
+
   it('regenerating keeps the whiteboard uids', () => {
     const again = generateLayout(S8).layout.furniture.filter((f) => f.type === WHITEBOARD_TYPE);
     expect(again.map((f) => f.uid)).toEqual(S8.map((r) => `whiteboard:${r.label}`));

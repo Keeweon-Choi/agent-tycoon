@@ -146,6 +146,12 @@ function isTwin(n: Notice, ev: OfficeEvent): boolean {
   // NOTICE-DEDUP: a lead's reply stands for its turn end, in the feed too.
   if (n.cause === 'turnEnd' || n.cause === 'reply')
     return ev.kind === 'turn_end' && n.name === (ev.name ?? ev.source ?? 'engine');
+  // C6: a delegation ask (or a Worker that did not start) is the notice that opens its project's 작업실.
+  if (ev.kind === 'delegation_approval' || ev.kind === 'delegation_start_failed')
+    return n.cause === 'permission' && n.target?.open === 'workbench' && n.target.project === (ev.name ?? '');
+  // An early usage reset is a job notice that opens the office, named after the provider.
+  if (ev.kind === 'usage_reset_early')
+    return n.cause === 'job' && n.target?.open === 'office' && n.name === (ev.providerName ?? ev.provider ?? '');
   if (
     n.cause !== 'job' ||
     (ev.kind !== 'job_end' && ev.kind !== 'codex_end' && ev.kind !== 'orch_giveup')

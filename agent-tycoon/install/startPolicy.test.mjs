@@ -4,6 +4,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { HOLD_CHECK_MS, HOLD_MISSES, install, logonTaskCommand, logonTaskRemoveCommand, main, newRecord, open, readRecord, servicePlan, start, startPolicy, startPolicyPlan, stopDaemon, writeRecord } from './manager.mjs';
 import { parseWizardArgs, wslInstallArgv } from './wizard.mjs';
 
+const { officeDirectory } = createRequire(import.meta.url)('../../core/src/agent-tycoon/configPath.cjs');
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `start-policy-${name}-`));
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The script a powershell.exe -EncodedCommand argv carries (UTF-16LE base64). */
@@ -289,6 +292,43 @@ test('open: on-demand starts a stopped daemon; manual does not', async () => {
   const m = fakeDeps(home);
   await assert.rejects(open({ port: 18257 }, m.deps), /manual: agty start/);
   assert.deepEqual(m.runs, []);
+});
+
+test('open, headless: the QR script gets the login link on stdin, no argv holds the code (S8.1)', async (t) => {
+  const { home } = await setup();
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const office = officeDirectory(home);
+  fs.mkdirSync(office, { recursive: true });
+  fs.writeFileSync(path.join(office, 'standalone-token'), 'made-up-host-token');
+  const daemon = http.createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ code: 'MADEUPCODE0123', url: 'https://203.0.113.7/SSSSSSSSSSSSSSSSSSSSSS' })); });
+  await new Promise((resolve) => daemon.listen(0, '127.0.0.1', resolve));
+  t.after(() => daemon.close());
+  const f = fakeDeps(home, { platform: 'linux', up: true });
+  f.deps.env.SSH_CONNECTION = '10.0.0.2 50000 10.0.0.1 22';
+  const calls = [];
+  f.deps.run = async (cmd, opts) => { calls.push({ cmd, opts }); return { ok: true, stdout: '', stderr: '' }; };
+  await open({ port: daemon.address().port }, f.deps);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd.join(' ').includes('MADEUPCODE0123'), false);
+  assert.equal(calls[0].cmd.join(' ').includes('SSSSSSSSSSSSSSSSSSSSSS'), false);
+  assert.equal(calls[0].opts.input, 'https://203.0.113.7/SSSSSSSSSSSSSSSSSSSSSS/login?code=MADEUPCODE0123');
+});
+
+test('agty-qr draws a link given on stdin and takes none from argv (S8.1)', async () => {
+  const qr = path.join(repo, 'agent-tycoon', 'bin', 'agty-qr.mjs');
+  const run = (args, input) => new Promise((resolve) => {
+    const child = spawn(process.execPath, [qr, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (b) => (out += b));
+    child.on('close', (code) => resolve({ code, out }));
+    child.stdin.end(input);
+  });
+  const fromStdin = await run([], 'https://example.test/login?code=MADEUP');
+  assert.equal(fromStdin.code, 0);
+  assert.match(fromStdin.out, /[█▀▄]{5}/);
+  const fromArgv = await run(['https://example.test/login?code=MADEUP'], '');
+  assert.equal(fromArgv.code, 2);
+  assert.equal(fromArgv.out, '');
 });
 
 test('stop --daemon: warns while agents run, stops only after yes', async () => {

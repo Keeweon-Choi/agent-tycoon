@@ -8,10 +8,10 @@
  *
  * Identity (S7): `token` is the caller's AGTY_AGENT_TOKEN (agentTokens.ts);
  * a valid one makes the caller that project, whatever its cwd, `--from` or
- * source say. Without one the caller is an unidentified local process: cwd
- * and `--from` still pick a display label, but the app's own sources
- * (OWNER_SOURCE) are never accepted here, so nothing that comes over this
- * socket is typed under the owner's header.
+ * source say. Without one the caller is an unidentified local process (S4.1):
+ * it sends as UNIDENTIFIED_FROM (never a project's name nor unnamed), and the
+ * app's own sources (OWNER_SOURCE) are never accepted here, so nothing that
+ * comes over this socket is typed under the owner's header.
  *
  * Owner (SEC-CONTROL, security.md §8): `owner` is the token in `<config>/owner-token`
  * (controlIdentity.cjs). Only it unlocks the owner's commands (worker, project remove, trust,
@@ -36,6 +36,7 @@ import { CONTROL_LONG_MS } from '../../constants.js';
 import { CLI_NAME } from '../cliName.js';
 import { controlEndpoint } from '../configPath.js';
 import { jobDescription } from '../jobNames.js';
+import { ALL_GROUP_ID, ALL_GROUP_NAME } from './groups.js';
 import { CLAUDE_PTY_PROVIDER } from './registry.js';
 
 const WORKER_OPS: EngineActionKind[] = ['add', 'edit', 'remove', 'start', 'stop', 'restart', 'promote'];
@@ -45,6 +46,13 @@ const WORKER_USAGE =
 
 /** SEC-CONTROL: what an unidentified caller hears when it asks for an owner command. */
 export const OWNER_NEEDED = `주인 확인이 안 돼요: 에이전트·작업 밖의 터미널에서 ${CLI_NAME} 를 실행하세요(owner-token)`;
+
+/** S4.1: the sender an unidentified caller (an `agty job`, a Codex worker) is shown as. Not a
+ *  project name (NAME_RE), so it is never the owner's unnamed words nor an agent it does not hold. */
+export const UNIDENTIFIED_FROM = '(cli)';
+
+/** T-109: `job --notify` from a caller that is no agent. */
+export const NOTIFY_NEEDS_AGENT = `--notify 는 에이전트 세션에서만 쓸 수 있어요(끝났다고 알려 줄 에이전트가 없어요). 사용자 터미널에서는 ${CLI_NAME} jobs 로 확인하세요`;
 
 const RENAME_USAGE = `사용법: ${CLI_NAME} rename [--project <지금 이름>] <새 이름>`;
 const PROJECT_USAGE = `사용법: ${CLI_NAME} project remove <프로젝트> [--purge]`;
@@ -68,7 +76,7 @@ export function controlPath(
 }
 
 export type ControlCode =
-  'bad_request' | 'usage' | 'unknown_project' | 'no_project' | 'daemon_error';
+  'bad_request' | 'usage' | 'unknown_project' | 'no_project' | 'daemon_error' | 'no_agent';
 export type Reply = Record<string, unknown> & { ok: boolean };
 export const refuse = (code: string, error: string): Reply => ({ ok: false, code, error });
 
@@ -131,7 +139,7 @@ export interface ControlDeps {
     source: string;
   }): Promise<Reply>;
   /** A room post fans out through the same Messenger queue. */
-  groupPost?(req: { room: string; text: string; from: string | null; source: string }): Promise<Reply>;
+  groupPost?(req: { room: string; text: string; from: string | null; source: string; owner?: true }): Promise<Reply>;
   groups?(): Reply;
   groupRead?(room: string, n: number): Reply;
   job(req: {
@@ -145,6 +153,8 @@ export interface ControlDeps {
     gpu?: { vramGib: number | null; exclusive: boolean; label: string | null };
     /** D6: the task this job becomes an Execution of. */
     task?: string | null;
+    /** T-109: the agent (the caller's token) to tell once when it ends. */
+    notify?: string;
   }): Reply | Promise<Reply>;
   jobs(all: boolean): Reply;
   /** `agty codex …` (T-0021): start a task, or (no spec) list them. */
@@ -219,6 +229,19 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
   const given = (key: 'from' | 'project') => (has(key) ? projectName(a[key]) : null);
   // D3: a Worker's jobs, Codex tasks and 작업 현황 belong to its project.
   const projectOf = (name: string | null) => (name && d.projectOf ? d.projectOf(name) : name);
+  // S4.2: an agent token reaches only the rooms it is in, as the MCP room tools (mcpTools.room);
+  // an unidentified caller (every `agty job`, a forged token) is in none but the all-members
+  // room, so it reaches nothing an agent cannot. Only the owner skips the check. An unknown room
+  // is left to the room store to refuse.
+  const notMember = (room: string): Reply | null => {
+    if (owner || room === ALL_GROUP_ID || room === ALL_GROUP_NAME) return null;
+    const list = d.groups?.().groups as Array<{ id?: unknown; name?: unknown; members?: unknown }> | undefined;
+    const found = list?.find((g) => g.id === room || g.name === room);
+    if (list && !found) return null;
+    return agent && Array.isArray(found?.members) && found.members.includes(agent)
+      ? null
+      : refuse('out_of_scope', `'${room}' 단톡방의 구성원이 아니에요`);
+  };
   switch (req.cmd) {
     case 'send': {
       const text = str(a.text);
@@ -231,19 +254,23 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         return refuse('usage', '--from 이름이 올바르지 않습니다');
       if (room) {
         if (!d.groupPost) return refuse('daemon_error', '단톡방을 쓸 수 없어요');
+        const outside = notMember(room);
+        if (outside) return outside;
         // A room header names its sender: the boss's own name and the app sources are not for the CLI.
         const source = OWNER_SOURCE.test(req.source) ? 'cli' : req.source;
-        return d.groupPost({ room, text, from: here ?? given('from'), source });
+        // E1.5: the owner's post is named for the folder it stands in but is not that agent's count.
+        return d.groupPost({ room, text, from: owner || agent ? here ?? given('from') : UNIDENTIFIED_FROM, source, ...(owner && { owner: true as const }) });
       }
       // TOKEN-GUARD (TG-09): an agent's own token naming the target is a self-send (refused by the
-      // messenger). Without a token, standing in the target's own folder is the owner's terminal
-      // (or a session from before tokens): no sender name, delivered as before.
+      // messenger). The owner standing in the target's own folder sends unnamed, as before.
+      // S4.1: an unidentified caller (no agent token, no owner token: every `agty job`) names no
+      // agent (cwd, --from) and never sends the owner's unnamed words.
       const from = here ?? given('from');
       return d.send({
         to: to!,
         text,
         ifIdle: a.ifIdle === true,
-        from: !agent && here === to ? null : from,
+        from: agent ? from : !owner ? UNIDENTIFIED_FROM : here === to ? null : from,
         // parseControl already refused the app's sources; this guards direct callers too.
         source: OWNER_SOURCE.test(req.source) ? 'cli' : req.source,
       });
@@ -254,6 +281,8 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         const n = a.n === undefined ? 50 : a.n;
         if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > 500)
           return refuse('usage', '-n 은 1~500 정수예요');
+        const outside = notMember(room);
+        if (outside) return outside;
         return d.groupRead ? d.groupRead(room, n) : refuse('daemon_error', '단톡방을 읽을 수 없어요');
       }
       return d.groups ? d.groups() : refuse('daemon_error', '단톡방을 읽을 수 없어요');
@@ -268,6 +297,9 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       } catch {
         return refuse('usage', '설명은 줄바꿈 없이 80자 이하여야 합니다');
       }
+      // T-109: --notify tells the caller itself, so it needs an agent identity (a token this
+      // daemon issued). The owner's terminal and a job's shell have none: nothing starts.
+      if (a.notify === true && !agent) return refuse('no_agent', NOTIFY_NEEDS_AGENT);
       let project = projectOf(here);
       if (has('project')) {
         project = given('project');
@@ -278,7 +310,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       const vram = gpu?.vramGib ?? null;
       if (gpu && vram !== null && !(typeof vram === 'number' && Number.isFinite(vram) && vram >= 0))
         return refuse('usage', '--vram 은 GiB 숫자입니다');
-      return d.job({
+      const started = await d.job({
         cmd,
         desc,
         cwd: req.cwd,
@@ -287,6 +319,7 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
         ...(str(a.path) && { path: str(a.path)! }),
         source: req.source,
         ...(str(a.task) && { task: str(a.task) }),
+        ...(a.notify === true && agent && { notify: agent }),
         ...(gpu && {
           gpu: {
             vramGib: vram as number | null,
@@ -295,6 +328,8 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
           },
         }),
       });
+      // The caller sees who will be told (an older daemon, which ignores the flag, shows none).
+      return started.ok && a.notify === true ? { ...started, notify: agent } : started;
     }
     case 'codex': {
       if (a.list === true) return d.codexList(a.all === true);
@@ -349,13 +384,14 @@ export async function answerControl(req: ControlRequest, d: ControlDeps): Promis
       return d.stop(target, req.source);
     }
     case 'renew': {
+      // S4.1: an agent renews itself (or its Workers, below), the owner any; nobody else.
+      if (!owner && !agent) return ownerOnly('');
       let name = here;
       if (has('project')) {
         name = given('project');
         if (!name || !d.names().includes(name)) return unknown(String(a.project));
-        // S-06: an agent token renews only itself or its own Workers (the owner keeps --project);
-        // an unidentified caller only the project it stands in.
-        if (!owner && (!here || (name !== here && projectOf(name) !== here)))
+        // S-06: an agent token renews only itself or its own Workers (the owner keeps --project).
+        if (!owner && name !== here && projectOf(name) !== here)
           return ownerOnly('에이전트는 다른 프로젝트를 환생시킬 수 없어요');
       }
       if (!name)

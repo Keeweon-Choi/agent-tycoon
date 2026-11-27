@@ -447,6 +447,7 @@ export function decorFromSave(
         }
         if (!floorTile(base.tiles[bi]) || !floorTile(st)) continue;
         const room = ownerRoom(floor.rooms, col, row);
+        // ponytail: tiles outside every room (VOID gaps between rooms) are accepted by the editor and dropped here; the editor should refuse them (audit 11-13 U3.3 follow-up)
         if (!room) continue;
         const tile: DecorTile = { x: col - room.x, y: row - room.y };
         if (base.tiles[bi] !== st || !equal(base.tileColors[bi], colors[si]))
@@ -499,6 +500,7 @@ export function decorFromSave(
           y: item.row - room.y,
           ...('color' in item && { color: item.color }),
         });
+      // ponytail: furniture outside every room is accepted by the editor and dropped here; the editor should refuse it (audit 11-13 U3.3 follow-up)
       else console.warn(`[agty] decor: furniture ${item.uid} has no room; dropped`);
     }
     for (const item of base.furniture) {

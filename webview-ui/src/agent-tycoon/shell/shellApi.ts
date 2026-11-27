@@ -3,7 +3,15 @@
  * opens only for a registered device (device key or passkey) that proved
  * itself in the last 120 s (the step-up); attaching to one needs the same.
  */
-import { authFetch, type Me, type StepUpOutcome, verifyPasskey } from '../auth/authApi.js';
+import { PASSKEY_PRIME_REFRESH_MS, PASSKEY_PRIMED_FRESH_MS } from '../../constants.js';
+import {
+  authFetch,
+  type Me,
+  type PasskeyVerifyOptions,
+  passkeyVerifyOptions,
+  type StepUpOutcome,
+  verifyPasskey,
+} from '../auth/authApi.js';
 import { deviceKeySettled, idbStore, type KeyStore, loadDevice, proveDevice } from '../auth/deviceKey.js';
 
 export interface ShellRow {
@@ -80,11 +88,61 @@ export async function deviceStepUp(
   return res.status === 429 ? 'rate' : res.status === 403 ? 'lostKey' : 'failed';
 }
 
-/** Face ID / Windows Hello: must run from the user's own tap (WebKit). */
+/**
+ * Face ID / Windows Hello: must run from the user's own tap (WebKit). iOS Safari refuses
+ * navigator.credentials.get once an await stands between the tap and it, and the options
+ * fetch was one (T-142: the terminal's Face ID button did nothing). So a page showing a
+ * Face ID button primes the options first and the tap goes straight to Face ID; without
+ * fresh ones it still fetches them (fine on a desktop) and primes again after a failure.
+ */
 export async function passkeyStepUp(): Promise<void> {
-  await verifyPasskey();
+  const ready = primed && Date.now() - primed.at < PASSKEY_PRIMED_FRESH_MS ? primed.options : undefined;
+  primed = null; // a ceremony answers once
+  try {
+    await verifyPasskey(ready);
+  } catch (err) {
+    primeVisible();
+    throw err;
+  }
   lastProofAt = Date.now();
+  if (primers > 0) primeVisible(); // a tap within the next minute has options in hand too
 }
+
+let primed: { options: PasskeyVerifyOptions; at: number } | null = null;
+const fetchPrimed = () =>
+  passkeyVerifyOptions().then(
+    (options) => {
+      primed = { options, at: Date.now() };
+    },
+    () => undefined, // no passkey here: the tap says so
+  );
+
+/**
+ * While a Face ID button is on screen: keep fresh options ready for its tap. Returns the stop.
+ * The server keeps only 4 open ceremonies per session and every tab of a browser shares the
+ * session, so a page primes once for all its callers (the terminal overlay and the step-up
+ * prompt together), never while hidden, and once more when it is shown again.
+ */
+export function primePasskeyStepUp(): () => void {
+  if (primers++ === 0) {
+    primeVisible();
+    primeTimer = setInterval(primeVisible, PASSKEY_PRIME_REFRESH_MS);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', primeVisible);
+  }
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    if (--primers > 0) return;
+    clearInterval(primeTimer);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', primeVisible);
+  };
+}
+let primers = 0;
+let primeTimer: ReturnType<typeof setInterval> | undefined;
+const primeVisible = () => {
+  if (typeof document === 'undefined' || !document.hidden) void fetchPrimed();
+};
 
 /** When this page last proved the device (the server keeps a proof for 120 s). */
 let lastProofAt = 0;
@@ -108,5 +166,13 @@ export function ensureShellProof(force: boolean): Promise<boolean> {
   return proofInflight;
 }
 let proofInflight: Promise<boolean> | null = null;
+
+/**
+ * S5.1: an agent's terminal socket (TerminalPane `prepare`). The server asks a step-up only of a
+ * remote session (this PC's browser needs none), so it connects without one and proves the
+ * device once the server refused it ('proof').
+ */
+export const ensureAgentTerminalProof = (force: boolean): Promise<boolean> =>
+  force ? ensureShellProof(true) : Promise.resolve(true);
 import { t, type TranslationKey } from '../../i18n/index.js';
 import { serverLine } from '../serverText.js';

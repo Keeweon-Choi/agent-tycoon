@@ -61,11 +61,12 @@ import { repliedState } from '../transcriptHistory.js';
 import type { AgentChoicesReader } from './agentCapabilities.js';
 import { ClaudeAgent, claudeCommand } from './agents/claude/claude.js';
 import { ClaudePtyAgent } from './agents/claude/claudePty.js';
-import type { AgentProvider, DeliverResult } from './agents/types.js';
+import type { AgentProvider, DeliverResult, ModelSwitch } from './agents/types.js';
 import { AgentTokens } from './agentTokens.js';
 import type { BypassResult } from './bypass.js';
 import { acceptBypass, BYPASS_ARGS, BYPASS_TIMING } from './bypass.js';
 import { CompactionWatch } from './compactions.js';
+import { UNIDENTIFIED_FROM } from './control.js';
 import {
   fail,
   MOVE_BUSY,
@@ -249,6 +250,8 @@ export interface EngineOptions {
   /** T-0019: a message into a project's inbox (revive's notice, renew's handoff); `replaces`: the
    *  first words of an older notice of the same kind still waiting there, which this one replaces. */
   writeInbox?: (name: string, text: string, replaces?: string | readonly string[]) => boolean;
+  /** T-100: take back a renew's inbox handoff when stopping its old conversation failed. */
+  takeInbox?: (name: string, text: string) => boolean;
   /** T-0019: a project's conversation refilled after its compaction nudge count. */
   nudge?: (name: string, count: number, fillPct: number | null) => void;
   /** T-95: a failed renew's notice for the agent whose conversation is still running. */
@@ -371,6 +374,7 @@ export class Engine {
     this.compactions = new CompactionWatch({
       event: (...a) => this.opts.event?.(...a),
       nudge: (...a) => this.opts.nudge?.(...a),
+      model: (name, pick) => this.followModel(name, pick),
     });
     this.guard = new ReviveGuard({
       home: this.home,
@@ -400,6 +404,7 @@ export class Engine {
       log: (l) => this.log(l),
       event: (...a) => this.opts.event?.(...a),
       writeInbox: (...a) => this.opts.writeInbox?.(...a),
+      takeInbox: (...a) => this.opts.takeInbox?.(...a),
       compose: (p, r, h) => this.renewCompose(p, r, h),
       ...(this.opts.subagents && { subagents: this.opts.subagents }),
       ...(this.opts.subagentNames && { subagentNames: this.opts.subagentNames }),
@@ -540,8 +545,9 @@ export class Engine {
     const agent = this.agentOf(p);
     if (!agent)
       return { code: 'unknown_provider', error: unknownProviderSend(p.provider ?? DEFAULT_PROVIDER) };
-    // D5 (open question 1, MVP): a person talks to a 'run' Worker through its Lead or a room.
-    if (agent.capabilities.lifetime === 'run' && !m.from && !m.group)
+    // D5 (open question 1, MVP): a person talks to a 'run' Worker through its Lead or a room;
+    // an unidentified control caller (every `agty job`, sending as (cli)) is no agent either.
+    if (agent.capabilities.lifetime === 'run' && (!m.from || m.from === UNIDENTIFIED_FROM) && !m.group)
       return { code: 'no_direct_chat', error: NO_DIRECT_CHAT };
     return null;
   }
@@ -2091,6 +2097,36 @@ export class Engine {
     const linked = linkWorkers(next); // a Worker follows its project's folder and room
     saveRegistry(this.file, linked, (line) => this.log(line)); // throws before memory changes
     this.projects = linked;
+  }
+
+  /** T-144: a `/model` in `name`'s conversation is its stored model from now on (the form shows it,
+   *  a renew or a flagged resume starts with it): the value the CLI's own list gives the shown name,
+   *  the one Claude saves as its default. No list yet: asked for, and tried again at the next look.
+   *  true: settled. ponytail: `/effort` has the same gap; follow it the same way when asked. */
+  private followModel(name: string, pick: ModelSwitch): boolean {
+    const p = this.find(name);
+    if (!p || this.opts.readOnly || this.broken) return true; // nothing written, no CLI probe
+    const names = this.agentChoices.discover().claude?.modelNames;
+    if (!names?.length) {
+      this.agentChoices.warm?.();
+      return false;
+    }
+    const id = names.find((m) => m.displayName === pick.shown)?.value;
+    if (!id) {
+      this.log(`"${name}": /model to "${pick.shown}" is not in the CLI's list, the stored model stays ${p.model ?? '-'}`);
+      return true;
+    }
+    // `default` is the CLI's own "none chosen": nobody checked that `--model default` starts, so the
+    // record stays as it is.
+    if (id === 'default' || CHECK.model(id)) return true;
+    if (p.model === id) return true; // a later form edit marks itself (ProjectEdits.edit)
+    try {
+      this.patch(name, { model: id, modelSwitchAt: pick.at });
+      this.log(`"${name}": model follows the conversation's /model (${p.model ?? '-'} -> ${id})`);
+    } catch (err) {
+      this.log(`"${name}": model ${id} not saved (${err instanceof Error ? err.message : String(err)})`);
+    }
+    return true;
   }
 
   private patch(name: string, fields: Partial<ProjectRecord>): void {

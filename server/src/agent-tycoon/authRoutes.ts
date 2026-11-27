@@ -23,8 +23,8 @@ import {
   deviceKind,
   deviceName,
   ipKey,
-  isDirectRequest,
   isFunnelRequest,
+  isInternetListener,
   isLanRequest,
   isLocalRequest,
   isLoopbackPeer,
@@ -35,6 +35,7 @@ import {
   type Session,
   sessionCookie,
   type StandaloneAuth,
+  tunnelSockets,
   validNickname,
 } from './auth.js';
 import { type ApprovalNetwork, DeviceApprovals, isTailscaleAddress } from './deviceApproval.js';
@@ -73,6 +74,8 @@ interface DeviceProof {
 
 const SHORT_LOCK_KEY = ['short'];
 const DIRECT_LOCK_KEY = ['direct'];
+/** The quick tunnel's own bucket under DIRECT_CODE_LOCK: guesses through a leaked tunnel link never lock the direct listener. */
+const TUNNEL_LOCK_KEY = ['tunnel'];
 /** Login routes the direct listener never offers (T-0024): device keys and codes only. */
 const DIRECT_REFUSED = /^\/login\/(passkey|approval)(\/|$)/;
 const LOGIN_ASSETS: Record<string, string> = {
@@ -162,7 +165,7 @@ export function registerStandaloneAuth(
       !opts.allowTerminal
     )
       return reply.code(404).send();
-    if (isDirectRequest(request.socket) && DIRECT_REFUSED.test(pathname))
+    if (isInternetListener(request.socket) && DIRECT_REFUSED.test(pathname))
       return reply.code(404).send();
     if (standaloneRouteIsPublic(pathname) || fileTicketPassesGate(request.method, pathname)) return;
     // ADR-0020: a request signed with a street key (another PC's daemon) passes here, for the summary route only.
@@ -283,6 +286,8 @@ export function registerStandaloneAuth(
   app.post('/api/auth/handoff-code', async (request, reply) => {
     const session = sessionFor(request, reply, auth);
     if (!session) return reply;
+    // S1.2: a code for a device with a key carries that device off: a fresh step-up, like 기기 추가.
+    if (auth.rowId(session) !== session.handle && !stepUp(session, reply)) return reply;
     const issued = auth.createHandoffCode(session);
     if (!issued) return reply.code(403).send({ ...refused('not_from_here') });
     auth.audit.write({
@@ -477,6 +482,10 @@ export function registerStandaloneAuth(
     const rp = relyingParty(request, rpHosts());
     if (!passkeys || !rp)
       return reply.code(404).send({ ...refused('passkey_not_here') });
+    // S1.3: anyone may ask, so per client like the device nonce (an open ceremony costs memory and room).
+    const keys = [ipKey(requestClient(request))];
+    if (auth.passkeyOptionsLimiter.blocked(keys)) return reply.code(429).send({ error: LOGIN_ERRORS.tooMany });
+    auth.passkeyOptionsLimiter.fail(keys);
     return passkeys.loginOptions(rp);
   });
 
@@ -620,6 +629,9 @@ export function registerStandaloneAuth(
       if (!key || typeof deviceId !== 'string' || !devices?.get(deviceId))
         return reply.code(404).send();
       if (key.deviceId !== null) return reply.code(409).send({ ...refused('passkey_already_bound') });
+      // S1.1: a synced copy's session would tie a credential to a device outside its lineage, which a
+      // revoke of the copy's device then could not reach (a bound passkey logs in alone).
+      if (auth.viaPasskeyOf(session)) return reply.code(403).send({ ...refused('passkey_bind_from_copy') });
       passkeys!.bind(key.id, deviceId);
       console.log('[agty auth] passkey assigned to a device');
       return { ok: true };
@@ -727,14 +739,8 @@ export function registerStandaloneAuth(
     const dropsPasskeys =
       !!devices?.passkeyRequired && !!passkeys?.countFor(auth.revokeTarget(request.params.id));
     if ((!own || dropsPasskeys) && !stepUp(session, reply)) return reply;
-    const gone = auth.rowOf(request.params.id, auth.sessionIdOf(request.headers.cookie));
-    if (!auth.revoke(request.params.id)) return reply.code(404).send();
-    auth.audit.write({
-      kind: 'deviceRevoked',
-      device: { id: gone?.id ?? request.params.id, label: gone?.label ?? '', kind: gone?.kind },
-      by: auth.actorLabel(session),
-      ...contextOf(request),
-    });
+    const by = auth.actorLabel(session);
+    if (!auth.revoke(request.params.id, { by, ...contextOf(request) })) return reply.code(404).send();
     const self = !auth.validSession(auth.sessionIdOf(request.headers.cookie));
     console.log(
       `[agty auth] signed out a device${self ? ' (its own)' : ''} from "${session.label}"`,
@@ -747,7 +753,10 @@ export function registerStandaloneAuth(
   app.post('/api/auth/sessions/revoke-others', async (request, reply) => {
     const session = sessionFor(request, reply, auth);
     if (!session || !stepUp(session, reply)) return reply;
-    const count = auth.revokeOthers(auth.sessionIdOf(request.headers.cookie));
+    const count = auth.revokeOthers(auth.sessionIdOf(request.headers.cookie), {
+      by: auth.actorLabel(session),
+      ...contextOf(request),
+    });
     auth.audit.write({ kind: 'revokeOthers', detail: count, by: auth.actorLabel(session), ...contextOf(request) });
     console.log(`[agty auth] signed out ${count} other session(s) from "${session.label}"`);
     return { count };
@@ -789,6 +798,7 @@ export function registerStandaloneAuth(
           sessionLifetime(request),
           deviceKind(request.headers['user-agent']),
           contextOf(request),
+          result.viaPasskey,
         );
         setSessionCookie(request, reply, auth, session.id, session);
       }
@@ -817,6 +827,7 @@ export function registerStandaloneAuth(
         request.body?.approve === true,
         request.body?.code,
         `"${session.label}"`,
+        auth.viaPasskeyOf(session),
       );
       if (result === 'approved' || result === 'refused')
         auth.audit.write({
@@ -853,7 +864,7 @@ export function registerStandaloneAuth(
   /** The login page, with the buttons this request may use. */
   function page(request: FastifyRequest, reply: FastifyReply, status: number, error?: string) {
     const rp = relyingParty(request, rpHosts());
-    const direct = isDirectRequest(request.socket);
+    const direct = isInternetListener(request.socket);
     const options: LoginPageOptions = {
       label: requestLabel(request),
       error,
@@ -899,13 +910,15 @@ export function registerStandaloneAuth(
       (short || !(h['sec-fetch-mode'] === 'navigate' && h['sec-fetch-dest'] === 'document'))
     )
       return page(request, reply, 401, LOGIN_ERRORS.badCode);
-    const direct = isDirectRequest(request.socket);
+    const direct = isInternetListener(request.socket);
+    const tunnel = direct && tunnelSockets.has(request.socket);
+    const lockKey = tunnel ? TUNNEL_LOCK_KEY : DIRECT_LOCK_KEY;
     const keys = [ipKey(requestClient(request))];
     if (code) keys.push(codeKey(code));
     if (
       auth.limiter.blocked(keys) ||
       (short && auth.shortCodeLock.blocked(SHORT_LOCK_KEY)) ||
-      (direct && auth.directCodeLock.blocked(DIRECT_LOCK_KEY))
+      (direct && auth.directCodeLock.blocked(lockKey))
     )
       return page(request, reply, 429, LOGIN_ERRORS.tooMany);
     const session = code
@@ -920,10 +933,10 @@ export function registerStandaloneAuth(
     if (!session) {
       if (crossSite) return page(request, reply, 401, LOGIN_ERRORS.badCode);
       auth.limiter.fail(keys);
-      if (direct && auth.directCodeLock.fail(DIRECT_LOCK_KEY)) {
-        auth.audit.write({ kind: 'lockout', detail: 'direct', ...contextOf(request) });
+      if (direct && auth.directCodeLock.fail(lockKey)) {
+        auth.audit.write({ kind: 'lockout', detail: lockKey[0], ...contextOf(request) });
         console.warn(
-          '[agty auth] code login on the direct listener locked for an hour: 10 failed attempts in an hour',
+          `[agty auth] code login on the ${tunnel ? 'quick tunnel' : 'direct listener'} locked for an hour: 10 failed attempts in an hour`,
         );
       }
       if (short && auth.shortCodeLock.fail(SHORT_LOCK_KEY)) {
@@ -998,7 +1011,7 @@ function relyingParty(request: FastifyRequest, rpHosts: ReadonlySet<string>): Re
 
 /** The coarse network a request came from, shown to the approver. */
 function requestNetwork(request: FastifyRequest): ApprovalNetwork {
-  if (isFunnelRequest(request.headers) || isDirectRequest(request.socket)) return 'funnel';
+  if (isFunnelRequest(request.headers) || isInternetListener(request.socket)) return 'funnel';
   // A public listener behind a portproxy sees 127.0.0.1: still not this PC (T-0074).
   if (isPublicListener(request.socket) || !isLoopbackPeer(request.socket.remoteAddress))
     return 'lan';

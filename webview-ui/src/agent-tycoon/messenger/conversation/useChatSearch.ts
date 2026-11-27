@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatSearchHit } from '../../../../../core/src/messages.js';
+import { isTypingInTerminal } from '../../../terminal/terminalDom.js';
 import { transport } from '../../../transport/index.js';
 import { type MessengerSnapshot, requestSearch } from '../messengerStore.js';
 import { nextRequestId } from '../parts.js';
@@ -38,7 +39,8 @@ export function useChatSearch({
   useEffect(() => {
     if (!searchOpen) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      // T-81 C: Esc in a terminal (the picker sheet) is the terminal's own key.
+      if (event.key !== 'Escape' || isTypingInTerminal(event.target as Element)) return;
       event.stopImmediatePropagation();
       clearSearch();
     };

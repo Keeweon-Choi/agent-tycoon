@@ -42,7 +42,7 @@ import { characterRingOf, characterVisualOf } from './ez/visuals.js';
 import { floorIndexAt, floorRects } from './floors.js';
 import { isOff } from './format.js';
 import { characterKind, characterName } from './kinds.js';
-import { beginRest, endRest, isLoungeZone as isLounge } from './lounge.js';
+import { beginRest, claimedBy, endRest, isLoungeZone as isLounge } from './lounge.js';
 import { modelBadge } from './modelBadges.js';
 import { dutyFor, isOfficeOpen, officeHours } from './officeHours.js';
 import {
@@ -195,7 +195,8 @@ export function sameFloor(a: Character, b: Character): boolean {
 const active = () => office !== null && agtyGetSnapshot().officeSnapshot !== null;
 const lingerMs = () => officeHours().lingerMin * 60_000;
 /** The host's offset (T-0041 hostInfo), else this browser's. */
-const hostOffset = () => agtyGetSnapshot().hostInfo?.utcOffsetMin ?? -new Date().getTimezoneOffset();
+const hostOffset = () =>
+  agtyGetSnapshot().hostInfo?.utcOffsetMin ?? -new Date().getTimezoneOffset();
 
 // ── Hooks for useExtensionMessages ───────────────────────────
 
@@ -449,7 +450,9 @@ function leadOf(os: OfficeState, ch: Character, kind: TempKind): number | null {
   if (kind === 'subagent') return os.subagentMeta.get(ch.id)?.parentAgentId ?? ch.parentAgentId;
   if (kind === 'teammate') return ch.leadAgentId ?? null;
   const task = codexTaskOf(ch.id);
-  const orch = agtyGetSnapshot().officeSnapshot?.orchestrators.find((o) => o.name === task?.project);
+  const orch = agtyGetSnapshot().officeSnapshot?.orchestrators.find(
+    (o) => o.name === task?.project,
+  );
   const id = orch ? (orch.agentId ?? virtualAgentId(`orch:${orch.name}`)) : null;
   return id !== null && os.characters.has(id) ? id : null;
 }
@@ -511,9 +514,16 @@ function linger(os: OfficeState, ch: Character, t: NonNullable<Rec['temp']>): vo
       w.row >= top && w.row < bottom && isLounge(zoneAt(os, w)) && !doors.has(`${w.col},${w.row}`),
   );
   if (lounge.length) {
+    // B7.1: a seat somebody rests on is not `assigned` (lounge.ts): ask what others hold.
+    const taken = claimedBy(os, ch.id);
     const sofa = [...os.seats].find(
       ([uid, s]) =>
-        !s.assigned && s.seatRow >= top && s.seatRow < bottom && isLounge(os.seatZone(uid)),
+        !s.assigned &&
+        !taken.seats.has(uid) &&
+        !taken.tiles.has(`${s.seatCol},${s.seatRow}`) &&
+        s.seatRow >= top &&
+        s.seatRow < bottom &&
+        isLounge(os.seatZone(uid)),
     )?.[0];
     if (sofa) os.reassignSeat(ch.id, sofa);
     else {
@@ -597,6 +607,7 @@ function vanish(os: OfficeState, rec: Rec, ch: Character): void {
   }
   if (t?.final) t.final(); // the upstream removal (maps, rows); its despawn is skipped below
   releaseSeat(os, ch);
+  if (ch.agtyRest) endRest(os, ch); // B7.4
   os.characters.delete(rec.id);
 }
 

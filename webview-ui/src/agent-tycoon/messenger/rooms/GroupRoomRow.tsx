@@ -1,10 +1,10 @@
 /** Messenger group room composer and thread posts. */
  
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatReply, GroupPostItem, GroupRoom } from '../../../../../core/src/messages.js';
 import { Button } from '../../../components/ui/Button.js';
-import { ATTACH_ACCEPT } from '../../../constants.js';
+import { ATTACH_ACCEPT, ROOM_THREAD_LOAD_MS, ROOM_THREAD_SPIN_MAX_MS } from '../../../constants.js';
 import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
 import { CHAT_SEND_MAX } from '../../chat.js';
@@ -30,9 +30,14 @@ import { OwnerFace, SenderFace } from '../Faces.js';
 import { Actionable, ActionRow, type BubbleActions, Line, ReplyChip, ReplyQuote } from '../Line.js';
 import { messageCharacterCount, prepareMessage } from '../longMessage.js';
 import { copyText, replyDraft } from '../messageActions.js';
-import { clearPendingRoomJump, setGroupAttachments, useMessenger } from '../messengerStore.js';
+import {
+  clearPendingRoomJump,
+  roomKey,
+  setGroupAttachments,
+  useMessenger,
+} from '../messengerStore.js';
 import { bubbleClock, NO_CHIPS } from '../parts.js';
-import { unseenReplies, useThreadFold } from '../roomFold.js';
+import { isOpen, unseenReplies, useThreadFold } from '../roomFold.js';
 import {
   canonicalizeMentions,
   chooseMention,
@@ -41,9 +46,30 @@ import {
   mentionDisplay,
   replyPrefill,
 } from '../roomMentions.js';
-import { type RoomThread, roomThreads, type ThreadReplies, threadReplies, type ThreadTone, threadTone } from '../roomThreads.js';
+import {
+  foldThreadLoad,
+  loadKey,
+  loadThread,
+  retryThread,
+  type SendThread,
+  stalledThread,
+  ThreadLoad,
+  useThreadLoads,
+} from '../roomThreadLoad.js';
+import {
+  deliveredFirst,
+  type RoomThread,
+  roomThreads,
+  threadAsks,
+  threadHolding,
+  type ThreadReplies,
+  threadReplies,
+  type ThreadTone,
+  threadTone,
+} from '../roomThreads.js';
 import { enterSends, isTouchDevice } from '../sendKey.js';
 import { RoomEditor } from './RoomEditor.js';
+import { useRoomDraft } from './useRoomDraft.js';
 
 export function GroupRoomRow({
   room,
@@ -57,7 +83,8 @@ export function GroupRoomRow({
 }) {
   const m = useMessenger();
   const { officeReadOnly } = useAgtyStore();
-  const [text, setText] = useState('');
+  const draft = useRoomDraft(roomKey(room));
+  const { text, setText, reply } = draft;
   const [cursor, setCursor] = useState(0);
   const [choice, setChoice] = useState(0);
   const [editing, setEditing] = useState<'rename' | 'members' | null>(null);
@@ -69,10 +96,9 @@ export function GroupRoomRow({
     null,
   );
   const [refused, setRefused] = useState('');
-  // MSG-ACTIONS: the post or member reply this room message answers.
-  const [reply, setReplyState] = useState<ChatReply | null>(null);
+  // MSG-ACTIONS: the post or member reply this room message answers (kept with the draft).
   const setReply = (value: ChatReply | null) => {
-    setReplyState(value);
+    draft.setReply(value);
     if (value) requestAnimationFrame(() => input.current?.focus());
   };
   // MSG-UI3: answering a member tags them, so the room's mention routing delivers the reply.
@@ -81,46 +107,80 @@ export function GroupRoomRow({
     if (next !== text) edit(next, next.length);
     setReply(value);
   };
-  const posts = useRef<HTMLDivElement>(null);
-  /** A quote tapped: the post or reply it names, if the room shows it (its last posts). */
-  const openQuote = (id: string) => {
-    const row = [
-      ...(posts.current?.querySelectorAll<HTMLElement>('[data-keep],[data-chat-id]') ?? []),
-    ].find((node) => node.dataset.keep === id || node.dataset.chatId === id);
-    if (!row) {
-      agtyOwnToast(t('messenger.title'), t('messenger.replyNotFound'), 'info');
-      return;
-    }
-    row.scrollIntoView({ block: 'center' });
-    row.dataset.focused = 'true';
-    window.setTimeout(() => delete row.dataset.focused, FOCUS_MS);
-  };
-  const groupError = m.groupError;
-  useEffect(() => {
-    // A refused post (an unknown @tag, no permission) gives the draft back instead of eating it.
-    if (groupError && lastPost.current && groupError.requestId === lastPost.current.requestId) {
-      const { text: draft, reply: answered } = lastPost.current;
-      lastPost.current = null;
-      setRefused(groupError.error);
-      setText((current) => current || draft);
-      setReplyState((current) => current ?? answered);
-    }
-  }, [groupError]);
   const timeline = m.groupTimelines[room.id];
-  // A search hit in this room: once its timeline is here, scroll to the post (as a tapped quote does).
-  const roomJump = m.pendingRoomJump?.roomId === room.id ? m.pendingRoomJump.id : null;
-  useEffect(() => {
-    if (!roomJump || !timeline) return;
-    clearPendingRoomJump(room.id);
-    window.requestAnimationFrame(() => openQuote(roomJump)); // after the posts are drawn and the scroll keeps its place
-     
-  }, [roomJump, timeline, room.id]);
   // ROOM-THREADS: a waiting rail turns plain a day on, also while the room stays open.
   const now = useNow();
   const threads = useMemo(
     () => roomThreads(timeline?.posts ?? []).map((thread) => ({ thread, tone: threadTone(thread, now) })),
     [timeline, now],
   );
+  const { open } = useThreadFold();
+  // T-113 (H2): the threads that show no reply have their tagged posts read once, in one ask for the room.
+  const probing = threads.flatMap(({ thread }) => threadAsks(thread, false).probe).join(' ');
+  const roomLoads = useThreadLoads();
+  useEffect(() => {
+    // each once per room view; asked again when the loads are let go (a new socket: N1)
+    if (probing) loadThread(sendThread, room.id, probing.split(' '), true);
+  }, [room.id, probing, roomLoads]);
+  /** Opens the thread holding a post or reply (a folded thread hides it); false when the room shows no such post. */
+  const openHolding = (id: string): boolean => {
+    const thread = threadHolding(
+      threads.map((x) => x.thread),
+      id,
+    );
+    if (thread) open(thread.posts[0].id, threadReplies(thread).count);
+    return !!thread;
+  };
+  const posts = useRef<HTMLDivElement>(null);
+  const rowOf = (id: string) =>
+    [...(posts.current?.querySelectorAll<HTMLElement>('[data-keep],[data-chat-id]') ?? [])].find(
+      (node) => node.dataset.keep === id || node.dataset.chatId === id,
+    );
+  const land = (row: HTMLElement) => {
+    row.scrollIntoView({ block: 'center' });
+    row.dataset.focused = 'true';
+    window.setTimeout(() => delete row.dataset.focused, FOCUS_MS);
+  };
+  /**
+   * A quote tapped (or a search hit): the post or reply it names, if the room shows it (its last posts).
+   * Its thread is folded by default, so it is opened first and the row is looked for once it is drawn; a
+   * member's line is there once the thread's replies have loaded (T-113), so it is looked for until then.
+   */
+  const openQuote = (id: string) => {
+    const row = rowOf(id);
+    if (row) return land(row);
+    const notFound = () => agtyOwnToast(t('messenger.title'), t('messenger.replyNotFound'), 'info');
+    if (!openHolding(id)) return notFound();
+    const until = Date.now() + ROOM_THREAD_LOAD_MS;
+    const look = () => {
+      const opened = rowOf(id);
+      if (opened) land(opened);
+      else if (Date.now() < until) window.requestAnimationFrame(look);
+      else notFound();
+    };
+    window.requestAnimationFrame(look);
+  };
+  const groupError = m.groupError;
+  useEffect(() => {
+    // A refused post (an unknown @tag, no permission) gives the draft back instead of eating it.
+    if (groupError && lastPost.current && groupError.requestId === lastPost.current.requestId) {
+      const { text: posted, reply: answered } = lastPost.current;
+      lastPost.current = null;
+      setRefused(groupError.error);
+      // This render's text and reply: what was typed since the post wins.
+      if (!text) setText(posted);
+      if (!reply) draft.setReply(answered);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new refusal gives the post back
+  }, [groupError]);
+  // A search hit in this room: once its timeline is here, scroll to the post (as a tapped quote does).
+  const roomJump = m.pendingRoomJump?.roomId === room.id ? m.pendingRoomJump.id : null;
+  useEffect(() => {
+    if (!roomJump || !timeline) return;
+    clearPendingRoomJump(room.id);
+    window.requestAnimationFrame(() => openQuote(roomJump)); // after the posts are drawn and the scroll keeps its place
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openQuote is new every render; the jump is cleared above
+  }, [roomJump, timeline, room.id]);
   const chips = m.groupAttachments[room.id] ?? NO_CHIPS;
   const activeMention = mentionAt(text, cursor);
   const suggestions = activeMention ? filterMentions(room.members, activeMention.query) : [];
@@ -221,6 +281,7 @@ export function GroupRoomRow({
         text: outgoing,
         ...(reply && { replyTo: reply }),
       });
+      if (reply) openHolding(reply.id); // the reader sees their own reply
       edit('', 0);
       setReply(null);
       setGroupAttachments(room.id, []);
@@ -319,6 +380,7 @@ export function GroupRoomRow({
             {threads.map(({ thread, tone }) => (
               <RoomThreadView
                 key={thread.posts[0].id}
+                roomId={room.id}
                 thread={thread}
                 tone={tone}
                 onReply={officeReadOnly ? undefined : replyTo}
@@ -559,6 +621,7 @@ function PostHead({ post }: { post: GroupPostItem }) {
 
 /** A post's delivery line: its mode, one tag per target with its state, and its actions. */
 function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: BubbleActions; top: boolean }) {
+  const [who, setWho] = useState(false); // a notice's per-member states, folded until asked (not kept)
   const delivery = (state: GroupPostItem['delivery'][string]) =>
     state === 'delivered'
       ? t('messenger.delivery.delivered')
@@ -570,13 +633,23 @@ function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: Bubb
   return (
     <p className="room-status text-text-muted text-2xs" aria-label={t('messenger.deliveryStatus')}>
       {post.notice ? (
-        <span className="room-mode" data-testid="room-mode" data-kind="notice">
+        // T-110: the notice's line opens the per-member states, as a tagged post shows them
+        <button
+          type="button"
+          className="room-mode room-mode-toggle"
+          data-testid="room-mode"
+          data-kind="notice"
+          aria-expanded={who}
+          title={t(who ? 'room.notice.hide' : 'room.notice.show')}
+          onClick={() => setWho(!who)}
+        >
           <Icon name="megaphone" size={12} pixel={null} />
           {t('room.mode.notice', {
             done: post.targets.filter((member) => post.delivery[member] === 'delivered').length,
             total: post.targets.length,
           })}
-        </span>
+          <Icon name={who ? 'chevron-up' : 'chevron-down'} size={12} pixel={<PixelIcon name={who ? 'up' : 'next'} size={10} />} />
+        </button>
       ) : (
         post.targets.length > 0 && (
           <span className="room-mode" data-testid="room-mode">
@@ -585,8 +658,8 @@ function PostStatus({ post, actions, top }: { post: GroupPostItem; actions: Bubb
           </span>
         )
       )}
-      {!post.notice &&
-        post.targets.map((member) => (
+      {(!post.notice || who) &&
+        deliveredFirst(post.targets, post.delivery).map((member) => (
           <span key={member} className="room-tag" data-state={post.delivery[member]}>
             <Icon name="at-sign" size={11} pixel={null} />
             {member}: {delivery(post.delivery[member])}
@@ -673,15 +746,18 @@ function ThreadFold({
   folded,
   unseen,
   toggle,
+  ref,
 }: {
   count: number;
   last: ThreadReplies['last'];
   folded: boolean;
   unseen: number;
   toggle: () => void;
+  ref: Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       className="room-fold text-2xs"
       data-testid="thread-fold"
@@ -707,14 +783,83 @@ function ThreadFold({
   );
 }
 
+const sendThread: SendThread = (msg) => transport.send(msg);
+
+/** T-113: an opened thread's replies on their way (the spinner the work rail shows), or the retry line. */
+function ThreadLoading({ failed, retry }: { failed: boolean; retry: () => void }) {
+  return failed ? (
+    <p className="room-load text-2xs" role="alert" data-testid="thread-load-failed">
+      <span className="min-w-0 truncate">{t('roomFold.failed')}</span>
+      <Button size="sm" onClick={retry}>
+        {t('roomFold.retry')}
+      </Button>
+    </p>
+  ) : (
+    <p className="room-load text-2xs" role="status" aria-busy="true" data-testid="thread-loading">
+      <span className="block shrink-0 w-9 h-9 border-ui border-status-active border-t-transparent rounded-ui-pill animate-spin motion-reduce:animate-none" />
+      {t('roomFold.loading')}
+    </p>
+  );
+}
+
 function RoomThreadView({
+  roomId,
   thread,
   tone,
   onReply,
   onQuote,
-}: { thread: RoomThread; tone: ThreadTone } & ReplyHandlers) {
+}: { roomId: string; thread: RoomThread; tone: ThreadTone } & ReplyHandlers) {
   const [post, ...answers] = thread.posts;
-  const { folds, fold, unfold } = useThreadFold();
+  const { folds, fold, open } = useThreadFold();
+  const loads = useThreadLoads();
+  // Opening or folding moves what is under the fold row, never the row: it keeps its place on screen, also
+  // where the browser has no scroll anchoring (iOS) or the room sticks to its bottom.
+  const foldRow = useRef<HTMLButtonElement>(null);
+  const rowTop = useRef<number | null>(null);
+  const opened = isOpen(folds, thread.posts[0].id);
+  const { count, last } = threadReplies(thread);
+  const isFolded = count > 0 && !opened;
+  // T-113: the room sends each thread's counts; an opened thread's replies are read now (its posts that can have
+  // any), and one that shows no reply has its tagged posts read once (a reply the room never recorded: H2).
+  const unread = threadAsks(thread, !isFolded).open;
+  const failed = unread.some((id) => loads[loadKey(roomId, id)] === ThreadLoad.failed);
+  const asking = unread.join(' ');
+  const loading = unread.length > 0 && !failed;
+  useLayoutEffect(() => {
+    const row = foldRow.current;
+    const scroller = row?.closest<HTMLElement>('[data-testid="room-scroll"]');
+    if (row && scroller && rowTop.current !== null) {
+      scroller.scrollTop += row.getBoundingClientRect().top - rowTop.current;
+      scroller.dispatchEvent(new Event('scroll')); // the room's keep-place hook reads its place again
+    }
+    // T-113: kept while the replies load, so their arrival (the loading row's place filled) does not move the row either
+    if (!loading) rowTop.current = null;
+  }, [opened, loading]);
+  useEffect(() => {
+    // L2: the reader scrolled while the replies loaded: their place is the reader's, not held for the row
+    const scroller = foldRow.current?.closest<HTMLElement>('[data-testid="room-scroll"]');
+    if (!loading || !scroller) return;
+    const letGo = () => (rowTop.current = null);
+    // a press on the scroller itself (not on what it holds) is its scrollbar being dragged
+    const bar = (event: PointerEvent) => event.target === scroller && letGo();
+    const moves = ['wheel', 'touchmove', 'keydown'] as const;
+    for (const move of moves) scroller.addEventListener(move, letGo, { passive: true });
+    scroller.addEventListener('pointerdown', bar, { passive: true });
+    return () => {
+      for (const move of moves) scroller.removeEventListener(move, letGo);
+      scroller.removeEventListener('pointerdown', bar);
+    };
+  }, [loading]);
+  useEffect(() => {
+    // N1: runs again whenever the loads change, so loads a new socket let go are asked again; one on its way,
+    // failed or answered is not asked again (loadThread)
+    if (asking) loadThread(sendThread, roomId, asking.split(' '));
+  }, [roomId, asking, loads]);
+  useEffect(() => {
+    if (!loading) return;
+    const timer = setTimeout(() => stalledThread(roomId, asking.split(' ')), ROOM_THREAD_SPIN_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [roomId, asking, loading]);
   // C4: a system event (Task assigned, reported, …): one short muted line, no bubble.
   if (post.system)
     return (
@@ -723,8 +868,6 @@ function RoomThreadView({
       </p>
     );
   const actions = postActions(post, onReply);
-  const { count, last } = threadReplies(thread);
-  const folded = count > 0 && post.id in folds;
   return (
     <Actionable
       as="article"
@@ -744,12 +887,22 @@ function RoomThreadView({
         <ThreadFold
           count={count}
           last={last}
-          folded={folded}
+          folded={isFolded}
           unseen={unseenReplies(folds, post.id, count)}
-          toggle={() => (folded ? unfold(post.id) : fold(post.id, count))}
+          ref={foldRow}
+          toggle={() => {
+            rowTop.current = foldRow.current?.getBoundingClientRect().top ?? null;
+            if (isFolded) open(post.id, count);
+            else {
+              fold(post.id, count);
+              // L4: folded again, its replies are no longer read every poll (asked again when it is reopened)
+              foldThreadLoad(sendThread, roomId, thread.posts.filter((p) => p.loaded).map((p) => p.id));
+            }
+          }}
         />
       )}
-      {!folded && (
+      {/* L1: what is loaded stays drawn; a part still on its way (a new 답글 in the thread) shows its row under it */}
+      {!isFolded && (
         <div className="room-replies space-y-6">
           <MemberReplies post={post} onReply={onReply} onQuote={onQuote} />
           {answers.map((answer) => (
@@ -757,6 +910,7 @@ function RoomThreadView({
           ))}
         </div>
       )}
+      {unread.length > 0 && <ThreadLoading failed={failed} retry={() => retryThread(sendThread, roomId, unread)} />}
     </Actionable>
   );
 }

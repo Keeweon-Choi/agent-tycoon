@@ -1,4 +1,4 @@
-import { TERMINAL_OSC52_MAX_BASE64_CHARS } from '../constants.js';
+import { TERMINAL_OSC52_MAX_BASE64_CHARS, TERMINAL_SEQ_ESC } from '../constants.js';
 
 /** What a key press means for the clipboard: copy the selection (verbatim,
  *  or re-flowed as text), let the browser paste, or hand the key to the
@@ -52,6 +52,23 @@ export function clipboardKeyAction(
   if (key === 'v') return 'paste';
   if (key === 'c' && (ev.shiftKey || hasSelection)) return 'copy';
   return 'terminal';
+}
+
+const PASTE_MARKER = new RegExp(`${TERMINAL_SEQ_ESC}\\[20[01]~`, 'g');
+
+/**
+ * S5.2: a paste with the bracketed-paste markers taken out. xterm wraps a paste in ESC[200~ …
+ * ESC[201~ but leaves a marker inside the text alone, so a clipboard carrying ESC[201~ (an OSC 52
+ * write from any output on screen, a copy from a web page) would end the frame early and the shell
+ * would run what follows its \r. Removed until none is left: pieces cannot rebuild one.
+ */
+export function stripPasteMarkers(text: string): string {
+  let out = text;
+  for (let before = ''; before !== out; ) {
+    before = out;
+    out = out.replace(PASTE_MARKER, '');
+  }
+  return out;
 }
 
 /**

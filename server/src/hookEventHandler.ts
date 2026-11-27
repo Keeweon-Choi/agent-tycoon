@@ -9,7 +9,7 @@ import { readNewLines } from './fileWatcher.js';
 import { endQuestion, settleQuestion } from './question.js';
 import type { SessionRouter } from './sessionRouter.js';
 import { getInlineTeammates, hasInlineTeammates, hasPromotedBackgroundAgent } from './teamUtils.js';
-import { cancelPermissionTimer, cancelWaitingTimer } from './timerManager.js';
+import { cancelPermissionTimer, cancelWaitingTimer, clearPermission } from './timerManager.js';
 import { notifyBackgroundAgentCompleted } from './transcriptParser.js';
 import type { AgentState } from './types.js';
 
@@ -42,11 +42,12 @@ interface SessionLifecycleCallbacks {
     transcriptPath: string | undefined,
     cwd: string,
   ) => void;
-  /** Called when /clear is detected via hooks (SessionEnd reason=clear + SessionStart source=clear). */
+  /** Called when /clear or /resume is detected via hooks (SessionEnd + SessionStart, same reason). */
   onSessionClear?: (
     agentId: number,
     newSessionId: string,
     newTranscriptPath: string | undefined,
+    resumed: boolean,
   ) => void;
   /** Called when a session is resumed (--resume). Clears dismissals so the file can be re-adopted. */
   onSessionResume?: (transcriptPath: string) => void;
@@ -62,6 +63,8 @@ interface SessionLifecycleCallbacks {
 
 export class HookEventHandler {
   private lifecycleCallbacks: SessionLifecycleCallbacks = {};
+  /** One /clear-/resume safety timer per agent: a second SessionEnd replaces it, SessionStart ends it. */
+  private readonly sessionEndTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   /** Highest HookProvider.protocolVersion this handler understands. */
   private static readonly SUPPORTED_PROTOCOL_VERSION = 1;
@@ -221,12 +224,19 @@ export class HookEventHandler {
                 path.resolve(projectDir).toLowerCase();
             if (isMatch) {
               agent.pendingClear = false;
+              clearTimeout(this.sessionEndTimers.get(id));
+              this.sessionEndTimers.delete(id);
               console.log(
                 `[Agent Tycoon] Hook: Agent ${id} - /${normEvent.source} detected, reassigning to ${event.session_id}`,
               );
               this.sessionRouter.unregister(agent.sessionId);
               this.registerAgent(event.session_id, id);
-              this.lifecycleCallbacks.onSessionClear?.(id, event.session_id, transcriptPath);
+              this.lifecycleCallbacks.onSessionClear?.(
+                id,
+                event.session_id,
+                transcriptPath,
+                normEvent.source === 'resume',
+              );
               return;
             }
           }
@@ -337,8 +347,8 @@ export class HookEventHandler {
       case 'toolEnd':
         // Both PostToolUse and PostToolUseFailure normalize to toolEnd. Distinguishing
         // them inside handlers would require extra info; the existing behavior was
-        // identical for both (agentToolDone + clear currentHookToolId), so one branch suffices.
-        return this.handlePostToolUse(agent, agentId);
+        // identical for both (agentToolDone for the ended call), so one branch suffices.
+        return this.handlePostToolUse(normEvent, agent, agentId);
       case 'subagentStart':
         return this.provider.team ? this.handleSubagentStart(event, agent, agentId) : undefined;
       case 'subagentEnd':
@@ -388,18 +398,22 @@ export class HookEventHandler {
 
     if (expectsFollowUp) {
       agent.pendingClear = true;
-      this.markAgentWaiting(agent, agentId);
+      // No turn ran: restored, so no turn-end notice, toast, sound or push.
+      this.markAgentWaiting(agent, agentId, false, true);
       if (debug)
         console.log(
           `[Agent Tycoon] Hook: Agent ${agentId} - SessionEnd(reason=${reason}), awaiting possible SessionStart`,
         );
       // Safety net: if SessionStart never arrives, clean up the zombie agent
-      setTimeout(() => {
+      clearTimeout(this.sessionEndTimers.get(agentId));
+      const timer = setTimeout(() => {
+        this.sessionEndTimers.delete(agentId);
         if (agent.pendingClear) {
           agent.pendingClear = false;
           this.lifecycleCallbacks.onSessionEnd?.(agentId, reason);
         }
       }, SESSION_END_GRACE_MS);
+      this.sessionEndTimers.set(agentId, timer);
     } else {
       // Immediate cleanup for exit/logout. onSessionEnd → removeTeammates in the
       // ViewProvider cleans up all teammates of this lead at once.
@@ -421,12 +435,12 @@ export class HookEventHandler {
     const toolName = normEvent.toolName;
     const toolInput = (normEvent.input as Record<string, unknown> | undefined) ?? {};
     const status = this.provider.formatToolStatus(toolName, toolInput);
-    const hookToolId = `hook-${Date.now()}`;
+    const hookToolId = normEvent.toolId;
 
     // Track for PostToolUse/SubagentStart correlation (always, even if suppressed below).
     // currentHookIsTeammateSpawn is the authoritative teammate-vs-subagent discriminator.
     // It is NOT cleared in PostToolUse to survive the PostToolUse-before-SubagentStart race.
-    agent.currentHookToolId = hookToolId;
+    (agent.hookToolIds ??= []).push(hookToolId);
     agent.currentHookToolName = toolName;
     agent.currentHookIsTeammateSpawn =
       this.provider.team?.isTeammateSpawnCall(toolName, toolInput) ?? false;
@@ -470,23 +484,31 @@ export class HookEventHandler {
    * Stop hook handles the idle transition. This is here for completeness and
    * to serve as a confirmation event for pending external sessions.
    */
-  private handlePostToolUse(agent: AgentState, agentId: number): void {
-    if (agent.currentHookToolId) {
-      // Suppress tool display when lead has inline teammates (see handlePreToolUse)
-      if (!hasInlineTeammates(agentId, this.agents)) {
-        this.agents.broadcast({
-          type: 'agentToolDone',
-          id: agentId,
-          toolId: agent.currentHookToolId,
-        });
-      }
-      agent.currentHookToolId = undefined;
-      agent.currentHookToolName = undefined;
+  private handlePostToolUse(
+    normEvent: Extract<AgentEvent, { kind: 'toolEnd' }>,
+    agent: AgentState,
+    agentId: number,
+  ): void {
+    const open = agent.hookToolIds;
+    // No call tracked as open (a new prompt read by the poll dropped them): none other can be asking.
+    if (!open?.length) {
+      clearPermission(agent, agentId, this.agents);
+      return;
     }
+    // The call's own id; without one ('current') or an unknown one, the oldest open call.
+    const [toolId] = open.splice(Math.max(0, open.indexOf(normEvent.toolId)), 1);
+    // Suppress tool display when lead has inline teammates (see handlePreToolUse)
+    if (!hasInlineTeammates(agentId, this.agents)) {
+      this.agents.broadcast({ type: 'agentToolDone', id: agentId, toolId });
+    }
+    agent.currentHookToolName = undefined;
+    // The approved call ran: its permission bubble goes once no other open call can be the one
+    // asking (a parallel call that needs no approval may end first).
+    if (!open.length) clearPermission(agent, agentId, this.agents);
   }
 
   // NOTE: PostToolUseFailure used to have its own handler. The behavior was identical
-  // to PostToolUse (emit agentToolDone, clear currentHookToolId). Both now normalize to
+  // to PostToolUse (emit agentToolDone for the ended call). Both now normalize to
   // the 'toolEnd' AgentEvent kind and share handlePostToolUse.
 
   /**
@@ -734,7 +756,12 @@ export class HookEventHandler {
    * agents), cancels timers, and notifies the webview. Same logic as the turn_duration
    * handler in transcriptParser.ts.
    */
-  private markAgentWaiting(agent: AgentState, agentId: number, awaitingInput = false): void {
+  private markAgentWaiting(
+    agent: AgentState,
+    agentId: number,
+    awaitingInput = false,
+    restored = false,
+  ): void {
     cancelWaitingTimer(agentId, this.waitingTimers);
     cancelPermissionTimer(agentId, this.permissionTimers);
 
@@ -786,18 +813,21 @@ export class HookEventHandler {
     if (!awaitingInput) settleQuestion(agent);
     agent.permissionSent = false;
     agent.hadToolsInTurn = false;
-    agent.currentHookToolId = undefined;
+    agent.hookToolIds = undefined;
     this.agents.broadcast({
       type: 'agentStatus',
       id: agentId,
       status: 'waiting',
       awaitingInput,
       ...(agent.questionOffset !== undefined && { question: true }),
+      ...(restored && { restored: true }),
     });
   }
 
   /** Clean up timers and maps. Called when the extension disposes. */
   dispose(): void {
     this.sessionRouter.dispose();
+    for (const t of this.sessionEndTimers.values()) clearTimeout(t);
+    this.sessionEndTimers.clear();
   }
 }

@@ -31,10 +31,12 @@ import { useAgtyStore } from '../officeStore.js';
 import {
   closeShell,
   deviceStepUp,
+  ensureAgentTerminalProof,
   ensureShellProof,
   listShells,
   openShell,
   passkeyStepUp,
+  primePasskeyStepUp,
   type ShellList,
   shellSocketPath,
 } from '../shell/shellApi.js';
@@ -214,6 +216,13 @@ export function TerminalWorkspace({
         );
       setPending({ then });
     });
+
+  // A Face ID button on screen: its options are fetched now, so the tap goes straight to Face ID.
+  const proofShown = [...placed.keys()].some(
+    (key) => refusal[key] === 'proof' && status[key] === 'closed',
+  );
+  const asksFace = !!pending || proofShown;
+  useEffect(() => (asksFace ? primePasskeyStepUp() : undefined), [asksFace]);
 
   const own = list?.shells.filter((s) => s.deviceId === list.device) ?? [];
   const shellTabs = ws.tabs.filter((t) => t.kind === 'shell');
@@ -470,7 +479,7 @@ export function TerminalWorkspace({
           </Button>
         </div>
       )}
-      {note && (
+      {note && !proofShown && (
         <p className="shrink-0 m-0 text-xs text-yellow-300" role="status">
           {note}
         </p>
@@ -511,7 +520,7 @@ export function TerminalWorkspace({
                 mobileKeyBar={mobile}
                 autoFocus={!mobile && focused}
                 messages={terminalMessages()}
-                prepare={tab.kind === 'shell' ? ensureShellProof : undefined}
+                prepare={tab.kind === 'shell' ? ensureShellProof : ensureAgentTerminalProof}
                 onStatusChange={(n, s) => {
                   const k = keysByNumber.get(n);
                   if (!k) return;
@@ -555,6 +564,11 @@ export function TerminalWorkspace({
                       >
                         {t('terminal.verifyFace')}
                       </Button>
+                      {note && (
+                        <span className="text-yellow-300" role="status">
+                          {note}
+                        </span>
+                      )}
                     </>
                   ) : tab.kind === 'agent' && why === 'refused' ? (
                     <Button size="sm" onClick={() => remount(tab.key)}>

@@ -17,9 +17,16 @@ const SOURCES: ReadonlySet<unknown> = new Set(['boundary', 'error', 'rejection']
 
 /** C0 and C1 controls (but not `\n`, which stackOf splits on), DEL and the Unicode line separators. */
 const CONTROLS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/g;
+/**
+ * A URL's origin and, after it, the direct connector's 22-character secret path segment (S8.2): the page
+ * and its assets live under `https://<host>/<secret>/`, and that address is never logged.
+ */
+const URL_ORIGIN = /https?:\/\/[^\s/]+(?:\/[A-Za-z0-9_-]{22}(?=\/))?/g;
 /** A field from the wire: controls out (`\r` and ESC could forge or clear a log line), secrets masked, then cut (a token is never left half-cut). */
 const text = (v: unknown, max: number): string | undefined =>
-  typeof v === 'string' && v.trim() ? maskText(v.replace(CONTROLS, ' ')).slice(0, max) : undefined;
+  typeof v === 'string' && v.trim()
+    ? maskText(v.replace(CONTROLS, ' ').replace(URL_ORIGIN, '')).slice(0, max)
+    : undefined;
 /** A stack's top lines, each indented under the report (no line of it can pass for a log line of its own). */
 const stackOf = (v: unknown): string | undefined =>
   text(v, WEBVIEW_ERROR_STACK_MAX)

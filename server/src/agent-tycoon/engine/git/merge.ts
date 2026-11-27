@@ -23,7 +23,7 @@ import * as path from 'path';
 
 import { koText } from '../../../../../core/src/agent-tycoon/serverText.js';
 import type { GitRunner } from './gitRun.js';
-import { filterOverrides, READ_ENV, RepoError } from './gitRun.js';
+import { READ_ENV, RepoError, usesRepoFilters } from './gitRun.js';
 import { gitMessage, readStatus } from './repoRead.js';
 import { protectedBranches, WORKTREES_DIR } from './worktrees.js';
 
@@ -155,10 +155,7 @@ export async function mergeBranches(
     if (tracked) return fail('dirty', koText('merge_dirty', { target, count: tracked }));
     // Its files would be written with the repository's own filters off (gitRun.ts): raw content
     // (git-crypt's ciphertext, a local LFS pointer) under a clean status. The owner merges that one.
-    const f = await run(checkout, ['config', '--show-scope', '--includes', '--get-regexp', '^filter\\.'], { env: READ_ENV });
-    if (f.code !== 0 && f.code !== 1) throw new RepoError(koText('git_config_unreadable'));
-    if (filterOverrides(f.stdout.toString('utf-8')).length)
-      return fail('filters', koText('merge_filters', { target }));
+    if (await usesRepoFilters(run, checkout)) return fail('filters', koText('merge_filters', { target }));
   }
 
   let kind: 'ff' | 'merge' = 'ff';

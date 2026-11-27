@@ -3,8 +3,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { GroupMessages, type GroupMessenger,roomEvents, roomMentions, roomReplyItems } from './groupMessages.js';
-import { GroupStore, groupTimelineDir } from './groups.js';
+import { GroupMessages, type GroupMessenger, ROOM_NOTICE_RATE, ROOM_PARSE_CACHE_MAX, roomEvents, roomMentions, roomReplyItems } from './groupMessages.js';
+import { type GroupRoom, GroupStore, groupTimelineDir } from './groups.js';
 import { messageOf, type QueuedSend } from './messenger.js';
 
 let homes: string[] = [];
@@ -58,6 +58,33 @@ describe('GroupMessages', () => {
     );
     const old = groups.timeline(store.find('출시팀')!).find((p) => p.id === 'old1')!;
     expect([old.targets, old.notice]).toEqual([[], undefined]);
+  });
+
+  it('E1.5 (audit 11-13): an agent\'s 공지 counts against a per-sender rate, whatever path posts it; the boss\'s does not', async () => {
+    const h = home();
+    const store = new GroupStore(h, () => ['alpha', 'beta', 'gamma'], () => 'room0002');
+    store.create('출시팀', ['alpha', 'beta', 'gamma']);
+    const calls: Parameters<GroupMessenger['send']>[0][] = [];
+    const messenger: GroupMessenger = { send: async (request) => { calls.push(request); return { ok: true, delivered: 'queued' }; } };
+    let now = 1_700_000_000_000;
+    let n = 0;
+    const groups = new GroupMessages({ home: h, store, messenger, now: () => now, ids: () => `post${String(++n).padStart(4, '0')}` });
+    for (let i = 0; i < ROOM_NOTICE_RATE.perMinute; i++)
+      expect(await groups.post({ room: '출시팀', text: `참고 ${i}`, from: 'alpha', source: i % 2 ? 'cli' : 'mcp' })).toMatchObject({ ok: true });
+    const over = await groups.post({ room: '출시팀', text: '참고 하나 더', from: 'alpha', source: 'mcp' });
+    expect(over).toMatchObject({ ok: false, errorCode: 'room_notice_rate' });
+    expect(calls).toHaveLength(ROOM_NOTICE_RATE.perMinute * 2);
+    // A tagged post (the pairwise rate's) and another sender, and the boss, still go.
+    expect(await groups.post({ room: '출시팀', text: '@beta 확인', from: 'alpha', source: 'mcp' })).toMatchObject({ ok: true });
+    expect(await groups.post({ room: '출시팀', text: '참고', from: 'beta', source: 'mcp' })).toMatchObject({ ok: true });
+    for (let i = 0; i < ROOM_NOTICE_RATE.perMinute + 1; i++)
+      expect(await groups.post({ room: '출시팀', text: `사장 공지 ${i}`, from: null, source: 'messenger:test' })).toMatchObject({ ok: true });
+    // The owner's own `agty send --group` from alpha's folder is named alpha but is not alpha's count.
+    for (let i = 0; i < ROOM_NOTICE_RATE.perMinute + 1; i++)
+      expect(await groups.post({ room: '출시팀', text: `사장 CLI ${i}`, from: 'gamma', source: 'cli', owner: true })).toMatchObject({ ok: true });
+    expect(await groups.post({ room: '출시팀', text: '감마 에이전트', from: 'gamma', source: 'mcp' })).toMatchObject({ ok: true });
+    now += ROOM_NOTICE_RATE.windowMs;
+    expect(await groups.post({ room: '출시팀', text: '1분 뒤', from: 'alpha', source: 'mcp' })).toMatchObject({ ok: true });
   });
 
   it('MSG-ACTIONS: a reply post keeps its reference and every tagged member receives it', async () => {
@@ -226,6 +253,20 @@ describe('GroupMessages', () => {
     ]);
     expect(posts[0].replies[0].items[0].messageId).toBe(ids[0]);
   });
+
+  it('D2.5: a torn last line (a short write) does not swallow the next post', async () => {
+    const h = home();
+    const store = new GroupStore(h, () => ['alpha'], () => 'room0007');
+    store.create('출시팀', ['alpha']);
+    const messenger: GroupMessenger = { send: async () => ({ ok: true, delivered: 'pane' }) };
+    let n = 0;
+    const groups = new GroupMessages({ home: h, store, messenger, ids: () => `post000${++n}` });
+    await groups.post({ room: '출시팀', text: '첫 글', from: null, source: 'messenger:test' });
+    const dir = groupTimelineDir(h);
+    fs.appendFileSync(path.join(dir, fs.readdirSync(dir)[0]), '{"v":1,"kind":"po');
+    await groups.post({ room: '출시팀', text: '둘째 글', from: null, source: 'messenger:test' });
+    expect(groups.timeline(store.find('출시팀')!).map((p) => p.text)).toEqual(['첫 글', '둘째 글']);
+  });
 });
 
 describe('C3: what the room list counts as unread', () => {
@@ -335,5 +376,24 @@ describe('C4: system lines in rooms (F-18)', () => {
     store.setSystemLines(store.find('개발')!.id, true);
     expect(groups.timeline(store.find('개발')!).map((p) => p.text)).toEqual(['Task T-7 배정: alpha → alpha-w1 · 로그인 고치기']);
     expect(store.setSystemLines('all', false)).toMatchObject({ ok: false });
+  });
+});
+
+describe('T-113 (N3): the parsed room logs kept are bounded', () => {
+  it('keeps at most ROOM_PARSE_CACHE_MAX segments, the most recently read', () => {
+    const h = home();
+    let n = 0;
+    const store = new GroupStore(h, () => ['alpha'], () => `room${String(++n).padStart(4, '0')}`);
+    const rooms = Array.from({ length: ROOM_PARSE_CACHE_MAX + 5 }, (_, i) => (store.create(`방${i}`, ['alpha']) as { value: GroupRoom }).value);
+    fs.mkdirSync(groupTimelineDir(h), { recursive: true });
+    for (const room of rooms)
+      fs.writeFileSync(path.join(groupTimelineDir(h), `${room.id}.2026-11.jsonl`), `${JSON.stringify({ v: 1, kind: 'post', post: { id: 'p', at: 1, sender: null, text: 'x', targets: [], delivery: {} } })}\n`);
+    const groups = new GroupMessages({ home: h, store, messenger: { send: async () => ({ ok: true, delivered: 'pane' }) } });
+    for (const room of rooms) expect(groups.timeline(room)).toHaveLength(1);
+    const parsed = (groups as unknown as { parsed: Map<string, unknown> }).parsed;
+    expect(parsed.size).toBe(ROOM_PARSE_CACHE_MAX);
+    expect([...parsed.keys()].at(-1)).toContain(rooms.at(-1)!.id);
+    expect(groups.timeline(rooms[0])).toHaveLength(1); // read again: parsed again, still bounded
+    expect(parsed.size).toBe(ROOM_PARSE_CACHE_MAX);
   });
 });

@@ -1,4 +1,6 @@
 /** Log presentation; rules live beside the command-name rules. */
+import { stripVTControlCharacters } from 'util';
+
 import { koText } from '../../../core/src/agent-tycoon/serverText.js';
 // @ts-expect-error esbuild bundles this JSON into the server.
 import data from './jobRules.json';
@@ -24,9 +26,19 @@ export interface JobDigest {
   lines: Array<{ text: string; error: boolean }>;
 }
 
-/** The raw view uses this too: no login URL or eight-character login code reaches a screen. */
+/**
+ * The raw view uses this too: no login URL, eight-digit login code (typed or spaced `1234 5678`) or
+ * login QR reaches a screen. Colour codes go first (S8.3): one between a name and its value, or right
+ * before a token, would defeat the masking rules.
+ */
 export function maskJobLog(raw: string): string {
-  return maskText(raw)
+  return maskText(stripVTControlCharacters(raw))
+    .replace(/^[ \t▀-▟]{16,}$\n?/gm, '')
+    .replace(/^[ \t]*\d{4}[ \t]\d{4}[ \t]*$/gm, '***')
+    .replace(
+      /(^|\n)(\s*(?:로그인|인증|기기)?\s*코드\s*[:：]\s*)\d{4}[ \t]\d{4}(?=\s|$)/gim,
+      '$1$2***',
+    )
     .replace(/(\/login\?[^\s]*?\bcode=)[^&#\s]+/gi, '$1***')
     .replace(/(\bcode=)[^&#\s]+/gi, '$1***')
     .replace(/(^|\n)(\s*(?:로그인|인증|기기)?\s*코드\s*[:：]\s*)[A-Z0-9]{8}(?=\s|$)/gim, '$1$2***');
@@ -34,7 +46,6 @@ export function maskJobLog(raw: string): string {
 
 const cleanLines = (raw: string) =>
   maskJobLog(raw)
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
     .split(/\r|\n/)
     .map((s) => s.trim())
     .filter((s) => s && !/^(?:npm warn|npm notice|\d+%\|)/i.test(s));

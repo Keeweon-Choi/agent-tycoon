@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { GitRunner } from './gitRun.js';
 import { createGitRunner, gitEnv, RepoError } from './gitRun.js';
 import type { ProjectFolder } from './repoRead.js';
 import type { TempRepo } from './testRepo.js';
@@ -323,6 +324,190 @@ describe.skipIf(!GIT_AVAILABLE)('worktree status (temp repos)', () => {
 });
 
 describe.skipIf(!GIT_AVAILABLE)('cleanup (temp repos)', () => {
+  it('B5.1: refused, with or without force, while another worktree lies inside it; its loose work kept', async () => {
+    const { wt, project, dir } = setup();
+    await wt.create(project, 'integ');
+    await wt.create({ name: project.name, folder: dir('integ') }, 'codex-1');
+    const loose = path.join(dir('integ'), '.worktrees', 'codex-1', 'loose.txt');
+    fs.writeFileSync(loose, 'l\n');
+    for (const force of [false, true]) {
+      const out = await wt.cleanup(project, 'integ', { force });
+      expect(out).toMatchObject({ ok: false, errorCode: 'worktree_has_nested' });
+      expect(out.error).toContain('codex-1');
+      expect(fs.readFileSync(loose, 'utf-8')).toBe('l\n');
+    }
+    expect(fs.existsSync(dir('integ'))).toBe(true);
+  });
+
+  it('T-130: refused, with or without force, while it holds an initialised submodule; the submodule’s work kept', async () => {
+    const { r, wt, project, dir } = setup();
+    const fileOk = ['-c', 'protocol.file.allow=always'];
+    r.git([...fileOk, 'submodule', 'add', '-q', r.remote, 'lib']);
+    r.git(['commit', '-q', '-m', 'lib']);
+    await wt.create(project, 'x');
+    r.git([...fileOk, 'submodule', 'update', '--init', '-q'], dir('x'));
+    const inSub = path.join(dir('x'), 'lib', 'a.txt');
+    fs.writeFileSync(inSub, 'sub work\n');
+    fs.writeFileSync(path.join(dir('x'), 'loose.txt'), 'l\n'); // lets the outer WIP commit succeed
+    for (const force of [false, true]) {
+      const out = await wt.cleanup(project, 'x', { force });
+      expect(out).toMatchObject({ ok: false, errorCode: 'worktree_has_submodule' });
+      expect(out.error).toContain('lib');
+      expect(fs.readFileSync(inSub, 'utf-8')).toBe('sub work\n');
+    }
+    // Negative control: a worktree whose submodule was never initialised has nothing of it to lose.
+    await wt.create(project, 'y');
+    fs.writeFileSync(path.join(dir('y'), 'loose.txt'), 'l\n');
+    expect(await wt.cleanup(project, 'y', { force: true })).toMatchObject({ ok: true });
+  });
+
+  it('T-172: refused, with or without force, while an untracked inner repository has commits and loose work', async () => {
+    const { r, wt, project, dir, listed, records } = setup();
+    await wt.create(project, 'x');
+    const inner = path.join(dir('x'), 'inner');
+    fs.mkdirSync(inner);
+    r.git(['init', '-q'], inner);
+    fs.writeFileSync(path.join(inner, 'kept.txt'), 'kept\n');
+    r.git(['add', 'kept.txt'], inner);
+    r.git(['commit', '-q', '-m', 'inner work'], inner);
+    fs.writeFileSync(path.join(inner, 'dirty.txt'), 'dirty\n');
+    fs.writeFileSync(path.join(dir('x'), 'outer.txt'), 'outer\n');
+
+    const withoutForce = await wt.cleanup(project, 'x');
+    const withForce = await wt.cleanup(project, 'x', { force: true });
+
+    expect(withForce).toMatchObject({ ok: false, errorCode: 'worktree_has_embedded_repo' });
+    expect(withForce.needsForce).toBeUndefined();
+    expect(withoutForce).toMatchObject({ ok: false, errorCode: 'worktree_has_embedded_repo' });
+    expect(withoutForce.needsForce).toBeUndefined();
+    expect(withForce.error).toContain('inner');
+    expect(r.git(['log', '-1', '--format=%s'], inner).trim()).toBe('inner work');
+    expect(fs.existsSync(path.join(inner, 'dirty.txt'))).toBe(true);
+    expect(fs.existsSync(dir('x'))).toBe(true);
+    expect(records()[0].status).toBe('active');
+    expect(listed()).toContain(dir('x'));
+    expect(r.git(['log', '-1', '--format=%s', 'task/x']).trim()).toBe('init');
+  });
+
+  it.each([
+    ['an untracked repository', '한글폴더', false],
+    ['an indexed gitlink', '한글링크', true],
+  ])('T-172: refuses %s whose git path is quoted', async (_kind, name, gitlink) => {
+    const { r, wt, project, dir, records } = setup();
+    await wt.create(project, 'x');
+    const inner = path.join(dir('x'), name);
+    fs.mkdirSync(inner);
+    r.git(['init', '-q'], inner);
+    fs.writeFileSync(path.join(inner, 'kept.txt'), 'kept\n');
+    r.git(['add', 'kept.txt'], inner);
+    r.git(['commit', '-q', '-m', 'inner work'], inner);
+    if (gitlink) r.git(['add', name], dir('x'));
+    fs.writeFileSync(path.join(dir('x'), 'outer.txt'), 'outer\n');
+
+    expect(await wt.cleanup(project, 'x', { force: true })).toMatchObject({
+      ok: false,
+      errorCode: 'worktree_has_embedded_repo',
+    });
+    expect(fs.existsSync(path.join(inner, '.git'))).toBe(true);
+    expect(fs.existsSync(dir('x'))).toBe(true);
+    expect(records()[0].status).toBe('active');
+  });
+
+  it('T-172: refuses when an embedded-repository listing fails', async () => {
+    const { r, project, dir, file, wt } = setup();
+    await wt.create(project, 'x');
+    const inner = path.join(dir('x'), 'inner');
+    fs.mkdirSync(inner);
+    r.git(['init', '-q'], inner);
+    fs.writeFileSync(path.join(inner, 'kept.txt'), 'kept\n');
+    r.git(['add', 'kept.txt'], inner);
+    r.git(['commit', '-q', '-m', 'inner work'], inner);
+    fs.writeFileSync(path.join(dir('x'), 'outer.txt'), 'outer\n');
+    const run: GitRunner = async (cwd, args, opts) => {
+      if (args[0] === 'ls-files') {
+        return { code: 128, stdout: Buffer.alloc(0), stderr: 'forced ls-files failure', capped: false, timedOut: false };
+      }
+      return r.run(cwd, args, opts);
+    };
+    const guarded = new Worktrees({ file, run, log: () => {} });
+
+    const out = await guarded.cleanup(project, 'x', { force: true });
+    expect(out).toMatchObject({
+      ok: false,
+      errorCode: 'worktree_has_embedded_repo',
+    });
+    expect(out.error).toContain('?');
+    expect(fs.existsSync(path.join(inner, '.git'))).toBe(true);
+    expect(fs.existsSync(dir('x'))).toBe(true);
+  });
+
+  it('T-172: refused while an indexed gitlink has its own repository metadata', async () => {
+    const { r, wt, project, dir, records } = setup();
+    await wt.create(project, 'x');
+    const inner = path.join(dir('x'), 'inner');
+    fs.mkdirSync(inner);
+    r.git(['init', '-q'], inner);
+    fs.writeFileSync(path.join(inner, 'kept.txt'), 'kept\n');
+    r.git(['add', 'kept.txt'], inner);
+    r.git(['commit', '-q', '-m', 'inner work'], inner);
+    r.git(['add', 'inner'], dir('x'));
+
+    for (const force of [false, true]) {
+      const out = await wt.cleanup(project, 'x', { force });
+      expect(out).toMatchObject({ ok: false, errorCode: 'worktree_has_embedded_repo' });
+      expect(out.needsForce).toBeUndefined();
+      expect(out.error).toContain('inner');
+    }
+    expect(r.git(['log', '-1', '--format=%s'], inner).trim()).toBe('inner work');
+    expect(fs.existsSync(dir('x'))).toBe(true);
+    expect(records()[0].status).toBe('active');
+    expect(r.git(['log', '-1', '--format=%s', 'task/x']).trim()).toBe('init');
+  });
+
+  it('T-172: an ordinary untracked folder still needs force, then its file stays in the WIP commit', async () => {
+    const { r, wt, project, dir } = setup();
+    await wt.create(project, 'x');
+    const plain = path.join(dir('x'), 'plain');
+    fs.mkdirSync(plain);
+    fs.writeFileSync(path.join(plain, 'kept.txt'), 'kept\n');
+
+    expect(await wt.cleanup(project, 'x')).toMatchObject({ ok: false, needsForce: true });
+    expect(await wt.cleanup(project, 'x', { force: true })).toMatchObject({ ok: true });
+    expect(fs.existsSync(dir('x'))).toBe(false);
+    expect(r.git(['show', 'task/x:plain/kept.txt'])).toBe('kept\n');
+    expect(r.git(['log', '-1', '--format=%s', 'task/x']).trim()).toBe('WIP: x (kept when its folder was cleaned up)');
+  });
+
+  it('B5.3: refused, with or without force, while the folder is not on its recorded branch; nothing committed or removed', async () => {
+    const { r, wt, project, dir } = setup();
+    await wt.create(project, 'x');
+    r.git(['switch', '-q', '--detach'], dir('x'));
+    fs.writeFileSync(path.join(dir('x'), 'w.txt'), 'w\n');
+    r.git(['add', 'w.txt'], dir('x'));
+    r.git(['commit', '-q', '-m', 'on detached'], dir('x'));
+    const head = r.git(['rev-parse', 'HEAD'], dir('x')).trim();
+    fs.writeFileSync(path.join(dir('x'), 'loose.txt'), 'l\n');
+    expect(await wt.status(project, 'x')).toMatchObject({ merged: false });
+    for (const force of [false, true]) {
+      expect(await wt.cleanup(project, 'x', { force })).toMatchObject({ ok: false, errorCode: 'worktree_off_branch' });
+      expect(fs.existsSync(path.join(dir('x'), 'loose.txt'))).toBe(true);
+      expect(r.git(['rev-parse', 'HEAD'], dir('x')).trim()).toBe(head);
+    }
+    expect(r.git(['branch', '--list', 'task/x'])).toContain('task/x');
+  });
+
+  it('B5.7: merged into a base the project folder is not on: the branch is deleted all the same', async () => {
+    const { r, wt, project, branches } = setup();
+    r.git(['branch', 'dev']);
+    const rec = await wt.createForTask(project, { taskId: 'T-1', base: 'dev', createdBy: 'cli' });
+    fs.writeFileSync(path.join(rec.path, 'w.txt'), 'w\n');
+    r.git(['add', 'w.txt'], rec.path);
+    r.git(['commit', '-q', '-m', 'w'], rec.path);
+    r.git(['branch', '-f', 'dev', rec.branch]); // merged into dev, not into main (the folder's HEAD)
+    expect(await wt.cleanup(project, rec.task)).toMatchObject({ ok: true, branchDeleted: true });
+    expect(branches()).not.toContain(rec.branch);
+  });
+
   it('a merged, clean worktree: removed, its branch deleted, the record closed', async () => {
     const { r, rec, wt, project, dir, branches, listed, records, work } = setup();
     await wt.create(project, 'x');

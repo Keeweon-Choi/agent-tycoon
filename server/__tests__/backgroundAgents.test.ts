@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { BACKGROUND_WAITING_MAX_MS } from '../src/constants.js';
 import {
   recoverBackgroundAgents,
   scanForBackgroundAgentFiles,
@@ -147,6 +148,33 @@ function subTurnDurationLine(): string {
   return JSON.stringify({ type: 'system', subtype: 'turn_duration' });
 }
 
+/** A finished sidecar's nested background spawn, either still waiting or ended. */
+function nestedBackgroundLines(ended = false): string[] {
+  const nestedToolId = 'toolu_nested';
+  const nestedTaskId = 'nested-task';
+  return [
+    JSON.stringify({
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: nestedToolId,
+            content: `Async agent launched successfully.\nagentId: ${nestedTaskId}`,
+          },
+        ],
+      },
+    }),
+    JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      content: ended
+        ? `<task-notification><task-id>${nestedTaskId}</task-id><tool-use-id>${nestedToolId}</tool-use-id><output>done</output></task-notification>`
+        : `<task-notification><task-id>${nestedTaskId}</task-id><tool-use-id>${nestedToolId}</tool-use-id><summary>Agent "nested" is waiting on its own background work</summary></task-notification>`,
+    }),
+  ];
+}
+
 describe('background spawns (teams OFF) classified by sidecar name', () => {
   let tmpRoot: string;
   let agents: AgentStateStore;
@@ -192,18 +220,21 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     transcriptLines?: string[];
     finished?: boolean;
     session?: string;
+    taskId?: string;
+    toolUseId?: string;
   }): string {
     const subagentsDir = path.join(tmpRoot, opts?.session ?? LEAD_SESSION, 'subagents');
     fs.mkdirSync(subagentsDir, { recursive: true });
-    const jsonlPath = path.join(subagentsDir, 'agent-a4cb86c99458dbe55.jsonl');
+    const taskId = opts?.taskId ?? 'a4cb86c99458dbe55';
+    const jsonlPath = path.join(subagentsDir, `agent-${taskId}.jsonl`);
     const lines = opts?.transcriptLines ?? [];
     fs.writeFileSync(jsonlPath, lines.length > 0 ? lines.join('\n') + '\n' : '');
     fs.writeFileSync(
-      path.join(subagentsDir, 'agent-a4cb86c99458dbe55.meta.json'),
+      path.join(subagentsDir, `agent-${taskId}.meta.json`),
       JSON.stringify({
         agentType: 'general-purpose',
         description: 'Say hello',
-        toolUseId: SPAWN_TOOL_ID,
+        toolUseId: opts?.toolUseId ?? SPAWN_TOOL_ID,
         spawnDepth: 1,
         ...(opts?.name ? { name: opts.name } : {}),
         ...(opts?.finished ? { finished: true } : {}),
@@ -241,6 +272,7 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     for (const t of pollingTimers.values()) clearInterval(t);
     pollingTimers.clear();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
@@ -665,6 +697,68 @@ describe('background spawns (teams OFF) classified by sidecar name', () => {
     age(jsonlPath, 12 * 60_000); // a long command: nothing written for 12 min
     watchLeadFromEof();
     expect(watch.isWatching(jsonlPath)).toBe(true);
+  });
+
+  it('recovers a finished spawn that is waiting on its own live background work', () => {
+    const nestedToolId = 'toolu_nested';
+    const nestedTaskId = 'nested-task';
+    const nestedLaunch = JSON.stringify({
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: nestedToolId,
+            content: `Async agent launched successfully.\nagentId: ${nestedTaskId}`,
+          },
+        ],
+      },
+    });
+    const nestedWaiting = JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      content: `<task-notification><task-id>${nestedTaskId}</task-id><tool-use-id>${nestedToolId}</tool-use-id><summary>Agent "nested" is waiting on its own background work</summary></task-notification>`,
+    });
+    const jsonlPath = seedSidecar({ transcriptLines: [nestedLaunch, nestedWaiting], finished: true });
+
+    watchLeadFromEof();
+
+    expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(true);
+    expect(watch.isWatching(jsonlPath)).toBe(true);
+  });
+
+  it('does not recover a finished spawn whose waiting nested child has been quiet past the limit', () => {
+    const jsonlPath = seedSidecar({ transcriptLines: nestedBackgroundLines(), finished: true });
+    age(jsonlPath, BACKGROUND_WAITING_MAX_MS + 1);
+
+    watchLeadFromEof();
+
+    expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(false);
+    expect(watch.isWatching(jsonlPath)).toBe(false);
+  });
+
+  it('does not recover a finished spawn whose nested child ended', () => {
+    const jsonlPath = seedSidecar({ transcriptLines: nestedBackgroundLines(true), finished: true });
+
+    watchLeadFromEof();
+
+    expect(lead.backgroundAgentToolIds.has(SPAWN_TOOL_ID)).toBe(false);
+    expect(watch.isWatching(jsonlPath)).toBe(false);
+  });
+
+  it('does not read stale finished sidecar transcripts during recovery', () => {
+    for (let i = 0; i < 30; i++) {
+      const jsonlPath = seedSidecar({
+        taskId: `a4cb86c99458d${i.toString(16).padStart(3, '0')}`,
+        toolUseId: `toolu_old_${i}`,
+        transcriptLines: nestedBackgroundLines(),
+        finished: true,
+      });
+      age(jsonlPath, BACKGROUND_WAITING_MAX_MS + 1);
+    }
+
+    expect(claudeTeamProvider.discoverTeammates(tmpRoot, LEAD_SESSION)).toHaveLength(30);
+    expect(recoverBackgroundAgents(1, agents)).toBe(false);
   });
 
   it('shows a resumed spawn again (SendMessage, no new spawn tool_use)', () => {

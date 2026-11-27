@@ -82,6 +82,19 @@ test('backup contains the allow list only and no seeded secret', () => {
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('after a full reset (the skip marker) a backup does not pick the kept ~/.pixel-agents layout up', () => {
+  const home = seed();
+  try {
+    fs.rmSync(get(home, 'pixel-agents/layout.json'));
+    const legacy = path.join(home, '.pixel-agents');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'layout.json'), 'kept');
+    assert.equal(archive(backup.backup(deps(home)).file).files['pixel-agents/layout.json'] !== undefined, true);
+    fs.writeFileSync(path.join(home, '.config', 'agent-tycoon', 'office', 'pixel-agents-skipped'), '');
+    assert.equal(Object.hasOwn(archive(backup.backup(deps(home)).file).files, 'pixel-agents/layout.json'), false);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('backup skips an oversized event log with a notice', () => {
   const home = seed();
   try {

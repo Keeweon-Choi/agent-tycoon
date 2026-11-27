@@ -23,6 +23,21 @@
 // record in the transcript and the turn's reply.
 // STATE-SYNC: FAKE-JOB N (a background shell: status `shell` N s) and FAKE-LONG N (a tool open N s).
 // DEVROOM-BOARD2: a resize (SIGWINCH) redraws the screen, row 2 ending in `|` at the PTY's last column.
+// T-81 C: a submitted bare `/model` opens the model picker as 2.1.322 draws it (the input box and
+// status line give way to "Select model" and its indented `❯` rows; no turn, no transcript record):
+// Up/Down move, Enter picks (one line {sessionId, model} in $HOME/fake-claude-model.log), Esc keeps
+// the model; either way the input box comes back with "⎿ Set model to …" / "⎿ Kept model as …".
+// T-169: and the transcript gets the command as 2.1.332 logs it: `user` records for a pick, two
+// `system` local_command records for Esc (a display-only result). A bare `/tasks` opens a dialog
+// that Esc or Enter closes writing nothing at all, as Claude Code's dialogs that end with display
+// "skip" do (the background tasks dialog, 2.1.332).
+// T-141: a submit containing FAKE-THINK N is a turn that writes its first text at once and thinks
+// on N s (30): busy, OSC working, the transcript quiet, so the messenger takes a command in it, and
+// Claude Code's spinner row "✻ Working… (Ns · esc to interrupt)" stays above a picker opened meanwhile.
+// T-99: an entry for this `-n` name in $HOME/.claude-mock/scenario-queue.json (the e2e builder's
+// claudeScenario().forAgent(name)) is played by e2e/fixtures/mock-claude-runner.cjs: its top-level steps
+// once the session is up, an `onPrompt` group instead of the echo reply when a submit contains its text.
+// A file under HOME, never a variable: the engine starts Claude with a clean environment.
 'use strict';
 const { spawn } = require('child_process');
 const crypto = require('crypto');
@@ -48,8 +63,19 @@ module.exports = function run(args) {
   let chordX = false;
   let last = '';
   let compactingSince = 0;
+  let thinkingSince = 0;
   /** Claude's own permission dialog is up (the hook gave no decision): `1` or `2` answers it. */
   let dialog = null;
+  /** T-81 C: the model picker is up, its pointed row; null when it is not. */
+  let picker = null;
+  /** T-169: the dialog up is `/tasks` (closes silently), not the model picker. */
+  let silent = false;
+  let model = 'Fable 5.2';
+  const MODELS = ['Default (recommended)', 'Opus 5.5', 'Fable 5.2', 'Sonnet 5.5', 'Haiku 5.5'];
+  const queue = path.join(HOME, '.claude-mock', 'scenario-queue.json');
+  const mock = fs.existsSync(queue) ? require('../../../e2e/fixtures/mock-claude-runner.cjs') : null;
+  const scenario = mock && mock.scenarioFor(HOME, name);
+  const mockContext = scenario && mock.buildContext(HOME, scenario, sessionId, cwd);
 
   const procStart = () => {
     try {
@@ -99,10 +125,18 @@ module.exports = function run(args) {
     out(` last: ${last.slice(0, 60)}\r\n`);
     const spin = compactingSince
       ? `✻ Compacting conversation… (${Math.round((Date.now() - compactingSince) / 1000)}s · esc to interrupt)`
-      : ' ✻ Working…';
+      : thinkingSince
+        ? `✻ Working… (${Math.round((Date.now() - thinkingSince) / 1000)}s · esc to interrupt)`
+        : ' ✻ Working…';
     out(status === 'busy' ? `${spin}\r\n` : '\r\n');
     if (dialog) out(' Bash command\r\n   rm -rf fake-build\r\n Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n');
-    out(`${'─'.repeat(40)}\r\n❯ ${input.replaceAll('\r', '⏎')}`);
+    if (picker !== null && silent) {
+      out(`${'▔'.repeat(40)}\r\n   Background tasks\r\n   No tasks currently running\r\n\r\n   Esc to close`);
+    } else if (picker !== null) {
+      out(`${'▔'.repeat(40)}\r\n   Select model\r\n   Switch between Claude models.\r\n\r\n`);
+      MODELS.forEach((m, i) => out(`   ${i === picker ? '❯' : ' '} ${i + 1}.  ${m}${m === model ? ' ✔' : ''}\r\n`));
+      out('\r\n   Enter to set as default · Esc to cancel');
+    } else out(`${'─'.repeat(40)}\r\n❯ ${input.replaceAll('\r', '⏎')}`);
     // DEVROOM-BOARD2: a row drawn by column like a real TUI's status line, ` cols=N` and `|` in the
     // last column (cursor kept): a viewer that parses this at another width than the PTY's shows
     // the `|` somewhere else (run-devroom-board2.ts checks it). Row 2 is blank and above the input box:
@@ -111,7 +145,8 @@ module.exports = function run(args) {
     out(`\x1b7\x1b[2;1H\x1b[2K cols=${cols}\x1b[2;${cols}H|\x1b8`);
   };
   process.stdout.on('resize', () => draw()); // after Node read the new size (a SIGWINCH listener runs before)
-  const askPermission = (skipHook) => {
+  /** `call` (tool_name, tool_input) and `then` (the answer) come from a scenario's turn. */
+  const askPermission = (skipHook, call, then) => {
     let hook;
     try {
       hook = JSON.parse(arg('--settings') || '{}').hooks.PermissionRequest[0].hooks[0];
@@ -124,6 +159,13 @@ module.exports = function run(args) {
     draw();
     const decided = (behavior) => {
       fs.appendFileSync(path.join(HOME, 'fake-claude-perm.log'), `${JSON.stringify({ sessionId, behavior })}\n`);
+      if (then) {
+        status = 'busy';
+        writeSession();
+        osc('working');
+        draw();
+        return then(behavior);
+      }
       record('assistant', `permission: ${behavior}`);
       status = 'idle';
       writeSession();
@@ -153,8 +195,9 @@ module.exports = function run(args) {
       JSON.stringify({
         session_id: sessionId,
         hook_event_name: 'PermissionRequest',
-        tool_name: 'Bash',
-        tool_input: { command: 'rm -rf fake-build', description: 'Fake permission check' },
+        ...(call || { tool_name: 'Bash', tool_input: { command: 'rm -rf fake-build', description: 'Fake permission check' } }),
+        session_id: sessionId,
+        hook_event_name: 'PermissionRequest',
       }),
     );
   };
@@ -162,6 +205,12 @@ module.exports = function run(args) {
     const text = input;
     input = '';
     if (!text) return draw();
+    // Exactly `/model`: a trailing space or the messenger's greyed hint would come in as a prompt.
+    if (text === '/model' || text === '/tasks') {
+      picker = MODELS.indexOf(model);
+      silent = text === '/tasks';
+      return draw();
+    }
     fs.appendFileSync(path.join(HOME, 'fake-claude-typed.log'), `${JSON.stringify({ name, sessionId, text: text.replaceAll('\r', '\n'), ...(now && { now }) })}\n`);
     record('user', text.replaceAll('\r', '\n'));
     last = text.replaceAll('\r', ' ');
@@ -169,6 +218,16 @@ module.exports = function run(args) {
     writeSession();
     osc('working');
     draw();
+    const turn = scenario && mock.turnFor(scenario, text);
+    if (turn) {
+      const ask = (p) => new Promise((resolve) => askPermission(false, { tool_name: p.tool_name, tool_input: p.tool_input }, resolve));
+      return void mock.playTurn(HOME, mockContext, turn.actions, ask).finally(() => {
+        status = 'idle';
+        writeSession();
+        osc('done');
+        draw();
+      });
+    }
     if (text.includes('FAKE-PERMISSION')) return askPermission(text.includes('FAKE-PERMISSION-TERMINAL'));
     const compact = /FAKE-COMPACT(?: (\d+))?/.exec(text);
     if (compact) {
@@ -188,6 +247,23 @@ module.exports = function run(args) {
         osc('done');
         draw();
       }, Number(compact[1] || 8) * 1000);
+    }
+    const think = /FAKE-THINK(?: (\d+))?/.exec(text);
+    if (think) {
+      thinkingSince = Date.now();
+      record('assistant', 'Let me think this through.');
+      draw();
+      return setTimeout(() => {
+        thinkingSince = 0;
+        fs.appendFileSync(
+          transcript,
+          `${JSON.stringify({ type: 'system', subtype: 'turn_duration', durationMs: Number(think[1] || 30) * 1000, uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId })}\n`,
+        );
+        status = 'idle';
+        writeSession();
+        osc('done');
+        draw();
+      }, Number(think[1] || 30) * 1000);
     }
     // STATE-SYNC: "FAKE-JOB N" starts a background shell (a training job) and ends its turn; the
     // session file then says `shell` (Claude Code: idle while a shell runs) for N s, then idle.
@@ -260,6 +336,7 @@ module.exports = function run(args) {
     writeSession();
     osc('idle');
     draw();
+    if (scenario && scenario.actions && scenario.actions.length) void mock.playTurn(HOME, mockContext, scenario.actions, () => Promise.resolve('allow'));
   };
   setTimeout(endProbe, 1_000);
   out('\x1b]7501;?\x07\x1b[c');
@@ -270,7 +347,8 @@ module.exports = function run(args) {
     let s = carry + chunk;
     carry = '';
     const cut = s.lastIndexOf('\x1b');
-    if (cut >= 0 && /^\x1b(\[[\d;?]*)?$/.test(s.slice(cut))) {
+    // A lone Esc closes the picker at once (no escape sequence follows it there).
+    if (cut >= 0 && !(picker !== null && s.slice(cut) === '\x1b') && /^\x1b(\[[\d;?]*)?$/.test(s.slice(cut))) {
       carry = s.slice(cut);
       s = s.slice(0, cut);
     }
@@ -291,9 +369,38 @@ module.exports = function run(args) {
         pasting = false;
         s = s.slice(6);
       } else if (s.startsWith('\x1b[')) {
-        // A terminal answer or a key we do not draw (CPR, arrows): dropped.
+        // A terminal answer or a key we do not draw (CPR, arrows): dropped, but in the picker.
         const m = /^\x1b\[[\d;?]*[A-Za-z~]/.exec(s);
         s = s.slice(m ? m[0].length : 2);
+        if (picker !== null && m && /[AB]$/.test(m[0]))
+          picker = (picker + (m[0].endsWith('A') ? MODELS.length - 1 : 1)) % MODELS.length;
+      } else if (picker !== null) {
+        const ch = s[0];
+        s = s.slice(1);
+        if ((ch === '\r' || ch === '\x1b') && silent) {
+          picker = null;
+          silent = false;
+        } else if (ch === '\r' || ch === '\x1b') {
+          const chosen = ch === '\r';
+          if (chosen) {
+            model = MODELS[picker];
+            fs.appendFileSync(path.join(HOME, 'fake-claude-model.log'), `${JSON.stringify({ sessionId, model })}\n`);
+          }
+          last = chosen ? `⎿ Set model to ${model}` : `⎿ Kept model as ${model}`;
+          picker = null;
+          const command = '<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args></command-args>';
+          const stdout = `<local-command-stdout>${chosen ? 'Set model to' : 'Kept model as'} \`${model}\`</local-command-stdout>`;
+          fs.mkdirSync(path.dirname(transcript), { recursive: true });
+          for (const content of [command, stdout])
+            fs.appendFileSync(
+              transcript,
+              `${JSON.stringify(
+                chosen
+                  ? { type: 'user', uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, message: { role: 'user', content } }
+                  : { type: 'system', subtype: 'local_command', content, level: 'info', uuid: crypto.randomUUID(), timestamp: new Date().toISOString(), sessionId, isMeta: false },
+              )}\n`,
+            );
+        }
       } else {
         const ch = s[0];
         s = s.slice(1);

@@ -64,4 +64,44 @@ describe('agtySeats', () => {
     const ch = office.characters.get(9)!;
     expect([ch.seatId, ch.tileCol, ch.tileRow]).toEqual(['seat:late', 7, 2]);
   });
+
+  it('B7.3: a rebuild while an agent despawns never gives its old chair back to it', () => {
+    const one = (): OfficeLayout => ({
+      version: 1,
+      cols: 8,
+      rows: 3,
+      tiles: new Array(24).fill(TileType.FLOOR_1),
+      furniture: [{ uid: 'seat:a', type: 'CHAIR', col: 1, row: 1 }],
+    });
+    const office = new OfficeState(one());
+    office.addAgent(1, 0, 0, 'seat:a', true);
+    office.removeAgent(1);
+    office.addAgent(2, 0, 0, 'seat:a', true);
+    expect(office.characters.get(2)!.seatId).toBe('seat:a');
+    office.rebuildFromLayout(one());
+    for (let t = 0; t < 1; t += 0.05) office.update(0.05);
+    expect(office.characters.has(1)).toBe(false);
+    expect(office.characters.get(2)!.seatId).toBe('seat:a');
+    expect(office.seats.get('seat:a')!.assigned).toBe(true);
+    // The same for a sub-agent that is removed: its seat is gone with it.
+    const two = (): OfficeLayout => ({
+      ...one(),
+      furniture: [
+        { uid: 'seat:a', type: 'CHAIR', col: 1, row: 1 },
+        { uid: 'seat:b', type: 'CHAIR', col: 2, row: 1 },
+      ],
+    });
+    const o2 = new OfficeState(two());
+    o2.addAgent(5, 0, 0, 'seat:a', true);
+    const sub = o2.addSubagent(5, 'tu');
+    o2.reassignSeat(sub, 'seat:b'); // the staff director seats a temp
+    expect(o2.characters.get(sub)!.seatId).toBe('seat:b');
+    o2.removeSubagent(5, 'tu');
+    o2.addAgent(6, 0, 0, 'seat:b', true);
+    o2.rebuildFromLayout(two());
+    for (let t = 0; t < 1; t += 0.05) o2.update(0.05);
+    expect(o2.characters.has(sub)).toBe(false);
+    expect(o2.characters.get(6)!.seatId).toBe('seat:b');
+    expect(o2.characters.get(5)!.seatId).toBe('seat:a');
+  });
 });

@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const { CLI_NAME } = require('./brand');
-const { configDirectory, officeDirectory, legacyOfficeDirectory } = require('../../core/src/agent-tycoon/configPath.cjs');
+const { configDirectory, officeDirectory, legacyOfficeDirectory, legacyOfficeSkipFile } = require('../../core/src/agent-tycoon/configPath.cjs');
 
 const BACKUP_FORMAT = 'agent-tycoon-backup';
 const BACKUP_VERSION = 1;
@@ -106,8 +106,8 @@ function allowedFiles(deps) {
   const config = configDirectory(deps.home);
   for (const relative of [...CONFIG_FILES, LAYOUT_ENTRY]) {
     let file = archivePath(deps.home, relative);
-    // ponytail: a daemon before 2026-11 kept it in ~/.pixel-agents; one release.
-    if (relative === LAYOUT_ENTRY && !regularFile(deps, file)) file = path.join(legacyOfficeDirectory(deps.home), 'layout.json');
+    // ponytail: a daemon before 2026-11 kept it in ~/.pixel-agents; one release (not after a full reset).
+    if (relative === LAYOUT_ENTRY && !regularFile(deps, file) && !deps.fs.existsSync(legacyOfficeSkipFile(deps.home))) file = path.join(legacyOfficeDirectory(deps.home), 'layout.json');
     if (!regularFile(deps, file)) continue;
     const size = deps.fs.lstatSync(file).size;
     if (size > MAX_FILE_SIZE && relative !== 'events.jsonl') continue;

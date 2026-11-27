@@ -93,10 +93,12 @@ export type ServerMessage =
   | ChatPendingResult
   | PermissionAnswerResult
   | SlashCommandsList
+  | SideAnswer
   | MessengerContacts
   | GroupRooms
   | GroupTimeline
   | GroupActionResult
+  | GroupThreadResult
   | EzRules
   | EngineState
   | EngineActionResult
@@ -184,11 +186,15 @@ export type ClientMessage =
   | ChatHold
   | PermissionAnswer
   | GroupView
+  | GroupThread
   | GroupPost
   | GroupAction
   | SlashCommands
+  | SideAsk
+  | SideCancel
   | EngineAction
   | EngineChoicesRefresh
+  | EngineChoicesWarm
   | EngineMoveAll
   | ProjectScan
   | EngineInheritable
@@ -1725,6 +1731,7 @@ export interface ChatSendResult {
   errorParams?: Record<string, string | number>;
   queueId?: string;
   messageId?: string;
+  screen?: 'picker';
 }
 
 export interface ChatPendingResult {
@@ -1758,6 +1765,7 @@ export interface SlashCommandsList {
   requestId: string;
   agentId: number;
   commands: SlashCommand[];
+  models?: CliModel[];
   error?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
@@ -1773,6 +1781,23 @@ export interface SlashCommand {
 }
 
 export type SlashCommandSource = 'builtin' | 'user' | 'project';
+
+export interface CliModel {
+  value: string;
+  displayName: string;
+}
+
+export interface SideAnswer {
+  type: 'sideAnswer';
+  requestId: string;
+  agentId: number;
+  ok: boolean;
+  text?: string;
+  model?: string;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
 
 export interface MessengerContacts {
   type: 'messengerContacts';
@@ -1790,6 +1815,7 @@ export interface MessengerContact {
   lastFromName?: string;
   canSend?: boolean;
   held?: boolean;
+  picker?: boolean;
   permission?: PermissionWait;
   room?: string;
   roomId?: string;
@@ -1851,6 +1877,7 @@ export interface GroupPostItem {
   system?: boolean;
   notice?: boolean;
   replies: GroupReply[];
+  loaded?: boolean;
 }
 
 export type GroupDelivery = 'pending' | 'delivered' | 'held' | 'off';
@@ -1859,10 +1886,21 @@ export interface GroupReply {
   member: string;
   messageId?: string;
   items: ChatItem[];
+  seen?: string[];
+  lastAt?: number;
 }
 
 export interface GroupActionResult {
   type: 'groupActionResult';
+  requestId: string;
+  ok: boolean;
+  error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+}
+
+export interface GroupThreadResult {
+  type: 'groupThreadResult';
   requestId: string;
   ok: boolean;
   error?: string;
@@ -1954,6 +1992,7 @@ export interface AgentChoices {
   version?: string;
   latest?: string;
   models: string[];
+  modelNames?: CliModel[];
   efforts: string[];
   permissionModes?: string[];
   defaultModel?: string;
@@ -2053,13 +2092,13 @@ export interface ProjectImportResult {
 export interface ProjectImportItemResult {
   folder: string;
   name: string;
-  status: AnonymousSchema_1095;
+  status: AnonymousSchema_1118;
   reason?: string;
   errorCode?: string;
   errorParams?: Record<string, string | number>;
 }
 
-export type AnonymousSchema_1095 = 'added' | 'skipped' | 'failed' | 'removed';
+export type AnonymousSchema_1118 = 'added' | 'skipped' | 'failed' | 'removed';
 
 export interface ProjectImportSuggestion {
   type: 'projectImportSuggestion';
@@ -2118,10 +2157,10 @@ export interface JobDigest {
 
 export interface JobDigestStep {
   name: string;
-  state: AnonymousSchema_1123;
+  state: AnonymousSchema_1146;
 }
 
-export type AnonymousSchema_1123 = 'done' | 'running' | 'failed' | 'waiting';
+export type AnonymousSchema_1146 = 'done' | 'running' | 'failed' | 'waiting';
 
 export interface JobDigestLine {
   text: string;
@@ -2774,7 +2813,7 @@ export interface ReviewNoteWrite {
   requestId: string;
   project: string;
   task: string;
-  op: AnonymousSchema_1451;
+  op: AnonymousSchema_1474;
   id?: string;
   file?: string;
   side?: 'new';
@@ -2783,7 +2822,7 @@ export interface ReviewNoteWrite {
   body?: string;
 }
 
-export type AnonymousSchema_1451 = 'add' | 'edit' | 'delete';
+export type AnonymousSchema_1474 = 'add' | 'edit' | 'delete';
 
 export interface ReviewSend {
   type: 'reviewSend';
@@ -2931,6 +2970,16 @@ export interface GroupView {
   on: boolean;
 }
 
+export interface GroupThread {
+  type: 'groupThread';
+  requestId: string;
+  room: string;
+  posts: string[];
+  mode?: AnonymousSchema_1566;
+}
+
+export type AnonymousSchema_1566 = 'probe' | 'fold';
+
 export interface GroupPost {
   type: 'groupPost';
   requestId: string;
@@ -2942,19 +2991,38 @@ export interface GroupPost {
 export interface GroupAction {
   type: 'groupAction';
   requestId: string;
-  action: AnonymousSchema_1544;
+  action: AnonymousSchema_1573;
   id?: string;
   name?: string;
   members?: string[];
   on?: boolean;
 }
 
-export type AnonymousSchema_1544 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
+export type AnonymousSchema_1573 = 'create' | 'rename' | 'delete' | 'setMembers' | 'systemLines';
 
 export interface SlashCommands {
   type: 'slashCommands';
   requestId: string;
   agentId: number;
+}
+
+export interface SideAsk {
+  type: 'sideAsk';
+  requestId: string;
+  agentId: number;
+  question: string;
+  model: string;
+  earlier: SideExchange[];
+}
+
+export interface SideExchange {
+  question: string;
+  answer: string;
+}
+
+export interface SideCancel {
+  type: 'sideCancel';
+  requestId: string;
 }
 
 export interface EngineAction {
@@ -2989,6 +3057,10 @@ export type EngineWhenIdle = 'wait' | 'cancel';
 
 export interface EngineChoicesRefresh {
   type: 'engineChoicesRefresh';
+}
+
+export interface EngineChoicesWarm {
+  type: 'engineChoicesWarm';
 }
 
 export interface EngineMoveAll {
@@ -3153,12 +3225,12 @@ export interface PushSubscribe {
   kindsOff?: NoticeKind[];
   subagents: boolean;
   remoteTurnEnds?: boolean;
-  lang?: AnonymousSchema_1654;
+  lang?: AnonymousSchema_1694;
 }
 
 export type NoticeKind = 'turnEnd' | 'attention' | 'job' | 'reply';
 
-export type AnonymousSchema_1654 = 'en' | 'ko';
+export type AnonymousSchema_1694 = 'en' | 'ko';
 
 export interface PushUnsubscribe {
   type: 'pushUnsubscribe';
@@ -3230,19 +3302,19 @@ export interface AgentCliRecheck {
 
 export interface AgentRulesRequest {
   type: 'agentRulesRequest';
-  language: AnonymousSchema_1683;
+  language: AnonymousSchema_1723;
   text?: string;
   useBuiltInRules?: boolean;
 }
 
-export type AnonymousSchema_1683 = 'ko' | 'en';
+export type AnonymousSchema_1723 = 'ko' | 'en';
 
 export interface NewAgentPermissionRequest {
   type: 'newAgentPermissionRequest';
-  mode: AnonymousSchema_1687;
+  mode: AnonymousSchema_1727;
 }
 
-export type AnonymousSchema_1687 = 'ask' | 'bypass';
+export type AnonymousSchema_1727 = 'ask' | 'bypass';
 
 export interface DelegationDecision {
   type: 'delegationDecision';

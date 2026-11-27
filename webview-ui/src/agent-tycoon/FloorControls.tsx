@@ -723,8 +723,8 @@ export function FloorPicker() {
         onTouchCancel={() => (touch.current = null)}
       >
         <span className="agty-updown">
-          <Arrow />
-          <Arrow down />
+          <StepArrow />
+          <StepArrow down />
         </span>
         {shown + 1}F
         {alarm && <span className={`agty-dot ${alarm === 'permission' ? 'agty-permission' : ''}`} />}

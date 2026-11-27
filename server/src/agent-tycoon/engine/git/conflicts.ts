@@ -98,14 +98,18 @@ async function merging(run: GitRunner, wt: string): Promise<boolean> {
   return (await operationInProgress(run, wt)) === 'merge';
 }
 
-/** Read a conflicted file of the worktree: never through a link, never outside it. */
+/** B5.6: a file in another encoding (CP949, Latin-1) is not read: resolveFile writes the whole
+ *  text back, and decoding would turn every such byte into U+FFFD. */
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }); // a BOM stays in the text
+
+/** Read a conflicted UTF-8 file of the worktree: never through a link, never outside it. */
 function readInside(wt: string, rel: string): string | null {
   const file = path.resolve(wt, rel);
   if (!file.startsWith(wt + path.sep)) return null;
   try {
     const st = fs.lstatSync(file);
     if (!st.isFile() || st.size > CONFLICT_TEXT_MAX) return null;
-    const text = fs.readFileSync(file, 'utf-8');
+    const text = STRICT_UTF8.decode(fs.readFileSync(file)); // throws on bytes that are not UTF-8
     return text.includes('\0') ? null : text;
   } catch {
     return null;

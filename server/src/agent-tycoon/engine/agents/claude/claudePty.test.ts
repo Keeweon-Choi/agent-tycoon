@@ -4,12 +4,15 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { transcriptPath } from '../../../providers/claudeProvider.js';
 import { PtyHostClient } from '../../../ptyhost/client.js';
 import type { ProgramStatus } from '../../../ptyhost/programStatus.js';
 import { ptyhostPaths } from '../../../ptyhost/protocol.js';
+import { EngineEvents, eventsPath } from '../../events.js';
+import type { MessengerEngine } from '../../messenger.js';
+import { Messenger } from '../../messenger.js';
 import type { ProjectRecord } from '../../registry.js';
 import { ClaudeAgent } from './claude.js';
 import { ClaudePtyAgent, folderTrusted, ptyArgs, ptyEnv } from './claudePty.js';
@@ -57,7 +60,12 @@ function fakeHost() {
 }
 
 /** A temp HOME where our host runs terminal `abcd1234` = this process, with its session file. */
-function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: PtyHostClient) {
+function rig(
+  fileStatus: string,
+  platform: NodeJS.Platform = 'linux',
+  client?: PtyHostClient,
+  timing: { submitMs?: number; slashMs?: number; shownMs?: number } = {},
+) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agty-claudepty-'));
   homes.push(home);
   const pid = process.pid;
@@ -66,10 +74,19 @@ function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: P
   const procStart = stat?.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
   const sessions = path.join(home, '.claude/sessions');
   fs.mkdirSync(sessions, { recursive: true });
-  const writeSession = (status: string) =>
+  const writeSession = (status: string, statusUpdatedAt?: number) =>
     fs.writeFileSync(
       path.join(sessions, `${pid}.json`),
-      JSON.stringify({ pid, procStart, sessionId: 's-1', cwd: '/work/alpha', kind: 'interactive', name: 'alpha', status }),
+      JSON.stringify({
+        pid,
+        procStart,
+        sessionId: 's-1',
+        cwd: '/work/alpha',
+        kind: 'interactive',
+        name: 'alpha',
+        status,
+        ...(statusUpdatedAt !== undefined && { statusUpdatedAt }),
+      }),
     );
   writeSession(fileStatus);
   fs.mkdirSync(ptyhostPaths(home).dir, { recursive: true });
@@ -87,7 +104,7 @@ function rig(fileStatus: string, platform: NodeJS.Platform = 'linux', client?: P
     hostScript: '/x/agty-ptyhost.js',
     log: () => undefined,
     client: client ?? host.client,
-    timing: { enterMs: 50, submitMs: 300, retryMs: 80, pollMs: 10 },
+    timing: { enterMs: 50, submitMs: 300, retryMs: 80, pollMs: 10, pickerMs: 20, slashMs: 150, ...timing },
     platform,
   });
   const transcript = transcriptPath('/work/alpha', 's-1', home);
@@ -200,6 +217,12 @@ describe('claude-pty live sessions', () => {
     expect(agent.pids()).toEqual(new Set([process.pid]));
     host.status.set('abcd1234', { state: 'blocked', kind: 'permission' });
     expect(agent.live()[0].status).toBe('waiting');
+  });
+
+  it('returns the session file statusUpdatedAt as the terminal session statusAt', () => {
+    const { agent, writeSession } = rig('idle');
+    writeSession('idle', 123_456);
+    expect(agent.live()).toEqual([expect.objectContaining({ statusAt: 123_456 })]);
   });
 
   it("the --bg provider leaves out the host's pids (one conversation, one holder)", () => {
@@ -458,8 +481,13 @@ describe('MSG-RECALL: a delivery never submits a prompt that is not its own (11-
  * shows whole (no placeholder), as the laptop's did, unless `fold`: then a multi-line box shows as
  * Claude's `[Pasted text #<n> +<line breaks> lines]`, `#n` counting every paste up (ours, and the
  * owner's own through `setBox`). `onSwallow` runs at each Enter lost. `blindRead(k)`: the k-th screen read fails.
+ * `imageMs` (T-165, Claude Code 2.1.330's paste handler): a paste with a line ending in an image
+ * extension stays out of the box this long (its clipboard look-up), an Enter meanwhile is dropped,
+ * then it shows; `attach`: as `[Image #1]` before its placeholder (that path cut out: a line less).
+ * What the box showed before a paste (a draft, or a person's placeholder) stays shown before ours. `frames(...)`:
+ * the next looks read those Claude Code screens instead (a dialog in the box's place); `onPaste` runs at each paste.
  */
-function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
+function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean; imageMs?: number; attach?: boolean }) {
   const client = new PtyHostClient({ home: '/nonexistent', launch: () => undefined, log: () => undefined });
   const writes: string[] = [];
   const submitted: string[] = [];
@@ -468,9 +496,17 @@ function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
   let reads = 0;
   let blindAt = 0;
   let swallow = o.swallow ?? 0;
+  let inFlight = false;
+  let attached = false;
+  /** Where our paste starts in the box (-1: none yet), and what the box showed before it. */
+  let start = -1;
+  let lead = '';
+  const frames: string[] = [];
   let onSubmit: (text: string) => void = () => undefined;
   let onSwallow: () => void = () => undefined;
+  let onPaste: () => void = () => undefined;
   const enter = () => {
+    if (inFlight) return; // dropped, never replayed
     if (swallow > 0) {
       swallow--;
       return onSwallow();
@@ -479,6 +515,9 @@ function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
     submitted.push(box);
     onSubmit(box);
     box = '';
+    attached = false;
+    start = -1;
+    lead = '';
   };
   const key = (ch: string) => (ch === '\r' ? enter() : (box += ch));
   const c = client as unknown as Record<string, unknown>;
@@ -489,19 +528,40 @@ function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
       writes.push(d);
       if (d.startsWith('\x1b[200~')) {
         const inner = d.slice(6, -6);
+        lead = shown();
+        start = box.length;
         pastes++;
-        if (o.markers) box += inner.replaceAll('\r', '\n');
+        if (o.imageMs && inner.split(/[\r\n]/).some((l) => /\.(png|jpe?g|gif|webp)$/i.test(l.trim()))) {
+          inFlight = true;
+          setTimeout(() => {
+            box += inner.replaceAll('\r', '\n');
+            attached = !!o.attach;
+            inFlight = false;
+          }, o.imageMs);
+        } else if (o.markers) box += inner.replaceAll('\r', '\n');
         else for (const ch of inner) key(ch);
+        onPaste();
       } else for (const ch of d) key(ch);
     }
     return Promise.resolve({ ok: true });
   };
+  const folded = (pasted: string) =>
+    `${attached ? '[Image #1] ' : ''}[Pasted text #${pastes} +${pasted.split('\n').length - 1 - (attached ? 1 : 0)} lines]`;
+  function shown(): string {
+    const pasted = box.slice(Math.max(start, 0));
+    return lead + (o.fold && pasted.includes('\n') ? folded(pasted) : pasted);
+  }
   const screen = () =>
-    `\x1b[2J\x1b[H${RULE}\r\n${(o.fold && box.includes('\n') ? `[Pasted text #${pastes} +${box.split('\n').length - 1} lines]` : box)
+    `\x1b[2J\x1b[H${RULE}\r\n${shown()
       .split('\n')
       .map((l, i) => `${i ? '  ' : '❯ '}${l}`)
       .join('\r\n')}\r\n${RULE}\r\n  ? for shortcuts`;
-  c.screen = () => Promise.resolve(++reads === blindAt ? null : { snapshot: screen(), cols: 100, rows: 30 });
+  c.screen = () => {
+    if (++reads === blindAt) return Promise.resolve(null);
+    const frame = frames.shift();
+    if (frame) return Promise.resolve({ snapshot: `\x1b[2J\x1b[H${shot(frame).join('\r\n')}`, cols: 120, rows: 40 });
+    return Promise.resolve({ snapshot: screen(), cols: 100, rows: 30 });
+  };
   return {
     client,
     writes,
@@ -510,7 +570,12 @@ function conptyHost(o: { markers: boolean; swallow?: number; fold?: boolean }) {
     setBox: (b: string) => {
       if (b.includes('\n')) pastes++;
       box = b;
+      start = -1;
+      lead = '';
     },
+    frames: (...names: string[]) => frames.push(...names),
+    looks: () => reads,
+    onPaste: (f: () => void) => (onPaste = f),
     blindRead: (k: number) => (blindAt = k),
     setSwallow: (n: number) => (swallow = n),
     onSubmit: (f: (text: string) => void) => (onSubmit = f),
@@ -608,7 +673,7 @@ describe('TYPIST-STALE: a typed message is submitted once, whole, or it says so 
     expect(h.submitted).toEqual([]);
   });
 
-  it('a folded paste left unsubmitted is still ours by its #n: the next try (forced or not) presses Enter only, no second copy', async () => {
+  it('a folded paste left unsubmitted is still ours by what the box showed (its #n in it): the next try (forced or not) presses Enter only, no second copy', async () => {
     for (const force of [true, false]) {
       const h = conptyHost({ markers: true, fold: true, swallow: 99 });
       const { agent, submit } = rig('idle', 'linux', h.client);
@@ -632,11 +697,11 @@ describe('TYPIST-STALE: a typed message is submitted once, whole, or it says so 
     expect(h.submitted).toEqual([]);
   });
 
-  it('no #n read after our paste (a screen we could not read): the placeholder there is no one\'s, no retry Enter on it', async () => {
+  it('nothing read after our paste (a screen we could not read): the placeholder there is no one\'s, no retry Enter on it', async () => {
     const h = conptyHost({ markers: true, fold: true, swallow: 1 });
     const { agent, submit } = rig('idle', 'linux', h.client);
     h.onSubmit(submit);
-    h.blindRead(2); // the first read is the box check (free); the second reads the `#n` after our paste
+    h.blindRead(2); // the first read is the box check (free); the second reads the box after our paste
     expect(await agent.deliver(lead, LONG, { messageId: 'longlong' })).toBe('lost');
     expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
     expect(h.submitted).toEqual([]);
@@ -662,6 +727,668 @@ describe('TYPIST-STALE: a typed message is submitted once, whole, or it says so 
     }
     expect(h.writes).toEqual([]);
     expect(h.submitted).toEqual([]);
+  });
+});
+
+describe('T-165: a paste Claude Code checks for an image path is entered once it shows (11-22 21:39)', () => {
+  // As the incident's: folded, a line ending in `.png`.
+  const IMG = '[agty · beta에게서 · 11-22 21:39] ⟨m:pngpaste⟩\n결과 사진\n  - 전: shot-before-{chromium,webkit}-{390x664,1280x800}-{1,3}.png\n확인 부탁';
+
+  it('the box stays empty past the paste delay and drops an Enter meanwhile: Enter goes once the placeholder shows, typed', async () => {
+    const h = conptyHost({ markers: true, fold: true, imageMs: 200 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(h.writes.filter((w) => w.startsWith('\x1b[200~'))).toHaveLength(1);
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([IMG]);
+  });
+
+  for (const attach of [false, true])
+    it(`no Enter takes: unsubmitted; the next try presses Enter only (${attach ? '[Image #1] + placeholder' : 'one placeholder'})`, async () => {
+      const h = conptyHost({ markers: true, fold: true, imageMs: 100, attach, swallow: 99 });
+      const { agent, submit } = rig('idle', 'linux', h.client);
+      h.onSubmit(submit);
+      expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('unsubmitted');
+      expect(h.writes.filter((w) => w === '\r')).toHaveLength(3); // Enter, then PTY_SUBMIT_RETRIES more
+      h.setSwallow(0);
+      h.writes.length = 0;
+      expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+      expect(h.writes).toEqual(['\r']); // no second paste
+      expect(h.submitted).toEqual([IMG]);
+    });
+
+  it("a permission dialog takes the box's place after our paste for the whole wait: no Enter into it, inputBusy", async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client, { shownMs: 100 }); // 10 looks of 10 ms
+    h.onSubmit(submit);
+    h.onPaste(() => h.frames(...Array<string>(20).fill('permission-prompt')));
+    // inputBusy, not notReady: our paste may sit behind the dialog (a 지금 보내기 kept would paste it twice).
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('inputBusy');
+    expect(h.looks()).toBe(1 + 10); // the box check, then every look of the wait
+    expect(h.writes.filter((w) => w === '\r')).toEqual([]);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it('a drawn screen with no input row that stays (our own long text, its prompt row scrolled off, reads like that): Enter after three such looks, not held back', async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    let looksAtEnter = -1;
+    h.onPaste(() => h.frames(...Array<string>(20).fill('picker-model')));
+    const write = (h.client as unknown as { write: (id: string, d: string) => Promise<unknown> }).write.bind(h.client);
+    (h.client as unknown as { write: (id: string, d: string) => Promise<unknown> }).write = (id, d) => {
+      if (d === '\r' && looksAtEnter < 0) looksAtEnter = h.looks();
+      return write(id, d);
+    };
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(looksAtEnter).toBe(1 + 3); // the box check, then PTY_PASTE_ROWLESS_LOOKS looks
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([IMG]);
+  });
+
+  /** h.looks() when the first Enter was written (-1: none). */
+  const looksAtEnter = (h: ReturnType<typeof conptyHost>) => {
+    const at = { looks: -1 };
+    const c = h.client as unknown as { write: (id: string, d: string) => Promise<unknown> };
+    const write = c.write.bind(h.client);
+    c.write = (id, d) => {
+      if (d === '\r' && at.looks < 0) at.looks = h.looks();
+      return write(id, d);
+    };
+    return at;
+  };
+
+  it("our own long text that quotes a permission screen is no dialog: Enter after three such looks, typed, one copy", async () => {
+    const rows = shot('permission-prompt');
+    const QUOTE = `[agty · beta에게서 · 11-23 16:00] ⟨m:quotedlg⟩\n${rows.slice(rows.findIndex((r) => r.startsWith('─')) + 1).join('\n')}`;
+    const h = conptyHost({ markers: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    const at = looksAtEnter(h);
+    // Unfolded, it fills the screen: the looks after our paste read exactly that permission screen.
+    h.onPaste(() => h.frames(...Array<string>(20).fill('permission-prompt')));
+    expect(await agent.deliver(lead, QUOTE, { messageId: 'quotedlg' })).toBe('typed');
+    expect(at.looks).toBe(1 + 3);
+    expect(h.writes.filter((w) => w.startsWith('\x1b[200~'))).toHaveLength(1);
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([QUOTE]);
+  });
+
+  for (const how of ['osc', 'file'] as const)
+    it(`the session waits on a permission right after our paste (${how === 'osc' ? 'OSC blocked' : 'session file waiting'}): no Enter, inputBusy; the next try presses Enter only`, async () => {
+      const h = conptyHost({ markers: true, fold: true });
+      const { agent, submit, writeSession } = rig('idle', 'linux', h.client);
+      h.onSubmit(submit);
+      // The screen shows our placeholder (a narrow viewer may wrap the dialog past the screen test).
+      h.onPaste(() => (how === 'osc' ? h.client.status.set('abcd1234', { state: 'blocked' }) : writeSession('waiting')));
+      expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('inputBusy');
+      expect(h.writes.filter((w) => w === '\r')).toEqual([]);
+      h.client.status.delete('abcd1234');
+      writeSession('idle');
+      h.writes.length = 0;
+      expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+      expect(h.writes).toEqual(['\r']); // the placeholder was remembered as ours: no second copy
+      expect(h.submitted).toEqual([IMG]);
+    });
+
+  it('a rowless run broken by another reading starts its count again', async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    const at = looksAtEnter(h);
+    h.onPaste(() => h.frames('picker-model', 'picker-model', 'input-empty', 'picker-model', 'picker-model', 'picker-model'));
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(at.looks).toBe(1 + 6);
+  });
+
+  it('a permission dialog seen, then three rowless looks: Enter goes (the dialog is gone; no input row is our long text)', async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    const at = looksAtEnter(h);
+    h.onPaste(() => h.frames('permission-prompt', 'picker-model', 'picker-model', 'picker-model'));
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(at.looks).toBe(1 + 4);
+  });
+
+  it('one frame with no input row (caught mid-redraw), then the placeholder: Enter after it shows, typed', async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.onPaste(() => h.frames('picker-model'));
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(h.writes.filter((w) => w.startsWith('\x1b[200~'))).toHaveLength(1);
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([IMG]);
+  });
+
+  it('a dialog after our paste, then a screen that cannot be read: no Enter, inputBusy', async () => {
+    const h = conptyHost({ markers: true, fold: true });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.onPaste(() => h.frames('permission-prompt'));
+    h.blindRead(3); // the box check, the dialog, then no screen
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('inputBusy');
+    expect(h.writes.filter((w) => w === '\r')).toEqual([]);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it("a person's pasted draft the box check could not see, our folded paste after it: two placeholders are not remembered as ours", async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.setBox('내 로그 1\n2\n3\n4\n5\n6\n7\n8'); // [Pasted text #1 +7 lines]
+    h.blindRead(1);
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it("a draft the box check could not see, our paste after it: that reading is not remembered as ours, no retry Enter on it", async () => {
+    const h = conptyHost({ markers: true, fold: true, swallow: 1 });
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.setBox('내가 쓰던 글');
+    h.blindRead(1); // the box check reads no screen: free
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('lost');
+    expect(h.writes.filter((w) => w === '\r')).toHaveLength(1);
+    expect(h.submitted).toEqual([]);
+  });
+
+  it('an unreadable screen adds no wait: one look before the paste, one after, then Enter', async () => {
+    const { agent, host, submit } = rig('idle');
+    let reads = 0;
+    let readsAtEnter = -1;
+    (host.client as unknown as { screen: () => Promise<null> }).screen = () => {
+      reads++;
+      return Promise.resolve(null);
+    };
+    host.react((d) => {
+      if (d !== '\r') return;
+      readsAtEnter = reads;
+      host.status.set('abcd1234', { state: 'working' });
+      submit(IMG);
+    });
+    expect(await agent.deliver(lead, IMG, { messageId: 'pngpaste' })).toBe('typed');
+    expect(readsAtEnter).toBe(2);
+  });
+});
+
+const SCREENS = path.join(__dirname, '../../../fixtures/claude-screens');
+/** A 120x40 screen of Claude Code 2.1.322, as its fixture has it (fixtures/claude-screens/README.md). */
+const shot = (name: string): string[] =>
+  fs.readFileSync(path.join(SCREENS, `${name}.txt`), 'utf-8').replace(/\n$/, '').split('\n');
+
+/**
+ * T-81: a fake Claude Code 2.1.322 over our real host client, drawing the screens captured from
+ * the real CLI. Enter on `/model` or `/config` opens its picker in the place of the input box:
+ * after `openMs`, while the CLI is busy and keys queue up behind that Enter, as in a real terminal.
+ * Whatever is written while a picker is up, or queued behind the Enter that opens it, went INTO
+ * the picker (`intoPicker`): an Enter there picks its pointed row (11-11: auto-compact turned
+ * off). `swallow` Enters are lost first (TYPIST-STALE). Anything else in the box is submitted and
+ * starts a turn. `open` and `close` are the owner's own keys at the terminal. `turn`: a turn runs
+ * from the start (T-141: the spinner row stays above a picker opened meanwhile).
+ */
+function pickerHost(o: { openMs?: number; swallow?: number; turn?: boolean } = {}) {
+  const client = new PtyHostClient({ home: '/nonexistent', launch: () => undefined, log: () => undefined });
+  const PICKER: Record<string, string> = { '/model': 'picker-model', '/config': 'dialog-config-search' };
+  const TYPED: Record<string, string> = {
+    '/model': 'input-slash-suggestions',
+    '/config': 'input-slash-suggestions-after-a-command',
+  };
+  const writes: string[] = [];
+  const intoPicker: string[] = [];
+  const submitted: string[] = [];
+  let box = '';
+  /** The picker's screen while one is up. */
+  let picker: string | null = null;
+  /** Keys queued behind the Enter that opens a picker. */
+  let queued: string[] | null = null;
+  let swallow = o.swallow ?? 0;
+  let turn = !!o.turn;
+  let onSubmit: (text: string) => void = () => undefined;
+  const key = (d: string): void => {
+    if (picker) return void intoPicker.push(d);
+    if (queued) return void queued.push(d);
+    if (d.startsWith('\x1b[200~')) return void (box += d.slice(6, -6));
+    if (d !== '\r') return void (box += d);
+    if (swallow > 0) return void swallow--;
+    if (!box) return;
+    const opens = PICKER[box];
+    if (!opens) {
+      submitted.push(box);
+      turn = true;
+      onSubmit(box);
+      box = '';
+      return;
+    }
+    const open = () => {
+      box = '';
+      picker = opens;
+      intoPicker.push(...(queued ?? []));
+      queued = null;
+    };
+    if (!o.openMs) return open();
+    queued = [];
+    setTimeout(open, o.openMs);
+  };
+  const input = (): string[] => {
+    if (TYPED[box]) return shot(TYPED[box]);
+    if (turn && !box) return shot('turn-running');
+    const rows = shot('input-after-picker-closed');
+    // The prompt glyph and its no-break space; a multi-line paste shows as its placeholder.
+    rows[36] = `❯ ${box.includes('\n') ? `[Pasted text #1 +${box.split('\n').length - 1} lines]` : box}`;
+    return rows;
+  };
+  const c = client as unknown as Record<string, unknown>;
+  c.connect = () => Promise.resolve();
+  c.call = (op: string, f: { data?: string }) => {
+    if (op === 'write' && f.data !== undefined) {
+      writes.push(f.data);
+      key(f.data);
+    }
+    return Promise.resolve({ ok: true });
+  };
+  /** Looks left that catch the screen mid-redraw: the rows from the input box's top rule down erased, the box not drawn yet. */
+  let redraws = 0;
+  const drawn = (): string[] => {
+    const rows = picker ? shot(turn && picker === 'picker-model' ? 'picker-model-turn-running' : picker) : input();
+    if (redraws <= 0) return rows;
+    redraws--;
+    return rows.map((r, i) => (i >= 35 ? '' : r));
+  };
+  c.screen = () => Promise.resolve({ snapshot: `\x1b[2J\x1b[H${drawn().join('\r\n')}`, cols: 120, rows: 40 });
+  return {
+    client,
+    redraw: (looks = 1) => (redraws = looks),
+    writes,
+    intoPicker,
+    submitted,
+    open: (screen = 'picker-model') => (picker = screen),
+    close: () => (picker = null),
+    onSubmit: (f: (text: string) => void) => (onSubmit = f),
+  };
+}
+
+describe('T-81: a picker or dialog a slash command opened takes no key from us (11-11: a blind Enter in /config)', () => {
+  const MSG = '[사장 · 메신저 · 11-13 14:12] ⟨m:pickerab⟩\n> agty: 모델을 바꿀까요?\n아니, 그대로 둬';
+  const paste = (text: string) => `\x1b[200~${text}\x1b[201~`;
+
+  it('held knows a picker: the session waits on its terminal while one is up, whoever opened it', async () => {
+    const h = pickerHost();
+    const { agent } = rig('idle', 'linux', h.client);
+    const held = () => agent.held(agent.live()[0]);
+    expect(await held()).toBe(false); // the input box
+    // The model picker, the settings dialog, and that dialog after one Esc (still open: only its focus moved);
+    // then dialogs with no pointed row (hand-made copies: its Status tab, a search that matches nothing).
+    for (const screen of [
+      'picker-model',
+      'dialog-config-search',
+      'dialog-config-list',
+      'dialog-settings-status',
+      'dialog-config-no-match',
+    ]) {
+      h.open(screen);
+      expect(await held(), screen).toBe(true);
+      h.close();
+      expect(await held(), screen).toBe(false);
+    }
+    expect(h.writes).toEqual([]); // looking never types
+  });
+
+  it('nothing is typed into an open picker: no paste, no Enter, forced or not, a message or a command; closed, the message goes in', async () => {
+    const h = pickerHost();
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    h.open('dialog-config-list'); // the owner's own /config at the terminal, one Esc pressed
+    const tries = [
+      await agent.deliver(lead, MSG, { messageId: 'pickerab' }),
+      // 지금 보내기 skips the input box check only: a picker takes it no more than a permission prompt does.
+      await agent.deliver(lead, MSG, { messageId: 'pickerab', force: true }),
+      await agent.deliver(lead, '/compact', {}),
+    ];
+    expect(h.writes).toEqual([]);
+    expect(tries).toEqual(['notReady', 'notReady', 'notReady']);
+    h.close(); // Esc at the terminal
+    expect(await agent.deliver(lead, MSG, { messageId: 'pickerab' })).toBe('typed');
+    expect(h.submitted).toEqual([MSG]);
+    expect(h.intoPicker).toEqual([]);
+  });
+
+  it('a frame caught mid-redraw (the input box erased, not drawn yet) is no picker: one look is never the verdict', async () => {
+    const h = pickerHost();
+    const { agent, submit } = rig('idle', 'linux', h.client);
+    h.onSubmit(submit);
+    // held() gates restart and move too: one unlucky frame must not refuse them.
+    h.redraw();
+    expect(await agent.held(agent.live()[0])).toBe(false);
+    // Nor hold a message back: the box check looks again and finds the input box.
+    h.redraw();
+    expect(await agent.deliver(lead, MSG, { messageId: 'pickerab' })).toBe('typed');
+    expect(h.submitted).toEqual([MSG]);
+    expect(h.intoPicker).toEqual([]);
+  });
+
+  it('nor into a dialog with no pointed row (the settings Status tab: no input row is no place to type)', async () => {
+    const h = pickerHost();
+    const { agent } = rig('idle', 'linux', h.client);
+    h.open('dialog-settings-status');
+    expect(await agent.deliver(lead, MSG, { messageId: 'pickerab', force: true })).toBe('notReady');
+    expect(h.writes).toEqual([]);
+  });
+
+  for (const [command, what] of [
+    ['/model', 'the model picker'],
+    ['/config', 'the settings dialog'],
+  ])
+    it(`our own ${command} opens ${what}: one paste, one Enter, and the delivery says a picker is open`, async () => {
+      const h = pickerHost();
+      const { agent } = rig('idle', 'linux', h.client);
+      const r = await agent.deliver(lead, command, {});
+      expect(h.intoPicker).toEqual([]);
+      expect(h.writes).toEqual([paste(command), '\r']);
+      expect(r).toBe('pickerOpen');
+      // The command is in. From here the session waits on its terminal and takes nothing more.
+      expect(await agent.held(agent.live()[0])).toBe(true);
+      expect(await agent.deliver(lead, MSG, { messageId: 'pickerab' })).toBe('notReady');
+      expect(h.writes).toHaveLength(2);
+    });
+
+  it('a picker that opens late (a busy CLI) gets no second Enter: a slash command is entered once per delivery', async () => {
+    // Its Enter is taken, but the picker is drawn only after our retry would have looked: the
+    // box still shows the command, and an Enter pressed again would queue up and pick a row.
+    const h = pickerHost({ openMs: 200 });
+    const { agent } = rig('idle', 'linux', h.client, { submitMs: 1_000 });
+    const r = await agent.deliver(lead, '/config', {});
+    expect(h.intoPicker).toEqual([]); // an Enter here would have flipped the pointed setting
+    expect(h.writes).toEqual([paste('/config'), '\r']);
+    expect(r).toBe('pickerOpen');
+  });
+
+  it('an Enter that did not take on a slash command is not pressed again by that delivery: unsubmitted, and the next try enters it once', async () => {
+    const h = pickerHost({ swallow: 1 });
+    const { agent } = rig('idle', 'linux', h.client);
+    const first = await agent.deliver(lead, '/model', {});
+    expect(h.writes).toEqual([paste('/model'), '\r']);
+    expect(first).toBe('unsubmitted');
+    h.writes.length = 0;
+    // The command still whole in the box: Enter only (never a second paste), after a fresh look.
+    expect(await agent.deliver(lead, '/model', {})).toBe('pickerOpen');
+    expect(h.writes).toEqual(['\r']);
+    expect(h.intoPicker).toEqual([]);
+  });
+
+  // T-141 (11-13 18:47): the owner's bare /model from the phone to the Lead in the middle of a turn.
+  // The CLI opened its picker, but the delivery said `typed` at its first look at a working session
+  // (no message mark to wait for), so the messenger showed no sheet and held nothing behind it.
+  it('a /model sent to a Lead in the middle of a turn opens its picker: the delivery says so, and nothing more goes in', async () => {
+    const h = pickerHost({ turn: true });
+    const { agent } = rig('busy', 'linux', h.client);
+    h.client.status.set('abcd1234', { state: 'working' });
+    expect(await agent.deliver(lead, '/model', {})).toBe('pickerOpen');
+    expect(h.writes).toEqual([paste('/model'), '\r']);
+    // The guard before any later message knows the picker with the spinner row above it.
+    expect(await agent.held(agent.live()[0])).toBe(true);
+    for (const o of [{ messageId: 'pickerab' }, { messageId: 'pickerab', now: true }, { messageId: 'pickerab', force: true }])
+      expect(await agent.deliver(lead, MSG, o), JSON.stringify(o)).toBe('notReady');
+    expect(h.writes).toHaveLength(2);
+    expect(h.intoPicker).toEqual([]);
+  });
+
+  it('a picker a working CLI draws late is still seen, within the slash look', async () => {
+    const h = pickerHost({ turn: true, openMs: 100 });
+    const { agent } = rig('busy', 'linux', h.client, { slashMs: 1_000 });
+    h.client.status.set('abcd1234', { state: 'working' });
+    expect(await agent.deliver(lead, '/model', {})).toBe('pickerOpen');
+    expect(h.writes).toEqual([paste('/model'), '\r']);
+    expect(h.intoPicker).toEqual([]);
+  });
+
+  it('the look is bounded: a slash command a working Lead takes with no picker is typed once the look is over', async () => {
+    const h = pickerHost({ turn: true });
+    const { agent } = rig('busy', 'linux', h.client, { submitMs: 5_000, slashMs: 150 });
+    h.client.status.set('abcd1234', { state: 'working' });
+    const t0 = Date.now();
+    expect(await agent.deliver(lead, '/compact', {})).toBe('typed');
+    const took = Date.now() - t0;
+    expect(took).toBeGreaterThanOrEqual(150);
+    expect(took).toBeLessThan(2_000); // the look, never the whole submit wait
+  });
+
+  it('a slash command that starts a short turn on an idle Lead is typed at once: no picker look keeps the send waiting', async () => {
+    const h = pickerHost();
+    const { agent } = rig('idle', 'linux', h.client, { submitMs: 2_000, slashMs: 1_000 });
+    h.onSubmit(() => {
+      h.client.status.set('abcd1234', { state: 'working' });
+      setTimeout(() => h.client.status.set('abcd1234', { state: 'idle' }), 50); // a /context's turn
+    });
+    const t0 = Date.now();
+    expect(await agent.deliver(lead, '/context', {})).toBe('typed');
+    expect(Date.now() - t0).toBeLessThan(1_000);
+  });
+
+  it('a slash command that starts a turn is typed as ever: no picker is seen on a running turn', async () => {
+    const h = pickerHost();
+    const { agent } = rig('idle', 'linux', h.client);
+    h.onSubmit(() => h.client.status.set('abcd1234', { state: 'working' }));
+    expect(await agent.deliver(lead, '/compact 요약만', {})).toBe('typed');
+    expect(h.writes).toEqual([paste('/compact 요약만'), '\r']);
+    expect(await agent.held(agent.live()[0])).toBe(false);
+  });
+
+  /** The messenger over a picker host, wired as Engine.held and Engine.deliver do (the provider's own answers). */
+  function messengerOver(h: ReturnType<typeof pickerHost>, status = 'idle', retryMs = 40) {
+    const { agent, home, submit } = rig(status, 'linux', h.client);
+    h.onSubmit(submit);
+    const transcript = transcriptPath('/work/alpha', 's-1', home);
+    const engine: MessengerEngine = {
+      names: () => ['alpha'],
+      sessionOf: () => ({ id: 'abcd1234', status, transcript }),
+      renewing: () => false,
+      held: () => agent.held(agent.live()[0]),
+      deliver: (_name, text, o) =>
+        agent.deliver(lead, text, {
+          ...(o.messageId && { messageId: o.messageId }),
+          ...(o.now && { now: true }),
+          ...(o.force && { force: true }),
+        }),
+    };
+    const typist = vi.fn(() => Promise.resolve('failed' as const));
+    const m = new Messenger({
+      home,
+      engine,
+      typist: { type: typist },
+      events: new EngineEvents(eventsPath(home)),
+      timing: { tickMs: 20, retryMs },
+      log: () => undefined,
+    });
+    m.start();
+    const send = (text: string) => m.send({ to: 'alpha', text, ifIdle: false, from: null, source: 'messenger:mac', ...(text.startsWith('/') && { raw: true }) });
+    /** Nothing went wrong on the way: no lost or stuck event, nothing filed to the inbox, the Typist unused. */
+    const clean = () => {
+      const events = fs.readFileSync(eventsPath(home), 'utf-8').split('\n').filter(Boolean).map((l) => (JSON.parse(l) as { type: string }).type);
+      expect(events.filter((t) => t === 'send_lost' || t === 'send_stuck')).toEqual([]);
+      expect(fs.existsSync(path.join(m.inboxDir, 'alpha'))).toBe(false);
+      expect(typist).not.toHaveBeenCalled();
+    };
+    return { m, send, clean, transcript };
+  }
+  const BOSS = (body: string) => new RegExp(`^\\[사장 · 메신저 · [^\\n]+\\] ⟨m:[a-z2-7]{8}⟩\\n${body}$`);
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it('the messenger over it: a message sent while a picker is up is held and shown as waiting on the terminal, never lost; it goes in once the picker is closed', async () => {
+    const h = pickerHost();
+    const { m, send, clean } = messengerOver(h);
+    try {
+      h.open('picker-model');
+      expect(await send('모델은 그대로 두자')).toMatchObject({ ok: true, delivered: 'queued' });
+      await pause(200); // several retry pauses: asked again each time
+      expect(h.writes).toEqual([]);
+      // What the office publishes for the contact (held): the app says so and offers the terminal.
+      expect(m.held('alpha')).toBe(true);
+      expect(m.queuedFor('alpha')).toEqual([expect.objectContaining({ text: '모델은 그대로 두자' })]);
+      expect(m.queuedFor('alpha')[0].failed).toBeUndefined();
+      h.close(); // the owner pressed Esc in the terminal view
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      expect(h.submitted).toEqual([expect.stringMatching(BOSS('모델은 그대로 두자'))]);
+      expect(h.intoPicker).toEqual([]);
+      expect(m.held('alpha')).toBe(false);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it("the messenger's own /model: entered once, reported as a picker open (the app offers the terminal), never typed again; what follows waits for it to close", async () => {
+    const h = pickerHost();
+    const { m, send, clean } = messengerOver(h);
+    try {
+      // The command went in: delivered, and the result says the session now shows a picker.
+      expect(await send('/model')).toMatchObject({ ok: true, delivered: 'pane', screen: 'picker' });
+      expect(m.queuedFor('alpha')).toEqual([]);
+      expect(h.writes).toEqual([paste('/model'), '\r']);
+      expect(await send('그대로 둬')).toMatchObject({ ok: true, delivered: 'queued' });
+      await pause(200);
+      expect(h.writes).toHaveLength(2);
+      expect(m.held('alpha')).toBe(true);
+      h.close();
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      // The picker closed brings no second /model: the command was entered once, the message once.
+      expect(h.writes.filter((w) => w.includes('/model'))).toEqual([paste('/model')]);
+      expect(h.submitted).toEqual([expect.stringMatching(BOSS('그대로 둬'))]);
+      expect(h.intoPicker).toEqual([]);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it("T-141: the messenger's own /model to a Lead in the middle of a turn: the sheet's picker result, and the next message held until the picker closes", async () => {
+    const h = pickerHost({ turn: true });
+    const { m, send, clean, transcript } = messengerOver(h, 'busy');
+    h.client.status.set('abcd1234', { state: 'working' });
+    // The turn's last record a text block a while ago (it thinks on): the messenger takes the command now.
+    const said = { type: 'assistant', uuid: 'a-1', timestamp: new Date(Date.now() - 60_000).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Looking.' }] } };
+    fs.appendFileSync(transcript, `${JSON.stringify(said)}\n`);
+    try {
+      expect(await send('/model')).toMatchObject({ ok: true, delivered: 'pane', screen: 'picker' });
+      expect(m.held('alpha')).toBe(true);
+      expect(await send('그대로 둬')).toMatchObject({ ok: true, delivered: 'queued' });
+      await pause(200);
+      expect(h.writes).toEqual([paste('/model'), '\r']);
+      h.close();
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      expect(h.submitted).toEqual([expect.stringMatching(BOSS('그대로 둬'))]);
+      expect(h.intoPicker).toEqual([]);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it('T-141: a /model queued while the turn was not over, typed by the tick, opens a picker: the contact shows held until it closes', async () => {
+    const h = pickerHost({ turn: true });
+    const { m, send, clean, transcript } = messengerOver(h, 'busy');
+    h.client.status.set('abcd1234', { state: 'working' });
+    try {
+      expect(await send('/model')).toMatchObject({ ok: true, delivered: 'queued' });
+      expect(h.writes).toEqual([]);
+      // The turn's text a while ago: the tick takes the command in the running turn.
+      const said = { type: 'assistant', uuid: 'a-2', timestamp: new Date(Date.now() - 60_000).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'Looking.' }] } };
+      fs.appendFileSync(transcript, `${JSON.stringify(said)}\n`);
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      expect(h.writes).toEqual([paste('/model'), '\r']);
+      expect(m.held('alpha')).toBe(true);
+      // The app has no send result for a command the tick typed: the contact says it is a picker.
+      expect(m.pickerUp('alpha')).toBe(true);
+      h.close();
+      await vi.waitFor(() => expect(m.held('alpha')).toBe(false), { timeout: 3_000 });
+      expect(m.pickerUp('alpha')).toBe(false);
+      expect(h.intoPicker).toEqual([]);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it("T-141: a message held behind the messenger's own picker goes in at the next tick once it closes, not after the held pause", async () => {
+    const h = pickerHost();
+    const { m, send, clean } = messengerOver(h, 'idle', 60_000);
+    try {
+      expect(await send('/model')).toMatchObject({ ok: true, delivered: 'pane', screen: 'picker' });
+      expect(await send('그대로 둬')).toMatchObject({ ok: true, delivered: 'queued' });
+      await pause(100);
+      expect(h.writes).toHaveLength(2);
+      h.close();
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      expect(m.held('alpha')).toBe(false);
+      expect(h.submitted).toEqual([expect.stringMatching(BOSS('그대로 둬'))]);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it("the messenger's own /model with nothing behind it: the contact shows held while the picker is up, and not once it is closed", async () => {
+    const h = pickerHost();
+    const { m, send, clean } = messengerOver(h);
+    try {
+      expect(await send('/model')).toMatchObject({ ok: true, delivered: 'pane', screen: 'picker' });
+      // The app's picker notice goes when this does: nothing is queued, so only a look can tell.
+      expect(m.held('alpha')).toBe(true);
+      await pause(100);
+      expect(m.held('alpha')).toBe(true);
+      h.close();
+      await vi.waitFor(() => expect(m.held('alpha')).toBe(false), { timeout: 3_000 });
+      expect(h.writes).toEqual([paste('/model'), '\r']);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it('지금 보내기 does not push a held message into a picker (its Enter would pick a row): it stays queued until the picker is closed', async () => {
+    const h = pickerHost();
+    const { m, send, clean } = messengerOver(h);
+    try {
+      h.open('dialog-config-list');
+      const sent = await send('설정은 건드리지 마');
+      expect(sent).toMatchObject({ ok: true, delivered: 'queued' });
+      const id = (sent as { id: string }).id;
+      await pause(100);
+      expect(m.promote('alpha', id)).toMatchObject({ ok: true });
+      await pause(200);
+      expect(h.writes).toEqual([]);
+      expect(m.queuedFor('alpha')).toEqual([expect.objectContaining({ text: '설정은 건드리지 마' })]);
+      h.close();
+      await vi.waitFor(() => expect(m.queuedFor('alpha')).toEqual([]), { timeout: 3_000 });
+      expect(h.submitted).toEqual([expect.stringMatching(BOSS('설정은 건드리지 마'))]);
+      expect(h.intoPicker).toEqual([]);
+      clean();
+    } finally {
+      m.dispose();
+    }
+  });
+
+  it('the owner can take back a message held behind a picker: cancelled, it is never typed, not even once the picker is closed', async () => {
+    const h = pickerHost();
+    const { m, send } = messengerOver(h);
+    try {
+      h.open('picker-model');
+      const sent = await send('취소할 말');
+      const id = (sent as { id: string }).id;
+      await pause(100);
+      expect(m.held('alpha')).toBe(true);
+      expect(m.cancel('alpha', id)).toMatchObject({ ok: true });
+      h.close();
+      await pause(200);
+      expect(h.writes).toEqual([]);
+      expect(h.submitted).toEqual([]);
+      expect(h.intoPicker).toEqual([]);
+    } finally {
+      m.dispose();
+    }
   });
 });
 

@@ -26,6 +26,7 @@
  */
 import { isDeepStrictEqual } from 'node:util';
 
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { fixJosa } from '../../../../core/src/agent-tycoon/josa.js';
@@ -61,7 +62,10 @@ const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$/;
 const PROJECT_RE = /^[A-Za-z0-9가-힣][A-Za-z0-9가-힣._-]{0,40}$/;
 const HISTORY_MAX = 50;
 const EXECUTIONS_MAX = 100;
+/** Open (not done) tasks at most, per project (E1.6: one project's tasks never block another's). */
 const TASKS_MAX = 2000;
+/** P3.3: done tasks the live store keeps; older done ones move to the archive (none is deleted). */
+export const DONE_KEPT = 500;
 const BUDGET_MAX = 100_000;
 const MAX = {
   title: 200,
@@ -79,6 +83,35 @@ type Reply = Record<string, unknown> & { ok: boolean };
 const refuse = (code: string, error: string): Reply => ({ ok: false, code, error });
 
 export const tasksPath = (home?: string) => path.join(configDir(home), 'tasks.json');
+/** P3.3: the done tasks moved out of tasks.json, one JSON line each, appended and never rewritten. */
+export const tasksArchivePath = (home?: string) => path.join(configDir(home), 'tasks.archive.jsonl');
+const archiveOf = (file: string) => path.join(path.dirname(file), 'tasks.archive.jsonl');
+
+/** P3.3: the archive's lines as tasks, oldest first (an id's last line is its current form). */
+export function readTaskArchive(file: string): Task[] {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf-8');
+  } catch {
+    return [];
+  }
+  const out: Task[] = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    try {
+      const t: unknown = JSON.parse(line);
+      if (isTask(t)) out.push(t);
+    } catch {
+      // A torn last line (a crash mid-append) is skipped.
+    }
+  }
+  return out;
+}
+
+/** P3.3: appends `tasks`. Each batch starts on a fresh line: a torn last line swallows none of it. */
+export function appendTaskArchive(file: string, tasks: Task[]): void {
+  fs.appendFileSync(file, `\n${tasks.map((t) => JSON.stringify(t)).join('\n')}\n`, { mode: 0o600 });
+}
 
 const oneOf = <T extends string>(list: readonly T[], x: unknown): x is T =>
   typeof x === 'string' && (list as readonly string[]).includes(x);
@@ -528,6 +561,51 @@ export class TaskStore {
     return this.tasks.find((t) => t.id === id);
   }
 
+  /** P3.3: an archived task by id (its last line), for a lookup that missed the live store. */
+  archived(id: string): Task | undefined {
+    return this.readArchive().reverse().find((t) => t.id === id);
+  }
+
+  // ponytail: reads the whole archive per miss (a lookup, an archived id in add/import); an id index if it shows.
+  private readArchive(): Task[] {
+    return readTaskArchive(archiveOf(this.file));
+  }
+
+  /**
+   * P3.3: past DONE_KEPT done tasks, the oldest done (by last change) are appended to the archive
+   * and leave `next`. Never an open task, never the highest T-<n> (nextId counts from it), never
+   * a parent of a task that stays (its child keeps its tree and stays changeable). An append that
+   * fails keeps them live.
+   */
+  private archive(next: Task[]): Task[] {
+    const done = next.filter((t) => t.status === 'done');
+    if (done.length <= DONE_KEPT) return next;
+    const top = Math.max(0, ...next.map((t) => taskSeq(t.id) ?? 0));
+    const gone = new Set(
+      done
+        .filter((t) => taskSeq(t.id) !== top)
+        .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+        .slice(0, done.length - DONE_KEPT),
+    );
+    // ponytail: the live done count can pass DONE_KEPT by the done ancestors any staying task (open or
+    // done) pins; bounded by the chains of the TASKS_MAX tasks per project that stay.
+    const byId = new Map(next.map((t) => [t.id, t]));
+    for (const t of next) {
+      if (gone.has(t)) continue;
+      let up = t.parentId ? byId.get(t.parentId) : undefined;
+      while (up && gone.delete(up)) up = up.parentId ? byId.get(up.parentId) : undefined;
+    }
+    if (!gone.size) return next;
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
+      appendTaskArchive(archiveOf(this.file), [...gone]);
+    } catch (err) {
+      this.log(`tasks archive: ${err instanceof Error ? err.message : String(err)}`);
+      return next;
+    }
+    return next.filter((t) => !gone.has(t));
+  }
+
   /** A task with its assignee under the name its assignment answers to now. */
   private shown(t: Task): Task {
     const name = t.assignee && this.opts.nameOf?.(t.assignee.assignmentId);
@@ -629,7 +707,10 @@ export class TaskStore {
     now = Date.now(),
     meta: Meta = {},
   ): Reply {
-    if (!this.get(id)) return refuse('unknown_task', `'${id}' 작업이 없습니다`);
+    if (!this.get(id))
+      return this.archived(id)
+        ? refuse('archived', `'${id}' 작업은 끝나서 보관되었습니다(바꿀 수 없습니다)`)
+        : refuse('unknown_task', `'${id}' 작업이 없습니다`);
     const r = this.plan([{ ...raw, id }], by, now, 'update', meta);
     if ('ok' in r) return r;
     const task = r.next.find((t) => t.id === id);
@@ -664,6 +745,7 @@ export class TaskStore {
     if (this.unwritable) return refuse('store_unwritable', this.unwritable);
     const next = [...this.tasks];
     const ids: string[] = [];
+    let archived: Set<string> | undefined;
     let added = 0;
     let updated = 0;
     for (const [i, item] of items.entries()) {
@@ -678,12 +760,19 @@ export class TaskStore {
       const prev = index >= 0 ? next[index] : undefined;
       if (mode === 'add' && prev)
         return refuse('exists', `'${id}' 작업이 이미 있습니다(바꾸려면 task update)`);
+      // P3.3: an archived id stays archived: add refuses it, an import leaves it as it is.
+      if (!prev && id !== null && (archived ??= new Set(this.readArchive().map((t) => t.id))).has(id)) {
+        if (mode === 'add') return refuse('exists', `'${id}' 작업이 이미 있습니다(보관됨)`);
+        ids.push(id);
+        continue;
+      }
       const patch = parseFields(item, prev, at);
       if (typeof patch === 'string') return refuse('usage', where + patch);
       if (meta.delegatedBy) patch.delegatedBy = meta.delegatedBy;
       if (prev) {
         const task = reportStatus(withExecutions(applyPatch(prev, patch)), prev, at);
-        const why = parentProblem(next, task);
+        // A parent is checked when it changes: one already gone (archived) never blocks the rest.
+        const why = task.parentId !== prev.parentId && parentProblem(next, task);
         if (why) return refuse('usage', where + why);
         const change = describe(prev, task);
         if (!change.length) {
@@ -702,7 +791,10 @@ export class TaskStore {
       if (!patch.project)
         return refuse('no_project', `${where}어느 프로젝트인지 모릅니다(--project)`);
       if (!patch.title) return refuse('usage', `${where}제목이 필요합니다`);
-      if (next.length >= TASKS_MAX) return refuse('too_many', `작업은 ${TASKS_MAX}개까지입니다`);
+      // P3.3: open tasks only; done ones stay (nothing deletes a task) and never freed the cap.
+      // ponytail: a full scan per added task (2000 x 2000 at most in one import), a running count if it shows.
+      if (next.filter((t) => t.status !== 'done' && t.project === patch.project).length >= TASKS_MAX)
+        return refuse('too_many', `한 프로젝트의 열린 작업은 ${TASKS_MAX}개까지입니다`);
       id = id ?? nextId(next);
       const createdAt = (mode === 'import' && isoOf(item.createdAt)) || at;
       const task = reportStatus(
@@ -734,7 +826,9 @@ export class TaskStore {
     return { next, ids, added, updated, changed: added + updated > 0 };
   }
 
-  private commit(next: Task[], reply: Reply): Reply {
+  private commit(all: Task[], reply: Reply): Reply {
+    // Appended first: a crash before the rename leaves a task in both, and the live one wins.
+    const next = this.archive(all);
     try {
       writeJsonAtomic(this.file, this.doc(next));
     } catch (err) {
@@ -789,6 +883,8 @@ export interface TaskAgents {
   /** The assignment id of agent `name` (a Lead's or a Worker's), or null. */
   assignmentOf(name: string): string | null;
   names(): string[];
+  /** The project agent `name` works for (its Lead's name), or null. */
+  projectOf?(name: string): string | null;
 }
 
 /**
@@ -843,17 +939,37 @@ export function answerTask(
         `'${name}' 에이전트가 없습니다${!agents ? '(엔진이 꺼져 있습니다)' : names.length ? `: ${names.join(' ')}` : '(등록된 에이전트가 없습니다)'}`,
       );
     }
+    // S4.2 (security.md §8): an agent's token assigns its project's agents only, as MCP delegate_task.
+    if (agent && agents?.projectOf && agents.projectOf(name) !== who.project)
+      return refuse('out_of_scope', `'${name}' 는 다른 프로젝트의 에이전트예요`);
+    // delegate_task runs a Worker's delegation under its own open Task without its Lead (depth 2), so a
+    // Worker's token never assigns a Task to itself (a Lead's own project is its own name). Closed: the
+    // self-made Task. Not closed: a Worker can still assign a Task to a peer Worker of its project
+    // (that peer then holds it as one given by another agent).
+    if (agent && name === agent && agents?.projectOf?.(agent) !== agent)
+      return refuse('forbidden', '에이전트는 자기에게 작업을 맡길 수 없어요(리드나 주인이 맡깁니다)');
     return { ...fields, assignee: { assignmentId, name } };
   };
   const refused = (x: Record<string, unknown> | Reply): x is Reply => 'ok' in x && x.ok === false;
+  /**
+   * B5.5 (security.md §8): an agent's token writes its own project's Tasks only (a Lead is one of
+   * its project's agents); the owner's CLI (no agent) writes any. `project` is the Task's as it is
+   * and as it would be after the change; a refusal names `task`.
+   */
+  const foreign = (task: string, ...project: unknown[]): Reply | null =>
+    agent && project.some((p) => (p ?? null) !== (who.project ?? null))
+      ? refuse('out_of_scope', koText('task_other_project', { task }))
+      : null;
   switch (a.op) {
     case 'list': {
       const str = (x: unknown) => (typeof x === 'string' && x ? x : null);
       return { ok: true, tasks: store.list({ project: str(a.project), status: str(a.status) }) };
     }
     case 'show': {
-      const task = id ? store.get(id) : undefined;
       if (!id) return refuse('usage', `사용법: ${CLI_NAME} task show <id>`);
+      const task = store.get(id);
+      const old = task ? undefined : store.archived(id);
+      if (old) return { ok: true, task: old, archived: true };
       if (!task) return refuse('unknown_task', `'${id}' 작업이 없습니다`);
       const removed =
         !!task.assignee && store.removedAssignees().includes(task.assignee.assignmentId);
@@ -862,6 +978,8 @@ export function answerTask(
     case 'add': {
       const fields = resolve(raw);
       if (refused(fields)) return fields;
+      const out = foreign(String(id ?? fields.title ?? ''), fields.project ?? who.project);
+      if (out) return out;
       return store.add(
         { project: who.project ?? undefined, ...fields, ...(id && { id }) },
         who.by,
@@ -874,6 +992,9 @@ export function answerTask(
       if (!id) return refuse('usage', `사용법: ${CLI_NAME} task ${String(a.op)} <id> …`);
       const fields = resolve(a.op === 'done' ? { ...raw, status: 'done' } : raw, id);
       if (refused(fields)) return fields;
+      const prev = store.get(id);
+      const out = prev && foreign(id, prev.project, 'project' in fields ? fields.project : prev.project);
+      if (out) return out;
       const { createdBy: _c, ...m } = meta(fields);
       return store.update(id, fields, who.by, Date.now(), m);
     }
@@ -882,7 +1003,10 @@ export function answerTask(
         if (!t || typeof t !== 'object') return t;
         const item = resolve(t as Record<string, unknown>, (t as { id?: unknown }).id);
         if (refused(item)) return item;
-        return who.project && !('project' in item) ? { ...item, project: who.project } : item;
+        const next = who.project && !('project' in item) ? { ...item, project: who.project } : item;
+        const prev = typeof next.id === 'string' ? store.get(next.id) : undefined;
+        const after = 'project' in next ? next.project : prev?.project;
+        return foreign(String(next.id ?? next.title ?? ''), ...(prev ? [prev.project] : []), after) ?? next;
       });
       const bad = list?.find(
         (t): t is Reply => !!t && typeof t === 'object' && refused(t as Reply),

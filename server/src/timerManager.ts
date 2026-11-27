@@ -34,6 +34,8 @@ export function clearAgentActivity(
 
   agent.isWaiting = false;
   agent.lastAssistantText = undefined; // a new turn
+  // A call interrupted (Esc) gets no PostToolUse and no Stop; its rows are cleared below.
+  agent.hookToolIds = undefined;
   endQuestion(agent);
   agent.permissionSent = false;
   cancelPermissionTimer(agentId, permissionTimers);
@@ -98,6 +100,13 @@ export function startWaitingTimer(
     });
   }, delayMs);
   waitingTimers.set(agentId, timer);
+}
+
+/** The permission wait is over: drop the bubble (the webview clears the sub-agents' with it). */
+export function clearPermission(agent: AgentState, agentId: number, agents: AgentStateStore): void {
+  if (!agent.permissionSent) return;
+  agent.permissionSent = false;
+  agents.broadcast({ type: 'agentToolPermissionClear', id: agentId });
 }
 
 export function cancelPermissionTimer(

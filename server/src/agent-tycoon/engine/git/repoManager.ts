@@ -265,6 +265,9 @@ export interface RepoManagerOptions {
   agentBusy?: (name: string) => boolean;
   /** P4: the owner's `autoCleanupAfterMerge` (default on). */
   autoCleanup?: () => boolean;
+  /** B5.4: the name of the agent given worktree assignment `assignmentId` when it may be working
+   *  in that worktree now (the office's holdsWorktree); its folder is then not removed. */
+  holderOf?: (assignmentId: string, taskId: string | undefined) => string | undefined;
 }
 
 export interface ConflictHandoffInput {
@@ -1280,6 +1283,11 @@ export class RepoManager {
   private async cleanAfterMerge(proj: ProjectFolder, task: string, source: string): Promise<boolean> {
     if (!this.o.autoCleanup?.()) return false;
     try {
+      const holder = this.heldBy(proj, task);
+      if (holder) {
+        this.log(`autoCleanup ${JSON.stringify(proj.name).slice(0, 66)} ${task}: kept (${holder} on it) ${source}`);
+        return false;
+      }
       const r = await this.worktrees.cleanup(proj, task);
       this.log(`autoCleanup ${JSON.stringify(proj.name).slice(0, 66)} ${task}: ${r.ok ? 'removed' : 'kept'} ${source}`);
       if (r.ok) this.reviewNotes.remove(proj.name, task);
@@ -1290,9 +1298,17 @@ export class RepoManager {
     }
   }
 
+  /** B5.4: who may be working in active worktree `task` now (its session's folder), if anyone. */
+  private heldBy(proj: ProjectFolder, task: string): string | undefined {
+    const rec = this.worktrees.all().find((r) => r.project === proj.name && r.task === task && r.status === 'active');
+    return rec?.assignmentId ? this.o.holderOf?.(rec.assignmentId, rec.taskId) : undefined;
+  }
+
   private async perform(req: RepoAction, proj: ProjectFolder): Promise<Outcome> {
     if (req.action === 'worktreeRemove') {
       if (!req.task) throw new RepoError(koText('task_name_needed'));
+      const holder = this.heldBy(proj, req.task);
+      if (holder) throw new RepoError(koText('worktree_held', { name: holder }));
       const r = await this.worktrees.cleanup(proj, req.task, { force: req.force === true });
       if (r.ok) {
         try {

@@ -154,6 +154,7 @@ describe('~/.claude/sessions files (contract: Claude Code 2.1.273 to 2.1.306)', 
         startedAt: f.startedAt,
         name: f.name,
         status: f.parkedJobId ? undefined : f.status,
+        ...(typeof f.statusUpdatedAt === 'number' && !f.parkedJobId && { statusAt: f.statusUpdatedAt }),
         id: f.jobId,
         // STALE-CLI: the version that process runs (every recorded file has one).
         ...(f.version !== undefined && { version: f.version }),
@@ -163,11 +164,24 @@ describe('~/.claude/sessions files (contract: Claude Code 2.1.273 to 2.1.306)', 
 
   it('a parked conversation drops its frozen status; a spare worker is no session', () => {
     const parked = files.map(recorded).find((f) => f.parkedJobId)!;
-    expect(sessionFromFile(parked, 0, anyAlive)).toMatchObject({ status: undefined });
+    const session = sessionFromFile(parked, 0, anyAlive);
+    expect(session).toMatchObject({ status: undefined });
+    expect(session).not.toHaveProperty('statusAt');
     // A prewarmed background worker as seen on 10-21 (its file left with it).
     const bg = files.map(recorded).find((f) => f.kind === 'bg')!;
     const spare = { ...bg, name: bg.jobId, agent: 'claude', spare: true };
     expect(sessionFromFile(spare, 0, anyAlive)).toBeNull();
+  });
+
+  it('takes statusAt from a numeric statusUpdatedAt (not updatedAt) of a session that is not parked', () => {
+    const live = files.map(recorded).find((row) => !row.parkedJobId)!;
+    // updatedAt also moves when another field is written: it is not the status time.
+    const f: Record<string, unknown> = { ...live, updatedAt: (live.statusUpdatedAt as number) + 5_000 };
+    expect(sessionFromFile(f, 0, anyAlive)).toMatchObject({ statusAt: live.statusUpdatedAt });
+    const { statusUpdatedAt: _statusUpdatedAt, ...missing } = f;
+    expect(sessionFromFile(missing, 0, anyAlive)).not.toHaveProperty('statusAt');
+    expect(sessionFromFile({ ...f, statusUpdatedAt: 'later' }, 0, anyAlive)).not.toHaveProperty('statusAt');
+    expect(sessionFromFile({ ...f, parkedJobId: 'job-1' }, 0, anyAlive)).not.toHaveProperty('statusAt');
   });
 
   it('a live file of another shape is unknown; a dead one is skipped', () => {

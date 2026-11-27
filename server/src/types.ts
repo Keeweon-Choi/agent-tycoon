@@ -53,8 +53,8 @@ export interface AgentState {
   providerId?: string;
   /** Set when SessionEnd(reason=clear) fires; cleared when SessionStart(source=clear) reassigns */
   pendingClear?: boolean;
-  /** Hook-generated tool ID for PreToolUse/PostToolUse correlation */
-  currentHookToolId?: string;
+  /** Hook tool ids still running, oldest first: PostToolUse ends its own (or the oldest). */
+  hookToolIds?: string[];
   /** Tool name from the most recent PreToolUse, used to correlate a later SubagentStart
    *  event with the parent tool that launched it. */
   currentHookToolName?: string;

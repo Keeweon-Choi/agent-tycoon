@@ -12,7 +12,7 @@ import {
   TERMINAL_THEME,
   TERMINAL_URL_PATTERN,
 } from '../constants.js';
-import { attachClipboardInput } from '../terminal/clipboardInput.js';
+import { attachClipboardInput, pasteText } from '../terminal/clipboardInput.js';
 import { attachImeInput } from '../terminal/imeInput.js';
 import { applyModifiers } from '../terminal/keyModifiers.js';
 import { consumeArmedKeyModifiers, hasArmedKeyModifiers } from '../terminal/keyModifierStore.js';
@@ -54,12 +54,17 @@ interface TerminalPaneProps {
    *  `reconnecting` is written once when the socket drops, `gone` when the server no longer has
    *  the terminal, `ended` when it ended. Absent: upstream's behaviour. */
   messages?: TerminalMessages;
+  /** T-81 C: the PTY's size from before this pane is given back when it closes (the messenger's
+   *  picker sheet borrows the Lead's terminal; it must not leave it at the sheet's width). */
+  restoreSize?: boolean;
 }
 
 export interface TerminalMessages {
   reconnecting: string;
   gone: string;
   ended: string;
+  /** agty (S5.1): the server asked for a step-up the page could not take by itself. */
+  verify?: string;
 }
 
 /** A dim-yellow line on its own row (output the terminal itself did not produce). */
@@ -98,6 +103,7 @@ export function TerminalPane({
   onRefused,
   prepare,
   messages,
+  restoreSize = false,
 }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -124,6 +130,8 @@ export function TerminalPane({
   autoFocusRef.current = autoFocus;
   const mobileKeyBarRef = useRef(mobileKeyBar);
   mobileKeyBarRef.current = mobileKeyBar;
+  const restoreSizeRef = useRef(restoreSize);
+  restoreSizeRef.current = restoreSize;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -148,6 +156,8 @@ export function TerminalPane({
     fitRef.current = fit;
 
     let reconnectNoted = false;
+    /** The PTY's size at the first replay, before this pane's fit changed it. */
+    let before: { cols: number; rows: number } | null = null;
     const connection = new TerminalConnection(
       agentId,
       {
@@ -167,6 +177,7 @@ export function TerminalPane({
           // the snapshot's old size (its columns clamped, wrapped), and with the
           // PTY then already at the new size no SIGWINCH came to clean it up: the
           // left-edge leftovers after switching the dev room's 1 / 2 / 2x2.
+          before ??= { cols, rows };
           term.resize(cols, rows);
           term.write(`\x1bc${data}`, () => applyFit());
         },
@@ -191,6 +202,7 @@ export function TerminalPane({
           const m = messagesRef.current;
           if (m && (reason === 'no shell' || reason === 'shell closed'))
             term.write(noteLine(m.gone));
+          else if (m?.verify && reason === 'proof') term.write(noteLine(m.verify));
           refusedRef.current?.(agentId, reason);
         },
       },
@@ -223,6 +235,7 @@ export function TerminalPane({
     // Keyboard copy (verbatim; Alt+C = copy as text) and paste, OSC 52 writes.
     const detachClipboard = attachClipboardInput(term, {
       isActive: () => isActiveRef.current,
+      host,
     });
     registerInputRef.current?.(agentId, {
       // A syllable still open on the phone keyboard goes before the key bar's key.
@@ -232,7 +245,7 @@ export function TerminalPane({
       },
       paste: (data) => {
         ime.flush();
-        term.paste(data);
+        pasteText(term, data);
       },
       busy: () => {
         // Also when the line wraps onto the next row (a phone-width pane folds it).
@@ -312,6 +325,10 @@ export function TerminalPane({
       detachClipboard();
       observer.disconnect();
       registerInputRef.current?.(agentId, null);
+      // ponytail: puts back the size of the first replay; a second viewer that fitted the PTY
+      // meanwhile draws at the wrong width until its next fit (last resize wins). Skip the
+      // restore when the PTY no longer has the sheet's own size if that ever matters.
+      if (restoreSizeRef.current && before) connection.resize(before.cols, before.rows);
       connection.dispose();
       term.dispose();
       termRef.current = null;

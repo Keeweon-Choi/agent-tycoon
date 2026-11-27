@@ -58,19 +58,29 @@ export interface SpawnJsonOptions {
   cwd?: string;
   /** stdout is one JSON value per line (stream-json): resolve the lines that parse, in order. */
   ndjson?: boolean;
+  /** One UTF-8 line to write before closing stdin (for a stream-json control request). */
+  stdin?: string;
   /** Give the child an open stdin pipe, nothing written, and end it after this many ms (or when the child is gone); default: /dev/null. */
   holdStdinMs?: number;
   /** After the timeout's SIGTERM, SIGKILL our child this much later if it is still there (default SPAWN_JSON_KILL_GRACE_MS). */
   killGraceMs?: number;
+  /** Start now, outside the process-wide queue (T-115's side question, capped at one by its caller). */
+  unqueued?: boolean;
+  /** Stops our child when aborted (T-115: the side question's drawer was closed). */
+  signal?: AbortSignal;
+  /** Called with the child once it is started (T-115: its pid). */
+  onSpawn?: (child: ReturnType<SpawnFn>) => void;
 }
 
 /** A run that did not exit 0 with JSON. `json` is what stdout still parsed to
- *  (a program may print `{ok:false,error}` and exit 1); `timedOut` when the timeout killed it. */
+ *  (a program may print `{ok:false,error}` and exit 1); `timedOut` when the timeout killed it;
+ *  `stderr` what it wrote there (its first 2000 characters or so), for a caller that tells why. */
 export class SpawnJsonError extends Error {
   constructor(
     message: string,
     readonly json: unknown,
     readonly timedOut: boolean,
+    readonly stderr = '',
   ) {
     super(message);
   }
@@ -92,6 +102,7 @@ function jsonLines(text: string): unknown[] {
 let queue: Promise<unknown> = Promise.resolve();
 
 export function spawnJson(file: string, args: string[], opts: SpawnJsonOptions): Promise<unknown> {
+  if (opts.unqueued) return spawnNow(file, args, opts);
   const run = queue.then(() => spawnNow(file, args, opts));
   queue = run.catch(() => undefined);
   return run;
@@ -99,25 +110,35 @@ export function spawnJson(file: string, args: string[], opts: SpawnJsonOptions):
 
 function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const started = Date.now();
     const cmd = commandArgv(file, args);
+    // Whether the timeout is what killed it: a timer of our own, set before spawn's (the same delay, so it
+    // runs first). Not Date.now(): a time sync sets the wall clock back, and a run measured across that
+    // looked too short to be a timeout (T-147).
+    let timedOut = false;
+    const timeoutFlag = setTimeout(() => (timedOut = true), opts.timeoutMs);
     const child = (opts.spawnFn ?? spawn)(cmd.file, cmd.args, {
       windowsVerbatimArguments: cmd.windowsVerbatimArguments,
       env: opts.env ?? process.env,
       // Home, not the daemon's repo folder: a program that derives who is calling from its cwd
       // would otherwise take every call for the agent-tycoon orchestrator's.
       cwd: opts.cwd ?? os.homedir(),
-      stdio: [opts.holdStdinMs ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      stdio: [opts.holdStdinMs || opts.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       shell: false,
       timeout: opts.timeoutMs,
       windowsHide: true,
     });
+    opts.onSpawn?.(child);
+    if (opts.signal?.aborted) child.kill?.();
+    else opts.signal?.addEventListener('abort', () => child.kill?.(), { once: true });
     // The timeout only sends SIGTERM: a child that ignores it would hold the queue (and every later caller) for good.
     const killTimer = setTimeout(
       () => child.kill?.('SIGKILL'),
       opts.timeoutMs + (opts.killGraceMs ?? SPAWN_JSON_KILL_GRACE_MS),
     );
-    const done = () => clearTimeout(killTimer);
+    const done = () => {
+      clearTimeout(killTimer);
+      clearTimeout(timeoutFlag);
+    };
     child.on('exit', done);
     child.on('close', done);
     child.on('error', done);
@@ -145,6 +166,13 @@ function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise
       child.on('exit', release);
       child.on('close', release);
       child.on('error', release);
+      if (opts.stdin !== undefined) {
+        try {
+          stdin.end(opts.stdin);
+        } catch {
+          child.kill();
+        }
+      }
     }
     // Killed (timeout, output cap): a grandchild still holding the pipes would
     // otherwise delay 'close' until it exits too.
@@ -175,7 +203,8 @@ function spawnNow(file: string, args: string[], opts: SpawnJsonOptions): Promise
         new SpawnJsonError(
           `${name} failed (${signal ?? `exit ${code}`})${err ? `: ${err}` : ''}`,
           json,
-          signal !== null && Date.now() - started >= opts.timeoutMs,
+          signal !== null && timedOut,
+          errText,
         ),
       );
     });

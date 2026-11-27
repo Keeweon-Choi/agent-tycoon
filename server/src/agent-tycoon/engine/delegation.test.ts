@@ -22,7 +22,7 @@ import {
 } from './delegation.js';
 import type { McpDeps, RosterAgent } from './mcpTools.js';
 import { McpTools } from './mcpTools.js';
-import { tasksPath, TaskStore } from './tasks.js';
+import { answerTask, tasksPath, TaskStore } from './tasks.js';
 
 let cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -768,6 +768,97 @@ describe('W2: worktree new', () => {
   it('without the operation (a build that has none): unsupported, as before', async () => {
     const w = world();
     expect(await w.call('alpha', { ...fresh(), task: { title: 'g', worktree: 'new' } })).toMatchObject({ code: 'unsupported' });
+    expect(w.made).toEqual([]);
+  });
+});
+
+describe('audit 11-13 (E1)', () => {
+  it('E1.1: the Lead taking a Worker’s new-Worker proposal into the user’s approval keeps its target: a remote approval needs a fresh step-up', async () => {
+    // No free Worker of the kind (alpha-b is busy), so approving would make and start one.
+    const w = world({ roster: [agent('alpha', 'alpha', 'lead', LEAD), agent('alpha-b', 'alpha', 'worker', W2, { busy: true })] });
+    const proposed = await w.call('alpha-b', fresh({}, '제안된 새 Worker 일'));
+    expect(proposed).toMatchObject({ status: 'pending_approval' });
+    w.approvals.setMode('alpha', 'reuse');
+    const asked = await w.call('alpha', { idempotencyKey: key(), task: { id: proposed.taskId } });
+    expect(asked).toMatchObject({ status: 'pending_approval', approvalId: expect.stringMatching(/^ap-/) });
+    const d = w.tools.delegator!;
+    expect(d.cards(w.roster).find((c) => c.id === asked.approvalId)).toMatchObject({ newWorker: true, target: 'claude' });
+    expect(approvalStepUpRefused(d, asked.approvalId as string, { remote: true, fresh: () => false })).toBe(true);
+    const msg = { requestId: 'r1', id: asked.approvalId, decision: 'approve' };
+    expect(await answerDecision(d, msg, { privileged: true, readOnly: false, stepUp: { remote: true, fresh: () => false } }, 'stepup'))
+      .toEqual({ requestId: 'r1', error: 'stepup' });
+    expect(w.made).toEqual([]);
+    expect(await answerDecision(d, msg, { privileged: true, readOnly: false, stepUp: { remote: true, fresh: () => true } }, 'stepup'))
+      .toMatchObject({ outcome: 'accepted', taskId: proposed.taskId });
+    expect(w.made).toHaveLength(1);
+    expect(w.approvals.get(proposed.taskId as string)).toBeUndefined();
+  });
+
+  it('E1.3: a Worker’s token cannot make itself a Task (add, update, import) to delegate under without its Lead', async () => {
+    const w = world();
+    const names: Record<string, string> = { alpha: LEAD, 'alpha-a': W1, 'alpha-b': W2, 'alpha-r': REV };
+    const agents = {
+      assignmentOf: (n: string) => names[n] ?? null,
+      names: () => Object.keys(names),
+      projectOf: (n: string) => (n === 'alpha' ? 'alpha' : names[n] ? 'alpha' : null),
+    };
+    const me = { by: 'alpha-a', project: 'alpha', agent: 'alpha-a' };
+    const board = w.tasks.add({ project: 'alpha', title: '판의 일' }, 'gui:desk').task as { id: string };
+    for (const a of [
+      { op: 'add', fields: { title: '내가 만든 내 일', assignee: 'alpha-a' } },
+      { op: 'update', id: board.id, fields: { assignee: 'alpha-a' } },
+      { op: 'import', tasks: [{ id: 'N1', title: '가져온 내 일', assignee: 'alpha-a' }] },
+    ])
+      expect(answerTask(w.tasks, a, me, agents)).toMatchObject({ ok: false, code: 'forbidden' });
+    expect(w.tasks.list({ project: 'alpha' }).filter((t) => t.assignee?.assignmentId === W1)).toHaveLength(0);
+    const r = await w.call('alpha-a', { idempotencyKey: key(), task: { title: '하위' }, target: { agentId: REV } });
+    expect(r).toMatchObject({ status: 'pending_approval' });
+    // Another agent of its project, and the Lead taking work itself, still assign by token.
+    expect(answerTask(w.tasks, { op: 'add', fields: { title: '맡김', assignee: 'alpha-b' } }, me, agents)).toMatchObject({ ok: true });
+    expect(answerTask(w.tasks, { op: 'add', fields: { title: '리드 일', assignee: 'alpha' } }, { by: 'alpha', project: 'alpha', agent: 'alpha' }, agents))
+      .toMatchObject({ ok: true });
+  });
+
+  it('E1.4b: a proposal moved to todo is still a proposal: the Lead takes it by id and the proposer hears', async () => {
+    const w = world();
+    const proposed = await w.call('alpha-b', { idempotencyKey: key(), task: { title: '할 일로 옮긴 제안' }, target: { agentId: REV } });
+    const id = proposed.taskId as string;
+    expect(w.tasks.update(id, { status: 'todo' }, 'alpha')).toMatchObject({ ok: true });
+    w.sent.length = 0;
+    expect(await w.call('alpha', { idempotencyKey: key(), task: { id } })).toMatchObject({ status: 'accepted', taskId: id, agentId: REV });
+    expect(w.sent.find((s) => s.to === 'alpha-b')?.text).toContain(`Task ${id}`);
+    expect(w.approvals.get(id)).toBeUndefined();
+  });
+
+  it('E1.4: a proposal its Lead closed without taking it is no longer waiting: the same call proposes again', async () => {
+    const w = world();
+    const call = () => ({ idempotencyKey: key(), task: { title: '닫힌 제안' }, target: { agentId: REV } });
+    const first = await w.call('alpha-b', call());
+    expect(first).toMatchObject({ status: 'pending_approval', taskId: expect.any(String) });
+    expect(await w.tools.call('alpha', 'update_task', { taskId: first.taskId, status: 'done' })).toMatchObject({ status: 'updated' });
+    const again = await w.call('alpha-b', call());
+    expect(again).toMatchObject({ status: 'pending_approval' });
+    expect(again.taskId).not.toBe(first.taskId);
+    expect(w.approvals.get(first.taskId as string)).toBeUndefined();
+    expect(w.approvals.list().map((a) => a.id)).toEqual([again.taskId]);
+  });
+
+  it('E1.1b: an approval stored before E1.1 (no target: the taken proposal holds it) still wants a fresh remote step-up', async () => {
+    const w = world({ roster: [agent('alpha', 'alpha', 'lead', LEAD), agent('alpha-b', 'alpha', 'worker', W2, { busy: true })] });
+    const proposed = await w.call('alpha-b', fresh({}, '옛 승인의 새 Worker 일'));
+    w.approvals.setMode('alpha', 'reuse');
+    const asked = await w.call('alpha', { idempotencyKey: key(), task: { id: proposed.taskId } });
+    const id = asked.approvalId as string;
+    // As rc.8 stored it: the Lead's raw call, without the proposal's target.
+    const stored = w.approvals.get(id)!;
+    const { target: _target, ...raw } = stored.input;
+    w.approvals.remove(id);
+    w.approvals.add({ ...stored, input: raw });
+    const d = w.tools.delegator!;
+    expect(d.cards(w.roster).find((c) => c.id === id)).toMatchObject({ newWorker: true, target: 'claude' });
+    expect(approvalStepUpRefused(d, id, { remote: true, fresh: () => false })).toBe(true);
+    expect(await answerDecision(d, { requestId: 'r1', id, decision: 'approve' }, { privileged: true, readOnly: false, stepUp: { remote: true, fresh: () => false } }, 'stepup'))
+      .toEqual({ requestId: 'r1', error: 'stepup' });
     expect(w.made).toEqual([]);
   });
 });

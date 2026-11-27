@@ -356,8 +356,13 @@ describe('the events', () => {
     expect(revoked).toMatchObject({ kind: 'deviceRevoked', device: { id: other.device.id }, by: 'Windows · Chrome' });
     expect(revoked.device?.label).not.toContain('NICKSECRET');
     expect((await call(owner.cookie, 'POST', '/api/auth/sessions/revoke-others')).json()).toEqual({ count: 1 });
+    // The sibling route records the row it signed out too, then its own summary line.
+    expect(lines().at(-2)).toMatchObject({
+      kind: 'deviceRevoked',
+      device: { id: third.device.id },
+      by: 'Windows · Chrome',
+    });
     expect(lines().at(-1)).toMatchObject({ kind: 'revokeOthers', detail: 1, by: 'Windows · Chrome' });
-    expect(third.device.id).toBeTruthy();
   });
 
   it('a passkey added, used as a step-up and removed', async () => {

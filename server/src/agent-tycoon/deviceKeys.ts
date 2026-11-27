@@ -50,6 +50,8 @@ export interface DeviceKey {
   nickname?: string;
   /** O2: derived from the User-Agent when this key was first registered. */
   kind?: DeviceKind;
+  /** S1.1: registered by a session a passkey made with no device key; it goes when that passkey's device is revoked. */
+  viaPasskey?: string;
   publicKey: PublicJwk;
   /** Where it was registered, e.g. https://office.tail0000.ts.net; it logs in there only. */
   origin: string;
@@ -144,6 +146,7 @@ export class DeviceKeys {
     label: string,
     mayReplace: boolean,
     kind: DeviceKind = 'unknown',
+    viaPasskey?: string,
   ): RegisterResult {
     if (this.broken) return { status: 503, error: DEVICE_ERRORS.unreadable };
     const jwk = publicJwk(publicKey);
@@ -163,6 +166,7 @@ export class DeviceKeys {
       id,
       label,
       kind,
+      ...(viaPasskey ? { viaPasskey } : {}),
       publicKey: jwk,
       origin,
       createdAt: now,
@@ -275,6 +279,7 @@ function isDeviceFile(data: unknown): data is DeviceFile {
         DEVICE_ID.test(d.id) &&
         typeof d.label === 'string' &&
         (d.nickname === undefined || typeof d.nickname === 'string') &&
+        (d.viaPasskey === undefined || typeof d.viaPasskey === 'string') &&
         (d.kind === undefined || ['phone', 'tablet', 'desktop', 'unknown'].includes(d.kind)) &&
         typeof d.origin === 'string' &&
         publicJwk(d.publicKey) !== null &&

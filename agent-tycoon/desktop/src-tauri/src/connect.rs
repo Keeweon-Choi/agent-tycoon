@@ -105,6 +105,12 @@ pub fn judge(owners: Option<&[u32]>, ours: u32, retried: bool) -> Verdict {
     }
 }
 
+/// May the host token go to the listener(s) on the local office port? Only when the one
+/// process holding it is the daemon whose server.json the token came from (`daemon_pid`).
+pub fn may_send_token(owners: Option<&[u32]>, daemon_pid: Option<u32>) -> bool {
+    daemon_pid.is_some_and(|pid| judge(owners, pid, true) == Verdict::Send)
+}
+
 /// `ssh` arguments that print a one-time login code.
 pub fn login_args(
     target: &str,
@@ -444,9 +450,22 @@ pub fn office_keys_origin(mode: &str, url: &str) -> Option<String> {
     web_origin(url)
 }
 
-/// URL without query and fragment: the login code and any token stay out of the log.
-pub fn redact(url: &str) -> &str {
-    url.split(['?', '#']).next().unwrap_or_default()
+/// URL without query and fragment, and without the direct connector's secret path segment
+/// (22 of `A-Za-z0-9_-` right after the origin, followed by `/`; the server masks the same):
+/// the login code, any token and the secret address stay out of the log.
+pub fn redact(url: &str) -> String {
+    let url = url.split(['?', '#']).next().unwrap_or_default();
+    let path_at = url.find("://").and_then(|i| url[i + 3..].find('/').map(|j| i + 3 + j));
+    if let Some(at) = path_at {
+        let (origin, path) = url.split_at(at);
+        let segment = path.as_bytes().get(1..23);
+        if segment.is_some_and(|s| s.iter().all(|&b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+            && path.as_bytes().get(23) == Some(&b'/')
+        {
+            return format!("{origin}{}", &path[23..]);
+        }
+    }
+    url.to_string()
 }
 
 /// Korean hint for the last stderr line of a failed ssh. A refused key on a host that
@@ -949,11 +968,37 @@ mod tests {
     }
 
     #[test]
+    fn token_goes_only_to_the_daemon_that_wrote_it() {
+        assert!(may_send_token(Some(&[7]), Some(7)));
+        assert!(may_send_token(Some(&[7, 7]), Some(7)));
+        // another process holds the port, or one beside the daemon
+        assert!(!may_send_token(Some(&[8]), Some(7)));
+        assert!(!may_send_token(Some(&[7, 8]), Some(7)));
+        // owner unknown, nobody seen, or no daemon pid on record: never a guess
+        assert!(!may_send_token(None, Some(7)));
+        assert!(!may_send_token(Some(&[]), Some(7)));
+        assert!(!may_send_token(Some(&[7]), None));
+    }
+
+    #[test]
     fn log_helpers() {
         assert_eq!(
             redact("http://localhost:18240/login?code=SECRET1#x"),
             "http://localhost:18240/login"
         );
+        // the direct connector's 22-character secret path segment stays out of the log too
+        let secret = "AbC_d-EfGh1JkLmNoPqRsT";
+        assert_eq!(secret.len(), 22);
+        let cases = [
+            (format!("https://office.duckdns.org:18443/{secret}/"), "https://office.duckdns.org:18443/"),
+            (format!("https://h:18443/{secret}/login?code=SECRET1"), "https://h:18443/login"),
+            ("https://h/login".to_string(), "https://h/login"),
+            ("https://h/short/".to_string(), "https://h/short/"),
+            ("https://h/1234567890123456789012345/".to_string(), "https://h/1234567890123456789012345/"),
+        ];
+        for (url, shown) in cases {
+            assert_eq!(redact(&url), shown, "{url}");
+        }
         assert_eq!(trim_log("short\n", 100), "short\n");
         let log = "1111\n2222\n3333\n4444\n";
         assert_eq!(trim_log(log, 12), "4444\n");

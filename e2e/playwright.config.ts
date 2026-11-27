@@ -31,22 +31,18 @@ export default defineConfig({
     ],
   ],
   outputDir: artifactsDir,
-  // NOTE: browser-context settings here are no-ops for the VS Code tests
-  // (they launch Electron directly via electron.launch(); video for them is
-  // configured in e2e/helpers/launch.ts and screenshots are taken manually in
-  // the fixture teardown). `video` DOES apply to the standalone suite, which
-  // uses Playwright's standard browser `page` fixture.
+  // Browser-context settings: `video` records every test's `page`.
   use: {
     video: 'on',
+    // The screens' Korean names are the selectors (the runners' helpers match them).
+    locale: 'ko-KR',
     // Headless chromium without a GPU: CI runners have none, and the dev PC's GPU path skews timings.
     launchOptions: { args: ['--disable-gpu'] },
   },
   // Default to one worker locally; CI can override this with --workers.
   workers: 1,
-  // Shard distribution at test level (not file level). Without this, Playwright
-  // shards by file: hooks-on/lifecycle.spec.ts alone has 22 tests (47% of the
-  // suite), so one shard does all the work while another does 2 tests. With
-  // fullyParallel, tests are distributed individually → balanced shards.
+  // Shard distribution at test level (not file level), so shards stay balanced.
+  // fullyParallel: tests are distributed individually.
   // workers=1 still keeps tests sequential within a shard; only the shard
   // assignment strategy changes.
   fullyParallel: true,

@@ -320,6 +320,8 @@ export const RETURN_NEAR_RATIO = 0.5;
 export const SCROLL_HOLD_SLACK_PX = 1;
 /** agty (T-0043): a turn end and a messenger reply this close together are one notice. */
 export const NOTICE_PAIR_MS = 15_000;
+/** agty (T-0133): two tabs of one browser each make a notice for the same event; the second is this close after the first's. */
+export const NOTICE_TWIN_MS = 5_000;
 export const NOTICE_PULSE_PERIOD_MS = 1_000;
 export const NOTICE_PULSE_COLOR = '#ffd84a';
 export const NOTICE_DEFAULT_VOLUME = 0.8;
@@ -1191,9 +1193,14 @@ export const QUOTE_PEEK_MAX_PX = 256;
 export const MESSENGER_SPLIT_MIN_PX = 960;
 /** ROOM-THREADS: a tagged room post still unanswered shows its thread's waiting rail this long. */
 export const ROOM_WAITING_MS = 24 * 60 * 60 * 1000;
-/** ROOM-FOLD: the browser setting that remembers which threads are folded, and how many of them it keeps. */
-export const ROOM_FOLD_KEY = 'agty.room-thread-fold';
+/** ROOM-FOLD: the browser setting that remembers which threads the reader opened (every thread with replies is folded
+ *  until then), and how many of them it keeps. A new key: the old 'agty.room-thread-fold' held the folded ones. */
+export const ROOM_FOLD_KEY = 'agty.room-thread-open';
 export const ROOM_FOLD_MAX = 300;
+/** T-113: an opened thread's replies not here this long after asking: the retry line is shown. */
+export const ROOM_THREAD_LOAD_MS = 10_000;
+/** T-113 (N1): no opened thread shows its spinner longer than this, whatever the cause: then the retry line. */
+export const ROOM_THREAD_SPIN_MAX_MS = 15_000;
 // GAME-UI-1 G1 (ideas/messenger 01, 02, 04): the messenger's game motion.
 /** 01: every sentence of a new reply takes this long to type (an English line has more characters than a
  *  Korean one, so the time follows the sentences, and inside one sentence the characters share it evenly) ... */
@@ -1308,6 +1315,11 @@ export const CAMERA_CONTROL_EDGE_GAP_PX = 8;
 export const JOYSTICK_MARGIN_PX = 8;
 /** Gap to the office's bottom edge: above the hidden roster's 44 px handle at the same left edge, plus 8. */
 export const JOYSTICK_BOTTOM_PX = 52;
+/** T-106: the phone's selection chip sits right above the pad, on its left edge: clear of the pad, the dock and the camera group. */
+export const SELECTION_CHIP_GAP_PX = 8;
+export const SELECTION_CHIP_FACE_PX = 24;
+/** Widest the chip grows, as a share of the office's width (the camera group is bottom-right, not in its row). */
+export const SELECTION_CHIP_MAX_WIDTH_PCT = 60;
 /** Width of the arrow keys (and Tab / paste beside the up arrow) at the bar's right end. */
 export const MOBILE_ARROW_KEY_WIDTH_PX = 40;
 /** Finger travel per emitted arrow while sliding from an arrow key (the old trackpad gesture). */
@@ -1326,6 +1338,10 @@ export const KEYBOARD_MIN_HEIGHT_PX = 150;
 export const STANDALONE_VIEWPORT_TOLERANCE_PX = 3;
 /** A messenger history/search request the daemon never answers is given up after this. */
 export const CHAT_REQUEST_TIMEOUT_MS = 20_000;
+/** T-169: a `/` command the engine put in (its picker or dialog closed, or none opened) leaves its
+ *  sent bubble this long after, unless the transcript settled it first (a command the CLI logged):
+ *  longer than a picker's close takes to reach the page (engine tick 2 s + chat poll 1.5 s). */
+export const MSG_COMMAND_SETTLE_MS = 5_000;
 
 // ── ISO-PILOT: the isometric building (agent-tycoon/iso) ─────────────────
 /** Half a floor diamond (iso px at zoom 1): a 16 px world tile is a 16×8 diamond, so a 16×32
@@ -1924,3 +1940,20 @@ export const TOOL_RUN_MIN = 2;
 /** Reports one page sends per window at most (a render loop would otherwise flood the socket). */
 export const ERROR_REPORT_BURST = 10;
 export const ERROR_REPORT_WINDOW_MS = 60_000;
+
+/** T-115: the side question's preselected model, a value the CLI's own /model list uses; the owner chose it
+ *  on 11-13 (lighter than a Lead's). The picker offers only what the CLI lists, and an unlisted default
+ *  falls back to the CLI's first entry. */
+export const SIDE_QUESTION_DEFAULT_MODEL = 'sonnet';
+/** T-143: the CLI list's own "Default (recommended)" entry; the engine and Worker forms already offer
+ *  Claude's default as their empty choice, so this one is left out there. */
+export const CLI_DEFAULT_MODEL = 'default';
+/** T-115: earlier exchanges a side question carries in its prompt (the protocol's maxItems). */
+export const SIDE_QUESTION_EARLIER_MAX = 10;
+/** T-115: the protocol's limits on a side question and on each earlier answer it carries (SideExchange). */
+export const SIDE_QUESTION_MAX = 4000;
+export const SIDE_ANSWER_MAX = 20_000;
+/** T-142: passkey options fetched ahead of a Face ID tap are used this long (the server keeps a
+ *  ceremony 2 minutes) and fetched again this often while the button is on screen. */
+export const PASSKEY_PRIMED_FRESH_MS = 90_000;
+export const PASSKEY_PRIME_REFRESH_MS = 60_000;

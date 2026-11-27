@@ -44,6 +44,7 @@ import {
 import { maskText } from '../../../mask.js';
 import { commandArgv } from '../../../spawnJson.js';
 import { AGENT_TOKEN_ENV } from '../../agentTokens.js';
+import { defaultKill, type KillFn } from '../../jobs.js';
 import { AGENT_SESSION_ID_RE, type ProjectRecord } from '../../registry.js';
 import type { AgentCapabilities, AgentProvider, DeliverResult, LiveSession, StartResult, StopResult } from '../types.js';
 import type { AcpPreset } from './presets.js';
@@ -80,6 +81,10 @@ export interface AcpAgentOptions {
   /** Tests shorten the start and stop waits. */
   timing?: { startMs?: number; closeMs?: number; killMs?: number };
   platform?: NodeJS.Platform;
+  /** Windows' tree kill (jobs.ts), injected by tests. */
+  kill?: KillFn;
+  /** The clock a session's status time is read from (tests); Date.now when unset. */
+  now?: () => number;
 }
 
 interface Conn {
@@ -95,6 +100,8 @@ interface Conn {
   transcript: AcpTranscript | null;
   caps: { resume: boolean; load: boolean; close: boolean };
   busy: boolean;
+  /** When `busy` last changed (LiveSession.statusAt): the idle stop counts from a turn's end. */
+  busyAt: number;
   /** Aborted when the session ends or is stopped: open permission requests then end. */
   abort: AbortController;
   /** Permission requests being answered (a stop lets their `cancelled` go out first). */
@@ -170,6 +177,10 @@ export class AcpAgent implements AgentProvider {
     };
   }
 
+  private now(): number {
+    return (this.o.now ?? Date.now)();
+  }
+
   private changed(): void {
     for (const cb of this.listeners) {
       try {
@@ -192,6 +203,7 @@ export class AcpAgent implements AgentProvider {
         sessionId: c.sessionId,
         name: c.name,
         status: c.busy ? 'busy' : 'idle',
+        statusAt: c.busyAt,
         assignmentId: c.assignmentId,
       }));
   }
@@ -296,6 +308,7 @@ export class AcpAgent implements AgentProvider {
       transcript: null,
       caps: { resume: false, load: false, close: false },
       busy: false,
+      busyAt: this.now(),
       abort: new AbortController(),
       asks: new Set(),
       gone: false,
@@ -442,6 +455,7 @@ export class AcpAgent implements AgentProvider {
     if (conn.busy) return 'notReady';
     const { connection, transcript, sessionId } = conn;
     conn.busy = true;
+    conn.busyAt = this.now();
     transcript.user(text);
     this.changed();
     void connection.agent
@@ -452,6 +466,7 @@ export class AcpAgent implements AgentProvider {
       )
       .finally(() => {
         conn.busy = false;
+        conn.busyAt = this.now();
         this.changed();
       });
     return 'typed';
@@ -481,12 +496,15 @@ export class AcpAgent implements AgentProvider {
     for (const c of this.conns.values()) this.kill(c);
   }
 
-  /** Our own child only: SIGTERM, then SIGKILL if it is still there. */
+  /** Our own child only: SIGTERM, then SIGKILL if it is still there. On Windows taskkill /T /F of
+   *  its tree (A1.3): an npm .cmd shim runs the agent under cmd.exe, and killing cmd.exe left it. */
   private kill(conn: Conn): void {
     const { child } = conn;
     if (child.exitCode !== null || child.signalCode !== null) return;
     try {
       child.stdin?.end();
+      const platform = this.o.platform ?? process.platform;
+      if (platform === 'win32' && conn.pid) return void (this.o.kill ?? defaultKill(platform))(conn.pid, 'SIGTERM');
       child.kill('SIGTERM');
       const t = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');

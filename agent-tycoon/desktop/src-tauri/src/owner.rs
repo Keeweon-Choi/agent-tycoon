@@ -1,7 +1,8 @@
 //! Who holds the listening socket on a local port: the check behind "the login code goes
 //! only to the ssh this app started". Pids of every listener on the port, any address, so a
 //! second listener beside ours counts against us. None means "could not tell", which the
-//! caller treats as a refusal (`connect::judge`).
+//! caller treats as a refusal (`connect::judge`). Windows: the TCP table; Linux: /proc;
+//! macOS: `lsof`.
 
 /// Pids with a listening TCP socket on `port`.
 pub fn listener_pids(port: u16) -> Option<Vec<u32>> {
@@ -175,11 +176,49 @@ mod imp {
     }
 }
 
+/// Pids in `lsof -Fp` output: one `p<pid>` line per process, other lines (never asked for) ignored.
+#[cfg(any(test, target_os = "macos"))]
+fn parse_lsof_pids(out: &str) -> Vec<u32> {
+    let mut pids: Vec<u32> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix('p')?.parse().ok())
+        .collect();
+    pids.dedup();
+    pids
+}
+
+#[cfg(target_os = "macos")]
+mod imp {
+    pub fn listener_pids(port: u16) -> Option<Vec<u32>> {
+        let out = std::process::Command::new("/usr/sbin/lsof")
+            .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fp"])
+            .output()
+            .ok()?;
+        // Exit 1 with nothing on stderr is lsof's "no such socket"; anything else is "unknown".
+        // ponytail: lsof shows only this user's processes, so another user's listener reads as
+        // absent (an empty list, which every caller refuses); upgrade: libproc for all users.
+        (out.status.success() || (out.status.code() == Some(1) && out.stderr.is_empty()))
+            .then(|| super::parse_lsof_pids(&String::from_utf8_lossy(&out.stdout)))
+    }
+}
+
 // Any other platform: owner lookup is not implemented, so the answer is "unknown" and the
 // caller refuses to send. Safe default; add a lookup before enabling ssh mode there.
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod imp {
     pub fn listener_pids(_port: u16) -> Option<Vec<u32>> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn lsof_pids() {
+        assert_eq!(super::parse_lsof_pids("p123\np456\n"), vec![123, 456]);
+        // IPv4 and IPv6 listeners of one process: counted once
+        assert_eq!(super::parse_lsof_pids("p123\np123\n"), vec![123]);
+        assert_eq!(super::parse_lsof_pids(""), Vec::<u32>::new());
+        assert_eq!(super::parse_lsof_pids("pabc\nf5\n123\n"), Vec::<u32>::new());
     }
 }

@@ -594,11 +594,13 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
 pub enum Refresh {
     Keep,
     Update,
-    Reinstall,
+    /// Update with `--pub <bundled key>`: the pinned key is missing or an older build's throwaway
+    /// key, so this update verifies with the bundled key and pins it once it succeeded.
+    Rekey,
 }
 
-/// Only GUI-owned installs move forward automatically. A mismatched (or missing) pinned key is
-/// an older build's throwaway key, so install is used once to pin the release key again.
+/// Only GUI-owned installs move forward automatically, always through the manager's update
+/// (snapshot, health check, revert); a mismatched (or missing) pinned key makes it a [`Refresh::Rekey`].
 pub fn refresh(
     record: &Record,
     bundled_version: &str,
@@ -614,7 +616,7 @@ pub fn refresh(
     if pinned_key.is_some_and(|key| key.trim() == bundled_key.trim()) {
         Refresh::Update
     } else {
-        Refresh::Reinstall
+        Refresh::Rekey
     }
 }
 
@@ -679,11 +681,16 @@ pub fn manager_install_args(
     args
 }
 
-/// The bundled manager's non-interactive update command. It uses the install's pinned key.
-pub fn manager_update_args(manager: &str, bundle: &str) -> Vec<String> {
-    [manager, "update", "--from", bundle, "--yes"]
+/// The bundled manager's non-interactive update command: the install's pinned key, or `pubkey`
+/// (pinned by the update once it succeeded).
+pub fn manager_update_args(manager: &str, bundle: &str, pubkey: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = [manager, "update", "--from", bundle, "--yes"]
         .map(String::from)
-        .to_vec()
+        .to_vec();
+    if let Some(pubkey) = pubkey {
+        args.extend(["--pub".into(), pubkey.into()]);
+    }
+    args
 }
 
 /// `tar` arguments that unpack only the runtime and the manager (as install.ps1 and install.sh).
@@ -712,14 +719,17 @@ trap 'exit 1' HUP INT TERM PIPE
 gzip -dc "$b" | tar -xf - -C "$t" node agent-tycoon core package.json
 "$t/node/bin/node" "$t/agent-tycoon/install/manager.mjs" install --from "$b" --pub "$p" --installed-by gui "$@""#;
 
-/// The bundled manager update from inside WSL. The installed key verifies the bundle.
+/// The bundled manager update from inside WSL. The installed key verifies the bundle, or $2 (a
+/// Windows path) when given, which the update pins once it succeeded. `p=$(...)` on its own line: a
+/// substitution inside `set --` takes `set`'s status, so `set -e` would not stop on a wslpath failure.
 pub const WSL_UPDATE: &str = r#"set -e
-b=$(wslpath -u "$1")
+b=$(wslpath -u "$1"); shift
+if [ $# -gt 0 ]; then p=$(wslpath -u "$1"); set -- --pub "$p"; fi
 t=$(mktemp -d "${TMPDIR:-/tmp}/agent-tycoon-install.XXXXXX")
 trap 'rm -rf "$t"' 0
 trap 'exit 1' HUP INT TERM PIPE
 gzip -dc "$b" | tar -xf - -C "$t" node agent-tycoon core package.json
-"$t/node/bin/node" "$t/agent-tycoon/install/manager.mjs" update --from "$b" --yes"#;
+"$t/node/bin/node" "$t/agent-tycoon/install/manager.mjs" update --from "$b" --yes "$@""#;
 
 /// A one-time login code from the distro's daemon: the installed version's agty-login, else a
 /// source install's (loopback, host token; the 60 s code, bare).
@@ -759,8 +769,10 @@ pub fn wsl_install_argv(
     wsl_script_argv(distro, WSL_INSTALL, &rest)
 }
 
-pub fn wsl_update_argv(distro: &str, bundle: &str) -> Vec<String> {
-    wsl_script_argv(distro, WSL_UPDATE, &[bundle])
+pub fn wsl_update_argv(distro: &str, bundle: &str, pubkey: Option<&str>) -> Vec<String> {
+    let mut rest = vec![bundle];
+    rest.extend(pubkey);
+    wsl_script_argv(distro, WSL_UPDATE, &rest)
 }
 
 /// A Windows path as wslpath reads it: without the `\\?\` verbatim prefix.
@@ -855,6 +867,66 @@ pub fn host_token(server_json: Option<&str>, standalone: Option<&str>) -> Option
             .filter(|t| !t.is_empty())
             .map(String::from)
     })
+}
+
+/// What one office folder holds that the local login reads.
+#[derive(Default)]
+pub struct Folder {
+    pub server_json: Option<String>,
+    pub standalone: Option<String>,
+    /// The entries of `servers/` (`<pid>-<port>.json`), one text each.
+    pub registry: Vec<String>,
+}
+
+/// Why no host token may go to the port.
+#[derive(Debug, PartialEq)]
+pub enum NoToken {
+    /// No token found at all.
+    Missing,
+    /// A token exists, but the process that wrote it is unknown or is not the port's holder.
+    NotTheDaemon,
+}
+
+/// The (token, pid) pairs a folder vouches for on `port`: a registry entry, else server.json,
+/// whose own port field equals `port` and which names a pid. The token is the entry's, else the
+/// folder's standalone-token.
+fn vouched(folder: &Folder, port: u16) -> Vec<(String, u32)> {
+    folder
+        .registry
+        .iter()
+        .chain(folder.server_json.iter())
+        .filter_map(|text| {
+            let entry: Value = serde_json::from_str(text).ok()?;
+            if entry.get("port")?.as_u64()? != u64::from(port) {
+                return None;
+            }
+            let pid = u32::try_from(entry.get("pid")?.as_u64()?).ok()?;
+            Some((host_token(Some(text), folder.standalone.as_deref())?, pid))
+        })
+        .collect()
+}
+
+/// The host token for the daemon on `port`, or why not. `may_send(pid)`: that process alone
+/// holds the port. Folders are in preference order (the office folder, then a legacy one) but a
+/// folder that names no daemon for this port does not shadow a later one that does: the first
+/// vouched pair whose process holds the port wins. A token without such a pair is a refusal.
+pub fn login_token(
+    folders: &[Folder],
+    port: u16,
+    may_send: impl Fn(u32) -> bool,
+) -> Result<String, NoToken> {
+    folders
+        .iter()
+        .flat_map(|f| vouched(f, port))
+        .find(|(_, pid)| may_send(*pid))
+        .map(|(token, _)| token)
+        .ok_or_else(|| {
+            let any = folders.iter().any(|f| {
+                host_token(f.server_json.as_deref(), f.standalone.as_deref()).is_some()
+                    || !f.registry.is_empty()
+            });
+            if any { NoToken::NotTheDaemon } else { NoToken::Missing }
+        })
 }
 
 /// A plain HTTP/1.1 request to the daemon on 127.0.0.1 (the only place the app sends the token).
@@ -1354,8 +1426,13 @@ mod tests {
             ["--start-policy", "on-demand", "--no-linger"]
         );
         assert_eq!(
-            manager_update_args("m", "b"),
+            manager_update_args("m", "b", None),
             ["m", "update", "--from", "b", "--yes"]
+        );
+        // B8.3: a new release key still moves the version with update (snapshot, revert), never install.
+        assert_eq!(
+            manager_update_args("m", "b", Some("k")),
+            ["m", "update", "--from", "b", "--yes", "--pub", "k"]
         );
         assert_eq!(
             unpack_args("b", "t"),
@@ -1363,8 +1440,12 @@ mod tests {
         );
         assert_eq!(wsl_script_argv("Ubuntu", WSL_LOGIN, &[]).len(), 7);
         assert_eq!(
-            wsl_update_argv("Ubuntu", evil)[7..],
+            wsl_update_argv("Ubuntu", evil, None)[7..],
             [evil]
+        );
+        assert_eq!(
+            wsl_update_argv("Ubuntu", evil, Some(r"C:\k.pub"))[7..],
+            [evil, r"C:\k.pub"]
         );
         assert!(!WSL_UPDATE.contains("Ubuntu") && !WSL_UPDATE.contains("rm -rf ~"));
         assert_eq!(
@@ -1373,6 +1454,41 @@ mod tests {
         );
         assert_eq!(plain_path(r"\\?\C:\Program Files\x"), r"C:\Program Files\x");
         assert_eq!(plain_path(r"C:\x"), r"C:\x");
+    }
+
+    /// T-130: a key path wslpath cannot read stops the update before it unpacks anything
+    /// (a command substitution inside `set --` was hidden from `set -e`).
+    #[cfg(unix)]
+    #[test]
+    fn wsl_update_stops_when_the_key_path_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("agty-wsl-update-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = |name: &str, body: &str| {
+            let file = dir.join(name);
+            std::fs::write(&file, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        fake("wslpath", r#"[ "$2" = 'C:\bad.pub' ] && exit 1; echo /mnt/c/x"#);
+        let mark = dir.join("unpacked");
+        fake("gzip", &format!("touch '{}'; exit 1", mark.display()));
+        let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default());
+        let run = |key: &str| {
+            let _ = std::fs::remove_file(&mark);
+            let ok = std::process::Command::new("sh")
+                .args(["-c", WSL_UPDATE, "sh", r"C:\b.tgz", key])
+                .env("PATH", &path)
+                .env("TMPDIR", &dir)
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            (ok, mark.exists())
+        };
+        assert_eq!(run(r"C:\bad.pub"), (false, false));
+        // Negative control: a key path wslpath reads goes on to unpack (the fake gzip then fails).
+        assert_eq!(run(r"C:\k.pub"), (false, true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1451,8 +1567,8 @@ mod tests {
             ..Record::default()
         };
         assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", Some(" key\n"), "key"), Refresh::Update);
-        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", Some("old key"), "key"), Refresh::Reinstall);
-        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", None, "key"), Refresh::Reinstall);
+        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", Some("old key"), "key"), Refresh::Rekey);
+        assert_eq!(refresh(&gui(Some("0.1.0")), "0.1.1", None, "key"), Refresh::Rekey);
         assert_eq!(refresh(&gui(Some("0.1.1")), "0.1.1", Some("key"), "key"), Refresh::Keep);
         assert_eq!(refresh(&gui(Some("0.1.2")), "0.1.1", Some("key"), "key"), Refresh::Keep);
         assert_eq!(refresh(&gui(None), "0.1.1", Some("key"), "key"), Refresh::Keep);

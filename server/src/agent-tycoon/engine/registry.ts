@@ -4,7 +4,7 @@
  * beside it assignments.json `{v: 1, assignments: [{assignmentId, projectId,
  * role: 'lead', provider, title?, rulesFile?, model?, permissionMode?,
  * effort?, remoteControl?, alwaysOn?, wantRunning, sessionId?, backgroundId?,
- * idleRetired?, compactionNudge?}]}`, each written atomically (tmp + rename).
+ * idleRetired?, compactionNudge?, modelSwitchAt?}]}`, each written atomically (tmp + rename).
  * The engine keeps the joined view, one ProjectRecord per project (the project
  * with its lead assignment): loadRegistry joins, saveRegistry splits.
  * Every string that can reach argv or a cwd is checked here.
@@ -75,6 +75,9 @@ export interface ProjectRecord {
   idleRetired?: boolean;
   /** T-0019: send the renew nudge from this many compactions on (opt-in, ADR-0014). */
   compactionNudge?: number;
+  /** T-144: the transcript time (ms) of the last `/model` the engine followed into `model`: only a
+   *  newer one is followed (a daemon restart re-reads the conversation). Claude only. */
+  modelSwitchAt?: number;
   /** D3: a Worker (or Reviewer) of the project `projectId` under its own name; unset = the
    *  project's Lead, whose name is the project's. */
   role?: WorkerRole;
@@ -121,6 +124,7 @@ const AGENT_KEYS = [
   'backgroundId',
   'idleRetired',
   'compactionNudge',
+  'modelSwitchAt',
   'resumeAsCopy',
 ] as const;
 
@@ -270,6 +274,7 @@ function validRecord(r: unknown, requireProjectId: boolean): r is ProjectRecord 
     (p.specWorkflow === undefined || p.specWorkflow === 'speckit') &&
     (p.compactionNudge === undefined ||
       (Number.isInteger(p.compactionNudge) && p.compactionNudge >= 1 && p.compactionNudge <= 99)) &&
+    (p.modelSwitchAt === undefined || (Number.isSafeInteger(p.modelSwitchAt) && p.modelSwitchAt >= 0)) &&
     (p.role === undefined || WORKER_ROLES.includes(p.role)) &&
     optional(p.assignmentId, (v) => ASSIGNMENT_ID_RE.test(v)) &&
     optional(p.workFolder, (v) => path.isAbsolute(v)) &&
@@ -321,6 +326,7 @@ const KEYS: Array<keyof ProjectRecord> = [
   'backgroundId',
   'idleRetired',
   'compactionNudge',
+  'modelSwitchAt',
   'provider',
   'resumeAsCopy',
   'cloned',

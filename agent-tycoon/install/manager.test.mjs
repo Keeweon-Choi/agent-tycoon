@@ -189,6 +189,60 @@ test('a tampered bundle is refused before anything is unpacked', async () => {
   assert.equal(fs.existsSync(path.join(root, 'versions')), false);
 });
 
+test('C1.4: install refuses beside a running source-install daemon, before anything is unpacked or config.json changes', async () => {
+  const home = tmp('home'); const root = path.join(home, 'root');
+  const cfg = configPathOf(home);
+  fs.mkdirSync(path.dirname(cfg), { recursive: true });
+  fs.writeFileSync(cfg, JSON.stringify({ port: 18240 }));
+  const { deps } = fakeDeps({ home, root });
+  // The source daemon holds 18240 (so the port looks taken) and answers health; this root has no record.
+  const source = { ...deps, tcpFree: async (port) => port !== 18240, health: async (port) => (port === 18240 ? { service: 'agent-tycoon', version: '0.9.0' } : null) };
+  await assert.rejects(install({ ...makeBundle('1.0.0'), root, service: 'systemd' }, source), /port 18240 answers as agent-tycoon 0\.9\.0/);
+  assert.equal(fs.readFileSync(cfg, 'utf8'), JSON.stringify({ port: 18240 }), 'config.json is the source install\'s too');
+  assert.equal(fs.existsSync(path.join(root, 'versions')), false);
+  // Its engine socket answering (from outside this root) is refused the same way.
+  const socket = { ...deps, control: async () => ({ ok: true, daemon: { port: 18240, entry: '/src/agent-tycoon/dist/cli.js' } }) };
+  await assert.rejects(install({ ...makeBundle('1.0.0'), root, service: 'systemd' }, socket), /engine socket is held by another daemon/);
+});
+
+test('C1.4: a foreign program on the port (health answers JSON, not our service) still falls back to the next free port', async () => {
+  const home = tmp('home'); const root = path.join(home, 'root');
+  const cfg = configPathOf(home);
+  fs.mkdirSync(path.dirname(cfg), { recursive: true });
+  fs.writeFileSync(cfg, JSON.stringify({ port: 18240 }));
+  const { deps } = fakeDeps({ home, root });
+  const foreign = { ...deps, tcpFree: async (port) => port !== 18240, health: async (port) => (port === 18240 ? { status: 'ok' } : await deps.health(port)) };
+  await install({ ...makeBundle('1.0.0'), root, service: 'systemd' }, foreign);
+  assert.equal((await readRecord(root)).port, 18241);
+});
+
+test('C1.7: --service detached is refused on macOS and Windows (its pid check reads /proc) before anything is unpacked', async () => {
+  for (const platform of ['darwin', 'win32']) {
+    const home = tmp('home'); const root = path.join(home, 'root');
+    const { deps } = fakeDeps({ home, root });
+    await assert.rejects(install({ ...makeBundle('1.0.0'), root, service: 'detached', port: 18257 }, { ...deps, platform }), /--service detached: Linux and WSL only/, platform);
+    assert.equal(fs.existsSync(path.join(root, 'versions')), false, platform);
+  }
+});
+
+test('C1.7: a reinstall over a record that says detached on macOS or Windows names the replacement service', async () => {
+  for (const [platform, service] of [['darwin', 'launchd'], ['win32', 'schtasks']]) {
+    const home = tmp('home'); const root = path.join(home, 'root');
+    const { deps } = fakeDeps({ home, root });
+    fs.mkdirSync(root, { recursive: true });
+    await writeRecord(root, { ...newRecord({ root, platform, env: {} }), current: '1.0.0', port: 18257, service: { name: 'agent-tycoon', kind: 'detached' } });
+    await assert.rejects(install({ ...makeBundle('1.0.0'), root, port: 18257 }, { ...deps, platform }), new RegExp(`--service ${service}`), platform);
+  }
+});
+
+test('C1.8: --start-policy on macOS is refused before anything is installed, not after the service is activated', async () => {
+  const home = tmp('home'); const root = path.join(home, 'root');
+  const { deps, calls } = fakeDeps({ home, root });
+  await assert.rejects(install({ ...makeBundle('1.0.0'), root, service: 'launchd', port: 18257, startPolicy: 'manual' }, { ...deps, platform: 'darwin' }), /start policy: Linux, WSL and native Windows only/);
+  assert.equal(fs.existsSync(path.join(root, 'versions')), false);
+  assert.deepEqual(calls.filter((c) => c.startsWith('launchctl')), [], 'no service was activated');
+});
+
 test('T-83: a source install\'s cld-gui service is not adopted: its unit, links and the old command are left alone', async () => {
   const home = tmp('home'); const root = path.join(home, 'root');
   const repo = path.join(home, 'src', 'cld-gui');
@@ -590,7 +644,10 @@ test('uninstall reset removes only our data, never Claude/Codex or projects', as
   fs.mkdirSync(otherState, { recursive: true }); fs.writeFileSync(path.join(otherState, 'keep'), 'theirs');
   const result = await uninstall({ reset: true, yes: true }, uninstallDeps(home));
   assert.equal(result.code, 0);
-  assert.equal(fs.existsSync(path.join(home, '.config/agent-tycoon')), false);
+  // D2.2: ~/.pixel-agents keeps its layout.json (maybe upstream's), so only the marker that keeps the
+  // next daemon from copying or reading it back stays in our folder.
+  const skip = configPathModule.legacyOfficeSkipFile(home);
+  assert.deepEqual(fs.readdirSync(path.join(home, '.config/agent-tycoon'), { recursive: true }), ['office', path.join('office', path.basename(skip))]);
   assert.equal(fs.existsSync(state), false);
   assert.equal(fs.existsSync(path.join(otherState, 'keep')), true);
   assert.equal(fs.existsSync(path.join(home, '.pixel-agents', 'standalone-state.json')), false);
@@ -639,7 +696,7 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
   fake.spawn = (command, args, options) => {
     assert.equal(fs.existsSync(resetData), false);
     spawned.push({ command, args, options });
-    return { unref: () => { unref = true; } };
+    return { pid: 1, on: () => {}, unref: () => { unref = true; } };
   };
   const result = await uninstall({ reset: true, yes: true, root }, fake);
   assert.equal(result.code, 0);
@@ -648,14 +705,18 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
     command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
     args: ['-NoProfile', '-Command', [
       'Wait-Process -Id 4455 -Timeout 60 -ErrorAction SilentlyContinue',
-      `$root = '${root.replaceAll("'", "''")}'`,
-      'for ($attempt = 0; $attempt -lt 20 -and (Test-Path -LiteralPath $root); $attempt++) {',
-      '  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue',
-      '  if (Test-Path -LiteralPath $root) { Start-Sleep -Milliseconds 500 }',
+      `$list = '${path.join(root, 'uninstall-pending.json').replaceAll("'", "''")}'`,
+      '$p = Get-Content -LiteralPath $list -Raw -Encoding UTF8 | ConvertFrom-Json',
+      '$left = @($p.files)',
+      'for ($attempt = 0; $attempt -lt 20 -and $left.Count; $attempt++) {',
+      '  foreach ($f in $left) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }',
+      '  $left = @($left | Where-Object { Test-Path -LiteralPath $_ })',
+      '  if ($left.Count) { Start-Sleep -Milliseconds 500 }',
       '}',
-      'if (Test-Path -LiteralPath $root) {',
+      'Remove-Item -LiteralPath $list -Force -ErrorAction SilentlyContinue',
+      'foreach ($d in @($p.dirs)) { if ((Test-Path -LiteralPath $d) -and -not (Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue | Select-Object -First 1)) { Remove-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue } }',
+      'if ($left.Count) {',
       '  try {',
-      '    $left = @($root) + @(Get-ChildItem -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })',
       "    ('{0} {1}' -f (Get-Date -Format o), ($left -join '; ')) | Out-File -LiteralPath (Join-Path $env:TEMP 'agent-tycoon-uninstall.log') -Append -Encoding utf8 -ErrorAction SilentlyContinue",
       '  } catch {}',
       '}',
@@ -664,8 +725,44 @@ test('Windows uninstall defers its version and cmd launchers until after reset',
   }]);
   assert.equal(unref, true);
   assert.ok(fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
+  assert.ok(!fake.calls.some((line) => line.startsWith('남은 파일')), 'the helper\'s own list is not a leftover');
   assert.equal(fs.existsSync(resetData), false);
   assert.equal(fs.existsSync(path.join(dir, rels[0])), true);
+  const pending = JSON.parse(fs.readFileSync(path.join(root, 'uninstall-pending.json'), 'utf8'));
+  assert.deepEqual(pending.files.sort(), [launcher, ...[...rels, 'manifest.json', 'node/node.exe', 'agent-tycoon/install/manager.mjs'].map((rel) => path.join(dir, rel))].sort());
+  assert.deepEqual(pending.dirs.at(-1), root); // the root last, and only when empty
+});
+
+test('Windows uninstall --program leaves the kept record, a hand-edited and an unlisted file to the helper untouched (B8.2)', async () => {
+  const home = tmp('uninstall-windows-kept'); const { root, dir } = await completeInstall(home);
+  const node = path.join(dir, 'node', 'node.exe'); const manager = path.join(dir, 'agent-tycoon', 'install', 'manager.mjs');
+  const launcher = path.join(root, 'bin', 'agty.cmd');
+  for (const [file, content] of [[node, 'node'], [manager, 'manager'], [launcher, '@echo off']]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
+  }
+  const manifestFile = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  for (const file of [node, manager]) manifest.files[path.relative(dir, file)] = sha256File(file);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const copy = path.join(home, '.config', 'agent-tycoon.replaced-123'); fs.mkdirSync(copy, { recursive: true }); fs.writeFileSync(path.join(copy, 'devices.json'), 'secret');
+  const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile);
+  record.files[launcher] = sha256File(launcher); record.replaced = [copy]; await writeRecord(root, record);
+  const edited = path.join(dir, 'lib', 'a.js'); fs.appendFileSync(edited, '// mine\n');
+  const unlisted = path.join(root, 'notes.txt'); fs.writeFileSync(unlisted, 'mine');
+  const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node; fake.managerPath = manager; fake.pid = 4455;
+  fake.control = async () => ({ ok: true, projects: [], jobs: [], tasks: [], daemon: { pid: 1234, port: 18257, entry: path.join(dir, 'dist', 'cli.js') } });
+  let script;
+  fake.spawn = (_command, args) => { script = args[2]; return { pid: 1, on: () => {}, unref: () => {} }; };
+  assert.equal((await uninstall({ program: true, yes: true, root }, fake)).code, 0);
+  assert.doesNotMatch(script, /-Recurse/);
+  // What the helper does after this process exits: the listed files, then each listed folder that is empty.
+  const pending = JSON.parse(fs.readFileSync(path.join(root, 'uninstall-pending.json'), 'utf8'));
+  for (const file of pending.files) fs.rmSync(file, { force: true });
+  fs.rmSync(path.join(root, 'uninstall-pending.json'));
+  for (const d of pending.dirs) if (fs.existsSync(d) && !fs.readdirSync(d).length) fs.rmdirSync(d);
+  for (const file of [node, manager, launcher]) assert.equal(fs.existsSync(file), false, file);
+  for (const file of [edited, unlisted, copy]) assert.equal(fs.existsSync(file), true, file);
+  assert.deepEqual((await readRecord(root)).replaced, [copy]); // agty uninstall --reset still finds the copy
 });
 
 test('Windows deferred cleanup script has a bounded retry loop and diagnostic log', async () => {
@@ -685,9 +782,9 @@ test('Windows deferred cleanup script has a bounded retry loop and diagnostic lo
     await fs.promises.rm(file, { force: true });
   };
   let script;
-  fake.spawn = (_command, args) => { script = args[2]; return { unref: () => {} }; };
+  fake.spawn = (_command, args) => { script = args[2]; return { pid: 1, on: () => {}, unref: () => {} }; };
   await uninstall({ program: true, yes: true, root }, fake);
-  assert.match(script, /for \(\$attempt = 0; \$attempt -lt 20 -and \(Test-Path -LiteralPath \$root\); \$attempt\+\+\)/);
+  assert.match(script, /for \(\$attempt = 0; \$attempt -lt 20 -and \$left\.Count; \$attempt\+\+\)/);
   assert.match(script, /Start-Sleep -Milliseconds 500/);
   assert.match(script, /Out-File -LiteralPath \(Join-Path \$env:TEMP 'agent-tycoon-uninstall\.log'\) -Append -Encoding utf8/);
 });
@@ -710,7 +807,7 @@ test('Windows defers a held private node even when its own executable path diffe
     if (file === node) { const error = new Error('held'); error.code = 'EPERM'; throw error; }
     await fs.promises.rm(file, { force: true });
   };
-  fake.spawn = () => { deferred = true; return { unref: () => {} }; };
+  fake.spawn = () => { deferred = true; return { pid: 1, on: () => {}, unref: () => {} }; };
   const result = await uninstall({ reset: true, yes: true, root }, fake);
   assert.ok([0, 1].includes(result.code));
   assert.equal(fs.existsSync(resetData), false);
@@ -718,10 +815,39 @@ test('Windows defers a held private node even when its own executable path diffe
   assert.ok(fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
 });
 
+test('T-130: a Windows removal helper that never starts leaves the files it was given in the record, and the exit says so', async () => {
+  const home = tmp('uninstall-windows-no-helper'); const { root, dir } = await completeInstall(home);
+  const node = path.join(dir, 'node', 'node.exe'); const manager = path.join(dir, 'agent-tycoon', 'install', 'manager.mjs');
+  const launcher = path.join(root, 'bin', 'agty.cmd');
+  for (const [file, content] of [[node, 'node'], [manager, 'manager'], [launcher, '@echo off']]) {
+    fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content);
+  }
+  const manifestFile = path.join(dir, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+  for (const file of [node, manager]) manifest.files[path.relative(dir, file)] = sha256File(file);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const record = await readRecord(root); record.versions['1.0.0'].manifestSha256 = sha256File(manifestFile);
+  record.files[launcher] = sha256File(launcher); await writeRecord(root, record);
+  const fake = uninstallDeps(home); fake.platform = 'win32'; fake.execPath = node; fake.managerPath = manager;
+  // What node's spawn returns for a missing powershell.exe: no pid, and an 'error' event on the next tick.
+  let listened = false;
+  fake.spawn = () => ({ pid: undefined, on: (event) => { listened ||= event === 'error'; }, unref: () => {} });
+  const result = await uninstall({ program: true, yes: true, root }, fake);
+  assert.equal(result.code, 1);
+  assert.equal(listened, true, 'a late error event must not crash the manager');
+  assert.ok(fake.calls.some((line) => line.startsWith('⚠ Windows 제거 도우미를 시작하지 못했습니다')));
+  assert.ok(!fake.calls.includes('✔ 이 창이 닫히면 나머지 프로그램 파일을 제거합니다'));
+  const kept = await readRecord(root);
+  assert.equal(kept.files[launcher], sha256File(launcher));
+  assert.ok(kept.versions['1.0.0'], 'the version, whose manifest lists node.exe and manager.mjs, stays recorded for a retry');
+  for (const file of [node, manager, launcher, manifestFile]) assert.equal(fs.existsSync(file), true, file);
+  assert.equal(fs.existsSync(path.join(root, 'uninstall-pending.json')), false);
+});
+
 test('non-Windows uninstall does not start the Windows removal helper', async () => {
   const home = tmp('uninstall-no-windows-helper'); await managerRecord(home);
   const fake = uninstallDeps(home); let spawned = false;
-  fake.spawn = () => { spawned = true; return { unref: () => {} }; };
+  fake.spawn = () => { spawned = true; return { pid: 1, on: () => {}, unref: () => {} }; };
   assert.equal((await uninstall({ program: true, yes: true }, fake)).code, 0);
   assert.equal(spawned, false);
 });
@@ -984,7 +1110,14 @@ test('R5: stopping the Windows service ends the task, then the daemon itself (it
   const lines = []; calls.length = 0; up = true;
   await serviceOp('schtasks', 'stop', s, { ...deps, print: (l) => lines.push(l), run: async (cmd) => { calls.push(cmd); return { ok: true, stdout: cmd[0] === 'powershell.exe' ? 'not ours' : '', stderr: '' }; } });
   assert.match(lines.join('\n'), /pid 4321 .* not this install's daemon; left running/);
-  // Nothing answers with our token: only the task is ended.
+  // Nothing answers with our token on stop, restart or activate (update, rollback, reinstall): only the task is
+  // ended and /Run follows. The private-node sweep would also end the PTY host and every agent's MCP server.
+  for (const op of ['stop', 'restart', 'activate']) {
+    calls.length = 0;
+    await serviceOp('schtasks', op, { ...s, create: ['schtasks', '/Create'] }, { ...deps, healthPid: async () => null });
+    assert.ok(!calls.some((c) => c[0] === 'powershell.exe'), `${op}: no process is ended without a pid`);
+  }
+  // Uninstall's deactivate (agents already stopped): the sweep of private Node processes under versions\.
   calls.length = 0;
   await serviceOp('schtasks', 'deactivate', s, { ...deps, healthPid: async () => null });
   assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'powershell.exe -NoProfile', 'schtasks /Delete', 'schtasks /Delete']);

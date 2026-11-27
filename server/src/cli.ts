@@ -517,7 +517,7 @@ async function main(): Promise<void> {
     hostToken.current = config.token;
     if (args.rotateToken) {
       console.log(
-        '[Agent Tycoon] Server token rotated: URLs carrying the old token no longer grant access. Open the new URL below on each device.',
+        '[Agent Tycoon] Server token rotated: URLs carrying the old token no longer grant access. Signed-in devices stay signed in: sign them out from the device list.',
       );
     }
 

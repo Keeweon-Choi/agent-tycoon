@@ -11,7 +11,7 @@ import test from 'node:test';
 import { release, scenario, snapshot } from './harness.mjs';
 
 const require = createRequire(import.meta.url);
-const { configDirectory } = require('../../../core/src/agent-tycoon/configPath.cjs');
+const { configDirectory, legacyOfficeSkipFile } = require('../../../core/src/agent-tycoon/configPath.cjs');
 const r1 = release('1.0.0');
 const devenv = (s) => { const v = snapshot({ home: s.home, system: false }); return Object.fromEntries(Object.entries(v).filter(([k]) => /^(rc |claude|codex|nvm|fnm|volta|login|interactive|npm)/.test(k))); };
 
@@ -78,8 +78,8 @@ test('INSTALL-5: uninstall --reset shows its list, removes our data only; backup
 
   r = await s.agty(['uninstall', '--reset', '--yes']);
   assert.equal(r.code, 0, r.out + r.err);
-  for (const dataFolder of [path.join(s.home, '.config', 'agent-tycoon')])
-    assert.equal(fs.existsSync(dataFolder), false, `${dataFolder}: our data folder is gone`);
+  // Our data folder is gone but for the marker that keeps the kept ~/.pixel-agents layout/config from coming back (D2.2).
+  assert.deepEqual(fs.readdirSync(path.join(s.home, '.config', 'agent-tycoon'), { recursive: true }), ['office', path.join('office', path.basename(legacyOfficeSkipFile(s.home)))], 'our data folder is gone');
   for (const f of ['standalone-state.json', 'standalone-token', 'server.json']) assert.equal(fs.existsSync(path.join(s.home, '.pixel-agents', f)), false, f);
   for (const f of ['layout.json', 'config.json', 'vscode-state.json', 'hooks/claude-hook.js']) assert.ok(fs.existsSync(path.join(s.home, '.pixel-agents', f)), `${f} kept`);
   assert.equal(fs.existsSync(s.root), false);

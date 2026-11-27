@@ -125,7 +125,7 @@ export function MobileTopBar() {
   return (
     <div
       ref={bar}
-      className="pixel-panel shrink-0 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-8 min-w-0 pt-[calc(var(--agty-safe-top)+4px)] pl-[calc(var(--agty-safe-left)+8px)] pr-[calc(var(--agty-safe-right)+8px)]"
+      className="pixel-panel shrink-0 grid grid-cols-[minmax(min-content,1fr)_auto_minmax(min-content,1fr)] items-center gap-8 min-w-0 pt-[calc(var(--agty-safe-top)+4px)] pb-8 pl-[calc(var(--agty-safe-left)+8px)] pr-[calc(var(--agty-safe-right)+8px)]"
       data-testid="mobile-top-bar"
     >
       {/* GAME-UI-1 (07): the job chip, and the heat only when it is hot. */}
@@ -135,7 +135,7 @@ export function MobileTopBar() {
         <HeatGauge chip />
       </div>
       <HostClock size="text-sm" game />
-      {/* 44×44 for the thumb; the bar has no bottom padding, so it is no taller than before. */}
+      {/* 44×44 for the thumb. The bar pads its bottom like its ends (T-111: the buttons touched its border). */}
       <div className="flex justify-end [&>button]:min-h-44 [&>button]:min-w-44 [&>button]:justify-center">
         <GameOptions
           phoneRows={{

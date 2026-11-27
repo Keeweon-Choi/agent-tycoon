@@ -308,7 +308,10 @@ describe('registry v2 in the engine (D2)', () => {
     e.dispose();
     expect(fs.readFileSync(s.file, 'utf8')).toBe(projectsBytes);
 
-    const { orphanLines } = restartLoads(s, { alpha: { ...alpha, model: 'opus' } });
+    // T-144: a model chosen in the form marks itself (modelSwitchAt, the edit's time).
+    const { orphanLines } = restartLoads(s, {
+      alpha: { ...alpha, model: 'opus', modelSwitchAt: expect.any(Number) },
+    });
     expect(orphanLines).toEqual([]);
     noOrphanAfterSave(s);
   });

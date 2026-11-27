@@ -102,6 +102,39 @@ describe('one list of notices and events (T-0070)', () => {
     expect(mergeNews([], [event({ kind: 'job_end', ref: 'j1', summary: 'x' })])).toHaveLength(1);
   });
 
+  it('U2.3: the notice a delegation ask or an early usage reset made is listed once, with its event', () => {
+    const ask = mergeNews(
+      [
+        notice({
+          cause: 'permission',
+          name: 'shop',
+          text: 'x',
+          target: { open: 'workbench', project: 'shop' },
+        }),
+      ],
+      [event({ kind: 'delegation_approval', name: 'shop', summary: 'y' })],
+    );
+    expect(ask).toHaveLength(1);
+    expect(ask[0].notice).toBeDefined();
+    const failedStart = mergeNews(
+      [notice({ cause: 'permission', name: 'shop', text: 'x', target: { open: 'workbench', project: 'shop' } })],
+      [event({ kind: 'delegation_start_failed', name: 'shop', summary: 'y' })],
+    );
+    expect(failedStart).toHaveLength(1);
+    const reset = mergeNews(
+      [notice({ cause: 'job', agentId: null, name: 'Claude', text: 'x', target: { open: 'office' } })],
+      [event({ kind: 'usage_reset_early', name: null, providerName: 'Claude', summary: 'y' })],
+    );
+    expect(reset).toHaveLength(1);
+    // Another project's ask is not its twin.
+    expect(
+      mergeNews(
+        [notice({ cause: 'permission', name: 'shop', text: 'x', target: { open: 'workbench', project: 'shop' } })],
+        [event({ kind: 'delegation_approval', name: 'blog', summary: 'y' })],
+      ),
+    ).toHaveLength(2);
+  });
+
   it('a notice hides only its own event, never one that had no notice (cooldown)', () => {
     // Two runs of the same job end 60 s apart: the second is inside the 5-min
     // notice cooldown, so only the first has a notice. Both ends stay visible.

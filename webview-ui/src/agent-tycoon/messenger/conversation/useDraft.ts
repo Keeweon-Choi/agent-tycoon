@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { ChatReply, OfficeOrchestrator } from '../../../../../core/src/messages.js';
+import { isTypingInTerminal } from '../../../terminal/terminalDom.js';
 import { transport } from '../../../transport/index.js';
 import { useDraftFiles } from '../draftFiles.js';
 import { pendingReplyForEdit } from '../messageActions.js';
@@ -49,15 +50,17 @@ export function useDraft({
   useDraftFiles(draft, m.attachments[agentId] ?? NO_CHIPS, (chips) => setAttachments(agentId, chips));
   // MSG-ACTIONS: the message this draft answers (답글), kept with the draft.
   const [reply, setReplyState] = useState(() => loadDraftReply(draft));
+  // B6.3: a held message's edit borrows the composer (its words and reply chip); the draft
+  // waits in storage untouched, so leaving the screen mid-edit never loses it.
+  const pendingEdit = m.editing?.agentId === agentId ? m.editing : null;
   const setReply = (value: ChatReply | null) => {
     setReplyState(value);
-    saveDraftReply(draft, value);
+    if (!pendingEdit) saveDraftReply(draft, value);
     if (value) requestAnimationFrame(() => box.current?.focus());
   };
   // MSG-POLISH: the peek of the message the draft answers; it never touches the draft or the focus.
   const [peek, setPeek] = useState<Peek>(null);
   const editRestore = useRef<string | null>(null);
-  const pendingEdit = m.editing?.agentId === agentId ? m.editing : null;
   const peekOn = peekShown(peek, reply);
   const peekDo = (action: PeekAction) => {
     const step = peekStep(reply, action);
@@ -71,7 +74,8 @@ export function useDraft({
   useEffect(() => {
     if (!peekOn) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      // T-81 C: Esc in a terminal (the picker sheet) is the terminal's own key.
+      if (event.key !== 'Escape' || isTypingInTerminal(event.target as Element)) return;
       event.stopImmediatePropagation();
       setPeek(null);
     };
@@ -91,7 +95,7 @@ export function useDraft({
   const editActive = useRef(false);
   const edit = (value: string) => {
     setText(value);
-    saveDraft(draft, value);
+    if (!pendingEdit) saveDraft(draft, value);
   };
   // The draft's own reply chip waits while a held message is edited (the edit has its own chip).
   // ponytail: kept in memory only; a reload in the middle of an edit forgets it.
@@ -100,13 +104,18 @@ export function useDraft({
     replyRestore.current = reply;
     setReplyState(null);
   };
-  const leavePendingEdit = () => {
-    messengerEditLeave((msg) => transport.send(msg));
-    edit(editRestore.current ?? '');
+  /** The edit was left or saved: the composer shows the draft again (storage still holds it). */
+  const restoreDraft = () => {
+    setText(editRestore.current ?? '');
     editRestore.current = null;
     setReplyState(replyRestore.current);
-    saveDraftReply(draft, replyRestore.current);
     replyRestore.current = null;
+  };
+  /** A lost edit's words back to the composer, after the unsent draft rather than over it. */
+  const takeBack = (words: string) => edit(text ? `${text}\n${words}` : words);
+  const leavePendingEdit = () => {
+    messengerEditLeave((msg) => transport.send(msg));
+    restoreDraft();
   };
   useEffect(() => {
     editActive.current = !!pendingEdit;
@@ -135,5 +144,7 @@ export function useDraft({
     pendingReply,
     edit,
     leavePendingEdit,
+    restoreDraft,
+    takeBack,
   };
 }

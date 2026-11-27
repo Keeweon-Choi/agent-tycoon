@@ -344,12 +344,13 @@ export function generateLayout(
       const tx = room.x + dx + 5;
       const ty = room.y + dy + 4;
       if (!lobby) door(tx);
+      // T-107: the sofas face the table from behind it and from its left, the two ways the
+      // isometric art draws a sofa (towards the viewer). A sofa in front of it or on its right
+      // would show its seat to the viewer with its back to the table (no art for those yet).
       furniture.push(
         { uid: 'lounge:table', type: 'COFFEE_TABLE', col: tx, row: ty },
         { uid: 'lounge:sofa-front', type: 'SOFA_FRONT', col: tx, row: ty - 1 },
-        { uid: 'lounge:sofa-back', type: 'SOFA_BACK', col: tx, row: ty + 2 },
         { uid: 'lounge:sofa-left', type: 'SOFA_SIDE', col: tx - 1, row: ty },
-        { uid: 'lounge:sofa-right', type: 'SOFA_SIDE:left', col: tx + 2, row: ty },
         { uid: 'lounge:plant-1', type: 'PLANT', col: room.x + 1, row: room.y + 1 },
         { uid: 'lounge:plant-2', type: 'PLANT', col: room.x + room.w - 2, row: room.y + 5 },
       );

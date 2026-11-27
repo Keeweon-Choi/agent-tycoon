@@ -23,7 +23,9 @@ afterEach(() => {
   process.env = { ...savedEnv };
 });
 
-async function start() {
+// A host script path is all the engine needs to run a new Claude Lead in our PTY (claude-pty);
+// nothing here starts a session, so it is never launched and the tests do not need dist/.
+async function start(ptyHostScript: string | null = '/x/agty-ptyhost.js') {
   const { home, claudePath } = makeEngineHome();
   process.env.HOME = home;
   process.env.XDG_RUNTIME_DIR = home;
@@ -43,6 +45,7 @@ async function start() {
     engineClaude: claudePath,
     defaultLayout: { tiles: [1], furniture: [] },
     lhmPort: null,
+    ptyHostScript,
   });
   cleanup.push(() => {
     office.dispose();
@@ -122,13 +125,35 @@ describe('slash commands through the office (engine project)', () => {
     });
     expect(await t.chat('/compact a\tb')).toMatchObject({ ok: false });
     expect(await t.chat('/compact \x1b[31m')).toMatchObject({ ok: false });
-    expect(await t.chat('/model')).toMatchObject({ ok: false });
+    expect(await t.chat('/add-dir')).toMatchObject({ ok: false });
+    // T-81 C: a Lead in our PTY may send a bare /model (its picker shows in the sheet).
+    expect(await t.chat('/model')).toMatchObject({
+      ok: false,
+      error: '/ 명령은 대화가 켜져 있을 때만 보낼 수 있어요',
+    });
     // A valid command with its session off is refused, never left in the inbox.
     expect(await t.chat('/compact')).toMatchObject({
       ok: false,
       error: '/ 명령은 대화가 켜져 있을 때만 보낼 수 있어요',
     });
     expect(fs.existsSync(path.join(t.home, '.config/agent-tycoon/inbox/alpha'))).toBe(false);
+  });
+
+  it('T-81 C: a claude --bg Lead keeps the argument of /model required (it cannot show a picker)', async () => {
+    const t = await start(null);
+    const model = (t.catalogue().commands as Array<{ name: string }>).find(
+      (c) => c.name === 'model',
+    );
+    expect(model).toMatchObject({ argsRequired: true });
+    expect(await t.chat('/model')).toMatchObject({
+      ok: false,
+      error: '/model에는 <모델>을 함께 적어야 해요',
+    });
+    const pty = await start();
+    const ptyModel = (pty.catalogue().commands as Array<{ name: string }>).find(
+      (c) => c.name === 'model',
+    );
+    expect(ptyModel).not.toHaveProperty('argsRequired');
   });
 
   it('nothing is watched once the conversation closes or the client leaves', async () => {

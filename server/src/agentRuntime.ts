@@ -217,7 +217,7 @@ export class AgentRuntime {
           (agent) => this.registerAgent(agent.sessionId, agent.id),
         );
       },
-      onSessionClear: (agentId, newSessionId, newTranscriptPath) => {
+      onSessionClear: (agentId, newSessionId, newTranscriptPath, resumed) => {
         if (newTranscriptPath) {
           this.knownJsonlFiles.add(newTranscriptPath);
           reassignAgentToFile(
@@ -229,6 +229,7 @@ export class AgentRuntime {
             this.waitingTimers,
             this.permissionTimers,
             () => this.store.persist(),
+            resumed,
           );
         }
         const agent = this.store.get(agentId);
@@ -271,10 +272,8 @@ export class AgentRuntime {
         this.dismissalTracker.clearSeededMtime(agent.jsonlFile);
         this.dismissalTracker.dismiss(agent.jsonlFile);
         // Covers real team leads AND leads of background teammates (which
-        // have children but no teamName). No-op when childless.
-        this.removeTeammates(agentId);
-        // Unnamed background spawns die with their lead's session too.
-        this.subagentWatch.removeByLead(agentId);
+        // have children but no teamName), and unnamed background spawns.
+        this.removeChildren(agentId);
         if (agent.isExternal) {
           this.unregisterAgent(agent.sessionId);
           this.removeAgent(agentId);
@@ -388,10 +387,15 @@ export class AgentRuntime {
   closeAgent(id: number): void {
     const agent = this.store.get(id);
     if (!agent) return;
-    this.removeTeammates(id);
-    this.subagentWatch.removeByLead(id);
+    this.removeChildren(id);
     this.dismissalTracker.dismiss(agent.jsonlFile);
     this.removeAgent(id);
+  }
+
+  /** A Lead's session is over: its Teammates and watched Sub-agents go (no-op when childless). */
+  removeChildren(leadId: number): void {
+    this.removeTeammates(leadId);
+    this.subagentWatch.removeByLead(leadId);
   }
 
   /** Remove all teammates of a lead agent. */

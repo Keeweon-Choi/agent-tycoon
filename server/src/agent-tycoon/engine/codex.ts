@@ -43,6 +43,11 @@ import { jobsDir } from './jobs.js';
 import { writeAtomic } from './messenger.js';
 import type { WorkerRole } from './registry.js';
 
+/** The codex on `envPath`. Bare on Windows (A1.2): PATHEXT finds a codex.exe (bun, scoop, the
+ *  standalone build) as well as npm's codex.cmd; commandArgv runs either. */
+export const findCodex = (envPath: string | undefined, platform: NodeJS.Platform = process.platform): string | null =>
+  findOnPath('codex', envPath, platform);
+
 const DAY = 86_400_000;
 /** D5: runs in the order they were asked for. File names do not sort so: two in one second are
  *  `<base>` then `<base>-2` ('-' sorts before '.json'), and MMDD wraps at a new year. */
@@ -54,6 +59,10 @@ const byStart = (a: CodexRecord, b: CodexRecord): number =>
 const INDEX_STALE_MS = 60_000;
 export const ID_RE = /^\d{4}-\d{6}-[A-Za-z0-9가-힣._-]{1,48}$/;
 export const LIMIT_RE = /usage_limit_exceeded|hit your usage limit/i;
+/** B3.1: how much of a run's end the limit check reads besides its head (`since` stops at 8 MiB). */
+const LIMIT_TAIL_BYTES = 64 * 1024;
+/** The most of a run's output one read takes. */
+const READ_CAP_BYTES = 8 * 1024 * 1024;
 
 /** A usage limit ended this run: one of Codex's own error events (or a plain stderr line) says so.
  *  Text inside other events never counts: a grep that printed this file read as a limit and
@@ -309,10 +318,7 @@ export class CodexTasks {
     if (effort !== null && !isCodexEffort(effort))
       return refuse('usage', `추론 강도는 ${CODEX_EFFORTS.join(' ')} 중 하나입니다`);
     const env = this.o.jobs.env();
-    const codex = findOnPath(
-      this.o.platform === 'win32' ? 'codex.cmd' : 'codex',
-      req.path ?? env.PATH,
-    );
+    const codex = findCodex(req.path ?? env.PATH, this.o.platform);
     if (!codex) return refuse('no_codex', 'codex 실행 파일을 찾지 못했습니다(PATH)');
     let dir = req.cwd;
     let worktree: string | null = w?.ownWorktree ? req.cwd : null;
@@ -514,7 +520,7 @@ export class CodexTasks {
         continue;
       }
       const env = this.o.jobs.env();
-      const codex = findOnPath(this.o.platform === 'win32' ? 'codex.cmd' : 'codex', env.PATH);
+      const codex = findCodex(env.PATH, this.o.platform);
       if (!codex) {
         this.log(`codex ${r.id}: worker gone and codex not found; left as it is`);
         continue;
@@ -767,7 +773,7 @@ export async function runCodex(id: string, d: WorkerDeps): Promise<number> {
       const fd = fs.openSync(out, 'r');
       try {
         const len = Math.max(0, size() - off);
-        const buf = Buffer.alloc(Math.min(len, 8 * 1024 * 1024));
+        const buf = Buffer.alloc(Math.min(len, READ_CAP_BYTES));
         const n = fs.readSync(fd, buf, 0, buf.length, off);
         return buf.toString('utf-8', 0, n);
       } finally {
@@ -776,6 +782,20 @@ export async function runCodex(id: string, d: WorkerDeps): Promise<number> {
     } catch {
       return '';
     }
+  };
+  /** B3.1: Codex prints its limit error last, so a run past 8 MiB has it only here. Whole lines
+   *  only: a cut line read as stderr would let a grep's output count as a limit. */
+  const tail = (off: number) => {
+    const from = Math.max(off, size() - LIMIT_TAIL_BYTES);
+    const text = since(from);
+    if (from === off) return text;
+    const nl = text.indexOf('\n');
+    return nl < 0 ? '' : text.slice(nl + 1);
+  };
+  /** The run's head for the limit check: its last line dropped when the read cap cut it. */
+  const head = (off: number) => {
+    const text = since(off);
+    return size() - off > READ_CAP_BYTES ? text.slice(0, text.lastIndexOf('\n') + 1) : text;
   };
   const sidIn = (text: string) => /"thread_id"\s*:\s*"([^"]+)"/.exec(text)?.[1] ?? null;
 
@@ -847,7 +867,7 @@ export async function runCodex(id: string, d: WorkerDeps): Promise<number> {
     save({ state: 'running', resetAt: null });
     const off = size();
     rc = await once(off);
-    if (stopped || !hitLimit(since(off))) break;
+    if (stopped || !(hitLimit(head(off)) || hitLimit(tail(off)))) break;
     const reset = r.sid
       ? resetFromSessions(r.sid, process.env.CODEX_HOME ?? path.join(d.home, '.codex'))
       : null;

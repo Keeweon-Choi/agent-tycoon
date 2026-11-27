@@ -38,6 +38,7 @@ import {
   DirectConnector,
   type DirectDeps,
   hairpinTest,
+  newSecret,
   scrubHeaders,
   type Step,
   tcpTouch,
@@ -1275,7 +1276,8 @@ export function startRemote(opts: RemoteOptions): {
               return { ok: true, url: `https://${host}/`, connector: wantFunnel ? 'funnel' : 'tailscale' };
             }
             if (kind === 'tunnel') {
-              const opened = await (opts.deps?.setupTunnel ?? quickTunnel)(app!.server, direct!.secret);
+              // S2.2: its own secret path, which dies with it; direct's lasts and can't be rotated while the tunnel is up.
+              const opened = await (opts.deps?.setupTunnel ?? quickTunnel)(app!.server, newSecret());
               tunnel = opened;
               const { procStartTime } = await ledgerLib();
               const startTime = opened.pid ? procStartTime(procFile(opened.pid, 'stat')) : null;

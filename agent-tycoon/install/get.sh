@@ -9,7 +9,9 @@ required_node_major=$REQUIRED_NODE_MAJOR
 
 repo=${AGENT_TYCOON_REPO:-$DEFAULT_AGENT_TYCOON_REPO}
 install_dir=${AGENT_TYCOON_DIR:-"$HOME/agent-tycoon"}
-log_file=${TMPDIR:-/tmp}/agent-tycoon-install.$$
+# The installer's output carries the first device's one-time login link: a private file whose name another
+# account on a shared /tmp cannot guess (mktemp creates it 0600; umask 077 for an mktemp that would not).
+log_file=$(umask 077; mktemp "${TMPDIR:-/tmp}/agent-tycoon-install.XXXXXX") || { printf '%s\n' '✖ 임시 파일을 만들지 못했습니다'; exit 1; }
 trap 'rm -f "$log_file"' EXIT HUP INT TERM
 
 failed=0
@@ -62,6 +64,13 @@ if [ "$failed" -ne 0 ]; then
   exit 1
 fi
 
+# Why a step failed: its last "✖ " line (the installer's error; its first line is "Node <v> ✔"), else its last line.
+failure_reason() {
+  reason=$(sed -n 's/^✖ *//p' "$log_file" | tail -n 1)
+  [ -n "$reason" ] || reason=$(tail -n 1 "$log_file")
+  [ -n "$reason" ] || reason=$1
+}
+
 run_step() {
   step_name=$1
   shift
@@ -69,8 +78,7 @@ run_step() {
     printf '✔ %s\n' "$step_name"
     return 0
   fi
-  reason=$(sed -n '1p' "$log_file")
-  [ -n "$reason" ] || reason='명령이 실패했습니다'
+  failure_reason '명령이 실패했습니다'
   printf '✖ %s 실패: %s. 다시 실행: %s\n' "$step_name" "$reason" "$*"
   exit 1
 }
@@ -97,8 +105,7 @@ if node agent-tycoon/install/install.mjs >"$log_file" 2>&1; then
   printf '%s\n' '✔ 에이전트 타이쿤 설치기 실행'
   cat "$log_file"
 else
-  reason=$(sed -n '1p' "$log_file")
-  [ -n "$reason" ] || reason='설치기가 실패했습니다'
+  failure_reason '설치기가 실패했습니다'
   printf '✖ 에이전트 타이쿤 설치 실패: %s. 다시 실행: cd %s && node agent-tycoon/install/install.mjs\n' "$reason" "$install_dir"
   exit 1
 fi

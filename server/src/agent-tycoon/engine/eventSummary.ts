@@ -103,6 +103,9 @@ export function summarizeEvent(e: Obj): Omit<OfficeEvent, 'type'> | null {
     case 'send_stuck':
       summary = koText('ev_send_stuck', { to: str(e.to) ?? '?' });
       break;
+    case 'send_input_wait':
+      summary = koText('ev_send_input_wait', { to: str(e.to) ?? '?', n: num(e.waiting) ?? 1 });
+      break;
     case 'send_lost':
       summary = koText(
         e.unsubmitted === true

@@ -292,6 +292,10 @@ export function repoConfirmNow(
 /** The socket dropped: results of running writes (and of asks in flight) can no longer arrive here. */
 export function repoConnectionLost(toast: ToastSink): void {
   pendingDetails.clear();
+  // A diff answer goes to the socket that asked: the views stop loading (their text stays) so they can ask again.
+  pending.clear();
+  if (Object.values(snapshot.diffs).some((view) => view.loading))
+    set({ diffs: Object.fromEntries(Object.entries(snapshot.diffs).map(([key, view]) => [key, { ...view, loading: false }])) });
   const projects = Object.keys(snapshot.busy);
   if (!projects.length) return;
   set({ busy: {} });

@@ -114,6 +114,7 @@ export function engineState(ctx: StateCtx): EngineState {
         workFolder: _w,
         provider,
         resumeAsCopy: _copy,
+        modelSwitchAt: _switched,
         ...launch
       } = p;
       const project = role ? ctx.projectOf(name) : null;

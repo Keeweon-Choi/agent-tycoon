@@ -65,6 +65,14 @@ describe('LevelStore', () => {
     s.dispose();
   });
 
+  it('a restored waiting (a state given back, not a turn) gives no turn XP', () => {
+    const s = new LevelStore(file());
+    s.observe(1, 'engine:a', { type: 'agentStatus', status: 'active' });
+    s.observe(1, 'engine:a', { type: 'agentStatus', status: 'waiting', restored: true });
+    expect(s.view('engine:a')?.xp ?? 0).toBe(0);
+    s.dispose();
+  });
+
   it('rebirth counts only a renew that started the new conversation', () => {
     const s = new LevelStore(file());
     s.observeEvent({ type: 'orch_renew', name: 'a', ok: false, code: 'not_idle' });

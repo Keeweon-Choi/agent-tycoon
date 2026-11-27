@@ -187,6 +187,8 @@ export interface OfficeLayout {
   areas?: AreaDefinition[];
   /** Per-tile Area label, parallel to tiles array. null = no area assignment. */
   areaTiles?: Array<string | null>;
+  /** agty: names the generated office this layout was drawn from (sent back unchanged in saveLayout). */
+  agtyBase?: string;
 }
 
 export interface Character {

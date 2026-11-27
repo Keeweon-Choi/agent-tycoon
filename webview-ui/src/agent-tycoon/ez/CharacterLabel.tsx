@@ -119,6 +119,9 @@ export interface CharacterLabelProps {
   identity: OfficeIdentity | null;
   hovered: boolean;
   selected: boolean;
+  /** T-106: the selected one's member card shows. Always on the desktop; the phone opens it by a
+   *  second action, so a selection alone leaves the office and the walking pad clear. */
+  sheetOpen?: boolean;
   /** hud-v3 P0: the inspector's ×, clearing the office's selection. */
   onDeselect: () => void;
   /** Binds an element to a spot on this character, moved every frame without a render (overlayPlacer.ts). */
@@ -152,6 +155,7 @@ export function CharacterLabel({
   identity,
   hovered,
   selected,
+  sheetOpen = true,
   onDeselect,
   bind,
   plateSizes,
@@ -419,7 +423,7 @@ export function CharacterLabel({
         </div>
       </div>
       {/* T-74: the member card (its Relations tab reads the party's team) breaks alone, not the office's labels. */}
-      {selected && (
+      {selected && sheetOpen && (
         <RegionBoundary region="member">
           <MemberCard
             id={ch.id}

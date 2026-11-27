@@ -83,6 +83,8 @@ export function promotePair(
     wantRunning: oldLead === 'worker',
     ...(l.sessionId && { sessionId: l.sessionId }),
     ...(l.backgroundId && { backgroundId: l.backgroundId }),
+    // T-144: the last /model followed in that conversation goes with it.
+    ...(l.sessionId && l.modelSwitchAt !== undefined && { modelSwitchAt: l.modelSwitchAt }),
     // Its conversation was the Lead's (its job keeps the Lead's -n and flags): every later
     // start, not only the swap's own, continues it as a copy under this Worker's identity.
     ...(l.sessionId && { resumeAsCopy: true as const }),

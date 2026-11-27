@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.322
+▝▜██████▀  Fable 5.2 with xhigh effort · Claude Ultra
+ ▝▝   ▝▝   /tmp/picker-cwd
+
+
+❯ /model
+  ⎿  Kept model as Fable 5.2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ❯ /config                                         Open settings
+    /update-config                                  Change settings: hooks, permissions, environment variables
+    /claude-dashboard:setup                         (claude-dashboard) Configure claude-dashboard status line settings
+    /doctor                                         Health-check your setup and fix issues: installation, unused
+                                                    extensions, duplicated or bloated memory files, slow hooks, updat…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ /config
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ◆ Fable 5.2(X) │ ░░░░░░░░░░ │ 0% │ 0/1.0M │ $0.00 │ ⚠️  │ 7d: 0% (7d0h) │ 7d-F: 0% (7d0h)
+  ⏵⏵ auto mode on (shift+tab to cycle)

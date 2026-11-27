@@ -2,10 +2,12 @@
  
 import { useContext, useEffect, useState } from 'react';
 
+import { TRANSPORT_STATE_CONNECTED } from '../../../../../core/src/constants.js';
 import type { GroupRoom } from '../../../../../core/src/messages.js';
 import { Button } from '../../../components/ui/Button.js';
 import { t } from '../../../i18n/index.js';
 import { transport } from '../../../transport/index.js';
+import { hudGetSnapshot } from '../../hud/hudStore.js';
 import { Icon } from '../../icons/Icon.js';
 import { useAgtyStore } from '../../officeStore.js';
 import { serverLine } from '../../serverText.js';
@@ -13,6 +15,7 @@ import { SenderFace } from '../Faces.js';
 import { MessengerLooks } from '../looksContext.js';
 import {
   conversationSections,
+  messengerGetSnapshot,
   roomCandidates,
   roomKey,
   showRoom,
@@ -20,6 +23,7 @@ import {
   useMessenger,
 } from '../messengerStore.js';
 import { clock, Mug, PaneClose, PinButton, StateDot } from '../parts.js';
+import { forgetRoomLoads } from '../roomThreadLoad.js';
 import { useKeepPlace } from '../useKeepPlace.js';
 import { GroupRoomRow } from './GroupRoomRow.js';
 import { RoomEditor } from './RoomEditor.js';
@@ -27,7 +31,16 @@ import { RoomEditor } from './RoomEditor.js';
 function RoomSubscription({ roomId }: { roomId: string }) {
   useEffect(() => {
     transport.send({ type: 'groupView', room: roomId, on: true });
-    return () => transport.send({ type: 'groupView', room: roomId, on: false });
+    // T-113 (H3): a new socket is a new client to the daemon: the transport asks for the room again (sessionKey),
+    // and what was asked on the old one is let go, so the open threads ask again by themselves.
+    const offState = transport.onStateChange((state) => {
+      if (state === TRANSPORT_STATE_CONNECTED) forgetRoomLoads(roomId);
+    });
+    return () => {
+      offState();
+      transport.send({ type: 'groupView', room: roomId, on: false });
+      forgetRoomLoads(roomId); // T-113: the daemon lets the room's loaded threads go
+    };
   }, [roomId]);
   return null;
 }
@@ -133,7 +146,11 @@ export function GroupRooms({ find = '' }: { find?: string }) {
 export function RoomConversation({ room, onClose }: { room: GroupRoom; onClose?: () => void }) {
   const { rooms, contacts } = useMessenger();
   const allMembers = roomCandidates(rooms, contacts);
-  const { list, content, onScroll } = useKeepPlace();
+  // T-170: the room's place lasts while its tab stays open in an open messenger (a closed one opens at the end).
+  const { list, content, onScroll } = useKeepPlace(
+    room.id,
+    () => messengerGetSnapshot().openRooms.includes(room.id) && hudGetSnapshot().open.messenger,
+  );
   const [showMembers, setShowMembers] = useState(false);
   const [manage, setManage] = useState(false);
   const { officeReadOnly } = useAgtyStore();

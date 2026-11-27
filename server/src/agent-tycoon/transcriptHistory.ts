@@ -41,7 +41,11 @@ interface TurnOffsets {
 }
 function roomTurnOffsets(file: string, from = 0): TurnOffsets {
   const turns: TurnOffsets = { hidden: new Set(), bound: new Map() };
-  let hiding = false;
+  // B2.1: from the middle of a file, records before the window's first user prompt belong to a turn whose
+  // start was not read, so they could be a room reply: they are kept out until a prompt classifies them.
+  // ponytail: a one-to-one reply whose prompt lies before the window is missed too (the bounded search is partial
+  // anyway, `truncated`); read back to the nearest prompt if that hurts.
+  let hiding = from > 0;
   let bound: string | undefined;
   let carried: string | undefined;
   try {

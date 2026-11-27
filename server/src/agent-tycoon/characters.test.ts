@@ -4,6 +4,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentRuntime } from '../agentRuntime.js';
+import { createAgentState } from '../agentState.js';
 import { AgentStateStore } from '../agentStateStore.js';
 import { claudeProvider } from '../providers/hook/claude/claude.js';
 import { CharacterBinder } from './characters.js';
@@ -134,5 +135,22 @@ describe('character binder', () => {
     contractors.reconcile([{ key: 'codex:1', label: 'codex·a', transcript: null }]);
     vi.advanceTimersByTime(10_000);
     expect(contractors.idOf('codex:1')).toBe(c);
+  });
+
+  // B4.3: a removed or re-bound engine Lead takes its Teammates and watched Sub-agents with it.
+  it.each(['removed', 'rebound'] as const)('a %s lead leaves no orphan children', (how) => {
+    const b = new CharacterBinder(runtime, store);
+    b.reconcile([{ key: 'engine:alpha', label: 'alpha', transcript: transcript('lead') }]);
+    const lead = b.idOf('engine:alpha')!;
+    const sub = transcript('agent-sub');
+    runtime.subagentWatch.watch(store.get(lead)!, lead, { jsonlPath: sub, toolUseId: 'toolu_sub' });
+    const mate = store.nextAgentId.current++;
+    store.set(
+      mate,
+      createAgentState({ id: mate, sessionId: 'mate', isExternal: true, projectDir: dir, jsonlFile: transcript('mate'), leadAgentId: lead }),
+    );
+    b.reconcile(how === 'removed' ? [] : [{ key: 'engine:alpha', label: 'alpha', transcript: transcript('lead2') }]);
+    expect(runtime.subagentWatch.isWatching(sub)).toBe(false);
+    expect(store.has(mate)).toBe(false);
   });
 });

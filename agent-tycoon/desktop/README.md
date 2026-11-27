@@ -4,7 +4,7 @@ A Tauri v2 app that opens the agent-tycoon office in its own window. Double-clic
 It reaches the host either directly through a Tailscale address, or through an SSH tunnel with a one-time login code.
 The Windows executable is cross-compiled from this WSL (Linux) with `cargo-xwin`, so no Windows build PC is needed.
 Linux packages (AppImage, deb) build right here in WSL; the macOS dmg can only be built on a Mac. CI builds all three OSes at once (see "Three-OS build" below).
-The app targets Windows first (the SSH flow assumes Windows OpenSSH). For the Linux and macOS installers we only verify that they build and bundle.
+The app targets Windows first (the SSH flow assumes Windows OpenSSH). For the Linux and macOS installers we only verify that they build and bundle. On macOS the owner of a local port (the check behind the SSH tunnel and the local login) is read with `lsof`; only this user's processes show up there, anything else reads as "unknown" and the app refuses to send.
 
 The app UI is in Korean. Button and message names below are given as English (Korean) on first mention, then in English only; where a message is something you will search for (errors, log lines), the Korean text is kept.
 

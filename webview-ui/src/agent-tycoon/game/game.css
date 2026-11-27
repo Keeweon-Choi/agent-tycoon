@@ -270,7 +270,12 @@ button.game-pin:hover {
   height: auto;
   font-size: calc(18px * var(--ui-scale));
 }
-/* The phone's chips. */
+/* The phone's chips. In 모던 they are buttons like 설정 (T-111), a warning border still wins. */
+:root[data-ui-theme='modern'] .game-pin:not([data-tone]) {
+  background: var(--color-btn-bg);
+  border-color: var(--color-border);
+  box-shadow: var(--bevel), var(--shadow-pixel);
+}
 .game-pin {
   border-radius: var(--ui-r-card);
   display: inline-flex;
@@ -321,9 +326,21 @@ button.game-pin:hover {
   .game-day {
     display: none;
   }
-  [data-testid='mobile-top-bar'] .game-day {
-    display: flex;
-  }
+}
+/* The phone's day bar is as wide as the clock above it (T-111: 24 fixed cells were wider than the time at
+   320 and 375 and ran into the job chip), its cells share that width. */
+[data-testid='mobile-top-bar'] .game-clock {
+  justify-items: stretch;
+}
+[data-testid='mobile-top-bar'] .game-clock-t {
+  justify-self: center;
+}
+[data-testid='mobile-top-bar'] .game-day {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+}
+[data-testid='mobile-top-bar'] .game-day > i {
+  width: auto;
 }
 @media (max-width: 1299px) {
   .game-heat-cells {

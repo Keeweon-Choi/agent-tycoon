@@ -68,7 +68,8 @@ export function auditWhat(row: AuditRow, t: T): string {
     case 'handoffCodeCreated': return t('autoMove.audit.handoff');
     case 'approvalAnswered':
       return t(detail === 'approved' ? 'auth.audit.approvalApproved' : 'auth.audit.approvalRefused');
-    case 'deviceRevoked': return t('auth.audit.deviceRevoked');
+    case 'deviceRevoked':
+      return t(detail === 'chain' ? 'auth.audit.deviceRevokedChain' : 'auth.audit.deviceRevoked');
     case 'revokeOthers': return t('auth.audit.revokeOthers', { count: detail });
     case 'passkeyRemoved': return t('auth.audit.passkeyRemoved');
     case 'passkeyRequired':
@@ -97,6 +98,7 @@ export function auditWhat(row: AuditRow, t: T): string {
       }
     case 'lockout':
       if (detail === 'street') return t('street.audit.lockout');
+      if (detail === 'tunnel') return t('auth.audit.lockoutTunnel');
       return t(detail === 'direct' ? 'auth.audit.lockoutDirect' : 'auth.audit.lockoutShort');
     default: return row.kind;
   }

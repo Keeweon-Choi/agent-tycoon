@@ -334,6 +334,34 @@ it('allows SVG image tickets, sandboxes inline HTML, and scopes the sensitive sw
   expect(secret.statusCode).toBe(200);
 });
 
+it('S3.3: active content is sandboxed (or a download) by what the file is, not by its link name', async () => {
+  fs.symlinkSync('report.html', path.join(temp, 'shot.pdf'));
+  fs.symlinkSync('report.html', path.join(temp, 'shot.png'));
+  fs.symlinkSync('hello.md', path.join(temp, 'page.html'));
+  const open = async (name: string) => {
+    const ticket = await app.inject({
+      method: 'POST',
+      url: '/api/agty/files/p/ticket',
+      headers: postHeaders(),
+      payload: { path: name, mode: 'preview' },
+    });
+    return app.inject({ url: ticket.json().url, headers: headers() });
+  };
+  for (const name of ['shot.pdf', 'shot.png']) {
+    const res = await open(name);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.headers['content-security-policy']).toMatch(/default-src 'none'.*; sandbox$/);
+  }
+  // a link named .html to a text file is no inline page at all
+  const text = await app.inject({
+    method: 'POST',
+    url: '/api/agty/files/p/ticket',
+    headers: postHeaders(),
+    payload: { path: 'page.html', mode: 'preview' },
+  });
+  expect(text.statusCode).toBe(415);
+});
+
 it('refuses encoded traversal, absolute paths, a folder symlink out, and other sessions', async () => {
   fs.symlinkSync(path.dirname(process.cwd()), path.join(temp, 'up'));
   for (const bad of [
@@ -350,11 +378,15 @@ it('refuses encoded traversal, absolute paths, a folder symlink out, and other s
       headers: headers(),
     });
     expect([403, 404]).toContain(preview.statusCode);
-    const list = await app.inject({ url: `/api/agty/files/p/list?path=${bad}`, headers: headers() });
+    const list = await app.inject({
+      url: `/api/agty/files/p/list?path=${bad}`,
+      headers: headers(),
+    });
     expect([403, 404]).toContain(list.statusCode);
   }
   expect(
-    (await app.inject({ url: '/api/agty/files/..%2F..%2Fetc/list', headers: headers() })).statusCode,
+    (await app.inject({ url: '/api/agty/files/..%2F..%2Fetc/list', headers: headers() }))
+      .statusCode,
   ).toBe(404);
   // A forwarded https origin is this site too (requestIsHttps); a sibling is not.
   const https = { ...headers(), 'x-forwarded-proto': 'https', origin: 'https://office.test' };
@@ -437,7 +469,10 @@ it('serves a video ticket with Range: whole, first bytes, suffix, open-ended, 41
 
   const first = await get('bytes=0-99');
   expect(first.statusCode).toBe(206);
-  expect(first.headers).toMatchObject({ 'content-range': 'bytes 0-99/1000', 'content-length': '100' });
+  expect(first.headers).toMatchObject({
+    'content-range': 'bytes 0-99/1000',
+    'content-length': '100',
+  });
   expect(first.rawPayload).toEqual(bytes.subarray(0, 100));
 
   const middle = await get('bytes=500-509');
@@ -456,7 +491,9 @@ it('serves a video ticket with Range: whole, first bytes, suffix, open-ended, 41
   expect((await get('bytes=5-2')).statusCode).toBe(416);
 
   // The ticket stays tied to the session that asked for it.
-  expect((await get('bytes=0-9', { host: 'office.test', cookie: 'agty_session=nope' })).statusCode).toBe(401);
+  expect(
+    (await get('bytes=0-9', { host: 'office.test', cookie: 'agty_session=nope' })).statusCode,
+  ).toBe(401);
 });
 
 it('keeps every other ticket single-use, and serves Range on a download ticket too', async () => {

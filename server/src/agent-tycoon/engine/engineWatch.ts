@@ -3,8 +3,6 @@
  * TERM-P1 idleStops) and the bounded re-look for a Claude daemon respawn (T-0126). Extracted
  * from engine.ts (E7).
  */
-import * as fs from 'fs';
-
 import { turnEnded } from '../providers/claudeProvider.js';
 import type { AgentProvider } from './agents/types.js';
 import type { Outcome } from './engineAction.js';
@@ -271,9 +269,11 @@ export class EngineWatch {
 
   /**
    * TERM-P1: nobody retires an idle session in our PTY host but us. A session whose turn has been
-   * over for idleStopMs (since the later of its first idle look and its transcript's last write),
-   * with no one watching its terminal, is stopped and marked idleRetired: the wantRunning agent
-   * then rests until a message wakes it (wake: `--resume`). An always-on agent is never stopped.
+   * over for idleStopMs (since the later of its first idle look and the provider's last status
+   * write), with no one watching its terminal, is stopped and marked idleRetired: the wantRunning
+   * agent then rests until a message wakes it (wake: `--resume`). Its transcript cannot tell this
+   * time: Claude Code touches it about an hour after the session starts (the mtime moves, nothing
+   * is appended), which held every stop back (T-168). An always-on agent is never stopped.
    */
   private async idleStops(): Promise<void> {
     for (const p of this.deps.projects()) {
@@ -283,13 +283,7 @@ export class EngineWatch {
         this.idleSince.delete(p.name);
         continue;
       }
-      let wrote = 0;
-      try {
-        wrote = fs.statSync(h.agent.transcript(h)).mtimeMs;
-      } catch {
-        /* no transcript yet */
-      }
-      const since = Math.max(this.idleSince.get(p.name) ?? this.deps.now(), wrote);
+      const since = Math.max(this.idleSince.get(p.name) ?? this.deps.now(), h.statusAt ?? 0);
       this.idleSince.set(p.name, since);
       if (this.deps.now() - since < this.deps.timing.idleStopMs) continue;
       this.idleSince.delete(p.name);

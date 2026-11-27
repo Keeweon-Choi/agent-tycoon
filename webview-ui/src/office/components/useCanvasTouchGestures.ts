@@ -102,44 +102,46 @@ export function useCanvasTouchGestures(options: CanvasTouchOptions): void {
       panTo(p);
     };
 
+    // Gestures count the fingers that began on the canvas (`targetTouches`): `touches` also holds a
+    // thumb resting on the dock or a card bar, which made a tap a pinch.
     const onTouchStart = (e: TouchEvent) => {
       unlockAudio();
       e.preventDefault();
-      if (e.touches.length === 1) {
+      if (e.targetTouches.length === 1) {
         panned = false;
         mode = 'pending-tap';
         startTime = performance.now();
-        anchorPan(e.touches[0]);
+        anchorPan(e.targetTouches[0]);
         clearTimeout(holdTimer);
         holdTimer = setTimeout(() => {
           if (mode !== 'pending-tap') return;
           mode = 'held';
           latest.current.onLongPress?.(startX, startY);
         }, CANVAS_LONG_PRESS_MS);
-      } else if (e.touches.length === 2) {
+      } else if (e.targetTouches.length === 2) {
         // Second finger down: any pending tap/pan becomes a pinch.
         mode = 'pinch';
-        pinchStartDist = distance(e.touches[0], e.touches[1]);
+        pinchStartDist = distance(e.targetTouches[0], e.targetTouches[1]);
         pinchStartZoom = latest.current.zoom;
-        anchorPan(midpoint(e.touches[0], e.touches[1]));
+        anchorPan(midpoint(e.targetTouches[0], e.targetTouches[1]));
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
       e.preventDefault();
-      if (mode === 'pinch' && e.touches.length >= 2) {
+      if (mode === 'pinch' && e.targetTouches.length >= 2) {
         const { zoom, onZoomChange } = latest.current;
         const proposed = Math.round(
-          pinchStartZoom * (distance(e.touches[0], e.touches[1]) / pinchStartDist),
+          pinchStartZoom * (distance(e.targetTouches[0], e.targetTouches[1]) / pinchStartDist),
         );
         const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, proposed));
         if (next !== zoom) onZoomChange(next);
         // Two-finger drag also pans, tracked from the midpoint.
-        manualPan(midpoint(e.touches[0], e.touches[1]));
+        manualPan(midpoint(e.targetTouches[0], e.targetTouches[1]));
         return;
       }
-      if (e.touches.length !== 1) return;
-      const t = e.touches[0];
+      if (e.targetTouches.length !== 1) return;
+      const t = e.targetTouches[0];
       if (mode === 'pending-tap' && !withinTapSlop(t.clientX - startX, t.clientY - startY)) {
         mode = 'pan';
       }
@@ -149,7 +151,7 @@ export function useCanvasTouchGestures(options: CanvasTouchOptions): void {
     const onTouchEnd = (e: TouchEvent) => {
       e.preventDefault();
       clearTimeout(holdTimer);
-      if (e.touches.length === 0) {
+      if (e.targetTouches.length === 0) {
         if (mode === 'pending-tap' && performance.now() - startTime <= TOUCH_TAP_MAX_DURATION_MS) {
           const t = e.changedTouches[0];
           if (t) latest.current.onTap(t.clientX, t.clientY);
@@ -158,9 +160,9 @@ export function useCanvasTouchGestures(options: CanvasTouchOptions): void {
         return;
       }
       // Pinch finger lifted: continue as a plain pan from the remaining finger.
-      if (e.touches.length === 1) {
+      if (e.targetTouches.length === 1) {
         mode = 'pan';
-        anchorPan(e.touches[0]);
+        anchorPan(e.targetTouches[0]);
       }
     };
 

@@ -30,7 +30,9 @@ function stateDirectory(home, platform = process.platform, env = process.env) {
 }
 
 /** The engine's control endpoint: `<settings>/engine.sock`, on Windows the per-user pipe
- *  `\\.\pipe\agent-tycoon-engine-<user>`. The daemon, the CLI and the manager all take it from here. */
+ *  `\\.\pipe\agent-tycoon-engine-<user>`. The daemon, the CLI and the manager all take it from here.
+ *  ponytail: S4.4, a pipe name another local account can create first (squatting) and so read the
+ *  CLI's tokens and forge a permission answer; follow-up T-127 S4.4: a nonce/HMAC challenge before tokens. */
 function controlEndpoint(home, platform = process.platform, user) {
   if (platform !== 'win32') return path.join(configDirectory(home), 'engine.sock');
   const name = (user ?? os.userInfo().username).toLowerCase().replace(/[^a-z0-9._-]/g, '_');
@@ -42,12 +44,20 @@ function legacyOfficeDirectory(home) {
   return path.join(home, LEGACY_OFFICE_FOLDER);
 }
 
+/** Left in the office folder by a full reset (agty uninstall --reset) that kept ~/.pixel-agents'
+ *  config.json/layout.json (they may be upstream's): the daemon then neither copies nor reads them
+ *  back, so the reset stays a reset. */
+function legacyOfficeSkipFile(home) {
+  return path.join(officeDirectory(home), 'pixel-agents-skipped');
+}
+
 module.exports = {
   configDirectory,
   officeDirectory,
   stateDirectory,
   controlEndpoint,
   legacyOfficeDirectory,
+  legacyOfficeSkipFile,
   SETTINGS_FOLDER,
   OFFICE_FOLDER,
   LEGACY_OFFICE_FOLDER,

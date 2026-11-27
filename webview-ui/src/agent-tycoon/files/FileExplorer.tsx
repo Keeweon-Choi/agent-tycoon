@@ -24,7 +24,14 @@ import { useRepoView } from '../repo/useRepoView.js';
 import { ZoomBar } from '../Zoom.js';
 import { useTextZoom, useZoomHost } from '../zoomStore.js';
 import { useEditSession } from './editSession.js';
-import { chooseFileRoot, clearPendingFile, listingCache, useFileRoot, usePendingFile } from './explorerState.js';
+import {
+  chooseFileRoot,
+  clearPendingFile,
+  guardFileRoot,
+  listingCache,
+  useFileRoot,
+  usePendingFile,
+} from './explorerState.js';
 import {
   type FileRoot,
   fileRootKey,
@@ -197,7 +204,10 @@ function FolderNode({
   );
 }
 
-function Explorer({ root, label }: { root: FileRoot; label: string }) {
+function Explorer({ root: given, label }: { root: FileRoot; label: string }) {
+  // Keyed by fileRootKey: a root picked again is the same root, kept as the same object so the edit
+  // session's load (and the listings) do not run again and put the disk text over the draft.
+  const [root] = useState(given);
   const [hidden, setHidden] = useState(false);
   const [filter, setFilter] = useState('');
   const [ignored, setIgnored] = useState<string[]>([]);
@@ -237,6 +247,8 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
     !preview.truncated;
   /** Leaving an edited file asks first: its unsaved text would be lost. */
   const leaveEdit = () => !(editing && session.dirty) || window.confirm(t('files.edit.discard'));
+  // Another root (a project button, the picker, another project's file) unmounts this explorer and its edit.
+  useEffect(() => guardFileRoot((next) => fileRootKey(next) === fileRootKey(root) || leaveEdit()));
   const chosenLead =
     sendLead ||
     (root.kind === 'project' && sendableContacts.some((contact) => contact.name === root.project)
@@ -351,6 +363,15 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
       setError((err as Error).message);
     }
   };
+  /** Close the open file (asking first when its edit is unsaved); false: the owner kept it open. */
+  const closeFile = () => {
+    if (!leaveEdit()) return false;
+    selection.current++;
+    setEditing(false);
+    setSelected(null);
+    setPreview(null);
+    return true;
+  };
   const toMessenger = (entry: ProjectFileEntry) => {
     const lead = sendableContacts.find((contact) => contact.name === chosenLead);
     if (!lead || !folder) return;
@@ -359,6 +380,9 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
       setError(t('messenger.limitFiles'));
       return;
     }
+    // Desktop keeps the file open beside the messenger; the phone's full-screen pane would cover it, so
+    // it closes first (a kept edit attaches nothing: the attachment would be the file before the edit).
+    if (isMobile && !closeFile()) return;
     const absolute = `${folder.replace(/\/$/, '')}/${entry.path}`;
     const type = fileType(entry.name, '') ?? 'application/octet-stream';
     setAttachments(lead.agentId, [
@@ -374,11 +398,6 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
         relative: entry.path,
       },
     ]);
-    // Desktop keeps the file open beside the messenger; the phone's full-screen pane would cover it.
-    if (isMobile) {
-      selection.current++;
-      setSelected(null);
-    }
     openMessenger(lead.agentId);
   };
   const pane = selected && (
@@ -456,16 +475,7 @@ function Explorer({ root, label }: { root: FileRoot; label: string }) {
         <Button size="sm" onClick={() => void download(selected)}>
           {t('files.download')}
         </Button>
-        <Button
-          size="sm"
-          onClick={() => {
-            if (!leaveEdit()) return;
-            selection.current++;
-            setEditing(false);
-            setSelected(null);
-            setPreview(null);
-          }}
-        >
+        <Button size="sm" onClick={closeFile}>
           {t('common.close')}
         </Button>
       </div>

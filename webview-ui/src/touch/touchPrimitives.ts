@@ -28,6 +28,20 @@ export function findTouch<T extends TouchPoint>(list: TouchListLike<T>, id: numb
   return null;
 }
 
+/**
+ * The fingers of `list` that began inside `el` (a child counts). `e.touches` holds every finger on the
+ * screen, so a thumb resting on a bar elsewhere would otherwise count as the second finger of a pinch.
+ */
+export function touchesWithin<T extends TouchPoint & { target: EventTarget | null }>(
+  list: TouchListLike<T>,
+  el: { contains(node: Node | null): boolean },
+): T[] {
+  const own: T[] = [];
+  for (let i = 0; i < list.length; i++)
+    if (el.contains(list[i].target as Node | null)) own.push(list[i]);
+  return own;
+}
+
 /** True while a finger that moved (dx, dy) from its start is still a tap.
  *  The one slop metric every touch surface in the app uses. */
 export function withinTapSlop(dx: number, dy: number): boolean {

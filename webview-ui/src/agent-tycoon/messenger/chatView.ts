@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 
 import type { ClientMessage } from '../../../../core/src/messages.js';
 import { transport } from '../../transport/index.js';
+import { forgetPlace } from './conversation/useStickToBottom.js';
 import { chatViewClosed } from './messengerStore.js';
 
 const holders = new Map<number, number>();
@@ -29,6 +30,7 @@ export function holdChatView(agentId: number, send: (m: ClientMessage) => void =
     holders.delete(agentId);
     send({ type: 'chatView', agentId, on: false });
     chatViewClosed(agentId);
+    forgetPlace(agentId);
   };
 }
 

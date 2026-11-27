@@ -145,6 +145,21 @@ describe('diff views', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('U1.6: a socket that drops while a diff loads lets the view ask again; the text shown stays', () => {
+    const sent: RepoDiffRequest[] = [];
+    const send = (m: RepoDiffRequest) => sent.push(m);
+    const key = diffKey('alpha', 'a.txt', false);
+    repoRequestDiff('alpha', 'a.txt', false, send);
+    repoHandleMessage(diff(sent[0].requestId, { text: 'first\n', nextOffset: 6 }), vi.fn());
+    repoRequestDiff('alpha', 'a.txt', false, send, true); // the next page in flight
+    repoConnectionLost(vi.fn()); // its answer goes to the old socket
+    expect(repoGetSnapshot().diffs[key]).toEqual({ text: 'first\n', nextOffset: 6, loading: false });
+    repoRequestDiff('alpha', 'a.txt', false, send, true);
+    expect(sent).toHaveLength(3);
+    repoHandleMessage(diff(sent[1].requestId, { text: 'stale\n' }), vi.fn()); // a late answer: not ours
+    expect(repoGetSnapshot().diffs[key].text).toBe('first\n');
+  });
+
   it('staged and unstaged diffs of one file are separate views', () => {
     const send = vi.fn();
     repoRequestDiff('alpha', 'a.txt', false, send);

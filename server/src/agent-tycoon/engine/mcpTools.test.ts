@@ -18,8 +18,8 @@ import type { GroupPost } from './groupMessages.js';
 import { roomMentions } from './groupMessages.js';
 import type { GroupRoom } from './groups.js';
 import type { McpDeps, RosterAgent } from './mcpTools.js';
-import { McpTools, RATE } from './mcpTools.js';
-import { tasksPath, TaskStore } from './tasks.js';
+import { LEAD_TASK_RATE, McpTools, RATE } from './mcpTools.js';
+import { tasksArchivePath, tasksPath, TaskStore } from './tasks.js';
 
 vi.setConfig({ testTimeout: 60_000 });
 const MCP = path.join(REPO_ROOT, 'agent-tycoon/bin/agty-mcp.js');
@@ -529,6 +529,19 @@ describe('C5a: the agent tools', () => {
     });
   });
 
+  it('P3.3: get_task_status finds an archived task by id (in scope only); update_task refuses it', async () => {
+    const h = home();
+    const { tools, tasks } = world(h);
+    tasks.add({ project: 'alpha', title: 'live' }, 'alpha');
+    const line = (id: string, project: string) =>
+      `${JSON.stringify({ id, project, title: `old ${id}`, status: 'done', source: 'reported', createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', history: [] })}\n`;
+    fs.writeFileSync(tasksArchivePath(h), line('T-90', 'alpha') + line('T-91', 'beta'));
+    const one = await tools.call('alpha', 'get_task_status', { taskId: 'T-90' });
+    expect(one.tasks).toEqual([expect.objectContaining({ id: 'T-90', status: 'done' })]);
+    expect((await tools.call('alpha', 'get_task_status', { taskId: 'T-91' })).error).toMatchObject({ code: 'out_of_scope' });
+    expect((await tools.call('alpha', 'update_task', { taskId: 'T-90', note: 'x' })).error).toMatchObject({ code: 'unknown_task' });
+  });
+
   it('send_message: by id or name in the project, from the caller; another project → out_of_scope', async () => {
     const { tools, sent } = world(home());
     expect(
@@ -642,6 +655,28 @@ describe('C5a: the agent tools', () => {
     expect(
       await tools.call('alpha', 'send_message', { to: 'alpha-a', text: 'later' }),
     ).toMatchObject({ status: 'sent' });
+  });
+
+  it("E1.6 (audit 11-13): a Lead's create_task has its own generous rate, per caller (10 in a row go through)", async () => {
+    let now = Date.parse('2026-10-24T09:00:00Z');
+    const { tools } = world(home(), { now: () => now });
+    for (let i = 0; i < 10; i++)
+      expect(await tools.call('alpha', 'create_task', { title: `t${i}` })).toMatchObject({ status: 'created' });
+    for (let i = 10; i < LEAD_TASK_RATE.perMinute; i++) await tools.call('alpha', 'create_task', { title: `t${i}` });
+    expect(await tools.call('alpha', 'create_task', { title: 'one more' })).toMatchObject({ error: { code: 'rate_limited' }, retryAfterSec: 60 });
+    // Another Lead, and the Lead's own messages, are not held by it.
+    expect(await tools.call('beta', 'create_task', { title: 'beta' })).toMatchObject({ status: 'created' });
+    expect(await tools.call('alpha', 'send_message', { to: 'alpha-a', text: 'x' })).toMatchObject({ status: 'sent' });
+    now += 60_000;
+    expect(await tools.call('alpha', 'create_task', { title: 'later' })).toMatchObject({ status: 'created' });
+  });
+
+  it("E1.6: the per-project open-task cap, not the rate, stops a Lead that fills its board; another project goes on", async () => {
+    const { tools, tasks } = world(home());
+    const list = Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, project: 'alpha', title: `t${i}` }));
+    expect(tasks.import(list, 'cli')).toMatchObject({ ok: true });
+    expect(await tools.call('alpha', 'create_task', { title: 'over' })).toMatchObject({ error: { code: 'too_many' } });
+    expect(await tools.call('beta', 'create_task', { title: 'beta goes on' })).toMatchObject({ status: 'created' });
   });
 
   it('the idempotency key is per tool: a send_message with the key of a create_task is sent', async () => {

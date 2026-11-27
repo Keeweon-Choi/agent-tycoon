@@ -334,7 +334,7 @@ fn open_settings(app: AppHandle) {
 
 /// Runs only the app-built, allowlisted network setup for this computer's own office.
 #[cfg(desktop)]
-#[tauri::command]
+#[tauri::command(async)]
 fn run_admin_setup(app: AppHandle, request: local::AdminSetupRequest) -> Result<AdminSetupResult, String> {
     let mode = app
         .state::<App>()
@@ -1036,6 +1036,36 @@ fn watch_local(app: &AppHandle, generation: u64, port: u16) {
     }
 }
 
+/// The office folder; ~/.pixel-agents for a daemon from before 2026-11 (ponytail: one release).
+#[cfg(desktop)]
+fn local_folders(home: &std::path::Path) -> Vec<local::Folder> {
+    [local::settings_dir(home).join("office"), home.join(".pixel-agents")]
+        .iter()
+        .map(|dir| local::Folder {
+            server_json: fs::read_to_string(dir.join("server.json")).ok(),
+            standalone: fs::read_to_string(dir.join("standalone-token")).ok(),
+            registry: fs::read_dir(dir.join("servers"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| fs::read_to_string(entry.path()).ok())
+                .collect(),
+        })
+        .collect()
+}
+
+/// The only way the host token leaves the files: when the process the daemon wrote beside it is
+/// the one listener on `port` (`owners`, None: unknown). Every other case is a refusal.
+#[cfg(desktop)]
+fn local_token(folders: &[local::Folder], port: u16, owners: Option<&[u32]>) -> Result<String, String> {
+    local::login_token(folders, port, |pid| connect::may_send_token(owners, Some(pid))).map_err(|why| match why {
+        local::NoToken::Missing => "이 컴퓨터의 사무실 열쇠(호스트 토큰)를 찾지 못했습니다.".to_string(),
+        local::NoToken::NotTheDaemon => format!(
+            "포트 {port}를 쥔 프로그램이 이 컴퓨터의 사무실 프로그램인지 확인하지 못해 호스트 토큰을 보내지 않았습니다."
+        ),
+    })
+}
+
 /// A one-time login code from this computer's daemon, the way the CLI does it: inside WSL its
 /// agty-login; natively the host token over loopback (as the manager's open()). The token
 /// and the code are never logged.
@@ -1060,18 +1090,9 @@ fn login_local(config: &Config, port: u16) -> Result<String, String> {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     } else {
         let home = home_dir().ok_or("홈 폴더를 찾지 못했습니다")?;
-        // The office folder; ~/.pixel-agents for a daemon from before 2026-11 (ponytail: one release).
-        let token = [local::settings_dir(&home).join("office"), home.join(".pixel-agents")]
-            .iter()
-            .find_map(|dir| {
-                local::host_token(
-                    fs::read_to_string(dir.join("server.json")).ok().as_deref(),
-                    fs::read_to_string(dir.join("standalone-token"))
-                        .ok()
-                        .as_deref(),
-                )
-            })
-            .ok_or("이 컴퓨터의 사무실 열쇠(호스트 토큰)를 찾지 못했습니다.")?;
+        // A health answer proves nothing: whoever holds the port could say it. The token goes
+        // only to the process that wrote it (as the ssh path checks its own tunnel).
+        let token = local_token(&local_folders(&home), port, owner::listener_pids(port).as_deref())?;
         match http(port, "POST", "/api/login-code", Some(&token), "{}") {
             Some((200, body)) => local::login_code(&body).unwrap_or_default(),
             Some((status, _)) => {
@@ -1306,9 +1327,9 @@ fn refresh_local(
             app,
             &format!("이 컴퓨터: 업데이트 ({old_version} → {new_version}, 같은 릴리스 키)"),
         ),
-        local::Refresh::Reinstall => log(
+        local::Refresh::Rekey => log(
             app,
-            &format!("이 컴퓨터: 다시 설치 ({old_version} → {new_version}, 이전 릴리스 키)"),
+            &format!("이 컴퓨터: 업데이트 ({old_version} → {new_version}, 릴리스 키 교체)"),
         ),
     }
     install_progress_view(
@@ -1316,28 +1337,21 @@ fn refresh_local(
         &format!("사무실 프로그램을 새 버전으로 바꾸는 중… ({old_version} → {new_version})"),
     );
     let bundle_text = bundle.to_string_lossy();
-    let result = match decision {
-        local::Refresh::Update if config.local_env == "wsl" => stream_lines(
+    let pubkey_text = pubkey.to_string_lossy();
+    // Always the manager's update (snapshot, health check, revert), never install over a running install (B8.3).
+    let rekey = (decision == local::Refresh::Rekey).then_some(&*pubkey_text);
+    let result = if config.local_env == "wsl" {
+        stream_lines(
             app,
             hidden("wsl.exe").args(local::wsl_update_argv(
                 &config.distro,
                 local::plain_path(&bundle_text),
+                rekey.map(local::plain_path),
             )),
             live,
-        ),
-        local::Refresh::Update => native_update(app, &bundle, live),
-        local::Refresh::Reinstall if config.local_env == "wsl" => stream_lines(
-            app,
-            hidden("wsl.exe").args(local::wsl_install_argv(
-                &config.distro,
-                local::plain_path(&bundle_text),
-                local::plain_path(&pubkey.to_string_lossy()),
-                None,
-            )),
-            live,
-        ),
-        local::Refresh::Reinstall => native_install(app, &bundle, &pubkey, None, live),
-        local::Refresh::Keep => unreachable!(),
+        )
+    } else {
+        native_update(app, &bundle, rekey, live)
     };
     if let Err(problem) = result {
         log(app, &format!("이 컴퓨터: 업데이트 실패: {problem}"));
@@ -1440,17 +1454,18 @@ fn native_install(
     )
 }
 
-/// Runs the bundled manager's rollback-safe update with the key already pinned by install.
+/// Runs the bundled manager's rollback-safe update with the key pinned by install, or `pubkey`.
 #[cfg(desktop)]
 fn native_update(
     app: &AppHandle,
     bundle: &std::path::Path,
+    pubkey: Option<&str>,
     live: &dyn Fn() -> bool,
 ) -> Result<(), String> {
     native_bundle_manager(
         app,
         bundle,
-        |manager, bundle| local::manager_update_args(&manager.to_string_lossy(), bundle),
+        |manager, bundle| local::manager_update_args(&manager.to_string_lossy(), bundle, pubkey),
         live,
     )
 }
@@ -2622,6 +2637,85 @@ mod tests {
     use tauri::ipc::RuntimeCapability;
     use tauri::utils::acl::capability::CapabilityFile;
     use tauri::utils::acl::RemoteUrlPattern;
+
+    fn folder(server_json: Option<&str>, standalone: Option<&str>) -> local::Folder {
+        local::Folder {
+            server_json: server_json.map(String::from),
+            standalone: standalone.map(String::from),
+            registry: Vec::new(),
+        }
+    }
+
+    /// The host token leaves the files only for the daemon that wrote it (D1.1).
+    #[test]
+    fn local_token_goes_only_to_the_process_that_wrote_it() {
+        let written = [folder(Some(r#"{"token":"tok","pid":7,"port":18240}"#), None)];
+        assert_eq!(local_token(&written, 18240, Some(&[7])), Ok("tok".to_string()));
+        // a foreign owner, a second listener, an unknown owner: no token
+        assert!(local_token(&written, 18240, Some(&[8])).is_err());
+        assert!(local_token(&written, 18240, Some(&[7, 8])).is_err());
+        assert!(local_token(&written, 18240, None).is_err());
+        // a token with no pid beside it: no token
+        let no_pid = [folder(Some(r#"{"token":"tok","port":18240}"#), Some("tok"))];
+        assert!(local_token(&no_pid, 18240, Some(&[7])).is_err());
+        // nothing found at all
+        assert!(local_token(&[folder(None, None)], 18240, Some(&[7])).is_err());
+    }
+
+    /// The pid comes from the per-port registry entry; server.json counts only when its port is ours.
+    #[test]
+    fn local_token_pid_comes_from_the_entry_for_this_port() {
+        let entry = r#"{"token":"tok","pid":7,"port":18240}"#.to_string();
+        // server.json belongs to another daemon (other port, other pid): the registry entry decides
+        let mut f = folder(Some(r#"{"token":"other","pid":9,"port":18241}"#), None);
+        f.registry = vec![entry.clone()];
+        assert_eq!(local_token(&[f], 18240, Some(&[7])), Ok("tok".to_string()));
+        // server.json for another port and no entry for this one: refused even if its pid holds ours
+        let other = [folder(Some(r#"{"token":"other","pid":9,"port":18241}"#), None)];
+        assert!(local_token(&other, 18240, Some(&[9])).is_err());
+        // server.json without a port field: no proof it is this daemon
+        let no_port = [folder(Some(r#"{"token":"tok","pid":7}"#), None)];
+        assert!(local_token(&no_port, 18240, Some(&[7])).is_err());
+        // a stale entry for this port beside the live one: the live one wins
+        let mut f = folder(None, None);
+        f.registry = vec![r#"{"token":"old","pid":5,"port":18240}"#.into(), entry];
+        assert_eq!(local_token(&[f], 18240, Some(&[7])), Ok("tok".to_string()));
+    }
+
+    /// A folder that only has the persistent token must not shadow a legacy folder that names the daemon.
+    #[test]
+    fn local_token_prefers_the_folder_that_names_the_daemon() {
+        let legacy = folder(Some(r#"{"token":"tok","pid":7,"port":18240}"#), None);
+        let bare = folder(None, Some("stand\n"));
+        assert_eq!(local_token(&[bare, legacy], 18240, Some(&[7])), Ok("tok".to_string()));
+        // standalone-token only fills in a missing token beside a pid and port in server.json
+        let split = folder(Some(r#"{"pid":7,"port":18240}"#), Some("stand\n"));
+        assert_eq!(local_token(&[split], 18240, Some(&[7])), Ok("stand".to_string()));
+        // a token alone, anywhere, never goes out
+        assert!(local_token(&[folder(None, Some("stand"))], 18240, Some(&[7])).is_err());
+    }
+
+    /// The call site: the token the login posts comes out of `local_token`, fed with the real listener lookup.
+    #[test]
+    fn login_local_takes_its_token_from_the_owner_check() {
+        let source = include_str!("lib.rs");
+        let start = source.find("fn login_local(").unwrap();
+        let body = &source[start..start + source[start..].find("\n}\n").unwrap()];
+        assert!(body.contains("local_token(&local_folders(&home), port, owner::listener_pids(port).as_deref())?"));
+        assert!(body.contains("Some(&token)"));
+    }
+
+    /// A command that waits on a child (the UAC prompt and the elevated script) must be `async`,
+    /// or Tauri runs it on the main thread and the window and tray freeze meanwhile.
+    #[test]
+    fn commands_that_wait_do_not_run_on_the_main_thread() {
+        let source = include_str!("lib.rs");
+        for name in ["run_admin_setup"] {
+            let at = source.find(&format!("fn {name}(")).unwrap();
+            let attribute = source[..at].lines().rev().find(|l| l.starts_with("#[tauri::command")).unwrap();
+            assert_eq!(attribute, "#[tauri::command(async)]", "{name}");
+        }
+    }
 
     #[test]
     fn remote_office_keys_are_the_window_keys_only() {

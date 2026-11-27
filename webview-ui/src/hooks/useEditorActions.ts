@@ -12,7 +12,6 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
 } from '../constants.js';
-import type { ExpandDirection } from '../office/editor/editorActions.js';
 import {
   addArea,
   areaStrokeErases,
@@ -20,7 +19,7 @@ import {
   eraseArea,
   eraseCarpet,
   eraseTile,
-  expandLayout,
+  expandForTile,
   furnitureAt,
   isFloorTile,
   paintArea,
@@ -166,16 +165,17 @@ export function useEditorActions(
    * returns the current layout unchanged is a no-op.
    */
   const commitLayout = useCallback(
-    (newLayout: OfficeLayout, session: string | null) => {
+    (newLayout: OfficeLayout, session: string | null, shift?: { col: number; row: number }) => {
       const os = getOfficeState();
       if (newLayout === os.getLayout()) return; // the edit changed nothing
       if (editorState.beginEdit(session)) {
         editorState.pushUndo(os.getLayout());
         editorState.clearRedo();
       }
+      if (shift) editorState.noteGrowth(shift); // a grid grown left / up: undo moves everything back
       editorState.isDirty = true;
       setIsDirty(true);
-      os.rebuildFromLayout(newLayout);
+      os.rebuildFromLayout(newLayout, shift);
       saveLayout(newLayout);
       bumpTick();
     },
@@ -194,7 +194,8 @@ export function useEditorActions(
    * leave / tool change / Esc via `editorState.endStroke()`.
    */
   const applyStrokeEdit = useCallback(
-    (newLayout: OfficeLayout) => commitLayout(newLayout, 'stroke'),
+    (newLayout: OfficeLayout, shift?: { col: number; row: number }) =>
+      commitLayout(newLayout, 'stroke', shift),
     [commitLayout],
   );
 
@@ -478,9 +479,11 @@ export function useEditorActions(
     if (!prev) return;
     editorState.endStroke(); // the next edit can't extend an entry that's been undone
     const os = getOfficeState();
-    // Push current layout to redo stack before restoring
-    editorState.pushRedo(os.getLayout());
-    os.rebuildFromLayout(prev);
+    // Push current layout to redo stack before restoring; redo moves everything back the other way
+    const shift = editorState.restoreShiftOf(prev);
+    editorState.pushRedo(os.getLayout(), { col: -shift.col, row: -shift.row });
+    // No shift for an ordinary edit: rebuildFromLayout then carries the floors' characters.
+    os.rebuildFromLayout(prev, shift.col || shift.row ? shift : undefined);
     saveLayout(prev);
     editorState.isDirty = true;
     setIsDirty(true);
@@ -493,8 +496,10 @@ export function useEditorActions(
     editorState.endStroke();
     const os = getOfficeState();
     // Push current layout to undo stack before restoring
-    editorState.pushUndo(os.getLayout());
-    os.rebuildFromLayout(next);
+    const shift = editorState.restoreShiftOf(next);
+    editorState.pushUndo(os.getLayout(), { col: -shift.col, row: -shift.row });
+    // No shift for an ordinary edit: rebuildFromLayout then carries the floors' characters.
+    os.rebuildFromLayout(next, shift.col || shift.row ? shift : undefined);
     saveLayout(next);
     editorState.isDirty = true;
     setIsDirty(true);
@@ -548,51 +553,6 @@ export function useEditorActions(
     [getOfficeState, editorState, applyEdit, bumpTick],
   );
 
-  /**
-   * Expand layout if click is on a ghost border tile (outside current bounds).
-   * Returns the expanded layout and adjusted col/row, or null if no expansion needed.
-   */
-  const maybeExpand = useCallback(
-    (
-      layout: OfficeLayout,
-      col: number,
-      row: number,
-    ): {
-      layout: OfficeLayout;
-      col: number;
-      row: number;
-      shift: { col: number; row: number };
-    } | null => {
-      if (col >= 0 && col < layout.cols && row >= 0 && row < layout.rows) return null;
-
-      // Determine which directions to expand
-      const directions: ExpandDirection[] = [];
-      if (col < 0) directions.push('left');
-      if (col >= layout.cols) directions.push('right');
-      if (row < 0) directions.push('up');
-      if (row >= layout.rows) directions.push('down');
-
-      let current = layout;
-      let totalShiftCol = 0;
-      let totalShiftRow = 0;
-      for (const dir of directions) {
-        const result = expandLayout(current, dir);
-        if (!result) return null; // exceeded max
-        current = result.layout;
-        totalShiftCol += result.shift.col;
-        totalShiftRow += result.shift.row;
-      }
-
-      return {
-        layout: current,
-        col: col + totalShiftCol,
-        row: row + totalShiftRow,
-        shift: { col: totalShiftCol, row: totalShiftRow },
-      };
-    },
-    [],
-  );
-
   const handlePetToggle = useCallback(
     (petType: number, active: boolean) => {
       const os = getOfficeState();
@@ -633,20 +593,25 @@ export function useEditorActions(
         case EditTool.TILE_PAINT:
         case EditTool.WALL_PAINT: {
           // Floor and wall tools grow the grid when they hit the ghost border;
-          // rebuild from the expanded layout first, shifting characters along.
-          const expansion = maybeExpand(layout, col, row);
-          if (expansion) os.rebuildFromLayout(expansion.layout, expansion.shift);
+          // commit the grown layout with the edit, shifting characters along.
+          const expansion = expandForTile(layout, col, row);
+          // Off the grid and it cannot grow (an agty office, the size limit): nothing to paint.
+          if (!expansion && (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows))
+            return;
           const base = expansion?.layout ?? layout;
           const c = expansion?.col ?? col;
           const r = expansion?.row ?? row;
           const floor = { type: editorState.selectedTileType, color: editorState.floorColor };
           if (editorState.activeTool === EditTool.TILE_PAINT) {
-            applyStrokeEdit(paintTile(base, c, r, floor.type, floor.color));
+            applyStrokeEdit(paintTile(base, c, r, floor.type, floor.color), expansion?.shift);
           } else {
             // The stroke's first tile decides whether it adds or removes walls.
             editorState.wallDragAdding ??= wallStrokeAdds(base, c, r);
             const adding = editorState.wallDragAdding;
-            applyStrokeEdit(wallStrokeTile(base, c, r, adding, editorState.wallColor, floor));
+            applyStrokeEdit(
+              wallStrokeTile(base, c, r, adding, editorState.wallColor, floor),
+              expansion?.shift,
+            );
           }
           return;
         }
@@ -749,7 +714,7 @@ export function useEditorActions(
         }
       }
     },
-    [getOfficeState, editorState, applyEdit, applyStrokeEdit, maybeExpand, colorActions, bumpTick],
+    [getOfficeState, editorState, applyEdit, applyStrokeEdit, colorActions, bumpTick],
   );
 
   /**

@@ -9,40 +9,21 @@ import { officeFile } from '../helpers/hooks';
 import {
   launchStandalone,
   type LaunchStandaloneOptions,
+  PHONE,
   type StandaloneSession,
 } from '../helpers/standalone';
 
-export interface StandaloneContext extends StandaloneSession {}
+export type StandaloneContext = StandaloneSession;
 
-async function attachTextFileIfExists(
+async function attachFile(
   testInfo: TestInfo,
   name: string,
   filePath: string,
   contentType: string,
 ): Promise<void> {
   try {
-    if (!fs.existsSync(filePath)) return;
-    await testInfo.attach(name, {
-      body: fs.readFileSync(filePath, 'utf8'),
-      contentType,
-    });
-  } catch {
-    // Attachment failures are non-fatal in teardown.
-  }
-}
-
-async function attachText(
-  testInfo: TestInfo,
-  name: string,
-  body: string,
-  contentType: string,
-): Promise<void> {
-  try {
-    if (body.length === 0) return;
-    await testInfo.attach(name, {
-      body,
-      contentType,
-    });
+    if (fs.existsSync(filePath))
+      await testInfo.attach(name, { body: fs.readFileSync(filePath, 'utf8'), contentType });
   } catch {
     // Attachment failures are non-fatal in teardown.
   }
@@ -51,20 +32,11 @@ async function attachText(
 export const test = base.extend<{
   standalone: StandaloneContext;
   _allureLabels: void;
-  /** Seed a granted Claude hooksConsent entry in the isolated HOME (default). The
-   *  consent specs opt out via `test.use({ seedHooksConsent: false })` so the
-   *  first-run dialog shows — they are the only ones that want it. */
-  seedHooksConsent: boolean;
-  /** Per-test host options (e.g. extra CLI flags, mock claude on PATH). Override
-   *  with test.use({ standaloneOptions: {...} }) in a describe block. */
+  /** Per-test daemon and HOME: `test.use({ standaloneOptions: { agents: [{ name: 'alpha' }], scenarios: [...] } })`. */
   standaloneOptions: LaunchStandaloneOptions;
 }>({
-  seedHooksConsent: [true, { option: true }],
-  // Per-test host options (e.g. extra CLI flags, mock claude on PATH). Override
-  // with test.use({ standaloneOptions: {...} }) in a describe block.
   standaloneOptions: [{}, { option: true }],
-  // Auto-fixture: tag every test with Allure epic + feature derived from its
-  // @area: annotation and enclosing describe path. Runs before standalone.
+  // Tags every test with an Allure epic + feature from its @area: tag and describe path.
   _allureLabels: [
     async ({}, use, testInfo) => {
       await applyAllureLabels(testInfo);
@@ -72,41 +44,45 @@ export const test = base.extend<{
     },
     { auto: true },
   ],
-  standalone: async ({ page, seedHooksConsent, standaloneOptions }, use, testInfo) => {
-    const standalone = await launchStandalone(page, { seedHooksConsent, ...standaloneOptions });
-
+  standalone: async ({ page, standaloneOptions }, use, testInfo) => {
+    const standalone = await launchStandalone(page, standaloneOptions);
     try {
       await use(standalone);
     } finally {
-      await attachText(testInfo, 'standalone-host-log', standalone.getHostLogs(), 'text/plain');
-      await attachTextFileIfExists(
+      const log = standalone.getHostLogs();
+      if (log)
+        await testInfo
+          .attach('daemon-log', { body: log, contentType: 'text/plain' })
+          .catch(() => undefined);
+      await attachFile(
         testInfo,
         'server-json',
         officeFile(standalone.tmpHome, 'server.json'),
         'application/json',
       );
-      // Only ever written when the host launched a mock claude (mockClaude: true).
-      await attachTextFileIfExists(
+      // What the engine typed into its sessions, and what the scenarios played.
+      await attachFile(
         testInfo,
-        'mock-claude-invocations',
-        standalone.mockLogFile,
+        'typed',
+        path.join(standalone.tmpHome, 'fake-claude-typed.log'),
         'text/plain',
       );
-
+      await attachFile(
+        testInfo,
+        'mock-actions',
+        path.join(standalone.tmpHome, '.claude-mock', 'actions.log'),
+        'text/plain',
+      );
       try {
-        const screenshotPath = testInfo.outputPath('final-screenshot.png');
-        await page.screenshot({ path: screenshotPath });
-        await testInfo.attach('final-screenshot', {
-          path: screenshotPath,
-          contentType: 'image/png',
-        });
+        const shot = testInfo.outputPath('final-screenshot.png');
+        await page.screenshot({ path: shot });
+        await testInfo.attach('final-screenshot', { path: shot, contentType: 'image/png' });
       } catch {
         // Screenshot failures are non-fatal in teardown.
       }
-
       await standalone.cleanup();
     }
   },
 });
 
-export { expect };
+export { expect, PHONE };

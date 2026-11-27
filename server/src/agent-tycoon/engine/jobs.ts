@@ -22,9 +22,11 @@ import * as path from 'path';
 import { type Coded, type Refused, refused } from '../../../../core/src/agent-tycoon/serverText.js';
 import type { OfficeJob, OfficeJobRun } from '../../../../core/src/messages.js';
 import { stateDirectory } from '../configPath.js';
+import { JOB_ID_RE } from '../controlIdentity.js';
 import { digestJobLog, maskJobLog } from '../jobDigest.js';
 import { cmdKey, estimateProgress, rememberDuration } from '../jobHistory.js';
 import { deriveJobName, readNameRules } from '../jobNames.js';
+import { LABEL } from '../labels.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { windowsCmd } from '../spawnJson.js';
 import type { EngineEvents } from './events.js';
@@ -47,7 +49,8 @@ const LOG_READ_MAX = 64 * 1024;
 const CMD_EVENT_MAX = 300;
 /** A failed job's stop line on its card (one line of the log). */
 const STOP_LINE_MAX = 200;
-export const ID_RE = /^\d{4}-\d{6}-[A-Za-z0-9가-힣._-]{1,48}$/;
+/** The one job id shape (controlIdentity.cjs, shared with the CLI). */
+export const ID_RE = JOB_ID_RE;
 
 export const jobsDir = (
   home = os.homedir(),
@@ -193,7 +196,7 @@ function childrenOf(pid: number): number[] {
 /** Sends a signal: process.kill on Linux and macOS, taskkill /T /F of the pid on Windows. */
 export type KillFn = (target: number, signal: NodeJS.Signals) => void;
 
-const defaultKill =
+export const defaultKill =
   (platform: NodeJS.Platform): KillFn =>
   (target, signal) => {
     if (platform !== 'win32') return void process.kill(target, signal);
@@ -261,6 +264,31 @@ export interface JobRecord {
   agent?: string;
   /** DV2: the dev room's 실행 row started it (devroomRuns.ts): worktree, script, role. */
   run?: OfficeJobRun;
+  /** `job --notify` (T-109): the engine agent that started it and is told once when it ends.
+   *  `sent` is written only after the messenger (or the inbox) accepted the line; `tries` counts the
+   *  refusals (`at`: when the last one was), and after NOTICE_TRIES of them it is given up (logged). */
+  notify?: { to: string; sent?: true; tries?: number; at?: number };
+}
+/** A refused notice is tried again at most this many times in all, no sooner than NOTICE_RETRY_MS apart. */
+const NOTICE_TRIES = 5;
+const NOTICE_RETRY_MS = 30_000;
+
+/** The one line a `--notify` job's end tells its agent (T-109): what it was, how it ended, how long, the log. */
+export function jobEndText(r: JobRecord, label: string, ranMs: number | null): string {
+  // ranMs null: a GPU job that ended before the wrapper held its reservation (cancelled or stopped in the
+  // queue): its command never ran, so no run time and no word about how the command ended.
+  if (ranMs === null)
+    return `[${LABEL} job] 작업 ${r.id} GPU 차례를 받기 전에 끝났다${r.exit === null ? '' : ` · exit ${r.exit}`}: ${label} · 로그 ${r.log}`;
+  const s = Math.max(0, Math.round(ranMs / 1000));
+  const took = s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분` : s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`;
+  const how = r.stopped
+    ? '멈췄다(stop)'
+    : r.exit === null
+      ? '사라졌다(종료 코드를 모른다)'
+      : r.exit === 0
+        ? '끝났다(성공) · exit 0'
+        : `실패했다 · exit ${r.exit}`;
+  return `[${LABEL} job] 작업 ${r.id} ${how}: ${label} · 걸린 시간 ${took} · 로그 ${r.log}`;
 }
 
 /** A GPU job's reservation: done once ended, leased once the wrapper wrote `<id>.gpu`, else queued. */
@@ -337,6 +365,9 @@ export interface JobsOptions {
   node?: string;
   /** procStart for this platform (tests give a fake). */
   startTime?: (pid: number) => string | null;
+  /** T-109: tells the agent that started a `--notify` job that it ended. Resolves null once the line is
+   *  accepted (queued, or in the agent's inbox), else why not. Never called before `start()`. */
+  notice?: (to: string, text: string) => Promise<string | null>;
 }
 
 /** What a GPU job or a Codex task runs instead: the worker, by absolute paths. */
@@ -362,6 +393,17 @@ export class Jobs {
   private readonly startTime: (pid: number) => string | null;
   /** Pids this daemon spawned whose exit it has not seen: alive without asking the OS. */
   private readonly running = new Set<number>();
+  /** `start()` ran: the engine knows its agents, so a notice can be delivered (not before). */
+  private ready = false;
+  /** reconcile() is in its loop (an events read inside it may call reconcile again). */
+  private settling = false;
+  /** Jobs whose notice is on its way, and when a refused one may be tried again. */
+  private readonly telling = new Set<string>();
+  private readonly retryAt = new Map<string, number>();
+  /** Jobs whose notice was accepted: told for this run of the daemon even if the record cannot be written. */
+  private readonly delivered = new Set<string>();
+  /** A notice may be owed (the last settle saw one); a pass without one does not read the records again. */
+  private owed = false;
 
   constructor(private readonly opts: JobsOptions) {
     this.platform = opts.platform ?? process.platform;
@@ -373,6 +415,7 @@ export class Jobs {
 
   /** Settle what ended while the daemon was away; follow exit files as they appear. */
   start(): void {
+    this.ready = true;
     this.reconcile();
     try {
       fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
@@ -385,7 +428,7 @@ export class Jobs {
     }
     // A job killed outright leaves no exit file: look while any runs.
     this.poll = setInterval(() => {
-      if (this.records().some((r) => !r.ended)) this.reconcile();
+      if (this.records().some((r) => !r.ended || this.owes(r))) this.reconcile();
     }, 30_000);
     this.poll.unref?.();
   }
@@ -416,6 +459,8 @@ export class Jobs {
     codex?: { bin: string; prepare: (jobId: string, log: string) => void; id?: string; agent?: string };
     /** DV2: a 실행 row run (devroomRuns.ts). */
     run?: OfficeJobRun;
+    /** T-109: the agent to tell, once, when it ends. */
+    notify?: string;
   }): { ok: true; id: string; pid: number; log: string } | Fail {
     const cmd = req.cmd.trim();
     if (!cmd) return fail('usage', '명령이 없습니다');
@@ -524,6 +569,7 @@ export class Jobs {
       ...(req.codex && { kind: 'codex' as const }),
       ...(req.codex?.agent && { agent: req.codex.agent }),
       ...(req.run && { run: req.run }),
+      ...(req.notify && { notify: { to: req.notify } }),
     };
     this.save(record);
     this.opts.events.append('job_start', req.source, {
@@ -585,9 +631,13 @@ export class Jobs {
   /** `agty stop <id|pid>`, the job panel's 멈추기: the job's process groups, SIGTERM. */
   stop(target: string, source: string): { ok: true; pid: number; id: string } | Fail {
     this.reconcile();
-    const r = this.records().find(
-      (x) => x.id === target || (/^\d+$/.test(target) && x.pid === Number(target)),
-    );
+    // B3.3: an ended record of the same pid stays until the log prune; the running job wins.
+    const all = this.records();
+    const byPid = (x: JobRecord) => /^\d+$/.test(target) && x.pid === Number(target);
+    const r =
+      all.find((x) => x.id === target) ??
+      all.find((x) => !x.ended && byPid(x)) ??
+      all.find(byPid);
     if (!r || r.ended || r.pid === null || !alive(r.pid, r.pstart, this.platform, this.startTime)) {
       const pid = /^\d+$/.test(target) ? Number(target) : null;
       if (!r && pid !== null && alive(pid, this.startTime(pid), this.platform, this.startTime))
@@ -632,12 +682,30 @@ export class Jobs {
     };
   }
 
-  /** Settle ended jobs: the exit file's code, or exit null for a vanished one. */
+  /** Settle ended jobs: the exit file's code, or exit null for a vanished one; then tell the
+   *  agents of `--notify` jobs whose notice is due. */
   reconcile(): void {
+    // Re-entered: settling appends job_end, and an append reads what others wrote meanwhile (a GPU
+    // wrapper's lease), which refreshes the job list, which reconciles. The outer pass works from its
+    // own list of records, so a second pass would settle the rest twice and the outer one would then
+    // settle its stale copies again, over the real exit codes. It looks again soon instead.
+    if (this.settling) return void this.reconcileSoon();
+    this.settling = true;
+    try {
+      this.settle();
+    } finally {
+      this.settling = false;
+    }
+    if (this.owed) this.tell();
+  }
+
+  private settle(): void {
     let changed = false;
+    this.owed = false;
     const now = this.now();
     for (const r of this.records()) {
       if (r.ended) {
+        if (this.owes(r)) this.owed = true;
         continue; // old ended records and their logs go in logPrune.ts (U-42)
       }
       const exitFile = path.join(this.dir, `${r.id}.exit`);
@@ -666,6 +734,7 @@ export class Jobs {
         }
       }
       this.save({ ...r, ended: isoLocal(ended), exit });
+      if (r.notify) this.owed = true;
       if (exit === 0 && r.kind !== 'codex') {
         try {
           // The run itself, not the GPU wait before it (startedOf: the lease time, else the ask).
@@ -691,6 +760,71 @@ export class Jobs {
       changed = true;
     }
     if (changed) this.opts.changed?.();
+  }
+
+  // ── Notices (T-109) ─────────────────────────────────────────
+
+  /** An ended `--notify` job whose agent has not been told and may still be tried. */
+  private owes(r: JobRecord): boolean {
+    return !!r.ended && !!r.notify && !r.notify.sent && (r.notify.tries ?? 0) < NOTICE_TRIES && !this.delivered.has(r.id);
+  }
+
+  /**
+   * Tell the agent of each ended `--notify` job once. The record is marked `sent` only after the
+   * line was accepted, so a daemon that was away, a send that failed or one refused before the engine
+   * knew its agents is tried again: by the next reconcile (the 30 s poll, a start), no sooner than
+   * NOTICE_RETRY_MS after a refusal and at most NOTICE_TRIES times in all (the count is in the record,
+   * so a restart does not begin again). Every refusal is logged with the job id and the reason.
+   * ponytail: a daemon that dies after the line was accepted and before `sent` is written tells it a
+   * second time at the next start (the gap is the time between two statements); exactly-once would
+   * need the messenger to take a key and keep it.
+   */
+  private tell(): void {
+    if (!this.ready || !this.opts.notice) return;
+    const now = this.now();
+    for (const r of this.records()) {
+      // The 30 s between tries holds across a restart: the last refusal's time is in the record.
+      const due = Math.max(this.retryAt.get(r.id) ?? 0, r.notify?.at ? r.notify.at + NOTICE_RETRY_MS : 0);
+      if (!this.owes(r) || this.telling.has(r.id) || due > now) continue;
+      const ranAt = startedOf(this.dir, r);
+      // A GPU job without its lease never ran its command (cancelled or stopped in the queue).
+      const ran = r.gpu && ranAt === null ? null : Date.parse(r.ended!) - Date.parse(ranAt ?? r.started);
+      this.telling.add(r.id);
+      let answer: Promise<string | null>;
+      try {
+        answer = this.opts.notice!(r.notify!.to, jobEndText(r, this.nameOf(r), ran));
+      } catch (err) {
+        answer = Promise.reject(err);
+      }
+      void answer
+        .catch((err: unknown) => (err instanceof Error ? err.message : String(err)))
+        .then((why) => {
+          this.telling.delete(r.id);
+          if (why === null) this.delivered.add(r.id); // before the save: a save that fails must not tell it again
+          try {
+            this.noticed(r.id, why);
+          } catch (err) {
+            this.log(`job ${r.id}: the notice to ${r.notify!.to} ${why === null ? 'was delivered but' : 'was refused and'} could not be recorded (${String(err)})`);
+          }
+        });
+    }
+  }
+
+  private noticed(id: string, why: string | null): void {
+    const r = this.records().find((x) => x.id === id);
+    if (!r?.notify || r.notify.sent) return;
+    if (why === null) {
+      this.save({ ...r, notify: { to: r.notify.to, sent: true } });
+      this.log(`job ${id}: notice to ${r.notify.to} delivered`);
+      return;
+    }
+    const tries = (r.notify.tries ?? 0) + 1;
+    this.retryAt.set(id, this.now() + NOTICE_RETRY_MS);
+    // The line first: a write that fails below must not hide the refusal.
+    this.log(
+      `job ${id}: notice to ${r.notify.to} not delivered (${why}); try ${tries} of ${NOTICE_TRIES}${tries >= NOTICE_TRIES ? ', giving up' : ''}`,
+    );
+    this.save({ ...r, notify: { to: r.notify.to, tries, at: this.now() } });
   }
 
   // ── Internals ───────────────────────────────────────────────

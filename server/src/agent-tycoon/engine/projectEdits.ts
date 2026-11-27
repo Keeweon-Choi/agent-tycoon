@@ -347,6 +347,9 @@ export class ProjectEdits {
     if (workFolder) next.workFolder = workFolder;
     else delete next.workFolder;
     for (const k of fields.clear) delete next[k];
+    // T-144: a model chosen here is the latest explicit choice: an older `/model` in the
+    // conversation (a look not made yet) is never applied over it.
+    if (next.model !== p.model && cliOf(next) === DEFAULT_PROVIDER) next.modelSwitchAt = Date.now();
     const list = this.deps.projects().map((x) => (x.name === p.name ? next : x));
     // Only a change of session name or folder is checked: an existing clash still saves other edits.
     const moves = !samePath(next.folder, p.folder, this.deps.host);

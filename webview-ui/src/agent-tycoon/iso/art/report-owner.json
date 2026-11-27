@@ -16,13 +16,13 @@
       "o-floor-marble": 0.07,
       "o-wall-entrance-a": 8.1,
       "o-bookshelf-moss": 0.38,
-      "o-whiteboard-a": 0.33,
+      "o-whiteboard-b": 0.33,
       "o-monstera": 0.31,
-      "o-cabinet-a": 0.19,
-      "o-sofa-a": 0.25,
+      "o-cabinet-b": 0.19,
+      "o-sofa-b": 0.25,
       "o-bin": 0.06,
-      "o-chair-up": 0.22,
       "o-chair-left": 0.22,
+      "o-chair-up": 0.22,
       "o-palm": 0.45,
       "o-desk": 0.55,
       "o-floor-carpet-blue": 0.07,
@@ -44,14 +44,14 @@
       "o-wall-door": 5.13,
       "o-chair-right": 0.19,
       "o-floor-wood-light": 0.07,
-      "o-cabinet-b": 0.19,
-      "o-whiteboard-b": 0.32,
+      "o-cabinet-a": 0.19,
+      "o-whiteboard-a": 0.32,
       "o-wall-entrance-b": 7.21,
       "o-chair-down": 0.19,
       "o-desk-b": 0.57,
       "o-coffee-table": 0.2,
       "o-floor-stone": 0.07,
-      "o-sofa-b": 0.26,
+      "o-sofa-a": 0.26,
       "o-water-cooler": 0.18,
       "o-wall-low": 0.18,
       "o-lift-doors-open": 1.29
@@ -176,11 +176,11 @@
       ],
       "sourceBorder": 0
     },
-    "whiteboard-a": {
+    "whiteboard-b": {
       "kind": "object",
       "footprint": [
-        2,
-        1
+        1,
+        2
       ],
       "scale": 0.302,
       "baseWidthPx": 79,
@@ -218,7 +218,7 @@
       ],
       "sourceBorder": 0
     },
-    "cabinet-a": {
+    "cabinet-b": {
       "kind": "object",
       "footprint": [
         1,
@@ -239,11 +239,11 @@
       ],
       "sourceBorder": 0
     },
-    "sofa-a": {
+    "sofa-b": {
       "kind": "object",
       "footprint": [
-        2,
-        1
+        1,
+        2
       ],
       "scale": 0.234,
       "baseWidthPx": 281,
@@ -281,7 +281,7 @@
       ],
       "sourceBorder": 0
     },
-    "chair-up": {
+    "chair-left": {
       "kind": "object",
       "footprint": [
         1,
@@ -302,7 +302,7 @@
       ],
       "sourceBorder": 0
     },
-    "chair-left": {
+    "chair-up": {
       "kind": "object",
       "footprint": [
         1,
@@ -347,8 +347,8 @@
     "desk": {
       "kind": "object",
       "footprint": [
-        3,
-        1
+        1,
+        3
       ],
       "scale": 0.413,
       "baseWidthPx": 167,
@@ -747,7 +747,7 @@
       ],
       "sourceBorder": 0
     },
-    "cabinet-b": {
+    "cabinet-a": {
       "kind": "object",
       "footprint": [
         1,
@@ -768,11 +768,11 @@
       ],
       "sourceBorder": 0
     },
-    "whiteboard-b": {
+    "whiteboard-a": {
       "kind": "object",
       "footprint": [
-        1,
-        2
+        2,
+        1
       ],
       "scale": 0.29,
       "baseWidthPx": 82,
@@ -890,11 +890,11 @@
       ],
       "sourceBorder": 0
     },
-    "sofa-b": {
+    "sofa-a": {
       "kind": "object",
       "footprint": [
-        1,
-        2
+        2,
+        1
       ],
       "scale": 0.258,
       "baseWidthPx": 222,

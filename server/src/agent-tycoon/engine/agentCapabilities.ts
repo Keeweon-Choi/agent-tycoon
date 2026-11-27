@@ -6,6 +6,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type { ClaudeCliModel } from '../cliCommands.js';
 import { findOnPath } from '../providers/claudeProvider.js';
 import { commandArgv } from '../spawnJson.js';
 import { CODEX_EFFORTS } from './codex.js';
@@ -15,6 +16,8 @@ export interface AgentChoices {
   /** AGENT-LATEST: the newest published version (display only), added by AgentLatest.merge. */
   latest?: string;
   models: string[];
+  /** T-143: the models the CLI's initialize answer lists (value for --model, name as the CLI shows it). */
+  modelNames?: ClaudeCliModel[];
   efforts: string[];
   /** D3b: the --permission-mode choices the help lists (absent when it lists none). */
   permissionModes?: string[];
@@ -30,6 +33,8 @@ export interface InstalledAgentChoices {
 /** What the engine needs from discovery; tests inject a fake so none probes the real CLIs. */
 export interface AgentChoicesReader {
   discover(refresh?: boolean): InstalledAgentChoices;
+  /** Start loading the CLI's model list (`modelNames`) when it is not there yet (T-144). */
+  warm?(): void;
 }
 
 type Fs = Pick<typeof fs, 'readFileSync' | 'statSync'>;
@@ -106,6 +111,17 @@ export function parseCodexConfig(
     defaultModel,
     defaultEffort,
   };
+}
+
+/** T-143: Claude's choices with the CLI's own model list, when its cached initialize answer came;
+ *  without it the --help aliases stay the only list. */
+export function withCliModels(
+  choices: InstalledAgentChoices,
+  models: ClaudeCliModel[],
+): InstalledAgentChoices {
+  return choices.claude && models.length
+    ? { ...choices, claude: { ...choices.claude, modelNames: models } }
+    : choices;
 }
 
 export function versionOf(stdout: string): string | undefined {

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { CONFIG_FILE_NAME } from './constants.js';
-import { officeFile, officeFileToRead } from './officeFolder.js';
+import { keepCorruptOfficeFile, officeFile, officeFileToRead } from './officeFolder.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
@@ -233,6 +233,7 @@ export function readConfig(): AgentTycoonConfig {
     };
   } catch (err) {
     console.error('[Agent Tycoon] Failed to read config file:', err);
+    keepCorruptOfficeFile(filePath, err);
     return emptyConfig();
   }
 }

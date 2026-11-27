@@ -169,32 +169,37 @@ By default, successful tests discard their videos after teardown. Pass `--attach
 
 ### Mock claude
 
-Tests never invoke the real `claude` CLI. A wrapper script (`e2e/fixtures/mock-claude` on POSIX, `mock-claude.cmd` on Windows) is copied into an isolated `mock-bin/` directory and prepended to the daemon's `PATH`. The wrapper delegates to `e2e/fixtures/mock-claude-runner.cjs`, which honors a scenario blob set by the test via the `MOCK_CLAUDE_SCENARIO` env var.
+Tests never invoke the real `claude` CLI. The fixture puts the **engine fake** (`agent-tycoon/test/fake-claude/engine.cjs` + `pty-tui.cjs`, the same one the runners use) in the temp HOME's `bin/claude`, and the daemon starts its agents with it as `claude -n <name>` in the PTY host. A scenario the test queues in `standaloneOptions.scenarios` is written to `<home>/.claude-mock/scenario-queue.json` and played by `e2e/fixtures/mock-claude-runner.cjs`.
 
 Tests build scenarios with the fluent `claudeScenario(...)` helper in `e2e/helpers/mock-claude.ts`:
 
 ```typescript
-claudeScenario('my-scenario')
-  .at(2_000)
-  .appendJsonl(buildAssistantToolUseRecord('toolu-1', 'Read', { file_path: '/x' }))
-  .at(3_000)
-  .emitHook(preToolUseRead('sessionId', '/x'))
-  .holdOpenFor(10_000)
+claudeScenario('deploy turn')
+  .forAgent('alpha')
+  .onPrompt('deploy')
+  .at(300)
+  .appendJsonl(buildAssistantToolUseRecord('tu-1', 'Bash', DEPLOY))
+  .at(400)
+  .emitHook(permissionRequest('{{sessionId}}', 'Bash', DEPLOY)) // waits for the card's Allow / Deny
+  .at(600)
+  .appendJsonl(buildUserToolResultRecord('tu-1', '{{permission}}'))
+  .at(800)
+  .appendJsonl(buildTurnDurationRecord())
   .build();
 ```
 
-`appendJsonl` writes a record to `$HOME/.claude/projects/<project-hash>/<session-id>.jsonl` at the given offset. `emitHook` POSTs a hook event to the running server's `/api/hooks/:providerId`. `holdOpenFor` keeps the wrapper process alive (and the terminal "busy") for that many ms after the last action, then exits.
+`forAgent(name)` ties the scenario to the session started as `claude -n <name>` (kept for its restarts). `onPrompt(text)` makes the `.at(ms)` steps after it run when a submitted prompt contains `text`, counted from that prompt; the session is busy until the last step. `appendJsonl` appends a record to the session's transcript. `emitHook(permissionRequest(...))` runs the session's own `PermissionRequest` hook and waits for the answer; `{{sessionId}}` and `{{permission}}` (`allow` or `deny`) are filled in. Transcript record builders live in `e2e/helpers/team.ts`.
 
-Each test runs with an isolated `HOME`, workspace directory, server and mock log file — no state leaks between runs or into your real home.
+Each test runs with an isolated `HOME`, port, daemon and PTY host: no state leaks between runs or into your real home. Never point a test at the real daemon (port 18240) or at `~/.claude`.
 
-For the normative model behind this (the process-boundary principle, append-only transcript rule, assertion philosophy, and the one standalone-server exception), see [`e2e/README.md` → "Mocking model & rules"](e2e/README.md#mocking-model--rules).
+For the normative model behind this (the process-boundary principle, append-only transcript rule, assertion philosophy, and what counts as setup), see [`e2e/README.md` -> "Mocking model & rules"](e2e/README.md#mocking-model--rules).
 
 ### E2E test naming
 
-Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `standalone`, `mobile`. Example:
+Tests use behavioral sentences with `@area:<tag>` suffixes for grouping. Areas: `access`, `devroom`, `files`, `jobs`, `messenger`, `mobile`, `office`, `settings`, `terminal`. Example:
 
 ```typescript
-test('closeAgent despawns the character @area:standalone', ...);
+test('an agent added from the office starts, stops and is removed @area:office', ...);
 ```
 
 The auto-generated test inventory in `e2e/README.md` groups tests by `@area:` tag. After adding or removing tests, run `npm run e2e:inventory` to regenerate — CI fails if it drifts.

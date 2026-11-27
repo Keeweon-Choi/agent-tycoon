@@ -15,6 +15,8 @@ import {
   formError,
   formFields,
   formFor,
+  modelChoices,
+  modelName,
   PTY_PROVIDER,
   rulesFileLabel,
 } from './engine.js';
@@ -212,14 +214,16 @@ function EngineFormModal({
   const claudeChoices = state?.agentChoices?.claude;
   const codexChoices = state?.agentChoices?.codex;
   const models = [
-    ...(claudeChoices?.models ?? []).map((id) => ({ id, source: 'Claude Code' })),
-    ...(codexChoices?.models ?? []).map((id) => ({ id, source: 'Codex' })),
+    ...modelChoices(claudeChoices).map((m) => ({ ...m, source: 'Claude Code' })),
+    ...modelChoices(codexChoices).map((m) => ({ ...m, source: 'Codex' })),
   ].filter((choice, index, all) => all.findIndex((other) => other.id === choice.id) === index);
   const efforts = [
     ...new Set([...(claudeChoices?.efforts ?? []), ...(codexChoices?.efforts ?? [])]),
   ];
   const selectValue = (value: string, choices: string[]) =>
     !value ? '' : choices.includes(value) ? value : CUSTOM;
+  // T-143: opening the form starts the CLI's model-name probe once, if none is cached.
+  useEffect(() => transport.send({ type: 'engineChoicesWarm' }), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') engineCloseForm();
@@ -255,7 +259,7 @@ function EngineFormModal({
   const choice = (
     key: 'model' | 'effort',
     label: string,
-    choices: Array<{ id: string; source?: string }>,
+    choices: Array<{ id: string; label?: string; source?: string }>,
   ) => {
     const ids = choices.map((item) => item.id);
     const selected = custom[key] ? CUSTOM : selectValue(f[key], ids);
@@ -275,7 +279,7 @@ function EngineFormModal({
           <option value="">{t('engine.default')}</option>
           {choices.map((item) => (
             <option key={item.id} value={item.id}>
-              {item.id}
+              {item.label ?? item.id}
               {item.source ? ` · ${item.source}` : ''}
             </option>
           ))}
@@ -285,8 +289,9 @@ function EngineFormModal({
           <span className="block text-xs text-text-muted">
             {t('leadDefault.claudeDefault', {
               value:
-                (key === 'model' ? claudeChoices?.defaultModel : claudeChoices?.defaultEffort) ??
-                t('leadDefault.unknown'),
+                (key === 'model'
+                  ? claudeChoices?.defaultModel && modelName(claudeChoices, claudeChoices.defaultModel)
+                  : claudeChoices?.defaultEffort) || t('leadDefault.unknown'),
             })}
           </span>
         )}

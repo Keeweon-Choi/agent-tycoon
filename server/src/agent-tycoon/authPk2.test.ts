@@ -126,7 +126,10 @@ it('a handoff code logs the Home-Screen app in as the same device, which brings 
   const browser = cookieOf(qr.headers['set-cookie']);
   const browserKey = await SoftDevice.create();
   expect((await registerKey(browser, browserKey)).statusCode).toBe(200);
-  // ...and hands the Home-Screen app (its own storage, no key) a code.
+  // ...and hands the Home-Screen app (its own storage, no key) a code: the device's key, so a fresh step-up
+  // first (S1.2: a stolen cookie alone must not carry it off).
+  expect((await call({ cookie: browser }, 'POST', '/api/auth/handoff-code')).json()).toEqual({ error: 'stepup' });
+  expect((await keyStepUp({ device: browserKey, cookie: browser })).statusCode).toBe(200);
   const { code } = (await call({ cookie: browser }, 'POST', '/api/auth/handoff-code')).json<{ code: string }>();
   const login = await server.app.inject(formLogin(code, headers));
   expect(login.statusCode).toBe(303);
@@ -144,6 +147,24 @@ it('a handoff code logs the Home-Screen app in as the same device, which brings 
   const rows = (await call(windows, 'GET', '/api/auth/sessions')).json().sessions as Array<{ id: string }>;
   expect(rows.map((r) => r.id).sort()).toEqual([windows.device.id, browserKey.id].sort());
   expect((await call({ cookie: browser }, 'GET', '/api/auth/me')).statusCode).toBe(401);
+});
+
+it('S1.2: a handoff code issued before its tab had a key carries no device, so it cannot take the key made later', async () => {
+  const [windows] = await ownerState(['Windows · Chrome'], true);
+  expect((await keyStepUp(windows)).statusCode).toBe(200);
+  const invite = (await call(windows, 'POST', '/api/auth/device-code')).json<{ link: string }>();
+  const qr = await server.app.inject({ url: new URL(invite.link).pathname + new URL(invite.link).search, headers });
+  const browser = cookieOf(qr.headers['set-cookie']);
+  // No key yet: no step-up to ask for, and the code is a plain login.
+  const early = (await call({ cookie: browser }, 'POST', '/api/auth/handoff-code')).json<{ code: string }>();
+  const browserKey = await SoftDevice.create();
+  expect((await registerKey(browser, browserKey)).statusCode).toBe(200);
+  const login = await server.app.inject(formLogin(early.code, headers));
+  expect(login.statusCode).toBe(303);
+  const other = cookieOf(login.headers['set-cookie']);
+  expect((await call({ cookie: other }, 'GET', '/api/auth/me')).json().deviceId).toBeNull();
+  expect((await registerKey(other, await SoftDevice.create(browserKey.id))).statusCode).toBe(409);
+  expect((await call({ cookie: browser }, 'GET', '/api/auth/me')).statusCode).toBe(200);
 });
 
 it("a 기기 추가 code typed in a context whose key was lost: a new row, a key the server accepts; the cookie of the old row still can't bind one", async () => {

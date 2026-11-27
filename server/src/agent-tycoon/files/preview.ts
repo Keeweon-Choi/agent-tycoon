@@ -66,7 +66,8 @@ export function fileForContent(
     throw new FileAccessError(koText('sensitive_blocked'));
   const stat = fs.statSync(real);
   if (!stat.isFile()) throw new FileAccessError(koText('not_a_file'), 400);
-  const kind = previewKind(relative);
+  // S3.3: the kind of the file itself, not of the link's name: it picks inline, the sandbox and the MIME type
+  const kind = previewKind(real);
   if (stat.size > contentLimit(kind)) throw new FileAccessError(koText('file_over_50'), 413);
   return { real, size: stat.size, kind };
 }
@@ -125,7 +126,8 @@ export function previewFile(
 ): ProjectFilePreview {
   const { real, fd, size, kind } = openContent(root, relative, allowSensitive);
   try {
-    if (kind === 'download' || kind === 'video') throw new FileAccessError(koText('preview_not_supported'), 415);
+    if (kind === 'download' || kind === 'video')
+      throw new FileAccessError(koText('preview_not_supported'), 415);
     const result: ProjectFilePreview = {
       path: relativeInside(root, real),
       kind,

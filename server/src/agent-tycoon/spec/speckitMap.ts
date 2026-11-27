@@ -33,7 +33,8 @@ export function codeIndex(files: readonly string[]): CodeIndex {
 }
 const existsIn = (code: CodeIndex | null, path: string): boolean | null => (code ? (path.endsWith('/') ? code.dirs.has(path) : code.files.has(path) || code.dirs.has(`${path}/`)) : null);
 
-const cut = (s: string) => maskText(s.length > SPEC_KIT_TEXT_MAX ? s.slice(0, SPEC_KIT_TEXT_MAX) : s);
+// Masked first, then cut (S8.7): a token the cut runs through would show its first characters.
+const cut = (s: string) => maskText(s).slice(0, SPEC_KIT_TEXT_MAX);
 const top = <T>(xs: readonly T[]): T[] => xs.slice(0, SPEC_KIT_LIST_MAX);
 
 /** The counts alone (the feature rows). */

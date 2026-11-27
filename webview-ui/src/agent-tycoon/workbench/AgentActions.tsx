@@ -13,7 +13,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Modal } from '../../components/ui/Modal.js';
 import { t } from '../../i18n/index.js';
 import { transport } from '../../transport/index.js';
-import { capsOf, choosesPermission, meteredTag, takesDirectChat } from '../engine.js';
+import { capsOf, choosesPermission, meteredTag, modelChoices, takesDirectChat } from '../engine.js';
 import { engineSubmit, useEngineStore } from '../engineStore.js';
 import { AgentMark } from '../icons/AgentMark.js';
 import { InheritChoice } from '../InheritChoice.js';
@@ -29,6 +29,7 @@ import {
 const button =
   'border border-border px-8 py-4 text-xs hover:bg-border disabled:opacity-50 disabled:cursor-default pointer-coarse:min-h-44';
 const input = 'w-full border border-border bg-black/20 px-8 py-4 text-sm';
+const asItems = (ids: string[] = []) => ids.map((id) => ({ id, label: id }));
 const send = (action: 'add' | 'promote', name: string, fields: Record<string, unknown>) =>
   engineSubmit((m) => transport.send(m), transport.state === 'connected', action, name, fields);
 
@@ -112,6 +113,10 @@ export function AddWorker({ project, label, className }: { project: string; labe
   const engine: EngineProject[] = state?.projects ?? [];
   const folder = engine.find((p) => p.name === project && !p.role)?.folder ?? '';
   const [open, setOpen] = useState(false);
+  // T-143: opening the form starts the CLI's model-name probe once, if none is cached.
+  useEffect(() => {
+    if (open) transport.send({ type: 'engineChoicesWarm' });
+  }, [open]);
   const [f, setF] = useState<WorkerForm>(() => emptyWorkerForm(folder));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -130,7 +135,11 @@ export function AddWorker({ project, label, className }: { project: string; labe
   const caps = capsOf(state, f.provider);
   const choices = (state?.agentChoices as Record<string, AgentChoices | undefined> | undefined)?.[f.provider];
   // A list the agent does not give (an ACP agent keeps its own settings) is no choice.
-  const choice = (key: 'model' | 'effort' | 'permissionMode', label: string, ids: string[] = []) => ids.length > 0 && (
+  const choice = (
+    key: 'model' | 'effort' | 'permissionMode',
+    label: string,
+    items: Array<{ id: string; label: string }>,
+  ) => items.length > 0 && (
     <label className="block text-xs">
       {label}
       <select
@@ -139,9 +148,9 @@ export function AddWorker({ project, label, className }: { project: string; labe
         onChange={(e) => setF({ ...f, [key]: e.target.value })}
       >
         <option value="">{t('workbench.worker.default')}</option>
-        {ids.map((id) => (
-          <option key={id} value={id}>
-            {id}
+        {items.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
           </option>
         ))}
       </select>
@@ -256,9 +265,10 @@ export function AddWorker({ project, label, className }: { project: string; labe
           {open && (
             <InheritChoice folder={f.folder.trim() || folder} who="worker" value={inheritFrom} onChange={setInheritFrom} />
           )}
-          {choice('model', t('workbench.worker.model'), choices?.models)}
-          {choice('effort', t('workbench.worker.effort'), choices?.efforts)}
-          {choosesPermission(caps) && choice('permissionMode', t('workbench.worker.permissionMode'), choices?.permissionModes)}
+          {choice('model', t('workbench.worker.model'), modelChoices(choices))}
+          {choice('effort', t('workbench.worker.effort'), asItems(choices?.efforts))}
+          {choosesPermission(caps) &&
+            choice('permissionMode', t('workbench.worker.permissionMode'), asItems(choices?.permissionModes))}
           {error && (
             <p role="alert" className="text-xs text-red-400 break-words">
               {error}

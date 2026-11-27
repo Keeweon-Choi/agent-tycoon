@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 
 import type { ProjectFileList } from '../../../../core/src/agent-tycoon/projectFiles.js';
 import { chooseFileRoot, ListingCache } from './explorerState.js';
+import { fileRootKey } from './filesStore.js';
 
 const listing = (name: string): ProjectFileList => ({
   path: '',
@@ -64,4 +65,11 @@ it('keeps listings in memory: the device stores the chosen root and nothing else
     if (saved) Object.defineProperty(globalThis, 'localStorage', saved);
     else delete (globalThis as { localStorage?: unknown }).localStorage;
   }
+});
+
+it('two different roots never share a key, whatever their names hold', () => {
+  const a = fileRootKey({ kind: 'worktree', project: 'a:b', task: 'c' });
+  const b = fileRootKey({ kind: 'worktree', project: 'a', task: 'b:c' });
+  expect(a).not.toBe(b);
+  expect(fileRootKey({ kind: 'project', project: 'x' })).toBe(fileRootKey({ kind: 'project', project: 'x' }));
 });

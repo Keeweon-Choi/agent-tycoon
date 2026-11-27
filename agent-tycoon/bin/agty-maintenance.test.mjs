@@ -308,3 +308,25 @@ test('doctor reports a foreign agty as a warning that points to the script path,
   assert.equal(result.ok, true);
   assert.match(maintenance.doctorLines(result).join('\n'), /⚠ agty: \/usr\/bin\/agty 는 다른 프로그램입니다 — 이 도구는 \S+\/agent-tycoon\/bin\/agty 로 실행하세요/);
 });
+
+test('C1.3: a Windows manager install restarts through the manager plan (/End, the daemon, /Run) and doctor reads the task State', async () => {
+  const record = JSON.stringify({ service: { kind: 'schtasks', name: 'agent-tycoon', cwd: 'C:\\AT\\versions\\1.0.0' } });
+  const calls = [];
+  let up = true;
+  const managerDeps = {
+    run: async (cmd) => {
+      calls.push(cmd);
+      const script = cmd[0] === 'powershell.exe' ? Buffer.from(cmd.at(-1), 'base64').toString('utf16le') : '';
+      if (/Stop-Process/.test(script)) up = false;
+      return { ok: true, stdout: /Stop-Process/.test(script) ? 'stopped\r\n' : cmd.join(' ').includes('Get-ScheduledTask') ? 'Ready\r\n' : '', stderr: '' };
+    },
+    healthPid: async () => 4321, health: async () => (up ? { service: 'agent-tycoon' } : null), sleep: async () => {}, print: () => {},
+  };
+  const base = { platform: 'win32', home, uid: 99, config: { port: 18255 }, readFile: (f) => (f.endsWith('install.json') ? record : config), managerDeps, sleep: async () => undefined };
+  const result = await maintenance.restart({ ...base, command: (got) => { calls.push(got); return { ok: true, stdout: '' }; }, health: async (port) => port === 18255 && !up });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(' ')), ['schtasks /End', 'powershell.exe -NoProfile', 'schtasks /Run'], 'the old daemon ends before the task runs again');
+  // doctor: a registered task whose daemon is gone (State Ready) is not "running".
+  const doc = await maintenance.doctor({ ...base, node: '22.14.0', command: commandFixture([]), exists: () => false, writable: () => true, disk: () => 0.5, health: async () => false });
+  assert.equal(doc.checks.find((c) => c.name === '서비스 실행').ok, false);
+});

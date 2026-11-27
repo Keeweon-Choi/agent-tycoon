@@ -70,7 +70,7 @@ function fakeHost(home, root, { badTest = [], bad = [], sessions = ['alpha', 'be
     control: async (cmd) => {
       host.control.push(cmd);
       const v = await version();
-      if (!host.running || host.unreadable || host.bad.includes(v)) return null;
+      if (!v || !host.running || host.unreadable || host.bad.includes(v)) return null; // nothing installed: nothing answers
       return { ok: true, projects: sessions.map((name) => ({ name, state: 'on' })), jobs: [], tasks: [], daemon: { pid: 1, port: 18257, entry: path.join(root, 'current', 'dist', 'cli.js') } };
     },
     confirm: async () => true,
@@ -354,6 +354,48 @@ test('a failed rollback start puts the newer version and its data back', async (
   await assert.rejects(rollback({ ...o, yes: true }, host.deps), /rollback to 1\.0\.0 failed.*back on 2\.0\.0 \(healthy\)/);
   assert.equal((await readRecord(root)).current, '2.0.0');
   assert.equal(fs.readFileSync(path.join(data, 'made-on-2.json'), 'utf8'), 'x');
+});
+
+test('a new release key (desktop app Rekey): update --pub reverts a failed start with its snapshot and pins the key only on success (B8.3)', async () => {
+  const { root, data, host, o } = await installed('rekey');
+  const pinned = fs.readFileSync(path.join(root, 'release.pub'), 'utf8');
+  const newKey = crypto.generateKeyPairSync('ed25519').privateKey;
+  const pub = path.join(tmp('newkey'), PUB); fs.writeFileSync(pub, crypto.createPublicKey(newKey).export({ type: 'spki', format: 'pem' }));
+  const r = makeRelease('2.0.0', { dataSchema: { 'projects.json': 2 }, signWith: newKey });
+  await assert.rejects(update({ ...o, from: r.bundle }, host.deps), /signature/i); // the pinned key alone refuses it
+  host.bad.push('2.0.0');
+  await assert.rejects(update({ ...o, from: r.bundle, pub, yes: true }, host.deps), /update to 2\.0\.0 failed.*back on 1\.0\.0 \(healthy\); data restored from the snapshot/);
+  assert.equal((await readRecord(root)).current, '1.0.0');
+  assert.equal(fs.readFileSync(path.join(data, 'schema.json'), 'utf8'), '{"projects.json":1}');
+  assert.equal(fs.readFileSync(path.join(root, 'release.pub'), 'utf8'), pinned);
+  host.bad.length = 0;
+  await update({ ...o, from: makeRelease('2.0.1', { signWith: newKey }).bundle, pub, yes: true }, host.deps);
+  assert.equal((await readRecord(root)).current, '2.0.1');
+  assert.equal(fs.readFileSync(path.join(root, 'release.pub'), 'utf8'), fs.readFileSync(pub, 'utf8'));
+});
+
+test('Windows: a rollback re-registers the daemon task with its logon trigger when the start policy is always (B8.1)', async () => {
+  const { root, host, o } = await installed('winalways');
+  await update({ ...o, from: makeRelease('2.0.0').dir }, host.deps);
+  // The same record as a native Windows install with --start-policy always (the bundles here are built for this OS).
+  const record = await readRecord(root);
+  record.startPolicy = 'always';
+  record.service = { ...record.service, kind: 'schtasks', name: 'agent-tycoon', file: path.join(root, 'bin', 'agent-tycoon-daemon.vbs') };
+  await writeRecord(root, record);
+  fs.writeFileSync(path.join(root, 'current.txt'), '2.0.0\r\n');
+  const run = host.deps.run;
+  Object.assign(host.deps, {
+    platform: 'win32', endDaemon: async () => ({ ended: false }), control: undefined,
+    run: async (cmd) => { if (cmd[0] === 'schtasks' && ['/End', '/Run'].includes(cmd[1])) host.running = cmd[1] === '/Run'; return run(cmd); },
+    health: async () => (host.running ? { service: 'agent-tycoon', version: await readCurrent(root, 'win32'), protocol: 1 } : null),
+  });
+  host.calls.length = 0;
+  await rollback(o, host.deps);
+  const registers = host.calls.filter((c) => c.startsWith('powershell.exe ')).map((c) => Buffer.from(c.split(' ').at(-1), 'base64').toString('utf16le')).filter((s) => s.includes('Register-ScheduledTask'));
+  assert.equal(registers.length, 1);
+  assert.match(registers[0], /New-ScheduledTaskTrigger -AtLogOn/);
+  assert.match(registers[0], /Register-ScheduledTask .* -Trigger \$t .* -Force/);
+  assert.equal((await readRecord(root)).current, '1.0.0');
 });
 
 test('uninstall removes the rollback snapshots (copies with secrets)', async () => {

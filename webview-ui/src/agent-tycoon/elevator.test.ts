@@ -303,6 +303,28 @@ describe('the elevator (ELEVATOR)', () => {
     expect([ch.tileCol, ch.tileRow]).toEqual([2, 4]);
   });
 
+  it('B7.2: a visitor whose desk went to somebody else never holds it twice, saved or dropped again', () => {
+    const layout = building([
+      { uid: 'seat:a', col: 2, row: 4 },
+      { uid: 'spare', col: 5, row: F2 + 4 },
+    ]);
+    const os = new OfficeState(layout);
+    os.rebuildFromLayout(layout);
+    os.addAgent(1, 0, 0, 'seat:a', true);
+    expect(visitFloor(os, 1, '2')).toBe(true); // working: borrows 'spare', frees its desk
+    run(os, 1, 15);
+    os.addAgent(2, 0, 0, undefined, true); // a newcomer gets the freed desk
+    const [a, b] = [1, 2].map((id) => os.characters.get(id)!);
+    expect(b.seatId).toBe('seat:a');
+    const saved = os.getPersistableSeats();
+    expect(saved[1].seatId).not.toBe(saved[2].seatId);
+    os.setAgentActive(1, false);
+    expect(visitFloor(os, 1, '2')).toBe(true); // dropped again while idle
+    expect(a.seatId).not.toBe(b.seatId);
+    const held = [...os.characters.values()].map((c) => c.seatId);
+    expect(new Set(held).size).toBe(held.length);
+  });
+
   it('a working character dropped on another floor sits at a free seat there, and is called back', () => {
     const layout = building([
       { uid: 'seat:a', col: 2, row: 4 },

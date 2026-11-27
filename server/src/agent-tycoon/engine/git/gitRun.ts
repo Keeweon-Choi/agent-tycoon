@@ -111,6 +111,14 @@ export function filterOverrides(configOut: string): Array<[string, string]> {
   ];
 }
 
+/** Whether the checkout at `dir` has filter drivers in its own (local or worktree) config: the
+ *  daemon's git switches them off, so a write there would store or check out unfiltered content. */
+export async function usesRepoFilters(run: GitRunner, dir: string): Promise<boolean> {
+  const f = await run(dir, ['config', '--show-scope', '--includes', '--get-regexp', '^filter\\.'], { env: READ_ENV });
+  if (f.code !== 0 && f.code !== 1) throw new RepoError(koText('git_config_unreadable'));
+  return filterOverrides(f.stdout.toString('utf-8')).length > 0;
+}
+
 /** `pairs` as GIT_CONFIG_COUNT / KEY_n / VALUE_n, after the ones `env` already carries. */
 export function configEnv(
   pairs: ReadonlyArray<readonly [string, string]>,

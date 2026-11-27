@@ -55,12 +55,14 @@ interface LoginCode {
   expiresAt: number;
   /** "기기 추가" issues a short code and a QR link as one credential. */
   partner?: string;
-  /** A move code's device. */
+  /** A move code's device; a handoff code's, as its tab was when it asked (S1.2). */
   deviceId?: string;
   /** A handoff code's session (token hash): it dies with it. */
   issuer?: string;
   /** O1: the "기기 추가" invitation this code belongs to. */
   invite?: string;
+  /** S1.1: the issuer's synced-copy passkey: the session it makes dies with that passkey's device. */
+  viaPasskey?: string;
 }
 
 /** O1: one "기기 추가" invitation, as its issuing session sees it. Memory only; holds no code. */
@@ -114,6 +116,8 @@ export interface Session {
   shellProofBy?: 'key' | 'passkey';
   /** Passkey that created or most recently verified this session; memory only. */
   shellPasskeyId?: string;
+  /** S1.1: the passkey that made this session with no device key (a synced copy); kept in sessions.json. */
+  viaPasskey?: string;
   /** O3: how the request that made this session came in; memory only. */
   arrival?: AuditContext;
 }
@@ -210,6 +214,8 @@ export class StandaloneAuth {
   readonly limiter = new AuthLimiter();
   /** Nonce requests without a session, per client (the login page's silent re-login). */
   readonly challengeLimiter = new AuthLimiter();
+  /** Anonymous passkey login ceremonies, per client: a bucket apart, so they never lock out the re-login above. */
+  readonly passkeyOptionsLimiter = new AuthLimiter();
   /**
    * A session's nonce requests, per session: devices behind one address (hairpin NAT) and a
    * page's terminal panes re-proving after a restart must not lock each other out.
@@ -285,8 +291,10 @@ export class StandaloneAuth {
     const link = crypto.randomBytes(24).toString('base64url');
     const id = crypto.randomBytes(16).toString('base64url');
     const expiresAt = Date.now() + CODE_TTL_MS.short;
-    this.codes.set(short, { kind: 'short', expiresAt, partner: link, invite: id });
-    this.codes.set(link, { kind: 'qr', expiresAt, partner: short, invite: id });
+    const via = issuer && this.viaPasskeyOf(issuer);
+    const lineage = via ? { viaPasskey: via } : {};
+    this.codes.set(short, { kind: 'short', expiresAt, partner: link, invite: id, ...lineage });
+    this.codes.set(link, { kind: 'qr', expiresAt, partner: short, invite: id, ...lineage });
     const now = Date.now();
     for (const [code, entry] of this.codes) if (entry.expiresAt <= now) this.codes.delete(code);
     // An evicted invitation takes its codes with it: it could no longer be cancelled.
@@ -388,12 +396,26 @@ export class StandaloneAuth {
     for (const [code, entry] of this.codes)
       if (entry.kind === 'handoff' && entry.issuer === session.hash) this.codes.delete(code);
     const code = this.newShortCode();
+    // S1.2: the device it carries is the one the tab was when asking (and stepping up), never one made later.
+    const deviceId = this.knownDevice(session)?.id;
+    const viaPasskey = this.viaPasskeyOf(session);
     this.codes.set(code, {
       kind: 'handoff',
       expiresAt: Date.now() + CODE_TTL_MS.handoff,
       issuer: session.hash,
+      ...(deviceId ? { deviceId } : {}),
+      ...(viaPasskey ? { viaPasskey } : {}),
     });
     return { code, expiresIn: CODE_TTL_MS.handoff / 1000 };
+  }
+
+  /**
+   * S1.1: the synced-copy passkey this session's access comes from -- its own, or its device key's.
+   * Whatever it lets in (an invite, a handoff, an approval) carries it, so revoking the passkey's
+   * device ends that too.
+   */
+  viaPasskeyOf(session: Session): string | undefined {
+    return session.viaPasskey ?? this.knownDevice(session)?.viaPasskey;
   }
 
   /** S3: whether this session may be shown a handoff code (the /api/auth/me flag). */
@@ -422,10 +444,17 @@ export class StandaloneAuth {
     if (entry.kind === 'handoff' && !(entry.issuer && this.sessions.has(entry.issuer))) return null;
     // O5 review: a handoff is the issuing device continuing in its Home-Screen app, so its
     // session is that device (revoking it ends this too) and may bring the device's key once.
-    const issuer = entry.kind === 'handoff' ? this.sessions.get(entry.issuer as string) : undefined;
-    const carried = issuer && this.knownDevice(issuer)?.id;
+    const carried = entry.kind === 'handoff' && entry.deviceId ? this.devices?.get(entry.deviceId)?.id : undefined;
     if (entry.kind !== 'move') {
-      const session = this.createSession(entry.kind, label, carried, lifetime, kind, context);
+      const session = this.createSession(
+        entry.kind,
+        label,
+        carried,
+        lifetime,
+        kind,
+        context,
+        entry.viaPasskey,
+      );
       if (carried) {
         this.sessions.get(session.hash)!.moveUsed = false;
         this.saveSessions();
@@ -463,6 +492,7 @@ export class StandaloneAuth {
     lifetime?: SessionLifetime,
     kind: DeviceKind = 'unknown',
     context?: AuditContext,
+    viaPasskey?: string,
   ): NewSession {
     const now = Date.now();
     const id = crypto.randomBytes(32).toString('base64url');
@@ -478,6 +508,7 @@ export class StandaloneAuth {
       ...(lifetime ? { lifetime } : {}),
       kind,
       ...(context ? { arrival: context } : {}),
+      ...(viaPasskey ? { viaPasskey } : {}),
     };
     this.sessions.set(session.hash, session);
     this.touchSaved.set(session.hash, now);
@@ -511,7 +542,13 @@ export class StandaloneAuth {
     }
     const session = this.createSession('passkey', used.name, proven?.id, lifetime, proven?.kind, context);
     if (proven) this.endOtherSessions(proven.id, session.hash);
-    this.session(session.id)!.shellPasskeyId = used.id;
+    const made = this.session(session.id)!;
+    made.shellPasskeyId = used.id;
+    // S1.1: no device of its own: it, and any key it registers, die with the passkey's device.
+    if (!proven) {
+      made.viaPasskey = used.id;
+      this.saveSessions();
+    }
     return session;
   }
 
@@ -560,6 +597,7 @@ export class StandaloneAuth {
       session.label,
       mayReplace,
       session.kind,
+      session.viaPasskey,
     );
     if ('error' in result) return result;
     if (result.isNew && session.nickname) this.devices.setNickname(result.device.id, session.nickname);
@@ -761,16 +799,6 @@ export class StandaloneAuth {
     return [...rows.values()];
   }
 
-  /**
-   * O3: a device-list row by its id (a device id, or a session handle: the row the handle belongs
-   * to), as the list shows it; `currentId` is the caller's cookie. Undefined: no such row.
-   */
-  rowOf(id: string, currentId: string | undefined): SessionView | undefined {
-    const session = [...this.sessions.values()].find((s) => s.handle === id);
-    const rowId = session ? (this.knownDevice(session)?.id ?? session.handle) : id;
-    return this.listSessions(currentId).find((row) => row.id === rowId);
-  }
-
   /** O2: rename a persisted device row and every current session folded into it. */
   nameDevice(id: string, nickname: string): boolean {
     if (!this.devices?.setNickname(id, nickname)) return false;
@@ -788,28 +816,61 @@ export class StandaloneAuth {
     return [...this.sessions.values()].find((s) => s.handle === id)?.deviceId ?? id;
   }
 
-  revoke(id: string): boolean {
+  revoke(id: string, actor: AuditContext = {}): boolean {
     const session = [...this.sessions.values()].find((s) => s.handle === id);
     const deviceId = this.revokeTarget(id);
+    const rowId = session ? (this.knownDevice(session)?.id ?? session.handle) : id;
+    const rowsBefore = this.listSessions(undefined);
     const removedKey = this.devices?.remove(deviceId) ?? false;
-    // S5: its passkeys die with it, and so do the sessions they made (this process's memory).
-    const deadPasskeys = new Set(this.passkeys?.revokeDevice(deviceId));
+    // S5: its passkeys die with it, and so do the sessions they made and (S1.1) the keys those
+    // registered, and those keys' passkeys and the keys they made, to the end of the chain.
+    const deadPasskeys = new Set<string>();
+    const dead = (passkey: string | undefined) => passkey !== undefined && deadPasskeys.has(passkey);
+    const madeKeys: string[] = [];
+    for (const todo = [deviceId]; todo.length; ) {
+      const next = todo.pop()!;
+      for (const p of this.passkeys?.revokeDevice(next) ?? []) deadPasskeys.add(p);
+      for (const d of this.devices?.list() ?? [])
+        if (dead(d.viaPasskey) && d.id !== deviceId && !madeKeys.includes(d.id)) {
+          madeKeys.push(d.id);
+          todo.push(d.id);
+        }
+    }
+    for (const id of madeKeys) this.devices?.remove(id);
+    const deadDevices = new Set([deviceId, ...madeKeys]);
     const ended = [...this.sessions.values()].filter(
       (s) =>
         s === session ||
-        s.deviceId === deviceId ||
-        (s.shellPasskeyId !== undefined && deadPasskeys.has(s.shellPasskeyId)),
+        (s.deviceId !== undefined && deadDevices.has(s.deviceId)) ||
+        dead(s.shellPasskeyId) ||
+        dead(s.viaPasskey),
     );
     for (const s of ended) this.end(s);
     if (ended.length) this.saveSessions();
     if (removedKey) this.onRowGone?.(deviceId);
-    return removedKey || ended.length > 0;
+    for (const id of madeKeys) this.onRowGone?.(id);
+    const gone = removedKey || ended.length > 0;
+    if (gone) {
+      // One line for the row asked for, then one for each row that went down the chain with it
+      // (device keys and keyless sessions alike), so the owner sees all of them whoever called.
+      const left = new Set(this.listSessions(undefined).map((row) => row.id));
+      const line = (row: SessionView | undefined, detail?: string) =>
+        this.audit.write({
+          kind: 'deviceRevoked',
+          ...(detail ? { detail } : {}),
+          device: { id: row?.id ?? id, label: row?.label ?? '', kind: row?.kind },
+          ...actor,
+        });
+      line(rowsBefore.find((row) => row.id === rowId));
+      for (const row of rowsBefore) if (row.id !== rowId && !left.has(row.id)) line(row, 'chain');
+    }
+    return gone;
   }
 
   /** Remove every row of the device list but the caller's; returns how many. */
-  revokeOthers(currentId: string | undefined): number {
+  revokeOthers(currentId: string | undefined, actor?: AuditContext): number {
     const others = this.listSessions(currentId).filter((row) => !row.current);
-    for (const row of others) this.revoke(row.id);
+    for (const row of others) this.revoke(row.id, actor);
     return others.length;
   }
 
@@ -866,7 +927,7 @@ export class StandaloneAuth {
     const now = Date.now();
     for (const s of (data as SessionFile | null)?.sessions ?? []) {
       if (s.expiresAt <= now) continue;
-      const { hash, handle, method, label, createdAt, lastSeen, expiresAt, deviceId, lifetime, nickname, kind, moveUsed } = s;
+      const { hash, handle, method, label, createdAt, lastSeen, expiresAt, deviceId, lifetime, nickname, kind, moveUsed, viaPasskey } = s;
       this.sessions.set(hash, {
         hash,
         handle,
@@ -879,6 +940,7 @@ export class StandaloneAuth {
         ...(lifetime ? { lifetime } : {}),
         ...(nickname ? { nickname } : {}),
         ...(kind ? { kind } : {}),
+        ...(viaPasskey ? { viaPasskey } : {}),
         // A move session written before the flag existed (or with a bad one) counts as used.
         ...((method === 'move' || method === 'handoff') && moveUsed !== false ? { moveUsed: true } : {}),
       });
@@ -932,6 +994,7 @@ function isSessionFile(data: unknown): data is SessionFile {
         typeof s.label === 'string' &&
         (s.deviceId === undefined || typeof s.deviceId === 'string') &&
         (s.nickname === undefined || typeof s.nickname === 'string') &&
+        (s.viaPasskey === undefined || typeof s.viaPasskey === 'string') &&
         (s.kind === undefined || ['phone', 'tablet', 'desktop', 'unknown'].includes(s.kind)) &&
         (s.lifetime === undefined || s.lifetime === 'lan') &&
         [s.createdAt, s.lastSeen, s.expiresAt].every(Number.isFinite),
@@ -1127,9 +1190,20 @@ export const directSockets = new WeakSet<object>();
  */
 export const publicSockets = new WeakSet<object>();
 
+/**
+ * Sockets of the quick tunnel's listener (remote/tunnel.ts adds them, besides
+ * publicSockets): cloudflared hands it the internet from 127.0.0.1 (S2.1).
+ */
+export const tunnelSockets = new WeakSet<object>();
+
 /** This request came in on the direct connector's public listener (the internet). */
 export function isDirectRequest(socket: object | undefined): boolean {
   return socket !== undefined && directSockets.has(socket);
+}
+
+/** The internet behind the secret path: the direct listener or the quick tunnel's (S2.1). */
+export function isInternetListener(socket: object | undefined): boolean {
+  return socket !== undefined && (directSockets.has(socket) || tunnelSockets.has(socket));
 }
 
 /** It came in on a listener that serves outsiders, whatever its peer address says. */
@@ -1137,9 +1211,9 @@ export function isPublicListener(socket: object | undefined): boolean {
   return socket !== undefined && (directSockets.has(socket) || publicSockets.has(socket));
 }
 
-/** Plain HTTP on the LAN listener: marked from the accepting socket, never headers. */
+/** Plain HTTP on the LAN listener (not the tunnel's): marked from the accepting socket, never headers. */
 export function isLanRequest(socket: object | undefined): boolean {
-  return isPublicListener(socket) && !isDirectRequest(socket) && !(socket as { encrypted?: boolean } | undefined)?.encrypted;
+  return isPublicListener(socket) && !isInternetListener(socket) && !(socket as { encrypted?: boolean } | undefined)?.encrypted;
 }
 
 /**

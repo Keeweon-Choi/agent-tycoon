@@ -11,8 +11,8 @@ import {
   parseNoticeUrl,
 } from '../../../../core/src/agent-tycoon/notices.js';
 import type { ClientMessage, PushState } from '../../../../core/src/messages.js';
-import { getLanguage, t, type TranslationKey } from '../../i18n/index.js';
-import type { NoticeSettings } from './notices.js';
+import { getLanguage, subscribeLanguage, t, type TranslationKey } from '../../i18n/index.js';
+import { type NoticeSettings, noticeSnapshot } from './notices.js';
 
 export type PushSupport = 'ok' | 'insecure' | 'ios-browser' | 'none';
 
@@ -153,6 +153,17 @@ export async function resendPush(settings: NoticeSettings, send: Send): Promise<
   if (sub) send(subscribeMessage(sub, settings));
 }
 
+/**
+ * The daemon words this device's pushes in the language it was sent, so a language change anywhere
+ * (the settings, not only the notice screen) sends it again. Bound once, where the toast is mounted.
+ */
+export function resendPushOnLanguage(send: Send): () => void {
+  return subscribeLanguage(() => {
+    const { push, settings } = noticeSnapshot();
+    if (push?.subscribed) void resendPush(settings, send);
+  });
+}
+
 export async function unsubscribePush(send: Send): Promise<void> {
   setStamp(OPTED_OUT_KEY, true); // on purpose: no banner asks again
   send({ type: 'pushUnsubscribe' });
@@ -184,7 +195,19 @@ export function listenForPushClicks(open: (target: NoticeTarget) => boolean): ()
   const fromUrl = parseNoticeUrl(window.location.search) ?? parseNoticeUrl(carried ?? '');
   if (fromUrl) {
     const params = new URLSearchParams(window.location.search);
-    for (const k of ['open', 'lead', 'room', 'id', 'terminal', 'agent', 'at']) params.delete(k);
+    for (const k of [
+      'open',
+      'lead',
+      'room',
+      'id',
+      'terminal',
+      'agent',
+      'at',
+      'project',
+      'task',
+      'url',
+    ])
+      params.delete(k);
     const rest = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
     openWhenThere(fromUrl);

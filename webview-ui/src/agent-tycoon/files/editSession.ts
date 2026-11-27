@@ -11,7 +11,8 @@ interface DiskChange {
 }
 
 export interface EditSession {
-  /** The text the editor shows when `docKey` last changed. */
+  /** The text as it stands now (the draft): a new `docKey` puts it in the editor, and a view built
+   *  again (a language or width change, a remount) starts from it. */
   doc: string;
   docKey: number;
   loading: boolean;
@@ -37,7 +38,6 @@ export interface EditSession {
  * `path` null: nothing open.
  */
 export function useEditSession(root: FileRoot, path: string | null): EditSession {
-  const [doc, setDoc] = useState('');
   const [docKey, setDocKey] = useState(0);
   const [loading, setLoading] = useState(path !== null);
   const [error, setError] = useState('');
@@ -64,7 +64,6 @@ export function useEditSession(root: FileRoot, path: string | null): EditSession
         if (mine !== live.current) return;
         base.current = { hash: file.hash, text: file.text, eol: eolOf(file.text) };
         draft.current = lf(file.text);
-        setDoc(draft.current);
         setDocKey((n) => n + 1);
         setLoading(false);
       })
@@ -112,8 +111,10 @@ export function useEditSession(root: FileRoot, path: string | null): EditSession
         const hash = await saveEditText(root, path, text, baseHash);
         if (mine !== live.current) return;
         base.current = { ...base.current, hash, text };
-        setDirty(false);
-        setSaved(true);
+        // Letters typed while the save was on its way are not on disk: they stay unsaved.
+        const clean = draft.current === lf(text);
+        setDirty(!clean);
+        setSaved(clean);
         setDisk(null);
         setMarks([]);
       } catch (err) {
@@ -129,7 +130,7 @@ export function useEditSession(root: FileRoot, path: string | null): EditSession
   );
 
   return {
-    doc,
+    doc: draft.current,
     docKey,
     loading,
     error,
@@ -149,7 +150,6 @@ export function useEditSession(root: FileRoot, path: string | null): EditSession
       if (!disk) return;
       base.current = { hash: disk.hash, text: disk.text, eol: eolOf(disk.text) };
       draft.current = lf(disk.text);
-      setDoc(draft.current);
       setDocKey((n) => n + 1);
       setDirty(false);
       setDisk(null);

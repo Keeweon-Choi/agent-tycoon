@@ -217,12 +217,27 @@ async function shown(home: string, typed: Array<{ id: string; text: string }>) {
   }, WAIT);
   const rooms = latest<{ rooms: Array<{ id: string; name: string; members: string[] }> }>('groupRooms')!.rooms;
   const timelines: Record<string, unknown> = {};
+  // T-113: the first frame of an open room carries each post's reply count (`seen`), no reply line; a thread's
+  // replies come when it is opened (groupThread). Both are part of what the office shows.
+  const counts: Record<string, unknown> = {};
+  type Posted = { id: string; loaded?: boolean; replies: Array<{ member: string; items: unknown[]; seen?: string[] }> };
   for (const room of rooms) {
+    const frames = () => got.filter((m) => m.type === 'groupTimeline' && (m.room as { id: string }).id === room.id);
+    const before = frames().length;
     t.office.onClientMessage({ type: 'groupView', room: room.id, on: true }, send, true);
+    const first = await vi.waitFor(() => {
+      expect(frames().length).toBeGreaterThan(before);
+      return frames()[before].posts as Posted[];
+    }, WAIT);
+    expect(first.flatMap((p) => p.replies.flatMap((r) => r.items))).toEqual([]);
+    counts[room.id] = first.map((p) => [p.id, p.replies.map((r) => [r.member, r.seen?.length ?? 0])]);
+    t.office.onClientMessage({ type: 'groupThread', requestId: `open-${room.id}`, room: room.id, posts: first.map((p) => p.id) }, send, true);
     timelines[room.id] = await vi.waitFor(() => {
-      const m = latest<{ posts: unknown[] }>('groupTimeline', (x) => (x.room as { id: string }).id === room.id);
-      expect(m).toBeDefined();
-      return m!.posts;
+      expect(got.some((m) => m.type === 'groupThreadResult' && m.requestId === `open-${room.id}` && m.ok)).toBe(true);
+      return (frames().at(-1)!.posts as Posted[]).map(({ loaded: _loaded, ...p }) => ({
+        ...p,
+        replies: p.replies.map(({ seen: _seen, lastAt: _at, ...r }: Posted['replies'][number] & { lastAt?: number }) => r),
+      }));
     }, WAIT);
   }
   const chats: Record<string, unknown> = {};
@@ -253,6 +268,7 @@ async function shown(home: string, typed: Array<{ id: string; text: string }>) {
       .map(({ agentId: _id, ...c }) => c)
       .sort((a, b) => a.name.localeCompare(b.name)),
     rooms,
+    counts,
     timelines,
     chats,
     pins: latest('pinnedConversations'),
@@ -265,6 +281,20 @@ async function shown(home: string, typed: Array<{ id: string; text: string }>) {
     workers: contacts.filter((c) => c.project).map((c) => [c.name, c.project]),
   };
   return { t, send, view };
+}
+
+/** T-113: lines that only a T-113 build writes (v 2: an older build skips them), and nothing else. */
+const v2Only = (text: string) => text.split('\n').filter(Boolean).every((l) => (JSON.parse(l) as { v?: unknown }).v === 2);
+/** The stores as they were, byte for byte; a room log only gained T-113's v 2 lines after its own (a byte prefix). */
+function kept(now: Record<string, string>, was: Record<string, string>): void {
+  expect(Object.keys(now).sort()).toEqual(Object.keys(was).sort()); // no new store: a room with nothing to count has no file
+  for (const [key, text] of Object.entries(was)) {
+    if (!/^groups\/.*\.jsonl$/.test(key)) expect(now[key], key).toBe(text);
+    else {
+      expect(now[key].startsWith(text), key).toBe(true);
+      expect(v2Only(now[key].slice(text.length)), key).toBe(true);
+    }
+  }
 }
 
 // LOOKS-MEM: the chip thumbnails a built-in sheet leaves in cache/ are derived, and exist only where a pack is installed.
@@ -332,6 +362,11 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
       ['user', '리뷰 부탁해', 'peer'],
       ['assistant', '리뷰 남겼어요', null],
     ]);
+    // T-113: the counts were there in the room's first frame (the room list's summary recorded them at the start)
+    expect(before.view.counts.devroom01).toEqual([
+      ['p1', [['alpha', 1], ['beta', 1]]],
+      ['p2', []],
+    ]);
     expect(
       (before.view.timelines.devroom01 as Array<{ replies: Array<{ member: string; items: Item[] }> }>)[0].replies.map((r) => [
         r.member,
@@ -346,19 +381,25 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     expect(before.view.tokens).toEqual({ alpha: 'alpha', beta: 'beta' });
     expect(before.view.workers).toEqual([]);
     before.t.stop();
-    expect(files()).toEqual(original); // loading rewrote nothing
+    kept(files(), original); // loading rewrote nothing (T-113: it only appended its v 2 lines)
     // D3b: before any swap no file changes and nothing of D3b's appears (no lead-history.json,
     // no journal); only what every start wrote before D3b (on a used machine: there already).
     const allAfter = everything();
+    // T-113: a room's month file that holds only its v 2 lines (written in this month) is no store of its own.
+    const counting = (k: string) => /^groups\/[^/]+\.\d{4}-\d{2}\.jsonl$/.test(k) && !k.endsWith('.2026-10.jsonl') && v2Only(allAfter[k]);
     expect({
-      added: Object.keys(allAfter).filter((k) => !(k in allBefore)).filter(notCache).sort(),
+      added: Object.keys(allAfter).filter((k) => !(k in allBefore)).filter(notCache).filter((k) => !counting(k)).sort(),
       changed: Object.keys(allBefore).filter((k) => allAfter[k] !== allBefore[k]),
     }).toEqual({
       // The first start splits each room log by month (groupLogFiles.ts): the same lines, in the month file.
       added: ['characters.json', 'characters/README.md', 'engine.boot', 'groups/devroom01.2026-10.jsonl', 'groups/opsroom01.2026-10.jsonl', 'host.json', 'owner-token'],
       changed: ['groups/devroom01.jsonl', 'groups/opsroom01.jsonl'],
     });
-    for (const room of ['devroom01', 'opsroom01']) expect(allAfter[`groups/${room}.2026-10.jsonl`]).toBe(allBefore[`groups/${room}.jsonl`]);
+    for (const room of ['devroom01', 'opsroom01']) {
+      const month = allAfter[`groups/${room}.2026-10.jsonl`];
+      expect(month.startsWith(allBefore[`groups/${room}.jsonl`])).toBe(true); // the same lines, as a byte prefix
+      expect(v2Only(month.slice(allBefore[`groups/${room}.jsonl`].length))).toBe(true);
+    }
     // CH-1: the first start pins every character's look, then $meta.
     expect(JSON.parse(allAfter['characters.json']).$meta).toMatchObject({ v: STORE_META_V });
     expect(typed).toEqual([]); // and typed nothing (alpha is mid-turn, the inbox waits for a start)
@@ -375,7 +416,7 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
     }
     upgrade.t.stop();
     const now = files();
-    expect({ ...now, 'assignments.json': '' }).toEqual({ ...original, 'assignments.json': '' });
+    kept({ ...now, 'assignments.json': '' }, { ...original, 'assignments.json': '' });
     const leads = (text: string) =>
       (JSON.parse(text) as { assignments: Array<{ role: string }> }).assignments.filter((a) => a.role === 'lead');
     expect(leads(now['assignments.json'])).toEqual(leads(original['assignments.json']));
@@ -389,7 +430,7 @@ describe('EX-3j: today’s DMs, rooms, mentions, history, queue, pins and tokens
       ['alpha-a', 'alpha'],
       ['alpha-b', 'alpha'],
     ]);
-    expect({ ...files(), 'assignments.json': '' }).toEqual({ ...original, 'assignments.json': '' });
+    kept({ ...files(), 'assignments.json': '' }, { ...original, 'assignments.json': '' });
 
     // 4. A mention reaches the same session it did: beta's live one.
     after.t.office.onClientMessage({ type: 'groupPost', requestId: 'm1', room: 'ops', text: '@beta 다시 확인' }, after.send, true);
@@ -460,8 +501,10 @@ describe('D3b: before any swap the daemon writes nothing new', () => {
       branch: null,
       base: null,
       spec: path.join(home, 'spec.md'),
-      started: '2026-10-23T10:00:00+09:00',
-      ended: '2026-10-23T10:05:00+09:00',
+      // Three days old, not a fixed date: the start-up log prune removes a record that ended more
+      // than LOG_KEEP_DAYS ago, and the fixed 10-23 fell out of it on 11-22 (this test then failed).
+      started: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      ended: new Date(Date.now() - 3 * 86_400_000 + 300_000).toISOString(),
       exit: 0,
       resetAt: null,
       sid: null,

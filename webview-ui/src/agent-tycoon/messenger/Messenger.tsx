@@ -37,6 +37,7 @@ import {
 import { PANE_LAYOUTS, panesShown, paneTarget } from './panes.js';
 import { clock, type MessengerProps, Mug, PinButton, senderLabel, StateDot } from './parts.js';
 import { GroupRooms, RoomConversation } from './rooms/GroupRooms.js';
+import { keepPlacesOf } from './useKeepPlace.js';
 
 
 /** Each open conversation's chatView, while the panel is up (the transport
@@ -70,6 +71,9 @@ function MessengerBody({ mobile, visualViewportHeight, statusFor, getAppearance 
   const subs = m.open.map((id) => <Subscription key={id} agentId={id} />);
   const room = m.rooms.find((item) => item.id === m.activeRoom);
   const wideRef = useSplitWide();
+  // T-170: a room whose tab closed, or every room once the messenger goes, opens at its newest end again.
+  useEffect(() => keepPlacesOf(m.openRooms), [m.openRooms]);
+  useEffect(() => () => keepPlacesOf([]), []);
   if (mobile) {
     return (
       <section

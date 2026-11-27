@@ -24,6 +24,7 @@ import {
   removeTestHome,
   startDaemon,
 } from '../../server/src/agent-tycoon/testHome.js';
+import { openPhoneSheet } from './engineRow.js';
 import { outDir, UI_THEME_INIT } from './uiTheme.js';
 
 const port = Number(process.argv[2]);
@@ -164,9 +165,11 @@ async function main() {
       await portrait(page).waitFor({ timeout: 60_000 });
       const card = page.getByTestId('inspector');
       // A press while the page still settles can be lost: press again until the Lead's card is up.
+      // T-106: on the phone a portrait tap only selects; its chip opens the sheet (once: a repeat slides to the terminal).
+      if (tap) await openPhoneSheet(page, portrait(page));
       await until('the Lead card', async () => {
         if ((await page.getByTestId('member-tab-team').count()) > 0) return true;
-        await (tap ? portrait(page).tap() : portrait(page).click());
+        if (!tap) await portrait(page).click();
         await page.waitForTimeout(1_000);
         return (await page.getByTestId('member-tab-team').count()) > 0;
       });

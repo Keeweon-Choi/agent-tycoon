@@ -263,6 +263,11 @@ export function screenTail(term: HeadlessTerminal, rows = 6): string {
   return out.join(' ⏎ ');
 }
 
+/** Which checks a held message failed, for the log: the screen's rows are the agent's own and stay out (S8.6). */
+function checksOf(term: HeadlessTerminal, whileWorking: boolean): string {
+  return `input box ${inputBox(term, whileWorking)}, turn ${turnRunning(term) ? 'running' : 'not seen'}`;
+}
+
 /** `phrase` is on the screen, also when it wraps onto the next row: a narrow viewer (a phone
  *  attached to the same session) folds Claude Code's "… (esc to interrupt)" line in two, and a
  *  row-by-row look missed the running turn, so 즉시 보내기 pressed Enter (10-22 20:57). */
@@ -331,6 +336,21 @@ export function inputBoxTaken(term: HeadlessTerminal): boolean {
   return inputBox(term, true) === 'taken';
 }
 
+/**
+ * T-81: a picker or dialog in the input box's place (a bare /model, /config, /help, 2.1.322): a
+ * drawn screen with no input row (inputRow, a turn running or not) and no permission dialog (its
+ * own flow). Any key typed then lands in it, and Enter picks its pointed row if it has one (the
+ * Settings dialog's Status tab, or a search in it that matches nothing, has none).
+ * ponytail: Claude Code's screen shape; any other screen with no input row (trust, a question, the
+ * agent view, a frame caught mid-redraw) counts too, which only holds messages back, never loses one.
+ */
+export function pickerOnScreen(term: HeadlessTerminal): boolean {
+  const b = term.buffer.active;
+  let drawn = false;
+  for (let i = 0; i < term.rows && !drawn; i++) drawn = !!b.getLine(b.viewportY + i)?.translateToString().trim();
+  return drawn && inputRow(term, true) < 0 && permissionDialog(term) === null;
+}
+
 /** Claude Code 2.1.31x's spinner line while it compacts: a spinner glyph (its frames `·✢✳✶✻✽`, `*`
  *  on some terminals) at the row's start, then "Compacting conversation…" ("Compacting…" in older
  *  builds, "..." where the ellipsis falls back). An answer's `●`/`⏺` line or a tool's `⎿` output
@@ -394,8 +414,13 @@ export function dialogMatches(dialog: string, match: string[]): boolean {
 const PASTE_PLACEHOLDER = '[Pasted text';
 /** Only placeholders in the box (one per paste, `#<n>` counts up, ` +<k> lines` only when multi-line). */
 const ONLY_PLACEHOLDERS = /^(\[Pastedtext#\d+[^\]]*\])+$/;
-/** Exactly one paste's placeholder, squashed: its `#<n>` and its ` +<k> lines` (k: the paste's line breaks) captured. */
-const ONE_PLACEHOLDER = /^\[Pastedtext#(\d+)(?:\+(\d+)lines)?\]$/;
+/** T-165: what one paste shows as, squashed: exactly one `[Pasted text #<n>]` or `[Pasted text #<n>
+ *  +<k> lines]`, with any `[Image #<n>]` (an image Claude Code attached, its path cut out) around it. */
+const ONE_PASTE = /^(?:\[Image#\d+\])*\[Pastedtext#\d+(?:\+\d+lines)?\](?:\[Image#\d+\])*$/;
+/** T-165: `part` is a piece of `text`, whitespace aside on both (a screen's rows of our own message). */
+export const partOfText = (part: string, text: string): boolean => squash(text).includes(squash(part));
+/** T-165: a box reading (boxShown) that is one paste's placeholder (with its images) and nothing else. */
+export const onePastePlaceholder = (box: string): boolean => ONE_PASTE.test(box);
 /** A lower bound of what Claude Code folds into a placeholder (it folds from a few lines or
  *  some hundred characters). Under it a placeholder cannot be ours: a short message of ours
  *  is shown as itself, so a placeholder in the box is someone else's paste (U-37). On a
@@ -451,7 +476,7 @@ export function draftShown(
 
 /** The input box's text (from the `❯` row down to the rule under it), whitespace removed; '' when
  *  no input line is found. */
-function boxShown(term: HeadlessTerminal, whileWorking: boolean): string {
+export function boxShown(term: HeadlessTerminal, whileWorking: boolean): string {
   const i = inputRow(term, whileWorking);
   if (i < 0) return '';
   const b = term.buffer.active;
@@ -460,19 +485,6 @@ function boxShown(term: HeadlessTerminal, whileWorking: boolean): string {
   let shown = first.slice(first.search(/[❯›>]/) + 1);
   for (let r = i + 1; r < term.rows && !row(r).trimStart().startsWith('─'); r++) shown += row(r);
   return squash(shown);
-}
-
-/**
- * TYPIST-STALE: the `#<n>` of the one paste placeholder the input box holds for a paste of `text`
- * (its line count, and `text` long enough to be folded, foldsWhenPasted); null for anything else
- * (the text itself, a second paste, an edited box, no placeholder, a screen we cannot read). `#n`
- * counts Claude Code's pastes up, so a paste of ours is told from anyone's of the same length by it.
- */
-export function pastedAs(term: HeadlessTerminal, text: string, whileWorking = false): number | null {
-  const one = ONE_PLACEHOLDER.exec(boxShown(term, whileWorking));
-  return one && foldsWhenPasted(text, term.rows) && Number(one[2] ?? 0) === text.split('\n').length - 1
-    ? Number(one[1])
-    : null;
 }
 
 export const CHAT_TEXT = {
@@ -657,7 +669,7 @@ class ChatPty {
       );
       if (this.ended) return 'failed';
       if (!ready) {
-        this.log(`not ready in ${JSON.stringify(this.name)}: ${screenTail(this.screen)}`);
+        this.log(`not ready in ${JSON.stringify(this.name)}: ${checksOf(this.screen, whileWorking)}`);
         return 'notReady';
       }
       // Seen before the paste: a tall draft may push the spinner line off the screen.
@@ -694,7 +706,7 @@ class ChatPty {
         if (!(await this.until(ours, t.showMs, t.pollMs))) {
           if (this.ended) return 'failed';
           this.log(
-            `not submitted into ${JSON.stringify(this.name)}: our paste did not show: ${screenTail(this.screen)}`,
+            `not submitted into ${JSON.stringify(this.name)}: our paste did not show: ${checksOf(this.screen, whileWorking)}`,
           );
           return 'notReady';
         }
@@ -706,10 +718,10 @@ class ChatPty {
         this.session.write(SEND_NOW[1]);
       } else {
         // 즉시 보내기 with no running turn seen: Enter. If a turn was running after all, Claude Code only
-        // queues it (U-31), so leave the screen in the log to see what the turn check missed.
+        // queues it (U-31), so leave the checks in the log to see what the turn check missed.
         if (whileWorking)
           this.log(
-            `즉시 보내기 into ${JSON.stringify(this.name)}: no running turn seen, pressed Enter: ${screenTail(this.screen)}`,
+            `즉시 보내기 into ${JSON.stringify(this.name)}: no running turn seen, pressed Enter: ${checksOf(this.screen, whileWorking)}`,
           );
         this.session.write('\r');
         // Enter only queued it: Claude Code then shows its ctrl+x ctrl+s hint. Send it now after all.

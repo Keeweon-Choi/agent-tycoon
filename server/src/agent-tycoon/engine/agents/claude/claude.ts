@@ -42,6 +42,7 @@ import type {
   AgentCapabilities,
   AgentProvider,
   LiveSession,
+  ModelSwitch,
   StartResult,
   StopResult,
 } from '../types.js';
@@ -259,6 +260,44 @@ export function transcriptFillPct(file: string): number | null {
   return null;
 }
 
+const MODEL_COMMAND = '<command-name>/model</command-name>';
+const MODEL_SET = /^<local-command-stdout>Set model to `([^`]+)`/;
+
+/**
+ * T-144: the last explicit `/model` among these new transcript lines (typed, or sent by the
+ * messenger): the main chain's `/model` line, then its `Set model to` result, at or after `since`.
+ * A kept or cancelled picker writes `system` lines and no result. The name as shown, never a reply's
+ * model: a reply in flight when the switch was made is written after it and still on the old one.
+ * `command`: the line before these was the `/model` line (a read can fall between the two).
+ */
+export function modelSwitch(
+  lines: string[],
+  since: number,
+  command: boolean,
+): { pick: ModelSwitch | null; command: boolean } {
+  let pick: ModelSwitch | null = null;
+  for (const line of lines) {
+    if (!line.includes('"type":"user"')) continue;
+    if (!line.includes(MODEL_COMMAND) && !line.includes('Set model to')) {
+      command = false;
+      continue;
+    }
+    let o: { isSidechain?: boolean; timestamp?: string; message?: { content?: unknown } };
+    try {
+      o = JSON.parse(line) as typeof o;
+    } catch {
+      continue;
+    }
+    if (o.isSidechain) continue;
+    const content = o.message?.content;
+    const set = command && typeof content === 'string' ? MODEL_SET.exec(content) : null;
+    command = typeof content === 'string' && content.startsWith(MODEL_COMMAND);
+    const at = Date.parse(o.timestamp ?? '');
+    if (set && at >= since) pick = { shown: set[1], at };
+  }
+  return { pick, command };
+}
+
 interface Run {
   code: number | null;
   stdout: string;
@@ -346,6 +385,7 @@ export class ClaudeAgent implements AgentProvider {
   readonly protocol = 'claude' as const;
   readonly capabilities = CLAUDE_CAPABILITIES;
   readonly compaction = { mark: COMPACT_MARK, fillPct: transcriptFillPct };
+  readonly modelSwitch = modelSwitch;
   private scope: string | null;
 
   constructor(private readonly o: ClaudeAgentOptions) {
